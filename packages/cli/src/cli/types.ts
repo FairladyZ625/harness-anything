@@ -229,13 +229,6 @@ export interface ParsedCommand {
     | { readonly kind: "legacy-verify" }
     | { readonly kind: "doctor"; readonly repair?: boolean }
     | { readonly kind: "diagnostics-command-usage" }
-    | { readonly kind: "authority-cutover-status" }
-    | { readonly kind: "authority-cutover-drain"; readonly classifications: ReadonlyArray<{ readonly opId: string; readonly disposition: "retryable-not-committed" | "indeterminate"; readonly recordedTupleDigest: string; readonly evidenceRef: string }> }
-    | { readonly kind: "authority-cutover-scan"; readonly profileId: "production-final-scan/v1" }
-    | { readonly kind: "authority-cutover-confirm"; readonly firstScanId: string; readonly secondScanId: string }
-    | { readonly kind: "authority-cutover-boundary"; readonly boundaryId: string; readonly equalityReceiptId: string; readonly expectedSelectedSchemaTupleDigest: string }
-    | { readonly kind: "authority-cutover-freeze"; readonly reason: string; readonly expectedBoundaryReceiptDigest: string }
-    | { readonly kind: "authority-cutover-re-enable"; readonly boundaryId: string; readonly expectedFreezeReceiptDigest: string; readonly equalityReceiptId: string; readonly forwardFixRef: string }
     | { readonly kind: "authority-repo-enroll"; readonly repoId: string; readonly repoRoot: string; readonly manifestPath: string; readonly serviceStateRoot: string; readonly keyRegistryPath?: string; readonly namespaceTtlMs?: number; readonly allowedExecutorAgentIds: ReadonlyArray<string> }
     | { readonly kind: "authority-repo-resign"; readonly repoId: string; readonly manifestPath: string; readonly keyRegistryPath?: string; readonly switchRecordPath?: string; readonly namespaceTtlMs?: number }
     | { readonly kind: "worktree-status"; readonly taskId: string }

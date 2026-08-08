@@ -18,6 +18,7 @@ import { makeDaemonQueuedOperationalWriteCoordinator } from "../lifecycle/queued
 
 export function makeLocalAgentHolderServices(
   rootDir: string,
+  userRoot: string,
   layoutOverrides: HarnessLayoutOverrides | undefined,
   runtime: Parameters<typeof makeDaemonQueuedOperationalWriteCoordinator>[0]
 ) {
@@ -31,7 +32,7 @@ export function makeLocalAgentHolderServices(
   }));
   const appendLeaseEvent: NonNullable<TaskHolderServiceOptions["appendLeaseEvent"]> = appendRuntimeEvent;
   const taskHolderService = makeTaskHolderService({ rootInput: { rootDir, layoutOverrides }, appendLeaseEvent });
-  const agentRuntimeControllerOptions = makeLocalAgentRuntimeControllerOptions(rootDir);
+  const agentRuntimeControllerOptions = makeLocalAgentRuntimeControllerOptions(rootDir, userRoot);
   return {
     appendRuntimeEvent,
     taskHolderService,

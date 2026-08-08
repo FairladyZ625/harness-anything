@@ -7,7 +7,6 @@ import test from "node:test";
 import {
   assertMutationClaimMatchesV2,
   canonicalPayloadDigestV2,
-  compileManagedCandidateTreeV2,
   encodeFactRelationCommandPayloadV2,
   encodeTaskDecisionModuleCommandPayloadV2,
   makeFactRelationSemanticCompilerV2,
@@ -35,7 +34,6 @@ import {
   createWritableEntityRegistry,
   deriveRelationId,
   entityRegistry,
-  ManagedSemanticDiffError,
   type DecisionPackage,
   type EntityRegistration,
   type EntityRelationRecord
@@ -48,105 +46,6 @@ const registry = createWritableEntityRegistry([
   entityRegistry.relation
 ]);
 const stateDigest = Buffer.alloc(32, 0x11);
-
-test("managed heading regions merge multi-file task prose without guessing the subject from its path", () => {
-  const taskId = "task_T";
-  const indexPath = `tasks/${taskId}-folder/INDEX.md`;
-  const planPath = `tasks/${taskId}-folder/task_plan.md`;
-  const briefPath = `tasks/${taskId}-folder/brief.md`;
-  const base = {
-    documents: [
-      { path: indexPath, body: taskIndex(taskId, "active") },
-      { path: planPath, body: managedBody("Plan", "## Goal", "Old goal") },
-      { path: briefPath, body: managedBody("Brief", "## Summary", "Old summary") }
-    ]
-  };
-  const candidate = {
-    documents: [
-      { path: indexPath, body: taskIndex(taskId, "active") },
-      { path: planPath, body: managedBody("Plan", "## Goal", "New goal") },
-      { path: briefPath, body: managedBody("Brief", "## Summary", "New summary") }
-    ]
-  };
-  const mutationPlan = compileManagedCandidateTreeV2(base, candidate, [
-    freeProsePolicy(planPath, "## Goal"),
-    freeProsePolicy(briefPath, "## Summary")
-  ], [{ kind: "task", semanticDiff: entityRegistry.task.semanticDiff }]);
-  assert.equal(mutationPlan.mutations.length, 1);
-  assert.deepEqual(mutationPlan.mutations[0]?.identity, { taskId });
-  assert.equal(mutationPlan.mutations[0]?.action, "document");
-  const compiled = compileRegistryMutationPlan(createWritableEntityRegistry([entityRegistry.task]), mutationPlan);
-  assert.deepEqual(compiled.storagePlan.touchedPaths, [briefPath, planPath]);
-
-  assert.throws(() => compileManagedCandidateTreeV2({
-    documents: [{ path: planPath, body: managedBody("Plan", "## Goal", "Old goal") }]
-  }, {
-    documents: [{ path: planPath, body: managedBody("Plan", "## Goal", "New goal") }]
-  }, [freeProsePolicy(planPath, "## Goal")], [{ kind: "task", semanticDiff: entityRegistry.task.semanticDiff }]), /SEMANTIC_DIFF_REQUIRED:task identity must come from INDEX\.md/u);
-});
-
-test("managed heading regions fail closed on undeclared, duplicate, machine-written, and forbidden edits", () => {
-  const documentPath = "tasks/task_T-folder/task_plan.md";
-  const index = { path: "tasks/task_T-folder/INDEX.md", body: taskIndex("task_T", "active") };
-  const compile = (baseBody: string, candidateBody: string, writeMode: "free-prose" | "machine-written" | "forbidden") =>
-    compileManagedCandidateTreeV2({ documents: [index, { path: documentPath, body: baseBody }] }, {
-      documents: [index, { path: documentPath, body: candidateBody }]
-    }, [{
-      path: documentPath,
-      sections: [{
-        anchor: "## Goal",
-        writeMode,
-        ...(writeMode === "free-prose" ? { semanticClass: "host-prose-only" as const } : {})
-      }]
-    }], [{ kind: "task", semanticDiff: entityRegistry.task.semanticDiff }]);
-
-  assert.throws(() => compile(
-    managedBody("Plan", "## Goal", "Old"),
-    `${managedBody("Plan", "## Goal", "New")}\n## Surprise\n\nUndeclared.\n`,
-    "free-prose"
-  ), (error: unknown) => error instanceof ManagedSemanticDiffError
-    && error.code === "SEMANTIC_DIFF_REQUIRED"
-    && /undeclared section/u.test(error.message));
-  assert.throws(() => compile(
-    managedBody("Plan", "## Goal", "Old"),
-    `${managedBody("Plan", "## Goal", "New")}\n## Goal\n\nDuplicate.\n`,
-    "free-prose"
-  ), (error: unknown) => error instanceof ManagedSemanticDiffError
-    && error.code === "SEMANTIC_DIFF_AMBIGUOUS"
-    && /duplicate heading/u.test(error.message));
-  assert.throws(() => compile(
-    managedBody("Plan", "## Goal", "Old"), managedBody("Plan", "## Goal", "New"), "machine-written"
-  ), /SEMANTIC_DIFF_REQUIRED:machine-written section requires typed command/u);
-  assert.throws(() => compile(
-    managedBody("Plan", "## Goal", "Old"), managedBody("Plan", "## Goal", "New"), "forbidden"
-  ), /SEMANTIC_DIFF_REQUIRED:forbidden section changed/u);
-});
-
-test("host-prose policies allow undeclared sections without weakening their declared skeleton", () => {
-  const taskId = "task_T";
-  const documentPath = `tasks/${taskId}-folder/task_plan.md`;
-  const index = { path: `tasks/${taskId}-folder/INDEX.md`, body: taskIndex(taskId, "active") };
-  const policy = {
-    ...freeProsePolicy(documentPath, "## Goal"),
-    undeclaredSections: "allow" as const
-  };
-
-  assert.doesNotThrow(() => compileManagedCandidateTreeV2({
-    documents: [index, { path: documentPath, body: managedBody("Plan", "## Goal", "Old") }]
-  }, {
-    documents: [index, {
-      path: documentPath,
-      body: `${managedBody("Plan", "## Goal", "Old")}\n## Review Addendum\n\nNew context.\n`
-    }]
-  }, [policy], [{ kind: "task", semanticDiff: entityRegistry.task.semanticDiff }]));
-
-  assert.throws(() => compileManagedCandidateTreeV2({
-    documents: [index, { path: documentPath, body: managedBody("Plan", "## Goal", "Old") }]
-  }, {
-    documents: [index, { path: documentPath, body: managedBody("Plan", "## Purpose", "Old") }]
-  }, [policy], [{ kind: "task", semanticDiff: entityRegistry.task.semanticDiff }]),
-  /SEMANTIC_DIFF_AMBIGUOUS:.*## Goal/u);
-});
 
 test("all task actions compile to one exact package-hosted StoragePlan", async () => {
   const taskId = "task_T";
@@ -640,16 +539,7 @@ function taskIndex(
   ].join("\n");
 }
 
-function managedBody(title: string, anchor: string, body: string): string {
-  return [`# ${title}`, "", anchor, "", body, ""].join("\n");
-}
 
-function freeProsePolicy(pathValue: string, anchor: string) {
-  return {
-    path: pathValue,
-    sections: [{ anchor, writeMode: "free-prose" as const, semanticClass: "host-prose-only" as const }]
-  };
-}
 
 function snapshot(body: string): HostedDocumentSnapshotV2 {
   return { body, epoch: "epoch-w3", revision: 7n, blobDigest: Buffer.alloc(32, 0x22) };
@@ -697,3 +587,40 @@ const schemaTuple = {
   wire: 2, event: 2, receipt: 2, digest: 2, policy: 1,
   commandRegistry: 1, entityRegistry: 1, mutationRegistry: 1, localState: 1, applyJournal: 1
 } as const;
+
+test("task supersede declares every replacement document so no touched path escapes the minted portable-path scopes", async () => {
+  const oldTaskId = "task_OLD";
+  const newTaskId = "task_NEW";
+  const oldIndexPath = `tasks/${oldTaskId}/INDEX.md`;
+  const oldSnapshot = snapshot(taskIndex(oldTaskId, "planned"));
+  const writes = [
+    { taskId: oldTaskId, path: "INDEX.md", body: taskIndex(oldTaskId, "planned", "archived") },
+    { taskId: newTaskId, path: "INDEX.md", body: taskIndex(newTaskId, "planned") },
+    { taskId: newTaskId, path: "task_plan.md", body: "# Plan\n" },
+    { taskId: newTaskId, path: "artifacts/.gitkeep", body: "" },
+    {
+      taskId: newTaskId,
+      path: "relations.md",
+      body: `task/${newTaskId} supersedes task/${oldTaskId}\n`
+    }
+  ];
+  const oldRef = ref("task", `task/${oldTaskId}`);
+  const newRef = ref("task", `task/${newTaskId}`);
+  const compiler = makeTaskDecisionModuleSemanticCompilerV2({
+    state: authorityState(new Map([[key(oldRef), base("task-v2")]]), new Map([[oldIndexPath, oldSnapshot]]))
+  });
+  const compiled = await compiler.compile(envelope(
+    { schema: "task.supersede/v1", taskId: oldTaskId, replacementTaskId: newTaskId, writes },
+    [present(oldRef, "task-v2"), absent(newRef)],
+    [cas(oldIndexPath, oldSnapshot)]
+  ));
+  const plan = compileRegistryMutationPlan(registry, compiled.mutationPlan);
+
+  // The production intent mints one exact portable-path resource scope per
+  // observed write. Any touched path outside that set is TOKEN_PATH_SCOPE_DENIED
+  // at admission, which is how a fresh task became unsupersedable.
+  const mintedScopes = new Set(writes.map((write) => `tasks/${write.taskId}/${write.path}`));
+  const uncovered = plan.storagePlan.touchedPaths.filter((touched) => !mintedScopes.has(touched));
+  assert.deepEqual(uncovered, [], `uncovered touched paths: ${uncovered.join(", ")}`);
+  assert.ok(plan.storagePlan.touchedPaths.includes(`tasks/${newTaskId}/relations.md`));
+});
