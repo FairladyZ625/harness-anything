@@ -106,33 +106,44 @@ test("a timed-out local materializer request keeps its intentional local fallbac
   });
 });
 
-test("an unreachable daemon remains unavailable with the direct recovery guidance", { skip: process.platform === "win32" }, async () => {
+test("a slow-starting daemon is reported honestly as daemon_starting, never as unavailable-with-direct-mode", { skip: process.platform === "win32" }, async () => {
+  // PLT-Honest: this scenario spawns a real daemon whose cold start exceeds the
+  // tiny 40ms autostart budget. The spawned process is alive at the deadline
+  // (Node is still booting), and the daemon DOES eventually become reachable
+  // (the poll below confirms it). The old behavior falsely reported this as
+  // daemon_unavailable + HARNESS_DAEMON_MODE=direct — the hint that sent an
+  // agent to kill the recovering daemon. The honest classification is
+  // daemon_starting, and the hint must NOT suggest restart or direct mode.
   await withTempRootAsync(async (rootDir) => {
     initializeFixtureWithoutDaemon(rootDir);
-    const unreachableUserRoot = path.join(rootDir, "u".repeat(180));
-    const daemon = testDaemonLocation(rootDir, unreachableUserRoot);
+    const slowStartUserRoot = path.join(rootDir, "u".repeat(180));
+    const daemon = testDaemonLocation(rootDir, slowStartUserRoot);
     let daemonPid: number | undefined;
     try {
-      const result = await runCliFailure(rootDir, ["task", "create", "--title", "Unreachable Write"], {
+      const result = await runCliFailure(rootDir, ["task", "create", "--title", "Slow Start Write"], {
         ...testDaemonEnv(daemon),
         HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "40"
       });
 
-      assert.equal(result.error.code, "daemon_unavailable");
-      assert.match(result.error.hint, /Daemon unavailable/iu);
-      assert.match(result.error.hint, /HARNESS_DAEMON_MODE=direct/iu);
-      assert.doesNotMatch(result.error.hint, /outcome is unknown/iu);
+      assert.equal(result.error.code, "daemon_starting");
+      assert.match(result.error.hint, /still starting/iu);
+      assert.match(result.error.hint, /60-90s/iu);
+      // The two lethal actions must be explicitly prohibited, never suggested:
+      assert.match(result.error.hint, /Do NOT run 'ha daemon restart'/u);
+      assert.match(result.error.hint, /Do NOT use HARNESS_DAEMON_MODE=direct/u);
+      // The honest corrective action is to wait + poll:
+      assert.match(result.error.hint, /ha daemon status --json/iu);
     } finally {
       const lateStatus = await pollUntil(
         () => runDaemonCommand(rootDir, [
-          "daemon", "status", "--user-root", unreachableUserRoot, "--json"
+          "daemon", "status", "--user-root", slowStartUserRoot, "--json"
         ], testDaemonEnv(daemon)),
         (status) => status.started === true && status.reachable === true,
         (status, error) => JSON.stringify({ status, error: String(error ?? "") }),
         { timeoutMs: 15_000 }
       );
       daemonPid = typeof lateStatus.pid === "number" ? lateStatus.pid : undefined;
-      await stopDaemon(rootDir, unreachableUserRoot);
+      await stopDaemon(rootDir, slowStartUserRoot);
       assert.equal(typeof daemonPid, "number", JSON.stringify(lateStatus));
     }
     assert.equal(processIsAlive(daemonPid), false, `test leaked late daemon pid ${String(daemonPid)}`);

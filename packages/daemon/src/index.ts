@@ -64,6 +64,20 @@ export {
   type LocalDaemonJsonRpcOptions,
   type LocalDaemonTarget
 } from "./client/local-json-rpc-client.ts";
+export {
+  DaemonAutostartCircuitOpenError,
+  defaultDaemonAutostartBackoffBaseMs,
+  defaultDaemonAutostartBackoffCapMs,
+  defaultDaemonAutostartMaxConsecutiveFailures,
+  daemonAutostartCircuitDecision,
+  liveDaemonStartupPid,
+  reportDaemonAutostartOutcome,
+  resetDaemonAutostartCircuit,
+  resolveDaemonAutostartCircuitOptions,
+  type DaemonAutostartCircuitDecision,
+  type DaemonAutostartCircuitOptions,
+  type DaemonAutostartOutcomeReport
+} from "./client/daemon-autostart-circuit.ts";
 export { DaemonRepoRootResolutionError } from "./client/daemon-repo-root-resolution-error.ts";
 export * from "./authority/index.ts";
 export * from "./authority/authority-command-submission.ts";
