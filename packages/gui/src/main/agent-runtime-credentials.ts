@@ -1,13 +1,14 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 /**
  * Agent Runtime credentials writer.
  *
- * Writes API-key credentials to `~/.harness/agent-runtime-credentials.yaml` so
- * the user has a durable, human-readable persistence layer for runtime auth.
+ * Writes API-key credentials to `<daemon user root>/agent-runtime-credentials.yaml`
+ * so the user has a durable, human-readable persistence layer for runtime auth.
+ * The user root is supplied by the caller and must be the one the daemon itself
+ * resolved: a guessed default would write secrets where nothing reads them.
  * The file is written atomically (temp + rename) with mode 0o600 to keep the
  * secret file owner-private. Account-based profiles (subscription/chatgpt) are
  * NOT written here — those are owned by the provider's own login flow.
@@ -31,9 +32,9 @@ export interface AgentRuntimeCredentialFailure {
 
 const SCHEMA = "agent-runtime-credentials/v1";
 
-export function credentialsFilePath(userRoot?: string): string {
-  const base = userRoot && userRoot.length > 0 ? userRoot : path.join(os.homedir(), ".harness");
-  return path.join(base, "agent-runtime-credentials.yaml");
+export function credentialsFilePath(userRoot: string): string {
+  if (!userRoot || userRoot.trim().length === 0) throw new Error("AGENT_RUNTIME_CREDENTIALS_USER_ROOT_REQUIRED");
+  return path.join(userRoot, "agent-runtime-credentials.yaml");
 }
 
 export interface AgentRuntimeCredentialsWriterHandle {
@@ -41,7 +42,7 @@ export interface AgentRuntimeCredentialsWriterHandle {
 }
 
 export function createAgentRuntimeCredentialsWriter(
-  options: { readonly userRoot?: string } = {}
+  options: { readonly userRoot: string }
 ): AgentRuntimeCredentialsWriterHandle {
   return {
     write: (payload) => writeAgentRuntimeCredentials(payload, options)
@@ -50,7 +51,7 @@ export function createAgentRuntimeCredentialsWriter(
 
 export async function writeAgentRuntimeCredentials(
   input: AgentRuntimeCredentialWrite,
-  options: { readonly userRoot?: string } = {}
+  options: { readonly userRoot: string }
 ): Promise<AgentRuntimeCredentialResult | AgentRuntimeCredentialFailure> {
   if (input.kindId !== "claude-code" && input.kindId !== "codex") {
     return { ok: false, error: { code: "invalid_kind", hint: `Unsupported runtime kindId: ${input.kindId}` } };

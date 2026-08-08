@@ -9,7 +9,7 @@ import {
   credentialsFilePath
 } from "../src/main/agent-runtime-credentials.ts";
 
-test("credentials writer persists api key to ~/.harness/agent-runtime-credentials.yaml atomically", async () => {
+test("credentials writer persists api key under the supplied daemon user root atomically", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-credentials-"));
   try {
     const writer = createAgentRuntimeCredentialsWriter({ userRoot });
@@ -58,4 +58,10 @@ test("credentials writer rejects blank api keys and unsupported kindIds", async 
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }
+});
+
+test("credentials writer refuses to guess a user root", () => {
+  // A guessed default silently writes secrets where the daemon never reads
+  // them, so the absence of a resolved user root must be loud.
+  assert.throws(() => credentialsFilePath(""), /AGENT_RUNTIME_CREDENTIALS_USER_ROOT_REQUIRED/u);
 });

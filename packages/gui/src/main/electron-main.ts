@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import {
   createGuiServiceBridge,
+  resolveGuiDaemonUserRoot,
   type HarnessLayoutOverrides
 } from "./local-composition-root.ts";
 import { createGuiProjectionNotifications } from "./projection-notifications.ts";
@@ -75,7 +76,9 @@ export async function startGuiApp(): Promise<void> {
   const layoutOverrides = resolveGuiLayoutOverrides();
   const serviceBridge = createGuiServiceBridge(rootDir, layoutOverrides);
   const projectionNotifications = createGuiProjectionNotifications(rootDir, layoutOverrides);
-  const credentialsWriter = createAgentRuntimeCredentialsWriter();
+  const credentialsWriter = createAgentRuntimeCredentialsWriter({
+    userRoot: await resolveGuiDaemonUserRoot(rootDir, layoutOverrides)
+  });
   registerHarnessIpcHandlers(ipcMain, serviceBridge, {
     isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
     rendererUrl: {
