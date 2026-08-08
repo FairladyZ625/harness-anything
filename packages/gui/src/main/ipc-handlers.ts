@@ -1,9 +1,11 @@
 import type { IpcMainInvokeEvent } from "electron";
 import {
+  HARNESS_AGENT_RUNTIME_CREDENTIALS_CHANNEL,
   HARNESS_PROJECTION_CHANGED_CHANNEL,
   HARNESS_WATCH_PROJECTION_CHANGES_CHANNEL,
   assertPreloadPayload,
   assertProjectionWatchPayload,
+  assertAgentRuntimeCredentialsPayload,
   preloadAllowlist,
   type ProjectionWatchResult,
   type RendererProjectionNotification
@@ -25,11 +27,23 @@ export interface HarnessProjectionNotificationSource {
   ) => Promise<ProjectionWatchResult>;
 }
 
+export interface AgentRuntimeCredentialsWriter {
+  readonly write: (payload: {
+    readonly kindId: "claude-code" | "codex";
+    readonly apiKey: string;
+    readonly baseUrl?: string;
+  }) => Promise<
+    | { readonly ok: true; readonly path: string }
+    | { readonly ok: false; readonly error: { readonly code: string; readonly hint: string } }
+  >;
+}
+
 export function registerHarnessIpcHandlers(
   registrar: HarnessIpcRegistrar,
   bridge: GuiServiceBridge,
   trustPolicy: IpcWebContentsTrustPolicy,
-  projectionNotifications?: HarnessProjectionNotificationSource
+  projectionNotifications?: HarnessProjectionNotificationSource,
+  credentialsWriter?: AgentRuntimeCredentialsWriter
 ): void {
   assertUniqueHarnessIpcChannels(preloadAllowlist);
   for (const method of preloadAllowlist) {
@@ -46,6 +60,13 @@ export function registerHarnessIpcHandlers(
       return projectionNotifications.watch(payload.repoId, (notification) => {
         event.sender.send(HARNESS_PROJECTION_CHANGED_CHANNEL, notification);
       });
+    });
+  }
+  if (credentialsWriter) {
+    registrar.handle(HARNESS_AGENT_RUNTIME_CREDENTIALS_CHANNEL, async (event, payload) => {
+      assertTrustedIpcSender(event, trustPolicy);
+      const validated = assertAgentRuntimeCredentialsPayload(payload);
+      return credentialsWriter.write(validated);
     });
   }
 }

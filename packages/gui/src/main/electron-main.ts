@@ -7,6 +7,7 @@ import {
   type HarnessLayoutOverrides
 } from "./local-composition-root.ts";
 import { createGuiProjectionNotifications } from "./projection-notifications.ts";
+import { createAgentRuntimeCredentialsWriter } from "./agent-runtime-credentials.ts";
 import { evaluateNavigationRequest, evaluatePermissionRequest, evaluateWindowOpenRequest } from "./security-policy.ts";
 import { createGuiContentSecurityPolicy, resolveDevRendererOrigin } from "./window-config.ts";
 
@@ -74,6 +75,7 @@ export async function startGuiApp(): Promise<void> {
   const layoutOverrides = resolveGuiLayoutOverrides();
   const serviceBridge = createGuiServiceBridge(rootDir, layoutOverrides);
   const projectionNotifications = createGuiProjectionNotifications(rootDir, layoutOverrides);
+  const credentialsWriter = createAgentRuntimeCredentialsWriter();
   registerHarnessIpcHandlers(ipcMain, serviceBridge, {
     isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
     rendererUrl: {
@@ -82,7 +84,7 @@ export async function startGuiApp(): Promise<void> {
         ? { devRendererOrigin: resolveDevRendererOrigin(process.env.ELECTRON_RENDERER_URL) }
         : {})
     }
-  }, projectionNotifications.source);
+  }, projectionNotifications.source, credentialsWriter);
   app.once("before-quit", () => {
     void serviceBridge.dispose?.();
     void projectionNotifications.dispose();

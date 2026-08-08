@@ -3,6 +3,17 @@ import type { apiRouteContracts, deferredGuiBridgeContracts, terminalGuiBridgeCo
 export const HARNESS_PRELOAD_API = "harness";
 export const HARNESS_PROJECTION_CHANGED_CHANNEL = "harness:projection-changed";
 export const HARNESS_WATCH_PROJECTION_CHANGES_CHANNEL = "harness:watch-projection-changes";
+export const HARNESS_AGENT_RUNTIME_CREDENTIALS_CHANNEL = "harness:write-agent-runtime-credentials";
+
+export interface AgentRuntimeCredentialsPayload {
+  readonly kindId: "claude-code" | "codex";
+  readonly apiKey: string;
+  readonly baseUrl?: string;
+}
+
+export type AgentRuntimeCredentialsResult =
+  | { readonly ok: true; readonly path: string }
+  | { readonly ok: false; readonly error: { readonly code: string; readonly hint: string } };
 
 export interface RendererProjectionChange {
   readonly type: "change";
@@ -198,4 +209,25 @@ export function assertProjectionWatchPayload(payload: unknown): asserts payload 
     || (payload as { readonly repoId: string }).repoId.length === 0) {
     throw new Error("Projection watch payload requires a non-empty repoId.");
   }
+}
+
+export function assertAgentRuntimeCredentialsPayload(payload: unknown): AgentRuntimeCredentialsPayload {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("Agent runtime credentials payload must be an object.");
+  }
+  const record = payload as { readonly kindId?: unknown; readonly apiKey?: unknown; readonly baseUrl?: unknown };
+  if (record.kindId !== "claude-code" && record.kindId !== "codex") {
+    throw new Error("kindId must be either 'claude-code' or 'codex'.");
+  }
+  if (typeof record.apiKey !== "string" || record.apiKey.trim().length === 0) {
+    throw new Error("apiKey must be a non-empty string.");
+  }
+  if (record.baseUrl !== undefined && typeof record.baseUrl !== "string") {
+    throw new Error("baseUrl must be a string when provided.");
+  }
+  return {
+    kindId: record.kindId,
+    apiKey: record.apiKey,
+    ...(typeof record.baseUrl === "string" && record.baseUrl.length > 0 ? { baseUrl: record.baseUrl } : {})
+  };
 }

@@ -71,5 +71,29 @@ export type {
   TaskIdPayload,
   TaskFactListResult,
   TaskListResult,
-  TriadicProjectionResult
+  TriadicProjectionResult,
+  AgentRuntimeProfilesResult,
+  AgentRuntimeSessionResult,
+  AgentRuntimeStatusResult,
+  AgentRuntimeEventsResult,
+  AgentRuntimeResultResult,
+  AgentRuntimeSpawnPayload
 } from "@harness-anything/application";
+
+import type {
+  AgentRuntimeProfilesResult as AgentRuntimeProfilesResultType,
+  AgentRuntimeStatusResult as AgentRuntimeStatusResultType,
+  AgentRuntimeEventsResult as AgentRuntimeEventsResultType,
+  AgentRuntimeResultResult as AgentRuntimeResultResultType
+} from "@harness-anything/application";
+
+// Agent runtime nested projection shapes — derived from the result types the
+// application barrel already re-exports, so the renderer can stay on opaque
+// DTOs without reaching into the agent-runtime-control subpath directly.
+export type AgentRuntimeSessionStatus = AgentRuntimeStatusResultType["sessions"][number];
+export type AgentRuntimeEventProjection = AgentRuntimeEventsResultType["events"][number];
+export type AgentRuntimeResultProjection = AgentRuntimeResultResultType["result"];
+export type AgentRuntimeAuthProfile = AgentRuntimeProfilesResultType["profiles"][number];
+export type AgentRuntimeControlFailure =
+  | Extract<AgentRuntimeStatusResultType, { readonly ok: false }>
+  | { readonly ok: false; readonly error: { readonly code: string; readonly hint: string } };

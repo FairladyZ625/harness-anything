@@ -1,12 +1,16 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
+  HARNESS_AGENT_RUNTIME_CREDENTIALS_CHANNEL,
   HARNESS_PRELOAD_API,
   HARNESS_PROJECTION_CHANGED_CHANNEL,
   HARNESS_WATCH_PROJECTION_CHANGES_CHANNEL,
+  assertAgentRuntimeCredentialsPayload,
   assertPreloadPayload,
   assertProjectionWatchPayload,
   exposedPreloadApiCapabilities,
   preloadAllowlist,
+  type AgentRuntimeCredentialsPayload,
+  type AgentRuntimeCredentialsResult,
   type PreloadApiMethod,
   type ProjectionWatchResult,
   type RendererProjectionNotification
@@ -32,6 +36,10 @@ const exposedHarnessApi = {
     const handler = (_event: Electron.IpcRendererEvent, notification: RendererProjectionNotification) => listener(notification);
     ipcRenderer.on(HARNESS_PROJECTION_CHANGED_CHANNEL, handler);
     return () => ipcRenderer.removeListener(HARNESS_PROJECTION_CHANGED_CHANNEL, handler);
+  },
+  writeAgentRuntimeCredentials: (payload: AgentRuntimeCredentialsPayload): Promise<AgentRuntimeCredentialsResult> => {
+    const validated = assertAgentRuntimeCredentialsPayload(payload);
+    return ipcRenderer.invoke(HARNESS_AGENT_RUNTIME_CREDENTIALS_CHANNEL, validated) as Promise<AgentRuntimeCredentialsResult>;
   }
 };
 

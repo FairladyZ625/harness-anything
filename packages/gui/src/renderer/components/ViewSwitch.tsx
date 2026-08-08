@@ -24,6 +24,7 @@ import { ExecutionEvidenceView } from "../views/ExecutionEvidenceView.tsx";
 import { PresetsView } from "../views/PresetsView.tsx";
 import { AdaptersView } from "../views/AdaptersView.tsx";
 import { SettingsView } from "../views/SettingsView.tsx";
+import { AgentRuntimeView } from "../views/AgentRuntimeView.tsx";
 import { TaskDetailView } from "../views/TaskDetailView.tsx";
 import { EntityWorkspace } from "./EntityWorkspace.tsx";
 import type { EntityFacet } from "../navigation/navigationHistory.ts";
@@ -358,6 +359,8 @@ export function ViewSwitch(props: ViewSwitchProps) {
           loading={catalogLoading}
           failed={catalogError}
         />
+      ) : view === "agentRuntime" ? (
+        <AgentRuntimeView repoId={project.id} />
       ) : (
         <SettingsView />
       )}
