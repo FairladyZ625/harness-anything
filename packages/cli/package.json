@@ -44,13 +44,13 @@
     "@harness-anything/application": "0.1.0",
     "@harness-anything/daemon": "0.1.0",
     "@harness-anything/kernel": "0.1.0",
-    "@effect/experimental": "0.61.0",
-    "@effect/platform": "0.97.0",
-    "@effect/sql": "0.52.0",
+    "@effect/experimental": "0.61.1",
+    "@effect/platform": "0.97.1",
+    "@effect/sql": "0.52.1",
     "@effect/sql-sqlite-node": "0.53.0",
     "@unicode/unicode-17.0.0": "1.6.17",
     "dependency-cruiser": "17.4.3",
-    "effect": "3.22.0"
+    "effect": "3.22.1"
   },
   "optionalDependencies": {
     "@harness-anything/adapter-github-issues": "0.1.0",
