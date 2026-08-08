@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import YAML from "yaml";
 
 export interface ResolvedCredentials {
   readonly apiKey?: string;
@@ -53,8 +52,8 @@ export function resolveCredentials(
     if (existsSync(credentialsPath)) {
       try {
         const content = readFileSync(credentialsPath, "utf-8");
-        const yaml = YAML.parse(content) as CredentialsYaml;
-        const profile = yaml.profiles?.find((p) => p.kindId === kindId && p.profileKind === profileKind);
+        const parsed = parseCredentialsDocument(content);
+        const profile = parsed.profiles?.find((p) => p.kindId === kindId && p.profileKind === profileKind);
         if (profile) {
           apiKey = profile.apiKey;
           // Base URL from YAML only if not in env
@@ -76,4 +75,58 @@ export function resolveCredentials(
     baseUrl,
     env
   };
+}
+
+/**
+ * The credentials document is a fixed four-field profile list that this
+ * repository both writes and reads, so it is parsed directly rather than by
+ * adding a YAML dependency to the only publishable artifact. JSON is accepted
+ * as a strict YAML subset, matching how the people roster is read.
+ */
+function parseCredentialsDocument(content: string): Partial<CredentialsYaml> {
+  try {
+    return JSON.parse(content) as CredentialsYaml;
+  } catch {
+    // The canonical document is YAML; JSON is accepted for fixtures.
+  }
+  const profiles: Array<{ kindId: string; profileKind: string; apiKey?: string; baseUrl?: string }> = [];
+  let current: Record<string, string> | undefined;
+  const commit = () => {
+    if (current?.kindId && current.profileKind) {
+      profiles.push({
+        kindId: current.kindId,
+        profileKind: current.profileKind,
+        ...(current.apiKey ? { apiKey: current.apiKey } : {}),
+        ...(current.baseUrl ? { baseUrl: current.baseUrl } : {})
+      });
+    }
+    current = undefined;
+  };
+  for (const rawLine of content.split(/\r?\n/u)) {
+    const line = rawLine.replace(/\s+#.*$/u, "");
+    if (!line.trim()) continue;
+    const item = /^\s*-\s*(.*)$/u.exec(line);
+    if (item) {
+      commit();
+      current = {};
+      if (!item[1]?.trim()) continue;
+      assignCredentialField(current, item[1]);
+      continue;
+    }
+    if (!current) continue;
+    // A key at or left of the list marker's own indent ends the list.
+    if (!/^\s\s/u.test(line)) { commit(); continue; }
+    assignCredentialField(current, line);
+  }
+  commit();
+  return { profiles };
+}
+
+function assignCredentialField(target: Record<string, string>, line: string): void {
+  const match = /^\s*([A-Za-z][A-Za-z0-9_]*)\s*:\s*(.*)$/u.exec(line);
+  if (!match) return;
+  const value = match[2]?.trim() ?? "";
+  if (!value) return;
+  const unquoted = /^(["'])(.*)\1$/u.exec(value);
+  target[match[1]!] = unquoted ? unquoted[2]! : value;
 }
