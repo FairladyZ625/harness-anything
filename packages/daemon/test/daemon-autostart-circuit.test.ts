@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   __daemonAutostartCircuitStateForTest,
   daemonAutostartCircuitDecision,
+  daemonAutostartCircuitOpenError,
   defaultDaemonAutostartMaxConsecutiveFailures,
   liveDaemonStartupPid,
   recordLiveDaemonStartup,
@@ -81,6 +82,45 @@ test("after N consecutive deaths the breaker opens and refuses to spawn", () => 
   assert.equal(decision.allowSpawn, false, "breaker must open after N deaths");
   assert.equal(decision.consecutiveFailures, 3);
   assert.ok(decision.lastCause instanceof Error);
+});
+
+test("the refusal text says backing off while backing off, and giving up only once it gives up", () => {
+  reset();
+  reportDaemonAutostartOutcome(socketA, {
+    ok: false,
+    spawnedPid: 999_999,
+    processExited: true,
+    cause: new Error("exited")
+  }, options, t0);
+  const backingOff = daemonAutostartCircuitOpenError(
+    socketA,
+    daemonAutostartCircuitDecision(socketA, options, t0),
+    options
+  );
+  assert.match(backingOff.message, /DAEMON_AUTOSTART_BACKOFF/u);
+  assert.ok(
+    !backingOff.message.includes("stopped autostarting"),
+    `one failure of three is not giving up; got: ${backingOff.message}`
+  );
+
+  for (let i = 1; i < 3; i += 1) {
+    reportDaemonAutostartOutcome(socketA, {
+      ok: false,
+      spawnedPid: 999_990 + i,
+      processExited: true,
+      cause: new Error(`death ${i + 1}`)
+    }, options, t0 + i * 10_000);
+  }
+  const gaveUp = daemonAutostartCircuitOpenError(
+    socketA,
+    daemonAutostartCircuitDecision(socketA, options, t0 + 100_000),
+    options
+  );
+  assert.match(gaveUp.message, /DAEMON_AUTOSTART_CIRCUIT_OPEN: stopped autostarting/u);
+  assert.ok(
+    !gaveUp.message.includes("DAEMON_AUTOSTART_BACKOFF"),
+    `an open breaker must not also claim it is merely backing off; got: ${gaveUp.message}`
+  );
 });
 
 test("a successful ready resets the breaker completely", () => {

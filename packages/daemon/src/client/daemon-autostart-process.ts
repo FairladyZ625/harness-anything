@@ -74,14 +74,24 @@ export class DaemonAutostartCircuitOpenError extends Error {
     lastCause: unknown
   ) {
     const cause = errorMessage(lastCause, "no probe completed");
+    // Backing off is not the same state as giving up, and saying "stopped
+    // autostarting" while a retry is seconds away sends the reader looking for
+    // a cause that does not exist yet. Report whichever is actually true.
+    const givenUp = consecutiveFailures >= maxConsecutiveFailures;
+    const state = givenUp
+      ? `DAEMON_AUTOSTART_CIRCUIT_OPEN: stopped autostarting after ${consecutiveFailures} consecutive daemon`
+        + ` startup failures on socket ${socketPath} (limit ${maxConsecutiveFailures}). The breaker is honest`
+        + ` about giving up rather than silently feeding an infinite respawn loop.`
+      : `DAEMON_AUTOSTART_BACKOFF: waiting ${Math.max(1, Math.round(retryAfterMs / 1000))}s before the next`
+        + ` autostart attempt on socket ${socketPath} after ${consecutiveFailures} consecutive daemon startup`
+        + ` failure(s) (the breaker gives up at ${maxConsecutiveFailures}). Autostart has NOT given up; the`
+        + ` backoff keeps a failing spawn from becoming a respawn loop.`;
     super(
-      `DAEMON_AUTOSTART_CIRCUIT_OPEN: stopped autostarting after ${consecutiveFailures} consecutive daemon`
-      + ` startup failures on socket ${socketPath} (limit ${maxConsecutiveFailures}). The breaker is honest`
-      + ` about giving up rather than silently feeding an infinite respawn loop. Last failure: ${cause}.`
+      `${state} Last failure: ${cause}.`
       + ` Do NOT run 'ha daemon restart' — that kills whatever is recovering. Next: inspect the startup log`
       + ` (see DAEMON_AUTOSTART_PROCESS_EXITED for the launch log path) or 'ha daemon status --json'; once`
       + ` the cause is fixed, retry and the breaker resets on the first successful startup.`
-      + `${retryAfterMs > 0 ? ` Autostart will retry in ${Math.round(retryAfterMs / 1000)}s unless reset.` : ""}`
+      + `${retryAfterMs > 0 ? ` Autostart will retry in ${Math.max(1, Math.round(retryAfterMs / 1000))}s unless reset.` : ""}`
     );
     this.name = "DaemonAutostartCircuitOpenError";
     this.maxConsecutiveFailures = maxConsecutiveFailures;

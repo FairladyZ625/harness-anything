@@ -1,3 +1,4 @@
+import { resetDaemonAutostartCircuit } from "@harness-anything/daemon";
 import type { DaemonLaunchConfiguration } from "../../daemon/daemon-launch-spec.ts";
 import {
   isCompleteReplacement,
@@ -30,6 +31,12 @@ export async function rollbackDaemonReplacement(input: {
       `${rollbackErrorMessage(input.replacementFailure)}; ${restoration} was not started because the endpoint is still owned`
     );
   }
+  // The failed replacement just charged the autostart breaker, which then backs
+  // off for seconds. This restoration is a single deliberate recovery attempt
+  // made by a control operation, not the unbounded respawn chain the breaker
+  // exists to stop, and leaving the endpoint unserved is worse than one more
+  // spawn. Clear the socket's breaker state so the attempt is allowed to run.
+  resetDaemonAutostartCircuit(input.lifecycle.target.socketPath);
   try {
     const restored = await input.lifecycle.startReplacement(
       input.lifecycle.target,
