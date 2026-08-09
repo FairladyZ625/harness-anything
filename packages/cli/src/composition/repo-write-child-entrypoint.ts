@@ -6,6 +6,7 @@ import {
   createGitCanonicalPublicationInspector,
   createRepoWriteChildHost,
   decodeRepoWriteChildLaunchConfig,
+  defaultProductionRecoveryAdmissionTimeoutMs,
   DurableRepoWriteOutcomeStoreV1,
   loadAuthorityProductionManifest,
   ProductionRepoWriteOperationHost,
@@ -36,15 +37,19 @@ import { makeDaemonReservationReconciler } from "@harness-anything/daemon";
 /**
  * Everything before READY must fit inside the parent's READY deadline
  * (`readyTimeoutMs`, default 30_000ms), so this caps the child's *total* time to
- * announcement rather than just the recovery loop. Measured on a wedged daemon,
- * the work preceding recovery alone consumed 20.1-29.9s, so a fixed recovery
- * budget cannot keep the total under the deadline — the budget has to be
- * whatever time is still left. Recovery therefore gets the remainder of this cap
- * and nothing more; proceedings it does not reach stay proceeding and are
- * retried on the next start. The margin below the parent default absorbs spawn
- * and IPC latency the child cannot observe.
+ * announcement rather than just the recovery loop. Measured on a real forked
+ * child, everything other than the recovery loop costs ~0.7s, so the loop is the
+ * only part that can grow with data — and it grows invisibly, because iterations
+ * that succeed emit no log. A budget sized from the visible (deferred)
+ * iterations undercounts badly, so recovery instead gets whatever time is left
+ * under this cap and nothing more; proceedings it does not reach stay proceeding
+ * and are retried on the next start.
+ *
+ * Reuses the authority admission deadline rather than restating it: both exist
+ * to return before the same parent transport deadline so the supervisor leaves a
+ * recovering child alive. One deadline, one constant.
  */
-const startupReadyBudgetMs = 25_000;
+const startupReadyBudgetMs = defaultProductionRecoveryAdmissionTimeoutMs;
 
 /** Time this child may still spend on historical recovery before announcing READY. */
 function remainingStartupRecoveryBudgetMs(): number {
