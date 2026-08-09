@@ -244,12 +244,19 @@ if (mode === "expected-direct-rejection") {
   });
 
   if (mode === "slow-startup-progress") {
+    // Each gap must stay well under the parent's stall window while the gaps
+    // together outlast a whole window, so the run proves renewal rather than
+    // proving the window was simply generous. See STARTUP_STALL_WINDOW_MS in
+    // repo-write-process-supervisor.test.ts.
+    const gapMs = 900;
     await transport.send(startupProgress("runtime-start", "repo-transport"));
-    await delay(600);
+    await delay(gapMs);
     await transport.send(startupProgress("historical-recovery", "repo-write:outer-op-1"));
-    await delay(600);
+    await delay(gapMs);
     await transport.send(startupProgress("historical-recovery", "repo-write:outer-op-2"));
-    await delay(600);
+    await delay(gapMs);
+    await transport.send(startupProgress("historical-recovery", "repo-write:outer-op-3"));
+    await delay(gapMs);
     await transport.send({
       protocol: repoWriteProtocolType,
       repoId: "repo-transport",

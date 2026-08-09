@@ -313,11 +313,23 @@ test("connected child with no startup progress is terminated after the stall win
   assert.equal(supervisor.status().connected, false);
 });
 
+/**
+ * The stall window also covers the child's own process boot, because the first
+ * progress frame cannot arrive before the fork is running. A window sized below
+ * that boot cost measures runner speed rather than the detector: at 1_000ms this
+ * test failed on CI with zero frames observed while boot took ~1.2s. Production
+ * has no such squeeze (`readyTimeoutMs` is 30_000), so the window here stays
+ * several times the observed boot cost, and the fixture's inter-frame gap stays
+ * several times below the window. Both margins are load-bearing — shrink either
+ * and the test starts reporting how busy the machine is.
+ */
+const STARTUP_STALL_WINDOW_MS = 3_000;
+
 test("slow startup with distinct work units may exceed one stall window", async (context) => {
   const supervisor = new RepoWriteProcessSupervisor({
     repoId: "repo-transport",
     generation: 1,
-    limits: { readyTimeoutMs: 1_000 },
+    limits: { readyTimeoutMs: STARTUP_STALL_WINDOW_MS },
     spawn: () => forkRepoWriteProcess({
       modulePath: fixturePath,
       args: ["slow-startup-progress"]
@@ -328,7 +340,9 @@ test("slow startup with distinct work units may exceed one stall window", async 
   const startedAt = performance.now();
   await supervisor.start();
 
-  assert.ok(performance.now() - startedAt > 1_000);
+  // Reaching READY later than one whole window is the discriminating claim:
+  // without renewal on each new work unit the child would have been killed.
+  assert.ok(performance.now() - startedAt > STARTUP_STALL_WINDOW_MS);
   assert.equal(supervisor.status().connected, true);
 });
 
@@ -339,7 +353,7 @@ test("alive child repeating one startup work unit is terminated as stalled", asy
   const supervisor = new RepoWriteProcessSupervisor({
     repoId: "repo-transport",
     generation: 1,
-    limits: { readyTimeoutMs: 1_000 },
+    limits: { readyTimeoutMs: STARTUP_STALL_WINDOW_MS },
     spawn: () => {
       transport = forkRepoWriteProcess({
         modulePath: fixturePath,
