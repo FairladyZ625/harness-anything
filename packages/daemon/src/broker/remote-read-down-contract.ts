@@ -4,6 +4,7 @@ import type {
   AuthoritySnapshotReservation
 } from "../authority/protocol.ts";
 import type { PersistentSshAuthorityClient } from "../transport/persistent-ssh-authority-client.ts";
+import type { RetryBudgetSignal } from "../observability/visible-retry-budget.ts";
 
 export interface RemoteReadDownBackoff {
   readonly initialMs: number;
@@ -16,6 +17,11 @@ export interface RemoteReadDownChangeCacheLimits {
   readonly maxBytes: number;
 }
 
+export interface RemoteReadDownRetryBudget {
+  readonly maxRetries: number;
+  readonly reminderEveryFailures: number;
+}
+
 export interface RemoteReadDownSessionOptions {
   readonly client: PersistentSshAuthorityClient;
   readonly workspaceId: string;
@@ -25,8 +31,10 @@ export interface RemoteReadDownSessionOptions {
   readonly sleep?: (milliseconds: number) => Promise<void>;
   readonly schedule?: (milliseconds: number, callback: () => void) => { readonly dispose: () => void };
   readonly changeCache?: Partial<RemoteReadDownChangeCacheLimits>;
+  readonly retryBudget?: Partial<RemoteReadDownRetryBudget>;
   readonly expectedResume?: ResumeCursor;
   readonly onDiagnostic?: (text: string) => void;
+  readonly onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void;
   readonly onTerminal?: (failure: Error) => void;
 }
 
@@ -91,6 +99,11 @@ export const defaultChangeCache: RemoteReadDownChangeCacheLimits = {
   maxBytes: 8 * 1024 * 1024
 };
 
+export const defaultRetryBudget: RemoteReadDownRetryBudget = {
+  maxRetries: 5,
+  reminderEveryFailures: 5
+};
+
 export function assertBackoff(backoff: RemoteReadDownBackoff): void {
   if (!Number.isFinite(backoff.initialMs)
     || !Number.isFinite(backoff.maximumMs)
@@ -98,7 +111,7 @@ export function assertBackoff(backoff: RemoteReadDownBackoff): void {
     || backoff.initialMs < 0
     || backoff.maximumMs < backoff.initialMs
     || backoff.multiplier < 1) {
-    throw new Error("remote read-down backoff must be finite, non-negative, and bounded");
+    throw new Error("remote read-down backoff must be finite, non-negative, and interval-capped");
   }
 }
 
@@ -108,5 +121,14 @@ export function assertChangeCache(cache: RemoteReadDownChangeCacheLimits): void 
     || cache.maxCount < 1
     || cache.maxBytes < 1) {
     throw new Error("remote read-down change cache limits must be positive safe integers");
+  }
+}
+
+export function assertRetryBudget(budget: RemoteReadDownRetryBudget): void {
+  if (!Number.isSafeInteger(budget.maxRetries)
+    || !Number.isSafeInteger(budget.reminderEveryFailures)
+    || budget.maxRetries < 0
+    || budget.reminderEveryFailures < 1) {
+    throw new Error("remote read-down retry budget must use non-negative retries and positive reminders");
   }
 }

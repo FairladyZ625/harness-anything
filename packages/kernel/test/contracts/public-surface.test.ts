@@ -90,6 +90,7 @@ const publicRuntimeSurface = [
   "consentActions",
   "consentDeclaration",
   "countContentPinArbitersInDocument",
+  "createBoundedRetryBudget",
   "createEntityKindRegistry",
   "createExactWriteScope",
   "createHarnessRuntimeContext",

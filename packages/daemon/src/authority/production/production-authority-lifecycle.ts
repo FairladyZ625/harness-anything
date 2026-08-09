@@ -44,7 +44,8 @@ import { gateCutoverAdmission } from "./cutover-admission.ts";
 import {
   assertPublicationMatchesMutationSet,
   createGitAuthorityAttributionEvidenceCommitterV2,
-  createGitCanonicalPublicationInspector
+  createGitCanonicalPublicationInspector,
+  publicationRetryOptions
 } from "./publication-evidence.ts";
 import { createAuthorityProductionScanner } from "./production-scanner.ts";
 import {
@@ -88,6 +89,7 @@ interface RepoProductionMaterial {
   readonly replicationState: Parameters<typeof createPrewarmedAuthorityReplication>[0]["state"];
   readonly replicationContent: AuthorityReplicationContentStore;
   readonly replicaChangeLog: ReplicaChangeLog;
+  readonly daemonLogService?: DaemonLogService;
   readonly recovery: ProductionRecoveryState;
 }
 
@@ -164,7 +166,7 @@ export function createProductionAuthorityLifecycle(input: {
       });
       const replicationContent = replication.content;
       const replicaChangeLog = replication.changeLog;
-      const publicationInspector = createGitCanonicalPublicationInspector(authoredRoot);
+      const publicationInspector = createGitCanonicalPublicationInspector(authoredRoot, publicationRetryOptions(input.daemonLogService, config));
       const recoveryGenerationFence = createRuntimeDaemonGenerationWitnessFence({
         runtime,
         workspaceId: config.workspaceId,
@@ -239,6 +241,7 @@ export function createProductionAuthorityLifecycle(input: {
         replicationState: state.replicationState,
         replicationContent,
         replicaChangeLog,
+        ...(input.daemonLogService ? { daemonLogService: input.daemonLogService } : {}),
         recovery
       };
       materials.set(repo.repoId, material);
@@ -507,7 +510,7 @@ function createConnectionAuthorityService(
   },
   hostServices: ProductionAuthorityHostServices<ProductionAuthorityIdentity>
 ): AuthoritySubmissionService {
-  const publicationInspector = createGitCanonicalPublicationInspector(material.authoredRoot);
+  const publicationInspector = createGitCanonicalPublicationInspector(material.authoredRoot, publicationRetryOptions(material.daemonLogService, material.config));
   const writerGeneration = input.runtime.daemonGenerationContext?.()?.daemonGeneration;
   const generationFence = createRuntimeDaemonGenerationWitnessFence({
     runtime: input.runtime,

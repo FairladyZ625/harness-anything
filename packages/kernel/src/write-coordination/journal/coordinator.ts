@@ -45,8 +45,7 @@ import {
 } from "./operations/transaction-plan.ts";
 import {
   reconcileDurableExactFlush,
-  reconcileDurableFlush,
-  shouldWaitForForeignCommitter
+  reconcileDurableFlush
 } from "./receipt.ts";
 import { semanticCommitMessage } from "./publication/authority-trailer.ts";
 import { recoverJournalIntegrityDomains } from "./recovery/integrity-domains.ts";
@@ -180,10 +179,6 @@ function makeJournaledWriteCoordinatorInternal(
     reconcileDurable: (reason, witnesses) => reconcileDurableExactFlush(
       reason, witnesses, exactJournalAuthorizations, pending,
       journalPath, watermarkPath, rootDir
-    ),
-    shouldContinueAfterTimeout: (error) => shouldWaitForForeignCommitter(
-      error,
-      path.join(layout.locksRoot, "global.lock")
     )
   });
   const flushExactJournalRecords = createExactJournalRecordsFlusher({
@@ -205,10 +200,6 @@ function makeJournaledWriteCoordinatorInternal(
     reconcileDurable: (reason, witnesses) => reconcileDurableExactFlush(
       reason, witnesses, exactJournalAuthorizations, pending,
       journalPath, watermarkPath, rootDir
-    ),
-    shouldContinueAfterTimeout: (error) => shouldWaitForForeignCommitter(
-      error,
-      path.join(layout.locksRoot, "global.lock")
     )
   });
 
@@ -276,10 +267,7 @@ function makeJournaledWriteCoordinatorInternal(
         ? retryWriteLockConflict(
           () => flushOnce(reason),
           lockConflictRetry,
-          Date.now(),
-          0,
-          reconcileDurable,
-          (error) => shouldWaitForForeignCommitter(error, path.join(layout.locksRoot, "global.lock"))
+          reconcileDurable
         )
         : flushOnce(reason).pipe(Effect.catchAll((error) => {
           const reconciled = isWriteLockConflict(error) ? reconcileDurable() : undefined;
@@ -290,7 +278,7 @@ function makeJournaledWriteCoordinatorInternal(
     flushExactJournalRecords,
     flushExactJournalRecord,
     recover: lockConflictRetry
-      ? retryWriteLockConflict(() => recoverOnce, lockConflictRetry, Date.now(), 0)
+      ? retryWriteLockConflict(() => recoverOnce, lockConflictRetry)
       : recoverOnce
   };
   return withJournalExactCommit(coordinator, flushExactJournalRecords, options.exactWriteScope);

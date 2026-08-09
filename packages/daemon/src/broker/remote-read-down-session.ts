@@ -10,11 +10,14 @@ import { BrokerCasStore } from "./cas-store.ts";
 import {
   assertBackoff,
   assertChangeCache,
+  assertRetryBudget,
   defaultBackoff,
   defaultChangeCache,
+  defaultRetryBudget,
   type ActiveSnapshot,
   type RemoteReadDownBackoff,
   type RemoteReadDownChangeCacheLimits,
+  type RemoteReadDownRetryBudget,
   type RemoteReadDownSessionHealth,
   type RemoteReadDownSessionOptions,
   type ResumeCursor
@@ -53,6 +56,7 @@ export {
   RemoteReplicaResyncRequiredError,
   type RemoteReadDownBackoff,
   type RemoteReadDownChangeCacheLimits,
+  type RemoteReadDownRetryBudget,
   type RemoteReadDownSessionHealth,
   type RemoteReadDownSessionOptions
 } from "./remote-read-down-contract.ts";
@@ -63,6 +67,7 @@ export class RemoteReadDownSession {
   private readonly blobReader: RemoteBlobReader;
   private readonly backoff: RemoteReadDownBackoff;
   private readonly changeCache: RemoteReadDownChangeCacheLimits;
+  private readonly retryBudget: RemoteReadDownRetryBudget;
   private readonly now: () => number;
   private readonly sleep: (milliseconds: number) => Promise<void>;
   private readonly listeners = new Set<(change: ReplicaChangeRecord) => void>();
@@ -89,6 +94,7 @@ export class RemoteReadDownSession {
     this.blobReader = new RemoteBlobReader(this.cas, options.client, () => this.assertOpen());
     this.backoff = { ...defaultBackoff, ...options.backoff };
     this.changeCache = { ...defaultChangeCache, ...options.changeCache };
+    this.retryBudget = { ...defaultRetryBudget, ...options.retryBudget };
     this.resumeCursor = options.expectedResume ? { ...options.expectedResume } : undefined;
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
@@ -97,6 +103,7 @@ export class RemoteReadDownSession {
     });
     assertBackoff(this.backoff);
     assertChangeCache(this.changeCache);
+    assertRetryBudget(this.retryBudget);
     const listeners = registerRemoteReadDownListeners(
       options.client,
       (change) => this.receiveNotification(change),
@@ -273,7 +280,9 @@ export class RemoteReadDownSession {
       stopped: () => this.stopped,
       sleep: (milliseconds) => this.interruptibleSleep(milliseconds),
       terminal: (error) => this.setTerminal(error),
-      diagnostic: this.options.onDiagnostic
+      diagnostic: this.options.onDiagnostic,
+      retryBudget: this.retryBudget,
+      retryBudgetSignal: this.options.onRetryBudgetSignal
     });
     if (this.active) return this.active;
     this.active = active;
@@ -322,7 +331,9 @@ export class RemoteReadDownSession {
       },
       ready: () => this.ready(),
       sleep: (milliseconds) => this.interruptibleSleep(milliseconds),
-      stopped: () => this.stopped
+      stopped: () => this.stopped,
+      retryBudget: this.retryBudget,
+      retryBudgetSignal: this.options.onRetryBudgetSignal
     });
   }
 

@@ -12,6 +12,8 @@ import {
   RemoteReadDownSession,
   type RemoteReadDownSessionOptions
 } from "./remote-read-down-session.ts";
+import { defaultRetryBudget } from "./remote-read-down-contract.ts";
+import { createVisibleRetryBudget } from "../observability/visible-retry-budget.ts";
 import {
   asRemoteReadDownError,
   classifyRemoteReadDownFailure
@@ -261,6 +263,15 @@ export class RemoteBrokerRuntime {
       maximumMs: this.options.session.backoff?.maximumMs ?? 5_000,
       multiplier: this.options.session.backoff?.multiplier ?? 2
     };
+    const retryBudgetOptions = { ...defaultRetryBudget, ...this.options.session.retryBudget };
+    const retryBudget = createVisibleRetryBudget({
+      operation: "remote-broker-synchronization",
+      budget: { maxRetries: retryBudgetOptions.maxRetries },
+      reminderEveryFailures: retryBudgetOptions.reminderEveryFailures,
+      ...(this.options.session.onRetryBudgetSignal
+        ? { signal: this.options.session.onRetryBudgetSignal }
+        : {})
+    });
     let delay = backoff.initialMs;
     while (!this.stopped && !this.terminalFailure && this.lifecycle === "ACTIVE") {
       await this.retryWait(delay);
@@ -268,13 +279,18 @@ export class RemoteBrokerRuntime {
       try {
         await this.session.refresh();
         const state = await this.broker.synchronize();
-        if (state.mode === "READY") return;
+        if (state.mode === "READY") {
+          retryBudget.recovered();
+          return;
+        }
+        retryBudget.recordFailure(new Error(`remote broker remained in ${state.mode}`));
       } catch (error) {
         const failure = asRemoteReadDownError(error);
         if (classifyRemoteReadDownFailure(failure) === "TERMINAL") {
           this.latchTerminal(failure);
           return;
         }
+        retryBudget.recordFailure(failure);
         this.options.session.onDiagnostic?.(
           `remote broker synchronization retry deferred: ${failure.message}`
         );

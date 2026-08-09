@@ -11,6 +11,7 @@ import {
   advanceRemoteReadDownBackoff,
   createRemoteResyncError
 } from "./remote-read-down-state.ts";
+import { createVisibleRetryBudget, type RetryBudgetSignal } from "../observability/visible-retry-budget.ts";
 
 export async function fetchRemoteChanges(input: {
   readonly active: ActiveSnapshot;
@@ -27,7 +28,15 @@ export async function fetchRemoteChanges(input: {
   readonly ready: () => Promise<ActiveSnapshot>;
   readonly sleep: (milliseconds: number) => Promise<void>;
   readonly stopped: () => boolean;
+  readonly retryBudget: { readonly maxRetries: number; readonly reminderEveryFailures: number };
+  readonly retryBudgetSignal: ((signal: RetryBudgetSignal) => void) | undefined;
 }): Promise<ReadonlyArray<ReplicaChangeRecord>> {
+  const retryBudget = createVisibleRetryBudget({
+    operation: "remote-read-down-fetch",
+    budget: { maxRetries: input.retryBudget.maxRetries },
+    reminderEveryFailures: input.retryBudget.reminderEveryFailures,
+    ...(input.retryBudgetSignal ? { signal: input.retryBudgetSignal } : {})
+  });
   let current = input.active;
   let delay = input.backoff.initialMs;
   for (;;) {
@@ -37,6 +46,7 @@ export async function fetchRemoteChanges(input: {
       input.assertCurrent(current);
       validateChanges(result.changes, input.revision, input.workspaceId);
       for (const change of result.changes) input.storeChange(current, change);
+      retryBudget.recovered();
       return result.changes;
     } catch (error) {
       if (input.stopped()) throw asRemoteReadDownError(error);
@@ -45,6 +55,7 @@ export async function fetchRemoteChanges(input: {
         throw createRemoteResyncError(await input.ready(), error.message);
       }
       if (!(error instanceof AuthorityTransportDisconnectedError)) throw error;
+      retryBudget.recordFailure(error);
       input.invalidate(current);
       await input.sleep(delay);
       delay = advanceRemoteReadDownBackoff(delay, input.backoff);

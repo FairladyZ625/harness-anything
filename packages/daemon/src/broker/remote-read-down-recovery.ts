@@ -8,6 +8,7 @@ import {
   classifyRemoteReadDownFailure
 } from "./remote-read-down-failure.ts";
 import { advanceRemoteReadDownBackoff } from "./remote-read-down-state.ts";
+import { createVisibleRetryBudget, type RetryBudgetSignal } from "../observability/visible-retry-budget.ts";
 
 export async function recoverRemoteSnapshot(input: {
   readonly resume: ResumeCursor | undefined;
@@ -19,7 +20,15 @@ export async function recoverRemoteSnapshot(input: {
   readonly sleep: (milliseconds: number) => Promise<void>;
   readonly terminal: (error: unknown) => Error;
   readonly diagnostic: ((text: string) => void) | undefined;
+  readonly retryBudget: { readonly maxRetries: number; readonly reminderEveryFailures: number };
+  readonly retryBudgetSignal: ((signal: RetryBudgetSignal) => void) | undefined;
 }): Promise<ActiveSnapshot> {
+  const retryBudget = createVisibleRetryBudget({
+    operation: "remote-read-down-recovery",
+    budget: { maxRetries: input.retryBudget.maxRetries },
+    reminderEveryFailures: input.retryBudget.reminderEveryFailures,
+    ...(input.retryBudgetSignal ? { signal: input.retryBudgetSignal } : {})
+  });
   let delay = input.backoff.initialMs;
   let replaceConnection = input.resume !== undefined;
   for (;;) {
@@ -31,6 +40,7 @@ export async function recoverRemoteSnapshot(input: {
       if (classifyRemoteReadDownFailure(error) === "TERMINAL") {
         throw input.terminal(error);
       }
+      retryBudget.recordFailure(error);
       await retry(input, error, delay);
       delay = advanceRemoteReadDownBackoff(delay, input.backoff);
       replaceConnection = true;
@@ -39,12 +49,14 @@ export async function recoverRemoteSnapshot(input: {
     try {
       const active = await input.openSnapshot(input.resume);
       input.assertCurrent();
+      retryBudget.recovered();
       return active;
     } catch (error) {
       if (input.stopped()) throw asRemoteReadDownError(error);
       if (classifyRemoteReadDownFailure(error) === "TERMINAL") {
         throw input.terminal(error);
       }
+      retryBudget.recordFailure(error);
       await retry(input, error, delay);
       delay = advanceRemoteReadDownBackoff(delay, input.backoff);
       replaceConnection = true;

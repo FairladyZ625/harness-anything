@@ -142,7 +142,6 @@ export function createExactJournalRecordFlusher(input: {
     reason: "recovery",
     witnesses: ReadonlyArray<JournalRecordWitnessV1>
   ) => FlushReport | undefined;
-  readonly shouldContinueAfterTimeout?: (error: WriteError) => boolean;
 }): NonNullable<import("../../ports/write-coordinator.ts").WriteCoordinator[
   "flushExactJournalRecord"
 ]> {
@@ -154,10 +153,7 @@ export function createExactJournalRecordFlusher(input: {
       ...(input.lockConflictRetry ? { lockConflictRetry: input.lockConflictRetry } : {}),
       ...(input.reconcileDurable ? {
         reconcileDurable: () => input.reconcileDurable!(reason, [exactWitness])
-      } : {}),
-      ...(input.shouldContinueAfterTimeout
-        ? { shouldContinueAfterTimeout: input.shouldContinueAfterTimeout }
-        : {})
+      } : {})
     }));
   };
 }
@@ -176,7 +172,6 @@ export function createExactJournalRecordsFlusher(input: {
     reason: import("../../ports/write-coordinator.ts").FlushReason,
     witnesses: ReadonlyArray<JournalRecordWitnessV1>
   ) => FlushReport | undefined;
-  readonly shouldContinueAfterTimeout?: (error: WriteError) => boolean;
 }): NonNullable<import("../../ports/write-coordinator.ts").WriteCoordinator[
   "flushExactJournalRecords"
 ]> {
@@ -188,10 +183,7 @@ export function createExactJournalRecordsFlusher(input: {
       ...(input.lockConflictRetry ? { lockConflictRetry: input.lockConflictRetry } : {}),
       ...(input.reconcileDurable ? {
         reconcileDurable: () => input.reconcileDurable!(reason, exactWitnesses)
-      } : {}),
-      ...(input.shouldContinueAfterTimeout
-        ? { shouldContinueAfterTimeout: input.shouldContinueAfterTimeout }
-        : {})
+      } : {})
     }));
   };
 }
@@ -201,7 +193,6 @@ function runExactFlush(input: {
   readonly mapError: (cause: unknown) => WriteError;
   readonly lockConflictRetry?: LockConflictRetryOptions;
   readonly reconcileDurable?: () => FlushReport | undefined;
-  readonly shouldContinueAfterTimeout?: (error: WriteError) => boolean;
 }): Effect.Effect<FlushReport, WriteError> {
   const runOnce = (): Effect.Effect<FlushReport, WriteError> => Effect.try({
     try: input.run,
@@ -211,10 +202,7 @@ function runExactFlush(input: {
     return retryWriteLockConflict(
       runOnce,
       input.lockConflictRetry,
-      Date.now(),
-      0,
-      input.reconcileDurable,
-      input.shouldContinueAfterTimeout
+      input.reconcileDurable
     );
   }
   return runOnce().pipe(Effect.catchAll((error) => {

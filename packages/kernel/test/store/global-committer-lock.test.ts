@@ -310,8 +310,10 @@ test("WriteCoordinator lock queue times out with holder identity and recovery ad
     if (result._tag !== "Left") throw new Error("expected lock timeout");
     assert.equal(result.left._tag, "GlobalWriteConflict");
     assert.match(result.left.owner ?? "", new RegExp(`held by pid ${process.pid} on ${hostname()}`, "u"));
-    assert.match(result.left.owner ?? "", /timed out after 30ms/u);
-    assert.match(result.left.owner ?? "", /retry the command or use the daemon-backed client/u);
+    assert.match(result.left.owner ?? "", /automatic retry budget exhausted after 30ms/u);
+    assert.match(result.left.owner ?? "", /wait briefly and retry the command/u);
+    assert.match(result.left.owner ?? "", /inspect the current lock holder/u);
+    assert.doesNotMatch(result.left.owner ?? "", /HARNESS_DAEMON_MODE=direct|ha daemon restart/u);
   });
 });
 

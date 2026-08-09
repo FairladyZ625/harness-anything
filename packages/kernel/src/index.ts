@@ -106,6 +106,7 @@ export * from "./projection/declared-identity-repair.ts";
 export * from "./projection/relation-flow-frontmatter.ts";
 export * from "./projection/relation-graph-projection.ts";
 export * from "./runtime/operational-limits.ts";
+export * from "./runtime/bounded-retry.ts";
 export {
   auditTaskProvenance,
   queryExecutionProjection,

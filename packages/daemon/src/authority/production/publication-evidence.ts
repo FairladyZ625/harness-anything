@@ -2,7 +2,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { CanonicalPublicationInspector } from "@harness-anything/application";
+import type { CanonicalPublicationInspector, DaemonLogService } from "@harness-anything/application";
 import {
   encodeCanonicalCbor,
   makeLocalAuthorityAttributionEventV2Log,
@@ -42,8 +42,19 @@ import {
   readPublicationGitObject,
   shutdownPublicationGitObjectReader
 } from "./publication-object-reader.ts";
+import type { RetryBudgetSignal } from "../../observability/visible-retry-budget.ts";
+import { createDaemonRetryBudgetSignalSink } from "../../observability/daemon-retry-budget-log.ts";
 
 export { assertPublicationMatchesMutationSet } from "./publication-mutation-proof.ts";
+
+export function publicationRetryOptions(
+  logs: DaemonLogService | undefined,
+  repo: { readonly repoId: string; readonly canonicalRoot: string }
+): { readonly onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void } {
+  return logs
+    ? { onRetryBudgetSignal: createDaemonRetryBudgetSignalSink(logs, { repo }) }
+    : {};
+}
 
 const materializerCommitter = {
   name: "Harness Anything Materializer",
@@ -197,7 +208,10 @@ function assertEvidenceOnlyStaged(stagedText: string, pendingPaths: ReadonlySet<
   }
 }
 
-export function createGitCanonicalPublicationInspector(canonicalRoot: string): GitCanonicalPublicationInspector {
+export function createGitCanonicalPublicationInspector(
+  canonicalRoot: string,
+  options: { readonly onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void } = {}
+): GitCanonicalPublicationInspector {
   const rootDir = path.resolve(canonicalRoot);
   const currentHead = async (): Promise<string | null> =>
     gitOptionalAsync(rootDir, "rev-parse", "--verify", "HEAD");
@@ -420,8 +434,8 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
     for (const changedPath of changedPaths) {
       physicalChanges.push({
         path: changedPath,
-        beforeDigest: await blobDigestAsync(rootDir, publicationBase, changedPath),
-        afterDigest: await blobDigestAsync(rootDir, head, changedPath)
+        beforeDigest: await blobDigestAsync(rootDir, publicationBase, changedPath, options),
+        afterDigest: await blobDigestAsync(rootDir, head, changedPath, options)
       });
     }
     physicalChanges.sort((left, right) => Buffer.compare(
@@ -509,7 +523,7 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
         opId,
         publication,
         readAtCommit: (commitSha, eventPath) =>
-          readPublicationGitObject(rootDir, `${commitSha}:${eventPath}`)
+          readPublicationGitObject(rootDir, `${commitSha}:${eventPath}`, options)
       });
     }
   };
@@ -522,10 +536,11 @@ function yieldToEventLoop(): Promise<void> {
 async function blobDigestAsync(
   rootDir: string,
   revision: string,
-  changedPath: string
+  changedPath: string,
+  options: { readonly onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void }
 ): Promise<string | null> {
   try {
-    const bytes = await readPublicationGitObject(rootDir, `${revision}:${changedPath}`);
+    const bytes = await readPublicationGitObject(rootDir, `${revision}:${changedPath}`, options);
     return createHash("sha256").update(bytes).digest("hex");
   } catch {
     return null;

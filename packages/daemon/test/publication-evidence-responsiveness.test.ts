@@ -112,32 +112,30 @@ posixTest("a half-read response never reaches the caller and falls back", async 
   assert.equal(readLogEntries(fixture.fallbackLog).length, 1);
 });
 
-posixTest("consecutive batch failures exhaust one rebuild and emit a visible warning", async (context) => {
+posixTest("consecutive batch failures exhaust one rebuild and emit retry-budget escalation", async (context) => {
   const fixture = faultyPublicationRepo("offset");
   context.after(async () => await removeTemporaryTestRoot(fixture.root));
-  const warnings: string[] = [];
-  const onWarning = (warning: Error) => warnings.push(warning.message);
-  process.on("warning", onWarning);
+  const signals: Array<{ readonly phase: string; readonly operation: string }> = [];
   try {
     const results: string[] = [];
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      results.push(await readPublicationGitObject(fixture.root, "HEAD:seed.txt")
+      results.push(await readPublicationGitObject(fixture.root, "HEAD:seed.txt", {
+        onRetryBudgetSignal: (signal) => signals.push({
+          phase: signal.phase,
+          operation: signal.event.operation
+        })
+      })
         .then((content) => content.toString("utf8")));
     }
     assert.deepEqual(results, ["seed\n", "seed\n", "seed\n"]);
-    await new Promise<void>((resolve) => setImmediate(resolve));
   } finally {
-    process.off("warning", onWarning);
     await shutdownPublicationGitObjectReader(fixture.root);
     fixture.restorePath();
   }
 
   assert.equal(readBatchPids(fixture.batchLog).length, 2);
   assert.equal(readLogEntries(fixture.fallbackLog).length, 3);
-  assert.equal(
-    warnings.some((warning) => warning.includes("AUTHORITY_GIT_OBJECT_BATCH_RETRY_BUDGET_EXHAUSTED")),
-    true
-  );
+  assert.deepEqual(signals, [{ phase: "exhausted", operation: "publication-git-object-batch" }]);
 });
 
 posixTest("shutdown terminates a stuck half-read and rejects queued requests", async (context) => {
