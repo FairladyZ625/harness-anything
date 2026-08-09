@@ -20,6 +20,14 @@ export const consumerDocSyncRows = [{
   }
 }] as const;
 
+/**
+ * Task package artifacts are free-form authored files, so no preset template declares a
+ * managed section policy for them and the policy probe below can never admit them. They
+ * are still the same governed task-document lane the self-hosted repo publishes them
+ * through, so admit them by path instead of leaving consumer repos without a road.
+ */
+const consumerTaskArtifactPath = /^tasks\/[^/]+\/artifacts\/.+/u;
+
 export function isConsumerGovernedTaskDocument(
   rootDir: string,
   authoredRoot: string,
@@ -27,6 +35,7 @@ export function isConsumerGovernedTaskDocument(
   hostServices: DaemonDocSyncHostServices
 ): boolean {
   if (entry.status === "deleted" || !/^tasks\/[^/]+\/.+/u.test(entry.path)) return false;
+  if (consumerTaskArtifactPath.test(entry.path)) return true;
   return hostServices.resolveDeclaredManagedSectionPolicy({
     rootDir,
     layoutOverrides: { authoredRoot: path.relative(rootDir, authoredRoot) }

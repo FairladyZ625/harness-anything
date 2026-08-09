@@ -90,6 +90,45 @@ test("doc sync publishes a consumer task plan through the governed prose road wi
   });
 });
 
+test("doc sync publishes a consumer task artifact through the governed prose road without a registry", async () => {
+  await withHarnessFixture(async ({ rootDir, harnessRoot, taskRoot }) => {
+    const relativePath = `tasks/${taskId}/artifacts/report.md`;
+    const artifactPath = path.join(taskRoot, "artifacts", "report.md");
+    mkdirSync(path.dirname(artifactPath), { recursive: true });
+    writeFileSync(artifactPath, "# Consumer artifact\n\nFirst body.\n", "utf8");
+
+    const report = buildDocSyncReport(rootDir, cliDaemonServiceHostServices.docSync);
+    assert.deepEqual(report.candidateBlobs.map((entry) => entry.path), [relativePath]);
+    assert.equal(report.readyToSubmitPreview, true);
+
+    const request = buildDocSyncSubmitRequest(
+      rootDir,
+      "consumer",
+      [relativePath],
+      { kind: "agent", id: "codex-test" },
+      cliDaemonServiceHostServices.docSync
+    );
+    const result = await makeDocSyncService({
+      rootDir,
+      coordinator: attributedCoordinator(rootDir),
+      hostServices: cliDaemonServiceHostServices.docSync
+    }).submit(request);
+
+    assert.equal(result.ok, true, JSON.stringify(result));
+    if (result.ok) assert.deepEqual(result.appliedChanges.map((change) => change.path), [relativePath]);
+    assert.equal(git(harnessRoot, "status", "--short"), "");
+  });
+});
+
+test("doc sync keeps ignoring a consumer task package free file that is not under artifacts", async () => {
+  await withHarnessFixture(({ rootDir, taskRoot }) => {
+    writeFileSync(path.join(taskRoot, "notes.txt"), "edited notes\n", "utf8");
+    const report = buildDocSyncReport(rootDir, cliDaemonServiceHostServices.docSync);
+    assert.deepEqual(report.candidateBlobs.map((entry) => entry.path), []);
+    assert.deepEqual(report.dirtyFiles.map((entry) => entry.path), []);
+  });
+});
+
 test("doc sync rejects a template-shaped consumer document whose declared preset is invalid", async () => {
   await withHarnessFixture(({ rootDir, harnessRoot, taskRoot }) => {
     const relativePath = `tasks/${taskId}/task_plan.md`;

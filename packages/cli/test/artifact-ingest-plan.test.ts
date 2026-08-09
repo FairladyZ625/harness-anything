@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { sha256Text } from "@harness-anything/kernel";
 import { buildArtifactIngestPlan, ArtifactIngestError, normalizeProgressAfterArtifact, portableGitPathRelative, progressRetryCommand } from "../src/daemon/artifact-ingest.ts";
 import { CliErrorCode, cliError } from "../src/cli/error-codes.ts";
 import { toCommandReceipt } from "../src/cli/receipt.ts";
@@ -79,6 +80,45 @@ test("artifact planner reuses an identical committed artifact so a failed progre
   assert.ok(plan);
   assert.equal(plan.request, null);
   assert.deepEqual(plan.reusedPaths, [`tasks/${taskId}/artifacts/retry.txt`]);
+}));
+
+test("artifact add republishes a tracked task artifact whose working tree content changed", () => withFixture(({ rootDir, harnessRoot, taskId }) => {
+  const target = seedPublishedArtifact(harnessRoot, taskId, "report.md", "# first\n");
+  const updated = "# first\n\n## added section\n";
+  writeFileSync(target, updated, "utf8");
+  const plan = buildArtifactIngestPlan({ command: artifactCommand(rootDir, taskId, target), repoId: "canonical", cwd: rootDir });
+  const portable = `tasks/${taskId}/artifacts/report.md`;
+  assert.ok(plan?.request, "a changed tracked artifact must produce a doc-sync submit request");
+  assert.deepEqual(plan.submittedPaths, [portable]);
+  assert.deepEqual(plan.reusedPaths, []);
+  const change = plan.request.payload.changes[0];
+  assert.equal(change?.path, portable);
+  assert.equal(change?.content.kind === "inline" ? change.content.body : null, updated);
+  // Submit rejects with base_blob_changed unless the base names the current HEAD body.
+  assert.equal(change?.baseBlobSha256, sha256Text("# first\n"));
+  assert.equal(change?.newBlobSha256, sha256Text(updated));
+}));
+
+test("artifact add still reuses a tracked task artifact whose content already matches HEAD", () => withFixture(({ rootDir, harnessRoot, taskId }) => {
+  const target = seedPublishedArtifact(harnessRoot, taskId, "stable.md", "# unchanged\n");
+  const plan = buildArtifactIngestPlan({ command: artifactCommand(rootDir, taskId, target), repoId: "canonical", cwd: rootDir });
+  assert.ok(plan);
+  assert.equal(plan.request, null);
+  assert.deepEqual(plan.reusedPaths, [`tasks/${taskId}/artifacts/stable.md`]);
+  assert.deepEqual(plan.submittedPaths, []);
+}));
+
+test("artifact add keeps reusing a tracked binary artifact instead of failing on UTF-8", () => withFixture(({ rootDir, harnessRoot, taskId }) => {
+  const target = path.join(harnessRoot, "tasks", taskId, "artifacts", "capture.bin");
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, Buffer.from([0xff, 0x00, 0xfe]));
+  git(harnessRoot, "add", ".");
+  git(harnessRoot, "commit", "-m", "seed published binary artifact");
+  writeFileSync(target, Buffer.from([0xff, 0x00, 0xfd]));
+  const plan = buildArtifactIngestPlan({ command: artifactCommand(rootDir, taskId, target), repoId: "canonical", cwd: rootDir });
+  assert.ok(plan);
+  assert.equal(plan.request, null);
+  assert.deepEqual(plan.reusedPaths, [`tasks/${taskId}/artifacts/capture.bin`]);
 }));
 
 test("progress failure reports the retained governed artifact and an exact retry command", () => withFixture(({ rootDir, taskId }) => {
@@ -167,6 +207,15 @@ function withFixture(run: (fixture: { readonly rootDir: string; readonly harness
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+}
+
+function seedPublishedArtifact(harnessRoot: string, taskId: string, name: string, body: string): string {
+  const target = path.join(harnessRoot, "tasks", taskId, "artifacts", name);
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, body, "utf8");
+  git(harnessRoot, "add", ".");
+  git(harnessRoot, "commit", "-m", `seed published ${name}`);
+  return target;
 }
 
 function git(root: string, ...args: ReadonlyArray<string>): string {
