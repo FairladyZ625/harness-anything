@@ -50,6 +50,7 @@ import {
   createProvenanceCapacityTelemetryTrigger
 } from "../observability/provenance-capacity-trigger.ts";
 import { scheduleProvenanceCapacityLog } from "../observability/provenance-capacity-log.ts";
+import { createRepoWriteRetryBudgetSignalSink } from "../observability/repo-write-retry-budget-log.ts";
 import {
   formatDaemonFailure,
   repoWriteGracefulFailureLog
@@ -281,6 +282,10 @@ export async function runDaemonServe<
             );
           }
           const provenanceCapacityTrigger = createProvenanceCapacityTelemetryTrigger();
+          const publicationRetryBudgetSignal = createRepoWriteRetryBudgetSignalSink(
+            daemonLogService,
+            { repo }
+          );
           const authoredGitRoot = resolveHarnessLayout({
             rootDir: repo.canonicalRoot,
             ...(layoutOverrides ? { layoutOverrides } : {})
@@ -360,6 +365,7 @@ export async function runDaemonServe<
                 requestId: frame.outerOpId
               }, { repo }).catch(() => undefined);
             },
+            onRetryBudgetSignal: publicationRetryBudgetSignal,
             onRequestTimeout: (diagnostic) => {
               void daemonLogService.append({
                 level: "error",

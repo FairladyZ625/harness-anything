@@ -8,6 +8,7 @@ import {
   type AuthorityOperationReceipt,
   type CompoundOperationReceiptV2,
   type GetWaiterFrameV1,
+  type DaemonLogService,
   type ReplicaChangeLog,
   type ReceiptIdentityV2,
   type ResultPreparedFrameV1,
@@ -21,6 +22,7 @@ import {
   type RemoteReadDownSessionOptions
 } from "@harness-anything/daemon";
 import { createDurableCompoundReceiptStoreV2 } from "./durable-compound-receipt-store.ts";
+import { createDaemonRetryBudgetSignalSink } from "../observability/daemon-retry-budget-log.ts";
 
 /**
  * The daemon-owned compound path.  Keeping this owner beside the daemon
@@ -64,8 +66,13 @@ export function createProductionCompoundReceiptComposition(input: {
   readonly viewId: string;
   readonly canonicalRoot: string;
   readonly stateDirectory: string;
+  readonly repoId?: string;
+  readonly daemonLogService?: DaemonLogService;
   readonly replicaChangeLog?: ReplicaChangeLog;
-  readonly remoteReadDown?: Omit<RemoteReadDownSessionOptions, "workspaceId" | "stateRoot">;
+  readonly remoteReadDown?: Omit<
+    RemoteReadDownSessionOptions,
+    "workspaceId" | "stateRoot" | "onRetryBudgetSignal"
+  >;
   readonly generationFence?: {
     readonly runExclusive: <Result>(
       input: { readonly workspaceId: string; readonly opId: string },
@@ -80,6 +87,9 @@ export function createProductionCompoundReceiptComposition(input: {
     };
   };
 }): ProductionCompoundReceiptComposition {
+  if (input.remoteReadDown && (!input.daemonLogService || !input.repoId)) {
+    throw new Error("production remote read-down requires daemon error-log visibility");
+  }
   mkdirSync(input.stateDirectory, { recursive: true, mode: 0o700 });
   const receipts = createCompoundReceiptServiceV2({
     store: createDurableCompoundReceiptStoreV2({
@@ -94,7 +104,13 @@ export function createProductionCompoundReceiptComposition(input: {
         viewId: input.viewId,
         viewRoot: input.canonicalRoot,
         stateRoot: brokerStateRoot,
-        session: input.remoteReadDown,
+        session: {
+          ...input.remoteReadDown,
+          onRetryBudgetSignal: createDaemonRetryBudgetSignalSink(
+            input.daemonLogService!,
+            { repo: { repoId: input.repoId!, canonicalRoot: input.canonicalRoot } }
+          )
+        },
         writerExclusion: processWriterExclusion(),
         watcherFence: processWatcherFence()
       })

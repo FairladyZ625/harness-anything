@@ -7,6 +7,8 @@ import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
+import { createBoundedRetryBudget, type BoundedRetryBudget } from "@harness-anything/kernel";
+import type { RetryBudgetSignal } from "../../observability/visible-retry-budget.ts";
 
 const maximumBatchHeaderBytes = 64 * 1024;
 const maximumGitObjectBytes = 64 * 1024 * 1024;
@@ -59,14 +61,20 @@ export function assertVerifiedGitObjectContent(input: {
   }
 }
 
-export function readPublicationGitObject(rootDir: string, objectName: string): Promise<Buffer> {
+export function readPublicationGitObject(
+  rootDir: string,
+  objectName: string,
+  options: { readonly onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void } = {}
+): Promise<Buffer> {
   const inputRoot = path.resolve(rootDir);
   const canonicalRoot = canonicalGitRoot(rootDir);
   canonicalRootsByInput.set(inputRoot, canonicalRoot);
   let reader = readersByRoot.get(canonicalRoot);
   if (!reader) {
-    reader = new PublicationGitObjectReader(canonicalRoot);
+    reader = new PublicationGitObjectReader(canonicalRoot, options.onRetryBudgetSignal);
     readersByRoot.set(canonicalRoot, reader);
+  } else if (options.onRetryBudgetSignal) {
+    reader.useRetryBudgetSignal(options.onRetryBudgetSignal);
   }
   return reader.read(objectName);
 }
@@ -92,10 +100,32 @@ class PublicationGitObjectReader {
   private queue: Promise<void> = Promise.resolve();
   private closed = false;
   private batchDisabled = false;
-  private consecutiveRebuilds = 0;
+  private readonly retryBudget: BoundedRetryBudget;
+  private onRetryBudgetSignal: ((signal: RetryBudgetSignal) => void) | undefined;
 
-  constructor(rootDir: string) {
+  constructor(rootDir: string, onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void) {
     this.rootDir = rootDir;
+    this.onRetryBudgetSignal = onRetryBudgetSignal;
+    this.retryBudget = createBoundedRetryBudget({
+      operation: "publication-git-object-batch",
+      budget: { maxRetries: maximumConsecutiveRebuilds },
+      onExhausted: (event) => {
+        if (this.onRetryBudgetSignal) {
+          this.onRetryBudgetSignal({ phase: "exhausted", event });
+        } else {
+          reportBatchFailure(
+            "AUTHORITY_GIT_OBJECT_BATCH_RETRY_BUDGET_EXHAUSTED",
+            this.rootDir,
+            event.cause,
+            "batch=disabled;request=fork"
+          );
+        }
+      }
+    });
+  }
+
+  useRetryBudgetSignal(signal: (signal: RetryBudgetSignal) => void): void {
+    this.onRetryBudgetSignal = signal;
   }
 
   read(objectName: string): Promise<Buffer> {
@@ -127,27 +157,21 @@ class PublicationGitObjectReader {
       this.batch = undefined;
       await batch.terminate();
       if (this.closed) throw error;
-      if (this.consecutiveRebuilds < maximumConsecutiveRebuilds) {
-        this.consecutiveRebuilds += 1;
+      const decision = this.retryBudget.recordFailure(error);
+      if (decision.status === "retry-allowed") {
         this.batch = new GitCatFileBatchProcess(this.rootDir);
         reportBatchFailure(
           "AUTHORITY_GIT_OBJECT_BATCH_RESTARTED",
           this.rootDir,
           error,
-          `rebuild=${this.consecutiveRebuilds}/${maximumConsecutiveRebuilds};request=fork`
+          `rebuild=${decision.retriesUsed + 1}/${maximumConsecutiveRebuilds};request=fork`
         );
       } else {
         this.batchDisabled = true;
-        reportBatchFailure(
-          "AUTHORITY_GIT_OBJECT_BATCH_RETRY_BUDGET_EXHAUSTED",
-          this.rootDir,
-          error,
-          "batch=disabled;request=fork"
-        );
       }
       return oneShotGitObject(this.rootDir, objectName);
     }
-    this.consecutiveRebuilds = 0;
+    this.retryBudget.reset();
     if (response.missing) throw new GitObjectBatchMissingError(objectName);
     return response.content;
   }

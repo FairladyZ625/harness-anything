@@ -286,6 +286,19 @@ if (mode === "expected-direct-rejection") {
         code: "GIT_PATH_NOT_SAFE",
         diagnostic: "historical recovery remains fail-closed"
       });
+    } else if (mode === "retry-budget-signal") {
+      await transport.send({
+        protocol: repoWriteProtocolType,
+        repoId: "repo-transport",
+        generation: 1,
+        kind: "retry-budget-signal",
+        phase: "exhausted",
+        operation: "publication-git-object-batch",
+        cause: "GitObjectBatchValidationError: batch response was offset",
+        failures: 2,
+        retriesUsed: 1,
+        elapsedMs: 14
+      });
     }
     await transport.send({
       protocol: repoWriteProtocolType,

@@ -44,7 +44,8 @@ import { gateCutoverAdmission } from "./cutover-admission.ts";
 import {
   assertPublicationMatchesMutationSet,
   createGitAuthorityAttributionEvidenceCommitterV2,
-  createGitCanonicalPublicationInspector
+  createGitCanonicalPublicationInspector,
+  publicationRetryOptions
 } from "./publication-evidence.ts";
 import { createAuthorityProductionScanner } from "./production-scanner.ts";
 import {
@@ -75,6 +76,9 @@ import { connectionBoundRuntime } from "./connection-bound-runtime.ts";
 import { waitForProductionRecovery } from "./production-recovery-admission.ts";
 import { attestSubmissionService } from "./transport-attested-submission-service.ts";
 import { recoverProductionCommittedReceipt } from "./production-committed-receipt-recovery.ts";
+import type { RetryBudgetSignal } from "../../observability/visible-retry-budget.ts";
+import { settleProductionRecovery, type ProductionRecoveryState } from "./production-recovery-state.ts";
+import { createSerialPublicationExecutor } from "./serial-publication-executor.ts";
 export { recoverPendingProductionEvents } from "./recovery.ts";
 
 interface RepoProductionMaterial {
@@ -88,13 +92,14 @@ interface RepoProductionMaterial {
   readonly replicationState: Parameters<typeof createPrewarmedAuthorityReplication>[0]["state"];
   readonly replicationContent: AuthorityReplicationContentStore;
   readonly replicaChangeLog: ReplicaChangeLog;
+  readonly daemonLogService?: DaemonLogService;
+  readonly onPublicationRetryBudgetSignal?: (signal: RetryBudgetSignal) => void;
   readonly recovery: ProductionRecoveryState;
 }
 
-interface ProductionRecoveryState {
-  status: "recovering" | "complete" | "failed";
-  error?: string;
-  promise: Promise<void>;
+interface PublicationRetryVisibility {
+  readonly daemonLogService?: DaemonLogService;
+  readonly onPublicationRetryBudgetSignal?: (signal: RetryBudgetSignal) => void;
 }
 
 const productionAuthorityV2EntityKinds = [
@@ -110,6 +115,7 @@ export function createProductionAuthorityLifecycle(input: {
   readonly userRoot?: string;
   readonly layoutOverrides?: { readonly authoredRoot?: string };
   readonly daemonLogService?: DaemonLogService;
+  readonly onPublicationRetryBudgetSignal?: (signal: RetryBudgetSignal) => void;
   readonly backgroundRecovery?: true;
   readonly hostServices: ProductionAuthorityHostServices<ProductionAuthorityIdentity>;
 }): AuthorityRepoLifecycleController {
@@ -120,6 +126,10 @@ export function createProductionAuthorityLifecycle(input: {
   const controller = createAuthorityRepoLifecycleController({
     hooks,
     serviceStateRoot: manifest.serviceStateRoot,
+    resolvePublicationInspectorOptions: (repo) => {
+      const config = manifest.repos.find((candidate) => candidate.repoId === repo.repoId);
+      return config ? productionPublicationRetryOptions(input, config) : {};
+    },
     resolveCompositionData: async (repo, state, runtime) => {
       const config = manifest.repos.find((candidate) => candidate.repoId === repo.repoId);
       if (!config || canonicalRoot(config.canonicalRoot) !== canonicalRoot(repo.canonicalRoot)) {
@@ -164,7 +174,10 @@ export function createProductionAuthorityLifecycle(input: {
       });
       const replicationContent = replication.content;
       const replicaChangeLog = replication.changeLog;
-      const publicationInspector = createGitCanonicalPublicationInspector(authoredRoot);
+      const publicationInspector = createGitCanonicalPublicationInspector(
+        authoredRoot,
+        productionPublicationRetryOptions(input, config)
+      );
       const recoveryGenerationFence = createRuntimeDaemonGenerationWitnessFence({
         runtime,
         workspaceId: config.workspaceId,
@@ -239,6 +252,10 @@ export function createProductionAuthorityLifecycle(input: {
         replicationState: state.replicationState,
         replicationContent,
         replicaChangeLog,
+        ...(input.daemonLogService ? { daemonLogService: input.daemonLogService } : {}),
+        ...(input.onPublicationRetryBudgetSignal ? {
+          onPublicationRetryBudgetSignal: input.onPublicationRetryBudgetSignal
+        } : {}),
         recovery
       };
       materials.set(repo.repoId, material);
@@ -484,20 +501,6 @@ function createRepoComponent(
   };
 }
 
-async function settleProductionRecovery(
-  recovery: ProductionRecoveryState,
-  run: () => Promise<void>
-): Promise<void> {
-  try {
-    await run();
-    recovery.status = "complete";
-    recovery.error = undefined;
-  } catch (error) {
-    recovery.status = "failed";
-    recovery.error = recoveryErrorSummary(error);
-  }
-}
-
 function createConnectionAuthorityService(
   input: Parameters<AuthorityRepoLifecycleHooks["start"]>[0],
   material: RepoProductionMaterial,
@@ -507,7 +510,10 @@ function createConnectionAuthorityService(
   },
   hostServices: ProductionAuthorityHostServices<ProductionAuthorityIdentity>
 ): AuthoritySubmissionService {
-  const publicationInspector = createGitCanonicalPublicationInspector(material.authoredRoot);
+  const publicationInspector = createGitCanonicalPublicationInspector(
+    material.authoredRoot,
+    productionPublicationRetryOptions(material, material.config)
+  );
   const writerGeneration = input.runtime.daemonGenerationContext?.()?.daemonGeneration;
   const generationFence = createRuntimeDaemonGenerationWitnessFence({
     runtime: input.runtime,
@@ -550,17 +556,13 @@ function createConnectionAuthorityService(
   });
 }
 
-function createSerialPublicationExecutor(): {
-  readonly run: <Result>(publication: () => Promise<Result>) => Promise<Result>;
-} {
-  let tail = Promise.resolve();
-  return {
-    run: <Result>(publication: () => Promise<Result>): Promise<Result> => {
-      const result = tail.then(publication, publication);
-      tail = result.then(() => undefined, () => undefined);
-      return result;
-    }
-  };
+function productionPublicationRetryOptions(
+  visibility: PublicationRetryVisibility,
+  config: AuthorityProductionRepoConfigV1
+): ReturnType<typeof publicationRetryOptions> {
+  return visibility.onPublicationRetryBudgetSignal
+    ? { onRetryBudgetSignal: visibility.onPublicationRetryBudgetSignal }
+    : publicationRetryOptions(visibility.daemonLogService, config);
 }
 
 function assertConnectionContext(

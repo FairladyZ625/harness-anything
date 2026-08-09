@@ -113,6 +113,7 @@ export * from "./runtime/runtime-policy.ts";
 export * from "./lifecycle/daemon-lifecycle.ts";
 export * from "./lifecycle/daemon-generation.ts";
 export * from "./lifecycle/daemon-log-file-store.ts";
+export * from "./observability/daemon-retry-budget-log.ts";
 export * from "./lifecycle/compound-receipt-composition.ts";
 export * from "./lifecycle/compound-receipt-runner.ts";
 export * from "./lifecycle/daemon-drain.ts";

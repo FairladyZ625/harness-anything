@@ -141,5 +141,23 @@ export interface RepoWriteRecoveryRejectedFrame extends RepoWriteDiagnosticFrame
   readonly next: string;
 }
 
+export const repoWriteRetryBudgetSignalPhases = [
+  "exhausted", "still-retrying", "recovered"
+] as const;
+
+export type RepoWriteRetryBudgetSignalPhase =
+  typeof repoWriteRetryBudgetSignalPhases[number];
+
+export interface RepoWriteRetryBudgetSignalFrame extends RepoWriteDiagnosticFrameBase {
+  readonly kind: "retry-budget-signal";
+  readonly phase: RepoWriteRetryBudgetSignalPhase;
+  readonly operation: string;
+  readonly cause: string;
+  readonly failures: number;
+  readonly retriesUsed: number;
+  readonly elapsedMs: number;
+  readonly remainingMs?: number;
+}
+
 export type RepoWriteRecoveryDiagnosticFrame =
   RepoWriteRecoveryDeferredFrame | RepoWriteRecoveryRejectedFrame;

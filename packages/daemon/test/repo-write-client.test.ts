@@ -136,12 +136,14 @@ test("shutdown rejects a queued durable request before READY", async () => {
 test("reports historical recovery diagnostics before READY without failing the writer", async () => {
   const transport = new FakeRepoWriteTransport();
   const diagnostics: unknown[] = [];
+  const retryBudgetSignals: unknown[] = [];
   const client = new RepoWriteClient({
     repoId: "repo-canonical",
     generation: 7,
     transport,
     onTelemetry: () => undefined,
-    onDiagnostic: (frame) => diagnostics.push(frame)
+    onDiagnostic: (frame) => diagnostics.push(frame),
+    onRetryBudgetSignal: (frame) => retryBudgetSignals.push(frame)
   });
   transport.emit({
     ...childFrame("recovery-deferred"),
@@ -174,6 +176,25 @@ test("reports historical recovery diagnostics before READY without failing the w
     diagnostic: "Historical recovery evidence conflicts with the canonical publication.",
     next: "Run `ha daemon logs --errors --json`, then escalate for operator-reviewed repair."
   });
+
+  transport.emit({
+    ...childFrame("retry-budget-signal"),
+    phase: "exhausted",
+    operation: "publication-git-object-batch",
+    cause: "GitObjectBatchValidationError: batch response was offset",
+    failures: 2,
+    retriesUsed: 1,
+    elapsedMs: 14
+  });
+  assert.deepEqual(retryBudgetSignals, [{
+    ...childFrame("retry-budget-signal"),
+    phase: "exhausted",
+    operation: "publication-git-object-batch",
+    cause: "GitObjectBatchValidationError: batch response was offset",
+    failures: 2,
+    retriesUsed: 1,
+    elapsedMs: 14
+  }]);
 });
 
 test("resolves an exact rejected terminal receipt instead of converting it to transport failure", async () => {

@@ -32,6 +32,7 @@ export class ReadDownClient {
   authoritativeChanges: ReplicaChangeRecord[] = [];
   invalidEmptyCutChange = false;
   reconnectRequests = 0;
+  connectFailuresRemaining = 0;
   fetchFailuresRemaining = 0;
   closeFailuresRemaining = 0;
   disconnectRegistrationFailure: Error | undefined;
@@ -42,10 +43,19 @@ export class ReadDownClient {
     this.fixture = fixture;
   }
 
-  async connect(): Promise<void> {}
+  async connect(): Promise<void> {
+    if (this.connectFailuresRemaining > 0) {
+      this.connectFailuresRemaining -= 1;
+      throw new AuthorityTransportDisconnectedError("scripted connect disconnect");
+    }
+  }
 
   async reconnect(): Promise<void> {
     this.reconnectRequests += 1;
+    if (this.connectFailuresRemaining > 0) {
+      this.connectFailuresRemaining -= 1;
+      throw new AuthorityTransportDisconnectedError("scripted reconnect disconnect");
+    }
   }
 
   async beginSnapshotAndSubscribe(): Promise<AuthoritySnapshotReservation> {
@@ -160,6 +170,8 @@ export function makeRuntime(
       readonly maximumMs: number;
       readonly multiplier: number;
     };
+    readonly retryBudget?: { readonly maxRetries: number; readonly reminderEveryFailures: number };
+    readonly onRetryBudgetSignal?: (signal: import("../src/observability/visible-retry-budget.ts").RetryBudgetSignal) => void;
   } = {}
 ): RemoteBrokerRuntime {
   return new RemoteBrokerRuntime({
@@ -170,7 +182,9 @@ export function makeRuntime(
     session: {
       client: client as unknown as PersistentSshAuthorityClient,
       backoff: session.backoff ?? { initialMs: 0, maximumMs: 0, multiplier: 1 },
-      ...(session.sleep ? { sleep: session.sleep } : {})
+      ...(session.sleep ? { sleep: session.sleep } : {}),
+      ...(session.retryBudget ? { retryBudget: session.retryBudget } : {}),
+      ...(session.onRetryBudgetSignal ? { onRetryBudgetSignal: session.onRetryBudgetSignal } : {})
     }
   });
 }

@@ -2,8 +2,17 @@
 import { repoWriteCommandDtoFromDecodedFields, type RepoWriteCommandDto } from "./repo-write-command-dto.ts";
 export * from "./repo-write-command-dto.ts";
 import { repoWriteTerminalReceiptMatches } from "./repo-write-terminal-receipt.ts";
-import { type RepoWriteRecoveryDeferredFrame, type RepoWriteRecoveryDiagnosticFrame, type RepoWriteRecoveryRejectedFrame, type RepoWriteTelemetryFrame } from "./repo-write-diagnostic-protocol.ts";
+import {
+  type RepoWriteRecoveryDiagnosticFrame,
+  type RepoWriteRetryBudgetSignalFrame,
+  type RepoWriteTelemetryFrame
+} from "./repo-write-diagnostic-protocol.ts";
 import { decodeRepoWriteTelemetry } from "./repo-write-protocol-telemetry.ts";
+import { decodeRepoWriteRetryBudgetSignal } from "./repo-write-protocol-retry-budget.ts";
+import {
+  decodeRepoWriteRecoveryDeferred,
+  decodeRepoWriteRecoveryRejected
+} from "./repo-write-protocol-recovery.ts";
 import { decodeRepoWriteStartupProgress } from "./repo-write-protocol-startup.ts";
 import type { RepoWriteStartupProgressFrame } from "./repo-write-startup-protocol.ts";
 export {
@@ -11,7 +20,17 @@ export {
   type RepoWriteStartupProgressFrame,
   type RepoWriteStartupProgressPhase
 } from "./repo-write-startup-protocol.ts";
-export type { RepoWriteRecoveryDeferredFrame, RepoWriteRecoveryDiagnosticFrame, RepoWriteRecoveryRejectedFrame, RepoWriteTelemetryDetail, RepoWriteTelemetryDetails, RepoWriteTelemetryFrame, RepoWriteTelemetryPhase } from "./repo-write-diagnostic-protocol.ts";
+export type {
+  RepoWriteRecoveryDeferredFrame,
+  RepoWriteRecoveryDiagnosticFrame,
+  RepoWriteRecoveryRejectedFrame,
+  RepoWriteRetryBudgetSignalFrame,
+  RepoWriteRetryBudgetSignalPhase,
+  RepoWriteTelemetryDetail,
+  RepoWriteTelemetryDetails,
+  RepoWriteTelemetryFrame,
+  RepoWriteTelemetryPhase
+} from "./repo-write-diagnostic-protocol.ts";
 export { boundedRepoWriteDiagnostic } from "./repo-write-protocol-diagnostic.ts";
 import {
   decodeRepoWriteBigInt,
@@ -148,6 +167,7 @@ export type RepoWriteChildMessage =
   | RepoWritePreparedFrame | RepoWriteTerminalFrame | RepoWriteFailureFrame
   | RepoWriteDirectResultFrame | RepoWriteDirectFailureFrame
   | RepoWriteStatusFrame | RepoWriteTelemetryFrame | RepoWriteRecoveryDiagnosticFrame
+  | RepoWriteRetryBudgetSignalFrame
   | RepoWriteDrainedFrame;
 
 export type RepoWriteMessage = RepoWriteParentMessage | RepoWriteChildMessage;
@@ -201,8 +221,15 @@ export function decodeRepoWriteChildMessage(
   if (frame.kind === "failure") return decodeFailure(frame, limits);
   if (frame.kind === "status") return decodeStatus(frame, limits, budget);
   if (frame.kind === "telemetry") return decodeRepoWriteTelemetry(frame, limits, baseFields(frame));
-  if (frame.kind === "recovery-deferred") return decodeRecoveryDeferred(frame, limits);
-  if (frame.kind === "recovery-rejected") return decodeRecoveryRejected(frame, limits);
+  if (frame.kind === "retry-budget-signal") {
+    return decodeRepoWriteRetryBudgetSignal(frame, limits, baseFields(frame));
+  }
+  if (frame.kind === "recovery-deferred") {
+    return decodeRepoWriteRecoveryDeferred(frame, limits, baseFields(frame));
+  }
+  if (frame.kind === "recovery-rejected") {
+    return decodeRepoWriteRecoveryRejected(frame, limits, baseFields(frame));
+  }
   if (frame.kind === "drained") return decodeRequestFrame(frame, limits, "drained");
   invalid("$.kind", "child message kind");
 }
@@ -422,33 +449,6 @@ function assertTerminalReceipt(
   if (!repoWriteTerminalReceiptMatches(outcome, receipt)) {
     invalid(path, "exact command-receipt/v2");
   }
-}
-function decodeRecoveryDeferred(
-  frame: FrameRecord,
-  limits: RepoWriteProtocolLimits
-): RepoWriteRecoveryDeferredFrame {
-  assertExactKeys(frame, baseKeys(["outerOpId", "code", "diagnostic"]), [], "$");
-  return {
-    ...baseFields(frame),
-    kind: "recovery-deferred",
-    outerOpId: identifier(frame.outerOpId, "$.outerOpId", limits),
-    code: identifier(frame.code, "$.code", limits),
-    diagnostic: stringAt(frame.diagnostic, "$.diagnostic", limits.maxDiagnosticBytes)
-  };
-}
-function decodeRecoveryRejected(
-  frame: FrameRecord,
-  limits: RepoWriteProtocolLimits
-): RepoWriteRecoveryRejectedFrame {
-  assertExactKeys(frame, baseKeys(["outerOpId", "code", "diagnostic", "next"]), [], "$");
-  return {
-    ...baseFields(frame),
-    kind: "recovery-rejected",
-    outerOpId: identifier(frame.outerOpId, "$.outerOpId", limits),
-    code: identifier(frame.code, "$.code", limits),
-    diagnostic: stringAt(frame.diagnostic, "$.diagnostic", limits.maxDiagnosticBytes),
-    next: stringAt(frame.next, "$.next", limits.maxDiagnosticBytes)
-  };
 }
 function frameBase(value: unknown, limits: RepoWriteProtocolLimits, budget: { nodes: number }): FrameRecord {
   const frame = recordAt(value, "$");

@@ -381,6 +381,7 @@ test("production composition reads publication evidence from the repo's real aut
     git(authoredRoot, "checkout", "-q", trunk);
     git(authoredRoot, "merge", "-q", "--no-ff", "sessions/session-test", "-m", "materializer: merge session session-test");
     let observed: ReadonlyArray<string> = [];
+    const publicationVisibilityRepos: string[] = [];
     const hooks: AuthorityRepoLifecycleHooks = {
       ...hooksFixture([]),
       start: async ({ repo, inspectPublication }) => {
@@ -391,6 +392,10 @@ test("production composition reads publication evidence from the repo's real aut
     const controller = createAuthorityRepoLifecycleController({
       hooks,
       serviceStateRoot: serviceRoot,
+      resolvePublicationInspectorOptions: (repo) => {
+        publicationVisibilityRepos.push(repo.repoId);
+        return { onRetryBudgetSignal: () => undefined };
+      },
       resolveCompositionData: async (repo) => compositionFixture(repo)
     });
     const result = await controller.startRepo({ repoId: "alpha", canonicalRoot: alphaRoot }, runtimeFixture());
@@ -399,6 +404,7 @@ test("production composition reads publication evidence from the repo's real aut
       "tasks/task_T/INDEX.md",
       `attribution-events/${sha256Text("op-test")}.jsonl`
     ]);
+    assert.deepEqual(publicationVisibilityRepos, ["alpha"]);
     await controller.stopAll("daemon-shutdown");
   });
 });

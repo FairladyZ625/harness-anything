@@ -5,7 +5,11 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { ReplicaChangeLog, ReplicaChangeRecord } from "../../application/src/index.ts";
+import {
+  makeDaemonLogService,
+  type ReplicaChangeLog,
+  type ReplicaChangeRecord
+} from "../../application/src/index.ts";
 import {
   BrokerDurableStateStore,
   RemoteBrokerRuntime,
@@ -199,11 +203,20 @@ test("remote runtime and optional production composition start and stop their pe
     assert.equal(directClient.disconnectListeners.size, 0);
 
     const composedClient = new EmptyReadDownClient();
+    const daemonLogService = makeDaemonLogService({
+      store: {
+        append: async () => undefined,
+        read: async () => ({ records: [], droppedCount: 0 })
+      },
+      cursorSecret: "remote-composition-test-secret"
+    });
     const composition = createProductionCompoundReceiptComposition({
       workspaceId,
       viewId: "view-composed",
       canonicalRoot: path.join(root, "composed-view"),
       stateDirectory: path.join(root, "composed-state"),
+      repoId: "repo-remote-composed",
+      daemonLogService,
       remoteReadDown: {
         client: composedClient as unknown as PersistentSshAuthorityClient,
         backoff: { initialMs: 0, maximumMs: 0, multiplier: 1 }

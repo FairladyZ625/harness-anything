@@ -1,5 +1,5 @@
 import type { Effect } from "effect";
-import type { DomainStatus, EngineError, PackageDisposition, PriorityTier, TaskId, TaskWorkKind, WriteAttribution, WriteError } from "@harness-anything/kernel";
+import type { DomainStatus, EngineError, PackageDisposition, PriorityTier, RetryBudgetSignal, TaskId, TaskWorkKind, WriteAttribution, WriteError } from "@harness-anything/kernel";
 import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import type { ProvenancePayload, WriteCoordinator } from "@harness-anything/kernel";
 
@@ -33,6 +33,7 @@ export interface LocalWriteCoordinatorOptions {
     readonly name: string;
     readonly email: string;
   };
+  readonly onLockConflictRetrySignal?: (signal: RetryBudgetSignal) => void;
 }
 
 export interface AdapterProviderMetadata {

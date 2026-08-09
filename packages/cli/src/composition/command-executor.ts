@@ -16,7 +16,7 @@ import {
   type ProvenanceSessionExportResult,
   type TaskHolderPrincipal
 } from "@harness-anything/application";
-import type { CurrentSessionProbePort, CurrentSessionRef, OperationalActor, WriteCoordinator, WriteError } from "@harness-anything/kernel";
+import type { CurrentSessionProbePort, CurrentSessionRef, OperationalActor, RetryBudgetSignal, WriteCoordinator, WriteError } from "@harness-anything/kernel";
 import { createHarnessRuntimeContext, findConflictMarkerWarnings, makeOperationalJournaledWriteCoordinator } from "@harness-anything/kernel";
 import { toCliError } from "../cli/error-mapper.ts";
 import { normalizeCommandSemantics } from "../cli/command-semantic-normalizer.ts";
@@ -56,6 +56,7 @@ export interface ParsedCommandExecutionOptions {
   readonly syncExportedSession?: (result: ProvenanceSessionExportResult) => Effect.Effect<void, ProvenanceSessionExporterRejected>;
   /** Explicit local composition scopes outside the daemon-owned product route. */
   readonly localCoordinatorScope?: LocalCoordinatorScope;
+  readonly onLockConflictRetrySignal?: (signal: RetryBudgetSignal) => void;
   readonly onTelemetry?: DaemonHostCommandExecutionOptions["onTelemetry"];
   readonly onCommandTelemetry?: DaemonHostCommandExecutionOptions["onCommandTelemetry"];
   readonly conflictMarkerPreflight?: DaemonHostCommandExecutionOptions["conflictMarkerPreflight"];
@@ -149,7 +150,10 @@ export async function runRegisteredCommandWithCliComposition(
       layoutOverrides: command.layoutOverrides,
       attribution: getActorAttribution().writeAttribution,
       commitAuthor: getActorAttribution().commitAuthor,
-      sessionId: getSessionBranchId()
+      sessionId: getSessionBranchId(),
+      ...(options.onLockConflictRetrySignal ? {
+        onLockConflictRetrySignal: options.onLockConflictRetrySignal
+      } : {})
     }), getActorAttribution, options.missingActorAttributionMessage, actor)) : missingInjectedWriteCoordinator);
   const makeWriteCoordinator = requiresConflictMarkerPreflight(command.action)
     ? (actor: OperationalActor) => withConflictMarkerFlushRecheck(
@@ -167,7 +171,10 @@ export async function runRegisteredCommandWithCliComposition(
         layoutOverrides: command.layoutOverrides,
         attribution: migrationWriteAttribution(resolved.writeAttribution, evidenceRef),
         commitAuthor: resolved.commitAuthor,
-        sessionId: getSessionBranchId()
+        sessionId: getSessionBranchId(),
+        ...(options.onLockConflictRetrySignal ? {
+          onLockConflictRetrySignal: options.onLockConflictRetrySignal
+        } : {})
       });
     }, getActorAttribution, options.missingActorAttributionMessage, actor)) : missingInjectedMigrationWriteCoordinator);
   const makeMigrationWriteCoordinator = requiresConflictMarkerPreflight(command.action)
@@ -183,7 +190,10 @@ export async function runRegisteredCommandWithCliComposition(
       rootDir: command.rootDir,
       layoutOverrides: command.layoutOverrides,
       attribution: getActorAttribution().writeAttribution,
-      commitAuthor: getActorAttribution().commitAuthor
+      commitAuthor: getActorAttribution().commitAuthor,
+      ...(options.onLockConflictRetrySignal ? {
+        onLockConflictRetrySignal: options.onLockConflictRetrySignal
+      } : {})
     }), getActorAttribution, options.missingActorAttributionMessage, actor)) : missingInjectedWriteCoordinator);
   const makeSessionWriteCoordinator = requiresConflictMarkerPreflight(command.action)
     ? (actor: OperationalActor) => withConflictMarkerFlushRecheck(

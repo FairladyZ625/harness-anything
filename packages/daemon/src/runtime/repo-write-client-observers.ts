@@ -1,5 +1,6 @@
 import type {
   RepoWriteRecoveryDiagnosticFrame,
+  RepoWriteRetryBudgetSignalFrame,
   RepoWriteTelemetryFrame
 } from "./repo-write-protocol.ts";
 import { repoWriteProtocolType } from "./repo-write-protocol.ts";
@@ -23,6 +24,17 @@ export function observeRepoWriteTelemetry(
 export function observeRepoWriteRecoveryDiagnostic(
   observer: ((frame: RepoWriteRecoveryDiagnosticFrame) => void) | undefined,
   frame: RepoWriteRecoveryDiagnosticFrame
+): void {
+  try {
+    observer?.(frame);
+  } catch {
+    // Operational logging cannot change writer protocol or recovery state.
+  }
+}
+
+export function observeRepoWriteRetryBudgetSignal(
+  observer: ((frame: RepoWriteRetryBudgetSignalFrame) => void) | undefined,
+  frame: RepoWriteRetryBudgetSignalFrame
 ): void {
   try {
     observer?.(frame);

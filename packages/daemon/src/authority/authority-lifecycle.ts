@@ -246,6 +246,10 @@ interface StartedAuthorityRepo {
   stopping?: Promise<void>;
 }
 
+type PublicationInspectorOptions = NonNullable<
+  Parameters<typeof createGitCanonicalPublicationInspector>[1]
+>;
+
 export function createAuthorityRepoLifecycleController(input: {
   readonly hooks: AuthorityRepoLifecycleHooks;
   readonly serviceStateRoot: string;
@@ -255,6 +259,9 @@ export function createAuthorityRepoLifecycleController(input: {
     runtime: AuthorityLifecycleRuntime
   ) => Promise<AuthorityRepoCompositionData>;
   readonly resolvePublicationRoot?: (repo: DaemonRepoNamespace) => string;
+  readonly resolvePublicationInspectorOptions?: (
+    repo: DaemonRepoNamespace
+  ) => PublicationInspectorOptions;
   /** Test-only escape hatch; production composition must carry durable adapter markers. */
   readonly allowInMemoryFixture?: true;
 }): AuthorityRepoLifecycleController {
@@ -314,7 +321,8 @@ export function createAuthorityRepoLifecycleController(input: {
       const serverData = await input.resolveCompositionData(repo, state, runtime);
       validateServerData(repo, serverData, input.allowInMemoryFixture === true);
       publicationInspector = createGitCanonicalPublicationInspector(
-        input.resolvePublicationRoot?.(repo) ?? resolveHarnessLayout(repo.canonicalRoot).authoredRoot
+        input.resolvePublicationRoot?.(repo) ?? resolveHarnessLayout(repo.canonicalRoot).authoredRoot,
+        input.resolvePublicationInspectorOptions?.(repo)
       );
       const attributedCoordinatorFactory = makeHeldLockAttributedCoordinatorFactory(runtime);
       component = await input.hooks.start({
