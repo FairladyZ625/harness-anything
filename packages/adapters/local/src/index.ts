@@ -370,18 +370,28 @@ const gitMaxBuffer = resolveGitMaxBufferBytes();
 function readTaskTreeStatus(rootInput: HarnessLayoutInput, taskId: string): LocalTaskTreeStatusResult {
   const packagePath = taskPackagePath(rootInput, taskId);
   if (!gitTopLevel(packagePath)) return { taskId, dirty: false, entries: [] };
-  const output = execFileSync("git", ["-C", packagePath, "status", "--porcelain", "-uall", "--", "."], {
+  const output = execFileSync("git", ["-C", packagePath, "status", "--porcelain=v1", "-z", "-uall", "--", "."], {
     encoding: "utf8",
     maxBuffer: gitMaxBuffer,
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true
   });
-  const entries = output
-    .split(/\r?\n/u)
-    .map((entry) => entry.trim())
-    .filter(Boolean)
+  const entries = porcelainStatusEntries(output)
     .filter((entry) => !statusEntryPath(entry).endsWith(".log"));
   return { taskId, dirty: entries.length > 0, entries };
+}
+
+function porcelainStatusEntries(output: string): ReadonlyArray<string> {
+  const records = output.split("\0");
+  const entries: string[] = [];
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    if (!record) continue;
+    entries.push(record);
+    const code = record.slice(0, 2);
+    if (code.includes("R") || code.includes("C")) index += 1;
+  }
+  return entries;
 }
 
 function gitTopLevel(inputPath: string): string | null {
@@ -398,10 +408,7 @@ function gitTopLevel(inputPath: string): string | null {
 }
 
 function statusEntryPath(entry: string): string {
-  const renamedSeparator = " -> ";
-  const pathText = entry.slice(3);
-  const renamedIndex = pathText.indexOf(renamedSeparator);
-  return renamedIndex >= 0 ? pathText.slice(renamedIndex + renamedSeparator.length) : pathText;
+  return entry.slice(3);
 }
 
 function archiveTask(
