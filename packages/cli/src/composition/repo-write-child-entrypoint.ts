@@ -59,11 +59,18 @@ function remainingStartupRecoveryBudgetMs(): number {
 export async function runRepoWriteChildEntrypoint(
   encodedConfig: string | undefined
 ): Promise<void> {
+  // The parent kills this child when it does not announce READY inside
+  // readyTimeoutMs. Without per-phase evidence a timeout is undiagnosable from
+  // outside the process, so every startup phase reports its own cost on stderr,
+  // which the launcher already captures next to the timeout stack.
+  const startupPhase = makeRepoWriteChildStartupPhaseReporter();
   if (!encodedConfig) throw new Error("REPO_WRITE_CHILD_LAUNCH_CONFIG_REQUIRED");
   const config = decodeRepoWriteChildLaunchConfig(encodedConfig);
+  startupPhase.mark("decode-launch-config");
   const entrypointArtifactIdentity = calculateDaemonArtifactIdentity(
     process.argv[1] ?? ""
   ).identity;
+  startupPhase.mark("artifact-identity");
   if (entrypointArtifactIdentity !== config.entrypointArtifactIdentity) {
     throw new Error("REPO_WRITE_CHILD_ENTRYPOINT_ARTIFACT_MISMATCH");
   }
@@ -73,6 +80,7 @@ export async function runRepoWriteChildEntrypoint(
       && canonicalExistingRoot(repo.canonicalRoot) === canonicalExistingRoot(config.canonicalRoot)
   );
   if (!authorityRepo) throw new Error("REPO_WRITE_CHILD_REPO_NOT_CONFIGURED");
+  startupPhase.mark("load-authority-manifest");
 
   const layoutOverrides = config.authoredRoot
     ? { authoredRoot: config.authoredRoot }
@@ -84,6 +92,7 @@ export async function runRepoWriteChildEntrypoint(
   // Establish the generation baseline before the child advertises readiness so
   // no request pays for a full authored-tree conflict-marker scan.
   conflictMarkerPreflight.read();
+  startupPhase.mark("conflict-marker-preflight");
   const witness = createDaemonGenerationWitness({
     userRoot: config.userRoot,
     endpointIdentity: config.endpointIdentity,
@@ -127,7 +136,9 @@ export async function runRepoWriteChildEntrypoint(
     }
   });
   runtimeBox.current = runtime;
+  startupPhase.mark("create-daemon-runtime");
   await runtime.start();
+  startupPhase.mark("runtime-start");
 
   const outcomes = new DurableRepoWriteOutcomeStoreV1({
     directory: path.join(
@@ -181,7 +192,9 @@ export async function runRepoWriteChildEntrypoint(
     repoId: config.repoId,
     canonicalRoot: config.canonicalRoot
   };
+  startupPhase.mark("compose-authority-lifecycle");
   const started = await authorityLifecycle.startRepo(repo, lifecycleRuntime);
+  startupPhase.mark("authority-start-repo");
   if (!started.ok) {
     await runtime.stop();
     throw new Error(started.error);
@@ -195,12 +208,18 @@ export async function runRepoWriteChildEntrypoint(
   const transport = new RepoWriteChildIpcTransport();
   const startupRecoveryBudgetMs = remainingStartupRecoveryBudgetMs();
   const startupRecoveryDeadline = Date.now() + startupRecoveryBudgetMs;
+  const historicalProceedings = outcomes.listHistoricalProceedings();
+  startupPhase.mark("list-historical-proceedings", {
+    proceedingCount: historicalProceedings.length
+  });
   let proceedingsLeftByBudget = 0;
-  for (const proceeding of outcomes.listHistoricalProceedings()) {
+  let recoveredProceedings = 0;
+  for (const proceeding of historicalProceedings) {
     if (Date.now() >= startupRecoveryDeadline) {
       proceedingsLeftByBudget += 1;
       continue;
     }
+    const proceedingStartedAt = startupPhase.now();
     try {
       const recovery = await recoveryGate.recoverHistoricalProceeding(proceeding);
       if (recovery.disposition === "permanently-rejected") {
@@ -231,7 +250,15 @@ export async function runRepoWriteChildEntrypoint(
         diagnostic: boundedRecoveryError(error)
       });
     }
+    recoveredProceedings += 1;
+    startupPhase.observeProceeding(proceedingStartedAt);
   }
+  startupPhase.mark("historical-recovery-loop", {
+    proceedingCount: recoveredProceedings,
+    slowestProceedingMs: startupPhase.slowestProceedingMs(),
+    budgetMs: startupRecoveryBudgetMs,
+    leftByBudget: proceedingsLeftByBudget
+  });
   if (proceedingsLeftByBudget > 0) {
     process.stderr.write(
       `[repo-write-child] repo=${config.repoId} left ${proceedingsLeftByBudget} historical `
@@ -343,11 +370,68 @@ export async function runRepoWriteChildEntrypoint(
     transport.onDisconnect(() => {
       void cleanup().then(resolve, reject);
     });
-    void childHost.start().catch(async (error: unknown) => {
+    void childHost.start().then(() => {
+      startupPhase.mark("child-host-start-ready");
+      startupPhase.reportTotal();
+    }).catch(async (error: unknown) => {
       await cleanup().catch(() => undefined);
       reject(error);
     });
   });
+}
+
+interface RepoWriteChildStartupPhaseReporter {
+  readonly now: () => number;
+  readonly mark: (phase: string, detail?: Record<string, number>) => void;
+  readonly observeProceeding: (startedAt: number) => void;
+  readonly slowestProceedingMs: () => number;
+  readonly reportTotal: () => void;
+}
+
+/**
+ * Emits one NDJSON frame per pre-READY phase on stderr. The daemon launcher
+ * already persists child stderr beside the READY-timeout stack, so a timeout
+ * carries its own phase breakdown instead of requiring a live reproduction.
+ */
+function makeRepoWriteChildStartupPhaseReporter(): RepoWriteChildStartupPhaseReporter {
+  const startedAt = performance.now();
+  let previous = startedAt;
+  let slowestProceedingMs = 0;
+  const emit = (frame: Record<string, unknown>) => {
+    try {
+      process.stderr.write(`${JSON.stringify({
+        schema: "repo-write-child-startup-phase/v1",
+        pid: process.pid,
+        ...frame
+      })}\n`);
+    } catch {
+      // Startup diagnostics must never take the writer child down.
+    }
+  };
+  return {
+    now: () => performance.now(),
+    mark: (phase, detail) => {
+      const at = performance.now();
+      emit({
+        phase,
+        phaseMs: Math.round(at - previous),
+        sinceEntrypointMs: Math.round(at - startedAt),
+        ...(detail ?? {})
+      });
+      previous = at;
+    },
+    observeProceeding: (proceedingStartedAt) => {
+      slowestProceedingMs = Math.max(
+        slowestProceedingMs,
+        Math.round(performance.now() - proceedingStartedAt)
+      );
+    },
+    slowestProceedingMs: () => slowestProceedingMs,
+    reportTotal: () => emit({
+      phase: "ready",
+      sinceEntrypointMs: Math.round(performance.now() - startedAt)
+    })
+  };
 }
 
 function canonicalExistingRoot(rootDir: string): string {
