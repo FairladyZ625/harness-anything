@@ -8,6 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { createGitCanonicalPublicationInspector } from "../src/authority/production/publication-evidence.ts";
 import { scanFirstParentPublicationMetadata } from "../src/authority/production/publication-history.ts";
+import { assertVerifiedGitObjectContent } from "../src/authority/production/publication-object-reader.ts";
 import {
   authorityBatchTrailerName,
   buildAuthorityBatchIntegrity
@@ -15,6 +16,45 @@ import {
 
 const opId = "namespace-test:publication-topology";
 const posixTest = process.platform === "win32" ? test.skip : test;
+
+test("publication object verification rejects same-size offset bytes", () => {
+  const expected = Buffer.from("publication object\n");
+  const requestedOid = createHash("sha1")
+    .update(`blob ${expected.length}\0`)
+    .update(expected)
+    .digest("hex");
+  const offset = Buffer.concat([expected.subarray(1), expected.subarray(0, 1)]);
+
+  assert.throws(
+    () => assertVerifiedGitObjectContent({
+      requestedOid,
+      objectType: "blob",
+      declaredSize: expected.length,
+      content: offset,
+      trailingByte: 0x0a
+    }),
+    /AUTHORITY_GIT_OBJECT_HASH_MISMATCH/u
+  );
+});
+
+test("publication object verification requires LF immediately after content", () => {
+  const content = Buffer.from("publication object\n");
+  const requestedOid = createHash("sha1")
+    .update(`blob ${content.length}\0`)
+    .update(content)
+    .digest("hex");
+
+  assert.throws(
+    () => assertVerifiedGitObjectContent({
+      requestedOid,
+      objectType: "blob",
+      declaredSize: content.length,
+      content,
+      trailingByte: 0x00
+    }),
+    /AUTHORITY_GIT_OBJECT_TRAILING_LF_MISSING/u
+  );
+});
 
 test("publication proof accepts the existing two-parent materializer shape", async (context) => {
   const fixture = publicationFixture(context);

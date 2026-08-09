@@ -20,7 +20,8 @@ import {
   createGitCanonicalPublicationInspector,
   openDurableAuthorityServiceState,
   type CanonicalPublicationEvidence,
-  type DurableAuthorityServiceState
+  type DurableAuthorityServiceState,
+  type GitCanonicalPublicationInspector
 } from "@harness-anything/daemon";
 import {
   resolveHarnessLayout,
@@ -240,6 +241,7 @@ interface StartedAuthorityRepo {
   readonly repo: DaemonRepoNamespace;
   readonly component: AuthorityRepoComponent;
   readonly state: DurableAuthorityServiceState;
+  readonly publicationInspector: GitCanonicalPublicationInspector;
   published: boolean;
   stopping?: Promise<void>;
 }
@@ -303,6 +305,7 @@ export function createAuthorityRepoLifecycleController(input: {
   ): Promise<AuthorityRepoStartResult> {
     let state: DurableAuthorityServiceState | undefined;
     let component: AuthorityRepoComponent | undefined;
+    let publicationInspector: GitCanonicalPublicationInspector | undefined;
     try {
       state = openDurableAuthorityServiceState({
         serviceStateRoot: input.serviceStateRoot,
@@ -310,7 +313,7 @@ export function createAuthorityRepoLifecycleController(input: {
       });
       const serverData = await input.resolveCompositionData(repo, state, runtime);
       validateServerData(repo, serverData, input.allowInMemoryFixture === true);
-      const publicationInspector = createGitCanonicalPublicationInspector(
+      publicationInspector = createGitCanonicalPublicationInspector(
         input.resolvePublicationRoot?.(repo) ?? resolveHarnessLayout(repo.canonicalRoot).authoredRoot
       );
       const attributedCoordinatorFactory = makeHeldLockAttributedCoordinatorFactory(runtime);
@@ -331,11 +334,12 @@ export function createAuthorityRepoLifecycleController(input: {
         admissionBudget: runtime.admissionBudget
       });
       await input.hooks.serve({ repo, component });
-      started.set(repo.repoId, { repo, component, state, published: true });
+      started.set(repo.repoId, { repo, component, state, publicationInspector, published: true });
       unavailable.delete(repo.repoId);
       return { ok: true, component };
     } catch (error) {
       if (component) await stopStartedComponent(repo, component, "repo-detached").catch(() => undefined);
+      await publicationInspector?.shutdown().catch(() => undefined);
       await state?.close().catch(() => undefined);
       const message = authorityLifecycleErrorMessage(error);
       unavailable.set(repo.repoId, message);
@@ -352,8 +356,12 @@ export function createAuthorityRepoLifecycleController(input: {
       try {
         await stopStartedComponent(repo, entry.component, reason);
       } finally {
-        await entry.state.close();
-        started.delete(repo.repoId);
+        try {
+          await entry.publicationInspector.shutdown();
+        } finally {
+          await entry.state.close();
+          started.delete(repo.repoId);
+        }
       }
     })();
     await entry.stopping;
