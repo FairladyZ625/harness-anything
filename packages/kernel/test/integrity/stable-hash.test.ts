@@ -10,6 +10,15 @@ test("stable stringify sorts object keys recursively", () => {
   );
 });
 
+test("stable stringify emits valid JSON when values are undefined", () => {
+  // JSON.stringify semantics: undefined-valued keys are omitted, undefined
+  // array items become null. The naive recursion interpolated the literal
+  // text `undefined`, which produced unparseable persisted records.
+  const text = stableStringify({ module: undefined, preset: "standard-task", list: [1, undefined, 2] });
+  assert.equal(text, "{\"list\":[1,null,2],\"preset\":\"standard-task\"}");
+  assert.deepEqual(JSON.parse(text), { list: [1, null, 2], preset: "standard-task" });
+});
+
 test("stable payload hash ignores object insertion order", () => {
   assert.equal(
     stablePayloadHash({ nested: { b: "two", a: "one" }, list: [3, 2, 1] }),
