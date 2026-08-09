@@ -209,10 +209,9 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
       .filter(Boolean),
     changedFilesBetween: (repoRoot, before, after) => {
       if (before === after) return [];
-      return runGit(repoRoot, "diff", "--name-only", before, after)
-        .split(/\r?\n/u)
-        .map((entry) => entry.trim())
-        .filter(Boolean);
+      return nullDelimitedGitPaths(
+        runGitBytes(repoRoot, "diff", "--name-only", "-z", before, after)
+      ).map((entry) => Buffer.from(entry).toString("utf8"));
     },
     resetQuiet: (repoRoot, pathspecs) => {
       if (pathspecs.length === 0) return;

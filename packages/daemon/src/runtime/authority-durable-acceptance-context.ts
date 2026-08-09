@@ -14,14 +14,45 @@ interface AuthorityDurableAcceptanceObserver {
   readonly accept: (acceptance: AuthorityDurableAcceptance) => void;
 }
 
-const storage = new AsyncLocalStorage<AuthorityDurableAcceptanceObserver>();
+interface AuthorityDurableAcceptanceScope {
+  readonly accept: (acceptance: AuthorityDurableAcceptance) => void;
+  readonly accepted: Promise<void>;
+}
+
+const storage = new AsyncLocalStorage<AuthorityDurableAcceptanceScope>();
 const settlementReleaseStorage = new AsyncLocalStorage<Promise<void>>();
 
 export function runWithAuthorityDurableAcceptance<Result>(
   observer: AuthorityDurableAcceptanceObserver,
   operation: () => Result
 ): Result {
-  return storage.run(observer, operation);
+  let signal!: () => void;
+  const accepted = new Promise<void>((resolve) => {
+    signal = resolve;
+  });
+  let reported = false;
+  return storage.run({
+    accepted,
+    accept: (acceptance) => {
+      if (reported) return;
+      reported = true;
+      signal();
+      observer.accept(acceptance);
+    }
+  }, operation);
+}
+
+/** Capture the command observer before crossing the shared write queue. */
+export function captureCurrentAuthorityDurableAcceptanceReporter():
+  | ((acceptance: AuthorityDurableAcceptance) => void)
+  | undefined {
+  const scope = storage.getStore();
+  return scope ? (acceptance) => scope.accept(acceptance) : undefined;
+}
+
+/** Release a shared publication slot at the durable cut, not full settlement. */
+export function currentAuthorityDurableAcceptanceSignal(): Promise<void> | undefined {
+  return storage.getStore()?.accepted;
 }
 
 /**

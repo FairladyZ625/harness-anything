@@ -161,6 +161,86 @@ controllerTest("accepted returns before settlement and later exposes canonical v
   });
 });
 
+controllerTest("failure receipt after partial durable admission remains accepted and queryable", async () => {
+  await withController(async ({ controller, proceeding, options }) => {
+    const prepared = controller.prepare({
+      proceeding,
+      executeFresh: async () => ({
+        kind: "accepted" as const,
+        receipt: rejectedCommandReceipt(),
+        acceptance: {
+          sessionId: "session-partial-failure",
+          acceptedCommitSha: "b".repeat(40),
+          flush: {
+            reason: "explicit",
+            opCount: 1,
+            committed: true,
+            watermark: proceeding.innerOpId
+          }
+        },
+        acceptedCommitSha: "b".repeat(40),
+        settlement: new Promise<RepoWriteTerminalEvidenceV1>(() => undefined)
+      })
+    });
+
+    const accepted = await prepared.execute();
+
+    assert.equal("kind" in accepted ? accepted.kind : undefined, "accepted");
+    assert.equal("kind" in accepted && accepted.kind === "accepted" ? accepted.receipt.ok : true, false);
+    assert.equal(options.settlements.lookup(proceeding.outerOpId)?.state, "pending");
+  });
+});
+
+controllerTest("visible sidecar publish failure does not overwrite a terminal canonical truth with failed", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-visible-sidecar-"));
+  const store = new DurableRepoWriteOutcomeStoreV1({ directory, ...axes() });
+  const settlements = new ReceiptSettlementStore({
+    directory: path.join(directory, "receipt-settlements"),
+    ...axes(),
+    __testOnlyDurabilityHooks: {
+      beforePublishLink: ({ target }) => {
+        if (target.endsWith(".visible.json")) throw new Error("injected visible sidecar failure");
+      }
+    }
+  });
+  const proceeding = proceedingInput();
+  const controller = new RepoWriteDurableOperationController({
+    ...axes(),
+    store,
+    settlements,
+    recover: async () => assert.fail("recovery should not run")
+  });
+  try {
+    const prepared = controller.prepare({
+      proceeding,
+      executeFresh: async () => ({
+        kind: "accepted" as const,
+        receipt: committedCommandReceipt(),
+        acceptance: {
+          sessionId: "session-sidecar-failure",
+          acceptedCommitSha: "b".repeat(40),
+          flush: {
+            reason: "explicit",
+            opCount: 1,
+            committed: true,
+            watermark: proceeding.innerOpId
+          }
+        },
+        acceptedCommitSha: "b".repeat(40),
+        settlement: Promise.resolve(terminalEvidence(proceeding, "committed"))
+      })
+    });
+
+    await prepared.execute();
+    await controller.settlementIdle();
+
+    assert.equal(store.lookup(proceeding.outerOpId).state, "terminal");
+    assert.equal(settlements.lookup(proceeding.outerOpId)?.state, "pending");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 controllerTest("replacement recovery completes an earlier PROCEEDING before a later append", async () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-order-"));
   const store = new DurableRepoWriteOutcomeStoreV1({

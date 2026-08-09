@@ -147,7 +147,6 @@ test("CLI doc sync submit commits eligible prose through the daemon", async () =
   await withTempRoot(async (rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
     const taskRoot = path.join(harnessRoot, "tasks", "task_01KX3W4V1EDPHPTGWYYBQQ2J75");
-    const sessionBranch = "sessions/doc-sync-cli-test";
     mkdirSync(taskRoot, { recursive: true });
     seedDocSyncWriteRoadRegistry(rootDir);
     writeFileSync(path.join(harnessRoot, "harness.yaml"), [
@@ -176,13 +175,13 @@ test("CLI doc sync submit commits eligible prose through the daemon", async () =
     assert.equal(submitted.report.appliedChanges[0].path, "tasks/task_01KX3W4V1EDPHPTGWYYBQQ2J75/task_plan.md");
     assert.match(gitStatus(harnessRoot), /facts\.md/u);
     const author = await pollUntil(
-      () => execFileSync("git", ["-C", harnessRoot, "log", "-1", "--format=%an <%ae>", sessionBranch], { encoding: "utf8" }).trim(),
+      () => execFileSync("git", ["-C", harnessRoot, "log", "-1", "--format=%an <%ae>", submitted.report.appliedLedgerSha], { encoding: "utf8" }).trim(),
       (candidate) => candidate === "Doc Sync User <harness@example.test>",
       (candidate, error) => JSON.stringify({ candidate, error: String(error ?? ""), submitted })
     );
     assert.equal(author, "Doc Sync User <harness@example.test>");
     assert.match(
-      execFileSync("git", ["-C", harnessRoot, "show", `${sessionBranch}:tasks/task_01KX3W4V1EDPHPTGWYYBQQ2J75/task_plan.md`], { encoding: "utf8" }),
+      execFileSync("git", ["-C", harnessRoot, "show", `${submitted.report.appliedLedgerSha}:tasks/task_01KX3W4V1EDPHPTGWYYBQQ2J75/task_plan.md`], { encoding: "utf8" }),
       /Updated through daemon/u
     );
   });
@@ -195,7 +194,6 @@ test("CLI doc sync materializes an exact log artifact", async () => {
     const taskRoot = path.join(harnessRoot, "tasks", taskId);
     const relativePath = `tasks/${taskId}/artifacts/daemon-evidence.log`;
     const targetPath = path.join(harnessRoot, relativePath);
-    const sessionBranch = "sessions/doc-sync-cli-test";
     const body = `${"x".repeat(47_659)}\n`;
     mkdirSync(taskRoot, { recursive: true });
     seedDocSyncWriteRoadRegistry(rootDir);
@@ -218,7 +216,7 @@ test("CLI doc sync materializes an exact log artifact", async () => {
     assert.equal(submitted.report.status, "accepted");
     assert.equal(submitted.report.appliedChanges[0].path, relativePath);
     assert.equal(
-      execFileSync("git", ["-C", harnessRoot, "show", `${sessionBranch}:${relativePath}`], { encoding: "utf8" }),
+      execFileSync("git", ["-C", harnessRoot, "show", `${submitted.report.appliedLedgerSha}:${relativePath}`], { encoding: "utf8" }),
       body
     );
   });
@@ -231,7 +229,6 @@ test("CLI doc status and sync preserve a non-ASCII artifact path", async () => {
     const taskRoot = path.join(harnessRoot, "tasks", taskId);
     const relativePath = `tasks/${taskId}/artifacts/实测报告.md`;
     const targetPath = path.join(harnessRoot, relativePath);
-    const sessionBranch = "sessions/doc-sync-cli-test";
     const body = "# 实测报告\n\n中文文件名写路证据。\n";
     mkdirSync(taskRoot, { recursive: true });
     seedDocSyncWriteRoadRegistry(rootDir);
@@ -250,7 +247,7 @@ test("CLI doc status and sync preserve a non-ASCII artifact path", async () => {
     assert.equal(submitted.ok, true, JSON.stringify(submitted));
     assert.equal(submitted.report.appliedChanges[0].path, relativePath);
     assert.equal(
-      execFileSync("git", ["-C", harnessRoot, "show", `${sessionBranch}:${relativePath}`], { encoding: "utf8" }),
+      execFileSync("git", ["-C", harnessRoot, "show", `${submitted.report.appliedLedgerSha}:${relativePath}`], { encoding: "utf8" }),
       body
     );
   });
@@ -260,7 +257,6 @@ test("task artifact add submits UTF-8 evidence through the existing doc-sync gov
   await withTempRoot(async (rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
     const taskId = "task_01KX3W4V1EDPHPTGWYYBQQ2J75";
-    const sessionBranch = "sessions/doc-sync-cli-test";
     const taskRoot = path.join(harnessRoot, "tasks", taskId);
     mkdirSync(taskRoot, { recursive: true });
     writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex());
@@ -274,13 +270,14 @@ test("task artifact add submits UTF-8 evidence through the existing doc-sync gov
     assert.equal(submitted.ok, true);
     assert.equal(submitted.command, "artifact-add");
     assert.deepEqual(submitted.report.artifacts, [target]);
-    const committedBody = await pollUntil(
-      () => execFileSync("git", ["-C", harnessRoot, "show", `${sessionBranch}:${target}`], { encoding: "utf8" }),
-      (candidate) => candidate === "governed evidence\n",
-      (candidate, error) => JSON.stringify({ candidate, error: String(error ?? ""), submitted })
+    const acceptedCommitSha = submitted.report.docSync.appliedLedgerSha;
+    const committedBody = execFileSync(
+      "git",
+      ["-C", harnessRoot, "show", `${acceptedCommitSha}:${target}`],
+      { encoding: "utf8" }
     );
     assert.equal(committedBody, "governed evidence\n");
-    assert.match(execFileSync("git", ["-C", harnessRoot, "log", "-1", "--format=%s", sessionBranch], { encoding: "utf8" }), /^entity\(doc-sync-submit\):/u);
+    assert.match(execFileSync("git", ["-C", harnessRoot, "log", "-1", "--format=%s", acceptedCommitSha], { encoding: "utf8" }), /^entity\(doc-sync-submit\):/u);
   });
 });
 

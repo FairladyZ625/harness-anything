@@ -20,6 +20,40 @@ type PendingSettlement = Extract<
   { readonly canonicalVisibility: "pending" }
 >;
 
+export interface ReceiptSettlementRecoveryLoop {
+  readonly trigger: () => Promise<void>;
+  readonly stop: () => void;
+}
+
+export function createReceiptSettlementRecoveryLoop(input: {
+  readonly intervalMs: number;
+  readonly recover: () => Promise<void>;
+  readonly onError?: (error: unknown) => void;
+}): ReceiptSettlementRecoveryLoop {
+  let stopped = false;
+  let active: Promise<void> | undefined;
+  const trigger = (): Promise<void> => {
+    if (stopped) return Promise.resolve();
+    active ??= input.recover()
+      .catch((error) => input.onError?.(error))
+      .finally(() => {
+        active = undefined;
+      });
+    return active;
+  };
+  const timer = setInterval(() => {
+    void trigger();
+  }, input.intervalMs);
+  timer.unref();
+  return {
+    trigger,
+    stop: () => {
+      stopped = true;
+      clearInterval(timer);
+    }
+  };
+}
+
 export async function settleAcceptedSession(input: {
   readonly settlements: ReceiptSettlementStore;
   readonly runtime: HarnessDaemonRuntime;
@@ -74,6 +108,15 @@ export async function recoverPendingSettlementMaterialization(input: {
     }
     try {
       await input.runtime.enqueueMaterializerBatch({ sessionId: pending.sessionId });
+      const visible = withCommandReceiptSettlement(
+        record.receipt,
+        visibleCommandReceiptSettlement(
+          pending,
+          canonicalCommitContaining(input.authoredRoot, pending.acceptedCommitSha),
+          new Date().toISOString()
+        )
+      );
+      input.settlements.visible(visible);
     } catch (error) {
       failSettlement(input.settlements, record.receipt, pending, error);
     }
@@ -156,7 +199,7 @@ function failSettlement(
   settlements.fail(failed);
 }
 
-function canonicalCommitContaining(authoredRoot: string, acceptedCommitSha: string): string {
+export function canonicalCommitContaining(authoredRoot: string, acceptedCommitSha: string): string {
   const canonicalCommitSha = execFileSync(
     "git",
     ["-C", authoredRoot, "rev-parse", "--verify", "HEAD^{commit}"],

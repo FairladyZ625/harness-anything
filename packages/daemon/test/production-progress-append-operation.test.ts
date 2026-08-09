@@ -18,7 +18,8 @@ import {
   type AuthorityRepoComponent,
   type AuthorityRepoConnectionBinding,
   type HarnessDaemonRuntime,
-  type ProductionProgressAppendCompileInput
+  type ProductionProgressAppendCompileInput,
+  type RepoWriteDocSyncExecution
 } from "../src/index.ts";
 import { cliDaemonCommandHostServices } from "../../cli/src/composition/daemon-command-host-services.ts";
 import { daemonActorAttribution } from "../../cli/src/composition/actor-attribution.ts";
@@ -335,7 +336,8 @@ function operationHost(
   store: DurableRepoWriteOutcomeStoreV1,
   authorityComponent: AuthorityRepoComponent,
   events: string[],
-  outcomeDirectory: string
+  outcomeDirectory: string,
+  executeDocSyncSubmit?: () => Promise<RepoWriteDocSyncExecution>
 ) {
   return new ProductionProgressAppendOperationHost({
     ...axes(),
@@ -348,7 +350,8 @@ function operationHost(
       ...axes()
     }),
     now: () => new Date("2026-07-24T00:00:00.000Z"),
-    newOuterOpId: () => "outer-progress-operation"
+    newOuterOpId: () => "outer-progress-operation",
+    ...(executeDocSyncSubmit ? { executeDocSyncSubmit } : {})
   });
 }
 

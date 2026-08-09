@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -145,6 +145,51 @@ test("a command failure after durable admission still returns a queryable receip
     assert.equal(receipt.ok, false);
     assert.equal(receipt.settlement?.canonicalVisibility, "pending");
     assert.equal(first.lookup("repo-write-direct:op-partial-failure")?.state, "pending");
+  });
+});
+
+test("corrupt failure evidence is skipped with a warning while valid settlement truth remains queryable", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "ha-receipt-settlement-corrupt-"));
+  const warnings: string[] = [];
+  try {
+    const receipts = new ReceiptSettlementStore({
+      directory,
+      repoId: "repo-settlement",
+      workspaceId: "workspace-settlement",
+      generation: 7,
+      onWarning: (warning) => warnings.push(warning)
+    });
+    const accepted = acceptedReceipt("receipt-corrupt-failure", "session-corrupt", "a");
+    receipts.accept(accepted);
+    receipts.fail(failedReceipt(accepted, "valid failure", "2026-08-09T10:00:03.000Z"));
+    const valid = readdirSync(directory).find((name) => name.includes(".failure."));
+    assert.ok(valid);
+    const corrupt = path.join(directory, valid.replace(/\.json$/u, ".corrupt.json"));
+    writeFileSync(corrupt, "{broken\n", { mode: 0o600 });
+    chmodSync(corrupt, 0o600);
+
+    const current = receipts.lookup("receipt-corrupt-failure");
+
+    assert.equal(current?.state, "failed");
+    assert.match(warnings.join("\n"), /RECEIPT_SETTLEMENT_FAILURE_SKIPPED/u);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("failure history is compacted to a bounded number of evidence files", () => {
+  withStores(({ directory, first }) => {
+    const accepted = acceptedReceipt("receipt-bounded-failures", "session-bounded", "a");
+    first.accept(accepted);
+    for (let index = 0; index < 12; index += 1) {
+      first.fail(failedReceipt(
+        accepted,
+        `failure ${index}`,
+        `2026-08-09T10:00:${String(index).padStart(2, "0")}.000Z`
+      ));
+    }
+    assert.ok(readdirSync(directory).filter((name) => name.includes(".failure.")).length <= 8);
+    assert.equal(first.lookup("receipt-bounded-failures")?.state, "failed");
   });
 });
 

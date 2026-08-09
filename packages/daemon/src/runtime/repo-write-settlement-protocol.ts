@@ -42,7 +42,7 @@ export function receiptSettlementVisibilityMatches(
 ): boolean {
   try {
     const decoded = decodeRepoWriteCommandReceiptV2(receipt, path);
-    return decoded.ok && decoded.settlement?.canonicalVisibility === visibility;
+    return decoded.settlement?.canonicalVisibility === visibility;
   } catch {
     return false;
   }

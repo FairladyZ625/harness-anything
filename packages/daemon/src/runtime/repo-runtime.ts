@@ -77,6 +77,8 @@ import { describeRepoRuntimeError } from "./repo-runtime-error.ts";
 import { acquireRepoRuntimeGlobalLock } from "./repo-runtime-lock.ts";
 import { bindCurrentRepoWriteTelemetry } from "./repo-write-telemetry-context.ts";
 import { resolveAuthoritySessionCommit } from "./authority-session-commit.ts";
+import { canonicalCommitContaining } from "./canonical-commit-ancestry.ts";
+import { requireContext, sortedContexts } from "./repo-runtime-context-map.ts";
 import { reportFlushGitCommitPhase, reportFlushPostCommitPhase, reportFlushProjectionFingerprintDiagnostic, reportFlushProjectionFingerprintPhase, runMaterializerWithRepoWriteTelemetry } from "./repo-write-materializer-telemetry.ts";
 
 const defaultDaemonOperationalActor: OperationalActor = { scope: "operational", kind: "system", id: "daemon-runtime" };
@@ -411,7 +413,8 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       this.queue,
       options,
       (sessionId) => this.runMaterializerBatch({ sessionId }),
-      (sessionId) => resolveAuthoritySessionCommit(this.layout.authoredRoot, sessionId)
+      (sessionId) => resolveAuthoritySessionCommit(this.layout.authoredRoot, sessionId),
+      (acceptedCommitSha) => canonicalCommitContaining(this.layout.authoredRoot, acceptedCommitSha)
     ).catch((error: unknown) => {
       this.lastError = describeRepoRuntimeError(error);
       throw error;
@@ -586,14 +589,4 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     if (!this.projectionGenerationClosed) this.projectionGenerationClosed = true;
     return this.projectionGeneration.close();
   }
-}
-
-function sortedContexts(contexts: Map<string, DaemonRepoRuntimeContext>): ReadonlyArray<DaemonRepoRuntimeContext> {
-  return [...contexts.values()].sort((left, right) => left.repoId.localeCompare(right.repoId) || left.rootDir.localeCompare(right.rootDir));
-}
-
-function requireContext(contexts: Map<string, DaemonRepoRuntimeContext>, repoId: string): DaemonRepoRuntimeContext {
-  const context = contexts.get(repoId);
-  if (!context) throw { _tag: "JournalUnavailable", cause: new Error(`unknown daemon repo "${repoId}"`) } satisfies WriteError;
-  return context;
 }

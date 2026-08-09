@@ -45,7 +45,7 @@ export type RepoWriteDurableExecutionResult =
 export interface RepoWriteAcceptedResult {
   readonly kind: "accepted";
   readonly outerOpId: string;
-  readonly receipt: Extract<CommandReceiptEnvelope, { readonly ok: true }>;
+  readonly receipt: CommandReceiptEnvelope;
 }
 
 export type RepoWriteExecutionOutcome = RepoWriteTerminalOutcomeV1 | RepoWriteAcceptedResult;
@@ -79,6 +79,7 @@ export class RepoWriteDurableOperationController {
   private readonly settlements: ReceiptSettlementStore;
   private readonly now: () => Date;
   private executionTail: Promise<void> = Promise.resolve();
+  private readonly activeSettlements = new Set<Promise<void>>();
 
   constructor(options: RepoWriteDurableOperationControllerOptions) {
     this.axes = {
@@ -103,6 +104,12 @@ export class RepoWriteDurableOperationController {
 
   resume(outerOpId: string): Promise<RepoWriteExecutionOutcome> {
     return this.serialize(() => this.resumeExclusive(outerOpId));
+  }
+
+  async settlementIdle(): Promise<void> {
+    while (this.activeSettlements.size > 0) {
+      await Promise.all([...this.activeSettlements]);
+    }
   }
 
   private async resumeExclusive(
@@ -173,7 +180,6 @@ export class RepoWriteDurableOperationController {
     proceeding: RepoWriteProceedingOutcomeV1,
     result: RepoWriteAcceptedExecutionResult
   ): RepoWriteAcceptedResult {
-    if (!result.receipt.ok) throw new Error("REPO_WRITE_DURABLE_ACCEPTANCE_REQUIRES_SUCCESS_RECEIPT");
     const pending = pendingCommandReceiptSettlement({
       receiptId: proceeding.outerOpId,
       acceptedAt: this.now().toISOString(),
@@ -182,18 +188,19 @@ export class RepoWriteDurableOperationController {
       authorityOperationIds: [result.acceptance.flush.watermark]
     });
     const receipt = withCommandReceiptSettlement(result.receipt, pending);
-    if (!receipt.ok) throw new Error("REPO_WRITE_DURABLE_ACCEPTANCE_RECEIPT_REVERSED");
     this.settlements.accept(receipt);
-    void result.settlement.then(
+    const completion = result.settlement.then(
       (evidence) => this.completeSettlement(proceeding, receipt, pending, evidence),
       (error) => this.failSettlement(receipt, pending, error)
     );
+    this.activeSettlements.add(completion);
+    void completion.finally(() => this.activeSettlements.delete(completion));
     return { kind: "accepted", outerOpId: proceeding.outerOpId, receipt };
   }
 
   private completeSettlement(
     proceeding: RepoWriteProceedingOutcomeV1,
-    acceptedReceipt: Extract<CommandReceiptEnvelope, { readonly ok: true }>,
+    acceptedReceipt: CommandReceiptEnvelope,
     pending: Extract<NonNullable<typeof acceptedReceipt.settlement>, { readonly canonicalVisibility: "pending" }>,
     evidence: RepoWriteTerminalEvidenceV1
   ): void {
@@ -205,6 +212,7 @@ export class RepoWriteDurableOperationController {
       );
       return;
     }
+    let terminalized = false;
     try {
       const visible = visibleCommandReceiptSettlement(
         pending,
@@ -212,7 +220,6 @@ export class RepoWriteDurableOperationController {
         this.now().toISOString()
       );
       const receipt = withCommandReceiptSettlement(acceptedReceipt, visible);
-      if (!receipt.ok) throw new Error("REPO_WRITE_VISIBLE_RECEIPT_REVERSED");
       this.store.terminalize({
         ...this.axes,
         outerOpId: proceeding.outerOpId,
@@ -220,14 +227,19 @@ export class RepoWriteDurableOperationController {
         receipt,
         authorityEvidence: evidence
       });
+      terminalized = true;
       this.settlements.visible(receipt);
     } catch (error) {
+      // The canonical terminal outcome is already the stronger durable truth.
+      // Keep the accepted sidecar pending for startup reconciliation instead
+      // of manufacturing a false failed-while-visible successor.
+      if (terminalized) return;
       this.failSettlement(acceptedReceipt, pending, error);
     }
   }
 
   private failSettlement(
-    acceptedReceipt: Extract<CommandReceiptEnvelope, { readonly ok: true }>,
+    acceptedReceipt: CommandReceiptEnvelope,
     pending: Extract<NonNullable<typeof acceptedReceipt.settlement>, { readonly canonicalVisibility: "pending" }>,
     error: unknown
   ): void {

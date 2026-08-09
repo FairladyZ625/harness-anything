@@ -7,7 +7,7 @@ import {
   reportCurrentRepoWriteTelemetry
 } from "./repo-write-telemetry-context.ts";
 import {
-  reportCurrentAuthorityDurableAcceptance,
+  captureCurrentAuthorityDurableAcceptanceReporter,
   waitForCurrentAuthoritySettlementRelease
 } from "./authority-durable-acceptance-context.ts";
 
@@ -18,6 +18,8 @@ export interface DaemonAuthorityPublicationOptions {
 
 export interface DaemonAuthorityPublicationReport {
   readonly flush: FlushReport;
+  readonly acceptedCommitSha?: string;
+  readonly canonicalCommitSha?: string;
   readonly materialization?: LedgerMaterializerReport;
 }
 
@@ -25,9 +27,11 @@ export function enqueueDaemonAuthorityPublication(
   queue: DaemonWriteQueue,
   options: DaemonAuthorityPublicationOptions,
   materialize: (sessionId: string) => LedgerMaterializerReport,
-  resolveAcceptedCommitSha: (sessionId: string) => string
+  resolveAcceptedCommitSha: (sessionId: string) => string,
+  resolveCanonicalCommitContaining: (acceptedCommitSha: string) => string | undefined = () => undefined
 ): Promise<DaemonAuthorityPublicationReport> {
   reportCurrentRepoWriteTelemetry("projection");
+  const reportDurableAcceptance = captureCurrentAuthorityDurableAcceptanceReporter();
   const durableAcceptance = queue.enqueueBackground({
     source: "authority-publication",
     priority: "normal",
@@ -36,17 +40,19 @@ export function enqueueDaemonAuthorityPublication(
         "durable-flush",
         options.publish
       );
-      if (flush.committed && flush.opCount > 0) {
-        reportCurrentAuthorityDurableAcceptance(
-          options.sessionId,
-          resolveAcceptedCommitSha(options.sessionId),
-          flush
-        );
+      if (flush.committed && flush.opCount > 0 && flush.watermark) {
+        const acceptedCommitSha = resolveAcceptedCommitSha(options.sessionId);
+        reportDurableAcceptance?.({
+          sessionId: options.sessionId,
+          acceptedCommitSha,
+          flush: { ...flush, committed: true, watermark: flush.watermark }
+        });
+        return { flush, acceptedCommitSha };
       }
-      return flush;
+      return { flush };
     })
   });
-  return durableAcceptance.then(async (flush) => {
+  return durableAcceptance.then(async ({ flush, acceptedCommitSha }) => {
     if (!flush.committed || flush.opCount === 0) return { flush };
     await waitForCurrentAuthoritySettlementRelease();
     // The production queue may begin a synchronous materializer inside
@@ -65,7 +71,15 @@ export function enqueueDaemonAuthorityPublication(
           () => materialize(options.sessionId)
         );
         reportCurrentRepoWriteTelemetry("total");
-        return { flush, materialization };
+        const canonicalCommitSha = acceptedCommitSha
+          ? resolveCanonicalCommitContaining(acceptedCommitSha)
+          : undefined;
+        return {
+          flush,
+          ...(acceptedCommitSha ? { acceptedCommitSha } : {}),
+          ...(canonicalCommitSha ? { canonicalCommitSha } : {}),
+          materialization
+        };
       })
     });
   });

@@ -79,6 +79,7 @@ import { recoverProductionCommittedReceipt } from "./production-committed-receip
 import type { RetryBudgetSignal } from "../../observability/visible-retry-budget.ts";
 import { settleProductionRecovery, type ProductionRecoveryState } from "./production-recovery-state.ts";
 import { createSerialPublicationExecutor } from "./serial-publication-executor.ts";
+export { createSerialPublicationExecutor } from "./serial-publication-executor.ts";
 export { recoverPendingProductionEvents } from "./recovery.ts";
 
 interface RepoProductionMaterial {

@@ -12,7 +12,10 @@ import {
   withCommandReceiptSettlement,
   type HarnessDaemonRuntime
 } from "@harness-anything/daemon";
-import { recoverPendingSettlementMaterialization } from "../src/composition/receipt-settlement-runtime.ts";
+import {
+  createReceiptSettlementRecoveryLoop,
+  recoverPendingSettlementMaterialization
+} from "../src/composition/receipt-settlement-runtime.ts";
 
 test("a restarted writer recovers durable acceptance after a materializer crash", async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-receipt-recovery-"));
@@ -108,6 +111,82 @@ test("a restarted writer recovers durable acceptance after a materializer crash"
     await recover();
     assert.equal(restarted.lookup(pending.receiptId)?.state, "canonical-visible");
     assert.equal(materializerAttempts, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("continuous settlement recovery keeps sweeping after READY until backlog clears", async () => {
+  let remaining = 2;
+  const loop = createReceiptSettlementRecoveryLoop({
+    intervalMs: 5,
+    recover: async () => {
+      remaining = Math.max(0, remaining - 1);
+    }
+  });
+  try {
+    const deadline = Date.now() + 500;
+    while (remaining > 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.equal(remaining, 0);
+  } finally {
+    loop.stop();
+  }
+});
+
+test("generic authority pending is promoted from canonical ancestry even before outer terminal repair", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "ha-generic-receipt-recovery-"));
+  try {
+    const authoredRoot = path.join(root, "harness");
+    mkdirSync(authoredRoot);
+    git(authoredRoot, "init");
+    git(authoredRoot, "config", "user.name", "Receipt Recovery");
+    git(authoredRoot, "config", "user.email", "receipt-recovery@example.test");
+    writeFileSync(path.join(authoredRoot, "README.md"), "canonical\n");
+    git(authoredRoot, "add", "README.md");
+    git(authoredRoot, "commit", "-m", "canonical base");
+    const acceptedCommitSha = git(authoredRoot, "rev-parse", "HEAD");
+    const settlements = settlementStore(path.join(root, "settlements"), 2);
+    const pending = pendingCommandReceiptSettlement({
+      receiptId: "repo-write:generic-pending",
+      acceptedAt: "2026-08-09T10:00:00.000Z",
+      sessionId: "session-generic",
+      acceptedCommitSha,
+      authorityOperationIds: ["op-generic"]
+    });
+    settlements.accept(withCommandReceiptSettlement({
+      ok: true,
+      schema: "command-receipt/v2",
+      command: "task create",
+      action: "create",
+      summary: "accepted",
+      next: [],
+      meta: {
+        generatedAt: "2026-08-09T10:00:00.000Z",
+        compatibility: { legacyReceipt: "CommandReceipt/v1" }
+      }
+    }, pending));
+    const outcomes = new DurableRepoWriteOutcomeStoreV1({
+      directory: path.join(root, "outcomes"),
+      repoId: "canonical",
+      workspaceId: "workspace-recovery",
+      generation: 2
+    });
+    const runtime = {
+      enqueueMaterializerBatch: async () => ({ branches: [] })
+    } as unknown as HarnessDaemonRuntime;
+
+    await recoverPendingSettlementMaterialization({
+      settlements,
+      outcomes,
+      runtime,
+      authoredRoot,
+      deadlineAt: Date.now() + 10_000,
+      recoverCommittedReceipt: async () => { throw new Error("not needed"); }
+    });
+
+    assert.equal(settlements.lookup(pending.receiptId)?.state, "canonical-visible");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

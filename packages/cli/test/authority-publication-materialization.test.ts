@@ -88,6 +88,21 @@ test("committed publication without materialization proof remains indeterminate"
   }
 });
 
+test("missing targeted branch is settled when another materializer made the accepted commit canonical", async () => {
+  const coordinator = authorityCoordinator(runtimeFixture(async (input) => ({
+    flush: await input.publish(),
+    acceptedCommitSha: "a".repeat(40),
+    canonicalCommitSha: "c".repeat(40),
+    materialization: { branches: [] }
+  })), "session-materialized-by-successor");
+  const entry = await enqueueAuthorityTestOperation(coordinator, "op-materialized-by-successor");
+
+  const report = await runEffect(coordinator.commitExact("explicit", createJournaledBatch([entry])));
+
+  assert.equal(report.committed, true);
+  assert.equal(report.opCount, 1);
+});
+
 test("separate session scopes materialize only their own publication routes", async () => {
   const publishedSessions: string[] = [];
   const runtime = runtimeFixture(async (input) => {

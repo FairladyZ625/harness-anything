@@ -1,4 +1,4 @@
-import { closeSync, readdirSync } from "node:fs";
+import { closeSync, readdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import type { CommandReceiptEnvelope } from "@harness-anything/application";
 import { sha256Text, stableStringify } from "@harness-anything/kernel";
@@ -7,6 +7,7 @@ import {
   repoWriteOutcomeDurablePathExists,
   repoWriteOutcomeEnsurePrivateDirectory,
   repoWriteOutcomeFsyncOpened,
+  repoWriteOutcomeFsyncDirectory,
   repoWriteOutcomePublishOnce,
   repoWriteOutcomeReadPrivateText,
   type RepoWriteOutcomeDurabilityTestHooks
@@ -16,6 +17,7 @@ const prefix = "receipt-settlement-v1.";
 const acceptedSuffix = ".accepted.json";
 const visibleSuffix = ".visible.json";
 const failureMarker = ".failure.";
+const maximumFailureRecordsPerReceipt = 8;
 
 interface ReceiptSettlementRecordBase {
   readonly schema: "receipt-settlement-record/v1";
@@ -48,6 +50,7 @@ export interface ReceiptSettlementStoreOptions {
   readonly repoId: string;
   readonly workspaceId: string;
   readonly generation: number;
+  readonly onWarning?: (warning: string) => void;
   readonly __testOnlyDurabilityHooks?: RepoWriteOutcomeDurabilityTestHooks;
 }
 
@@ -55,6 +58,7 @@ export class ReceiptSettlementStore {
   private readonly directory: string;
   private readonly axes: Pick<ReceiptSettlementRecordBase, "repoId" | "workspaceId" | "generation">;
   private readonly hooks: RepoWriteOutcomeDurabilityTestHooks | undefined;
+  private readonly onWarning: (warning: string) => void;
 
   constructor(options: ReceiptSettlementStoreOptions) {
     this.directory = path.resolve(options.directory);
@@ -64,6 +68,7 @@ export class ReceiptSettlementStore {
       generation: options.generation
     };
     this.hooks = options.__testOnlyDurabilityHooks;
+    this.onWarning = options.onWarning ?? ((warning) => process.emitWarning(warning));
     repoWriteOutcomeEnsurePrivateDirectory(this.directory);
   }
 
@@ -104,7 +109,9 @@ export class ReceiptSettlementStore {
     };
     const text = recordText(record);
     const file = `${paths(this.directory, record.receiptId).failurePrefix}${sha256Text(text)}.json`;
-    return this.publishOrRead(file, record, "failed");
+    const published = this.publishOrRead(file, record, "failed");
+    this.compactFailures(record.receiptId);
+    return published;
   }
 
   lookup(receiptId: string): ReceiptSettlementSnapshot | undefined {
@@ -115,9 +122,19 @@ export class ReceiptSettlementStore {
     const failures = readdirSync(this.directory)
       .filter((name) => name.startsWith(path.basename(target.failurePrefix)) && name.endsWith(".json"))
       .sort();
-    const failureRecords = failures.map((name) =>
-      readRecord(path.join(this.directory, name), this.hooks, "failed", receiptId) as ReceiptSettlementFailedRecord
-    );
+    const failureRecords = failures.flatMap((name) => {
+      try {
+        return [readRecord(
+          path.join(this.directory, name),
+          this.hooks,
+          "failed",
+          receiptId
+        ) as ReceiptSettlementFailedRecord];
+      } catch (error) {
+        this.warnFailureSkipped(name, error);
+        return [];
+      }
+    });
     if (failureRecords.length > 0) {
       return failureRecords.sort((left, right) =>
         failedSettlement(left.receipt).failedAt.localeCompare(failedSettlement(right.receipt).failedAt)
@@ -145,6 +162,39 @@ export class ReceiptSettlementStore {
     }
   }
 
+  private compactFailures(receiptId: string): void {
+    const target = paths(this.directory, receiptId);
+    const candidates = readdirSync(this.directory)
+      .filter((name) => name.startsWith(path.basename(target.failurePrefix)) && name.endsWith(".json"))
+      .flatMap((name) => {
+        try {
+          const record = readRecord(
+            path.join(this.directory, name),
+            this.hooks,
+            "failed",
+            receiptId
+          ) as ReceiptSettlementFailedRecord;
+          return [{ name, failedAt: failedSettlement(record.receipt).failedAt }];
+        } catch (error) {
+          this.warnFailureSkipped(name, error);
+          return [];
+        }
+      })
+      .sort((left, right) => left.failedAt.localeCompare(right.failedAt) || left.name.localeCompare(right.name));
+    const obsolete = candidates.slice(0, Math.max(0, candidates.length - maximumFailureRecordsPerReceipt));
+    if (obsolete.length === 0) return;
+    try {
+      for (const record of obsolete) unlinkSync(path.join(this.directory, record.name));
+      repoWriteOutcomeFsyncDirectory(this.directory, this.hooks, "publish");
+    } catch (error) {
+      this.onWarning(`RECEIPT_SETTLEMENT_FAILURE_COMPACTION_FAILED:${receiptId}:${describe(error)}`);
+    }
+  }
+
+  private warnFailureSkipped(name: string, error: unknown): void {
+    this.onWarning(`RECEIPT_SETTLEMENT_FAILURE_SKIPPED:${name}:${describe(error)}`);
+  }
+
   private publishOrRead<State extends ReceiptSettlementSnapshot["state"]>(
     file: string,
     record: Extract<ReceiptSettlementSnapshot, { readonly state: State }>,
@@ -156,6 +206,10 @@ export class ReceiptSettlementStore {
     if (recordText(current) !== text) throw new Error(`RECEIPT_SETTLEMENT_IMMUTABLE_CONFLICT:${record.receiptId}`);
     return current;
   }
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function paths(directory: string, receiptId: string) {

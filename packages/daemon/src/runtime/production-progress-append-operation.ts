@@ -61,6 +61,14 @@ import {
 import {
   reportCurrentRepoWriteTelemetry
 } from "./repo-write-telemetry-context.ts";
+import {
+  executeRepoWriteDocSyncOperation,
+  prepareRepoWriteDocSyncOperation,
+  type RepoWriteDocSyncExecution
+} from "./repo-write-doc-sync-operation.ts";
+import { exactRepoWriteReceipt } from "./repo-write-exact-receipt.ts";
+
+export type { RepoWriteDocSyncExecution } from "./repo-write-doc-sync-operation.ts";
 
 export class ProductionRepoWriteOperationHost<
   Command extends DaemonHostCommand,
@@ -80,8 +88,9 @@ export class ProductionRepoWriteOperationHost<
     readonly executeDocSyncSubmit?: (input: {
       readonly command: RepoWriteCommandDto;
       readonly decoded: ReturnType<typeof decodeRepoWriteCommand>;
-    }) => Promise<CommandReceiptEnvelope | undefined>;
+    }) => Promise<RepoWriteDocSyncExecution | undefined>;
     readonly conflictMarkerPreflight?: () => import("@harness-anything/kernel").ProjectionWarning | undefined;
+    readonly recoverSettlements?: () => Promise<void>;
     readonly now: () => Date;
     readonly newOuterOpId: () => string;
   };
@@ -102,8 +111,9 @@ export class ProductionRepoWriteOperationHost<
     readonly executeDocSyncSubmit?: (input: {
       readonly command: RepoWriteCommandDto;
       readonly decoded: ReturnType<typeof decodeRepoWriteCommand>;
-    }) => Promise<CommandReceiptEnvelope | undefined>;
+    }) => Promise<RepoWriteDocSyncExecution | undefined>;
     readonly conflictMarkerPreflight?: () => import("@harness-anything/kernel").ProjectionWarning | undefined;
+    readonly recoverSettlements?: () => Promise<void>;
     readonly now?: () => Date;
     readonly newOuterOpId?: () => string;
   }) {
@@ -144,7 +154,12 @@ export class ProductionRepoWriteOperationHost<
     (recovery, useDurableProceeding) =>
       this.recoveryGate.runAttemptRecovery(recovery, useDurableProceeding);
 
+  readonly settlementIdle = (): Promise<void> => this.operations.settlementIdle();
+
   async prepare(input: RepoWritePrepareInput): Promise<RepoWritePreparedOperation> {
+    if (input.command.commandName === "doc-sync-submit") {
+      return this.prepareDocSync(input);
+    }
     const prepared = await this.prepareCommand(input.command);
     const generatedAt = this.options.now().toISOString();
     const proceeding = {
@@ -182,10 +197,15 @@ export class ProductionRepoWriteOperationHost<
     const binding = this.options.authorityComponent.bindConnection(
       decoded.authorityConnection
     );
-    const directReceipt = input.command.commandName === "doc-sync-submit"
+    const directExecution = input.command.commandName === "doc-sync-submit"
       ? await this.options.executeDocSyncSubmit?.({ command: input.command, decoded })
       : undefined;
-    if (directReceipt) return commandReceiptJsonObject(directReceipt);
+    if (directExecution) {
+      if (directExecution.durable) {
+        throw new Error("DOC_SYNC_DURABLE_WRITE_REQUIRES_DURABLE_LANE");
+      }
+      return commandReceiptJsonObject(directExecution.receipt);
+    }
     reportCurrentRepoWriteTelemetry("compile-command-normalize");
     const command = await this.options.hostServices.normalizeCommand(
       this.options.hostServices.parseCommandPayload(input.command.payload),
@@ -238,6 +258,9 @@ export class ProductionRepoWriteOperationHost<
         }
       }
     ));
+    if (command.action.kind === "materializer-run") {
+      await this.options.recoverSettlements?.();
+    }
     return commandReceiptJsonObject(settleDirectAuthorityCommandReceipt({
       receipt,
       submissions: durableSubmissions,
@@ -255,6 +278,10 @@ export class ProductionRepoWriteOperationHost<
         : { state: "canonical-visible", receipt: commandReceiptJsonObject(settlement.receipt) };
     }
     if (settlement?.state === "pending") {
+      const current = this.options.outcomeStore.lookup(input.opId);
+      if (current.state === "terminal") {
+        return { state: "terminal", outcome: current.outcome };
+      }
       return { state: "accepted", receipt: commandReceiptJsonObject(settlement.receipt) };
     }
     if (settlement?.state === "failed") {
@@ -324,6 +351,9 @@ export class ProductionRepoWriteOperationHost<
     proceeding: RepoWriteProceedingOutcomeV1,
     recovery: boolean
   ): Promise<RepoWriteDurableExecutionResult> {
+    if (proceeding.canonicalCommand.commandName === "doc-sync-submit") {
+      return this.executeDocSync(proceeding);
+    }
     const prepared = await this.prepareFixedCommand(proceeding.canonicalCommand);
     const plan = proceeding.recoveryContext as unknown as ProductionAuthorityAttemptPlanV1;
     return this.executePrepared(
@@ -333,6 +363,32 @@ export class ProductionRepoWriteOperationHost<
       plan,
       recovery
     );
+  }
+
+  private async prepareDocSync(input: RepoWritePrepareInput): Promise<RepoWritePreparedOperation> {
+    return prepareRepoWriteDocSyncOperation({
+      request: input,
+      repoId: this.options.repoId,
+      workspaceId: this.options.workspaceId,
+      generation: this.options.generation,
+      authorityComponent: this.options.authorityComponent,
+      operations: this.operations,
+      now: this.options.now,
+      newOuterOpId: this.options.newOuterOpId,
+      execute: (proceeding) => this.executeDocSync(proceeding)
+    });
+  }
+
+  private async executeDocSync(
+    proceeding: RepoWriteProceedingOutcomeV1
+  ): Promise<RepoWriteDurableExecutionResult> {
+    return executeRepoWriteDocSyncOperation({
+      proceeding,
+      ...(this.options.executeDocSyncSubmit
+        ? { executeDocSyncSubmit: this.options.executeDocSyncSubmit }
+        : {}),
+      exactReceipt: (receipt) => exactRepoWriteReceipt(receipt, proceeding, undefined)
+    });
   }
 
   private async prepareFixedCommand(dto: RepoWriteCanonicalCommandDto) {
@@ -447,7 +503,7 @@ export class ProductionRepoWriteOperationHost<
         } : {})
       }
     );
-    const receipt = exactReceipt(await runBeforeBackgroundAuthoritySettlement(() => commandService.runCommand(
+    const receipt = exactRepoWriteReceipt(await runBeforeBackgroundAuthoritySettlement(() => commandService.runCommand(
       currentCommand.payload as unknown as JsonObject,
       {
         actor: decoded.actor,
@@ -491,52 +547,6 @@ function commandReceiptJsonObject(
   value: unknown
 ): import("./repo-write-protocol.ts").RepoWriteJsonObject {
   return JSON.parse(JSON.stringify(value)) as import("./repo-write-protocol.ts").RepoWriteJsonObject;
-}
-
-function exactReceipt(
-  receipt: CommandReceiptEnvelope,
-  proceeding: RepoWriteProceedingOutcomeV1,
-  authorityEvidence: AuthorityOperationReceipt | undefined
-): CommandReceiptEnvelope {
-  const alreadySatisfied = authorityEvidence?.tag === "ALREADY_SATISFIED"
-    ? {
-        kind: "already-satisfied",
-        message: authorityEvidence.message
-      }
-    : undefined;
-  return {
-    ...receipt,
-    ...(alreadySatisfied ? { summary: alreadySatisfied.message } : {}),
-    command: proceeding.receiptSeed.command,
-    action: proceeding.receiptSeed.action,
-    details: {
-      ...(receipt.details ?? {}),
-      data: {
-        ...receiptDetailsData(receipt),
-        ...(alreadySatisfied ? { authorityOutcome: alreadySatisfied } : {}),
-        repoWrite: {
-          schema: "repo-write-recovery/v1",
-          repoId: proceeding.repoId,
-          generation: proceeding.generation,
-          outerOpId: proceeding.outerOpId
-        }
-      },
-      actor: proceeding.canonicalCommand.actor
-    },
-    meta: {
-      ...receipt.meta,
-      generatedAt: proceeding.receiptSeed.generatedAt
-    }
-  };
-}
-
-function receiptDetailsData(
-  receipt: CommandReceiptEnvelope
-): Record<string, import("./repo-write-protocol.ts").RepoWriteJsonValue> {
-  const data = receipt.details?.data;
-  return data && typeof data === "object" && !Array.isArray(data)
-    ? data as Record<string, import("./repo-write-protocol.ts").RepoWriteJsonValue>
-    : {};
 }
 
 function terminalEvidence(
