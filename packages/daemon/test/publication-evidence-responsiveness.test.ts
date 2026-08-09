@@ -7,7 +7,6 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
-  rmSync,
   writeFileSync
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,12 +21,13 @@ import {
   readPublicationGitObject,
   shutdownPublicationGitObjectReader
 } from "../src/authority/production/publication-object-reader.ts";
+import { removeTemporaryTestRoot } from "../../../tools/test-temp-root-cleanup.mjs";
 
 const posixTest = process.platform === "win32" ? test.skip : test;
 
 test("concurrent object reads share one lazily spawned batch process", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "publication-object-reader-"));
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(async () => await removeTemporaryTestRoot(root));
   git(root, "init", "-q");
   git(root, "config", "user.name", "Harness Test");
   git(root, "config", "user.email", "harness@example.test");
@@ -61,7 +61,7 @@ test("concurrent object reads share one lazily spawned batch process", async (co
 
 posixTest("offset batch bytes fail closed and the request falls back to one-shot Git", async (context) => {
   const fixture = faultyPublicationRepo("offset");
-  context.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  context.after(async () => await removeTemporaryTestRoot(fixture.root));
   try {
     assert.equal(
       await readPublicationGitObject(fixture.root, "HEAD:seed.txt").then((content) => content.toString("utf8")),
@@ -80,7 +80,7 @@ posixTest("offset batch bytes fail closed and the request falls back to one-shot
 
 posixTest("a batch process death falls back and creates only one replacement", async (context) => {
   const fixture = faultyPublicationRepo("die");
-  context.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  context.after(async () => await removeTemporaryTestRoot(fixture.root));
   try {
     assert.equal(
       await readPublicationGitObject(fixture.root, "HEAD:seed.txt").then((content) => content.toString("utf8")),
@@ -97,7 +97,7 @@ posixTest("a batch process death falls back and creates only one replacement", a
 
 posixTest("a half-read response never reaches the caller and falls back", async (context) => {
   const fixture = faultyPublicationRepo("half-read");
-  context.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  context.after(async () => await removeTemporaryTestRoot(fixture.root));
   try {
     assert.equal(
       await readPublicationGitObject(fixture.root, "HEAD:seed.txt").then((content) => content.toString("utf8")),
@@ -114,7 +114,7 @@ posixTest("a half-read response never reaches the caller and falls back", async 
 
 posixTest("consecutive batch failures exhaust one rebuild and emit a visible warning", async (context) => {
   const fixture = faultyPublicationRepo("offset");
-  context.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  context.after(async () => await removeTemporaryTestRoot(fixture.root));
   const warnings: string[] = [];
   const onWarning = (warning: Error) => warnings.push(warning.message);
   process.on("warning", onWarning);
@@ -142,7 +142,7 @@ posixTest("consecutive batch failures exhaust one rebuild and emit a visible war
 
 posixTest("shutdown terminates a stuck half-read and rejects queued requests", async (context) => {
   const fixture = faultyPublicationRepo("hang-half");
-  context.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  context.after(async () => await removeTemporaryTestRoot(fixture.root));
   const active = readPublicationGitObject(fixture.root, "HEAD:seed.txt");
   const queued = readPublicationGitObject(fixture.root, "HEAD:seed.txt");
   const activeRejected = assert.rejects(active, /AUTHORITY_GIT_OBJECT_BATCH_HALF_READ/u);
@@ -165,7 +165,7 @@ posixTest("shutdown terminates a stuck half-read and rejects queued requests", a
 
 test("publication evidence yields between blob reads so recovery admission timers remain live", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "publication-evidence-responsive-"));
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(async () => await removeTemporaryTestRoot(root));
   git(root, "init", "-q");
   git(root, "config", "user.name", "Harness Test");
   git(root, "config", "user.email", "harness@example.test");
@@ -245,7 +245,7 @@ test("publication evidence yields between blob reads so recovery admission timer
 
 test("missing-operation recovery search yields and reuses one bounded history scan", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "publication-evidence-history-"));
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(async () => await removeTemporaryTestRoot(root));
   git(root, "init", "-q");
   git(root, "config", "user.name", "Harness Test");
   git(root, "config", "user.email", "harness@example.test");
