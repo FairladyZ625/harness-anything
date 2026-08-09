@@ -13,10 +13,8 @@ import {
   connectionGeneration,
   type AuthorityConnectionDispatch
 } from "../../daemon/src/index.ts";
-import {
-  assertPublicationMatchesMutationSet,
-  createGitCanonicalPublicationInspector
-} from "@harness-anything/daemon";
+import { assertPublicationMatchesMutationSet } from "@harness-anything/daemon";
+import { withTemporaryGitCanonicalPublicationInspector } from "../../../tools/publication-inspector-test-fixture.mjs";
 import {
   createAuthorityRepoLifecycleController,
   makeHeldLockAttributedCoordinatorFactory,
@@ -304,8 +302,11 @@ test("held-lock attributed factory gives one exact coordinator to a same-attribu
   });
 });
 
-test("publication-tree-mismatch uses real Git trees and rejects paths outside the canonical mutation target", async () => {
-  await withRoots(async ({ alphaRoot }) => {
+test("publication-tree-mismatch uses real Git trees and rejects paths outside the canonical mutation target", async (context) => {
+  await withTemporaryGitCanonicalPublicationInspector(context, {
+    prefix: "ha-authority-lifecycle-",
+    relativeRoot: "alpha"
+  }, async ({ rootDir: alphaRoot, inspector }) => {
     git(alphaRoot, "init", "-q");
     mkdirSync(path.join(alphaRoot, "tasks", "task_T"), { recursive: true });
     writeFileSync(path.join(alphaRoot, "tasks", "task_T", "INDEX.md"), "before\n");
@@ -322,7 +323,6 @@ test("publication-tree-mismatch uses real Git trees and rejects paths outside th
     git(alphaRoot, "checkout", "-q", trunk);
     git(alphaRoot, "merge", "-q", "--no-ff", "sessions/session-test", "-m", "materializer: merge session session-test");
 
-    const inspector = createGitCanonicalPublicationInspector(alphaRoot);
     const evidence = await inspector.inspectPublication(before, ["op-test"]);
     const mutationSet = {
       registryVersion: 1,

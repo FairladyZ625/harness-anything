@@ -161,6 +161,28 @@ posixTest("shutdown terminates a stuck half-read and rejects queued requests", a
   assert.equal(readLogEntries(fixture.fallbackLog).length, 0);
 });
 
+test("shutdown does not return while a batch descendant remains alive", async () => {
+  const fixture = faultyPublicationRepo("descendant");
+  let descendantPid: number | undefined;
+  try {
+    assert.equal(
+      await readPublicationGitObject(fixture.root, "HEAD:seed.txt").then((content) => content.toString("utf8")),
+      "seed\n"
+    );
+    descendantPid = Number(readLogEntries(fixture.descendantLog)[0]);
+    assert.equal(Number.isSafeInteger(descendantPid), true);
+    assert.equal(isProcessAlive(descendantPid), true);
+
+    await shutdownPublicationGitObjectReader(fixture.root);
+
+    assert.equal(isProcessAlive(descendantPid), false, `batch descendant ${descendantPid} survived shutdown`);
+  } finally {
+    fixture.restorePath();
+    if (descendantPid !== undefined) await waitForProcessExit(descendantPid, 2_000);
+    await removeTemporaryTestRoot(fixture.root);
+  }
+});
+
 test("publication evidence yields between blob reads so recovery admission timers remain live", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "publication-evidence-responsive-"));
   context.after(async () => await removeTemporaryTestRoot(root));
@@ -354,11 +376,12 @@ function readLogEntries(logPath: string): ReadonlyArray<string> {
   return readFileSync(logPath, "utf8").trim().split("\n").filter(Boolean);
 }
 
-type GitBatchFault = "offset" | "die" | "half-read" | "hang-half";
+type GitBatchFault = "offset" | "die" | "half-read" | "hang-half" | "descendant";
 
 function faultyPublicationRepo(fault: GitBatchFault): {
   readonly root: string;
   readonly batchLog: string;
+  readonly descendantLog: string;
   readonly fallbackLog: string;
   readonly restorePath: () => void;
 } {
@@ -372,16 +395,18 @@ function faultyPublicationRepo(fault: GitBatchFault): {
   const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
   const binDir = path.join(root, "fault-bin");
   const batchLog = path.join(root, "batch-starts.log");
+  const descendantLog = path.join(root, "batch-descendants.log");
   const fallbackLog = path.join(root, "fallback-starts.log");
   mkdirSync(binDir);
   const wrapper = path.join(binDir, "git");
-  writeFileSync(wrapper, faultyGitWrapperSource(realGit, batchLog, fallbackLog, fault));
+  writeFileSync(wrapper, faultyGitWrapperSource(realGit, batchLog, descendantLog, fallbackLog, fault));
   chmodSync(wrapper, 0o755);
   const previousPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
   return {
     root,
     batchLog,
+    descendantLog,
     fallbackLog,
     restorePath: () => {
       if (previousPath === undefined) delete process.env.PATH;
@@ -393,15 +418,17 @@ function faultyPublicationRepo(fault: GitBatchFault): {
 function faultyGitWrapperSource(
   realGit: string,
   batchLog: string,
+  descendantLog: string,
   fallbackLog: string,
   fault: GitBatchFault
 ): string {
   return [
     "#!/usr/bin/env node",
     'import { appendFileSync } from "node:fs";',
-    'import { spawnSync } from "node:child_process";',
+    'import { spawn, spawnSync } from "node:child_process";',
     `const realGit = ${JSON.stringify(realGit)};`,
     `const batchLog = ${JSON.stringify(batchLog)};`,
+    `const descendantLog = ${JSON.stringify(descendantLog)};`,
     `const fallbackLog = ${JSON.stringify(fallbackLog)};`,
     `const fault = ${JSON.stringify(fault)};`,
     "const args = process.argv.slice(2);",
@@ -413,6 +440,11 @@ function faultyGitWrapperSource(
     "appendFileSync(batchLog, `${process.pid}\\n`);",
     "const rootFlag = args.indexOf(\"-C\");",
     "const root = rootFlag >= 0 ? args[rootFlag + 1] : process.cwd();",
+    "if (fault === \"descendant\") {",
+    "  const descendant = spawn(process.execPath, [\"-e\", \"setTimeout(() => {}, 1500)\"], { cwd: root, stdio: \"ignore\" });",
+    "  descendant.unref();",
+    "  appendFileSync(descendantLog, `${descendant.pid}\\n`);",
+    "}",
     "let pending = \"\";",
     "process.stdin.setEncoding(\"utf8\");",
     "process.stdin.on(\"data\", (chunk) => {",
@@ -437,4 +469,25 @@ function faultyGitWrapperSource(
     "});",
     ""
   ].join("\n");
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ESRCH") return false;
+    if (error instanceof Error && "code" in error && error.code === "EPERM") return true;
+    throw error;
+  }
+}
+
+async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void> {
+  const deadline = performance.now() + timeoutMs;
+  while (isProcessAlive(pid)) {
+    if (performance.now() >= deadline) {
+      throw new Error(`test-owned batch descendant did not exit: pid=${pid}`);
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
 }

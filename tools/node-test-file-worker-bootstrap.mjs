@@ -1,3 +1,5 @@
+import { installPublicationReaderLeakDetector } from "./publication-reader-leak-detector.mjs";
+
 // Node's process-isolated test child does not expose the outer runner's CLI
 // envelope through process.execArgv. A directly owned no-isolation worker must
 // preserve that inheritance contract or a test's ordinary fork() will start a
@@ -23,3 +25,4 @@ process.execArgv.splice(0, process.execArgv.length, ...inheritedExecArgv);
 // the preload preserves the logical test-child boundary consumed by product
 // code and inherited CLI fixtures without changing runner transport.
 process.env.NODE_TEST_CONTEXT = "child-v8";
+installPublicationReaderLeakDetector();
