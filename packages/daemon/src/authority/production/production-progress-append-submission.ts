@@ -9,6 +9,7 @@ import { stableStringify } from "@harness-anything/kernel";
 import {
   assertAuthorityReceiptOperation,
   assertCompleteAuthorityReceiptV2,
+  durableAuthoritySubmissionFromSettlement,
   type DaemonAuthorityCommandSubmissionV2
 } from "../authority-command-submission.ts";
 import type {
@@ -177,7 +178,12 @@ export function createProductionPlannedCommandSubmission(input: {
     assertAuthorityReceiptOperation(receipt, expectedOpId);
     return receipt;
   };
-  return { submit };
+  return {
+    submit,
+    submitDurable: (actual) => Promise.resolve(
+      durableAuthoritySubmissionFromSettlement(() => submit(actual))
+    )
+  };
 }
 
 async function submitPlannedCommand(

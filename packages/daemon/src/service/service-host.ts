@@ -556,6 +556,11 @@ function createRepoServiceBinding<
         }
       } : {}),
       CliCommandService: daemonCommandService,
+      ...(repoWriteSupervisor ? {
+        ReceiptSettlementService: {
+          lookup: (receiptId: string) => repoWriteSupervisor.lookup(receiptId)
+        }
+      } : {}),
       DocSyncService: {
         submit: makeDocSyncSubmitHandler({
           rootDir,

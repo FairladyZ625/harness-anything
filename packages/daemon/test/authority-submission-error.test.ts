@@ -260,7 +260,7 @@ test("planned durable submission accepts every specialized coordinator ingress w
         ...(fixture.ingressAdapter ? { ingressAdapter: fixture.ingressAdapter } : {})
       });
 
-      assert.deepEqual(Object.keys(submission), ["submit"]);
+      assert.deepEqual(Object.keys(submission), ["submit", "submitDurable"]);
       await runEffect(coordinator.enqueue({
         opId: `op-${fixture.ingress}`,
         ...fixture.operation
@@ -424,7 +424,7 @@ test("one submission method carries every governed ingress discriminator", async
   );
 });
 
-test("write coordinator routes specialized semantics through the single submission entry", async () => {
+test("write coordinator routes specialized semantics through the durable submission entry", async () => {
   const cases = [
     { ingressAdapter: "decision-transition", ingress: "decision-transition", actionKind: "decision-transition", operationKind: "doc_write" },
     { ingressAdapter: "task-claim", ingress: "task-claim", actionKind: "task-claim", operationKind: "doc_write" },
@@ -434,9 +434,12 @@ test("write coordinator routes specialized semantics through the single submissi
   for (const fixture of cases) {
     let observedIngress = "";
     const coordinator = makeDaemonAuthorityWriteCoordinator({
-      submit: async (submission) => {
+      submit: async () => {
+        throw new Error("settlement-only entry must not serve durable coordinator admission");
+      },
+      submitDurable: async (submission) => {
         observedIngress = submission.ingress;
-        return {
+        const receipt = {
           tag: "COMMITTED",
           workspaceId: "workspace-ingress",
           opId: `op-${fixture.ingress}`,
@@ -444,6 +447,10 @@ test("write coordinator routes specialized semantics through the single submissi
           revision: 1,
           commitSha: "b".repeat(40),
           previousCommit: null
+        };
+        return {
+          admission: Promise.resolve({ kind: "terminal", receipt }),
+          settlement: Promise.resolve(receipt)
         };
       }
     }, {

@@ -70,6 +70,10 @@ export async function dispatchDocSyncSubmitToWriter(input: {
           `The doc-sync writer reported accepted but did not materialize ${missing} in ledger ${report.appliedLedgerSha}.`
         );
       }
+      return {
+        ...report,
+        ...(receipt.ok && receipt.settlement ? { settlement: receipt.settlement } : {})
+      };
     }
     return report;
   } catch (error) {

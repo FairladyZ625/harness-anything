@@ -11,7 +11,7 @@ export async function sendRepoWriteDuplicateSubmit(
   responses: RepoWriteChildResponseWriter,
   operation: RepoWriteChildOperationResponseState
 ): Promise<void> {
-  if (operation.opId && ["proceeding", "terminal", "unknown"].includes(operation.state.phase)) {
+  if (operation.opId && ["proceeding", "accepted", "terminal", "unknown"].includes(operation.state.phase)) {
     await responses.unknown(
       operation.requestId,
       operation.opId,
@@ -35,7 +35,7 @@ export async function sendRepoWriteRejectedProceed(
   code: string,
   diagnostic: string
 ): Promise<void> {
-  if (operation?.opId && ["proceeding", "terminal", "unknown"].includes(operation.state.phase)) {
+  if (operation?.opId && ["proceeding", "accepted", "terminal", "unknown"].includes(operation.state.phase)) {
     await responses.unknown(requestId, operation.opId, code, diagnostic);
     return;
   }
@@ -46,6 +46,14 @@ export async function sendRepoWriteRepeatedProceed(
   responses: RepoWriteChildResponseWriter,
   operation: RepoWriteChildOperationResponseState
 ): Promise<void> {
+  if (operation.state.phase === "accepted") {
+    await responses.accepted(
+      operation.requestId,
+      operation.opId!,
+      operation.state.receipt
+    );
+    return;
+  }
   if (operation.state.phase === "terminal") {
     await responses.terminal(
       operation.requestId,

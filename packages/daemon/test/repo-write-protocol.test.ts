@@ -28,6 +28,10 @@ import {
   repoWriteHostedOperationSnapshot,
   repoWriteLocalLookupResult
 } from "../src/runtime/repo-write-child-lookup.ts";
+import {
+  pendingCommandReceiptSettlement,
+  withCommandReceiptSettlement
+} from "../src/runtime/command-receipt-settlement.ts";
 
 test("submit codec carries command DTOs as JSON-safe values with explicit scalar text encodings", () => {
   const message: RepoWriteParentMessage = {
@@ -227,6 +231,7 @@ test("one phase table derives both views without collapsing the legal transport 
   assert.equal(advanceRepoWritePhase("child", "prepared", "preparing"), "prepared");
   assert.equal(advanceRepoWritePhase("parent", "prepared", "submitted"), "prepared");
   assert.equal(advanceRepoWritePhase("child", "proceed", "prepared"), "proceeding");
+  assert.equal(advanceRepoWritePhase("child", "accepted", "proceeding"), "accepted");
 
   const receipt = committedCommandReceipt();
   const terminal = repoWriteHostedOperationSnapshot({
@@ -242,6 +247,41 @@ test("one phase table derives both views without collapsing the legal transport 
   assert.throws(
     () => repoWriteHostedOperationSnapshot({ phase: "terminal" }),
     /missing its outcome or receipt/u
+  );
+});
+
+test("accepted and pending-status frames preserve the exact durable receipt", () => {
+  const receipt = withCommandReceiptSettlement(
+    committedCommandReceipt(),
+    pendingCommandReceiptSettlement({
+      receiptId: "repo-write:accepted-frame",
+      acceptedAt: "2026-08-09T10:00:00.000Z",
+      sessionId: "session-accepted-frame",
+      acceptedCommitSha: "a".repeat(40)
+    })
+  );
+  if (!receipt.ok) throw new Error("fixture receipt reversed");
+  const accepted = {
+    ...base("accepted"),
+    requestId: "request-accepted",
+    opId: "repo-write:accepted-frame",
+    receipt
+  } as const;
+  const status = {
+    ...base("status"),
+    requestId: "status-accepted",
+    opId: "repo-write:accepted-frame",
+    state: "accepted",
+    receipt
+  } as const;
+
+  assert.deepEqual(
+    parseRepoWriteChildMessage(stringifyRepoWriteChildMessage(accepted)),
+    accepted
+  );
+  assert.deepEqual(
+    parseRepoWriteChildMessage(stringifyRepoWriteChildMessage(status)),
+    status
   );
 });
 

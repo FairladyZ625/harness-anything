@@ -408,6 +408,9 @@ function createRepoComponent(
   const unbound = {
     submit: async () => {
       throw new Error("AUTHORITY_CONNECTION_CONTEXT_REQUIRED");
+    },
+    submitDurable: async () => {
+      throw new Error("AUTHORITY_CONNECTION_CONTEXT_REQUIRED");
     }
   };
   const compoundReceipt = createProductionCompoundReceiptComposition({

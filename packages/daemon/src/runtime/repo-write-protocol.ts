@@ -13,6 +13,18 @@ import {
   decodeRepoWriteRecoveryDeferred,
   decodeRepoWriteRecoveryRejected
 } from "./repo-write-protocol-recovery.ts";
+import {
+  receiptSettlementVisibilityMatches,
+  repoWriteOperationStates,
+  type RepoWriteAcceptedFrame,
+  type RepoWriteOperationLookupResult,
+  type RepoWriteOperationState
+} from "./repo-write-settlement-protocol.ts";
+export type {
+  RepoWriteAcceptedFrame,
+  RepoWriteOperationLookupResult,
+  RepoWriteOperationState
+} from "./repo-write-settlement-protocol.ts";
 import { decodeRepoWriteStartupProgress } from "./repo-write-protocol-startup.ts";
 import type { RepoWriteStartupProgressFrame } from "./repo-write-startup-protocol.ts";
 export {
@@ -83,7 +95,7 @@ interface RepoWriteRequestFrame<K extends string> extends RepoWriteFrameBase {
   readonly kind: K;
   readonly requestId: string;
 }
-type RepoWriteOperationFrame<K extends string> = RepoWriteRequestFrame<K> & { readonly opId: string };
+export type RepoWriteOperationFrame<K extends string> = RepoWriteRequestFrame<K> & { readonly opId: string };
 
 export interface RepoWriteSubmitFrame extends RepoWriteRequestFrame<"submit"> {
   readonly command: RepoWriteCommandDto;
@@ -144,27 +156,11 @@ export interface RepoWriteOutcomeUnknownFailureFrame extends RepoWriteOperationF
   readonly diagnostic: string;
 }
 export type RepoWriteFailureFrame = RepoWriteNotStartedFailureFrame | RepoWriteOutcomeUnknownFailureFrame;
-export type RepoWriteOperationState =
-  "not-found" | "prepared" | "proceeding" | RepoWriteTerminalOutcome | "failed" | "unknown";
-
-export type RepoWriteOperationLookupResult =
-  | { readonly state: Exclude<RepoWriteOperationState, RepoWriteTerminalOutcome> }
-  | {
-      readonly state: "committed";
-      readonly outcome: "committed";
-      readonly receipt: RepoWriteJsonObject;
-    }
-  | {
-      readonly state: "rejected";
-      readonly outcome: "rejected";
-      readonly receipt: RepoWriteJsonObject;
-    };
-
 export type RepoWriteStatusFrame = RepoWriteOperationFrame<"status"> & RepoWriteOperationLookupResult;
 
 export type RepoWriteChildMessage =
   RepoWriteReadyFrame | RepoWriteStartupProgressFrame
-  | RepoWritePreparedFrame | RepoWriteTerminalFrame | RepoWriteFailureFrame
+  | RepoWritePreparedFrame | RepoWriteAcceptedFrame | RepoWriteTerminalFrame | RepoWriteFailureFrame
   | RepoWriteDirectResultFrame | RepoWriteDirectFailureFrame
   | RepoWriteStatusFrame | RepoWriteTelemetryFrame | RepoWriteRecoveryDiagnosticFrame
   | RepoWriteRetryBudgetSignalFrame
@@ -215,6 +211,7 @@ export function decodeRepoWriteChildMessage(
   }
   if (frame.kind === "ready") return decodeReady(frame, limits);
   if (frame.kind === "prepared") return decodeOperationFrame(frame, limits, "prepared");
+  if (frame.kind === "accepted") return decodeAccepted(frame, limits, budget);
   if (frame.kind === "terminal") return decodeTerminal(frame, limits, budget);
   if (frame.kind === "direct-result") return decodeDirectResult(frame, limits, budget);
   if (frame.kind === "direct-failure") return decodeDirectFailure(frame, limits);
@@ -323,6 +320,24 @@ function decodeTerminal(
     receipt
   };
 }
+function decodeAccepted(
+  frame: FrameRecord,
+  limits: RepoWriteProtocolLimits,
+  budget: { nodes: number }
+): RepoWriteAcceptedFrame {
+  assertExactKeys(frame, baseKeys(["requestId", "opId", "receipt"]), [], "$");
+  const receipt = jsonObject(frame.receipt, "$.receipt", limits, budget, 1);
+  if (!receiptSettlementVisibilityMatches(receipt, "$.receipt", "pending")) {
+    invalid("$.receipt.settlement", "pending command receipt settlement");
+  }
+  return {
+    ...baseFields(frame),
+    kind: "accepted",
+    requestId: identifier(frame.requestId, "$.requestId", limits),
+    opId: identifier(frame.opId, "$.opId", limits),
+    receipt
+  };
+}
 function decodeDirectResult(
   frame: FrameRecord,
   limits: RepoWriteProtocolLimits,
@@ -403,10 +418,7 @@ function decodeStatus(
   limits: RepoWriteProtocolLimits,
   budget: { nodes: number }
 ): RepoWriteStatusFrame {
-  const states: ReadonlyArray<RepoWriteOperationState> = [
-    "not-found", "prepared", "proceeding", "committed", "rejected", "failed", "unknown"
-  ];
-  if (!states.includes(frame.state as RepoWriteOperationState)) invalid("$.state", "operation state");
+  if (!repoWriteOperationStates.includes(frame.state as RepoWriteOperationState)) invalid("$.state", "operation state");
   const common = {
     ...baseFields(frame),
     kind: "status" as const,
@@ -429,10 +441,23 @@ function decodeStatus(
       ? { ...terminal, state: "committed", outcome: "committed" }
       : { ...terminal, state: "rejected", outcome: "rejected" };
   }
+  if (frame.state === "accepted" || frame.state === "settlement-failed") {
+    assertExactKeys(frame, baseKeys(["requestId", "opId", "state", "receipt"]), [], "$");
+    const receipt = jsonObject(frame.receipt, "$.receipt", limits, budget, 1);
+    if (!receiptSettlementVisibilityMatches(
+      receipt, "$.receipt", frame.state === "accepted" ? "pending" : "failed"
+    )) {
+      invalid("$.receipt.settlement", `${frame.state === "accepted" ? "pending" : "failed"} command receipt settlement`);
+    }
+    return { ...common, state: frame.state, receipt };
+  }
   assertExactKeys(frame, baseKeys(["requestId", "opId", "state"]), [], "$");
   return {
     ...common,
-    state: frame.state as Exclude<RepoWriteOperationState, RepoWriteTerminalOutcome>
+    state: frame.state as Exclude<
+      RepoWriteOperationState,
+      RepoWriteTerminalOutcome | "accepted" | "settlement-failed"
+    >
   };
 }
 

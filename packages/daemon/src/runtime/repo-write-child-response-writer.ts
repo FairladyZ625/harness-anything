@@ -51,6 +51,16 @@ export class RepoWriteChildResponseWriter {
     });
   }
 
+  accepted(requestId: string, opId: string, receipt: RepoWriteJsonObject): Promise<void> {
+    return this.send({
+      ...this.frameBase(),
+      kind: "accepted",
+      requestId,
+      opId,
+      receipt
+    });
+  }
+
   status(requestId: string, opId: string, result: RepoWriteOperationLookupResult): Promise<void> {
     return this.send({
       ...this.frameBase(),

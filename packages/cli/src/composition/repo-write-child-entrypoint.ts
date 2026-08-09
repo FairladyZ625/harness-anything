@@ -10,13 +10,16 @@ import {
   DurableRepoWriteOutcomeStoreV1,
   loadAuthorityProductionManifest,
   ProductionRepoWriteOperationHost,
+  ReceiptSettlementStore,
   RepoWriteAuthorityRecoveryGate,
   RepoWriteChildIpcTransport,
   failureReceipt,
   makeDaemonQueuedWriteCoordinator,
   makeDocSyncService,
   materializeDocSyncWriterWorkingTree,
+  pendingCommandReceiptSettlement,
   successReceipt,
+  withCommandReceiptSettlement,
   type HarnessDaemonRuntime
 } from "@harness-anything/daemon";
 import type {
@@ -32,6 +35,11 @@ import { cliDaemonCommandHostServices } from "./daemon-command-host-services.ts"
 import { cliDaemonServiceHostServices } from "./daemon-service-host-services.ts";
 import { daemonActorAttribution } from "./actor-attribution.ts";
 import { makeIncrementalConflictMarkerPreflight } from "./incremental-conflict-marker-preflight.ts";
+import {
+  reconcileTerminalSettlements,
+  recoverPendingSettlementMaterialization,
+  settleAcceptedSession
+} from "./receipt-settlement-runtime.ts";
 import {
   createCliProductionAuthorityLifecycle
 } from "./production-authority-lifecycle.ts";
@@ -199,6 +207,16 @@ export async function runRepoWriteChildEntrypoint(
     workspaceId: authorityRepo.workspaceId,
     generation: config.generation
   });
+  const settlements = new ReceiptSettlementStore({
+    directory: path.join(
+      manifest.serviceStateRoot,
+      "receipt-settlements",
+      Buffer.from(config.repoId, "utf8").toString("base64url")
+    ),
+    repoId: config.repoId,
+    workspaceId: authorityRepo.workspaceId,
+    generation: config.generation
+  });
   const publicationInspector = createGitCanonicalPublicationInspector(
     resolveHarnessLayout({
       rootDir: config.canonicalRoot,
@@ -251,12 +269,25 @@ export async function runRepoWriteChildEntrypoint(
     await runtime.stop();
     throw new Error(started.error);
   }
-  historicalRecovery.recover = (outcome) => {
+  const recoverAuthorityCommittedReceipt = (opId: string) => {
     if (!started.component.recoverCommittedReceipt) {
       throw new Error("AUTHORITY_COMMITTED_RECEIPT_RECOVERY_UNAVAILABLE");
     }
-    return started.component.recoverCommittedReceipt(outcome.innerOpId);
+    return started.component.recoverCommittedReceipt(opId);
   };
+  historicalRecovery.recover = (outcome) =>
+    recoverAuthorityCommittedReceipt(outcome.innerOpId);
+  await recoverPendingSettlementMaterialization({
+    settlements,
+    outcomes,
+    runtime,
+    authoredRoot: resolveHarnessLayout({
+      rootDir: config.canonicalRoot,
+      ...(layoutOverrides ? { layoutOverrides } : {})
+    }).authoredRoot,
+    deadlineAt: Date.now() + remainingStartupRecoveryBudgetMs(),
+    recoverCommittedReceipt: recoverAuthorityCommittedReceipt
+  });
   const startupRecoveryBudgetMs = remainingStartupRecoveryBudgetMs();
   const startupRecoveryDeadline = Date.now() + startupRecoveryBudgetMs;
   await reportStartupProgress("historical-recovery-scan");
@@ -320,6 +351,7 @@ export async function runRepoWriteChildEntrypoint(
       + "retried on the next start\n"
     );
   }
+  reconcileTerminalSettlements(settlements, outcomes);
   await reportStartupProgress("child-host-start");
   const operation = new ProductionRepoWriteOperationHost({
     repoId: config.repoId,
@@ -329,6 +361,7 @@ export async function runRepoWriteChildEntrypoint(
     authorityComponent: started.component,
     hostServices: cliDaemonCommandHostServices,
     outcomeStore: outcomes,
+    settlementStore: settlements,
     resolveHistoricalPublication,
     recoverHistoricalCommittedReceipt: historicalRecovery.recover,
     conflictMarkerPreflight: conflictMarkerPreflight.read,
@@ -385,9 +418,36 @@ export async function runRepoWriteChildEntrypoint(
           }
         )
       }).submit(materialized.request);
-      return result.ok
-        ? successReceipt("repo.doc.sync.submit", "completed repo.doc.sync.submit", result as unknown as import("@harness-anything/daemon").JsonObject)
-        : failureReceipt("repo.doc.sync.submit", result.code, result.reason, {
+      if (result.ok) {
+        const pending = pendingCommandReceiptSettlement({
+          receiptId: `doc-sync:${result.intentId}`,
+          acceptedAt: new Date().toISOString(),
+          sessionId: decoded.currentSession.sessionId,
+          acceptedCommitSha: result.appliedLedgerSha
+        });
+        const accepted = withCommandReceiptSettlement(
+          successReceipt(
+            "repo.doc.sync.submit",
+            "completed repo.doc.sync.submit",
+            result as unknown as import("@harness-anything/daemon").JsonObject
+          ),
+          pending
+        );
+        if (!accepted.ok) throw new Error("DOC_SYNC_ACCEPTANCE_RECEIPT_REVERSED");
+        settlements.accept(accepted);
+        void settleAcceptedSession({
+          settlements,
+          runtime,
+          authoredRoot: resolveHarnessLayout({
+            rootDir: config.canonicalRoot,
+            ...(layoutOverrides ? { layoutOverrides } : {})
+          }).authoredRoot,
+          acceptedReceipt: accepted,
+          pending
+        });
+        return accepted;
+      }
+      return failureReceipt("repo.doc.sync.submit", result.code, result.reason, {
           data: result as unknown as import("@harness-anything/daemon").JsonObject
         });
     }

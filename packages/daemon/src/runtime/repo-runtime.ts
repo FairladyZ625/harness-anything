@@ -76,6 +76,7 @@ import { mergeRepoRuntimeDefaults, sortedRepoOptions } from "./repo-runtime-opti
 import { describeRepoRuntimeError } from "./repo-runtime-error.ts";
 import { acquireRepoRuntimeGlobalLock } from "./repo-runtime-lock.ts";
 import { bindCurrentRepoWriteTelemetry } from "./repo-write-telemetry-context.ts";
+import { resolveAuthoritySessionCommit } from "./authority-session-commit.ts";
 import { reportFlushGitCommitPhase, reportFlushPostCommitPhase, reportFlushProjectionFingerprintDiagnostic, reportFlushProjectionFingerprintPhase, runMaterializerWithRepoWriteTelemetry } from "./repo-write-materializer-telemetry.ts";
 
 const defaultDaemonOperationalActor: OperationalActor = { scope: "operational", kind: "system", id: "daemon-runtime" };
@@ -409,7 +410,8 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     return enqueueDaemonAuthorityPublication(
       this.queue,
       options,
-      (sessionId) => this.runMaterializerBatch({ sessionId })
+      (sessionId) => this.runMaterializerBatch({ sessionId }),
+      (sessionId) => resolveAuthoritySessionCommit(this.layout.authoredRoot, sessionId)
     ).catch((error: unknown) => {
       this.lastError = describeRepoRuntimeError(error);
       throw error;

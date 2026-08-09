@@ -42,10 +42,19 @@ import {
   type RepoWriteTerminalEvidenceV1
 } from "./repo-write-outcome-schema.ts";
 import { DurableRepoWriteOutcomeStoreV1 } from "./durable-repo-write-outcome-store.ts";
+import { ReceiptSettlementStore } from "./receipt-settlement-store.ts";
+import {
+  runBeforeBackgroundAuthoritySettlement,
+  type AuthorityDurableAcceptance
+} from "./authority-durable-acceptance-context.ts";
 import type {
   ProductionAuthorityAttemptPlanV1,
   ProductionAuthorityCommandPlanInput
 } from "../authority/production/production-authority-attempt-compiler.ts";
+import {
+  settleDirectAuthorityCommandReceipt,
+  type CapturedAuthorityDurableSubmission
+} from "./direct-command-receipt-settlement.ts";
 import {
   guardProgressAppendRecoveryEffect
 } from "./repo-write-progress-recovery-guard.ts";
@@ -65,6 +74,7 @@ export class ProductionRepoWriteOperationHost<
     readonly authorityComponent: AuthorityRepoComponent;
     readonly hostServices: DaemonCommandHostServices<Command, Result, AuthenticatedActor>;
     readonly outcomeStore: DurableRepoWriteOutcomeStoreV1;
+    readonly settlementStore: ReceiptSettlementStore;
     readonly resolveHistoricalPublication?: RepoWriteAuthorityRecoveryGateOptions["resolveHistoricalPublication"];
     readonly recoverHistoricalCommittedReceipt?: RepoWriteAuthorityRecoveryGateOptions["recoverHistoricalCommittedReceipt"];
     readonly executeDocSyncSubmit?: (input: {
@@ -86,6 +96,7 @@ export class ProductionRepoWriteOperationHost<
     readonly authorityComponent: AuthorityRepoComponent;
     readonly hostServices: DaemonCommandHostServices<Command, Result, AuthenticatedActor>;
     readonly outcomeStore: DurableRepoWriteOutcomeStoreV1;
+    readonly settlementStore: ReceiptSettlementStore;
     readonly resolveHistoricalPublication?: RepoWriteAuthorityRecoveryGateOptions["resolveHistoricalPublication"];
     readonly recoverHistoricalCommittedReceipt?: RepoWriteAuthorityRecoveryGateOptions["recoverHistoricalCommittedReceipt"];
     readonly executeDocSyncSubmit?: (input: {
@@ -119,6 +130,8 @@ export class ProductionRepoWriteOperationHost<
       workspaceId: options.workspaceId,
       generation: options.generation,
       store: options.outcomeStore,
+      settlements: options.settlementStore,
+      now: this.options.now,
       recover: (proceeding) => this.execute(proceeding, true)
     });
   }
@@ -184,18 +197,36 @@ export class ProductionRepoWriteOperationHost<
       && this.options.hostServices.repoWriteChildExecutionMode(command) !== "direct") {
       throw new Error(`REPO_WRITE_DIRECT_MODE_REQUIRED:${command.action.kind}`);
     }
+    const durableSubmissions: CapturedAuthorityDurableSubmission[] = [];
+    const capturingBinding: AuthorityRepoConnectionBinding = {
+      ...binding,
+      submitDurable: async (submissionInput) => {
+        const durable = await binding.submitDurable(submissionInput);
+        const captured: CapturedAuthorityDurableSubmission = {
+          settlement: durable.settlement
+        };
+        durableSubmissions.push(captured);
+        return {
+          admission: durable.admission.then((admission) => {
+            if (admission.kind === "accepted") captured.acceptance = admission.acceptance;
+            return admission;
+          }),
+          settlement: durable.settlement
+        };
+      }
+    };
     const commandService = createDaemonCommandService(
       this.options.runtime,
       this.options.hostServices,
       {
-        resolveAuthoritySubmissionV2: () => binding,
+        resolveAuthoritySubmissionV2: () => capturingBinding,
         authorityCutoverControl: this.options.authorityComponent.cutoverControl,
         ...(this.options.conflictMarkerPreflight ? {
           conflictMarkerPreflight: this.options.conflictMarkerPreflight
         } : {})
       }
     );
-    return commandReceiptJsonObject(await commandService.runCommand(
+    const receipt = await runBeforeBackgroundAuthoritySettlement(() => commandService.runCommand(
       input.command.payload as unknown as JsonObject,
       {
         actor: decoded.actor,
@@ -207,19 +238,42 @@ export class ProductionRepoWriteOperationHost<
         }
       }
     ));
+    return commandReceiptJsonObject(settleDirectAuthorityCommandReceipt({
+      receipt,
+      submissions: durableSubmissions,
+      store: this.options.settlementStore,
+      now: this.options.now
+    }));
   }
 
   async lookup(input: RepoWriteLookupInput): Promise<RepoWriteCanonicalLookupResult> {
+    const settlement = this.options.settlementStore.lookup(input.opId);
+    if (settlement?.state === "canonical-visible") {
+      const current = this.options.outcomeStore.lookup(input.opId);
+      return current.state === "terminal"
+        ? { state: "terminal", outcome: current.outcome }
+        : { state: "canonical-visible", receipt: commandReceiptJsonObject(settlement.receipt) };
+    }
+    if (settlement?.state === "pending") {
+      return { state: "accepted", receipt: commandReceiptJsonObject(settlement.receipt) };
+    }
+    if (settlement?.state === "failed") {
+      return { state: "settlement-failed", receipt: commandReceiptJsonObject(settlement.receipt) };
+    }
     const current = this.options.outcomeStore.lookup(input.opId);
     if (current.state === "not-found") return { state: "not-found" };
     if (current.state === "terminal") {
       return { state: "terminal", outcome: current.outcome };
     }
     if (current.state === "outcome-unknown") return { state: "unknown" };
-    return {
-      state: "terminal",
-      outcome: await this.operations.resume(input.opId)
-    };
+    const resumed = await this.operations.resume(input.opId);
+    if ("kind" in resumed && resumed.kind === "accepted") {
+      return { state: "accepted", receipt: commandReceiptJsonObject(resumed.receipt) };
+    }
+    if ("phase" in resumed && resumed.phase === "TERMINAL") {
+      return { state: "terminal", outcome: resumed };
+    }
+    throw new Error(`REPO_WRITE_RESUME_DID_NOT_SETTLE:${input.opId}`);
   }
 
   private async prepareCommand(dto: RepoWriteCommandDto) {
@@ -352,10 +406,33 @@ export class ProductionRepoWriteOperationHost<
       } : {})
     });
     let authorityEvidence: AuthorityOperationReceipt | undefined;
+    const durableSubmissions: Array<{
+      acceptance?: AuthorityDurableAcceptance;
+      readonly settlement: Promise<AuthorityOperationReceipt>;
+    }> = [];
     const capturingSubmission = {
       submit: async (input: Parameters<typeof submission.submit>[0]) => {
         authorityEvidence = await submission.submit(input);
         return authorityEvidence;
+      },
+      submitDurable: async (input: Parameters<typeof submission.submitDurable>[0]) => {
+        const durable = await submission.submitDurable(input);
+        const captured: {
+          acceptance?: AuthorityDurableAcceptance;
+          readonly settlement: Promise<AuthorityOperationReceipt>;
+        } = { settlement: durable.settlement };
+        durableSubmissions.push(captured);
+        return {
+          admission: durable.admission.then((admission) => {
+            if (admission.kind === "accepted") captured.acceptance = admission.acceptance;
+            else authorityEvidence = admission.receipt;
+            return admission;
+          }),
+          settlement: durable.settlement.then((evidence) => {
+            authorityEvidence = evidence;
+            return evidence;
+          })
+        };
       }
     };
     const commandService = createDaemonCommandService(
@@ -370,7 +447,7 @@ export class ProductionRepoWriteOperationHost<
         } : {})
       }
     );
-    const receipt = exactReceipt(await commandService.runCommand(
+    const receipt = exactReceipt(await runBeforeBackgroundAuthoritySettlement(() => commandService.runCommand(
       currentCommand.payload as unknown as JsonObject,
       {
         actor: decoded.actor,
@@ -381,9 +458,28 @@ export class ProductionRepoWriteOperationHost<
           assertActive: () => undefined
         }
       }
-    ), proceeding, authorityEvidence);
+    )), proceeding, authorityEvidence);
+    const accepted = durableSubmissions
+      .map((entry) => entry.acceptance)
+      .find((entry) => entry?.flush.watermark === proceeding.innerOpId)
+      ?? durableSubmissions.at(-1)?.acceptance;
+    if (accepted) {
+      return {
+        kind: "accepted",
+        receipt,
+        acceptance: accepted,
+        acceptedCommitSha: accepted.acceptedCommitSha,
+        settlement: Promise.all(durableSubmissions.map((entry) => entry.settlement)).then((evidence) => {
+          const exact = evidence.find((entry) => entry.opId === proceeding.innerOpId) ?? evidence.at(-1);
+          if (!exact || exact.tag === "INDETERMINATE") {
+            throw new Error(`AUTHORITY_SETTLEMENT_INDETERMINATE:${exact?.tag === "INDETERMINATE" ? exact.reason : "terminal evidence missing"}`);
+          }
+          return exact;
+        })
+      };
+    }
     const evidence = terminalEvidence(authorityEvidence, receipt, proceeding);
-    return { receipt, authorityEvidence: evidence };
+    return { kind: "terminal", receipt, authorityEvidence: evidence };
   }
 }
 

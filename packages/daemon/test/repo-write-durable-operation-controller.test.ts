@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   DurableRepoWriteOutcomeStoreV1,
+  ReceiptSettlementStore,
   RepoWriteDurableOperationController,
   repoWriteActorStampDigestV1,
   type RepoWriteProceedingInputV1,
@@ -66,6 +67,7 @@ controllerTest("a crash after PROCEEDING resumes the fixed attempt without fresh
     const restarted = new RepoWriteDurableOperationController({
       ...axes(),
       store: restartedStore,
+      settlements: settlementStore(directory),
       recover: async (durableProceeding) => {
         events.push(`resume-fixed-attempt:${durableProceeding.innerOpId}`);
         return {
@@ -116,6 +118,49 @@ controllerTest("duplicate execute and resume return the byte-stable terminal wit
   });
 });
 
+controllerTest("accepted returns before settlement and later exposes canonical visibility", async () => {
+  await withController(async ({ controller, proceeding, options }) => {
+    let settle!: (evidence: RepoWriteTerminalEvidenceV1) => void;
+    const settlement = new Promise<RepoWriteTerminalEvidenceV1>((resolve) => {
+      settle = resolve;
+    });
+    const prepared = controller.prepare({
+      proceeding,
+      executeFresh: async () => ({
+        kind: "accepted" as const,
+        receipt: committedCommandReceipt(),
+        acceptance: {
+          sessionId: "session-controller",
+          acceptedCommitSha: "b".repeat(40),
+          flush: {
+            reason: "explicit",
+            opCount: 1,
+            committed: true,
+            watermark: proceeding.innerOpId
+          }
+        },
+        acceptedCommitSha: "b".repeat(40),
+        settlement
+      })
+    });
+
+    const accepted = await prepared.execute();
+    assert.equal("kind" in accepted ? accepted.kind : undefined, "accepted");
+    assert.equal(options.store.lookup(proceeding.outerOpId).state, "proceeding");
+    assert.equal(
+      options.settlements.lookup(proceeding.outerOpId)?.receipt.settlement?.canonicalVisibility,
+      "pending"
+    );
+
+    settle(terminalEvidence(proceeding, "committed"));
+    await eventually(() => options.store.lookup(proceeding.outerOpId).state === "terminal");
+    assert.equal(
+      options.settlements.lookup(proceeding.outerOpId)?.receipt.settlement?.canonicalVisibility,
+      "visible"
+    );
+  });
+});
+
 controllerTest("replacement recovery completes an earlier PROCEEDING before a later append", async () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-order-"));
   const store = new DurableRepoWriteOutcomeStoreV1({
@@ -136,6 +181,7 @@ controllerTest("replacement recovery completes an earlier PROCEEDING before a la
   const controller = new RepoWriteDurableOperationController({
     ...axes(),
     store,
+    settlements: settlementStore(directory),
     recover: async (proceeding) => {
       observeRecovery!();
       await recoveryGate;
@@ -186,6 +232,7 @@ async function withController(
     readonly proceeding: RepoWriteProceedingInputV1;
     readonly options: {
       readonly store: DurableRepoWriteOutcomeStoreV1;
+      readonly settlements: ReceiptSettlementStore;
     };
     readonly controller: RepoWriteDurableOperationController;
   }) => Promise<void>
@@ -198,19 +245,36 @@ async function withController(
     __testOnlyDurabilityHooks: durabilityEvents(events)
   });
   const proceeding = proceedingInput();
+  const settlements = settlementStore(directory);
   const controller = new RepoWriteDurableOperationController({
     ...axes(),
     store,
+    settlements,
     recover: async (durableProceeding) => ({
       receipt: committedCommandReceipt(),
       authorityEvidence: terminalEvidence(durableProceeding, "committed")
     })
   });
   try {
-    await run({ directory, events, proceeding, options: { store }, controller });
+    await run({ directory, events, proceeding, options: { store, settlements }, controller });
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+}
+
+async function eventually(predicate: () => boolean): Promise<void> {
+  for (let index = 0; index < 100; index += 1) {
+    if (predicate()) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail("condition did not become true");
+}
+
+function settlementStore(directory: string): ReceiptSettlementStore {
+  return new ReceiptSettlementStore({
+    directory: path.join(directory, "receipt-settlements"),
+    ...axes()
+  });
 }
 
 function durabilityEvents(events: string[]) {
