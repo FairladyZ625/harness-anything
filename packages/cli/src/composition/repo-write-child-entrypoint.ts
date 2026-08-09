@@ -23,7 +23,10 @@ import type {
   DocSyncSubmitRequestV1,
   DocSyncSubmitResultV1
 } from "@harness-anything/application";
-import { resolveHarnessLayout } from "@harness-anything/kernel";
+import {
+  resolveHarnessLayout,
+  type RetryBudgetSignal
+} from "@harness-anything/kernel";
 import { defaultCliAdapterProvider } from "./adapter-registry.ts";
 import { cliDaemonCommandHostServices } from "./daemon-command-host-services.ts";
 import { cliDaemonServiceHostServices } from "./daemon-service-host-services.ts";
@@ -66,6 +69,33 @@ export async function runRepoWriteChildEntrypoint(
   if (!encodedConfig) throw new Error("REPO_WRITE_CHILD_LAUNCH_CONFIG_REQUIRED");
   const config = decodeRepoWriteChildLaunchConfig(encodedConfig);
   const transport = new RepoWriteChildIpcTransport();
+  const onPublicationRetryBudgetSignal = (signal: RetryBudgetSignal): void => {
+    const deliveryFailure = (error: unknown): void => {
+      process.emitWarning(
+        `Repo-write child could not forward publication retry-budget visibility to the parent daemon: ${boundedRecoveryError(error)}`,
+        { code: "REPO_WRITE_RETRY_BUDGET_SIGNAL_DELIVERY_FAILED" }
+      );
+    };
+    try {
+      void transport.send({
+        protocol: "harness-repo-write-ipc/v1",
+        repoId: config.repoId,
+        generation: config.generation,
+        kind: "retry-budget-signal",
+        phase: signal.phase,
+        operation: signal.event.operation,
+        cause: boundedRecoveryError(signal.event.cause),
+        failures: signal.event.failures,
+        retriesUsed: signal.event.retriesUsed,
+        elapsedMs: signal.event.elapsedMs,
+        ...(signal.event.remainingMs === undefined ? {} : {
+          remainingMs: signal.event.remainingMs
+        })
+      }).catch(deliveryFailure);
+    } catch (error) {
+      deliveryFailure(error);
+    }
+  };
   const reportStartupProgress = async (
     phase: RepoWriteStartupProgressPhase,
     workUnit = config.repoId
@@ -173,7 +203,8 @@ export async function runRepoWriteChildEntrypoint(
     resolveHarnessLayout({
       rootDir: config.canonicalRoot,
       ...(layoutOverrides ? { layoutOverrides } : {})
-    }).authoredRoot
+    }).authoredRoot,
+    { onRetryBudgetSignal: onPublicationRetryBudgetSignal }
   );
   const resolveHistoricalPublication = (
     outcome: import("@harness-anything/daemon").RepoWriteProceedingOutcomeV1
@@ -205,6 +236,7 @@ export async function runRepoWriteChildEntrypoint(
   const authorityLifecycle = createCliProductionAuthorityLifecycle({
     manifestPath: config.authorityManifest,
     ...(layoutOverrides ? { layoutOverrides } : {}),
+    onPublicationRetryBudgetSignal,
     backgroundRecovery: true
   });
   const repo = {

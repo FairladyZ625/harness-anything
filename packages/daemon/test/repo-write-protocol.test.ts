@@ -275,6 +275,32 @@ test("historical recovery diagnostics carry a bounded startup failure without re
   }), protocolInvalid);
 });
 
+test("retry-budget visibility crosses the child IPC boundary without request correlation", () => {
+  const signal: RepoWriteChildMessage = {
+    ...base("retry-budget-signal"),
+    phase: "exhausted",
+    operation: "publication-git-object-batch",
+    cause: "GitObjectBatchValidationError: batch response was offset",
+    failures: 2,
+    retriesUsed: 1,
+    elapsedMs: 14,
+    remainingMs: 0
+  };
+
+  assert.deepEqual(
+    parseRepoWriteChildMessage(stringifyRepoWriteChildMessage(signal)),
+    signal
+  );
+  assert.throws(() => decodeRepoWriteChildMessage({
+    ...signal,
+    retriesUsed: -1
+  }), protocolInvalid);
+  assert.throws(() => decodeRepoWriteChildMessage({
+    ...signal,
+    unboundedDetail: "not allowed"
+  }), protocolInvalid);
+});
+
 test("volatile direct execution carries an exact receipt without durable recovery fields", () => {
   const request: RepoWriteParentMessage = {
     ...base("direct"),

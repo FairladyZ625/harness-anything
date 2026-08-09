@@ -34,6 +34,7 @@ import {
 } from "./repo-write-client-telemetry.ts";
 import {
   observeRepoWriteRecoveryDiagnostic,
+  observeRepoWriteRetryBudgetSignal,
   observeRepoWriteTelemetry,
   repoWriteClientFrameBase
 } from "./repo-write-client-observers.ts";
@@ -353,6 +354,10 @@ export class RepoWriteClient {
     }
     if (message.kind === "recovery-deferred" || message.kind === "recovery-rejected") {
       observeRepoWriteRecoveryDiagnostic(this.options.onDiagnostic, message);
+      return;
+    }
+    if (message.kind === "retry-budget-signal") {
+      observeRepoWriteRetryBudgetSignal(this.options.onRetryBudgetSignal, message);
       return;
     }
     if (message.kind === "failure") {

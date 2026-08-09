@@ -235,6 +235,34 @@ test("supervisor forwards startup recovery diagnostics before READY", async (con
   }]);
 });
 
+test("supervisor forwards child retry-budget signals before READY", async (context) => {
+  const signals: unknown[] = [];
+  const supervisor = new RepoWriteProcessSupervisor({
+    repoId: "repo-transport",
+    generation: 1,
+    spawn: () => forkRepoWriteProcess({
+      modulePath: fixturePath,
+      args: ["retry-budget-signal"]
+    }),
+    onRetryBudgetSignal: (frame) => signals.push(frame)
+  });
+  context.after(() => supervisor.stop().catch(() => undefined));
+
+  await supervisor.start();
+  assert.deepEqual(signals, [{
+    protocol: "harness-repo-write-ipc/v1",
+    repoId: "repo-transport",
+    generation: 1,
+    kind: "retry-budget-signal",
+    phase: "exhausted",
+    operation: "publication-git-object-batch",
+    cause: "GitObjectBatchValidationError: batch response was offset",
+    failures: 2,
+    retriesUsed: 1,
+    elapsedMs: 14
+  }]);
+});
+
 test("post-proceed child crash performs one exact op lookup in a replacement capsule", async (context) => {
   let forks = 0;
   const supervisor = new RepoWriteProcessSupervisor({
