@@ -24,6 +24,9 @@ import {
 import { removeTemporaryTestRoot } from "../../../tools/test-temp-root-cleanup.mjs";
 
 const posixTest = process.platform === "win32" ? test.skip : test;
+const publicationReaderRegistrySymbol = Symbol.for(
+  "harness-anything.publication-reader-ownership-registry"
+);
 
 test("concurrent object reads share one lazily spawned batch process", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "publication-object-reader-"));
@@ -57,6 +60,38 @@ test("concurrent object reads share one lazily spawned batch process", async (co
     ).length,
     1
   );
+});
+
+test("production reader creation does not capture an owner without the test registry", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "publication-object-untracked-"));
+  git(root, "init", "-q");
+  git(root, "config", "user.name", "Harness Test");
+  git(root, "config", "user.email", "harness@example.test");
+  writeFileSync(path.join(root, "seed.txt"), "seed\n");
+  git(root, "add", ".");
+  git(root, "commit", "-q", "-m", "seed");
+
+  const globals = globalThis as typeof globalThis & { [key: symbol]: unknown };
+  const registry = globals[publicationReaderRegistrySymbol];
+  const prepareStackTrace = Error.prepareStackTrace;
+  let inspector: ReturnType<typeof createGitCanonicalPublicationInspector> | undefined;
+  Reflect.deleteProperty(globals, publicationReaderRegistrySymbol);
+  try {
+    Error.prepareStackTrace = () => {
+      throw new Error("OWNER_STACK_CAPTURED_WITHOUT_REGISTRY");
+    };
+    inspector = createGitCanonicalPublicationInspector(root);
+    assert.equal(
+      await readPublicationGitObject(root, "HEAD:seed.txt").then((content) => content.toString("utf8")),
+      "seed\n"
+    );
+  } finally {
+    Error.prepareStackTrace = prepareStackTrace;
+    if (registry === undefined) Reflect.deleteProperty(globals, publicationReaderRegistrySymbol);
+    else globals[publicationReaderRegistrySymbol] = registry;
+    await inspector?.shutdown();
+    await removeTemporaryTestRoot(root);
+  }
 });
 
 posixTest("offset batch bytes fail closed and the request falls back to one-shot Git", async (context) => {

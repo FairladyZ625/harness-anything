@@ -6,9 +6,9 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createGitCanonicalPublicationInspector } from "../src/authority/production/publication-evidence.ts";
 import { scanFirstParentPublicationMetadata } from "../src/authority/production/publication-history.ts";
 import { assertVerifiedGitObjectContent } from "../src/authority/production/publication-object-reader.ts";
+import { useGitCanonicalPublicationInspector } from "../../../tools/publication-inspector-test-fixture.mjs";
 import {
   authorityBatchTrailerName,
   buildAuthorityBatchIntegrity
@@ -58,9 +58,8 @@ test("publication object verification requires LF immediately after content", ()
 
 test("publication proof accepts the existing two-parent materializer shape", async (context) => {
   const fixture = publicationFixture(context);
-  const inspector = createGitCanonicalPublicationInspector(fixture.root);
 
-  const evidence = await inspector.inspectPublication(fixture.base, [opId], fixture.validMerge);
+  const evidence = await fixture.inspector.inspectPublication(fixture.base, [opId], fixture.validMerge);
 
   assert.equal(evidence.commitSha, fixture.validMerge);
   assert.deepEqual(evidence.parentCommits, [fixture.base, fixture.session]);
@@ -75,9 +74,7 @@ test("publication proof accepts a two-parent semantic merge with the complete se
     [fixture.base, fixture.session],
     fixture.sessionMessage
   );
-  const inspector = createGitCanonicalPublicationInspector(fixture.root);
-
-  const evidence = await inspector.inspectPublication(fixture.base, [opId], semanticMerge);
+  const evidence = await fixture.inspector.inspectPublication(fixture.base, [opId], semanticMerge);
 
   assert.equal(evidence.commitSha, semanticMerge);
   assert.deepEqual(evidence.parentCommits, [fixture.base, fixture.session]);
@@ -103,11 +100,9 @@ test("publication proof accepts two interleaved sessions from their captured tru
     [fixture.base, interleavedSession],
     "materializer: merge session interleaved"
   );
-  const inspector = createGitCanonicalPublicationInspector(fixture.root);
-
   const [firstEvidence, interleavedEvidence] = await Promise.all([
-    inspector.inspectPublication(fixture.base, [opId], fixture.validMerge),
-    inspector.inspectPublication(fixture.base, [interleavedOpId], interleavedMerge)
+    fixture.inspector.inspectPublication(fixture.base, [opId], fixture.validMerge),
+    fixture.inspector.inspectPublication(fixture.base, [interleavedOpId], interleavedMerge)
   ]);
 
   assert.equal(firstEvidence.commitSha, fixture.validMerge);
@@ -119,9 +114,7 @@ test("publication proof accepts two interleaved sessions from their captured tru
 test("first-parent recovery accepts an old-shape merge immediately after its watermark", async (context) => {
   const fixture = publicationFixture(context);
   fixtureGit(fixture.root, "update-ref", "refs/heads/master", fixture.validMerge);
-  const inspector = createGitCanonicalPublicationInspector(fixture.root);
-
-  const scan = await inspector.scanFirstParentOperationAnchors({
+  const scan = await fixture.inspector.scanFirstParentOperationAnchors({
     exclusiveCommit: fixture.base,
     interestedOpIds: new Set([opId]),
     progressBatchSize: 1
@@ -152,9 +145,7 @@ test("first-parent recovery crosses an old merge to semantic merge watermark bou
     semanticMessage(nextOpId)
   );
   fixtureGit(fixture.root, "update-ref", "refs/heads/master", nextMerge);
-  const inspector = createGitCanonicalPublicationInspector(fixture.root);
-
-  const scan = await inspector.scanFirstParentOperationAnchors({
+  const scan = await fixture.inspector.scanFirstParentOperationAnchors({
     exclusiveCommit: fixture.validMerge,
     interestedOpIds: new Set([nextOpId]),
     progressBatchSize: 1
@@ -182,14 +173,12 @@ test("semantic merge rejects a changed or incomplete authority message", async (
     [fixture.base, fixture.session],
     `task(progress-append): task_topology progress.md [${opId}]`
   );
-  const inspector = createGitCanonicalPublicationInspector(fixture.root);
-
   await assert.rejects(
-    inspector.inspectPublication(fixture.base, [opId], changedMessage),
+    fixture.inspector.inspectPublication(fixture.base, [opId], changedMessage),
     topologyError
   );
   await assert.rejects(
-    inspector.inspectPublication(fixture.base, [opId], missingTrailer),
+    fixture.inspector.inspectPublication(fixture.base, [opId], missingTrailer),
     topologyError
   );
 });
@@ -204,8 +193,7 @@ test("publication proof rejects a single-parent publication", async (context) =>
   );
 
   await assert.rejects(
-    createGitCanonicalPublicationInspector(fixture.root)
-      .inspectPublication(fixture.base, [opId], singleParent),
+    fixture.inspector.inspectPublication(fixture.base, [opId], singleParent),
     topologyError
   );
 });
@@ -226,8 +214,7 @@ test("publication proof rejects a merge whose first parent is not the expected t
   );
 
   await assert.rejects(
-    createGitCanonicalPublicationInspector(fixture.root)
-      .inspectPublication(fixture.base, [opId], wrongFirstParent),
+    fixture.inspector.inspectPublication(fixture.base, [opId], wrongFirstParent),
     topologyError
   );
 });
@@ -247,8 +234,7 @@ test("publication proof accepts a strongly matched session based on an older tru
     "materializer: merge session topology"
   );
 
-  const evidence = await createGitCanonicalPublicationInspector(fixture.root)
-    .inspectPublication(currentTrunk, [opId], staleSessionMerge);
+  const evidence = await fixture.inspector.inspectPublication(currentTrunk, [opId], staleSessionMerge);
 
   assert.equal(evidence.commitSha, staleSessionMerge);
   assert.deepEqual(evidence.parentCommits, [currentTrunk, fixture.session]);
@@ -272,8 +258,7 @@ test("publication proof rejects a merge tree that differs from the session tree"
   );
 
   await assert.rejects(
-    createGitCanonicalPublicationInspector(fixture.root)
-      .inspectPublication(fixture.base, [opId], mismatchedTree),
+    fixture.inspector.inspectPublication(fixture.base, [opId], mismatchedTree),
     topologyError
   );
 });
@@ -289,7 +274,7 @@ test("indexed publication lookup preserves message and tree topology checks", as
   fixtureGit(fixture.root, "update-ref", "refs/heads/master", changedMessage);
 
   await assert.rejects(
-    createGitCanonicalPublicationInspector(fixture.root).findPublicationForOperation(opId),
+    fixture.inspector.findPublicationForOperation(opId),
     topologyError
   );
 
@@ -302,7 +287,7 @@ test("indexed publication lookup preserves message and tree topology checks", as
   fixtureGit(fixture.root, "update-ref", "refs/heads/master", mismatchedTree);
 
   await assert.rejects(
-    createGitCanonicalPublicationInspector(fixture.root).findPublicationForOperation(opId),
+    fixture.inspector.findPublicationForOperation(opId),
     topologyError
   );
 });
@@ -351,8 +336,7 @@ test("publication proof rejects a publication missing its inline attribution sha
   const fixture = publicationFixture(context, { includeAttribution: false });
 
   await assert.rejects(
-    createGitCanonicalPublicationInspector(fixture.root)
-      .inspectPublication(fixture.base, [opId], fixture.validMerge),
+    fixture.inspector.inspectPublication(fixture.base, [opId], fixture.validMerge),
     /AUTHORITY_CANONICAL_PUBLICATION_PIPELINE_EVIDENCE_MISMATCH/u
   );
 });
@@ -362,7 +346,7 @@ function publicationFixture(
   options: { readonly includeAttribution?: boolean } = {}
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-publication-topology-"));
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  const inspector = useGitCanonicalPublicationInspector(context, { rootDir: root });
   fixtureGit(root, "init", "-q", "-b", "master");
   writeFileSync(path.join(root, "seed.txt"), "seed\n");
   fixtureGit(root, "add", "--", "seed.txt");
@@ -391,7 +375,7 @@ function publicationFixture(
     [base, session],
     "materializer: merge session topology"
   );
-  return { root, base, baseTree, session, sessionTree, sessionMessage, validMerge };
+  return { root, inspector, base, baseTree, session, sessionTree, sessionMessage, validMerge };
 }
 
 function semanticMessage(value: string): string {

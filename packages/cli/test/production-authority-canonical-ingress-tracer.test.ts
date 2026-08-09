@@ -4,7 +4,8 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { createGitCanonicalPublicationInspector } from "@harness-anything/daemon";
+import { useGitCanonicalPublicationInspector } from "../../../tools/publication-inspector-test-fixture.mjs";
+import { removeTemporaryTestRoot } from "../../../tools/test-temp-root-cleanup.mjs";
 import {
   defaultDaemonUserRoot,
   pollUntil,
@@ -21,8 +22,12 @@ import {
 } from "./production-authority-canonical-ingress/fixture.ts";
 import { publishSeededTaskFixture } from "./helpers/canonical-task-publication-fixture.ts";
 
-test("PR canonical ingress keeps two interleaved session receipts determinate", { timeout: 60_000 }, async () => {
+test("PR canonical ingress keeps two interleaved session receipts determinate", { timeout: 60_000 }, async (context) => {
   const fixture = createFixture();
+  const inspector = useGitCanonicalPublicationInspector(context, {
+    rootDir: fixture.authoredRoot,
+    removeRoot: async () => await removeTemporaryTestRoot(fixture.root)
+  });
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const env = {
     HARNESS_ACTOR: "agent:codex",
@@ -69,8 +74,7 @@ test("PR canonical ingress keeps two interleaved session receipts determinate", 
     assert.equal(operation.state, "COMMITTED", JSON.stringify(operation));
     assert.equal(operation.receipt?.tag, "COMMITTED", JSON.stringify(operation));
     assert.equal(typeof operation.opId, "string", JSON.stringify(operation));
-    const publication = await createGitCanonicalPublicationInspector(fixture.authoredRoot)
-      .findPublicationForOperation(operation.opId!);
+    const publication = await inspector.findPublicationForOperation(operation.opId!);
     assert.equal(publication.commitSha, operation.commitSha);
     assert.equal(publication.physicalChanges.some((change) => change.path ===
       "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/progress.md"), true);
@@ -122,12 +126,15 @@ test("PR canonical ingress keeps two interleaved session receipts determinate", 
     assert.deepEqual(physicalOrder, authorityOrder.map((entry) => entry.label));
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
-    rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
-test("commit-anchor completion crosses production authority with daemon judgment and atomic task transition", { timeout: 60_000 }, async () => {
+test("commit-anchor completion crosses production authority with daemon judgment and atomic task transition", { timeout: 60_000 }, async (context) => {
   const fixture = createFixture();
+  const inspector = useGitCanonicalPublicationInspector(context, {
+    rootDir: fixture.authoredRoot,
+    removeRoot: async () => await removeTemporaryTestRoot(fixture.root)
+  });
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNY0";
   const taskRoot = path.join(fixture.authoredRoot, "tasks", taskId);
@@ -261,13 +268,11 @@ test("commit-anchor completion crosses production authority with daemon judgment
       operation.authorityIntegrity?.canonicalMutationSet.mutations.map((mutation) => [mutation.entity.entityKind, mutation.action.action]),
       [["task", "document"], ["task", "transition"]]
     );
-    const publication = await createGitCanonicalPublicationInspector(fixture.authoredRoot)
-      .findPublicationForOperation(operation.opId!);
+    const publication = await inspector.findPublicationForOperation(operation.opId!);
     assert.equal(publication.physicalChanges.some((change) => change.path === `tasks/${taskId}/completion-evidence.json`), true);
     assert.equal(publication.physicalChanges.some((change) => change.path === `tasks/${taskId}/INDEX.md`), true);
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
-    rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 

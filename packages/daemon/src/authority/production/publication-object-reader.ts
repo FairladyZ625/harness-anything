@@ -6,6 +6,7 @@ import {
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { createBoundedRetryBudget, type BoundedRetryBudget } from "@harness-anything/kernel";
 import type { RetryBudgetSignal } from "../../observability/visible-retry-budget.ts";
@@ -18,6 +19,24 @@ const maximumConsecutiveRebuilds = 1;
 const readersByRoot = new Map<string, PublicationGitObjectReader>();
 const canonicalRootsByInput = new Map<string, string>();
 const execFileAsync = promisify(execFile);
+const publicationReaderRegistrySymbol = Symbol.for(
+  "harness-anything.publication-reader-ownership-registry"
+);
+
+interface PublicationReaderOwnershipRegistry {
+  readonly register: (snapshot: () => ReadonlyArray<{
+    readonly root: string;
+    readonly owner: PublicationReaderOwner;
+  }>) => void;
+}
+
+export interface PublicationReaderOwner {
+  readonly file: string;
+  readonly line?: number;
+  readonly column?: number;
+}
+
+publicationReaderOwnershipRegistry()?.register(() => openPublicationGitObjectReadersWithin());
 
 export class GitObjectBatchValidationError extends Error {
   constructor(message: string) {
@@ -64,14 +83,21 @@ export function assertVerifiedGitObjectContent(input: {
 export function readPublicationGitObject(
   rootDir: string,
   objectName: string,
-  options: { readonly onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void } = {}
+  options: {
+    readonly onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void;
+    readonly owner?: PublicationReaderOwner;
+  } = {}
 ): Promise<Buffer> {
   const inputRoot = path.resolve(rootDir);
   const canonicalRoot = canonicalGitRoot(rootDir);
   canonicalRootsByInput.set(inputRoot, canonicalRoot);
   let reader = readersByRoot.get(canonicalRoot);
   if (!reader) {
-    reader = new PublicationGitObjectReader(canonicalRoot, options.onRetryBudgetSignal);
+    reader = new PublicationGitObjectReader(
+      canonicalRoot,
+      options.owner ?? publicationReaderOwner(),
+      options.onRetryBudgetSignal
+    );
     readersByRoot.set(canonicalRoot, reader);
   } else if (options.onRetryBudgetSignal) {
     reader.useRetryBudgetSignal(options.onRetryBudgetSignal);
@@ -94,17 +120,76 @@ export async function shutdownPublicationGitObjectReader(rootDir: string): Promi
   }
 }
 
+export function openPublicationGitObjectReadersWithin(rootDir?: string): ReadonlyArray<{
+  readonly root: string;
+  readonly owner: PublicationReaderOwner;
+}> {
+  const containingRoot = rootDir === undefined ? undefined : resolvedExistingPath(rootDir);
+  return [...readersByRoot.values()]
+    .filter((reader) => containingRoot === undefined || pathContains(containingRoot, reader.rootDir))
+    .map((reader) => ({
+      root: reader.rootDir,
+      owner: reader.owner ?? { file: "unknown" }
+    }))
+    .sort((left, right) => left.root.localeCompare(right.root));
+}
+
+function publicationReaderOwnershipRegistry(): PublicationReaderOwnershipRegistry | undefined {
+  const registry = (globalThis as typeof globalThis & {
+    [key: symbol]: PublicationReaderOwnershipRegistry | undefined;
+  })[publicationReaderRegistrySymbol];
+  return registry;
+}
+
+function resolvedExistingPath(candidate: string): string {
+  try {
+    return realpathSync.native(candidate);
+  } catch {
+    return path.resolve(candidate);
+  }
+}
+
+function pathContains(containingRoot: string, candidate: string): boolean {
+  const relative = path.relative(containingRoot, candidate);
+  return relative === ""
+    || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+export function publicationReaderOwner(): PublicationReaderOwner | undefined {
+  if (!publicationReaderOwnershipRegistry()) return undefined;
+  const internalFiles = new Set([
+    fileURLToPath(import.meta.url),
+    path.resolve(import.meta.dirname, "publication-evidence.ts")
+  ]);
+  for (const line of new Error().stack?.split("\n").slice(1) ?? []) {
+    const match = /(?:\(|at )((?:file:\/\/\/|\/|[A-Za-z]:[\\/]).+):(\d+):(\d+)\)?$/u.exec(line.trim());
+    if (!match) continue;
+    const file = match[1]!.startsWith("file:") ? fileURLToPath(match[1]!) : match[1]!;
+    if (!internalFiles.has(file)) {
+      return { file, line: Number(match[2]), column: Number(match[3]) };
+    }
+  }
+  return { file: "unknown" };
+}
+
 class PublicationGitObjectReader {
   readonly rootDir: string;
+  readonly owner: PublicationReaderOwner | undefined;
   private batch: GitCatFileBatchProcess | undefined;
   private queue: Promise<void> = Promise.resolve();
   private closed = false;
+  private closePromise: Promise<void> | undefined;
   private batchDisabled = false;
   private readonly retryBudget: BoundedRetryBudget;
   private onRetryBudgetSignal: ((signal: RetryBudgetSignal) => void) | undefined;
 
-  constructor(rootDir: string, onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void) {
+  constructor(
+    rootDir: string,
+    owner: PublicationReaderOwner | undefined,
+    onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void
+  ) {
     this.rootDir = rootDir;
+    this.owner = owner;
     this.onRetryBudgetSignal = onRetryBudgetSignal;
     this.retryBudget = createBoundedRetryBudget({
       operation: "publication-git-object-batch",
@@ -134,9 +219,14 @@ class PublicationGitObjectReader {
     return result;
   }
 
-  async close(): Promise<void> {
-    if (this.closed) return;
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
     this.closed = true;
+    this.closePromise = this.closeResources();
+    return this.closePromise;
+  }
+
+  private async closeResources(): Promise<void> {
     const batch = this.batch;
     this.batch = undefined;
     if (batch) await batch.terminate();

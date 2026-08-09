@@ -1,5 +1,4 @@
 import { execFile, execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { CanonicalPublicationInspector, DaemonLogService } from "@harness-anything/application";
@@ -37,8 +36,10 @@ import { historicalPublicationEvidence } from "./historical-publication-evidence
 import { findUniquePublication } from "./publication-operation-lookup.ts";
 import { publicationGitExitCode } from "./publication-git-observation.ts";
 import { AuthorityImmutablePublicationProofError } from "./publication-proof-error.ts";
+import { publicationGitBlobDigest } from "./publication-object-digest.ts";
 import { reportCurrentRepoWriteTelemetry } from "../../runtime/repo-write-telemetry-context.ts";
 import {
+  publicationReaderOwner,
   readPublicationGitObject,
   shutdownPublicationGitObjectReader
 } from "./publication-object-reader.ts";
@@ -213,6 +214,10 @@ export function createGitCanonicalPublicationInspector(
   options: { readonly onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void } = {}
 ): GitCanonicalPublicationInspector {
   const rootDir = path.resolve(canonicalRoot);
+  const readerOwner = publicationReaderOwner();
+  const readerOptions = readerOwner === undefined
+    ? options
+    : { ...options, owner: readerOwner };
   const currentHead = async (): Promise<string | null> =>
     gitOptionalAsync(rootDir, "rev-parse", "--verify", "HEAD");
   let indexedHistoryCache: {
@@ -434,8 +439,8 @@ export function createGitCanonicalPublicationInspector(
     for (const changedPath of changedPaths) {
       physicalChanges.push({
         path: changedPath,
-        beforeDigest: await blobDigestAsync(rootDir, publicationBase, changedPath, options),
-        afterDigest: await blobDigestAsync(rootDir, head, changedPath, options)
+        beforeDigest: await publicationGitBlobDigest(rootDir, publicationBase, changedPath, readerOptions),
+        afterDigest: await publicationGitBlobDigest(rootDir, head, changedPath, readerOptions)
       });
     }
     physicalChanges.sort((left, right) => Buffer.compare(
@@ -523,7 +528,7 @@ export function createGitCanonicalPublicationInspector(
         opId,
         publication,
         readAtCommit: (commitSha, eventPath) =>
-          readPublicationGitObject(rootDir, `${commitSha}:${eventPath}`, options)
+          readPublicationGitObject(rootDir, `${commitSha}:${eventPath}`, readerOptions)
       });
     }
   };
@@ -531,20 +536,6 @@ export function createGitCanonicalPublicationInspector(
 
 function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
-}
-
-async function blobDigestAsync(
-  rootDir: string,
-  revision: string,
-  changedPath: string,
-  options: { readonly onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void }
-): Promise<string | null> {
-  try {
-    const bytes = await readPublicationGitObject(rootDir, `${revision}:${changedPath}`, options);
-    return createHash("sha256").update(bytes).digest("hex");
-  } catch {
-    return null;
-  }
 }
 
 function canonicalGitPath(value: string): string {

@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -356,6 +356,37 @@ test("runner preserves a failed proof when the direct worker wedges during exit"
   assert.match(output, /"phase":"proof-flushed"[^\n]+"success":false/u);
   assert.match(output, /"phase":"settled"[^\n]+"outcome":"failed-after-reap"/u);
   assert.doesNotMatch(output, /accepted 1 completed file result/u);
+});
+
+test("runner fails a test file with an unclosed publication reader and names its root", (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "publication-reader-runner-leak-"));
+  context.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
+  const fixture = "tools/test-fixtures/.runner-stall/post-complete-wedge.test.mjs";
+  const childEnv = {
+    ...process.env,
+    HARNESS_PUBLICATION_READER_FIXTURE_ROOT: root,
+    HARNESS_TEST_CONCURRENCY: "1"
+  };
+  delete childEnv.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, [
+    "tools/run-node-tests.mjs",
+    "--fixture", fixture,
+    "--test-timeout", "5000"
+  ], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: childEnv,
+    timeout: 15_000
+  });
+  const output = `${result.stdout}\n${result.stderr}`;
+
+  assert.equal(result.error, undefined, output);
+  assert.equal(result.status, 1, output);
+  assert.match(output, /PUBLICATION_READER_LEAK/u);
+  assert.match(output, /file=tools\/test-fixtures\/\.runner-stall\/post-complete-wedge\.test\.mjs/u);
+  assert.match(output, /readers=1/u);
+  const canonicalRoot = realpathSync.native(root);
+  assert.match(output, new RegExp(`root=${canonicalRoot.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`, "u"));
 });
 
 test("runner waits for an in-flight reap record before accepting the host result", () => {
