@@ -90,7 +90,16 @@ export function buildArtifactIngestPlan(input: {
         const portable = portablePathRelative(layout.authoredRoot, source.absolutePath);
         rewrittenByInput.set(source.sourceInput, portable);
         targetPaths.push(portable);
-        reusedPaths.push(portable);
+        const publishedBody = gitBlob(layout.authoredRoot, portable);
+        // Being under version control means the path was published once, not that the
+        // current content was. Republish whenever the working tree diverges from HEAD;
+        // a body of null is a non-UTF-8 artifact this text-only route cannot resubmit.
+        if (source.body === null || publishedBody === source.body) {
+          reusedPaths.push(portable);
+          continue;
+        }
+        changes.push(docSyncChange(portable, source.body, publishedBody === null ? null : sha256Text(publishedBody)));
+        submittedPaths.push(portable);
         continue;
       }
       const name = path.basename(source.absolutePath);
@@ -314,7 +323,11 @@ export function remoteArtifactSafetyReceipt(command: ParsedCommand, repoId: stri
   return receipt;
 }
 
-function classifySource(input: { readonly sourceInput: string; readonly cwd: string; readonly rootDir: string; readonly authoredRoot: string }) {
+type ClassifiedArtifactSource =
+  | { readonly sourceInput: string; readonly absolutePath: string; readonly tracked: true; readonly body: string | null }
+  | { readonly sourceInput: string; readonly absolutePath: string; readonly tracked: false; readonly body: string };
+
+function classifySource(input: { readonly sourceInput: string; readonly cwd: string; readonly rootDir: string; readonly authoredRoot: string }): ClassifiedArtifactSource {
   const absolutePath = resolveSource(input.sourceInput, input.cwd, input.rootDir, input.authoredRoot);
   if (!existsSync(absolutePath)) throw readFailure(`Evidence file does not exist: ${input.sourceInput}.`);
   let sourceStat: ReturnType<typeof statSync>;
@@ -324,8 +337,14 @@ function classifySource(input: { readonly sourceInput: string; readonly cwd: str
   if (!isHarnessInternal(absolutePath, input.rootDir)) {
     throw readFailure(`Evidence artifact is outside this harness repository: ${input.sourceInput}. Move it into the repository or task package before retrying.`);
   }
-  const tracked = isGitTracked(absolutePath);
-  return { sourceInput: input.sourceInput, absolutePath, tracked, body: tracked ? "" : readUtf8(absolutePath, input.sourceInput) };
+  return isGitTracked(absolutePath)
+    ? { sourceInput: input.sourceInput, absolutePath, tracked: true, body: optionalUtf8(absolutePath) }
+    : { sourceInput: input.sourceInput, absolutePath, tracked: false, body: readUtf8(absolutePath, input.sourceInput) };
+}
+
+function optionalUtf8(absolutePath: string): string | null {
+  try { return readUtf8(absolutePath, absolutePath); }
+  catch { return null; }
 }
 
 function readUtf8(absolutePath: string, displayPath: string): string {
@@ -363,10 +382,14 @@ function artifactRequest(input: {
   };
 }
 
-function docSyncChange(portablePath: string, body: string): DocSyncSubmitRequestV1["payload"]["changes"][number] {
+function docSyncChange(
+  portablePath: string,
+  body: string,
+  baseBlobSha256: string | null = null
+): DocSyncSubmitRequestV1["payload"]["changes"][number] {
   return {
     path: portablePath,
-    baseBlobSha256: null,
+    baseBlobSha256,
     newBlobSha256: sha256Text(body),
     mediaType: mediaTypeFor(portablePath),
     size: Buffer.byteLength(body),
