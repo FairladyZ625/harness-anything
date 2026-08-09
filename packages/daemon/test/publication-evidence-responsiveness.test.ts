@@ -21,6 +21,7 @@ import {
   readPublicationGitObject,
   shutdownPublicationGitObjectReader
 } from "../src/authority/production/publication-object-reader.ts";
+import { terminateWindowsProcessTree } from "../src/authority/production/publication-object-reader-process-lifecycle.ts";
 import { removeTemporaryTestRoot } from "../../../tools/test-temp-root-cleanup.mjs";
 
 const posixTest = process.platform === "win32" ? test.skip : test;
@@ -181,6 +182,45 @@ test("shutdown does not return while a batch descendant remains alive", async ()
     if (descendantPid !== undefined) await waitForProcessExit(descendantPid, 2_000);
     await removeTemporaryTestRoot(fixture.root);
   }
+});
+
+test("Windows taskkill treats an already-exited target as a completed close", async () => {
+  const taskkillFailure = Object.assign(
+    new Error("Command failed: taskkill /pid 6052 /T /F"),
+    {
+      code: 128,
+      stdout: "",
+      stderr: "ERROR: The process \"6052\" not found.\r\n"
+    }
+  );
+
+  await terminateWindowsProcessTree(6052, {
+    runTaskkill: async () => { throw taskkillFailure; },
+    isProcessAlive: () => false
+  });
+});
+
+test("Windows taskkill preserves a real termination failure with process output", async () => {
+  const taskkillFailure = Object.assign(
+    new Error("Command failed: taskkill /pid 6052 /T /F"),
+    {
+      code: 5,
+      stdout: "",
+      stderr: "ERROR: Access is denied.\r\n"
+    }
+  );
+
+  await assert.rejects(
+    terminateWindowsProcessTree(6052, {
+      runTaskkill: async () => { throw taskkillFailure; },
+      isProcessAlive: () => true
+    }),
+    (error) => error instanceof Error
+      && error.cause === taskkillFailure
+      && error.message.includes("exitCode=5")
+      && error.message.includes('stdout=""')
+      && error.message.includes('stderr="ERROR: Access is denied.\\r\\n"')
+  );
 });
 
 test("publication evidence yields between blob reads so recovery admission timers remain live", async (context) => {

@@ -4,12 +4,19 @@ import {
   type ChildProcessWithoutNullStreams
 } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { createBoundedRetryBudget, type BoundedRetryBudget } from "@harness-anything/kernel";
 import type { RetryBudgetSignal } from "../../observability/visible-retry-budget.ts";
+import {
+  isProcessAlive,
+  ownedProcessTree,
+  signalOwnedProcesses,
+  terminateWindowsProcessTree,
+  waitForOwnedProcessesToClose
+} from "./publication-object-reader-process-lifecycle.ts";
 
 const maximumBatchHeaderBytes = 64 * 1024;
 const maximumGitObjectBytes = 64 * 1024 * 1024;
@@ -454,117 +461,6 @@ function refStream(stream: NodeJS.ReadableStream | NodeJS.WritableStream): void 
 
 function unrefStream(stream: NodeJS.ReadableStream | NodeJS.WritableStream): void {
   (stream as typeof stream & { unref?: () => void }).unref?.();
-}
-
-async function ownedProcessTree(rootPid: number): Promise<ReadonlyArray<number>> {
-  if (process.platform === "win32") return [rootPid];
-  const parentByPid = process.platform === "linux"
-    ? readLinuxProcessParents()
-    : await readPosixProcessParents();
-  const owned = new Set([rootPid]);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const [pid, parentPid] of parentByPid) {
-      if (owned.has(parentPid) && !owned.has(pid)) {
-        owned.add(pid);
-        changed = true;
-      }
-    }
-  }
-  return [...owned].sort((left, right) => processDepth(right, parentByPid) - processDepth(left, parentByPid));
-}
-
-function readLinuxProcessParents(): ReadonlyMap<number, number> {
-  const parents = new Map<number, number>();
-  for (const entry of readdirSync("/proc")) {
-    if (!/^\d+$/u.test(entry)) continue;
-    try {
-      const stat = readFileSync(`/proc/${entry}/stat`, "utf8");
-      const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-      parents.set(Number(entry), Number(fields[1]));
-    } catch {
-      // Processes may exit between /proc enumeration and stat reads.
-    }
-  }
-  return parents;
-}
-
-async function readPosixProcessParents(): Promise<ReadonlyMap<number, number>> {
-  const { stdout } = await execFileAsync("ps", ["-A", "-o", "pid=,ppid="], {
-    encoding: "utf8",
-    windowsHide: true
-  });
-  const parents = new Map<number, number>();
-  for (const line of String(stdout).split(/\r?\n/u)) {
-    const match = /^\s*(\d+)\s+(\d+)\s*$/u.exec(line);
-    if (match) parents.set(Number(match[1]), Number(match[2]));
-  }
-  return parents;
-}
-
-function processDepth(pid: number, parentByPid: ReadonlyMap<number, number>): number {
-  let depth = 0;
-  let current = pid;
-  const visited = new Set<number>();
-  while (!visited.has(current)) {
-    visited.add(current);
-    const parent = parentByPid.get(current);
-    if (parent === undefined) break;
-    depth += 1;
-    current = parent;
-  }
-  return depth;
-}
-
-function signalOwnedProcesses(pids: ReadonlyArray<number>, signal: NodeJS.Signals): void {
-  for (const pid of pids) {
-    try {
-      process.kill(pid, signal);
-    } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ESRCH") continue;
-      throw error;
-    }
-  }
-}
-
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ESRCH") return false;
-    if (error instanceof Error && "code" in error && error.code === "EPERM") return true;
-    throw error;
-  }
-}
-
-async function waitForOwnedProcessesToClose(
-  pids: ReadonlyArray<number>,
-  childClosed: () => boolean,
-  timeoutMs: number
-): Promise<boolean> {
-  const deadline = performance.now() + timeoutMs;
-  while (performance.now() < deadline) {
-    if (childClosed() && pids.every((pid) => !isProcessAlive(pid))) return true;
-    await new Promise<void>((resolve) => setTimeout(resolve, 10));
-  }
-  return childClosed() && pids.every((pid) => !isProcessAlive(pid));
-}
-
-async function terminateWindowsProcessTree(pid: number): Promise<void> {
-  try {
-    await execFileAsync("taskkill", ["/pid", String(pid), "/T", "/F"], {
-      encoding: "utf8",
-      windowsHide: true,
-      timeout: 1_000
-    });
-  } catch (error) {
-    throw new Error(
-      `AUTHORITY_GIT_OBJECT_BATCH_TASKKILL_FAILED:pid=${pid};failure=${gitObjectReadErrorMessage(error)}`,
-      { cause: error }
-    );
-  }
 }
 
 function gitObjectReadErrorMessage(error: unknown): string {
