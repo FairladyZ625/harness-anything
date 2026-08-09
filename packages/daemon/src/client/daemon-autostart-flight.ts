@@ -12,6 +12,7 @@ import {
   daemonAutostartFailureError,
   daemonAutostartProcessExitedError,
   daemonProcessIsAlive,
+  DaemonAutostartTimeoutError,
   type SpawnedDaemonAutostartProcess
 } from "./daemon-autostart-process.ts";
 import {
@@ -40,6 +41,7 @@ export interface DaemonStartupFlight {
   deadline: number;
   lastError: unknown;
   spawnedPid?: number;
+  observedSocketOwnerPid?: number;
   launchStderrPath?: string;
   promise: Promise<void>;
 }
@@ -50,6 +52,9 @@ export interface DaemonAutostartFlightDeps<Target, Options extends DaemonAutosta
   ) => SpawnedDaemonAutostartProcess;
   readonly localDaemonRetryIntervalMs: number;
   readonly minimumReadyProbeResponseTimeoutMs: number;
+  readonly readDaemonSocketOwner?: (
+    socketPath: string
+  ) => { readonly pid: number; readonly alive: boolean } | undefined;
 }
 const daemonStartupFlights = new Map<string, DaemonStartupFlight>();
 export function createDaemonAutostartFlightManager<Target extends { readonly socketPath: string }, Options extends DaemonAutostartFlightPhase>(
@@ -138,20 +143,30 @@ export function createDaemonAutostartFlightManager<Target extends { readonly soc
         flight.lastError = error;
         const exited = daemonAutostartProcessExitedError(flight.lastError, flight.spawnedPid, flight.launchStderrPath);
         if (exited) {
-          reportDaemonAutostartOutcome(target.socketPath, {
-            ok: false, spawnedPid: flight.spawnedPid, processExited: true, cause: flight.lastError
-          }, circuitOptions);
-          throw exited;
+          const owner = deps.readDaemonSocketOwner?.(target.socketPath);
+          if (owner?.alive && owner.pid !== flight.spawnedPid) {
+            flight.observedSocketOwnerPid = owner.pid;
+            clearLiveDaemonStartup(target.socketPath, flight.spawnedPid);
+          } else {
+            reportDaemonAutostartOutcome(target.socketPath, {
+              ok: false, spawnedPid: flight.spawnedPid, processExited: true, cause: flight.lastError
+            }, circuitOptions);
+            throw exited;
+          }
         }
         const retryDelayMs = Math.min(deps.localDaemonRetryIntervalMs, flight.deadline - Date.now());
         if (retryDelayMs > 0) await delay(retryDelayMs);
       }
     }
+    const observedOwner = observedLiveSocketOwner(target.socketPath, flight);
     const processExited = flight.spawnedPid !== undefined && !daemonProcessIsAlive(flight.spawnedPid);
     reportDaemonAutostartOutcome(target.socketPath, {
-      ok: false, spawnedPid: flight.spawnedPid, processExited, cause: flight.lastError
+      ok: false,
+      spawnedPid: observedOwner ? undefined : flight.spawnedPid,
+      processExited: observedOwner ? false : processExited,
+      cause: flight.lastError
     }, circuitOptions);
-    throw daemonAutostartFailureError(flight.deadline - flight.startedAt, flight.lastError, flight.spawnedPid, flight.launchStderrPath);
+    throw daemonStartupFlightFailure(flight, target.socketPath, flight.deadline - flight.startedAt);
   }
   async function joinLiveDaemonStartup(
     target: Target,
@@ -202,12 +217,12 @@ export function createDaemonAutostartFlightManager<Target extends { readonly soc
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) {
       if (deadline >= flight.deadline) clearDaemonStartupFlight(socketPath, flight);
-      throw daemonAutostartFailureError(autostartTimeoutMs, flight.lastError, flight.spawnedPid, flight.launchStderrPath);
+      throw daemonStartupFlightFailure(flight, socketPath, autostartTimeoutMs);
     }
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         if (deadline >= flight.deadline) clearDaemonStartupFlight(socketPath, flight);
-        reject(daemonAutostartFailureError(autostartTimeoutMs, flight.lastError, flight.spawnedPid, flight.launchStderrPath));
+        reject(daemonStartupFlightFailure(flight, socketPath, autostartTimeoutMs));
       }, remainingMs);
       flight.promise.then(
         () => { clearTimeout(timer); resolve(); },
@@ -217,6 +232,26 @@ export function createDaemonAutostartFlightManager<Target extends { readonly soc
   }
   function clearDaemonStartupFlight(socketPath: string, flight: DaemonStartupFlight): void {
     if (daemonStartupFlights.get(socketPath) === flight) daemonStartupFlights.delete(socketPath);
+  }
+  function observedLiveSocketOwner(
+    socketPath: string,
+    flight: DaemonStartupFlight
+  ): { readonly pid: number; readonly alive: true } | undefined {
+    if (flight.observedSocketOwnerPid === undefined) return undefined;
+    const owner = deps.readDaemonSocketOwner?.(socketPath);
+    return owner?.alive && owner.pid === flight.observedSocketOwnerPid
+      ? { pid: owner.pid, alive: true }
+      : undefined;
+  }
+  function daemonStartupFlightFailure(
+    flight: DaemonStartupFlight,
+    socketPath: string,
+    timeoutMs: number
+  ): Error {
+    const owner = observedLiveSocketOwner(socketPath, flight);
+    return owner
+      ? new DaemonAutostartTimeoutError(timeoutMs, flight.lastError, owner.pid, "observed-socket-owner")
+      : daemonAutostartFailureError(timeoutMs, flight.lastError, flight.spawnedPid, flight.launchStderrPath);
   }
   function readyProbeResponseTimeout(deadline: number): number {
     const remainingMs = Math.max(1, deadline - Date.now());

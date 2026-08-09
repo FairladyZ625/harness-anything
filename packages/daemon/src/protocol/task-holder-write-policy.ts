@@ -35,11 +35,11 @@ export async function validateTaskLeaseForServiceWrite(
   if (!repo || !options.leaseEnforcementEnabled?.(repo) || contract.leaseRequired !== true) return undefined;
   if (contract.method === "repo.tasks.status.set" && !taskStatusLeaseRequired(payload?.status)) return undefined;
   const taskId = typeof payload?.taskId === "string" ? payload.taskId : undefined;
-  if (!taskId) return failureReceipt(contract.method, "task_id_required", "Task lease enforcement requires payload.taskId, but the request omitted it. Inspect the intended task with `ha task holder <task-id> --json`, then retry the task-scoped CLI command.");
+  if (!taskId) return failureReceipt(contract.method, "task_id_required", "Required payload.taskId is missing from the raw RPC request, so lease enforcement did not run. Supply the intended concrete task id in payload.taskId and retry the same RPC; no task state was changed.");
   if (!services.TaskHolderService) {
-    return failureReceipt(contract.method, "task_holder_service_unavailable", "Task holder service is unavailable because the running daemon composition is incomplete. Run `ha daemon restart --json`, then verify it with `ha daemon status --check --json` before retrying.");
+    return failureReceipt(contract.method, "task_holder_service_unavailable", "Task holder service is absent from the running composition. Run `ha daemon logs --errors --json` to capture the missing service. Leave the daemon and current lease state unchanged; retry only after an operator verifies a replacement composition.");
   }
-  if (!actor) return failureReceipt(contract.method, "actor_required", "Task lease enforcement requires a per-request authenticated actor, but this request has none. Verify the authenticated task path with `ha task holder <task-id> --json`, then retry the original CLI command.");
+  if (!actor) return failureReceipt(contract.method, "actor_required", `Task lease enforcement requires a per-request authenticated actor, but this request has none. Run \`ha task holder ${taskId} --json\` through an authenticated CLI session, then retry the original command only if the holder state permits it.`);
   try {
     const executor = readTaskHolderExecutor(payload);
     await services.TaskHolderService.assertActiveLease({ taskId, principal: taskHolderPrincipalFromActor(actor, { executor }) });

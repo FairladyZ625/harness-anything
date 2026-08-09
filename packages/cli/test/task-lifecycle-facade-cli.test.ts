@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 import { initializeGitRepo, runGit, runJson, withTempRoot, writeCloseout } from "./helpers/task-document-gates-fixtures.ts";
+import { validateCommandOptions } from "../src/cli/option-claims.ts";
 
 const workerEnv = {
   HARNESS_ACTOR: "agent:facade-worker",
@@ -60,9 +61,7 @@ test("direct recovery mode refuses to recreate the deleted task-complete facade"
     assert.equal(existsSync(path.join(rootDir, "harness/sessions", `${fixture.sessionId}.md`)), true);
     const rejected = runJson(rootDir, closeoutCommands[1], false, fixture.env);
     assert.equal(rejected.error.code, "write_rejected");
-    assert.match(rejected.error.hint, /daemon-planned canonical transition.+canonical authority planner is unavailable/iu);
-    assert.match(rejected.error.hint, /ha init.+ha daemon stop.+ha daemon start --service/iu);
-    assert.doesNotMatch(rejected.error.hint, /direct recovery/iu);
+    assertAuthorityPlannerRecoveryHint(rejected.error.hint);
     assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
     const reviewsRoot = path.join(taskRoot, "reviews");
     assert.equal(existsSync(reviewsRoot) ? readdirSync(reviewsRoot).length : 0, 0);
@@ -82,14 +81,28 @@ test("direct recovery never derives owner approval outside the daemon planner", 
 
     assert.equal(rejected.error.code, "write_rejected");
     assert.doesNotMatch(rejected.error.code, /execution_review_required/iu);
-    assert.match(rejected.error.hint, /daemon-planned canonical transition.+canonical authority planner is unavailable/iu);
-    assert.match(rejected.error.hint, /ha init.+ha daemon stop.+ha daemon start --service/iu);
-    assert.doesNotMatch(rejected.error.hint, /direct recovery/iu);
+    assertAuthorityPlannerRecoveryHint(rejected.error.hint);
     assert.match(readFileSync(path.join(rootDir, fixture.packagePath, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
     const reviewsRoot = path.join(rootDir, fixture.packagePath, "reviews");
     assert.equal(existsSync(reviewsRoot) ? readdirSync(reviewsRoot).length : 0, 0);
   });
 });
+
+function assertAuthorityPlannerRecoveryHint(hint: string): void {
+  assert.match(hint, /daemon-planned canonical transition.+canonical authority planner is unavailable/iu);
+  assert.match(hint, /`ha daemon status --check --json`/u);
+  assert.match(hint, /Do not stop or restart the active daemon/iu);
+  assert.match(hint, /do not retry completion/iu);
+  assert.match(hint, /supplied and verified a replacement/iu);
+  assert.doesNotMatch(hint, /<[^>\n]+>|\{[^}\n]+\}|\.\.\./u);
+  assert.doesNotMatch(
+    hint,
+    /\bha(?:\s+--root\s+\S+)?\s+daemon\s+(?:start|stop|restart|repo\s+(?:register|unregister|purge))\b|HARNESS_(?:DAEMON_MODE|DIRECT_WRITE_REASON)|--daemon-mode(?:=|\s+)direct/iu
+  );
+  const statusContract = validateCommandOptions(["daemon", "status", "--check", "--json"]);
+  assert.equal(statusContract.ok, true);
+  assert.equal(statusContract.ok ? statusContract.claim?.kind : undefined, "daemon-status");
+}
 
 test("approved closeout without consent is rejected before any lifecycle write", () => {
   withTempRoot((rootDir) => {

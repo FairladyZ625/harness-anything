@@ -113,6 +113,12 @@ interface GuiDaemonBridgeState {
   layoutOverrideDaemonStarted: boolean;
 }
 
+type GuiLocalFailureStage = "module-load" | "settings" | "target" | "node-runtime" | "launch-configuration" | "request";
+type GuiFailureReceipt = {
+  readonly ok: false;
+  readonly error: { readonly code: string; readonly hint: string };
+};
+
 export function createLocalGuiServiceBridge(rootDir: string, layoutOverrides?: HarnessLayoutOverrides): GuiServiceBridge {
   const resolvedRootDir = path.resolve(rootDir);
   validateProjectPath(resolvedRootDir, ".");
@@ -152,13 +158,7 @@ export function createGuiServiceBridge(
         jsonRpcParamsForGuiRoute(route, transport.repoId, payload, transport.remoteRoot) as never
       ) as JsonObject;
     } catch (error) {
-      return {
-        ok: false,
-        error: {
-          code: "daemon_unavailable",
-          hint: `Remote Harness daemon is unavailable through ${transport.host}: ${error instanceof Error ? error.message : String(error)}`
-        }
-      };
+      return guiRemoteFailureReceipt(transport.host, error);
     }
   });
   return {
@@ -222,11 +222,24 @@ async function requestGuiRouteViaDaemon(
   route: ApiRouteContract,
   payload: unknown
 ): Promise<JsonObject> {
+  let daemonClient: LocalDaemonClientModule;
+  let daemonSettings: DaemonSettingsModule;
   try {
-    const [daemonClient, daemonSettings] = await Promise.all([loadDaemonClientModule(), loadDaemonSettingsModule()]);
-    const userRoot = daemonSettings.readDaemonUserRoot(process.env, rootDir, layoutOverrides);
-    const daemonId = daemonClient.daemonIdFromEnv();
-    const target = daemonClient.resolveLocalDaemonTarget({
+    [daemonClient, daemonSettings] = await Promise.all([loadDaemonClientModule(), loadDaemonSettingsModule()]);
+  } catch (error) {
+    return guiLocalFailureReceipt("module-load", error);
+  }
+  let userRoot: string;
+  let daemonId: string;
+  try {
+    userRoot = daemonSettings.readDaemonUserRoot(process.env, rootDir, layoutOverrides);
+    daemonId = daemonClient.daemonIdFromEnv();
+  } catch (error) {
+    return guiLocalFailureReceipt("settings", error);
+  }
+  let target: LocalDaemonTarget;
+  try {
+    target = daemonClient.resolveLocalDaemonTarget({
       rootDir,
       repoIdOverride: process.env.HARNESS_DAEMON_REPO_ID,
       userRoot,
@@ -234,22 +247,29 @@ async function requestGuiRouteViaDaemon(
       autoRegisterSingleRepo: true,
       layoutOverrides
     });
-    const customLayout = hasLayoutOverride(layoutOverrides);
-    if (customLayout && !state.layoutOverrideDaemonStarted && await daemonAlreadyRunning(daemonClient, target)) {
-      return {
-        ok: false,
-        error: {
-          code: "daemon_layout_conflict",
-          hint: "A Harness daemon is already running for this repo without a verifiable matching authored layout. Stop the daemon or restart the GUI without HARNESS_AUTHORED_ROOT."
-        }
-      };
-    }
-    const nodeRuntime = resolveGuiDaemonNodeRuntime();
-    const method = jsonRpcMethodForGuiRoute(route);
-    const params = jsonRpcParamsForGuiRoute(route, target.repoId, payload);
-    // Admin control (restart) waits for accept + drain; allow a longer socket timeout.
-    const timeoutMs = route.commandClass === "admin" ? 5_000 : 200;
-    const launchConfiguration = daemonClient.createDaemonLaunchConfigurationFromPersistedPolicy({
+  } catch (error) {
+    return guiLocalFailureReceipt("target", error);
+  }
+  const customLayout = hasLayoutOverride(layoutOverrides);
+  if (customLayout && !state.layoutOverrideDaemonStarted && await daemonAlreadyRunning(daemonClient, target)) {
+    return guiLayoutConflictReceipt(
+      target,
+      path.resolve(rootDir, layoutOverrides!.authoredRoot!)
+    );
+  }
+  let nodeRuntime: GuiDaemonNodeRuntime;
+  try {
+    nodeRuntime = resolveGuiDaemonNodeRuntime();
+  } catch (error) {
+    return guiLocalFailureReceipt("node-runtime", error);
+  }
+  const method = jsonRpcMethodForGuiRoute(route);
+  const params = jsonRpcParamsForGuiRoute(route, target.repoId, payload);
+  // Admin control (restart) waits for accept + drain; allow a longer socket timeout.
+  const timeoutMs = route.commandClass === "admin" ? 5_000 : 200;
+  let launchConfiguration: ReturnType<LocalDaemonClientModule["createDaemonLaunchConfigurationFromPersistedPolicy"]>;
+  try {
+    launchConfiguration = daemonClient.createDaemonLaunchConfigurationFromPersistedPolicy({
       target,
       entrypoint: cliEntrypointPath(),
       idleExitMs: resolveGuiDaemonIdleExitMs(),
@@ -258,6 +278,10 @@ async function requestGuiRouteViaDaemon(
       env: nodeRuntime.env,
       ...(layoutOverrides?.authoredRoot !== undefined ? { authoredRoot: layoutOverrides.authoredRoot } : {})
     });
+  } catch (error) {
+    return guiLocalFailureReceipt("launch-configuration", error);
+  }
+  try {
     const receipt = await daemonClient.requestLocalDaemonJsonRpcForTarget(target, method, params, timeoutMs, {
       entryPath: launchConfiguration.entrypoint,
       timeoutMs: daemonAutostartTimeoutMs(),
@@ -268,13 +292,76 @@ async function requestGuiRouteViaDaemon(
     if (customLayout) state.layoutOverrideDaemonStarted = true;
     return receipt;
   } catch (error) {
-    return {
-      ok: false,
-      error: {
-        code: "daemon_unavailable",
-        hint: `Harness daemon is unavailable: ${error instanceof Error ? error.message : String(error)}`
-      }
-    };
+    return guiLocalFailureReceipt("request", error);
+  }
+}
+
+export function guiLocalFailureReceipt(stage: GuiLocalFailureStage, error: unknown): GuiFailureReceipt {
+  const message = guiErrorMessage(error);
+  if (stage === "module-load") {
+    return guiFailure("gui_runtime_load_failed", `GUI could not load local daemon support: ${message}. Rebuild or reinstall the GUI before retrying. The daemon was not contacted.`);
+  }
+  if (stage === "settings") {
+    return guiFailure("gui_configuration_invalid", `GUI daemon configuration is invalid: ${message}. Correct HARNESS_DAEMON_USER_ROOT or the repository settings before retrying. The daemon was not contacted.`);
+  }
+  if (stage === "target") {
+    return guiFailure("harness_root_unresolved", `GUI could not resolve the requested repo target: ${message}. Run \`ha daemon repo list --json\` and select the registered canonical root before retrying.`);
+  }
+  if (stage === "node-runtime") {
+    return guiFailure("node_runtime_unavailable", `GUI cannot launch a local daemon because ${message}. Configure HARNESS_NODE_BIN with a Node executable before retrying. The daemon was not contacted.`);
+  }
+  if (stage === "launch-configuration") {
+    return guiFailure("daemon_launch_configuration_invalid", `GUI daemon launch configuration is invalid: ${message}. Run \`ha daemon status --json\` to inspect any existing service; do not restart it until the launch configuration is repaired.`);
+  }
+  const unavailable = /(?:ECONNREFUSED|no persistent daemon|not listening)/iu.test(message);
+  return guiFailure(
+    unavailable ? "daemon_unavailable" : "daemon_request_failed",
+    `Local Harness daemon request failed: ${message}. Run \`ha daemon status --json\` to inspect the current service before retrying; do not restart it solely because this request failed.`
+  );
+}
+
+export function guiLayoutConflictReceipt(
+  target: Pick<LocalDaemonTarget, "repoId" | "canonicalRoot">,
+  requestedAuthoredRoot: string
+): GuiFailureReceipt {
+  return guiFailure(
+    "daemon_layout_conflict",
+    `A Harness daemon is already running for repo ${target.repoId}, and the GUI could not verify its existing layout against the requested authored root ${JSON.stringify(requestedAuthoredRoot)}; the GUI did not apply that root. Leave the daemon running and keep HARNESS_AUTHORED_ROOT unchanged. Run \`ha --repo ${target.repoId} daemon status --json\`; reopen the GUI only after an operator verifies that the daemon uses that authored root.`
+  );
+}
+
+function guiRemoteFailureReceipt(host: string, error: unknown): GuiFailureReceipt {
+  const message = guiErrorMessage(error);
+  if (/(?:authenticat|permission denied|publickey)/iu.test(message)) {
+    return guiFailure(
+      "remote_authentication_failed",
+      `Remote SSH authentication failed for ${host}: ${message}. Verify the SSH principal and authorized_keys forced command, then reconnect. Do not restart the remote daemon.`
+    );
+  }
+  if (/(?:timed? out|timeout)/iu.test(message)) {
+    return guiFailure("remote_transport_timeout", `Remote transport to ${host} timed out: ${message}. Verify SSH reachability, then retry without restarting the remote daemon.`);
+  }
+  if (/(?:protocol|frame|decode|invalid json)/iu.test(message)) {
+    return guiFailure("remote_protocol_error", `Remote daemon protocol failed through ${host}: ${message}. Verify that the local and remote Harness versions are compatible before reconnecting.`);
+  }
+  if (/(?:ECONNREFUSED|no persistent daemon|not listening)/iu.test(message)) {
+    return guiFailure("daemon_unavailable", `Remote Harness daemon is unavailable through ${host}: ${message}`);
+  }
+  return guiFailure("remote_transport_failed", `Remote transport through ${host} failed: ${message}. Inspect the SSH transport before retrying; do not restart the remote daemon.`);
+}
+
+function guiFailure(code: string, hint: string): GuiFailureReceipt {
+  return { ok: false, error: { code, hint } };
+}
+
+function guiErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") return error.message;
+  try {
+    return JSON.stringify(error) ?? String(error);
+  } catch {
+    return String(error);
   }
 }
 

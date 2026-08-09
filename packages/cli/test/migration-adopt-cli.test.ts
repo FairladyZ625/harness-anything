@@ -352,6 +352,10 @@ test("CLI legacy verify detects missing, invalid, and valid index states", () =>
   withTempRoot((rootDir) => {
     const missing = runJson(rootDir, ["legacy", "verify"], false);
     assert.equal(missing.error.code, "legacy_index_missing");
+    assert.equal(
+      missing.error.hint,
+      `harness/legacy/index.json is missing. Run \`ha legacy index --help\` to identify and index the actual legacy source path, then run \`ha --root ${shellArgument(rootDir)} legacy verify\`.`
+    );
 
     mkdirSync(path.join(rootDir, "harness/legacy"), { recursive: true });
     writeFileSync(path.join(rootDir, "harness/legacy/index.json"), "{\"schema\":\"wrong\"}\n", "utf8");
@@ -379,6 +383,10 @@ test("CLI rebuilds a fresh local task from a legacy index entry with provenance"
 
     const missing = runJson(rootDir, ["new-task", "--from-legacy", "legacy_missing"], false);
     assert.equal(missing.error.code, "legacy_index_missing");
+    assert.equal(
+      missing.error.hint,
+      `harness/legacy/index.json is missing. Run \`ha legacy index --help\` to identify and index the actual legacy source path, then rerun \`ha --root ${shellArgument(rootDir)} task create --from-legacy legacy_missing\`.`
+    );
 
     mkdirSync(path.join(rootDir, "harness/legacy"), { recursive: true });
     writeFileSync(path.join(rootDir, "harness/legacy/index.json"), "{\"schema\":\"wrong\"}\n", "utf8");
@@ -431,6 +439,17 @@ test("CLI rebuilds a fresh local task from a legacy index entry with provenance"
     assert.equal(verified.ok, true);
     assert.equal(verified.warnings.some((warning: Record<string, unknown>) => warning.code === "legacy_provenance_target_missing" && warning.legacyId === legacyEntry.id), true);
   });
+});
+
+test("legacy index help parses without inventing a source path", () => {
+  const help = execFileSync(process.execPath, [cliEntry, "legacy", "index", "--help"], {
+    encoding: "utf8",
+    env: cliTestEnv()
+  });
+
+  assert.match(help, /Usage: harness-anything legacy index <path> \[--apply\]/u);
+  assert.match(help, /ha legacy index <path> \[--apply\]/u);
+  assert.doesNotMatch(help, /legacy index \. --apply/u);
 });
 
 test("CLI migrate aliases now emit Legacy Intake semantics and retire full cutover", () => {
@@ -619,6 +638,10 @@ function runJson(
     if (expectSuccess) assert.fail(body);
     return unwrapCommandReceipt(parsed);
   }
+}
+
+function shellArgument(value: string): string {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 function withTempRoot<T>(fn: (rootDir: string) => T): T {

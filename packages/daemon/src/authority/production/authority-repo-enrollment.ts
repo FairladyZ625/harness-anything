@@ -31,7 +31,7 @@ import {
   replaceManifestRepo,
   requiredRepoId,
   samePath,
-  shellArgument,
+  jsonShellArgument,
   signWithAuthorityKey,
   signedNamespaceJson,
   switchRecordJson,
@@ -207,8 +207,8 @@ export function enrollAuthorityRepo(input: AuthorityRepoEnrollmentInput): Author
           note: "The daemon merges the machine roster first and the repository roster as an overlay."
         },
         nextCommands: {
-          daemonStart: "ha --repo " + repoId + " daemon start --service --authority-manifest " + shellArgument(manifestPath),
-          firstGovernanceWrite: "ha --repo " + repoId + " task create --title " + shellArgument("first governance write")
+          daemonStart: "ha --repo " + repoId + " daemon start --service --authority-manifest " + jsonShellArgument(manifestPath),
+          firstGovernanceWrite: "ha --repo " + repoId + " task create --title " + jsonShellArgument("first governance write")
         }
       }
     };

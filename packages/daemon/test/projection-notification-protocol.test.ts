@@ -7,6 +7,24 @@ import {
   resultReceipt
 } from "./json-rpc-protocol-fixtures.ts";
 
+test("missing notification transport reports the connection composition gap without recommending start", async () => {
+  const server = makeServer();
+  await server.handle(readFixture("hello-compatible.json"));
+
+  const receipt = resultReceipt(await server.handle({
+    jsonrpc: "2.0",
+    id: "subscribe-unavailable",
+    method: "repo.notifications.subscribe",
+    params: { repo: { repoId: "canonical" } }
+  })) as ReturnType<typeof resultReceipt> & { readonly error?: { readonly hint?: string } };
+
+  assert.equal(
+    receipt.error?.hint,
+    "Projection notification subscription is unavailable because this connection is missing at least one required capability: a notification sink or a projection-change subscriber. This request created no subscription. Inspect the current transport configuration and reconnect through an endpoint configured with both notification capabilities; use `ha daemon status --json` only to verify the active daemon."
+  );
+  await server.close();
+});
+
 test("repo notification subscription forwards projection changes and cleans up on disconnect", async () => {
   const notifications: unknown[] = [];
   let listener: ((event: unknown) => void) | undefined;

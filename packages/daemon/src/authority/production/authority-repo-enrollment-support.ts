@@ -364,7 +364,7 @@ function pathEntryExists(filePath: string): boolean {
   }
 }
 
-function shellArgument(value: string): string {
+function jsonShellArgument(value: string): string {
   return JSON.stringify(value);
 }
 
@@ -434,4 +434,4 @@ function authorityRepoIsMissing(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { readonly code?: unknown }).code === "ENOENT";
 }
 
-export { defaultNamespaceTtlMs, createNamespace, signedNamespaceJson, manifestRepoJson, authorityDomainSnapshot, signWithAuthorityKey, signedNamespaceSnapshot, switchRecordJson, verifyNamespaceAgainstRegistry, readRegistry, readManifest, readOptionalManifest, readJsonManifest, appendManifestRepo, replaceManifestRepo, writeManifestAtomically, writeJsonExclusive, writeJsonAtomically, existingRealPath, resolveManifestPath, authorityRepoAbsolutePath, assertExternalServiceState, assertNewFile, rejectExistingSymlink, pathEntryExists, shellArgument, ensureParentDirectory, removeCreatedFile, readManifestRepoId, oneEpochJson, requiredRepoId, authorityRepoRequiredText, authorityRepoPositiveInteger, authorityRepoNonNegativeInteger, samePath, authorityRepoRealpathIfPresent, authorityRepoIsDescendant, authorityRepoIsMissing };
+export { defaultNamespaceTtlMs, createNamespace, signedNamespaceJson, manifestRepoJson, authorityDomainSnapshot, signWithAuthorityKey, signedNamespaceSnapshot, switchRecordJson, verifyNamespaceAgainstRegistry, readRegistry, readManifest, readOptionalManifest, readJsonManifest, appendManifestRepo, replaceManifestRepo, writeManifestAtomically, writeJsonExclusive, writeJsonAtomically, existingRealPath, resolveManifestPath, authorityRepoAbsolutePath, assertExternalServiceState, assertNewFile, rejectExistingSymlink, pathEntryExists, jsonShellArgument, ensureParentDirectory, removeCreatedFile, readManifestRepoId, oneEpochJson, requiredRepoId, authorityRepoRequiredText, authorityRepoPositiveInteger, authorityRepoNonNegativeInteger, samePath, authorityRepoRealpathIfPresent, authorityRepoIsDescendant, authorityRepoIsMissing };

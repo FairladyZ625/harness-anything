@@ -59,9 +59,59 @@ test("non-local terminal status success preserves the owner-visible demotion war
 
   assert.equal(result.ok, true);
   assert.equal(result.warnings?.[0]?.code, "terminal_status_requires_task_complete");
-  assert.match(result.warnings?.[0]?.message ?? "", /ha task complete task-external --approve/u);
+  assert.equal(
+    result.warnings?.[0]?.message,
+    "External-engine terminal status completed outside the local consent transaction. Run `ha task show task-external --json` to confirm the resulting state. Do not run another terminal transition from this receipt. If follow-up work is needed, inspect `ha task supersede --help` before creating replacement work."
+  );
+  assert.doesNotMatch(result.warnings?.[0]?.message ?? "", /<[^>]+>/u);
   assert.match(result.warnings?.[0]?.revivalCondition ?? "", /third independent user/u);
 });
+
+for (const [status, expectedHint] of [
+  [
+    "done",
+    "Direct done is blocked because completion consent is recorded only by the typed completion transaction. Run `ha task show task-local --json` to confirm the current state. If the task is not terminal, inspect `ha task complete --help` and prepare the required approval packet before retrying completion. If it is already terminal and follow-up work is needed, inspect `ha task supersede --help` before creating replacement work."
+  ],
+  [
+    "cancelled",
+    "Direct cancellation is blocked unless it is an audited recovery. Run `ha task show task-local --json` to confirm the current state. If the task is not terminal and cancellation is still intended, inspect `ha task transition --help` and supply a truthful audited reason. If it is already terminal and follow-up work is needed, inspect `ha task supersede --help` before creating replacement work."
+  ]
+] as const) {
+  test(`local direct ${status} renders only concrete inspection commands`, () => {
+    const context = {
+      artifactStore: {
+        readTaskPackage: () => Effect.succeed({
+          taskId: "task-local",
+          rootPath: "/fixture/task-local",
+          disposition: "active",
+          documents: [{
+            path: "INDEX.md",
+            kind: "document",
+            body: ["---", "lifecycle:", "  engine: local", "  status: active", "---"].join("\n")
+          }]
+        })
+      }
+    } as unknown as CommandRunnerContext;
+    const command = {
+      rootDir: "/fixture",
+      json: true,
+      action: { kind: "status-set", taskId: "task-local", status, force: false }
+    } as ParsedCommand;
+
+    const result = Effect.runSync(runTaskLifecycleWithDemotions(context, command));
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.hint, expectedHint);
+    assert.doesNotMatch(result.error?.hint ?? "", /<[^>]+>/u);
+    for (const argv of [
+      ["task", "show", "task-local", "--json"],
+      status === "done" ? ["task", "complete", "--help"] : ["task", "transition", "--help"],
+      ["task", "supersede", "--help"]
+    ]) {
+      assert.equal(parseArgs(argv).ok, true, argv.join(" "));
+    }
+  });
+}
 
 test("failed audited cancellation leaves no unpaired audit progress", () => {
   const taskId = "task-audit-atomic";

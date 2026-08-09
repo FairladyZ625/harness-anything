@@ -438,10 +438,16 @@ function initSummary(path: string, report: unknown): string {
   const boundary = isolation && typeof isolation === "object" && !Array.isArray(isolation)
     ? (isolation as { readonly boundary?: unknown }).boundary
     : undefined;
+  const nextSteps = isolation && typeof isolation === "object" && !Array.isArray(isolation)
+    ? (isolation as { readonly nextSteps?: unknown }).nextSteps
+    : undefined;
   const summary = typeof boundary === "string"
     ? `initialized harness at ${path}; ${boundary}`
     : `initialized harness at ${path}`;
-  return `${summary} Next: ha daemon repo register --root .; then ha daemon start --service; verify with ha doctor --json.`;
+  const commands = Array.isArray(nextSteps)
+    ? nextSteps.filter((step): step is string => typeof step === "string").slice(0, 2)
+    : [];
+  return commands.length > 0 ? `${summary} Next: ${commands.join("; then ")}.` : summary;
 }
 
 export function displayCommand(command: string): { readonly command: string; readonly entity?: string; readonly action: string } {

@@ -358,10 +358,10 @@ async function callServiceMethod(
     if (rootMismatch) return rootMismatch;
   }
   const services = repo ? resolveServicesForRepo(contract.method, repo, options) : options.services;
-  if (!services) return failureReceipt(contract.method, "repo_service_unavailable", `Repo service host for ${repo?.repoId ?? "unknown"} is unavailable because that repository has no active composition. Run \`ha daemon repo register --root <canonical-root>\`, then \`ha daemon restart --json\` before retrying.`);
+  if (!services) return failureReceipt(contract.method, "repo_service_unavailable", `Repo service host for ${repo?.repoId ?? "unknown"} is absent from the running daemon composition. Run \`ha daemon logs --errors --json\` to capture the missing repo composition. Do not register, stop, or restart the repo; retry only after an operator supplies and verifies a composition for ${repo?.repoId ?? "unknown"}.`);
   if (contract.method === "repo.daemon.status") {
     if (!services.DaemonStatusService) {
-      return failureReceipt(contract.method, "daemon_status_service_unavailable", "Daemon status service is unavailable because the running service composition is incomplete. Run `ha daemon restart --json`, then verify the replacement with `ha daemon status --check --json`.");
+      return failureReceipt(contract.method, "daemon_status_service_unavailable", "Daemon status service is absent from the running composition. Run `ha daemon logs --errors --json` to capture the missing service. Leave the daemon running; an operator must verify a replacement composition before any restart.");
     }
     try {
       const request = validateDaemonStatusRequest(params);
@@ -383,7 +383,7 @@ async function callServiceMethod(
   }
   if (contract.method === "repo.command.run") {
     if (!services.CliCommandService) {
-      return failureReceipt(contract.method, "cli_command_service_unavailable", "Daemon command service is unavailable because the repository command host is not configured. Run `ha daemon restart --json`, then verify the replacement with `ha daemon status --check --json`.");
+      return failureReceipt(contract.method, "cli_command_service_unavailable", "Daemon command service is absent from the repository composition. Run `ha daemon logs --errors --json` to capture the missing command host. Leave the daemon running; retry only after an operator supplies and verifies a replacement composition.");
     }
     return services.CliCommandService.runCommand(payload, {
       actor,
@@ -397,7 +397,7 @@ async function callServiceMethod(
   }
   if (contract.method === "repo.doc.sync.submit") {
     if (!services.DocSyncService) {
-      return failureReceipt(contract.method, "doc_sync_service_unavailable", "Doc sync submit service is unavailable because the repository write composition is incomplete. Run `ha daemon restart --json`, then retry the governed write with `ha doc sync --submit --path <authored-path>`.");
+      return failureReceipt(contract.method, "doc_sync_service_unavailable", "Required doc sync submit service is missing from the repository write composition, so no write was submitted. Run `ha doc status --json` to preserve and inspect the dirty prose. Leave the daemon running; do not resubmit until an operator verifies a replacement composition.");
     }
     const result = await services.DocSyncService.submit(params as unknown as DocSyncSubmitRequestV1, {
       actor,
@@ -426,15 +426,15 @@ async function callTaskHolderMethod(
   actor: AuthenticatedActor | undefined
 ): Promise<ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt>> {
   if (!services.TaskHolderService) {
-    return failureReceipt(contract.method, "task_holder_service_unavailable", "Task holder service is unavailable because the running daemon composition is incomplete. Run `ha daemon restart --json`, then verify it with `ha daemon status --check --json` before retrying.");
+    return failureReceipt(contract.method, "task_holder_service_unavailable", "Task holder service is absent from the running composition. Run `ha daemon logs --errors --json` to capture the missing service. Leave the daemon and current lease state unchanged; retry only after an operator verifies a replacement composition.");
   }
   const taskId = typeof payload?.taskId === "string" ? payload.taskId : undefined;
-  if (!taskId) return failureReceipt(contract.method, "task_id_required", "Task holder methods require payload.taskId, but the request omitted it. Inspect the intended task with `ha task holder <task-id> --json`, then retry the task-scoped CLI command.");
+  if (!taskId) return failureReceipt(contract.method, "task_id_required", "Required payload.taskId is missing from the raw RPC request, so no holder lookup ran. Supply the intended concrete task id in payload.taskId and retry the same RPC; no task state was changed.");
   try {
     if (contract.method === "repo.task.holder") {
       return successReceipt(contract.method, "read task holder", toJsonValue(await services.TaskHolderService.holder({ taskId })) as JsonObject);
     }
-    if (!actor) return failureReceipt(contract.method, "actor_required", "Task holder writes require a per-request authenticated actor, but this request has none. Verify the authenticated task path with `ha task holder <task-id> --json`, then retry the original CLI command.");
+    if (!actor) return failureReceipt(contract.method, "actor_required", `Task holder writes require a per-request authenticated actor, but this request has none. Run \`ha task holder ${taskId} --json\` through an authenticated CLI session, then retry the original command only if the holder state permits it.`);
     const executor = readTaskHolderExecutor(payload);
     const principal = taskHolderPrincipalFromActor(actor, { executor });
     if (contract.method === "repo.task.claim") {
@@ -497,7 +497,7 @@ async function handleAdminMethod(
     return successReceipt(contract.method, `accepted daemon ${result.accepted.kind}`, toJsonValue(result.accepted) as JsonObject);
   }
   if (!options.identityAdminSnapshot) {
-    return failureReceipt(contract.method, "people_roster_unavailable", "Admin identity methods require a loaded people roster, but none is available to this daemon. Add the roster at harness/people.yaml and run `ha daemon restart --json` before retrying.");
+    return failureReceipt(contract.method, "people_roster_unavailable", "Admin identity methods cannot run because the active daemon composition has no loaded people roster. Run `ha daemon status --check --json` and inspect the reported daemon user root and roster state. Leave the daemon running; an operator must load and verify the roster before retrying.");
   }
   if (contract.method === "admin.people.list") {
     return successReceipt(contract.method, "listed people", {

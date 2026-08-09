@@ -5,7 +5,10 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { ownedTreeTerminationAdapter } from "./node-test-file-scheduler.mjs";
+import {
+  ownedTreeTerminationAdapter,
+  residualGroupCleanupShouldStop
+} from "./node-test-file-scheduler.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
@@ -13,6 +16,13 @@ test("owned-tree termination uses one POSIX adapter for macOS and Linux", () => 
   assert.equal(ownedTreeTerminationAdapter("darwin"), "posix-owned-process-group");
   assert.equal(ownedTreeTerminationAdapter("linux"), "posix-owned-process-group");
   assert.equal(ownedTreeTerminationAdapter("win32"), "windows-taskkill-tree");
+});
+
+test("natural-close cleanup stops only when the former owned group cannot be signalled", () => {
+  assert.equal(residualGroupCleanupShouldStop({ code: "ESRCH" }), true);
+  assert.equal(residualGroupCleanupShouldStop({ code: "EPERM" }), true);
+  assert.equal(residualGroupCleanupShouldStop({ code: "EACCES" }), false);
+  assert.equal(residualGroupCleanupShouldStop(new Error("unknown signal failure")), false);
 });
 
 test("terminating the runner also terminates its detached test process group", {

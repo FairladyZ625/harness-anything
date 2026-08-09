@@ -10,6 +10,8 @@ import test from "node:test";
 import { commandGroups } from "../src/cli/command-spec/command-groups.ts";
 import { commandSpecs } from "../src/cli/command-spec/index.ts";
 import { commandRegistry } from "../src/cli/command-registry.ts";
+import { validateCommandOptions } from "../src/cli/option-claims.ts";
+import { parseArgs } from "../src/cli/parse-args.ts";
 import { writeIndex } from "./helpers/local-lifecycle-fixtures.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
@@ -113,9 +115,9 @@ test("doctor sees initialized authored and generated harness roots without repai
     const initialized = runJson(rootDir, ["init"]);
 
     assert.deepEqual(initialized.report.isolation.nextSteps.slice(0, 3), [
-      "ha daemon repo register --root .",
-      "ha daemon start --service",
-      "ha doctor --json"
+      `ha daemon repo register --root ${rootDir}`,
+      `ha --root ${rootDir} doctor --json`,
+      "git status"
     ]);
 
     const result = runJson(rootDir, ["doctor"]);
@@ -309,13 +311,32 @@ test("task delete help exposes production soft delete and hard-delete alternativ
   });
 });
 
-test("init text receipt gives the daemon registration and startup path", () => {
+test("init text receipt names canonical registration and read-only diagnosis without daemon lifecycle control", () => {
   withTempRoot((rootDir) => {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "init"], {
       encoding: "utf8"
     });
+    const summaryMatch = /\bsummary="([^"]+)"\s*$/u.exec(stdout.trim());
+    assert.ok(summaryMatch, stdout);
+    const summary = summaryMatch[1]!;
 
-    assert.match(stdout, /Next: ha daemon repo register --root \.; then ha daemon start --service; verify with ha doctor --json\./u);
+    assert.match(summary, /\bNext:/u);
+    assert.equal(summary.includes(`ha daemon repo register --root ${rootDir}`), true);
+    assert.equal(summary.includes(`ha --root ${rootDir} doctor --json`), true);
+    assert.doesNotMatch(summary, /<[^>\n]+>|\{[^}\n]+\}|\.\.\./u);
+    assert.doesNotMatch(
+      summary,
+      /\bha(?:\s+--root\s+\S+)?\s+daemon\s+(?:start|stop|restart|repo\s+(?:unregister|purge))\b|HARNESS_(?:DAEMON_MODE|DIRECT_WRITE_REASON)|--daemon-mode(?:=|\s+)direct/iu
+    );
+
+    const registerContract = validateCommandOptions(["daemon", "repo", "register", "--root", rootDir]);
+    assert.equal(registerContract.ok, true);
+    assert.equal(registerContract.ok ? registerContract.claim?.kind : undefined, "daemon-repo-register");
+    const doctorContract = parseArgs(["--root", rootDir, "doctor", "--json"]);
+    assert.equal(doctorContract.ok, true);
+    if (!doctorContract.ok) return;
+    assert.equal(doctorContract.value.rootDir, rootDir);
+    assert.equal(doctorContract.value.action.kind, "doctor");
   });
 });
 

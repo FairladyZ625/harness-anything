@@ -514,22 +514,31 @@ async function forceTerminateOwnedTree(child, graceMs) {
 
 async function terminateResidualOwnedGroup(child, graceMs) {
   if (ownedTreeTerminationAdapter() === "windows-taskkill-tree" || child.pid === undefined) return;
-  if (!signalOwnedGroup(child.pid, "SIGTERM")) return;
+  if (!signalOwnedGroup(child.pid, "SIGTERM", { afterNaturalClose: true })) return;
   console.error(
     `[node-test-stall] direct worker pid=${child.pid} closed with lingering descendants; terminating its owned process tree`
   );
   await delay(graceMs);
-  signalOwnedGroup(child.pid, "SIGKILL");
+  signalOwnedGroup(child.pid, "SIGKILL", { afterNaturalClose: true });
 }
 
-function signalOwnedGroup(pid, signal) {
+function signalOwnedGroup(pid, signal, { afterNaturalClose = false } = {}) {
   try {
     process.kill(-pid, signal);
     return true;
   } catch (error) {
-    if (error?.code !== "ESRCH") throw error;
-    return false;
+    if (error?.code === "ESRCH") return false;
+    // A detached QoS wrapper can finish after proof and Darwin can report EPERM
+    // for its former group rather than ESRCH. This exception is safe only after
+    // the directly owned child has emitted close; active timeout and
+    // signal-forwarding paths remain strict and still surface EPERM.
+    if (afterNaturalClose && residualGroupCleanupShouldStop(error)) return false;
+    throw error;
   }
+}
+
+export function residualGroupCleanupShouldStop(error) {
+  return error?.code === "ESRCH" || error?.code === "EPERM";
 }
 
 function runTaskkill(pid, graceMs) {

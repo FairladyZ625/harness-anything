@@ -19,11 +19,19 @@ export class DaemonAutostartTimeoutError extends Error {
   readonly timeoutMs: number;
   readonly spawnedPid?: number;
 
-  constructor(timeoutMs: number, lastError: unknown, spawnedPid?: number) {
+  constructor(
+    timeoutMs: number,
+    lastError: unknown,
+    spawnedPid?: number,
+    processSource: "launched" | "observed-socket-owner" = "launched"
+  ) {
     const cause = errorMessage(lastError, "no ready probe completed");
+    const processDescription = processSource === "observed-socket-owner"
+      ? `the live socket owner${spawnedPid === undefined ? "" : ` pid ${spawnedPid}`}`
+      : `the launched process${spawnedPid === undefined ? "" : ` pid ${spawnedPid}`}`;
     super(
       `DAEMON_AUTOSTART_TIMEOUT: readiness was not confirmed within the normal ${timeoutMs}ms startup budget; `
-      + `the launched process${spawnedPid === undefined ? "" : ` pid ${spawnedPid}`} may still be starting. Last probe: ${cause}`
+      + `${processDescription} may still be starting. Last probe: ${cause}`
     );
     this.name = "DaemonAutostartTimeoutError";
     this.timeoutMs = timeoutMs;

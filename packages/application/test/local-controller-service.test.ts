@@ -8,6 +8,98 @@ import { Effect } from "effect";
 import { makeLocalControllerService } from "../src/index.ts";
 import { makeMarkdownArtifactStore } from "../../kernel/src/index.ts";
 
+test("missing runtime discovery reports a controller composition gap without recommending restart", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-app-"));
+  try {
+    const result = await makeUnconfiguredController(rootDir).getAgentRuntimes();
+
+    assert.deepEqual(result, {
+      ok: false,
+      error: {
+        code: "agent_runtime_unavailable",
+        hint: "Agent runtime discovery is unavailable because this controller composition has no agentRuntimeInventoryReader. This request made no runtime changes. Inspect the controller host configuration and logs; use `ha daemon status --json` only to verify the active daemon before retrying through a controller that exposes runtime discovery."
+      }
+    });
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("missing holder projection reports a controller composition gap without recommending restart", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-app-"));
+  try {
+    const result = await makeUnconfiguredController(rootDir).getAgentHolders({});
+
+    assert.deepEqual(result, {
+      ok: false,
+      error: {
+        code: "agent_holder_projection_unavailable",
+        hint: "Agent holder projection is unavailable because this controller composition has no agentHolderProjection. This request made no runtime changes. Inspect the controller host configuration and logs; use `ha daemon status --json` only to verify the active daemon before retrying through a controller that exposes holder projection."
+      }
+    });
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("missing catalog reader reports a controller composition gap without recommending restart", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-app-"));
+  try {
+    const result = makeUnconfiguredController(rootDir).getCatalogSnapshot();
+
+    assert.deepEqual(result, {
+      ok: false,
+      error: {
+        code: "catalog_unavailable",
+        hint: "Catalog snapshot is unavailable because this controller composition has no catalogSnapshotReader. This request made no runtime changes. Inspect the controller host configuration and logs; use `ha daemon status --json` only to verify the active daemon before retrying through a controller that exposes catalog snapshots."
+      }
+    });
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("missing runtime control reports a controller composition gap without recommending restart", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-app-"));
+  try {
+    const result = await makeUnconfiguredController(rootDir).profiles();
+
+    assert.deepEqual(result, {
+      ok: false,
+      error: {
+        code: "agent_runtime_control_unavailable",
+        hint: "Agent runtime control is unavailable because this controller composition has no agentRuntimeControl. This request made no runtime changes. Inspect the controller host configuration and logs; use `ha daemon status --json` only to verify the active daemon before retrying through a controller that exposes runtime control."
+      }
+    });
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("missing decision mutation port reports a controller composition gap without recommending restart", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-app-"));
+  try {
+    const result = await makeUnconfiguredController(rootDir).proposeDecision({
+      title: "Decision",
+      question: "Choose?",
+      chosen: [{ text: "Chosen" }],
+      rejected: [{ text: "Rejected", why_not: "Not selected" }],
+      riskTier: "low",
+      urgency: "low"
+    });
+
+    assert.deepEqual(result, {
+      ok: false,
+      error: {
+        code: "decision_mutation_unavailable",
+        hint: "Decision mutation is unavailable because this controller composition has no decisionMutationPort. This request made no decision write. Inspect the controller host configuration and logs; use `ha daemon status --json` only to verify the active daemon before retrying through a controller that exposes governed decision mutation."
+      }
+    });
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("local controller service reads projection and writes through injected task writer", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-app-"));
   try {
@@ -195,14 +287,14 @@ test("local controller service reads projection and writes through injected task
       ok: false,
       error: {
         code: "terminal_status_requires_task_complete",
-        hint: "Direct done is blocked because completion consent is recorded only by task complete. Preferred path: ha task complete task-1 --approve. If the task is already terminal and more work is required, run ha task supersede task-1 --title <follow-up-title>."
+        hint: "Direct done is blocked because completion consent is recorded only by the typed completion transaction. Run `ha task show task-1 --json` to confirm the current state. If the task is not terminal, inspect `ha task complete --help` and prepare the required approval packet before retrying completion. If it is already terminal and follow-up work is needed, inspect `ha task supersede --help` before creating replacement work."
       }
     });
     assert.deepEqual(await service.setTaskStatus({ taskId: "task-1", status: "cancelled" }), {
       ok: false,
       error: {
         code: "terminal_status_requires_task_complete",
-        hint: "Direct cancellation requires an audited recovery path. Preferred path: ha task complete task-1 --approve. If the task is already terminal and more work is required, run ha task supersede task-1 --title <follow-up-title>."
+        hint: "Direct cancellation is blocked unless it is an audited recovery. Run `ha task show task-1 --json` to confirm the current state. If the task is not terminal and cancellation is still intended, inspect `ha task transition --help` and supply a truthful audited reason. If it is already terminal and follow-up work is needed, inspect `ha task supersede --help` before creating replacement work."
       }
     });
     assert.deepEqual(writes, ["status:task-1:active"]);
@@ -377,6 +469,17 @@ function writeTaskFacts(rootDir: string, taskId: string): void {
     "- {fact_id: F-12345678, statement: \"Projection fact\", source: \"test\", observedAt: \"2026-07-07T00:00:00.000Z\", confidence: high, memoryClass: semantic, memoryTags: [pattern], provenance: [{runtime: \"codex\", sessionId: \"session-1\", boundAt: \"2026-07-07T00:00:00.000Z\"}]}",
     ""
   ].join("\n"), "utf8");
+}
+
+function makeUnconfiguredController(rootDir: string) {
+  return makeLocalControllerService({
+    rootDir,
+    artifactStore: makeMarkdownArtifactStore({ rootDir }),
+    taskWriter: {
+      setStatus: (payload) => Effect.succeed({ taskId: payload.taskId, status: payload.status }),
+      appendProgress: (payload) => Effect.succeed({ taskId: payload.taskId, path: "progress.md" })
+    }
+  });
 }
 
 function writeDecision(rootDir: string, decisionId: string): void {

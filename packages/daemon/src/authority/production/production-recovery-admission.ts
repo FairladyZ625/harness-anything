@@ -26,7 +26,7 @@ export async function waitForProductionRecovery(
   if (timer) clearTimeout(timer);
   if (!timedOut) return recoveryUnavailableReason(material);
   if (material.recovery.status !== "recovering") return recoveryUnavailableReason(material);
-  return `AUTHORITY_RECOVERY_WAIT_TIMEOUT:repoId=${material.repoId};waitedMs=${timeoutMs}; run \`ha daemon start --service\`, then retry this command against the service daemon so recovery progress is preserved`;
+  return `AUTHORITY_RECOVERY_WAIT_TIMEOUT:repoId=${material.repoId};waitedMs=${timeoutMs}; recovery is still running. Do not start, stop, or restart any daemon and do not replay the write. Wait for the current recovery to finish, then run \`ha --repo ${material.repoId} daemon status --json\`; retry the original command only after the repo is no longer recovering.`;
 }
 
 function recoveryUnavailableReason(material: {

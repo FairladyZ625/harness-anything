@@ -47,11 +47,17 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
   return {
     getAgentRuntimes: () => options.agentRuntimeInventoryReader?.() ?? Promise.resolve({
       ok: false,
-      error: { code: "agent_runtime_unavailable", hint: "Missing required agent runtime discovery service. Run `ha daemon restart`, then retry." }
+      error: {
+        code: "agent_runtime_unavailable",
+        hint: "Agent runtime discovery is unavailable because this controller composition has no agentRuntimeInventoryReader. This request made no runtime changes. Inspect the controller host configuration and logs; use `ha daemon status --json` only to verify the active daemon before retrying through a controller that exposes runtime discovery."
+      }
     }),
     getAgentHolders: (payload) => options.agentHolderProjection?.query(payload) ?? Promise.resolve({
       ok: false,
-      error: { code: "agent_holder_projection_unavailable", hint: "Agent holder projection service is missing. Run `ha daemon restart`, then retry." }
+      error: {
+        code: "agent_holder_projection_unavailable",
+        hint: "Agent holder projection is unavailable because this controller composition has no agentHolderProjection. This request made no runtime changes. Inspect the controller host configuration and logs; use `ha daemon status --json` only to verify the active daemon before retrying through a controller that exposes holder projection."
+      }
     }),
     profiles: () => options.agentRuntimeControl?.profiles() ?? runtimeControlUnavailable(),
     spawn: (payload) => options.agentRuntimeControl?.spawn(payload) ?? runtimeControlUnavailable(),
@@ -61,7 +67,10 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
     result: (payload) => options.agentRuntimeControl?.result(payload) ?? runtimeControlUnavailable(),
     getCatalogSnapshot: () => options.catalogSnapshotReader?.() ?? ({
       ok: false,
-      error: { code: "catalog_unavailable", hint: "Catalog access failed because the snapshot reader is not configured. Run `ha daemon restart --json`, verify with `ha daemon status --json`, then retry." }
+      error: {
+        code: "catalog_unavailable",
+        hint: "Catalog snapshot is unavailable because this controller composition has no catalogSnapshotReader. This request made no runtime changes. Inspect the controller host configuration and logs; use `ha daemon status --json` only to verify the active daemon before retrying through a controller that exposes catalog snapshots."
+      }
     }),
     getTasks: () => {
       const result = queryTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, filters: {} });
@@ -230,7 +239,10 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
 function runtimeControlUnavailable() {
   return Promise.resolve({
     ok: false as const,
-    error: { code: "agent_runtime_control_unavailable", hint: "Agent runtime control is unavailable. Run `ha daemon restart`." }
+    error: {
+      code: "agent_runtime_control_unavailable",
+      hint: "Agent runtime control is unavailable because this controller composition has no agentRuntimeControl. This request made no runtime changes. Inspect the controller host configuration and logs; use `ha daemon status --json` only to verify the active daemon before retrying through a controller that exposes runtime control."
+    }
   });
 }
 
@@ -261,7 +273,10 @@ function decisionNotFound(decisionId: string): LocalControllerFailure {
 function decisionMutationUnavailable(): Promise<LocalControllerFailure> {
   return Promise.resolve({
     ok: false,
-    error: { code: "decision_mutation_unavailable", hint: "Decision mutation failed because the controller write port is not configured. Run `ha daemon restart --json`, verify with `ha daemon status --json`, then retry." }
+    error: {
+      code: "decision_mutation_unavailable",
+      hint: "Decision mutation is unavailable because this controller composition has no decisionMutationPort. This request made no decision write. Inspect the controller host configuration and logs; use `ha daemon status --json` only to verify the active daemon before retrying through a controller that exposes governed decision mutation."
+    }
   });
 }
 

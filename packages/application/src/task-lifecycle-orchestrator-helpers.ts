@@ -8,13 +8,12 @@ export function taskFailure(taskId: string, code: string, hint: string): TaskLif
 }
 
 export function terminalStatusFailure(taskId: string, status: DomainStatus): TaskLifecycleFailure {
-  const preferred = `Preferred path: ha task complete ${taskId} --approve. If the task is already terminal and more work is required, run ha task supersede ${taskId} --title <follow-up-title>.`;
   return taskFailure(
     taskId,
     "terminal_status_requires_task_complete",
     status === "done"
-      ? `Direct done is blocked because completion consent is recorded only by task complete. ${preferred}`
-      : `Direct cancellation requires an audited recovery path. ${preferred}`
+      ? `Direct done is blocked because completion consent is recorded only by the typed completion transaction. Run \`ha task show ${taskId} --json\` to confirm the current state. If the task is not terminal, inspect \`ha task complete --help\` and prepare the required approval packet before retrying completion. If it is already terminal and follow-up work is needed, inspect \`ha task supersede --help\` before creating replacement work.`
+      : `Direct cancellation is blocked unless it is an audited recovery. Run \`ha task show ${taskId} --json\` to confirm the current state. If the task is not terminal and cancellation is still intended, inspect \`ha task transition --help\` and supply a truthful audited reason. If it is already terminal and follow-up work is needed, inspect \`ha task supersede --help\` before creating replacement work.`
   );
 }
 

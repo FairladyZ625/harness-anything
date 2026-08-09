@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { defaultDaemonUserRoot, runDaemonCommand, runRawJson, runRawJsonMaybeFail, withTempRoot, withTempRootAsync } from "./helpers/daemon-cli.ts";
 import { cliTestEnv } from "./helpers/cli-test-env.ts";
+import { validateCommandOptions } from "../src/cli/option-claims.ts";
 
 test("initialized ledgers fail closed when an ordinary caller requests a direct canonical write", () => {
   withTempRoot((rootDir) => {
@@ -83,9 +84,21 @@ test("direct recovery is rejected by the global write lock while the daemon is l
 
     assert.equal(failed.status, 1);
     assert.equal(failed.receipt.ok, false);
-    assert.equal((failed.receipt.error as Record<string, unknown>).code, "write_conflict");
-    assert.match(JSON.stringify(failed.receipt), /Global write lock is held/iu);
-    assert.match(JSON.stringify(failed.receipt), /mutually exclusive with a live daemon/iu);
+    const error = failed.receipt.error as Record<string, unknown>;
+    const hint = String(error.hint);
+    assert.equal(error.code, "write_conflict");
+    assert.match(hint, /Global write lock is held/iu);
+    assert.match(hint, /Wait for the current writer to release it/iu);
+    assert.match(hint, /retry only after the lock is free/iu);
+    assert.match(hint, /`ha daemon status --json`/u);
+    assert.doesNotMatch(hint, /<[^>\n]+>|\{[^}\n]+\}|\.\.\./u);
+    assert.doesNotMatch(
+      hint,
+      /\bha(?:\s+--root\s+\S+)?\s+daemon\s+(?:start|stop|restart|repo\s+(?:register|unregister|purge))\b|HARNESS_(?:DAEMON_MODE|DIRECT_WRITE_REASON)|--daemon-mode(?:=|\s+)direct/iu
+    );
+    const statusContract = validateCommandOptions(["daemon", "status", "--json"]);
+    assert.equal(statusContract.ok, true);
+    assert.equal(statusContract.ok ? statusContract.claim?.kind : undefined, "daemon-status");
     assert.equal(canonicalHead(rootDir), initialHead, "conflicting direct recovery must not move the canonical ref");
   });
 });

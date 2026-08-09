@@ -74,6 +74,48 @@ test("deterministic exact batch rejection remains rejected instead of indetermin
   }), { kind: "rejected", reason: "scope mismatch" });
 });
 
+test("publication outcome preserves structured journal failure causes", () => {
+  const outcome = classifyAuthorityPublicationOutcome({
+    kind: "error",
+    error: {
+      _tag: "JournalUnavailable",
+      cause: { name: "Error", message: "durable write may have committed", code: "EIO" }
+    }
+  });
+
+  assert.deepEqual(outcome, {
+    kind: "indeterminate",
+    reason: "PUBLICATION_OUTCOME_UNKNOWN:durable write may have committed"
+  });
+});
+
+test("publication outcome does not trust object-valued WriteRejected.reason", () => {
+  const outcome = classifyAuthorityPublicationOutcome({
+    kind: "error",
+    error: { _tag: "WriteRejected", reason: { message: "structured rejection" }, retryable: false }
+  });
+
+  assert.deepEqual(outcome, {
+    kind: "indeterminate",
+    reason: "PUBLICATION_OUTCOME_UNKNOWN:structured rejection"
+  });
+});
+
+test("publication outcome formatting is total for circular and null-prototype values", () => {
+  const circular: Record<string, unknown> = { code: "CIRCULAR_FAILURE" };
+  circular.self = circular;
+  const nullPrototype = Object.create(null) as Record<string, unknown>;
+  nullPrototype.message = "null-prototype failure";
+
+  for (const error of [circular, nullPrototype]) {
+    const outcome = classifyAuthorityPublicationOutcome({ kind: "error", error });
+    assert.equal(outcome.kind, "indeterminate");
+    assert.doesNotMatch(outcome.reason, /\[object Object\]/u);
+  }
+  assert.match(classifyAuthorityPublicationOutcome({ kind: "error", error: circular }).reason, /CIRCULAR_FAILURE/u);
+  assert.match(classifyAuthorityPublicationOutcome({ kind: "error", error: nullPrototype }).reason, /null-prototype failure/u);
+});
+
 function authorityFixture(
   report: (input: {
     readonly reason: FlushReport["reason"];

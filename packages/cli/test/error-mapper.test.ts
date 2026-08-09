@@ -36,7 +36,7 @@ test("journal failures always retain their cause and teach a concrete diagnostic
 test("global write conflicts explain that direct recovery cannot race a live daemon", () => {
   assert.deepEqual(toCliError({ _tag: "GlobalWriteConflict", owner: ".harness/locks/global.lock" }), {
     code: "write_conflict",
-    hint: "Global write lock is held: .harness/locks/global.lock Direct recovery remains mutually exclusive with a live daemon; stop or drain the current writer and verify with 'ha daemon status' before retrying."
+    hint: "Global write lock is held: .harness/locks/global.lock Wait for the current writer to release it, then run `ha daemon status --json` and retry only after the lock is free. Do not stop, drain, or restart a writer solely to clear this conflict."
   });
 });
 

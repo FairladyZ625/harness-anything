@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,9 +21,11 @@ import {
   createGitCanonicalPublicationInspector,
   recoverPendingProductionEvents
 } from "@harness-anything/daemon";
+import { removeTemporaryTestRoot } from "./helpers/temp-root-cleanup.ts";
 
 test("recovery crosses old-to-semantic shape while V2 evidence is delayed without terminalizing the published operation", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-authority-recovery-semantic-boundary-"));
+  const publicationInspector = createGitCanonicalPublicationInspector(root);
   const watermarkPath = path.join(root, "recovery-watermark.json");
   const workspaceId = "workspace-production";
   const oldOpId = "namespace-production:old-shape";
@@ -116,7 +118,7 @@ test("recovery crosses old-to-semantic shape while V2 evidence is delayed withou
       operationRegistry,
       replicaChangeLog,
       eventLog: {} as ReturnType<typeof makeLocalAuthorityAttributionEventV2Log>,
-      publicationInspector: createGitCanonicalPublicationInspector(root),
+      publicationInspector,
       recover,
       watermarkPath
     };
@@ -136,12 +138,14 @@ test("recovery crosses old-to-semantic shape while V2 evidence is delayed withou
       scannedAt: JSON.parse(readFileSync(watermarkPath, "utf8")).scannedAt
     });
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    await publicationInspector.shutdown();
+    await removeTemporaryTestRoot(root);
   }
 });
 
 test("same-session retry cannot hide an unanchored authority batch from recovery", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-authority-recovery-unanchored-prefix-"));
+  const inspector = createGitCanonicalPublicationInspector(root);
   const watermarkPath = path.join(root, "recovery-watermark.json");
   const workspaceId = "workspace-production";
   const firstOpId = "namespace-production:unanchored-first";
@@ -192,7 +196,6 @@ test("same-session retry cannot hide an unanchored authority batch from recovery
     git("checkout", "-q", "master");
     git("merge", "-q", "--no-ff", "sessions/materialization-retry", "-m", "materializer: merge session materialization-retry");
 
-    const inspector = createGitCanonicalPublicationInspector(root);
     let proofFailure: unknown;
     try {
       await inspector.inspectPublication(expectedPreviousHead, [secondOpId]);
@@ -253,7 +256,8 @@ test("same-session retry cannot hide an unanchored authority batch from recovery
       && entry.error.message.startsWith("AUTHORITY_CANONICAL_PUBLICATION_UNANCHORED_BATCH_PREFIX")
     ), true, deferred.map((entry) => String(entry.error)).join("\n"));
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    await inspector.shutdown();
+    await removeTemporaryTestRoot(root);
   }
 });
 

@@ -13,6 +13,7 @@ import {
 import { currentDaemonProtocolVersion } from "../protocol/method-registry.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import { defaultNamedPipePath } from "../transport/named-pipe.ts";
+import { readDaemonSocketOwner } from "../transport/local-service-transport.ts";
 import { defaultUnixSocketPath, type UnixSocketPathOptions } from "../transport/unix-socket.ts";
 import {
   createDaemonLaunchConfiguration,
@@ -148,7 +149,8 @@ let spawnLocalDaemonImplementation: SpawnLocalDaemon = spawnLocalDaemonProcess;
 const daemonAutostartFlight = createDaemonAutostartFlightManager<LocalDaemonTarget, LocalDaemonAutostartOptions>({
   launchLocalDaemon: (target, options) => launchLocalDaemon(target, options),
   localDaemonRetryIntervalMs,
-  minimumReadyProbeResponseTimeoutMs
+  minimumReadyProbeResponseTimeoutMs,
+  readDaemonSocketOwner
 });
 
 export function daemonIdForRoot(rootDir: string): string {

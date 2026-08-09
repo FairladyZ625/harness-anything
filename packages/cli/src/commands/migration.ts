@@ -9,6 +9,7 @@ import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { demotedGateWarning } from "../cli/demoted-gate-warning.ts";
 import { resolveContainedOutputPath } from "../cli/output-path.ts";
 import { isGeneratedOrVendorPath, isPathInside, normalizeSlashes } from "../cli/path.ts";
+import { shellArgument } from "../cli/shell-argument.ts";
 import type { CliResult } from "../cli/types.ts";
 import { applyCollisionReport, buildLegacyCopyPlan, readCollisionReport, writeCollisionReport } from "./migration-collision.ts";
 import { collectLegacyProvenanceWarnings } from "./legacy-provenance-verify.ts";
@@ -247,11 +248,16 @@ export function runLegacyVerify(rootInput: HarnessLayoutInput, _action: LegacyVe
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   if (!existsSync(layout.legacyIndexPath)) {
+    const root = shellArgument(rootDir);
+    const index = normalizeSlashes(path.relative(rootDir, layout.legacyIndexPath));
     return {
       ok: false,
       command: "legacy-verify",
       report: { schema: "legacy-intake-verify-report/v1", ok: false, missingIndex: true },
-      error: cliError(CliErrorCode.LegacyIndexMissing, "harness/legacy/index.json is missing. Run legacy index <path> --apply.")
+      error: cliError(
+        CliErrorCode.LegacyIndexMissing,
+        `${index} is missing. Run \`ha legacy index --help\` to identify and index the actual legacy source path, then run \`ha --root ${root} legacy verify\`.`
+      )
     };
   }
   let index: LegacyIndex;

@@ -125,6 +125,7 @@ function readConfiguredLocalPrincipalWithSource(rootInput: HarnessLayoutInput, r
   const layout = resolveHarnessLayout(rootInput);
   const peoplePath = path.join(layout.authoredRoot, "people.yaml");
   const machineUserRoot = localMachineIdentityRoot(layout.rootDir, env);
+  const machinePeoplePath = machineUserRoot ? path.join(machineUserRoot, "people.yaml") : undefined;
   const resolvedRegistry = registryInput
     ? undefined
     : resolvedPersonRegistry(rootInput, peoplePath, machineUserRoot);
@@ -139,7 +140,7 @@ function readConfiguredLocalPrincipalWithSource(rootInput: HarnessLayoutInput, r
   const personId = credentialPersonId ?? identity?.personId;
   if (!personId) {
     throw new CliPrincipalResolutionError(
-      "Local writes require a machine identity. Run: ha init with HARNESS_GIT_AUTHOR_NAME and HARNESS_GIT_AUTHOR_EMAIL set, or add the current host/uid credential to ~/.harness/people.yaml."
+      `Local writes require a machine identity. Resolved daemon user root: ${machineUserRoot ?? "unavailable"}. Machine roster path: ${machinePeoplePath ?? "unavailable"}. Run: ha init with HARNESS_GIT_AUTHOR_NAME and HARNESS_GIT_AUTHOR_EMAIL set, or add the current host/uid credential to ${machinePeoplePath ?? "the resolved machine roster"}.`
     );
   }
   if (!registry) {

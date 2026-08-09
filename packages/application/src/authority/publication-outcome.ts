@@ -71,10 +71,13 @@ export function classifyAuthorityPublicationOutcome(input:
 
 function isWriteError(error: unknown): error is WriteError {
   if (typeof error !== "object" || error === null || !("_tag" in error)) return false;
-  return error._tag === "WriteRejected"
-    || error._tag === "WriteConflict"
-    || error._tag === "GlobalWriteConflict"
-    || error._tag === "JournalUnavailable";
+  if (error._tag === "WriteRejected") {
+    return "reason" in error && typeof error.reason === "string";
+  }
+  if (error._tag === "WriteConflict" || error._tag === "GlobalWriteConflict") {
+    return !("owner" in error) || error.owner === undefined || typeof error.owner === "string";
+  }
+  return error._tag === "JournalUnavailable";
 }
 
 function writeErrorDescription(error: Exclude<WriteError, { readonly _tag: "JournalUnavailable" }>): string {
@@ -83,10 +86,47 @@ function writeErrorDescription(error: Exclude<WriteError, { readonly _tag: "Jour
 }
 
 function errorDescription(error: unknown): string {
-  if (error instanceof Error) return error.message;
+  return describeUnknownFailure(error, new Set<object>());
+}
+
+function describeUnknownFailure(error: unknown, ancestors: Set<object>): string {
+  if (error instanceof Error) return error.message || error.name;
+  if (typeof error === "string") return error;
+  if (typeof error === "number" || typeof error === "bigint" || typeof error === "boolean") return String(error);
+  if (error === null) return "null";
+  if (error === undefined) return "undefined";
+  if (typeof error !== "object") return typeof error;
+  if (ancestors.has(error)) return "[Circular]";
+  ancestors.add(error);
   if (isWriteError(error)) {
-    if (error._tag === "JournalUnavailable") return errorDescription(error.cause);
+    if (error._tag === "JournalUnavailable") return describeUnknownFailure(error.cause, ancestors);
     return writeErrorDescription(error);
   }
-  return String(error);
+  for (const field of ["reason", "message", "cause", "error"] as const) {
+    const value = readObjectField(error, field);
+    if (value !== undefined && value !== error) return describeUnknownFailure(value, ancestors);
+  }
+  return safeJsonDescription(error);
+}
+
+function readObjectField(value: object, field: string): unknown {
+  try {
+    return field in value ? (value as Record<string, unknown>)[field] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function safeJsonDescription(value: object): string {
+  const visited = new WeakSet<object>();
+  try {
+    return JSON.stringify(value, (_key, member: unknown) => {
+      if (typeof member !== "object" || member === null) return member;
+      if (visited.has(member)) return "[Circular]";
+      visited.add(member);
+      return member;
+    }) || "unrenderable object";
+  } catch {
+    return "unrenderable object";
+  }
 }

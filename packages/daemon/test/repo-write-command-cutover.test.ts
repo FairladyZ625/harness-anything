@@ -58,6 +58,47 @@ test("current-session materializer barrier fails closed without a runtime sessio
   assert.match(receipt.error?.hint ?? "", /requires a runtime session/u);
 });
 
+test("materializer rendering receives the parsed harness layout input", async () => {
+  let receivedRootInput: Parameters<DaemonCommandHostServices<
+    TestCommand,
+    TestResult,
+    ReturnType<typeof productionAuthorityActor>
+  >["materializerCommandResult"]>[1] | undefined;
+  const runtime = {
+    ...unusedRuntime(),
+    enqueueMaterializerBatch: async () => ({
+      dryRun: false,
+      merged: 0,
+      considered: 0,
+      branches: [],
+      warnings: []
+    })
+  };
+  const service = createDaemonCommandService(
+    runtime,
+    hostServices(() => { throw new Error("materializer must not reach command execution"); }, {
+      materializerCommandResult: (_report, rootInput) => {
+        receivedRootInput = rootInput;
+        return { ok: true, command: "materializer" };
+      }
+    })
+  );
+
+  await service.runCommand({
+    command: {
+      rootDir: "/repo with custom layout",
+      layoutOverrides: { authoredRoot: ".custom-ledger" },
+      json: true,
+      action: { kind: "materializer-run", dryRun: false }
+    }
+  });
+
+  assert.deepEqual(receivedRootInput, {
+    rootDir: "/repo with custom layout",
+    layoutOverrides: { authoredRoot: ".custom-ledger" }
+  });
+});
+
 test("authority-backed runtime writes do not enqueue a second current-session materializer barrier", async () => {
   let materializerCalls = 0;
   const runtime = {
@@ -309,7 +350,7 @@ test("parent command service preserves a structured child rejection before proce
   assert.match(receipt.error?.hint ?? "", /AUTHORITY_MANUAL_ENTITY_ID_FORBIDDEN/u);
 });
 
-test("unknown child receipts expose a machine-readable final-state query", async () => {
+test("unknown child receipts expose a caller-executable final-state query", async () => {
   const actor = productionAuthorityActor();
   for (const [kind, failure] of [
     ["durable", new RepoWriteOutcomeUnknownError("EXECUTION_OUTCOME_UNKNOWN", "write may have committed", "outer-op")],
@@ -357,8 +398,79 @@ test("unknown child receipts expose a machine-readable final-state query", async
     const query = data.query as Record<string, unknown>;
     assert.equal(data.outcome, "unknown");
     assert.equal(query.schema, "command-outcome-query/v1");
-    assert.equal(query.method, kind === "durable" ? "repo-write.lookup" : "task.show");
+    assert.equal(query.method, "task.show");
+    assert.equal(query.command, "ha task show task-queryable --json");
+    assert.match(receipt.error?.hint ?? "", /ha task show task-queryable --json/u);
+    assert.doesNotMatch(receipt.error?.hint ?? "", /query the stable outer opId|repo-write\.lookup/u);
   }
+});
+
+test("decision outcome-unknown receipts give a concrete read-only projection check", async () => {
+  const actor = productionAuthorityActor();
+  const service = createDaemonCommandService(
+    unusedRuntime(),
+    hostServices(() => undefined),
+    {
+      repoWriteDispatch: {
+        repoId: "canonical",
+        submit: async () => {
+          throw new RepoWriteOutcomeUnknownError(
+            "EXECUTION_OUTCOME_UNKNOWN",
+            "AUTHORITY_INDETERMINATE:PUBLICATION_OUTCOME_UNKNOWN:durable write may have committed. Exact repo-write outcome lookup failed for repo-write:decision-live; query the stable outer opId repo-write:decision-live.",
+            "repo-write:decision-live"
+          );
+        },
+        direct: async () => { throw new Error("unexpected direct route"); }
+      }
+    }
+  );
+
+  const receipt = await service.runCommand({
+    command: {
+      rootDir: "/repo",
+      json: true,
+      action: {
+        kind: "decision-propose",
+        decisionId: "dec_live",
+        proposedAt: "2026-08-09T00:00:00.000Z",
+        title: "Live decision",
+        question: "Did the write commit?",
+        chosen: [{ text: "Verify the projection" }],
+        rejected: [{ text: "Replay immediately" }],
+        claims: [],
+        claimLoadBearing: false,
+        fulfillments: [],
+        riskTier: "high",
+        urgency: "high",
+        modules: [],
+        productLines: [],
+        evidenceRelations: [],
+        dryRun: false
+      }
+    },
+    session: session()
+  }, {
+    actor,
+    executor: { kind: "agent", id: "codex" },
+    authorityConnection: {
+      available: true,
+      context: productionAuthorityConnection(actor),
+      assertActive: () => undefined
+    }
+  });
+
+  assert.equal(receipt.error?.code, "repo_write_outcome_unknown");
+  assert.equal(
+    receipt.error?.hint,
+    "The child writer may already have committed decision-propose, but its final outcome is unknown: AUTHORITY_INDETERMINATE:PUBLICATION_OUTCOME_UNKNOWN:durable write may have committed. Run `ha decision show dec_live --json` to inspect the canonical projection. If the decision is absent, the outcome is still unknown; do not replay the write."
+  );
+  assert.deepEqual(receipt.details?.data?.query, {
+    schema: "command-outcome-query/v1",
+    method: "decision.show",
+    command: "ha decision show dec_live --json",
+    parameters: { decisionId: "dec_live" },
+    retry: "forbidden-after-absence"
+  });
 });
 
 function hostServices(onExecute: () => void, overrides: {
@@ -368,6 +480,11 @@ function hostServices(onExecute: () => void, overrides: {
     executor: TaskHolderExecutor | null
   ) => AuthorityHostAttribution;
   readonly authorityCommand?: (command: TestCommand) => AuthorityHostCommand | undefined;
+  readonly materializerCommandResult?: DaemonCommandHostServices<
+    TestCommand,
+    TestResult,
+    ReturnType<typeof productionAuthorityActor>
+  >["materializerCommandResult"];
 } = {}): DaemonCommandHostServices<
   TestCommand,
   TestResult,
@@ -398,10 +515,10 @@ function hostServices(onExecute: () => void, overrides: {
       onExecute();
       return { ok: true, command: command.action.kind };
     },
-    materializerCommandResult: () => ({
+    materializerCommandResult: overrides.materializerCommandResult ?? (() => ({
       ok: true,
       command: "materializer"
-    }),
+    })),
     toReceipt: () => committedReceipt(),
     toErrorReceipt: ({ command, error }) => ({
       ok: false,

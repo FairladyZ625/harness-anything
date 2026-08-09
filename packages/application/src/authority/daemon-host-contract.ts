@@ -342,7 +342,7 @@ export interface DaemonCommandHostServices<
   readonly isActorAttributionError: (error: unknown) => boolean;
   readonly isDryRunAction: (command: Command) => boolean;
   readonly executeCommand: (command: Command, options: DaemonHostCommandExecutionOptions) => Promise<Result>;
-  readonly materializerCommandResult: (report: MaterializerCommandReport) => Result;
+  readonly materializerCommandResult: (report: MaterializerCommandReport, rootInput: HarnessLayoutInput) => Result;
   readonly toReceipt: (result: DaemonHostCommandResult) => import("../command-receipt.ts").CommandReceiptEnvelope;
   readonly toErrorReceipt: (input: {
     readonly command: string;
