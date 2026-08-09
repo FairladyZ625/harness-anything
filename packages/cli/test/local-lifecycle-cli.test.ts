@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import path from "node:path";
 import test from "node:test";
 import { commandDescriptors } from "../src/cli/command-registry.ts";
+import { parseArgs } from "../src/cli/parse-args.ts";
 import { capabilityExcludedCommandKinds } from "../src/commands/core/capabilities.ts";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 import {
@@ -145,8 +146,7 @@ test("CLI blocks direct done, keeps audited cancellation recovery, and gives own
     const invalidForce = runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "invalid recovery"], false);
     assert.equal(invalidForce.ok, false);
     assert.equal(invalidForce.error?.code, "terminal_status_requires_task_complete");
-    assert.match(invalidForce.error?.hint ?? "", new RegExp(`ha task complete ${taskId} --approve`, "u"));
-    assert.match(invalidForce.error?.hint ?? "", new RegExp(`ha task supersede ${taskId}`, "u"));
+    assertTerminalRecoveryHint(invalidForce.error?.hint ?? "", taskId, "done");
     assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`)), false);
 
     writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
@@ -155,13 +155,12 @@ test("CLI blocks direct done, keeps audited cancellation recovery, and gives own
     const doneFailure = runJson(rootDir, ["task", "status", "set", taskId, "done"], false);
     assert.equal(doneFailure.ok, false);
     assert.equal(doneFailure.error?.code, "terminal_status_requires_task_complete");
-    assert.match(doneFailure.error?.hint ?? "", new RegExp(`ha task complete ${taskId} --approve`, "u"));
-    assert.match(doneFailure.error?.hint ?? "", new RegExp(`ha task supersede ${taskId}`, "u"));
+    assertTerminalRecoveryHint(doneFailure.error?.hint ?? "", taskId, "done");
 
     const cancelFailure = runJson(rootDir, ["task", "status", "set", taskId, "cancelled"], false);
     assert.equal(cancelFailure.ok, false);
     assert.equal(cancelFailure.error?.code, "terminal_status_requires_task_complete");
-    assert.match(cancelFailure.error?.hint ?? "", new RegExp(`ha task transition ${taskId} cancelled --force --reason`, "u"));
+    assertTerminalRecoveryHint(cancelFailure.error?.hint ?? "", taskId, "cancelled");
 
     const missingReason = runJson(rootDir, ["task", "status", "set", taskId, "cancelled", "--force"], false);
     assert.equal(missingReason.ok, false);
@@ -184,6 +183,25 @@ test("CLI blocks direct done, keeps audited cancellation recovery, and gives own
     assert.equal(check.warnings.some((warning: Record<string, unknown>) => warning.code === "forced_terminal_status_set" && warning.severity === "warning"), true);
   });
 });
+
+function assertTerminalRecoveryHint(hint: string, taskId: string, status: "done" | "cancelled"): void {
+  const ownerCommand = status === "done" ? "complete" : "transition";
+  assert.match(hint, new RegExp(`ha task show ${taskId} --json`, "u"));
+  assert.match(hint, new RegExp(`ha task ${ownerCommand} --help`, "u"));
+  assert.match(hint, /ha task supersede --help/u);
+  assert.doesNotMatch(hint, /<[^>\n]+>|\{[^}\n]+\}|\.\.\./u);
+  assert.doesNotMatch(
+    hint,
+    /\bha(?:\s+--root\s+\S+)?\s+daemon\s+(?:start|stop|restart|repo\s+(?:register|unregister|purge))\b|HARNESS_(?:DAEMON_MODE|DIRECT_WRITE_REASON)|--daemon-mode(?:=|\s+)direct/iu
+  );
+  for (const argv of [
+    ["task", "show", taskId, "--json"],
+    ["task", ownerCommand, "--help"],
+    ["task", "supersede", "--help"]
+  ]) {
+    assert.equal(parseArgs(argv).ok, true, `suggested command must match the CLI contract: ha ${argv.join(" ")}`);
+  }
+}
 
 test("CLI rejects unknown six-state lifecycle values", () => {
   withTempRoot((rootDir) => {
