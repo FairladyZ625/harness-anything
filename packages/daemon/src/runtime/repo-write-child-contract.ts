@@ -2,7 +2,7 @@ import type {
   RepoWriteCommandDto,
   RepoWriteJsonObject
 } from "./repo-write-protocol.ts";
-import type { RepoWriteTerminalOutcomeV1 } from "./repo-write-outcome-schema.ts";
+import type { RepoWriteExecutionOutcome } from "./repo-write-durable-operation-controller.ts";
 import type { RepoWriteCanonicalLookupResult } from "./repo-write-child-lookup.ts";
 import type { RepoWriteChildTransport } from "./repo-write-child-response-writer.ts";
 import type { RepoWriteExecutionSequencer } from "./repo-write-execution-sequencer.ts";
@@ -17,7 +17,7 @@ export interface RepoWritePrepareInput {
 
 export interface RepoWritePreparedOperation {
   readonly opId: string;
-  readonly execute: () => RepoWriteTerminalOutcomeV1 | Promise<RepoWriteTerminalOutcomeV1>;
+  readonly execute: () => RepoWriteExecutionOutcome | Promise<RepoWriteExecutionOutcome>;
 }
 
 export interface RepoWriteLookupInput {

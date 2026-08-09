@@ -221,7 +221,7 @@ cutoverTest("stale multi-repo locks recover serially and a second userRoot repor
   }
 });
 
-cutoverTest("production child owns the only writer lock and restart lookup returns the exact receipt", async () => {
+cutoverTest("production child restart preserves receipt identity and returns its visible successor", async () => {
   const fixture = createProductionAuthorityLifecycleFixture();
   const userRoot = path.join(fixture.root, "daemon-user");
   const endpoint = path.join(userRoot, "daemon.sock");
@@ -384,13 +384,14 @@ cutoverTest("production child owns the only writer lock and restart lookup retur
     const lookup = await restarted.lookup(recovery.outerOpId);
     assert.equal(lookup.state, "committed");
     if (lookup.state !== "committed") return;
-    assert.equal(
-      JSON.stringify(decodeRepoWriteCommandReceiptV2(
-        lookup.receipt,
-        "$.lookup.receipt"
-      )),
-      JSON.stringify(receipt)
-    );
+    const visible = decodeRepoWriteCommandReceiptV2(lookup.receipt, "$.lookup.receipt");
+    assert.equal(visible.command, receipt.command);
+    assert.equal(visible.action, receipt.action);
+    assert.equal(visible.meta.generatedAt, receipt.meta.generatedAt);
+    assert.equal(visible.settlement?.receiptId, receipt.settlement?.receiptId);
+    assert.equal(visible.settlement?.acceptedAt, receipt.settlement?.acceptedAt);
+    assert.equal(visible.settlement?.acceptedCommitSha, receipt.settlement?.acceptedCommitSha);
+    assert.equal(visible.settlement?.canonicalVisibility, "visible");
   } finally {
     await first?.stop().catch(() => undefined);
     await restarted?.stop().catch(() => undefined);

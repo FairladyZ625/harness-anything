@@ -15,6 +15,7 @@ import type { AuthorityConnectionDispatch } from "../protocol/connection-context
 import { encodeRepoWriteCommand } from "../runtime/repo-write-progress-command.ts";
 import type { RepoWriteProcessSupervisor } from "../runtime/repo-write-process-supervisor.ts";
 import { RepoWriteIpcPayloadTooLargeError } from "../runtime/repo-write-client-errors.ts";
+import { RepoWriteOutcomeUnknownError } from "../runtime/repo-write-client-errors.ts";
 import { docSyncJournalUnavailable } from "./doc-sync-journal-failure.ts";
 import {
   ExternalDocSyncWorkingTreeReferenceError,
@@ -39,7 +40,7 @@ export async function dispatchDocSyncSubmitToWriter(input: {
   }
   try {
     input.authority.assertActive();
-    const receipt = await input.supervisor.direct(encodeRepoWriteCommand({
+    const command = encodeRepoWriteCommand({
       command: {
         rootDir: input.rootDir,
         action: { kind: "doc-sync-submit" },
@@ -56,7 +57,10 @@ export async function dispatchDocSyncSubmitToWriter(input: {
         currentSession,
         executor: input.executor ?? null
       }
-    }));
+    });
+    const receipt = input.request.payload.changes.length === 0
+      ? await input.supervisor.direct(command)
+      : await input.supervisor.submit(command);
     const report = receipt.details?.data;
     if (!isDocSyncSubmitResult(report)) {
       return docSyncJournalUnavailable(input.request, "The doc-sync writer child returned no typed report.");
@@ -70,9 +74,28 @@ export async function dispatchDocSyncSubmitToWriter(input: {
           `The doc-sync writer reported accepted but did not materialize ${missing} in ledger ${report.appliedLedgerSha}.`
         );
       }
+      return {
+        ...report,
+        ...(receipt.ok && receipt.settlement ? { settlement: receipt.settlement } : {})
+      };
     }
     return report;
   } catch (error) {
+    if (error instanceof RepoWriteOutcomeUnknownError) {
+      return writerRejection(
+        input.request,
+        "journal_unavailable",
+        `Doc sync outcome is unknown and may already be durable. Query '${error.opId}' before recovery; do not retry the original command.`,
+        {
+          retryable: false,
+          _tag: "JournalUnavailable",
+          outcomeUnknown: {
+            receiptId: error.opId,
+            statusCommand: `ha receipt status ${error.opId} --json`
+          }
+        }
+      );
+    }
     if (error instanceof RepoWriteIpcPayloadTooLargeError) {
       return writerRejection(
         input.request,

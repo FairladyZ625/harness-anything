@@ -326,22 +326,32 @@ export class RepoWriteChildHost {
     try {
       let receipt: RepoWriteJsonObject;
       try {
-        const durableOutcome = decodeRepoWriteOutcomeV1(
-          await this.executionSequencer.run(operation.execute!)
-        );
+        const executed = await this.executionSequencer.run(operation.execute!);
         await operation.telemetry?.flush();
         operation.telemetry?.reportCurrent("child-telemetry-flushed");
         await operation.telemetry?.flush();
-        if (durableOutcome.phase !== "TERMINAL" || durableOutcome.outerOpId !== operation.opId) {
-          throw new Error("execution did not return the matching durable TERMINAL outer outcome");
+        if ("kind" in executed && executed.kind === "accepted") {
+          if (executed.outerOpId !== operation.opId) {
+            throw new Error("execution did not return the matching durable accepted outer outcome");
+          }
+          receipt = executed.receipt as unknown as RepoWriteJsonObject;
+          operation.state = {
+            phase: advanceRepoWritePhase("child", "accepted", "proceeding"),
+            receipt
+          };
+        } else {
+          const durableOutcome = decodeRepoWriteOutcomeV1(executed);
+          if (durableOutcome.phase !== "TERMINAL" || durableOutcome.outerOpId !== operation.opId) {
+            throw new Error("execution did not return the matching durable TERMINAL outer outcome");
+          }
+          assertRepoWriteOutcomeAxesV1(durableOutcome, this.outcomeAxes());
+          receipt = durableOutcome.receipt as unknown as RepoWriteJsonObject;
+          operation.state = {
+            phase: advanceRepoWritePhase("child", "terminal", "proceeding"),
+            outcome: durableOutcome.terminalKind,
+            receipt
+          };
         }
-        assertRepoWriteOutcomeAxesV1(durableOutcome, this.outcomeAxes());
-        receipt = durableOutcome.receipt as unknown as RepoWriteJsonObject;
-        operation.state = {
-          phase: advanceRepoWritePhase("child", "terminal", "proceeding"),
-          outcome: durableOutcome.terminalKind,
-          receipt
-        };
       } catch (error) {
         await this.closeTelemetry(operation);
         operation.state = {
@@ -359,8 +369,16 @@ export class RepoWriteChildHost {
       operation.telemetry?.reportCurrent("child-terminal-response");
       await this.closeTelemetry(operation);
       this.release(operation);
+      if (operation.state.phase === "accepted") {
+        await this.responses.accepted(
+          operation.requestId,
+          operation.opId!,
+          operation.state.receipt
+        );
+        return;
+      }
       if (operation.state.phase !== "terminal") {
-        throw new Error("terminal repo writer operation did not retain its terminal result");
+        throw new Error("settled repo writer operation did not retain its result");
       }
       const terminal = operation.state;
       await this.responses.terminal(

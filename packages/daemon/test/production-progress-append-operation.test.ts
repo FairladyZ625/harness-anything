@@ -11,13 +11,15 @@ import {
 import {
   DurableRepoWriteOutcomeStoreV1,
   ProductionProgressAppendOperationHost,
+  ReceiptSettlementStore,
   decodeRepoWriteProgressCommand,
   encodeRepoWriteCommand,
   encodeRepoWriteProgressCommand,
   type AuthorityRepoComponent,
   type AuthorityRepoConnectionBinding,
   type HarnessDaemonRuntime,
-  type ProductionProgressAppendCompileInput
+  type ProductionProgressAppendCompileInput,
+  type RepoWriteDocSyncExecution
 } from "../src/index.ts";
 import { cliDaemonCommandHostServices } from "../../cli/src/composition/daemon-command-host-services.ts";
 import { daemonActorAttribution } from "../../cli/src/composition/actor-attribution.ts";
@@ -104,7 +106,7 @@ operationTest("progress pilot orders outer fsync before read-only lease and inne
       __testOnlyDurabilityHooks: durabilityEvents(events)
     });
     const authority = authorityComponent(events);
-    const host = operationHost(store, authority, events);
+    const host = operationHost(store, authority, events, outcomeDirectory);
     const dto = encodeRepoWriteCommand({
       command: command as unknown as Record<string, unknown>,
       context: {
@@ -189,7 +191,7 @@ operationTest("same-state transition returns an already-satisfied success receip
       __testOnlyDurabilityHooks: durabilityEvents(events)
     });
     const authority = authorityComponent(events, undefined, "already-satisfied");
-    const host = operationHost(store, authority, events);
+    const host = operationHost(store, authority, events, outcomeDirectory);
     const dto = encodeRepoWriteCommand({
       command: statusCommand(fixture.repoRoot) as unknown as Record<string, unknown>,
       context: {
@@ -266,7 +268,8 @@ operationTest("progress pilot resumes one exact fixed attempt after a post-PROCE
     const prepared = await operationHost(
       crashingStore,
       authorityComponent(events),
-      events
+      events,
+      outcomeDirectory
     ).prepare({
       repoId: axes().repoId,
       generation: axes().generation,
@@ -309,7 +312,8 @@ operationTest("progress pilot resumes one exact fixed attempt after a post-PROCE
         outerOpId: prepared.opId,
         outerRequestDigest: proceeding.outcome.requestDigest
       }),
-      events
+      events,
+      outcomeDirectory
     ).lookup({ opId: prepared.opId });
 
     assert.equal(terminal.state, "terminal");
@@ -331,7 +335,9 @@ operationTest("progress pilot resumes one exact fixed attempt after a post-PROCE
 function operationHost(
   store: DurableRepoWriteOutcomeStoreV1,
   authorityComponent: AuthorityRepoComponent,
-  events: string[]
+  events: string[],
+  outcomeDirectory: string,
+  executeDocSyncSubmit?: () => Promise<RepoWriteDocSyncExecution>
 ) {
   return new ProductionProgressAppendOperationHost({
     ...axes(),
@@ -339,8 +345,13 @@ function operationHost(
     authorityComponent,
     hostServices: cliDaemonCommandHostServices,
     outcomeStore: store,
+    settlementStore: new ReceiptSettlementStore({
+      directory: path.join(outcomeDirectory, "settlements"),
+      ...axes()
+    }),
     now: () => new Date("2026-07-24T00:00:00.000Z"),
-    newOuterOpId: () => "outer-progress-operation"
+    newOuterOpId: () => "outer-progress-operation",
+    ...(executeDocSyncSubmit ? { executeDocSyncSubmit } : {})
   });
 }
 
@@ -353,7 +364,7 @@ function authorityComponent(
   outcome: "committed" | "already-satisfied" = "committed"
 ): AuthorityRepoComponent {
   const bindConnection = (): AuthorityRepoConnectionBinding => ({
-    submit: async () => { throw new Error("unplanned authority submit"); },
+    ...terminalDurableSubmission(async () => { throw new Error("unplanned authority submit"); }),
     planCommand: async (expected) => {
       events.push("plan-fixed-attempt");
       return plan({
@@ -361,8 +372,8 @@ function authorityComponent(
         canonicalEntityId: `task/${taskId}`
       });
     },
-    plannedCommandSubmission: ({ expected, plan: fixed, recovery }) => ({
-      submit: async (actual) => {
+    plannedCommandSubmission: ({ expected, plan: fixed, recovery }) => terminalDurableSubmission(
+      async (actual) => {
         assert.deepEqual(actual, {
           ...expected,
           ingress: "generic",
@@ -383,13 +394,13 @@ function authorityComponent(
           ? alreadySatisfiedEvidence(fixed.semanticDigest)
           : committedEvidence(fixed.semanticDigest);
       }
-    }),
+    ),
     planProgressAppend: async (expected) => {
       events.push("plan-fixed-attempt");
       return plan(expected);
     },
-    plannedProgressAppendSubmission: ({ expected, plan: fixed, recovery }) => ({
-      submit: async (actual) => {
+    plannedProgressAppendSubmission: ({ expected, plan: fixed, recovery }) => terminalDurableSubmission(
+      async (actual) => {
         assert.deepEqual(actual, {
           ...expected,
           ingress: "generic"
@@ -407,13 +418,30 @@ function authorityComponent(
         }
         return committedEvidence(fixed.semanticDigest);
       }
-    })
+    )
   });
   return {
-    commandSubmissionV2: { submit: async () => { throw new Error("unbound"); } },
+    commandSubmissionV2: terminalDurableSubmission(
+      async () => { throw new Error("unbound"); }
+    ),
     cutoverControl: {} as AuthorityRepoComponent["cutoverControl"],
     bindConnection,
     stop: async () => undefined
+  };
+}
+
+function terminalDurableSubmission(
+  submit: AuthorityRepoConnectionBinding["submit"]
+): Pick<AuthorityRepoConnectionBinding, "submit" | "submitDurable"> {
+  return {
+    submit,
+    submitDurable: async (input) => {
+      const receipt = await submit(input);
+      return {
+        admission: Promise.resolve({ kind: "terminal", receipt }),
+        settlement: Promise.resolve(receipt)
+      };
+    }
   };
 }
 

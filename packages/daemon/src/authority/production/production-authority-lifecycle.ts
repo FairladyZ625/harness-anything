@@ -5,6 +5,7 @@ import {
   createAuthorityCutoverEntityRegistryQualification,
   createAuthorityCutoverControlService,
   createDurableAuthorityCommittedEventPublisherV2,
+  type AuthorityPublicationExecutionContext,
   type AuthoritySubmissionV2Options,
   type AuthoritySubmissionService,
   type DaemonLogService,
@@ -41,11 +42,11 @@ import {
 } from "../replication-content-store.ts";
 import { createPrewarmedAuthorityReplication } from "../replication-content-prewarm.ts";
 import { gateCutoverAdmission } from "./cutover-admission.ts";
+import { createDurableSuccessorPublicationObserver } from "./durable-successor-publication-observer.ts";
 import {
   assertPublicationMatchesMutationSet,
   createGitAuthorityAttributionEvidenceCommitterV2,
-  createGitCanonicalPublicationInspector,
-  publicationRetryOptions
+  createGitCanonicalPublicationInspector
 } from "./publication-evidence.ts";
 import { createAuthorityProductionScanner } from "./production-scanner.ts";
 import {
@@ -78,7 +79,9 @@ import { attestSubmissionService } from "./transport-attested-submission-service
 import { recoverProductionCommittedReceipt } from "./production-committed-receipt-recovery.ts";
 import type { RetryBudgetSignal } from "../../observability/visible-retry-budget.ts";
 import { settleProductionRecovery, type ProductionRecoveryState } from "./production-recovery-state.ts";
+import { productionPublicationRetryOptions } from "./production-publication-retry-options.ts";
 import { createSerialPublicationExecutor } from "./serial-publication-executor.ts";
+export { createSerialPublicationExecutor } from "./serial-publication-executor.ts";
 export { recoverPendingProductionEvents } from "./recovery.ts";
 
 interface RepoProductionMaterial {
@@ -95,11 +98,6 @@ interface RepoProductionMaterial {
   readonly daemonLogService?: DaemonLogService;
   readonly onPublicationRetryBudgetSignal?: (signal: RetryBudgetSignal) => void;
   readonly recovery: ProductionRecoveryState;
-}
-
-interface PublicationRetryVisibility {
-  readonly daemonLogService?: DaemonLogService;
-  readonly onPublicationRetryBudgetSignal?: (signal: RetryBudgetSignal) => void;
 }
 
 const productionAuthorityV2EntityKinds = [
@@ -259,10 +257,10 @@ export function createProductionAuthorityLifecycle(input: {
         recovery
       };
       materials.set(repo.repoId, material);
-      publicationObservers.set(repo.repoId, async (previousCommit, expectedOpIds, expectedCommitSha) => {
-        const inspector = publicationInspector;
-        return inspector.inspectPublication(previousCommit, expectedOpIds, expectedCommitSha);
-      });
+      publicationObservers.set(
+        repo.repoId,
+        createDurableSuccessorPublicationObserver(publicationInspector)
+      );
       const runRecovery = async () => recoverPendingProductionEvents({
         workspaceId: config.workspaceId,
         operationRegistry: state.operationRegistry,
@@ -324,7 +322,6 @@ export function createProductionAuthorityLifecycle(input: {
   }): AuthorityRepoLifecycleHooks {
     return {
       start: async (startInput) => {
-        publicationObservers.set(startInput.repo.repoId, startInput.inspectPublication);
         const material = options.materials.get(startInput.repo.repoId);
         if (!material) throw new Error("AUTHORITY_PRODUCTION_MATERIAL_UNAVAILABLE");
         return createRepoComponent(startInput, material, input.hostServices);
@@ -407,6 +404,9 @@ function createRepoComponent(
   let stopped = false;
   const unbound = {
     submit: async () => {
+      throw new Error("AUTHORITY_CONNECTION_CONTEXT_REQUIRED");
+    },
+    submitDurable: async () => {
       throw new Error("AUTHORITY_CONNECTION_CONTEXT_REQUIRED");
     }
   };
@@ -506,7 +506,9 @@ function createConnectionAuthorityService(
   material: RepoProductionMaterial,
   context: AuthorityConnectionContext,
   publicationExecutor: {
-    readonly run: <Result>(publication: () => Promise<Result>) => Promise<Result>;
+    readonly run: <Result>(publication: (
+      context: AuthorityPublicationExecutionContext
+    ) => Promise<Result>) => Promise<Result>;
   },
   hostServices: ProductionAuthorityHostServices<ProductionAuthorityIdentity>
 ): AuthoritySubmissionService {
@@ -554,15 +556,6 @@ function createConnectionAuthorityService(
       } : {})
     }
   });
-}
-
-function productionPublicationRetryOptions(
-  visibility: PublicationRetryVisibility,
-  config: AuthorityProductionRepoConfigV1
-): ReturnType<typeof publicationRetryOptions> {
-  return visibility.onPublicationRetryBudgetSignal
-    ? { onRetryBudgetSignal: visibility.onPublicationRetryBudgetSignal }
-    : publicationRetryOptions(visibility.daemonLogService, config);
 }
 
 function assertConnectionContext(

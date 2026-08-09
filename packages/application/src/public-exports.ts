@@ -3,7 +3,11 @@
 // 文本声明(不跟随 re-export),所以 84 个契约类型必须留在 index.ts;而 check-file-complexity
 // 卡 600 行。两道门夹住同一个文件 —— 搬走 barrel 是唯一不动门禁的出路。
 
-export { commandReceiptEnvelope, failureReceiptNextActions } from "./command-receipt.ts";
+export {
+  commandReceiptEnvelope,
+  commandReceiptSettlementEnvelope,
+  failureReceiptNextActions
+} from "./command-receipt.ts";
 export { compileTaskContractSnapshot, parseTaskContractSnapshot, resolveTaskCompletionGates } from "./task-contract-snapshot.ts";
 export type { CompileTaskContractSnapshotInput, ResolveTaskCompletionGatesInput, ResolveTaskCompletionGatesResult } from "./task-contract-snapshot.ts";
 export { analyzePresetUninstallImpact, evaluatePresetRuntimeAvailability } from "./preset-uninstall-impact.ts";
@@ -109,7 +113,10 @@ export * from "./authority/consent-semantic-compiler-v2.ts";
 export * from "./authority/transparent-semantic-diff-compiler-v2.ts";
 export { compileManagedCandidateTreeV2 } from "./authority/semantic-authority-helpers-v2.ts";
 export * from "./authority/committed-attribution-event-v2.ts";
-export type { AuthoritySubmissionV2Options } from "./authority/service.ts";
+export type {
+  AuthorityPublicationExecutionContext,
+  AuthoritySubmissionV2Options
+} from "./authority/service.ts";
 export type {
   CanonicalPublicationObservation,
   ShadowDifference,
@@ -166,7 +173,14 @@ export type {
   SupersededOrigin,
   ViewUnavailableOrigin
 } from "./receipt/index.ts";
-export type { CommandFailureReceipt, CommandReceipt, CommandReceiptEnvelope, CommandReceiptNextAction } from "./command-receipt.ts";
+export type {
+  CommandFailureReceipt,
+  CommandReceipt,
+  CommandReceiptEnvelope,
+  CommandReceiptNextAction,
+  CommandReceiptSettlement,
+  CommandReceiptSettlementStatusQuery
+} from "./command-receipt.ts";
 export {
   compareCanonicalPathBytes,
   createNamespaceAdmissionService,

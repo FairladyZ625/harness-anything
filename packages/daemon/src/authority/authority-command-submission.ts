@@ -23,6 +23,10 @@ import type {
 import { taskEntityId } from "@harness-anything/kernel";
 import { measureCurrentDaemonRequestPerformancePhase } from "../observability/request-performance.ts";
 import { reportCurrentRepoWriteTelemetry } from "../runtime/repo-write-telemetry-context.ts";
+import {
+  runWithAuthorityDurableAcceptance,
+  type AuthorityDurableAcceptance
+} from "../runtime/authority-durable-acceptance-context.ts";
 
 interface DaemonAuthoritySubmissionInputBaseV2 {
   readonly command: AuthorityHostCommand;
@@ -69,6 +73,18 @@ export interface DaemonAuthorityCommandSubmissionV2 {
   readonly submit: (
     input: DaemonAuthorityCommandSubmissionInputV2
   ) => Promise<AuthorityOperationReceipt>;
+  readonly submitDurable: (
+    input: DaemonAuthorityCommandSubmissionInputV2
+  ) => Promise<DaemonAuthorityDurableSubmissionV2>;
+}
+
+export type DaemonAuthorityDurableAdmissionV2 =
+  | { readonly kind: "accepted"; readonly acceptance: AuthorityDurableAcceptance }
+  | { readonly kind: "terminal"; readonly receipt: AuthorityOperationReceipt };
+
+export interface DaemonAuthorityDurableSubmissionV2 {
+  readonly admission: Promise<DaemonAuthorityDurableAdmissionV2>;
+  readonly settlement: Promise<AuthorityOperationReceipt>;
 }
 
 export class AuthorityCompileRejectedError extends Error {
@@ -139,9 +155,54 @@ export function createDaemonAuthorityCommandSubmissionV2(options: {
     "authority",
     async () => submitAttempt(await compileAttempt(compile))
   );
-  return {
-    submit: (input) => compileAndSubmit(() => options.attemptCompiler.compile(input))
+  const compileAndSubmitDurable = async (
+    compile: () => Promise<AuthorizedOperationAttemptV2>
+  ): Promise<DaemonAuthorityDurableSubmissionV2> => {
+    const attempt = await measureCurrentDaemonRequestPerformancePhase(
+      "authority",
+      () => compileAttempt(compile)
+    );
+    return durableAuthoritySubmissionFromSettlement(() =>
+      measureCurrentDaemonRequestPerformancePhase("authority", () => submitAttempt(attempt))
+    );
   };
+  return {
+    submit: (input) => compileAndSubmit(() => options.attemptCompiler.compile(input)),
+    submitDurable: (input) => compileAndSubmitDurable(() => options.attemptCompiler.compile(input))
+  };
+}
+
+/** Preserve one settlement promise while exposing its durable publication cut. */
+export function durableAuthoritySubmissionFromSettlement(
+  settle: () => Promise<AuthorityOperationReceipt>
+): DaemonAuthorityDurableSubmissionV2 {
+  let admitted = false;
+  let resolveAdmission: ((value: DaemonAuthorityDurableAdmissionV2) => void) | undefined;
+  let rejectAdmission: ((error: unknown) => void) | undefined;
+  const admission = new Promise<DaemonAuthorityDurableAdmissionV2>((resolve, reject) => {
+    resolveAdmission = resolve;
+    rejectAdmission = reject;
+  });
+  const settlement = runWithAuthorityDurableAcceptance({
+    accept: (acceptance) => {
+      if (admitted) return;
+      admitted = true;
+      resolveAdmission!({ kind: "accepted", acceptance });
+    }
+  }, settle);
+  void settlement.then(
+    (receipt) => {
+      if (admitted) return;
+      admitted = true;
+      resolveAdmission!({ kind: "terminal", receipt });
+    },
+    (error) => {
+      if (admitted) return;
+      admitted = true;
+      rejectAdmission!(error);
+    }
+  );
+  return { admission, settlement };
 }
 
 export function gateAuthoritySubmissionForRecovery(
@@ -199,7 +260,7 @@ export function makeDaemonAuthorityWriteCoordinator(
   }
 ): WriteCoordinator {
   let pending: WriteOp | undefined;
-  let settled: Promise<AuthorityOperationReceipt> | undefined;
+  let durable: Promise<DaemonAuthorityDurableSubmissionV2> | undefined;
   let provenanceCommitted = false;
   let mainCommitted = false;
   let coveredByMainSubmission = false;
@@ -224,16 +285,15 @@ export function makeDaemonAuthorityWriteCoordinator(
           if (mainCommitted || action.kind !== "task-complete") {
             return { reason, opCount: 0, committed: false };
           }
-          settled ??= submission.submit({
+          durable ??= submission.submitDurable({
             ...input,
             ingress: "generic",
             canonicalEntityId: taskEntityId(action.taskId)
           });
-          const receipt = await settled;
-          const report = receiptToFlushReport(receipt, reason);
-          settled = undefined;
+          const report = await durableSubmissionFlushReport(await durable, reason);
+          durable = undefined;
           mainCommitted = true;
-          mainWatermark = receipt.opId;
+          mainWatermark = report.watermark;
           return report;
         }
         if (coveredByMainSubmission) {
@@ -250,7 +310,7 @@ export function makeDaemonAuthorityWriteCoordinator(
         const taskClaim = ingressAdapter === "task-claim";
         const observedWrite = ingressAdapter === "observed-write";
         const scriptIngest = pending.kind === "script_ingest";
-        settled ??= submission.submit(scriptIngest
+        durable ??= submission.submitDurable(scriptIngest
           ? { ...input, ingress: "script-ingest", operation: pending }
           : provenanceSession
           ? { ...input, ingress: "provenance-session", operation: pending }
@@ -266,14 +326,13 @@ export function makeDaemonAuthorityWriteCoordinator(
             command: input.command,
             canonicalEntityId: commandMainEntityId(input.command) ?? pending.entityId
           });
-        const receipt = await settled;
-        const report = receiptToFlushReport(receipt, reason);
+        const report = await durableSubmissionFlushReport(await durable, reason);
         pending = undefined;
-        settled = undefined;
+        durable = undefined;
         if (provenanceSession) provenanceCommitted = true;
         else {
           mainCommitted = true;
-          mainWatermark = receipt.opId;
+          mainWatermark = report.watermark;
         }
         return report;
       },
@@ -281,6 +340,16 @@ export function makeDaemonAuthorityWriteCoordinator(
     }),
     recover: Effect.succeed({ replayedOps: 0 } satisfies RecoveryReport)
   };
+}
+
+async function durableSubmissionFlushReport(
+  submission: DaemonAuthorityDurableSubmissionV2,
+  reason: FlushReason
+): Promise<FlushReport> {
+  const admission = await submission.admission;
+  return admission.kind === "accepted"
+    ? { ...admission.acceptance.flush, reason }
+    : receiptToFlushReport(admission.receipt, reason);
 }
 
 function isAuthorityCoveredTaskTreeStage(command: AuthorityHostCommand, operation: WriteOp): boolean {

@@ -21,6 +21,10 @@ export function bindAuthoritySubmissionForDispatch(
     submit: async (submission) => {
       dispatch.assertActive();
       return bound.submit(submission);
+    },
+    submitDurable: async (submission) => {
+      dispatch.assertActive();
+      return bound.submitDurable(submission);
     }
   };
 }

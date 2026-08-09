@@ -13,11 +13,15 @@ import type { RepoWriteChildOperationPhase } from "./repo-write-phase.ts";
 export type RepoWriteHostedOperationPhase = RepoWriteChildOperationPhase;
 export type RepoWriteHostedOperationNonTerminalPhase = Exclude<
   RepoWriteHostedOperationPhase,
-  "terminal"
+  "terminal" | "accepted"
 >;
 
 export type RepoWriteHostedOperationSnapshot =
   | { readonly phase: RepoWriteHostedOperationNonTerminalPhase }
+  | {
+      readonly phase: "accepted";
+      readonly receipt: RepoWriteJsonObject;
+    }
   | {
       readonly phase: "terminal";
       readonly outcome: RepoWriteTerminalOutcome;
@@ -46,6 +50,12 @@ export function repoWriteHostedOperationSnapshot(operation: {
       receipt: operation.receipt
     };
   }
+  if (operation.phase === "accepted") {
+    if (operation.receipt === undefined || operation.outcome !== undefined) {
+      throw new Error("accepted repo writer operation must carry only its accepted receipt");
+    }
+    return { phase: "accepted", receipt: operation.receipt };
+  }
   if (operation.outcome !== undefined || operation.receipt !== undefined) {
     throw new Error("non-terminal repo writer operation has terminal result data");
   }
@@ -53,7 +63,9 @@ export function repoWriteHostedOperationSnapshot(operation: {
 }
 
 export type RepoWriteCanonicalLookupResult =
-  | { readonly state: Exclude<RepoWriteOperationLookupResult["state"], "committed" | "rejected"> }
+  | { readonly state: Exclude<RepoWriteOperationLookupResult["state"], "committed" | "rejected" | "accepted" | "settlement-failed"> }
+  | { readonly state: "accepted" | "settlement-failed"; readonly receipt: RepoWriteJsonObject }
+  | { readonly state: "canonical-visible"; readonly receipt: RepoWriteJsonObject }
   | {
       readonly state: "terminal";
       readonly outcome: RepoWriteTerminalOutcomeV1;
@@ -68,6 +80,14 @@ export function repoWriteCanonicalLookupResult(
     readonly generation: number;
   }
 ): RepoWriteOperationLookupResult {
+  if (result.state === "accepted" || result.state === "settlement-failed") return result;
+  if (result.state === "canonical-visible") {
+    return {
+      state: "committed",
+      outcome: "committed",
+      receipt: result.receipt
+    };
+  }
   if (result.state !== "terminal") return result;
   const outcome = decodeRepoWriteOutcomeV1(result.outcome);
   if (outcome.phase !== "TERMINAL" || outcome.outerOpId !== opId) {
@@ -100,6 +120,7 @@ export function repoWriteLocalLookupResult(
 ): RepoWriteOperationLookupResult {
   if (operation.phase === "preparing" || operation.phase === "prepared") return { state: "prepared" };
   if (operation.phase === "proceeding") return { state: "proceeding" };
+  if (operation.phase === "accepted") return { state: "accepted", receipt: operation.receipt };
   if (operation.phase !== "terminal") {
     return { state: operation.phase };
   }

@@ -1,7 +1,7 @@
 import { execFile, execFileSync } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { CanonicalPublicationInspector, DaemonLogService } from "@harness-anything/application";
+import type { DaemonLogService } from "@harness-anything/application";
 import {
   encodeCanonicalCbor,
   makeLocalAuthorityAttributionEventV2Log,
@@ -12,6 +12,7 @@ import {
   type PhysicalChangeV2
 } from "@harness-anything/kernel";
 import {
+  scanAuthorityBatchCommits,
   scanFirstParentPublicationMetadata,
   type AuthorityBatchCommitMetadata,
   type FirstParentPublicationMetadata
@@ -45,8 +46,19 @@ import {
 } from "./publication-object-reader.ts";
 import type { RetryBudgetSignal } from "../../observability/visible-retry-budget.ts";
 import { createDaemonRetryBudgetSignalSink } from "../../observability/daemon-retry-budget-log.ts";
+import {
+  AuthorityCanonicalPublicationNotFoundError,
+  AuthorityRecoveryWatermarkInvalidError,
+  type CanonicalPublicationEvidence,
+  type FirstParentOperationAnchor,
+  type FirstParentOperationAnchorScan,
+  type FirstParentOperationAnchorScanProgress,
+  type GitAuthorityAttributionEvidenceCommitterV2,
+  type GitCanonicalPublicationInspector
+} from "./publication-evidence-contract.ts";
 
 export { assertPublicationMatchesMutationSet } from "./publication-mutation-proof.ts";
+export * from "./publication-evidence-contract.ts";
 
 export function publicationRetryOptions(
   logs: DaemonLogService | undefined,
@@ -61,80 +73,6 @@ const materializerCommitter = {
   name: "Harness Anything Materializer",
   email: "materializer@harness-anything.local"
 } as const;
-
-export interface CanonicalPublicationEvidence {
-  /** Ordered operation group encoded by the canonical publication anchor. */
-  readonly opIds: ReadonlyArray<string>;
-  readonly commitSha: string;
-  readonly previousCommit: string | null;
-  readonly parentCommits: ReadonlyArray<string>;
-  readonly physicalChanges: ReadonlyArray<PhysicalChangeV2>;
-  readonly pipelineGeneratedPaths: ReadonlyArray<string>;
-  readonly contentAddressedPaths: ReadonlyArray<string>;
-}
-
-export interface GitCanonicalPublicationInspector extends CanonicalPublicationInspector {
-  readonly shutdown: () => Promise<void>;
-  readonly inspectPublication: (
-    expectedPreviousHead: string | null,
-    expectedOpIds: ReadonlyArray<string>,
-    expectedCommitSha?: string
-  ) => Promise<CanonicalPublicationEvidence>;
-  readonly findPublication: (expectedOpIds: ReadonlyArray<string>) => Promise<CanonicalPublicationEvidence>;
-  readonly findPublicationForOperation: (opId: string) => Promise<CanonicalPublicationEvidence>;
-  readonly findHistoricalPublicationForOperation: (opId: string) => Promise<{
-    readonly commitSha: string;
-    readonly semanticDigest: string;
-  }>;
-  readonly scanFirstParentOperationAnchors: (input: {
-    readonly exclusiveCommit?: string;
-    readonly interestedOpIds: ReadonlySet<string>;
-    readonly progressBatchSize?: number;
-    readonly onProgress?: (progress: FirstParentOperationAnchorScanProgress) => Promise<void>;
-  }) => Promise<FirstParentOperationAnchorScan>;
-}
-
-export interface FirstParentOperationAnchor {
-  readonly commitSha: string;
-  readonly previousCommit: string;
-  readonly opIds: ReadonlyArray<string>;
-}
-
-export interface FirstParentOperationAnchorScan {
-  readonly headCommit: string | null;
-  readonly scannedCommitCount: number;
-  readonly anchors: ReadonlyArray<FirstParentOperationAnchor>;
-  readonly unanchoredOperationIds?: ReadonlyArray<string>;
-}
-
-export interface FirstParentOperationAnchorScanProgress {
-  /** The newest commit in a fully inspected, oldest-to-newest scan batch. */
-  readonly commitSha: string;
-  readonly scannedCommitCount: number;
-  readonly anchors: ReadonlyArray<FirstParentOperationAnchor>;
-  readonly unanchoredOperationIds?: ReadonlyArray<string>;
-}
-
-export class AuthorityCanonicalPublicationNotFoundError extends Error {
-  readonly opId: string;
-
-  constructor(opId: string) {
-    super(`AUTHORITY_CANONICAL_PUBLICATION_NOT_FOUND:expectedOpId=${opId}`);
-    this.name = "AuthorityCanonicalPublicationNotFoundError";
-    this.opId = opId;
-  }
-}
-
-export class AuthorityRecoveryWatermarkInvalidError extends Error {
-  constructor(commitSha: string) {
-    super(`AUTHORITY_RECOVERY_WATERMARK_INVALID:commitSha=${commitSha}`);
-    this.name = "AuthorityRecoveryWatermarkInvalidError";
-  }
-}
-
-export interface GitAuthorityAttributionEvidenceCommitterV2 {
-  readonly commitPending: (canonicalCommitSha: string) => Promise<void>;
-}
 
 export function createGitAuthorityAttributionEvidenceCommitterV2(
   rootInput: HarnessLayoutInput
@@ -363,7 +301,8 @@ export function createGitCanonicalPublicationInspector(
     expectedPreviousHead: string | null,
     expectedOpIds: ReadonlyArray<string>,
     expectedCommitSha?: string,
-    indexedMetadata?: FirstParentPublicationMetadata
+    indexedMetadata?: FirstParentPublicationMetadata,
+    allowAuthorityBatchSequence = false
   ): Promise<CanonicalPublicationEvidence> => {
     const head = expectedCommitSha ?? await currentHead();
     if (!head) throw new Error("AUTHORITY_CANONICAL_PUBLICATION_MISSING");
@@ -407,7 +346,7 @@ export function createGitCanonicalPublicationInspector(
       || parentCommits.length !== 2
       || parentCommits[0] !== expectedPreviousHead
       || sessionParents.length !== 1
-      || (!legacySubjectShape && !semanticSubjectShape)
+      || (!allowAuthorityBatchSequence && !legacySubjectShape && !semanticSubjectShape)
       || !mergeTreeMatchesSession) {
       throw publicationTopologyError({
         expectedPreviousHead,
@@ -423,12 +362,16 @@ export function createGitCanonicalPublicationInspector(
         mergeTreeMatchesSession
       });
     }
-    const publicationBase = sessionParents[0]!;
-    await assertNoUnanchoredAuthorityBatchPrefix({
-      rootDir,
-      expectedPreviousHead,
-      publicationBase
-    });
+    const publicationBase = allowAuthorityBatchSequence
+      ? expectedPreviousHead
+      : sessionParents[0]!;
+    if (!allowAuthorityBatchSequence) {
+      await assertNoUnanchoredAuthorityBatchPrefix({
+        rootDir,
+        expectedPreviousHead,
+        publicationBase
+      });
+    }
     const changedPaths = readAuthorityGitBytes(rootDir, "diff", "--name-only", "-z", publicationBase, head)
       .toString("utf8")
       .split("\0")
@@ -491,6 +434,58 @@ export function createGitCanonicalPublicationInspector(
       notFound: (expectedOpId) => new AuthorityCanonicalPublicationNotFoundError(expectedOpId)
     });
   };
+  const findDurableSuccessorPublicationForOperation = async (
+    opId: string,
+    expectedCommitSha: string
+  ): Promise<CanonicalPublicationEvidence> => {
+    const history = await indexedHistory();
+    const publication = history?.commits.find((commit) => commit.commitSha === expectedCommitSha);
+    const previousCommit = publication?.parents[0];
+    const sessionCommit = publication?.parents[1];
+    if (!publication || !previousCommit || !sessionCommit || publication.parents.length !== 2
+      || !/^materializer: merge session [A-Za-z0-9][A-Za-z0-9._-]*$/u.test(publication.subject)) {
+      throw new AuthorityCanonicalPublicationNotFoundError(opId);
+    }
+    const commitShas = publicationGitText(
+      rootDir,
+      "rev-list",
+      "--reverse",
+      "--first-parent",
+      `${previousCommit}..${sessionCommit}`
+    ).split("\n").filter(Boolean);
+    const batches = await scanAuthorityBatchCommits({
+      rootDir,
+      headCommit: sessionCommit,
+      exclusiveCommit: previousCommit
+    });
+    const batchesByCommit = new Map(batches.map((batch) => [batch.commitSha, batch]));
+    let parent = previousCommit;
+    const orderedBatches: AuthorityBatchCommitMetadata[] = [];
+    for (const commitSha of commitShas) {
+      const parents = publicationGitText(rootDir, "rev-list", "--parents", "-n", "1", commitSha)
+        .split(" ").slice(1).filter(Boolean);
+      const batch = batchesByCommit.get(commitSha);
+      if (parents.length !== 1 || parents[0] !== parent || !batch) {
+        throw new Error(`AUTHORITY_CANONICAL_PUBLICATION_SUCCESSOR_SEQUENCE_INVALID:${commitSha}`);
+      }
+      orderedBatches.push(batch);
+      parent = commitSha;
+    }
+    if (parent !== sessionCommit || orderedBatches.length !== batches.length) {
+      throw new Error("AUTHORITY_CANONICAL_PUBLICATION_SUCCESSOR_SEQUENCE_INCOMPLETE");
+    }
+    const opIds = orderedBatches.flatMap((batch) => batch.opIds);
+    if (!opIds.includes(opId) || new Set(opIds).size !== opIds.length) {
+      throw new Error("AUTHORITY_CANONICAL_PUBLICATION_SUCCESSOR_OPERATION_GROUP_INVALID");
+    }
+    return inspectPublication(
+      previousCommit,
+      opIds,
+      expectedCommitSha,
+      publication,
+      true
+    );
+  };
   return {
     currentHead,
     inspectPublishedHead: async (expectedPreviousHead, expectedOpIds) => {
@@ -521,6 +516,7 @@ export function createGitCanonicalPublicationInspector(
       return matches[0]!;
     },
     findPublicationForOperation,
+    findDurableSuccessorPublicationForOperation,
     shutdown: () => shutdownPublicationGitObjectReader(rootDir),
     findHistoricalPublicationForOperation: async (opId) => {
       const publication = await findPublicationForOperation(opId);

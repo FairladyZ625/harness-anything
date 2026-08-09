@@ -34,6 +34,10 @@ export const repoWritePhaseTransitions = {
     parent: { from: ["prepared", "proceeded"], to: null },
     child: { from: ["proceeding"], to: "terminal" }
   },
+  accepted: {
+    parent: { from: ["prepared", "proceeded"], to: null },
+    child: { from: ["proceeding"], to: "accepted" }
+  },
   "not-started": {
     parent: { from: ["submitted", "prepared", "proceeded"], to: null },
     child: { from: ["preparing", "prepared"], to: "failed" }

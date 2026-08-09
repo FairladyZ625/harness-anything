@@ -13,7 +13,24 @@ import {
   decodeRepoWriteRecoveryDeferred,
   decodeRepoWriteRecoveryRejected
 } from "./repo-write-protocol-recovery.ts";
+import {
+  receiptSettlementVisibilityMatches,
+  repoWriteOperationStates,
+  type RepoWriteAcceptedFrame,
+  type RepoWriteOperationLookupResult,
+  type RepoWriteOperationState
+} from "./repo-write-settlement-protocol.ts";
+export type {
+  RepoWriteAcceptedFrame,
+  RepoWriteOperationLookupResult,
+  RepoWriteOperationState
+} from "./repo-write-settlement-protocol.ts";
 import { decodeRepoWriteStartupProgress } from "./repo-write-protocol-startup.ts";
+import {
+  decodeRepoWriteJsonObject as jsonObject,
+  repoWriteRecordAt as recordAt,
+  repoWriteStringAt as stringAt
+} from "./repo-write-protocol-json.ts";
 import type { RepoWriteStartupProgressFrame } from "./repo-write-startup-protocol.ts";
 export {
   repoWriteStartupProgressPhases,
@@ -32,10 +49,6 @@ export type {
   RepoWriteTelemetryPhase
 } from "./repo-write-diagnostic-protocol.ts";
 export { boundedRepoWriteDiagnostic } from "./repo-write-protocol-diagnostic.ts";
-import {
-  decodeRepoWriteBigInt,
-  decodeRepoWriteBytes
-} from "./repo-write-protocol-scalars.ts";
 import {
   invalidRepoWriteProtocol as invalid,
   limitRepoWriteProtocol as limit
@@ -83,7 +96,7 @@ interface RepoWriteRequestFrame<K extends string> extends RepoWriteFrameBase {
   readonly kind: K;
   readonly requestId: string;
 }
-type RepoWriteOperationFrame<K extends string> = RepoWriteRequestFrame<K> & { readonly opId: string };
+export type RepoWriteOperationFrame<K extends string> = RepoWriteRequestFrame<K> & { readonly opId: string };
 
 export interface RepoWriteSubmitFrame extends RepoWriteRequestFrame<"submit"> {
   readonly command: RepoWriteCommandDto;
@@ -144,27 +157,11 @@ export interface RepoWriteOutcomeUnknownFailureFrame extends RepoWriteOperationF
   readonly diagnostic: string;
 }
 export type RepoWriteFailureFrame = RepoWriteNotStartedFailureFrame | RepoWriteOutcomeUnknownFailureFrame;
-export type RepoWriteOperationState =
-  "not-found" | "prepared" | "proceeding" | RepoWriteTerminalOutcome | "failed" | "unknown";
-
-export type RepoWriteOperationLookupResult =
-  | { readonly state: Exclude<RepoWriteOperationState, RepoWriteTerminalOutcome> }
-  | {
-      readonly state: "committed";
-      readonly outcome: "committed";
-      readonly receipt: RepoWriteJsonObject;
-    }
-  | {
-      readonly state: "rejected";
-      readonly outcome: "rejected";
-      readonly receipt: RepoWriteJsonObject;
-    };
-
 export type RepoWriteStatusFrame = RepoWriteOperationFrame<"status"> & RepoWriteOperationLookupResult;
 
 export type RepoWriteChildMessage =
   RepoWriteReadyFrame | RepoWriteStartupProgressFrame
-  | RepoWritePreparedFrame | RepoWriteTerminalFrame | RepoWriteFailureFrame
+  | RepoWritePreparedFrame | RepoWriteAcceptedFrame | RepoWriteTerminalFrame | RepoWriteFailureFrame
   | RepoWriteDirectResultFrame | RepoWriteDirectFailureFrame
   | RepoWriteStatusFrame | RepoWriteTelemetryFrame | RepoWriteRecoveryDiagnosticFrame
   | RepoWriteRetryBudgetSignalFrame
@@ -215,6 +212,7 @@ export function decodeRepoWriteChildMessage(
   }
   if (frame.kind === "ready") return decodeReady(frame, limits);
   if (frame.kind === "prepared") return decodeOperationFrame(frame, limits, "prepared");
+  if (frame.kind === "accepted") return decodeAccepted(frame, limits, budget);
   if (frame.kind === "terminal") return decodeTerminal(frame, limits, budget);
   if (frame.kind === "direct-result") return decodeDirectResult(frame, limits, budget);
   if (frame.kind === "direct-failure") return decodeDirectFailure(frame, limits);
@@ -323,6 +321,24 @@ function decodeTerminal(
     receipt
   };
 }
+function decodeAccepted(
+  frame: FrameRecord,
+  limits: RepoWriteProtocolLimits,
+  budget: { nodes: number }
+): RepoWriteAcceptedFrame {
+  assertExactKeys(frame, baseKeys(["requestId", "opId", "receipt"]), [], "$");
+  const receipt = jsonObject(frame.receipt, "$.receipt", limits, budget, 1);
+  if (!receiptSettlementVisibilityMatches(receipt, "$.receipt", "pending")) {
+    invalid("$.receipt.settlement", "pending command receipt settlement");
+  }
+  return {
+    ...baseFields(frame),
+    kind: "accepted",
+    requestId: identifier(frame.requestId, "$.requestId", limits),
+    opId: identifier(frame.opId, "$.opId", limits),
+    receipt
+  };
+}
 function decodeDirectResult(
   frame: FrameRecord,
   limits: RepoWriteProtocolLimits,
@@ -403,10 +419,7 @@ function decodeStatus(
   limits: RepoWriteProtocolLimits,
   budget: { nodes: number }
 ): RepoWriteStatusFrame {
-  const states: ReadonlyArray<RepoWriteOperationState> = [
-    "not-found", "prepared", "proceeding", "committed", "rejected", "failed", "unknown"
-  ];
-  if (!states.includes(frame.state as RepoWriteOperationState)) invalid("$.state", "operation state");
+  if (!repoWriteOperationStates.includes(frame.state as RepoWriteOperationState)) invalid("$.state", "operation state");
   const common = {
     ...baseFields(frame),
     kind: "status" as const,
@@ -429,10 +442,23 @@ function decodeStatus(
       ? { ...terminal, state: "committed", outcome: "committed" }
       : { ...terminal, state: "rejected", outcome: "rejected" };
   }
+  if (frame.state === "accepted" || frame.state === "settlement-failed") {
+    assertExactKeys(frame, baseKeys(["requestId", "opId", "state", "receipt"]), [], "$");
+    const receipt = jsonObject(frame.receipt, "$.receipt", limits, budget, 1);
+    if (!receiptSettlementVisibilityMatches(
+      receipt, "$.receipt", frame.state === "accepted" ? "pending" : "failed"
+    )) {
+      invalid("$.receipt.settlement", `${frame.state === "accepted" ? "pending" : "failed"} command receipt settlement`);
+    }
+    return { ...common, state: frame.state, receipt };
+  }
   assertExactKeys(frame, baseKeys(["requestId", "opId", "state"]), [], "$");
   return {
     ...common,
-    state: frame.state as Exclude<RepoWriteOperationState, RepoWriteTerminalOutcome>
+    state: frame.state as Exclude<
+      RepoWriteOperationState,
+      RepoWriteTerminalOutcome | "accepted" | "settlement-failed"
+    >
   };
 }
 
@@ -479,49 +505,6 @@ function baseFields(frame: FrameRecord): RepoWriteFrameBase {
 function baseKeys(keys: ReadonlyArray<string>): ReadonlyArray<string> {
   return ["protocol", "repoId", "generation", "kind", ...keys];
 }
-function jsonObject(
-  value: unknown, path: string, limits: RepoWriteProtocolLimits, budget: { nodes: number }, depth: number
-): RepoWriteJsonObject {
-  const decoded = jsonValue(value, path, limits, budget, depth);
-  if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded)) {
-    invalid(path, "JSON object");
-  }
-  return decoded as RepoWriteJsonObject;
-}
-function jsonValue(
-  value: unknown, path: string, limits: RepoWriteProtocolLimits, budget: { nodes: number }, depth: number
-): RepoWriteJsonValue {
-  budget.nodes += 1;
-  if (budget.nodes > limits.maxNodes) limit(path, "node count");
-  if (depth > limits.maxDepth) limit(path, "nesting depth");
-  if (value === null || typeof value === "boolean") return value;
-  if (typeof value === "string") return stringAt(value, path, limits.maxStringBytes);
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) invalid(path, "finite JSON number");
-    return value;
-  }
-  if (Array.isArray(value)) {
-    if (value.length > limits.maxArrayItems) limit(path, "array item count");
-    return value.map((item, index) => jsonValue(item, `${path}[${index}]`, limits, budget, depth + 1));
-  }
-  const record = recordAt(value, path);
-  const entries = Object.entries(record);
-  if (entries.length > limits.maxObjectKeys) limit(path, "object key count");
-  const result: Record<string, RepoWriteJsonValue> = {};
-  for (const [key, item] of entries) {
-    stringAt(key, `${path} key`, limits.maxStringBytes);
-    if (key === "__proto__" || key === "prototype" || key === "constructor") {
-      invalid(path, "safe JSON object keys");
-    }
-    result[key] = jsonValue(item, `${path}.${boundedPathSegment(key)}`, limits, budget, depth + 1);
-  }
-  if ("$repoWriteType" in result) {
-    if (result.$repoWriteType === "bigint") decodeRepoWriteBigInt(result);
-    else if (result.$repoWriteType === "bytes") decodeRepoWriteBytes(result);
-    else invalid(`${path}.$repoWriteType`, "known explicit text encoding");
-  }
-  return result;
-}
 function parseFrame(text: string, limits: RepoWriteProtocolLimits): unknown {
   if (typeof text !== "string") invalid("$", "JSON text");
   const bytes = utf8Bytes(text);
@@ -549,12 +532,6 @@ function resolveLimits(overrides: Partial<RepoWriteProtocolLimits>): RepoWritePr
   }
   return limits;
 }
-function recordAt(value: unknown, path: string): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) invalid(path, "object");
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) invalid(path, "plain object");
-  return value as Record<string, unknown>;
-}
 function assertExactKeys(
   record: Record<string, unknown>, required: ReadonlyArray<string>, optional: ReadonlyArray<string>, path: string
 ): void {
@@ -569,15 +546,6 @@ function identifier(value: unknown, path: string, limits: RepoWriteProtocolLimit
   if (!text.trim()) invalid(path, "non-empty identifier");
   return text;
 }
-function stringAt(value: unknown, path: string, maxBytes: number): string {
-  if (typeof value !== "string") invalid(path, "string");
-  const bytes = utf8Bytes(value);
-  if (bytes > maxBytes) limit(path, "string byte length", bytes, maxBytes);
-  return value;
-}
 function utf8Bytes(value: string): number {
   return Buffer.byteLength(value, "utf8");
-}
-function boundedPathSegment(value: string): string {
-  return value.length <= 48 ? value : `${value.slice(0, 45)}...`;
 }

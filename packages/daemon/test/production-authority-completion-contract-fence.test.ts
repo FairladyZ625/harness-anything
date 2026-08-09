@@ -92,7 +92,10 @@ test("daemon authority coordinator does not derive canonical completion fields f
   let captured: ProductionAuthorityCommand | null = null;
   const command = { rootDir: "/unused", json: true, action: completeCommand() } satisfies ProductionAuthorityCommand;
   const coordinator = makeDaemonAuthorityWriteCoordinator({
-    submit: async (input) => {
+    submit: async () => {
+      throw new Error("settlement-only entry must not serve durable coordinator admission");
+    },
+    submitDurable: async (input) => {
       captured = input.command;
       throw new Error("capture only");
     }
@@ -124,10 +127,13 @@ test("daemon authority coordinator submits a typed completion without a client-a
   let capturedEntityId: string | null = null;
   const command = { rootDir: "/unused", json: true, action: completeCommand() } satisfies ProductionAuthorityCommand;
   const coordinator = makeDaemonAuthorityWriteCoordinator({
-    submit: async (input) => {
+    submit: async () => {
+      throw new Error("settlement-only entry must not serve durable coordinator admission");
+    },
+    submitDurable: async (input) => {
       capturedIngress = input.ingress;
       capturedEntityId = input.ingress === "generic" ? input.canonicalEntityId : null;
-      return {
+      const receipt = {
         tag: "COMMITTED",
         workspaceId: "workspace-contract-fence",
         opId: "op-contract-fence-command-only",
@@ -135,6 +141,10 @@ test("daemon authority coordinator submits a typed completion without a client-a
         revision: 1,
         commitSha: "1".repeat(40),
         previousCommit: null
+      };
+      return {
+        admission: Promise.resolve({ kind: "terminal", receipt }),
+        settlement: Promise.resolve(receipt)
       };
     }
   }, {

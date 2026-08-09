@@ -176,6 +176,8 @@ export interface AuthorityLifecycleRuntime {
     readonly publish: () => Promise<FlushReport>;
   }) => Promise<{
     readonly flush: FlushReport;
+    readonly acceptedCommitSha?: string;
+    readonly canonicalCommitSha?: string;
     readonly materialization?: Awaited<ReturnType<AuthorityLifecycleRuntime["enqueueMaterializerBatch"]>>;
   }>;
   readonly admissionBudget: DaemonAdmissionBudget;
@@ -424,12 +426,19 @@ export function makeHeldLockAttributedCoordinatorFactory(
               const materializationProvesPublication = branch
                 && ((branch.status === "merged" && branch.commitCount > 0)
                   || (branch.status === "skipped" && branch.commitCount === 0));
-              if (!materializationProvesPublication) {
+              const canonicalAncestryProvesPublication = publication.acceptedCommitSha !== undefined
+                && publication.canonicalCommitSha !== undefined;
+              if (!materializationProvesPublication && !canonicalAncestryProvesPublication) {
                 throw new Error(
                   `AUTHORITY_SESSION_MATERIALIZATION_FAILED:sessionId=${sessionId};status=${branch?.status ?? "missing"};commitCount=${branch?.commitCount ?? 0};warning=${branch?.warning ?? "none"}`
                 );
               }
-              return report;
+              return {
+                ...report,
+                ...(publication.canonicalCommitSha
+                  ? { canonicalCommitSha: publication.canonicalCommitSha }
+                  : {})
+              };
             },
             catch: (cause): WriteError => isAuthorityLifecycleWriteError(cause)
               ? cause

@@ -4,7 +4,7 @@ import {
   createJournaledBatch,
   createWritableEntityRegistry,
   daemonAdmissionBytes,
-  type ExactWriteCoordinator,
+  type FlushReport,
   type JournaledBatchEntry
 } from "@harness-anything/kernel";
 import type {
@@ -50,30 +50,53 @@ import {
 } from "./generation-fence-enforcement.ts";
 import { batchReceipts, indeterminate, rejected, retryable, terminal } from "./receipt-builders.ts";
 import { authorityPublicationSegments } from "./publication-segments.ts";
-import { createReplicaPublicationChange } from "./replica-publication-change.ts";
-import type { AuthoritySubmissionServiceOptions } from "./service-options.ts";
+import type {
+  AuthorityPublicationExecutionContext,
+  AuthoritySubmissionServiceOptions
+} from "./service-options.ts";
+import {
+  inspectAuthoritySettlementPublication,
+  resolveAuthorityReplicaPublicationChange
+} from "./publication-settlement.ts";
+import type { ReplicaPublicationOperation } from "./replica-publication-change.ts";
+import {
+  authorityServiceErrorDescription as describe,
+  createAuthorityCoordinatorResolver,
+  createPromiseSerializer
+} from "./service-support.ts";
 import { createAuthorityRecoverySubmitterV2 } from "./authority-recovery-submission-v2.ts";
 import { authorityOperationPublicView } from "./operation-record-public-view.ts";
 import { prepareAuthorityV2 } from "./authority-v2-preparation.ts";
 import { classifyAuthorityPublicationOutcome } from "./publication-outcome.ts";
-export type { AuthoritySubmissionServiceOptions, AuthoritySubmissionV2Options } from "./service-options.ts";
+export type {
+  AuthorityPublicationExecutionContext,
+  AuthoritySubmissionServiceOptions,
+  AuthoritySubmissionV2Options
+} from "./service-options.ts";
 export function createAuthoritySubmissionService(options: AuthoritySubmissionServiceOptions): AuthoritySubmissionService {
   const writableEntityRegistry = options.v2
     ? createWritableEntityRegistry(options.v2.entityRegistrations)
     : undefined;
   const byOperation = new KeyedSerialAuthorityExecutor();
   const exactWriteScopes = new Map<string, ReturnType<typeof createExactWriteScope>>();
+  const createCoordinator = createAuthorityCoordinatorResolver({
+    coordinatorFactory: options.coordinatorFactory,
+    exactWriteScopes,
+    createExactWriteScope
+  });
   const now = options.now ?? (() => new Date().toISOString());
   const persistence = createAuthorityOperationRecordPersistence(options.operationRegistry, options.generationFenceWitness);
   const { put } = persistence;
   const persistTerminal = (...args: Parameters<typeof persistence.persistTerminal>) =>
     persistTerminalOrRejectGeneration(persistence.persistTerminal, args);
+  const serializeSettlement = createPromiseSerializer();
   const publications = new BoundedAuthorityBatcher<AuthorityAdmission, AuthorityOperationReceipt>(
     (admissions) => options.publicationExecutor
-      ? options.publicationExecutor.run(() => publishBatch(admissions))
-      : publishBatch(admissions),
+      ? options.publicationExecutor.run((execution) => publishBatch(admissions, execution))
+      : publishBatch(admissions, { allowDurableSuccessor: false }),
     authorityPublicationBatchSize,
-    authorityPublicationMaxWaitMs
+    authorityPublicationMaxWaitMs,
+    { allowOverlappingBatches: options.publicationExecutor !== undefined }
   );
   const resumeV2 = options.v2?.runAuthorizedRecoveryAttempt
     ? createAuthorityRecoverySubmitterV2({
@@ -215,7 +238,10 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     };
   }
 
-  async function publishBatch(admissions: ReadonlyArray<AuthorityAdmission>): Promise<ReadonlyArray<AuthorityOperationReceipt>> {
+  async function publishBatch(
+    admissions: ReadonlyArray<AuthorityAdmission>,
+    execution: AuthorityPublicationExecutionContext
+  ): Promise<ReadonlyArray<AuthorityOperationReceipt>> {
     options.onTelemetry?.("authority-batch-start");
     const receipts = new Map<PreparedAuthoritySubmission, AuthorityOperationReceipt>();
     const prepared = admissions.filter((admission): admission is PreparedAuthoritySubmission => admission.kind === "prepared");
@@ -228,7 +254,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       // similarly requires a single-operation FIFO segment.
       const settled = new Map<PreparedAuthoritySubmission, AuthorityOperationReceipt>();
       for (const segment of segments) {
-        const segmentReceipts = await publishBatch(segment);
+        const segmentReceipts = await publishBatch(segment, execution);
         segment.forEach((candidate, index) => settled.set(candidate, segmentReceipts[index]!));
       }
       return admissions.map((admission) => admission.kind === "terminal"
@@ -295,6 +321,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       }
       if (candidates.length === 0) return batchReceipts(admissions, receipts);
       let outcome: ReturnType<typeof classifyAuthorityPublicationOutcome>;
+      let publicationReport: FlushReport | undefined;
       try {
         await options.generationFenceWitness?.assertHeld("before-canonical-publish", candidates[0]);
         const [firstCandidate, ...remainingCandidates] = candidates;
@@ -308,13 +335,16 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
           firstCandidate!.recoveryMode ? "recovery" : "explicit",
           batch
         )));
-        outcome = result._tag === "Left"
-          ? classifyAuthorityPublicationOutcome({ kind: "error", error: result.left })
-          : classifyAuthorityPublicationOutcome({
+        if (result._tag === "Left") {
+          outcome = classifyAuthorityPublicationOutcome({ kind: "error", error: result.left });
+        } else {
+          publicationReport = result.right;
+          outcome = classifyAuthorityPublicationOutcome({
             kind: "report",
             report: result.right,
             expectedOpCount: candidates.length
           });
+        }
       } catch (error) {
         if (isDaemonGenerationFenced(error)) throw error;
         outcome = classifyAuthorityPublicationOutcome({ kind: "error", error });
@@ -336,14 +366,22 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       }
       canonicalFlushCommitted = true;
 
+      return serializeSettlement(async () => {
       let commitSha: string;
+      let publicationOperations: ReadonlyArray<ReplicaPublicationOperation>;
       try {
         await options.fenceWitness.assertHeld("after-canonical-publish", candidates[0]);
-        const publication = await options.publicationInspector.inspectPublishedHead(
-          previousHead,
-          candidates.map((entry) => entry.opId)
-        );
+        const publication = await inspectAuthoritySettlementPublication({
+          inspector: options.publicationInspector,
+          operationRegistry: options.operationRegistry,
+          candidates,
+          execution,
+          ...(publicationReport ? { publicationReport } : {}),
+          previousHead
+        });
         commitSha = publication.commitSha;
+        previousHead = publication.previousHead;
+        publicationOperations = publication.operations;
         for (const entry of candidates) {
           await options.generationFenceWitness?.assertHeld("after-canonical-publish", entry);
           await put(
@@ -366,20 +404,20 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         return batchReceipts(admissions, receipts);
       }
 
-    const latest = await options.replicaChangeLog.latest(candidates[0]!.workspaceId);
-    const change = createReplicaPublicationChange({
-      revision: (latest?.revision ?? 0) + 1,
-      operations: candidates,
+    const replicaPublication = await resolveAuthorityReplicaPublicationChange({
+      changeLog: options.replicaChangeLog,
+      operations: publicationOperations,
       commitSha,
       previousCommit: previousHead,
       changedAt: now()
     });
+    const { change } = replicaPublication;
     try {
       for (const entry of candidates) {
         await options.generationFenceWitness?.assertHeld("before-terminal-visibility", entry);
       }
-      await options.replicaChangeLog.append(change);
-      if (options.shadowPublicationLog) {
+      if (!replicaPublication.existing) await options.replicaChangeLog.append(change);
+      if (!replicaPublication.existing && options.shadowPublicationLog) {
         const priorShadow = await options.shadowPublicationLog.list(candidates[0]!.workspaceId);
         await options.generationFenceWitness?.assertHeld("before-terminal-visibility", candidates[0]);
         await options.shadowPublicationLog.append({
@@ -483,6 +521,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       receipts.set(entry, receipt);
     }
     return batchReceipts(admissions, receipts);
+      });
     };
     try {
       options.onTelemetry?.("authority-generation-acquire");
@@ -535,27 +574,6 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     }
   }
 
-  function createCoordinator(
-    attribution: Parameters<typeof options.coordinatorFactory.create>[0]["attribution"],
-    sessionId: string
-  ): ExactWriteCoordinator {
-    let exactWriteScope = exactWriteScopes.get(sessionId);
-    if (!exactWriteScope) {
-      exactWriteScope = createExactWriteScope();
-      exactWriteScopes.set(sessionId, exactWriteScope);
-    }
-    const coordinator = options.coordinatorFactory.create({
-      attribution,
-      sessionId,
-      exactWriteScope
-    });
-    return {
-      enqueue: coordinator.enqueue,
-      commitExact: coordinator.commitExact,
-      recover: coordinator.recover
-    };
-  }
-
   async function settlePrepared(
     entries: ReadonlyArray<PreparedAuthoritySubmission>,
     receipts: Map<PreparedAuthoritySubmission, AuthorityOperationReceipt>,
@@ -577,13 +595,4 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     }
   }
 
-}
-
-function describe(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "object" && error !== null && "cause" in error) {
-    const cause = (error as { readonly cause?: unknown }).cause;
-    return `${"_tag" in error ? String((error as { readonly _tag?: unknown })._tag) : "error"}:${describe(cause)}`;
-  }
-  return String(error);
 }

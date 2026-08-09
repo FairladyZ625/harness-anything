@@ -21,6 +21,7 @@ import { failureReceipt, serviceResultReceipt, successReceipt } from "./receipt-
 import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
 import { readTaskHolderExecutor } from "./task-holder-payload.ts";
 import type { DocSyncServiceContext } from "./doc-sync-service-context.ts";
+import type { RepoWriteOperationLookupResult } from "../runtime/repo-write-protocol.ts";
 import {
   bindDaemonRequestPerformanceForRepo,
   callDaemonLogList,
@@ -108,6 +109,9 @@ export interface DaemonServiceHost {
   };
   readonly DocSyncService?: {
     readonly submit: (request: DocSyncSubmitRequestV1, context?: DocSyncServiceContext) => Promise<DocSyncSubmitResultV1>;
+  };
+  readonly ReceiptSettlementService?: {
+    readonly lookup: (receiptId: string) => Promise<RepoWriteOperationLookupResult>;
   };
 }
 
@@ -392,6 +396,33 @@ async function callServiceMethod(
       ...(authorityConnection ? { authorityConnection } : {})
     });
   }
+  if (contract.method === "repo.write.receipt.status") {
+    if (!services.ReceiptSettlementService) {
+      return failureReceipt(
+        contract.method,
+        "receipt_settlement_service_unavailable",
+        "The running repo composition cannot query durable receipt settlement. Run `ha daemon status --json`, leave the daemon and receipt files unchanged, then upgrade the CLI/daemon composition before retrying this receipt id."
+      );
+    }
+    const receiptId = typeof payload?.receiptId === "string" && payload.receiptId.trim()
+      ? payload.receiptId.trim()
+      : undefined;
+    if (!receiptId) {
+      return failureReceipt(
+        contract.method,
+        "receipt_id_required",
+        "The required receiptId is missing. Copy the full status command from settlement.statusQuery in the original write receipt, or run `ha receipt status --help` for usage."
+      );
+    }
+    const settlement = await services.ReceiptSettlementService.lookup(receiptId);
+    return successReceipt(contract.method, `receipt settlement is ${settlement.state}`, {
+      receiptId,
+      state: settlement.state,
+      ...("receipt" in settlement ? {
+        receipt: settlement.receipt as unknown as JsonObject
+      } : {})
+    });
+  }
   if (contract.method === "repo.task.claim" || contract.method === "repo.task.holder" || contract.method === "repo.task.release") {
     return callTaskHolderMethod(contract, payload, services, actor);
   }
@@ -405,9 +436,17 @@ async function callServiceMethod(
       repo,
       ...(authorityConnection ? { authorityConnection } : {})
     });
-    return result.ok
-      ? successReceipt(contract.method, `completed ${contract.method}`, result as unknown as JsonObject)
-      : failureReceipt(contract.method, result.code, result.reason, { data: result as unknown as JsonObject });
+    if (result.ok) {
+      const receipt = successReceipt(
+        contract.method,
+        `completed ${contract.method}`,
+        result as unknown as JsonObject
+      );
+      return result.settlement ? { ...receipt, settlement: result.settlement } : receipt;
+    }
+    return failureReceipt(contract.method, result.code, result.reason, {
+      data: result as unknown as JsonObject
+    });
   }
   const taskLeaseFailure = await validateTaskLeaseForServiceWrite(contract, payload, services, actor, repo, options);
   if (taskLeaseFailure) return taskLeaseFailure;

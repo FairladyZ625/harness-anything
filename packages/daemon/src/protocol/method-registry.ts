@@ -70,6 +70,21 @@ const docSyncContracts = [
   }
 ] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
 
+const receiptSettlementContracts = [
+  {
+    method: "repo.write.receipt.status",
+    mode: "active",
+    namespace: "repo",
+    inputSchemaId: "daemon.receipt-settlement-status-request/v1",
+    outputSchemaId: "application.command-receipt/v2",
+    errorSchemaId: "daemon.protocol-error/v1",
+    auth: "local-session-token",
+    requiresRepo: true,
+    buildIdentityAdmission: "exempt",
+    commandClass: "repo-read"
+  }
+] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
+
 const taskHolderContracts = [
   {
     method: "repo.task.claim",
@@ -402,6 +417,7 @@ export const jsonRpcMethodContracts = [
   ...protocolMethodContracts,
   ...cliCommandContracts,
   ...docSyncContracts,
+  ...receiptSettlementContracts,
   ...taskHolderContracts,
   ...jsonRpcServiceMethodContracts,
   ...notificationContracts,

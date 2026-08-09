@@ -12,6 +12,7 @@ import {
   existsSync,
   mkdirSync,
   openSync,
+  readFileSync,
   rmSync,
   writeFileSync
 } from "node:fs";
@@ -20,6 +21,7 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 import { JsonRpcLineClient } from "../src/client/json-rpc-line-client.ts";
+import { buildDocSyncSubmitRequest } from "../src/index.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 import { createFixture } from "../../cli/test/production-authority-canonical-ingress/fixture.ts";
 import { cliTestEnv } from "../../cli/test/helpers/cli-test-env.ts";
@@ -29,6 +31,7 @@ import {
   forceTerminateChildAndWait,
   terminateChildAndWait
 } from "../../../tools/test-child-process-lifecycle.mjs";
+import { cliDaemonServiceHostServices } from "../../cli/src/composition/daemon-service-host-services.ts";
 
 const integrationTest = process.platform === "win32" ? test.skip : test;
 const amplifierDelayMs = 5_250;
@@ -133,6 +136,143 @@ integrationTest("production child keeps projection reader p95 below two seconds 
     `reader p95 ${p95}ms exceeded ${readerP95TargetMs}ms: ${JSON.stringify(observations)}`
   );
 });
+
+integrationTest("task create and doc sync return durable acceptance before canonical settlement", {
+  timeout: 30_000
+}, async (t) => {
+  const probe = await startProbe();
+  t.after(() => probe.close());
+  const client = await probe.openClient();
+  const session = {
+    runtime: "codex" as const,
+    sessionId: "receipt-tiering-latency",
+    source: "runtime" as const,
+    detectedAt: "2026-08-09T00:00:00.000Z"
+  };
+  const coldTaskCreate = await requestTaskCreate(
+    client,
+    probe.repoRoot,
+    session,
+    "Receipt tiering warmup"
+  );
+  assert.equal(coldTaskCreate.receipt.ok, true, JSON.stringify(coldTaskCreate.receipt));
+  await waitForReceiptVisible(client, settlementOf(coldTaskCreate.receipt).receiptId);
+  const taskCreate = await requestTaskCreate(
+    client,
+    probe.repoRoot,
+    session,
+    "Receipt tiering latency probe"
+  );
+  assert.equal(taskCreate.receipt.ok, true, JSON.stringify(taskCreate.receipt));
+  const taskSettlement = settlementOf(taskCreate.receipt);
+  assert.equal(taskSettlement.canonicalVisibility, "pending");
+  await waitForReceiptVisible(client, taskSettlement.receiptId);
+
+  const taskRoot = createTaskPackagePath(
+    probe.repoRoot,
+    "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0"
+  );
+  const planPath = path.join(taskRoot, "task_plan.md");
+  writeFileSync(
+    planPath,
+    `${readFileSync(planPath, "utf8").trimEnd()}\n\nLatency probe prose.\n`
+  );
+  const relativePlanPath = path.relative(
+    path.join(probe.repoRoot, "harness"),
+    planPath
+  ).split(path.sep).join("/");
+  const docSyncRequest = buildDocSyncSubmitRequest(
+    probe.repoRoot,
+    "canonical",
+    [relativePlanPath],
+    { kind: "agent", id: "codex" },
+    cliDaemonServiceHostServices.docSync,
+    session
+  );
+  const docSync = await request(
+    client,
+    "repo.doc.sync.submit",
+    docSyncRequest as unknown as JsonObject,
+    20_000
+  );
+  assert.equal(docSync.receipt.ok, true, JSON.stringify(docSync.receipt));
+  const docSettlement = settlementOf(docSync.receipt);
+  assert.equal(docSettlement.canonicalVisibility, "pending");
+  await waitForReceiptVisible(client, docSettlement.receiptId);
+  await delay(50);
+  const logs = await request(
+    client,
+    "repo.daemon.logs.list",
+    repoParams({ limit: 200 }),
+    10_000
+  );
+
+  t.diagnostic(JSON.stringify({
+    schema: "receipt-tiering-latency/v1",
+    coldTaskCreateWallMs: coldTaskCreate.wallMs,
+    taskCreate: {
+      wallMs: taskCreate.wallMs,
+      receiptId: taskSettlement.receiptId,
+      acceptedState: taskSettlement.canonicalVisibility
+    },
+    docSyncSubmit: {
+      wallMs: docSync.wallMs,
+      receiptId: docSettlement.receiptId,
+      acceptedState: docSettlement.canonicalVisibility
+    },
+    performance: performanceLogMessages(logs.receipt)
+  }));
+  assert.ok(taskCreate.wallMs < 2_500, `task create acceptance took ${taskCreate.wallMs}ms`);
+  assert.ok(docSync.wallMs < 2_500, `doc sync acceptance took ${docSync.wallMs}ms`);
+});
+
+async function requestTaskCreate(
+  client: JsonRpcLineClient,
+  repoRoot: string,
+  session: {
+    readonly runtime: "codex";
+    readonly sessionId: string;
+    readonly source: "runtime";
+    readonly detectedAt: string;
+  },
+  title: string
+) {
+  const parsed = parseNewTaskArgs(["task", "create", "--title", title], repoRoot, true);
+  assert.ok(parsed?.ok);
+  if (!parsed?.ok || parsed.value.action.kind !== "new-task") {
+    throw new Error("TASK_CREATE_LATENCY_ACTION_INVALID");
+  }
+  return request(
+    client,
+    "repo.command.run",
+    repoParams({
+      command: { rootDir: repoRoot, json: true, action: parsed.value.action },
+      session,
+      executor: { kind: "agent", id: "codex" }
+    }),
+    20_000
+  );
+}
+
+function performanceLogMessages(receipt: JsonObject): ReadonlyArray<string> {
+  const details = receipt.details;
+  const data = details && typeof details === "object" && !Array.isArray(details)
+    ? details.data
+    : undefined;
+  const entries = data && typeof data === "object" && !Array.isArray(data)
+    && Array.isArray(data.entries)
+    ? data.entries
+    : [];
+  return entries.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    return entry.event === "request.performance"
+      && typeof entry.message === "string"
+      && (entry.message.includes('"method":"repo.command.run"')
+        || entry.message.includes('"method":"repo.doc.sync.submit"'))
+      ? [entry.message]
+      : [];
+  });
+}
 
 interface Probe {
   readonly repoRoot: string;
@@ -341,6 +481,44 @@ function repoParams(payload: JsonObject): JsonObject {
   return { repo: { repoId: "canonical" }, payload };
 }
 
+function settlementOf(receipt: JsonObject): {
+  readonly canonicalVisibility: string;
+  readonly receiptId: string;
+} {
+  const settlement = receipt.settlement;
+  assert.ok(
+    settlement && typeof settlement === "object" && !Array.isArray(settlement),
+    JSON.stringify(receipt)
+  );
+  assert.equal(typeof settlement.receiptId, "string");
+  assert.equal(typeof settlement.canonicalVisibility, "string");
+  return settlement as unknown as {
+    readonly canonicalVisibility: string;
+    readonly receiptId: string;
+  };
+}
+
+async function waitForReceiptVisible(
+  client: JsonRpcLineClient,
+  receiptId: string
+): Promise<void> {
+  let latest = "unknown";
+  let latestData = "unknown";
+  await waitFor(async () => {
+    const receipt = await client.request("repo.write.receipt.status", repoParams({ receiptId }));
+    const details = receipt.details;
+    const data = details && typeof details === "object" && !Array.isArray(details)
+      ? details.data
+      : undefined;
+    latest = data && typeof data === "object" && !Array.isArray(data)
+      && typeof data.state === "string"
+      ? data.state
+      : "invalid";
+    latestData = JSON.stringify(data);
+    return latest === "committed";
+  }, 10_000, () => `receipt ${receiptId} remained ${latest}: ${latestData}`);
+}
+
 function percentile95(samples: ReadonlyArray<number>): number {
   return percentile(samples, 0.95);
 }
@@ -390,12 +568,12 @@ async function stopDaemon(daemon: ChildProcessWithoutNullStreams): Promise<void>
 }
 
 async function waitFor(
-  condition: () => boolean,
+  condition: () => boolean | Promise<boolean>,
   timeoutMs: number,
   diagnostic: () => string
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
-  while (!condition()) {
+  while (!await condition()) {
     if (Date.now() >= deadline) throw new Error(diagnostic());
     await delay(5);
   }

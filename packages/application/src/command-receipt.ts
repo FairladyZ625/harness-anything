@@ -5,6 +5,59 @@ export interface CommandReceiptNextAction {
   readonly description?: string;
 }
 
+export const commandReceiptSettlementEnvelope = "command-receipt-settlement/v1" as const;
+
+export interface CommandReceiptSettlementStatusQuery {
+  readonly method: "repo.write.receipt.status";
+  readonly command: string;
+  readonly receiptId: string;
+}
+
+export type CommandReceiptSettlement =
+  | {
+      readonly schema: typeof commandReceiptSettlementEnvelope;
+      readonly receiptId: string;
+      readonly durability: "session-durable";
+      readonly canonicalVisibility: "pending";
+      readonly acceptedAt: string;
+      readonly sessionId: string;
+      readonly acceptedCommitSha: string;
+      readonly authorityOperationIds?: ReadonlyArray<string>;
+      readonly statusQuery: CommandReceiptSettlementStatusQuery;
+    }
+  | {
+      readonly schema: typeof commandReceiptSettlementEnvelope;
+      readonly receiptId: string;
+      readonly durability: "session-durable";
+      readonly canonicalVisibility: "visible";
+      readonly acceptedAt: string;
+      readonly sessionId: string;
+      readonly acceptedCommitSha: string;
+      readonly authorityOperationIds?: ReadonlyArray<string>;
+      readonly canonicalCommitSha: string;
+      readonly settledAt: string;
+      readonly statusQuery: CommandReceiptSettlementStatusQuery;
+    }
+  | {
+      readonly schema: typeof commandReceiptSettlementEnvelope;
+      readonly receiptId: string;
+      readonly durability: "session-durable";
+      readonly canonicalVisibility: "failed";
+      readonly acceptedAt: string;
+      readonly sessionId: string;
+      readonly acceptedCommitSha: string;
+      readonly authorityOperationIds?: ReadonlyArray<string>;
+      readonly failedAt: string;
+      readonly failure: {
+        readonly stage: "materializer" | "publication-proof" | "evidence" | "integrity" | "unknown";
+        readonly code: string;
+        readonly message: string;
+        readonly retryable: boolean;
+        readonly recoveryCommand: string;
+      };
+      readonly statusQuery: CommandReceiptSettlementStatusQuery;
+    };
+
 export interface CommandReceipt<Command extends string = string> {
   readonly ok: true;
   readonly schema: typeof commandReceiptEnvelope;
@@ -17,6 +70,12 @@ export interface CommandReceipt<Command extends string = string> {
   readonly items?: ReadonlyArray<unknown>;
   readonly paths?: ReadonlyArray<{ readonly role: string; readonly path: string }>;
   readonly warnings?: ReadonlyArray<unknown>;
+  /**
+   * Additive settlement truth for writes acknowledged before canonical
+   * publication. Absence means a legacy or synchronously-final receipt; it
+   * must never be interpreted as either pending or canonical-visible.
+   */
+  readonly settlement?: CommandReceiptSettlement;
   readonly next: ReadonlyArray<CommandReceiptNextAction>;
   readonly details?: Record<string, unknown>;
   readonly meta: {
@@ -37,6 +96,8 @@ export interface CommandFailureReceipt<Command extends string = string> {
     readonly context?: Readonly<Record<string, unknown>>;
   };
   readonly warnings?: ReadonlyArray<unknown>;
+  /** Present when one or more command writes were durably accepted before the command failed. */
+  readonly settlement?: CommandReceiptSettlement;
   readonly next?: ReadonlyArray<CommandReceiptNextAction>;
   readonly details?: Record<string, unknown>;
   readonly meta: {

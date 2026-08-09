@@ -76,6 +76,9 @@ import {
   withRootResolution
 } from "./root-resolution.ts";
 import { rootResolutionUnavailableReceipt } from "./root-resolution-receipt.ts";
+import { normalizeDocSyncSubmitReceipt } from "../composition/doc-sync-submit-receipt.ts";
+
+export { normalizeDocSyncSubmitReceipt } from "../composition/doc-sync-submit-receipt.ts";
 
 export {
   daemonIdForRoot,
@@ -548,22 +551,6 @@ function normalizeTaskHolderReceipt(response: JsonObject, commandKind: "task-hol
   };
 }
 
-function normalizeDocSyncSubmitReceipt(response: JsonObject): CommandReceipt | CommandFailureReceipt {
-  const receipt = response as unknown as CommandReceipt | CommandFailureReceipt;
-  if (!receipt.ok) {
-    return { ...receipt, command: "doc sync submit", action: "submit" };
-  }
-  const data = receipt.details?.data ?? {};
-  return {
-    ...receipt,
-    command: "doc sync submit",
-    action: "submit",
-    details: {
-      ...(receipt.details ?? {}),
-      data: { report: data }
-    }
-  };
-}
 
 function docSyncSubmitPreviewRejected(error: unknown): CommandFailureReceipt {
   const receipt = toCommandReceipt({

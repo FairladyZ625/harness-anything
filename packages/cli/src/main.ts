@@ -43,6 +43,7 @@ import {
 } from "./composition/production-authority-lifecycle.ts";
 import { daemonServeAdmissionOptions } from "./daemon/daemon-serve-settings.ts";
 import { runAgentRuntimeCommand } from "./commands/agent-runtime.ts";
+import { runReceiptStatusCommand } from "./commands/receipt-status.ts";
 import { runTaskCloseoutFacade, runTaskStartFacade } from "./commands/core/task-lifecycle-facade.ts";
 import { isDeclaredLocalMigrationCommand } from "./composition/local-write-scope.ts";
 import { startCliTimingPhase } from "./cli/timing.ts";
@@ -76,6 +77,8 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
   if (daemonExit !== undefined) return daemonExit;
   const agentExit = await maybeRunAgentRuntimeCommand(argv);
   if (agentExit !== undefined) return agentExit;
+  const receiptStatusExit = await maybeRunReceiptStatusCommand(argv);
+  if (receiptStatusExit !== undefined) return receiptStatusExit;
 
   const finishParse = startCliTimingPhase("parse");
   const parsed = parseArgs(argv);
@@ -179,6 +182,13 @@ function isDaemonIndependentCommand(command: { readonly action: { readonly kind:
 async function maybeRunAgentRuntimeCommand(argv: ReadonlyArray<string>): Promise<number | undefined> {
   if (stripGlobalOptions(argv).args[0] !== "agent") return undefined;
   const outcome = await runAgentRuntimeCommand(argv);
+  emit(outcome.receipt, outcome.json);
+  return outcome.receipt.ok ? 0 : 1;
+}
+
+async function maybeRunReceiptStatusCommand(argv: ReadonlyArray<string>): Promise<number | undefined> {
+  if (stripGlobalOptions(argv).args[0] !== "receipt") return undefined;
+  const outcome = await runReceiptStatusCommand(argv);
   emit(outcome.receipt, outcome.json);
   return outcome.receipt.ok ? 0 : 1;
 }

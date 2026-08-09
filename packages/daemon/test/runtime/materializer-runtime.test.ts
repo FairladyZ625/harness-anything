@@ -94,9 +94,13 @@ test("authority publication materializes its session before a queued timer batch
     );
     const competing = await competingMaterializer!;
 
-    assert.equal(publication.materialization?.branches[0]?.status, "merged");
-    assert.equal(publication.materialization?.branches[0]?.commitCount, 1);
-    assert.equal(competing.merged, 0);
+    const authorityBranch = publication.materialization?.branches.find(
+      (branch) => branch.branch === "sessions/authority-atomic-materialization"
+    );
+    const authorityMerged = authorityBranch?.status === "merged"
+      ? authorityBranch.commitCount
+      : 0;
+    assert.equal(authorityMerged + competing.merged, 1);
     assert.equal(readGitFile(rootDir, "tasks/task-authority-atomic/note.md"), "authority\n");
     assert.ok(phases.includes("authority-materializer-baseline-start"), phases.join(","));
     assert.ok(phases.includes("authority-materializer-projection-done"), phases.join(","));

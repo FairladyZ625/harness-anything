@@ -21,21 +21,24 @@ interface AuthorityBatchItem<Input, Result> {
 
 export class BoundedAuthorityBatcher<Input, Result> {
   private readonly queue: AuthorityBatchItem<Input, Result>[] = [];
-  private draining = false;
+  private activeDrains = 0;
   private drainScheduled = false;
   private timer: NodeJS.Timeout | undefined;
   private readonly runBatch: (inputs: ReadonlyArray<Input>) => Promise<ReadonlyArray<Result>>;
   private readonly maxBatchSize: number;
   private readonly maxWaitMs: number;
+  private readonly allowOverlappingBatches: boolean;
 
   constructor(
     runBatch: (inputs: ReadonlyArray<Input>) => Promise<ReadonlyArray<Result>>,
     maxBatchSize: number,
-    maxWaitMs: number
+    maxWaitMs: number,
+    options: { readonly allowOverlappingBatches?: boolean } = {}
   ) {
     this.runBatch = runBatch;
     this.maxBatchSize = maxBatchSize;
     this.maxWaitMs = maxWaitMs;
+    this.allowOverlappingBatches = options.allowOverlappingBatches === true;
   }
 
   run(input: Promise<Input>): Promise<Result> {
@@ -57,7 +60,7 @@ export class BoundedAuthorityBatcher<Input, Result> {
   }
 
   private scheduleIfReady(): void {
-    if (this.draining || this.drainScheduled || this.queue.length === 0) return;
+    if (!this.canStartDrain() || this.drainScheduled || this.queue.length === 0) return;
     const readyPrefix = this.readyPrefixLength();
     if (readyPrefix === 0) return;
     if (readyPrefix >= this.maxBatchSize || readyPrefix === this.queue.length) this.scheduleDrain();
@@ -73,12 +76,16 @@ export class BoundedAuthorityBatcher<Input, Result> {
   }
 
   private async drain(): Promise<void> {
-    if (this.draining || this.queue.length === 0) return;
+    if (!this.canStartDrain() || this.queue.length === 0) return;
     const count = Math.min(this.readyPrefixLength(), this.maxBatchSize);
     if (count === 0) { this.ensureTimer(); return; }
-    this.draining = true;
+    this.activeDrains += 1;
     this.clearTimer();
     const items = this.queue.splice(0, count);
+    if (this.allowOverlappingBatches) {
+      this.scheduleIfReady();
+      this.ensureTimer();
+    }
     const fulfilled = items.filter((item): item is AuthorityBatchItem<Input, Result> & { outcome: PromiseFulfilledResult<Input> } =>
       item.outcome?.status === "fulfilled");
     for (const item of items) if (item.outcome?.status === "rejected") item.reject(item.outcome.reason);
@@ -91,10 +98,14 @@ export class BoundedAuthorityBatcher<Input, Result> {
     } catch (error) {
       for (const item of fulfilled) item.reject(error);
     } finally {
-      this.draining = false;
+      this.activeDrains -= 1;
       this.scheduleIfReady();
       this.ensureTimer();
     }
+  }
+
+  private canStartDrain(): boolean {
+    return this.allowOverlappingBatches || this.activeDrains === 0;
   }
 
   private readyPrefixLength(): number {
@@ -104,7 +115,7 @@ export class BoundedAuthorityBatcher<Input, Result> {
   }
 
   private ensureTimer(): void {
-    if (this.timer || this.draining || this.queue.length === 0) return;
+    if (this.timer || !this.canStartDrain() || this.queue.length === 0) return;
     this.timer = setTimeout(() => {
       this.timer = undefined;
       if (this.readyPrefixLength() > 0) this.scheduleDrain();

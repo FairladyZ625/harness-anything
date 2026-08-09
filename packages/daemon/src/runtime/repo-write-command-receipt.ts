@@ -1,4 +1,7 @@
-import type { CommandReceiptEnvelope } from "@harness-anything/application";
+import type {
+  CommandReceiptEnvelope,
+  CommandReceiptSettlement
+} from "@harness-anything/application";
 import type { RepoWriteJsonValue } from "./repo-write-protocol.ts";
 import { RepoWriteOutcomeValidationError } from "./repo-write-outcome-errors.ts";
 import {
@@ -31,8 +34,8 @@ export function decodeRepoWriteCommandReceiptV2(
       ? ["ok", "schema", "command", "action", "summary", "next", "meta"]
       : ["ok", "schema", "command", "action", "summary", "meta"],
     success
-      ? ["entity", "rows", "item", "items", "paths", "warnings", "details"]
-      : ["error", "warnings", "next", "details"],
+      ? ["entity", "rows", "item", "items", "paths", "warnings", "settlement", "details"]
+      : ["error", "warnings", "next", "settlement", "details"],
     path
   );
 
@@ -62,6 +65,9 @@ export function decodeRepoWriteCommandReceiptV2(
       `${path}.warnings`,
       budget
     );
+    const settlement = record.settlement === undefined
+      ? undefined
+      : repoWriteCommandReceiptSettlementAt(record.settlement, `${path}.settlement`);
     const next = repoWriteCommandReceiptOptionalNextAt(record.next, `${path}.next`);
     if (!next) repoWriteCommandReceiptInvalid(`${path}.next`, "array");
     const details = record.details === undefined
@@ -77,6 +83,7 @@ export function decodeRepoWriteCommandReceiptV2(
       ...(items ? { items } : {}),
       ...(paths ? { paths } : {}),
       ...(warnings ? { warnings } : {}),
+      ...(settlement ? { settlement } : {}),
       next,
       ...(details ? { details } : {})
     };
@@ -89,6 +96,9 @@ export function decodeRepoWriteCommandReceiptV2(
     budget
   );
   const next = repoWriteCommandReceiptOptionalNextAt(record.next, `${path}.next`);
+  const settlement = record.settlement === undefined
+    ? undefined
+    : repoWriteCommandReceiptSettlementAt(record.settlement, `${path}.settlement`);
   const details = record.details === undefined
     ? undefined
     : repoWriteJsonObjectAt(record.details, `${path}.details`, budget, 1);
@@ -99,8 +109,128 @@ export function decodeRepoWriteCommandReceiptV2(
     ...(error ? { error } : {}),
     ...(warnings ? { warnings } : {}),
     ...(next ? { next } : {}),
+    ...(settlement ? { settlement } : {}),
     ...(details ? { details } : {})
   };
+}
+
+function repoWriteCommandReceiptSettlementAt(
+  value: unknown,
+  path: string
+): CommandReceiptSettlement {
+  const record = repoWriteCommandReceiptRecordAt(value, path);
+  const visibility = record.canonicalVisibility;
+  const commonRequired = [
+    "schema", "receiptId", "durability", "canonicalVisibility", "acceptedAt",
+    "sessionId", "acceptedCommitSha", "statusQuery"
+  ];
+  repoWriteCommandReceiptExactKeys(
+    record,
+    visibility === "visible"
+      ? [...commonRequired, "canonicalCommitSha", "settledAt"]
+      : visibility === "failed"
+        ? [...commonRequired, "failedAt", "failure"]
+        : commonRequired,
+    ["authorityOperationIds"],
+    path
+  );
+  if (record.schema !== "command-receipt-settlement/v1") {
+    repoWriteCommandReceiptInvalid(`${path}.schema`, "command-receipt-settlement/v1");
+  }
+  if (record.durability !== "session-durable") {
+    repoWriteCommandReceiptInvalid(`${path}.durability`, "session-durable");
+  }
+  if (visibility !== "pending" && visibility !== "visible" && visibility !== "failed") {
+    repoWriteCommandReceiptInvalid(`${path}.canonicalVisibility`, "pending, visible, or failed");
+  }
+  const statusQuery = repoWriteCommandReceiptRecordAt(record.statusQuery, `${path}.statusQuery`);
+  repoWriteCommandReceiptExactKeys(
+    statusQuery,
+    ["method", "command", "receiptId"],
+    [],
+    `${path}.statusQuery`
+  );
+  if (statusQuery.method !== "repo.write.receipt.status") {
+    repoWriteCommandReceiptInvalid(`${path}.statusQuery.method`, "repo.write.receipt.status");
+  }
+  const common = {
+    schema: "command-receipt-settlement/v1" as const,
+    receiptId: repoWriteCommandReceiptIdentifierAt(record.receiptId, `${path}.receiptId`),
+    durability: "session-durable" as const,
+    acceptedAt: repoWriteCommandReceiptCanonicalTimestampAt(record.acceptedAt, `${path}.acceptedAt`),
+    sessionId: repoWriteCommandReceiptIdentifierAt(record.sessionId, `${path}.sessionId`),
+    acceptedCommitSha: repoWriteCommandReceiptCommitShaAt(record.acceptedCommitSha, `${path}.acceptedCommitSha`),
+    ...(record.authorityOperationIds === undefined ? {} : {
+      authorityOperationIds: repoWriteCommandReceiptOperationIdsAt(
+        record.authorityOperationIds,
+        `${path}.authorityOperationIds`
+      )
+    }),
+    statusQuery: {
+      method: "repo.write.receipt.status" as const,
+      command: repoWriteCommandReceiptStringAt(statusQuery.command, `${path}.statusQuery.command`),
+      receiptId: repoWriteCommandReceiptIdentifierAt(statusQuery.receiptId, `${path}.statusQuery.receiptId`)
+    }
+  };
+  if (common.statusQuery.receiptId !== common.receiptId) {
+    repoWriteCommandReceiptInvalid(`${path}.statusQuery.receiptId`, "the enclosing receiptId");
+  }
+  if (visibility === "pending") return { ...common, canonicalVisibility: visibility };
+  if (visibility === "visible") {
+    return {
+      ...common,
+      canonicalVisibility: visibility,
+      canonicalCommitSha: repoWriteCommandReceiptCommitShaAt(record.canonicalCommitSha, `${path}.canonicalCommitSha`),
+      settledAt: repoWriteCommandReceiptCanonicalTimestampAt(record.settledAt, `${path}.settledAt`)
+    };
+  }
+  const failure = repoWriteCommandReceiptRecordAt(record.failure, `${path}.failure`);
+  repoWriteCommandReceiptExactKeys(
+    failure,
+    ["stage", "code", "message", "retryable", "recoveryCommand"],
+    [],
+    `${path}.failure`
+  );
+  if (!["materializer", "publication-proof", "evidence", "integrity", "unknown"].includes(String(failure.stage))) {
+    repoWriteCommandReceiptInvalid(`${path}.failure.stage`, "settlement failure stage");
+  }
+  if (typeof failure.retryable !== "boolean") {
+    repoWriteCommandReceiptInvalid(`${path}.failure.retryable`, "boolean");
+  }
+  return {
+    ...common,
+    canonicalVisibility: visibility,
+    failedAt: repoWriteCommandReceiptCanonicalTimestampAt(record.failedAt, `${path}.failedAt`),
+    failure: {
+      stage: failure.stage as "materializer" | "publication-proof" | "evidence" | "integrity" | "unknown",
+      code: repoWriteCommandReceiptIdentifierAt(failure.code, `${path}.failure.code`),
+      message: repoWriteCommandReceiptStringAt(failure.message, `${path}.failure.message`),
+      retryable: failure.retryable,
+      recoveryCommand: repoWriteCommandReceiptStringAt(failure.recoveryCommand, `${path}.failure.recoveryCommand`)
+    }
+  };
+}
+
+function repoWriteCommandReceiptOperationIdsAt(
+  value: unknown,
+  path: string
+): ReadonlyArray<string> {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 128) {
+    repoWriteCommandReceiptInvalid(path, "non-empty bounded authority operation id array");
+  }
+  const values = value.map((entry, index) =>
+    repoWriteCommandReceiptIdentifierAt(entry, `${path}[${index}]`)
+  );
+  if (new Set(values).size !== values.length) {
+    repoWriteCommandReceiptInvalid(path, "unique authority operation ids");
+  }
+  return values;
+}
+
+function repoWriteCommandReceiptCommitShaAt(value: unknown, path: string): string {
+  const sha = repoWriteCommandReceiptStringAt(value, path, 40);
+  if (!/^[a-f0-9]{40}$/u.test(sha)) repoWriteCommandReceiptInvalid(path, "40-character Git commit SHA");
+  return sha;
 }
 
 function repoWriteCommandReceiptMetaAt(value: unknown, path: string, success: boolean) {

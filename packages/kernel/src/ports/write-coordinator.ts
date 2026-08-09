@@ -145,6 +145,7 @@ export interface FlushReport {
   readonly committed: boolean;
   readonly watermark?: string;
   readonly publicationMode?: "exact-batch" | "integrity-domain";
+  readonly canonicalCommitSha?: string;
 }
 
 export interface RecoveryReport {

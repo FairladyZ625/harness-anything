@@ -14,15 +14,47 @@ import {
   type RepoWriteTerminalOutcomeV1
 } from "./repo-write-outcome-schema.ts";
 import type { RepoWritePreparedOperation } from "./repo-write-child-host.ts";
+import type { AuthorityDurableAcceptance } from "./authority-durable-acceptance-context.ts";
+import {
+  failedCommandReceiptSettlement,
+  pendingCommandReceiptSettlement,
+  settlementFailure,
+  visibleCommandReceiptSettlement,
+  withCommandReceiptSettlement
+} from "./command-receipt-settlement.ts";
+import { ReceiptSettlementStore } from "./receipt-settlement-store.ts";
 
-export interface RepoWriteDurableExecutionResult {
+export interface RepoWriteTerminalExecutionResult {
+  readonly kind: "terminal";
   readonly receipt: CommandReceiptEnvelope;
   readonly authorityEvidence: RepoWriteTerminalEvidenceV1;
 }
 
+export interface RepoWriteAcceptedExecutionResult {
+  readonly kind: "accepted";
+  readonly receipt: CommandReceiptEnvelope;
+  readonly acceptance: AuthorityDurableAcceptance;
+  readonly acceptedCommitSha: string;
+  readonly settlement: Promise<RepoWriteTerminalEvidenceV1>;
+}
+
+export type RepoWriteDurableExecutionResult =
+  | RepoWriteTerminalExecutionResult
+  | RepoWriteAcceptedExecutionResult;
+
+export interface RepoWriteAcceptedResult {
+  readonly kind: "accepted";
+  readonly outerOpId: string;
+  readonly receipt: CommandReceiptEnvelope;
+}
+
+export type RepoWriteExecutionOutcome = RepoWriteTerminalOutcomeV1 | RepoWriteAcceptedResult;
+
 export interface RepoWriteDurableOperationControllerOptions
   extends RepoWriteOutcomeAxesV1 {
   readonly store: DurableRepoWriteOutcomeStoreV1;
+  readonly settlements: ReceiptSettlementStore;
+  readonly now?: () => Date;
   readonly recover: (
     proceeding: RepoWriteProceedingOutcomeV1
   ) => Promise<RepoWriteDurableExecutionResult>;
@@ -44,7 +76,10 @@ export class RepoWriteDurableOperationController {
   private readonly axes: RepoWriteOutcomeAxesV1;
   private readonly store: DurableRepoWriteOutcomeStoreV1;
   private readonly recoverOperation: RepoWriteDurableOperationControllerOptions["recover"];
+  private readonly settlements: ReceiptSettlementStore;
+  private readonly now: () => Date;
   private executionTail: Promise<void> = Promise.resolve();
+  private readonly activeSettlements = new Set<Promise<void>>();
 
   constructor(options: RepoWriteDurableOperationControllerOptions) {
     this.axes = {
@@ -53,6 +88,8 @@ export class RepoWriteDurableOperationController {
       generation: options.generation
     };
     this.store = options.store;
+    this.settlements = options.settlements;
+    this.now = options.now ?? (() => new Date());
     this.recoverOperation = options.recover;
   }
 
@@ -65,13 +102,19 @@ export class RepoWriteDurableOperationController {
     };
   }
 
-  resume(outerOpId: string): Promise<RepoWriteTerminalOutcomeV1> {
+  resume(outerOpId: string): Promise<RepoWriteExecutionOutcome> {
     return this.serialize(() => this.resumeExclusive(outerOpId));
+  }
+
+  async settlementIdle(): Promise<void> {
+    while (this.activeSettlements.size > 0) {
+      await Promise.all([...this.activeSettlements]);
+    }
   }
 
   private async resumeExclusive(
     outerOpId: string
-  ): Promise<RepoWriteTerminalOutcomeV1> {
+  ): Promise<RepoWriteExecutionOutcome> {
     const current = this.store.lookup(outerOpId);
     if (current.state === "not-found") {
       throw new RepoWriteOutcomeConflictError(
@@ -90,7 +133,7 @@ export class RepoWriteDurableOperationController {
   private async executePrepared(
     candidate: RepoWriteProceedingOutcomeV1,
     executeFresh: RepoWriteDurablePrepareInput["executeFresh"]
-  ): Promise<RepoWriteTerminalOutcomeV1> {
+  ): Promise<RepoWriteExecutionOutcome> {
     return this.serialize(() => this.executePreparedExclusive(
       candidate,
       executeFresh
@@ -100,7 +143,7 @@ export class RepoWriteDurableOperationController {
   private async executePreparedExclusive(
     candidate: RepoWriteProceedingOutcomeV1,
     executeFresh: RepoWriteDurablePrepareInput["executeFresh"]
-  ): Promise<RepoWriteTerminalOutcomeV1> {
+  ): Promise<RepoWriteExecutionOutcome> {
     const existing = this.store.lookup(candidate.outerOpId);
     if (existing.state === "terminal") return existing.outcome;
     if (existing.state === "outcome-unknown") {
@@ -121,8 +164,9 @@ export class RepoWriteDurableOperationController {
     execute: (
       proceeding: RepoWriteProceedingOutcomeV1
     ) => Promise<RepoWriteDurableExecutionResult>
-  ): Promise<RepoWriteTerminalOutcomeV1> {
+  ): Promise<RepoWriteExecutionOutcome> {
     const result = await execute(proceeding);
+    if (result.kind === "accepted") return this.accept(proceeding, result);
     return this.store.terminalize({
       ...this.axes,
       outerOpId: proceeding.outerOpId,
@@ -130,6 +174,82 @@ export class RepoWriteDurableOperationController {
       receipt: result.receipt,
       authorityEvidence: result.authorityEvidence
     });
+  }
+
+  private accept(
+    proceeding: RepoWriteProceedingOutcomeV1,
+    result: RepoWriteAcceptedExecutionResult
+  ): RepoWriteAcceptedResult {
+    const pending = pendingCommandReceiptSettlement({
+      receiptId: proceeding.outerOpId,
+      acceptedAt: this.now().toISOString(),
+      sessionId: result.acceptance.sessionId,
+      acceptedCommitSha: result.acceptedCommitSha,
+      authorityOperationIds: [result.acceptance.flush.watermark]
+    });
+    const receipt = withCommandReceiptSettlement(result.receipt, pending);
+    this.settlements.accept(receipt);
+    const completion = result.settlement.then(
+      (evidence) => this.completeSettlement(proceeding, receipt, pending, evidence),
+      (error) => this.failSettlement(receipt, pending, error)
+    );
+    this.activeSettlements.add(completion);
+    void completion.finally(() => this.activeSettlements.delete(completion));
+    return { kind: "accepted", outerOpId: proceeding.outerOpId, receipt };
+  }
+
+  private completeSettlement(
+    proceeding: RepoWriteProceedingOutcomeV1,
+    acceptedReceipt: CommandReceiptEnvelope,
+    pending: Extract<NonNullable<typeof acceptedReceipt.settlement>, { readonly canonicalVisibility: "pending" }>,
+    evidence: RepoWriteTerminalEvidenceV1
+  ): void {
+    if (evidence.tag !== "COMMITTED") {
+      this.failSettlement(
+        acceptedReceipt,
+        pending,
+        new Error(`AUTHORITY_SETTLEMENT_${evidence.tag}:${"reason" in evidence ? evidence.reason : "canonical publication was not committed"}`)
+      );
+      return;
+    }
+    let terminalized = false;
+    try {
+      const visible = visibleCommandReceiptSettlement(
+        pending,
+        evidence.commitSha,
+        this.now().toISOString()
+      );
+      const receipt = withCommandReceiptSettlement(acceptedReceipt, visible);
+      this.store.terminalize({
+        ...this.axes,
+        outerOpId: proceeding.outerOpId,
+        requestDigest: proceeding.requestDigest,
+        receipt,
+        authorityEvidence: evidence
+      });
+      terminalized = true;
+      this.settlements.visible(receipt);
+    } catch (error) {
+      // The canonical terminal outcome is already the stronger durable truth.
+      // Keep the accepted sidecar pending for startup reconciliation instead
+      // of manufacturing a false failed-while-visible successor.
+      if (terminalized) return;
+      this.failSettlement(acceptedReceipt, pending, error);
+    }
+  }
+
+  private failSettlement(
+    acceptedReceipt: CommandReceiptEnvelope,
+    pending: Extract<NonNullable<typeof acceptedReceipt.settlement>, { readonly canonicalVisibility: "pending" }>,
+    error: unknown
+  ): void {
+    const failure = settlementFailure(error);
+    const failed = failedCommandReceiptSettlement(pending, {
+      failedAt: this.now().toISOString(),
+      ...failure
+    });
+    const receipt = withCommandReceiptSettlement(acceptedReceipt, failed);
+    this.settlements.fail(receipt);
   }
 
   private async serialize<Result>(

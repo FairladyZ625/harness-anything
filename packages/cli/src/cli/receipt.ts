@@ -89,7 +89,15 @@ export function renderReceiptText(receipt: CommandReceiptEnvelope): string {
 
 function renderSuccessReceiptText(receipt: CommandReceipt): string {
   const data = receiptDetailsData(receipt);
-  const parts = [`ok`, `command=${formatToken(receipt.command)}`];
+  const settlement = receipt.settlement;
+  const parts = [
+    settlement?.canonicalVisibility === "pending"
+      ? "pending"
+      : settlement?.canonicalVisibility === "failed"
+        ? "settlement-failed"
+        : "ok",
+    `command=${formatToken(receipt.command)}`
+  ];
   const rootResolution = receiptRootResolution(receipt.details?.rootResolution);
   if (rootResolution) {
     parts.push(`root=${formatToken(rootResolution.root)}`);
@@ -116,7 +124,13 @@ function renderSuccessReceiptText(receipt: CommandReceipt): string {
   }
   const mode = launchMode(data.launchPlan);
   if (mode) parts.push(`mode=${formatToken(mode.mode)}`, `package=${formatToken(mode.packageName)}`);
-  parts.push(`summary=${formatToken(receipt.summary)}`);
+  if (settlement) {
+    parts.push(`durability=${formatToken(settlement.durability)}`);
+    parts.push(`canonicalVisibility=${formatToken(settlement.canonicalVisibility)}`);
+    parts.push(`receiptId=${formatToken(settlement.receiptId)}`);
+    parts.push(`status=${formatToken(settlement.statusQuery.command)}`);
+  }
+  parts.push(`summary=${formatToken(honestSettlementSummary(receipt.summary, settlement?.canonicalVisibility))}`);
   return parts.join(" ");
 }
 
@@ -134,13 +148,32 @@ function renderCompletionText(receipt: CommandReceipt): string {
 }
 
 function renderFailureReceiptText(receipt: CommandFailureReceipt): string {
+  const settlement = receipt.settlement;
   const parts = [
     "error",
     `code=${formatToken(receipt.error?.code ?? "unknown")}`,
     `hint=${formatToken(receipt.error?.hint ?? "Command failed.")}`
   ];
-  for (const action of receipt.next ?? []) parts.push(`next=${formatToken(action.command)}`);
+  if (settlement) {
+    parts.push(`durability=${formatToken(settlement.durability)}`);
+    parts.push(`canonicalVisibility=${formatToken(settlement.canonicalVisibility)}`);
+    parts.push(`receiptId=${formatToken(settlement.receiptId)}`);
+    parts.push(`status=${formatToken(settlement.statusQuery.command)}`);
+    parts.push(`acceptance=${formatToken("One or more writes were durably accepted; query settlement before any replay.")}`);
+  } else {
+    for (const action of receipt.next ?? []) parts.push(`next=${formatToken(action.command)}`);
+  }
   return parts.join(" ");
+}
+
+function honestSettlementSummary(
+  summary: string,
+  visibility: "pending" | "visible" | "failed" | undefined
+): string {
+  if (visibility !== "pending") return summary;
+  return summary
+    .replace(/\bcompleted\b/giu, "accepted")
+    .replace(/\bcomplete\b/giu, "accepted");
 }
 
 function renderPresetListText(receipt: CommandReceipt): string {

@@ -7,6 +7,7 @@ import test from "node:test";
 import { Effect } from "effect";
 import { makeJournaledWriteCoordinator, runLedgerMaterializer, taskEntityId } from "../../kernel/src/index.ts";
 import {
+  assertPendingReceiptSettlement,
   pollUntil,
   runDaemonCommand,
   runRawJsonAsyncMaybeFail,
@@ -120,6 +121,12 @@ test("task relate reports an inspect-first indeterminate receipt when canonical 
     if (process.env.HARNESS_CAPTURE_RECEIPT_HONESTY === "1") {
       process.stdout.write(`RECEIPT_HONESTY_CLI_OUTPUT_START\n${result.stdout}RECEIPT_HONESTY_CLI_OUTPUT_END\n`);
     }
+    const operation = await pollUntil(
+      () => latestAuthorityOperation(fixture.serviceRoot),
+      (record) => record.state === "INDETERMINATE",
+      (record, error) => JSON.stringify({ record, error: String(error ?? "") }),
+      { timeoutMs: 20_000 }
+    );
     const finalHead = git(fixture.authoredRoot, "rev-parse", "HEAD");
     const finalParents = git(
       fixture.authoredRoot,
@@ -140,9 +147,15 @@ test("task relate reports an inspect-first indeterminate receipt when canonical 
       "1",
       finalSessionCommit
     ).split(" ").slice(1);
-    const operation = latestAuthorityOperation(fixture.serviceRoot);
-    assert.equal(finalParents[0], controlledAdvanceHead);
-    assert.deepEqual(finalSessionParents, [controlledAdvanceHead]);
+    assert.deepEqual(finalSessionParents, [finalParents[0]]);
+    assert.match(
+      git(
+        fixture.authoredRoot,
+        "show",
+        `${finalHead}:tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/progress.md`
+      ),
+      /controlled canonical head advance before relate publication proof/u
+    );
     assert.equal(
       git(
         fixture.authoredRoot,
@@ -156,31 +169,29 @@ test("task relate reports an inspect-first indeterminate receipt when canonical 
     assert.equal(git(fixture.authoredRoot, "diff", "--quiet", finalHead, finalSessionCommit), "");
     assert.equal(operation.state, "INDETERMINATE", JSON.stringify(operation));
     assert.equal(operation.receipt?.tag, "INDETERMINATE", JSON.stringify(operation));
-    assert.equal(result.status, 1, result.stdout);
-    assert.equal(result.receipt.ok, false, result.stdout);
-    const error = result.receipt.error as { readonly code?: unknown; readonly hint?: unknown; readonly context?: unknown } | undefined;
-    assert.equal(error?.code, "write_rejected", result.stdout);
-    assert.match(String(error?.hint), /publication outcome is indeterminate/iu);
-    assert.match(String(error?.hint), /AUTHORITY_CANONICAL_PUBLICATION_NON_LINEAR/u);
-    assert.match(String(error?.hint), new RegExp(`expectedPreviousHead=${staleExpectedPreviousHead}`, "u"));
-    assert.match(String(error?.hint), new RegExp(`head=${finalHead}`, "u"));
-    assert.match(String(error?.hint), new RegExp(`actualParents=${finalParents.join(",")}`, "u"));
-    assert.match(String(error?.hint), new RegExp(`actualSessionParents=${finalSessionParents.join(",")}`, "u"));
-    assert.match(String(error?.hint), /actualParents=/u);
-    assert.match(String(error?.hint), /mergeTreeMatchesSession=true/u);
-    assert.match(String(error?.hint), /inspect[\s\S]*before retrying/iu);
-    assert.match(String(error?.hint), /do not retry this exact command blindly/iu);
-    assert.doesNotMatch(String(error?.hint), /then retry the command/iu);
-    assert.deepEqual(error?.context, {
-      schema: "authority-publication-outcome-indeterminate/v1",
-      authorityState: "INDETERMINATE",
-      workspaceId: "workspace-production",
-      opId: (error?.context as { readonly opId?: unknown } | undefined)?.opId,
-      evidence: (error?.context as { readonly evidence?: unknown } | undefined)?.evidence
-    });
-    const publicationEvidence = String(
-      (error?.context as { readonly evidence?: unknown } | undefined)?.evidence
+    assert.equal(result.status, 0, result.stdout);
+    assert.equal(result.receipt.ok, true, result.stdout);
+    const pending = assertPendingReceiptSettlement(result.receipt);
+    assert.deepEqual(pending.authorityOperationIds, [operation.opId]);
+    const settlementStatus = await pollUntil(
+      () => runDaemonCommand(
+        fixture.repoRoot,
+        ["receipt", "status", pending.receiptId, "--json"],
+        env
+      ),
+      (receipt) => receipt.details?.data?.state === "settlement-failed",
+      (receipt, error) => JSON.stringify({ receipt, error: String(error ?? "") }),
+      { timeoutMs: 20_000 }
     );
+    const failedSettlement = settlementStatus.details?.data?.receipt?.settlement;
+    assert.equal(failedSettlement?.canonicalVisibility, "failed", JSON.stringify(settlementStatus));
+    assert.equal(failedSettlement?.receiptId, pending.receiptId, JSON.stringify(settlementStatus));
+    assert.equal(failedSettlement?.failure?.stage, "publication-proof", JSON.stringify(settlementStatus));
+    assert.equal(failedSettlement?.failure?.retryable, true, JSON.stringify(settlementStatus));
+    assert.equal(failedSettlement?.failure?.recoveryCommand, "ha materializer run --json", JSON.stringify(settlementStatus));
+    const publicationEvidence = String(failedSettlement?.failure?.message);
+    assert.match(publicationEvidence, /PUBLICATION_PROOF_FAILED/u);
+    assert.match(publicationEvidence, /AUTHORITY_CANONICAL_PUBLICATION_NON_LINEAR/u);
     assert.match(publicationEvidence, new RegExp(`expectedPreviousHead=${staleExpectedPreviousHead}`, "u"));
     assert.match(publicationEvidence, new RegExp(`head=${finalHead}`, "u"));
     assert.match(publicationEvidence, new RegExp(`actualParents=${finalParents.join(",")}`, "u"));
@@ -203,7 +214,7 @@ test("task relate reports an inspect-first indeterminate receipt when canonical 
           expectedPreviousHeadIsAncestorOfPublication: true,
           canonicalMutationPresent: true,
           validatorCode: "AUTHORITY_CANONICAL_PUBLICATION_NON_LINEAR",
-          receiptCode: error?.code,
+          receiptCode: failedSettlement?.failure?.code,
           inspectFirst: true,
           mergeTreeMatchesSession: true
         }, null, 2),

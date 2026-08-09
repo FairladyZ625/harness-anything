@@ -3,6 +3,7 @@ import {
   type RegistryMutationPlanInput,
   type SemanticDiffDocumentPolicy
 } from "@harness-anything/kernel";
+import type { CommandReceiptSettlement } from "./command-receipt.ts";
 
 export interface RegistryRow {
   readonly id: string;
@@ -114,6 +115,10 @@ export type DocSyncSubmitResultV1 =
     readonly baseLedgerSha: string;
     readonly appliedLedgerSha: string;
     readonly rebasedFromLedgerSha?: string;
+    /** Additive writer receipt truth; absent for legacy/direct compositions. */
+    readonly settlement?: CommandReceiptSettlement;
+    /** Explicit capability proof for compatibility paths that still settle synchronously. */
+    readonly settlementMode?: "synchronous-canonical-final/v1";
     readonly appliedChanges: ReadonlyArray<{
       readonly path: string;
       readonly baseBlobSha256: string | null;
@@ -146,6 +151,10 @@ export type DocSyncSubmitResultV1 =
       readonly actualBytes: number;
       readonly maximumBytes: number;
       readonly excessBytes: number;
+    };
+    readonly outcomeUnknown?: {
+      readonly receiptId: string;
+      readonly statusCommand: string;
     };
   };
 

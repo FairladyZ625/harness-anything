@@ -9,7 +9,10 @@ import type { DocSyncSubmitRequestV1 } from "@harness-anything/application";
 import { sha256Text } from "@harness-anything/kernel";
 import type { AuthenticatedActor } from "../src/identity/types.ts";
 import type { AuthorityConnectionDispatch } from "../src/protocol/connection-context.ts";
-import { RepoWriteIpcPayloadTooLargeError } from "../src/runtime/repo-write-client-errors.ts";
+import {
+  RepoWriteIpcPayloadTooLargeError,
+  RepoWriteOutcomeUnknownError
+} from "../src/runtime/repo-write-client-errors.ts";
 import {
   parseRepoWriteParentMessage,
   repoWriteProtocolType,
@@ -72,6 +75,34 @@ test("doc-sync dispatch rejects an externally supplied writer-working-tree conte
     assert.match(result.reason, /internal writer-working-tree content kind/u);
   }
   assert.equal(directCalls, 0);
+});
+
+test("doc-sync durable outcome-unknown exposes its stable receipt lookup and forbids replay", async () => {
+  const actor = dispatchInput(request(), async () => acceptedReceipt());
+  const result = await dispatchDocSyncSubmitToWriter({
+    ...actor,
+    supervisor: {
+      submit: async () => {
+        throw new RepoWriteOutcomeUnknownError(
+          "EXECUTION_OUTCOME_UNKNOWN",
+          "session commit may already exist",
+          "repo-write:doc-sync-stable"
+        );
+      },
+      direct: async () => {
+        throw new Error("non-empty doc sync must not use the volatile direct lane");
+      }
+    } as unknown as RepoWriteProcessSupervisor
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.retryable, false);
+  assert.deepEqual(result.outcomeUnknown, {
+    receiptId: "repo-write:doc-sync-stable",
+    statusCommand: "ha receipt status repo-write:doc-sync-stable --json"
+  });
+  assert.match(result.reason, /do not retry/iu);
 });
 
 test("doc-sync's actual dispatch producer survives strict parent-frame serialization", async () => {
@@ -267,7 +298,7 @@ function dispatchInput(
     request: docSyncRequest,
     actor,
     authority,
-    supervisor: { direct } as unknown as RepoWriteProcessSupervisor
+    supervisor: { direct, submit: direct } as unknown as RepoWriteProcessSupervisor
   };
 }
 

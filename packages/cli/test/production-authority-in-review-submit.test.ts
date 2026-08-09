@@ -4,16 +4,18 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
+  assertPendingReceiptSettlement,
   defaultDaemonUserRoot,
   pollUntil,
   runDaemonCommand,
   runRawJsonMaybeFail,
-  stopDaemon
+  stopDaemon,
+  waitForReceiptCommitted
 } from "./helpers/daemon-cli.ts";
 import {
   createFixture,
+  authorityOperationRecords,
   git,
-  latestAuthorityOperation,
   writeColdCodexSessionLog
 } from "./production-authority-canonical-ingress/fixture.ts";
 
@@ -78,6 +80,13 @@ test("production daemon authority submits an active recovery round while the tas
     assert.equal(started.status, 0, JSON.stringify(started.receipt));
     assert.equal(started.receipt.ok, true, JSON.stringify(started.receipt));
     assert.equal(
+      (started.receipt.details as { readonly data?: { readonly report?: { readonly reused?: unknown } } })
+        .data?.report?.reused,
+      true,
+      JSON.stringify(started.receipt)
+    );
+    assert.equal(started.receipt.settlement, undefined, JSON.stringify(started.receipt));
+    assert.equal(
       readFileSync(executionPath, "utf8").includes(`session/${workerSessionId}`),
       true
     );
@@ -96,6 +105,26 @@ test("production daemon authority submits an active recovery round while the tas
     ], { ...env, CODEX_THREAD_ID: submitterSessionId });
     assert.equal(submitted.status, 0, JSON.stringify(submitted.receipt));
     assert.equal(submitted.receipt.ok, true, JSON.stringify(submitted.receipt));
+    const submittedPending = assertPendingReceiptSettlement(submitted.receipt);
+    await waitForReceiptCommitted(
+      fixture.repoRoot,
+      submittedPending.receiptId,
+      { ...env, CODEX_THREAD_ID: submitterSessionId }
+    );
+    const committedOperations = await pollUntil(
+      () => authorityOperationRecords(fixture.serviceRoot),
+      (records) => {
+        const byId = new Map(records.map((record) => [record.opId, record]));
+        return submittedPending.authorityOperationIds.every((opId) =>
+          byId.get(opId)?.state === "COMMITTED");
+      },
+      (records, error) => JSON.stringify({
+        opIds: submittedPending.authorityOperationIds,
+        records,
+        error: String(error ?? "")
+      }),
+      { timeoutMs: 20_000 }
+    );
     assert.equal(
       readFileSync(path.join(fixture.authoredRoot, "sessions", `${workerSessionId}.md`), "utf8").includes(workerSessionId),
       true
@@ -105,7 +134,12 @@ test("production daemon authority submits an active recovery round while the tas
       readFileSync(path.join(taskRoot, "executions", `${executionId}.md`), "utf8"),
       /^  "state": "submitted",$/mu
     );
-    assert.equal(latestAuthorityOperation(fixture.serviceRoot).state, "COMMITTED");
+    const committedById = new Map(committedOperations.map((record) => [record.opId, record]));
+    assert.equal(
+      submittedPending.authorityOperationIds.every((opId) => committedById.get(opId)?.receipt?.tag === "COMMITTED"),
+      true,
+      JSON.stringify(committedOperations)
+    );
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
     rmSync(fixture.root, { recursive: true, force: true });

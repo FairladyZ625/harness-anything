@@ -17,6 +17,7 @@ import {
 import type { RepoWriteClientLimits, RepoWriteClientOptions } from "./repo-write-client-contract.ts";
 import { resolveRepoWriteClientLimits } from "./repo-write-client-limits.ts";
 import { RepoWriteClientReadyGate } from "./repo-write-client-ready.ts";
+import { repoWriteLookupResultFromStatus } from "./repo-write-client-settlement.ts";
 import { disconnectRepoWritePendingRequests } from "./repo-write-client-disconnect.ts";
 import {
   expireRepoWritePendingSubmit,
@@ -279,6 +280,20 @@ export class RepoWriteClient {
       this.dispatchProceed(pending);
       return;
     }
+    if (message.kind === "accepted") {
+      const pending = this.pending.get(message.requestId);
+      if (!pending || pending.opId !== message.opId
+        || (pending.phase !== "prepared" && pending.phase !== "proceeded")) {
+        this.failProtocol("Repo writer accepted correlation does not match the prepared request.");
+        return;
+      }
+      advanceRepoWritePhase("parent", "accepted", pending.phase);
+      clearTimeout(pending.timer);
+      this.pending.delete(message.requestId);
+      finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
+      pending.resolve(message.receipt);
+      return;
+    }
     if (message.kind === "terminal") {
       const pending = this.pending.get(message.requestId);
       if (!pending || pending.opId !== message.opId
@@ -319,13 +334,7 @@ export class RepoWriteClient {
       clearTimeout(pending.timer);
       this.pendingLookups.delete(message.requestId);
       finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
-      if (message.state === "committed") {
-        pending.resolve({ state: "committed", outcome: "committed", receipt: message.receipt });
-      } else if (message.state === "rejected") {
-        pending.resolve({ state: "rejected", outcome: "rejected", receipt: message.receipt });
-      } else {
-        pending.resolve({ state: message.state });
-      }
+      pending.resolve(repoWriteLookupResultFromStatus(message));
       return;
     }
     if (message.kind === "telemetry") {

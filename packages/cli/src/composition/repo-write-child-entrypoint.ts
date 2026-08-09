@@ -1,5 +1,7 @@
 import { realpathSync } from "node:fs";
 import path from "node:path";
+import { setImmediate as nextEventLoopTurn } from "node:timers/promises";
+import { Effect } from "effect";
 import {
   createDaemonGenerationWitness,
   calculateDaemonArtifactIdentity,
@@ -10,13 +12,13 @@ import {
   DurableRepoWriteOutcomeStoreV1,
   loadAuthorityProductionManifest,
   ProductionRepoWriteOperationHost,
+  ReceiptSettlementStore,
   RepoWriteAuthorityRecoveryGate,
   RepoWriteChildIpcTransport,
   failureReceipt,
   makeDaemonQueuedWriteCoordinator,
   makeDocSyncService,
   materializeDocSyncWriterWorkingTree,
-  successReceipt,
   type HarnessDaemonRuntime
 } from "@harness-anything/daemon";
 import type {
@@ -25,7 +27,8 @@ import type {
 } from "@harness-anything/application";
 import {
   resolveHarnessLayout,
-  type RetryBudgetSignal
+  type FlushReport,
+  type WriteCoordinator
 } from "@harness-anything/kernel";
 import { defaultCliAdapterProvider } from "./adapter-registry.ts";
 import { cliDaemonCommandHostServices } from "./daemon-command-host-services.ts";
@@ -33,8 +36,16 @@ import { cliDaemonServiceHostServices } from "./daemon-service-host-services.ts"
 import { daemonActorAttribution } from "./actor-attribution.ts";
 import { makeIncrementalConflictMarkerPreflight } from "./incremental-conflict-marker-preflight.ts";
 import {
+  reconcileTerminalSettlements,
+  canonicalCommitContaining,
+  createReceiptSettlementRecoveryLoop,
+  recoverPendingSettlementMaterialization,
+} from "./receipt-settlement-runtime.ts";
+import { buildDocSyncCommandReceipt } from "./doc-sync-command-receipt.ts";
+import {
   createCliProductionAuthorityLifecycle
 } from "./production-authority-lifecycle.ts";
+import { createRepoWriteRetryBudgetSignalForwarder } from "./repo-write-retry-budget-signal-forwarder.ts";
 import { makeDaemonReservationReconciler } from "@harness-anything/daemon";
 
 type RepoWriteStartupProgressPhase = Extract<
@@ -69,33 +80,12 @@ export async function runRepoWriteChildEntrypoint(
   if (!encodedConfig) throw new Error("REPO_WRITE_CHILD_LAUNCH_CONFIG_REQUIRED");
   const config = decodeRepoWriteChildLaunchConfig(encodedConfig);
   const transport = new RepoWriteChildIpcTransport();
-  const onPublicationRetryBudgetSignal = (signal: RetryBudgetSignal): void => {
-    const deliveryFailure = (error: unknown): void => {
-      process.emitWarning(
-        `Repo-write child could not forward publication retry-budget visibility to the parent daemon: ${boundedRecoveryError(error)}`,
-        { code: "REPO_WRITE_RETRY_BUDGET_SIGNAL_DELIVERY_FAILED" }
-      );
-    };
-    try {
-      void transport.send({
-        protocol: "harness-repo-write-ipc/v1",
-        repoId: config.repoId,
-        generation: config.generation,
-        kind: "retry-budget-signal",
-        phase: signal.phase,
-        operation: signal.event.operation,
-        cause: boundedRecoveryError(signal.event.cause),
-        failures: signal.event.failures,
-        retriesUsed: signal.event.retriesUsed,
-        elapsedMs: signal.event.elapsedMs,
-        ...(signal.event.remainingMs === undefined ? {} : {
-          remainingMs: signal.event.remainingMs
-        })
-      }).catch(deliveryFailure);
-    } catch (error) {
-      deliveryFailure(error);
-    }
-  };
+  const onPublicationRetryBudgetSignal = createRepoWriteRetryBudgetSignalForwarder({
+    transport,
+    repoId: config.repoId,
+    generation: config.generation,
+    formatError: boundedRecoveryError
+  });
   const reportStartupProgress = async (
     phase: RepoWriteStartupProgressPhase,
     workUnit = config.repoId
@@ -199,6 +189,16 @@ export async function runRepoWriteChildEntrypoint(
     workspaceId: authorityRepo.workspaceId,
     generation: config.generation
   });
+  const settlements = new ReceiptSettlementStore({
+    directory: path.join(
+      manifest.serviceStateRoot,
+      "receipt-settlements",
+      Buffer.from(config.repoId, "utf8").toString("base64url")
+    ),
+    repoId: config.repoId,
+    workspaceId: authorityRepo.workspaceId,
+    generation: config.generation
+  });
   const publicationInspector = createGitCanonicalPublicationInspector(
     resolveHarnessLayout({
       rootDir: config.canonicalRoot,
@@ -251,12 +251,30 @@ export async function runRepoWriteChildEntrypoint(
     await runtime.stop();
     throw new Error(started.error);
   }
-  historicalRecovery.recover = (outcome) => {
+  const recoverAuthorityCommittedReceipt = (opId: string) => {
     if (!started.component.recoverCommittedReceipt) {
       throw new Error("AUTHORITY_COMMITTED_RECEIPT_RECOVERY_UNAVAILABLE");
     }
-    return started.component.recoverCommittedReceipt(outcome.innerOpId);
+    return started.component.recoverCommittedReceipt(opId);
   };
+  historicalRecovery.recover = (outcome) =>
+    recoverAuthorityCommittedReceipt(outcome.innerOpId);
+  const authoredRoot = resolveHarnessLayout({
+    rootDir: config.canonicalRoot,
+    ...(layoutOverrides ? { layoutOverrides } : {})
+  }).authoredRoot;
+  const recoverSettlements = async (budgetMs = 5_000) => {
+    await recoverPendingSettlementMaterialization({
+      settlements,
+      outcomes,
+      runtime,
+      authoredRoot,
+      deadlineAt: Date.now() + budgetMs,
+      recoverCommittedReceipt: recoverAuthorityCommittedReceipt
+    });
+    reconcileTerminalSettlements(settlements, outcomes);
+  };
+  await recoverSettlements(remainingStartupRecoveryBudgetMs());
   const startupRecoveryBudgetMs = remainingStartupRecoveryBudgetMs();
   const startupRecoveryDeadline = Date.now() + startupRecoveryBudgetMs;
   await reportStartupProgress("historical-recovery-scan");
@@ -320,7 +338,9 @@ export async function runRepoWriteChildEntrypoint(
       + "retried on the next start\n"
     );
   }
+  reconcileTerminalSettlements(settlements, outcomes);
   await reportStartupProgress("child-host-start");
+  let settlementRecoveryLoop: ReturnType<typeof createReceiptSettlementRecoveryLoop> | undefined;
   const operation = new ProductionRepoWriteOperationHost({
     repoId: config.repoId,
     workspaceId: authorityRepo.workspaceId,
@@ -329,19 +349,21 @@ export async function runRepoWriteChildEntrypoint(
     authorityComponent: started.component,
     hostServices: cliDaemonCommandHostServices,
     outcomeStore: outcomes,
+    settlementStore: settlements,
     resolveHistoricalPublication,
     recoverHistoricalCommittedReceipt: historicalRecovery.recover,
     conflictMarkerPreflight: conflictMarkerPreflight.read,
+    recoverSettlements,
     executeDocSyncSubmit: async ({ command, decoded }) => {
       const wireCommand = command.payload.command as {
         readonly request?: DocSyncSubmitRequestV1;
       };
       if (!wireCommand.request) {
-        return failureReceipt(
+        return { receipt: failureReceipt(
           "repo.doc.sync.submit",
           "doc_sync_invalid_payload",
           "The writer child received no doc-sync request."
-        );
+        ) };
       }
       const materialized = materializeDocSyncWriterWorkingTree(
         {
@@ -361,40 +383,80 @@ export async function runRepoWriteChildEntrypoint(
           reason: `The writer child rejected a working-tree reference: ${materialized.reason}`,
           retryable: false
         };
-        return failureReceipt(
+        return { receipt: failureReceipt(
           "repo.doc.sync.submit",
           result.code,
           result.reason,
           { data: result as unknown as import("@harness-anything/daemon").JsonObject }
-        );
+        ) };
       }
       const attribution = daemonActorAttribution(decoded.actor, decoded.executor);
+      const queued = makeDaemonQueuedWriteCoordinator(
+        runtime,
+        `doc-sync-submit:${wireCommand.request.payload.intentId}`,
+        {
+          attribution: attribution.writeAttribution,
+          commitAuthor: attribution.commitAuthor,
+          ...(wireCommand.request.session?.sessionId
+            ? { sessionId: wireCommand.request.session.sessionId }
+            : {})
+        }
+      );
+      let durableFlush: FlushReport | undefined;
+      const coordinator: WriteCoordinator = {
+        enqueue: queued.enqueue,
+        flush: (reason) => Effect.tap(queued.flush(reason), (flush) => Effect.sync(() => {
+          durableFlush = flush;
+        })),
+        recover: queued.recover
+      };
       const result = await makeDocSyncService({
         rootDir: config.canonicalRoot,
         ...(layoutOverrides ? { layoutOverrides } : {}),
         hostServices: cliDaemonServiceHostServices.docSync,
-        coordinator: makeDaemonQueuedWriteCoordinator(
-          runtime,
-          `doc-sync-submit:${wireCommand.request.payload.intentId}`,
-          {
-            attribution: attribution.writeAttribution,
-            commitAuthor: attribution.commitAuthor,
-            ...(wireCommand.request.session?.sessionId
-              ? { sessionId: wireCommand.request.session.sessionId }
-              : {})
-          }
-        )
+        coordinator
       }).submit(materialized.request);
-      return result.ok
-        ? successReceipt("repo.doc.sync.submit", "completed repo.doc.sync.submit", result as unknown as import("@harness-anything/daemon").JsonObject)
-        : failureReceipt("repo.doc.sync.submit", result.code, result.reason, {
-          data: result as unknown as import("@harness-anything/daemon").JsonObject
+      if (result.ok) {
+        const receipt = buildDocSyncCommandReceipt({
+          result,
+          sessionId: decoded.currentSession.sessionId,
+          acceptedAt: new Date().toISOString(),
+          includeSettlement: false
         });
+        if (result.appliedChanges.length === 0) {
+          return { receipt, terminalCommitSha: result.appliedLedgerSha };
+        }
+        if (!durableFlush?.committed || !durableFlush.watermark) {
+          throw new Error("DOC_SYNC_DURABLE_FLUSH_PROOF_MISSING");
+        }
+        const authoredRoot = resolveHarnessLayout({
+          rootDir: config.canonicalRoot,
+          ...(layoutOverrides ? { layoutOverrides } : {})
+        }).authoredRoot;
+        return {
+          receipt,
+          durable: {
+            sessionId: decoded.currentSession.sessionId,
+            acceptedCommitSha: result.appliedLedgerSha,
+            flush: { ...durableFlush, committed: true, watermark: durableFlush.watermark },
+            settle: async () => {
+              await nextEventLoopTurn();
+              await runtime.enqueueMaterializerBatch({ sessionId: decoded.currentSession.sessionId });
+              return canonicalCommitContaining(authoredRoot, result.appliedLedgerSha);
+            }
+          }
+        };
+      }
+      return { receipt: failureReceipt("repo.doc.sync.submit", result.code, result.reason, {
+          data: result as unknown as import("@harness-anything/daemon").JsonObject
+        }) };
     }
   });
   let cleanupPromise: Promise<void> | undefined;
   const cleanup = () => {
     cleanupPromise ??= (async () => {
+      settlementRecoveryLoop?.stop();
+      await operation.settlementIdle();
       await authorityLifecycle.stopRepo(repo, "daemon-shutdown");
       await runtime!.stop();
     })();
@@ -425,6 +487,13 @@ export async function runRepoWriteChildEntrypoint(
       void cleanup().then(resolve, reject);
     });
     void childHost.start().then(() => {
+      settlementRecoveryLoop = createReceiptSettlementRecoveryLoop({
+        intervalMs: 1_000,
+        recover: recoverSettlements,
+        onError: (error) => process.stderr.write(
+          `[repo-write-child] receipt settlement recovery deferred: ${boundedRecoveryError(error)}\n`
+        )
+      });
       startupPhase.mark("child-host-start-ready");
       startupPhase.reportTotal();
     }).catch(async (error: unknown) => {
