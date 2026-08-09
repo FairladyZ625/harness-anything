@@ -1,5 +1,9 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import type { ReplicaChangeLog, ReplicaChangeRecord } from "@harness-anything/application";
+import type {
+  AuthorityPublicationExecutionContext,
+  ReplicaChangeLog,
+  ReplicaChangeRecord
+} from "@harness-anything/application";
 import type { AuthorityReadDownService } from "./forced-command-session.ts";
 import type {
   AuthorityChangesAfterResult,
@@ -33,7 +37,9 @@ export function createAuthorityReadDownService(input: {
   readonly replicaChangeLog: ReplicaChangeLog;
   readonly content: AuthorityReplicationContentStore;
   readonly publicationExecutor: {
-    readonly run: <Result>(publication: () => Promise<Result>) => Promise<Result>;
+    readonly run: <Result>(publication: (
+      context: AuthorityPublicationExecutionContext
+    ) => Promise<Result>) => Promise<Result>;
   };
   readonly now?: () => Date;
   readonly leaseTtlMs?: number;

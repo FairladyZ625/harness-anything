@@ -433,7 +433,12 @@ export function makeHeldLockAttributedCoordinatorFactory(
                   `AUTHORITY_SESSION_MATERIALIZATION_FAILED:sessionId=${sessionId};status=${branch?.status ?? "missing"};commitCount=${branch?.commitCount ?? 0};warning=${branch?.warning ?? "none"}`
                 );
               }
-              return report;
+              return {
+                ...report,
+                ...(publication.canonicalCommitSha
+                  ? { canonicalCommitSha: publication.canonicalCommitSha }
+                  : {})
+              };
             },
             catch: (cause): WriteError => isAuthorityLifecycleWriteError(cause)
               ? cause

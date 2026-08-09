@@ -17,7 +17,13 @@ import {
   recoverPendingSettlementMaterialization
 } from "../src/composition/receipt-settlement-runtime.ts";
 
-test("a restarted writer recovers durable acceptance after a materializer crash", async () => {
+const durableSettlementStore = {
+  skip: process.platform === "win32"
+    ? "durable generation publication is unsupported on Windows"
+    : false
+};
+
+test("a restarted writer recovers durable acceptance after a materializer crash", durableSettlementStore, async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-receipt-recovery-"));
   try {
     const authoredRoot = path.join(root, "harness");
@@ -135,7 +141,7 @@ test("continuous settlement recovery keeps sweeping after READY until backlog cl
   }
 });
 
-test("generic authority pending is promoted from canonical ancestry even before outer terminal repair", async () => {
+test("generic authority pending is promoted from canonical ancestry even before outer terminal repair", durableSettlementStore, async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-generic-receipt-recovery-"));
   try {
     const authoredRoot = path.join(root, "harness");

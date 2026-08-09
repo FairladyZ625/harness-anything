@@ -17,7 +17,13 @@ import {
   withCommandReceiptSettlement
 } from "../src/index.ts";
 
-test("durable acceptance survives a daemon generation restart", () => {
+const durableSettlementStore = {
+  skip: process.platform === "win32"
+    ? "durable generation publication is unsupported on Windows"
+    : false
+};
+
+test("durable acceptance survives a daemon generation restart", durableSettlementStore, () => {
   withStores(({ directory, first }) => {
     const accepted = acceptedReceipt("receipt-crash", "session-crash", "a");
     first.accept(accepted);
@@ -39,7 +45,7 @@ test("durable acceptance survives a daemon generation restart", () => {
   });
 });
 
-test("concurrent receipts may settle out of acceptance order without crossing identity", () => {
+test("concurrent receipts may settle out of acceptance order without crossing identity", durableSettlementStore, () => {
   withStores(({ first }) => {
     const acceptedA = acceptedReceipt("receipt-A", "session-A", "a");
     const acceptedB = acceptedReceipt("receipt-B", "session-B", "b");
@@ -65,7 +71,7 @@ test("concurrent receipts may settle out of acceptance order without crossing id
   });
 });
 
-test("publication proof and evidence failures remain queryable after acceptance", async () => {
+test("publication proof and evidence failures remain queryable after acceptance", durableSettlementStore, async () => {
   await withStoresAsync(async ({ first }) => {
     for (const [index, failure] of [
       ["proof", "PUBLICATION_PROOF_FAILED: immutable proof mismatch"],
@@ -110,7 +116,7 @@ test("publication proof and evidence failures remain queryable after acceptance"
   });
 });
 
-test("a command failure after durable admission still returns a queryable receipt", () => {
+test("a command failure after durable admission still returns a queryable receipt", durableSettlementStore, () => {
   withStores(({ first }) => {
     const receipt = settleDirectAuthorityCommandReceipt({
       receipt: {
@@ -148,7 +154,7 @@ test("a command failure after durable admission still returns a queryable receip
   });
 });
 
-test("corrupt failure evidence is skipped with a warning while valid settlement truth remains queryable", () => {
+test("corrupt failure evidence is skipped with a warning while valid settlement truth remains queryable", durableSettlementStore, () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "ha-receipt-settlement-corrupt-"));
   const warnings: string[] = [];
   try {
@@ -177,7 +183,7 @@ test("corrupt failure evidence is skipped with a warning while valid settlement 
   }
 });
 
-test("failure history is compacted to a bounded number of evidence files", () => {
+test("failure history is compacted to a bounded number of evidence files", durableSettlementStore, () => {
   withStores(({ directory, first }) => {
     const accepted = acceptedReceipt("receipt-bounded-failures", "session-bounded", "a");
     first.accept(accepted);

@@ -16,7 +16,12 @@ import {
   type WriteOp
 } from "../../kernel/src/index.ts";
 import { daemonActorAttribution } from "../src/composition/actor-attribution.ts";
-import { makeDaemonAuthorityWriteCoordinator, provenanceSessionAttemptIntent, taskClaimAttemptIntent } from "@harness-anything/daemon";
+import {
+  makeDaemonAuthorityWriteCoordinator,
+  provenanceSessionAttemptIntent,
+  taskClaimAttemptIntent,
+  type DaemonAuthorityCommandSubmissionV2
+} from "@harness-anything/daemon";
 import {
   makeHeldLockAttributedCoordinatorFactory,
   type AuthorityLifecycleRuntime
@@ -25,8 +30,8 @@ import {
 test("cold task create submits provenance session and task as two ordered canonical operations", async () => {
   const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG9";
   const submittedEntityIds: string[] = [];
-  const coordinator = makeDaemonAuthorityWriteCoordinator({
-    submit: async (input) => {
+  const coordinator = makeDaemonAuthorityWriteCoordinator(durableSubmissionFixture(
+    async (input) => {
       if (input.ingress === "provenance-session") {
         submittedEntityIds.push(input.operation.entityId);
         return committedReceipt("fixture-session-op", 1);
@@ -37,7 +42,7 @@ test("cold task create submits provenance session and task as two ordered canoni
       }
       throw new Error(`unexpected ingress: ${input.ingress}`);
     }
-  }, {
+  ), {
     command: {
       rootDir: "/fixture",
       json: true,
@@ -98,12 +103,12 @@ test("execution submit routes its bound worker Session before the main execution
   const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNH0";
   const executionId = "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNH0";
   const ingresses: string[] = [];
-  const coordinator = makeDaemonAuthorityWriteCoordinator({
-    submit: async (input) => {
+  const coordinator = makeDaemonAuthorityWriteCoordinator(durableSubmissionFixture(
+    async (input) => {
       ingresses.push(input.ingress);
       return committedReceipt(`fixture-${input.ingress}-${ingresses.length}`, ingresses.length);
     }
-  }, {
+  ), {
     command: {
       rootDir: "/fixture",
       json: true,
@@ -236,15 +241,15 @@ test("execution submit provenance accepts only its authored primary Session bind
 test("task claim submits the observed execution write through its narrow typed ingress", async () => {
   const executionId = "exe_01KXSVW65Q5QK3M8382FK4C0DR";
   let submittedOperation: unknown;
-  const coordinator = makeDaemonAuthorityWriteCoordinator({
-    submit: async (input) => {
+  const coordinator = makeDaemonAuthorityWriteCoordinator(durableSubmissionFixture(
+    async (input) => {
       if (input.ingress !== "task-claim") {
         throw new Error("task claim must use its typed ingress");
       }
       submittedOperation = input.operation;
       return committedReceipt("fixture-task-claim-op", 1);
     }
-  }, {
+  ), {
     command: {
       rootDir: "/fixture",
       json: true,
@@ -503,6 +508,35 @@ function committedReceipt(opId: string, revision: number) {
     revision,
     commitSha: String(revision).repeat(40),
     previousCommit: revision === 1 ? null : "1".repeat(40)
+  };
+}
+
+function durableSubmissionFixture(
+  submit: DaemonAuthorityCommandSubmissionV2["submit"]
+): DaemonAuthorityCommandSubmissionV2 {
+  return {
+    submit,
+    submitDurable: async (input) => {
+      const receipt = await submit(input);
+      return {
+        admission: Promise.resolve(receipt.tag === "COMMITTED"
+          ? {
+              kind: "accepted" as const,
+              acceptance: {
+                sessionId: input.currentSession.sessionId,
+                acceptedCommitSha: receipt.commitSha,
+                flush: {
+                  reason: "explicit" as const,
+                  opCount: 1,
+                  committed: true as const,
+                  watermark: receipt.opId
+                }
+              }
+            }
+          : { kind: "terminal" as const, receipt }),
+        settlement: Promise.resolve(receipt)
+      };
+    }
   };
 }
 

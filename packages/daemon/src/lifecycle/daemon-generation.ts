@@ -16,13 +16,15 @@ import {
 } from "node:fs";
 import { hostname } from "node:os";
 import path from "node:path";
+import { currentAuthoritySettlementReleaseSignal } from "../runtime/authority-durable-acceptance-context.ts";
+import {
+  runWithSharedDaemonGenerationLock,
+  type DaemonGenerationLockContext
+} from "./shared-daemon-generation-lock.ts";
 
 export const daemonGenerationRecordSchema = "daemon-generation-record/v1" as const;
 export const daemonGenerationDurabilityUnsupportedCode = "DAEMON_GENERATION_DURABILITY_UNSUPPORTED" as const;
-const daemonGenerationLockContext = new AsyncLocalStorage<{
-  readonly heldLocks: ReadonlyMap<string, string>;
-  active: boolean;
-}>();
+const daemonGenerationLockContext = new AsyncLocalStorage<DaemonGenerationLockContext>();
 
 export interface DaemonGenerationRecordV1 {
   readonly schema: typeof daemonGenerationRecordSchema;
@@ -325,29 +327,15 @@ async function withDaemonGenerationMutationLockAsync<Result>(
   operation: () => Promise<Result>
 ): Promise<Result> {
   const lockPath = `${daemonGenerationRecordPath(input.userRoot, input.endpointIdentity)}.lock`;
-  const parent = daemonGenerationLockContext.getStore();
-  const inheritedToken = parent?.active ? parent.heldLocks.get(lockPath) : undefined;
-  if (inheritedToken) return operation();
-  const ownerToken = acquireDaemonGenerationMutationLock(lockPath);
-  const context = {
-    heldLocks: new Map([...(parent?.active ? parent.heldLocks : []), [lockPath, ownerToken] as const]),
-    active: true
-  };
-  let result: Result | undefined;
-  try {
-    result = await daemonGenerationLockContext.run(context, operation);
-  } catch (operationError) {
-    context.active = false;
-    try {
-      releaseDaemonGenerationMutationLock(lockPath, ownerToken);
-    } catch {
-      // The operation failure is authoritative; cleanup must never replace it.
-    }
-    throw operationError;
-  }
-  context.active = false;
-  releaseDaemonGenerationMutationLock(lockPath, ownerToken);
-  return result as Result;
+  const sharingToken = currentAuthoritySettlementReleaseSignal();
+  return runWithSharedDaemonGenerationLock({
+    lockPath,
+    storage: daemonGenerationLockContext,
+    ...(sharingToken ? { sharingToken } : {}),
+    acquire: () => acquireDaemonGenerationMutationLock(lockPath),
+    release: (ownerToken) => releaseDaemonGenerationMutationLock(lockPath, ownerToken),
+    operation
+  });
 }
 
 function acquireDaemonGenerationMutationLock(lockPath: string): string {

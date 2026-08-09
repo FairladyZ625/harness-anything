@@ -5,6 +5,7 @@ import {
   createAuthorityCutoverEntityRegistryQualification,
   createAuthorityCutoverControlService,
   createDurableAuthorityCommittedEventPublisherV2,
+  type AuthorityPublicationExecutionContext,
   type AuthoritySubmissionV2Options,
   type AuthoritySubmissionService,
   type DaemonLogService,
@@ -41,6 +42,7 @@ import {
 } from "../replication-content-store.ts";
 import { createPrewarmedAuthorityReplication } from "../replication-content-prewarm.ts";
 import { gateCutoverAdmission } from "./cutover-admission.ts";
+import { createDurableSuccessorPublicationObserver } from "./durable-successor-publication-observer.ts";
 import {
   assertPublicationMatchesMutationSet,
   createGitAuthorityAttributionEvidenceCommitterV2,
@@ -255,10 +257,10 @@ export function createProductionAuthorityLifecycle(input: {
         recovery
       };
       materials.set(repo.repoId, material);
-      publicationObservers.set(repo.repoId, async (previousCommit, expectedOpIds, expectedCommitSha) => {
-        const inspector = publicationInspector;
-        return inspector.inspectPublication(previousCommit, expectedOpIds, expectedCommitSha);
-      });
+      publicationObservers.set(
+        repo.repoId,
+        createDurableSuccessorPublicationObserver(publicationInspector)
+      );
       const runRecovery = async () => recoverPendingProductionEvents({
         workspaceId: config.workspaceId,
         operationRegistry: state.operationRegistry,
@@ -320,7 +322,6 @@ export function createProductionAuthorityLifecycle(input: {
   }): AuthorityRepoLifecycleHooks {
     return {
       start: async (startInput) => {
-        publicationObservers.set(startInput.repo.repoId, startInput.inspectPublication);
         const material = options.materials.get(startInput.repo.repoId);
         if (!material) throw new Error("AUTHORITY_PRODUCTION_MATERIAL_UNAVAILABLE");
         return createRepoComponent(startInput, material, input.hostServices);
@@ -505,7 +506,9 @@ function createConnectionAuthorityService(
   material: RepoProductionMaterial,
   context: AuthorityConnectionContext,
   publicationExecutor: {
-    readonly run: <Result>(publication: () => Promise<Result>) => Promise<Result>;
+    readonly run: <Result>(publication: (
+      context: AuthorityPublicationExecutionContext
+    ) => Promise<Result>) => Promise<Result>;
   },
   hostServices: ProductionAuthorityHostServices<ProductionAuthorityIdentity>
 ): AuthoritySubmissionService {

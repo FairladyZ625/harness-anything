@@ -323,6 +323,8 @@ export interface AuthoritySnapshotManifest {
 export interface CanonicalPublication {
   readonly commitSha: string;
   readonly parentCommits: ReadonlyArray<string>;
+  readonly opIds?: ReadonlyArray<string>;
+  readonly previousCommit?: string | null;
 }
 
 export interface CanonicalPublicationInspector {
@@ -330,6 +332,16 @@ export interface CanonicalPublicationInspector {
   readonly inspectPublishedHead: (
     expectedPreviousHead: string | null,
     expectedOpIds: ReadonlyArray<string>
+  ) => Promise<CanonicalPublication>;
+  readonly findPublication?: (
+    expectedOpIds: ReadonlyArray<string>
+  ) => Promise<CanonicalPublication>;
+  readonly findPublicationForOperation?: (
+    opId: string
+  ) => Promise<CanonicalPublication>;
+  readonly findDurableSuccessorPublicationForOperation?: (
+    opId: string,
+    expectedCommitSha: string
   ) => Promise<CanonicalPublication>;
 }
 

@@ -14,8 +14,11 @@ import {
   createProductionAuthorityLifecycleFixture as createFixture
 } from "./helpers/production-authority-lifecycle-fixture.ts";
 import {
+  assertPendingReceiptSettlement,
+  pollUntil,
   runRawJson,
-  stopDaemon
+  stopDaemon,
+  waitForReceiptCommitted
 } from "./helpers/daemon-cli.ts";
 
 test("authority repo enrollment reaches a production daemon and its first governance write", { timeout: 60_000 }, async () => {
@@ -61,10 +64,24 @@ test("authority repo enrollment reaches a production daemon and its first govern
     const taskData = receiptData(firstWrite);
     assert.equal(taskData.status, "planned");
     assert.equal(typeof taskData.taskId, "string");
+    const pending = assertPendingReceiptSettlement(firstWrite);
+    await waitForReceiptCommitted(fixture.repoRoot, pending.receiptId, env);
 
-    const operation = latestOperation(serviceRoot, "enrolled");
+    const committedOperations = await pollUntil(
+      () => operationRecords(serviceRoot, "enrolled"),
+      (records) => {
+        const byId = new Map(records.map((record) => [record.opId, record]));
+        return pending.authorityOperationIds.every((opId) => byId.get(opId)?.state === "COMMITTED");
+      },
+      (records, error) => JSON.stringify({ opIds: pending.authorityOperationIds, records, error: String(error ?? "") }),
+      { timeoutMs: 20_000 }
+    );
+    const operation = committedOperations.find((record) =>
+      record.opId === pending.authorityOperationIds.at(-1));
+    assert.ok(operation, JSON.stringify(committedOperations));
     assert.equal(operation.state, "COMMITTED", JSON.stringify(operation));
     assert.equal(operation.receipt?.tag, "COMMITTED", JSON.stringify(operation));
+    assert.equal(pending.authorityOperationIds.includes(operation.opId!), true, JSON.stringify(operation));
     assert.equal(typeof operation.commitSha, "string", JSON.stringify(operation));
     const manifest = loadAuthorityProductionManifest(manifestPath);
     const config = manifest.repos.find((repo) => repo.repoId === "enrolled");
@@ -198,14 +215,20 @@ function receiptReport(receipt: Record<string, unknown>): Record<string, any> {
   return report as Record<string, any>;
 }
 
-function latestOperation(serviceRoot: string, repoId: string): Record<string, any> {
+function operationRecords(serviceRoot: string, repoId: string): ReadonlyArray<Record<string, any>> {
   const operationPath = path.join(serviceRoot, "authority", Buffer.from(repoId, "utf8").toString("base64url"), "operations.jsonl");
   const rows = readFileSync(operationPath, "utf8").split("\n")
     .filter(Boolean)
-    .map((line) => JSON.parse(line) as { readonly table?: string; readonly value?: Record<string, any> })
-    .filter((row) => row.table === "operation" && row.value);
+    .map((line) => JSON.parse(line) as {
+      readonly table?: string;
+      readonly key?: string;
+      readonly value?: Record<string, any>;
+    })
+    .filter((row) => row.table === "operation" && row.key && row.value);
   assert.ok(rows.length > 0, operationPath);
-  return rows.at(-1)!.value!;
+  const latest = new Map<string, Record<string, any>>();
+  for (const row of rows) latest.set(row.key!, row.value!);
+  return [...latest.values()];
 }
 
 function readRegistry(registryPath: string): AuthorityKeyRegistryV1 {

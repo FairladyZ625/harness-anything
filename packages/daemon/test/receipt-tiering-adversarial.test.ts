@@ -6,6 +6,7 @@ import type {
   CommandFailureReceipt,
   CommandReceiptSettlement
 } from "@harness-anything/application";
+import { BoundedAuthorityBatcher } from "../../application/src/authority/authority-batcher.ts";
 import type { DaemonAdmissionBudget } from "@harness-anything/kernel";
 import { durableAuthoritySubmissionFromSettlement } from "../src/authority/authority-command-submission.ts";
 import { createSerialPublicationExecutor } from "../src/authority/production/production-authority-lifecycle.ts";
@@ -121,26 +122,35 @@ test("settlement status wire accepts a pending failure receipt with partial dura
   );
 });
 
-test("two publications in one command release the serial slot at durable acceptance", async () => {
+test("two batched publications in one command release the serial slot at durable acceptance", async () => {
   const executor = createSerialPublicationExecutor();
   const settled: string[] = [];
+  const publications = new BoundedAuthorityBatcher<number, AuthorityOperationReceipt>(
+    (indexes) => executor.run(async () => {
+      const index = indexes[0]!;
+      reportCurrentAuthorityDurableAcceptance(
+        `session-${index}`,
+        String(index).repeat(40),
+        {
+          reason: "explicit",
+          opCount: 1,
+          committed: true,
+          watermark: `op-${index}`
+        }
+      );
+      await waitForCurrentAuthoritySettlementRelease();
+      settled.push(`op-${index}`);
+      return [committedReceipt(`op-${index}`)];
+    }),
+    8,
+    10,
+    { allowOverlappingBatches: true }
+  );
   const command = runBeforeBackgroundAuthoritySettlement(async () => {
     for (const index of [1, 2]) {
-      const durable = durableAuthoritySubmissionFromSettlement(() => executor.run(async () => {
-        reportCurrentAuthorityDurableAcceptance(
-          `session-${index}`,
-          String(index).repeat(40),
-          {
-            reason: "explicit",
-            opCount: 1,
-            committed: true,
-            watermark: `op-${index}`
-          }
-        );
-        await waitForCurrentAuthoritySettlementRelease();
-        settled.push(`op-${index}`);
-        return committedReceipt(`op-${index}`);
-      }));
+      const durable = durableAuthoritySubmissionFromSettlement(() =>
+        publications.run(Promise.resolve(index))
+      );
       const admission = await durable.admission;
       assert.equal(admission.kind, "accepted");
     }

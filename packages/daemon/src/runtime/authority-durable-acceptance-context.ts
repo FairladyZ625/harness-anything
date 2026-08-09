@@ -55,6 +55,27 @@ export function currentAuthorityDurableAcceptanceSignal(): Promise<void> | undef
   return storage.getStore()?.accepted;
 }
 
+/** Identify every authority publication admitted by the same outer command. */
+export function currentAuthoritySettlementReleaseSignal(): Promise<void> | undefined {
+  return settlementReleaseStorage.getStore();
+}
+
+/** Explicitly carry both acceptance scopes across a deferred publication executor. */
+export function captureCurrentAuthorityPublicationContext(): <Result>(
+  operation: () => Result
+) => Result {
+  const acceptance = storage.getStore();
+  const settlementRelease = settlementReleaseStorage.getStore();
+  return <Result>(operation: () => Result): Result => {
+    const runWithSettlementRelease = () => settlementRelease
+      ? settlementReleaseStorage.run(settlementRelease, operation)
+      : operation();
+    return acceptance
+      ? storage.run(acceptance, runWithSettlementRelease)
+      : runWithSettlementRelease();
+  };
+}
+
 /**
  * Keep same-command authority publications durable while preventing an early
  * publication's synchronous materializer from overtaking later admissions in

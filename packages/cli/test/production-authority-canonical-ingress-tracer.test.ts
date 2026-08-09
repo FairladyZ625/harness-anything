@@ -6,18 +6,19 @@ import path from "node:path";
 import test from "node:test";
 import { createGitCanonicalPublicationInspector } from "@harness-anything/daemon";
 import {
+  assertPendingReceiptSettlement,
   defaultDaemonUserRoot,
   pollUntil,
   runDaemonCommand,
   runRawJsonAsync,
   runRawJsonMaybeFail,
-  stopDaemon
+  stopDaemon,
+  waitForReceiptCommitted
 } from "./helpers/daemon-cli.ts";
 import {
   authorityEventBodies,
   authorityOperationRecords,
-  createFixture,
-  latestAuthorityOperation
+  createFixture
 } from "./production-authority-canonical-ingress/fixture.ts";
 import { publishSeededTaskFixture } from "./helpers/canonical-task-publication-fixture.ts";
 
@@ -60,14 +61,24 @@ test("PR canonical ingress keeps two interleaved session receipts determinate", 
     ], env);
     assert.equal(appended.status, 0, JSON.stringify(appended.receipt));
     assert.equal(appended.receipt.ok, true, JSON.stringify(appended.receipt));
+    const appendedPending = assertPendingReceiptSettlement(appended.receipt);
+    await waitForReceiptCommitted(fixture.repoRoot, appendedPending.receiptId, env);
+    const appendedOperations = await waitForCommittedAuthorityOperations(
+      fixture.serviceRoot,
+      appendedPending.authorityOperationIds
+    );
     assert.match(readFileSync(path.join(
       fixture.authoredRoot,
       "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/progress.md"
     ), "utf8"), /PR canonical ingress tracer/u);
 
-    const operation = latestAuthorityOperation(fixture.serviceRoot);
+    const progressOperations = appendedOperations.filter((record) =>
+      record.canonicalOperation?.kind === "progress_append");
+    assert.equal(progressOperations.length, 1, JSON.stringify(appendedOperations));
+    const operation = progressOperations[0]!;
     assert.equal(operation.state, "COMMITTED", JSON.stringify(operation));
     assert.equal(operation.receipt?.tag, "COMMITTED", JSON.stringify(operation));
+    assert.equal(appendedPending.authorityOperationIds.includes(operation.opId!), true, JSON.stringify(operation));
     assert.equal(typeof operation.opId, "string", JSON.stringify(operation));
     const publication = await createGitCanonicalPublicationInspector(fixture.authoredRoot)
       .findPublicationForOperation(operation.opId!);
@@ -76,7 +87,6 @@ test("PR canonical ingress keeps two interleaved session receipts determinate", 
       "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/progress.md"), true);
     assert.equal(publication.physicalChanges.some((change) => change.path.startsWith("attribution-events/")), true);
 
-    const operationCountBeforeInterleaved = authorityOperationRecords(fixture.serviceRoot).length;
     const interleaved = await Promise.all([
       runRawJsonAsync(fixture.repoRoot, [
         "task", "progress", "append", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4",
@@ -88,6 +98,17 @@ test("PR canonical ingress keeps two interleaved session receipts determinate", 
       ], { ...env, CODEX_THREAD_ID: "canonical-ingress-interleaved-beta" })
     ]);
     assert.equal(interleaved.every((receipt) => receipt.ok === true), true, JSON.stringify(interleaved));
+    const interleavedPending = interleaved.map((receipt) => assertPendingReceiptSettlement(receipt));
+    assert.equal(new Set(interleavedPending.map((pending) => pending.receiptId)).size, 2);
+    await Promise.all(interleavedPending.map((pending) =>
+      waitForReceiptCommitted(fixture.repoRoot, pending.receiptId, env)
+    ));
+    const interleavedOperationIds = interleavedPending.flatMap((pending) => pending.authorityOperationIds);
+    assert.equal(new Set(interleavedOperationIds).size, interleavedOperationIds.length);
+    const committedInterleaved = await waitForCommittedAuthorityOperations(
+      fixture.serviceRoot,
+      interleavedOperationIds
+    );
     assert.doesNotMatch(
       JSON.stringify(interleaved),
       /repo_write_outcome_unknown|AUTHORITY_CANONICAL_PUBLICATION_NON_LINEAR/u
@@ -98,8 +119,7 @@ test("PR canonical ingress keeps two interleaved session receipts determinate", 
     ), "utf8");
     assert.match(progress, /interleaved publication from alpha/u);
     assert.match(progress, /interleaved publication from beta/u);
-    const interleavedRecords = authorityOperationRecords(fixture.serviceRoot)
-      .slice(operationCountBeforeInterleaved)
+    const interleavedRecords = committedInterleaved
       .filter((record) => record.canonicalOperation?.kind === "progress_append");
     assert.equal(interleavedRecords.length, 2, JSON.stringify(interleavedRecords));
     const authorityOrder = interleavedRecords.map((record) => {
@@ -242,6 +262,12 @@ test("commit-anchor completion crosses production authority with daemon judgment
     ], env);
     assert.equal(completed.status, 0, JSON.stringify(completed.receipt));
     assert.equal(completed.receipt.ok, true, JSON.stringify(completed.receipt));
+    const completedPending = assertPendingReceiptSettlement(completed.receipt);
+    await waitForReceiptCommitted(fixture.repoRoot, completedPending.receiptId, env);
+    const completedOperations = await waitForCommittedAuthorityOperations(
+      fixture.serviceRoot,
+      completedPending.authorityOperationIds
+    );
     const evidencePath = path.join(taskRoot, "completion-evidence.json");
     const evidence = JSON.parse(readFileSync(evidencePath, "utf8")) as Record<string, any>;
     assert.equal(evidence.mode, "commit-anchor");
@@ -255,8 +281,11 @@ test("commit-anchor completion crosses production authority with daemon judgment
       body.includes(sessionId) && body.includes(`task/${taskId}`)
     ), true);
 
-    const operation = latestAuthorityOperation(fixture.serviceRoot);
-    assert.equal(operation.state, "COMMITTED", JSON.stringify(operation));
+    const completionOperations = completedOperations.filter((record) =>
+      record.authorityIntegrity?.canonicalMutationSet.mutations.some((mutation) =>
+        mutation.entity.entityKind === "task" && mutation.action.action === "transition"));
+    assert.equal(completionOperations.length, 1, JSON.stringify(completedOperations));
+    const operation = completionOperations[0]!;
     assert.deepEqual(
       operation.authorityIntegrity?.canonicalMutationSet.mutations.map((mutation) => [mutation.entity.entityKind, mutation.action.action]),
       [["task", "document"], ["task", "transition"]]
@@ -270,6 +299,24 @@ test("commit-anchor completion crosses production authority with daemon judgment
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
+
+async function waitForCommittedAuthorityOperations(
+  serviceRoot: string,
+  opIds: ReadonlyArray<string>
+) {
+  assert.ok(opIds.length > 0, "pending receipt must identify its authority operations");
+  const records = await pollUntil(
+    () => authorityOperationRecords(serviceRoot),
+    (candidate) => {
+      const byId = new Map(candidate.map((record) => [record.opId, record]));
+      return opIds.every((opId) => byId.get(opId)?.state === "COMMITTED");
+    },
+    (candidate, error) => JSON.stringify({ opIds, candidate, error: String(error ?? "") }),
+    { timeoutMs: 20_000 }
+  );
+  const byId = new Map(records.map((record) => [record.opId, record]));
+  return opIds.map((opId) => byId.get(opId)!);
+}
 
 test("doc sync submit dispatches prose to the production writer child", { timeout: 60_000 }, async () => {
   const fixture = createFixture();

@@ -113,7 +113,10 @@ export * from "./authority/consent-semantic-compiler-v2.ts";
 export * from "./authority/transparent-semantic-diff-compiler-v2.ts";
 export { compileManagedCandidateTreeV2 } from "./authority/semantic-authority-helpers-v2.ts";
 export * from "./authority/committed-attribution-event-v2.ts";
-export type { AuthoritySubmissionV2Options } from "./authority/service.ts";
+export type {
+  AuthorityPublicationExecutionContext,
+  AuthoritySubmissionV2Options
+} from "./authority/service.ts";
 export type {
   CanonicalPublicationObservation,
   ShadowDifference,

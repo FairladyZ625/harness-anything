@@ -114,6 +114,77 @@ export function defaultDaemonUserRoot(rootDir: string): string {
 
 export { delay, pollUntil } from "./poll-until.ts";
 
+export function assertPendingReceiptSettlement(receipt: Record<string, unknown>): {
+  readonly receiptId: string;
+  readonly sessionId: string;
+  readonly acceptedCommitSha: string;
+  readonly authorityOperationIds: ReadonlyArray<string>;
+} {
+  const settlement = receipt.settlement;
+  assert.ok(settlement && typeof settlement === "object" && !Array.isArray(settlement), JSON.stringify(receipt));
+  assert.equal(settlement.canonicalVisibility, "pending", JSON.stringify(receipt));
+  assert.equal(typeof settlement.receiptId, "string", JSON.stringify(receipt));
+  assert.equal(typeof settlement.sessionId, "string", JSON.stringify(receipt));
+  assert.equal(typeof settlement.acceptedCommitSha, "string", JSON.stringify(receipt));
+  assert.ok(Array.isArray(settlement.authorityOperationIds), JSON.stringify(receipt));
+  assert.equal(
+    settlement.authorityOperationIds.every((opId) => typeof opId === "string"),
+    true,
+    JSON.stringify(receipt)
+  );
+  return settlement as unknown as {
+    readonly receiptId: string;
+    readonly sessionId: string;
+    readonly acceptedCommitSha: string;
+    readonly authorityOperationIds: ReadonlyArray<string>;
+  };
+}
+
+export async function waitForReceiptCommitted(
+  rootDir: string,
+  receiptId: string,
+  env: Readonly<Record<string, string>> = {},
+  timeoutMs = 20_000
+): Promise<Record<string, unknown>> {
+  const status = await pollUntil(
+    () => runRawJson(rootDir, ["receipt", "status", receiptId], env),
+    (candidate) => receiptStatusState(candidate) === "committed",
+    (candidate, error) => JSON.stringify({
+      receiptId,
+      state: candidate ? receiptStatusState(candidate) : undefined,
+      candidate,
+      error: error instanceof Error ? error.message : String(error ?? "")
+    }),
+    { timeoutMs, intervalMs: 50 }
+  );
+  const data = receiptStatusData(status);
+  assert.equal(data?.state, "committed", JSON.stringify(status));
+  const settledReceipt = data?.receipt;
+  assert.ok(
+    settledReceipt && typeof settledReceipt === "object" && !Array.isArray(settledReceipt),
+    JSON.stringify(status)
+  );
+  const settlement = settledReceipt.settlement;
+  assert.ok(settlement && typeof settlement === "object" && !Array.isArray(settlement), JSON.stringify(status));
+  assert.equal(settlement.receiptId, receiptId, JSON.stringify(status));
+  assert.equal(settlement.canonicalVisibility, "visible", JSON.stringify(status));
+  return status;
+}
+
+function receiptStatusState(receipt: Record<string, unknown>): string | undefined {
+  const data = receiptStatusData(receipt);
+  return typeof data?.state === "string" ? data.state : undefined;
+}
+
+function receiptStatusData(receipt: Record<string, unknown>): Record<string, unknown> | undefined {
+  const details = receipt.details;
+  if (!details || typeof details !== "object" || Array.isArray(details)) return undefined;
+  const data = details.data;
+  return data && typeof data === "object" && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : undefined;
+}
+
 export function daemonConnectionCount(receipt: Record<string, unknown>): number | undefined {
   const details = receipt.details as Record<string, unknown> | undefined;
   const data = details?.data as Record<string, unknown> | undefined;

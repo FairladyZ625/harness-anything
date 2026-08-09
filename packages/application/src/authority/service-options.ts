@@ -30,7 +30,11 @@ export interface AuthoritySubmissionServiceOptions {
   readonly operationRegistry: AuthorityOperationRegistry;
   readonly replicaChangeLog: ReplicaChangeLog;
   readonly publicationInspector: CanonicalPublicationInspector;
-  readonly publicationExecutor?: { readonly run: <Result>(publication: () => Promise<Result>) => Promise<Result> };
+  readonly publicationExecutor?: {
+    readonly run: <Result>(publication: (
+      context: AuthorityPublicationExecutionContext
+    ) => Promise<Result>) => Promise<Result>;
+  };
   readonly fenceWitness: AuthorityFenceWitness;
   /** Optional so legacy and Windows-degraded daemon paths retain their prior byte and write behavior. */
   readonly generationFenceWitness?: AuthorityGenerationFence;
@@ -39,6 +43,10 @@ export interface AuthoritySubmissionServiceOptions {
   readonly v2?: AuthoritySubmissionV2Options;
   readonly admissionBudget?: DaemonAdmissionBudget;
   readonly onTelemetry?: (phase: AuthoritySubmissionTelemetryPhase) => void;
+}
+
+export interface AuthorityPublicationExecutionContext {
+  readonly allowDurableSuccessor: boolean;
 }
 
 export type AuthoritySubmissionTelemetryPhase =
