@@ -1,10 +1,11 @@
+import type { WriteError } from "../../domain/index.ts";
 import type {
   FlushReason,
   FlushReport,
   JournalRecordWitnessV1,
   WriteOp
 } from "../../ports/write-coordinator.ts";
-import { readDurableState } from "./durable.ts";
+import { durableFileExists, readDurableState, readFileBytes } from "./durable.ts";
 
 export function reconcileDurableFlush(
   reason: FlushReason,
@@ -55,4 +56,16 @@ export function reconcileDurableExactFlush(
   if (!report) return undefined;
   for (const witness of witnesses) authorizations.delete(witness.opId);
   return { ...report, publicationMode: "exact-batch" };
+}
+
+export function shouldWaitForForeignCommitter(error: WriteError, globalLockPath: string): boolean {
+  if (error._tag !== "GlobalWriteConflict") return false;
+  if (!durableFileExists(globalLockPath)) return true;
+  try {
+    const lock = JSON.parse(Buffer.from(readFileBytes(globalLockPath)).toString("utf8")) as { readonly pid?: unknown };
+    return typeof lock.pid !== "number" || lock.pid !== process.pid;
+  } catch {
+    // The lock owner may still be between open("wx") and its durable JSON write.
+    return true;
+  }
 }

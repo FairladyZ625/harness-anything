@@ -1,6 +1,9 @@
 import { Effect } from "effect";
 import type { WriteError } from "../../domain/index.ts";
-import { createBoundedRetryBudget } from "../../runtime/bounded-retry.ts";
+import {
+  createVisibleRetryBudget,
+  type RetryBudgetSignal
+} from "../../runtime/bounded-retry.ts";
 import type { LockConflictRetryOptions } from "./types.ts";
 
 const defaultRetryInitialDelayMs = 25;
@@ -9,24 +12,46 @@ const defaultRetryMaxDelayMs = 250;
 export function retryWriteLockConflict<Result>(
   runOnce: () => Effect.Effect<Result, WriteError>,
   retry: LockConflictRetryOptions,
-  reconcileDurable?: () => Result | undefined
+  reconcileDurable?: () => Result | undefined,
+  escalation: {
+    readonly shouldContinueAfterExhaustion?: (error: WriteError) => boolean;
+    readonly signal?: (signal: RetryBudgetSignal) => void;
+  } = {}
 ): Effect.Effect<Result, WriteError> {
-  let exhaustedError: WriteError | undefined;
-  const budget = createBoundedRetryBudget({
+  const budget = createVisibleRetryBudget({
     operation: "journal-write-lock-conflict",
     budget: { maxElapsedMs: retry.maxWaitMs },
-    onExhausted: (event) => {
-      exhaustedError = lockConflictBudgetExhausted(event.cause as WriteError, retry.maxWaitMs);
-    }
+    reminderEveryFailures: retry.reminderEveryFailures ?? 5,
+    ...(escalation.signal ? { signal: escalation.signal } : {})
   });
   const runAttempt = (attempt: number): Effect.Effect<Result, WriteError> => runOnce().pipe(
+    Effect.map((result) => {
+      budget.recovered();
+      return result;
+    }),
     Effect.catchAll((error) => {
       if (!isWriteLockConflict(error)) return Effect.fail(error);
       const reconciled = reconcileDurable?.();
-      if (reconciled !== undefined) return Effect.succeed(reconciled);
+      if (reconciled !== undefined) {
+        budget.recovered();
+        return Effect.succeed(reconciled);
+      }
       const decision = budget.recordFailure(error);
       if (decision.status === "budget-exhausted") {
-        return Effect.fail(exhaustedError ?? lockConflictBudgetExhausted(error, retry.maxWaitMs));
+        if (!escalation.shouldContinueAfterExhaustion?.(error)) {
+          return Effect.fail(lockConflictBudgetExhausted(error, retry.maxWaitMs));
+        }
+        // Adjudicated correctness exception: another process may already be
+        // committing this coordinator's WAL operation. The binary flush result
+        // cannot express "outcome pending", so returning failure here can lie
+        // about an operation that becomes durable moments later. Until that
+        // protocol gains an indeterminate terminal state, keep reconciling while
+        // the visible budget reports exhausted/still-retrying/recovered. This is
+        // the adjudicated exception in dec_01KZK41KHS93KDVSK149HWVQ8F; its
+        // closure path is task_01KZK5FYYKBEEVAJPKH0KR19Y1.
+        return delay(retry.maxDelayMs ?? defaultRetryMaxDelayMs).pipe(
+          Effect.flatMap(() => runAttempt(attempt + 1))
+        );
       }
       const delayMs = Math.min(
         decision.remainingMs ?? retry.maxWaitMs,

@@ -5,6 +5,7 @@ import type {
   WriteOp
 } from "../../ports/write-coordinator.ts";
 import type { HarnessLayoutInput } from "../../layout/index.ts";
+import type { RetryBudgetSignal } from "../../runtime/bounded-retry.ts";
 import { readDurableState } from "./durable.ts";
 import { withRepoLocks } from "./locks.ts";
 import { journalRecordWitnessV1 } from "./records.ts";
@@ -142,6 +143,8 @@ export function createExactJournalRecordFlusher(input: {
     reason: "recovery",
     witnesses: ReadonlyArray<JournalRecordWitnessV1>
   ) => FlushReport | undefined;
+  readonly shouldContinueAfterExhaustion?: (error: WriteError) => boolean;
+  readonly onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void;
 }): NonNullable<import("../../ports/write-coordinator.ts").WriteCoordinator[
   "flushExactJournalRecord"
 ]> {
@@ -153,7 +156,11 @@ export function createExactJournalRecordFlusher(input: {
       ...(input.lockConflictRetry ? { lockConflictRetry: input.lockConflictRetry } : {}),
       ...(input.reconcileDurable ? {
         reconcileDurable: () => input.reconcileDurable!(reason, [exactWitness])
-      } : {})
+      } : {}),
+      ...(input.shouldContinueAfterExhaustion ? {
+        shouldContinueAfterExhaustion: input.shouldContinueAfterExhaustion
+      } : {}),
+      ...(input.onRetryBudgetSignal ? { onRetryBudgetSignal: input.onRetryBudgetSignal } : {})
     }));
   };
 }
@@ -172,6 +179,8 @@ export function createExactJournalRecordsFlusher(input: {
     reason: import("../../ports/write-coordinator.ts").FlushReason,
     witnesses: ReadonlyArray<JournalRecordWitnessV1>
   ) => FlushReport | undefined;
+  readonly shouldContinueAfterExhaustion?: (error: WriteError) => boolean;
+  readonly onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void;
 }): NonNullable<import("../../ports/write-coordinator.ts").WriteCoordinator[
   "flushExactJournalRecords"
 ]> {
@@ -183,7 +192,11 @@ export function createExactJournalRecordsFlusher(input: {
       ...(input.lockConflictRetry ? { lockConflictRetry: input.lockConflictRetry } : {}),
       ...(input.reconcileDurable ? {
         reconcileDurable: () => input.reconcileDurable!(reason, exactWitnesses)
-      } : {})
+      } : {}),
+      ...(input.shouldContinueAfterExhaustion ? {
+        shouldContinueAfterExhaustion: input.shouldContinueAfterExhaustion
+      } : {}),
+      ...(input.onRetryBudgetSignal ? { onRetryBudgetSignal: input.onRetryBudgetSignal } : {})
     }));
   };
 }
@@ -193,6 +206,8 @@ function runExactFlush(input: {
   readonly mapError: (cause: unknown) => WriteError;
   readonly lockConflictRetry?: LockConflictRetryOptions;
   readonly reconcileDurable?: () => FlushReport | undefined;
+  readonly shouldContinueAfterExhaustion?: (error: WriteError) => boolean;
+  readonly onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void;
 }): Effect.Effect<FlushReport, WriteError> {
   const runOnce = (): Effect.Effect<FlushReport, WriteError> => Effect.try({
     try: input.run,
@@ -202,7 +217,13 @@ function runExactFlush(input: {
     return retryWriteLockConflict(
       runOnce,
       input.lockConflictRetry,
-      input.reconcileDurable
+      input.reconcileDurable,
+      {
+        ...(input.shouldContinueAfterExhaustion ? {
+          shouldContinueAfterExhaustion: input.shouldContinueAfterExhaustion
+        } : {}),
+        ...(input.onRetryBudgetSignal ? { signal: input.onRetryBudgetSignal } : {})
+      }
     );
   }
   return runOnce().pipe(Effect.catchAll((error) => {

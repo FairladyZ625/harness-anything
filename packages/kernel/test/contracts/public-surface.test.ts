@@ -98,6 +98,7 @@ const publicRuntimeSurface = [
   "createJournaledBatch",
   "createTaskIdentity",
   "createTaskPackagePath",
+  "createVisibleRetryBudget",
   "createWritableEntityRegistry",
   "daemonAdmissionBytes",
   "decisionAmendFieldSupportsOperation",

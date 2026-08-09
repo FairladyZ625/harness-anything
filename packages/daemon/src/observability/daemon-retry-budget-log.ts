@@ -3,7 +3,8 @@ import type { RetryBudgetSignal } from "./visible-retry-budget.ts";
 
 export function createDaemonRetryBudgetSignalSink(
   logs: DaemonLogService,
-  context: DaemonLogRepoContext
+  context: DaemonLogRepoContext,
+  options: { readonly source?: "daemon" | "cli" } = {}
 ): (signal: RetryBudgetSignal) => void {
   return (signal) => {
     const ongoing = signal.phase !== "recovered";
@@ -11,7 +12,7 @@ export function createDaemonRetryBudgetSignalSink(
     const cause = event.cause instanceof Error ? event.cause.message : String(event.cause);
     void logs.append({
       level: ongoing ? "error" : "info",
-      source: "daemon",
+      source: options.source ?? "daemon",
       component: "retry-budget",
       event: `retry-budget.${signal.phase}`,
       message: ongoing

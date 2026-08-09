@@ -6,10 +6,13 @@ import { parseArgs } from "./cli/parse-args.ts";
 import { deprecationWarning } from "./cli/command-deprecations.ts";
 import { readOption, stripGlobalOptions } from "./cli/parse-options.ts";
 import { appendParseFailureRuntimeEvent } from "./cli/parse-failure-runtime-event.ts";
+import { makeDaemonLogService } from "@harness-anything/application";
 import {
   checkDaemonServeConfiguration as checkDaemonServeConfigurationRoot,
+  createDaemonRetryBudgetSignalSink,
   daemonAutostartRootIdentity,
   daemonAutostartRootLifetimeEnabled,
+  makeDaemonLogFileStore,
   resolveDaemonRuntimePolicy,
   runDaemonServe as runDaemonServeRoot
 } from "@harness-anything/daemon";
@@ -26,7 +29,7 @@ import {
 import { daemonStatusCliProjection } from "./commands/daemon/status-payload.ts";
 import { runDaemonConnect } from "./commands/daemon/connect.ts";
 import { runRegisteredCommandWithCliComposition } from "./composition/command-executor.ts";
-import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, runCommandThroughDaemon } from "./daemon/client.ts";
+import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, readDaemonUserRoot, runCommandThroughDaemon } from "./daemon/client.ts";
 import {
   parseDaemonLaunchArgv,
   preflightDaemonLaunch,
@@ -125,12 +128,30 @@ async function runDaemonBackedCommand<T>(run: () => Promise<T>): Promise<T> {
 async function runLocalRegisteredCommand(
   command: Parameters<typeof runRegisteredCommand>[0]
 ): Promise<CommandReceipt | CommandFailureReceipt> {
+  const localCoordinatorScope = isDeclaredLocalMigrationCommand(command.action)
+    ? "migration" as const
+    : process.env.HARNESS_DAEMON_MODE === "direct" && process.env.HARNESS_DIRECT_WRITE_REASON === "recovery"
+      ? "recovery" as const
+      : undefined;
+  const onLockConflictRetrySignal = localCoordinatorScope
+    ? createDaemonRetryBudgetSignalSink(
+        makeDaemonLogService({
+          store: makeDaemonLogFileStore({
+            userRoot: readDaemonUserRoot(process.env, command.rootDir, command.layoutOverrides)
+          })
+        }),
+        {
+          repo: {
+            repoId: command.daemonRepoId ?? "canonical",
+            canonicalRoot: path.resolve(command.rootDir)
+          }
+        },
+        { source: "cli" }
+      )
+    : undefined;
   return runTimedCommand(async () => toCommandReceipt(await runRegisteredCommand(command, {
-    ...(isDeclaredLocalMigrationCommand(command.action)
-      ? { localCoordinatorScope: "migration" }
-      : process.env.HARNESS_DAEMON_MODE === "direct" && process.env.HARNESS_DIRECT_WRITE_REASON === "recovery"
-        ? { localCoordinatorScope: "recovery" }
-        : {})
+    ...(localCoordinatorScope ? { localCoordinatorScope } : {}),
+    ...(onLockConflictRetrySignal ? { onLockConflictRetrySignal } : {})
   })));
 }
 

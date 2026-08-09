@@ -4,6 +4,7 @@ import type { VcsCommitAuthor, VcsCommitPhase, VersionControlSystem } from "../.
 import type { AttributionEventStore } from "../attribution/inline-attribution-event-store.ts";
 import type { ProjectionChangeEvent } from "../../projection/projection-change-event.ts";
 import type { TrustedProjectionFingerprintDiagnostic } from "../../projection/projection-source-baseline.ts";
+import type { RetryBudgetSignal } from "../../runtime/bounded-retry.ts";
 import type { ExactWriteScope, WriteOp } from "../../ports/write-coordinator.ts";
 import type { ActorAxes, AgentRef, OperationalActor, WriteAttribution } from "../../schemas/actor-attribution.ts";
 export type { OperationalActor } from "../../schemas/actor-attribution.ts";
@@ -21,6 +22,7 @@ export interface JournaledWriteCoordinatorOptions {
   readonly operationalActor?: OperationalActor;
   readonly lockTtlMs?: number;
   readonly lockConflictRetry?: LockConflictRetryOptions;
+  readonly onLockConflictRetrySignal?: (signal: RetryBudgetSignal) => void;
   readonly heldGlobalLock?: OwnedLock;
   readonly exactWriteScope?: ExactWriteScope;
   readonly sessionId?: string;
@@ -60,6 +62,7 @@ export interface LockConflictRetryOptions {
   readonly maxWaitMs: number;
   readonly initialDelayMs?: number;
   readonly maxDelayMs?: number;
+  readonly reminderEveryFailures?: number;
 }
 
 export interface JournalActor {

@@ -9,13 +9,13 @@ import { makeJournaledWriteCoordinator } from "../../src/index.ts";
 import { docWrite, runEffect, withTempStoreAsync } from "../store/helpers.ts";
 import { testWriteAttribution } from "../test-attribution.ts";
 
-test("journal exhausts foreign lock retry without losing the durable write", async () => {
+test("journal exhausts non-foreign lock retry without losing the durable write", async () => {
   await withTempStoreAsync(async (rootDir) => {
     const lockPath = path.join(rootDir, ".harness/locks/global.lock");
     mkdirSync(path.dirname(lockPath), { recursive: true });
     writeFileSync(lockPath, JSON.stringify({
-      pid: process.pid + 10_000,
-      hostname: `${hostname()}-foreign`,
+      pid: process.pid,
+      hostname: hostname(),
       acquiredAt: new Date().toISOString(),
       heartbeatAt: new Date().toISOString(),
       ownerToken: "live-foreign-holder"

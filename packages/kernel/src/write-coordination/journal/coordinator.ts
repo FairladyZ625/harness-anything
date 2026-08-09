@@ -45,7 +45,8 @@ import {
 } from "./operations/transaction-plan.ts";
 import {
   reconcileDurableExactFlush,
-  reconcileDurableFlush
+  reconcileDurableFlush,
+  shouldWaitForForeignCommitter
 } from "./receipt.ts";
 import { semanticCommitMessage } from "./publication/authority-trailer.ts";
 import { recoverJournalIntegrityDomains } from "./recovery/integrity-domains.ts";
@@ -111,6 +112,7 @@ function makeJournaledWriteCoordinatorInternal(
   const operationalActor = options.operationalActor ?? defaultOperationalActor;
   const lockTtlMs = options.lockTtlMs ?? 60_000;
   const lockConflictRetry = options.lockConflictRetry;
+  const globalLockPath = path.join(layout.locksRoot, "global.lock");
   const heldGlobalLock = options.heldGlobalLock;
   const commitAuthor = options.commitAuthor;
   const versionControlSystem = options.versionControlSystem;
@@ -179,7 +181,11 @@ function makeJournaledWriteCoordinatorInternal(
     reconcileDurable: (reason, witnesses) => reconcileDurableExactFlush(
       reason, witnesses, exactJournalAuthorizations, pending,
       journalPath, watermarkPath, rootDir
-    )
+    ),
+    shouldContinueAfterExhaustion: (error) => shouldWaitForForeignCommitter(error, globalLockPath),
+    ...(options.onLockConflictRetrySignal ? {
+      onRetryBudgetSignal: options.onLockConflictRetrySignal
+    } : {})
   });
   const flushExactJournalRecords = createExactJournalRecordsFlusher({
     run: (reason, witnesses) => flushExactAuthorizedJournalRecords({
@@ -200,7 +206,11 @@ function makeJournaledWriteCoordinatorInternal(
     reconcileDurable: (reason, witnesses) => reconcileDurableExactFlush(
       reason, witnesses, exactJournalAuthorizations, pending,
       journalPath, watermarkPath, rootDir
-    )
+    ),
+    shouldContinueAfterExhaustion: (error) => shouldWaitForForeignCommitter(error, globalLockPath),
+    ...(options.onLockConflictRetrySignal ? {
+      onRetryBudgetSignal: options.onLockConflictRetrySignal
+    } : {})
   });
 
   const coordinator: WriteCoordinator = {
@@ -267,7 +277,11 @@ function makeJournaledWriteCoordinatorInternal(
         ? retryWriteLockConflict(
           () => flushOnce(reason),
           lockConflictRetry,
-          reconcileDurable
+          reconcileDurable,
+          {
+            shouldContinueAfterExhaustion: (error) => shouldWaitForForeignCommitter(error, globalLockPath),
+            ...(options.onLockConflictRetrySignal ? { signal: options.onLockConflictRetrySignal } : {})
+          }
         )
         : flushOnce(reason).pipe(Effect.catchAll((error) => {
           const reconciled = isWriteLockConflict(error) ? reconcileDurable() : undefined;
@@ -278,7 +292,12 @@ function makeJournaledWriteCoordinatorInternal(
     flushExactJournalRecords,
     flushExactJournalRecord,
     recover: lockConflictRetry
-      ? retryWriteLockConflict(() => recoverOnce, lockConflictRetry)
+      ? retryWriteLockConflict(
+          () => recoverOnce,
+          lockConflictRetry,
+          undefined,
+          options.onLockConflictRetrySignal ? { signal: options.onLockConflictRetrySignal } : {}
+        )
       : recoverOnce
   };
   return withJournalExactCommit(coordinator, flushExactJournalRecords, options.exactWriteScope);
