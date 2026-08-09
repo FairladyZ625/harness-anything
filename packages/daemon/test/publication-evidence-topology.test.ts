@@ -236,6 +236,35 @@ test("publication proof rejects a merge tree that differs from the session tree"
   );
 });
 
+test("indexed publication lookup preserves message and tree topology checks", async (context) => {
+  const fixture = publicationFixture(context);
+  const changedMessage = commitTree(
+    fixture.root,
+    fixture.sessionTree,
+    [fixture.base, fixture.session],
+    `${fixture.sessionMessage}\n\nunexpected`
+  );
+  fixtureGit(fixture.root, "update-ref", "refs/heads/master", changedMessage);
+
+  await assert.rejects(
+    createGitCanonicalPublicationInspector(fixture.root).findPublicationForOperation(opId),
+    topologyError
+  );
+
+  const mismatchedTree = commitTree(
+    fixture.root,
+    fixture.baseTree,
+    [fixture.base, fixture.session],
+    "materializer: merge session topology"
+  );
+  fixtureGit(fixture.root, "update-ref", "refs/heads/master", mismatchedTree);
+
+  await assert.rejects(
+    createGitCanonicalPublicationInspector(fixture.root).findPublicationForOperation(opId),
+    topologyError
+  );
+});
+
 test("publication proof rejects a publication missing its inline attribution shard", async (context) => {
   const fixture = publicationFixture(context, { includeAttribution: false });
 
