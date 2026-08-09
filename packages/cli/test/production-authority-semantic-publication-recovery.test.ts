@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+// CI probe only: select this unchanged behavior in the Windows local check.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
