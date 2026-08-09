@@ -45,6 +45,34 @@ export function commitTouchedPaths(
     layoutInput,
     vcs
   );
+  const sessionBranch = sessionBranchName(sessionId);
+  const commitMessage = message ?? `harness write ${opIds.join(",")}`;
+
+  if (sessionBranch) {
+    // Zero-checkout session commit: assemble the commit entirely with Git
+    // plumbing on a temporary alternate index. The shared worktree is never
+    // touched, eliminating the publication window in which the old
+    // checkout-based publisher clobbered user-authored content by restoring
+    // the worktree to trunk between session commit and materializer merge.
+    const trunkBranch = resolveTrunkBranch(plan.repoRoot, undefined, vcs);
+    const excludePaths = new Set(
+      plan.relativePaths.filter(
+        (relativePath) => relativePath.endsWith(".log") && !preserveExplicitLogs.has(relativePath)
+      )
+    );
+    const commitSha = vcs.commitPathsToBranch(plan.repoRoot, {
+      branchName: sessionBranch,
+      baseBranchName: trunkBranch,
+      stagePaths: plan.relativePaths,
+      excludePaths,
+      message: commitMessage,
+      ...(options.author ? { author: options.author } : {}),
+      ...(options.onCommitPhase ? { onPhase: options.onCommitPhase } : {})
+    });
+    return commitSha;
+  }
+
+  // Non-session path: commit on the current branch via the shared index.
   // A failed commit can leave a hard-delete already staged while its path no
   // longer exists in either the worktree or index. Re-adding that path fails;
   // preserve its staged deletion and continue the recovery commit.
@@ -52,43 +80,25 @@ export function commitTouchedPaths(
     const staged = vcs.stagedFiles(plan.repoRoot, [relativePath]).trim().length > 0;
     return !staged || hasUnstagedChanges(vcs.workingTreeFiles(plan.repoRoot, [relativePath]));
   });
-  const sessionBranch = sessionBranchName(sessionId);
-  // Resolve the trunk branch while HEAD still points at it, before checkoutSessionBranch
-  // moves us onto the session branch; the finally must return to the same trunk.
-  const trunkBranch = sessionBranch ? resolveTrunkBranch(plan.repoRoot, undefined, vcs) : undefined;
-
-  if (sessionBranch) {
-    report("session-checkout-start");
-    checkoutSessionBranch(plan.repoRoot, sessionBranch, trunkBranch!, vcs);
-    report("session-checkout-done");
+  if (addablePaths.length > 0) {
+    report("stage-start");
+    vcs.add(plan.repoRoot, { paths: addablePaths });
+    report("stage-done");
   }
-  try {
-    if (addablePaths.length > 0) {
-      report("stage-start");
-      vcs.add(plan.repoRoot, { paths: addablePaths });
-      report("stage-done");
-    }
-    report("unstage-logs-start");
-    unstageLogFiles(plan.repoRoot, plan.relativePaths, vcs);
-    report("unstage-logs-done");
-    const preservedLogs = plan.relativePaths.filter((relativePath) => preserveExplicitLogs.has(relativePath));
-    if (preservedLogs.length > 0) vcs.add(plan.repoRoot, { paths: preservedLogs });
-    const staged = vcs.stagedFiles(plan.repoRoot, plan.relativePaths).trim();
-    if (staged.length === 0) return vcs.currentHead(plan.repoRoot);
+  report("unstage-logs-start");
+  unstageLogFiles(plan.repoRoot, plan.relativePaths, vcs);
+  report("unstage-logs-done");
+  const preservedLogs = plan.relativePaths.filter((relativePath) => preserveExplicitLogs.has(relativePath));
+  if (preservedLogs.length > 0) vcs.add(plan.repoRoot, { paths: preservedLogs });
+  const staged = vcs.stagedFiles(plan.repoRoot, plan.relativePaths).trim();
+  if (staged.length === 0) return vcs.currentHead(plan.repoRoot);
 
-    report("commit-call-start");
-    vcs.commit(plan.repoRoot, message ?? `harness write ${opIds.join(",")}`, options.author, {
-      ...(options.onCommitPhase ? { onPhase: options.onCommitPhase } : {})
-    });
-    report("commit-call-done");
-    return vcs.currentHead(plan.repoRoot);
-  } finally {
-    if (sessionBranch && trunkBranch) {
-      report("trunk-checkout-start");
-      vcs.checkout(plan.repoRoot, trunkBranch);
-      report("trunk-checkout-done");
-    }
-  }
+  report("commit-call-start");
+  vcs.commit(plan.repoRoot, commitMessage, options.author, {
+    ...(options.onCommitPhase ? { onPhase: options.onCommitPhase } : {})
+  });
+  report("commit-call-done");
+  return vcs.currentHead(plan.repoRoot);
 }
 
 export function resolveCommitPlan(
@@ -228,18 +238,6 @@ function logPathspecsFor(relativePath: string): ReadonlyArray<string> {
   if (normalized.length === 0 || normalized === ".") return [":(glob)**/*.log", "*.log"];
   if (normalized.endsWith(".log")) return [normalized];
   return [`:(glob)${normalized}/**/*.log`, `${normalized}/*.log`];
-}
-
-function checkoutSessionBranch(repoRoot: string, branchName: string, trunkBranch: string, vcs: VersionControlSystem): void {
-  vcs.checkout(repoRoot, trunkBranch);
-  if (!branchExists(repoRoot, branchName, vcs)) {
-    vcs.createBranch(repoRoot, branchName);
-  }
-  vcs.checkout(repoRoot, branchName);
-}
-
-function branchExists(repoRoot: string, branchName: string, vcs: VersionControlSystem): boolean {
-  return vcs.refExists(repoRoot, branchName);
 }
 
 export function sessionBranchName(sessionId: string | undefined): string | undefined {

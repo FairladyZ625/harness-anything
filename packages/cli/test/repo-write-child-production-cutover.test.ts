@@ -480,7 +480,17 @@ cutoverTest("doc-sync submits a working-tree file larger than the repo-writer IP
     });
 
     assert.equal(result.ok, true, JSON.stringify(result));
-    assert.equal(fixtureGit(fixture.authoredRoot, "status", "--short"), "");
+    // Publication commits with zero checkout, so it must not touch anything the
+    // worktree already tracks. It also must not delete the author's own file:
+    // the previous checkout-based publisher reached an empty `status --short`
+    // only by removing large.raw.jsonl from the worktree after committing it,
+    // which is the clobber this path exists to eliminate. Untracked generated
+    // and authored paths therefore remain until the materializer merges.
+    const trackedWorktreeChanges = fixtureGit(fixture.authoredRoot, "status", "--short")
+      .split("\n")
+      .filter((line) => line.length > 0 && !line.startsWith("??"));
+    assert.deepEqual(trackedWorktreeChanges, []);
+    assert.equal(existsSync(largeAbsolutePath), true, "publication must leave the authored file in place");
     assert.equal(fixtureGit(
       fixture.authoredRoot,
       "cat-file",

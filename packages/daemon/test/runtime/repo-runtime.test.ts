@@ -506,7 +506,9 @@ test("daemon interactive writes route sessionId commits to authored session bran
     assert.equal(git(rootDir, "rev-parse", "--abbrev-ref", "HEAD"), "master");
     assert.equal(git(rootDir, "branch", "--list", "sessions/daemon-session-1"), "sessions/daemon-session-1");
     assert.match(git(rootDir, "log", "master..sessions/daemon-session-1", "--oneline"), /op-daemon-session/u);
-    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-daemon-session/note.md")), false);
+    // Zero-checkout publisher preserves the worktree file; it is on the session
+    // branch but not yet on trunk until the materializer merges.
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-daemon-session/note.md")), true);
 
     await runtime.stop();
   });

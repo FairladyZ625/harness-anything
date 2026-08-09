@@ -302,7 +302,7 @@ test("doc sync submit dispatches prose to the production writer child", { timeou
       "-c", "user.email=harness@example.test",
       "commit", "-q", "-m", "seed doc sync fixture"
     ], { cwd: fixture.authoredRoot });
-    const trunkHead = execFileSync("git", ["rev-parse", "HEAD"], {
+    const trunkBranch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
       cwd: fixture.authoredRoot,
       encoding: "utf8"
     }).trim();
@@ -346,27 +346,27 @@ test("doc sync submit dispatches prose to the production writer child", { timeou
       `tasks/${taskId}/task_plan.md`,
       JSON.stringify(submitted.receipt)
     );
+    // Worktree contract (dec_01KZJMH1CZX3ZXBRJYG8WZA1F3): the publisher must
+    // never checkout/reset the shared user worktree. HEAD stays on the trunk
+    // branch (the sha may advance if the background materializer merges the
+    // session before this assertion runs), and the authored file keeps the
+    // user's submitted content through the whole publication window. The
+    // path may read as modified until the materializer lands the merge, so
+    // index cleanliness is intentionally not asserted here.
     assert.equal(
-      execFileSync("git", ["rev-parse", "HEAD"], {
+      execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
         cwd: fixture.authoredRoot,
         encoding: "utf8"
       }).trim(),
-      trunkHead
+      trunkBranch
     );
-    assert.match(readFileSync(planPath, "utf8"), /Original governed prose/u);
+    assert.match(readFileSync(planPath, "utf8"), /Updated through the writer child/u);
     assert.match(
       execFileSync("git", ["show", `${sessionBranch}:tasks/${taskId}/task_plan.md`], {
         cwd: fixture.authoredRoot,
         encoding: "utf8"
       }),
       /Updated through the writer child/u
-    );
-    assert.equal(
-      execFileSync("git", ["status", "--short", "--", `tasks/${taskId}/task_plan.md`], {
-        cwd: fixture.authoredRoot,
-        encoding: "utf8"
-      }).trim(),
-      ""
     );
     assert.match(
       execFileSync("git", ["log", "-1", "--format=%s", sessionBranch], {
