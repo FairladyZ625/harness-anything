@@ -148,11 +148,20 @@ export class ReceiptSettlementStore {
     return readdirSync(this.directory)
       .filter((name) => name.startsWith(prefix) && name.endsWith(acceptedSuffix))
       .sort()
-      .map((name) => readRecord(
-        path.join(this.directory, name),
-        this.hooks,
-        "pending"
-      ) as ReceiptSettlementAcceptedRecord)
+      .flatMap((name) => {
+        // One unreadable acceptance must not halt the recovery sweep for
+        // every other receipt; report it and keep sweeping.
+        try {
+          return [readRecord(
+            path.join(this.directory, name),
+            this.hooks,
+            "pending"
+          ) as ReceiptSettlementAcceptedRecord];
+        } catch (error) {
+          this.onWarning(`RECEIPT_SETTLEMENT_PENDING_SKIPPED:${name}:${describe(error)}`);
+          return [];
+        }
+      })
       .filter((record) => !repoWriteOutcomeDurablePathExists(paths(this.directory, record.receiptId).visible));
   }
 
@@ -230,7 +239,15 @@ function readRecord(
 ): ReceiptSettlementSnapshot {
   const { descriptor, text } = repoWriteOutcomeReadPrivateText(file);
   try {
-    const parsed = JSON.parse(text) as Record<string, unknown>;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      // Surface unparseable sidecars as typed corruption so callers can skip
+      // or report them instead of leaking a raw SyntaxError across the
+      // daemon boundary.
+      throw new Error(`RECEIPT_SETTLEMENT_CORRUPT:${path.basename(file)}`);
+    }
     if (parsed.schema !== "receipt-settlement-record/v1"
       || parsed.state !== expectedState
       || typeof parsed.receiptId !== "string"

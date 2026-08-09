@@ -1,6 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -178,6 +179,65 @@ test("corrupt failure evidence is skipped with a warning while valid settlement 
 
     assert.equal(current?.state, "failed");
     assert.match(warnings.join("\n"), /RECEIPT_SETTLEMENT_FAILURE_SKIPPED/u);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("an in-process receipt with undefined values persists as parseable JSON", durableSettlementStore, () => {
+  withStores(({ directory, first }) => {
+    // Direct-mode receipts never cross a JSON round-trip, so undefined-valued
+    // keys reach the sidecar writer verbatim. The serializer used to emit the
+    // literal text `undefined`, corrupting the record on disk.
+    const accepted = acceptedReceipt("receipt-undefined-values", "session-undefined", "a");
+    const poisoned = {
+      ...accepted,
+      details: { report: { module: undefined, preset: "standard-task" } }
+    } as unknown as CommandReceipt;
+    first.accept(poisoned);
+
+    for (const name of readdirSync(directory)) {
+      const text = readFileSync(path.join(directory, name), "utf8");
+      assert.doesNotThrow(() => JSON.parse(text), `sidecar ${name} must be valid JSON`);
+    }
+    assert.equal(first.lookup("receipt-undefined-values")?.state, "pending");
+  });
+});
+
+test("a corrupt accepted sidecar is skipped by the recovery sweep and reported as typed corruption", durableSettlementStore, () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "ha-receipt-settlement-"));
+  const warnings: string[] = [];
+  try {
+    const receipts = new ReceiptSettlementStore({
+      directory,
+      repoId: "repo-settlement",
+      workspaceId: "workspace-settlement",
+      generation: 7,
+      onWarning: (warning) => warnings.push(warning)
+    });
+    const healthy = acceptedReceipt("receipt-healthy", "session-healthy", "a");
+    receipts.accept(healthy);
+    const corruptName = `receipt-settlement-v1.${"0".repeat(64)}.accepted.json`;
+    writeFileSync(path.join(directory, corruptName), "{\"module\":undefined,\n", { mode: 0o600 });
+    chmodSync(path.join(directory, corruptName), 0o600);
+
+    // One unreadable acceptance must not halt settlement for every receipt.
+    assert.deepEqual(
+      receipts.listUnsettled().map((record) => record.receiptId),
+      ["receipt-healthy"]
+    );
+    assert.match(warnings.join("\n"), /RECEIPT_SETTLEMENT_PENDING_SKIPPED/u);
+
+    // A direct lookup of the broken record reports typed corruption, not a
+    // raw JSON SyntaxError leaked through the daemon boundary.
+    const key = createHash("sha256").update("receipt-healthy", "utf8").digest("hex");
+    const target = path.join(directory, `receipt-settlement-v1.${key}.visible.json`);
+    writeFileSync(target, "{\"module\":undefined,\n", { mode: 0o600 });
+    chmodSync(target, 0o600);
+    assert.throws(
+      () => receipts.lookup("receipt-healthy"),
+      /RECEIPT_SETTLEMENT_CORRUPT/u
+    );
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
