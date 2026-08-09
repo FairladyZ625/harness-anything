@@ -44,8 +44,7 @@ import { gateCutoverAdmission } from "./cutover-admission.ts";
 import {
   assertPublicationMatchesMutationSet,
   createGitAuthorityAttributionEvidenceCommitterV2,
-  createGitCanonicalPublicationInspector,
-  publicationRetryOptions
+  createGitCanonicalPublicationInspector
 } from "./publication-evidence.ts";
 import { createAuthorityProductionScanner } from "./production-scanner.ts";
 import {
@@ -78,6 +77,7 @@ import { attestSubmissionService } from "./transport-attested-submission-service
 import { recoverProductionCommittedReceipt } from "./production-committed-receipt-recovery.ts";
 import type { RetryBudgetSignal } from "../../observability/visible-retry-budget.ts";
 import { settleProductionRecovery, type ProductionRecoveryState } from "./production-recovery-state.ts";
+import { productionPublicationRetryOptions } from "./production-publication-retry-options.ts";
 import { createSerialPublicationExecutor } from "./serial-publication-executor.ts";
 export { createSerialPublicationExecutor } from "./serial-publication-executor.ts";
 export { recoverPendingProductionEvents } from "./recovery.ts";
@@ -96,11 +96,6 @@ interface RepoProductionMaterial {
   readonly daemonLogService?: DaemonLogService;
   readonly onPublicationRetryBudgetSignal?: (signal: RetryBudgetSignal) => void;
   readonly recovery: ProductionRecoveryState;
-}
-
-interface PublicationRetryVisibility {
-  readonly daemonLogService?: DaemonLogService;
-  readonly onPublicationRetryBudgetSignal?: (signal: RetryBudgetSignal) => void;
 }
 
 const productionAuthorityV2EntityKinds = [
@@ -558,15 +553,6 @@ function createConnectionAuthorityService(
       } : {})
     }
   });
-}
-
-function productionPublicationRetryOptions(
-  visibility: PublicationRetryVisibility,
-  config: AuthorityProductionRepoConfigV1
-): ReturnType<typeof publicationRetryOptions> {
-  return visibility.onPublicationRetryBudgetSignal
-    ? { onRetryBudgetSignal: visibility.onPublicationRetryBudgetSignal }
-    : publicationRetryOptions(visibility.daemonLogService, config);
 }
 
 function assertConnectionContext(
