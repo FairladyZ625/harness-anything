@@ -54,10 +54,30 @@ test("publication evidence yields between blob reads so recovery admission timer
     [opId],
     mergeCommit
   );
-  assert.deepEqual(await inspector.findHistoricalPublicationForOperation(opId), {
-    commitSha: mergeCommit,
-    semanticDigest
-  });
+  const tracePath = path.join(root, "historical-publication-git-trace.jsonl");
+  const previousTrace = process.env.GIT_TRACE2_EVENT;
+  process.env.GIT_TRACE2_EVENT = tracePath;
+  try {
+    assert.deepEqual(await inspector.findHistoricalPublicationForOperation(opId), {
+      commitSha: mergeCommit,
+      semanticDigest
+    });
+  } finally {
+    if (previousTrace === undefined) delete process.env.GIT_TRACE2_EVENT;
+    else process.env.GIT_TRACE2_EVENT = previousTrace;
+  }
+
+  const lookupCommands = gitTraceCommands(tracePath);
+  assert.equal(lookupCommands.filter(([command]) => command === "rev-list").length, 0);
+  assert.equal(lookupCommands.filter((args) =>
+    args[0] === "show" && args.includes("-s")
+  ).length, 0);
+  assert.equal(lookupCommands.filter((args) =>
+    args[0] === "diff" && args.includes("--quiet")
+  ).length, 0);
+  assert.equal(lookupCommands.filter((args) =>
+    args[0] === "diff" && args.includes("--name-only")
+  ).length, 1);
 
   assert.equal(timerFired, true);
 });
@@ -101,13 +121,25 @@ test("missing-operation recovery search yields and reuses one bounded history sc
   }
 
   assert.equal(timerFired, true);
-  const starts = readFileSync(tracePath, "utf8")
-    .trim()
-    .split("\n")
-    .map((line) => JSON.parse(line) as { readonly event: string })
-    .filter((event) => event.event === "start");
+  const starts = gitTraceCommands(tracePath);
   assert.ok(starts.length <= 3, `expected one history scan plus HEAD checks, observed ${starts.length} Git processes`);
 });
+
+function gitTraceCommands(tracePath: string): ReadonlyArray<ReadonlyArray<string>> {
+  return readFileSync(tracePath, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as {
+      readonly event: string;
+      readonly argv?: ReadonlyArray<string>;
+    })
+    .filter((event) => event.event === "start")
+    .map((event) => {
+      const argv = event.argv ?? [];
+      const rootFlag = argv.indexOf("-C");
+      return rootFlag >= 0 ? argv.slice(rootFlag + 2) : argv.slice(1);
+    });
+}
 
 function git(root: string, ...args: ReadonlyArray<string>): string {
   return execFileSync("git", ["-C", root, ...args], {

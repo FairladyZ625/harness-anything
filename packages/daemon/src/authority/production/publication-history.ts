@@ -8,9 +8,13 @@ const subjectBatchSize = 256;
 export interface FirstParentPublicationMetadata {
   readonly commitSha: string;
   readonly parents: ReadonlyArray<string>;
+  readonly treeSha: string;
   readonly subject: string;
+  readonly message: string;
   readonly sessionSubject?: string;
   readonly sessionParents?: ReadonlyArray<string>;
+  readonly sessionTreeSha?: string;
+  readonly sessionMessage?: string;
 }
 
 export interface AuthorityBatchCommitMetadata {
@@ -31,16 +35,18 @@ export async function scanFirstParentPublicationMetadata(input: {
   const revision = input.exclusiveCommit
     ? `${input.exclusiveCommit}..${input.headCommit}`
     : input.headCommit;
-  const history = parseTriples(await publicationHistoryGitText(
+  const history = parseCommitRows(await publicationHistoryGitText(
     input.rootDir,
     "log",
     "--first-parent",
-    "--format=%H%x00%P%x00%s%x00",
+    "--format=%H%x00%P%x00%T%x00%s%x00%B%x00",
     revision
-  )).map(([commitSha, parents, subject]) => ({
+  )).map(([commitSha, parents, treeSha, subject, message]) => ({
     commitSha,
     parents: parents.split(" ").filter(Boolean),
-    subject
+    treeSha,
+    subject,
+    message
   }));
   const sessionCommits = [...new Set(history
     .filter((row) =>
@@ -50,30 +56,39 @@ export async function scanFirstParentPublicationMetadata(input: {
     .map((row) => row.parents[1]!))];
   const sessions = new Map<string, {
     readonly parents: ReadonlyArray<string>;
+    readonly treeSha: string;
     readonly subject: string;
+    readonly message: string;
   }>();
   for (let start = 0; start < sessionCommits.length; start += subjectBatchSize) {
     const batch = sessionCommits.slice(start, start + subjectBatchSize);
-    for (const [commitSha, parents, subject] of parseTriples(await publicationHistoryGitText(
+    for (const [commitSha, parents, treeSha, subject, message] of parseCommitRows(await publicationHistoryGitText(
       input.rootDir,
       "log",
       "--no-walk=unsorted",
-      "--format=%H%x00%P%x00%s%x00",
+      "--format=%H%x00%P%x00%T%x00%s%x00%B%x00",
       ...batch
     ))) {
       sessions.set(commitSha, {
         parents: parents.split(" ").filter(Boolean),
-        subject
+        treeSha,
+        subject,
+        message
       });
     }
   }
-  return history.map((row) => ({
-    ...row,
-    ...(row.parents[1] ? {
-      sessionSubject: sessions.get(row.parents[1])?.subject ?? "",
-      sessionParents: sessions.get(row.parents[1])?.parents ?? []
-    } : {})
-  }));
+  return history.map((row) => {
+    const session = row.parents[1] ? sessions.get(row.parents[1]) : undefined;
+    return {
+      ...row,
+      ...(session ? {
+        sessionSubject: session.subject,
+        sessionParents: session.parents,
+        sessionTreeSha: session.treeSha,
+        sessionMessage: session.message
+      } : {})
+    };
+  });
 }
 
 export async function scanAuthorityBatchCommits(input: {
@@ -124,14 +139,16 @@ function parsePairs(value: string): ReadonlyArray<readonly [string, string]> {
   return pairs;
 }
 
-function parseTriples(value: string): ReadonlyArray<readonly [string, string, string]> {
+function parseCommitRows(value: string): ReadonlyArray<readonly [string, string, string, string, string]> {
   const fields = value.split("\0");
-  const triples: Array<readonly [string, string, string]> = [];
-  for (let index = 0; index + 2 < fields.length; index += 3) {
+  const rows: Array<readonly [string, string, string, string, string]> = [];
+  for (let index = 0; index + 4 < fields.length; index += 5) {
     const first = fields[index]!.trim();
     const second = fields[index + 1]!.trim();
     const third = fields[index + 2]!.trim();
-    if (first) triples.push([first, second, third]);
+    const fourth = fields[index + 3]!.trim();
+    const fifth = fields[index + 4]!.trim();
+    if (first) rows.push([first, second, third, fourth, fifth]);
   }
-  return triples;
+  return rows;
 }

@@ -2,17 +2,19 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createGitCanonicalPublicationInspector } from "../src/authority/production/publication-evidence.ts";
+import { scanFirstParentPublicationMetadata } from "../src/authority/production/publication-history.ts";
 import {
   authorityBatchTrailerName,
   buildAuthorityBatchIntegrity
 } from "../../kernel/test/authority-batch-fixture.ts";
 
 const opId = "namespace-test:publication-topology";
+const posixTest = process.platform === "win32" ? test.skip : test;
 
 test("publication proof accepts the existing two-parent materializer shape", async (context) => {
   const fixture = publicationFixture(context);
@@ -234,6 +236,75 @@ test("publication proof rejects a merge tree that differs from the session tree"
       .inspectPublication(fixture.base, [opId], mismatchedTree),
     topologyError
   );
+});
+
+test("indexed publication lookup preserves message and tree topology checks", async (context) => {
+  const fixture = publicationFixture(context);
+  const changedMessage = commitTree(
+    fixture.root,
+    fixture.sessionTree,
+    [fixture.base, fixture.session],
+    `${fixture.sessionMessage}\n\nunexpected`
+  );
+  fixtureGit(fixture.root, "update-ref", "refs/heads/master", changedMessage);
+
+  await assert.rejects(
+    createGitCanonicalPublicationInspector(fixture.root).findPublicationForOperation(opId),
+    topologyError
+  );
+
+  const mismatchedTree = commitTree(
+    fixture.root,
+    fixture.baseTree,
+    [fixture.base, fixture.session],
+    "materializer: merge session topology"
+  );
+  fixtureGit(fixture.root, "update-ref", "refs/heads/master", mismatchedTree);
+
+  await assert.rejects(
+    createGitCanonicalPublicationInspector(fixture.root).findPublicationForOperation(opId),
+    topologyError
+  );
+});
+
+posixTest("missing indexed session metadata preserves the Git message fallback", async (context) => {
+  const fixture = publicationFixture(context);
+  fixtureGit(fixture.root, "update-ref", "refs/heads/master", fixture.validMerge);
+  const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+  const binDir = mkdtempSync(path.join(tmpdir(), "ha-publication-git-wrapper-"));
+  context.after(() => rmSync(binDir, { recursive: true, force: true }));
+  const wrapperPath = path.join(binDir, "git");
+  writeFileSync(wrapperPath, [
+    "#!/bin/sh",
+    "for arg in \"$@\"; do",
+    "  if [ \"$arg\" = \"--no-walk=unsorted\" ]; then exit 0; fi",
+    "done",
+    `exec ${JSON.stringify(realGit)} "$@"`,
+    ""
+  ].join("\n"));
+  chmodSync(wrapperPath, 0o755);
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+  let commits;
+  try {
+    commits = await scanFirstParentPublicationMetadata({
+      rootDir: fixture.root,
+      headCommit: fixture.validMerge
+    });
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+  }
+
+  const metadata = commits.find((commit) => commit.commitSha === fixture.validMerge);
+  assert.ok(metadata);
+  let fallbackObserved = false;
+  const sessionMessage = metadata.sessionMessage ?? (() => {
+    fallbackObserved = true;
+    return fixture.sessionMessage;
+  })();
+  assert.equal(fallbackObserved, true);
+  assert.equal(sessionMessage, fixture.sessionMessage);
 });
 
 test("publication proof rejects a publication missing its inline attribution shard", async (context) => {
