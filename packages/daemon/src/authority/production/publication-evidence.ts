@@ -38,6 +38,10 @@ import { findUniquePublication } from "./publication-operation-lookup.ts";
 import { publicationGitExitCode } from "./publication-git-observation.ts";
 import { AuthorityImmutablePublicationProofError } from "./publication-proof-error.ts";
 import { reportCurrentRepoWriteTelemetry } from "../../runtime/repo-write-telemetry-context.ts";
+import {
+  readPublicationGitObject,
+  shutdownPublicationGitObjectReader
+} from "./publication-object-reader.ts";
 
 export { assertPublicationMatchesMutationSet } from "./publication-mutation-proof.ts";
 
@@ -58,6 +62,7 @@ export interface CanonicalPublicationEvidence {
 }
 
 export interface GitCanonicalPublicationInspector extends CanonicalPublicationInspector {
+  readonly shutdown: () => Promise<void>;
   readonly inspectPublication: (
     expectedPreviousHead: string | null,
     expectedOpIds: ReadonlyArray<string>,
@@ -497,13 +502,14 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
       return matches[0]!;
     },
     findPublicationForOperation,
+    shutdown: () => shutdownPublicationGitObjectReader(rootDir),
     findHistoricalPublicationForOperation: async (opId) => {
       const publication = await findPublicationForOperation(opId);
       return historicalPublicationEvidence({
         opId,
         publication,
         readAtCommit: (commitSha, eventPath) =>
-          publicationGitBytesAsync(rootDir, "show", `${commitSha}:${eventPath}`)
+          readPublicationGitObject(rootDir, `${commitSha}:${eventPath}`)
       });
     }
   };
@@ -519,7 +525,7 @@ async function blobDigestAsync(
   changedPath: string
 ): Promise<string | null> {
   try {
-    const bytes = await publicationGitBytesAsync(rootDir, "show", `${revision}:${changedPath}`);
+    const bytes = await readPublicationGitObject(rootDir, `${revision}:${changedPath}`);
     return createHash("sha256").update(bytes).digest("hex");
   } catch {
     return null;
@@ -547,15 +553,6 @@ function publicationGitText(rootDir: string, ...args: ReadonlyArray<string>): st
 }
 
 const execFileAsync = promisify(execFile);
-
-async function publicationGitBytesAsync(rootDir: string, ...args: ReadonlyArray<string>): Promise<Buffer> {
-  const { stdout } = await execFileAsync("git", ["-C", rootDir, ...args], {
-    encoding: "buffer",
-    windowsHide: true,
-    maxBuffer: 64 * 1024 * 1024
-  });
-  return stdout;
-}
 
 async function publicationGitTextAsync(rootDir: string, ...args: ReadonlyArray<string>): Promise<string> {
   const { stdout } = await execFileAsync("git", ["-C", rootDir, ...args], {

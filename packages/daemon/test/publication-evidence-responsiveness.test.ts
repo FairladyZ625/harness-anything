@@ -1,7 +1,15 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +18,150 @@ import {
   AuthorityCanonicalPublicationNotFoundError,
   createGitCanonicalPublicationInspector
 } from "../src/authority/production/publication-evidence.ts";
+import {
+  readPublicationGitObject,
+  shutdownPublicationGitObjectReader
+} from "../src/authority/production/publication-object-reader.ts";
+
+const posixTest = process.platform === "win32" ? test.skip : test;
+
+test("concurrent object reads share one lazily spawned batch process", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "publication-object-reader-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q");
+  git(root, "config", "user.name", "Harness Test");
+  git(root, "config", "user.email", "harness@example.test");
+  writeFileSync(path.join(root, "seed.txt"), "seed\n");
+  git(root, "add", ".");
+  git(root, "commit", "-q", "-m", "seed");
+  const tracePath = path.join(root, "git-trace.jsonl");
+  const previousTrace = process.env.GIT_TRACE2_EVENT;
+  process.env.GIT_TRACE2_EVENT = tracePath;
+  const inspector = createGitCanonicalPublicationInspector(root);
+  try {
+    assert.equal(existsSync(tracePath), false);
+    const results = await Promise.all(Array.from(
+      { length: 8 },
+      () => readPublicationGitObject(root, "HEAD:seed.txt")
+    ));
+    assert.deepEqual(results, Array.from({ length: 8 }, () => Buffer.from("seed\n")));
+  } finally {
+    await inspector.shutdown();
+    if (previousTrace === undefined) delete process.env.GIT_TRACE2_EVENT;
+    else process.env.GIT_TRACE2_EVENT = previousTrace;
+  }
+
+  assert.equal(
+    gitTraceCommands(tracePath).filter((args) =>
+      args[0] === "cat-file" && args.includes("--batch")
+    ).length,
+    1
+  );
+});
+
+posixTest("offset batch bytes fail closed and the request falls back to one-shot Git", async (context) => {
+  const fixture = faultyPublicationRepo("offset");
+  context.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  try {
+    assert.equal(
+      await readPublicationGitObject(fixture.root, "HEAD:seed.txt").then((content) => content.toString("utf8")),
+      "seed\n"
+    );
+  } finally {
+    await shutdownPublicationGitObjectReader(fixture.root);
+    fixture.restorePath();
+  }
+
+  const batchPids = readBatchPids(fixture.batchLog);
+  assert.equal(batchPids.length, 2);
+  assert.equal(new Set(batchPids).size, 2);
+  assert.equal(readLogEntries(fixture.fallbackLog).length, 1);
+});
+
+posixTest("a batch process death falls back and creates only one replacement", async (context) => {
+  const fixture = faultyPublicationRepo("die");
+  context.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  try {
+    assert.equal(
+      await readPublicationGitObject(fixture.root, "HEAD:seed.txt").then((content) => content.toString("utf8")),
+      "seed\n"
+    );
+  } finally {
+    await shutdownPublicationGitObjectReader(fixture.root);
+    fixture.restorePath();
+  }
+
+  assert.equal(readBatchPids(fixture.batchLog).length, 2);
+  assert.equal(readLogEntries(fixture.fallbackLog).length, 1);
+});
+
+posixTest("a half-read response never reaches the caller and falls back", async (context) => {
+  const fixture = faultyPublicationRepo("half-read");
+  context.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  try {
+    assert.equal(
+      await readPublicationGitObject(fixture.root, "HEAD:seed.txt").then((content) => content.toString("utf8")),
+      "seed\n"
+    );
+  } finally {
+    await shutdownPublicationGitObjectReader(fixture.root);
+    fixture.restorePath();
+  }
+
+  assert.equal(readBatchPids(fixture.batchLog).length, 2);
+  assert.equal(readLogEntries(fixture.fallbackLog).length, 1);
+});
+
+posixTest("consecutive batch failures exhaust one rebuild and emit a visible warning", async (context) => {
+  const fixture = faultyPublicationRepo("offset");
+  context.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  const warnings: string[] = [];
+  const onWarning = (warning: Error) => warnings.push(warning.message);
+  process.on("warning", onWarning);
+  try {
+    const results: string[] = [];
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      results.push(await readPublicationGitObject(fixture.root, "HEAD:seed.txt")
+        .then((content) => content.toString("utf8")));
+    }
+    assert.deepEqual(results, ["seed\n", "seed\n", "seed\n"]);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  } finally {
+    process.off("warning", onWarning);
+    await shutdownPublicationGitObjectReader(fixture.root);
+    fixture.restorePath();
+  }
+
+  assert.equal(readBatchPids(fixture.batchLog).length, 2);
+  assert.equal(readLogEntries(fixture.fallbackLog).length, 3);
+  assert.equal(
+    warnings.some((warning) => warning.includes("AUTHORITY_GIT_OBJECT_BATCH_RETRY_BUDGET_EXHAUSTED")),
+    true
+  );
+});
+
+posixTest("shutdown terminates a stuck half-read and rejects queued requests", async (context) => {
+  const fixture = faultyPublicationRepo("hang-half");
+  context.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  const active = readPublicationGitObject(fixture.root, "HEAD:seed.txt");
+  const queued = readPublicationGitObject(fixture.root, "HEAD:seed.txt");
+  const activeRejected = assert.rejects(active, /AUTHORITY_GIT_OBJECT_BATCH_HALF_READ/u);
+  const queuedRejected = assert.rejects(queued, /AUTHORITY_GIT_OBJECT_READER_CLOSED/u);
+  while (!existsSync(fixture.batchLog)) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  const shutdownStarted = performance.now();
+  try {
+    await shutdownPublicationGitObjectReader(fixture.root);
+    assert.ok(performance.now() - shutdownStarted < 1_000);
+    await Promise.all([activeRejected, queuedRejected]);
+  } finally {
+    fixture.restorePath();
+  }
+
+  assert.equal(readBatchPids(fixture.batchLog).length, 1);
+  assert.equal(readLogEntries(fixture.fallbackLog).length, 0);
+});
 
 test("publication evidence yields between blob reads so recovery admission timers remain live", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "publication-evidence-responsive-"));
@@ -54,15 +206,18 @@ test("publication evidence yields between blob reads so recovery admission timer
     [opId],
     mergeCommit
   );
+  await inspector.shutdown();
   const tracePath = path.join(root, "historical-publication-git-trace.jsonl");
   const previousTrace = process.env.GIT_TRACE2_EVENT;
   process.env.GIT_TRACE2_EVENT = tracePath;
+  const historicalInspector = createGitCanonicalPublicationInspector(root);
   try {
-    assert.deepEqual(await inspector.findHistoricalPublicationForOperation(opId), {
+    assert.deepEqual(await historicalInspector.findHistoricalPublicationForOperation(opId), {
       commitSha: mergeCommit,
       semanticDigest
     });
   } finally {
+    await historicalInspector.shutdown();
     if (previousTrace === undefined) delete process.env.GIT_TRACE2_EVENT;
     else process.env.GIT_TRACE2_EVENT = previousTrace;
   }
@@ -77,6 +232,12 @@ test("publication evidence yields between blob reads so recovery admission timer
   ).length, 0);
   assert.equal(lookupCommands.filter((args) =>
     args[0] === "diff" && args.includes("--name-only")
+  ).length, 1);
+  assert.equal(lookupCommands.filter((args) =>
+    args[0] === "show" && !args.includes("-s")
+  ).length, 0);
+  assert.equal(lookupCommands.filter((args) =>
+    args[0] === "cat-file" && args.includes("--batch")
   ).length, 1);
 
   assert.equal(timerFired, true);
@@ -146,4 +307,98 @@ function git(root: string, ...args: ReadonlyArray<string>): string {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"]
   }).trim();
+}
+
+function readBatchPids(batchLog: string): ReadonlyArray<string> {
+  return readLogEntries(batchLog);
+}
+
+function readLogEntries(logPath: string): ReadonlyArray<string> {
+  if (!existsSync(logPath)) return [];
+  return readFileSync(logPath, "utf8").trim().split("\n").filter(Boolean);
+}
+
+type GitBatchFault = "offset" | "die" | "half-read" | "hang-half";
+
+function faultyPublicationRepo(fault: GitBatchFault): {
+  readonly root: string;
+  readonly batchLog: string;
+  readonly fallbackLog: string;
+  readonly restorePath: () => void;
+} {
+  const root = mkdtempSync(path.join(tmpdir(), `publication-object-${fault}-`));
+  git(root, "init", "-q");
+  git(root, "config", "user.name", "Harness Test");
+  git(root, "config", "user.email", "harness@example.test");
+  writeFileSync(path.join(root, "seed.txt"), "seed\n");
+  git(root, "add", ".");
+  git(root, "commit", "-q", "-m", "seed");
+  const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+  const binDir = path.join(root, "fault-bin");
+  const batchLog = path.join(root, "batch-starts.log");
+  const fallbackLog = path.join(root, "fallback-starts.log");
+  mkdirSync(binDir);
+  const wrapper = path.join(binDir, "git");
+  writeFileSync(wrapper, faultyGitWrapperSource(realGit, batchLog, fallbackLog, fault));
+  chmodSync(wrapper, 0o755);
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+  return {
+    root,
+    batchLog,
+    fallbackLog,
+    restorePath: () => {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  };
+}
+
+function faultyGitWrapperSource(
+  realGit: string,
+  batchLog: string,
+  fallbackLog: string,
+  fault: GitBatchFault
+): string {
+  return [
+    "#!/usr/bin/env node",
+    'import { appendFileSync } from "node:fs";',
+    'import { spawnSync } from "node:child_process";',
+    `const realGit = ${JSON.stringify(realGit)};`,
+    `const batchLog = ${JSON.stringify(batchLog)};`,
+    `const fallbackLog = ${JSON.stringify(fallbackLog)};`,
+    `const fault = ${JSON.stringify(fault)};`,
+    "const args = process.argv.slice(2);",
+    "if (!args.includes(\"--batch\")) {",
+    "  appendFileSync(fallbackLog, `${process.pid}\\n`);",
+    "  const delegated = spawnSync(realGit, args, { stdio: \"inherit\" });",
+    "  process.exit(delegated.status ?? 1);",
+    "}",
+    "appendFileSync(batchLog, `${process.pid}\\n`);",
+    "const rootFlag = args.indexOf(\"-C\");",
+    "const root = rootFlag >= 0 ? args[rootFlag + 1] : process.cwd();",
+    "let pending = \"\";",
+    "process.stdin.setEncoding(\"utf8\");",
+    "process.stdin.on(\"data\", (chunk) => {",
+    "  pending += chunk;",
+    "  const newline = pending.indexOf(\"\\n\");",
+    "  if (newline < 0) return;",
+    "  const objectName = pending.slice(0, newline);",
+    "  if (fault === \"die\") process.exit(17);",
+    "  const contentResult = spawnSync(realGit, [\"-C\", root, \"show\", objectName]);",
+    "  const oidResult = spawnSync(realGit, [\"-C\", root, \"rev-parse\", objectName], { encoding: \"utf8\" });",
+    "  const typeResult = spawnSync(realGit, [\"-C\", root, \"cat-file\", \"-t\", objectName], { encoding: \"utf8\" });",
+    "  if (contentResult.status !== 0 || oidResult.status !== 0 || typeResult.status !== 0) process.exit(2);",
+    "  const content = Buffer.from(contentResult.stdout);",
+    "  const corrupted = fault === \"offset\"",
+    "    ? Buffer.concat([content.subarray(1), content.subarray(0, 1)])",
+    "    : fault === \"half-read\" || fault === \"hang-half\" ? content.subarray(0, -1)",
+    "    : content;",
+    "  process.stdout.write(`${oidResult.stdout.trim()} ${typeResult.stdout.trim()} ${content.length}\\n`);",
+    "  process.stdout.write(corrupted);",
+    "  if (fault === \"hang-half\") setTimeout(() => process.exit(0), 2_000);",
+    "  else process.stdout.write(\"\\n\", () => { if (fault === \"half-read\") process.exit(0); });",
+    "});",
+    ""
+  ].join("\n");
 }
