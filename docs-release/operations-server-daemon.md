@@ -173,6 +173,12 @@ allowed zones, rejects structured or unresolved touches, checks the Git base,
 and creates the attributed commit. Do not run a second raw Git commit for files
 accepted by doc sync.
 
+Your working-tree file keeps its submitted content throughout publication: the
+publisher commits to the session branch headlessly and never checks out or
+resets the shared working tree. Older releases briefly reverted the file to the
+pre-submit content until a background merge restored it; that behavior has been
+removed, and no waiting period is needed after a submit.
+
 Top-level ADR, standard, template, and repository-agent prose is not yet in the
 registered doc-sync surface. Keep using its governed repository workflow until
 the write-road registry explicitly classifies those paths; `doc sync` fails

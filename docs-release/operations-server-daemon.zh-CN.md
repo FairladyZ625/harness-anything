@@ -128,6 +128,10 @@ ha doc sync --submit --path tasks/task_01ABC/task_plan.md --json
 触碰，检查 Git base，并创建带真实归因的 commit。doc sync 已接受的文件不要再补一次
 raw Git commit。
 
+提交后你的工作树文件全程保留提交内容：发布器以 headless 方式提交到 session 分支，
+不会 checkout 或重置共享工作树。旧版本在提交后会把文件短暂回退成提交前的内容、
+直到后台合并恢复；该行为已移除，提交后无需等待。
+
 顶层 ADR、standard、template 与 repository-agent prose 尚未进入已登记的 doc-sync 面；在
 write-road registry 明确分类这些路径前，继续使用其既有治理仓库流程。`doc sync` 会对未知
 Markdown fail closed，不会因为扩展名像 prose 就擅自放行。
