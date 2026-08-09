@@ -39,6 +39,10 @@ export interface DaemonAutostartFlightPhase {
 export interface DaemonStartupFlight {
   startedAt: number;
   deadline: number;
+  // The caller-requested startup budget. Failure messages must report this
+  // value, not `deadline - startedAt`: those two clocks are sampled separately,
+  // so the recomputed span drifts (1200 -> 1199) under scheduling jitter.
+  timeoutMs: number;
   lastError: unknown;
   spawnedPid?: number;
   observedSocketOwnerPid?: number;
@@ -74,6 +78,7 @@ export function createDaemonAutostartFlightManager<Target extends { readonly soc
         daemonStartupFlights.delete(target.socketPath);
       } else {
         existing.deadline = Math.max(existing.deadline, deadline);
+        existing.timeoutMs = Math.max(existing.timeoutMs, autostartTimeoutMs);
         return waitForDaemonStartupFlight(target.socketPath, existing, deadline, autostartTimeoutMs);
       }
     }
@@ -85,6 +90,7 @@ export function createDaemonAutostartFlightManager<Target extends { readonly soc
       const flight: DaemonStartupFlight = {
         startedAt: Date.now(),
         deadline,
+        timeoutMs: autostartTimeoutMs,
         lastError: undefined,
         spawnedPid: livePid,
         promise: Promise.resolve()
@@ -104,6 +110,7 @@ export function createDaemonAutostartFlightManager<Target extends { readonly soc
     const flight: DaemonStartupFlight = {
       startedAt: Date.now(),
       deadline,
+      timeoutMs: autostartTimeoutMs,
       lastError: undefined,
       promise: Promise.resolve()
     };
@@ -166,7 +173,7 @@ export function createDaemonAutostartFlightManager<Target extends { readonly soc
       processExited: observedOwner ? false : processExited,
       cause: flight.lastError
     }, circuitOptions);
-    throw daemonStartupFlightFailure(flight, target.socketPath, flight.deadline - flight.startedAt);
+    throw daemonStartupFlightFailure(flight, target.socketPath, flight.timeoutMs);
   }
   async function joinLiveDaemonStartup(
     target: Target,
@@ -206,7 +213,7 @@ export function createDaemonAutostartFlightManager<Target extends { readonly soc
     reportDaemonAutostartOutcome(target.socketPath, {
       ok: false, spawnedPid: flight.spawnedPid, processExited, cause: flight.lastError
     }, circuitOptions);
-    throw daemonAutostartFailureError(flight.deadline - flight.startedAt, flight.lastError, flight.spawnedPid, flight.launchStderrPath);
+    throw daemonAutostartFailureError(flight.timeoutMs, flight.lastError, flight.spawnedPid, flight.launchStderrPath);
   }
   async function waitForDaemonStartupFlight(
     socketPath: string,
