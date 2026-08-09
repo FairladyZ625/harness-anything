@@ -29,7 +29,7 @@ export function authorizePersonForMethod(
   return {
     ok: false,
     code: "rbac_forbidden",
-    message: `Person ${personId} is forbidden from ${action.commandClass} method ${action.method} because no assigned role grants that command class. Update the person's roles in harness/people.yaml, then run \`ha daemon restart --json\` before retrying.`
+    message: `Person ${personId} is forbidden from ${action.commandClass} method ${action.method} because the active PeopleRoster grants none of their assigned roles that command class. This authorization check does not know the roster source path and made no configuration change. Inspect the owning identity configuration and logs; use \`ha daemon status --json\` only to verify the active daemon before retrying after the role grant is confirmed.`
   };
 }
 
@@ -55,7 +55,7 @@ export function makePersonAuthorizationProvider(
       return {
         ok: false,
         code: "rbac_forbidden",
-        message: `Person ${candidate} is forbidden from ${action.commandClass} method ${action.method} because the configured command-class grant is missing. Update the person's roles in harness/people.yaml, then run \`ha daemon restart --json\` before retrying.`
+        message: `Person ${candidate} is forbidden from ${action.commandClass} method ${action.method} because this authorization provider's configured command-class grant is missing. The grant comes from provider composition, not from a roster path, and this check made no configuration change. Inspect the owning authorization configuration and logs; use \`ha daemon status --json\` only to verify the active daemon before retrying after the grant is confirmed.`
       };
     }
   };

@@ -9,7 +9,7 @@ export interface ResolvedWorkspaceRepo {
 
 export interface UnknownWorkspaceRoot {
   readonly folder: vscode.WorkspaceFolder;
-  readonly action: "Register workspace folder with Harness";
+  readonly action: string;
 }
 
 export interface WorkspaceRouterOptions {
@@ -44,7 +44,7 @@ export class WorkspaceRouter {
       const resolved = await this.#options.resolveFolder(folder);
       if (!resolved) {
         this.#routes.set(key, { folder });
-        this.#options.onUnknownRoot({ folder, action: "Register workspace folder with Harness" });
+        this.#options.onUnknownRoot({ folder, action: unknownWorkspaceRootAction(folder) });
         continue;
       }
       const repo = Object.freeze({ endpoint: resolved.endpoint, repoId: resolved.repoId });
@@ -77,4 +77,13 @@ function contains(root: vscode.Uri, candidate: vscode.Uri): boolean {
   if (root.scheme !== candidate.scheme || root.authority !== candidate.authority) return false;
   const base = root.path.endsWith("/") ? root.path : `${root.path}/`;
   return candidate.path === root.path || candidate.path.startsWith(base);
+}
+
+function unknownWorkspaceRootAction(folder: vscode.WorkspaceFolder): string {
+  const requestedRoot = shellArgument(folder.uri.fsPath);
+  return `Run \`ha --root ${requestedRoot} daemon status --json\` to resolve and inspect this workspace's canonical Harness root before registering or starting anything.`;
+}
+
+function shellArgument(value: string): string {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`;
 }

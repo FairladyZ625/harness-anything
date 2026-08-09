@@ -1644,6 +1644,83 @@
       }
     },
     {
+      "id": "check-error-next-step-commands",
+      "command": "node tools/check-error-next-step-commands.mjs",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "task/task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "packages/cli/src/cli/command-spec",
+        "tools/check-error-next-step-commands.mjs"
+      ],
+      "consumerScope": [
+        "copied ha commands in caller-facing error-hint sinks under every packages/*/src production tree",
+        "registered command paths, declared options, and lexically required options derived from usage text"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/gate-allowlists/check-error-next-step-commands.json",
+        "adrOrDecisionRequired": true,
+        "notes": "The task-scoped exact lexical-debt baseline may only shrink: new finding keys fail and repaired entries become stale failures."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-error-next-step-commands.mjs",
+          "tools/check-error-next-step-commands.test.mjs",
+          "tools/fixtures/check-error-next-step-commands/**",
+          "tools/gate-allowlists/check-error-next-step-commands.json",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": null
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "pr"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-error-next-step-commands.test.mjs",
+          "tools/fixtures/check-error-next-step-commands/missing-required-option/packages/cli/src/commands/review.ts",
+          "tools/fixtures/check-error-next-step-commands/unresolved-placeholder/packages/cli/src/commands/review.ts",
+          "tools/fixtures/check-error-next-step-commands/good/packages/cli/src/commands/review.ts"
+        ]
+      }
+    },
+    {
       "id": "check-error-next-steps",
       "command": "npm run harness:check-error-next-steps",
       "category": "local-consistency",

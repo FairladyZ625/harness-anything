@@ -46,7 +46,7 @@ export const runTaskLifecycleWithDemotions: CommandRunner = (context, command) =
     const result = yield* context.engine.setStatus({ taskId: action.taskId, status: action.status });
     const warning = demotedGateWarning(
       "terminal_status_requires_task_complete",
-      `External-engine terminal status completed outside the local consent transaction. Preferred path: ha task complete ${action.taskId} --approve. If the task is already terminal and more work is required, run ha task supersede ${action.taskId} --title <follow-up-title>.`
+      `External-engine terminal status completed outside the local consent transaction. Run \`ha task show ${action.taskId} --json\` to confirm the resulting state. Do not run another terminal transition from this receipt. If follow-up work is needed, inspect \`ha task supersede --help\` before creating replacement work.`
     );
     return {
       ok: true,
@@ -92,8 +92,7 @@ function runLocalAuditedCancellation(
 }
 
 function terminalStatusRecoveryHint(taskId: string, status: "done" | "cancelled"): string {
-  const preferred = `Preferred path: ha task complete ${taskId} --approve. If the task is already terminal and more work is required, run ha task supersede ${taskId} --title <follow-up-title>.`;
   return status === "done"
-    ? `Direct done is blocked because completion consent is recorded only by task complete. ${preferred}`
-    : `Direct cancellation is blocked unless it is an audited recovery. ${preferred} For cancellation recovery, run ha task transition ${taskId} cancelled --force --reason "<reason>".`;
+    ? `Direct done is blocked because completion consent is recorded only by the typed completion transaction. Run \`ha task show ${taskId} --json\` to confirm the current state. If the task is not terminal, inspect \`ha task complete --help\` and prepare the required approval packet before retrying completion. If it is already terminal and follow-up work is needed, inspect \`ha task supersede --help\` before creating replacement work.`
+    : `Direct cancellation is blocked unless it is an audited recovery. Run \`ha task show ${taskId} --json\` to confirm the current state. If the task is not terminal and cancellation is still intended, inspect \`ha task transition --help\` and supply a truthful audited reason. If it is already terminal and follow-up work is needed, inspect \`ha task supersede --help\` before creating replacement work.`;
 }

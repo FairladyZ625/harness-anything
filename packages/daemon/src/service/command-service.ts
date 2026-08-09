@@ -41,6 +41,10 @@ import {
   RepoWriteOutcomeUnknownError
 } from "../runtime/repo-write-client.ts";
 import { reportCurrentRepoWriteTelemetry } from "../runtime/repo-write-telemetry-context.ts";
+import {
+  repoWriteOutcomeQuery,
+  repoWriteOutcomeUnknownHint
+} from "./repo-write-outcome-guidance.ts";
 
 export interface DaemonCommandService {
   readonly runCommand: (payload?: JsonObject, context?: {
@@ -163,6 +167,9 @@ export function createDaemonCommandService<
               : undefined;
             const outcomeUnknown = error instanceof RepoWriteOutcomeUnknownError
               || error instanceof RepoWriteDirectOutcomeUnknownError;
+            const outcomeQuery = outcomeUnknown
+              ? repoWriteOutcomeQuery(parsedCommand.action)
+              : undefined;
             return childRouteFailure(
               parsedCommand.action.kind,
               outcomeUnknown
@@ -170,9 +177,15 @@ export function createDaemonCommandService<
                 : error instanceof RepoWriteNotStartedError
                   ? error.code
                 : "repo_write_child_unavailable",
-              error instanceof Error ? error.message : String(error),
+              outcomeUnknown && outcomeQuery
+                ? repoWriteOutcomeUnknownHint(
+                  parsedCommand.action,
+                  error instanceof Error ? error.message : String(error),
+                  outcomeQuery
+                )
+                : error instanceof Error ? error.message : String(error),
               outerOpId,
-              outcomeUnknown ? repoWriteOutcomeQuery(parsedCommand.action, outerOpId) : undefined
+              outcomeQuery
             );
           }
         }
@@ -197,7 +210,10 @@ export function createDaemonCommandService<
             dryRun: parsedCommand.action.dryRun,
             ...(parsedCommand.action.currentSessionOnly ? { sessionId: currentSession.sessionId } : {})
           });
-          return hostServices.toReceipt(hostServices.materializerCommandResult(report));
+          return hostServices.toReceipt(hostServices.materializerCommandResult(report, {
+            rootDir: parsedCommand.rootDir,
+            ...(parsedCommand.layoutOverrides ? { layoutOverrides: parsedCommand.layoutOverrides } : {})
+          }));
         }
         const attribution = daemonActor
           ? hostServices.actorAttribution(daemonActor, parsedCommand, context?.executor ?? null)
@@ -343,29 +359,6 @@ function childRouteFailure(
     } : query ? {
       details: { data: { outcome: "unknown", query } }
     } : {})
-  };
-}
-
-function repoWriteOutcomeQuery(
-  action: { readonly kind?: unknown; readonly taskId?: unknown },
-  outerOpId?: string
-): JsonObject {
-  if (outerOpId) {
-    return {
-      schema: "command-outcome-query/v1",
-      method: "repo-write.lookup",
-      parameters: { opId: outerOpId },
-      retry: "forbidden-until-queried"
-    };
-  }
-  const taskId = typeof action.taskId === "string" && action.taskId.trim().length > 0
-    ? action.taskId
-    : undefined;
-  return {
-    schema: "command-outcome-query/v1",
-    method: taskId ? "task.show" : "task.list",
-    parameters: taskId ? { taskId } : {},
-    retry: "forbidden-until-queried"
   };
 }
 

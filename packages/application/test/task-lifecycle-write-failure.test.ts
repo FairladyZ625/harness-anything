@@ -9,6 +9,10 @@ import {
   type ArtifactStore,
   type TaskPackageRead
 } from "../../kernel/src/index.ts";
+import {
+  collectCompletionRequirementIssues,
+  completionRequirementsFailure
+} from "../src/task-completion-requirements.ts";
 import { makeTaskLifecycleOrchestrator, type TaskLifecycleWriter } from "../src/task-lifecycle-orchestrator.ts";
 import { runEffect } from "./effect-test-helpers.ts";
 
@@ -20,6 +24,74 @@ test("task lifecycle orchestrator exposes no completion mutation authority", () 
   });
 
   assert.equal("completeTask" in orchestrator, false);
+});
+
+test("completion requirements do not present approval as runnable without exact review consent", () => {
+  const completionGate = { ok: false, issues: [] } as never;
+  const issues = collectCompletionRequirementIssues({
+    taskId: "task_RENDER",
+    documentPlaceholder: null,
+    codeDocReconciliation: null,
+    completionGate,
+    completionAuthority: {
+      executionId: "exe_RENDER",
+      issues: [{ code: "execution_review_required", message: "execution_review_required message" }]
+    }
+  });
+
+  const rendered = completionRequirementsFailure("task_RENDER", issues, completionGate).error.hint;
+
+  assert.equal(
+    rendered,
+    "Task completion has 1 unmet requirement: [execution_review_required] execution_review_required message Execution exe_RENDER for task task_RENDER still requires an approved review, but this completion check cannot synthesize the required findings, rationale, or exact consent. Next: ha task review-execution --help"
+  );
+  assert.doesNotMatch(rendered, /--verdict approved/u);
+});
+
+test("archive warning requirements route to executable review help when approval inputs are absent", () => {
+  const completionGate = { ok: false, issues: [] } as never;
+  const issues = collectCompletionRequirementIssues({
+    taskId: "task_ARCHIVE",
+    documentPlaceholder: null,
+    codeDocReconciliation: null,
+    completionGate,
+    completionAuthority: {
+      executionId: "exe_ARCHIVE",
+      issues: [{
+        code: "archive_warnings_acknowledgement_required",
+        message: "archive warnings message"
+      }]
+    }
+  });
+
+  const rendered = completionRequirementsFailure("task_ARCHIVE", issues, completionGate).error.hint;
+
+  assert.equal(
+    rendered,
+    "Task completion has 1 unmet requirement: [archive_warnings_acknowledgement_required] archive warnings message Execution exe_ARCHIVE for task task_ARCHIVE has archive warnings, but this completion check cannot synthesize the required review findings, rationale, archive-warning acknowledgement, or exact consent. Next: ha task review-execution --help"
+  );
+  assert.doesNotMatch(rendered, /--verdict approved|<[^>]+>/u);
+});
+
+test("missing execution submission names the task and routes to the packet-backed submit contract", () => {
+  const completionGate = { ok: false, issues: [] } as never;
+  const issues = collectCompletionRequirementIssues({
+    taskId: "task_SUBMIT",
+    documentPlaceholder: null,
+    codeDocReconciliation: null,
+    completionGate,
+    completionAuthority: {
+      issues: [{ code: "execution_submission_required", message: "submission required message" }]
+    }
+  });
+
+  const rendered = completionRequirementsFailure("task_SUBMIT", issues, completionGate).error.hint;
+
+  assert.equal(
+    rendered,
+    "Task completion has 1 unmet requirement: [execution_submission_required] submission required message Task task_SUBMIT has no submitted Execution. This completion check cannot synthesize the required Holder claim or submission packet; inspect the governed submission contract, submit the Execution, then rerun the original completion command for task task_SUBMIT. Next: ha task submit --help"
+  );
+  assert.doesNotMatch(rendered, /<[^>]+>|rerun ha task complete\./u);
 });
 
 test("setTaskStatus rejects a scaffold task plan before writing active status", async () => {

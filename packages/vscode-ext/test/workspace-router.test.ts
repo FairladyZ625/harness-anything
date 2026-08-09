@@ -19,11 +19,13 @@ test("unknown roots fail closed with an explicit action and zero transport reque
     resolveFolder: async () => undefined,
     onUnknownRoot: ({ action }) => notices.push(action)
   });
-  await router.reconcile([folder("unknown", "/unknown")]);
-  assert.equal(router.route(uri("/unknown/file.ts")), undefined);
-  assert.equal(router.connection(uri("/unknown/file.ts")), undefined);
+  await router.reconcile([folder("unknown", "/unknown workspace")]);
+  assert.equal(router.route(uri("/unknown workspace/file.ts")), undefined);
+  assert.equal(router.connection(uri("/unknown workspace/file.ts")), undefined);
   assert.equal(clients, 0);
-  assert.deepEqual(notices, ["Register workspace folder with Harness"]);
+  assert.deepEqual(notices, [
+    "Run `ha --root '/unknown workspace' daemon status --json` to resolve and inspect this workspace's canonical Harness root before registering or starting anything."
+  ]);
   await router.dispose();
 });
 

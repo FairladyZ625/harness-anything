@@ -1,5 +1,7 @@
 import { Effect } from "effect";
+import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
+import { shellArgument } from "../../cli/shell-argument.ts";
 import type { CliResult, MaterializerCommandReport, ParsedCommand } from "../../cli/types.ts";
 import type { CommandRunnerContext, CommandRunnerEffect } from "../../cli/runner-registry.ts";
 
@@ -15,10 +17,14 @@ export function runMaterializerCommand(
       error: cliError(CliErrorCode.UnknownCommand, `Unsupported materializer command: ${action.kind}`)
     } satisfies CliResult);
   }
-  return Effect.sync(() => materializerCommandResult(context.runLedgerMaterializer({ dryRun: action.dryRun })));
+  return Effect.sync(() => materializerCommandResult(
+    context.runLedgerMaterializer({ dryRun: action.dryRun }),
+    context.layoutInput
+  ));
 }
 
-export function materializerCommandResult(report: MaterializerCommandReport): CliResult {
+export function materializerCommandResult(report: MaterializerCommandReport, rootInput: HarnessLayoutInput): CliResult {
+  const authoredRoot = resolveHarnessLayout(rootInput).authoredRoot;
   const failures = report.branches.filter((branch) => branch.status === "conflict");
   const operationalFailures = failures.length === 0 ? report.warnings.map(String) : [];
   const failureLabels = [
@@ -26,7 +32,7 @@ export function materializerCommandResult(report: MaterializerCommandReport): Cl
     ...operationalFailures
   ];
   const nextCommand = failures.find((branch) => branch.nextCommand)?.nextCommand
-    ?? operationalFailures.map(nextCommandForOperationalFailure).find(Boolean);
+    ?? operationalFailures.map((message) => nextCommandForOperationalFailure(message, authoredRoot)).find(Boolean);
   const summary = `Materializer merged ${report.merged} branch${report.merged === 1 ? "" : "es"}; failed ${failureLabels.length}${failureLabels.length > 0 ? `: ${failureLabels.join(", ")}` : ""}.${nextCommand ? ` Next: ${nextCommand}` : ""}`;
   const warnings = failures.length > 0
     ? failures.map((branch) => ({
@@ -40,7 +46,7 @@ export function materializerCommandResult(report: MaterializerCommandReport): Cl
       severity: "error",
       code: "materializer_operational_failure",
       message,
-      nextCommand: nextCommandForOperationalFailure(message)
+      nextCommand: nextCommandForOperationalFailure(message, authoredRoot)
     }));
   return {
     ok: failureLabels.length === 0,
@@ -56,8 +62,8 @@ export function materializerCommandResult(report: MaterializerCommandReport): Cl
   };
 }
 
-function nextCommandForOperationalFailure(message: string): string {
+function nextCommandForOperationalFailure(message: string, authoredRoot: string): string {
   if (message === "authored root is not a Git repository") return "ha init --json";
-  if (/^trunk branch .+ does not exist$/u.test(message)) return "git -C harness branch --list";
+  if (/^trunk branch .+ does not exist$/u.test(message)) return `git -C ${shellArgument(authoredRoot)} branch --list`;
   return "ha status --json";
 }

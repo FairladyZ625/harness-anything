@@ -181,6 +181,34 @@ test("GUI remote mode fails closed when the persistent daemon is unavailable", a
   }
 });
 
+test("GUI remote mode preserves SSH authentication failure identity", async () => {
+  const nearRoot = mkdtempSync(path.join(tmpdir(), "ha-gui-near-"));
+  const bridge = createGuiServiceBridge(nearRoot, undefined, {
+    env: { ...remoteDaemonEnv("/srv/harness/gui-remote"), HARNESS_DAEMON_SSH_HOST: "team-host" },
+    createSshTransport: () => ({
+      open: async () => {
+        throw new Error("SSH authentication failed for operator");
+      }
+    })
+  });
+  try {
+    const tasks = await bridge.invoke("getTasks", null) as {
+      readonly ok: boolean;
+      readonly error?: { readonly code?: string; readonly hint?: string };
+    };
+
+    assert.equal(tasks.ok, false, JSON.stringify(tasks));
+    assert.equal(tasks.error?.code, "remote_authentication_failed");
+    assert.equal(
+      tasks.error?.hint,
+      "Remote SSH authentication failed for team-host: SSH authentication failed for operator. Verify the SSH principal and authorized_keys forced command, then reconnect. Do not restart the remote daemon."
+    );
+  } finally {
+    await bridge.dispose?.();
+    rmSync(nearRoot, { recursive: true, force: true });
+  }
+});
+
 function remoteDaemonEnv(remoteRoot: string): NodeJS.ProcessEnv {
   return {
     ...process.env,

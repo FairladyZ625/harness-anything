@@ -4,7 +4,7 @@ import path from "node:path";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import type { VcsCommitAuthor } from "@harness-anything/kernel";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
-import { ensureProjectPeopleRoster } from "@harness-anything/daemon";
+import { ensureProjectPeopleRoster, resolveCanonicalHarnessRootResolution } from "@harness-anything/daemon";
 import { normalizeSlashes } from "../cli/path.ts";
 import type { CliResult } from "../cli/types.ts";
 import { resolveActiveVertical } from "./extensions/active-vertical.ts";
@@ -27,11 +27,12 @@ export function initializeHarness(
   gitRuntime: InitGitRuntime = {},
   bootstrapAuthority = false
 ): CliResult {
-  const layout = resolveHarnessLayout(rootInput);
+  const initializationInput = canonicalInitializationInput(rootInput);
+  const layout = resolveHarnessLayout(initializationInput);
   const rootDir = layout.rootDir;
   const warnings: unknown[] = [];
   const resolvedProjectName = projectName ?? path.basename(rootDir);
-  const activeVertical = resolveActiveVertical(rootInput, "init");
+  const activeVertical = resolveActiveVertical(initializationInput, "init");
   if (!activeVertical.ok) return activeVertical.result;
   const vertical = activeVertical.definition.manifest;
   for (const directory of [
@@ -51,7 +52,7 @@ export function initializeHarness(
 
   const harnessConfigPath = layout.configPath ?? path.join(layout.authoredRoot, "harness.yaml");
   writeHarnessYaml(harnessConfigPath, resolvedProjectName, projectName !== undefined);
-  materializeRepositoryScaffold(rootInput, vertical);
+  materializeRepositoryScaffold(initializationInput, vertical);
   if (bootstrapAuthority && commitAuthor) ensureProjectPeopleRoster(layout.authoredRoot, commitAuthor);
   const isolation = ensureHarnessRepositoryIsolation(rootDir, layout.authoredRoot, commitAuthor, gitRuntime);
   warnings.push(...isolation.warnings);
@@ -148,15 +149,26 @@ function ensureHarnessRepositoryIsolation(
       outerGitignore: gitignore.report,
       boundary: "Code PRs must not include harness/ changes; commit ledger changes inside harness/ as its own private git repository.",
       nextSteps: [
-        "ha daemon repo register --root .",
-        "ha daemon start --service",
-        "ha doctor --json",
+        `ha daemon repo register --root ${initShellArgument(rootDir)}`,
+        `ha --root ${initShellArgument(rootDir)} doctor --json`,
         "git status",
         `git -C ${authoredRootRelative} status`,
         `git -C ${authoredRootRelative} add . && git -C ${authoredRootRelative} commit`
       ]
     }
   };
+}
+
+function canonicalInitializationInput(input: HarnessLayoutInput): HarnessLayoutInput {
+  const resolution = resolveCanonicalHarnessRootResolution(input);
+  if (resolution.source === "local-layout") return input;
+  return typeof input === "string"
+    ? resolution.canonicalRoot
+    : { ...input, rootDir: resolution.canonicalRoot };
+}
+
+function initShellArgument(value: string): string {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 function ensureOuterGitRepository(

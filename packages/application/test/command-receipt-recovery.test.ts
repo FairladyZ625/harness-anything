@@ -30,9 +30,23 @@ test("repo recovery commands use structured repo identity and remain shell-copya
     }
   }), [{
     command: "ha --repo 'team repo' daemon status --json",
-    description: "Inspect this repo's daemon attachment state; unavailable repos are retried automatically."
+    description: "Inspect this repo's daemon attachment and recovery state before choosing a repair."
   }, {
     command: "ha daemon repo register --repo-id 'team repo' --root '/tmp/team'\"'\"'s repo'",
-    description: "Register or re-enable this repo if it is missing or disabled, then retry the original command."
+    description: "Register or re-enable this repo only if status reports that it is missing or disabled, then retry the original command."
+  }]);
+});
+
+test("repo lock recovery waits for the current writer and never mutates registry state", () => {
+  assert.deepEqual(failureReceiptNextActions("repo_lock_held", {
+    repo: {
+      repoId: "canonical",
+      canonicalRoot: "/tmp/canonical",
+      lockPath: ".harness/locks/global.lock",
+      lastError: "lock already held by daemon owner"
+    }
+  }), [{
+    command: "ha --repo canonical daemon status --json",
+    description: "The repo writer lock is held at .harness/locks/global.lock (owner: lock already held by daemon owner). Wait for the current writer to release it, then rerun this status command before retrying. Do not register, purge, stop, or restart the repo while the lock is held."
   }]);
 });

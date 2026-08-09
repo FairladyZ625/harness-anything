@@ -1,5 +1,6 @@
 import type { DaemonAuthenticationContext } from "./auth-context.ts";
 import type { TransportAuthenticationResult } from "./json-rpc-stream.ts";
+import { shellArgument } from "../shell-argument.ts";
 
 export interface SshForcedCommandBootstrapInput {
   readonly personId: string;
@@ -87,10 +88,11 @@ export function authenticateSshAuthorityWireFrame(
     };
   }
   if (!accept(frame)) {
+    const root = shellArgument(frame.canonicalRoot);
     return {
       ok: false,
       code: "authority_wire_repo_unavailable",
-      message: "The requested canonical root is unavailable; run `ha daemon repo register --root <path>` and start with `--authority-manifest <path>`."
+      message: `The requested canonical root ${JSON.stringify(frame.canonicalRoot)} is unavailable to this authority service. Run \`ha --root ${root} daemon status --json\` on the authority host to inspect its registered state. Do not register a second repo id or start, stop, or restart a daemon based on this error.`
     };
   }
   return {

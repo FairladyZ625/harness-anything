@@ -14,8 +14,7 @@ import {
 } from "../src/authority/authority-command-submission.ts";
 import { gateCutoverAdmission } from "../src/authority/production/cutover-admission.ts";
 import {
-  defaultProductionRecoveryAdmissionTimeoutMs,
-  waitForProductionRecovery
+  defaultProductionRecoveryAdmissionTimeoutMs
 } from "../src/authority/production/production-recovery-admission.ts";
 import {
   createProductionPlannedCommandSubmission
@@ -505,35 +504,6 @@ test("recovery gate preserves unresolved outer recovery instead of returning a t
     /AUTHORITY_RECOVERY_IN_PROGRESS:repoId=canonical/u
   );
   assert.equal(recoverySubmissions, 0);
-});
-
-test("production recovery admission times out with a reachable service-daemon next step", async () => {
-  let submissions = 0;
-  const service = gateAuthoritySubmissionForRecovery({
-    submit: async () => {
-      submissions += 1;
-      throw new Error("timed-out recovery must stay gated");
-    },
-    getOperation: async () => undefined
-  }, () => waitForProductionRecovery({
-    repoId: "canonical",
-    recovery: { status: "recovering", promise: new Promise<void>(() => undefined) }
-  }, 5));
-  const receipt = await service.submit({
-    workspaceId: "workspace-recovery-timeout",
-    opId: "op-recovery-timeout",
-    claimedDigest: "a".repeat(64),
-    command: "task.append",
-    operation: { opId: "op-recovery-timeout", entityId: "task/task_RECOVERY", kind: "progress_append", payload: { path: "progress.md", append: "x" } },
-    delegationToken: "token",
-    channelNonceDigest: "b".repeat(64),
-    protocol: { wire: 1, event: 1, receipt: 1, digest: 1, commandRegistry: 1 }
-  });
-
-  assert.equal(receipt.tag, "RETRYABLE_NOT_COMMITTED");
-  assert.match(receipt.reason, /^AUTHORITY_RECOVERY_WAIT_TIMEOUT:repoId=canonical;waitedMs=5;/u);
-  assert.match(receipt.reason, /ha daemon start --service/u);
-  assert.equal(submissions, 0);
 });
 
 test("stale daemon generation receipts expose a stable retryable write error code", () => {

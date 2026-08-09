@@ -34,19 +34,11 @@ export function collectCompletionRequirementIssues(input: {
     ));
   }
   for (const issue of input.completionAuthority.issues) {
-    issues.push({
-      code: issue.code,
-      message: issue.message,
-      ...(issue.nextCommand
-        ? { nextCommand: issue.nextCommand }
-        : issue.code === "execution_review_required" && input.completionAuthority.executionId
-        ? { nextCommand: `ha task review-execution ${input.taskId} --execution-id ${input.completionAuthority.executionId} --verdict approved --findings <text> --rationale <text>` }
-        : issue.code === "execution_submission_required"
-          ? { nextCommand: `Claim and submit one Execution for ${input.taskId}, then rerun ha task complete.` }
-          : issue.code === "archive_warnings_acknowledgement_required" && input.completionAuthority.executionId
-            ? { nextCommand: `Review Execution ${input.completionAuthority.executionId} with --acknowledge-archive-warnings.` }
-            : {})
-    });
+    issues.push(completionAuthorityRequirement(
+      input.taskId,
+      input.completionAuthority.executionId,
+      issue
+    ));
   }
   return issues;
 }
@@ -112,6 +104,36 @@ function requirementFromFailure(failure: TaskLifecycleFailure, nextCommand: stri
     message: detailedIssues.length > 0 ? detailedIssues.map((issue) => issue.message).join(" ") : failure.error.hint,
     nextCommand
   };
+}
+
+function completionAuthorityRequirement(
+  taskId: string,
+  executionId: string | undefined,
+  issue: { readonly code: string; readonly message: string; readonly nextCommand?: string }
+): TaskCompletionRequirementIssue {
+  if (issue.nextCommand) return { ...issue };
+  if (issue.code === "execution_review_required" && executionId) {
+    return {
+      code: issue.code,
+      message: `${issue.message} Execution ${executionId} for task ${taskId} still requires an approved review, but this completion check cannot synthesize the required findings, rationale, or exact consent.`,
+      nextCommand: "ha task review-execution --help"
+    };
+  }
+  if (issue.code === "archive_warnings_acknowledgement_required" && executionId) {
+    return {
+      code: issue.code,
+      message: `${issue.message} Execution ${executionId} for task ${taskId} has archive warnings, but this completion check cannot synthesize the required review findings, rationale, archive-warning acknowledgement, or exact consent.`,
+      nextCommand: "ha task review-execution --help"
+    };
+  }
+  if (issue.code === "execution_submission_required") {
+    return {
+      code: issue.code,
+      message: `${issue.message} Task ${taskId} has no submitted Execution. This completion check cannot synthesize the required Holder claim or submission packet; inspect the governed submission contract, submit the Execution, then rerun the original completion command for task ${taskId}.`,
+      nextCommand: "ha task submit --help"
+    };
+  }
+  return { code: issue.code, message: issue.message };
 }
 
 function renderCompletionRequirement(issue: TaskCompletionRequirementIssue): string {

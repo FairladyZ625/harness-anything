@@ -9,6 +9,7 @@ import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { createTaskPackagePath, generateTaskId, resolveHarnessLayout, slugifyTaskTitle } from "@harness-anything/kernel";
 import { LegacyIndexSchema, type LegacyIndexEntry } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
+import { shellArgument } from "../cli/shell-argument.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 
 type NewTaskAction = Extract<ParsedCommand["action"], { readonly kind: "new-task" }>;
@@ -112,12 +113,17 @@ function readLegacyRebuildSource(rootInput: HarnessLayoutInput, legacyId: string
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   if (!existsSync(layout.legacyIndexPath)) {
+    const root = shellArgument(rootDir);
+    const index = path.relative(rootDir, layout.legacyIndexPath).split(path.sep).join("/");
     return {
       ok: false,
       result: {
         ok: false,
         command: "new-task",
-        error: cliError(CliErrorCode.LegacyIndexMissing, "harness/legacy/index.json is missing. Run legacy index <path> --apply before rebuilding from legacy.")
+        error: cliError(
+          CliErrorCode.LegacyIndexMissing,
+          `${index} is missing. Run \`ha legacy index --help\` to identify and index the actual legacy source path, then rerun \`ha --root ${root} task create --from-legacy ${shellArgument(legacyId)}\`.`
+        )
       }
     };
   }

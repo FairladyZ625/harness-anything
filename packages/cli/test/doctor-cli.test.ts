@@ -113,9 +113,9 @@ test("doctor sees initialized authored and generated harness roots without repai
     const initialized = runJson(rootDir, ["init"]);
 
     assert.deepEqual(initialized.report.isolation.nextSteps.slice(0, 3), [
-      "ha daemon repo register --root .",
-      "ha daemon start --service",
-      "ha doctor --json"
+      `ha daemon repo register --root ${rootDir}`,
+      `ha --root ${rootDir} doctor --json`,
+      "git status"
     ]);
 
     const result = runJson(rootDir, ["doctor"]);

@@ -37,7 +37,7 @@ const cliErrorMappers = {
   WriteConflict: (error) => cliError(CliErrorCode.WriteConflict, error.owner ?? "Write lock is held."),
   GlobalWriteConflict: (error) => cliError(
     CliErrorCode.WriteConflict,
-    `${error.owner ? `Global write lock is held: ${error.owner}` : "Global write lock is held."} Direct recovery remains mutually exclusive with a live daemon; stop or drain the current writer and verify with 'ha daemon status' before retrying.`
+    `${error.owner ? `Global write lock is held: ${error.owner}` : "Global write lock is held."} Wait for the current writer to release it, then run \`ha daemon status --json\` and retry only after the lock is free. Do not stop, drain, or restart a writer solely to clear this conflict.`
   ),
   WriteRejected: (error) => {
     const code = error.code;

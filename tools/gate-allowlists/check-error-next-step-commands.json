@@ -1,0 +1,688 @@
+{
+  "schema": "harness-anything/gate-allowlist/v1",
+  "gateId": "check-error-next-step-commands",
+  "entries": {
+    "knownDebt": [
+      {
+        "value": "packages/application/src/execution-completion-service.ts#property:nextCommand:code:\"execution_review_required\"#1#unresolved-placeholder#2d4930206b6c0293",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task review-execution <context> --execution-id <context> --verdict approved --findings \"<what was verified>\" --rationale \"<why the evidence satisfies the task>\" --consent-utterance \"<the human's exact words>\""
+      },
+      {
+        "value": "packages/application/src/execution-completion-service.ts#property:nextCommand:code:\"execution_review_required\"#1#unresolved-placeholder#b02f7315eded7396",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task review-execution <context> --execution-id <context> --verdict approved --findings \"<what was verified>\" --rationale \"<why the evidence satisfies the task>\" --consent-utterance \"<the human's exact words>\""
+      },
+      {
+        "value": "packages/application/src/execution-completion-service.ts#property:nextCommand:code:\"execution_review_required\"#1#unresolved-placeholder#efa683ef48a8c266",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task review-execution <context> --execution-id <context> --verdict approved --findings \"<what was verified>\" --rationale \"<why the evidence satisfies the task>\" --consent-utterance \"<the human's exact words>\""
+      },
+      {
+        "value": "packages/application/src/local-controller-service.ts#property:hint:code:\"unsupported_in_kr09\"#1#unresolved-placeholder#851a3c9d81c03f55",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task archive <task-id> --reason <reason>"
+      },
+      {
+        "value": "packages/application/src/local-controller-service.ts#property:hint:code:\"unsupported_in_kr09\"#1#unresolved-placeholder#d5d57e10e0d607f1",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task archive <task-id> --reason <reason>"
+      },
+      {
+        "value": "packages/application/src/task-lifecycle-orchestrator-helpers.ts#property:hint:code:\"review_schema_invalid\"#1#unresolved-placeholder#371cb43ebf1c1138",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task complete <task-id> --approve --from-file approval.json"
+      },
+      {
+        "value": "packages/application/src/task-lifecycle-orchestrator-helpers.ts#property:hint:code:\"review_schema_invalid\"#2#unresolved-placeholder#a53236909994c977",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task review <task-id>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.ArchivedHardDeleteForbidden]#1#unresolved-placeholder#0be86171cea2ef2f",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task supersede <task-id> --title <follow-up-title>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.ArchivedHardDeleteForbidden]#1#unresolved-placeholder#2cb28f701b2d7240",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task supersede <task-id> --title <follow-up-title>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.ArchivedHardDeleteForbidden]#1#unresolved-placeholder#877296284a80d619",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task show <task-id> --view trace"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.ArchiveReferenceUnresolved]#1#unresolved-placeholder#bfcac36f23523004",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha relation list --entity task/<task-id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.ArtifactReadFailed]#1#unresolved-placeholder#ef1ba9eb26b6e2a9",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task show <task-id> --view trace"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.ConflictingMigrationMode]#1#unknown-command-path#a567b606dbdcfa1a",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unknown-command-path; ha migrate --help"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.CustomVerticalContractMissing]#1#unresolved-placeholder#95ee50aed7411fbf",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha vertical validate <path> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.CustomVerticalUserDevModeRequired]#1#unresolved-placeholder#4f843ee2f07c3dbf",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha vertical validate <path> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.DaemonGenerationFenced]#1#unknown-option#48ef014709a02467",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unknown-option; ha daemon status --json --include-generation-axes"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.DaemonRequestOutcomeUnknown]#1#unresolved-placeholder#6bee0f2bde3e9450",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task show <task-id>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.DecisionBodyFileReadFailed]#1#unresolved-placeholder#65dff7ce5bdd8c76",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha decision ... --body-file <path>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.DecisionBodyFileReadFailed]#1#unresolved-placeholder#e517769ae8ab3fdc",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha decision ... --body-file <path>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.DecisionWriteRejected]#1#unresolved-placeholder#883c7780eff409a6",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha decision ..."
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.DuplicateAdoptClaim]#1#unresolved-placeholder#7378fcccb5fabfd0",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task show <task-id> --view trace"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.DuplicateExternalBinding]#1#unresolved-placeholder#a22f67a8a18f4adb",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha external snapshot <github|multica> <ref> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.DuplicateExternalBinding]#1#unresolved-placeholder#c3fb3270be69f83d",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha external snapshot <github|multica> <ref> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.EngineOwnsStatus]#1#unresolved-placeholder#4baf206136448548",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task show <task-id> --view trace"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.FullCutoverRetired]#1#missing-required-option#854f2f63879075a0",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: missing-required-option; ha task create --from-legacy <legacy-id>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.FullCutoverRetired]#1#unresolved-placeholder#0a69b62561352dc4",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task create --from-legacy <legacy-id>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.GeneratedTaskIdRequired]#1#unresolved-placeholder#cda24d6e0bca169b",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task create --title <title>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.HarnessRootUnresolved]#1#unknown-command-path#c15e896030910d5b",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unknown-command-path; ha --root <canonical-root>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.HarnessRootUnresolved]#1#unresolved-placeholder#23fbdfbc3b28092f",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha --root <canonical-root>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.InvalidDecisionActor]#1#unresolved-placeholder#88234786a8ad7444",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha decision ..."
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.InvalidDecisionAmendPatch]#1#unresolved-placeholder#f225a587b24765a6",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha decision amend <decision-id> --help"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.InvalidDecisionEvidenceRelation]#1#unresolved-placeholder#69f3d0d54b7c1c36",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha decision propose ..."
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.InvalidDecisionTier]#1#unresolved-placeholder#4556992f31eab108",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha decision ..."
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.InvalidEntrypoint]#1#unresolved-placeholder#48aa2815219c3276",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha preset inspect <id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.InvalidFactId]#1#unresolved-placeholder#73bdca1485e8a6b3",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha fact list --task <task-id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.InvalidSession]#1#unresolved-placeholder#7429c30627e3669e",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha session show <session-id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.InvalidStatus]#1#unresolved-placeholder#1fdb1a617f107280",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task show <task-id>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.InvalidTransition]#1#unresolved-placeholder#5f4b42f6fdec2642",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task show <task-id>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.LegacyCollisionReportInvalid]#1#unresolved-placeholder#85306d626b649f21",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha legacy index <source-path> --apply"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.LegacyDuplicateTarget]#1#unresolved-placeholder#8fb058b6bbe5a6ca",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha legacy index <source-path> --apply"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.LegacyEntryNotFound]#1#missing-required-option#16f4780391638e2b",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: missing-required-option; ha task create --from-legacy <legacy-id>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.LegacyEntryNotFound]#1#unresolved-placeholder#b414d6fbf74fe0ed",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task create --from-legacy <legacy-id>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.LegacyIndexInvalid]#1#unresolved-placeholder#cd6054ec0dcdf1d0",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha legacy index <source-path> --apply"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.LegacyIndexMissing]#1#unresolved-placeholder#2596ef04e5603a5c",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha legacy index <source-path> --apply"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.LegacyIndexSchemaInvalid]#1#unresolved-placeholder#a124bd91a5aa2d3f",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha legacy index <source-path> --apply"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.LegacyRebuildManualIdForbidden]#1#missing-required-option#3351eddfee7652a1",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: missing-required-option; ha task create --from-legacy <legacy-id>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.LegacyRebuildManualIdForbidden]#1#unresolved-placeholder#9b61338bdeb81e9d",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task create --from-legacy <legacy-id>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.LegacyRebuildPresetForbidden]#1#missing-required-option#5c36a9e5f6820155",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: missing-required-option; ha task create --from-legacy <legacy-id>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.LegacyRebuildPresetForbidden]#1#unresolved-placeholder#e2ffae77b0dbb16f",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task create --from-legacy <legacy-id>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.LegacyUnsafeSource]#1#unresolved-placeholder#7a59bd1c3c13f2c4",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha legacy index <source-path> --apply"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MalformedSnapshot]#1#unresolved-placeholder#74f14b3c4851e238",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha external snapshot <github|multica> <ref> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MalformedSnapshot]#1#unresolved-placeholder#7c1e9d1907b745d1",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha external snapshot <github|multica> <ref> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.ManualTaskIdForbidden]#1#unresolved-placeholder#1a7db204404c6858",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task create --title <title>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MissingDecisionChoice]#1#unresolved-placeholder#0dad3443e36f5d19",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha decision propose ..."
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MissingDecisionQuestion]#1#unresolved-placeholder#8ebced31e714d866",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha decision propose ..."
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MissingDecisionRejected]#1#unresolved-placeholder#146d2f519521d6b7",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha decision propose ..."
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MissingFactSource]#1#unresolved-placeholder#566c1fa9c3125ebf",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha fact record --task <task-id> --statement <text> --source <source>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MissingFactSource]#1#unresolved-placeholder#c28bb28e1dcd2b4d",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha fact record --task <task-id> --statement <text> --source <source>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MissingFactSource]#1#unresolved-placeholder#f1886432533c7627",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha fact record --task <task-id> --statement <text> --source <source>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MissingFactStatement]#1#unresolved-placeholder#4ce04fe8b0c12b0b",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha fact record --task <task-id> --statement <text>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MissingFactStatement]#1#unresolved-placeholder#53f86bfe634c5477",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha fact record --task <task-id> --statement <text>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MissingLegacyId]#1#missing-required-option#89bdbfcf14f7b48e",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: missing-required-option; ha task create --from-legacy <legacy-id>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MissingLegacyId]#1#unresolved-placeholder#7e7707046cb6c0e3",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task create --from-legacy <legacy-id>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MissingModuleFields]#1#unresolved-placeholder#5fe22b6919cffc60",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha module register <key> --title <title> --scope <path>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MissingModuleFields]#1#unresolved-placeholder#676c7b74b8448d87",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha module register <key> --title <title> --scope <path>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MissingModuleFields]#1#unresolved-placeholder#fd231cbd9c52c83d",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha module register <key> --title <title> --scope <path>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MissingName]#1#unresolved-placeholder#2474f7c3652460dd",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha init --name <name>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MissingText]#1#unresolved-placeholder#9bc54f3f18f8a70d",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task progress append <task-id> --text <update>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MissingText]#1#unresolved-placeholder#c4c1311e06cb0b2f",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task progress append <task-id> --text <update>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.MissingTitle]#1#unresolved-placeholder#a48c3acf58b1d8c7",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task create --title <title>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.PresetManifestInvalid]#1#unresolved-placeholder#4e46f4089f1b6f39",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha preset validate <manifest> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.PresetMaterializationFailed]#1#unresolved-placeholder#403f2df14f50cdf9",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha preset validate <manifest> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.PresetPolicyInvalid]#1#unresolved-placeholder#815c3a7eb0198d7b",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha preset check <id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.PresetReadScopeInvalid]#1#unresolved-placeholder#f601c064d6ae0e32",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha preset validate <manifest> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.PresetReadScopeViolation]#1#unresolved-placeholder#1b79eb0d39eef6d5",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha preset inspect <id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.PresetRuntimeUnavailable]#1#unresolved-placeholder#b045aeb00e100829",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha preset inspect <id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.PresetScriptFailed]#1#unresolved-placeholder#a80f81c57aae8b7e",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha preset check <id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.PresetScriptNotFound]#1#unresolved-placeholder#9d6966e7443194ba",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha preset validate <manifest> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.PresetScriptResultFailed]#1#unresolved-placeholder#10b8a7e180be7303",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha preset check <id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.PresetScriptResultInvalid]#1#unresolved-placeholder#9a969f9da9aa7765",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha preset check <id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.PresetUninstallBlocked]#1#unresolved-placeholder#929ad158510c033b",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task list --preset <id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.PresetWriteScopeInvalid]#1#unresolved-placeholder#83c6fc2aa8079b04",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha preset validate <manifest> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.PresetWriteScopeViolation]#1#unresolved-placeholder#abd6eb19f7fe5ee2",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha preset inspect <id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.RefNotFound]#1#unresolved-placeholder#b9a2664bc1289bc0",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha external snapshot github <ref> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.RelatedTaskHardDeleteForbidden]#1#unresolved-placeholder#0217205f3a34292e",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha relation list --entity task/<task-id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.RuntimeEventLedgerRejected]#1#unresolved-placeholder#cd931cd9b3c9dbb1",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha event list --session <session-id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.ScriptContractInvalid]#1#unresolved-placeholder#fb7efbc7f1588cd4",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha script inspect <id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.ScriptDeclaredProduceMismatch]#1#unresolved-placeholder#9df5a25052017590",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha script inspect <id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.ScriptFailed]#1#unresolved-placeholder#7e6af99e19acf310",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha script run <id> --dry-run --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.ScriptResultFailed]#1#unresolved-placeholder#967e2538a285c331",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha script run <id> --dry-run --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.ScriptResultInvalid]#1#unresolved-placeholder#db5046f8482db159",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha script inspect <id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.ScriptScopeInvalidRead]#1#unresolved-placeholder#45b8bc4c858d67dd",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha script inspect <id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.ScriptScopeInvalidWrite]#1#unresolved-placeholder#a0d029fd7cd32d6e",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha script inspect <id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.ScriptScopeViolationRead]#1#unresolved-placeholder#a04d4eb2b9ff9a71",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha script inspect <id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.ScriptScopeViolationWrite]#1#unresolved-placeholder#3fa78234bcde1f01",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha script inspect <id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.SessionExportFailed]#1#unresolved-placeholder#92066ce83706df7f",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha session export --transcript-file <path> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.StaleSnapshotRefused]#1#unresolved-placeholder#0d3a7cc6d0f9d7a0",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha external snapshot <github|multica> <ref> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.StaleSnapshotRefused]#1#unresolved-placeholder#ad91de5c0a2248ae",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha external snapshot <github|multica> <ref> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.StatusUnmapped]#1#unresolved-placeholder#1c8888584e020c92",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha external snapshot <github|multica> <ref> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.StatusUnmapped]#1#unresolved-placeholder#ba337c567c607533",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha external snapshot <github|multica> <ref> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TaskAlreadyExists]#1#unresolved-placeholder#d11d13d94d861f32",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task create --title <title>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TaskAlreadyExists]#1#unresolved-placeholder#e944a78852e8e28b",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task show <task-id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TaskLeaseRequired]#1#unresolved-placeholder#5ea6728d6c2ba3e3",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task start <task-id>' before retrying"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TaskReturnToIdeaBlocked]#1#unresolved-placeholder#30e0c007c9b48572",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task release <task-id>', then 'ha task retire-execution <task-id> --execution-id <execution-id> --reason <reason>' before retrying"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TaskReturnToIdeaBlocked]#1#unresolved-placeholder#54ae549ed7ec514b",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task release <task-id>', then 'ha task retire-execution <task-id> --execution-id <execution-id> --reason <reason>' before retrying"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TaskReturnToIdeaBlocked]#1#unresolved-placeholder#8bd0721a1cd2acfd",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task release <task-id>', then 'ha task retire-execution <task-id> --execution-id <execution-id> --reason <reason>' before retrying"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TaskReturnToIdeaBlocked]#1#unresolved-placeholder#aecb20f110760284",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task release <task-id>', then 'ha task retire-execution <task-id> --execution-id <execution-id> --reason <reason>' before retrying"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TaskWipLimitReached]#1#unresolved-placeholder#0ee0f9bbb1d7789d",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task transition <named-task-id> planned', or complete/archive a named task, then retry activation"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TemplateCatalogInvalid]#1#unresolved-placeholder#0c2f07ad94ee7860",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha template list --catalog <path> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TemplateRenderFailed]#1#unresolved-placeholder#482ca87f628d5678",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha template render <template-ref> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TerminalHardDeleteForbidden]#1#unresolved-placeholder#6608fc5a306d81cb",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task archive <task-id> --reason <reason>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TerminalHardDeleteForbidden]#1#unresolved-placeholder#c8be69c4bd47fe87",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task show <task-id> --view trace"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TerminalHardDeleteForbidden]#1#unresolved-placeholder#dce3497745a212a3",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task archive <task-id> --reason <reason>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TerminalReopenRequiresSupersede]#1#unresolved-placeholder#1e81f3ff1f1ac874",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task supersede <task-id> --title <follow-up-title>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TerminalReopenRequiresSupersede]#1#unresolved-placeholder#2d44ba88fe149292",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task supersede <task-id> --title <follow-up-title>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TerminalStatusRequiresTaskComplete]#1#missing-required-option#c4335ea1cea4afb4",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: missing-required-option; ha task complete <id> --approve"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TerminalStatusRequiresTaskComplete]#1#unresolved-placeholder#09280a8fba030e47",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task complete <id> --approve"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TerminalStatusRequiresTaskComplete]#1#unresolved-placeholder#2ee1d4afcf71155a",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task supersede <id> --title <follow-up-title>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.TerminalStatusRequiresTaskComplete]#1#unresolved-placeholder#c47fdc39ed3dd77d",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task supersede <id> --title <follow-up-title>"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.VerticalDefinitionInvalid]#1#unresolved-placeholder#bc519c5123c4a16e",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha vertical validate <path> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.WorktreeBindingMissing]#1#unresolved-placeholder#a3c1f30e3cdb9a4a",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha worktree create --task <task-id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.WorktreeCommandFailed]#1#unresolved-placeholder#1635bd12fe8feea4",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha worktree status --task <task-id> --json"
+      },
+      {
+        "value": "packages/cli/src/cli/error-codes.ts#property:defaultHint:entry:[CliErrorCode.WriteConflict]#1#unresolved-placeholder#a0051671e67dee36",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task show <task-id> --view trace"
+      },
+      {
+        "value": "packages/cli/src/cli/error-mapper.ts#call:cliError:CliErrorCode.TerminalReopenRequiresSupersede#1#missing-required-option#a77611ed1c9d29fa",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: missing-required-option; harness-anything task supersede"
+      },
+      {
+        "value": "packages/cli/src/cli/parsers/core-task.ts#call:cliError:CliErrorCode.MissingText#1#unresolved-placeholder#7dbf83e586253f36",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task progress append <context> --text \"<update>\""
+      },
+      {
+        "value": "packages/cli/src/cli/parsers/new-task.ts#call:cliError:CliErrorCode.MissingTitle#1#unresolved-placeholder#6fc921449d1fb0bf",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task create --title \"<title>\""
+      },
+      {
+        "value": "packages/cli/src/commands/core/task-holder-support.ts#call:cliError:CliErrorCode.TerminalReopenRequiresSupersede#1#unresolved-placeholder#2c66e858aa13ad5a",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task create --title <follow-up-title>"
+      },
+      {
+        "value": "packages/cli/src/commands/core/task-holder-support.ts#call:cliError:CliErrorCode.TerminalReopenRequiresSupersede#1#unresolved-placeholder#9b55fa906cffbc4f",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha task supersede <context> --title <follow-up-title>"
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#call:cliError:CliErrorCode.PresetScriptNotFound#1#unresolved-placeholder#9bdefcc26299245d",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha preset validate <preset-package>/preset"
+      },
+      {
+        "value": "packages/cli/src/commands/legacy-rebuild.ts#call:cliError:CliErrorCode.LegacyIndexMissing#1#missing-required-option#348ddbf57961d641",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: missing-required-option; ha --root <context> task create --from-legacy <context>"
+      },
+      {
+        "value": "packages/daemon/src/authority/authority-cutover-command.ts#property:hint:code:\"write_rejected\"#1#unresolved-placeholder#b34fb3139859c8b6",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha authority cutover confirm --first-scan <id> --second-scan <id> --json"
+      },
+      {
+        "value": "packages/daemon/src/authority/authority-cutover-command.ts#property:hint:code:\"write_rejected\"#1#unresolved-placeholder#e8df872abab75ef1",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha authority cutover confirm --first-scan <id> --second-scan <id> --json"
+      },
+      {
+        "value": "packages/daemon/src/authority/authority-cutover-command.ts#property:hint:code:\"write_rejected\"#2#unresolved-placeholder#e453f12c701f679f",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha authority cutover drain --classify <op-id|disposition|tuple-digest|evidence-ref> --json"
+      },
+      {
+        "value": "packages/daemon/src/protocol/daemon-control-request.ts#property:hint:code:\"daemon_control_unavailable\"#4#unresolved-placeholder#d61b20d47d2eb5e5",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha daemon upgrade --version <snapshot-version>"
+      },
+      {
+        "value": "packages/daemon/src/protocol/daemon-control-request.ts#property:hint:code:\"daemon_control_unavailable\"#5#unknown-option#927ccf44cdab3508",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unknown-option; ha daemon status --json --include-generation-axes"
+      },
+      {
+        "value": "packages/daemon/src/protocol/json-rpc-server.ts#call:failureReceipt:\"daemon_launch_spec_unavailable\"#1#unresolved-placeholder#820166309ad8b4b3",
+        "ref": "task_01KZJF8PRC8E1XM9R95P4BKEP1",
+        "reason": "Existing lexical error-hint debt: unresolved-placeholder; ha daemon start --service --authority-manifest <path>"
+      }
+    ]
+  }
+}

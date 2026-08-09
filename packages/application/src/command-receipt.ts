@@ -73,12 +73,20 @@ export function failureReceiptNextActions(
   const repoId = receiptString(repo?.repoId);
   if (!repoId) return undefined;
   const canonicalRoot = receiptString(repo?.canonicalRoot);
+  if (code === "repo_lock_held") {
+    const lockPath = receiptString(repo?.lockPath) ?? "the reported writer lock";
+    const lockOwner = receiptString(repo?.lockOwnerToken) ?? receiptString(repo?.lastError) ?? "unknown";
+    return [{
+      command: `ha --repo ${shellArgument(repoId)} daemon status --json`,
+      description: `The repo writer lock is held at ${lockPath} (owner: ${lockOwner}). Wait for the current writer to release it, then rerun this status command before retrying. Do not register, purge, stop, or restart the repo while the lock is held.`
+    }];
+  }
   return [{
     command: `ha --repo ${shellArgument(repoId)} daemon status --json`,
-    description: "Inspect this repo's daemon attachment state; unavailable repos are retried automatically."
+    description: "Inspect this repo's daemon attachment and recovery state before choosing a repair."
   }, ...(canonicalRoot ? [{
     command: `ha daemon repo register --repo-id ${shellArgument(repoId)} --root ${shellArgument(canonicalRoot)}`,
-    description: "Register or re-enable this repo if it is missing or disabled, then retry the original command."
+    description: "Register or re-enable this repo only if status reports that it is missing or disabled, then retry the original command."
   }] : [])];
 }
 

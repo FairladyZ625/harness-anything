@@ -50,7 +50,7 @@ export function handleProjectionNotificationSubscription(
     return failureReceipt(
       method,
       "notifications_unavailable",
-      "Projection notification transport is not configured. Run `ha daemon start`, reconnect through a daemon transport, then retry the subscription."
+      "Projection notification subscription is unavailable because this connection is missing at least one required capability: a notification sink or a projection-change subscriber. This request created no subscription. Inspect the current transport configuration and reconnect through an endpoint configured with both notification capabilities; use `ha daemon status --json` only to verify the active daemon."
     );
   }
   current?.();
