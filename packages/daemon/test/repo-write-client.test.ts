@@ -10,7 +10,6 @@ import {
   RepoWriteNotStartedError,
   RepoWriteOutcomeUnknownError,
   RepoWriteProtocolViolationError,
-  RepoWriteReadyTimeoutError,
   RepoWriteShutdownTimeoutError
 } from "../src/runtime/repo-write-client.ts";
 import {
@@ -101,38 +100,6 @@ test("starts the durable request deadline only after READY dispatches the reques
   });
 
   assert.deepEqual(await outcome, { kind: "resolved", receipt });
-});
-
-test("rejects a queued durable request when the writer misses its READY deadline", async () => {
-  const transport = new FakeRepoWriteTransport();
-  const client = new RepoWriteClient({
-    repoId: "repo-canonical",
-    generation: 7,
-    transport,
-    limits: { readyTimeoutMs: 10, requestTimeoutMs: 50 },
-    onTelemetry: () => undefined
-  });
-  const ready = client.waitUntilReady().then(
-    () => ({ kind: "resolved" as const }),
-    (error: unknown) => ({ kind: "rejected" as const, error })
-  );
-  const submission = client.submit(command("task.create")).then(
-    () => ({ kind: "resolved" as const }),
-    (error: unknown) => ({ kind: "rejected" as const, error })
-  );
-
-  const outcome = await Promise.race([
-    submission,
-    new Promise<{ readonly kind: "still-pending" }>((resolve) => {
-      setTimeout(() => resolve({ kind: "still-pending" }), 100);
-    })
-  ]);
-
-  assert.equal(outcome.kind, "rejected");
-  assert.ok(outcome.kind === "rejected" && outcome.error instanceof RepoWriteReadyTimeoutError);
-  const readyOutcome = await ready;
-  assert.ok(readyOutcome.kind === "rejected" && readyOutcome.error instanceof RepoWriteReadyTimeoutError);
-  assert.deepEqual(transport.sent, []);
 });
 
 test("shutdown rejects a queued durable request before READY", async () => {

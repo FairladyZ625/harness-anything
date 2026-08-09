@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
@@ -18,7 +18,7 @@ import {
   RepoWriteDirectOutcomeUnknownError,
   RepoWriteOutcomeUnknownError,
   RepoWriteProtocolViolationError,
-  RepoWriteReadyTimeoutError
+  RepoWriteStartupStalledError
 } from "../src/runtime/repo-write-client.ts";
 import {
   calculateDaemonArtifactIdentity
@@ -290,7 +290,7 @@ test("replacement child gets a fresh client whose first request is cold-start se
   assert.equal(classifyProvenanceCapacitySample(telemetryRequestIds[1]!, 1), "cold-start");
 });
 
-test("connected child that never announces READY is terminated at the readiness deadline", async (context) => {
+test("connected child with no startup progress is terminated after the stall window", async (context) => {
   const supervisor = new RepoWriteProcessSupervisor({
     repoId: "repo-transport",
     generation: 1,
@@ -305,8 +305,67 @@ test("connected child that never announces READY is terminated at the readiness 
   context.after(() => supervisor.stop().catch(() => undefined));
 
   await assert.rejects(supervisor.start(), (error) => {
-    assert.ok(error instanceof RepoWriteReadyTimeoutError);
-    assert.equal(error.code, "REPO_WRITE_READY_TIMEOUT");
+    assert.ok(error instanceof RepoWriteStartupStalledError);
+    assert.equal(error.code, "REPO_WRITE_STARTUP_STALLED");
+    assert.match(error.message, /startup stalled/u);
+    return true;
+  });
+  assert.equal(supervisor.status().connected, false);
+});
+
+test("slow startup with distinct work units may exceed one stall window", async (context) => {
+  const supervisor = new RepoWriteProcessSupervisor({
+    repoId: "repo-transport",
+    generation: 1,
+    limits: { readyTimeoutMs: 1_000 },
+    spawn: () => forkRepoWriteProcess({
+      modulePath: fixturePath,
+      args: ["slow-startup-progress"]
+    })
+  });
+  context.after(() => supervisor.stop().catch(() => undefined));
+
+  const startedAt = performance.now();
+  await supervisor.start();
+
+  assert.ok(performance.now() - startedAt > 1_000);
+  assert.equal(supervisor.status().connected, true);
+});
+
+test("alive child repeating one startup work unit is terminated as stalled", async (context) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-startup-stall-"));
+  const tracePath = path.join(root, "trace.log");
+  let transport: RepoWriteParentProcessTransport | undefined;
+  const supervisor = new RepoWriteProcessSupervisor({
+    repoId: "repo-transport",
+    generation: 1,
+    limits: { readyTimeoutMs: 1_000 },
+    spawn: () => {
+      transport = forkRepoWriteProcess({
+        modulePath: fixturePath,
+        args: ["repeat-startup-work-unit", tracePath]
+      });
+      return transport;
+    }
+  });
+  context.after(async () => {
+    await supervisor.stop().catch(() => undefined);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const starting = supervisor.start();
+  await waitFor(() => existsSync(tracePath));
+  assert.ok(transport);
+  assert.equal(transport.child.exitCode, null);
+  assert.equal(transport.child.signalCode, null);
+
+  await assert.rejects(starting, (error) => {
+    assert.ok(error instanceof RepoWriteStartupStalledError);
+    assert.equal(error.phase, "historical-recovery");
+    assert.equal(error.workUnit, "repo-write:outer-op-stuck");
+    assert.ok(error.repeatedProgressFrames > 0);
+    assert.match(error.message, /startup stalled/u);
+    assert.doesNotMatch(error.message, /still starting/u);
     return true;
   });
   assert.equal(supervisor.status().connected, false);

@@ -59,6 +59,77 @@ const entrypoint = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 const entrypointArtifactIdentity =
   calculateDaemonArtifactIdentity(entrypoint).identity;
 
+cutoverTest("production child reports semantic startup phases before READY", async (t) => {
+  const fixture = createProductionAuthorityLifecycleFixture();
+  const userRoot = path.join(fixture.root, "daemon-user");
+  const endpoint = path.join(userRoot, "daemon.sock");
+  const startupProgress: Array<{ readonly phase: string; readonly workUnit: string }> = [];
+  let transport: ReturnType<typeof forkRepoWriteProcess> | undefined;
+  let supervisor: RepoWriteProcessSupervisor | undefined;
+  try {
+    const machineId = readOrCreateDaemonMachineId(userRoot);
+    const generationRecord = publishNextDaemonGeneration({
+      userRoot,
+      endpointIdentity: endpoint,
+      machineId,
+      daemonInstanceId: "production-child-startup-progress-test"
+    });
+    supervisor = new RepoWriteProcessSupervisor({
+      repoId: "canonical",
+      generation: generationRecord.daemonGeneration,
+      expectedArtifactIdentity: entrypointArtifactIdentity,
+      spawn: () => {
+        transport = forkRepoWriteProcess({
+          modulePath: entrypoint,
+          args: [
+            "__repo-write-child",
+            encodeRepoWriteChildLaunchConfig({
+              schema: repoWriteChildLaunchConfigSchema,
+              repoId: "canonical",
+              canonicalRoot: fixture.repoRoot,
+              authoredRoot: "harness",
+              authorityManifest: fixture.manifestPath,
+              userRoot,
+              endpointIdentity: endpoint,
+              machineId,
+              generation: generationRecord.daemonGeneration,
+              entrypointArtifactIdentity,
+              runtimePolicy: defaultDaemonRuntimePolicy
+            })
+          ],
+          cwd: fixture.repoRoot,
+          env: { ...process.env, HARNESS_DAEMON_SERVER_HOST: "1" }
+        });
+        return transport;
+      }
+    });
+    const starting = supervisor.start();
+    assert.ok(transport);
+    transport.onMessage((message) => {
+      if (message.kind === "startup-progress") {
+        startupProgress.push({ phase: message.phase, workUnit: message.workUnit });
+      }
+    });
+    await starting;
+
+    assert.deepEqual(startupProgress, [
+      { phase: "artifact-identity", workUnit: "canonical" },
+      { phase: "authority-manifest", workUnit: "canonical" },
+      { phase: "conflict-marker-preflight", workUnit: "canonical" },
+      { phase: "runtime-create", workUnit: "canonical" },
+      { phase: "runtime-start", workUnit: "canonical" },
+      { phase: "authority-lifecycle-compose", workUnit: "canonical" },
+      { phase: "authority-start-repo", workUnit: "canonical" },
+      { phase: "historical-recovery-scan", workUnit: "canonical" },
+      { phase: "child-host-start", workUnit: "canonical" }
+    ]);
+    t.diagnostic(JSON.stringify({ startupProgress }));
+  } finally {
+    await supervisor?.stop().catch(() => undefined);
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 cutoverTest("two signed production repos own distinct child locks and route through one daemon", { timeout: 60_000 }, async (t) => {
   const fixture = createProductionAuthorityLifecycleFixture({ repoIds: ["alpha", "beta"] });
   const userRoot = path.join(fixture.root, "daemon-user");

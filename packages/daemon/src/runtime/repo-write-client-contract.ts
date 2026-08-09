@@ -25,6 +25,7 @@ export interface RepoWriteClientTransport {
 
 export interface RepoWriteClientLimits {
   readonly maxPendingRequests: number;
+  /** Maximum time without a previously unseen startup phase/work-unit pair. */
   readonly readyTimeoutMs: number;
   readonly requestTimeoutMs: number;
   /**

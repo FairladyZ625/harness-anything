@@ -4,6 +4,13 @@ export * from "./repo-write-command-dto.ts";
 import { repoWriteTerminalReceiptMatches } from "./repo-write-terminal-receipt.ts";
 import { type RepoWriteRecoveryDeferredFrame, type RepoWriteRecoveryDiagnosticFrame, type RepoWriteRecoveryRejectedFrame, type RepoWriteTelemetryFrame } from "./repo-write-diagnostic-protocol.ts";
 import { decodeRepoWriteTelemetry } from "./repo-write-protocol-telemetry.ts";
+import { decodeRepoWriteStartupProgress } from "./repo-write-protocol-startup.ts";
+import type { RepoWriteStartupProgressFrame } from "./repo-write-startup-protocol.ts";
+export {
+  repoWriteStartupProgressPhases,
+  type RepoWriteStartupProgressFrame,
+  type RepoWriteStartupProgressPhase
+} from "./repo-write-startup-protocol.ts";
 export type { RepoWriteRecoveryDeferredFrame, RepoWriteRecoveryDiagnosticFrame, RepoWriteRecoveryRejectedFrame, RepoWriteTelemetryDetail, RepoWriteTelemetryDetails, RepoWriteTelemetryFrame, RepoWriteTelemetryPhase } from "./repo-write-diagnostic-protocol.ts";
 export { boundedRepoWriteDiagnostic } from "./repo-write-protocol-diagnostic.ts";
 import {
@@ -137,7 +144,8 @@ export type RepoWriteOperationLookupResult =
 export type RepoWriteStatusFrame = RepoWriteOperationFrame<"status"> & RepoWriteOperationLookupResult;
 
 export type RepoWriteChildMessage =
-  RepoWriteReadyFrame | RepoWritePreparedFrame | RepoWriteTerminalFrame | RepoWriteFailureFrame
+  RepoWriteReadyFrame | RepoWriteStartupProgressFrame
+  | RepoWritePreparedFrame | RepoWriteTerminalFrame | RepoWriteFailureFrame
   | RepoWriteDirectResultFrame | RepoWriteDirectFailureFrame
   | RepoWriteStatusFrame | RepoWriteTelemetryFrame | RepoWriteRecoveryDiagnosticFrame
   | RepoWriteDrainedFrame;
@@ -182,6 +190,9 @@ export function decodeRepoWriteChildMessage(
   const limits = resolveLimits(overrides);
   const budget = { nodes: 0 };
   const frame = frameBase(value, limits, budget);
+  if (frame.kind === "startup-progress") {
+    return decodeRepoWriteStartupProgress(frame, limits, baseFields(frame));
+  }
   if (frame.kind === "ready") return decodeReady(frame, limits);
   if (frame.kind === "prepared") return decodeOperationFrame(frame, limits, "prepared");
   if (frame.kind === "terminal") return decodeTerminal(frame, limits, budget);

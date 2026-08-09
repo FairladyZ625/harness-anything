@@ -156,6 +156,31 @@ export class RepoWriteReadyTimeoutError extends RepoWriteNotStartedError {
   }
 }
 
+export class RepoWriteStartupStalledError extends RepoWriteNotStartedError {
+  readonly phase: string | undefined;
+  readonly workUnit: string | undefined;
+  readonly repeatedProgressFrames: number;
+
+  constructor(input: {
+    readonly stallTimeoutMs: number;
+    readonly phase?: string;
+    readonly workUnit?: string;
+    readonly repeatedProgressFrames: number;
+  }) {
+    const lastProgress = input.phase === undefined || input.workUnit === undefined
+      ? "no startup progress frame was observed"
+      : `last phase=${input.phase}, workUnit=${input.workUnit}, repeatedFrames=${input.repeatedProgressFrames}`;
+    super(
+      "REPO_WRITE_STARTUP_STALLED",
+      `Repo writer startup stalled: no new phase/work unit for ${input.stallTimeoutMs}ms; ${lastProgress}.`
+    );
+    this.name = "RepoWriteStartupStalledError";
+    this.phase = input.phase;
+    this.workUnit = input.workUnit;
+    this.repeatedProgressFrames = input.repeatedProgressFrames;
+  }
+}
+
 export class RepoWriteLookupError extends Error {
   readonly code: string;
   readonly opId: string;
