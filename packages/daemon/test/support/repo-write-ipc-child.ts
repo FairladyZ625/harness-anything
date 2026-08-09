@@ -243,7 +243,28 @@ if (mode === "expected-direct-rejection") {
     }
   });
 
-  if (mode === "never-ready") {
+  if (mode === "slow-startup-progress") {
+    await transport.send(startupProgress("runtime-start", "repo-transport"));
+    await delay(600);
+    await transport.send(startupProgress("historical-recovery", "repo-write:outer-op-1"));
+    await delay(600);
+    await transport.send(startupProgress("historical-recovery", "repo-write:outer-op-2"));
+    await delay(600);
+    await transport.send({
+      protocol: repoWriteProtocolType,
+      repoId: "repo-transport",
+      generation: 1,
+      kind: "ready",
+      artifactIdentity: `sha256:${"a".repeat(64)}`
+    });
+  } else if (mode === "repeat-startup-work-unit") {
+    const repeated = startupProgress("historical-recovery", "repo-write:outer-op-stuck");
+    await transport.send(repeated);
+    trace("startup-progress:repo-write:outer-op-stuck");
+    setInterval(() => {
+      void transport.send(repeated);
+    }, 10).unref();
+  } else if (mode === "never-ready") {
     // Stay connected so the parent must enforce its readiness deadline.
   } else if (mode === "malformed-child") {
     process.send?.({ protocol: "wrong", kind: "ready" });
@@ -267,6 +288,24 @@ if (mode === "expected-direct-rejection") {
       artifactIdentity: `sha256:${"a".repeat(64)}`
     });
   }
+}
+
+function startupProgress(
+  phase: "runtime-start" | "historical-recovery",
+  workUnit: string
+) {
+  return {
+    protocol: repoWriteProtocolType,
+    repoId: "repo-transport",
+    generation: 1,
+    kind: "startup-progress",
+    phase,
+    workUnit
+  } as const;
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function trace(event: string): void {

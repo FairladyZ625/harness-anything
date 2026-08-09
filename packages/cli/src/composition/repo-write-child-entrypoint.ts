@@ -34,16 +34,16 @@ import {
 } from "./production-authority-lifecycle.ts";
 import { makeDaemonReservationReconciler } from "@harness-anything/daemon";
 
+type RepoWriteStartupProgressPhase = Extract<
+  Parameters<RepoWriteChildIpcTransport["send"]>[0],
+  { readonly kind: "startup-progress" }
+>["phase"];
+
 /**
- * Everything before READY must fit inside the parent's READY deadline
- * (`readyTimeoutMs`, default 30_000ms), so this caps the child's *total* time to
- * announcement rather than just the recovery loop. Measured on a real forked
- * child, everything other than the recovery loop costs ~0.7s, so the loop is the
- * only part that can grow with data — and it grows invisibly, because iterations
- * that succeed emit no log. A budget sized from the visible (deferred)
- * iterations undercounts badly, so recovery instead gets whatever time is left
- * under this cap and nothing more; proceedings it does not reach stay proceeding
- * and are retried on the next start.
+ * Historical recovery keeps its existing admission budget, which is strictly
+ * smaller than the parent's startup-stall window. The parent now renews that
+ * window only when it sees a previously unseen startup phase/work-unit pair;
+ * this budget remains an admission boundary, not the liveness signal.
  *
  * Reuses the authority admission deadline rather than restating it: both exist
  * to return before the same parent transport deadline so the supervisor leaves a
@@ -59,14 +59,28 @@ function remainingStartupRecoveryBudgetMs(): number {
 export async function runRepoWriteChildEntrypoint(
   encodedConfig: string | undefined
 ): Promise<void> {
-  // The parent kills this child when it does not announce READY inside
-  // readyTimeoutMs. Without per-phase evidence a timeout is undiagnosable from
-  // outside the process, so every startup phase reports its own cost on stderr,
-  // which the launcher already captures next to the timeout stack.
+  // The parent kills this child only when it sees no new semantic startup work
+  // inside readyTimeoutMs. The independent stderr timings keep each phase's
+  // actual cost diagnosable from the launch log.
   const startupPhase = makeRepoWriteChildStartupPhaseReporter();
   if (!encodedConfig) throw new Error("REPO_WRITE_CHILD_LAUNCH_CONFIG_REQUIRED");
   const config = decodeRepoWriteChildLaunchConfig(encodedConfig);
+  const transport = new RepoWriteChildIpcTransport();
+  const reportStartupProgress = async (
+    phase: RepoWriteStartupProgressPhase,
+    workUnit = config.repoId
+  ): Promise<void> => {
+    await transport.send({
+      protocol: "harness-repo-write-ipc/v1",
+      repoId: config.repoId,
+      generation: config.generation,
+      kind: "startup-progress",
+      phase,
+      workUnit
+    });
+  };
   startupPhase.mark("decode-launch-config");
+  await reportStartupProgress("artifact-identity");
   const entrypointArtifactIdentity = calculateDaemonArtifactIdentity(
     process.argv[1] ?? ""
   ).identity;
@@ -74,6 +88,7 @@ export async function runRepoWriteChildEntrypoint(
   if (entrypointArtifactIdentity !== config.entrypointArtifactIdentity) {
     throw new Error("REPO_WRITE_CHILD_ENTRYPOINT_ARTIFACT_MISMATCH");
   }
+  await reportStartupProgress("authority-manifest");
   const manifest = loadAuthorityProductionManifest(config.authorityManifest);
   const authorityRepo = manifest.repos.find((repo) =>
     repo.repoId === config.repoId
@@ -91,8 +106,10 @@ export async function runRepoWriteChildEntrypoint(
   });
   // Establish the generation baseline before the child advertises readiness so
   // no request pays for a full authored-tree conflict-marker scan.
+  await reportStartupProgress("conflict-marker-preflight");
   conflictMarkerPreflight.read();
   startupPhase.mark("conflict-marker-preflight");
+  await reportStartupProgress("runtime-create");
   const witness = createDaemonGenerationWitness({
     userRoot: config.userRoot,
     endpointIdentity: config.endpointIdentity,
@@ -137,9 +154,11 @@ export async function runRepoWriteChildEntrypoint(
   });
   runtimeBox.current = runtime;
   startupPhase.mark("create-daemon-runtime");
+  await reportStartupProgress("runtime-start");
   await runtime.start();
   startupPhase.mark("runtime-start");
 
+  await reportStartupProgress("authority-lifecycle-compose");
   const outcomes = new DurableRepoWriteOutcomeStoreV1({
     directory: path.join(
       manifest.serviceStateRoot,
@@ -193,6 +212,7 @@ export async function runRepoWriteChildEntrypoint(
     canonicalRoot: config.canonicalRoot
   };
   startupPhase.mark("compose-authority-lifecycle");
+  await reportStartupProgress("authority-start-repo");
   const started = await authorityLifecycle.startRepo(repo, lifecycleRuntime);
   startupPhase.mark("authority-start-repo");
   if (!started.ok) {
@@ -205,9 +225,9 @@ export async function runRepoWriteChildEntrypoint(
     }
     return started.component.recoverCommittedReceipt(outcome.innerOpId);
   };
-  const transport = new RepoWriteChildIpcTransport();
   const startupRecoveryBudgetMs = remainingStartupRecoveryBudgetMs();
   const startupRecoveryDeadline = Date.now() + startupRecoveryBudgetMs;
+  await reportStartupProgress("historical-recovery-scan");
   const historicalProceedings = outcomes.listHistoricalProceedings();
   startupPhase.mark("list-historical-proceedings", {
     proceedingCount: historicalProceedings.length
@@ -219,6 +239,7 @@ export async function runRepoWriteChildEntrypoint(
       proceedingsLeftByBudget += 1;
       continue;
     }
+    await reportStartupProgress("historical-recovery", proceeding.outerOpId);
     const proceedingStartedAt = startupPhase.now();
     try {
       const recovery = await recoveryGate.recoverHistoricalProceeding(proceeding);
@@ -267,6 +288,7 @@ export async function runRepoWriteChildEntrypoint(
       + "retried on the next start\n"
     );
   }
+  await reportStartupProgress("child-host-start");
   const operation = new ProductionRepoWriteOperationHost({
     repoId: config.repoId,
     workspaceId: authorityRepo.workspaceId,

@@ -11,12 +11,12 @@ import {
   createPendingRepoWriteLookup,
   createPendingRepoWriteSubmit,
   type PendingLookup,
-  type PendingReady,
   type PendingShutdown,
   type PendingSubmit
 } from "./repo-write-client-pending.ts";
 import type { RepoWriteClientLimits, RepoWriteClientOptions } from "./repo-write-client-contract.ts";
 import { resolveRepoWriteClientLimits } from "./repo-write-client-limits.ts";
+import { RepoWriteClientReadyGate } from "./repo-write-client-ready.ts";
 import { disconnectRepoWritePendingRequests } from "./repo-write-client-disconnect.ts";
 import {
   expireRepoWritePendingSubmit,
@@ -52,7 +52,6 @@ import {
   RepoWriteNotStartedError,
   RepoWriteOutcomeUnknownError,
   RepoWriteProtocolViolationError,
-  RepoWriteReadyTimeoutError,
   RepoWriteSendDeliveryError,
   RepoWriteShutdownTimeoutError
 } from "./repo-write-client-errors.ts";
@@ -65,13 +64,14 @@ export {
   RepoWriteNotStartedError,
   RepoWriteOutcomeUnknownError,
   RepoWriteProtocolViolationError,
-  RepoWriteReadyTimeoutError,
+  RepoWriteStartupStalledError,
   RepoWriteSendDeliveryError,
   RepoWriteShutdownTimeoutError,
   type RepoWriteSendDelivery
 } from "./repo-write-client-errors.ts";
 export {
-  RepoWriteDirectOutcomeUnknownError
+  RepoWriteDirectOutcomeUnknownError,
+  RepoWriteReadyTimeoutError
 } from "./repo-write-client-errors.ts";
 
 export class RepoWriteClient {
@@ -80,7 +80,7 @@ export class RepoWriteClient {
   private readonly pending = new Map<string, PendingSubmit>();
   private readonly directLane: RepoWriteDirectClientLane;
   private readonly pendingLookups = new Map<string, PendingLookup>();
-  private readyPending: PendingReady | undefined;
+  private readonly readyGate: RepoWriteClientReadyGate;
   private ready = false;
   private sequence = 0;
   private terminalError: Error | undefined;
@@ -103,6 +103,13 @@ export class RepoWriteClient {
       onRequestTimeout: options.onRequestTimeout,
       onRequestFailure: options.onRequestFailure
     });
+    this.readyGate = new RepoWriteClientReadyGate({
+      stallTimeoutMs: this.limits.readyTimeoutMs,
+      onStall: (error) => {
+        this.terminalError = error;
+        rejectRepoWriteQueuedRequests(this.pending, this.directLane, this.pendingLookups, error);
+      }
+    });
     options.transport.onMessage((message) => this.handleMessage(message));
     options.transport.onDisconnect((error) => this.handleDisconnect(error));
   }
@@ -115,30 +122,7 @@ export class RepoWriteClient {
     if (this.ready) return Promise.resolve();
     if (this.terminalError) return Promise.reject(this.terminalError);
     if (this.closing) return Promise.reject(new RepoWriteClientClosedError());
-    if (this.readyPending) return this.readyPending.promise;
-    let resolveReady: (() => void) | undefined;
-    let rejectReady: ((error: Error) => void) | undefined;
-    const promise = new Promise<void>((resolve, reject) => {
-      resolveReady = resolve;
-      rejectReady = reject;
-    });
-    const timer = setTimeout(() => {
-      const pending = this.readyPending;
-      if (!pending || pending.promise !== promise) return;
-      this.readyPending = undefined;
-      const error = new RepoWriteReadyTimeoutError(this.limits.readyTimeoutMs);
-      this.terminalError = error;
-      rejectRepoWriteQueuedRequests(this.pending, this.directLane, this.pendingLookups, error);
-      pending.reject(error);
-    }, this.limits.readyTimeoutMs);
-    timer.unref();
-    this.readyPending = {
-      promise,
-      resolve: resolveReady!,
-      reject: rejectReady!,
-      timer
-    };
-    return promise;
+    return this.readyGate.wait();
   }
 
   submit(command: RepoWriteCommandDto): Promise<RepoWriteJsonObject> {
@@ -205,9 +189,7 @@ export class RepoWriteClient {
     }
     this.closing = true;
     const closed = new RepoWriteClientClosedError();
-    if (this.readyPending) clearTimeout(this.readyPending.timer);
-    this.readyPending?.reject(closed);
-    this.readyPending = undefined;
+    this.readyGate.reject(closed);
     rejectRepoWriteQueuedRequests(this.pending, this.directLane, this.pendingLookups, closed);
     const requestId = this.nextRequestId();
     let resolveShutdown: (() => void) | undefined;
@@ -260,6 +242,14 @@ export class RepoWriteClient {
       return;
     }
     if (this.terminalError) return;
+    if (message.kind === "startup-progress") {
+      if (this.ready) {
+        this.failProtocol("Repo writer sent startup progress after READY.");
+        return;
+      }
+      this.readyGate.observe(message);
+      return;
+    }
     if (message.kind === "ready") {
       if (this.options.expectedArtifactIdentity !== undefined
         && message.artifactIdentity !== this.options.expectedArtifactIdentity) {
@@ -269,9 +259,7 @@ export class RepoWriteClient {
         return;
       }
       this.ready = true;
-      if (this.readyPending) clearTimeout(this.readyPending.timer);
-      this.readyPending?.resolve();
-      this.readyPending = undefined;
+      this.readyGate.resolve();
       for (const requestId of this.pending.keys()) this.dispatchSubmit(requestId);
       this.directLane.dispatchAll();
       for (const requestId of this.pendingLookups.keys()) this.dispatchLookup(requestId);
@@ -431,9 +419,7 @@ export class RepoWriteClient {
       "CAPSULE_DISCONNECTED",
       `Repo writer disconnected before the request started: ${error.message}`
     );
-    if (this.readyPending) clearTimeout(this.readyPending.timer);
-    this.readyPending?.reject(notStarted);
-    this.readyPending = undefined;
+    this.readyGate.reject(notStarted);
     disconnectRepoWritePendingRequests(
       this.pending,
       this.directLane,
@@ -458,9 +444,7 @@ export class RepoWriteClient {
     } catch {
       // A diagnostic observer cannot prevent the client from failing closed.
     }
-    if (this.readyPending) clearTimeout(this.readyPending.timer);
-    this.readyPending?.reject(violation);
-    this.readyPending = undefined;
+    this.readyGate.reject(violation);
     for (const [requestId, pending] of this.pending) {
       clearTimeout(pending.timer);
       this.pending.delete(requestId);

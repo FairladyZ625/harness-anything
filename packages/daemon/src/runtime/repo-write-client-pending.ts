@@ -42,13 +42,6 @@ export interface PendingShutdown {
   sent: boolean;
 }
 
-export interface PendingReady {
-  readonly promise: Promise<void>;
-  readonly resolve: () => void;
-  readonly reject: (error: Error) => void;
-  readonly timer: NodeJS.Timeout;
-}
-
 export function createPendingRepoWriteSubmit(input: Pick<
   PendingSubmit,
   "requestId" | "command" | "resolve" | "reject"

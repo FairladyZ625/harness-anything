@@ -374,8 +374,13 @@ test("failure after proceed requires outcome-unknown, stable opId, and no replay
   assert.throws(() => decodeRepoWriteChildMessage(withoutOpId), protocolInvalid);
 });
 
-test("ready, terminal, status, telemetry, shutdown, and drained frames have exact schemas", () => {
+test("startup progress, ready, terminal, status, telemetry, shutdown, and drained frames have exact schemas", () => {
   const committedReceipt = committedCommandReceipt();
+  const startupProgress = decodeRepoWriteChildMessage({
+    ...base("startup-progress"),
+    phase: "historical-recovery",
+    workUnit: "repo-write:outer-op-1"
+  });
   const ready = decodeRepoWriteChildMessage({
     ...base("ready"),
     artifactIdentity: `sha256:${"a".repeat(64)}`
@@ -423,6 +428,11 @@ test("ready, terminal, status, telemetry, shutdown, and drained frames have exac
     requestId: "shutdown-1"
   });
 
+  assert.deepEqual(startupProgress, {
+    ...base("startup-progress"),
+    phase: "historical-recovery",
+    workUnit: "repo-write:outer-op-1"
+  });
   assert.equal(ready.kind, "ready");
   assert.equal(terminal.kind, "terminal");
   assert.equal(statusRequest.kind, "status");
@@ -439,6 +449,18 @@ test("ready, terminal, status, telemetry, shutdown, and drained frames have exac
   );
   assert.equal(shutdown.kind, "shutdown");
   assert.equal(drained.kind, "drained");
+  assert.throws(() => decodeRepoWriteChildMessage({
+    ...startupProgress,
+    requestId: "not-allowed"
+  }), protocolInvalid);
+  assert.throws(() => decodeRepoWriteChildMessage({
+    ...startupProgress,
+    phase: "tick"
+  }), protocolInvalid);
+  assert.throws(() => decodeRepoWriteChildMessage({
+    ...startupProgress,
+    workUnit: ""
+  }), protocolInvalid);
   assert.throws(() => decodeRepoWriteChildMessage({ ...ready, requestId: "not-allowed" }), protocolInvalid);
   assert.throws(() => decodeRepoWriteParentMessage({ ...shutdown, deadlineMs: 5_000 }), protocolInvalid);
   assert.throws(() => decodeRepoWriteChildMessage({ ...telemetry, payload: "not telemetry" }), protocolInvalid);
