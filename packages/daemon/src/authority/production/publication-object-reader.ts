@@ -10,13 +10,6 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { createBoundedRetryBudget, type BoundedRetryBudget } from "@harness-anything/kernel";
 import type { RetryBudgetSignal } from "../../observability/visible-retry-budget.ts";
-import {
-  isProcessAlive,
-  ownedProcessTree,
-  signalOwnedProcesses,
-  terminateWindowsProcessTree,
-  waitForOwnedProcessesToClose
-} from "./publication-object-reader-process-lifecycle.ts";
 
 const maximumBatchHeaderBytes = 64 * 1024;
 const maximumGitObjectBytes = 64 * 1024 * 1024;
@@ -277,7 +270,6 @@ class PublicationGitObjectReader {
 class GitCatFileBatchProcess {
   private readonly child: ChildProcessWithoutNullStreams;
   private readonly output: BufferedBatchOutput;
-  private childClosed = false;
   private stderr = "";
   private spawnError: Error | undefined;
 
@@ -294,9 +286,6 @@ class GitCatFileBatchProcess {
     });
     this.child.on("error", (error) => {
       this.spawnError = error;
-    });
-    this.child.once("close", () => {
-      this.childClosed = true;
     });
     unrefChild(this.child);
   }
@@ -352,26 +341,12 @@ class GitCatFileBatchProcess {
   }
 
   async terminate(): Promise<void> {
-    const pid = this.child.pid;
-    if (pid === undefined) {
-      if (await waitForOwnedProcessesToClose([], () => this.childClosed, 250)) return;
-      throw new Error("AUTHORITY_GIT_OBJECT_BATCH_TERMINATION_TIMEOUT:pid=unknown;remaining=stdio");
-    }
-    const ownedPids = await ownedProcessTree(pid);
+    if (this.child.exitCode !== null || this.child.signalCode !== null) return;
     this.child.stdin.destroy();
-    if (process.platform === "win32") {
-      if (this.child.exitCode === null && this.child.signalCode === null) {
-        await terminateWindowsProcessTree(pid, { ownedPids });
-      }
-    } else {
-      signalOwnedProcesses(ownedPids, "SIGTERM");
-    }
-    if (await waitForOwnedProcessesToClose(ownedPids, () => this.childClosed, 250)) return;
-    signalOwnedProcesses(ownedPids, "SIGKILL");
-    if (await waitForOwnedProcessesToClose(ownedPids, () => this.childClosed, 250)) return;
-    throw new Error(
-      `AUTHORITY_GIT_OBJECT_BATCH_TERMINATION_TIMEOUT:pid=${pid};remaining=${ownedPids.filter(isProcessAlive).join(",") || "stdio"}`
-    );
+    this.child.kill("SIGTERM");
+    if (await waitForExit(this.child, 250)) return;
+    this.child.kill("SIGKILL");
+    await waitForExit(this.child, 250);
   }
 }
 
@@ -462,6 +437,20 @@ function refStream(stream: NodeJS.ReadableStream | NodeJS.WritableStream): void 
 
 function unrefStream(stream: NodeJS.ReadableStream | NodeJS.WritableStream): void {
   (stream as typeof stream & { unref?: () => void }).unref?.();
+}
+
+function waitForExit(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => finish(false), timeoutMs);
+    const onExit = () => finish(true);
+    const finish = (exited: boolean) => {
+      clearTimeout(timeout);
+      child.off("exit", onExit);
+      resolve(exited);
+    };
+    child.once("exit", onExit);
+  });
 }
 
 function gitObjectReadErrorMessage(error: unknown): string {

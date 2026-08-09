@@ -21,7 +21,6 @@ import {
   readPublicationGitObject,
   shutdownPublicationGitObjectReader
 } from "../src/authority/production/publication-object-reader.ts";
-import { terminateWindowsProcessTree } from "../src/authority/production/publication-object-reader-process-lifecycle.ts";
 import { removeTemporaryTestRoot } from "../../../tools/test-temp-root-cleanup.mjs";
 
 const posixTest = process.platform === "win32" ? test.skip : test;
@@ -195,92 +194,6 @@ posixTest("shutdown terminates a stuck half-read and rejects queued requests", a
 
   assert.equal(readBatchPids(fixture.batchLog).length, 1);
   assert.equal(readLogEntries(fixture.fallbackLog).length, 0);
-});
-
-test("shutdown does not return while a batch descendant remains alive", async () => {
-  const fixture = faultyPublicationRepo("descendant");
-  let descendantPid: number | undefined;
-  try {
-    assert.equal(
-      await readPublicationGitObject(fixture.root, "HEAD:seed.txt").then((content) => content.toString("utf8")),
-      "seed\n"
-    );
-    descendantPid = await readLoggedPid(fixture.descendantLog, 2_000);
-    assert.equal(isProcessAlive(descendantPid), true);
-
-    await shutdownPublicationGitObjectReader(fixture.root);
-
-    assert.equal(isProcessAlive(descendantPid), false, `batch descendant ${descendantPid} survived shutdown`);
-  } finally {
-    fixture.restorePath();
-    if (descendantPid !== undefined) await waitForProcessExit(descendantPid, 2_000);
-    await removeTemporaryTestRoot(fixture.root);
-  }
-});
-
-test("Windows taskkill treats an already-exited target as a completed close", async () => {
-  const taskkillFailure = Object.assign(
-    new Error("Command failed: taskkill /pid 6052 /T /F"),
-    {
-      code: 128,
-      stdout: "",
-      stderr: "ERROR: The process \"6052\" not found.\r\n"
-    }
-  );
-
-  await terminateWindowsProcessTree(6052, {
-    runTaskkill: async () => { throw taskkillFailure; },
-    isProcessAlive: () => false
-  });
-});
-
-test("Windows taskkill not-found still closes a live owned descendant", async () => {
-  const taskkillFailure = Object.assign(
-    new Error("Command failed: taskkill /pid 6052 /T /F"),
-    {
-      code: 128,
-      stdout: "",
-      stderr: "ERROR: The process \"6052\" not found.\r\n"
-    }
-  );
-  const alive = new Set([6053]);
-  const signaled: number[] = [];
-
-  await terminateWindowsProcessTree(6052, {
-    runTaskkill: async () => { throw taskkillFailure; },
-    isProcessAlive: (pid) => alive.has(pid),
-    ownedPids: [6052, 6053],
-    signalProcess: (pid) => {
-      signaled.push(pid);
-      alive.delete(pid);
-    }
-  });
-
-  assert.deepEqual(signaled, [6053]);
-  assert.equal(alive.size, 0);
-});
-
-test("Windows taskkill preserves a real termination failure with process output", async () => {
-  const taskkillFailure = Object.assign(
-    new Error("Command failed: taskkill /pid 6052 /T /F"),
-    {
-      code: 5,
-      stdout: "",
-      stderr: "ERROR: Access is denied.\r\n"
-    }
-  );
-
-  await assert.rejects(
-    terminateWindowsProcessTree(6052, {
-      runTaskkill: async () => { throw taskkillFailure; },
-      isProcessAlive: () => true
-    }),
-    (error) => error instanceof Error
-      && error.cause === taskkillFailure
-      && error.message.includes("exitCode=5")
-      && error.message.includes('stdout=""')
-      && error.message.includes('stderr="ERROR: Access is denied.\\r\\n"')
-  );
 });
 
 test("publication evidence yields between blob reads so recovery admission timers remain live", async (context) => {
@@ -476,12 +389,11 @@ function readLogEntries(logPath: string): ReadonlyArray<string> {
   return readFileSync(logPath, "utf8").trim().split("\n").filter(Boolean);
 }
 
-type GitBatchFault = "offset" | "die" | "half-read" | "hang-half" | "descendant";
+type GitBatchFault = "offset" | "die" | "half-read" | "hang-half";
 
 function faultyPublicationRepo(fault: GitBatchFault): {
   readonly root: string;
   readonly batchLog: string;
-  readonly descendantLog: string;
   readonly fallbackLog: string;
   readonly restorePath: () => void;
 } {
@@ -495,18 +407,16 @@ function faultyPublicationRepo(fault: GitBatchFault): {
   const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
   const binDir = path.join(root, "fault-bin");
   const batchLog = path.join(root, "batch-starts.log");
-  const descendantLog = path.join(root, "batch-descendants.log");
   const fallbackLog = path.join(root, "fallback-starts.log");
   mkdirSync(binDir);
   const wrapper = path.join(binDir, "git");
-  writeFileSync(wrapper, faultyGitWrapperSource(realGit, batchLog, descendantLog, fallbackLog, fault));
+  writeFileSync(wrapper, faultyGitWrapperSource(realGit, batchLog, fallbackLog, fault));
   chmodSync(wrapper, 0o755);
   const previousPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
   return {
     root,
     batchLog,
-    descendantLog,
     fallbackLog,
     restorePath: () => {
       if (previousPath === undefined) delete process.env.PATH;
@@ -518,17 +428,15 @@ function faultyPublicationRepo(fault: GitBatchFault): {
 function faultyGitWrapperSource(
   realGit: string,
   batchLog: string,
-  descendantLog: string,
   fallbackLog: string,
   fault: GitBatchFault
 ): string {
   return [
     "#!/usr/bin/env node",
     'import { appendFileSync } from "node:fs";',
-    'import { spawn, spawnSync } from "node:child_process";',
+    'import { spawnSync } from "node:child_process";',
     `const realGit = ${JSON.stringify(realGit)};`,
     `const batchLog = ${JSON.stringify(batchLog)};`,
-    `const descendantLog = ${JSON.stringify(descendantLog)};`,
     `const fallbackLog = ${JSON.stringify(fallbackLog)};`,
     `const fault = ${JSON.stringify(fault)};`,
     "const args = process.argv.slice(2);",
@@ -540,11 +448,6 @@ function faultyGitWrapperSource(
     "appendFileSync(batchLog, `${process.pid}\\n`);",
     "const rootFlag = args.indexOf(\"-C\");",
     "const root = rootFlag >= 0 ? args[rootFlag + 1] : process.cwd();",
-    "if (fault === \"descendant\") {",
-    "  const descendant = spawn(process.execPath, [\"-e\", \"setTimeout(() => {}, 1500)\"], { cwd: root, stdio: \"ignore\" });",
-    "  descendant.unref();",
-    "  descendant.once(\"spawn\", () => appendFileSync(descendantLog, `${descendant.pid}\\n`));",
-    "}",
     "let pending = \"\";",
     "process.stdin.setEncoding(\"utf8\");",
     "process.stdin.on(\"data\", (chunk) => {",
@@ -569,37 +472,4 @@ function faultyGitWrapperSource(
     "});",
     ""
   ].join("\n");
-}
-
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ESRCH") return false;
-    if (error instanceof Error && "code" in error && error.code === "EPERM") return true;
-    throw error;
-  }
-}
-
-async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void> {
-  const deadline = performance.now() + timeoutMs;
-  while (isProcessAlive(pid)) {
-    if (performance.now() >= deadline) {
-      throw new Error(`test-owned batch descendant did not exit: pid=${pid}`);
-    }
-    await new Promise<void>((resolve) => setTimeout(resolve, 10));
-  }
-}
-
-async function readLoggedPid(logPath: string, timeoutMs: number): Promise<number> {
-  const deadline = performance.now() + timeoutMs;
-  while (performance.now() < deadline) {
-    if (existsSync(logPath)) {
-      const pid = Number(readLogEntries(logPath)[0]);
-      if (Number.isSafeInteger(pid)) return pid;
-    }
-    await new Promise<void>((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error(`test-owned batch descendant did not publish a pid: log=${logPath}`);
 }
