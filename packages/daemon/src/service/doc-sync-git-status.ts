@@ -1,5 +1,15 @@
-import type { DirtyEntry } from "@harness-anything/application/doc-sync";
 import { gitText } from "./doc-sync-applied-ledger.ts";
+
+/**
+ * The row shape this reader produces. Declaring it structurally keeps the check off the
+ * deep `application/doc-sync` subpath, which is under a sunset ratchet; the shape is
+ * validated where doc-sync-service assigns these rows to its registry contract. This
+ * mirrors what doc-sync-consumer-surface.ts and doc-sync-cas.ts already do.
+ */
+interface DirtyEntry {
+  readonly status: "added" | "modified" | "deleted" | "renamed";
+  readonly path: string;
+}
 
 export function readDocSyncDirtyEntries(authoredRoot: string): ReadonlyArray<DirtyEntry> {
   const output = gitText(authoredRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."]) ?? "";
