@@ -411,7 +411,7 @@ async function callServiceMethod(
       return failureReceipt(
         contract.method,
         "receipt_id_required",
-        "The required receiptId is missing. Copy settlement.statusQuery.receiptId from the original write receipt, then run `ha receipt status <receipt-id> --json`."
+        "The required receiptId is missing. Copy the full status command from settlement.statusQuery in the original write receipt, or run `ha receipt status --help` for usage."
       );
     }
     const settlement = await services.ReceiptSettlementService.lookup(receiptId);

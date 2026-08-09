@@ -58,6 +58,8 @@ export const specialCommandOptionClaims = [
   claim("agent-attach", [["agent", "attach"]], options("--session")),
   claim("agent-events", [["agent", "events"]], options("--session", "--cursor")),
 
+  claim("receipt-status", [["receipt", "status"]], []),
+
   claim("daemon-status", [["daemon"], ["daemon", "status"]], options("--check", "--user-root")),
   claim("daemon-start", [["daemon", "start"]], mergeOptions(
     daemonLaunchOptions,
