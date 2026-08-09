@@ -9,6 +9,7 @@ import type {
 import type { RuntimeCapabilityMatrix } from "@harness-anything/application/agent-runtime-adapter";
 import { realpathSync } from "node:fs";
 import path from "node:path";
+import { resolveCredentials } from "./credential-resolver.ts";
 
 export type RuntimeAdapterProcessEvent =
   | { readonly kind: "provider-session"; readonly providerSessionId: string }
@@ -47,6 +48,7 @@ export interface AgentRuntimeSessionServiceOptions {
   readonly createId?: () => string;
   readonly now?: () => string;
   readonly workspaceRoot?: string;
+  readonly userRoot?: string;
 }
 
 export function createAgentRuntimeSessionService(
@@ -88,6 +90,10 @@ export function createAgentRuntimeSessionService(
       if (!profile || profile.state !== "configured") {
         return failure("runtime_authentication_required", profile?.guidance ?? `Configure ${payload.authenticationProfileKind} for ${payload.kindId}.`);
       }
+      // Resolve credentials to capture effectiveBaseUrl for audit
+      const credentials = options.userRoot
+        ? resolveCredentials(payload.kindId, payload.authenticationProfileKind, options.userRoot, process.env)
+        : { baseUrl: undefined };
       let handle: RuntimeAdapterProcess;
       try {
         handle = await adapter.spawn(payload);
@@ -102,6 +108,10 @@ export function createAgentRuntimeSessionService(
         process: { state: "alive", pid: handle.pid, startedAt, heartbeatAt: startedAt },
         attachable: adapter.capabilities.attach,
         capabilities: adapter.capabilities,
+        spawnMetadata: {
+          profileKind: payload.authenticationProfileKind,
+          effectiveBaseUrl: credentials.baseUrl
+        },
         ...(payload.resumeProviderSessionId ? { providerSessionId: payload.resumeProviderSessionId } : {}),
         ...((payload.taskId || payload.executionId) ? {
           clientBinding: {

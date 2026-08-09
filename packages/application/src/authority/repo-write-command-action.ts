@@ -1,3 +1,4 @@
+import { repoWriteAuthorityCutoverActionSchemas } from "./repo-write-authority-cutover-action-schemas.ts";
 import { repoWriteKnowledgeActionSchemas } from "./repo-write-knowledge-action-schemas.ts";
 import { repoWriteOperationsActionSchemas } from "./repo-write-operations-action-schemas.ts";
 import { repoWriteTaskActionSchemas } from "./repo-write-task-action-schemas.ts";
@@ -10,7 +11,8 @@ import {
 const repoWriteCommandActionSchemas = {
   ...repoWriteTaskActionSchemas,
   ...repoWriteKnowledgeActionSchemas,
-  ...repoWriteOperationsActionSchemas
+  ...repoWriteOperationsActionSchemas,
+  ...repoWriteAuthorityCutoverActionSchemas
 } as const;
 
 type RepoWriteCommandActionSchemaMap = typeof repoWriteCommandActionSchemas;

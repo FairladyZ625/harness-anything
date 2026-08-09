@@ -30,27 +30,19 @@ import {
   type DecisionStatePayloadV2,
   type TaskAppendPayloadV2,
   type TaskAmendPayloadV2,
-  type TaskArchivePayloadV2,
   type TaskCreatePayloadV2,
   type TaskDecisionModuleCommandPayloadV2,
   type TaskDocumentPayloadV2,
-  type TaskDeletePayloadV2,
   type TaskRelatePayloadV2,
-  type TaskReopenPayloadV2,
-  type TaskSupersedePayloadV2,
   type TaskTransitionPayloadV2
 } from "./task-decision-module-command-v2.ts";
-import {
-  type AuthoritySemanticCompilerV2,
-  type RegistryEntityRefV2
-} from "./semantic-mutation-envelope-v2.ts";
+import { type AuthoritySemanticCompilerV2 } from "./semantic-mutation-envelope-v2.ts";
 import {
   semanticAdmissionV2 as admission,
   semanticMutationPlanV2 as taskDecisionModulePlan,
   verifySemanticBaseCasV2,
   verifySemanticPathCasV2
 } from "./semantic-authority-helpers-v2.ts";
-import type { HostedDocumentSnapshotV2 } from "./fact-relation-semantic-compiler-v2.ts";
 import {
   compileDecisionAmendV2,
   compileDecisionRelationReplaceV2,
@@ -62,6 +54,14 @@ import {
   compileModuleStepV2,
   compileModuleUnregisterV2
 } from "./task-decision-module-module-mutations-v2.ts";
+import {
+  compileTaskDisposition,
+  compileTaskSupersede
+} from "./task-decision-module-task-disposition-mutations-v2.ts";
+import {
+  requiredTaskDecisionModuleDocument,
+  taskCompilation
+} from "./task-decision-module-task-compilation-v2.ts";
 import { taskCreateModuleReadDependencyV2 } from "./task-decision-module-task-create-module-selection-v2.ts";
 import {
   assertTaskDocumentSurfaceV2
@@ -71,7 +71,7 @@ import {
   taskDecisionModuleEntityRef,
   taskDecisionModulePath as taskPath
 } from "./task-decision-module-refs.ts";
-import { parseTaskIndex, sameTaskLifecycleCore } from "./task-index-v2.ts";
+import { parseTaskIndex } from "./task-index-v2.ts";
 import { enteringExecutionWip } from "./task-wip-policy.ts";
 import { taskTransitionAlreadySatisfiedVerifierV1 } from "./task-transition-already-satisfied-v1.ts";
 import type {
@@ -80,7 +80,7 @@ import type {
   TaskDecisionModuleSemanticCompilerV2Options
 } from "./task-decision-module-semantic-compiler-types.ts";
 import { taskReturnToIdeaPublicationRevalidation } from "./task-return-to-idea-policy.ts";
-import { taskExecutionAdmissionPublicationRevalidation, type TaskExecutionAdmissionPortsV1 } from "./task-execution-admission-policy.ts";
+import { taskExecutionAdmissionPublicationRevalidation } from "./task-execution-admission-policy.ts";
 
 export {
   encodeTaskDecisionModuleCommandPayloadV2,
@@ -98,15 +98,11 @@ export {
   type ModuleUnregisterPayloadV2,
   type TaskAppendPayloadV2,
   type TaskAmendPayloadV2,
-  type TaskArchivePayloadV2,
   type TaskCreatePayloadV2,
   type TaskDecisionModuleCommandPayloadV2,
   type TaskDecisionModuleTypedCommandV2,
   type TaskDocumentPayloadV2,
-  type TaskDeletePayloadV2,
   type TaskRelatePayloadV2,
-  type TaskReopenPayloadV2,
-  type TaskSupersedePayloadV2,
   type TaskTransitionPayloadV2
 } from "./task-decision-module-command-v2.ts";
 
@@ -282,77 +278,6 @@ async function compileTaskAmend(
   ], [{ path, snapshot }]);
 }
 
-async function compileTaskDisposition(
-  state: TaskDecisionModuleAuthorityStateV2,
-  payload: TaskArchivePayloadV2 | TaskDeletePayloadV2 | TaskReopenPayloadV2,
-  disposition: "active" | "archived" | "tombstoned",
-  kind: "package_archive" | "package_tombstone" | "package_reopen",
-  executionAdmission?: TaskExecutionAdmissionPortsV1
-): Promise<CompiledTaskDecisionModuleCommandV2> {
-  const path = taskPath(payload.taskId, "INDEX.md");
-  const snapshot = await requiredTaskDecisionModuleDocument(state, path, "TASK_INDEX_NOT_FOUND");
-  const current = parseTaskIndex(snapshot.body);
-  const next = parseTaskIndex(payload.body);
-  if (current.taskId !== payload.taskId || next.taskId !== payload.taskId) throw admission("TASK_ID_MISMATCH");
-  if (next.packageDisposition !== disposition || !sameTaskLifecycleCore(current, next)) {
-    throw admission("TASK_DISPOSITION_BODY_INVALID");
-  }
-  if (!payload.body.includes(payload.reason)) throw admission("TASK_DISPOSITION_REASON_REQUIRED");
-  const compiled = taskCompilation(payload.taskId, "document", kind, { path: "INDEX.md", body: payload.body }, [
-    taskDecisionModuleEntityRef("task", `task/${payload.taskId}`)
-  ], [{ path, snapshot }]);
-  return enteringExecutionWip(
-    current.status,
-    current.packageDisposition,
-    next.status,
-    next.packageDisposition
-  )
-    ? {
-      ...compiled,
-      publicationRevalidation: taskExecutionAdmissionPublicationRevalidation(executionAdmission ?? {}, payload.taskId)
-    }
-    : compiled;
-}
-
-async function compileTaskSupersede(
-  state: TaskDecisionModuleAuthorityStateV2,
-  payload: TaskSupersedePayloadV2
-): Promise<CompiledTaskDecisionModuleCommandV2> {
-  if (payload.body !== undefined) {
-    if (!payload.replacementTaskId || payload.writes) throw admission("TASK_SUPERSEDE_PAYLOAD_INVALID");
-    const compiled = await compileTaskDisposition(state, {
-      schema: "task.archive/v1", taskId: payload.taskId, reason: `supersededBy=${payload.replacementTaskId}`, body: payload.body
-    }, "archived", "package_archive");
-    const replacementPath = taskPath(payload.replacementTaskId, "INDEX.md");
-    const replacementSnapshot = await requiredTaskDecisionModuleDocument(state, replacementPath, "TASK_SUPERSEDE_TARGET_NOT_FOUND");
-    return {
-      ...compiled,
-      requiredBaseRefs: [...compiled.requiredBaseRefs, taskDecisionModuleEntityRef("task", `task/${payload.replacementTaskId}`)],
-      requiredPathSnapshots: [...compiled.requiredPathSnapshots, { path: replacementPath, snapshot: replacementSnapshot }]
-    };
-  }
-  if (!payload.replacementTaskId || !payload.writes) throw admission("TASK_SUPERSEDE_PAYLOAD_INVALID");
-  const oldPath = taskPath(payload.taskId, "INDEX.md");
-  const oldSnapshot = await requiredTaskDecisionModuleDocument(state, oldPath, "TASK_INDEX_NOT_FOUND");
-  const oldWrite = payload.writes.find((write) => write.taskId === payload.taskId && write.path === "INDEX.md");
-  const newWrite = payload.writes.find((write) => write.taskId === payload.replacementTaskId && write.path === "INDEX.md");
-  const relationWrite = payload.writes.find((write) => write.taskId === payload.replacementTaskId && write.path === "relations.md");
-  if (!oldWrite || !newWrite || !relationWrite || parseTaskIndex(oldWrite.body).packageDisposition !== "archived"
-    || parseTaskIndex(newWrite.body).status !== "planned"
-    || !relationWrite.body.includes(`task/${payload.replacementTaskId} supersedes task/${payload.taskId}`)) {
-    throw admission("TASK_SUPERSEDE_WRITES_INVALID");
-  }
-  return {
-    mutationPlan: taskDecisionModulePlan([
-      { entityKind: "task", identity: { taskId: payload.taskId }, action: "document", storageContext: { documentPath: "INDEX.md" } },
-      { entityKind: "task", identity: { taskId: payload.replacementTaskId }, action: "create" }
-    ]),
-    operation: { opId: "authority-overrides-this", entityId: taskEntityId(payload.taskId), kind: "package_supersede", payload: { writes: payload.writes } },
-    requiredBaseRefs: [taskDecisionModuleEntityRef("task", `task/${payload.taskId}`), taskDecisionModuleEntityRef("task", `task/${payload.replacementTaskId}`)],
-    requiredPathSnapshots: [{ path: oldPath, snapshot: oldSnapshot }]
-  };
-}
-
 async function compileTaskRelate(
   state: TaskDecisionModuleAuthorityStateV2,
   payload: TaskRelatePayloadV2
@@ -381,25 +306,6 @@ async function compileTaskRelate(
       taskDecisionModuleEntityRef("relation", `relation/${relation.relation_id}`)
     ],
     requiredPathSnapshots: [{ path, snapshot }, { path: targetPath, snapshot: targetSnapshot }]
-  };
-}
-
-function taskCompilation(
-  taskId: string,
-  action: "create" | "transition" | "append" | "document",
-  kind: WriteOpKind,
-  payload: unknown,
-  requiredBaseRefs: ReadonlyArray<RegistryEntityRefV2>,
-  requiredPathSnapshots: ReadonlyArray<{ readonly path: string; readonly snapshot: HostedDocumentSnapshotV2 }> = []
-): CompiledTaskDecisionModuleCommandV2 {
-  const documentPath = "path" in (payload as object)
-    ? (payload as { readonly path: string }).path
-    : "INDEX.md";
-  return {
-    mutationPlan: taskDecisionModulePlan([{ entityKind: "task", identity: { taskId }, action, storageContext: { documentPath } }]),
-    operation: { opId: "authority-overrides-this", entityId: taskEntityId(taskId), kind, payload },
-    requiredBaseRefs,
-    requiredPathSnapshots
   };
 }
 
@@ -574,16 +480,6 @@ function relationCreateIntent(relation: EntityRelationRecord): RegistryMutationP
     action: "create",
     storageContext: { sourceRef: relation.source }
   };
-}
-
-async function requiredTaskDecisionModuleDocument(
-  state: TaskDecisionModuleAuthorityStateV2,
-  path: string,
-  code: string
-): Promise<HostedDocumentSnapshotV2> {
-  const snapshot = await state.readHostedDocument(path);
-  if (!snapshot) throw admission(code);
-  return snapshot;
 }
 
 function decisionPath(decisionId: string): string {

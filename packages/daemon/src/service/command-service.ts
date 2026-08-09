@@ -124,9 +124,14 @@ export function createDaemonCommandService<
             if (!receipt.ok) throw childPreflightRejected(receipt);
           }
           : undefined;
+        // A production daemon keeps no authority engine of its own: the engine
+        // lives in the repo-write child. Authority cutover controls must follow
+        // it there, otherwise they read an engine that is never enabled.
         if (options.repoWriteDispatch
           && !dryRun
-          && (commandClass === "repo-write" || commandClass === "arbiter")) {
+          && (commandClass === "repo-write"
+            || commandClass === "arbiter"
+            || isAuthorityCutoverAction(parsedCommand.action))) {
           const authority = context?.authorityConnection;
           if (!daemonActor || !authority || !authority.available) {
             return childRouteFailure(
