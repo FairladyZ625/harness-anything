@@ -77,15 +77,18 @@ export async function scanFirstParentPublicationMetadata(input: {
       });
     }
   }
-  return history.map((row) => ({
-    ...row,
-    ...(row.parents[1] ? {
-      sessionSubject: sessions.get(row.parents[1])?.subject ?? "",
-      sessionParents: sessions.get(row.parents[1])?.parents ?? [],
-      sessionTreeSha: sessions.get(row.parents[1])?.treeSha ?? "",
-      sessionMessage: sessions.get(row.parents[1])?.message ?? ""
-    } : {})
-  }));
+  return history.map((row) => {
+    const session = row.parents[1] ? sessions.get(row.parents[1]) : undefined;
+    return {
+      ...row,
+      ...(session ? {
+        sessionSubject: session.subject,
+        sessionParents: session.parents,
+        sessionTreeSha: session.treeSha,
+        sessionMessage: session.message
+      } : {})
+    };
+  });
 }
 
 export async function scanAuthorityBatchCommits(input: {
