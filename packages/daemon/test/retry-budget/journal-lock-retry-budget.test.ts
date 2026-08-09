@@ -31,6 +31,7 @@ test("journal foreign-committer wait stays receipt-honest and visible after retr
       heartbeatAt: new Date().toISOString(),
       ownerToken: "foreign-committer"
     }), "utf8");
+    const retrySignalSink = createDaemonRetryBudgetSignalSink(logs, context);
     const coordinator = makeJournaledWriteCoordinator({
       attribution: testWriteAttribution(),
       rootDir,
@@ -41,7 +42,10 @@ test("journal foreign-committer wait stays receipt-honest and visible after retr
         maxDelayMs: 1,
         reminderEveryFailures: 1
       },
-      onLockConflictRetrySignal: createDaemonRetryBudgetSignalSink(logs, context)
+      onLockConflictRetrySignal: (signal) => {
+        retrySignalSink(signal);
+        if (signal.phase === "still-retrying") rmSync(lockPath, { force: true });
+      }
     });
     Effect.runSync(coordinator.enqueue({
       opId: "op-journal-visible-retry",
@@ -50,12 +54,10 @@ test("journal foreign-committer wait stays receipt-honest and visible after retr
       payload: { path: "receipt.md", body: "committed\n" }
     }));
 
-    const release = setTimeout(() => rmSync(lockPath, { force: true }), 25);
     try {
       const report = await runEffect(coordinator.flush("explicit"));
       assert.equal(report.committed, true);
     } finally {
-      clearTimeout(release);
       rmSync(lockPath, { force: true });
     }
 

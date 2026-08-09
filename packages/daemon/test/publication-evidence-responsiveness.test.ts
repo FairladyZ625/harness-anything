@@ -250,12 +250,22 @@ test("missing-operation recovery search yields and reuses one bounded history sc
   writeFileSync(path.join(root, "seed.txt"), "seed\n");
   git(root, "add", ".");
   git(root, "commit", "-q", "-m", "seed");
-  const tree = git(root, "rev-parse", "HEAD^{tree}");
-  let parent = git(root, "rev-parse", "HEAD");
-  for (let index = 0; index < 2_048; index += 1) {
-    parent = git(root, "commit-tree", tree, "-p", parent, "-m", `history ${index}`);
+  const historyRef = git(root, "symbolic-ref", "HEAD");
+  const historyParent = git(root, "rev-parse", "HEAD");
+  const historyTracePath = path.join(root, "history-construction-git-trace.jsonl");
+  const previousHistoryTrace = process.env.GIT_TRACE2_EVENT;
+  process.env.GIT_TRACE2_EVENT = historyTracePath;
+  try {
+    appendLinearHistory(root, historyRef, historyParent, 2_048);
+  } finally {
+    if (previousHistoryTrace === undefined) delete process.env.GIT_TRACE2_EVENT;
+    else process.env.GIT_TRACE2_EVENT = previousHistoryTrace;
   }
-  git(root, "update-ref", "HEAD", parent);
+  assert.equal(
+    gitTraceCommands(historyTracePath).length,
+    1,
+    "history fixture construction must use one bounded Git process"
+  );
 
   let timerFired = false;
   const tracePath = path.join(root, "git-trace.jsonl");
@@ -305,6 +315,34 @@ function git(root: string, ...args: ReadonlyArray<string>): string {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"]
   }).trim();
+}
+
+function appendLinearHistory(
+  root: string,
+  ref: string,
+  parent: string,
+  count: number
+): void {
+  const commands: string[] = [];
+  let from = parent;
+  for (let index = 0; index < count; index += 1) {
+    const mark = index + 1;
+    const message = `history ${index}`;
+    commands.push(
+      `commit ${ref}`,
+      `mark :${mark}`,
+      `committer Harness Test <harness@example.test> ${mark} +0000`,
+      `data ${Buffer.byteLength(message)}`,
+      message,
+      `from ${from}`,
+      ""
+    );
+    from = `:${mark}`;
+  }
+  execFileSync("git", ["-C", root, "fast-import", "--quiet"], {
+    input: commands.join("\n"),
+    stdio: ["pipe", "pipe", "pipe"]
+  });
 }
 
 function readBatchPids(batchLog: string): ReadonlyArray<string> {
