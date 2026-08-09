@@ -37,6 +37,24 @@ test("autostart does not describe an exited daemon process as still starting", {
   const userRoot = path.join(fixture.root, "autostart-exited-user");
   const daemon = testDaemonLocation(userRoot);
   const endpoint = daemon.socketPath;
+  const preloadPath = path.join(fixture.root, "exit-before-readiness-preload.mjs");
+  const namespaceDiagnosticUrl = new URL(
+    "../../daemon/src/transport/daemon-socket-namespace.ts",
+    import.meta.url
+  ).href;
+  // The preceding test exercises the daemon's real namespace failure. This test
+  // controls the separate exited-process condition while preserving that startup
+  // diagnostic as input to the caller-facing classification.
+  writeFileSync(preloadPath, [
+    `import { daemonSocketNamespaceError } from ${JSON.stringify(namespaceDiagnosticUrl)};`,
+    'if (process.env.HARNESS_DAEMON_SERVER_HOST === "1") {',
+    "  const socketPath = process.env.HARNESS_TEST_DAEMON_SOCKET_PATH;",
+    '  const cause = Object.assign(new Error("controlled daemon exit"), { code: "ERR_FS_EISDIR" });',
+    "  process.stderr.write(`${String(daemonSocketNamespaceError(socketPath, cause))}\\n`);",
+    "  process.exit(17);",
+    "}",
+    ""
+  ].join("\n"), "utf8");
   mkdirSync(endpoint, { recursive: true });
   writeFileSync(path.join(endpoint, "blocker"), "keep the occupied endpoint non-empty\n", "utf8");
   t.after(() => {
@@ -45,7 +63,11 @@ test("autostart does not describe an exited daemon process as still starting", {
     rmSync(daemon.runtimeRoot, { recursive: true, force: true });
   });
 
-  const failed = runRawJsonMaybeFail(fixture.repoRoot, ["task", "list"], daemon.env);
+  const failed = runRawJsonMaybeFail(fixture.repoRoot, ["task", "list"], {
+    ...daemon.env,
+    HARNESS_TEST_DAEMON_SOCKET_PATH: endpoint,
+    NODE_OPTIONS: `--import=${preloadPath}`
+  });
 
   assert.notEqual(failed.status, 0, JSON.stringify(failed.receipt));
   const error = failed.receipt.error as { readonly hint?: string };
