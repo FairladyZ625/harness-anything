@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -19,6 +19,11 @@ import {
   runDaemonCommand,
   runRawJson
 } from "./helpers/daemon-cli.ts";
+// Removing the canonical root here is the act under test, not teardown: a live daemon is still
+// writing into it, so the delete races the writer and surfaces as ENOTEMPTY on Linux and EPERM
+// on Windows. The bounded retry lets the delete finish without weakening the assertion, which is
+// still that the daemon exits once the root is gone.
+import { removeTemporaryTestRoot } from "./helpers/temp-root-cleanup.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -34,7 +39,7 @@ test("an autostarted resident daemon exits after its canonical root disappears",
     daemonPid = status.pid as number;
 
     assert.equal(processIsAlive(daemonPid), true, "the resident daemon must outlive its launching CLI command");
-    rmSync(rootDir, { recursive: true, force: true });
+    await removeTemporaryTestRoot(rootDir);
 
     await pollUntil(
       () => processIsAlive(daemonPid),
@@ -43,7 +48,7 @@ test("an autostarted resident daemon exits after its canonical root disappears",
       { timeoutMs: 8_000 }
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    await removeTemporaryTestRoot(rootDir);
     if (daemonPid !== undefined && processIsAlive(daemonPid)) {
       process.kill(daemonPid, "SIGTERM");
       await pollUntil(
@@ -66,7 +71,7 @@ test("an autostarted daemon cannot revive a canonical root removed during cold s
     daemonPid = spawnLocalDaemon(target, { entryPath: cliEntry, idleExitMs: 0 });
     assert.equal(typeof daemonPid, "number");
 
-    rmSync(rootDir, { recursive: true, force: true });
+    await removeTemporaryTestRoot(rootDir);
     await pollUntil(
       () => processIsAlive(daemonPid),
       (alive) => !alive,
@@ -83,7 +88,7 @@ test("an autostarted daemon cannot revive a canonical root removed during cold s
         { timeoutMs: 8_000 }
       );
     }
-    rmSync(rootDir, { recursive: true, force: true });
+    await removeTemporaryTestRoot(rootDir);
   }
 });
 
@@ -103,7 +108,7 @@ test("root loss is still detected when the watcher is suppressed", { timeout: 15
   const monitor = monitorDaemonRootLifetime(rootDir, daemonRootIdentity(rootDir), true);
   try {
     assert.equal(monitor.rootAvailable(), true);
-    rmSync(rootDir, { recursive: true, force: true });
+    await removeTemporaryTestRoot(rootDir);
     assert.deepEqual(await monitor.rootLost, { reason: "root-unavailable" });
   } finally {
     monitor.stop();
