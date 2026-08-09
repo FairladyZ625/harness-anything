@@ -21,7 +21,7 @@ import {
   createGitCanonicalPublicationInspector,
   recoverPendingProductionEvents
 } from "@harness-anything/daemon";
-import { removeTemporaryTestRoot } from "./helpers/temp-root-cleanup.ts";
+import { removeTemporaryTestRoot } from "../../../tools/test-temp-root-cleanup.mjs";
 
 test("recovery crosses old-to-semantic shape while V2 evidence is delayed without terminalizing the published operation", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-authority-recovery-semantic-boundary-"));

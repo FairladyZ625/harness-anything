@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { removeTemporaryTestRoot } from "./helpers/temp-root-cleanup.ts";
+import { removeTemporaryTestRoot } from "../../../tools/test-temp-root-cleanup.mjs";
 
 test("temporary-root cleanup retries transient filesystem errors with linear backoff", async () => {
   const attempts: string[] = [];

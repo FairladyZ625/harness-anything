@@ -23,7 +23,7 @@ import {
 // writing into it, so the delete races the writer and surfaces as ENOTEMPTY on Linux and EPERM
 // on Windows. The bounded retry lets the delete finish without weakening the assertion, which is
 // still that the daemon exits once the root is gone.
-import { removeTemporaryTestRoot } from "./helpers/temp-root-cleanup.ts";
+import { removeTemporaryTestRoot } from "../../../tools/test-temp-root-cleanup.mjs";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
