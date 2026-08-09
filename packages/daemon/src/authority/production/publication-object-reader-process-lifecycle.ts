@@ -5,15 +5,18 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 export interface WindowsProcessTreeTerminationDependencies {
-  readonly runTaskkill: (pid: number) => Promise<void>;
-  readonly isProcessAlive: (pid: number) => boolean;
+  readonly runTaskkill?: (pid: number) => Promise<void>;
+  readonly isProcessAlive?: (pid: number) => boolean;
+  readonly ownedPids?: ReadonlyArray<number>;
+  readonly signalProcess?: (pid: number, signal: NodeJS.Signals) => void;
 }
 
 export async function ownedProcessTree(rootPid: number): Promise<ReadonlyArray<number>> {
-  if (process.platform === "win32") return [rootPid];
-  const parentByPid = process.platform === "linux"
-    ? readLinuxProcessParents()
-    : await readPosixProcessParents();
+  const parentByPid = process.platform === "win32"
+    ? await readWindowsProcessParents()
+    : process.platform === "linux"
+      ? readLinuxProcessParents()
+      : await readPosixProcessParents();
   const owned = new Set([rootPid]);
   let changed = true;
   while (changed) {
@@ -28,10 +31,16 @@ export async function ownedProcessTree(rootPid: number): Promise<ReadonlyArray<n
   return [...owned].sort((left, right) => processDepth(right, parentByPid) - processDepth(left, parentByPid));
 }
 
-export function signalOwnedProcesses(pids: ReadonlyArray<number>, signal: NodeJS.Signals): void {
+export function signalOwnedProcesses(
+  pids: ReadonlyArray<number>,
+  signal: NodeJS.Signals,
+  signalProcess: (pid: number, signal: NodeJS.Signals) => void = (pid, nextSignal) => {
+    process.kill(pid, nextSignal);
+  }
+): void {
   for (const pid of pids) {
     try {
-      process.kill(pid, signal);
+      signalProcess(pid, signal);
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ESRCH") continue;
       throw error;
@@ -53,33 +62,42 @@ export function isProcessAlive(pid: number): boolean {
 export async function waitForOwnedProcessesToClose(
   pids: ReadonlyArray<number>,
   childClosed: () => boolean,
-  timeoutMs: number
+  timeoutMs: number,
+  processAlive: (pid: number) => boolean = isProcessAlive
 ): Promise<boolean> {
   const deadline = performance.now() + timeoutMs;
   while (performance.now() < deadline) {
-    if (childClosed() && pids.every((pid) => !isProcessAlive(pid))) return true;
+    if (childClosed() && pids.every((pid) => !processAlive(pid))) return true;
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }
-  return childClosed() && pids.every((pid) => !isProcessAlive(pid));
+  return childClosed() && pids.every((pid) => !processAlive(pid));
 }
 
 export async function terminateWindowsProcessTree(
   pid: number,
-  dependencies: WindowsProcessTreeTerminationDependencies = {
-    runTaskkill: runWindowsTaskkill,
-    isProcessAlive
-  }
+  dependencies: WindowsProcessTreeTerminationDependencies = {}
 ): Promise<void> {
+  const runTaskkill = dependencies.runTaskkill ?? runWindowsTaskkill;
+  const processAlive = dependencies.isProcessAlive ?? isProcessAlive;
+  const ownedPids = dependencies.ownedPids ?? [pid];
   try {
-    await dependencies.runTaskkill(pid);
+    await runTaskkill(pid);
   } catch (error) {
-    // taskkill exits 128 when the target wins the race and closes first. Only
-    // the verified postcondition is benign; a still-live target remains fatal.
-    if (!dependencies.isProcessAlive(pid)) return;
+    const remaining = ownedPids.filter(processAlive);
+    if (isWindowsTaskkillNotFound(error)) {
+      if (remaining.length === 0) return;
+      signalOwnedProcesses(
+        remaining,
+        "SIGKILL",
+        dependencies.signalProcess
+      );
+      if (await waitForOwnedProcessesToClose(remaining, () => true, 250, processAlive)) return;
+    }
     throw new Error(
       [
         "AUTHORITY_GIT_OBJECT_BATCH_TASKKILL_FAILED",
         `pid=${pid}`,
+        `remaining=${remaining.join(",") || "none"}`,
         `exitCode=${commandFailureField(error, "code")}`,
         `stdout=${JSON.stringify(commandFailureOutput(error, "stdout"))}`,
         `stderr=${JSON.stringify(commandFailureOutput(error, "stderr"))}`,
@@ -88,6 +106,25 @@ export async function terminateWindowsProcessTree(
       { cause: error }
     );
   }
+}
+
+async function readWindowsProcessParents(): Promise<ReadonlyMap<number, number>> {
+  const { stdout } = await execFileAsync(
+    "powershell.exe",
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | ForEach-Object { '{0} {1}' -f $_.ProcessId, $_.ParentProcessId }"
+    ],
+    {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 2_000
+    }
+  );
+  return parseProcessParents(String(stdout));
 }
 
 function readLinuxProcessParents(): ReadonlyMap<number, number> {
@@ -110,8 +147,12 @@ async function readPosixProcessParents(): Promise<ReadonlyMap<number, number>> {
     encoding: "utf8",
     windowsHide: true
   });
+  return parseProcessParents(String(stdout));
+}
+
+function parseProcessParents(output: string): ReadonlyMap<number, number> {
   const parents = new Map<number, number>();
-  for (const line of String(stdout).split(/\r?\n/u)) {
+  for (const line of output.split(/\r?\n/u)) {
     const match = /^\s*(\d+)\s+(\d+)\s*$/u.exec(line);
     if (match) parents.set(Number(match[1]), Number(match[2]));
   }
@@ -138,6 +179,10 @@ async function runWindowsTaskkill(pid: number): Promise<void> {
     windowsHide: true,
     timeout: 1_000
   });
+}
+
+function isWindowsTaskkillNotFound(error: unknown): boolean {
+  return commandFailureField(error, "code") === 128;
 }
 
 function commandFailureField(error: unknown, field: string): string | number {

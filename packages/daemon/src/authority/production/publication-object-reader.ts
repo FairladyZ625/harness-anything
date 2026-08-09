@@ -43,10 +43,7 @@ export interface PublicationReaderOwner {
   readonly column?: number;
 }
 
-publicationReaderOwnershipRegistry()?.register(() => [...readersByRoot.values()].map((reader) => ({
-  root: reader.rootDir,
-  owner: reader.owner
-})));
+publicationReaderOwnershipRegistry()?.register(() => openPublicationGitObjectReadersWithin());
 
 export class GitObjectBatchValidationError extends Error {
   constructor(message: string) {
@@ -137,7 +134,10 @@ export function openPublicationGitObjectReadersWithin(rootDir?: string): Readonl
   const containingRoot = rootDir === undefined ? undefined : resolvedExistingPath(rootDir);
   return [...readersByRoot.values()]
     .filter((reader) => containingRoot === undefined || pathContains(containingRoot, reader.rootDir))
-    .map((reader) => ({ root: reader.rootDir, owner: reader.owner }))
+    .map((reader) => ({
+      root: reader.rootDir,
+      owner: reader.owner ?? { file: "unknown" }
+    }))
     .sort((left, right) => left.root.localeCompare(right.root));
 }
 
@@ -162,7 +162,8 @@ function pathContains(containingRoot: string, candidate: string): boolean {
     || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }
 
-export function publicationReaderOwner(): PublicationReaderOwner {
+export function publicationReaderOwner(): PublicationReaderOwner | undefined {
+  if (!publicationReaderOwnershipRegistry()) return undefined;
   const internalFiles = new Set([
     fileURLToPath(import.meta.url),
     path.resolve(import.meta.dirname, "publication-evidence.ts")
@@ -180,7 +181,7 @@ export function publicationReaderOwner(): PublicationReaderOwner {
 
 class PublicationGitObjectReader {
   readonly rootDir: string;
-  readonly owner: PublicationReaderOwner;
+  readonly owner: PublicationReaderOwner | undefined;
   private batch: GitCatFileBatchProcess | undefined;
   private queue: Promise<void> = Promise.resolve();
   private closed = false;
@@ -191,7 +192,7 @@ class PublicationGitObjectReader {
 
   constructor(
     rootDir: string,
-    owner: PublicationReaderOwner,
+    owner: PublicationReaderOwner | undefined,
     onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void
   ) {
     this.rootDir = rootDir;
@@ -360,7 +361,7 @@ class GitCatFileBatchProcess {
     this.child.stdin.destroy();
     if (process.platform === "win32") {
       if (this.child.exitCode === null && this.child.signalCode === null) {
-        await terminateWindowsProcessTree(pid);
+        await terminateWindowsProcessTree(pid, { ownedPids });
       }
     } else {
       signalOwnedProcesses(ownedPids, "SIGTERM");

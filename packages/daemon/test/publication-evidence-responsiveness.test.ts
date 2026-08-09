@@ -25,6 +25,9 @@ import { terminateWindowsProcessTree } from "../src/authority/production/publica
 import { removeTemporaryTestRoot } from "../../../tools/test-temp-root-cleanup.mjs";
 
 const posixTest = process.platform === "win32" ? test.skip : test;
+const publicationReaderRegistrySymbol = Symbol.for(
+  "harness-anything.publication-reader-ownership-registry"
+);
 
 test("concurrent object reads share one lazily spawned batch process", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "publication-object-reader-"));
@@ -58,6 +61,38 @@ test("concurrent object reads share one lazily spawned batch process", async (co
     ).length,
     1
   );
+});
+
+test("production reader creation does not capture an owner without the test registry", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "publication-object-untracked-"));
+  git(root, "init", "-q");
+  git(root, "config", "user.name", "Harness Test");
+  git(root, "config", "user.email", "harness@example.test");
+  writeFileSync(path.join(root, "seed.txt"), "seed\n");
+  git(root, "add", ".");
+  git(root, "commit", "-q", "-m", "seed");
+
+  const globals = globalThis as typeof globalThis & { [key: symbol]: unknown };
+  const registry = globals[publicationReaderRegistrySymbol];
+  const prepareStackTrace = Error.prepareStackTrace;
+  let inspector: ReturnType<typeof createGitCanonicalPublicationInspector> | undefined;
+  Reflect.deleteProperty(globals, publicationReaderRegistrySymbol);
+  try {
+    Error.prepareStackTrace = () => {
+      throw new Error("OWNER_STACK_CAPTURED_WITHOUT_REGISTRY");
+    };
+    inspector = createGitCanonicalPublicationInspector(root);
+    assert.equal(
+      await readPublicationGitObject(root, "HEAD:seed.txt").then((content) => content.toString("utf8")),
+      "seed\n"
+    );
+  } finally {
+    Error.prepareStackTrace = prepareStackTrace;
+    if (registry === undefined) Reflect.deleteProperty(globals, publicationReaderRegistrySymbol);
+    else globals[publicationReaderRegistrySymbol] = registry;
+    await inspector?.shutdown();
+    await removeTemporaryTestRoot(root);
+  }
 });
 
 posixTest("offset batch bytes fail closed and the request falls back to one-shot Git", async (context) => {
@@ -170,8 +205,7 @@ test("shutdown does not return while a batch descendant remains alive", async ()
       await readPublicationGitObject(fixture.root, "HEAD:seed.txt").then((content) => content.toString("utf8")),
       "seed\n"
     );
-    descendantPid = Number(readLogEntries(fixture.descendantLog)[0]);
-    assert.equal(Number.isSafeInteger(descendantPid), true);
+    descendantPid = await readLoggedPid(fixture.descendantLog, 2_000);
     assert.equal(isProcessAlive(descendantPid), true);
 
     await shutdownPublicationGitObjectReader(fixture.root);
@@ -198,6 +232,32 @@ test("Windows taskkill treats an already-exited target as a completed close", as
     runTaskkill: async () => { throw taskkillFailure; },
     isProcessAlive: () => false
   });
+});
+
+test("Windows taskkill not-found still closes a live owned descendant", async () => {
+  const taskkillFailure = Object.assign(
+    new Error("Command failed: taskkill /pid 6052 /T /F"),
+    {
+      code: 128,
+      stdout: "",
+      stderr: "ERROR: The process \"6052\" not found.\r\n"
+    }
+  );
+  const alive = new Set([6053]);
+  const signaled: number[] = [];
+
+  await terminateWindowsProcessTree(6052, {
+    runTaskkill: async () => { throw taskkillFailure; },
+    isProcessAlive: (pid) => alive.has(pid),
+    ownedPids: [6052, 6053],
+    signalProcess: (pid) => {
+      signaled.push(pid);
+      alive.delete(pid);
+    }
+  });
+
+  assert.deepEqual(signaled, [6053]);
+  assert.equal(alive.size, 0);
 });
 
 test("Windows taskkill preserves a real termination failure with process output", async () => {
@@ -483,7 +543,7 @@ function faultyGitWrapperSource(
     "if (fault === \"descendant\") {",
     "  const descendant = spawn(process.execPath, [\"-e\", \"setTimeout(() => {}, 1500)\"], { cwd: root, stdio: \"ignore\" });",
     "  descendant.unref();",
-    "  appendFileSync(descendantLog, `${descendant.pid}\\n`);",
+    "  descendant.once(\"spawn\", () => appendFileSync(descendantLog, `${descendant.pid}\\n`));",
     "}",
     "let pending = \"\";",
     "process.stdin.setEncoding(\"utf8\");",
@@ -530,4 +590,16 @@ async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void>
     }
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }
+}
+
+async function readLoggedPid(logPath: string, timeoutMs: number): Promise<number> {
+  const deadline = performance.now() + timeoutMs;
+  while (performance.now() < deadline) {
+    if (existsSync(logPath)) {
+      const pid = Number(readLogEntries(logPath)[0]);
+      if (Number.isSafeInteger(pid)) return pid;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`test-owned batch descendant did not publish a pid: log=${logPath}`);
 }

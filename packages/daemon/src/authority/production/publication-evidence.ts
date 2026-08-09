@@ -214,10 +214,10 @@ export function createGitCanonicalPublicationInspector(
   options: { readonly onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void } = {}
 ): GitCanonicalPublicationInspector {
   const rootDir = path.resolve(canonicalRoot);
-  const readerOptions = {
-    ...options,
-    owner: publicationReaderOwner()
-  };
+  const readerOwner = publicationReaderOwner();
+  const readerOptions = readerOwner === undefined
+    ? options
+    : { ...options, owner: readerOwner };
   const currentHead = async (): Promise<string | null> =>
     gitOptionalAsync(rootDir, "rev-parse", "--verify", "HEAD");
   let indexedHistoryCache: {
