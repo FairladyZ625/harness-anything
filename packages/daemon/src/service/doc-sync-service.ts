@@ -34,6 +34,7 @@ import { DocSyncJournalFailure, docSyncWriteFailure } from "./doc-sync-journal-f
 import { gitText, resolveDocSyncAppliedLedgerSha } from "./doc-sync-applied-ledger.ts";
 import { isStandaloneCasObject } from "./doc-sync-cas.ts";
 import { consumerDocSyncRows, isConsumerGovernedTaskDocument } from "./doc-sync-consumer-surface.ts";
+import { readDocSyncDirtyEntries } from "./doc-sync-git-status.ts";
 import { resolveDocSyncChangePath } from "./doc-sync-writer-working-tree.ts";
 import { renderDocSyncSelectionHint } from "./doc-sync-selection-hint.ts";
 
@@ -55,7 +56,7 @@ export function buildDocSyncReport(rootInput: HarnessLayoutInput, hostServices: 
   const layout = resolveHarnessLayout(rootInput);
   const authoredRoot = path.relative(layout.rootDir, layout.authoredRoot).split(path.sep).join("/") || ".";
   const registry = loadRegistry(layout.rootDir);
-  const dirtyEntries = gitDirtyEntries(layout.authoredRoot)
+  const dirtyEntries = readDocSyncDirtyEntries(layout.authoredRoot)
     .filter((entry) => !isStandaloneCasObject(layout.authoredRoot, entry));
   // The dogfood registry is not installed in consumer repositories. Keep their scan
   // fail-closed by admitting only task prose whose installed preset/template resolves a
@@ -531,21 +532,6 @@ function loadRegistry(rootDir: string): { readonly present: boolean; readonly sh
 
 function registryPath(rootDir: string): string {
   return path.join(rootDir, "tools", "write-road-registry.json");
-}
-
-function gitDirtyEntries(authoredRoot: string): ReadonlyArray<DirtyEntry> {
-  const output = gitText(authoredRoot, ["status", "--porcelain", "--untracked-files=all", "--", "."]) ?? "";
-  return output.split(/\r?\n/u).filter(Boolean).map(parsePorcelainLine);
-}
-
-function parsePorcelainLine(line: string): DirtyEntry {
-  const code = line.slice(0, 2);
-  const rawPath = line.slice(3);
-  const renamedPath = rawPath.includes(" -> ") ? rawPath.split(" -> ").at(-1)! : rawPath;
-  const status = code === "??" || code.includes("A")
-    ? "added"
-    : code.includes("D") ? "deleted" : code.includes("R") ? "renamed" : "modified";
-  return { status, path: renamedPath };
 }
 
 function headBlobBody(authoredRoot: string, relativePath: string): string | null {

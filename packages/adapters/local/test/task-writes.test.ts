@@ -1,5 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -78,6 +79,32 @@ test("local task supersede preserves a structured provenance write rejection", (
 
     assert.equal(failure, rejection);
     assert.equal(enqueued.length, 0);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("local task tree status preserves non-ASCII paths while ignoring log files", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-local-tree-status-"));
+  const harnessRoot = path.join(rootDir, "harness");
+  const artifactsRoot = path.join(harnessRoot, "tasks", executionTaskId, "artifacts");
+  try {
+    writeTaskIndex(rootDir, "active");
+    initGitRepository(harnessRoot);
+    mkdirSync(artifactsRoot, { recursive: true });
+    writeFileSync(path.join(artifactsRoot, "ascii.log"), "log\n", "utf8");
+    writeFileSync(path.join(artifactsRoot, "中文日志.log"), "日志\n", "utf8");
+    writeFileSync(path.join(artifactsRoot, "report.md"), "report\n", "utf8");
+    writeFileSync(path.join(artifactsRoot, "实测报告.md"), "实测\n", "utf8");
+    const engine = makeLocalLifecycleEngine({ rootDir });
+
+    const status = Effect.runSync(engine.taskTreeStatus({ taskId: executionTaskId }));
+
+    assert.equal(status.dirty, true);
+    assert.deepEqual(status.entries, [
+      `?? tasks/${executionTaskId}/artifacts/report.md`,
+      `?? tasks/${executionTaskId}/artifacts/实测报告.md`
+    ]);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -167,6 +194,14 @@ function writeTaskIndex(rootDir: string, status: "active" | "in_review"): void {
     "# Execution Task",
     ""
   ].join("\n"), "utf8");
+}
+
+function initGitRepository(rootDir: string): void {
+  execFileSync("git", ["-C", rootDir, "init"], { stdio: "ignore" });
+  execFileSync("git", ["-C", rootDir, "config", "user.name", "Harness Test"], { stdio: "ignore" });
+  execFileSync("git", ["-C", rootDir, "config", "user.email", "harness@example.test"], { stdio: "ignore" });
+  execFileSync("git", ["-C", rootDir, "add", "."], { stdio: "ignore" });
+  execFileSync("git", ["-C", rootDir, "commit", "-m", "seed"], { stdio: "ignore" });
 }
 
 function stableHash(value: unknown): string {

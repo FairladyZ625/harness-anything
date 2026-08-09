@@ -224,6 +224,38 @@ test("CLI doc sync materializes an exact log artifact", async () => {
   });
 });
 
+test("CLI doc status and sync preserve a non-ASCII artifact path", async () => {
+  await withTempRoot(async (rootDir) => {
+    const harnessRoot = path.join(rootDir, "harness");
+    const taskId = "task_01KX3W4V1EDPHPTGWYYBQQ2J75";
+    const taskRoot = path.join(harnessRoot, "tasks", taskId);
+    const relativePath = `tasks/${taskId}/artifacts/实测报告.md`;
+    const targetPath = path.join(harnessRoot, relativePath);
+    const sessionBranch = "sessions/doc-sync-cli-test";
+    const body = "# 实测报告\n\n中文文件名写路证据。\n";
+    mkdirSync(taskRoot, { recursive: true });
+    seedDocSyncWriteRoadRegistry(rootDir);
+    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex());
+    initHarnessGit(harnessRoot);
+
+    mkdirSync(path.dirname(targetPath), { recursive: true });
+    writeFileSync(targetPath, body, "utf8");
+
+    const status = runJson(rootDir, ["doc", "status"]);
+    assert.deepEqual(status.report.dirtyFiles.map((entry: Record<string, any>) => entry.path), [relativePath]);
+    assert.deepEqual(status.report.candidateBlobs.map((entry: Record<string, any>) => entry.path), [relativePath]);
+    assert.deepEqual(status.report.unresolvedTouches, []);
+
+    const submitted = runJson(rootDir, ["doc", "sync", "--submit", "--path", relativePath]);
+    assert.equal(submitted.ok, true, JSON.stringify(submitted));
+    assert.equal(submitted.report.appliedChanges[0].path, relativePath);
+    assert.equal(
+      execFileSync("git", ["-C", harnessRoot, "show", `${sessionBranch}:${relativePath}`], { encoding: "utf8" }),
+      body
+    );
+  });
+});
+
 test("task artifact add submits UTF-8 evidence through the existing doc-sync governance commit", async () => {
   await withTempRoot(async (rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
