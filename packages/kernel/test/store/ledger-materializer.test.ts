@@ -128,6 +128,57 @@ test("ledger materializer dry-runs and merges pending session branches", () => {
   });
 });
 
+test("a second materialization stays incremental after committed attribution evidence", () => {
+  withTempStore((rootDir) => {
+    initAuthoredGit(rootDir);
+    rebuildTaskProjection({ rootDir });
+
+    const firstCoordinator = makeJournaledWriteCoordinator({
+      attribution: testWriteAttribution(),
+      rootDir,
+      sessionId: "projection-generation-one",
+      autoMaterialize: false
+    });
+    Effect.runSync(firstCoordinator.enqueue(docWrite(
+      "op-projection-generation-one",
+      "task-projection-generation",
+      "INDEX.md",
+      indexBody("task-projection-generation", "Projection generation one", "active")
+    )));
+    Effect.runSync(firstCoordinator.flush("explicit"));
+    runLedgerMaterializer(rootDir);
+
+    writeCommittedAttributionAdvance(rootDir);
+    const unrelatedArtifact = path.join(
+      rootDir,
+      "harness/tasks/task-unrelated/artifacts/实测报告.md"
+    );
+    mkdirSync(path.dirname(unrelatedArtifact), { recursive: true });
+    writeFileSync(unrelatedArtifact, "untracked diagnostic\n", "utf8");
+
+    const secondCoordinator = makeJournaledWriteCoordinator({
+      attribution: testWriteAttribution(),
+      rootDir,
+      sessionId: "projection-generation-two",
+      autoMaterialize: false
+    });
+    Effect.runSync(secondCoordinator.enqueue(docWrite(
+      "op-projection-generation-two",
+      "task-projection-generation",
+      "INDEX.md",
+      indexBody("task-projection-generation", "Projection generation two", "done")
+    )));
+    Effect.runSync(secondCoordinator.flush("explicit"));
+    const projectionModes: string[] = [];
+    const second = runLedgerMaterializer(rootDir, {
+      onProjectionMode: (mode, reason) => projectionModes.push(reason ? `${mode}:${reason}` : mode)
+    });
+
+    assert.equal(second.merged, 1);
+    assert.deepEqual(projectionModes, ["incremental"]);
+  });
+});
+
 test("trusted generation fingerprint reuses clean state and fails closed on dirty authored state", () => {
   withTempStore((rootDir) => {
     initAuthoredGit(rootDir);
@@ -459,6 +510,39 @@ function initAuthoredGit(rootDir: string, trunk = "master"): void {
     "-c", "user.email=harness@example.test",
     "commit", "-m", "seed"
   ], { stdio: "ignore" });
+}
+
+function writeCommittedAttributionAdvance(rootDir: string): void {
+  const eventId = "event-after-materialization";
+  const eventPath = path.join(rootDir, "harness/attribution-events", `${eventId}.jsonl`);
+  mkdirSync(path.dirname(eventPath), { recursive: true });
+  writeFileSync(eventPath, `${JSON.stringify({
+    schema: "attribution-event/v1",
+    eventId,
+    opId: `op-${eventId}`,
+    journalRecordSchema: "write-journal/v2",
+    entityId: "task/task-projection-generation",
+    kind: "progress_append",
+    actor: {
+      principal: { kind: "person", personId: "person_test" },
+      executor: { kind: "agent", id: "agent_test" }
+    },
+    principalSource: {
+      kind: "local-configured",
+      authority: "harness.yaml",
+      authoritySha256: `sha256:${"0".repeat(64)}`
+    },
+    executorSource: "client-asserted",
+    at: "2026-08-09T00:00:00.000Z",
+    recordedAt: "2026-08-09T00:00:01.000Z",
+    payloadHash: `sha256:${"1".repeat(64)}`,
+    payloadRef: {
+      path: `.harness/payloads/${eventId}.json`,
+      sha256: `sha256:${"1".repeat(64)}`
+    }
+  })}\n`, "utf8");
+  git(rootDir, "add", "--", `attribution-events/${eventId}.jsonl`);
+  git(rootDir, "commit", "-m", "authority: post-materialization attribution evidence");
 }
 
 function git(rootDir: string, ...args: ReadonlyArray<string>): string {

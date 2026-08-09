@@ -28,7 +28,11 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
       if (input.paths.length === 0) return;
       runGit(repoRoot, "add", "-A", ...(input.force ? ["-f"] : []), "--", ...input.paths);
     },
-    workingTreeFiles: (repoRoot, paths) => runGit(repoRoot, "status", "--porcelain", "-uall", "--", ...paths),
+    workingTreeFiles: (repoRoot, paths) => runGit(
+      repoRoot,
+      "-c", "core.quotePath=false",
+      "status", "--porcelain", "-uall", "--", ...paths
+    ),
     stagedFiles: (repoRoot, paths) => runGit(repoRoot, "diff", "--cached", "--name-only", "--", ...paths),
     commit: (repoRoot, message, author, options?: VcsCommitOptions) => commitWithScopedIndex(
       repoRoot,
