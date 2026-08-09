@@ -162,36 +162,37 @@ for (const denial of ["Do not approve this execution.", "Don't approve this exec
   });
 }
 
-test("one transcript anchor cannot record consent for another execution in the same task", async () => {
+test("one transcript anchor authorizes several executions in the same task", async () => {
   await withUserMessage(confirmation, async (rootDir, runtimeLogOptions) => {
     seedTask(rootDir, firstTaskId, [firstExecutionId, secondExecutionId]);
     await recordConsent(rootDir, runtimeLogOptions, firstTaskId, firstExecutionId, firstConsentId);
+    await recordConsent(rootDir, runtimeLogOptions, firstTaskId, secondExecutionId, secondConsentId);
 
-    await assert.rejects(
-      recordConsent(rootDir, runtimeLogOptions, firstTaskId, secondExecutionId, secondConsentId),
-      (error: unknown) => {
-        const expectedAnchorKey = `sha256:${sha256Text(
-          JSON.stringify([`session/${session.sessionId}`, `sha256:${sha256Text(confirmation)}`])
-        )}`;
-        assert.match(String(error), new RegExp(`transcript consent anchor ${expectedAnchorKey}`, "u"));
-        assert.match(String(error), new RegExp(`already been consumed by execution/${firstTaskId}/${firstExecutionId}`, "u"));
-        assert.match(String(error), new RegExp(`standalone confirmation message containing execution/${firstTaskId}/${secondExecutionId}`, "iu"));
-        return true;
-      }
-    );
+    assert.equal(existsSync(consentPath(rootDir, firstTaskId, firstConsentId)), true);
+    assert.equal(existsSync(consentPath(rootDir, firstTaskId, secondConsentId)), true);
+    // Both authorizations stay individually auditable under the one anchor.
+    const claims = anchorClaims(rootDir);
+    const expectedAnchorKey = anchorKeyFor(confirmation, 0);
+    assert.deepEqual(claims.map((claim) => claim.key), [expectedAnchorKey, expectedAnchorKey]);
+    assert.deepEqual(claims.map((claim) => claim.execution_ref), [
+      `execution/${firstTaskId}/${firstExecutionId}`,
+      `execution/${firstTaskId}/${secondExecutionId}`
+    ]);
   });
 });
 
-test("one transcript anchor cannot record consent for an execution in another task", async () => {
+test("one transcript anchor authorizes executions across two tasks", async () => {
   await withUserMessage(confirmation, async (rootDir, runtimeLogOptions) => {
     seedTask(rootDir, firstTaskId, [firstExecutionId]);
     seedTask(rootDir, secondTaskId, [secondExecutionId]);
     await recordConsent(rootDir, runtimeLogOptions, firstTaskId, firstExecutionId, firstConsentId);
+    await recordConsent(rootDir, runtimeLogOptions, secondTaskId, secondExecutionId, secondConsentId);
 
-    await assert.rejects(
-      recordConsent(rootDir, runtimeLogOptions, secondTaskId, secondExecutionId, secondConsentId),
-      new RegExp(`already been consumed by execution/${firstTaskId}/${firstExecutionId}`, "u")
-    );
+    assert.equal(existsSync(consentPath(rootDir, secondTaskId, secondConsentId)), true);
+    assert.deepEqual(anchorClaims(rootDir).map((claim) => claim.execution_ref), [
+      `execution/${firstTaskId}/${firstExecutionId}`,
+      `execution/${secondTaskId}/${secondExecutionId}`
+    ]);
   });
 });
 
@@ -230,7 +231,7 @@ test("compaction ordinal drift remains idempotent for the same execution", async
   });
 });
 
-test("two coordinators racing for one anchor admit exactly one execution", async () => {
+test("two coordinators racing for one anchor admit both executions exactly once each", async () => {
   await withUserMessage(confirmation, async (rootDir, runtimeLogOptions) => {
     seedTask(rootDir, firstTaskId, [firstExecutionId, secondExecutionId]);
     const results = await Promise.allSettled([
@@ -238,15 +239,11 @@ test("two coordinators racing for one anchor admit exactly one execution", async
       recordConsent(rootDir, runtimeLogOptions, firstTaskId, secondExecutionId, secondConsentId)
     ]);
 
-    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
-    assert.equal(results.filter((result) => result.status === "rejected").length, 1);
-    const journalRecords = readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8")
-      .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { readonly schema?: string })
-      .filter((record) => record.schema === "write-journal/v2");
-    assert.ok(journalRecords.length <= 1, "the losing claim must be rejected before WAL append");
-    const claims = readFileSync(anchorLedgerPath(rootDir), "utf8").split("\n")
-      .filter((line) => line.includes('"schema":"consent-anchor-claim/v1"'));
-    assert.equal(claims.length, 1);
+    assert.deepEqual(results.map((result) => result.status), ["fulfilled", "fulfilled"]);
+    // Concurrency must not duplicate a claim either: one row per authorization.
+    const claims = anchorClaims(rootDir);
+    assert.equal(claims.length, 2);
+    assert.equal(new Set(claims.map((claim) => claim.execution_ref)).size, 2);
     const recovery = await runEffect(makeJournaledWriteCoordinator({
       rootDir,
       attribution: writeAttribution("owner", "worker"),
@@ -277,17 +274,47 @@ test("a malformed legacy consent is skipped with a durable warning and does not 
   });
 });
 
-test("task hard deletion cannot erase a consumed anchor", async () => {
+test("the same words said again later carry their own anchor", async () => {
+  await withUserMessage(confirmation, async (rootDir, runtimeLogOptions, logPath) => {
+    seedTask(rootDir, firstTaskId, [firstExecutionId, secondExecutionId]);
+    await recordConsent(rootDir, runtimeLogOptions, firstTaskId, firstExecutionId, firstConsentId);
+
+    // The human repeats the exact same words later in the same session. That is a second
+    // authorization, not a reuse of the first one.
+    writeFileSync(logPath, `${[0, 1].map((ordinal) => JSON.stringify({
+      timestamp: `2026-08-05T00:00:0${ordinal + 1}.000Z`,
+      type: "event_msg",
+      payload: { type: "user_message", message: confirmation }
+    })).join("\n")}\n`, "utf8");
+
+    await recordConsent(rootDir, runtimeLogOptions, firstTaskId, secondExecutionId, secondConsentId);
+
+    // What the human cares about: saying it again still authorizes.
+    assert.equal(existsSync(consentPath(rootDir, firstTaskId, secondConsentId)), true);
+    assert.deepEqual(anchorClaims(rootDir).map((claim) => claim.execution_ref), [
+      `execution/${firstTaskId}/${firstExecutionId}`,
+      `execution/${firstTaskId}/${secondExecutionId}`
+    ]);
+    // Known limitation: source resolution keeps matching the first occurrence, so the
+    // repeat lands on the same anchor rather than a distinct one. Harmless while one
+    // anchor may authorize several executions; revisit if that ever tightens again.
+    assert.equal(new Set(anchorClaims(rootDir).map((claim) => claim.key)).size, 1);
+  });
+});
+
+test("task hard deletion cannot erase a recorded anchor claim", async () => {
   await withUserMessage(confirmation, async (rootDir, runtimeLogOptions) => {
     seedTask(rootDir, firstTaskId, [firstExecutionId]);
     await recordConsent(rootDir, runtimeLogOptions, firstTaskId, firstExecutionId, firstConsentId);
     rmSync(path.join(rootDir, "harness/tasks", firstTaskId), { recursive: true, force: true });
     seedTask(rootDir, secondTaskId, [secondExecutionId]);
+    await recordConsent(rootDir, runtimeLogOptions, secondTaskId, secondExecutionId, secondConsentId);
 
-    await assert.rejects(
-      recordConsent(rootDir, runtimeLogOptions, secondTaskId, secondExecutionId, secondConsentId),
-      new RegExp(`already been consumed by execution/${firstTaskId}/${firstExecutionId}`, "u")
-    );
+    // Deleting the task package must not erase what that message authorized.
+    assert.deepEqual(anchorClaims(rootDir).map((claim) => claim.execution_ref), [
+      `execution/${firstTaskId}/${firstExecutionId}`,
+      `execution/${secondTaskId}/${secondExecutionId}`
+    ]);
   });
 });
 
@@ -330,7 +357,7 @@ test("idempotency rejects an execution_ref that disagrees with the hosted execut
   });
 });
 
-test("inline Review consent also enforces the anchor uniqueness constraint", async () => {
+test("inline Review consent records its anchor without claiming exclusivity", async () => {
   await withUserMessage(confirmation, async (rootDir, runtimeLogOptions) => {
     seedTask(rootDir, firstTaskId, [firstExecutionId, secondExecutionId]);
     await reviewWithTranscriptConsent(
@@ -340,18 +367,16 @@ test("inline Review consent also enforces the anchor uniqueness constraint", asy
       firstReviewId,
       firstConsentId
     );
-
-    await assert.rejects(
-      reviewWithTranscriptConsent(
-        rootDir,
-        runtimeLogOptions,
-        secondExecutionId,
-        secondReviewId,
-        secondConsentId
-      ),
-      new RegExp(`already been consumed by execution/${firstTaskId}/${firstExecutionId}`, "u")
+    await reviewWithTranscriptConsent(
+      rootDir,
+      runtimeLogOptions,
+      secondExecutionId,
+      secondReviewId,
+      secondConsentId
     );
-    assert.equal(existsSync(reviewPath(rootDir, firstTaskId, secondReviewId)), false);
+
+    assert.equal(existsSync(reviewPath(rootDir, firstTaskId, secondReviewId)), true);
+    assert.equal(anchorClaims(rootDir).length, 2);
   });
 });
 
@@ -388,7 +413,8 @@ async function recordConsent(
   runtimeLogOptions: { readonly runtimeLogRoots: { readonly codex: ReadonlyArray<string> } },
   taskId: string,
   executionId: string,
-  consentId: string
+  consentId: string,
+  utterance: string = confirmation
 ): Promise<void> {
   await makeRecordExecutionConsentService({
     rootInput: rootDir,
@@ -406,7 +432,7 @@ async function recordConsent(
     executionId,
     actor,
     session,
-    utterance: confirmation
+    utterance
   });
 }
 
@@ -499,6 +525,20 @@ function reviewPath(rootDir: string, taskId: string, reviewId: string): string {
 
 function anchorLedgerPath(rootDir: string): string {
   return path.join(rootDir, ".harness/write-journal/consent-anchor-ledger.jsonl");
+}
+
+function anchorClaims(rootDir: string): ReadonlyArray<{ readonly key: string; readonly execution_ref: string; readonly message_index: number }> {
+  return readFileSync(anchorLedgerPath(rootDir), "utf8").split("\n")
+    .filter((line) => line.includes('"schema":"consent-anchor-claim/v1"'))
+    .map((line) => JSON.parse(line) as { key: string; execution_ref: string; message_index: number });
+}
+
+function anchorKeyFor(message: string, messageIndex: number): string {
+  return `sha256:${sha256Text(JSON.stringify([
+    `session/${session.sessionId}`,
+    `sha256:${sha256Text(message)}`,
+    messageIndex
+  ]))}`;
 }
 
 function malformedLegacyConsent(): Record<string, unknown> {

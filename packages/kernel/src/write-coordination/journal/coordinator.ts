@@ -248,12 +248,7 @@ function makeJournaledWriteCoordinatorInternal(
           }
           if (state.applied.has(journalOp.opId)) return { opId: journalOp.opId, entityId: journalOp.entityId, accepted: true };
           if (requiresTranscriptConsentReservation) {
-            const outstandingJournaledOps = state.records
-              .filter((record) => record.kind === "doc_write"
-                && !state.applied.has(record.opId)
-                && !state.fileApplied.has(record.opId))
-              .map((record) => recordToOp(rootDir, record));
-            assertTranscriptConsentAnchorReservation(runtimeContext, journalOp, outstandingJournaledOps);
+            assertTranscriptConsentAnchorReservation(runtimeContext, journalOp);
           }
           const record = attribution
             ? createAttributedJournalRecord(rootDir, journalPath, journalOp, attribution)
