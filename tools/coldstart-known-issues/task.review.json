@@ -1,0 +1,21 @@
+{
+  "schema": "coldstart-known-issue/v1",
+  "issue": "task_01KZNZECEF3NK4S2GR5T1TM7A6",
+  "owner": "team:platform-quality",
+  "expiry": "2026-09-30",
+  "symptom": "Review artifact staging passes the task package directory to git update-index instead of individual files.",
+  "fingerprint": {
+    "action": {
+      "operationId": "task.review",
+      "description": "lint and stage the review artifact for a freshly created isolated task",
+      "argvPrefix": [
+        "task",
+        "review"
+      ]
+    },
+    "failure": {
+      "errorCode": "journal_unavailable",
+      "errorHintIncludes": "git update-index failed"
+    }
+  }
+}

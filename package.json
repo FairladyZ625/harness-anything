@@ -55,6 +55,7 @@
     "harness:check-file-complexity": "node tools/check-file-complexity.mjs",
     "harness:check-cli-structure": "node tools/check-cli-structure.mjs",
     "harness:check-cli-help-contract": "node tools/check-cli-help-contract.mjs",
+    "harness:check-command-surface-parity": "node tools/check-command-surface-parity.mjs",
     "harness:check-cli-error-codes": "node tools/check-cli-error-codes.mjs",
     "harness:check-error-next-steps": "node tools/check-error-next-steps.mjs",
     "harness:check-error-classification": "node tools/check-error-classification.mjs",

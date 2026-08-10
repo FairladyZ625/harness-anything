@@ -9,10 +9,17 @@ import {
   receiptValue,
   renderMarkdownReport,
   runCli,
+  settleCliWrite,
   writeJson,
   writeText
 } from "./coldstart-exhaustive-runtime.mjs";
 import { coldstartOperationManifest } from "./coldstart-exhaustive-manifest.mjs";
+import {
+  buildColdstartConclusionMatrix,
+  classifyColdstartOperation,
+  coldstartReportFails,
+  loadColdstartKnownIssues
+} from "./coldstart-known-issues.mjs";
 
 const reportPath = parseReportPath(process.argv.slice(2));
 const fixture = createFixture();
@@ -20,18 +27,13 @@ const results = new Map();
 const setupResults = [];
 let discovery;
 let fatalError = null;
-
-const KNOWN_A_FAILURES = new Map([
-  ["authority.cutover-status", {
-    code: "EngineNotEnabled",
-    symptom: "The fixture daemon was started with the manifest returned by ha init, but cutover status says the authority engine is not enabled."
-  }],
-  ["task.supersede", {
-    code: "authority_ingress_rejected",
-    hint: "TOKEN_PATH_SCOPE_DENIED",
-    symptom: "A freshly created task cannot be superseded because admission rejects the generated replacement path scope."
-  }]
-]);
+const knownIssues = loadColdstartKnownIssues();
+for (const operationId of knownIssues.issues.keys()) {
+  if (!coldstartOperationManifest.some((row) => row.id === operationId)) {
+    knownIssues.invalid.push({ operationId, file: knownIssues.issues.get(operationId).file, errors: ["sidecar names an operation absent from the manifest"] });
+    knownIssues.issues.delete(operationId);
+  }
+}
 
 try {
   discovery = discoverCapabilities(fixture);
@@ -64,19 +66,8 @@ try {
   const report = buildReport(cleanup);
   writeJson(jsonReportPath(reportPath), report);
   writeText(reportPath, renderMarkdownReport(report));
-  process.stdout.write(`${JSON.stringify({
-    report: reportPath,
-    jsonReport: jsonReportPath(reportPath),
-    coverage: report.coverage,
-    signature: report.signature,
-    reproducibleSignatureInput: report.signatureInput,
-    cleanup: {
-      baseRemoved: report.cleanup.baseRemoved,
-      protectedUnchanged: report.cleanup.protectedUnchanged,
-      errors: report.cleanup.errors
-    }
-  }, null, 2)}\n`);
-  process.exitCode = report.coverage.failed > 0 || report.cleanup.errors.length > 0 || fatalError ? 1 : 0;
+  process.stderr.write(`[report] markdown=${reportPath} json=${jsonReportPath(reportPath)} signature=${report.signature}\n`);
+  process.exitCode = coldstartReportFails(report) ? 1 : 0;
 }
 
 async function exerciseOperations() {
@@ -271,23 +262,32 @@ function exercise(id, args, options = {}) {
   if (!manifest) throw new Error(`Operation is absent from manifest: ${id}`);
   if (manifest.excludedByDesign) throw new Error(`Excluded operation must not execute: ${id}`);
   const runtime = discovery.operations.find((operation) => operation.id === id);
-  const record = runCli(fixture, args, options);
+  const invoked = runCli(fixture, args, options);
+  const record = invoked.exitCode === 0 && invoked.receiptOk ? settleCliWrite(fixture, invoked) : invoked;
   const result = {
     ...manifest,
     commandTemplate: runtime?.capability.command ?? null,
     status: record.exitCode === 0 && record.receiptOk ? "passed" : "failed",
     ...record
   };
-  Object.assign(result, failureTriage(result));
+  Object.assign(result, classifyColdstartOperation(
+    result,
+    knownIssues.issues.get(id),
+    knownIssues.invalid.find((entry) => entry.operationId === id)
+  ));
   results.set(id, result);
-  process.stderr.write(`[${result.status}] ${id} exit=${String(result.exitCode)} ok=${String(result.receiptOk)}${result.errorCode ? ` code=${result.errorCode}` : ""}\n`);
+  process.stderr.write(`[${result.conclusion}] ${id} exit=${String(result.exitCode)} ok=${String(result.receiptOk)}${result.errorCode ? ` code=${result.errorCode}` : ""}\n`);
   return result;
 }
 
 function prepare(label, args, options = {}) {
-  const record = runCli(fixture, args, options);
+  const invoked = runCli(fixture, args, options);
+  const record = invoked.exitCode === 0 && invoked.receiptOk ? settleCliWrite(fixture, invoked) : invoked;
   setupResults.push({ label, ...record });
   process.stderr.write(`[setup:${record.exitCode === 0 && record.receiptOk ? "passed" : "failed"}] ${label}${record.errorCode ? ` code=${record.errorCode}` : ""}\n`);
+  if (record.exitCode !== 0 || record.receiptOk !== true) {
+    throw new Error(`Infrastructure setup failed at ${label}: ${record.errorCode ?? record.errorHint ?? `exit ${String(record.exitCode)}`}`);
+  }
   return record;
 }
 
@@ -474,16 +474,24 @@ function buildReport(cleanup) {
       receiptOk: false,
       errorCode: "exercise_aborted_before_invocation",
       errorHint: fatalError ?? "The runner did not reach this operation.",
-      failureClass: "untriaged",
-      failureSymptom: "The exercise aborted before this operation was invoked.",
+      conclusion: "infrastructure_invalid",
+      knownIssue: null,
+      detail: "The exercise aborted before this operation was invoked.",
       stdout: "",
       stderr: ""
     });
   }
   const ordered = coldstartOperationManifest.map((row) => results.get(row.id));
-  const signatureInput = ordered.map(({ id, status, errorCode }) => `${id}:${status}:${errorCode ?? "-"}`).join("\n");
+  const conclusions = buildColdstartConclusionMatrix({
+    results: ordered,
+    setupResults,
+    advertisedFailures: discovery?.advertisedFailures ?? [],
+    invalidMarkers: knownIssues.invalid,
+    fatalError
+  });
+  const signatureInput = ordered.map(({ id, conclusion, errorCode }) => `${id}:${conclusion ?? "excluded-by-design"}:${errorCode ?? "-"}`).join("\n");
   return {
-    schema: "coldstart-exhaustive-report/v1",
+    schema: "coldstart-exhaustive-report/v2",
     generatedAt: new Date().toISOString(),
     node: process.version,
     cliEntry: "packages/cli/dist/cli/src/index.js",
@@ -500,9 +508,15 @@ function buildReport(cleanup) {
     })),
     coverage: {
       total: ordered.length,
-      passed: ordered.filter((result) => result.status === "passed").length,
-      failed: ordered.filter((result) => result.status === "failed").length,
+      passed: conclusions.passed.count,
+      failed: ordered.filter((result) => ["product_failure", "infrastructure_invalid", "known_issue_drift", "fixed_candidate"].includes(result.conclusion)).length,
+      knownIssue: conclusions.known_issue.count,
       excludedByDesign: ordered.filter((result) => result.status === "excluded-by-design").length
+    },
+    conclusions,
+    knownIssues: {
+      active: [...knownIssues.issues.values()].map(({ file: _file, ...marker }) => marker),
+      invalid: knownIssues.invalid
     },
     signatureInput,
     signature: createHash("sha256").update(signatureInput).digest("hex"),
@@ -526,14 +540,4 @@ function jsonReportPath(markdownPath) {
 
 function stringOr(value, fallback) {
   return typeof value === "string" && value.length > 0 ? value : fallback;
-}
-
-function failureTriage(result) {
-  if (result.status !== "failed") return { failureClass: null, failureSymptom: null };
-  const expected = KNOWN_A_FAILURES.get(result.id);
-  const codeMatches = expected?.code === result.errorCode;
-  const hintMatches = !expected?.hint || result.errorHint?.includes(expected.hint);
-  return codeMatches && hintMatches
-    ? { failureClass: "A", failureSymptom: expected.symptom }
-    : { failureClass: "untriaged", failureSymptom: "Unexpected executable-op failure; preserve the receipt and triage it before changing exclusions." };
 }
