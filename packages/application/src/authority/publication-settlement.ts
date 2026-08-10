@@ -39,13 +39,32 @@ export async function inspectAuthoritySettlementPublication(input: {
         ? () => input.inspector.findPublication!(expectedOpIds)
         : undefined);
   const membershipLookup = input.inspector.findPublicationTopologyForOperation;
-  const inspectExactCommit = Boolean(exactCommitSha && successorLookup);
-  const inspectIndexedCommit = inspectExactCommit || membershipLookup !== undefined;
-  const publication = inspectExactCommit
+  // A single publication must inspect the current canonical head so a legal
+  // head advance racing proof remains honestly indeterminate. Only an
+  // explicitly admitted durable successor from the same outer command may
+  // prove its already-known commit by membership after HEAD has advanced.
+  const inspectExactCommit = Boolean(
+    input.execution.allowDurableSuccessor && exactCommitSha && successorLookup
+  );
+  const inspectMembership = Boolean(
+    input.execution.allowDurableSuccessor && !inspectExactCommit && membershipLookup
+  );
+  const inspectIndexedCommit = inspectExactCommit || inspectMembership;
+  let publication = inspectExactCommit
     ? await successorLookup!(expectedOpIds[0]!, exactCommitSha!)
-    : membershipLookup
-      ? await membershipLookup(expectedOpIds[0]!)
+    : inspectMembership
+      ? await membershipLookup!(expectedOpIds[0]!)
     : await input.inspector.inspectPublishedHead(input.previousHead, expectedOpIds);
+  if (!inspectIndexedCommit) {
+    const headAfterInspection = await input.inspector.currentHead();
+    const closingHead = await input.inspector.currentHead();
+    if (headAfterInspection !== publication.commitSha || closingHead !== headAfterInspection) {
+      // Re-inspect the advanced head so the terminal receipt retains the full
+      // topology evidence instead of certifying a stale, formerly-current
+      // commit. A non-linear legal advance is therefore INDETERMINATE.
+      publication = await input.inspector.inspectPublishedHead(publication.commitSha, expectedOpIds);
+    }
+  }
   if (inspectExactCommit && exactCommitSha
     && publication.commitSha !== exactCommitSha) {
     throw new Error(

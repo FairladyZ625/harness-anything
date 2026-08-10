@@ -309,11 +309,9 @@ export function writeColdCodexSessionLog(repoRoot: string, sessionId: string): v
 }
 
 export function latestAuthorityOperation(serviceRoot: string): AuthorityStoredOperationRecord {
-  const rows = readFileSync(operationPath(serviceRoot), "utf8").trim().split("\n")
-    .map((line) => JSON.parse(line) as { readonly table?: string; readonly value?: Record<string, unknown> })
-    .filter((row) => row.table === "operation" && row.value);
-  assert.ok(rows.length > 0, "service route must persist an authority operation");
-  return rows.at(-1)!.value as unknown as AuthorityStoredOperationRecord;
+  const records = authorityOperationRecords(serviceRoot);
+  assert.ok(records.length > 0, "service route must persist an authority operation");
+  return records.at(-1)!;
 }
 
 export function authorityOperationRecords(serviceRoot: string): ReadonlyArray<AuthorityStoredOperationRecord> {
@@ -324,8 +322,26 @@ export function authorityOperationRecords(serviceRoot: string): ReadonlyArray<Au
       readonly table?: string;
       readonly key?: string;
       readonly value?: AuthorityStoredOperationRecord;
+      readonly transitions?: ReadonlyArray<{
+        readonly key: string;
+        readonly semanticDigest: string;
+        readonly state: AuthorityStoredOperationRecord["state"];
+        readonly receipt?: AuthorityStoredOperationRecord["receipt"];
+        readonly commitSha?: string;
+      }>;
     };
     if (row.table === "operation" && row.key && row.value) latest.set(row.key, row.value);
+    for (const transition of row.table === "operation" ? row.transitions ?? [] : []) {
+      const known = latest.get(transition.key);
+      assert.ok(known, `operation transition must follow its base record: ${transition.key}`);
+      assert.equal(known.semanticDigest, transition.semanticDigest);
+      latest.set(transition.key, {
+        ...known,
+        state: transition.state,
+        ...(transition.receipt ? { receipt: transition.receipt } : {}),
+        ...(transition.commitSha ? { commitSha: transition.commitSha } : {})
+      });
+    }
   }
   return [...latest.values()];
 }

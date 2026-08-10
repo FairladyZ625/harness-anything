@@ -76,6 +76,7 @@ test("publication proof and evidence failures remain queryable after acceptance"
   await withStoresAsync(async ({ first }) => {
     for (const [index, failure] of [
       ["proof", "PUBLICATION_PROOF_FAILED: immutable proof mismatch"],
+      ["proof-with-materializer-subject", "PUBLICATION_PROOF_FAILED: mergeSubject=materializer: merge session controlled-advance"],
       ["evidence", "EVENT_PUBLICATION_FAILED: evidence fsync failed"]
     ] as const) {
       const opId = `op-${index}`;
@@ -109,10 +110,13 @@ test("publication proof and evidence failures remain queryable after acceptance"
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     const proof = first.lookup("repo-write-direct:op-proof");
+    const proofWithMaterializerSubject = first.lookup("repo-write-direct:op-proof-with-materializer-subject");
     const evidence = first.lookup("repo-write-direct:op-evidence");
     assert.equal(proof?.state, "failed");
+    assert.equal(proofWithMaterializerSubject?.state, "failed");
     assert.equal(evidence?.state, "failed");
     assert.equal(failureStage(proof), "publication-proof");
+    assert.equal(failureStage(proofWithMaterializerSubject), "publication-proof");
     assert.equal(failureStage(evidence), "evidence");
   });
 });
