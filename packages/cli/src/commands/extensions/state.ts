@@ -9,7 +9,7 @@ import {
   validatePresetManifests,
   type ExtensionValidationIssue,
   type PresetDocumentFrontmatter,
-  type WriteError,
+  type WriteControl,
   type MaterializedTemplatePlan
 } from "@harness-anything/kernel";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
@@ -306,7 +306,7 @@ export function writeModulesCoordinated(
     readonly moduleKey: string;
     readonly operation: "register" | "unregister" | "step";
   }
-): Effect.Effect<void, WriteError> {
+): Effect.Effect<void, WriteControl> {
   return writeCoordinatedPayload(coordinator, stablePayloadHash, {
     entityId: moduleEntityId(input.moduleKey),
     kind: "module_registry_write",

@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { runtimeEventActorFromTaskHolderPrincipal, type RuntimeEventLedgerRejected } from "@harness-anything/application";
+import { isIndeterminateFlushControlOutcome } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
@@ -31,9 +32,11 @@ function runAppend(context: Parameters<CommandRunner>[0], action: RuntimeEventAp
     result: action.result || action.summary ? { status: action.result ?? "unknown", ...(action.summary ? { summary: action.summary } : {}) } : null,
     cost: action.totalTokens === undefined ? null : { totalTokens: action.totalTokens }
   }).pipe(
-    Effect.match({
-      onFailure: runtimeEventFailure("runtime-event-append", action.sessionId),
-      onSuccess: (result): CliResult => ({
+    Effect.matchEffect({
+      onFailure: (error) => isIndeterminateFlushControlOutcome(error)
+        ? Effect.fail(error)
+        : Effect.succeed(runtimeEventFailure("runtime-event-append", action.sessionId)(error)),
+      onSuccess: (result) => Effect.succeed<CliResult>({
         ok: true,
         command: "runtime-event-append",
         path: result.path,

@@ -14,7 +14,20 @@ import {
   type RuntimeEventRuntime,
   type RuntimeEventResultStatus
 } from "@harness-anything/kernel";
-import { moduleEntityId, resolveHarnessLayout, stablePayloadHash, type EntityId, type HarnessLayoutInput, type WriteCoordinator, type WriteError, type WriteOpKind } from "@harness-anything/kernel";
+import {
+  isIndeterminateFlushControlOutcome,
+  moduleEntityId,
+  requireDeterminateFlushReport,
+  resolveHarnessLayout,
+  stablePayloadHash,
+  type EntityId,
+  type HarnessLayoutInput,
+  type IndeterminateFlushControlOutcome,
+  type WriteControl,
+  type WriteCoordinator,
+  type WriteError,
+  type WriteOpKind
+} from "@harness-anything/kernel";
 import { isNodeErrorCode } from "./node-errors.ts";
 import { isRecord } from "./record.ts";
 
@@ -83,7 +96,10 @@ export interface RuntimeEventExportPort {
 }
 
 export interface RuntimeEventLedgerService {
-  readonly append: (input: RuntimeEventAppendInput) => Effect.Effect<RuntimeEventLedgerAppendResult, RuntimeEventLedgerRejected>;
+  readonly append: (input: RuntimeEventAppendInput) => Effect.Effect<
+    RuntimeEventLedgerAppendResult,
+    RuntimeEventLedgerRejected | IndeterminateFlushControlOutcome
+  >;
   readonly readSession: (sessionId: string) => Effect.Effect<RuntimeEventLedgerReadResult, RuntimeEventLedgerRejected>;
 }
 
@@ -144,7 +160,7 @@ function appendRuntimeEvent(
   rootInput: HarnessLayoutInput,
   event: RuntimeEventRecordV2,
   coordinator: WriteCoordinator
-): Effect.Effect<RuntimeEventLedgerAppendResult, RuntimeEventLedgerRejected> {
+): Effect.Effect<RuntimeEventLedgerAppendResult, RuntimeEventLedgerRejected | IndeterminateFlushControlOutcome> {
   return Effect.try({
     try: () => {
       const decoded = Schema.decodeUnknownSync(RuntimeEventRecordV2Schema)(event);
@@ -173,7 +189,9 @@ function appendRuntimeEvent(
           payload
         }).pipe(
         Effect.map(() => result),
-        Effect.mapError((error) => runtimeEventRejection(decoded.session.sessionId, runtimeLedgerWriteErrorMessage(error)))
+        Effect.mapError((error) => isIndeterminateFlushControlOutcome(error)
+          ? error
+          : runtimeEventRejection(decoded.session.sessionId, runtimeLedgerWriteErrorMessage(error)))
       );
     })
   );
@@ -271,7 +289,7 @@ function writeCoordinatedPayloadLocal(
     readonly payload: Record<string, unknown>;
     readonly opIdPrefix: string;
   }
-): Effect.Effect<void, WriteError> {
+): Effect.Effect<void, WriteControl> {
   const opId = `${input.opIdPrefix}-${stablePayloadHash({
     entityId: input.entityId,
     kind: input.kind,
@@ -284,6 +302,6 @@ function writeCoordinatedPayloadLocal(
       kind: input.kind,
       payload: input.payload
     });
-    yield* coordinator.flush("explicit");
+    yield* requireDeterminateFlushReport(yield* coordinator.flush("explicit"));
   });
 }

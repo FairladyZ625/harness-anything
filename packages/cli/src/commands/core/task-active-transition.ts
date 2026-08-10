@@ -4,6 +4,7 @@ import {
   validateTaskActivationReadiness
 } from "@harness-anything/application";
 import { cliError, CliErrorCode, isCliErrorCode } from "../../cli/error-codes.ts";
+import type { IndeterminateFlushControlOutcome } from "@harness-anything/kernel";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunnerContext } from "../../cli/runner-registry.ts";
 import { bundledTaskDocumentPlaceholderPolicy } from "./task-document-placeholders.ts";
@@ -39,7 +40,7 @@ export function preflightActiveStatusSet(
       }));
 }
 
-export function runActiveStatusSet(context: CommandRunnerContext, taskId: string): Effect.Effect<CliResult> {
+export function runActiveStatusSet(context: CommandRunnerContext, taskId: string): Effect.Effect<CliResult, IndeterminateFlushControlOutcome> {
   const orchestrator = makeTaskLifecycleOrchestrator({
     rootDir: context.rootDir,
     layoutOverrides: context.layoutOverrides,

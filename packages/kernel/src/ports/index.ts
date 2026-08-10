@@ -36,6 +36,8 @@ export {
   WriteCoordinator,
   createExactWriteScope,
   createJournaledBatch,
+  isIndeterminateFlushControlOutcome,
+  isIndeterminateFlushReport,
   withExactCommit
 } from "./write-coordinator.ts";
 export type {
@@ -51,6 +53,10 @@ export type {
   WriteAck,
   JournaledBatchEntry,
   FlushReason,
+  DeterminateFlushReport,
+  IndeterminateFlushReport,
+  IndeterminateFlushControlOutcome,
+  WriteControl,
   FlushReport,
   RecoveryReport
 } from "./write-coordinator.ts";

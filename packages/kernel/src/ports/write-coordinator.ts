@@ -139,13 +139,93 @@ export interface JournalRecordWitnessV1 {
   readonly recordDigest: string;
 }
 
-export interface FlushReport {
+export interface DeterminateFlushReport {
   readonly reason: FlushReason;
   readonly opCount: number;
   readonly committed: boolean;
   readonly watermark?: string;
   readonly publicationMode?: "exact-batch" | "integrity-domain";
   readonly canonicalCommitSha?: string;
+}
+
+type FlushLockHolderSnapshot = {
+  readonly lockPath: string;
+} & (
+  | {
+    readonly status: "observed";
+    readonly pid: number;
+    readonly hostname: string;
+    readonly acquiredAt: string;
+    readonly heartbeatAt: string;
+    readonly ownerKind?: "daemon";
+    readonly repoId?: string;
+    readonly canonicalRoot?: string;
+    readonly endpoint?: string;
+  }
+  | {
+    readonly status: "missing" | "unreadable";
+    readonly detail: string;
+  }
+);
+
+type IndeterminateFlushCause =
+  | {
+    readonly kind: "foreign-committer";
+    readonly detail: string;
+    readonly lockHolder: FlushLockHolderSnapshot;
+  }
+  | {
+    readonly kind: "authority";
+    readonly workspaceId: string;
+    readonly semanticDigest: string;
+    readonly evidence: string;
+    readonly observedCommitSha?: string;
+    readonly errorCode?: string;
+    readonly errorContext?: Readonly<Record<string, unknown>>;
+  };
+
+/**
+ * The omitted determinate fields are deliberate and load-bearing. In particular,
+ * this report must not expose `committed`, `watermark`, `canonicalCommitSha`, or
+ * `publicationMode`: consumers have to narrow the union before using the legacy
+ * boolean result, so an unknown terminal outcome cannot silently enter an old
+ * success/failure default branch. DeterminateFlushReport keeps the legacy shape
+ * unchanged because `committed: false` still covers no-op and dry-run outcomes;
+ * it does not mean that the write failed.
+ */
+export interface IndeterminateFlushReport {
+  readonly status: "indeterminate";
+  readonly reason: FlushReason;
+  readonly opCount: number;
+  readonly operationIds: readonly [string, ...string[]];
+  readonly cause: IndeterminateFlushCause;
+}
+
+export type FlushReport = DeterminateFlushReport | IndeterminateFlushReport;
+
+export interface IndeterminateFlushControlOutcome {
+  readonly _tag: "IndeterminateFlushControlOutcome";
+  readonly report: IndeterminateFlushReport;
+}
+
+export type WriteControl = WriteError | IndeterminateFlushControlOutcome;
+
+export function isIndeterminateFlushReport(
+  report: FlushReport
+): report is IndeterminateFlushReport {
+  return "status" in report && report.status === "indeterminate";
+}
+
+export function isIndeterminateFlushControlOutcome(
+  outcome: unknown
+): outcome is IndeterminateFlushControlOutcome {
+  return typeof outcome === "object"
+    && outcome !== null
+    && "_tag" in outcome
+    && outcome._tag === "IndeterminateFlushControlOutcome"
+    && "report" in outcome
+    && typeof outcome.report === "object"
+    && outcome.report !== null;
 }
 
 export interface RecoveryReport {

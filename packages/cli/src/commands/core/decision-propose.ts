@@ -6,7 +6,7 @@ import {
 import {
   deriveRelationId,
   type EntityRelationRecord,
-  type WriteError
+  type WriteControl
 } from "@harness-anything/kernel";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
@@ -16,6 +16,7 @@ import { docSyncDirtyWarnings } from "./doc-sync.ts";
 import { decisionFailure, decisionResult, withDecisionBodyEmptyWarning } from "./decision-shared.ts";
 import { applyClaimFulfillments } from "./decision-claim-fulfillment.ts";
 import { findOverlongDecisionChoices, overlongDecisionChoiceHint } from "./decision-writing-standard.ts";
+import { mapFailurePreservingIndeterminate } from "../../cli/indeterminate-control.ts";
 
 type ProposeAction = Extract<ParsedCommand["action"], { readonly kind: "decision-propose" }>;
 
@@ -23,7 +24,7 @@ export function runPropose(
   rootInput: HarnessLayoutInput,
   service: DecisionWriteService,
   action: ProposeAction
-): Effect.Effect<CliResult, WriteError> {
+): Effect.Effect<CliResult, WriteControl> {
   action = normalizeDecisionProposeAction(action);
   const materialized = materializeProposedDecision(action);
   if (!materialized.ok) {
@@ -37,9 +38,9 @@ export function runPropose(
   const decision = materialized.decision;
   if (action.dryRun) return Effect.succeed(withDocSyncWarning(rootInput, action, decisionResult(rootInput, "decision-propose", decision.decision_id, decision.state, true)));
   return service.propose({ decision, body: action.body }).pipe(
-    Effect.match({
-      onFailure: (error): CliResult => decisionFailure("decision-propose", decision.decision_id, error),
-      onSuccess: (result): CliResult => withDocSyncWarning(rootInput, action, decisionResult(rootInput, "decision-propose", result.decisionId, result.state, false))
+    Effect.matchEffect({
+      onFailure: (error) => mapFailurePreservingIndeterminate(error, (failure) => decisionFailure("decision-propose", decision.decision_id, failure)),
+      onSuccess: (result) => Effect.succeed(withDocSyncWarning(rootInput, action, decisionResult(rootInput, "decision-propose", result.decisionId, result.state, false)))
     })
   );
 }

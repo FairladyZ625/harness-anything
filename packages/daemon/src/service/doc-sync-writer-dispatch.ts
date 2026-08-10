@@ -164,10 +164,10 @@ function firstUnmaterializedChange(
 
 function writerRejection(
   request: DocSyncSubmitRequestV1,
-  code: Extract<DocSyncSubmitResultV1, { readonly ok: false }>["code"],
+  code: Extract<DocSyncSubmitResultV1, { readonly status: "rejected" }>["code"],
   reason: string,
-  extra: Partial<Extract<DocSyncSubmitResultV1, { readonly ok: false }>> = {}
-): DocSyncSubmitResultV1 {
+  extra: Partial<Extract<DocSyncSubmitResultV1, { readonly status: "rejected" }>> = {}
+): Extract<DocSyncSubmitResultV1, { readonly status: "rejected" }> {
   return {
     ok: false,
     _tag: "WriteRejected",

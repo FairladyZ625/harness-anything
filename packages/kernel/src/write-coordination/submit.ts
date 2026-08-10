@@ -1,11 +1,27 @@
 import { randomBytes } from "node:crypto";
 import { Effect } from "effect";
 import { taskEntityId } from "../domain/index.ts";
-import type { EntityId, TaskId, WriteError } from "../domain/index.ts";
+import type { EntityId, TaskId } from "../domain/index.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
-import type { WriteCoordinator, WriteOpKind } from "../ports/index.ts";
+import {
+  isIndeterminateFlushReport,
+  type DeterminateFlushReport,
+  type FlushReport,
+  type IndeterminateFlushControlOutcome,
+  type WriteControl,
+  type WriteCoordinator,
+  type WriteOpKind
+} from "../ports/index.ts";
 
 export type PayloadHasher = (payload: unknown) => string;
+
+export function requireDeterminateFlushReport(
+  report: FlushReport
+): Effect.Effect<DeterminateFlushReport, IndeterminateFlushControlOutcome> {
+  return isIndeterminateFlushReport(report)
+    ? Effect.fail({ _tag: "IndeterminateFlushControlOutcome", report })
+    : Effect.succeed(report);
+}
 
 export interface CoordinatedTaskDocumentWrite {
   readonly taskId: TaskId;
@@ -21,7 +37,7 @@ export function writeCoordinatedTaskDocuments(
   coordinator: WriteCoordinator,
   hashPayload: PayloadHasher,
   writes: ReadonlyArray<CoordinatedTaskDocumentWrite>
-): Effect.Effect<void, WriteError> {
+): Effect.Effect<void, WriteControl> {
   return Effect.gen(function* () {
     for (const write of writes) {
       yield* writeCoordinatedPayload(coordinator, hashPayload, {
@@ -34,7 +50,7 @@ export function writeCoordinatedTaskDocuments(
         }
       }, { flush: false });
     }
-    yield* coordinator.flush("explicit");
+    yield* requireDeterminateFlushReport(yield* coordinator.flush("explicit"));
   });
 }
 
@@ -48,7 +64,7 @@ export function writeCoordinatedPayload(
     readonly opIdPrefix?: string;
   },
   options: { readonly flush?: boolean } = {}
-): Effect.Effect<void, WriteError> {
+): Effect.Effect<void, WriteControl> {
   return Effect.gen(function* () {
     // Default op ids carry random entropy: delta-shaped payloads (e.g. progress_append)
     // are constant for identical text, so timestamp+hash alone would collide within one
@@ -67,6 +83,8 @@ export function writeCoordinatedPayload(
       kind: input.kind,
       payload: input.payload
     });
-    if (options.flush ?? true) yield* coordinator.flush("explicit");
+    if (options.flush ?? true) {
+      yield* requireDeterminateFlushReport(yield* coordinator.flush("explicit"));
+    }
   });
 }

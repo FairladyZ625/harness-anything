@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import path from "node:path";
 import { makeMulticaAdoptionService, makeMulticaLifecycleEngine, type MulticaClient, type MulticaRawIssue } from "@harness-anything/adapter-multica";
-import type { ArtifactStoreError, EngineError, ExternalRef, OperationalActor, TaskId, WriteCoordinator, WriteError } from "@harness-anything/kernel";
+import type { ArtifactStoreError, EngineError, ExternalRef, OperationalActor, TaskId, WriteControl, WriteCoordinator, WriteError } from "@harness-anything/kernel";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { resolveHarnessLayout, taskPackagePath } from "@harness-anything/kernel";
 import type { CliResult } from "../cli/types.ts";
@@ -29,7 +29,7 @@ export function runAdoptMultica(
   rootInput: HarnessLayoutInput,
   action: AdoptMulticaAction,
   makeWriteCoordinator: (actor: OperationalActor) => WriteCoordinator
-): Effect.Effect<CliResult, ArtifactStoreError | EngineError | WriteError> {
+): Effect.Effect<CliResult, ArtifactStoreError | EngineError | WriteControl> {
   const staleTtl = resolveMulticaStaleTtlMs(rootInput, process.env, action.kind);
   if (!staleTtl.ok) return Effect.succeed(staleTtl.result);
   const layout = resolveHarnessLayout(rootInput);

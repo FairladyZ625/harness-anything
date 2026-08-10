@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { EngineError, WriteError } from "@harness-anything/kernel";
+import type { EngineError, WriteControl } from "@harness-anything/kernel";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunnerContext } from "../../cli/runner-registry.ts";
 import { leaseEnforcementEnabled } from "../settings.ts";
@@ -8,8 +8,8 @@ import { taskHolderCommandFailure, taskHolderPrincipal } from "./task-holder-sup
 export function withAuditedCancellationLease(
   context: CommandRunnerContext,
   taskId: string,
-  operation: Effect.Effect<CliResult, EngineError | WriteError>
-): Effect.Effect<CliResult, EngineError | WriteError> {
+  operation: Effect.Effect<CliResult, EngineError | WriteControl>
+): Effect.Effect<CliResult, EngineError | WriteControl> {
   if (!leaseEnforcementEnabled(context.layoutInput)) return operation;
   const principal = taskHolderPrincipal(context);
   if (!principal.ok) {

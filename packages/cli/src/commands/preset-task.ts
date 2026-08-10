@@ -6,7 +6,9 @@ import { bindCreateProvenance, compileTaskContractSnapshot, type ProvenanceBindi
 import {
   createTaskPackagePath,
   generateTaskId,
+  isIndeterminateFlushControlOutcome,
   resolveHarnessLayout,
+  requireDeterminateFlushReport,
   stablePayloadHash,
   taskEntityId,
   type EngineError,
@@ -16,6 +18,7 @@ import {
   type OperationalActor,
   type ProvenancePayload,
   type WriteCoordinator,
+  type WriteControl,
   type WriteError
 } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
@@ -72,7 +75,7 @@ export function runNewTaskWithPreset(
   settings?: ProjectHarnessSettings,
   provenanceOptions: ProvenanceBindingOptions = {},
   makeWriteCoordinator?: (actor: OperationalActor) => WriteCoordinator
-): Effect.Effect<CliResult, EngineError | WriteError> {
+): Effect.Effect<CliResult, EngineError | WriteControl> {
   return Effect.gen(function* () {
     const rootDir = resolveHarnessLayout(rootInput).rootDir;
     const idempotencyCandidate = action.idempotencyKey
@@ -207,8 +210,10 @@ export function runNewTaskWithPreset(
       } satisfies CliResult;
     }
     const provenance = yield* bindCreateProvenance(provenanceOptions, createdAt).pipe(
-      Effect.mapError((error) => error.writeError
-        ?? ({ _tag: "WriteRejected", taskId, reason: error.reason } satisfies WriteError))
+      Effect.mapError((error) => isIndeterminateFlushControlOutcome(error)
+        ? error
+        : error.writeError
+          ?? ({ _tag: "WriteRejected", taskId, reason: error.reason } satisfies WriteError))
     );
     const index = makeIndex({
       taskId,
@@ -255,7 +260,7 @@ export function runNewTaskWithPreset(
       kind: "package_create",
       payload: { writes }
     });
-    yield* coordinator.flush("explicit");
+    yield* requireDeterminateFlushReport(yield* coordinator.flush("explicit"));
     if (registeredModule) {
       const registry = readModules(rootInput);
       yield* writeModulesCoordinated(rootInput, coordinator, {

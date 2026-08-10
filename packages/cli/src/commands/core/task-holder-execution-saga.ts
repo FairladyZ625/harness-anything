@@ -3,7 +3,7 @@ import {
   makeCoordinatedExecutionAuthoredStore,
   makeExecutionSagaService
 } from "@harness-anything/application";
-import { readSessionEntityDocument } from "@harness-anything/kernel";
+import { isIndeterminateFlushControlOutcome, readSessionEntityDocument } from "@harness-anything/kernel";
 import type { CommandRunnerContext } from "../../cli/runner-registry.ts";
 
 export function commandExecutionSaga(context: CommandRunnerContext) {
@@ -25,7 +25,7 @@ export function commandExecutionSaga(context: CommandRunnerContext) {
           // A missing or legacy Session is finalized through the existing exporter below.
         }
         const exported = await Effect.runPromise(context.provenanceSessionExporter.exportSession(session).pipe(
-          Effect.catchAll((error) => error.code === "transcript_unavailable"
+          Effect.catchAll((error) => !isIndeterminateFlushControlOutcome(error) && error.code === "transcript_unavailable"
             ? Effect.succeed(null)
             : Effect.fail(error))
         ));

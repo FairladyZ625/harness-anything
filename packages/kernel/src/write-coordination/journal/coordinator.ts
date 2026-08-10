@@ -2,6 +2,7 @@ import path from "node:path";
 import { Effect } from "effect";
 import type {
   ExactCapableWriteCoordinator,
+  DeterminateFlushReport,
   FlushReason,
   FlushReport,
   RecoveryReport,
@@ -44,6 +45,7 @@ import {
   writeOpTouchedPaths
 } from "./operations/transaction-plan.ts";
 import {
+  indeterminateForeignCommitterFlush,
   reconcileDurableExactFlush,
   reconcileDurableFlush,
   shouldWaitForForeignCommitter
@@ -182,7 +184,9 @@ function makeJournaledWriteCoordinatorInternal(
       reason, witnesses, exactJournalAuthorizations, pending,
       journalPath, watermarkPath, rootDir
     ),
-    shouldContinueAfterExhaustion: (error) => shouldWaitForForeignCommitter(error, globalLockPath),
+    indeterminateAfterExhaustion: (reason, witnesses, error) => shouldWaitForForeignCommitter(error, globalLockPath)
+      ? indeterminateForeignCommitterFlush(reason, [witnesses[0]!.opId], error, globalLockPath)
+      : undefined,
     ...(options.onLockConflictRetrySignal ? {
       onRetryBudgetSignal: options.onLockConflictRetrySignal
     } : {})
@@ -207,7 +211,9 @@ function makeJournaledWriteCoordinatorInternal(
       reason, witnesses, exactJournalAuthorizations, pending,
       journalPath, watermarkPath, rootDir
     ),
-    shouldContinueAfterExhaustion: (error) => shouldWaitForForeignCommitter(error, globalLockPath),
+    indeterminateAfterExhaustion: (reason, witnesses, error) => shouldWaitForForeignCommitter(error, globalLockPath)
+      ? indeterminateForeignCommitterFlush(reason, witnesses.map((witness) => witness.opId) as [string, ...string[]], error, globalLockPath)
+      : undefined,
     ...(options.onLockConflictRetrySignal ? {
       onRetryBudgetSignal: options.onLockConflictRetrySignal
     } : {})
@@ -279,7 +285,9 @@ function makeJournaledWriteCoordinatorInternal(
           lockConflictRetry,
           reconcileDurable,
           {
-            shouldContinueAfterExhaustion: (error) => shouldWaitForForeignCommitter(error, globalLockPath),
+            indeterminateAfterExhaustion: (error) => shouldWaitForForeignCommitter(error, globalLockPath) && ownedOpIds.length > 0
+              ? indeterminateForeignCommitterFlush(reason, ownedOpIds as [string, ...string[]], error, globalLockPath)
+              : undefined,
             ...(options.onLockConflictRetrySignal ? { signal: options.onLockConflictRetrySignal } : {})
           }
         )
@@ -326,7 +334,7 @@ function flushRecords(
   onProjectionFingerprintPhase?: (phase: JournalProjectionFingerprintPhase) => void,
   onProjectionFingerprintDiagnostic?: (diagnostic: import("../../projection/projection-source-baseline.ts").TrustedProjectionFingerprintDiagnostic) => void,
   onPostCommitPhase?: (phase: JournalPostCommitPhase) => void
-): FlushReport {
+): DeterminateFlushReport {
   const touchedPaths: string[] = [];
   const committedOpIds: string[] = [];
   // Git topology and commit-tree queries are immutable for the lifetime of this

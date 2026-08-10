@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import { readTaskLifecyclePolicy } from "@harness-anything/application";
-import type { DomainStatus, EngineError, WriteError } from "@harness-anything/kernel";
+import type { DomainStatus, EngineError, WriteControl } from "@harness-anything/kernel";
 import { parseEntityRef, queryTaskProjection, resolveHarnessLayout, taskDocumentPath, validateRelationGraphRecords } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
@@ -24,7 +24,7 @@ type TaskArchiveAction = {
 export function runTaskArchive(
   context: CommandRunnerContext,
   action: TaskArchiveAction
-): Effect.Effect<CliResult, EngineError | WriteError> {
+): Effect.Effect<CliResult, EngineError | WriteControl> {
   const taskIds = resolveArchiveTaskIds(context, action);
   if (!taskIds.ok) return Effect.succeed(taskIds.result);
 
@@ -161,7 +161,7 @@ function endpointOwnedByTask(refText: string, taskId: string): boolean {
 function ensureArchiveDistillCandidate(
   context: CommandRunnerContext,
   taskId: string
-): Effect.Effect<string | undefined, WriteError> {
+): Effect.Effect<string | undefined, WriteControl> {
   const inputPath = archiveDistillInputPath(context, taskId);
   if (!inputPath || hasDistillCandidate(context, taskId)) return Effect.succeed(undefined);
   return writeDistillCandidate(context, { taskId, inputPath }, "ha task archive").pipe(

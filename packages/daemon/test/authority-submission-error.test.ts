@@ -556,37 +556,41 @@ test("stale daemon generation receipts expose a stable retryable write error cod
   });
 });
 
-test("post-publish generation loss preserves code and context without claiming retryability", () => {
-  const failure = (() => {
-    try {
-      receiptToFlushReport({
-        tag: "INDETERMINATE",
-        workspaceId: "workspace-generation-fence",
-        opId: "op-generation-indeterminate",
-        semanticDigest: "b".repeat(64),
-        commitSha: "c".repeat(40),
-        reason: "Canonical outcome requires current-generation reconciliation.",
-        errorCode: "DAEMON_GENERATION_FENCED",
-        errorContext: {
-          schema: "daemon-generation-write-rejection/v1",
-          machineId: "machine-generation",
-          attemptedDaemonGeneration: 1,
-          currentDaemonGeneration: 2,
-          workspaceId: "workspace-generation-fence",
-          opId: "op-generation-indeterminate",
-          stage: "before-terminal-visibility"
-        }
-      }, "explicit");
-    } catch (error) {
-      return error;
+test("post-publish generation loss remains an authority indeterminate report with original coordinates", () => {
+  const report = receiptToFlushReport({
+    tag: "INDETERMINATE",
+    workspaceId: "workspace-generation-fence",
+    opId: "op-generation-indeterminate",
+    semanticDigest: "b".repeat(64),
+    commitSha: "c".repeat(40),
+    reason: "Canonical outcome requires current-generation reconciliation.",
+    errorCode: "DAEMON_GENERATION_FENCED",
+    errorContext: {
+      schema: "daemon-generation-write-rejection/v1",
+      machineId: "machine-generation",
+      attemptedDaemonGeneration: 1,
+      currentDaemonGeneration: 2,
+      workspaceId: "workspace-generation-fence",
+      opId: "op-generation-indeterminate",
+      stage: "before-terminal-visibility"
     }
-    throw new Error("receiptToFlushReport must reject a fenced indeterminate receipt");
-  })() as { _tag?: string; code?: string; retryable?: boolean; context?: { stage?: string } };
+  }, "explicit");
 
-  assert.equal(failure._tag, "WriteRejected");
-  assert.equal(failure.code, "DAEMON_GENERATION_FENCED");
-  assert.equal(failure.retryable, undefined);
-  assert.equal(failure.context?.stage, "before-terminal-visibility");
+  assert.equal("status" in report && report.status, "indeterminate");
+  if (!("status" in report)) assert.fail("expected an indeterminate authority flush report");
+  assert.deepEqual(report.operationIds, ["op-generation-indeterminate"]);
+  assert.equal(report.cause.kind, "authority");
+  if (report.cause.kind !== "authority") assert.fail("expected authority coordinates");
+  assert.equal(report.cause.workspaceId, "workspace-generation-fence");
+  assert.equal(report.cause.semanticDigest, "b".repeat(64));
+  assert.equal(report.cause.observedCommitSha, "c".repeat(40));
+  assert.equal(report.cause.evidence, "Canonical outcome requires current-generation reconciliation.");
+  assert.equal(report.cause.errorCode, "DAEMON_GENERATION_FENCED");
+  assert.equal(report.cause.errorContext?.stage, "before-terminal-visibility");
+  assert.equal("committed" in report, false);
+  assert.equal("watermark" in report, false);
+  assert.equal("canonicalCommitSha" in report, false);
+  assert.equal("publicationMode" in report, false);
 });
 
 function authorityCommandAttemptFixture() {

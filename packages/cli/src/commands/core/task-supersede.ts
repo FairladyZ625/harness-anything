@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import type { EngineError, WriteError } from "@harness-anything/kernel";
+import type { EngineError, WriteControl } from "@harness-anything/kernel";
 import { createTaskPackagePath, generateTaskId, readFrontmatter, readScalar, taskDocumentPath } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
@@ -15,7 +15,7 @@ type TaskSupersedeAction = Extract<Parameters<CommandRunner>[1]["action"], { rea
 export function runTaskSupersede(
   context: CommandRunnerContext,
   action: TaskSupersedeAction
-): Effect.Effect<CliResult, EngineError | WriteError> {
+): Effect.Effect<CliResult, EngineError | WriteControl> {
   if (action.confirm && action.confirm !== action.oldTaskId) {
     return Effect.succeed({
       ok: false,
@@ -66,7 +66,7 @@ export function runTaskSupersede(
 function createReplacementTask(
   context: CommandRunnerContext,
   action: TaskSupersedeAction
-): Effect.Effect<CliResult, EngineError | WriteError> {
+): Effect.Effect<CliResult, EngineError | WriteControl> {
   const newTaskId = generateTaskId();
   const slug = action.slug ?? "replacement-task";
   const title = action.title ?? "Replacement Task";

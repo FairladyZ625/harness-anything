@@ -1,11 +1,18 @@
 import type { WriteError } from "../../domain/index.ts";
 import type {
+  DeterminateFlushReport,
   FlushReason,
-  FlushReport,
+  IndeterminateFlushReport,
   JournalRecordWitnessV1,
   WriteOp
 } from "../../ports/write-coordinator.ts";
+import type { LockRecord } from "./types.ts";
 import { durableFileExists, readDurableState, readFileBytes } from "./durable.ts";
+
+type FlushLockHolderSnapshot = Extract<
+  IndeterminateFlushReport["cause"],
+  { readonly kind: "foreign-committer" }
+>["lockHolder"];
 
 export function reconcileDurableFlush(
   reason: FlushReason,
@@ -14,7 +21,7 @@ export function reconcileDurableFlush(
   journalPath: string,
   watermarkPath: string,
   rootDir: string
-): FlushReport | undefined {
+): DeterminateFlushReport | undefined {
   if (ownedOpIds.length === 0) return undefined;
   try {
     const applied = readDurableState(journalPath, watermarkPath, rootDir).applied;
@@ -44,7 +51,7 @@ export function reconcileDurableExactFlush(
   journalPath: string,
   watermarkPath: string,
   rootDir: string
-): FlushReport | undefined {
+): DeterminateFlushReport | undefined {
   const report = reconcileDurableFlush(
     reason,
     witnesses.map((witness) => witness.opId),
@@ -68,4 +75,76 @@ export function shouldWaitForForeignCommitter(error: WriteError, globalLockPath:
     // The lock owner may still be between open("wx") and its durable JSON write.
     return true;
   }
+}
+
+export function indeterminateForeignCommitterFlush(
+  reason: FlushReason,
+  operationIds: readonly [string, ...string[]],
+  error: WriteError,
+  globalLockPath: string
+): IndeterminateFlushReport {
+  return {
+    status: "indeterminate",
+    reason,
+    opCount: operationIds.length,
+    operationIds,
+    cause: {
+      kind: "foreign-committer",
+      detail: lockConflictDetail(error),
+      lockHolder: readFlushLockHolderSnapshot(globalLockPath)
+    }
+  };
+}
+
+function readFlushLockHolderSnapshot(globalLockPath: string): FlushLockHolderSnapshot {
+  if (!durableFileExists(globalLockPath)) {
+    return {
+      status: "missing",
+      lockPath: globalLockPath,
+      detail: "global lock disappeared while the exhausted flush outcome was being captured"
+    };
+  }
+  try {
+    const candidate = JSON.parse(
+      Buffer.from(readFileBytes(globalLockPath)).toString("utf8")
+    ) as Partial<LockRecord>;
+    if (typeof candidate.pid !== "number"
+      || typeof candidate.hostname !== "string"
+      || typeof candidate.acquiredAt !== "string"
+      || typeof candidate.heartbeatAt !== "string") {
+      return {
+        status: "unreadable",
+        lockPath: globalLockPath,
+        detail: "global lock record did not contain a complete holder identity"
+      };
+    }
+    return {
+      status: "observed",
+      lockPath: globalLockPath,
+      pid: candidate.pid,
+      hostname: candidate.hostname,
+      acquiredAt: candidate.acquiredAt,
+      heartbeatAt: candidate.heartbeatAt,
+      ...(candidate.ownerKind ? { ownerKind: candidate.ownerKind } : {}),
+      ...(candidate.repoId ? { repoId: candidate.repoId } : {}),
+      ...(candidate.canonicalRoot ? { canonicalRoot: candidate.canonicalRoot } : {}),
+      ...(candidate.endpoint ? { endpoint: candidate.endpoint } : {})
+    };
+  } catch (error) {
+    return {
+      status: "unreadable",
+      lockPath: globalLockPath,
+      detail: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+function lockConflictDetail(error: WriteError): string {
+  if (error._tag === "GlobalWriteConflict") {
+    return error.owner ?? "foreign process still owns the global write lock";
+  }
+  if (error._tag === "WriteConflict") {
+    return error.owner ?? `write lock conflict for ${error.taskId}`;
+  }
+  return "write outcome remained unknown after the visible retry budget was exhausted";
 }

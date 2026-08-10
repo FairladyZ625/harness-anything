@@ -1,4 +1,4 @@
-import type { FlushReport, LedgerMaterializerReport } from "@harness-anything/kernel";
+import { isIndeterminateFlushReport, type FlushReport, type LedgerMaterializerReport } from "@harness-anything/kernel";
 import { setImmediate as nextEventLoopTurn } from "node:timers/promises";
 import type { DaemonWriteQueue } from "./write-queue.ts";
 import { measureCurrentDaemonRequestPerformancePhase } from "../observability/request-performance.ts";
@@ -40,7 +40,7 @@ export function enqueueDaemonAuthorityPublication(
         "durable-flush",
         options.publish
       );
-      if (flush.committed && flush.opCount > 0 && flush.watermark) {
+      if (!isIndeterminateFlushReport(flush) && flush.committed && flush.opCount > 0 && flush.watermark) {
         const acceptedCommitSha = resolveAcceptedCommitSha(options.sessionId);
         reportDurableAcceptance?.({
           sessionId: options.sessionId,
@@ -53,7 +53,7 @@ export function enqueueDaemonAuthorityPublication(
     })
   });
   return durableAcceptance.then(async ({ flush, acceptedCommitSha }) => {
-    if (!flush.committed || flush.opCount === 0) return { flush };
+    if (isIndeterminateFlushReport(flush) || !flush.committed || flush.opCount === 0) return { flush };
     await waitForCurrentAuthoritySettlementRelease();
     // The production queue may begin a synchronous materializer inside
     // enqueueBackground. Yield once so admission continuations can persist and

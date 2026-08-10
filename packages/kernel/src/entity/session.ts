@@ -1,9 +1,8 @@
 import { Effect, Schema } from "effect";
-import type { WriteError } from "../domain/index.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { localLayoutFileSystem } from "../local/local-layout-file-system.ts";
-import type { WriteCoordinator } from "../ports/index.ts";
+import type { WriteControl, WriteCoordinator } from "../ports/index.ts";
 import { SessionManifestSchema, type SessionManifest } from "../schemas/session-manifest.ts";
 import { decodeEntityDeclaration, resolveEntityDocumentPath, writeDeclaredEntity } from "./declaration.ts";
 import { sessionEntityRegistration } from "./session-declaration.ts";
@@ -20,7 +19,7 @@ export function writeSessionEntity(
   _rootInput: HarnessLayoutInput,
   manifest: SessionManifest,
   options: { readonly flush?: boolean; readonly opIdPrefix?: string } = {}
-): Effect.Effect<void, WriteError> {
+): Effect.Effect<void, WriteControl> {
   return writeDeclaredEntity(
     coordinator,
     stablePayloadHash,

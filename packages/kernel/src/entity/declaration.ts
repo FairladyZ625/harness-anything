@@ -1,7 +1,7 @@
 import path from "node:path";
 import { Effect, Schema } from "effect";
 import { declaredEntityId } from "../domain/entity-id.ts";
-import type { WriteError } from "../domain/index.ts";
+import type { WriteControl } from "../ports/write-coordinator.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { normalizeRelativeDocumentPath, resolveHarnessLayout, taskPackagePath } from "../layout/index.ts";
 import { localLayoutFileSystem } from "../local/local-layout-file-system.ts";
@@ -67,7 +67,7 @@ export function writeDeclaredEntityTransaction(
   companionWrites: ReadonlyArray<DocumentWrite>,
   preconditions: ReadonlyArray<DeclaredEntityDocumentPrecondition> = [],
   options: { readonly opIdPrefix?: string } = {}
-): Effect.Effect<void, WriteError> {
+): Effect.Effect<void, WriteControl> {
   const decoded = Schema.decodeUnknownSync(declaration.schema)(value) as Readonly<Record<string, unknown>>;
   const identityKey = declaration.rootResolver.identity.at(-1)!;
   return writeCoordinatedPayload(coordinator, hashPayload, {
@@ -172,7 +172,7 @@ export function writeDeclaredEntity(
   identity: Readonly<Record<string, string>>,
   value: unknown,
   options: { readonly flush?: boolean; readonly opIdPrefix?: string } = {}
-): Effect.Effect<void, WriteError> {
+): Effect.Effect<void, WriteControl> {
   const decoded = Schema.decodeUnknownSync(declaration.schema)(value) as Readonly<Record<string, unknown>>;
   const bodyRef = declaration.storageForm === "composite-manifest-blob"
     ? readField(decoded, declaration.blob!.referenceField)

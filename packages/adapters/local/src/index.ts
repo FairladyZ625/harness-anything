@@ -2,8 +2,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import type { EngineError, ProvenancePayload, TaskContractSnapshot, WriteError } from "@harness-anything/kernel";
-import { explainStatusTransition, isTerminalStatus } from "@harness-anything/kernel";
+import type { EngineError, ProvenancePayload, TaskContractSnapshot, WriteControl, WriteError } from "@harness-anything/kernel";
+import { explainStatusTransition, isIndeterminateFlushControlOutcome, isTerminalStatus } from "@harness-anything/kernel";
 import { evaluateEntityDisposition } from "@harness-anything/kernel";
 import { stablePayloadHash, taskEntityId, writeCoordinatedPayload } from "@harness-anything/kernel";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
@@ -135,7 +135,7 @@ function createTask(
   clock: () => Date,
   input: CreateLocalTaskInput,
   bindProvenance: LocalLifecycleOptions["bindCreateProvenance"] = defaultCreateProvenance
-): Effect.Effect<LocalTaskResult, EngineError | WriteError> {
+): Effect.Effect<LocalTaskResult, EngineError | WriteControl> {
   return Effect.gen(function* () {
     if (!input.allowManualId) {
       const error = validateGeneratedTaskId(input.taskId);
@@ -152,8 +152,10 @@ function createTask(
     }
     const createdAt = clock().toISOString();
     const provenance = yield* bindProvenance(createdAt).pipe(
-      Effect.mapError((error) => error.writeError
-        ?? ({ _tag: "WriteRejected", taskId: input.taskId, reason: error.reason } satisfies WriteError))
+      Effect.mapError((error) => isIndeterminateFlushControlOutcome(error)
+        ? error
+        : error.writeError
+          ?? ({ _tag: "WriteRejected", taskId: input.taskId, reason: error.reason } satisfies WriteError))
     );
     const writes = buildLocalTaskCreateWrites(input, createdAt, provenance);
     yield* writeTaskPackageDocuments(coordinator, stablePayloadHash, input.taskId, writes);
@@ -226,7 +228,7 @@ function setStatus(
   rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
   input: SetLocalStatusInput
-): Effect.Effect<LocalTaskResult, EngineError | WriteError> {
+): Effect.Effect<LocalTaskResult, EngineError | WriteControl> {
   return Effect.gen(function* () {
     const index = yield* readIndexEffect(rootInput, input.taskId);
     if (input.auditText !== undefined
@@ -286,7 +288,7 @@ function appendProgress(
   rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
   input: AppendProgressInput
-): Effect.Effect<LocalProgressResult, EngineError | WriteError> {
+): Effect.Effect<LocalProgressResult, EngineError | WriteControl> {
   return Effect.gen(function* () {
     yield* readIndexEffect(rootInput, input.taskId);
     // ADR-0016 D2: journal only stores the append delta. flush/replay reads the
@@ -301,7 +303,7 @@ function stageDocument(
   rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
   input: StageTaskDocumentInput
-): Effect.Effect<LocalProgressResult, EngineError | WriteError> {
+): Effect.Effect<LocalProgressResult, EngineError | WriteControl> {
   return Effect.gen(function* () {
     yield* readIndexEffect(rootInput, input.taskId);
     yield* stageTaskDocument(coordinator, stablePayloadHash, input.taskId, input.path);
@@ -313,7 +315,7 @@ function stageTaskPackageTree(
   rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
   input: StageTaskTreeInput
-): Effect.Effect<LocalProgressResult, EngineError | WriteError> {
+): Effect.Effect<LocalProgressResult, EngineError | WriteControl> {
   return Effect.gen(function* () {
     yield* readIndexEffect(rootInput, input.taskId);
     yield* stageTaskTree(coordinator, stablePayloadHash, input.taskId);
@@ -324,7 +326,7 @@ function stageTaskPackageTree(
 function taskTreeStatus(
   rootInput: HarnessLayoutInput,
   input: StageTaskTreeInput
-): Effect.Effect<LocalTaskTreeStatusResult, EngineError | WriteError> {
+): Effect.Effect<LocalTaskTreeStatusResult, EngineError | WriteControl> {
   return Effect.gen(function* () {
     yield* readIndexEffect(rootInput, input.taskId);
     return yield* Effect.try({
@@ -338,7 +340,7 @@ function replaceTaskDocument(
   rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
   input: WriteTaskDocumentInput
-): Effect.Effect<LocalProgressResult, EngineError | WriteError> {
+): Effect.Effect<LocalProgressResult, EngineError | WriteControl> {
   return Effect.gen(function* () {
     yield* readIndexEffect(rootInput, input.taskId);
     yield* writeTaskDocument(coordinator, stablePayloadHash, input.taskId, input.path, input.body, { kind: "doc_write" });
@@ -350,7 +352,7 @@ function writeCodeDocReconciliation(
   rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
   input: { readonly taskId: string; readonly body: string }
-): Effect.Effect<LocalProgressResult, EngineError | WriteError> {
+): Effect.Effect<LocalProgressResult, EngineError | WriteControl> {
   return Effect.gen(function* () {
     yield* readIndexEffect(rootInput, input.taskId);
     yield* writeCoordinatedPayload(coordinator, stablePayloadHash, {
@@ -415,7 +417,7 @@ function archiveTask(
   rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
   input: TaskReasonInput
-): Effect.Effect<LocalTaskResult, EngineError | WriteError> {
+): Effect.Effect<LocalTaskResult, EngineError | WriteControl> {
   return Effect.gen(function* () {
     const index = yield* readIndexEffect(rootInput, input.taskId);
     yield* writeTaskDocument(coordinator, stablePayloadHash, input.taskId, "INDEX.md", renderIndex({ ...index, packageDisposition: "archived" }, input.reason), { kind: "package_archive" });
@@ -429,7 +431,7 @@ function supersedeTask(
   clock: () => Date,
   input: SupersedeTaskInput,
   bindProvenance: LocalLifecycleOptions["bindCreateProvenance"] = defaultCreateProvenance
-): Effect.Effect<LocalSupersedeResult, EngineError | WriteError> {
+): Effect.Effect<LocalSupersedeResult, EngineError | WriteControl> {
   return Effect.gen(function* () {
     const error = validateGeneratedTaskId(input.newTaskId);
     if (error) return yield* Effect.fail(error);
@@ -439,8 +441,10 @@ function supersedeTask(
     const oldIndex = yield* readIndexEffect(rootInput, input.oldTaskId);
     const createdAt = clock().toISOString();
     const provenance = yield* bindProvenance(createdAt).pipe(
-      Effect.mapError((error) => error.writeError
-        ?? ({ _tag: "WriteRejected", taskId: input.newTaskId, reason: error.reason } satisfies WriteError))
+      Effect.mapError((error) => isIndeterminateFlushControlOutcome(error)
+        ? error
+        : error.writeError
+          ?? ({ _tag: "WriteRejected", taskId: input.newTaskId, reason: error.reason } satisfies WriteError))
     );
     const newIndex = makeIndex({
       taskId: input.newTaskId,
@@ -472,7 +476,7 @@ function deleteTask(
   rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
   input: DeleteTaskInput
-): Effect.Effect<LocalDeleteResult, EngineError | WriteError> {
+): Effect.Effect<LocalDeleteResult, EngineError | WriteControl> {
   return Effect.gen(function* () {
     const index = yield* readIndexEffect(rootInput, input.taskId);
     if (input.mode === "soft") {
@@ -507,7 +511,7 @@ function reopenTask(
   rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
   input: TaskReasonInput
-): Effect.Effect<LocalTaskResult, EngineError | WriteError> {
+): Effect.Effect<LocalTaskResult, EngineError | WriteControl> {
   return Effect.gen(function* () {
     const index = yield* readIndexEffect(rootInput, input.taskId);
     if (isTerminalStatus(index.status)) {

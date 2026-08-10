@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { readTaskLifecyclePolicy } from "@harness-anything/application";
-import type { DomainStatus, EngineError, WriteError } from "@harness-anything/kernel";
+import type { DomainStatus, EngineError, WriteControl } from "@harness-anything/kernel";
 import { explainStatusTransition, isTerminalStatus, queryTaskSubtree } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
@@ -58,7 +58,7 @@ export const runTaskLifecycleCommand: CommandRunner = (context, command) => {
 function runExecutionAwareInReview(
   _context: CommandRunnerContext,
   action: Extract<TaskLifecycleAction, { readonly kind: "status-set" }>
-): Effect.Effect<CliResult, EngineError | WriteError> {
+): Effect.Effect<CliResult, EngineError | WriteControl> {
   return Effect.succeed({
     ok: false,
     command: "status-set",
@@ -74,7 +74,7 @@ function runExecutionAwareInReview(
 function runProgressAppend(
   context: CommandRunnerContext,
   action: Extract<TaskLifecycleAction, { readonly kind: "progress-append" }>
-): Effect.Effect<CliResult, EngineError | WriteError> {
+): Effect.Effect<CliResult, EngineError | WriteControl> {
   const evidence = action.evidence?.map((entry) => `Evidence: ${entry.type}:${entry.path}:${entry.summary}`).join("\n");
   const text = evidence ? `${action.text}\n\n${evidence}` : action.text;
   return context.engine.appendProgress({ taskId: action.taskId, text }).pipe(Effect.map((result): CliResult => ({
@@ -92,7 +92,7 @@ function runStatusSet(
   status: DomainStatus,
   force: boolean,
   reason?: string
-): Effect.Effect<CliResult, EngineError | WriteError> {
+): Effect.Effect<CliResult, EngineError | WriteControl> {
   if (status === "active") return runActiveStatusSet(context, taskId);
   if (!isTerminalStatus(status)) {
     return Effect.gen(function* () {
@@ -204,7 +204,7 @@ export function taskTreeSoftGateWarnings(
 function runTaskDelete(
   context: CommandRunnerContext,
   action: Extract<TaskLifecycleAction, { readonly kind: "task-delete" }>
-): Effect.Effect<CliResult, EngineError | WriteError> {
+): Effect.Effect<CliResult, EngineError | WriteControl> {
   if (action.confirm && action.confirm !== action.taskId) {
     return Effect.succeed({
       ok: false,

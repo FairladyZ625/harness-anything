@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import { readDecisionDocument, type DecisionWriteService, type DecisionWriteRejected } from "@harness-anything/application";
-import { type DecisionPackage, type EntityRelationRecord, type WriteError } from "@harness-anything/kernel";
+import { type DecisionPackage, type EntityRelationRecord, type WriteControl, type WriteError } from "@harness-anything/kernel";
 import { resolveHarnessLayout, taskDocumentPath, type HarnessLayoutInput } from "@harness-anything/kernel";
 import { readFrontmatter, readScalar } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
@@ -10,6 +10,7 @@ import { decisionRelationRecord } from "./decision-relation-record.ts";
 import type { CommandRunnerContext } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { decisionReadFailureHint } from "./decision-shared.ts";
+import { mapFailurePreservingIndeterminate } from "../../cli/indeterminate-control.ts";
 
 type DecisionRelateAction = Extract<ParsedCommand["action"], { readonly kind: "decision-relate" }>;
 type DecisionRelationRetireAction = Extract<ParsedCommand["action"], { readonly kind: "decision-relation-retire" }>;
@@ -20,7 +21,7 @@ export function runDecisionRelate(
   context: CommandRunnerContext,
   service: DecisionWriteService,
   action: DecisionRelateAction
-): Effect.Effect<CliResult, WriteError> {
+): Effect.Effect<CliResult, WriteControl> {
   const rootInput = context.layoutInput;
   return Effect.gen(function* () {
     const read = yield* readDecisionForCommand(rootInput, "decision-relate", action.decisionId);
@@ -46,9 +47,9 @@ export function runDecisionRelate(
       } satisfies CliResult;
     }
     return yield* service.relate({ current, relation: relation.record, taskWrites: taskWrites.writes, body: action.body }).pipe(
-      Effect.match({
-        onFailure: (error): CliResult => decisionRelationFailure("decision-relate", current.decision_id, error),
-        onSuccess: (result): CliResult => decisionRelateResult(rootInput, "decision-relate", result.decisionId, result.state, false)
+      Effect.matchEffect({
+        onFailure: (error) => mapFailurePreservingIndeterminate(error, (failure) => decisionRelationFailure("decision-relate", current.decision_id, failure)),
+        onSuccess: (result) => Effect.succeed(decisionRelateResult(rootInput, "decision-relate", result.decisionId, result.state, false))
       })
     );
   });
@@ -58,16 +59,16 @@ export function runDecisionRelationRetire(
   rootInput: Parameters<typeof readDecisionDocument>[0],
   service: DecisionWriteService,
   action: DecisionRelationRetireAction
-): Effect.Effect<CliResult, WriteError> {
+): Effect.Effect<CliResult, WriteControl> {
   return Effect.gen(function* () {
     const read = yield* readDecisionForCommand(rootInput, "decision-relation-retire", action.decisionId);
     if (!read.ok) return read.result;
     const current = read.current;
     if (action.dryRun) return decisionRelateResult(rootInput, "decision-relation-retire", current.decision_id, current.state, true);
     return yield* service.retireRelation({ current, relationId: action.relationId, body: action.body }).pipe(
-      Effect.match({
-        onFailure: (error): CliResult => decisionRelationFailure("decision-relation-retire", current.decision_id, error),
-        onSuccess: (result): CliResult => decisionRelateResult(rootInput, "decision-relation-retire", result.decisionId, result.state, false)
+      Effect.matchEffect({
+        onFailure: (error) => mapFailurePreservingIndeterminate(error, (failure) => decisionRelationFailure("decision-relation-retire", current.decision_id, failure)),
+        onSuccess: (result) => Effect.succeed(decisionRelateResult(rootInput, "decision-relation-retire", result.decisionId, result.state, false))
       })
     );
   });
@@ -77,7 +78,7 @@ export function runDecisionRelationReplace(
   context: CommandRunnerContext,
   service: DecisionWriteService,
   action: DecisionRelationReplaceAction
-): Effect.Effect<CliResult, WriteError> {
+): Effect.Effect<CliResult, WriteControl> {
   const rootInput = context.layoutInput;
   return Effect.gen(function* () {
     const read = yield* readDecisionForCommand(rootInput, "decision-relation-replace", action.decisionId);
@@ -103,9 +104,9 @@ export function runDecisionRelationReplace(
       } satisfies CliResult;
     }
     return yield* service.replaceRelation({ current, relationId: action.relationId, replacement: relation.record, taskWrites: taskWrites.writes, body: action.body }).pipe(
-      Effect.match({
-        onFailure: (error): CliResult => decisionRelationFailure("decision-relation-replace", current.decision_id, error),
-        onSuccess: (result): CliResult => decisionRelateResult(rootInput, "decision-relation-replace", result.decisionId, result.state, false)
+      Effect.matchEffect({
+        onFailure: (error) => mapFailurePreservingIndeterminate(error, (failure) => decisionRelationFailure("decision-relation-replace", current.decision_id, failure)),
+        onSuccess: (result) => Effect.succeed(decisionRelateResult(rootInput, "decision-relation-replace", result.decisionId, result.state, false))
       })
     );
   });

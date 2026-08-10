@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { CurrentSessionProbePort, ProvenancePayload } from "@harness-anything/kernel";
+import { isIndeterminateFlushControlOutcome, type CurrentSessionProbePort, type IndeterminateFlushControlOutcome, type ProvenancePayload } from "@harness-anything/kernel";
 import { currentSessionToProvenancePayload } from "./current-session-probe.ts";
 import type { ProvenanceSessionExporter, ProvenanceSessionExporterRejected, ProvenanceSessionExportResult } from "./provenance-session-exporter.ts";
 
@@ -12,7 +12,7 @@ export interface ProvenanceBindingOptions {
 export function bindCreateProvenance(
   options: ProvenanceBindingOptions,
   boundAt: string
-): Effect.Effect<ProvenancePayload | undefined, ProvenanceSessionExporterRejected> {
+): Effect.Effect<ProvenancePayload | undefined, ProvenanceSessionExporterRejected | IndeterminateFlushControlOutcome> {
   if (!options.currentSessionProbe) return Effect.succeed(undefined);
   return options.currentSessionProbe.currentSession.pipe(
     Effect.flatMap((session) => {
@@ -24,7 +24,7 @@ export function bindCreateProvenance(
         Effect.as(provenance),
         // Optional transcript capture must not make unrelated writes depend on runtime-log availability.
         // Execution submission applies the stricter confirmed-unavailable rule at its finalization boundary.
-        Effect.catchAll((error) => transcriptCaptureIsOptionallyUnavailable(error)
+        Effect.catchAll((error) => !isIndeterminateFlushControlOutcome(error) && transcriptCaptureIsOptionallyUnavailable(error)
           ? Effect.succeed(provenance)
           : Effect.fail(error))
       );

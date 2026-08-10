@@ -1,4 +1,4 @@
-import type { FlushReport } from "@harness-anything/kernel";
+import { isIndeterminateFlushReport, type FlushReport } from "@harness-anything/kernel";
 import type { PreparedAuthoritySubmission } from "./service-admission-types.ts";
 import type {
   AuthorityOperationRegistry,
@@ -26,7 +26,9 @@ export async function inspectAuthoritySettlementPublication(input: {
   readonly operations: ReadonlyArray<ReplicaPublicationOperation>;
 }> {
   const expectedOpIds = input.candidates.map((entry) => entry.opId);
-  const exactCommitSha = input.publicationReport?.canonicalCommitSha;
+  const exactCommitSha = input.publicationReport && !isIndeterminateFlushReport(input.publicationReport)
+    ? input.publicationReport.canonicalCommitSha
+    : undefined;
   const successorLookup = input.inspector.findDurableSuccessorPublicationForOperation
     ?? (input.inspector.findPublicationForOperation
       ? (opId: string) => input.inspector.findPublicationForOperation!(opId)

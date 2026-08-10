@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { stablePayloadHash } from "@harness-anything/kernel";
-import type { EntityId, WriteCoordinator, WriteError, WriteOpKind } from "@harness-anything/kernel";
+import { requireDeterminateFlushReport, stablePayloadHash } from "@harness-anything/kernel";
+import type { EntityId, WriteControl, WriteCoordinator, WriteOpKind } from "@harness-anything/kernel";
 
 export function writeCoordinatedPayload(
   coordinator: WriteCoordinator,
@@ -10,7 +10,7 @@ export function writeCoordinatedPayload(
     readonly opIdPrefix: string;
     readonly payload: Record<string, unknown>;
   }
-): Effect.Effect<void, WriteError> {
+): Effect.Effect<void, WriteControl> {
   const opId = `${input.opIdPrefix}-${stablePayloadHash({
     entityId: input.entityId,
     kind: input.kind,
@@ -23,6 +23,6 @@ export function writeCoordinatedPayload(
       kind: input.kind,
       payload: input.payload
     });
-    yield* coordinator.flush("explicit");
+    yield* requireDeterminateFlushReport(yield* coordinator.flush("explicit"));
   });
 }

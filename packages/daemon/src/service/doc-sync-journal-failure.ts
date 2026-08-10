@@ -2,7 +2,31 @@ import type {
   DocSyncSubmitRequestV1,
   DocSyncSubmitResultV1
 } from "@harness-anything/application";
-import type { WriteError } from "@harness-anything/kernel";
+import {
+  isIndeterminateFlushControlOutcome,
+  type WriteError
+} from "@harness-anything/kernel";
+
+type RejectedDocSyncSubmitResult = Extract<DocSyncSubmitResultV1, { readonly status: "rejected" }>;
+
+export function rejectDocSyncRequest(
+  request: DocSyncSubmitRequestV1,
+  code: RejectedDocSyncSubmitResult["code"],
+  reason: string,
+  retryable: boolean,
+  extra: Partial<RejectedDocSyncSubmitResult> = {}
+): RejectedDocSyncSubmitResult {
+  return {
+    ok: false,
+    schema: "daemon.doc-sync-submit-result/v1",
+    status: "rejected",
+    intentId: request.payload.intentId,
+    code,
+    reason,
+    retryable,
+    ...extra
+  };
+}
 
 export class DocSyncJournalFailure extends Error {
   readonly writeError: WriteError;
@@ -12,6 +36,25 @@ export class DocSyncJournalFailure extends Error {
     this.name = "DocSyncJournalFailure";
     this.writeError = writeError;
   }
+}
+
+export function docSyncIndeterminate(
+  request: DocSyncSubmitRequestV1,
+  error: unknown
+): DocSyncSubmitResultV1 | undefined {
+  if (!isIndeterminateFlushControlOutcome(error)) return undefined;
+  return {
+    ok: false,
+    _tag: "IndeterminateFlushControlOutcome",
+    schema: "daemon.doc-sync-submit-result/v1",
+    status: "indeterminate",
+    intentId: request.payload.intentId,
+    code: "write_outcome_indeterminate",
+    reason: `Write outcome is unknown for doc sync operation ${error.report.operationIds.join(",")}. Run 'ha daemon logs --errors --json', compare those IDs with canonical Git state, and do not retry the original write blindly.`,
+    hint: "Write outcome is unknown. Run 'ha daemon logs --errors --json', inspect the attached flush operation IDs in canonical Git state, and do not retry the original write blindly.",
+    retryable: false,
+    flush: error.report
+  };
 }
 
 export function docSyncWriteFailure(
@@ -48,21 +91,12 @@ export function docSyncJournalUnavailable(
 
 function rejection(
   request: DocSyncSubmitRequestV1,
-  code: Extract<DocSyncSubmitResultV1, { readonly ok: false }>["code"],
+  code: RejectedDocSyncSubmitResult["code"],
   reason: string,
   retryable: boolean,
   tag?: "JournalUnavailable" | "WriteRejected"
-): DocSyncSubmitResultV1 {
-  return {
-    ok: false,
-    ...(tag ? { _tag: tag } : {}),
-    schema: "daemon.doc-sync-submit-result/v1",
-    status: "rejected",
-    intentId: request.payload.intentId,
-    code,
-    reason,
-    retryable
-  };
+): RejectedDocSyncSubmitResult {
+  return rejectDocSyncRequest(request, code, reason, retryable, tag ? { _tag: tag } : {});
 }
 
 function writeErrorReason(error: WriteError): string {

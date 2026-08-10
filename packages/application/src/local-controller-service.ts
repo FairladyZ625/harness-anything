@@ -12,7 +12,8 @@ import {
   readRelationGraphProjection,
   readTaskProjection,
   readTriadicProjectionSnapshot,
-  resolveHarnessLayout
+  resolveHarnessLayout,
+  isIndeterminateFlushControlOutcome
 } from "@harness-anything/kernel";
 import {
   readPeripheralDocumentPayload,
@@ -210,7 +211,10 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
       validateLocalControllerTaskId(payload.taskId);
       return Effect.runPromise(taskWriter.appendProgress({ taskId: payload.taskId, text: payload.text }).pipe(
         Effect.match({
-          onFailure: (error) => toProgressFailure(error as EngineError | WriteError),
+          onFailure: (error) => {
+            if (isIndeterminateFlushControlOutcome(error)) throw error;
+            return toProgressFailure(error as EngineError | WriteError);
+          },
           onSuccess: () => ({ ok: true })
         })
       ));

@@ -9,6 +9,7 @@ import { toCliError } from "../../cli/error-mapper.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { normalizedFactSource } from "../../cli/command-semantic-normalizer.ts";
+import { mapFailurePreservingIndeterminate } from "../../cli/indeterminate-control.ts";
 
 type FactAction = Extract<ParsedCommand["action"], { readonly kind: "fact-list" | "fact-show" | "record-fact" | "fact-invalidate" }>;
 
@@ -24,9 +25,9 @@ export const runFactCommand: CommandRunner = (context, command) => {
       rationale: action.rationale,
       dryRun: action.dryRun
     }).pipe(
-      Effect.match({
-        onFailure: (error): CliResult => factFailure(action, error),
-        onSuccess: (result): CliResult => ({
+      Effect.matchEffect({
+        onFailure: (error) => mapFailurePreservingIndeterminate(error, (failure) => factFailure(action, failure)),
+        onSuccess: (result) => Effect.succeed<CliResult>({
           ok: true,
           command: "fact-invalidate",
           taskId: result.taskId,
@@ -55,9 +56,9 @@ export const runFactCommand: CommandRunner = (context, command) => {
     memoryTags: action.memoryTags,
     dryRun: action.dryRun
   }).pipe(
-    Effect.match({
-      onFailure: (error): CliResult => factFailure(action, error),
-      onSuccess: (result): CliResult => ({
+    Effect.matchEffect({
+      onFailure: (error) => mapFailurePreservingIndeterminate(error, (failure) => factFailure(action, failure)),
+      onSuccess: (result) => Effect.succeed<CliResult>({
         ok: true,
         command: "record-fact",
         taskId: result.taskId,

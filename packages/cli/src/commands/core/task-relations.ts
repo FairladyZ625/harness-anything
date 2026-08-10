@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { Effect } from "effect";
-import type { EngineError, WriteError } from "@harness-anything/kernel";
+import type { EngineError, WriteControl } from "@harness-anything/kernel";
 import { deriveRelationId, formatRelationFlowRecord, readRelationGraphProjection, readTaskProjection } from "@harness-anything/kernel";
 import type { EntityRelationRecord } from "@harness-anything/kernel";
 import { readFrontmatter, taskDocumentPath } from "@harness-anything/kernel";
@@ -15,7 +15,7 @@ type TaskRelateAction = Extract<ParsedCommand["action"], { readonly kind: "task-
 export function runTaskRelate(
   context: CommandRunnerContext,
   action: TaskRelateAction
-): Effect.Effect<CliResult, EngineError | WriteError> {
+): Effect.Effect<CliResult, EngineError | WriteControl> {
   const projection = readTaskProjection({ rootDir: context.rootDir, layoutOverrides: context.layoutOverrides });
   const taskIds = new Set(projection.rows.map((row) => row.taskId));
   if (!taskIds.has(action.sourceTaskId)) return Effect.succeed(taskNotFound(action.sourceTaskId, action.sourceTaskId));

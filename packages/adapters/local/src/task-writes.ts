@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { taskEntityId } from "@harness-anything/kernel";
-import type { TaskId, WriteError } from "@harness-anything/kernel";
+import type { TaskId, WriteControl } from "@harness-anything/kernel";
 import type { WriteCoordinator } from "@harness-anything/kernel";
 import type { WriteOpKind } from "@harness-anything/kernel";
 import { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "@harness-anything/kernel";
@@ -37,7 +37,7 @@ export function writeTaskDocument(
     readonly kind?: WriteOpKind;
     readonly slug?: string;
   } = {}
-): Effect.Effect<void, WriteError> {
+): Effect.Effect<void, WriteControl> {
   return writeTaskDocuments(coordinator, hashPayload, [{
     taskId,
     path: documentPath,
@@ -51,7 +51,7 @@ export function writeTaskDocuments(
   coordinator: WriteCoordinator,
   hashPayload: HashPayload,
   writes: ReadonlyArray<TaskDocumentWrite>
-): Effect.Effect<void, WriteError> {
+): Effect.Effect<void, WriteControl> {
   return writeCoordinatedTaskDocuments(coordinator, hashPayload, writes);
 }
 
@@ -60,7 +60,7 @@ export function writeTaskPackageDocuments(
   hashPayload: HashPayload,
   taskId: TaskId,
   writes: ReadonlyArray<TaskPackageDocumentWrite>
-): Effect.Effect<void, WriteError> {
+): Effect.Effect<void, WriteControl> {
   return writeCoordinatedPayload(coordinator, hashPayload, {
     entityId: taskEntityId(taskId),
     kind: "package_create",
@@ -77,7 +77,7 @@ export function appendProgressDelta(
   hashPayload: HashPayload,
   taskId: TaskId,
   text: string
-): Effect.Effect<void, WriteError> {
+): Effect.Effect<void, WriteControl> {
   return writeCoordinatedPayload(coordinator, hashPayload, {
     entityId: taskEntityId(taskId),
     kind: "progress_append",
@@ -90,7 +90,7 @@ export function stageTaskDocument(
   hashPayload: HashPayload,
   taskId: TaskId,
   documentPath: string
-): Effect.Effect<void, WriteError> {
+): Effect.Effect<void, WriteControl> {
   return writeCoordinatedPayload(coordinator, hashPayload, {
     entityId: taskEntityId(taskId),
     kind: "doc_stage",
@@ -102,7 +102,7 @@ export function stageTaskTree(
   coordinator: WriteCoordinator,
   hashPayload: HashPayload,
   taskId: TaskId
-): Effect.Effect<void, WriteError> {
+): Effect.Effect<void, WriteControl> {
   return writeCoordinatedPayload(coordinator, hashPayload, {
     entityId: taskEntityId(taskId),
     kind: "task_tree_stage",
@@ -115,7 +115,7 @@ export function writeSupersedeTaskDocuments(
   hashPayload: HashPayload,
   taskId: TaskId,
   writes: ReadonlyArray<SupersedeDocumentWrite>
-): Effect.Effect<void, WriteError> {
+): Effect.Effect<void, WriteControl> {
   return Effect.gen(function* () {
     yield* writeCoordinatedPayload(coordinator, hashPayload, {
       entityId: taskEntityId(taskId),
@@ -130,7 +130,7 @@ export function deleteTaskPackage(
   hashPayload: HashPayload,
   taskId: TaskId,
   reason: string
-): Effect.Effect<void, WriteError> {
+): Effect.Effect<void, WriteControl> {
   return Effect.gen(function* () {
     yield* writeCoordinatedPayload(coordinator, hashPayload, {
       entityId: taskEntityId(taskId),

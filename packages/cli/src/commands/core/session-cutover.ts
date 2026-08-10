@@ -3,6 +3,9 @@ import path from "node:path";
 import { Effect } from "effect";
 import {
   privateTextScannerVersion,
+  isIndeterminateFlushControlOutcome,
+  isIndeterminateFlushReport,
+  requireDeterminateFlushReport,
   readFrontmatter,
   readSessionEntityDocument,
   readScalar,
@@ -13,7 +16,7 @@ import {
   type ContentAddressedBlobWriteResult,
   type FlushReport,
   type SessionManifest,
-  type WriteError
+  type WriteControl
 } from "@harness-anything/kernel";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
@@ -25,7 +28,7 @@ type SyncAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kin
 export function runSessionSync(
   context: Parameters<CommandRunner>[0],
   action: SyncAction,
-  writeManifests: (manifests: ReadonlyArray<SessionManifest>) => Effect.Effect<FlushReport, WriteError>
+  writeManifests: (manifests: ReadonlyArray<SessionManifest>) => Effect.Effect<FlushReport, WriteControl>
 ) {
   return Effect.gen(function* () {
     const paths = listCutoverSessionPaths(context.layoutInput);
@@ -43,7 +46,10 @@ export function runSessionSync(
       : [];
     const flush = prepared.length > 0
       ? yield* writeManifests(prepared.map((entry) => entry.manifest)).pipe(
-          Effect.tapError(() => Effect.sync(() => cleanupRejectedCutoverBodies(context.layoutInput, prepared)))
+          Effect.flatMap(requireDeterminateFlushReport),
+          Effect.tapError((error) => isIndeterminateFlushControlOutcome(error)
+            ? Effect.void
+            : Effect.sync(() => cleanupRejectedCutoverBodies(context.layoutInput, prepared)))
         )
       : undefined;
     return {
@@ -188,9 +194,10 @@ function cutoverDisplayPath(rootInput: Parameters<CommandRunner>[0]["layoutInput
 }
 
 function cutoverGitReport(attempted: boolean, paths: ReadonlyArray<string>, flush?: FlushReport) {
+  const indeterminate = flush && isIndeterminateFlushReport(flush);
   return {
     attempted,
-    committed: flush?.committed ?? false,
+    ...(!indeterminate ? { committed: flush?.committed ?? false } : { status: "indeterminate" as const }),
     coordinator: "write-journal" as const,
     paths,
     ...(!attempted ? { reason: "no_paths" } : {}),

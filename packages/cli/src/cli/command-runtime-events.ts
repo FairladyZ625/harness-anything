@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { runtimeEventActorFromTaskHolderPrincipal } from "@harness-anything/application";
+import { isIndeterminateFlushControlOutcome } from "@harness-anything/kernel";
 import { runtimeEventPolicyForAction } from "./command-event-policy.ts";
 import { actionTaskId } from "./parse-args.ts";
 import type { CommandRunnerContext, CommandRunnerEffect } from "./runner-registry.ts";
@@ -42,20 +43,22 @@ export function appendCommandRuntimeEvent(
         ...(errorCode ? { errorCode } : {})
       }
     })))),
-    Effect.match({
-      onFailure: (error): CliResult => ({
-        ...result,
-        warnings: [
-          ...(result.warnings ?? []),
-          {
-            severity: "warning",
-            code: "runtime_event_append_failed",
-            sessionId: error.sessionId,
-            message: `Runtime event append failed after the command result was determined: ${error.reason}`
-          }
-        ]
-      }),
-      onSuccess: (): CliResult => result
+    Effect.matchEffect({
+      onFailure: (error) => isIndeterminateFlushControlOutcome(error)
+        ? Effect.fail(error)
+        : Effect.succeed<CliResult>({
+          ...result,
+          warnings: [
+            ...(result.warnings ?? []),
+            {
+              severity: "warning",
+              code: "runtime_event_append_failed",
+              sessionId: error.sessionId,
+              message: `Runtime event append failed after the command result was determined: ${error.reason}`
+            }
+          ]
+        }),
+      onSuccess: () => Effect.succeed<CliResult>(result)
     }),
     Effect.tap(() => Effect.sync(() => context.onCommandTelemetry?.("runtime-event-append-done")))
   );

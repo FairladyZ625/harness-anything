@@ -4,11 +4,12 @@ import path from "node:path";
 import { Effect } from "effect";
 import type { FactWriteRejected } from "@harness-anything/application";
 import { moduleEntityId, resolveHarnessLayout } from "@harness-anything/kernel";
-import type { WriteError } from "@harness-anything/kernel";
+import type { WriteControl, WriteError } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { writeCoordinatedPayload } from "./coordinated-machine-write.ts";
+import { mapFailurePreservingIndeterminate } from "../../cli/indeterminate-control.ts";
 
 type DistillCandidateAction = Extract<ParsedCommand["action"], { readonly kind: "distill-candidate" }>;
 type DistillCommitAction = Extract<ParsedCommand["action"], { readonly kind: "distill-commit" }>;
@@ -30,7 +31,7 @@ export const runDistillCommand: CommandRunner = (context, command) => {
   return runCommit(context, command.action as DistillCommitAction);
 };
 
-function runCandidate(context: Parameters<CommandRunner>[0], action: DistillCandidateAction): Effect.Effect<CliResult, WriteError> {
+function runCandidate(context: Parameters<CommandRunner>[0], action: DistillCandidateAction): Effect.Effect<CliResult, WriteControl> {
   return writeDistillCandidate(context, action, "ha distill candidate");
 }
 
@@ -38,7 +39,7 @@ export function writeDistillCandidate(
   context: Parameters<CommandRunner>[0],
   action: { readonly taskId: string; readonly inputPath: string },
   command: "ha distill candidate" | "ha task archive"
-): Effect.Effect<CliResult, WriteError> {
+): Effect.Effect<CliResult, WriteControl> {
   const layout = resolveHarnessLayout(context.layoutInput);
   const input = resolveRootRelativeFile(layout.rootDir, action.inputPath);
   if (!input.ok) {
@@ -110,9 +111,9 @@ function runCommit(context: Parameters<CommandRunner>[0], action: DistillCommitA
     memoryTags: action.memoryTags,
     opIdPrefix: "distill-fact"
   }).pipe(
-    Effect.match({
-      onFailure: (error): CliResult => distillFactFailure(action, error),
-      onSuccess: (result): CliResult => ({
+    Effect.matchEffect({
+      onFailure: (error) => mapFailurePreservingIndeterminate(error, (failure) => distillFactFailure(action, failure)),
+      onSuccess: (result) => Effect.succeed<CliResult>({
         ok: true,
         command: "distill-commit",
         taskId: result.taskId,

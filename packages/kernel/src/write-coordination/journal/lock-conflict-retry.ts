@@ -14,7 +14,7 @@ export function retryWriteLockConflict<Result>(
   retry: LockConflictRetryOptions,
   reconcileDurable?: () => Result | undefined,
   escalation: {
-    readonly shouldContinueAfterExhaustion?: (error: WriteError) => boolean;
+    readonly indeterminateAfterExhaustion?: (error: WriteError) => Result | undefined;
     readonly signal?: (signal: RetryBudgetSignal) => void;
   } = {}
 ): Effect.Effect<Result, WriteError> {
@@ -38,20 +38,10 @@ export function retryWriteLockConflict<Result>(
       }
       const decision = budget.recordFailure(error);
       if (decision.status === "budget-exhausted") {
-        if (!escalation.shouldContinueAfterExhaustion?.(error)) {
-          return Effect.fail(lockConflictBudgetExhausted(error, retry.maxWaitMs));
-        }
-        // Adjudicated correctness exception: another process may already be
-        // committing this coordinator's WAL operation. The binary flush result
-        // cannot express "outcome pending", so returning failure here can lie
-        // about an operation that becomes durable moments later. Until that
-        // protocol gains an indeterminate terminal state, keep reconciling while
-        // the visible budget reports exhausted/still-retrying/recovered. This is
-        // the adjudicated exception in dec_01KZK41KHS93KDVSK149HWVQ8F; its
-        // closure path is task_01KZK5FYYKBEEVAJPKH0KR19Y1.
-        return delay(retry.maxDelayMs ?? defaultRetryMaxDelayMs).pipe(
-          Effect.flatMap(() => runAttempt(attempt + 1))
-        );
+        const indeterminate = escalation.indeterminateAfterExhaustion?.(error);
+        return indeterminate === undefined
+          ? Effect.fail(lockConflictBudgetExhausted(error, retry.maxWaitMs))
+          : Effect.succeed(indeterminate);
       }
       const delayMs = Math.min(
         decision.remainingMs ?? retry.maxWaitMs,
