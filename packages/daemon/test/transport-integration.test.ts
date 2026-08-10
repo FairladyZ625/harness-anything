@@ -78,6 +78,7 @@ test("unix socket transport uses single-user path and permissions on POSIX", asy
 });
 
 test("unix socket path prefers the Linux per-user runtime directory", () => {
+  if (process.platform === "win32") return;
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-runtime-"));
   const runtimeDir = path.join(tempDir, "runtime");
   const endpoint = defaultUnixSocketPath("daemon test", {
@@ -92,6 +93,7 @@ test("unix socket path prefers the Linux per-user runtime directory", () => {
 });
 
 test("unix socket shared-tmp fallback includes uid and rejects an unsafe pre-existing directory", () => {
+  if (process.platform === "win32") return;
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-shared-tmp-"));
   const uid = process.getuid?.() ?? 0;
   const directory = unixSocketDirectory({
@@ -141,6 +143,7 @@ test("unix socket directory validation preserves its typed unsafe-directory erro
 });
 
 test("unix socket transport rejects an unsafe parent before touching the socket", async () => {
+  if (process.platform === "win32") return;
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-unsafe-parent-"));
   const directory = path.join(tempDir, "harness-anything");
   const socketPath = path.join(directory, "daemon.sock");
