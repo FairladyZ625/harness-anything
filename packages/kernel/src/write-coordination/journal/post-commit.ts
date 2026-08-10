@@ -24,6 +24,7 @@ export function finalizeJournalPostCommit(input: {
   readonly versionControlSystem: VersionControlSystem;
   readonly onProjectionChange?: (event: ProjectionChangeEvent) => void;
   readonly onPostCommitPhase?: (phase: JournalPostCommitPhase) => void;
+  readonly forceCompaction?: boolean;
 }): void {
   report(input, "projection-hash-start");
   const projectionUpdate = input.committedOpIds.length > 0 && input.projectionRelevant && !input.deferProjectionUpdate
@@ -55,7 +56,9 @@ export function finalizeJournalPostCommit(input: {
   const reclaimableRecordCount = input.records.filter((record) =>
     allCommitted.includes(record.opId)
       && (record.schema !== "write-journal/v2" || input.confirmedAttributionOpIds.has(record.opId))).length;
-  const shouldCompact = reclaimableRecordCount >= 32 || allCommitted.length > 128;
+  const shouldCompact = input.forceCompaction === true
+    || reclaimableRecordCount >= 32
+    || allCommitted.length > 128;
   if (!shouldCompact) return notifyProjection(input, projectionUpdate);
   report(input, "compaction-start");
   if (compactJournalAndCanTrimWatermark(input.journalPath, new Set(allCommitted), input.confirmedAttributionOpIds) && recentCommitted.length < allCommitted.length) {

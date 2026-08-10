@@ -196,7 +196,7 @@ export function createProductionAuthorityLifecycle(input: {
         commitEvidence,
         observation: {
           observe: async (request) => {
-            let expectedOpIds = request.opIds;
+            let expectedOpIds = request.observation?.opIds ?? request.opIds;
             if (!request.observation) {
               reportCurrentRepoWriteTelemetry("authority-replica-change-read");
               const change = await replicaChangeLog.getByCommit?.(request.workspaceId, request.commitSha);

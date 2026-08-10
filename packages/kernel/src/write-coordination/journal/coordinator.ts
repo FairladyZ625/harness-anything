@@ -456,7 +456,8 @@ function flushRecords(
     entityIds: plannedRecords.map(({ record }) => record.entityId),
     versionControlSystem: publicationVcs,
     onProjectionChange,
-    onPostCommitPhase
+    onPostCommitPhase,
+    forceCompaction: reason === "recovery"
   });
 
   return {

@@ -36,6 +36,7 @@ test("WriteCoordinator accepts task-tree staging with authored completion eviden
         normalizePath: (inputPath) => path.resolve(inputPath),
         topLevel: (inputPath) => path.resolve(inputPath).startsWith(harnessRoot) ? harnessRoot : rootDir,
         isIgnored: () => false,
+        ignoredPaths: () => new Set(),
         workingTreeFiles: () => "?? tasks/task-1/completion-evidence.json\n"
       }
     });

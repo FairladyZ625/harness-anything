@@ -385,11 +385,11 @@ export function createGitCanonicalPublicationInspector(
     const publication = history?.commits.find((commit) => commit.commitSha === expectedCommitSha);
     const previousCommit = publication?.parents[0];
     const sessionCommit = publication?.parents[1];
-    const sessionBase = publication?.sessionParents?.[0];
-    if (!publication || !previousCommit || !sessionCommit || !sessionBase
-      || publication.parents.length !== 2) {
+    if (!publication || !previousCommit || !sessionCommit || publication.parents.length !== 2) {
       throw new AuthorityCanonicalPublicationNotFoundError(opId);
     }
+    const sessionBase = publicationGitText(rootDir, "merge-base", previousCommit, sessionCommit);
+    if (!sessionBase) throw new AuthorityCanonicalPublicationNotFoundError(opId);
     const commitShas = publicationGitText(
       rootDir,
       "rev-list",

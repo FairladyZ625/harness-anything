@@ -66,6 +66,10 @@ test("session publication defers projection notification until materializer merg
         isIgnored: (repoRoot, relativePath) => {
           ignoredPathReads += 1;
           return local.isIgnored(repoRoot, relativePath);
+        },
+        ignoredPaths: (repoRoot, relativePaths) => {
+          ignoredPathReads += 1;
+          return local.ignoredPaths!(repoRoot, relativePaths);
         }
       },
       onPostCommitPhase: (phase) => postCommitPhases.push(phase),
