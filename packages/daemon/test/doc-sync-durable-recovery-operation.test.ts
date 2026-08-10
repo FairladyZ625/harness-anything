@@ -127,6 +127,7 @@ function docSyncAcceptedExecution(): RepoWriteDocSyncExecution {
     durable: {
       sessionId: "session-doc-sync-recovery",
       acceptedCommitSha: "b".repeat(40),
+      previousCommitSha: "a".repeat(40),
       flush: {
         reason: "explicit",
         opCount: 1,

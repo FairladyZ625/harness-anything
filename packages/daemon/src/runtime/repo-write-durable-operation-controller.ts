@@ -5,6 +5,7 @@ import {
   RepoWriteOutcomeGenerationFenceError
 } from "./durable-repo-write-outcome-store.ts";
 import {
+  createRepoWriteCanonicalPublicationEvidenceV1,
   assertRepoWriteOutcomeAxesV1,
   createRepoWriteProceedingOutcomeV1,
   type RepoWriteOutcomeAxesV1,
@@ -13,6 +14,7 @@ import {
   type RepoWriteTerminalEvidenceV1,
   type RepoWriteTerminalOutcomeV1
 } from "./repo-write-outcome-schema.ts";
+import { RepoWriteOutcomeValidationError } from "./repo-write-outcome-errors.ts";
 import type { RepoWritePreparedOperation } from "./repo-write-child-host.ts";
 import type { AuthorityDurableAcceptance } from "./authority-durable-acceptance-context.ts";
 import {
@@ -79,7 +81,7 @@ export class RepoWriteDurableOperationController {
   private readonly settlements: ReceiptSettlementStore;
   private readonly now: () => Date;
   private executionTail: Promise<void> = Promise.resolve();
-  private readonly activeSettlements = new Set<Promise<void>>();
+  private readonly activeSettlements = new Map<string, Promise<void>>();
 
   constructor(options: RepoWriteDurableOperationControllerOptions) {
     this.axes = {
@@ -108,8 +110,20 @@ export class RepoWriteDurableOperationController {
 
   async settlementIdle(): Promise<void> {
     while (this.activeSettlements.size > 0) {
-      await Promise.all([...this.activeSettlements]);
+      await Promise.all([...this.activeSettlements.values()]);
     }
+  }
+
+  async recoverCanonicalPublicationSettlement(input: {
+    readonly outerOpId: string;
+    readonly canonicalCommitSha: string;
+  }): Promise<"live-owner" | "recovered" | "terminal" | "blocked"> {
+    const active = this.activeSettlements.get(input.outerOpId);
+    if (active) {
+      await active;
+      return "live-owner";
+    }
+    return this.serialize(async () => this.recoverCanonicalPublicationExclusive(input));
   }
 
   private async resumeExclusive(
@@ -193,9 +207,56 @@ export class RepoWriteDurableOperationController {
       (evidence) => this.completeSettlement(proceeding, receipt, pending, evidence),
       (error) => this.failSettlement(receipt, pending, error)
     );
-    this.activeSettlements.add(completion);
-    void completion.finally(() => this.activeSettlements.delete(completion));
+    this.activeSettlements.set(proceeding.outerOpId, completion);
+    void completion.finally(() => {
+      if (this.activeSettlements.get(proceeding.outerOpId) === completion) {
+        this.activeSettlements.delete(proceeding.outerOpId);
+      }
+    });
     return { kind: "accepted", outerOpId: proceeding.outerOpId, receipt };
+  }
+
+  private recoverCanonicalPublicationExclusive(input: {
+    readonly outerOpId: string;
+    readonly canonicalCommitSha: string;
+  }): "recovered" | "terminal" | "blocked" {
+    const current = this.store.lookup(input.outerOpId);
+    if (current.state === "terminal") return "terminal";
+    if (current.state !== "proceeding") {
+      throw new RepoWriteOutcomeConflictError(
+        `canonical publication recovery requires current PROCEEDING: ${input.outerOpId}`
+      );
+    }
+    const settlement = this.settlements.lookup(input.outerOpId);
+    if (settlement?.state === "failed"
+      && settlement.receipt.settlement?.canonicalVisibility === "failed"
+      && settlement.receipt.settlement.failure.retryable === false) {
+      return "blocked";
+    }
+    const accepted = this.settlements.listUnsettled()
+      .find((record) => record.receiptId === input.outerOpId)?.receipt;
+    const pending = accepted?.settlement;
+    if (!accepted || !pending || pending.canonicalVisibility !== "pending") {
+      throw new RepoWriteOutcomeConflictError(
+        `canonical publication recovery requires durable acceptance: ${input.outerOpId}`
+      );
+    }
+    const recovery = current.outcome.recoveryContext;
+    const previousCommit = recovery.schema === "repo-write-doc-sync-recovery/v1"
+      && typeof recovery.baseLedgerSha === "string"
+      ? recovery.baseLedgerSha
+      : null;
+    const evidence = createRepoWriteCanonicalPublicationEvidenceV1({
+      workspaceId: current.outcome.workspaceId,
+      opId: current.outcome.innerOpId,
+      semanticDigest: current.outcome.authoritySemanticDigest,
+      revision: 0,
+      commitSha: input.canonicalCommitSha,
+      previousCommit,
+      acceptedCommitSha: pending.acceptedCommitSha
+    });
+    this.completeSettlement(current.outcome, accepted, pending, evidence);
+    return this.store.lookup(input.outerOpId).state === "terminal" ? "recovered" : "blocked";
   }
 
   private completeSettlement(
@@ -204,7 +265,7 @@ export class RepoWriteDurableOperationController {
     pending: Extract<NonNullable<typeof acceptedReceipt.settlement>, { readonly canonicalVisibility: "pending" }>,
     evidence: RepoWriteTerminalEvidenceV1
   ): void {
-    if (evidence.tag !== "COMMITTED") {
+    if (evidence.tag !== "COMMITTED" && evidence.tag !== "CANONICAL_PUBLICATION") {
       this.failSettlement(
         acceptedReceipt,
         pending,
@@ -214,6 +275,12 @@ export class RepoWriteDurableOperationController {
     }
     let terminalized = false;
     try {
+      if (evidence.tag === "CANONICAL_PUBLICATION"
+        && evidence.canonicalAncestry.acceptedCommitSha !== pending.acceptedCommitSha) {
+        throw new RepoWriteOutcomeValidationError(
+          "canonical publication proof is not bound to the accepted doc-sync commit"
+        );
+      }
       const visible = visibleCommandReceiptSettlement(
         pending,
         evidence.commitSha,
@@ -234,19 +301,30 @@ export class RepoWriteDurableOperationController {
       // Keep the accepted sidecar pending for startup reconciliation instead
       // of manufacturing a false failed-while-visible successor.
       if (terminalized) return;
-      this.failSettlement(acceptedReceipt, pending, error);
+      this.failSettlement(
+        acceptedReceipt,
+        pending,
+        error,
+        !(error instanceof RepoWriteOutcomeValidationError)
+      );
     }
   }
 
   private failSettlement(
     acceptedReceipt: CommandReceiptEnvelope,
     pending: Extract<NonNullable<typeof acceptedReceipt.settlement>, { readonly canonicalVisibility: "pending" }>,
-    error: unknown
+    error: unknown,
+    retryable = true
   ): void {
+    if (this.store.lookup(pending.receiptId).state === "terminal"
+      || this.settlements.lookup(pending.receiptId)?.state === "canonical-visible") {
+      return;
+    }
     const failure = settlementFailure(error);
     const failed = failedCommandReceiptSettlement(pending, {
       failedAt: this.now().toISOString(),
-      ...failure
+      ...failure,
+      retryable
     });
     const receipt = withCommandReceiptSettlement(acceptedReceipt, failed);
     this.settlements.fail(receipt);

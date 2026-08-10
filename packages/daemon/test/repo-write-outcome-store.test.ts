@@ -166,6 +166,44 @@ outcomeTest("TERMINAL committed receipt survives restart byte-for-byte and canno
   });
 });
 
+outcomeTest("TERMINAL accepts a strict canonical-publication proof without authority integrity", () => {
+  withStore(({ options, store }) => {
+    const input = proceedingInput("outer-canonical-publication");
+    const proceeding = store.begin(input);
+    const evidence = canonicalPublicationEvidence(input);
+    const terminal = store.terminalize({
+      ...axes(),
+      outerOpId: input.outerOpId,
+      requestDigest: proceeding.requestDigest,
+      receipt: successReceipt(),
+      authorityEvidence: evidence
+    });
+
+    assert.equal(terminal.terminalKind, "committed");
+    assert.deepEqual(terminal.terminalProof.evidence, evidence);
+    assert.deepEqual(new DurableRepoWriteOutcomeStoreV1(options).get(input.outerOpId), terminal);
+  });
+
+  withStore(({ store }) => {
+    const input = proceedingInput("outer-invalid-canonical-publication");
+    const proceeding = store.begin(input);
+    const evidence = canonicalPublicationEvidence(input);
+    assert.throws(() => store.terminalize({
+      ...axes(),
+      outerOpId: input.outerOpId,
+      requestDigest: proceeding.requestDigest,
+      receipt: successReceipt(),
+      authorityEvidence: {
+        ...evidence,
+        canonicalAncestry: {
+          ...evidence.canonicalAncestry,
+          canonicalCommitSha: "d".repeat(40)
+        }
+      }
+    }), /exact equality with commitSha/u);
+  });
+});
+
 outcomeTest("TERMINAL preserves an exact rejected command-receipt/v2", () => {
   withStore(({ options, store }) => {
     const input = proceedingInput("outer-rejected");
@@ -530,3 +568,23 @@ outcomeTest("receipt arrays and aggregate JSON bytes are bounded before persiste
     assert.deepEqual(files(directory, "terminal"), []);
   });
 });
+
+function canonicalPublicationEvidence(
+  input: ReturnType<typeof proceedingInput>
+) {
+  return {
+    schema: "repo-write-canonical-publication-evidence/v1" as const,
+    tag: "CANONICAL_PUBLICATION" as const,
+    workspaceId: input.workspaceId,
+    opId: input.innerOpId,
+    semanticDigest: input.authoritySemanticDigest,
+    revision: 0,
+    commitSha: "c".repeat(40),
+    previousCommit: "a".repeat(40),
+    canonicalAncestry: {
+      schema: "repo-write-canonical-ancestry-anchor/v1" as const,
+      acceptedCommitSha: "b".repeat(40),
+      canonicalCommitSha: "c".repeat(40)
+    }
+  };
+}

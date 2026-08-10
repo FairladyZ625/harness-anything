@@ -269,9 +269,11 @@ export class DurableRepoWriteOutcomeStoreV1 {
       );
     }
     const historicalPublication = input.historicalPublicationCommitSha;
+    const committedEvidence = input.authorityEvidence.tag === "COMMITTED"
+      || input.authorityEvidence.tag === "CANONICAL_PUBLICATION";
     if (current.generation !== this.axes.generation
       && (current.generation >= this.axes.generation
-        || input.authorityEvidence.tag !== "COMMITTED"
+        || !committedEvidence
         || input.authorityEvidence.commitSha !== historicalPublication)) {
       throw new RepoWriteOutcomeConflictError(
         `historical-generation repo-write outcome requires fenced resume: ${repoWriteOutcomeSafeIdentity(input.outerOpId)}`

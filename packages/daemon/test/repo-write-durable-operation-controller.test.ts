@@ -9,6 +9,7 @@ import {
   ReceiptSettlementStore,
   RepoWriteDurableOperationController,
   repoWriteActorStampDigestV1,
+  type RepoWriteCanonicalPublicationEvidenceV1,
   type RepoWriteProceedingInputV1,
   type RepoWriteTerminalEvidenceV1
 } from "../src/index.ts";
@@ -241,6 +242,77 @@ controllerTest("visible sidecar publish failure does not overwrite a terminal ca
   }
 });
 
+controllerTest("doc-sync live settlement owns terminalization regardless of recovery interleaving", async () => {
+  const terminalByOrder = await Promise.all([
+    docSyncSettlementInterleaving("live-first"),
+    docSyncSettlementInterleaving("recovery-first")
+  ]);
+
+  assert.deepEqual(terminalByOrder[0], terminalByOrder[1]);
+  assert.equal(terminalByOrder[0].outcome.phase, "TERMINAL");
+  assert.equal(terminalByOrder[0].settlement.state, "canonical-visible");
+  assert.equal(
+    terminalByOrder[0].outcome.phase === "TERMINAL"
+      ? terminalByOrder[0].outcome.terminalProof.evidence.tag
+      : undefined,
+    "CANONICAL_PUBLICATION"
+  );
+});
+
+controllerTest("invalid doc-sync proof remains failed and ancestry recovery cannot wash it visible", async () => {
+  await withController(async ({ controller, proceeding, options }) => {
+    const prepared = controller.prepare({
+      proceeding: {
+        ...proceeding,
+        recoveryContext: {
+          schema: "repo-write-doc-sync-recovery/v1",
+          intentId: "intent-invalid-proof",
+          baseLedgerSha: "9".repeat(40)
+        }
+      },
+      executeFresh: async () => ({
+        kind: "accepted" as const,
+        receipt: committedCommandReceipt(),
+        acceptance: {
+          sessionId: "session-invalid-proof",
+          acceptedCommitSha: "b".repeat(40),
+          flush: {
+            reason: "explicit",
+            opCount: 1,
+            committed: true,
+            watermark: proceeding.innerOpId
+          }
+        },
+        acceptedCommitSha: "b".repeat(40),
+        settlement: Promise.resolve({
+          ...canonicalPublicationEvidence(proceeding),
+          canonicalAncestry: {
+            ...canonicalPublicationEvidence(proceeding).canonicalAncestry,
+            acceptedCommitSha: "d".repeat(40)
+          }
+        })
+      })
+    });
+
+    await prepared.execute();
+    await controller.settlementIdle();
+    assert.equal(options.settlements.lookup(proceeding.outerOpId)?.state, "failed");
+    assert.equal(
+      options.settlements.lookup(proceeding.outerOpId)?.receipt.settlement?.canonicalVisibility === "failed"
+        ? options.settlements.lookup(proceeding.outerOpId)?.receipt.settlement?.failure.retryable
+        : undefined,
+      false
+    );
+
+    assert.equal(await controller.recoverCanonicalPublicationSettlement({
+      outerOpId: proceeding.outerOpId,
+      canonicalCommitSha: "c".repeat(40)
+    }), "blocked");
+    assert.equal(options.store.lookup(proceeding.outerOpId).state, "proceeding");
+    assert.equal(options.settlements.lookup(proceeding.outerOpId)?.state, "failed");
+  });
+});
+
 controllerTest("replacement recovery completes an earlier PROCEEDING before a later append", async () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-order-"));
   const store = new DurableRepoWriteOutcomeStoreV1({
@@ -337,6 +409,75 @@ async function withController(
   });
   try {
     await run({ directory, events, proceeding, options: { store, settlements }, controller });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+async function docSyncSettlementInterleaving(order: "live-first" | "recovery-first") {
+  const directory = mkdtempSync(path.join(os.tmpdir(), `ha-doc-sync-${order}-`));
+  const store = new DurableRepoWriteOutcomeStoreV1({ directory, ...axes() });
+  const settlements = settlementStore(directory);
+  const proceeding = {
+    ...proceedingInput(),
+    recoveryContext: {
+      schema: "repo-write-doc-sync-recovery/v1",
+      intentId: "intent-controller",
+      baseLedgerSha: "9".repeat(40)
+    }
+  };
+  let settle!: (evidence: RepoWriteTerminalEvidenceV1) => void;
+  const settlement = new Promise<RepoWriteTerminalEvidenceV1>((resolve) => {
+    settle = resolve;
+  });
+  const controller = new RepoWriteDurableOperationController({
+    ...axes(),
+    store,
+    settlements,
+    now: () => new Date("2026-08-10T10:00:00.000Z"),
+    recover: async () => assert.fail("authority recovery should not run")
+  });
+  try {
+    const prepared = controller.prepare({
+      proceeding,
+      executeFresh: async () => ({
+        kind: "accepted" as const,
+        receipt: committedCommandReceipt(),
+        acceptance: {
+          sessionId: "session-doc-sync",
+          acceptedCommitSha: "b".repeat(40),
+          flush: {
+            reason: "explicit",
+            opCount: 1,
+            committed: true,
+            watermark: proceeding.innerOpId
+          }
+        },
+        acceptedCommitSha: "b".repeat(40),
+        settlement
+      })
+    });
+    await prepared.execute();
+    const recover = () => controller.recoverCanonicalPublicationSettlement({
+      outerOpId: proceeding.outerOpId,
+      canonicalCommitSha: "c".repeat(40)
+    });
+    if (order === "recovery-first") {
+      const recovery = recover();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      settle(canonicalPublicationEvidence(proceeding));
+      await recovery;
+    } else {
+      settle(canonicalPublicationEvidence(proceeding));
+      await controller.settlementIdle();
+      await recover();
+    }
+    await controller.settlementIdle();
+    const outcome = store.get(proceeding.outerOpId);
+    const receiptSettlement = settlements.lookup(proceeding.outerOpId);
+    assert.ok(outcome);
+    assert.ok(receiptSettlement);
+    return { outcome, settlement: receiptSettlement };
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -445,6 +586,26 @@ function terminalEvidence(
       changeSetDigest: "5".repeat(64),
       semanticMutationSetDigest: "2".repeat(64),
       actorAxesBindingDigest: "3".repeat(64)
+    }
+  };
+}
+
+function canonicalPublicationEvidence(
+  proceeding: RepoWriteProceedingInputV1
+): RepoWriteCanonicalPublicationEvidenceV1 {
+  return {
+    schema: "repo-write-canonical-publication-evidence/v1",
+    tag: "CANONICAL_PUBLICATION",
+    workspaceId: proceeding.workspaceId,
+    opId: proceeding.innerOpId,
+    semanticDigest: proceeding.authoritySemanticDigest,
+    revision: 0,
+    commitSha: "c".repeat(40),
+    previousCommit: "9".repeat(40),
+    canonicalAncestry: {
+      schema: "repo-write-canonical-ancestry-anchor/v1",
+      acceptedCommitSha: "b".repeat(40),
+      canonicalCommitSha: "c".repeat(40)
     }
   };
 }

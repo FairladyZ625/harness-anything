@@ -156,6 +156,12 @@ export class ProductionRepoWriteOperationHost<
 
   readonly settlementIdle = (): Promise<void> => this.operations.settlementIdle();
 
+  readonly recoverCanonicalPublicationSettlement = (input: {
+    readonly outerOpId: string;
+    readonly canonicalCommitSha: string;
+  }): Promise<"live-owner" | "recovered" | "terminal" | "blocked"> =>
+    this.operations.recoverCanonicalPublicationSettlement(input);
+
   async prepare(input: RepoWritePrepareInput): Promise<RepoWritePreparedOperation> {
     if (input.command.commandName === "doc-sync-submit") {
       return this.prepareDocSync(input);
