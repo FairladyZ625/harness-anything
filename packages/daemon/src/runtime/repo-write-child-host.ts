@@ -12,13 +12,13 @@ import {
   repoWriteLocalLookupResult,
   type RepoWriteHostedOperationSnapshot
 } from "./repo-write-child-lookup.ts";
+import { RepoWriteChildResponseWriter } from "./repo-write-child-response-writer.ts";
 import {
-  RepoWriteChildResponseWriter
-} from "./repo-write-child-response-writer.ts";
-import {
+  sendRepoWriteAcceptedDelivery,
   sendRepoWriteDuplicateSubmit,
   sendRepoWriteRejectedProceed,
-  sendRepoWriteRepeatedProceed
+  sendRepoWriteRepeatedProceed,
+  sendRepoWriteUnknownOutcomeDelivery
 } from "./repo-write-child-host-response.ts";
 import { RepoWriteExecutionSequencer } from "./repo-write-execution-sequencer.ts";
 import {
@@ -323,6 +323,7 @@ export class RepoWriteChildHost {
     }
 
     operation.state = { phase: advanceRepoWritePhase("child", "proceed", operation.state.phase) };
+    let releaseSettlement: (() => void) | undefined;
     try {
       let receipt: RepoWriteJsonObject;
       try {
@@ -334,6 +335,7 @@ export class RepoWriteChildHost {
           if (executed.outerOpId !== operation.opId) {
             throw new Error("execution did not return the matching durable accepted outer outcome");
           }
+          releaseSettlement = executed.releaseSettlement;
           receipt = executed.receipt as unknown as RepoWriteJsonObject;
           operation.state = {
             phase: advanceRepoWritePhase("child", "accepted", "proceeding"),
@@ -358,11 +360,12 @@ export class RepoWriteChildHost {
           phase: advanceRepoWritePhase("child", "outcome-unknown", "proceeding")
         };
         this.release(operation);
-        await this.responses.unknown(
+        await sendRepoWriteUnknownOutcomeDelivery(
+          this.responses,
           operation.requestId,
           operation.opId!,
-          "EXECUTION_OUTCOME_UNKNOWN",
-          error
+          error,
+          releaseSettlement
         );
         return;
       }
@@ -370,10 +373,12 @@ export class RepoWriteChildHost {
       await this.closeTelemetry(operation);
       this.release(operation);
       if (operation.state.phase === "accepted") {
-        await this.responses.accepted(
+        await sendRepoWriteAcceptedDelivery(
+          this.responses,
           operation.requestId,
           operation.opId!,
-          operation.state.receipt
+          operation.state.receipt,
+          releaseSettlement
         );
         return;
       }

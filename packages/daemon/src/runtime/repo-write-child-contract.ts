@@ -1,12 +1,14 @@
 import type {
-  RepoWriteCommandDto,
-  RepoWriteJsonObject
+  RepoWriteCommandDto
 } from "./repo-write-protocol.ts";
 import type { RepoWriteExecutionOutcome } from "./repo-write-durable-operation-controller.ts";
 import type { RepoWriteCanonicalLookupResult } from "./repo-write-child-lookup.ts";
 import type { RepoWriteChildTransport } from "./repo-write-child-response-writer.ts";
 import type { RepoWriteExecutionSequencer } from "./repo-write-execution-sequencer.ts";
-import type { RepoWriteDirectInput } from "./repo-write-child-direct.ts";
+import type {
+  RepoWriteDirectExecutionResult,
+  RepoWriteDirectInput
+} from "./repo-write-child-direct.ts";
 
 export interface RepoWritePrepareInput {
   readonly repoId: string;
@@ -39,7 +41,7 @@ export interface RepoWriteChildHostHooks {
   ) => RepoWritePreparedOperation | Promise<RepoWritePreparedOperation>;
   readonly direct?: (
     input: RepoWriteDirectInput
-  ) => RepoWriteJsonObject | Promise<RepoWriteJsonObject>;
+  ) => RepoWriteDirectExecutionResult | Promise<RepoWriteDirectExecutionResult>;
   readonly lookup: (
     input: RepoWriteLookupInput
   ) => RepoWriteCanonicalLookupResult | Promise<RepoWriteCanonicalLookupResult>;

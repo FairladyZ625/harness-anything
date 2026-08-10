@@ -38,6 +38,7 @@ export interface RepoWriteAcceptedExecutionResult {
   readonly acceptance: AuthorityDurableAcceptance;
   readonly acceptedCommitSha: string;
   readonly settlement: Promise<RepoWriteTerminalEvidenceV1>;
+  readonly releaseSettlement?: () => void;
 }
 
 export type RepoWriteDurableExecutionResult =
@@ -48,6 +49,7 @@ export interface RepoWriteAcceptedResult {
   readonly kind: "accepted";
   readonly outerOpId: string;
   readonly receipt: CommandReceiptEnvelope;
+  readonly releaseSettlement?: () => void;
 }
 
 export type RepoWriteExecutionOutcome = RepoWriteTerminalOutcomeV1 | RepoWriteAcceptedResult;
@@ -194,26 +196,39 @@ export class RepoWriteDurableOperationController {
     proceeding: RepoWriteProceedingOutcomeV1,
     result: RepoWriteAcceptedExecutionResult
   ): RepoWriteAcceptedResult {
-    const pending = pendingCommandReceiptSettlement({
-      receiptId: proceeding.outerOpId,
-      acceptedAt: this.now().toISOString(),
-      sessionId: result.acceptance.sessionId,
-      acceptedCommitSha: result.acceptedCommitSha,
-      authorityOperationIds: [result.acceptance.flush.watermark]
-    });
-    const receipt = withCommandReceiptSettlement(result.receipt, pending);
-    this.settlements.accept(receipt);
-    const completion = result.settlement.then(
-      (evidence) => this.completeSettlement(proceeding, receipt, pending, evidence),
-      (error) => this.failSettlement(receipt, pending, error)
-    );
-    this.activeSettlements.set(proceeding.outerOpId, completion);
-    void completion.finally(() => {
-      if (this.activeSettlements.get(proceeding.outerOpId) === completion) {
-        this.activeSettlements.delete(proceeding.outerOpId);
-      }
-    });
-    return { kind: "accepted", outerOpId: proceeding.outerOpId, receipt };
+    try {
+      const pending = pendingCommandReceiptSettlement({
+        receiptId: proceeding.outerOpId,
+        acceptedAt: this.now().toISOString(),
+        sessionId: result.acceptance.sessionId,
+        acceptedCommitSha: result.acceptedCommitSha,
+        authorityOperationIds: [result.acceptance.flush.watermark]
+      });
+      const receipt = withCommandReceiptSettlement(result.receipt, pending);
+      this.settlements.accept(receipt);
+      const completion = result.settlement.then(
+        (evidence) => this.completeSettlement(proceeding, receipt, pending, evidence),
+        (error) => this.failSettlement(receipt, pending, error)
+      );
+      this.activeSettlements.set(proceeding.outerOpId, completion);
+      void completion.finally(() => {
+        if (this.activeSettlements.get(proceeding.outerOpId) === completion) {
+          this.activeSettlements.delete(proceeding.outerOpId);
+        }
+      });
+      return {
+        kind: "accepted",
+        outerOpId: proceeding.outerOpId,
+        receipt,
+        ...(result.releaseSettlement ? {
+          releaseSettlement: result.releaseSettlement
+        } : {})
+      };
+    } catch (error) {
+      result.releaseSettlement?.();
+      void result.settlement.catch(() => undefined);
+      throw error;
+    }
   }
 
   private recoverCanonicalPublicationExclusive(input: {

@@ -92,20 +92,44 @@ export function waitForCurrentAuthoritySettlementRelease(): Promise<void> {
   return settlementReleaseStorage.getStore() ?? Promise.resolve();
 }
 
-export async function runBeforeBackgroundAuthoritySettlement<Result>(
+export interface HeldBackgroundAuthoritySettlement<Result> {
+  readonly result: Result;
+  readonly releaseAfterResponse: () => void;
+}
+
+/**
+ * Hold same-command canonical settlement until the child has delivered the
+ * durable acceptance receipt. A failed command releases immediately so no
+ * background publication can remain parked without a response owner.
+ */
+export async function holdBackgroundAuthoritySettlement<Result>(
   operation: () => Promise<Result>
-): Promise<Result> {
+): Promise<HeldBackgroundAuthoritySettlement<Result>> {
   let release!: () => void;
   const released = new Promise<void>((resolve) => {
     release = resolve;
   });
-  try {
-    return await runWithAuthoritySettlementRelease(released, operation);
-  } finally {
-    // Let the operation host construct and return its durable receipt before a
-    // synchronous materializer can occupy this child process.
+  let scheduled = false;
+  const releaseAfterResponse = () => {
+    if (scheduled) return;
+    scheduled = true;
     setImmediate(release);
+  };
+  try {
+    const result = await runWithAuthoritySettlementRelease(released, operation);
+    return { result, releaseAfterResponse };
+  } catch (error) {
+    releaseAfterResponse();
+    throw error;
   }
+}
+
+export async function runBeforeBackgroundAuthoritySettlement<Result>(
+  operation: () => Promise<Result>
+): Promise<Result> {
+  const held = await holdBackgroundAuthoritySettlement(operation);
+  held.releaseAfterResponse();
+  return held.result;
 }
 
 export function reportCurrentAuthorityDurableAcceptance(

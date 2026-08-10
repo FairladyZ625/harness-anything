@@ -44,9 +44,13 @@ import {
 import { DurableRepoWriteOutcomeStoreV1 } from "./durable-repo-write-outcome-store.ts";
 import { ReceiptSettlementStore } from "./receipt-settlement-store.ts";
 import {
-  runBeforeBackgroundAuthoritySettlement,
+  holdBackgroundAuthoritySettlement,
   type AuthorityDurableAcceptance
 } from "./authority-durable-acceptance-context.ts";
+import {
+  repoWriteDirectResponseDelivery,
+  type RepoWriteDirectExecutionResult
+} from "./repo-write-child-direct.ts";
 import type {
   ProductionAuthorityAttemptPlanV1,
   ProductionAuthorityCommandPlanInput
@@ -198,7 +202,7 @@ export class ProductionRepoWriteOperationHost<
     });
   }
 
-  async direct(input: RepoWriteDirectInput): Promise<import("./repo-write-protocol.ts").RepoWriteJsonObject> {
+  async direct(input: RepoWriteDirectInput): Promise<RepoWriteDirectExecutionResult> {
     const decoded = decodeRepoWriteCommand(input.command);
     const binding = this.options.authorityComponent.bindConnection(
       decoded.authorityConnection
@@ -252,7 +256,7 @@ export class ProductionRepoWriteOperationHost<
         } : {})
       }
     );
-    const receipt = await runBeforeBackgroundAuthoritySettlement(() => commandService.runCommand(
+    const held = await holdBackgroundAuthoritySettlement(() => commandService.runCommand(
       input.command.payload as unknown as JsonObject,
       {
         actor: decoded.actor,
@@ -264,15 +268,23 @@ export class ProductionRepoWriteOperationHost<
         }
       }
     ));
-    if (command.action.kind === "materializer-run") {
-      await this.options.recoverSettlements?.();
+    try {
+      if (command.action.kind === "materializer-run") {
+        await this.options.recoverSettlements?.();
+      }
+      return repoWriteDirectResponseDelivery(
+        commandReceiptJsonObject(settleDirectAuthorityCommandReceipt({
+          receipt: held.result,
+          submissions: durableSubmissions,
+          store: this.options.settlementStore,
+          now: this.options.now
+        })),
+        held.releaseAfterResponse
+      );
+    } catch (error) {
+      held.releaseAfterResponse();
+      throw error;
     }
-    return commandReceiptJsonObject(settleDirectAuthorityCommandReceipt({
-      receipt,
-      submissions: durableSubmissions,
-      store: this.options.settlementStore,
-      now: this.options.now
-    }));
   }
 
   async lookup(input: RepoWriteLookupInput): Promise<RepoWriteCanonicalLookupResult> {
@@ -479,10 +491,14 @@ export class ProductionRepoWriteOperationHost<
       },
       submitDurable: async (input: Parameters<typeof submission.submitDurable>[0]) => {
         const durable = await submission.submitDurable(input);
+        const settlement = durable.settlement.then((evidence) => {
+          authorityEvidence = evidence;
+          return evidence;
+        });
         const captured: {
           acceptance?: AuthorityDurableAcceptance;
           readonly settlement: Promise<AuthorityOperationReceipt>;
-        } = { settlement: durable.settlement };
+        } = { settlement };
         durableSubmissions.push(captured);
         return {
           admission: durable.admission.then((admission) => {
@@ -490,10 +506,7 @@ export class ProductionRepoWriteOperationHost<
             else authorityEvidence = admission.receipt;
             return admission;
           }),
-          settlement: durable.settlement.then((evidence) => {
-            authorityEvidence = evidence;
-            return evidence;
-          })
+          settlement
         };
       }
     };
@@ -509,7 +522,7 @@ export class ProductionRepoWriteOperationHost<
         } : {})
       }
     );
-    const receipt = exactRepoWriteReceipt(await runBeforeBackgroundAuthoritySettlement(() => commandService.runCommand(
+    const held = await holdBackgroundAuthoritySettlement(() => commandService.runCommand(
       currentCommand.payload as unknown as JsonObject,
       {
         actor: decoded.actor,
@@ -520,28 +533,36 @@ export class ProductionRepoWriteOperationHost<
           assertActive: () => undefined
         }
       }
-    )), proceeding, authorityEvidence);
-    const accepted = durableSubmissions
-      .map((entry) => entry.acceptance)
-      .find((entry) => entry?.flush.watermark === proceeding.innerOpId)
-      ?? durableSubmissions.at(-1)?.acceptance;
-    if (accepted) {
-      return {
-        kind: "accepted",
-        receipt,
-        acceptance: accepted,
-        acceptedCommitSha: accepted.acceptedCommitSha,
-        settlement: Promise.all(durableSubmissions.map((entry) => entry.settlement)).then((evidence) => {
-          const exact = evidence.find((entry) => entry.opId === proceeding.innerOpId) ?? evidence.at(-1);
-          if (!exact || exact.tag === "INDETERMINATE") {
-            throw new Error(`AUTHORITY_SETTLEMENT_INDETERMINATE:${exact?.tag === "INDETERMINATE" ? exact.reason : "terminal evidence missing"}`);
-          }
-          return exact;
-        })
-      };
+    ));
+    try {
+      const receipt = exactRepoWriteReceipt(held.result, proceeding, authorityEvidence);
+      const accepted = durableSubmissions
+        .map((entry) => entry.acceptance)
+        .find((entry) => entry?.flush.watermark === proceeding.innerOpId)
+        ?? durableSubmissions.at(-1)?.acceptance;
+      if (accepted) {
+        return {
+          kind: "accepted",
+          receipt,
+          acceptance: accepted,
+          acceptedCommitSha: accepted.acceptedCommitSha,
+          settlement: Promise.all(durableSubmissions.map((entry) => entry.settlement)).then((evidence) => {
+            const exact = evidence.find((entry) => entry.opId === proceeding.innerOpId) ?? evidence.at(-1);
+            if (!exact || exact.tag === "INDETERMINATE") {
+              throw new Error(`AUTHORITY_SETTLEMENT_INDETERMINATE:${exact?.tag === "INDETERMINATE" ? exact.reason : "terminal evidence missing"}`);
+            }
+            return exact;
+          }),
+          releaseSettlement: held.releaseAfterResponse
+        };
+      }
+      held.releaseAfterResponse();
+      const evidence = terminalEvidence(authorityEvidence, receipt, proceeding);
+      return { kind: "terminal", receipt, authorityEvidence: evidence };
+    } catch (error) {
+      held.releaseAfterResponse();
+      throw error;
     }
-    const evidence = terminalEvidence(authorityEvidence, receipt, proceeding);
-    return { kind: "terminal", receipt, authorityEvidence: evidence };
   }
 }
 

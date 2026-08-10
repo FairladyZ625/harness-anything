@@ -22,12 +22,35 @@ export interface RepoWriteDirectInput {
   readonly command: RepoWriteCommandDto;
 }
 
+export interface RepoWriteDirectResponseDelivery {
+  readonly kind: "repo-write-direct-response-delivery/v1";
+  readonly receipt: RepoWriteJsonObject;
+  readonly releaseSettlement: () => void;
+}
+
+export type RepoWriteDirectExecutionResult =
+  | RepoWriteJsonObject
+  | RepoWriteDirectResponseDelivery;
+
+export function repoWriteDirectResponseDelivery(
+  receipt: RepoWriteJsonObject,
+  releaseSettlement: () => void
+): RepoWriteDirectResponseDelivery {
+  return {
+    kind: "repo-write-direct-response-delivery/v1",
+    receipt,
+    releaseSettlement
+  };
+}
+
 export interface RepoWriteChildDirectOptions {
   readonly message: Extract<RepoWriteParentMessage, { kind: "direct" }>;
   readonly repoId: string;
   readonly workspaceId: string;
   readonly generation: number;
-  readonly execute: (input: RepoWriteDirectInput) => unknown | Promise<unknown>;
+  readonly execute: (
+    input: RepoWriteDirectInput
+  ) => RepoWriteDirectExecutionResult | Promise<RepoWriteDirectExecutionResult>;
   readonly responses: RepoWriteChildResponseWriter;
   readonly sequencer: RepoWriteExecutionSequencer;
   readonly requestIds: Set<string>;
@@ -91,13 +114,14 @@ export async function executeRepoWriteChildDirect(
   options.requestIds.add(message.requestId);
   options.admit();
   let telemetry: ReturnType<typeof createRepoWriteTelemetryDelivery> | undefined;
+  let releaseSettlement: (() => void) | undefined;
   try {
     await options.responses.telemetry(message.requestId, "queue", 0);
     telemetry = createRepoWriteTelemetryDelivery(
       (phase, elapsedMs, details) =>
         options.responses.telemetry(message.requestId, phase, elapsedMs, details)
     );
-    const receipt = await runWithRepoWriteTelemetry(
+    const executed = await runWithRepoWriteTelemetry(
       telemetry.report,
       () => options.sequencer.run(() => {
         reportCurrentRepoWriteTelemetry("compile");
@@ -110,6 +134,12 @@ export async function executeRepoWriteChildDirect(
         });
       })
     );
+    const receipt = isRepoWriteDirectResponseDelivery(executed)
+      ? executed.receipt
+      : executed;
+    if (isRepoWriteDirectResponseDelivery(executed)) {
+      releaseSettlement = executed.releaseSettlement;
+    }
     await telemetry.flush();
     telemetry.close();
     await options.responses.directResult(message.requestId, receipt);
@@ -129,8 +159,16 @@ export async function executeRepoWriteChildDirect(
       error
     );
   } finally {
+    releaseSettlement?.();
     options.release();
   }
+}
+
+function isRepoWriteDirectResponseDelivery(
+  value: RepoWriteDirectExecutionResult
+): value is RepoWriteDirectResponseDelivery {
+  return value.kind === "repo-write-direct-response-delivery/v1"
+    && typeof value.releaseSettlement === "function";
 }
 
 function isExpectedDirectWriteRejection(error: unknown): error is Extract<WriteError, { readonly _tag: "WriteRejected" }> {

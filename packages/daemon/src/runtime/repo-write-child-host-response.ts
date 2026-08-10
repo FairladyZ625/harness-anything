@@ -1,5 +1,6 @@
 import type { RepoWriteChildResponseWriter } from "./repo-write-child-response-writer.ts";
 import type { RepoWriteHostedOperationSnapshot } from "./repo-write-child-lookup.ts";
+import type { RepoWriteJsonObject } from "./repo-write-protocol.ts";
 
 export interface RepoWriteChildOperationResponseState {
   readonly requestId: string;
@@ -78,4 +79,32 @@ export async function sendRepoWriteRepeatedProceed(
     "operation is not in prepared state",
     operation.opId
   );
+}
+
+export async function sendRepoWriteAcceptedDelivery(
+  responses: RepoWriteChildResponseWriter,
+  requestId: string,
+  opId: string,
+  receipt: RepoWriteJsonObject,
+  releaseSettlement?: () => void
+): Promise<void> {
+  try {
+    await responses.accepted(requestId, opId, receipt);
+  } finally {
+    releaseSettlement?.();
+  }
+}
+
+export async function sendRepoWriteUnknownOutcomeDelivery(
+  responses: RepoWriteChildResponseWriter,
+  requestId: string,
+  opId: string,
+  error: unknown,
+  releaseSettlement?: () => void
+): Promise<void> {
+  try {
+    await responses.unknown(requestId, opId, "EXECUTION_OUTCOME_UNKNOWN", error);
+  } finally {
+    releaseSettlement?.();
+  }
 }
