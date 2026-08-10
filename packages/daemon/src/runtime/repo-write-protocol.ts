@@ -5,9 +5,13 @@ import { repoWriteTerminalReceiptMatches } from "./repo-write-terminal-receipt.t
 import {
   type RepoWriteRecoveryDiagnosticFrame,
   type RepoWriteRetryBudgetSignalFrame,
+  type RepoWriteTelemetryBatchFrame,
   type RepoWriteTelemetryFrame
 } from "./repo-write-diagnostic-protocol.ts";
-import { decodeRepoWriteTelemetry } from "./repo-write-protocol-telemetry.ts";
+import {
+  decodeRepoWriteTelemetry,
+  decodeRepoWriteTelemetryBatch
+} from "./repo-write-protocol-telemetry.ts";
 import { decodeRepoWriteRetryBudgetSignal } from "./repo-write-protocol-retry-budget.ts";
 import {
   decodeRepoWriteRecoveryDeferred,
@@ -44,8 +48,11 @@ export type {
   RepoWriteRetryBudgetSignalFrame,
   RepoWriteRetryBudgetSignalPhase,
   RepoWriteTelemetryDetail,
+  RepoWriteTelemetryBatchFrame,
   RepoWriteTelemetryDetails,
   RepoWriteTelemetryFrame,
+  RepoWriteTelemetryMessage,
+  RepoWriteTelemetrySpan,
   RepoWriteTelemetryPhase
 } from "./repo-write-diagnostic-protocol.ts";
 export { boundedRepoWriteDiagnostic } from "./repo-write-protocol-diagnostic.ts";
@@ -163,7 +170,7 @@ export type RepoWriteChildMessage =
   RepoWriteReadyFrame | RepoWriteStartupProgressFrame
   | RepoWritePreparedFrame | RepoWriteAcceptedFrame | RepoWriteTerminalFrame | RepoWriteFailureFrame
   | RepoWriteDirectResultFrame | RepoWriteDirectFailureFrame
-  | RepoWriteStatusFrame | RepoWriteTelemetryFrame | RepoWriteRecoveryDiagnosticFrame
+  | RepoWriteStatusFrame | RepoWriteTelemetryFrame | RepoWriteTelemetryBatchFrame | RepoWriteRecoveryDiagnosticFrame
   | RepoWriteRetryBudgetSignalFrame
   | RepoWriteDrainedFrame;
 
@@ -219,6 +226,9 @@ export function decodeRepoWriteChildMessage(
   if (frame.kind === "failure") return decodeFailure(frame, limits);
   if (frame.kind === "status") return decodeStatus(frame, limits, budget);
   if (frame.kind === "telemetry") return decodeRepoWriteTelemetry(frame, limits, baseFields(frame));
+  if (frame.kind === "telemetry-batch") {
+    return decodeRepoWriteTelemetryBatch(frame, limits, baseFields(frame));
+  }
   if (frame.kind === "retry-budget-signal") {
     return decodeRepoWriteRetryBudgetSignal(frame, limits, baseFields(frame));
   }

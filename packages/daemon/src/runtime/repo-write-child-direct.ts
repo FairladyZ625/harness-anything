@@ -120,11 +120,12 @@ export async function executeRepoWriteChildDirect(
   let telemetry: ReturnType<typeof createRepoWriteTelemetryDelivery> | undefined;
   let releaseSettlement: (() => void) | undefined;
   try {
-    await options.responses.telemetry(message.requestId, "queue", 0);
-    telemetry = createRepoWriteTelemetryDelivery(
-      (phase, elapsedMs, details) =>
+    telemetry = createRepoWriteTelemetryDelivery({
+      deliverBatch: (spans) => options.responses.telemetryBatch(message.requestId, spans),
+      deliverStream: (phase, elapsedMs, details) =>
         options.responses.telemetry(message.requestId, phase, elapsedMs, details)
-    );
+    });
+    telemetry.report("queue", 0);
     const executed = await runWithRepoWriteTelemetry(
       telemetry.report,
       () => options.sequencer.run(() => {
@@ -148,7 +149,7 @@ export async function executeRepoWriteChildDirect(
     telemetry.close();
     await options.responses.directResult(message.requestId, receipt);
   } catch (error) {
-    await telemetry?.flush();
+    await telemetry?.stream();
     telemetry?.close();
     if (isExpectedDirectWriteRejection(error)) {
       await options.responses.directResult(

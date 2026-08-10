@@ -1,6 +1,16 @@
 export const daemonLogLevels = ["debug", "info", "warn", "error", "fatal"] as const;
 export type DaemonLogLevel = (typeof daemonLogLevels)[number];
 
+export const daemonLogMessageLimitBytes = 4_096;
+export const daemonLogTelemetryBatchMessageLimitBytes = 1024 * 1024;
+export const repoWriteTelemetryBatchLogEvent = "repo-write.request.telemetry-batch";
+
+export function daemonLogMessageLimitForEvent(event: string): number {
+  return event === repoWriteTelemetryBatchLogEvent
+    ? daemonLogTelemetryBatchMessageLimitBytes
+    : daemonLogMessageLimitBytes;
+}
+
 export interface DaemonLogRedactionV1 {
   readonly policy: "runtime-log-redaction/v1";
   readonly fieldsRemoved: ReadonlyArray<string>;
@@ -119,7 +129,10 @@ export function decodeDaemonLogEntry(value: unknown): DaemonLogEntryV1 {
   if (value.source !== "daemon" && value.source !== "cli") throw invalidEntry("source must be daemon or cli");
   if (!isBoundedPattern(value.component, /^[a-z0-9][a-z0-9.-]*$/u, 80)) throw invalidEntry("component is invalid");
   if (!isBoundedPattern(value.event, /^[a-z0-9][a-z0-9._-]*$/u, 120)) throw invalidEntry("event is invalid");
-  if (typeof value.message !== "string" || value.message.length > 4_096) throw invalidEntry("message is invalid");
+  if (typeof value.message !== "string"
+    || Buffer.byteLength(value.message, "utf8") > daemonLogMessageLimitForEvent(value.event as string)) {
+    throw invalidEntry("message is invalid");
+  }
   for (const key of ["errorCode", "repoId", "requestId", "taskId", "executionId"] as const) {
     if (!isOptionalNullableBoundedString(value[key], 256)) throw invalidEntry(`${key} is invalid`);
   }

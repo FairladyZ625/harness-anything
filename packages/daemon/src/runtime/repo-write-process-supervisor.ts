@@ -22,6 +22,7 @@ export interface RepoWriteProcessSupervisorOptions {
   readonly spawn: () => RepoWriteParentProcessTransport;
   readonly limits?: ConstructorParameters<typeof RepoWriteClient>[0]["limits"];
   readonly onTelemetry?: ConstructorParameters<typeof RepoWriteClient>[0]["onTelemetry"];
+  readonly onTelemetryBatch?: ConstructorParameters<typeof RepoWriteClient>[0]["onTelemetryBatch"];
   readonly onDiagnostic?: ConstructorParameters<typeof RepoWriteClient>[0]["onDiagnostic"];
   readonly onRetryBudgetSignal?: ConstructorParameters<typeof RepoWriteClient>[0]["onRetryBudgetSignal"];
   readonly onRequestTimeout?: ConstructorParameters<typeof RepoWriteClient>[0]["onRequestTimeout"];
@@ -281,6 +282,7 @@ export class RepoWriteProcessSupervisor {
         }),
         ...(this.options.limits ? { limits: this.options.limits } : {}),
         onTelemetry: this.options.onTelemetry ?? (() => undefined),
+        ...(this.options.onTelemetryBatch ? { onTelemetryBatch: this.options.onTelemetryBatch } : {}),
         onDiagnostic: this.options.onDiagnostic,
         onRetryBudgetSignal: this.options.onRetryBudgetSignal,
         onRequestTimeout: this.options.onRequestTimeout,

@@ -198,12 +198,14 @@ export class RepoWriteChildHost {
     this.operationsByRequest.set(message.requestId, operation);
     this.activeAdmissions += 1;
     try {
-      await this.responses.telemetry(message.requestId, "queue", 0);
-      const telemetry = createRepoWriteTelemetryDelivery(
-        (phase, elapsedMs, details) =>
+      const telemetry = createRepoWriteTelemetryDelivery({
+        deliverBatch: (spans) =>
+          this.responses.telemetryBatch(message.requestId, spans, operation.opId),
+        deliverStream: (phase, elapsedMs, details) =>
           this.responses.telemetry(message.requestId, phase, elapsedMs, details)
-      );
+      });
       operation.telemetry = telemetry;
+      telemetry.report("queue", 0);
       const prepared = await runWithRepoWriteTelemetry(telemetry.report, () => {
         reportCurrentRepoWriteTelemetry("compile");
         return this.options.hooks.prepare({
@@ -213,12 +215,11 @@ export class RepoWriteChildHost {
           command: message.command
         });
       });
-      await telemetry.flush();
       if (!prepared.opId.trim()) throw new Error("prepare returned an empty opId");
       operation.opId = prepared.opId;
       if (this.operationsById.has(prepared.opId)) {
         operation.state = { phase: advanceRepoWritePhase("child", "not-started", "preparing") };
-        await this.closeTelemetry(operation);
+        await this.closeTelemetry(operation, true);
         this.release(operation);
         await this.responses.notStarted(
           message.requestId,
@@ -231,7 +232,7 @@ export class RepoWriteChildHost {
       this.operationsById.set(prepared.opId, operation);
       if (!this.admissionOpen) {
         operation.state = { phase: advanceRepoWritePhase("child", "not-started", "preparing") };
-        await this.closeTelemetry(operation);
+        await this.closeTelemetry(operation, true);
         this.release(operation);
         await this.responses.notStarted(
           message.requestId,
@@ -249,7 +250,7 @@ export class RepoWriteChildHost {
         operation.state = {
           phase: advanceRepoWritePhase("child", "not-started", operation.state.phase)
         };
-        await this.closeTelemetry(operation);
+        await this.closeTelemetry(operation, true);
         this.release(operation);
         const rejection = classifyRepoWriteNotStartedFailure(error);
         await this.responses.notStarted(
@@ -262,7 +263,7 @@ export class RepoWriteChildHost {
         operation.state = {
           phase: advanceRepoWritePhase("child", "not-started", operation.state.phase)
         };
-        await this.closeTelemetry(operation);
+        await this.closeTelemetry(operation, true);
         this.release(operation);
         throw error;
       } else {
@@ -306,7 +307,7 @@ export class RepoWriteChildHost {
           phase: advanceRepoWritePhase("child", "shutdown-before-proceed", operation.state.phase)
         };
         operation.cancelledBeforeProceed = true;
-        await this.closeTelemetry(operation);
+        await this.closeTelemetry(operation, true);
         this.release(operation);
       }
       await this.responses.notStarted(
@@ -328,9 +329,6 @@ export class RepoWriteChildHost {
       let receipt: RepoWriteJsonObject;
       try {
         const executed = await this.executionSequencer.run(operation.execute!);
-        await operation.telemetry?.flush();
-        operation.telemetry?.reportCurrent("child-telemetry-flushed");
-        await operation.telemetry?.flush();
         if ("kind" in executed && executed.kind === "accepted") {
           if (executed.outerOpId !== operation.opId) {
             throw new Error("execution did not return the matching durable accepted outer outcome");
@@ -354,8 +352,9 @@ export class RepoWriteChildHost {
             receipt
           };
         }
+        operation.telemetry?.reportCurrent("child-telemetry-flushed");
       } catch (error) {
-        await this.closeTelemetry(operation);
+        await this.closeTelemetry(operation, true);
         operation.state = {
           phase: advanceRepoWritePhase("child", "outcome-unknown", "proceeding")
         };
@@ -495,7 +494,7 @@ export class RepoWriteChildHost {
         phase: advanceRepoWritePhase("child", "shutdown-before-proceed", operation.state.phase)
       };
       operation.cancelledBeforeProceed = true;
-      await this.closeTelemetry(operation);
+      await this.closeTelemetry(operation, true);
       this.release(operation);
       cancelled.push(operation);
     }
@@ -510,8 +509,9 @@ export class RepoWriteChildHost {
     await this.maybeCompleteShutdown();
   }
 
-  private async closeTelemetry(operation: HostedOperation): Promise<void> {
-    await operation.telemetry?.flush();
+  private async closeTelemetry(operation: HostedOperation, stream = false): Promise<void> {
+    if (stream) await operation.telemetry?.stream();
+    else await operation.telemetry?.flush();
     operation.telemetry?.close();
   }
 

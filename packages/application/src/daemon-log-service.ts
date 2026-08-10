@@ -2,6 +2,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import {
   DaemonLogContractError,
+  daemonLogMessageLimitForEvent,
   decodeDaemonLogEntry,
   decodeDaemonLogListInput,
   type DaemonLogEntryV1,
@@ -27,7 +28,6 @@ export interface DaemonLogStorePort {
   readonly read: () => Promise<DaemonLogStoreReadResult>;
 }
 
-const messageLimit = 4_096;
 const hintLimit = 2_048;
 
 export function makeDaemonLogService(options: DaemonLogServiceOptions): DaemonLogService {
@@ -110,7 +110,13 @@ async function readAllEntries(
 
 function redactDaemonLogEntry(entry: DaemonLogEntryV1, canonicalRoot?: string): DaemonLogEntryV1 {
   const fieldsRemoved = new Set(entry.redaction.fieldsRemoved);
-  const message = redactText(entry.message, canonicalRoot, messageLimit, fieldsRemoved, "message");
+  const message = redactText(
+    entry.message,
+    canonicalRoot,
+    daemonLogMessageLimitForEvent(entry.event),
+    fieldsRemoved,
+    "message"
+  );
   const hintResult = typeof entry.hint === "string"
     ? redactText(entry.hint, canonicalRoot, hintLimit, fieldsRemoved, "hint")
     : undefined;

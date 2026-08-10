@@ -30,13 +30,11 @@ import {
   failRepoWriteSubmit
 } from "./repo-write-client-timeout.ts";
 import {
-  recordRepoWriteClientTelemetry,
-  repoWriteTelemetryMatchesPendingRequest
+  handleRepoWriteClientTelemetry
 } from "./repo-write-client-telemetry.ts";
 import {
   observeRepoWriteRecoveryDiagnostic,
   observeRepoWriteRetryBudgetSignal,
-  observeRepoWriteTelemetry,
   repoWriteClientFrameBase
 } from "./repo-write-client-observers.ts";
 import {
@@ -337,28 +335,19 @@ export class RepoWriteClient {
       pending.resolve(repoWriteLookupResultFromStatus(message));
       return;
     }
-    if (message.kind === "telemetry") {
-      if (!repoWriteTelemetryMatchesPendingRequest(
+    if (message.kind === "telemetry" || message.kind === "telemetry-batch") {
+      if (!handleRepoWriteClientTelemetry({
         message,
-        this.pending,
-        this.pendingLookups,
-        this.directLane,
-        this.shutdownPending
-      )) {
+        submits: this.pending,
+        lookups: this.pendingLookups,
+        direct: this.directLane,
+        shutdown: this.shutdownPending,
+        onTelemetry: this.options.onTelemetry,
+        ...(this.options.onTelemetryBatch ? { onTelemetryBatch: this.options.onTelemetryBatch } : {}),
+        failProtocol: (diagnostic) => this.failProtocol(diagnostic)
+      })) {
         this.failProtocol("Repo writer telemetry does not match a pending request.");
-        return;
       }
-      recordRepoWriteClientTelemetry(
-        message,
-        this.pending,
-        this.pendingLookups,
-        this.directLane
-      );
-      observeRepoWriteTelemetry(
-        this.options.onTelemetry,
-        message,
-        () => this.failProtocol("Repo writer telemetry observer failed.")
-      );
       return;
     }
     if (message.kind === "recovery-deferred" || message.kind === "recovery-rejected") {

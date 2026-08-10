@@ -7,6 +7,7 @@ import {
   type RepoWriteOperationLookupResult,
   type RepoWriteTelemetryDetails,
   type RepoWriteTelemetryPhase,
+  type RepoWriteTelemetrySpan,
   type RepoWriteTerminalOutcome
 } from "./repo-write-protocol.ts";
 
@@ -109,6 +110,20 @@ export class RepoWriteChildResponseWriter {
       phase,
       elapsedMs,
       ...(details ? { details } : {})
+    });
+  }
+
+  telemetryBatch(
+    requestId: string,
+    spans: ReadonlyArray<RepoWriteTelemetrySpan>,
+    opId?: string
+  ): Promise<void> {
+    return this.send({
+      ...this.frameBase(),
+      kind: "telemetry-batch",
+      requestId,
+      ...(opId ? { opId } : {}),
+      spans
     });
   }
 
