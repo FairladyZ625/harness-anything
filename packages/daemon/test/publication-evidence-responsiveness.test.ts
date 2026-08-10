@@ -95,7 +95,7 @@ test("production reader creation does not capture an owner without the test regi
 });
 
 posixTest("offset batch bytes fail closed and the request falls back to one-shot Git", async (context) => {
-  const fixture = faultyPublicationRepo("offset");
+  const fixture = faultyPublicationRepo("offset", 100);
   context.after(async () => await removeTemporaryTestRoot(fixture.root));
   try {
     assert.equal(
@@ -391,7 +391,7 @@ function readLogEntries(logPath: string): ReadonlyArray<string> {
 
 type GitBatchFault = "offset" | "die" | "half-read" | "hang-half";
 
-function faultyPublicationRepo(fault: GitBatchFault): {
+function faultyPublicationRepo(fault: GitBatchFault, replacementStartupDelayMs = 0): {
   readonly root: string;
   readonly batchLog: string;
   readonly fallbackLog: string;
@@ -410,7 +410,13 @@ function faultyPublicationRepo(fault: GitBatchFault): {
   const fallbackLog = path.join(root, "fallback-starts.log");
   mkdirSync(binDir);
   const wrapper = path.join(binDir, "git");
-  writeFileSync(wrapper, faultyGitWrapperSource(realGit, batchLog, fallbackLog, fault));
+  writeFileSync(wrapper, faultyGitWrapperSource(
+    realGit,
+    batchLog,
+    fallbackLog,
+    fault,
+    replacementStartupDelayMs
+  ));
   chmodSync(wrapper, 0o755);
   const previousPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
@@ -429,21 +435,27 @@ function faultyGitWrapperSource(
   realGit: string,
   batchLog: string,
   fallbackLog: string,
-  fault: GitBatchFault
+  fault: GitBatchFault,
+  replacementStartupDelayMs: number
 ): string {
   return [
     "#!/usr/bin/env node",
-    'import { appendFileSync } from "node:fs";',
+    'import { appendFileSync, existsSync } from "node:fs";',
     'import { spawnSync } from "node:child_process";',
     `const realGit = ${JSON.stringify(realGit)};`,
     `const batchLog = ${JSON.stringify(batchLog)};`,
     `const fallbackLog = ${JSON.stringify(fallbackLog)};`,
     `const fault = ${JSON.stringify(fault)};`,
+    `const replacementStartupDelayMs = ${JSON.stringify(replacementStartupDelayMs)};`,
     "const args = process.argv.slice(2);",
     "if (!args.includes(\"--batch\")) {",
     "  appendFileSync(fallbackLog, `${process.pid}\\n`);",
     "  const delegated = spawnSync(realGit, args, { stdio: \"inherit\" });",
     "  process.exit(delegated.status ?? 1);",
+    "}",
+    "const isReplacement = existsSync(batchLog);",
+    "if (isReplacement && replacementStartupDelayMs > 0) {",
+    "  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, replacementStartupDelayMs);",
     "}",
     "appendFileSync(batchLog, `${process.pid}\\n`);",
     "const rootFlag = args.indexOf(\"-C\");",
