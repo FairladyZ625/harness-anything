@@ -18,12 +18,16 @@ import { hashBytes } from "./evidence.mjs";
 
 const moduleRoot = path.dirname(fileURLToPath(import.meta.url));
 export const repositoryRoot = realpathSync(path.resolve(moduleRoot, "../.."));
-export const cliEntryRelative = "packages/cli/dist/cli/src/index.js";
+const cliDistEntryRelative = "packages/cli/dist/cli/src/index.js";
+const cliSourceEntryRelative = "packages/cli/src/index.ts";
+export const cliEntryRelative = existsSync(path.join(repositoryRoot, cliDistEntryRelative))
+  ? cliDistEntryRelative
+  : cliSourceEntryRelative;
 export const cliEntry = path.join(repositoryRoot, cliEntryRelative);
 
 export function createIsolatedFixture(seed) {
   assertNode24();
-  if (!existsSync(cliEntry)) throw new Error(`CLI build is missing: ${cliEntry}; run npm run build -w @harness-anything/cli`);
+  if (!existsSync(cliEntry)) throw new Error(`CLI entry is missing: ${cliEntry}; run npm run build -w @harness-anything/cli or run from a source checkout`);
   const base = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-coldstart-bench-")));
   const sourceRoot = privateDirectory(path.join(base, "seed-repository"));
   const subjectRootCandidate = path.join(base, "subject-worktree");
