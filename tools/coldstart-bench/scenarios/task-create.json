@@ -1,0 +1,31 @@
+{
+  "schema": "coldstart-bench-scenario/v1",
+  "id": "task-create-coldstart/v1",
+  "prompt": "Use the available CLI to discover its task workflow and create one new software/coding task named Cold-start scripted task. Stop after confirming that the created task can be read back.",
+  "theoreticalMinimumCommands": 2,
+  "commandOpportunities": [
+    {
+      "id": "discover-help",
+      "command": "help",
+      "applicable": true,
+      "route": "primary"
+    },
+    {
+      "id": "discover-capabilities",
+      "command": "capabilities",
+      "applicable": true,
+      "route": "alternative"
+    },
+    {
+      "id": "task-create",
+      "command": "task.create",
+      "applicable": true,
+      "route": "primary"
+    }
+  ],
+  "verificationIds": [
+    "task-package-present",
+    "task-id-readback",
+    "task-status-planned"
+  ]
+}
