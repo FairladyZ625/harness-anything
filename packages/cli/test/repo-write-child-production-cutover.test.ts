@@ -61,6 +61,7 @@ const entrypointArtifactIdentity =
 
 cutoverTest("production child reports semantic startup phases before READY", async (t) => {
   const fixture = createProductionAuthorityLifecycleFixture();
+  seedLargeAuthorityStartupLog(fixture.serviceRoot);
   const userRoot = path.join(fixture.root, "daemon-user");
   const endpoint = path.join(userRoot, "daemon.sock");
   const startupProgress: Array<{ readonly phase: string; readonly workUnit: string }> = [];
@@ -120,7 +121,14 @@ cutoverTest("production child reports semantic startup phases before READY", asy
       { phase: "runtime-start", workUnit: "canonical" },
       { phase: "authority-lifecycle-compose", workUnit: "canonical" },
       { phase: "authority-start-repo", workUnit: "canonical" },
-      { phase: "historical-recovery-scan", workUnit: "canonical" },
+      {
+        phase: "authority-start-repo",
+        workUnit: "canonical:authority-state:operations.jsonl:2048"
+      },
+      {
+        phase: "authority-start-repo",
+        workUnit: "canonical:authority-state:operations.jsonl:4096"
+      },
       { phase: "child-host-start", workUnit: "canonical" }
     ]);
     t.diagnostic(JSON.stringify({ startupProgress }));
@@ -129,6 +137,27 @@ cutoverTest("production child reports semantic startup phases before READY", asy
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
+
+function seedLargeAuthorityStartupLog(serviceRoot: string): void {
+  const stateDirectory = path.join(
+    serviceRoot,
+    "authority",
+    Buffer.from("canonical", "utf8").toString("base64url")
+  );
+  mkdirSync(stateDirectory, { recursive: true });
+  const rows = Array.from({ length: 4_097 }, (_, index) => JSON.stringify({
+    schema: "authority-service-state/v1",
+    table: "operation",
+    key: `workspace-startup-noise\u0000op-${index}`,
+    value: {
+      workspaceId: "workspace-startup-noise",
+      opId: `op-${index}`,
+      semanticDigest: "a".repeat(64),
+      state: "RECEIVED"
+    }
+  }));
+  writeFileSync(path.join(stateDirectory, "operations.jsonl"), `${rows.join("\n")}\n`);
+}
 
 cutoverTest("two signed production repos own distinct child locks and route through one daemon", { timeout: 60_000 }, async (t) => {
   const fixture = createProductionAuthorityLifecycleFixture({ repoIds: ["alpha", "beta"] });

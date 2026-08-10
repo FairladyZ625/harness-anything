@@ -198,6 +198,114 @@ test("generic authority pending is promoted from canonical ancestry even before 
   }
 });
 
+test("a poisoned receipt times out without blocking later settlement recovery", durableSettlementStore, async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "ha-receipt-poison-"));
+  try {
+    const authoredRoot = path.join(root, "harness");
+    mkdirSync(authoredRoot);
+    git(authoredRoot, "init");
+    git(authoredRoot, "config", "user.name", "Receipt Recovery");
+    git(authoredRoot, "config", "user.email", "receipt-recovery@example.test");
+    writeFileSync(path.join(authoredRoot, "README.md"), "canonical\n");
+    git(authoredRoot, "add", "README.md");
+    git(authoredRoot, "commit", "-m", "canonical base");
+    const acceptedCommitSha = git(authoredRoot, "rev-parse", "HEAD");
+    const settlements = settlementStore(path.join(root, "settlements"), 2);
+    const poisonReceiptId = "repo-write-direct:00-poison";
+    const healthyReceiptId = "repo-write:01-healthy";
+    acceptPending(settlements, {
+      receiptId: poisonReceiptId,
+      sessionId: "session-poison",
+      acceptedCommitSha,
+      authorityOperationIds: ["op-poison"]
+    });
+    acceptPending(settlements, {
+      receiptId: healthyReceiptId,
+      sessionId: "session-healthy",
+      acceptedCommitSha,
+      authorityOperationIds: ["op-healthy"]
+    });
+    const outcomes = new DurableRepoWriteOutcomeStoreV1({
+      directory: path.join(root, "outcomes"),
+      repoId: "canonical",
+      workspaceId: "workspace-recovery",
+      generation: 2
+    });
+    const runtime = {
+      enqueueMaterializerBatch: async () => ({ branches: [] })
+    } as unknown as HarnessDaemonRuntime;
+    const progress: Array<{
+      readonly receiptId: string;
+      readonly phase: string;
+      readonly status: string;
+    }> = [];
+
+    await Promise.race([
+      recoverPendingSettlementMaterialization({
+        settlements,
+        outcomes,
+        runtime,
+        authoredRoot,
+        deadlineAt: Date.now() + 1_000,
+        perReceiptTimeoutMs: 25,
+        onReceiptProgress: (event) => progress.push(event),
+        recoverCommittedReceipt: async (opId) => {
+          if (opId === "op-poison") return new Promise(() => undefined);
+          throw new Error(`unexpected authority recovery: ${opId}`);
+        }
+      }),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("settlement sweep did not skip poison receipt")), 250);
+      })
+    ]);
+
+    assert.equal(settlements.lookup(poisonReceiptId)?.state, "pending");
+    assert.equal(settlements.lookup(healthyReceiptId)?.state, "canonical-visible");
+    const timeout = progress.find((event) =>
+      event.receiptId === poisonReceiptId && event.status === "timed-out");
+    assert.deepEqual(timeout, {
+      receiptId: poisonReceiptId,
+      phase: "authority-receipt",
+      status: "timed-out"
+    });
+    assert.ok(progress.findIndex((event) => event === timeout)
+      < progress.findIndex((event) =>
+        event.receiptId === healthyReceiptId && event.status === "visible"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function acceptPending(
+  settlements: ReceiptSettlementStore,
+  input: {
+    readonly receiptId: string;
+    readonly sessionId: string;
+    readonly acceptedCommitSha: string;
+    readonly authorityOperationIds: ReadonlyArray<string>;
+  }
+): void {
+  const pending = pendingCommandReceiptSettlement({
+    receiptId: input.receiptId,
+    acceptedAt: "2026-08-09T10:00:00.000Z",
+    sessionId: input.sessionId,
+    acceptedCommitSha: input.acceptedCommitSha,
+    authorityOperationIds: input.authorityOperationIds
+  });
+  settlements.accept(withCommandReceiptSettlement({
+    ok: true,
+    schema: "command-receipt/v2",
+    command: "task create",
+    action: "create",
+    summary: "accepted",
+    next: [],
+    meta: {
+      generatedAt: "2026-08-09T10:00:00.000Z",
+      compatibility: { legacyReceipt: "CommandReceipt/v1" }
+    }
+  }, pending));
+}
+
 function settlementStore(directory: string, generation: number): ReceiptSettlementStore {
   return new ReceiptSettlementStore({
     directory,

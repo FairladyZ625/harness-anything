@@ -20,6 +20,7 @@ import { stableStringify } from "@harness-anything/kernel";
 
 const serviceStateSchema = "authority-service-state/v1" as const;
 const operationTransitionSchema = "authority-operation-transition-batch/v1" as const;
+const replayProgressRowInterval = 2_048;
 
 interface DurableStateEnvelope {
   readonly schema: typeof serviceStateSchema;
@@ -57,6 +58,12 @@ export interface DurableAuthorityServiceState {
   readonly close: () => Promise<void>;
 }
 
+export interface DurableAuthorityServiceStateReplayProgress {
+  readonly fileName: string;
+  readonly table: DurableStateEnvelope["table"];
+  readonly replayedRows: number;
+}
+
 /**
  * Opens restart-recoverable daemon service state. All logs are replayed before
  * this function returns, so lifecycle serve cannot race recovery.
@@ -64,6 +71,9 @@ export interface DurableAuthorityServiceState {
 export function openDurableAuthorityServiceState(input: {
   readonly serviceStateRoot: string;
   readonly repoId: string;
+  readonly onReplayProgress?: (
+    progress: DurableAuthorityServiceStateReplayProgress
+  ) => void;
 }): DurableAuthorityServiceState {
   const repoId = requiredKey(input.repoId, "repoId");
   const stateDirectory = path.join(
@@ -72,17 +82,47 @@ export function openDurableAuthorityServiceState(input: {
     Buffer.from(repoId, "utf8").toString("base64url")
   );
   mkdirSync(stateDirectory, { recursive: true, mode: 0o700 });
-  const operationLog = openLog(stateDirectory, "operations.jsonl", "operation");
-  const replicaLog = openLog(stateDirectory, "replica-changes.jsonl", "replica-change");
+  const operationLog = openLog(
+    stateDirectory,
+    "operations.jsonl",
+    "operation",
+    input.onReplayProgress
+  );
+  const replicaLog = openLog(
+    stateDirectory,
+    "replica-changes.jsonl",
+    "replica-change",
+    input.onReplayProgress
+  );
   for (const [key, value] of replicaLog.values) {
     const normalized = normalizePersistedReplicaChange(value);
     validateReplicaChange(normalized);
     replicaLog.values.set(key, normalized);
   }
-  const bindingLog = openLog(stateDirectory, "bindings.jsonl", "binding");
-  const namespaceLog = openLog(stateDirectory, "namespaces.jsonl", "namespace");
-  const cutoverLog = openLog(stateDirectory, "cutover.jsonl", "cutover");
-  const replicationLog = openLog(stateDirectory, "replication.jsonl", "replication");
+  const bindingLog = openLog(
+    stateDirectory,
+    "bindings.jsonl",
+    "binding",
+    input.onReplayProgress
+  );
+  const namespaceLog = openLog(
+    stateDirectory,
+    "namespaces.jsonl",
+    "namespace",
+    input.onReplayProgress
+  );
+  const cutoverLog = openLog(
+    stateDirectory,
+    "cutover.jsonl",
+    "cutover",
+    input.onReplayProgress
+  );
+  const replicationLog = openLog(
+    stateDirectory,
+    "replication.jsonl",
+    "replication",
+    input.onReplayProgress
+  );
   const replicaListeners = new Map<string, Set<(record: ReplicaChangeRecord) => void>>();
   let closed = false;
 
@@ -200,7 +240,10 @@ export function openDurableAuthorityServiceState(input: {
 function openLog(
   stateDirectory: string,
   fileName: string,
-  table: DurableStateEnvelope["table"]
+  table: DurableStateEnvelope["table"],
+  onReplayProgress?: (
+    progress: DurableAuthorityServiceStateReplayProgress
+  ) => void
 ): {
   readonly values: Map<string, unknown>;
   readonly append: (key: string, value: unknown) => void;
@@ -210,6 +253,7 @@ function openLog(
   const values = new Map<string, unknown>();
   if (existsSync(logPath)) {
     const lines = readFileSync(logPath, "utf8").split("\n");
+    let replayedRows = 0;
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index]!;
       if (!line) continue;
@@ -224,12 +268,16 @@ function openLog(
           throw new Error(`AUTHORITY_SERVICE_STATE_INVALID_ROW:${fileName}:${index + 1}`);
         }
         applyOperationTransitions(values, envelope.transitions, fileName, index + 1);
+        replayedRows += 1;
+        reportReplayProgress(onReplayProgress, fileName, table, replayedRows);
         continue;
       }
       if (envelope.schema !== serviceStateSchema || envelope.table !== table || !envelope.key) {
         throw new Error(`AUTHORITY_SERVICE_STATE_INVALID_ROW:${fileName}:${index + 1}`);
       }
       values.set(envelope.key, envelope.value);
+      replayedRows += 1;
+      reportReplayProgress(onReplayProgress, fileName, table, replayedRows);
     }
   }
   return {
@@ -249,6 +297,16 @@ function openLog(
       applyOperationTransitions(values, transitions, fileName);
     }
   };
+}
+
+function reportReplayProgress(
+  onReplayProgress: ((progress: DurableAuthorityServiceStateReplayProgress) => void) | undefined,
+  fileName: string,
+  table: DurableStateEnvelope["table"],
+  replayedRows: number
+): void {
+  if (!onReplayProgress || replayedRows % replayProgressRowInterval !== 0) return;
+  onReplayProgress({ fileName, table, replayedRows });
 }
 
 function applyOperationTransitions(

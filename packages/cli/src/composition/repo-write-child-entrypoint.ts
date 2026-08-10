@@ -6,7 +6,6 @@ import {
   createGitCanonicalPublicationInspector,
   createRepoWriteChildHost,
   decodeRepoWriteChildLaunchConfig,
-  defaultProductionRecoveryAdmissionTimeoutMs,
   DurableRepoWriteOutcomeStoreV1,
   loadAuthorityProductionManifest,
   ProductionRepoWriteOperationHost,
@@ -22,9 +21,9 @@ import { defaultCliAdapterProvider } from "./adapter-registry.ts";
 import { cliDaemonCommandHostServices } from "./daemon-command-host-services.ts";
 import { makeIncrementalConflictMarkerPreflight } from "./incremental-conflict-marker-preflight.ts";
 import {
-  reconcileTerminalSettlements,
-  recoverPendingSettlementMaterialization,
-} from "./receipt-settlement-runtime.ts";
+  boundedRecoveryError,
+  createRepoWriteChildPostReadyRecovery
+} from "./repo-write-child-post-ready-recovery.ts";
 import { createRepoWriteChildDocSyncExecutor } from "./repo-write-child-doc-sync-executor.ts";
 import {
   createCliProductionAuthorityLifecycle
@@ -36,23 +35,6 @@ type RepoWriteStartupProgressPhase = Extract<
   Parameters<RepoWriteChildIpcTransport["send"]>[0],
   { readonly kind: "startup-progress" }
 >["phase"];
-
-/**
- * Historical recovery keeps its existing admission budget, which is strictly
- * smaller than the parent's startup-stall window. The parent now renews that
- * window only when it sees a previously unseen startup phase/work-unit pair;
- * this budget remains an admission boundary, not the liveness signal.
- *
- * Reuses the authority admission deadline rather than restating it: both exist
- * to return before the same parent transport deadline so the supervisor leaves a
- * recovering child alive. One deadline, one constant.
- */
-const startupReadyBudgetMs = defaultProductionRecoveryAdmissionTimeoutMs;
-
-/** Time this child may still spend on historical recovery before announcing READY. */
-function remainingStartupRecoveryBudgetMs(): number {
-  return Math.max(0, startupReadyBudgetMs - Math.round(process.uptime() * 1000));
-}
 
 export async function runRepoWriteChildEntrypoint(
   encodedConfig: string | undefined
@@ -221,6 +203,21 @@ export async function runRepoWriteChildEntrypoint(
     manifestPath: config.authorityManifest,
     ...(layoutOverrides ? { layoutOverrides } : {}),
     onPublicationRetryBudgetSignal,
+    onServiceStateReplayProgress: (progressRepo, progress) => {
+      void reportStartupProgress(
+        "authority-start-repo",
+        [
+          progressRepo.repoId,
+          "authority-state",
+          progress.fileName,
+          String(progress.replayedRows)
+        ].join(":")
+      ).catch((error) => {
+        process.stderr.write(
+          `[repo-write-child] authority state replay progress deferred: ${boundedRecoveryError(error)}\n`
+        );
+      });
+    },
     backgroundRecovery: true
   });
   const repo = {
@@ -253,85 +250,21 @@ export async function runRepoWriteChildEntrypoint(
       readonly canonicalCommitSha: string;
     }) => Promise<"live-owner" | "recovered" | "terminal" | "blocked">;
   } = {};
-  const recoverSettlements = async (budgetMs = 5_000) => {
-    await recoverPendingSettlementMaterialization({
-      settlements,
-      outcomes,
-      runtime,
-      authoredRoot,
-      deadlineAt: Date.now() + budgetMs,
-      recoverCommittedReceipt: recoverAuthorityCommittedReceipt,
-      recoverCanonicalPublication: (input) => canonicalPublicationRecovery.current
-        ? canonicalPublicationRecovery.current(input)
-        : Promise.resolve("blocked")
-    });
-    reconcileTerminalSettlements(settlements, outcomes);
-  };
-  await recoverSettlements(remainingStartupRecoveryBudgetMs());
-  const startupRecoveryBudgetMs = remainingStartupRecoveryBudgetMs();
-  const startupRecoveryDeadline = Date.now() + startupRecoveryBudgetMs;
-  await reportStartupProgress("historical-recovery-scan");
-  const historicalProceedings = outcomes.listHistoricalProceedings();
-  startupPhase.mark("list-historical-proceedings", {
-    proceedingCount: historicalProceedings.length
+  const postReadyRecovery = createRepoWriteChildPostReadyRecovery({
+    repoId: config.repoId,
+    generation: config.generation,
+    transport,
+    settlements,
+    outcomes,
+    runtime,
+    authoredRoot,
+    recoveryGate,
+    recoverCommittedReceipt: recoverAuthorityCommittedReceipt,
+    recoverCanonicalPublication: (recovery) => canonicalPublicationRecovery.current
+      ? canonicalPublicationRecovery.current(recovery)
+      : Promise.resolve("blocked")
   });
-  let proceedingsLeftByBudget = 0;
-  let recoveredProceedings = 0;
-  for (const proceeding of historicalProceedings) {
-    if (Date.now() >= startupRecoveryDeadline) {
-      proceedingsLeftByBudget += 1;
-      continue;
-    }
-    await reportStartupProgress("historical-recovery", proceeding.outerOpId);
-    const proceedingStartedAt = startupPhase.now();
-    try {
-      const recovery = await recoveryGate.recoverHistoricalProceeding(proceeding);
-      if (recovery.disposition === "permanently-rejected") {
-        await transport.send({
-          protocol: "harness-repo-write-ipc/v1",
-          repoId: config.repoId,
-          generation: config.generation,
-          kind: "recovery-rejected",
-          outerOpId: proceeding.outerOpId,
-          code: recovery.code,
-          diagnostic:
-            "Historical recovery evidence permanently conflicts with the canonical publication. "
-            + "The outer operation remains outcome-unknown; no authority terminal proof was created.",
-          next:
-            "Run `ha daemon logs --errors --json`, then escalate this outer op for "
-            + "operator-reviewed canonical Git and authority-state repair. "
-            + "Do not delete WAL, outcome, or recovery files."
-        });
-      }
-    } catch (error) {
-      await transport.send({
-        protocol: "harness-repo-write-ipc/v1",
-        repoId: config.repoId,
-        generation: config.generation,
-        kind: "recovery-deferred",
-        outerOpId: proceeding.outerOpId,
-        code: recoveryErrorCode(error),
-        diagnostic: boundedRecoveryError(error)
-      });
-    }
-    recoveredProceedings += 1;
-    startupPhase.observeProceeding(proceedingStartedAt);
-  }
-  startupPhase.mark("historical-recovery-loop", {
-    proceedingCount: recoveredProceedings,
-    slowestProceedingMs: startupPhase.slowestProceedingMs(),
-    budgetMs: startupRecoveryBudgetMs,
-    leftByBudget: proceedingsLeftByBudget
-  });
-  if (proceedingsLeftByBudget > 0) {
-    process.stderr.write(
-      `[repo-write-child] repo=${config.repoId} left ${proceedingsLeftByBudget} historical `
-      + `proceeding(s) unrecovered after spending the ${startupRecoveryBudgetMs}ms still left `
-      + `of the ${startupReadyBudgetMs}ms startup budget; they remain proceeding and are `
-      + "retried on the next start\n"
-    );
-  }
-  reconcileTerminalSettlements(settlements, outcomes);
+  const recoverSettlements = postReadyRecovery.recoverSettlements;
   await reportStartupProgress("child-host-start");
   const operation = new ProductionRepoWriteOperationHost({
     repoId: config.repoId,
@@ -352,15 +285,33 @@ export async function runRepoWriteChildEntrypoint(
       runtime
     })
   });
-  canonicalPublicationRecovery.current = (input) =>
-    operation.recoverCanonicalPublicationSettlement(input);
-  await recoverSettlements(remainingStartupRecoveryBudgetMs());
+  canonicalPublicationRecovery.current = (recovery) =>
+    operation.recoverCanonicalPublicationSettlement(recovery);
+  let initialRecovery: Promise<void> | undefined;
+  const startInitialRecovery = (): void => {
+    initialRecovery ??= postReadyRecovery.runInitialSweep().catch(async (error) => {
+      const diagnostic = boundedRecoveryError(error);
+      process.stderr.write(
+        `[repo-write-child] post-READY recovery deferred: ${diagnostic}\n`
+      );
+      await transport.send({
+        protocol: "harness-repo-write-ipc/v1",
+        repoId: config.repoId,
+        generation: config.generation,
+        kind: "recovery-deferred",
+        outerOpId: `post-ready-recovery:${config.repoId}`,
+        code: "POST_READY_RECOVERY_DEFERRED",
+        diagnostic
+      }).catch(() => undefined);
+    });
+  };
   let cleanupPromise: Promise<void> | undefined;
   const cleanup = () => {
     cleanupPromise ??= (async () => {
+      await initialRecovery;
       await operation.settlementIdle();
       await authorityLifecycle.stopRepo(repo, "daemon-shutdown");
-      await runtime!.stop();
+      await runtime.stop();
     })();
     return cleanupPromise;
   };
@@ -391,6 +342,7 @@ export async function runRepoWriteChildEntrypoint(
     void childHost.start().then(() => {
       startupPhase.mark("child-host-start-ready");
       startupPhase.reportTotal();
+      startInitialRecovery();
     }).catch(async (error: unknown) => {
       await cleanup().catch(() => undefined);
       reject(error);
@@ -399,10 +351,7 @@ export async function runRepoWriteChildEntrypoint(
 }
 
 interface RepoWriteChildStartupPhaseReporter {
-  readonly now: () => number;
   readonly mark: (phase: string, detail?: Record<string, number>) => void;
-  readonly observeProceeding: (startedAt: number) => void;
-  readonly slowestProceedingMs: () => number;
   readonly reportTotal: () => void;
 }
 
@@ -414,7 +363,6 @@ interface RepoWriteChildStartupPhaseReporter {
 function makeRepoWriteChildStartupPhaseReporter(): RepoWriteChildStartupPhaseReporter {
   const startedAt = performance.now();
   let previous = startedAt;
-  let slowestProceedingMs = 0;
   const emit = (frame: Record<string, unknown>) => {
     try {
       process.stderr.write(`${JSON.stringify({
@@ -427,7 +375,6 @@ function makeRepoWriteChildStartupPhaseReporter(): RepoWriteChildStartupPhaseRep
     }
   };
   return {
-    now: () => performance.now(),
     mark: (phase, detail) => {
       const at = performance.now();
       emit({
@@ -438,13 +385,6 @@ function makeRepoWriteChildStartupPhaseReporter(): RepoWriteChildStartupPhaseRep
       });
       previous = at;
     },
-    observeProceeding: (proceedingStartedAt) => {
-      slowestProceedingMs = Math.max(
-        slowestProceedingMs,
-        Math.round(performance.now() - proceedingStartedAt)
-      );
-    },
-    slowestProceedingMs: () => slowestProceedingMs,
     reportTotal: () => emit({
       phase: "ready",
       sinceEntrypointMs: Math.round(performance.now() - startedAt)
@@ -454,27 +394,4 @@ function makeRepoWriteChildStartupPhaseReporter(): RepoWriteChildStartupPhaseRep
 
 function canonicalExistingRoot(rootDir: string): string {
   return realpathSync.native(path.resolve(rootDir));
-}
-
-function recoveryErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function recoveryErrorCode(error: unknown): string {
-  if (error instanceof Error && "code" in error
-    && typeof error.code === "string" && error.code.trim()) {
-    return error.code;
-  }
-  const message = recoveryErrorMessage(error);
-  const match = /^([A-Z][A-Z0-9_]+)(?::|$)/u.exec(message);
-  return match?.[1] ?? "HISTORICAL_RECOVERY_DEFERRED";
-}
-
-function boundedRecoveryError(error: unknown): string {
-  const value = `${error instanceof Error ? `${error.name}: ` : ""}${recoveryErrorMessage(error)}`
-    .replace(/[\u0000-\u001f\u007f]+/gu, " ")
-    .trim();
-  const bytes = Buffer.from(value || "Historical recovery deferred.", "utf8");
-  if (bytes.length <= 2_048) return bytes.toString("utf8");
-  return bytes.subarray(0, 2_048).toString("utf8").replace(/\uFFFD$/u, "");
 }

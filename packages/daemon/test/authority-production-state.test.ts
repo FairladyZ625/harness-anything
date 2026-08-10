@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,6 +18,45 @@ import {
   openDurableAuthorityServiceState,
   type DurableAuthorityStateTable
 } from "../src/authority/production/service-state.ts";
+
+test("large durable service-state replay reports bounded startup work without changing final values", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-authority-replay-progress-"));
+  try {
+    const stateDirectory = path.join(
+      root,
+      "authority",
+      Buffer.from("repo-1", "utf8").toString("base64url")
+    );
+    mkdirSync(stateDirectory, { recursive: true });
+    const rows = Array.from({ length: 4_097 }, (_, index) => JSON.stringify({
+      schema: "authority-service-state/v1",
+      table: "replication",
+      key: `replication-${index % 2}`,
+      value: { revision: index }
+    }));
+    writeFileSync(path.join(stateDirectory, "replication.jsonl"), `${rows.join("\n")}\n`);
+    const progress: Array<{ readonly fileName: string; readonly replayedRows: number }> = [];
+
+    const state = openDurableAuthorityServiceState({
+      serviceStateRoot: root,
+      repoId: "repo-1",
+      onReplayProgress: (event) => progress.push({
+        fileName: event.fileName,
+        replayedRows: event.replayedRows
+      })
+    });
+
+    assert.deepEqual(progress, [
+      { fileName: "replication.jsonl", replayedRows: 2_048 },
+      { fileName: "replication.jsonl", replayedRows: 4_096 }
+    ]);
+    assert.deepEqual(state.replicationState.get("replication-0"), { revision: 4_096 });
+    assert.deepEqual(state.replicationState.get("replication-1"), { revision: 4_095 });
+    await state.close();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("durable binding consumption is idempotent for the same inner op and bounded across distinct ops", async () => {
   const table = memoryTable();
