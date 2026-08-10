@@ -120,7 +120,7 @@ function readChangedGitPaths(
     return [...new Set([...state.worktreePaths, ...committedPaths])]
       .filter((entry) => safeRepoRelativePath(entry))
       .filter((entry) => !entry.split(/[\\/]/u).some((part) =>
-        part === ".git" || part === "node_modules"
+        part === ".git" || part === "node_modules" || part === ".harness"
       ));
   } catch {
     return null;
