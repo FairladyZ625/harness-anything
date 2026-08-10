@@ -225,7 +225,7 @@ export function createProductionAuthorityLifecycle(input: {
               registryVersion: 1,
               mutations: mutationSets.flatMap((mutationSet) => mutationSet.mutations)
             });
-            return { ...evidence, recordedAt: new Date().toISOString() };
+            return evidence;
           }
         }
       });
