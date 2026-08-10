@@ -27,7 +27,11 @@ import {
 
 export { RepoWriteOutcomeValidationError } from "./repo-write-outcome-errors.ts";
 export {
+  createRepoWriteCanonicalPublicationEvidenceV1,
+  repoWriteCanonicalAncestryAnchorSchema,
+  repoWriteCanonicalPublicationEvidenceSchema,
   repoWriteTerminalProofSchema,
+  type RepoWriteCanonicalPublicationEvidenceV1,
   type RepoWriteTerminalEvidenceV1,
   type RepoWriteTerminalProofV1
 } from "./repo-write-terminal-proof.ts";

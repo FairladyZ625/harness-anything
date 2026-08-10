@@ -1,7 +1,5 @@
 import { realpathSync } from "node:fs";
 import path from "node:path";
-import { setImmediate as nextEventLoopTurn } from "node:timers/promises";
-import { Effect } from "effect";
 import {
   createDaemonGenerationWitness,
   calculateDaemonArtifactIdentity,
@@ -15,34 +13,20 @@ import {
   ReceiptSettlementStore,
   RepoWriteAuthorityRecoveryGate,
   RepoWriteChildIpcTransport,
-  failureReceipt,
-  makeDaemonQueuedWriteCoordinator,
-  makeDocSyncService,
-  materializeDocSyncWriterWorkingTree,
   type HarnessDaemonRuntime
 } from "@harness-anything/daemon";
-import type {
-  DocSyncSubmitRequestV1,
-  DocSyncSubmitResultV1
-} from "@harness-anything/application";
 import {
-  isIndeterminateFlushReport,
-  resolveHarnessLayout,
-  type FlushReport,
-  type WriteCoordinator
+  resolveHarnessLayout
 } from "@harness-anything/kernel";
 import { defaultCliAdapterProvider } from "./adapter-registry.ts";
 import { cliDaemonCommandHostServices } from "./daemon-command-host-services.ts";
-import { cliDaemonServiceHostServices } from "./daemon-service-host-services.ts";
-import { daemonActorAttribution } from "./actor-attribution.ts";
 import { makeIncrementalConflictMarkerPreflight } from "./incremental-conflict-marker-preflight.ts";
 import {
   reconcileTerminalSettlements,
-  canonicalCommitContaining,
   createReceiptSettlementRecoveryLoop,
   recoverPendingSettlementMaterialization,
 } from "./receipt-settlement-runtime.ts";
-import { buildDocSyncCommandReceipt } from "./doc-sync-command-receipt.ts";
+import { createRepoWriteChildDocSyncExecutor } from "./repo-write-child-doc-sync-executor.ts";
 import {
   createCliProductionAuthorityLifecycle
 } from "./production-authority-lifecycle.ts";
@@ -264,6 +248,12 @@ export async function runRepoWriteChildEntrypoint(
     rootDir: config.canonicalRoot,
     ...(layoutOverrides ? { layoutOverrides } : {})
   }).authoredRoot;
+  const canonicalPublicationRecovery: {
+    current?: (input: {
+      readonly outerOpId: string;
+      readonly canonicalCommitSha: string;
+    }) => Promise<"live-owner" | "recovered" | "terminal" | "blocked">;
+  } = {};
   const recoverSettlements = async (budgetMs = 5_000) => {
     await recoverPendingSettlementMaterialization({
       settlements,
@@ -271,7 +261,10 @@ export async function runRepoWriteChildEntrypoint(
       runtime,
       authoredRoot,
       deadlineAt: Date.now() + budgetMs,
-      recoverCommittedReceipt: recoverAuthorityCommittedReceipt
+      recoverCommittedReceipt: recoverAuthorityCommittedReceipt,
+      recoverCanonicalPublication: (input) => canonicalPublicationRecovery.current
+        ? canonicalPublicationRecovery.current(input)
+        : Promise.resolve("blocked")
     });
     reconcileTerminalSettlements(settlements, outcomes);
   };
@@ -355,104 +348,15 @@ export async function runRepoWriteChildEntrypoint(
     recoverHistoricalCommittedReceipt: historicalRecovery.recover,
     conflictMarkerPreflight: conflictMarkerPreflight.read,
     recoverSettlements,
-    executeDocSyncSubmit: async ({ command, decoded }) => {
-      const wireCommand = command.payload.command as {
-        readonly request?: DocSyncSubmitRequestV1;
-      };
-      if (!wireCommand.request) {
-        return { receipt: failureReceipt(
-          "repo.doc.sync.submit",
-          "doc_sync_invalid_payload",
-          "The writer child received no doc-sync request."
-        ) };
-      }
-      const materialized = materializeDocSyncWriterWorkingTree(
-        {
-          rootDir: config.canonicalRoot,
-          ...(layoutOverrides ? { layoutOverrides } : {})
-        },
-        wireCommand.request
-      );
-      if (!materialized.ok) {
-        const result: DocSyncSubmitResultV1 = {
-          ok: false,
-          _tag: "WriteRejected",
-          schema: "daemon.doc-sync-submit-result/v1",
-          status: "rejected",
-          intentId: wireCommand.request.payload.intentId,
-          code: "doc_sync_invalid_payload",
-          reason: `The writer child rejected a working-tree reference: ${materialized.reason}`,
-          retryable: false
-        };
-        return { receipt: failureReceipt(
-          "repo.doc.sync.submit",
-          result.code,
-          result.reason,
-          { data: result as unknown as import("@harness-anything/daemon").JsonObject }
-        ) };
-      }
-      const attribution = daemonActorAttribution(decoded.actor, decoded.executor);
-      const queued = makeDaemonQueuedWriteCoordinator(
-        runtime,
-        `doc-sync-submit:${wireCommand.request.payload.intentId}`,
-        {
-          attribution: attribution.writeAttribution,
-          commitAuthor: attribution.commitAuthor,
-          ...(wireCommand.request.session?.sessionId
-            ? { sessionId: wireCommand.request.session.sessionId }
-            : {})
-        }
-      );
-      let durableFlush: FlushReport | undefined;
-      const coordinator: WriteCoordinator = {
-        enqueue: queued.enqueue,
-        flush: (reason) => Effect.tap(queued.flush(reason), (flush) => Effect.sync(() => {
-          durableFlush = flush;
-        })),
-        recover: queued.recover
-      };
-      const result = await makeDocSyncService({
-        rootDir: config.canonicalRoot,
-        ...(layoutOverrides ? { layoutOverrides } : {}),
-        hostServices: cliDaemonServiceHostServices.docSync,
-        coordinator
-      }).submit(materialized.request);
-      if (result.ok) {
-        const receipt = buildDocSyncCommandReceipt({
-          result,
-          sessionId: decoded.currentSession.sessionId,
-          acceptedAt: new Date().toISOString(),
-          includeSettlement: false
-        });
-        if (result.appliedChanges.length === 0) {
-          return { receipt, terminalCommitSha: result.appliedLedgerSha };
-        }
-        if (!durableFlush || isIndeterminateFlushReport(durableFlush) || !durableFlush.committed || !durableFlush.watermark) {
-          throw new Error("DOC_SYNC_DURABLE_FLUSH_PROOF_MISSING");
-        }
-        const authoredRoot = resolveHarnessLayout({
-          rootDir: config.canonicalRoot,
-          ...(layoutOverrides ? { layoutOverrides } : {})
-        }).authoredRoot;
-        return {
-          receipt,
-          durable: {
-            sessionId: decoded.currentSession.sessionId,
-            acceptedCommitSha: result.appliedLedgerSha,
-            flush: { ...durableFlush, committed: true, watermark: durableFlush.watermark },
-            settle: async () => {
-              await nextEventLoopTurn();
-              await runtime.enqueueMaterializerBatch({ sessionId: decoded.currentSession.sessionId });
-              return canonicalCommitContaining(authoredRoot, result.appliedLedgerSha);
-            }
-          }
-        };
-      }
-      return { receipt: failureReceipt("repo.doc.sync.submit", result.code, result.reason, {
-          data: result as unknown as import("@harness-anything/daemon").JsonObject
-        }) };
-    }
+    executeDocSyncSubmit: createRepoWriteChildDocSyncExecutor({
+      canonicalRoot: config.canonicalRoot,
+      ...(layoutOverrides ? { layoutOverrides } : {}),
+      runtime
+    })
   });
+  canonicalPublicationRecovery.current = (input) =>
+    operation.recoverCanonicalPublicationSettlement(input);
+  await recoverSettlements(remainingStartupRecoveryBudgetMs());
   let cleanupPromise: Promise<void> | undefined;
   const cleanup = () => {
     cleanupPromise ??= (async () => {

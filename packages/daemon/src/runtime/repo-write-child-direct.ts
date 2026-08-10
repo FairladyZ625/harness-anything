@@ -148,11 +148,14 @@ function directWriteRejectionReceipt(
     ...(error.context ?? {}),
     ...(error.taskId ? { taskId: error.taskId } : {})
   });
+  const details = error.code === "task_complete_prepublish_not_materialized" && context
+    ? { data: context }
+    : undefined;
   return failureReceipt(
     commandName,
     error.code ?? "write_rejected",
     error.reason,
-    {},
+    details,
     context
   ) as unknown as RepoWriteJsonObject;
 }

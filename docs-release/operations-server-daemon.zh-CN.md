@@ -136,6 +136,19 @@ raw Git commit。
 write-road registry 明确分类这些路径前，继续使用其既有治理仓库流程。`doc sync` 会对未知
 Markdown fail closed，不会因为扩展名像 prose 就擅自放行。
 
+### task complete 自动物化
+
+当 `ha task complete` 发现尚未发布的已登记 task prose，或 task 自身 `artifacts/` 目录下的
+文件时，daemon 会把恰好这些 dirty path 交给既有 doc-sync/artifact 发布写路，等待 canonical
+settlement，再重跑 prepublish 检查。自动化只代办机械发布；closeout 写实、execution review、
+code-doc reconcile 与 consent 门仍按原顺序执行。已发布并被 Git 跟踪的 artifact 也能直接
+更新，不再需要先手工从 Git index 移除。
+
+dry-run 仍然只读，并返回原始 prepublish 发现。若自动物化失败，complete 也会失败；回执会
+逐个给出文件、拒收或 settlement 原因、以及可直接执行的修复步骤。先运行
+`ha doc status --json`；修复指定文件后，运行 `ha doc sync --submit` 并重试 task complete。
+若是 settlement 故障，则运行失败回执中打印的 receipt-status 命令。
+
 ## Remote SSH Relay
 
 Remote 模式连接持久远程 daemon。先在 repo config 声明 `settings.identity.mode: remote`，

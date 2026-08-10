@@ -9,6 +9,7 @@ import type {
 import type { RepoWriteCommandDto, RepoWriteJsonObject } from "./repo-write-protocol.ts";
 import { decodeRepoWriteCommand } from "./repo-write-progress-command.ts";
 import {
+  createRepoWriteCanonicalPublicationEvidenceV1,
   repoWriteActorStampDigestV1,
   repoWriteCurrentCommandForExecution,
   repoWriteReceiptSeedSchema,
@@ -22,11 +23,13 @@ export interface RepoWriteDocSyncExecution {
   readonly durable?: {
     readonly sessionId: string;
     readonly acceptedCommitSha: string;
+    readonly previousCommitSha: string;
     readonly flush: FlushReport & { readonly committed: true; readonly watermark: string };
     readonly settle: () => Promise<string>;
   };
   /** Canonical observation anchoring a mutation-free terminal result. */
   readonly terminalCommitSha?: string;
+  readonly terminalPreviousCommitSha?: string;
 }
 
 export async function prepareRepoWriteDocSyncOperation(input: {
@@ -66,7 +69,8 @@ export async function prepareRepoWriteDocSyncOperation(input: {
     },
     recoveryContext: {
       schema: "repo-write-doc-sync-recovery/v1",
-      intentId
+      intentId,
+      baseLedgerSha: docSyncBaseLedgerSha(request)
     }
   };
   reportCurrentRepoWriteTelemetry("compile-outcome");
@@ -103,30 +107,31 @@ export async function executeRepoWriteDocSyncOperation(input: {
         flush: durable.flush
       },
       acceptedCommitSha: durable.acceptedCommitSha,
-      settlement: durable.settle().then((commitSha) => ({
-        tag: "COMMITTED" as const,
-        workspaceId: input.proceeding.workspaceId,
-        opId: input.proceeding.innerOpId,
-        semanticDigest: input.proceeding.authoritySemanticDigest,
-        revision: 0,
-        commitSha,
-        previousCommit: null
-      }))
+      settlement: durable.settle().then((commitSha) =>
+        createRepoWriteCanonicalPublicationEvidenceV1({
+          workspaceId: input.proceeding.workspaceId,
+          opId: input.proceeding.innerOpId,
+          semanticDigest: input.proceeding.authoritySemanticDigest,
+          revision: 0,
+          commitSha,
+          previousCommit: durable.previousCommitSha,
+          acceptedCommitSha: durable.acceptedCommitSha
+        }))
     };
   }
   if (receipt.ok && execution.terminalCommitSha) {
     return {
       kind: "terminal",
       receipt,
-      authorityEvidence: {
-        tag: "COMMITTED",
+      authorityEvidence: createRepoWriteCanonicalPublicationEvidenceV1({
         workspaceId: input.proceeding.workspaceId,
         opId: input.proceeding.innerOpId,
         semanticDigest: input.proceeding.authoritySemanticDigest,
         revision: 0,
         commitSha: execution.terminalCommitSha,
-        previousCommit: null
-      }
+        previousCommit: execution.terminalPreviousCommitSha ?? null,
+        acceptedCommitSha: execution.terminalCommitSha
+      })
     };
   }
   if (receipt.ok) throw new Error("DOC_SYNC_TERMINAL_SUCCESS_PROOF_MISSING");
@@ -165,4 +170,16 @@ function docSyncIntentId(request: RepoWriteJsonObject): string {
     throw new Error("DOC_SYNC_INTENT_ID_REQUIRED");
   }
   return intentId;
+}
+
+function docSyncBaseLedgerSha(request: RepoWriteJsonObject): string {
+  const payload = request.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("DOC_SYNC_REQUEST_PAYLOAD_REQUIRED");
+  }
+  const baseLedgerSha = (payload as RepoWriteJsonObject).baseLedgerSha;
+  if (typeof baseLedgerSha !== "string" || baseLedgerSha.length === 0) {
+    throw new Error("DOC_SYNC_BASE_LEDGER_SHA_REQUIRED");
+  }
+  return baseLedgerSha;
 }

@@ -86,12 +86,44 @@ export async function recoverPendingSettlementMaterialization(input: {
   readonly authoredRoot: string;
   readonly deadlineAt: number;
   readonly recoverCommittedReceipt: (opId: string) => Promise<AuthorityCommittedReceipt>;
+  readonly recoverCanonicalPublication?: (input: {
+    readonly outerOpId: string;
+    readonly canonicalCommitSha: string;
+  }) => Promise<"live-owner" | "recovered" | "terminal" | "blocked">;
 }): Promise<void> {
   for (const record of input.settlements.listUnsettled()) {
     if (Date.now() >= input.deadlineAt) return;
     const pending = record.receipt.settlement;
     if (!pending || pending.canonicalVisibility !== "pending") continue;
-    if (input.outcomes.lookup(record.receiptId).state === "terminal") continue;
+    const durable = input.outcomes.lookup(record.receiptId);
+    if (durable.state === "terminal") continue;
+    const observedSettlement = input.settlements.lookup(record.receiptId);
+    if (observedSettlement?.state === "failed"
+      && observedSettlement.receipt.settlement?.canonicalVisibility === "failed"
+      && observedSettlement.receipt.settlement.failure.retryable === false) {
+      continue;
+    }
+    if (durable.state === "proceeding"
+      && durable.outcome.canonicalCommand.commandName === "doc-sync-submit") {
+      try {
+        await nextEventLoopTurn();
+        await input.runtime.enqueueMaterializerBatch({ sessionId: pending.sessionId });
+        const canonicalCommitSha = canonicalCommitContaining(
+          input.authoredRoot,
+          pending.acceptedCommitSha
+        );
+        if (!input.recoverCanonicalPublication) {
+          throw new Error("DOC_SYNC_CANONICAL_PUBLICATION_RECOVERY_UNAVAILABLE");
+        }
+        await input.recoverCanonicalPublication({
+          outerOpId: record.receiptId,
+          canonicalCommitSha
+        });
+      } catch (error) {
+        failSettlement(input.settlements, record.receipt, pending, error);
+      }
+      continue;
+    }
     if (record.receiptId.startsWith("doc-sync:")) {
       await settleAcceptedSession({
         settlements: input.settlements,
@@ -133,7 +165,7 @@ export function reconcileTerminalSettlements(
     const durable = outcomes.lookup(record.receiptId);
     if (durable.state !== "terminal") continue;
     const evidence = durable.outcome.terminalProof.evidence;
-    if (evidence.tag !== "COMMITTED") {
+    if (evidence.tag !== "COMMITTED" && evidence.tag !== "CANONICAL_PUBLICATION") {
       const failed = withCommandReceiptSettlement(
         record.receipt,
         failedCommandReceiptSettlement(pending, {

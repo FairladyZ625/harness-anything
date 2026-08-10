@@ -2,7 +2,6 @@ import {
   isCompleteAuthorityCommittedReceiptV2,
   type AuthorityAlreadySatisfiedReceipt,
   type AuthorityCommittedReceipt,
-  type AuthorityOperationReceipt,
   type AuthorityRejectedReceipt,
   type AuthorityRetryableReceipt,
   type DaemonGenerationWriteRejectionV1
@@ -13,6 +12,17 @@ import {
   repoWriteJsonBudget,
   repoWriteJsonObjectAt
 } from "./repo-write-json-budget.ts";
+import {
+  decodeRepoWriteCanonicalPublicationEvidenceV1,
+  type RepoWriteCanonicalPublicationEvidenceV1
+} from "./repo-write-canonical-publication-proof.ts";
+
+export {
+  createRepoWriteCanonicalPublicationEvidenceV1,
+  repoWriteCanonicalAncestryAnchorSchema,
+  repoWriteCanonicalPublicationEvidenceSchema,
+  type RepoWriteCanonicalPublicationEvidenceV1
+} from "./repo-write-canonical-publication-proof.ts";
 
 export const repoWriteTerminalProofSchema = "repo-write-terminal-proof/v1" as const;
 const evidenceDigestSchema = "repo-write-authority-evidence-digest/v1" as const;
@@ -23,7 +33,8 @@ export type RepoWriteTerminalEvidenceV1 =
   | AuthorityCommittedReceipt
   | AuthorityAlreadySatisfiedReceipt
   | AuthorityRejectedReceipt
-  | AuthorityRetryableReceipt;
+  | AuthorityRetryableReceipt
+  | RepoWriteCanonicalPublicationEvidenceV1;
 
 export interface RepoWriteTerminalProofV1 {
   readonly schema: typeof repoWriteTerminalProofSchema;
@@ -33,7 +44,7 @@ export interface RepoWriteTerminalProofV1 {
 }
 
 export function createRepoWriteTerminalProofV1(
-  evidence: AuthorityOperationReceipt
+  evidence: RepoWriteTerminalEvidenceV1
 ): RepoWriteTerminalProofV1 {
   const normalized = decodeAuthorityTerminalEvidenceV1(evidence, "$.evidence");
   return {
@@ -91,6 +102,9 @@ export function decodeAuthorityTerminalEvidenceV1(
   repoWriteJsonObjectAt(value, path, repoWriteJsonBudget(), 0);
   const record = repoWriteTerminalProofRecordAt(value, path);
   const tag = record.tag;
+  if (tag === "CANONICAL_PUBLICATION") {
+    return decodeRepoWriteCanonicalPublicationEvidenceV1(record, path);
+  }
   if (tag === "COMMITTED") return repoWriteTerminalProofCommittedEvidenceAt(record, path);
   if (tag === "ALREADY_SATISFIED") {
     return repoWriteTerminalProofAlreadySatisfiedEvidenceAt(record, path);
@@ -101,12 +115,14 @@ export function decodeAuthorityTerminalEvidenceV1(
   }
   repoWriteTerminalProofInvalid(
     `${path}.tag`,
-    "COMMITTED, ALREADY_SATISFIED, REJECTED, or RETRYABLE_NOT_COMMITTED"
+    "CANONICAL_PUBLICATION, COMMITTED, ALREADY_SATISFIED, REJECTED, or RETRYABLE_NOT_COMMITTED"
   );
 }
 
 function successfulAuthorityEvidence(evidence: RepoWriteTerminalEvidenceV1): boolean {
-  return evidence.tag === "COMMITTED" || evidence.tag === "ALREADY_SATISFIED";
+  return evidence.tag === "CANONICAL_PUBLICATION"
+    || evidence.tag === "COMMITTED"
+    || evidence.tag === "ALREADY_SATISFIED";
 }
 
 function repoWriteTerminalProofAlreadySatisfiedEvidenceAt(
