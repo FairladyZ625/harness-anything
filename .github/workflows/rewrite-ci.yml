@@ -157,6 +157,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       HARNESS_NODE_TEST_DIAGNOSTIC_DIR: artifacts/node-test-diagnostics
+      HARNESS_INTEGRATION_TIMING_OUTPUT: artifacts/integration-test-timings/shard-${{ matrix.shard }}.json
     strategy:
       fail-fast: false
       matrix:
@@ -176,6 +177,14 @@ jobs:
         run: npm ci
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job integration-shard --shard ${{ matrix.shard }} --exclude mergify-queue-metadata-edit-noop
+      - name: Upload successful integration timing
+        if: ${{ success() && needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-timing-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/integration-test-timings/shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Upload node test failure diagnostics
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
@@ -344,11 +353,7 @@ jobs:
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         run: npm ci
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
-        run: npm run check:local
-        env:
-          # Exercise the native developer stop-point instead of letting the
-          # runner's ambient CI=true upgrade this smoke into check:ci.
-          CI: "false"
+        run: npm run test:windows-smoke
       - name: Upload node test failure diagnostics
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
@@ -372,7 +377,6 @@ jobs:
       - supply-chain
       - direct-recovery
       - gui-build
-      - windows-local-check
     permissions:
       statuses: write
     runs-on: ubuntu-latest

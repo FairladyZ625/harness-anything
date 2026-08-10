@@ -1,10 +1,16 @@
 #!/usr/bin/env node
 
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { availableParallelism, tmpdir } from "node:os";
 import path, { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
+import { integrationShardCount, selectIntegrationShardFiles } from "./integration-test-shards.mjs";
+import {
+  createIntegrationTestTimingReport,
+  packageLockFingerprint,
+  writeIntegrationTestTimingReport
+} from "./integration-test-timing.mjs";
 import { formatTestWeightDriftWarnings, parseJunitTestFileDurations } from "./test-weight-drift.mjs";
 import { discoverQosPrefix, withLocalHeavySlot } from "./local-resource-governance.mjs";
 import { runNodeTestFileSchedule } from "./node-test-file-scheduler.mjs";
@@ -27,6 +33,7 @@ import { defaultTestTierNames, discoverTestTierManifest, testTierNames } from ".
 import { createHermeticTestEnvironment, gitFixtureIdentityGuidance } from "./test-process-environment.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
+const timingOutput = process.env.HARNESS_INTEGRATION_TIMING_OUTPUT;
 
 // Native Node compile cache is shared by every directly owned file worker and
 // by the CLI subprocesses spawned from integration tests.
@@ -45,7 +52,13 @@ try {
   await exitAfterStreamFlush(2);
 }
 
+if (timingOutput !== undefined && (options.tier !== "integration" || options.shard === undefined)) {
+  console.error("HARNESS_INTEGRATION_TIMING_OUTPUT requires --tier integration with --shard");
+  await exitAfterStreamFlush(2);
+}
+
 const testTierManifest = discoverTestTierManifest(repoRoot);
+const integrationManifestFiles = [...testTierManifest.integration];
 const testFiles = Object.values(testTierManifest).flat().sort();
 const selection = selectTestFiles(testFiles, testTierManifest, options.tier);
 if (options.tier === "all") {
@@ -67,6 +80,15 @@ if (options.shard !== undefined) {
   selection.files = selectIntegrationShardFiles(options.shard, selection.files);
 }
 selection.files = filterTestFilesByPrefixes(selection.files, options.prefixes);
+if (options.files.length > 0) {
+  const eligibleFiles = new Set(selection.files);
+  const missingFiles = options.files.filter((file) => !eligibleFiles.has(file));
+  if (missingFiles.length > 0) {
+    for (const file of missingFiles) console.error(`requested test file is not selected by tier manifest: ${file}`);
+    await exitAfterStreamFlush(1);
+  }
+  selection.files = [...new Set(options.files)].sort();
+}
 if (options.fixtures.length > 0) {
   const missingFixtures = options.fixtures.filter((file) => !existsSync(resolve(repoRoot, file)));
   if (missingFixtures.length > 0) {
@@ -187,6 +209,19 @@ try {
         timingRoot
       });
     }
+    if (schedule.exitCode === 0 && timingOutput !== undefined) {
+      const report = createIntegrationTestTimingReport({
+        manifestFiles: integrationManifestFiles,
+        workers: schedule.workers,
+        shardId: Number(options.shard),
+        shardCount: integrationShardCount,
+        source: integrationTimingSource(),
+        nodeVersion: process.version,
+        packageLockSha256: packageLockFingerprint(repoRoot)
+      });
+      writeIntegrationTestTimingReport(resolveTimingOutput(timingOutput), report);
+      console.log(`Integration timing artifact: ${timingOutput} (${report.files.length} files)`);
+    }
     return schedule.exitCode;
   });
 } finally {
@@ -233,4 +268,28 @@ async function exitAfterStreamFlush(code) {
 
 function flushStream(stream) {
   return new Promise((resolveFlush) => stream.write("", resolveFlush));
+}
+
+function integrationTimingSource() {
+  const commitSha = process.env.GITHUB_SHA ?? execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"]
+  }).trim();
+  const runAttempt = Number(process.env.GITHUB_RUN_ATTEMPT ?? "1");
+  return {
+    repository: process.env.GITHUB_REPOSITORY ?? "local/harness-anything",
+    commitSha,
+    runId: process.env.GITHUB_RUN_ID ?? `local-${commitSha.slice(0, 12)}`,
+    runAttempt: Number.isSafeInteger(runAttempt) && runAttempt > 0 ? runAttempt : 1
+  };
+}
+
+function resolveTimingOutput(value) {
+  const output = resolve(repoRoot, value);
+  const relative = path.relative(repoRoot, output);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error("HARNESS_INTEGRATION_TIMING_OUTPUT must stay inside the repository root");
+  }
+  return output;
 }
