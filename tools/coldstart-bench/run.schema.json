@@ -1,0 +1,285 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-anything.dev/schemas/coldstart-eval-run-v1.schema.json",
+  "title": "Harness Anything cold-start evaluation run v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "runId",
+    "recordedAt",
+    "appendOnly",
+    "status",
+    "outcome",
+    "control",
+    "provenance",
+    "subject",
+    "environment",
+    "randomSeed",
+    "scenario",
+    "contamination",
+    "metrics",
+    "evidence",
+    "reconciliation",
+    "validity"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "coldstart-eval-run/v1" },
+    "runId": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9._:-]+$" },
+    "recordedAt": { "type": "string", "format": "date-time" },
+    "appendOnly": { "const": true },
+    "status": { "enum": ["complete", "incomplete"] },
+    "outcome": { "enum": ["passed", "failed", "unknown"] },
+    "control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "sourceRunId", "omittedChannel"],
+      "properties": {
+        "kind": { "enum": ["primary", "missing-channel-negative"] },
+        "sourceRunId": { "type": ["string", "null"] },
+        "omittedChannel": { "type": ["string", "null"] }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceCommit", "sourceDirty", "buildHash", "buildArtifact", "runner", "schema", "scenarioHash", "promptHash"],
+      "properties": {
+        "sourceCommit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "sourceDirty": { "type": "boolean" },
+        "buildHash": { "$ref": "#/$defs/hash" },
+        "buildArtifact": { "type": "string", "minLength": 1 },
+        "runner": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version"],
+          "properties": {
+            "name": { "const": "coldstart-bench-driver" },
+            "version": { "type": "string", "minLength": 1 }
+          }
+        },
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "hash"],
+          "properties": {
+            "version": { "const": "coldstart-eval-run/v1" },
+            "hash": { "$ref": "#/$defs/hash" }
+          }
+        },
+        "scenarioHash": { "$ref": "#/$defs/hash" },
+        "promptHash": { "$ref": "#/$defs/hash" }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter", "provider", "model", "modelVersion", "actionLogComplete"],
+      "properties": {
+        "adapter": { "type": "string", "minLength": 1 },
+        "provider": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "modelVersion": { "type": "string", "minLength": 1 },
+        "actionLogComplete": { "type": "boolean" }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "arch", "nodeVersion", "locale", "timezone", "daemonMode", "daemonNamespace", "workspaceKind", "workspaceEvaluatorFilesPresent", "daemonUserRootExternal", "cleanup"],
+      "properties": {
+        "platform": { "type": "string", "minLength": 1 },
+        "arch": { "type": "string", "minLength": 1 },
+        "nodeVersion": { "type": "string", "minLength": 1 },
+        "locale": { "type": "string", "minLength": 1 },
+        "timezone": { "type": "string", "minLength": 1 },
+        "daemonMode": { "const": "local" },
+        "daemonNamespace": { "type": "string", "minLength": 1 },
+        "workspaceKind": { "const": "git-worktree" },
+        "workspaceEvaluatorFilesPresent": { "type": "boolean" },
+        "daemonUserRootExternal": { "type": "boolean" },
+        "cleanup": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["daemonStopped", "worktreeRemoved", "baseRemoved", "errors"],
+          "properties": {
+            "daemonStopped": { "type": "boolean" },
+            "worktreeRemoved": { "type": "boolean" },
+            "baseRemoved": { "type": "boolean" },
+            "errors": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "randomSeed": { "type": "integer", "minimum": 0 },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "prompt", "theoreticalMinimumCommands", "commandOpportunities", "verificationIds"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "prompt": { "type": "string", "minLength": 1 },
+        "theoreticalMinimumCommands": { "type": "integer", "minimum": 1 },
+        "commandOpportunities": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/opportunity" }
+        },
+        "verificationIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "contamination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "detectorVersion", "actionLogComplete", "evaluatorFilesPresentInWorkspace", "accessedEvaluatorFiles", "reasons"],
+      "properties": {
+        "status": { "enum": ["clean", "contaminated"] },
+        "detectorVersion": { "const": "action-log-path-scan/v1" },
+        "actionLogComplete": { "type": "boolean" },
+        "evaluatorFilesPresentInWorkspace": { "type": "boolean" },
+        "accessedEvaluatorFiles": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "reasons": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commandOpportunitySet", "invocationRate", "firstAttemptCorrectRate", "postInvocationSuccessRate", "driverVerificationCompletionRate", "helpCalls", "capabilitiesCalls", "recoverySteps", "totalSubjectCommands", "theoreticalMinimumCommands", "commandInflationRate", "bypassRate", "alternativePathShare"],
+      "properties": {
+        "commandOpportunitySet": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["applicable", "invoked"],
+          "properties": {
+            "applicable": { "type": "integer", "minimum": 1 },
+            "invoked": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "invocationRate": { "$ref": "#/$defs/rate" },
+        "firstAttemptCorrectRate": { "$ref": "#/$defs/rate" },
+        "postInvocationSuccessRate": { "$ref": "#/$defs/rate" },
+        "driverVerificationCompletionRate": { "$ref": "#/$defs/rate" },
+        "helpCalls": { "type": "integer", "minimum": 0 },
+        "capabilitiesCalls": { "type": "integer", "minimum": 0 },
+        "recoverySteps": { "type": "integer", "minimum": 0 },
+        "totalSubjectCommands": { "type": "integer", "minimum": 0 },
+        "theoreticalMinimumCommands": { "type": "integer", "minimum": 1 },
+        "commandInflationRate": { "type": "number", "minimum": 0 },
+        "bypassRate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["events", "totalActions", "rate", "categories"],
+          "properties": {
+            "events": { "type": "integer", "minimum": 0 },
+            "totalActions": { "type": "integer", "minimum": 1 },
+            "rate": { "type": "number", "minimum": 0, "maximum": 1 },
+            "categories": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "alternativePathShare": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["alternativeActions", "eligiblePathActions", "rate"],
+          "properties": {
+            "alternativeActions": { "type": "integer", "minimum": 0 },
+            "eligiblePathActions": { "type": "integer", "minimum": 1 },
+            "rate": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "driverInvocations", "cliReceipts", "durableState", "subjectActions", "runtimeEvents", "fixtureSetup"],
+      "properties": {
+        "root": { "const": "evidence" },
+        "driverInvocations": { "$ref": "#/$defs/evidenceChannel" },
+        "cliReceipts": { "$ref": "#/$defs/evidenceChannel" },
+        "durableState": { "$ref": "#/$defs/evidenceChannel" },
+        "subjectActions": { "$ref": "#/$defs/evidenceChannel" },
+        "runtimeEvents": { "$ref": "#/$defs/evidenceChannel" },
+        "fixtureSetup": { "$ref": "#/$defs/evidenceChannel" }
+      }
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "productOutcome", "matchedInvocationReceipts", "expectedInvocationReceipts", "checks", "issues", "runtimeEventsUsedForVerdict"],
+      "properties": {
+        "status": { "enum": ["complete", "incomplete"] },
+        "productOutcome": { "enum": ["passed", "failed", "unknown"] },
+        "matchedInvocationReceipts": { "type": "integer", "minimum": 0 },
+        "expectedInvocationReceipts": { "type": "integer", "minimum": 0 },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "status", "detail"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "status": { "enum": ["passed", "failed"] },
+              "detail": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "issues": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "runtimeEventsUsedForVerdict": { "const": false }
+      }
+    },
+    "validity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reasons"],
+      "properties": {
+        "status": { "enum": ["valid", "invalid"] },
+        "reasons": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "rate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["numerator", "denominator", "value"],
+      "properties": {
+        "numerator": { "type": "integer", "minimum": 0 },
+        "denominator": { "type": "integer", "minimum": 1 },
+        "value": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "opportunity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "command", "applicable", "route", "invoked"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "command": { "type": "string", "minLength": 1 },
+        "applicable": { "type": "boolean" },
+        "route": { "enum": ["primary", "alternative"] },
+        "invoked": { "type": "boolean" }
+      }
+    },
+    "evidenceChannel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "required", "authority", "path", "sha256", "recordCount"],
+      "properties": {
+        "status": { "enum": ["present", "missing", "not-collected"] },
+        "required": { "type": "boolean" },
+        "authority": { "enum": ["source-of-truth", "corroborating", "durable-state", "raw", "ancillary", "fixture"] },
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
+        "recordCount": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
