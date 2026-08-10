@@ -3,6 +3,7 @@ import type {
   RepoWriteParentMessage,
   RepoWriteRecoveryDiagnosticFrame,
   RepoWriteRetryBudgetSignalFrame,
+  RepoWriteTelemetryBatchFrame,
   RepoWriteTelemetryFrame
 } from "./repo-write-protocol.ts";
 import type {
@@ -61,6 +62,7 @@ export interface RepoWriteClientOptions {
   readonly expectedArtifactIdentity?: string;
   readonly limits?: Partial<RepoWriteClientLimits>;
   readonly onTelemetry: (frame: RepoWriteTelemetryFrame) => void;
+  readonly onTelemetryBatch?: (frame: RepoWriteTelemetryBatchFrame) => void;
   readonly onDiagnostic?: (frame: RepoWriteRecoveryDiagnosticFrame) => void;
   readonly onRetryBudgetSignal?: (frame: RepoWriteRetryBudgetSignalFrame) => void;
   readonly onRequestTimeout?: (

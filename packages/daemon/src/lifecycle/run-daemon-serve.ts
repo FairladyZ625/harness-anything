@@ -46,11 +46,8 @@ import {
   encodeRepoWriteChildLaunchConfig,
   repoWriteChildLaunchConfigSchema
 } from "../runtime/repo-write-child-launch-config.ts";
-import {
-  createProvenanceCapacityTelemetryTrigger
-} from "../observability/provenance-capacity-trigger.ts";
-import { scheduleProvenanceCapacityLog } from "../observability/provenance-capacity-log.ts";
 import { createRepoWriteRetryBudgetSignalSink } from "../observability/repo-write-retry-budget-log.ts";
+import { createRepoWriteTelemetryLogObservers } from "../observability/repo-write-telemetry-log-observers.ts";
 import {
   formatDaemonFailure,
   repoWriteGracefulFailureLog
@@ -281,7 +278,6 @@ export async function runDaemonServe<
               `REPO_WRITE_CHILD_REPO_NOT_CONFIGURED:${repo.repoId}`
             );
           }
-          const provenanceCapacityTrigger = createProvenanceCapacityTelemetryTrigger();
           const publicationRetryBudgetSignal = createRepoWriteRetryBudgetSignalSink(
             daemonLogService,
             { repo }
@@ -290,6 +286,11 @@ export async function runDaemonServe<
             rootDir: repo.canonicalRoot,
             ...(layoutOverrides ? { layoutOverrides } : {})
           }).authoredRoot;
+          const telemetryObservers = createRepoWriteTelemetryLogObservers({
+            daemonLogService,
+            context: { repo },
+            authoredGitRoot
+          });
           const supervisor = new RepoWriteProcessSupervisor({
             repoId: repo.repoId,
             generation: generation.daemonGeneration,
@@ -323,32 +324,8 @@ export async function runDaemonServe<
                 HARNESS_DAEMON_SERVER_HOST: "1"
               }
             }),
-            onTelemetry: (frame) => {
-              const capacitySignal = provenanceCapacityTrigger.observe(frame);
-              void daemonLogService.append({
-                level: "debug",
-                source: "daemon",
-                component: "repo-write-child",
-                event: "repo-write.request.telemetry",
-                message: JSON.stringify({
-                  schema: "repo-write-request-telemetry/v1",
-                  requestId: frame.requestId,
-                  ...(frame.opId ? { opId: frame.opId } : {}),
-                  phase: frame.phase,
-                  elapsedMs: frame.elapsedMs,
-                  ...(frame.details ? { details: frame.details } : {})
-                }),
-                requestId: frame.requestId
-              }, { repo }).catch(() => undefined);
-              if (capacitySignal) {
-                scheduleProvenanceCapacityLog(
-                  daemonLogService,
-                  { repo },
-                  authoredGitRoot,
-                  capacitySignal
-                );
-              }
-            },
+            onTelemetry: telemetryObservers.onTelemetry,
+            onTelemetryBatch: telemetryObservers.onTelemetryBatch,
             onDiagnostic: (frame) => {
               const rejected = frame.kind === "recovery-rejected";
               void daemonLogService.append({

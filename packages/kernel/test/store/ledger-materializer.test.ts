@@ -129,7 +129,7 @@ test("ledger materializer dry-runs and merges pending session branches", () => {
     assert.equal(git(rootDir, "branch", "--list", "sessions/codex-session-2"), "");
     assert.equal(git(rootDir, "rev-parse", "--abbrev-ref", "HEAD"), "master");
     assert.equal(readGitFile(rootDir, "tasks/task-2/note.md"), "materialized write\n");
-    assert.equal(merged.attributionEventsProjected, 1);
+    assert.equal(merged.attributionEventsProjected, 0);
     assert.equal(readAttributionProjection(rootDir)[0]?.opId, "op-materialize");
     assert.deepEqual(progress, [
       "baseline-start",
@@ -137,9 +137,7 @@ test("ledger materializer dry-runs and merges pending session branches", () => {
       "merge-start",
       "merge-done",
       "projection-start",
-      "projection-done",
-      "attribution-start",
-      "attribution-done"
+      "projection-done"
     ]);
     assert.equal(
       git(rootDir, "show", "-s", "--format=%an <%ae>", "HEAD"),

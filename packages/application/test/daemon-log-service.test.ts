@@ -135,6 +135,34 @@ test("daemon log message and hint limits are enforced in UTF-8 bytes", async () 
   assert.equal(entry.redaction.truncated, true);
 });
 
+test("versioned repo-write telemetry batches retain complete diagnostic payloads", async () => {
+  const service = makeDaemonLogService({
+    store: makeMemoryStore().store,
+    now: () => "2026-07-16T12:00:00.000Z"
+  });
+  const message = JSON.stringify({
+    schema: "repo-write-request-telemetry-batch/v1",
+    requestId: "request-batch",
+    spans: Array.from({ length: 140 }, (_, index) => ({
+      phase: "authority-materializer-projection-source-summary",
+      elapsedMs: index,
+      details: { fingerprint: "a".repeat(64), index }
+    }))
+  });
+  assert.ok(Buffer.byteLength(message, "utf8") > 4_096);
+
+  const entry = await service.append({
+    level: "debug",
+    source: "daemon",
+    component: "repo-write-child",
+    event: "repo-write.request.telemetry-batch",
+    message
+  }, { repo: { repoId: "canonical", canonicalRoot: "/tmp/canonical" } });
+
+  assert.equal(entry.message, message);
+  assert.equal(entry.redaction.truncated, false);
+});
+
 function makeMemoryStore(): { readonly store: DaemonLogStorePort; readonly records: unknown[] } {
   const records: unknown[] = [];
   return {

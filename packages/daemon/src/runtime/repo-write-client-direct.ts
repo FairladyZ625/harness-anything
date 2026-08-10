@@ -6,6 +6,7 @@ import {
   type RepoWriteDirectResultFrame,
   type RepoWriteFailureFrame,
   type RepoWriteJsonObject,
+  type RepoWriteTelemetryMessage,
   type RepoWriteTelemetryFrame
 } from "./repo-write-protocol.ts";
 import type { RepoWriteClientTransport } from "./repo-write-client-contract.ts";
@@ -193,7 +194,7 @@ export class RepoWriteDirectClientLane {
     }
   }
 
-  telemetryMatches(message: RepoWriteTelemetryFrame): boolean {
+  telemetryMatches(message: RepoWriteTelemetryMessage): boolean {
     const pending = this.pending.get(message.requestId);
     return pending?.phase === "sent" && message.opId === undefined;
   }

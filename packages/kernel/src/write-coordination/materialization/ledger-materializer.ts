@@ -5,7 +5,6 @@ import { resolveHarnessLayout } from "../../layout/index.ts";
 import type { VersionControlSystem, PreservedWorktreeEdit } from "../../ports/version-control-system.ts";
 import { updateTaskProjectionIncrementally } from "../../projection/sqlite-task-incremental-projection.ts";
 import type { IncrementalProjectionDiagnostic, IncrementalProjectionPhase } from "../../projection/sqlite-task-incremental-projection.ts";
-import { countAttributionProjectionRows } from "../../projection/sqlite-attribution-projection.ts";
 import { rebuildTaskProjection } from "../../projection/sqlite-task-projection.ts";
 import {
   captureTrustedAuthoredProjectionFingerprint,
@@ -283,7 +282,6 @@ function materializeBranches(
   }
 
   const layout = resolveHarnessLayout(rootInput);
-  let attributionEventsProjected = 0;
   let projectionRebuilt = merged > 0;
   if (!dryRun) {
     if (!durableFileExists(layout.projectionPath)) {
@@ -295,9 +293,6 @@ function materializeBranches(
       projectionRebuilt = true;
       onProgress?.("projection-done");
     }
-    onProgress?.("attribution-start");
-    attributionEventsProjected = countAttributionProjectionRows(layout.projectionPath);
-    onProgress?.("attribution-done");
   }
 
   return {
@@ -307,7 +302,7 @@ function materializeBranches(
     branches: reports,
     warnings,
     projectionRebuilt,
-    attributionEventsProjected
+    attributionEventsProjected: 0
   };
 }
 

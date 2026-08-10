@@ -104,8 +104,12 @@ test("history telemetry is delivered before a delayed Git history call completes
     let proofSettled = false;
     let observeHistoryStart!: () => void;
     const historyStart = new Promise<void>((resolve) => { observeHistoryStart = resolve; });
-    const delivery = createRepoWriteTelemetryDelivery(async (_phase, _elapsedMs, details) => {
-      if (details?.stage === "history-start") observeHistoryStart();
+    const delivery = createRepoWriteTelemetryDelivery({
+      deliverBatch: async () => undefined,
+      deliverStream: async (_phase, _elapsedMs, details) => {
+        if (details?.stage === "history-start") observeHistoryStart();
+      },
+      streamAfterMs: 20
     });
     const traced = withTracedGit(fixture.fixtureRoot, 300, async (tracePath) => {
       const proof = Promise.resolve(runWithRepoWriteTelemetry(delivery.report, () =>

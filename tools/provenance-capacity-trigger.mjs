@@ -9,15 +9,21 @@ import {
   readProvenanceLedgerScale
 } from "../packages/daemon/src/observability/provenance-capacity-trigger.ts";
 import { defaultRepoWriteRequestTimeoutMs } from "../packages/daemon/src/runtime/repo-write-client-contract.ts";
+import { decodeRepoWriteTelemetryLog } from "../packages/daemon/src/observability/repo-write-telemetry-log.ts";
 
 export function summarizeRequestEntries(entries, input) {
   const ordered = entries
     .filter((entry) => entry?.repoId === input.repoId)
     .sort((left, right) => Number(left.sequence) - Number(right.sequence));
   const telemetry = ordered.flatMap((entry) => {
-    if (entry.event !== "repo-write.request.telemetry" || entry.requestId !== input.requestId) return [];
-    const message = parseObject(entry.message);
-    return message ? [{ entry, frame: message }] : [];
+    if (!["repo-write.request.telemetry", "repo-write.request.telemetry-batch"].includes(entry.event)
+      || entry.requestId !== input.requestId) return [];
+    const message = typeof entry.message === "string"
+      ? decodeRepoWriteTelemetryLog(entry.message)
+      : null;
+    return message?.requestId === input.requestId
+      ? message.spans.map((frame) => ({ entry, frame }))
+      : [];
   });
   if (telemetry.length === 0) throw new Error(`No production telemetry found for request ${input.requestId}.`);
   const witnessObserved = telemetry.some(({ frame }) => frame.phase === "compile-task-witness"

@@ -1,6 +1,7 @@
 import type {
   RepoWriteRecoveryDiagnosticFrame,
   RepoWriteRetryBudgetSignalFrame,
+  RepoWriteTelemetryBatchFrame,
   RepoWriteTelemetryFrame
 } from "./repo-write-protocol.ts";
 import { repoWriteProtocolType } from "./repo-write-protocol.ts";
@@ -12,6 +13,18 @@ export function repoWriteClientFrameBase(repoId: string, generation: number) {
 export function observeRepoWriteTelemetry(
   observer: (frame: RepoWriteTelemetryFrame) => void,
   frame: RepoWriteTelemetryFrame,
+  failProtocol: () => void
+): void {
+  try {
+    observer(frame);
+  } catch {
+    failProtocol();
+  }
+}
+
+export function observeRepoWriteTelemetryBatch(
+  observer: (frame: RepoWriteTelemetryBatchFrame) => void,
+  frame: RepoWriteTelemetryBatchFrame,
   failProtocol: () => void
 ): void {
   try {

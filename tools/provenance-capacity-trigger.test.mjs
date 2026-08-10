@@ -65,6 +65,48 @@ test("real completion report uses child-terminal-response and crosses the relati
   assert.equal(report.headroomRatio, 0.0981);
 });
 
+test("versioned telemetry batches remain readable beside legacy single-frame entries", () => {
+  const requestId = "writer:batch";
+  const frames = [
+    ["compile-task-witness", 100, { stage: "document-produce", state: "start" }],
+    ["authority-publication-proof", 200, { stage: "history-start", pathCount: 1 }],
+    ["authority-publication-proof", 300, { stage: "history-done", pathCount: 1 }],
+    ["authority-publication-proof", 400, { stage: "history-start", pathCount: 1 }],
+    ["authority-publication-proof", 500, { stage: "history-done", pathCount: 1 }],
+    ["authority-publication-proof", 600, { stage: "history-start", pathCount: 1 }],
+    ["authority-publication-proof", 700, { stage: "history-done", pathCount: 1 }],
+    ["authority-publication-proof", 800, { stage: "history-start", pathCount: 1 }],
+    ["authority-publication-proof", 900, { stage: "history-done", pathCount: 1 }],
+    ["authority-event-published", 1_000],
+    ["child-execution-returned", 1_100],
+    ["child-terminal-response", 1_200]
+  ];
+  const entries = [{
+    schema: "daemon-log-entry/v1",
+    timestamp: "2026-08-05T19:08:00.000Z",
+    sequence: 1,
+    repoId: "canonical",
+    requestId,
+    event: "repo-write.request.telemetry-batch",
+    message: JSON.stringify({
+      schema: "repo-write-request-telemetry-batch/v1",
+      requestId,
+      encoding: "json",
+      spans: frames
+    })
+  }];
+
+  const report = summarizeRequestEntries(entries, {
+    requestId,
+    repoId: "canonical",
+    writerDeadlineMs: 30_000
+  });
+  assert.equal(report.status, "ok");
+  assert.equal(report.historyScanCount, 4);
+  assert.equal(report.writerExecutionMs, 1_100);
+  assert.equal(report.writerTerminalMs, 1_200);
+});
+
 test("text report exposes both commit-count vocabularies and the temporal measurement anchor", () => {
   const output = formatProvenanceCapacityReport({
     schema: "provenance-capacity-report/v1",

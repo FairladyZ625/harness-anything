@@ -1,6 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { performance } from "node:perf_hooks";
-import type { RepoWriteTelemetryDetails, RepoWriteTelemetryPhase } from "./repo-write-protocol.ts";
+import type {
+  RepoWriteTelemetryDetails,
+  RepoWriteTelemetryPhase,
+  RepoWriteTelemetrySpan
+} from "./repo-write-protocol.ts";
 
 type RepoWriteTelemetryReporter = (
   phase: RepoWriteTelemetryPhase,
@@ -12,8 +16,21 @@ export interface RepoWriteTelemetryDelivery {
   readonly report: RepoWriteTelemetryReporter;
   readonly reportCurrent: (phase: RepoWriteTelemetryPhase, details?: RepoWriteTelemetryDetails) => void;
   readonly flush: () => Promise<void>;
+  readonly stream: () => Promise<void>;
   readonly close: () => void;
 }
+
+export interface RepoWriteTelemetryDeliveryOptions {
+  readonly deliverBatch: (spans: ReadonlyArray<RepoWriteTelemetrySpan>) => Promise<void>;
+  readonly deliverStream: (
+    phase: RepoWriteTelemetryPhase,
+    elapsedMs: number,
+    details?: RepoWriteTelemetryDetails
+  ) => Promise<void>;
+  readonly streamAfterMs?: number;
+}
+
+export const defaultRepoWriteTelemetryStreamAfterMs = 20_000;
 
 const storage = new AsyncLocalStorage<{
   readonly startedAt: number;
@@ -58,30 +75,63 @@ export function bindCurrentRepoWriteTelemetry<Result>(
 }
 
 export function createRepoWriteTelemetryDelivery(
-  deliver: (
-    phase: RepoWriteTelemetryPhase,
-    elapsedMs: number,
-    details?: RepoWriteTelemetryDetails
-  ) => Promise<void>
+  options: RepoWriteTelemetryDeliveryOptions
 ): RepoWriteTelemetryDelivery {
   let pending = Promise.resolve();
   let closed = false;
+  let streaming = false;
+  const buffered: RepoWriteTelemetrySpan[] = [];
   const startedAt = performance.now();
+  const streamAfterMs = options.streamAfterMs ?? defaultRepoWriteTelemetryStreamAfterMs;
+  if (!Number.isSafeInteger(streamAfterMs) || streamAfterMs <= 0) {
+    throw new Error("streamAfterMs must be a positive safe integer");
+  }
+  const enqueue = (operation: () => Promise<void>): void => {
+    pending = pending.then(operation).catch(() => undefined);
+  };
+  const flushBuffered = (): void => {
+    if (buffered.length === 0) return;
+    const spans = buffered.splice(0, buffered.length);
+    enqueue(() => options.deliverBatch(spans));
+  };
+  const enterStreaming = (): void => {
+    if (closed || streaming) return;
+    streaming = true;
+    flushBuffered();
+  };
+  const streamTimer = setTimeout(enterStreaming, streamAfterMs);
+  streamTimer.unref?.();
+  const report: RepoWriteTelemetryReporter = (phase, elapsedMs, details) => {
+    if (closed) return;
+    if (!streaming && performance.now() - startedAt >= streamAfterMs) {
+      enterStreaming();
+    }
+    const span: RepoWriteTelemetrySpan = {
+      phase,
+      elapsedMs,
+      ...(details ? { details } : {})
+    };
+    if (streaming) {
+      enqueue(() => options.deliverStream(phase, elapsedMs, details));
+      return;
+    }
+    buffered.push(span);
+  };
   return {
-    report: (phase, elapsedMs, details) => {
-      if (closed) return;
-      pending = pending
-        .then(() => deliver(phase, elapsedMs, details))
-        .catch(() => undefined);
-    },
+    report,
     reportCurrent: (phase, details) => {
-      if (closed) return;
-      pending = pending
-        .then(() => deliver(phase, Math.max(0, performance.now() - startedAt), details))
-        .catch(() => undefined);
+      report(phase, Math.max(0, performance.now() - startedAt), details);
     },
-    flush: () => pending,
+    flush: () => {
+      flushBuffered();
+      return pending;
+    },
+    stream: () => {
+      enterStreaming();
+      return pending;
+    },
     close: () => {
+      clearTimeout(streamTimer);
       closed = true;
     }
   };

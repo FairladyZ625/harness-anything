@@ -32,26 +32,21 @@ test("host announces ready and executes only after the exact prepared handshake"
   await host.receive(submit("request-1"));
   assert.deepEqual(fixture.messages.map((message) => message.kind), [
     "ready",
-    "telemetry",
-    "telemetry",
     "prepared"
   ]);
-  assert.deepEqual(
-    fixture.messages
-      .filter((message) => message.kind === "telemetry")
-      .map((message) => message.phase),
-    ["queue", "compile"]
-  );
   assert.equal(executions, 0);
 
   await host.receive(proceed("request-1", "op-request-1"));
   assert.equal(executions, 1);
+  const telemetry = fixture.messages.find((message) => message.kind === "telemetry-batch");
   assert.deepEqual(
-    fixture.messages
-      .filter((message) => message.kind === "telemetry")
-      .map((message) => message.phase),
+    telemetry?.kind === "telemetry-batch"
+      ? telemetry.spans.map((span) => span.phase)
+      : [],
     ["queue", "compile", "journal", "child-execution-returned", "child-telemetry-flushed", "child-terminal-response"]
   );
+  assert.equal(fixture.messages.filter((message) => message.kind === "telemetry-batch").length, 1);
+  assert.equal(fixture.messages.filter((message) => message.kind === "telemetry").length, 0);
   assert.deepEqual(fixture.messages.at(-1), {
     ...childBase("terminal"),
     requestId: "request-1",
@@ -78,8 +73,6 @@ test("host accepts an immediate submit as soon as ready becomes observable", asy
 
   assert.deepEqual(fixture.messages.map((message) => message.kind), [
     "ready",
-    "telemetry",
-    "telemetry",
     "prepared"
   ]);
 });
@@ -292,6 +285,13 @@ test("execution errors are outcome-unknown without replay and status uses canoni
   await host.receive(proceed("request-unknown", "op-unknown"));
 
   assert.equal(executions, 1);
+  const lastWill = fixture.messages.find((message) => message.kind === "telemetry-batch");
+  assert.deepEqual(
+    lastWill?.kind === "telemetry-batch"
+      ? lastWill.spans.map((span) => span.phase)
+      : [],
+    ["queue", "compile", "journal"]
+  );
   assertFailure(fixture.messages.at(-1), {
     requestId: "request-unknown",
     phase: "after-proceed",

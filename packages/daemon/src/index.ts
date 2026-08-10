@@ -5,6 +5,7 @@ export * from "./authority/production/production-scanner.ts";
 export * from "./authority/production/publication-evidence.ts";
 export * from "./authority/production/publication-proof-error.ts";
 export * from "./authority/production/recovery.ts";
+export * from "./observability/repo-write-telemetry-log.ts";
 // Shared so every pre-READY path sizes itself against one deadline, not a copy.
 export {
   defaultProductionRecoveryAdmissionTimeoutMs

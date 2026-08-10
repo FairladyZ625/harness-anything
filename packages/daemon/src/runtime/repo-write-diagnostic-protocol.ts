@@ -119,14 +119,29 @@ export type RepoWriteTelemetryPhase = typeof repoWriteTelemetryPhases[number];
 export type RepoWriteTelemetryDetail = string | number | boolean | null;
 export type RepoWriteTelemetryDetails = Readonly<Record<string, RepoWriteTelemetryDetail>>;
 
-export interface RepoWriteTelemetryFrame extends RepoWriteDiagnosticFrameBase {
-  readonly kind: "telemetry";
-  readonly requestId: string;
-  readonly opId?: string;
+export interface RepoWriteTelemetrySpan {
   readonly phase: RepoWriteTelemetryPhase;
   readonly elapsedMs: number;
   readonly details?: RepoWriteTelemetryDetails;
 }
+
+export interface RepoWriteTelemetryFrame extends RepoWriteDiagnosticFrameBase {
+  readonly kind: "telemetry";
+  readonly requestId: string;
+  readonly opId?: string;
+  readonly phase: RepoWriteTelemetrySpan["phase"];
+  readonly elapsedMs: RepoWriteTelemetrySpan["elapsedMs"];
+  readonly details?: RepoWriteTelemetrySpan["details"];
+}
+
+export interface RepoWriteTelemetryBatchFrame extends RepoWriteDiagnosticFrameBase {
+  readonly kind: "telemetry-batch";
+  readonly requestId: string;
+  readonly opId?: string;
+  readonly spans: ReadonlyArray<RepoWriteTelemetrySpan>;
+}
+
+export type RepoWriteTelemetryMessage = RepoWriteTelemetryFrame | RepoWriteTelemetryBatchFrame;
 
 export interface RepoWriteRecoveryDeferredFrame extends RepoWriteDiagnosticFrameBase {
   readonly kind: "recovery-deferred";
