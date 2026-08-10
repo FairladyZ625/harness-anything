@@ -44,7 +44,8 @@ test("parseRunnerArgs accepts tier and slow summary options", () => {
     concurrency: undefined,
     shard: undefined,
     prefixes: [],
-    fixtures: []
+    fixtures: [],
+    files: []
   });
 });
 
@@ -423,6 +424,18 @@ test("parseRunnerArgs accepts safe repository-relative test prefixes", () => {
     "packages/kernel/"
   ]);
   assert.throws(() => parseRunnerArgs(["--prefix", "../outside"], testTierNames), /repository-relative/u);
+});
+
+test("parseRunnerArgs accepts exact manifest-listed test files", () => {
+  assert.deepEqual(parseRunnerArgs([
+    "--file", "packages/kernel/test/layout/portable-path.test.ts",
+    "--file=tools/run-local-check.test.mjs"
+  ], testTierNames).files, [
+    "packages/kernel/test/layout/portable-path.test.ts",
+    "tools/run-local-check.test.mjs"
+  ]);
+  assert.throws(() => parseRunnerArgs(["--file", "../outside.test.mjs"], testTierNames), /--file/u);
+  assert.throws(() => parseRunnerArgs(["--file", "tools/not-a-test.mjs"], testTierNames), /--file/u);
 });
 
 test("parseRunnerArgs accepts only explicit runner fixture paths", () => {

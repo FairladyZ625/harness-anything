@@ -10,6 +10,66 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  integration-timing-proposal:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Download latest successful main timing artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_id="$(gh run list --workflow rewrite-ci.yml --branch main --event push --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          if [ -z "$run_id" ]; then
+            echo "No successful main rewrite-ci run is available." >&2
+            exit 1
+          fi
+          gh run download "$run_id" --pattern 'integration-test-timing-*' --dir artifacts/integration-timings
+      - name: Generate human-reviewed weight update
+        run: |
+          mkdir -p artifacts/integration-timing-proposal
+          node tools/aggregate-integration-test-timings.mjs \
+            --timing-root artifacts/integration-timings \
+            --summary-output artifacts/integration-timing-proposal/summary.json \
+            --write
+          git diff --no-ext-diff -- tools/integration-test-shards.mjs > artifacts/integration-timing-proposal/integration-test-shards.patch
+      - name: Upload reviewed weight proposal
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-weight-proposal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/integration-timing-proposal/
+          if-no-files-found: error
+          retention-days: 14
+
+  windows-full-check:
+    runs-on: windows-latest
+    env:
+      HARNESS_NODE_TEST_DIAGNOSTIC_DIR: artifacts/node-test-diagnostics
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Run the complete Windows fast and contract tiers
+        run: |
+          npm run test:fast
+          npm run test:contract
+      - name: Upload node test failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-test-diagnostics-windows-nightly-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/node-test-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 3
+
   production-authority-perf-matrix:
     runs-on: ubuntu-latest
     env:

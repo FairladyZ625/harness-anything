@@ -71,7 +71,8 @@ export function parseRunnerArgs(args, tierNames) {
     concurrency: undefined,
     shard: undefined,
     prefixes: [],
-    fixtures: []
+    fixtures: [],
+    files: []
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -157,6 +158,17 @@ export function parseRunnerArgs(args, tierNames) {
       options.prefixes.push(normalizeTestPrefix(arg.slice("--prefix=".length)));
       continue;
     }
+    if (arg === "--file") {
+      const value = args[index + 1];
+      if (value === undefined) throw new Error("--file requires a value");
+      options.files.push(normalizeTestFile(value));
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--file=")) {
+      options.files.push(normalizeTestFile(arg.slice("--file=".length)));
+      continue;
+    }
     if (arg === "--fixture") {
       const value = args[index + 1];
       if (value === undefined) throw new Error("--fixture requires a value");
@@ -177,6 +189,9 @@ export function parseRunnerArgs(args, tierNames) {
   }
   if (options.shard !== undefined && options.tier !== "integration") {
     throw new Error("--shard is only supported with --tier integration");
+  }
+  if (options.files.length > 0 && (options.shard !== undefined || options.prefixes.length > 0 || options.list)) {
+    throw new Error("--file cannot be combined with list, shard, or prefix selection");
   }
   if (
     options.fixtures.length > 0
@@ -209,6 +224,18 @@ function normalizeRunnerFixture(value) {
     || !value.endsWith(".test.mjs")
   ) {
     throw new Error(`--fixture must name a hidden tools/test-fixtures/.runner-*/*.test.mjs file; received ${JSON.stringify(value)}`);
+  }
+  return value;
+}
+
+function normalizeTestFile(value) {
+  if (
+    value.startsWith("/")
+    || value.split("/").includes("..")
+    || value.includes("\\")
+    || !testFilePattern.test(value)
+  ) {
+    throw new Error(`--file must name a POSIX repository-relative test file; received ${JSON.stringify(value)}`);
   }
   return value;
 }
