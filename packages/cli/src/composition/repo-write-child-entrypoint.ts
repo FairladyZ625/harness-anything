@@ -23,7 +23,6 @@ import { cliDaemonCommandHostServices } from "./daemon-command-host-services.ts"
 import { makeIncrementalConflictMarkerPreflight } from "./incremental-conflict-marker-preflight.ts";
 import {
   reconcileTerminalSettlements,
-  createReceiptSettlementRecoveryLoop,
   recoverPendingSettlementMaterialization,
 } from "./receipt-settlement-runtime.ts";
 import { createRepoWriteChildDocSyncExecutor } from "./repo-write-child-doc-sync-executor.ts";
@@ -334,7 +333,6 @@ export async function runRepoWriteChildEntrypoint(
   }
   reconcileTerminalSettlements(settlements, outcomes);
   await reportStartupProgress("child-host-start");
-  let settlementRecoveryLoop: ReturnType<typeof createReceiptSettlementRecoveryLoop> | undefined;
   const operation = new ProductionRepoWriteOperationHost({
     repoId: config.repoId,
     workspaceId: authorityRepo.workspaceId,
@@ -360,7 +358,6 @@ export async function runRepoWriteChildEntrypoint(
   let cleanupPromise: Promise<void> | undefined;
   const cleanup = () => {
     cleanupPromise ??= (async () => {
-      settlementRecoveryLoop?.stop();
       await operation.settlementIdle();
       await authorityLifecycle.stopRepo(repo, "daemon-shutdown");
       await runtime!.stop();
@@ -392,13 +389,6 @@ export async function runRepoWriteChildEntrypoint(
       void cleanup().then(resolve, reject);
     });
     void childHost.start().then(() => {
-      settlementRecoveryLoop = createReceiptSettlementRecoveryLoop({
-        intervalMs: 1_000,
-        recover: recoverSettlements,
-        onError: (error) => process.stderr.write(
-          `[repo-write-child] receipt settlement recovery deferred: ${boundedRecoveryError(error)}\n`
-        )
-      });
       startupPhase.mark("child-host-start-ready");
       startupPhase.reportTotal();
     }).catch(async (error: unknown) => {

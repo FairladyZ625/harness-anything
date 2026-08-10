@@ -47,6 +47,9 @@ test("WriteCoordinator commits session-routed writes to a session branch", () =>
 test("session publication defers projection notification until materializer merge", () => {
   withTempStore((rootDir) => {
     initAuthoredGit(rootDir);
+    const local = makeLocalVersionControlSystem();
+    let commitExistenceReads = 0;
+    let ignoredPathReads = 0;
     const postCommitPhases: string[] = [];
     const projectionChanges: unknown[] = [];
     const coordinator = makeJournaledWriteCoordinator({
@@ -54,6 +57,17 @@ test("session publication defers projection notification until materializer merg
       rootDir,
       sessionId: "deferred-projection-session",
       autoMaterialize: false,
+      versionControlSystem: {
+        ...local,
+        commitExists: (repoRoot, sha) => {
+          commitExistenceReads += 1;
+          return local.commitExists(repoRoot, sha);
+        },
+        isIgnored: (repoRoot, relativePath) => {
+          ignoredPathReads += 1;
+          return local.isIgnored(repoRoot, relativePath);
+        }
+      },
       onPostCommitPhase: (phase) => postCommitPhases.push(phase),
       onProjectionChange: (event) => projectionChanges.push(event)
     });
@@ -70,6 +84,8 @@ test("session publication defers projection notification until materializer merg
     assert.ok(postCommitPhases.includes("projection-hash-start"));
     assert.ok(postCommitPhases.includes("projection-hash-done"));
     assert.deepEqual(projectionChanges, []);
+    assert.equal(commitExistenceReads, 0, "path-at-commit is already the event durability check");
+    assert.equal(ignoredPathReads, 1, "accepted paths are checked once before durable enqueue");
     assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-deferred-projection/INDEX.md")), true);
 
     const materialized = runLedgerMaterializer(rootDir);

@@ -34,9 +34,7 @@ export function commitTouchedPaths(
   };
 
   report("commit-plan-start");
-  const plan = assertCommitPlanAddable(rootDir, touchedPaths, layoutInput, {
-    versionControlSystem: vcs
-  });
+  const plan = resolveCommitPlan(rootDir, touchedPaths, layoutInput, vcs);
   report("commit-plan-done");
   if (!plan) return "no-git-change";
   const preserveExplicitLogs = resolveExplicitLogSet(
@@ -139,14 +137,14 @@ export function assertCommitPlanAddable(
 }
 
 function resolveCommitTarget(rootDir: string, authoredRoot: string, touchedPaths: ReadonlyArray<string>, vcs: VersionControlSystem): { readonly repoRoot: string } | null {
-  const rootRepo = vcs.topLevel(rootDir);
   const authoredRepo = vcs.topLevel(authoredRoot);
   if (!touchedPaths.every((filePath) => isPathInside(authoredRoot, filePath, vcs))) return null;
   if (!authoredRepo) {
+    const rootRepo = vcs.topLevel(rootDir);
     if (!rootRepo || !isPathInsideRepo(rootRepo, authoredRoot, vcs)) return null;
     throw new WriteRejectedError(authoredRootNotIsolatedMessage, undefined, { code: authoredRootNotIsolatedCode });
   }
-  if (rootRepo && authoredRepo === rootRepo && !isSamePath(rootRepo, authoredRoot, vcs)) {
+  if (!isSamePath(authoredRepo, authoredRoot, vcs)) {
     throw new WriteRejectedError(authoredRootNotIsolatedMessage, undefined, { code: authoredRootNotIsolatedCode });
   }
   return { repoRoot: authoredRepo };

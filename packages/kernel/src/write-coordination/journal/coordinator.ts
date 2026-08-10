@@ -23,7 +23,7 @@ import type { ProjectionChangeEvent } from "../../projection/projection-change-e
 import { captureTrustedAuthoredProjectionFingerprint } from "../../projection/projection-source-baseline.ts";
 import { appendJsonLineDurably, readDurableState, readPayloadRef } from "./durable.ts";
 import { finalizeRecoverableDocumentTransaction } from "./operations/recoverable-document-transaction.ts";
-import { assertCommitPlanAddable, commitTouchedPaths } from "./publication/git.ts";
+import { commitTouchedPaths } from "./publication/git.ts";
 import { makeLocalVersionControlSystem } from "../../persistence/git/local-version-control-system.ts";
 import { writeJournalRecordCommitSummary } from "./publication/commit-summary.ts";
 import { createAttributionEvent, makeInlineAttributionEventStore, planAttributionEventCommit, type AttributionEventStore } from "../attribution/inline-attribution-event-store.ts";
@@ -350,7 +350,6 @@ function flushRecords(
     operationPaths.some((filePath) => !isLocalProjectionPath(localRoot, filePath))
   );
 
-  assertCommitPlanAddable(rootDir, plannedRecords.flatMap((record) => record.touchedPaths), rootInput, { versionControlSystem: publicationVcs });
   assertCodeDocReplacementHasAuthoredChange({
     rootDir,
     rootInput,

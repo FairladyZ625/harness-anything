@@ -9,7 +9,33 @@ import { Effect } from "effect";
 import { taskEntityId } from "../../src/domain/index.ts";
 import { makeJournaledWriteCoordinator } from "../../src/index.ts";
 import { makeLocalVersionControlSystem } from "../../src/persistence/git/local-version-control-system.ts";
-import { withTempStore } from "./helpers.ts";
+import { docWrite, withTempStore } from "./helpers.ts";
+
+test("ordinary write preflight does not resolve unused code-doc repository candidates", () => {
+  withTempStore((rootDir) => {
+    initializeNestedGitFixture(rootDir);
+    const local = makeLocalVersionControlSystem();
+    let topLevelCalls = 0;
+    const coordinator = makeJournaledWriteCoordinator({
+      attribution: testWriteAttribution(),
+      rootDir,
+      versionControlSystem: {
+        ...local,
+        topLevel: (inputPath) => {
+          topLevelCalls += 1;
+          return local.topLevel(inputPath);
+        }
+      }
+    });
+
+    const ack = Effect.runSync(coordinator.enqueue(
+      docWrite("ordinary-doc", "task-1", "notes.md", "ordinary write\n")
+    ));
+
+    assert.equal(ack.accepted, true);
+    assert.equal(topLevelCalls, 1, "only the authored commit target should be resolved");
+  });
+});
 
 test("WriteCoordinator code-doc preflight accepts a commit from the private authored repository", () => {
   withTempStore((rootDir) => {

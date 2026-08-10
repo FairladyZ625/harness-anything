@@ -109,7 +109,6 @@ function localEventIsDurable(event: AttributionEvent, context: AttributionEventS
 function eventExistsAtCommit(eventPath: string, context: AttributionEventStoreContext): boolean {
   const plan = resolveCommitPlan(context.rootDir, [eventPath], context.rootInput, context.versionControlSystem);
   return plan !== null &&
-    context.versionControlSystem.commitExists(plan.repoRoot, context.commitSha) &&
     plan.relativePaths.every((relativePath) => context.versionControlSystem.pathExistsAtCommit(plan.repoRoot, context.commitSha, relativePath));
 }
 
