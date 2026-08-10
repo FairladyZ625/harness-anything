@@ -25,6 +25,7 @@ import {
   canonicalizeScriptResult,
   createCanonicalScriptStage,
   remapScope,
+  scriptExecutionLayout,
   ScriptStageScopeError,
   scriptIngestOp
 } from "./script-staging.ts";
@@ -151,7 +152,7 @@ export function runLegacyPresetScriptEntrypoint(
       }
     };
   }
-  const executionLayout = stage.layout;
+  const executionLayout = scriptExecutionLayout(stage, writeScope);
   const executionOutputRoot = stage.outputRoot;
   const executionWriteScope = remapScope(stage, writeScope, { retainOriginalPermissions: false });
   const executionReadScope = remapScope(stage, readScope);
@@ -184,7 +185,7 @@ export function runLegacyPresetScriptEntrypoint(
       }
     };
   }
-  const executionBoundaries = [executionLayout.rootDir, layout.rootDir];
+  const executionBoundaries = [stage.layout.rootDir, layout.rootDir];
   if (!resolvedScopeSetIsSafe(executionReadScope, executionBoundaries, "read")) {
     return invalidExecutionScope(commandName, presetSummary, "read");
   }
@@ -205,8 +206,12 @@ export function runLegacyPresetScriptEntrypoint(
     outputBoundary: { kind: "roots", roots: executionWriteScope.roots, inspect: "all" }
   });
 
-  writeFileSync(path.join(evidenceDir, "stdout.txt"), execution.stdout, "utf8");
-  writeFileSync(path.join(evidenceDir, "stderr.txt"), execution.stderr, "utf8");
+  if (execution.stdout.length > 0) {
+    writeFileSync(path.join(evidenceDir, "stdout.txt"), execution.stdout, "utf8");
+  }
+  if (execution.stderr.length > 0) {
+    writeFileSync(path.join(evidenceDir, "stderr.txt"), execution.stderr, "utf8");
+  }
   if (!execution.ok) {
     const generated = execution.failure === "produced-outside-boundary"
       ? execution.generated?.map((filePath) => path.relative(rootDir, filePath).split(path.sep).join("/"))

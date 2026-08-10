@@ -12,6 +12,20 @@ export function repoWriteWaitingStage(
   switch (phase) {
     case "queue":
       return "child-command-admission";
+    case "direct-command-started":
+      return "direct-command-execution";
+    case "script-manifest":
+      return "script-manifest-discovery";
+    case "script-scope":
+      return "script-scope-resolution";
+    case "script-stage":
+      return "script-sparse-staging";
+    case "script-syntax":
+      return "script-syntax-validation";
+    case "script-execute":
+      return "script-execution";
+    case "script-ingest":
+      return "script-cas-ingest";
     case "compile":
       return "command-or-authority-attempt-compilation";
     case "compile-command-normalize":

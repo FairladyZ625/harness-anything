@@ -86,6 +86,7 @@ export function runPresetEntrypoint(
     const run = runScriptHost({
       rootInput,
       commandName,
+      presets: [preset],
       script: {
         ...semanticPresetScriptEntry({ ...preset, manifest: preset.manifest }, entrypoint, semanticEntrypoint),
         context: {

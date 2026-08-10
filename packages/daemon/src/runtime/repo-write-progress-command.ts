@@ -16,6 +16,10 @@ import {
   type RepoWriteCommandDto,
   type RepoWriteJsonObject
 } from "./repo-write-protocol.ts";
+import {
+  repoWriteJsonBudget,
+  repoWriteJsonObjectAt
+} from "./repo-write-json-budget.ts";
 import { makeRepoWriteStrictCodec } from "./repo-write-strict-codec.ts";
 
 const {
@@ -49,10 +53,10 @@ export function encodeRepoWriteCommand(input: {
   if (authority.actor.personId !== input.context.actor.personId) {
     throw new Error("REPO_WRITE_PROGRESS_ACTOR_CONTEXT_MISMATCH");
   }
-  return repoWriteCommandDtoFromDecodedFields({
+  const decoded = repoWriteCommandDtoFromDecodedFields({
     commandName,
     actor: actorStampJson(input.context.actor),
-    context: progressJsonObject({
+    context: {
       authorityConnection: {
         schema: authority.schema,
         connectionId: authority.connectionId,
@@ -69,16 +73,35 @@ export function encodeRepoWriteCommand(input: {
           digest: encodeRepoWriteBytes(authority.channelBinding.digest),
           source: authority.channelBinding.source
         },
-        peerCredential: authority.peerCredential
+        peerCredential: {
+          schema: authority.peerCredential.schema,
+          platform: authority.peerCredential.platform,
+          source: authority.peerCredential.source,
+          uid: authority.peerCredential.uid,
+          ...(authority.peerCredential.gid === undefined ? {} : { gid: authority.peerCredential.gid }),
+          ...(authority.peerCredential.pid === undefined ? {} : { pid: authority.peerCredential.pid })
+        }
       },
-      currentSession: input.context.currentSession,
+      currentSession: {
+        runtime: input.context.currentSession.runtime,
+        sessionId: input.context.currentSession.sessionId,
+        source: input.context.currentSession.source,
+        detectedAt: input.context.currentSession.detectedAt,
+        ...(input.context.currentSession.user === undefined ? {} : { user: input.context.currentSession.user })
+      },
       executor: input.context.executor
-    }),
-    payload: progressJsonObject({
+    } as unknown as RepoWriteJsonObject,
+    payload: {
       command: input.command,
       session: input.context.currentSession
-    })
+    } as unknown as RepoWriteJsonObject
   });
+  return repoWriteJsonObjectAt(
+    decoded,
+    "$.command",
+    repoWriteJsonBudget(),
+    0
+  ) as unknown as RepoWriteCommandDto;
 }
 
 export function encodeRepoWriteProgressCommand(input: {
@@ -289,9 +312,4 @@ function decodeExecutor(value: unknown): TaskHolderExecutor | null {
   exactKeys(executor, ["kind", "id"], "$.context.executor");
   if (executor.kind !== "agent") invalid("$.context.executor.kind");
   return { kind: "agent", id: text(executor.id, "$.context.executor.id") };
-}
-
-function progressJsonObject(value: unknown): RepoWriteJsonObject {
-  const normalized = JSON.parse(JSON.stringify(value)) as unknown;
-  return record(normalized, "$") as RepoWriteJsonObject;
 }

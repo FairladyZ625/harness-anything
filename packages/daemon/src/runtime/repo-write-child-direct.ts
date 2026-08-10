@@ -6,6 +6,10 @@ import type {
 import type { WriteError } from "@harness-anything/kernel";
 import { failureReceipt } from "../protocol/receipt-envelope.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
+import {
+  repoWriteJsonBudget,
+  repoWriteJsonObjectAt
+} from "./repo-write-json-budget.ts";
 import type { RepoWriteChildResponseWriter } from "./repo-write-child-response-writer.ts";
 import type { RepoWriteExecutionSequencer } from "./repo-write-execution-sequencer.ts";
 import {
@@ -124,7 +128,7 @@ export async function executeRepoWriteChildDirect(
     const executed = await runWithRepoWriteTelemetry(
       telemetry.report,
       () => options.sequencer.run(() => {
-        reportCurrentRepoWriteTelemetry("compile");
+        reportCurrentRepoWriteTelemetry("direct-command-started");
         return options.execute({
           repoId: options.repoId,
           workspaceId: options.workspaceId,
@@ -200,10 +204,12 @@ function directWriteRejectionReceipt(
 
 function jsonObjectForReceipt(value: Readonly<Record<string, unknown>>): JsonObject | undefined {
   try {
-    const parsed: unknown = JSON.parse(JSON.stringify(value));
-    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
-      ? parsed as JsonObject
-      : undefined;
+    return repoWriteJsonObjectAt(
+      value,
+      "$.receipt.details",
+      repoWriteJsonBudget(),
+      0
+    ) as JsonObject;
   } catch {
     return undefined;
   }

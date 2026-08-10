@@ -2,7 +2,7 @@ import type {
   CommandReceiptEnvelope,
   CommandReceiptSettlement
 } from "@harness-anything/application";
-import type { RepoWriteJsonValue } from "./repo-write-protocol.ts";
+import type { RepoWriteJsonObject, RepoWriteJsonValue } from "./repo-write-protocol.ts";
 import { RepoWriteOutcomeValidationError } from "./repo-write-outcome-errors.ts";
 import {
   repoWriteJsonBudget,
@@ -112,6 +112,10 @@ export function decodeRepoWriteCommandReceiptV2(
     ...(settlement ? { settlement } : {}),
     ...(details ? { details } : {})
   };
+}
+
+export function repoWriteCommandReceiptJsonObject(value: unknown): RepoWriteJsonObject {
+  return decodeRepoWriteCommandReceiptV2(value, "$.receipt") as unknown as RepoWriteJsonObject;
 }
 
 function repoWriteCommandReceiptSettlementAt(

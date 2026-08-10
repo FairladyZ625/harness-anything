@@ -60,6 +60,7 @@ export function smokePresetEntrypoints(
       smoke = runScriptHost({
         rootInput,
         commandName: "preset-check",
+        presets: [preset],
         script,
         outputRoot,
         allowFailedScriptResult: true,
@@ -118,6 +119,7 @@ function smokePresetV3Entrypoints(
     const smoke = runScriptHost({
       rootInput,
       commandName: "preset-check",
+      presets: [preset],
       script: {
         ...semanticPresetScriptEntry(semanticPreset, name, entrypoint),
         context: {

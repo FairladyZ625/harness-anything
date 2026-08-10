@@ -40,6 +40,30 @@ test("CLI preset action cannot write directly to the canonical output root", () 
   });
 });
 
+test("CLI script run remains fail closed on runtime syntax errors without pre-execution syntax check", () => {
+  withTempRoot((rootDir) => {
+    initializeHarness(rootDir);
+    writeProcessActionPreset(rootDir, "runtime-syntax-error", "scaffold", [
+      "const broken = ;"
+    ]);
+
+    const result = runJson(rootDir, [
+      "script", "run", "preset:runtime-syntax-error:scaffold",
+      "--task", "task-runtime-syntax-error"
+    ], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "script_failed");
+    assert.equal(existsSync(path.join(
+      rootDir,
+      "harness/tasks/task-runtime-syntax-error"
+    )), false);
+    const stderrPath = path.join(rootDir, result.evidenceBundle, "stderr.txt");
+    assert.equal(existsSync(stderrPath), true);
+    assert.match(readFileSync(stderrPath, "utf8"), /SyntaxError/u);
+  });
+});
+
 test("CLI preset action rejects descendant write symlinks targeting canonical and dangling paths", {
   skip: process.platform === "win32"
 }, () => {
