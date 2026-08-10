@@ -11,6 +11,7 @@ import {
   recoverPendingSettlementMaterialization,
   type ReceiptSettlementRecoveryProgress
 } from "./receipt-settlement-runtime.ts";
+import { writeRepoWriteChildDiagnostic } from "./repo-write-child-diagnostic.ts";
 
 const defaultReceiptRecoveryTimeoutMs = 5_000;
 const defaultPostReadyRecoveryBudgetMs = 25_000;
@@ -201,7 +202,7 @@ function createPostReadyRecoveryReporter(
       try {
         const now = performance.now();
         startedAt ??= now;
-        process.stderr.write(`${JSON.stringify({
+        writeRepoWriteChildDiagnostic(`${JSON.stringify({
           schema: "repo-write-child-post-ready-recovery/v1",
           pid: process.pid,
           repoId,

@@ -25,6 +25,7 @@ import {
   createRepoWriteChildPostReadyRecovery
 } from "./repo-write-child-post-ready-recovery.ts";
 import { createRepoWriteChildDocSyncExecutor } from "./repo-write-child-doc-sync-executor.ts";
+import { writeRepoWriteChildDiagnostic } from "./repo-write-child-diagnostic.ts";
 import {
   createCliProductionAuthorityLifecycle
 } from "./production-authority-lifecycle.ts";
@@ -214,14 +215,14 @@ export async function runRepoWriteChildEntrypoint(
           String(progress.replayedRows)
         ].join(":")
       ).catch((error) => {
-        process.stderr.write(
+        writeRepoWriteChildDiagnostic(
           `[repo-write-child] authority state replay progress deferred: ${boundedRecoveryError(error)}\n`
         );
       });
     },
     onRecoveryProgress: (repoId, progress) => {
       try {
-        process.stderr.write(`${JSON.stringify({
+        writeRepoWriteChildDiagnostic(`${JSON.stringify({
           schema: "repo-write-child-authority-recovery/v1",
           pid: process.pid,
           repoId,
@@ -308,10 +309,12 @@ export async function runRepoWriteChildEntrypoint(
   let initialRecovery: Promise<void> | undefined;
   const startInitialRecovery = (): void => {
     initialRecovery ??= recoveryStartGate.wait().then(
-      () => postReadyRecovery.runInitialSweep()
+      (shouldStart) => shouldStart
+        ? postReadyRecovery.runInitialSweep()
+        : undefined
     ).catch(async (error) => {
       const diagnostic = boundedRecoveryError(error);
-      process.stderr.write(
+      writeRepoWriteChildDiagnostic(
         `[repo-write-child] post-READY recovery deferred: ${diagnostic}\n`
       );
       await transport.send({
@@ -328,6 +331,7 @@ export async function runRepoWriteChildEntrypoint(
   let cleanupPromise: Promise<void> | undefined;
   const cleanup = () => {
     cleanupPromise ??= (async () => {
+      recoveryStartGate.cancel();
       await initialRecovery;
       await operation.settlementIdle();
       await authorityLifecycle.stopRepo(repo, "daemon-shutdown");
@@ -373,21 +377,32 @@ export async function runRepoWriteChildEntrypoint(
 
 interface PostReadyRecoveryStartGate {
   readonly ready: () => void;
-  readonly wait: () => Promise<void>;
+  readonly cancel: () => void;
+  readonly wait: () => Promise<boolean>;
 }
 
 const postReadyRecoveryDelayMs = 10_000;
 
 function createPostReadyRecoveryStartGate(): PostReadyRecoveryStartGate {
-  let markReady!: () => void;
-  const ready = new Promise<void>((resolve) => {
-    markReady = resolve;
+  let resolveStart!: (shouldStart: boolean) => void;
+  let timer: NodeJS.Timeout | undefined;
+  let settled = false;
+  const start = new Promise<boolean>((resolve) => {
+    resolveStart = resolve;
   });
-  const start = ready.then(() => new Promise<void>((resolve) => {
-    setTimeout(resolve, postReadyRecoveryDelayMs);
-  }));
+  const settle = (shouldStart: boolean): void => {
+    if (settled) return;
+    settled = true;
+    if (timer) clearTimeout(timer);
+    timer = undefined;
+    resolveStart(shouldStart);
+  };
   return {
-    ready: markReady,
+    ready: () => {
+      if (settled || timer) return;
+      timer = setTimeout(() => settle(true), postReadyRecoveryDelayMs);
+    },
+    cancel: () => settle(false),
     wait: () => start
   };
 }
@@ -407,7 +422,7 @@ function makeRepoWriteChildStartupPhaseReporter(): RepoWriteChildStartupPhaseRep
   let previous = startedAt;
   const emit = (frame: Record<string, unknown>) => {
     try {
-      process.stderr.write(`${JSON.stringify({
+      writeRepoWriteChildDiagnostic(`${JSON.stringify({
         schema: "repo-write-child-startup-phase/v1",
         pid: process.pid,
         ...frame

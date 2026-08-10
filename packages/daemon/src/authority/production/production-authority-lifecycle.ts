@@ -118,7 +118,7 @@ export function createProductionAuthorityLifecycle(input: {
   >[0]["onServiceStateReplayProgress"];
   readonly onRecoveryProgress?: (repoId: string, progress: ProductionRecoveryProgress) => void;
   readonly backgroundRecovery?: true;
-  readonly waitForBackgroundRecoveryStart?: () => Promise<void>;
+  readonly waitForBackgroundRecoveryStart?: () => Promise<boolean>;
   readonly hostServices: ProductionAuthorityHostServices<ProductionAuthorityIdentity>;
 }): AuthorityRepoLifecycleController {
   const manifest = loadAuthorityProductionManifest(input.manifestPath);
@@ -305,7 +305,12 @@ export function createProductionAuthorityLifecycle(input: {
       recovery.status = "recovering";
       recovery.promise = input.backgroundRecovery
         ? (async () => {
-          await input.waitForBackgroundRecoveryStart?.();
+          const shouldStart = await input.waitForBackgroundRecoveryStart?.() ?? true;
+          if (!shouldStart) {
+            recovery.status = "failed";
+            recovery.error = "AUTHORITY_BACKGROUND_RECOVERY_DEFERRED_ON_SHUTDOWN";
+            return;
+          }
           await settleProductionRecovery(recovery, runRecovery);
         })()
         : settleProductionRecovery(recovery, runRecovery);
