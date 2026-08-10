@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import type { ArtifactStore, DomainStatus, EngineError, WriteError } from "@harness-anything/kernel";
-import { isDomainStatus, isTerminalStatus } from "@harness-anything/kernel";
+import type { ArtifactStore, DomainStatus, EngineError, IndeterminateFlushControlOutcome, WriteControl, WriteError } from "@harness-anything/kernel";
+import { isDomainStatus, isIndeterminateFlushControlOutcome, isTerminalStatus } from "@harness-anything/kernel";
 import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import { readFrontmatter, readScalar } from "@harness-anything/kernel";
 import { evaluateCompletionGate, evaluateTaskReturnToIdeaGate } from "./task-lifecycle-gates.ts";
@@ -36,11 +36,11 @@ export interface TaskLifecycleTreeStatusResult {
 }
 
 export interface TaskLifecycleWriter {
-  readonly setStatus: (plan: TaskLifecycleStatusMutationPlan) => Effect.Effect<TaskLifecycleStatusWriteResult, EngineError | WriteError>;
-  readonly appendProgress: (payload: { readonly taskId: string; readonly text: string }) => Effect.Effect<TaskLifecycleProgressWriteResult, EngineError | WriteError>;
-  readonly stageDocument: (payload: { readonly taskId: string; readonly path: string }) => Effect.Effect<TaskLifecycleProgressWriteResult, EngineError | WriteError>;
-  readonly stageTaskTree: (payload: { readonly taskId: string }) => Effect.Effect<TaskLifecycleProgressWriteResult, EngineError | WriteError>;
-  readonly taskTreeStatus: (payload: { readonly taskId: string }) => Effect.Effect<TaskLifecycleTreeStatusResult, EngineError | WriteError>;
+  readonly setStatus: (plan: TaskLifecycleStatusMutationPlan) => Effect.Effect<TaskLifecycleStatusWriteResult, EngineError | WriteControl>;
+  readonly appendProgress: (payload: { readonly taskId: string; readonly text: string }) => Effect.Effect<TaskLifecycleProgressWriteResult, EngineError | WriteControl>;
+  readonly stageDocument: (payload: { readonly taskId: string; readonly path: string }) => Effect.Effect<TaskLifecycleProgressWriteResult, EngineError | WriteControl>;
+  readonly stageTaskTree: (payload: { readonly taskId: string }) => Effect.Effect<TaskLifecycleProgressWriteResult, EngineError | WriteControl>;
+  readonly taskTreeStatus: (payload: { readonly taskId: string }) => Effect.Effect<TaskLifecycleTreeStatusResult, EngineError | WriteControl>;
 }
 
 export interface TaskLifecycleStatusMutationPlan {
@@ -106,9 +106,9 @@ export interface TaskLifecycleWarning {
 }
 
 export interface TaskLifecycleOrchestrator {
-  readonly setTaskStatus: (payload: { readonly taskId: string; readonly status: DomainStatus }) => Effect.Effect<TaskLifecycleResult>;
+  readonly setTaskStatus: (payload: { readonly taskId: string; readonly status: DomainStatus }) => Effect.Effect<TaskLifecycleResult, IndeterminateFlushControlOutcome>;
   readonly startTaskReview: (payload: { readonly taskId: string }) => Effect.Effect<TaskLifecycleResult>;
-  readonly reviewTask: (payload: { readonly taskId: string; readonly reviewerId: string }) => Effect.Effect<TaskLifecycleResult>;
+  readonly reviewTask: (payload: { readonly taskId: string; readonly reviewerId: string }) => Effect.Effect<TaskLifecycleResult, IndeterminateFlushControlOutcome>;
 }
 
 export interface TaskLifecyclePolicy {
@@ -186,9 +186,11 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
         status: directTaskLifecycleStatus(payload.status)
       }, policy?.status ?? null);
       return yield* options.taskWriter.setStatus(mutationPlan).pipe(
-        Effect.match({
-          onFailure: (error): TaskLifecycleResult => writeFailure(payload.taskId, error, "Status update failed."),
-          onSuccess: (result): TaskLifecycleResult => ({ ok: true, taskId: result.taskId, status: result.status })
+        Effect.matchEffect({
+          onFailure: (error) => isIndeterminateFlushControlOutcome(error)
+            ? Effect.fail(error)
+            : Effect.succeed(writeFailure(payload.taskId, error, "Status update failed.")),
+          onSuccess: (result) => Effect.succeed<TaskLifecycleResult>({ ok: true, taskId: result.taskId, status: result.status })
         })
       );
     }),
@@ -256,11 +258,13 @@ function stageTaskTree(
   writer: TaskLifecycleWriter,
   taskId: string,
   failureHint: string
-): Effect.Effect<TaskLifecycleResult> {
+): Effect.Effect<TaskLifecycleResult, IndeterminateFlushControlOutcome> {
   return writer.stageTaskTree({ taskId }).pipe(
-    Effect.match({
-      onFailure: (error): TaskLifecycleResult => writeFailure(taskId, error, failureHint),
-      onSuccess: (result): TaskLifecycleResult => ({ ok: true, taskId: result.taskId, path: result.path })
+    Effect.matchEffect({
+      onFailure: (error) => isIndeterminateFlushControlOutcome(error)
+        ? Effect.fail(error)
+        : Effect.succeed(writeFailure(taskId, error, failureHint)),
+      onSuccess: (result) => Effect.succeed<TaskLifecycleResult>({ ok: true, taskId: result.taskId, path: result.path })
     })
   );
 }

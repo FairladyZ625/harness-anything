@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { readTaskLifecyclePolicy } from "@harness-anything/application";
-import type { DomainStatus, EngineError, WriteError } from "@harness-anything/kernel";
+import type { DomainStatus, EngineError, WriteControl } from "@harness-anything/kernel";
 import { explainStatusTransition, isTerminalStatus } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { demotedGateWarning } from "../../cli/demoted-gate-warning.ts";
@@ -62,7 +62,7 @@ function runLocalAuditedCancellation(
   context: CommandRunnerContext,
   action: StatusSetAction,
   currentStatus?: DomainStatus | null
-): Effect.Effect<CliResult, EngineError | WriteError> {
+): Effect.Effect<CliResult, EngineError | WriteControl> {
   if (currentStatus && !explainStatusTransition(currentStatus, "cancelled").allowed) {
     return Effect.succeed({
       ok: false,

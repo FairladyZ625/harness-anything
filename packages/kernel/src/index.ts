@@ -204,7 +204,12 @@ export type {
 export type {
   AttributionProjectionDecisionReason
 } from "./projection/sqlite-attribution-incremental.ts";
-export { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "./write-coordination/submit.ts";
+export {
+  requireDeterminateFlushReport,
+  writeCoordinatedPayload,
+  writeCoordinatedTaskDocuments,
+  type CoordinatedWriteControl
+} from "./write-coordination/submit.ts";
 export {
   projectDaemonRepoRegistration,
   readDaemonRegistry,

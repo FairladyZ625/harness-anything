@@ -24,6 +24,7 @@ import {
   type GitCanonicalPublicationInspector
 } from "@harness-anything/daemon";
 import {
+  isIndeterminateFlushReport,
   resolveHarnessLayout,
   stableStringify,
   type DaemonAdmissionBudget,
@@ -407,8 +408,10 @@ export function makeHeldLockAttributedCoordinatorFactory(
       });
       const shared: ExactWriteCoordinator = {
         enqueue: coordinator.enqueue,
-        commitExact: (reason, batch) => Effect.ensuring(
-          Effect.tryPromise({
+        commitExact: (reason, batch) => {
+          let preserveIndeterminateAuthorization = false;
+          return Effect.ensuring(
+            Effect.tryPromise({
             try: async () => {
               const publication = await runtime.enqueueAuthorityPublication({
                 sessionId,
@@ -421,6 +424,10 @@ export function makeHeldLockAttributedCoordinatorFactory(
                 }
               });
               const { flush: report, materialization: materialized } = publication;
+              if (isIndeterminateFlushReport(report)) {
+                preserveIndeterminateAuthorization = true;
+                return report;
+              }
               if (!report.committed || report.opCount === 0) return report;
               const branch = materialized?.branches.find((entry) => entry.branch === `sessions/${sessionId}`);
               const materializationProvesPublication = branch
@@ -443,13 +450,15 @@ export function makeHeldLockAttributedCoordinatorFactory(
             catch: (cause): WriteError => isAuthorityLifecycleWriteError(cause)
               ? cause
               : { _tag: "JournalUnavailable", cause: diagnosticCause(cause) }
-          }),
-          Effect.sync(() => {
-            for (const [activeKey, entry] of active) {
-              if (entry.exactWriteScope === exactWriteScope) active.delete(activeKey);
-            }
-          })
-        ),
+            }),
+            Effect.sync(() => {
+              if (preserveIndeterminateAuthorization) return;
+              for (const [activeKey, entry] of active) {
+                if (entry.exactWriteScope === exactWriteScope) active.delete(activeKey);
+              }
+            })
+          );
+        },
         recover: coordinator.recover
       };
       active.set(key, { coordinator: shared, exactWriteScope });

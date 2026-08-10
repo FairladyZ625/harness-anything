@@ -9,6 +9,7 @@ import {
   decisionSemanticMutationActions,
   evaluateEntityDisposition,
   explainDecisionStateTransition,
+  isIndeterminateFlushControlOutcome,
   validateRelationRecordsForHost,
   type DecisionPackage,
   type DecisionState,
@@ -16,10 +17,11 @@ import {
   type AttributionEvent,
   type UnionAttributionEvent,
   type EntityRelationRecord,
+  type IndeterminateFlushControlOutcome,
   type ProvenancePayload,
   type WriteCoordinator,
   type WriteAttribution,
-  type WriteError,
+  type WriteControl,
   type WriteOpKind
 } from "@harness-anything/kernel";
 import type { DocumentWrite } from "@harness-anything/kernel";
@@ -128,17 +130,17 @@ export interface DecisionWriteRejected {
 }
 
 export interface DecisionWriteService {
-  readonly propose: (request: DecisionWriteRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
-  readonly accept: (request: DecisionTransitionRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
-  readonly reject: (request: DecisionTransitionRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
-  readonly defer: (request: DecisionTransitionRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
-  readonly supersede: (request: DecisionTransitionRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
-  readonly amend: (request: DecisionAmendRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
-  readonly repinForMigration: (request: DecisionMigrationRepinRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
-  readonly relate: (request: DecisionRelateRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
-  readonly retireRelation: (request: DecisionRelationRetireRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
-  readonly replaceRelation: (request: DecisionRelationReplaceRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
-  readonly retire: (request: DecisionTransitionRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
+  readonly propose: (request: DecisionWriteRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteControl>;
+  readonly accept: (request: DecisionTransitionRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteControl>;
+  readonly reject: (request: DecisionTransitionRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteControl>;
+  readonly defer: (request: DecisionTransitionRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteControl>;
+  readonly supersede: (request: DecisionTransitionRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteControl>;
+  readonly amend: (request: DecisionAmendRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteControl>;
+  readonly repinForMigration: (request: DecisionMigrationRepinRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteControl>;
+  readonly relate: (request: DecisionRelateRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteControl>;
+  readonly retireRelation: (request: DecisionRelationRetireRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteControl>;
+  readonly replaceRelation: (request: DecisionRelationReplaceRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteControl>;
+  readonly retire: (request: DecisionTransitionRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteControl>;
 }
 
 export function makeDecisionWriteService(options: DecisionWriteServiceOptions): DecisionWriteService {
@@ -153,8 +155,10 @@ export function makeDecisionWriteService(options: DecisionWriteServiceOptions): 
         return Effect.fail(rejection(request.decision.decision_id, DecisionWriteRejectionCode.LifecycleContentPinsOwned, "decision_propose cannot supply lifecycle-owned contentPins"));
       }
       return bindDecisionCreateProvenance(options, request.decision, timestamp()).pipe(
-        Effect.catchAll((error) => Effect.fail(error.writeError
-          ?? rejection(request.decision.decision_id, DecisionWriteRejectionCode.ProvenanceBindingRejected, error.reason))),
+        Effect.mapError((error) => isIndeterminateFlushControlOutcome(error)
+          ? error
+          : error.writeError
+            ?? rejection(request.decision.decision_id, DecisionWriteRejectionCode.ProvenanceBindingRejected, error.reason)),
         Effect.flatMap((decision) => writeDecision(options.coordinator, hashPayload, "decision_propose", decision, request))
       );
     },
@@ -306,7 +310,7 @@ function bindDecisionCreateProvenance(
   options: DecisionWriteServiceOptions,
   decision: DecisionCreateInput,
   boundAt: string
-): Effect.Effect<DecisionPackage, ProvenanceSessionExporterRejected> {
+): Effect.Effect<DecisionPackage, ProvenanceSessionExporterRejected | IndeterminateFlushControlOutcome> {
   return bindCreateProvenance(options, boundAt).pipe(
     Effect.map((provenance) => ({
       ...decision,
@@ -326,7 +330,7 @@ function transitionDecision(
   request: DecisionTransitionRequest,
   to: DecisionState,
   fallbackDecidedAt: string
-): Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError> {
+): Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteControl> {
   const transitionCurrent: DecisionPackage = {
     ...request.current,
     ...(kind === "decision_accept" && request.decisionClass ? { decisionClass: request.decisionClass } : {}),
@@ -449,7 +453,7 @@ function writeDecision(
   request: { readonly body?: string; readonly opIdPrefix?: string; readonly taskWrites?: ReadonlyArray<DocumentWrite> },
   previous?: DecisionPackage,
   writeMode?: DecisionDocumentWriteMode
-): Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError> {
+): Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteControl> {
   const validation = validateDecisionWrite(decision, previous);
   if (validation) return Effect.fail(validation);
   return writeCoordinatedPayload(coordinator, hashPayload, {

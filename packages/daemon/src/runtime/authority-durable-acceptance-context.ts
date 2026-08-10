@@ -1,10 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { FlushReport } from "@harness-anything/kernel";
+import { isIndeterminateFlushReport, type DeterminateFlushReport, type FlushReport } from "@harness-anything/kernel";
 
 export interface AuthorityDurableAcceptance {
   readonly sessionId: string;
   readonly acceptedCommitSha: string;
-  readonly flush: FlushReport & {
+  readonly flush: DeterminateFlushReport & {
     readonly committed: true;
     readonly watermark: string;
   };
@@ -113,7 +113,7 @@ export function reportCurrentAuthorityDurableAcceptance(
   acceptedCommitSha: string,
   flush: FlushReport
 ): void {
-  if (!flush.committed || !flush.watermark) return;
+  if (isIndeterminateFlushReport(flush) || !flush.committed || !flush.watermark) return;
   storage.getStore()?.accept({
     sessionId,
     acceptedCommitSha,

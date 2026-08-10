@@ -1,11 +1,14 @@
 import { Effect } from "effect";
 import {
   daemonAdmissionBytes,
+  isIndeterminateFlushControlOutcome,
+  requireDeterminateFlushReport,
+  type DeterminateFlushReport,
   type DaemonAdmissionBudget,
-  type FlushReport,
   type OperationalActor,
   type VcsCommitAuthor,
   type WriteAttribution,
+  type WriteControl,
   type WriteError,
   type WriteOp,
   type makeJournaledWriteCoordinator
@@ -42,7 +45,7 @@ export interface InteractiveWriteReceipt {
   readonly commandId: string;
   readonly opIds: ReadonlyArray<string>;
   readonly durable: true;
-  readonly flush: FlushReport;
+  readonly flush: DeterminateFlushReport;
 }
 
 export interface BackgroundBatchRequest<Result = unknown> {
@@ -77,7 +80,7 @@ type InteractiveQueueItem = InteractiveWriteAttribution & {
   readonly endQueueWait?: () => void;
   endDurableFlush?: () => void;
   readonly resolve: (receipt: InteractiveWriteReceipt) => void;
-  readonly reject: (error: WriteError) => void;
+  readonly reject: (error: WriteControl) => void;
   readonly admission: DaemonAdmissionReservation;
 };
 
@@ -293,7 +296,7 @@ export class DaemonWriteQueue {
     try {
       coordinator = coordinatorFor(attributionFor(batch[0]));
     } catch (error) {
-      const writeError = toDaemonQueueWriteError(error);
+      const writeError = toDaemonQueueWriteControl(error);
       for (const item of batch) {
         item.reject(writeError);
         item.admission.release();
@@ -309,7 +312,7 @@ export class DaemonWriteQueue {
         accepted.push(item);
       } catch (error) {
         item.endDurableFlush?.();
-        item.reject(toDaemonQueueWriteError(error));
+        item.reject(toDaemonQueueWriteControl(error));
         item.admission.release();
       }
     }
@@ -320,7 +323,9 @@ export class DaemonWriteQueue {
       opIds: accepted.flatMap((item) => item.ops.map((op) => op.opId))
     };
     try {
-      const flush = () => runWriteEffect(coordinator.flush("explicit"));
+      const flush = () => runWriteEffect(coordinator.flush("explicit").pipe(
+        Effect.flatMap(requireDeterminateFlushReport)
+      ));
       const report = accepted[0]?.runWithRepoWriteTelemetry
         ? accepted[0].runWithRepoWriteTelemetry(flush)
         : flush();
@@ -333,7 +338,7 @@ export class DaemonWriteQueue {
         });
       }
     } catch (error) {
-      const writeError = toDaemonQueueWriteError(error);
+      const writeError = toDaemonQueueWriteControl(error);
       for (const item of accepted) item.reject(writeError);
     } finally {
       this.activeDrainTarget = undefined;
@@ -437,12 +442,12 @@ function sessionKey(sessionId: string | undefined): string {
   return sessionId?.trim() ?? "";
 }
 
-function toDaemonQueueWriteError(error: unknown): WriteError {
-  if (isDaemonQueueWriteError(error)) return error;
+function toDaemonQueueWriteControl(error: unknown): WriteControl {
+  if (isDaemonQueueWriteError(error) || isIndeterminateFlushControlOutcome(error)) return error;
   return { _tag: "JournalUnavailable", cause: error };
 }
 
-function runWriteEffect<Result>(effect: Effect.Effect<Result, WriteError>): Result {
+function runWriteEffect<Result>(effect: Effect.Effect<Result, WriteControl>): Result {
   const result = Effect.runSync(Effect.either(effect));
   if (result._tag === "Left") throw result.left;
   return result.right;

@@ -5,6 +5,7 @@ import {
   deriveRelationId,
   evaluateEntityDisposition,
   isFactId,
+  isIndeterminateFlushControlOutcome,
   taskEntityId,
   type EntityRelationRecord,
   type FactConfidence,
@@ -14,7 +15,7 @@ import {
   type ProvenancePayload,
   type TaskId,
   type WriteCoordinator,
-  type WriteError
+  type WriteControl
 } from "@harness-anything/kernel";
 import { harnessRuntimeRoot, resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel";
 import { stablePayloadHash, writeCoordinatedPayload } from "@harness-anything/kernel";
@@ -75,8 +76,8 @@ export interface FactWriteRejected {
 }
 
 export interface FactWriteService {
-  readonly record: (request: FactRecordRequest) => Effect.Effect<FactWriteResult, FactWriteRejected | WriteError>;
-  readonly invalidate: (request: FactInvalidateRequest) => Effect.Effect<FactInvalidateResult, FactWriteRejected | WriteError>;
+  readonly record: (request: FactRecordRequest) => Effect.Effect<FactWriteResult, FactWriteRejected | WriteControl>;
+  readonly invalidate: (request: FactInvalidateRequest) => Effect.Effect<FactInvalidateResult, FactWriteRejected | WriteControl>;
 }
 
 export function makeFactWriteService(options: FactWriteServiceOptions): FactWriteService {
@@ -92,7 +93,10 @@ export function makeFactWriteService(options: FactWriteServiceOptions): FactWrit
       }
       const observedAt = request.observedAt ?? timestamp();
       const provenance = yield* bindCreateProvenance(options, observedAt).pipe(
-        Effect.catchAll((error) => Effect.fail(error.writeError ?? factRejection(request.ownerTaskId, error.reason)))
+        Effect.mapError((error) => isIndeterminateFlushControlOutcome(error)
+          ? error
+          : error.writeError ?? factRejection(request.ownerTaskId, error.reason)
+        )
       );
       const record: FactRecord = {
         fact_id: factId,

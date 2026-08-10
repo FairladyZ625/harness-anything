@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import type { TaskId, WriteError } from "@harness-anything/kernel";
+import type { TaskId, WriteControl } from "@harness-anything/kernel";
 import type { MaterializedTemplatePlan } from "@harness-anything/kernel";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { listTaskIndexPaths, normalizeRelativeDocumentPath, readFrontmatter, readScalar, resolveHarnessLayout } from "@harness-anything/kernel";
@@ -93,7 +93,7 @@ export function runMigrateAnchors(
   context: CommandRunnerContext,
   rootInput: HarnessLayoutInput,
   action: MigrateAnchorsAction
-): Effect.Effect<CliResult, WriteError> {
+): Effect.Effect<CliResult, WriteControl> {
   const settingsResult = readProjectHarnessSettings(rootInput, "migrate-anchors");
   if (!settingsResult.ok) return Effect.succeed(settingsResult.result);
 

@@ -1,5 +1,5 @@
 /* @slice-activation PLT-Boundary S2 journal outcome projection */
-import type { FlushReport } from "../../ports/write-coordinator.ts";
+import { isIndeterminateFlushReport, type FlushReport } from "../../ports/write-coordinator.ts";
 import type { LedgerMaterializerReport } from "../materialization/ledger-materializer.ts";
 
 type KernelFailureReason =
@@ -215,6 +215,15 @@ function projectDurable<Registry extends KernelHonestOutcomeFailureRegistry>(
         freshness: "current"
       }
     });
+    return;
+  }
+  if (input.flushReport && isIndeterminateFlushReport(input.flushReport)) {
+    state.committed = unknown(
+      "outcome_indeterminate",
+      `flush outcome remains indeterminate for ${input.flushReport.operationIds.join(",")}`
+    );
+    state.applied = unknown("outcome_indeterminate");
+    state.visible = unknown("outcome_indeterminate");
     return;
   }
   if (input.flushReport?.committed === true && input.flushReport.watermark) {

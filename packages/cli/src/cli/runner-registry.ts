@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { DecisionWriteService, FactWriteService, ProvenanceSessionExporter, ProvenanceSessionExporterRejected, ProvenanceSessionExportResult, RuntimeEventLedgerService, TaskHolderPrincipal, TaskHolderService } from "@harness-anything/application";
 import type { ArtifactStore, CurrentSessionProbePort, OperationalActor } from "@harness-anything/kernel";
-import type { ArtifactStoreError, DomainStatus, EngineError, PriorityTier, TaskWorkKind, WriteError } from "@harness-anything/kernel";
+import type { ArtifactStoreError, DomainStatus, EngineError, PriorityTier, TaskWorkKind, WriteControl } from "@harness-anything/kernel";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "@harness-anything/kernel";
 import { createHarnessRuntimeContext } from "@harness-anything/kernel";
 import type { WriteCoordinator } from "@harness-anything/kernel";
@@ -16,9 +16,9 @@ import {
   type ConflictMarkerExecutionBoundary
 } from "./conflict-preflight.ts";
 import { cliError, CliErrorCode } from "./error-codes.ts";
-import { toCliError } from "./error-mapper.ts";
 import { actionTaskId } from "./parse-args.ts";
 import { appendCommandRuntimeEvent } from "./command-runtime-events.ts";
+import { commandFailureResult } from "./runner-failure-result.ts";
 import type { CliResult, CommandRegistryEntry, MaterializerCommandReport, ParsedCommand } from "./types.ts";
 import type { CliActorAttribution } from "../composition/actor-attribution.ts";
 
@@ -52,9 +52,9 @@ export interface CommandRunnerContext {
   readonly runLedgerMaterializer: (options: { readonly dryRun?: boolean }) => MaterializerCommandReport;
 }
 
-export type CommandRunnerEffect = Effect.Effect<CliResult, ArtifactStoreError | EngineError | WriteError>;
+export type CommandRunnerEffect = Effect.Effect<CliResult, ArtifactStoreError | EngineError | WriteControl>;
 
-type EngineEffect<A> = Effect.Effect<A, EngineError | WriteError>;
+type EngineEffect<A> = Effect.Effect<A, EngineError | WriteControl>;
 
 export interface CommandRunnerEngine {
   readonly createTask: (input: {
@@ -140,7 +140,7 @@ export function runRegisteredCommand(
     authorityCommandSubmission: false,
     outerProceedingRecovery: false
   }
-): CommandRunnerEffect {
+): Effect.Effect<CliResult> {
   const runner = runnerRegistry[command.action.kind];
   const layoutInput = createHarnessRuntimeContext(command.rootDir, command.layoutOverrides);
   const conflictMarkerFailure = readCommandConflictMarkerFailure(command, layoutInput, execution);
@@ -217,13 +217,8 @@ export function runRegisteredCommand(
     }
   }
   return runner(context, command).pipe(
-    Effect.catchAll((error) => Effect.succeed({
-      ok: false,
-      command: receiptCommandKind(command.action),
-      taskId: actionTaskId(command.action),
-      error: toCliError(error)
-    } satisfies CliResult)),
-    Effect.flatMap((result) => appendCommandRuntimeEvent(context, command, result))
+    Effect.flatMap((result) => appendCommandRuntimeEvent(context, command, result)),
+    Effect.catchAll((error) => Effect.succeed(commandFailureResult(command, error)))
   );
 }
 

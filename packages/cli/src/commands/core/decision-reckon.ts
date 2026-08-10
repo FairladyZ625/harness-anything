@@ -5,11 +5,12 @@ import {
   type FactWriteService,
   readDecisionDocument
 } from "@harness-anything/application";
-import { queryConsentsBySourceStrength, queryConsentsBySourceStrengthWithWarnings, readDecisionFactCoverage, type ProjectionWarning, type WriteError } from "@harness-anything/kernel";
+import { queryConsentsBySourceStrength, queryConsentsBySourceStrengthWithWarnings, readDecisionFactCoverage, type ProjectionWarning, type WriteControl, type WriteError } from "@harness-anything/kernel";
 import { harnessRuntimeRoot, type HarnessLayoutInput } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { demotedGateWarning } from "../../cli/demoted-gate-warning.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
+import { mapFailurePreservingIndeterminate } from "../../cli/indeterminate-control.ts";
 
 type ReckonAction = Extract<ParsedCommand["action"], { readonly kind: "decision-reckon" }>;
 type ReckonReport = ReturnType<typeof evaluateDecisionReckonGate> & {
@@ -26,7 +27,7 @@ export function runReckon(
   rootInput: HarnessLayoutInput,
   factService: FactWriteService,
   action: ReckonAction
-): Effect.Effect<CliResult, WriteError> {
+): Effect.Effect<CliResult, WriteControl> {
   return readDecisionDocument(rootInput, action.decisionId).pipe(
     Effect.map((document) => document.decision),
     Effect.flatMap((decision) => {
@@ -79,19 +80,19 @@ export function runReckon(
         memoryClass: "semantic",
         memoryTags: []
       }).pipe(
-        Effect.match({
-          onFailure: (error): CliResult => reckonFactFailure(action, report, error),
-          onSuccess: (fact): CliResult => reckonResult(action, report, fact.factId, fact.ref, fact.path)
+        Effect.matchEffect({
+          onFailure: (error) => mapFailurePreservingIndeterminate(error, (failure) => reckonFactFailure(action, report, failure)),
+          onSuccess: (fact) => Effect.succeed(reckonResult(action, report, fact.factId, fact.ref, fact.path))
         })
       );
     }),
-    Effect.catchAll(() => Effect.succeed({
+    Effect.catchAll((error) => mapFailurePreservingIndeterminate(error, () => ({
       ok: false,
       command: "decision-reckon",
       decisionId: action.decisionId,
       taskId: action.taskId,
       error: cliError(CliErrorCode.DecisionReadFailed, `decision document could not be read: ${action.decisionId}`)
-    } satisfies CliResult))
+    } satisfies CliResult)))
   );
 }
 

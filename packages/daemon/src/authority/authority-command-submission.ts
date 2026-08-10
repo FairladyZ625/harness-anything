@@ -20,7 +20,7 @@ import type {
   WriteError,
   WriteOp
 } from "@harness-anything/kernel";
-import { taskEntityId } from "@harness-anything/kernel";
+import { isIndeterminateFlushReport, taskEntityId } from "@harness-anything/kernel";
 import { measureCurrentDaemonRequestPerformancePhase } from "../observability/request-performance.ts";
 import { reportCurrentRepoWriteTelemetry } from "../runtime/repo-write-telemetry-context.ts";
 import {
@@ -99,16 +99,6 @@ export class AuthorityCompileRejectedError extends Error {
     );
     this.name = "AuthorityCompileRejectedError";
     this.code = code;
-  }
-}
-
-export class AuthorityPublicationOutcomeIndeterminateError extends Error {
-  readonly receipt: Extract<AuthorityOperationReceipt, { readonly tag: "INDETERMINATE" }>;
-
-  constructor(receipt: Extract<AuthorityOperationReceipt, { readonly tag: "INDETERMINATE" }>) {
-    super(`AUTHORITY_INDETERMINATE:${receipt.reason}`);
-    this.name = "AuthorityPublicationOutcomeIndeterminateError";
-    this.receipt = receipt;
   }
 }
 
@@ -291,6 +281,7 @@ export function makeDaemonAuthorityWriteCoordinator(
             canonicalEntityId: taskEntityId(action.taskId)
           });
           const report = await durableSubmissionFlushReport(await durable, reason);
+          if (isIndeterminateFlushReport(report)) return report;
           durable = undefined;
           mainCommitted = true;
           mainWatermark = report.watermark;
@@ -327,6 +318,7 @@ export function makeDaemonAuthorityWriteCoordinator(
             canonicalEntityId: commandMainEntityId(input.command) ?? pending.entityId
           });
         const report = await durableSubmissionFlushReport(await durable, reason);
+        if (isIndeterminateFlushReport(report)) return report;
         pending = undefined;
         durable = undefined;
         if (provenanceSession) provenanceCommitted = true;
@@ -424,39 +416,26 @@ export function receiptToFlushReport(receipt: AuthorityOperationReceipt, reason:
       receipt.errorCode,
       receipt.errorContext ? { ...receipt.errorContext } : undefined
     );
-    case "INDETERMINATE": {
-      if (receipt.errorCode) throw authorityWriteRejected(
-        receipt.reason,
-        false,
-        receipt.errorCode,
-        receipt.errorContext ? { ...receipt.errorContext } : undefined
-      );
-      throw new AuthorityPublicationOutcomeIndeterminateError(receipt);
-    }
+    case "INDETERMINATE": return {
+      status: "indeterminate",
+      reason,
+      opCount: 1,
+      operationIds: [receipt.opId],
+      cause: {
+        kind: "authority",
+        workspaceId: receipt.workspaceId,
+        semanticDigest: receipt.semanticDigest,
+        evidence: receipt.reason,
+        ...(receipt.commitSha ? { observedCommitSha: receipt.commitSha } : {}),
+        ...(receipt.errorCode ? { errorCode: receipt.errorCode } : {}),
+        ...(receipt.errorContext ? { errorContext: { ...receipt.errorContext } } : {})
+      }
+    };
   }
 }
 
 export function authoritySubmissionWriteError(cause: unknown): WriteError {
   if (isAuthorityWriteError(cause)) return cause;
-  if (cause instanceof AuthorityPublicationOutcomeIndeterminateError) {
-    const receipt = cause.receipt;
-    return authorityWriteRejected(
-      [
-        "Authority publication outcome is indeterminate; the canonical mutation may already be committed.",
-        receipt.reason,
-        `Inspect canonical state for operation ${receipt.opId} before retrying; do not retry this exact command blindly.`
-      ].join(" "),
-      false,
-      "write_rejected",
-      {
-        schema: "authority-publication-outcome-indeterminate/v1",
-        authorityState: "INDETERMINATE",
-        workspaceId: receipt.workspaceId,
-        opId: receipt.opId,
-        evidence: receipt.reason
-      }
-    );
-  }
   if (cause instanceof AuthorityProtocolDamagedError) {
     return authorityWriteRejected(cause.message, false, "PROTOCOL_DAMAGED");
   }

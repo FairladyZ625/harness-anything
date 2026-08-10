@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect, Schema } from "effect";
 import type { CurrentSessionRef } from "@harness-anything/kernel";
-import type { TaskId, WriteError } from "@harness-anything/kernel";
+import type { TaskId, WriteControl } from "@harness-anything/kernel";
 import { stablePayloadHash } from "@harness-anything/kernel";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { listTaskIndexPaths, readFrontmatter, readScalar, resolveHarnessLayout } from "@harness-anything/kernel";
@@ -47,7 +47,7 @@ export function runMigrateProvenance(
   context: CommandRunnerContext,
   rootInput: HarnessLayoutInput,
   action: MigrateProvenanceAction
-): Effect.Effect<CliResult, WriteError> {
+): Effect.Effect<CliResult, WriteControl> {
   const boundAt = new Date().toISOString();
   return context.currentSessionProbe.currentSession.pipe(
     Effect.flatMap((session) => {

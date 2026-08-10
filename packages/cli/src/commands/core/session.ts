@@ -1,7 +1,7 @@
 import path from "node:path";
 import { Effect } from "effect";
-import type { CurrentSessionRef, FlushReport, SessionManifest, WriteError } from "@harness-anything/kernel";
-import { resolveHarnessLayout, writeSessionEntity } from "@harness-anything/kernel";
+import type { CurrentSessionRef, FlushReport, SessionManifest, WriteControl } from "@harness-anything/kernel";
+import { isIndeterminateFlushControlOutcome, requireDeterminateFlushReport, resolveHarnessLayout, writeSessionEntity } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, SessionExportRuntime, SessionExportSource } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
@@ -38,7 +38,9 @@ export const runSessionCommand: CommandRunner = (context, command) => {
           }
         } satisfies CliResult;
       }),
-      Effect.catchAll((error) => Effect.succeed(sessionError("session-backfill", error.reason)))
+      Effect.catchAll((error) => isIndeterminateFlushControlOutcome(error)
+        ? Effect.fail(error)
+        : Effect.succeed(sessionError("session-backfill", error.reason)))
     );
   }
   return runSessionExport(context, action);
@@ -72,7 +74,9 @@ function runSessionExport(
         }
       } satisfies CliResult;
     }),
-    Effect.catchAll((error) => Effect.succeed(sessionError("session-export", error.reason)))
+    Effect.catchAll((error) => isIndeterminateFlushControlOutcome(error)
+      ? Effect.fail(error)
+      : Effect.succeed(sessionError("session-export", error.reason)))
   );
 }
 
@@ -84,7 +88,7 @@ function rootRelativeSessionPath(rootInput: Parameters<CommandRunner>[0]["layout
 function writeCutoverSessionEntities(
   context: Parameters<CommandRunner>[0],
   manifests: ReadonlyArray<SessionManifest>
-): Effect.Effect<FlushReport, WriteError> {
+): Effect.Effect<FlushReport, WriteControl> {
   const coordinator = context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "session-sync" });
   return Effect.gen(function* () {
     for (const [index, manifest] of manifests.entries()) {
@@ -93,7 +97,7 @@ function writeCutoverSessionEntities(
         opIdPrefix: `session-sync-${index}`
       });
     }
-    return yield* coordinator.flush("explicit");
+    return yield* requireDeterminateFlushReport(yield* coordinator.flush("explicit"));
   });
 }
 

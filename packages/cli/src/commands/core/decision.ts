@@ -3,7 +3,7 @@ import {
   readDecisionDocument,
   type DecisionWriteService,
 } from "@harness-anything/application";
-import { type DecisionState, type WriteError } from "@harness-anything/kernel";
+import { type DecisionState, type WriteControl } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, DecisionAmendPatchInput, ParsedCommand } from "../../cli/types.ts";
@@ -19,6 +19,7 @@ import {
   attachDecisionSurfaceAdmission,
   evaluateDecisionSurfaceAdmission
 } from "./decision-surface-admission.ts";
+import { mapFailurePreservingIndeterminate } from "../../cli/indeterminate-control.ts";
 
 type DecisionAction = Extract<ParsedCommand["action"], { readonly kind:
   | "decision-verify" | "decision-repin" | "decision-propose" | "decision-transition" | "decision-amend" | "decision-relate" | "decision-reckon" | "decision-relation-retire" | "decision-relation-replace"
@@ -61,21 +62,21 @@ function runDecisionRepin(
   rootInput: Parameters<typeof readDecisionDocument>[0],
   service: DecisionWriteService,
   action: Extract<DecisionAction, { readonly kind: "decision-repin" }>
-): Effect.Effect<CliResult, WriteError> {
+): Effect.Effect<CliResult, WriteControl> {
   return readDecisionDocument(rootInput, action.decisionId).pipe(
     Effect.flatMap((document) => service.repinForMigration({
       current: document.decision,
       opIdPrefix: `amend-after-pin-${action.decisionId}`
-    }).pipe(Effect.match({
-      onFailure: (error): CliResult => decisionFailure("decision-repin", action.decisionId, error),
-      onSuccess: (result): CliResult => decisionResult(rootInput, "decision-repin", result.decisionId, result.state, false)
+    }).pipe(Effect.matchEffect({
+      onFailure: (error) => mapFailurePreservingIndeterminate(error, (failure) => decisionFailure("decision-repin", action.decisionId, failure)),
+      onSuccess: (result) => Effect.succeed(decisionResult(rootInput, "decision-repin", result.decisionId, result.state, false))
     }))),
-    Effect.catchAll(() => Effect.succeed({
+    Effect.catchAll((error) => mapFailurePreservingIndeterminate(error, () => ({
       ok: false,
       command: "decision-repin",
       decisionId: action.decisionId,
       error: cliError(CliErrorCode.DecisionReadFailed, decisionReadFailureHint(action.decisionId))
-    } satisfies CliResult))
+    } satisfies CliResult)))
   );
 }
 
@@ -113,7 +114,7 @@ function runTransition(
   rootInput: Parameters<typeof readDecisionDocument>[0],
   service: DecisionWriteService,
   action: TransitionAction
-): Effect.Effect<CliResult, WriteError> {
+): Effect.Effect<CliResult, WriteControl> {
   const command = transitionCommand(action);
   return readDecisionDocument(rootInput, action.decisionId).pipe(
     Effect.flatMap((document) => {
@@ -147,23 +148,23 @@ function runTransition(
       }
       switch (action.transition) {
         case "accept":
-          return service.accept(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(command, current.decision_id, error, current), onSuccess: (result) => withBodyWarning(decisionResult(rootInput, command, result.decisionId, result.state, false)) }));
+          return service.accept(request).pipe(Effect.matchEffect({ onFailure: (error) => mapFailurePreservingIndeterminate(error, (failure) => decisionFailure(command, current.decision_id, failure, current)), onSuccess: (result) => Effect.succeed(withBodyWarning(decisionResult(rootInput, command, result.decisionId, result.state, false))) }));
         case "reject":
-          return service.reject(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(command, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, command, result.decisionId, result.state, false) }));
+          return service.reject(request).pipe(Effect.matchEffect({ onFailure: (error) => mapFailurePreservingIndeterminate(error, (failure) => decisionFailure(command, current.decision_id, failure)), onSuccess: (result) => Effect.succeed(decisionResult(rootInput, command, result.decisionId, result.state, false)) }));
         case "defer":
-          return service.defer(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(command, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, command, result.decisionId, result.state, false) }));
+          return service.defer(request).pipe(Effect.matchEffect({ onFailure: (error) => mapFailurePreservingIndeterminate(error, (failure) => decisionFailure(command, current.decision_id, failure)), onSuccess: (result) => Effect.succeed(decisionResult(rootInput, command, result.decisionId, result.state, false)) }));
         case "supersede":
-          return service.supersede(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(command, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, command, result.decisionId, result.state, false) }));
+          return service.supersede(request).pipe(Effect.matchEffect({ onFailure: (error) => mapFailurePreservingIndeterminate(error, (failure) => decisionFailure(command, current.decision_id, failure)), onSuccess: (result) => Effect.succeed(decisionResult(rootInput, command, result.decisionId, result.state, false)) }));
         case "retire":
-          return service.retire(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(command, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, command, result.decisionId, result.state, false) }));
+          return service.retire(request).pipe(Effect.matchEffect({ onFailure: (error) => mapFailurePreservingIndeterminate(error, (failure) => decisionFailure(command, current.decision_id, failure)), onSuccess: (result) => Effect.succeed(decisionResult(rootInput, command, result.decisionId, result.state, false)) }));
       }
     }),
-    Effect.catchAll(() => Effect.succeed({
+    Effect.catchAll((error) => mapFailurePreservingIndeterminate(error, () => ({
       ok: false,
       command,
       decisionId: action.decisionId,
       error: cliError(CliErrorCode.DecisionReadFailed, decisionReadFailureHint(action.decisionId))
-    } satisfies CliResult))
+    } satisfies CliResult)))
   );
 }
 
@@ -171,7 +172,7 @@ function runAmend(
   rootInput: Parameters<typeof readDecisionDocument>[0],
   service: DecisionWriteService,
   action: Extract<DecisionAction, { readonly kind: "decision-amend" }>
-): Effect.Effect<CliResult, WriteError> {
+): Effect.Effect<CliResult, WriteControl> {
   return readDecisionDocument(rootInput, action.decisionId).pipe(
     Effect.map((document) => document.decision),
     Effect.flatMap((current) => {
@@ -185,18 +186,18 @@ function runAmend(
       if (!patchResult.ok) return Effect.succeed(patchResult.result);
       if (action.dryRun) return Effect.succeed(decisionResult(rootInput, "decision-amend", current.decision_id, current.state, true));
       return service.amend({ current, next: patchResult.next, body: action.body }).pipe(
-        Effect.match({
-          onFailure: (error): CliResult => decisionFailure("decision-amend", current.decision_id, error),
-          onSuccess: (result): CliResult => decisionResult(rootInput, "decision-amend", result.decisionId, result.state, false)
+        Effect.matchEffect({
+          onFailure: (error) => mapFailurePreservingIndeterminate(error, (failure) => decisionFailure("decision-amend", current.decision_id, failure)),
+          onSuccess: (result) => Effect.succeed(decisionResult(rootInput, "decision-amend", result.decisionId, result.state, false))
         })
       );
     }),
-    Effect.catchAll(() => Effect.succeed({
+    Effect.catchAll((error) => mapFailurePreservingIndeterminate(error, () => ({
       ok: false,
       command: "decision-amend",
       decisionId: action.decisionId,
       error: cliError(CliErrorCode.DecisionReadFailed, decisionReadFailureHint(action.decisionId))
-    } satisfies CliResult))
+    } satisfies CliResult)))
   );
 }
 

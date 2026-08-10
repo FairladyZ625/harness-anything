@@ -1,7 +1,8 @@
 import path from "node:path";
 import { Effect } from "effect";
-import type { ArtifactStore, CurrentSessionProbePort, CurrentSessionRef, CurrentSessionRuntime, CurrentSessionSource, SessionManifest, WriteCoordinator, WriteError } from "@harness-anything/kernel";
+import type { ArtifactStore, CurrentSessionProbePort, CurrentSessionRef, CurrentSessionRuntime, CurrentSessionSource, IndeterminateFlushControlOutcome, SessionManifest, WriteCoordinator, WriteError } from "@harness-anything/kernel";
 import {
+  isIndeterminateFlushControlOutcome,
   privateTextScannerVersion,
   readSessionEntityDocument,
   removeContentAddressedBlob,
@@ -65,9 +66,9 @@ export interface ProvenanceSessionExporterRejected {
 }
 
 export interface ProvenanceSessionExporter {
-  readonly exportSession: (session: CurrentSessionRef, options?: ProvenanceSessionExportOptions) => Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected>;
-  readonly exportCurrentSession: (options?: ProvenanceSessionExportOptions) => Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected>;
-  readonly backfillRuntimeSessions: (options?: ProvenanceSessionBackfillOptions) => Effect.Effect<ProvenanceSessionBackfillResult, ProvenanceSessionExporterRejected>;
+  readonly exportSession: (session: CurrentSessionRef, options?: ProvenanceSessionExportOptions) => Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected | IndeterminateFlushControlOutcome>;
+  readonly exportCurrentSession: (options?: ProvenanceSessionExportOptions) => Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected | IndeterminateFlushControlOutcome>;
+  readonly backfillRuntimeSessions: (options?: ProvenanceSessionBackfillOptions) => Effect.Effect<ProvenanceSessionBackfillResult, ProvenanceSessionExporterRejected | IndeterminateFlushControlOutcome>;
   readonly readById: (sessionId: string) => Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected>;
 }
 
@@ -106,7 +107,7 @@ function writeSessionDocument(
   options: ProvenanceSessionExporterOptions,
   session: ProvenanceSessionDocument,
   exportOptions: ProvenanceSessionExportOptions = {}
-): Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected> {
+): Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected | IndeterminateFlushControlOutcome> {
   return Effect.gen(function* () {
     const target = resolveSessionPath(rootInput, session.sessionId);
     if (session.runtime === "human" && exportOptions.transcriptFile) {
@@ -170,8 +171,12 @@ function writeSessionDocument(
         session,
         path: target.authoredRelativePath
       })),
-      Effect.tapError(() => Effect.sync(() => cleanupRejectedSessionBody(rootInput, session.sessionId, bodyWrite))),
-      Effect.mapError((error) => sessionRejection(session.sessionId, writeErrorMessage(error), "write_failed", error))
+      Effect.tapError((error) => isIndeterminateFlushControlOutcome(error)
+        ? Effect.void
+        : Effect.sync(() => cleanupRejectedSessionBody(rootInput, session.sessionId, bodyWrite))),
+      Effect.mapError((error) => isIndeterminateFlushControlOutcome(error)
+        ? error
+        : sessionRejection(session.sessionId, writeErrorMessage(error), "write_failed", error))
     );
   });
 }
@@ -238,14 +243,16 @@ function backfillRuntimeSessions(
   options: ProvenanceSessionExporterOptions,
   backfillOptions: ProvenanceSessionBackfillOptions,
   timestamp: () => string
-): Effect.Effect<ProvenanceSessionBackfillResult, ProvenanceSessionExporterRejected> {
+): Effect.Effect<ProvenanceSessionBackfillResult, ProvenanceSessionExporterRejected | IndeterminateFlushControlOutcome> {
   return Effect.gen(function* () {
     const detectedAt = timestamp();
     const discovered = yield* discoverRuntimeSessions(options, backfillOptions, detectedAt);
     const exported: ProvenanceSessionExportResult[] = [];
     for (const session of discovered.sessions) {
       const existing = yield* readSessionDocument(rootInput, options, session.sessionId).pipe(
-        Effect.catchAll(() => writeSessionDocument(rootInput, options, toSessionDocument(session, timestamp())))
+        Effect.catchAll((error) => isIndeterminateFlushControlOutcome(error)
+          ? Effect.fail(error)
+          : writeSessionDocument(rootInput, options, toSessionDocument(session, timestamp())))
       );
       exported.push(existing);
     }

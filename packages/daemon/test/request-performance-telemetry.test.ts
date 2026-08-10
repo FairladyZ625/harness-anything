@@ -6,6 +6,8 @@ import test from "node:test";
 import { Effect } from "effect";
 import {
   type DaemonAdmissionBudget,
+  isIndeterminateFlushControlOutcome,
+  type IndeterminateFlushReport,
   type WriteCoordinator,
   type WriteError,
   type WriteOp
@@ -445,6 +447,43 @@ test("write queue preserves typed flush rejection identity and retryability", as
     }
   );
   assert.equal(enqueueCount, 1);
+});
+
+test("write queue does not issue a durable receipt for an indeterminate flush", async () => {
+  const queue = new DaemonWriteQueue(1, 0, unlimitedAdmissionBudget());
+  const report = {
+    status: "indeterminate",
+    reason: "explicit",
+    opCount: 1,
+    operationIds: ["op-queue-indeterminate"],
+    cause: {
+      kind: "foreign-committer",
+      detail: "foreign committer still owns the global lock",
+      lockHolder: {
+        status: "missing",
+        lockPath: "/repo/.harness/locks/global.lock",
+        detail: "lock disappeared after budget exhaustion"
+      }
+    }
+  } satisfies IndeterminateFlushReport;
+
+  await assert.rejects(
+    queue.enqueueInteractive(queueRequest("flush-indeterminate"), () => ({
+      enqueue: (operation) => Effect.succeed({
+        opId: operation.opId,
+        entityId: operation.entityId,
+        accepted: true as const
+      }),
+      flush: () => Effect.succeed(report),
+      recover: Effect.succeed({ replayedOps: 0 })
+    })),
+    (error: unknown) => {
+      assert.equal(isIndeterminateFlushControlOutcome(error), true);
+      if (!isIndeterminateFlushControlOutcome(error)) return false;
+      assert.equal(error.report, report);
+      return true;
+    }
+  );
 });
 
 test("untraced background queue work does not inherit the scheduling request trace", async () => {

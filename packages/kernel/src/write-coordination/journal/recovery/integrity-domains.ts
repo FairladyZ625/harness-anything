@@ -1,4 +1,4 @@
-import type { FlushReport, RecoveryReport } from "../../../ports/write-coordinator.ts";
+import type { DeterminateFlushReport, RecoveryReport } from "../../../ports/write-coordinator.ts";
 import { readDurableState } from "../durable.ts";
 import { uniquePendingRecords } from "../records.ts";
 import type { ReadableJournalRecord } from "../types.ts";
@@ -13,7 +13,7 @@ export function recoverJournalIntegrityDomains(input: {
   readonly flushDomain: (
     state: DurableState,
     records: ReadonlyArray<ReadableJournalRecord>
-  ) => FlushReport;
+  ) => DeterminateFlushReport;
 }): RecoveryReport {
   const initialState = readDurableState(input.journalPath, input.watermarkPath, input.rootDir);
   const initialPending = uniquePendingRecords(initialState.records, initialState.applied);

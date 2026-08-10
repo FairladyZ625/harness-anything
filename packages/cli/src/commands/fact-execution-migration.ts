@@ -15,7 +15,7 @@ import {
   type HarnessLayoutInput,
   type OutputEvidence,
   type TaskId,
-  type WriteError
+  type WriteControl
 } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { demotedGateWarning } from "../cli/demoted-gate-warning.ts";
@@ -47,7 +47,7 @@ export function runMigrateFactExecution(
   context: CommandRunnerContext,
   rootInput: HarnessLayoutInput,
   action: MigrateFactExecutionAction
-): Effect.Effect<CliResult, WriteError> {
+): Effect.Effect<CliResult, WriteControl> {
   const classification = classifyFactExecutionCandidates(rootInput);
   const manual = action.manualListFile ? readManualSelection(rootInput, action.manualListFile, classification.orphans) : undefined;
   const candidates = manual?.candidates ?? classification.automatic;

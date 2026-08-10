@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, makeTaskLifecycleOrchestrator, renderCodeDocReconciliationDraft, taskLifecycleTransitionId } from "@harness-anything/application";
-import { makeLocalVersionControlSystem, resolveHarnessLayout, type WriteError } from "@harness-anything/kernel";
+import { makeLocalVersionControlSystem, requireDeterminateFlushReport, resolveHarnessLayout, type WriteError } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { preserveWriteErrorOrUnclassified } from "../../cli/write-error-classification.ts";
 import type { CliResult } from "../../cli/types.ts";
@@ -63,7 +63,7 @@ function runTaskLifecycleTransition(
       // The canonical planner may run in the repo-write child. Keep the
       // parent-side read-only holder probe outside that preflight so the child
       // can run its own read-only planner without contending on a task lock.
-      yield* coordinator.flush("explicit");
+      yield* requireDeterminateFlushReport(yield* coordinator.flush("explicit"));
       const holder = yield* Effect.tryPromise({
         try: () => context.taskHolderService.holder({ taskId: action.taskId }),
         catch: preserveWriteErrorOrUnclassified
@@ -114,10 +114,10 @@ function runTaskLifecycleTransition(
   const transitionId = taskLifecycleTransitionId(action.callerIdempotencyKey);
   const coordinator = context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "task-lifecycle-transition" });
   return Effect.gen(function* () {
-    const flush = yield* Effect.promise(() => context.taskHolderService.withUnheldTask(
+    const flush = yield* requireDeterminateFlushReport(yield* Effect.promise(() => context.taskHolderService.withUnheldTask(
       { taskId: action.taskId },
       () => Effect.runPromise(coordinator.flush("explicit"))
-    ));
+    )));
     if (!flush.committed && !flush.watermark) throw new Error("TASK_LIFECYCLE_TRANSITION_NOT_COMMITTED");
     return {
       ok: true,

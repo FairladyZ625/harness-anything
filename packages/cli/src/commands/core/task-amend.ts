@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { Effect, Schema } from "effect";
-import type { EngineError, WriteError } from "@harness-anything/kernel";
+import type { EngineError, WriteControl } from "@harness-anything/kernel";
 import { resolveTaskSchema } from "@harness-anything/kernel";
 import { taskDocumentPath } from "@harness-anything/kernel";
 import { readFrontmatter, readScalar } from "@harness-anything/kernel";
@@ -15,7 +15,7 @@ type BundledVertical = NonNullable<ReturnType<typeof bundledVerticalDefinition>>
 export function runTaskAmend(
   context: CommandRunnerContext,
   action: TaskAmendAction
-): Effect.Effect<CliResult, EngineError | WriteError> {
+): Effect.Effect<CliResult, EngineError | WriteControl> {
   return Effect.gen(function* () {
     const indexPath = taskDocumentPath(context.layoutInput, action.taskId, "INDEX.md");
     if (!existsSync(indexPath)) return taskAmendInvalid(action.taskId, `task not found: ${action.taskId}`, CliErrorCode.TaskNotFound);

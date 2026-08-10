@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect, Schema } from "effect";
 import { indexPath, makeIndex, renderIndex } from "@harness-anything/adapter-local/task-index";
-import { taskEntityId, type EngineError, type WriteError } from "@harness-anything/kernel";
+import { requireDeterminateFlushReport, taskEntityId, type EngineError, type WriteControl } from "@harness-anything/kernel";
 import { stablePayloadHash } from "@harness-anything/kernel";
 import type { OperationalActor, WriteCoordinator } from "@harness-anything/kernel";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
@@ -38,14 +38,14 @@ export function runNewTaskFromLegacy(
   rootInput: HarnessLayoutInput,
   action: NewTaskAction,
   makeWriteCoordinator: (actor: OperationalActor) => WriteCoordinator
-): Effect.Effect<CliResult, EngineError | WriteError> {
+): Effect.Effect<CliResult, EngineError | WriteControl> {
   if (!action.fromLegacyId) {
     throw new Error("runNewTaskFromLegacy requires fromLegacyId");
   }
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const fromLegacyId = action.fromLegacyId;
   return Effect.sync(() => readLegacyRebuildSource(rootInput, fromLegacyId)).pipe(
-    Effect.flatMap((legacySource): Effect.Effect<CliResult, EngineError | WriteError> => {
+    Effect.flatMap((legacySource): Effect.Effect<CliResult, EngineError | WriteControl> => {
       if (!legacySource.ok) return Effect.succeed(legacySource.result);
       const title = action.titleProvided ? action.title : legacySource.entry.title ?? legacySource.entry.id;
       const slug = action.slugProvided ? action.slug : slugifyTaskTitle(title);
@@ -84,6 +84,7 @@ export function runNewTaskFromLegacy(
         payload: { writes }
       }).pipe(
         Effect.flatMap(() => coordinator.flush("explicit")),
+        Effect.flatMap(requireDeterminateFlushReport),
         Effect.map((): CliResult => {
           return {
             ok: true,

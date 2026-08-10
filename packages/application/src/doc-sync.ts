@@ -3,6 +3,7 @@ import {
   type RegistryMutationPlanInput,
   type SemanticDiffDocumentPolicy
 } from "@harness-anything/kernel";
+import type { IndeterminateFlushReport } from "@harness-anything/kernel";
 import type { CommandReceiptSettlement } from "./command-receipt.ts";
 
 export interface RegistryRow {
@@ -156,6 +157,18 @@ export type DocSyncSubmitResultV1 =
       readonly receiptId: string;
       readonly statusCommand: string;
     };
+  }
+  | {
+    readonly ok: false;
+    readonly _tag: "IndeterminateFlushControlOutcome";
+    readonly schema: "daemon.doc-sync-submit-result/v1";
+    readonly status: "indeterminate";
+    readonly intentId: string;
+    readonly code: "write_outcome_indeterminate";
+    readonly reason: string;
+    readonly hint: string;
+    readonly retryable: false;
+    readonly flush: IndeterminateFlushReport;
   };
 
 export interface DocSyncValidationResult {

@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, wri
 import path from "node:path";
 import { Effect } from "effect";
 import {
+  isIndeterminateFlushControlOutcome,
+  requireDeterminateFlushReport,
   resolveHarnessLayout,
   sha256Text,
   type EntityId,
@@ -10,8 +12,8 @@ import {
   type HarnessLayoutOverrides,
   type SemanticDiffCandidateTree,
   type SemanticDiffDocumentPolicy,
+  type WriteControl,
   type WriteCoordinator,
-  type WriteError
 } from "@harness-anything/kernel";
 import { compileManagedCandidateTreeV2, type DaemonDocSyncHostServices } from "@harness-anything/application";
 import {
@@ -30,7 +32,12 @@ import {
   type RegistryRow,
   type TouchedZone
 } from "@harness-anything/application/doc-sync";
-import { DocSyncJournalFailure, docSyncWriteFailure } from "./doc-sync-journal-failure.ts";
+import {
+  DocSyncJournalFailure,
+  docSyncIndeterminate,
+  docSyncWriteFailure,
+  rejectDocSyncRequest
+} from "./doc-sync-journal-failure.ts";
 import { gitText, resolveDocSyncAppliedLedgerSha } from "./doc-sync-applied-ledger.ts";
 import { isStandaloneCasObject } from "./doc-sync-cas.ts";
 import { consumerDocSyncRows, isConsumerGovernedTaskDocument } from "./doc-sync-consumer-surface.ts";
@@ -253,14 +260,14 @@ async function submitDocSyncRequest(options: DocSyncServiceOptions, request: Doc
   try {
     validation = validateDocSyncSubmitRequest({ rootInput: rootInput(options), request, hostServices: options.hostServices });
   } catch (error) {
-    return reject(request, "doc_sync_invalid_payload", error instanceof Error ? error.message : String(error), false);
+    return rejectDocSyncRequest(request, "doc_sync_invalid_payload", error instanceof Error ? error.message : String(error), false);
   }
   if (validation.conflicts.length > 0) {
     const first = validation.conflicts[0]!;
     if (first.code === "content_hash_mismatch") {
-      return reject(request, "doc_sync_conflict", first.message, false, { conflicts: validation.conflicts });
+      return rejectDocSyncRequest(request, "doc_sync_conflict", first.message, false, { conflicts: validation.conflicts });
     }
-    return reject(request, "cas_watermark_mismatch", first.message, true, {
+    return rejectDocSyncRequest(request, "cas_watermark_mismatch", first.message, true, {
       _tag: "WriteRejected",
       currentWatermark: validation.currentLedgerSha,
       expectedWatermark: request.payload.baseLedgerSha,
@@ -268,7 +275,7 @@ async function submitDocSyncRequest(options: DocSyncServiceOptions, request: Doc
     });
   }
   if (validation.forbiddenTouches.length > 0 || validation.unresolvedTouches.length > 0) {
-    return reject(request, "doc_sync_forbidden_touch", "Doc sync submit touched rpc-only or unresolved zones.", false, {
+    return rejectDocSyncRequest(request, "doc_sync_forbidden_touch", "Doc sync submit touched rpc-only or unresolved zones.", false, {
       forbiddenTouches: validation.forbiddenTouches,
       unresolvedTouches: validation.unresolvedTouches
     });
@@ -288,11 +295,11 @@ async function submitDocSyncRequest(options: DocSyncServiceOptions, request: Doc
       : [];
     if (postApplyViolations.length > 0 && beforeFiles) {
       restoreFiles(layout.authoredRoot, beforeFiles);
-      return reject(request, "doc_sync_post_apply_bearing_changed", "Post-apply checker detected rpc-only zone changes; restored backups.", false, { postApplyViolations });
+      return rejectDocSyncRequest(request, "doc_sync_post_apply_bearing_changed", "Post-apply checker detected rpc-only zone changes; restored backups.", false, { postApplyViolations });
     }
     if (beforeFiles) restoreFiles(layout.authoredRoot, beforeFiles);
     if (validation.acceptedChanges.length > 0 && !options.coordinator) {
-      return reject(request, "doc_sync_invalid_payload", "Doc sync submit requires a trusted authenticated person principal.", false, {
+      return rejectDocSyncRequest(request, "doc_sync_invalid_payload", "Doc sync submit requires a trusted authenticated person principal.", false, {
         _tag: "WriteRejected"
       });
     }
@@ -314,7 +321,8 @@ async function submitDocSyncRequest(options: DocSyncServiceOptions, request: Doc
           }))
         }
       }));
-      await runDocSyncJournalEffect(options.coordinator!.flush("explicit"));
+      const flush = await runDocSyncJournalEffect(options.coordinator!.flush("explicit"));
+      await runDocSyncJournalEffect(requireDeterminateFlushReport(flush));
     }
     const appliedLedgerSha = resolveDocSyncAppliedLedgerSha(
       layout,
@@ -338,17 +346,22 @@ async function submitDocSyncRequest(options: DocSyncServiceOptions, request: Doc
     };
   } catch (error) {
     if (!coordinatorStarted && beforeFiles) restoreFiles(layout.authoredRoot, beforeFiles);
+    const indeterminate = docSyncIndeterminate(request, error);
+    if (indeterminate) return indeterminate;
     const writeFailure = docSyncWriteFailure(request, error);
     if (writeFailure) return writeFailure;
-    return reject(request, "doc_sync_invalid_payload", error instanceof Error ? error.message : String(error), false);
+    return rejectDocSyncRequest(request, "doc_sync_invalid_payload", error instanceof Error ? error.message : String(error), false);
   }
 }
 
 async function runDocSyncJournalEffect<A>(
-  effect: Effect.Effect<A, WriteError>
+  effect: Effect.Effect<A, WriteControl>
 ): Promise<A> {
   const result = await Effect.runPromise(Effect.either(effect));
-  if (result._tag === "Left") throw new DocSyncJournalFailure(result.left);
+  if (result._tag === "Left") {
+    if (isIndeterminateFlushControlOutcome(result.left)) throw result.left;
+    throw new DocSyncJournalFailure(result.left);
+  }
   return result.right;
 }
 
@@ -555,19 +568,6 @@ function conflict(pathInput: string, code: DocSyncConflictV1["code"], baseLedger
     retryable: true,
     action: code === "content_hash_mismatch" ? "resolve-local-conflict" : "refresh-base-and-resubmit",
     message
-  };
-}
-
-function reject(request: DocSyncSubmitRequestV1, code: Extract<DocSyncSubmitResultV1, { readonly ok: false }>["code"], reason: string, retryable: boolean, extra: Partial<Extract<DocSyncSubmitResultV1, { readonly ok: false }>> = {}): DocSyncSubmitResultV1 {
-  return {
-    ok: false,
-    schema: "daemon.doc-sync-submit-result/v1",
-    status: "rejected",
-    intentId: request.payload.intentId,
-    code,
-    reason,
-    retryable,
-    ...extra
   };
 }
 

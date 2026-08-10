@@ -1,4 +1,4 @@
-import type { FlushReport, WriteError } from "@harness-anything/kernel";
+import { isIndeterminateFlushReport, type FlushReport, type WriteError } from "@harness-anything/kernel";
 
 export type AuthorityPublicationOutcome =
   | { readonly kind: "committed" }
@@ -28,6 +28,14 @@ export function classifyAuthorityPublicationOutcome(input:
   }
 ): AuthorityPublicationOutcome {
   if (input.kind === "report") {
+    if (isIndeterminateFlushReport(input.report)) {
+      return {
+        kind: "indeterminate",
+        reason: input.report.cause.kind === "authority"
+          ? input.report.cause.evidence
+          : input.report.cause.detail
+      };
+    }
     if (!input.report.committed) {
       return {
         kind: "retryable",

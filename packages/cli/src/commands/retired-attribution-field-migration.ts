@@ -8,11 +8,12 @@ import {
   hasRetiredAttributionFields,
   resolveHarnessLayout,
   sha256Text,
+  requireDeterminateFlushReport,
   taskEntityId,
   type EntityId,
   type HarnessLayoutInput,
   type RetiredAttributionDocumentKind,
-  type WriteError
+  type WriteControl
 } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { demotedGateWarning } from "../cli/demoted-gate-warning.ts";
@@ -59,7 +60,7 @@ export function runMigrateRetiredAttributionFields(
   context: CommandRunnerContext,
   rootInput: HarnessLayoutInput,
   action: MigrateRetiredAttributionFieldsAction
-): Effect.Effect<CliResult, WriteError> {
+): Effect.Effect<CliResult, WriteControl> {
   const inventory = cleanupInventory(rootInput);
   const planId = cleanupPlanId(inventory);
   const selected = inventory.candidates.slice(0, action.batchSize);
@@ -108,7 +109,7 @@ export function runMigrateRetiredAttributionFields(
         }
       });
     }
-    yield* coordinator.flush("explicit");
+    yield* requireDeterminateFlushReport(yield* coordinator.flush("explicit"));
     return cleanupResult(action, report(selected.length), confirmationWarnings);
   });
 }

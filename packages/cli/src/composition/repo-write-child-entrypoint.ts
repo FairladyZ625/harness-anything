@@ -26,6 +26,7 @@ import type {
   DocSyncSubmitResultV1
 } from "@harness-anything/application";
 import {
+  isIndeterminateFlushReport,
   resolveHarnessLayout,
   type FlushReport,
   type WriteCoordinator
@@ -426,7 +427,7 @@ export async function runRepoWriteChildEntrypoint(
         if (result.appliedChanges.length === 0) {
           return { receipt, terminalCommitSha: result.appliedLedgerSha };
         }
-        if (!durableFlush?.committed || !durableFlush.watermark) {
+        if (!durableFlush || isIndeterminateFlushReport(durableFlush) || !durableFlush.committed || !durableFlush.watermark) {
           throw new Error("DOC_SYNC_DURABLE_FLUSH_PROOF_MISSING");
         }
         const authoredRoot = resolveHarnessLayout({

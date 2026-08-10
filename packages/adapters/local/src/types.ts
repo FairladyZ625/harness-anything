@@ -1,5 +1,5 @@
 import type { Effect } from "effect";
-import type { DomainStatus, EngineError, PackageDisposition, PriorityTier, RetryBudgetSignal, TaskId, TaskWorkKind, WriteAttribution, WriteError } from "@harness-anything/kernel";
+import type { DomainStatus, EngineError, IndeterminateFlushControlOutcome, PackageDisposition, PriorityTier, RetryBudgetSignal, TaskId, TaskWorkKind, WriteAttribution, WriteControl, WriteError } from "@harness-anything/kernel";
 import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import type { ProvenancePayload, WriteCoordinator } from "@harness-anything/kernel";
 
@@ -15,7 +15,7 @@ export interface LocalLifecycleOptions {
   readonly actor?: LocalJournalActor;
   readonly attribution?: WriteAttribution;
   readonly clock?: () => Date;
-  readonly bindCreateProvenance?: (boundAt: string) => Effect.Effect<ProvenancePayload | undefined, CreateProvenanceRejected>;
+  readonly bindCreateProvenance?: (boundAt: string) => Effect.Effect<ProvenancePayload | undefined, CreateProvenanceRejected | IndeterminateFlushControlOutcome>;
 }
 
 export interface CreateProvenanceRejected {
@@ -141,18 +141,18 @@ export interface LocalDeleteResult {
 }
 
 export interface LocalLifecycleEngine {
-  readonly createTask: (input: CreateLocalTaskInput) => Effect.Effect<LocalTaskResult, EngineError | WriteError>;
-  readonly setStatus: (input: SetLocalStatusInput) => Effect.Effect<LocalTaskResult, EngineError | WriteError>;
-  readonly appendProgress: (input: AppendProgressInput) => Effect.Effect<LocalProgressResult, EngineError | WriteError>;
-  readonly stageDocument: (input: StageTaskDocumentInput) => Effect.Effect<LocalProgressResult, EngineError | WriteError>;
-  readonly stageTaskTree: (input: StageTaskTreeInput) => Effect.Effect<LocalProgressResult, EngineError | WriteError>;
-  readonly taskTreeStatus: (input: StageTaskTreeInput) => Effect.Effect<LocalTaskTreeStatusResult, EngineError | WriteError>;
-  readonly replaceTaskDocument: (input: WriteTaskDocumentInput) => Effect.Effect<LocalProgressResult, EngineError | WriteError>;
-  readonly writeCodeDocReconciliation: (input: WriteCodeDocReconciliationInput) => Effect.Effect<LocalProgressResult, EngineError | WriteError>;
-  readonly archiveTask: (input: TaskReasonInput) => Effect.Effect<LocalTaskResult, EngineError | WriteError>;
-  readonly supersedeTask: (input: SupersedeTaskInput) => Effect.Effect<LocalSupersedeResult, EngineError | WriteError>;
-  readonly deleteTask: (input: DeleteTaskInput) => Effect.Effect<LocalDeleteResult, EngineError | WriteError>;
-  readonly reopenTask: (input: TaskReasonInput) => Effect.Effect<LocalTaskResult, EngineError | WriteError>;
+  readonly createTask: (input: CreateLocalTaskInput) => Effect.Effect<LocalTaskResult, EngineError | WriteControl>;
+  readonly setStatus: (input: SetLocalStatusInput) => Effect.Effect<LocalTaskResult, EngineError | WriteControl>;
+  readonly appendProgress: (input: AppendProgressInput) => Effect.Effect<LocalProgressResult, EngineError | WriteControl>;
+  readonly stageDocument: (input: StageTaskDocumentInput) => Effect.Effect<LocalProgressResult, EngineError | WriteControl>;
+  readonly stageTaskTree: (input: StageTaskTreeInput) => Effect.Effect<LocalProgressResult, EngineError | WriteControl>;
+  readonly taskTreeStatus: (input: StageTaskTreeInput) => Effect.Effect<LocalTaskTreeStatusResult, EngineError | WriteControl>;
+  readonly replaceTaskDocument: (input: WriteTaskDocumentInput) => Effect.Effect<LocalProgressResult, EngineError | WriteControl>;
+  readonly writeCodeDocReconciliation: (input: WriteCodeDocReconciliationInput) => Effect.Effect<LocalProgressResult, EngineError | WriteControl>;
+  readonly archiveTask: (input: TaskReasonInput) => Effect.Effect<LocalTaskResult, EngineError | WriteControl>;
+  readonly supersedeTask: (input: SupersedeTaskInput) => Effect.Effect<LocalSupersedeResult, EngineError | WriteControl>;
+  readonly deleteTask: (input: DeleteTaskInput) => Effect.Effect<LocalDeleteResult, EngineError | WriteControl>;
+  readonly reopenTask: (input: TaskReasonInput) => Effect.Effect<LocalTaskResult, EngineError | WriteControl>;
 }
 
 export interface LocalTaskIndex {

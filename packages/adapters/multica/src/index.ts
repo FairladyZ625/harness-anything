@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { Effect, Either, Option } from "effect";
-import { taskEntityId, type ArtifactStoreError, type EngineError, type ExternalRef, type TaskId, type WriteError } from "@harness-anything/kernel";
+import { taskEntityId, type ArtifactStoreError, type EngineError, type ExternalRef, type TaskId, type WriteControl } from "@harness-anything/kernel";
 import { stablePayloadHash } from "@harness-anything/kernel";
 import type { ArtifactStore, LifecycleEngine, LockLease, LockRegistry, WriteCoordinator } from "@harness-anything/kernel";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "@harness-anything/kernel";
@@ -58,7 +58,7 @@ export interface MulticaBindingFingerprintInput {
 }
 
 export interface MulticaAdoptionService {
-  readonly adopt: (input: AdoptMulticaTaskInput) => Effect.Effect<AdoptMulticaTaskResult, ArtifactStoreError | EngineError | WriteError>;
+  readonly adopt: (input: AdoptMulticaTaskInput) => Effect.Effect<AdoptMulticaTaskResult, ArtifactStoreError | EngineError | WriteControl>;
 }
 
 export const multicaAdapterProviderMetadata = {
@@ -276,7 +276,7 @@ function writeTaskDocument(
   coordinator: WriteCoordinator,
   taskId: TaskId,
   body: string
-): Effect.Effect<void, WriteError> {
+): Effect.Effect<void, WriteControl> {
   return Effect.gen(function* () {
     yield* writeCoordinatedPayload(coordinator, stableHash, {
       entityId: taskEntityId(taskId),
