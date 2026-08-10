@@ -105,6 +105,7 @@ export * from "./runtime/command-receipt-settlement.ts";
 export * from "./runtime/direct-command-receipt-settlement.ts";
 export * from "./runtime/repo-write-authority-recovery-gate.ts";
 export * from "./runtime/repo-write-progress-command.ts";
+export { reportCurrentRepoWriteTelemetry } from "./runtime/repo-write-telemetry-context.ts";
 export * from "./runtime/production-progress-append-operation.ts";
 export * from "./runtime/repo-write-child-host.ts";
 export * from "./runtime/repo-write-child-process-transport.ts";

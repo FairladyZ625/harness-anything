@@ -5,7 +5,9 @@ interface RepoWriteDiagnosticFrameBase {
 }
 
 export const repoWriteTelemetryPhases = [
-  "queue", "compile", "compile-command-normalize", "compile-authority-plan",
+  "queue", "direct-command-started", "script-manifest", "script-scope",
+  "script-stage", "script-syntax", "script-execute", "script-ingest",
+  "compile", "compile-command-normalize", "compile-authority-plan",
   "compile-task-load", "compile-task-holder", "compile-task-witness",
   "compile-task-plan", "compile-outcome", "journal", "command-conflict-preflight",
   "command-conflict-recheck", "git", "authority-replica-change-read",

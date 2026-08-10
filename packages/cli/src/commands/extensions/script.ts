@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type { HarnessLayoutInput, WriteOp } from "@harness-anything/kernel";
 import { resolveHarnessLayout, taskPackagePath } from "@harness-anything/kernel";
+import { reportCurrentRepoWriteTelemetry } from "@harness-anything/daemon";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { resolveActiveVertical } from "./active-vertical.ts";
@@ -83,6 +84,7 @@ function runScriptRun(rootInput: HarnessLayoutInput, action: Extract<ScriptActio
   const run = runScriptHost({
     rootInput,
     commandName: "script-run",
+    presets: discovered.presets,
     script: action.taskId ? {
       ...script,
       context: {
@@ -123,7 +125,8 @@ function scriptUsesTaskOwnedArtifacts(script: ResolvedScriptEntry): boolean {
 export function discoverScriptEntries(
   rootInput: HarnessLayoutInput,
   command: string
-): { readonly ok: true; readonly scripts: ReadonlyArray<ResolvedScriptEntry> } | { readonly ok: false; readonly result: CliResult } {
+): { readonly ok: true; readonly scripts: ReadonlyArray<ResolvedScriptEntry>; readonly presets: ReturnType<typeof discoverPresets> } | { readonly ok: false; readonly result: CliResult } {
+  reportCurrentRepoWriteTelemetry("script-manifest");
   const activeVertical = resolveActiveVertical(rootInput, command);
   if (!activeVertical.ok) return activeVertical;
 
@@ -146,7 +149,8 @@ export function discoverScriptEntries(
       verticalTitle: vertical.manifest.title
     } : undefined
   }));
-  const presetScripts = discoverPresets(rootInput, activeVertical.id)
+  const presets = discoverPresets(rootInput, activeVertical.id);
+  const presetScripts = presets
     .flatMap((preset) => Object.entries(preset.manifest.entrypoints ?? {})
       .flatMap(([entrypointName, entrypoint]) => {
         if (entrypoint.type !== "script") return [];
@@ -167,7 +171,8 @@ export function discoverScriptEntries(
       }));
   return {
     ok: true,
-    scripts: [...verticalScripts, ...presetScripts].sort((left, right) => left.entry.id.localeCompare(right.entry.id))
+    scripts: [...verticalScripts, ...presetScripts].sort((left, right) => left.entry.id.localeCompare(right.entry.id)),
+    presets
   };
 }
 

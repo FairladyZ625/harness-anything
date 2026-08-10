@@ -215,8 +215,8 @@ test("CLI script command discovers and runs the vertical ADR seed scaffold", () 
     assert.match(gitRead(rootDir, "log", "--format=%s"), /script-ingest/u);
     assert.equal(gitRead(rootDir, "status", "--short"), "");
     assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "context.json")), true);
-    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stdout.txt")), true);
-    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stderr.txt")), true);
+    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stdout.txt")), false);
+    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stderr.txt")), false);
   });
 });
 

@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   normalizeRelativeDocumentPath,
@@ -30,6 +30,7 @@ export interface CanonicalScriptStage {
   readonly realOutputRoot: string;
   readonly baseline: ReadonlyMap<string, string>;
   readonly baselineBodies: ReadonlyMap<string, string>;
+  readonly semanticContextBodies: ReadonlyMap<string, string>;
 }
 
 export class ScriptStageScopeError extends Error {
@@ -63,16 +64,11 @@ export function createCanonicalScriptStage(
   const authoredRelative = path.relative(realLayout.rootDir, realLayout.authoredRoot);
   const stageAuthoredRoot = path.join(stageRootDir, authoredRelative);
   mkdirSync(stageAuthoredRoot, { recursive: true });
-  if (existsSync(realLayout.authoredRoot)) {
-    cpSync(realLayout.authoredRoot, stageAuthoredRoot, {
-      recursive: true,
-      filter: (source) => path.basename(source) !== ".git"
-    });
-  }
   const stagedRootInput = {
     rootDir: stageRootDir,
     layoutOverrides: {
-      authoredRoot: authoredRelative.split(path.sep).join("/")
+      authoredRoot: authoredRelative.split(path.sep).join("/"),
+      projectRootBoundary: true
     }
   };
   const layout = resolveHarnessLayout(stagedRootInput);
@@ -85,18 +81,34 @@ export function createCanonicalScriptStage(
     realLayout,
     realOutputRoot,
     baseline: new Map(),
-    baselineBodies: new Map()
+    baselineBodies: new Map(),
+    semanticContextBodies: new Map()
   };
-  assertProtectedStageScopes(stageWithoutBaseline, options.protectedScopes ?? []);
-  const baselineBodies = new Map(listGeneratedFiles(layout.authoredRoot).map((filePath) => [
+  const protectedScopes = options.protectedScopes ?? [];
+  assertProtectedRealScopes(stageWithoutBaseline, protectedScopes);
+  const realWriteRoots = sparseRealWriteRoots(stageWithoutBaseline, protectedScopes);
+  materializeSparseWriteRoots(stageWithoutBaseline, realWriteRoots);
+  assertProtectedStagedWriteScopes(stageWithoutBaseline, protectedScopes);
+  const stagedWriteRoots = realWriteRoots.map((root) => stageMirrorPath(stageWithoutBaseline, root));
+  const baselineBodies = new Map(listFilesWithinRoots(stagedWriteRoots).map((filePath) => [
     filePath,
     readFileSync(filePath, "utf8")
   ]));
   const baseline = new Map([...baselineBodies].map(([filePath, body]) => [filePath, sha256Text(body)]));
-  return { rootInput: stagedRootInput, layout, outputRoot, realLayout, realOutputRoot, baseline, baselineBodies };
+  const semanticContextBodies = snapshotSemanticContextBodies(realLayout, realWriteRoots);
+  return {
+    rootInput: stagedRootInput,
+    layout,
+    outputRoot,
+    realLayout,
+    realOutputRoot,
+    baseline,
+    baselineBodies,
+    semanticContextBodies
+  };
 }
 
-function assertProtectedStageScopes(
+function assertProtectedRealScopes(
   stage: CanonicalScriptStage,
   scopes: ReadonlyArray<{
     readonly mode: "read" | "write";
@@ -104,15 +116,92 @@ function assertProtectedStageScopes(
   }>
 ): void {
   for (const protectedScope of scopes) {
-    const stagedScope = remapScope(stage, protectedScope.scope, { retainOriginalPermissions: false });
     if (!resolvedScopeSetIsSafe(
-      stagedScope,
-      [stage.layout.rootDir, stage.realLayout.rootDir],
+      protectedScope.scope,
+      stage.realLayout.rootDir,
       protectedScope.mode
     )) {
       throw new ScriptStageScopeError(protectedScope.mode);
     }
   }
+}
+
+function assertProtectedStagedWriteScopes(
+  stage: CanonicalScriptStage,
+  scopes: ReadonlyArray<{
+    readonly mode: "read" | "write";
+    readonly scope: ResolvedScopeSet;
+  }>
+): void {
+  for (const protectedScope of scopes) {
+    if (protectedScope.mode !== "write") continue;
+    const stagedScope = remapScope(stage, protectedScope.scope, { retainOriginalPermissions: false });
+    if (!resolvedScopeSetIsSafe(stagedScope, stage.layout.rootDir, "write")) {
+      throw new ScriptStageScopeError("write");
+    }
+  }
+}
+
+function sparseRealWriteRoots(
+  stage: CanonicalScriptStage,
+  scopes: ReadonlyArray<{
+    readonly mode: "read" | "write";
+    readonly scope: ResolvedScopeSet;
+  }>
+): ReadonlyArray<string> {
+  const declared = scopes
+    .filter((protectedScope) => protectedScope.mode === "write")
+    .flatMap((protectedScope) => protectedScope.scope.roots);
+  const candidates = declared.length > 0 ? declared : [stage.realOutputRoot];
+  const unique = [...new Set(candidates.map((root) => path.resolve(root)))];
+  return unique.filter((root, index) => !unique.some((candidate, candidateIndex) => (
+    candidateIndex !== index && sameOrInside(candidate, root)
+  )));
+}
+
+function materializeSparseWriteRoots(
+  stage: CanonicalScriptStage,
+  realWriteRoots: ReadonlyArray<string>
+): void {
+  for (const realRoot of realWriteRoots) {
+    const stagedRoot = stageMirrorPath(stage, realRoot);
+    if (stagedRoot === realRoot) throw new ScriptStageScopeError("write");
+    let stat;
+    try {
+      stat = lstatSync(realRoot);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      mkdirSync(path.dirname(stagedRoot), { recursive: true });
+      continue;
+    }
+    if (stat.isSymbolicLink() || (!stat.isFile() && !stat.isDirectory())) {
+      throw new ScriptStageScopeError("write");
+    }
+    mkdirSync(path.dirname(stagedRoot), { recursive: true });
+    cpSync(realRoot, stagedRoot, {
+      recursive: stat.isDirectory(),
+      filter: (source) => path.basename(source) !== ".git"
+    });
+  }
+}
+
+function snapshotSemanticContextBodies(
+  realLayout: ReturnType<typeof resolveHarnessLayout>,
+  realWriteRoots: ReadonlyArray<string>
+): ReadonlyMap<string, string> {
+  const indexPaths = new Set(realWriteRoots.flatMap((root) => {
+    const relative = path.relative(realLayout.authoredRoot, root).split(path.sep).join("/");
+    const match = /^(tasks\/[^/]+)(?:\/|$)/u.exec(relative);
+    return match?.[1] ? [`${match[1]}/INDEX.md`] : [];
+  }));
+  return new Map([...indexPaths].sort().flatMap((indexPath) => {
+    const absolutePath = path.join(realLayout.authoredRoot, indexPath);
+    return existsSync(absolutePath) ? [[indexPath, readFileSync(absolutePath, "utf8")] as const] : [];
+  }));
+}
+
+function listFilesWithinRoots(roots: ReadonlyArray<string>): ReadonlyArray<string> {
+  return [...new Set(roots.flatMap((root) => listGeneratedFiles(root)))].sort();
 }
 
 export function canonicalGeneratedPaths(stage: CanonicalScriptStage, stagedPaths: ReadonlyArray<string>): ReadonlyArray<string> {
@@ -130,6 +219,14 @@ export function canonicalizeScriptResult(stage: CanonicalScriptStage, value: Rec
       const absoluteStagePrefix = `${stage.layout.authoredRoot}${path.sep}`;
       if (input.startsWith(absoluteStagePrefix)) {
         return path.join(stage.realLayout.authoredRoot, path.relative(stage.layout.authoredRoot, input));
+      }
+      const stageFromRealRoot = path.relative(
+        stage.realLayout.rootDir,
+        stage.layout.authoredRoot
+      ).split(path.sep).join("/");
+      if (input === stageFromRealRoot || input.startsWith(`${stageFromRealRoot}/`)) {
+        const realRelative = path.relative(stage.realLayout.rootDir, stage.realLayout.authoredRoot).split(path.sep).join("/");
+        return `${realRelative}${input.slice(stageFromRealRoot.length)}`;
       }
       const stageRelative = path.relative(stage.layout.rootDir, stage.layout.authoredRoot).split(path.sep).join("/");
       if (input === stageRelative || input.startsWith(`${stageRelative}/`)) {
@@ -153,23 +250,50 @@ export function stageMirrorPath(stage: CanonicalScriptStage, realPath: string): 
   return insideAuthored ? path.join(stage.layout.authoredRoot, relative) : realPath;
 }
 
+export function scriptExecutionLayout(
+  stage: CanonicalScriptStage,
+  realWriteScope: ResolvedScopeSet
+): CanonicalScriptStage["realLayout"] {
+  const writablePath = (realPath: string): string => realWriteScope.roots.some((writeRoot) => (
+    sameOrInside(writeRoot, realPath)
+  )) ? stageMirrorPath(stage, realPath) : realPath;
+  return {
+    ...stage.realLayout,
+    authoredRoot: writablePath(stage.realLayout.authoredRoot),
+    standardsRoot: writablePath(stage.realLayout.standardsRoot),
+    contextRoot: writablePath(stage.realLayout.contextRoot),
+    tasksRoot: writablePath(stage.realLayout.tasksRoot),
+    decisionsRoot: writablePath(stage.realLayout.decisionsRoot),
+    sessionsRoot: writablePath(stage.realLayout.sessionsRoot),
+    adrRoot: writablePath(stage.realLayout.adrRoot),
+    milestonesRoot: writablePath(stage.realLayout.milestonesRoot),
+    legacyRoot: writablePath(stage.realLayout.legacyRoot),
+    attributionEventsRoot: writablePath(stage.realLayout.attributionEventsRoot),
+    authorityAttributionEventsV2Root: writablePath(stage.realLayout.authorityAttributionEventsV2Root)
+  };
+}
+
 export function remapScope(
   stage: CanonicalScriptStage,
   scope: ResolvedScopeSet,
   options: { readonly retainOriginalPermissions?: boolean } = {}
 ) {
-  const roots = scope.roots.map((root) => stageMirrorPath(stage, root));
-  const remappedPermissions = roots.flatMap((root, index) => (
+  const retainOriginal = options.retainOriginalPermissions !== false;
+  const stagedRoots = scope.roots.map((root) => stageMirrorPath(stage, root));
+  const roots = retainOriginal ? scope.roots : stagedRoots;
+  const remappedPermissions = stagedRoots.flatMap((root, index) => (
     permissionPathsForScope(root, scopeRootIsRecursive(scope, scope.roots[index] ?? root))
   ));
   return {
     ok: true as const,
     roots,
     ...(scope.reportedLeafConflicts ? {
-      reportedLeafConflicts: scope.reportedLeafConflicts.map((candidate) => stageMirrorPath(stage, candidate))
+      reportedLeafConflicts: retainOriginal
+        ? scope.reportedLeafConflicts
+        : scope.reportedLeafConflicts.map((candidate) => stageMirrorPath(stage, candidate))
     } : {}),
     permissions: [...new Set([
-      ...(options.retainOriginalPermissions === false ? [] : scope.permissions),
+      ...(retainOriginal ? scope.permissions : []),
       ...remappedPermissions
     ])]
   };
@@ -180,8 +304,7 @@ export function scriptIngestOp(
   stagedWriteRoots: ReadonlyArray<string>,
   operationId: string
 ): WriteOp | undefined {
-  const writes = listGeneratedFiles(stage.layout.authoredRoot).flatMap((filePath) => {
-    if (!stagedWriteRoots.some((root) => sameOrInside(root, filePath))) return [];
+  const writes = listFilesWithinRoots(stagedWriteRoots).flatMap((filePath) => {
     const body = readFileSync(filePath, "utf8");
     const stagedHash = sha256Text(body);
     if (stage.baseline.get(filePath) === stagedHash) return [];
@@ -259,9 +382,9 @@ function taskIndexContexts(
     const match = /^(tasks\/[^/]+)\//u.exec(documentPath);
     return match?.[1] ? [`${match[1]}/INDEX.md`] : [];
   }))].sort().map((indexPath) => {
-    const absolutePath = path.join(stage.layout.authoredRoot, indexPath);
-    if (!existsSync(absolutePath)) throw new Error(`SEMANTIC_DIFF_REQUIRED: task identity context missing: ${indexPath}`);
-    return { path: indexPath, body: readFileSync(absolutePath, "utf8") };
+    const body = stage.semanticContextBodies.get(indexPath);
+    if (body === undefined) throw new Error(`SEMANTIC_DIFF_REQUIRED: task identity context missing: ${indexPath}`);
+    return { path: indexPath, body };
   });
 }
 

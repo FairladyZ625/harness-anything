@@ -5,6 +5,7 @@ import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { listTaskIndexPaths, resolveHarnessLayout } from "@harness-anything/kernel";
 import { relativePath } from "../cli/path.ts";
 import type { CliResult, GovernanceRebuildMode } from "../cli/types.ts";
+import { layoutOverridesFromInput } from "./harness-layout-input.ts";
 
 export function runGovernanceRebuild(rootInput: HarnessLayoutInput, mode: GovernanceRebuildMode): CliResult {
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
@@ -83,8 +84,4 @@ function writeGovernanceArchive(rootInput: HarnessLayoutInput, plannedRows: numb
     plannedRows
   }, null, 2), "utf8");
   return relativePath(rootDir, archivePath);
-}
-
-function layoutOverridesFromInput(rootInput: HarnessLayoutInput) {
-  return typeof rootInput === "string" ? undefined : rootInput.layoutOverrides;
 }

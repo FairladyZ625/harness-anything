@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { HarnessLayoutInput, WriteOp } from "@harness-anything/kernel";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
+import { reportCurrentRepoWriteTelemetry } from "@harness-anything/daemon";
 import { CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import { resolveScriptPolicy } from "./preset-policy.ts";
@@ -12,8 +12,9 @@ import { buildPresetContextProjections } from "./preset-script-context.ts";
 import { scriptChildEnvironment } from "./script-environment.ts";
 import { executeScript } from "./script-executor.ts";
 import { trustedScriptRepositoryContext } from "./script-repository-context.ts";
+import { cachedScriptSyntaxCheck } from "./script-syntax-check.ts";
 import { invalidScriptOrPolicy, scriptFailure, validateResolvedScript } from "./script-host-validation.ts";
-import { discoverPresets } from "./state.ts";
+import type { ResolvedPreset } from "./state.ts";
 import {
   materializeSemanticPresetExecution,
   prepareSemanticPresetExecution,
@@ -35,6 +36,7 @@ import {
   canonicalizeScriptResult,
   createCanonicalScriptStage,
   remapScope,
+  scriptExecutionLayout,
   ScriptStageScopeError,
   scriptIngestOp
 } from "./script-staging.ts";
@@ -86,6 +88,7 @@ export type ScriptHostRunResult = ScriptHostSuccess | {
 export function runScriptHost(options: {
   readonly rootInput: HarnessLayoutInput;
   readonly script: ResolvedScriptEntry;
+  readonly presets: ReadonlyArray<ResolvedPreset>;
   readonly commandName: string;
   readonly inputs?: Record<string, string>;
   readonly outputRoot?: string;
@@ -95,7 +98,7 @@ export function runScriptHost(options: {
 }): ScriptHostRunResult {
   const layout = resolveHarnessLayout(options.rootInput);
   const validation = validateResolvedScript(options.script);
-  const policy = resolveScriptPolicy(options.rootInput, discoverPresets(options.rootInput, options.script.verticalId), {
+  const policy = resolveScriptPolicy(options.rootInput, options.presets, {
     source: options.script.entry.source,
     scriptId: options.script.entry.id,
     presetId: typeof options.script.context?.presetId === "string" ? options.script.context.presetId : undefined
@@ -112,19 +115,7 @@ export function runScriptHost(options: {
       "Script manifest packages must contain only regular files and directories, never symbolic links."
     );
   }
-  const syntax = spawnSync(process.execPath, ["--check", realpathSync.native(scriptPath)], {
-    cwd: options.script.manifestRoot,
-    encoding: "utf8",
-    env: {}
-  });
-  if (syntax.status !== 0) {
-    return scriptFailure(
-      options.commandName,
-      CliErrorCode.ScriptFailed,
-      `Script command is not executable JavaScript: ${(syntax.stderr || syntax.stdout || "syntax check failed").trim()}`
-    );
-  }
-
+  reportCurrentRepoWriteTelemetry("script-scope");
   const fallbackOutputRoot = options.outputRoot ?? path.join(layout.authoredRoot, "context");
   const semanticPreparation = options.script.semantic
     ? prepareSemanticPresetExecution({
@@ -171,6 +162,18 @@ export function runScriptHost(options: {
     );
   }
 
+  if (options.dryRun || options.commandName === "preset-check") {
+    reportCurrentRepoWriteTelemetry("script-syntax");
+    const syntax = cachedScriptSyntaxCheck(scriptPath, options.script.manifestRoot);
+    if (!syntax.ok) {
+      return scriptFailure(
+        options.commandName,
+        CliErrorCode.ScriptFailed,
+        `Script command is not executable JavaScript: ${syntax.hint}`
+      );
+    }
+  }
+
   const runId = `${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
   const runDir = path.join(layout.localRoot, "script-runs", runId);
   const contextPath = path.join(runDir, "context.json");
@@ -182,6 +185,9 @@ export function runScriptHost(options: {
 
   let stage: ReturnType<typeof createCanonicalScriptStage> | undefined;
   try {
+    if (!options.dryRun && writeScope.roots.length > 0) {
+      reportCurrentRepoWriteTelemetry("script-stage");
+    }
     stage = !options.dryRun && writeScope.roots.length > 0
       ? createCanonicalScriptStage(options.rootInput, runDir, outputRoot, {
         protectedScopes: [
@@ -198,7 +204,7 @@ export function runScriptHost(options: {
       "Script staging scopes must not contain symbolic links."
     );
   }
-  const executionLayout = stage?.layout ?? layout;
+  const executionLayout = stage ? scriptExecutionLayout(stage, writeScope) : layout;
   const executionOutputRoot = stage?.outputRoot ?? outputRoot;
   const executionReadScope = stage
     ? remapScope(stage, readScope)
@@ -303,7 +309,7 @@ export function runScriptHost(options: {
     );
   }
   const executionBoundaries = stage
-    ? [executionLayout.rootDir, layout.rootDir]
+    ? [stage.layout.rootDir, layout.rootDir]
     : [layout.rootDir];
   if (!resolvedScopeSetIsSafe(executionReadScope, executionBoundaries, "read")) {
     return scriptFailure(options.commandName, CliErrorCode.ScriptScopeInvalidRead, "Script read scope changed to an unsafe filesystem shape before execution.");
@@ -311,6 +317,7 @@ export function runScriptHost(options: {
   if (!resolvedScopeSetIsSafe(executionWriteScope, executionBoundaries, "write")) {
     return scriptFailure(options.commandName, CliErrorCode.ScriptScopeInvalidWrite, "Script write scope changed to an unsafe filesystem shape before execution.");
   }
+  reportCurrentRepoWriteTelemetry("script-execute");
   const execution = executeScript({
     scriptPath: realpathSync.native(scriptPath),
     cwd: options.script.manifestRoot,
@@ -342,8 +349,8 @@ export function runScriptHost(options: {
       substitutions: materializedSemantic ? {} : producePatternSubstitutions(executionLayout, executionOutputRoot)
     }
   });
-  writeFileSync(path.join(runDir, "stdout.txt"), execution.stdout, "utf8");
-  writeFileSync(path.join(runDir, "stderr.txt"), execution.stderr, "utf8");
+  writeScriptOutputIfPresent(path.join(runDir, "stdout.txt"), execution.stdout);
+  writeScriptOutputIfPresent(path.join(runDir, "stderr.txt"), execution.stderr);
   if (!execution.ok) {
     if (execution.failure === "produced-outside-boundary") {
       return scriptFailure(
@@ -397,7 +404,11 @@ export function runScriptHost(options: {
     );
   }
   const generatedPaths = stage ? canonicalGeneratedPaths(stage, execution.generated) : execution.generated;
-  const ingestOp = stage ? scriptIngestOp(stage, materializedSemantic?.writerRoots ?? executionWriteScope.roots, runId) : undefined;
+  let ingestOp: WriteOp | undefined;
+  if (stage) {
+    reportCurrentRepoWriteTelemetry("script-ingest");
+    ingestOp = scriptIngestOp(stage, materializedSemantic?.writerRoots ?? executionWriteScope.roots, runId);
+  }
   const canonicalResult = stage ? canonicalizeScriptResult(stage, scriptedResult.value) : scriptedResult.value;
   if (scriptedResult.value.ok !== true && options.allowFailedScriptResult !== true) {
     const failure = scriptFailure(options.commandName, CliErrorCode.ScriptResultFailed, "Script reported a failed result.", runDir, layout.rootDir);
@@ -426,6 +437,10 @@ export function runScriptHost(options: {
     ...(preparedSemantic ? { capabilityReceipt: preparedSemantic.receipt } : {}),
     ...(ingestOp ? { ingestOp } : {})
   };
+}
+
+function writeScriptOutputIfPresent(filePath: string, body: string): void {
+  if (body.length > 0) writeFileSync(filePath, body, "utf8");
 }
 
 function reportsNoOverwriteLeafConflicts(entry: ScriptEntry): boolean {

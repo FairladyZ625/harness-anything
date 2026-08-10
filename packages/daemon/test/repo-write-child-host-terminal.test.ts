@@ -154,7 +154,7 @@ test("volatile direct returns an exact receipt without durable frames or lookup"
     messages
       .filter((message) => message.kind === "telemetry")
       .map((message) => message.phase),
-    ["queue", "compile"]
+    ["queue", "direct-command-started"]
   );
   assert.deepEqual(messages.at(-1), {
     ...childBase("direct-result"),

@@ -71,6 +71,7 @@ import {
   type RepoWriteDocSyncExecution
 } from "./repo-write-doc-sync-operation.ts";
 import { exactRepoWriteReceipt } from "./repo-write-exact-receipt.ts";
+import { repoWriteCommandReceiptJsonObject } from "./repo-write-command-receipt.ts";
 
 export type { RepoWriteDocSyncExecution } from "./repo-write-doc-sync-operation.ts";
 
@@ -214,7 +215,7 @@ export class ProductionRepoWriteOperationHost<
       if (directExecution.durable) {
         throw new Error("DOC_SYNC_DURABLE_WRITE_REQUIRES_DURABLE_LANE");
       }
-      return commandReceiptJsonObject(directExecution.receipt);
+      return repoWriteCommandReceiptJsonObject(directExecution.receipt);
     }
     reportCurrentRepoWriteTelemetry("compile-command-normalize");
     const command = await this.options.hostServices.normalizeCommand(
@@ -273,7 +274,7 @@ export class ProductionRepoWriteOperationHost<
         await this.options.recoverSettlements?.();
       }
       return repoWriteDirectResponseDelivery(
-        commandReceiptJsonObject(settleDirectAuthorityCommandReceipt({
+        repoWriteCommandReceiptJsonObject(settleDirectAuthorityCommandReceipt({
           receipt: held.result,
           submissions: durableSubmissions,
           store: this.options.settlementStore,
@@ -293,17 +294,17 @@ export class ProductionRepoWriteOperationHost<
       const current = this.options.outcomeStore.lookup(input.opId);
       return current.state === "terminal"
         ? { state: "terminal", outcome: current.outcome }
-        : { state: "canonical-visible", receipt: commandReceiptJsonObject(settlement.receipt) };
+        : { state: "canonical-visible", receipt: repoWriteCommandReceiptJsonObject(settlement.receipt) };
     }
     if (settlement?.state === "pending") {
       const current = this.options.outcomeStore.lookup(input.opId);
       if (current.state === "terminal") {
         return { state: "terminal", outcome: current.outcome };
       }
-      return { state: "accepted", receipt: commandReceiptJsonObject(settlement.receipt) };
+      return { state: "accepted", receipt: repoWriteCommandReceiptJsonObject(settlement.receipt) };
     }
     if (settlement?.state === "failed") {
-      return { state: "settlement-failed", receipt: commandReceiptJsonObject(settlement.receipt) };
+      return { state: "settlement-failed", receipt: repoWriteCommandReceiptJsonObject(settlement.receipt) };
     }
     const current = this.options.outcomeStore.lookup(input.opId);
     if (current.state === "not-found") return { state: "not-found" };
@@ -313,7 +314,7 @@ export class ProductionRepoWriteOperationHost<
     if (current.state === "outcome-unknown") return { state: "unknown" };
     const resumed = await this.operations.resume(input.opId);
     if ("kind" in resumed && resumed.kind === "accepted") {
-      return { state: "accepted", receipt: commandReceiptJsonObject(resumed.receipt) };
+      return { state: "accepted", receipt: repoWriteCommandReceiptJsonObject(resumed.receipt) };
     }
     if ("phase" in resumed && resumed.phase === "TERMINAL") {
       return { state: "terminal", outcome: resumed };
@@ -569,12 +570,6 @@ export class ProductionRepoWriteOperationHost<
 export {
   ProductionRepoWriteOperationHost as ProductionProgressAppendOperationHost
 };
-
-function commandReceiptJsonObject(
-  value: unknown
-): import("./repo-write-protocol.ts").RepoWriteJsonObject {
-  return JSON.parse(JSON.stringify(value)) as import("./repo-write-protocol.ts").RepoWriteJsonObject;
-}
 
 function terminalEvidence(
   evidence: AuthorityOperationReceipt | undefined,

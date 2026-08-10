@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -46,6 +46,38 @@ test("script ingest rejects a canonical file modified after staging instead of o
 
     assertCoordinatorRejects(rootDir, op, "snapshot.json");
     assert.equal(readFileSync(targetPath, "utf8"), "concurrent modifier\n");
+  });
+});
+
+test("canonical stage materializes only declared write roots and keeps read-only roots canonical", () => {
+  withFixture(({ rootDir, outputRoot }) => {
+    const unrelatedRoot = path.join(rootDir, "harness/context/unrelated-payload");
+    const unrelatedFile = path.join(unrelatedRoot, "large.bin");
+    const baseFile = path.join(outputRoot, "snapshot.json");
+    write(unrelatedFile, "unrelated\n".repeat(1_024));
+    write(baseFile, "staged base\n");
+    const writeScope = {
+      roots: [outputRoot],
+      permissions: [outputRoot, `${outputRoot}/**`]
+    };
+    const stage = createCanonicalScriptStage(
+      rootDir,
+      path.join(rootDir, ".harness/runs/sparse"),
+      outputRoot,
+      { protectedScopes: [{ mode: "write", scope: writeScope }] }
+    );
+
+    assert.equal(existsSync(path.join(stage.outputRoot, "snapshot.json")), true);
+    assert.equal(existsSync(path.join(stage.layout.authoredRoot, "context/unrelated-payload/large.bin")), false);
+    assert.deepEqual([...stage.baseline.keys()], [path.join(stage.outputRoot, "snapshot.json")]);
+
+    const remappedRead = remapScope(stage, {
+      roots: [unrelatedRoot],
+      permissions: [unrelatedRoot, `${unrelatedRoot}/**`]
+    });
+    assert.deepEqual(remappedRead.roots, [unrelatedRoot]);
+    assert.equal(remappedRead.permissions.includes(unrelatedRoot), true);
+    assert.equal(remappedRead.permissions.includes(path.join(stage.layout.authoredRoot, "context/unrelated-payload")), true);
   });
 });
 

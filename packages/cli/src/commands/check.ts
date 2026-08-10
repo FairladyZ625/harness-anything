@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { isCloseoutPlaceholderMarkdown, isTaskDocumentPlaceholderMarkdown, parseReviewMarkdown, type TaskDocumentPlaceholderPolicy } from "@harness-anything/application";
 import { checkTaskProjection, extractMarkdownSection, findEntityRefs, markdownHeadingSections } from "@harness-anything/kernel";
-import type { HarnessLayoutInput, HarnessLayoutOverrides } from "@harness-anything/kernel";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { listTaskIndexPaths, normalizeRelativeDocumentPath, resolveHarnessLayout } from "@harness-anything/kernel";
 import { readFrontmatter, readScalar } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
@@ -15,6 +15,7 @@ import { validateJournalActorAttribution } from "./actor-attribution-checker.ts"
 import { resolveLiveTaskSectionPolicies } from "./check-live-section-policy.ts";
 import { resolveTaskContractDocuments } from "./check-task-contract.ts";
 import { validateGateArchitectureRetrospectiveGate } from "./gate-retro-checker.ts";
+import { layoutOverridesFromInput } from "./harness-layout-input.ts";
 import { readProjectHarnessSettings, settingsIssue, type ProjectHarnessSettings } from "./settings.ts";
 import { bundledTaskDocumentPlaceholderPolicy } from "./core/task-document-placeholders.ts";
 import { discoverScriptEntries } from "./extensions/script.ts";
@@ -139,6 +140,7 @@ function runCheckScripts(rootInput: HarnessLayoutInput): {
       rootInput,
       commandName: "check",
       script,
+      presets: discovered.presets,
       allowFailedScriptResult: true
     });
     if (!run.ok) {
@@ -592,8 +594,4 @@ function validateMilestoneDossierGate(rootInput: HarnessLayoutInput, taskDirs: R
     }
   }
   return issues;
-}
-
-function layoutOverridesFromInput(rootInput: HarnessLayoutInput): HarnessLayoutOverrides | undefined {
-  return typeof rootInput === "string" ? undefined : rootInput.layoutOverrides;
 }
