@@ -4,11 +4,7 @@ import { promisify } from "node:util";
 import type { DaemonLogService } from "@harness-anything/application";
 import {
   encodeCanonicalCbor,
-  makeLocalAuthorityAttributionEventV2Log,
-  makeLocalVersionControlSystem,
-  resolveHarnessLayout,
   sha256Text,
-  type HarnessLayoutInput,
   type PhysicalChangeV2
 } from "@harness-anything/kernel";
 import {
@@ -28,17 +24,11 @@ import {
   publicationMetadataOperationIds,
   publicationTopologyError
 } from "./publication-message-shape.ts";
-import {
-  authorityEvidenceHistoryUnchanged,
-  readAuthorityEvidencePendingPathsAtCommit,
-  readAuthorityEvidenceWorktreeState
-} from "./authority-evidence-tree.ts";
 import { historicalPublicationEvidence } from "./historical-publication-evidence.ts";
 import { findUniquePublication } from "./publication-operation-lookup.ts";
 import { publicationGitExitCode } from "./publication-git-observation.ts";
 import { AuthorityImmutablePublicationProofError } from "./publication-proof-error.ts";
 import { publicationGitBlobDigest } from "./publication-object-digest.ts";
-import { reportCurrentRepoWriteTelemetry } from "../../runtime/repo-write-telemetry-context.ts";
 import {
   publicationReaderOwner,
   readPublicationGitObject,
@@ -53,12 +43,12 @@ import {
   type FirstParentOperationAnchor,
   type FirstParentOperationAnchorScan,
   type FirstParentOperationAnchorScanProgress,
-  type GitAuthorityAttributionEvidenceCommitterV2,
   type GitCanonicalPublicationInspector
 } from "./publication-evidence-contract.ts";
 
 export { assertPublicationMatchesMutationSet } from "./publication-mutation-proof.ts";
 export * from "./publication-evidence-contract.ts";
+export { createGitAuthorityAttributionEvidenceCommitterV2 } from "./publication-evidence-committer.ts";
 
 export function publicationRetryOptions(
   logs: DaemonLogService | undefined,
@@ -67,84 +57,6 @@ export function publicationRetryOptions(
   return logs
     ? { onRetryBudgetSignal: createDaemonRetryBudgetSignalSink(logs, { repo }) }
     : {};
-}
-
-const materializerCommitter = {
-  name: "Harness Anything Materializer",
-  email: "materializer@harness-anything.local"
-} as const;
-
-export function createGitAuthorityAttributionEvidenceCommitterV2(
-  rootInput: HarnessLayoutInput
-): GitAuthorityAttributionEvidenceCommitterV2 {
-  const layout = resolveHarnessLayout(rootInput);
-  const vcs = makeLocalVersionControlSystem();
-  const log = makeLocalAuthorityAttributionEventV2Log(rootInput);
-  let verifiedHead: string | undefined;
-  return {
-    commitPending: async (canonicalCommitSha) => {
-      const repoRoot = vcs.topLevel(layout.authoredRoot);
-      if (!repoRoot) throw new Error("AUTHORITY_EVENT_V2_EVIDENCE_REPOSITORY_REQUIRED");
-      if (!vcs.commitExists(repoRoot, canonicalCommitSha)) {
-        throw new Error(`AUTHORITY_EVENT_V2_EVIDENCE_CANONICAL_COMMIT_MISSING:${canonicalCommitSha}`);
-      }
-      const head = vcs.currentHead(repoRoot);
-      reportCurrentRepoWriteTelemetry("authority-evidence-worktree");
-      const { relativeRoot, pendingPaths } = readAuthorityEvidencePendingPathsAtCommit(
-        layout.authorityAttributionEventsV2Root,
-        repoRoot,
-        head,
-        vcs
-      );
-      const worktree = readAuthorityEvidenceWorktreeState(
-        relativeRoot,
-        (args) => readAuthorityGitBytes(repoRoot, ...args)
-      );
-      const canReuseVerifiedHistory = verifiedHead === head || verifiedHead !== undefined &&
-        authorityEvidenceHistoryUnchanged(vcs.changedFilesBetween(repoRoot, verifiedHead, head), relativeRoot);
-      if (!canReuseVerifiedHistory) {
-        // Establish a trustworthy baseline after startup or any unexpected HEAD change.
-        reportCurrentRepoWriteTelemetry("authority-evidence-history-verify");
-        log.verifyIntegrity();
-        // A dirty historical tree may still be in crash recovery. Do not cache
-        // that transient worktree as the verified baseline.
-        if (!worktree.historicalShardChanged) verifiedHead = head;
-      } else {
-        // Historical shards were fully verified at this HEAD. Git now anchors
-        // their exact bytes, so only new immutable shards need decoding again.
-        if (worktree.historicalShardChanged) {
-          throw new Error("AUTHORITY_EVENT_V2_EVIDENCE_VERIFIED_HISTORY_CHANGED");
-        }
-        reportCurrentRepoWriteTelemetry("authority-evidence-pending-verify");
-        log.verifyShards(pendingPaths.map((relativePath) => path.basename(relativePath)));
-        verifiedHead = head;
-      }
-      if (pendingPaths.length === 0) return;
-
-      reportCurrentRepoWriteTelemetry("authority-evidence-git-commit");
-      const pending = new Set(pendingPaths);
-      assertEvidenceOnlyStaged(vcs.stagedFiles(repoRoot, ["."]), pending);
-      vcs.add(repoRoot, { paths: pendingPaths });
-      const staged = vcs.stagedFiles(repoRoot, ["."]);
-      assertEvidenceOnlyStaged(staged, pending);
-      if (staged.trim().length === 0) return;
-      vcs.commit(
-        repoRoot,
-        `authority: V2 attribution evidence for ${canonicalCommitSha.slice(0, 12)}`,
-        materializerCommitter
-      );
-      verifiedHead = vcs.currentHead(repoRoot);
-      reportCurrentRepoWriteTelemetry("authority-evidence-git-commit-done");
-    }
-  };
-}
-
-function assertEvidenceOnlyStaged(stagedText: string, pendingPaths: ReadonlySet<string>): void {
-  const stagedPaths = stagedText.split(/\r?\n/u).filter(Boolean);
-  const unrelated = stagedPaths.filter((stagedPath) => !pendingPaths.has(stagedPath));
-  if (unrelated.length > 0) {
-    throw new Error(`AUTHORITY_EVENT_V2_EVIDENCE_UNRELATED_STAGED_PATHS:${unrelated.join(",")}`);
-  }
 }
 
 export function createGitCanonicalPublicationInspector(
@@ -302,7 +214,8 @@ export function createGitCanonicalPublicationInspector(
     expectedOpIds: ReadonlyArray<string>,
     expectedCommitSha?: string,
     indexedMetadata?: FirstParentPublicationMetadata,
-    allowAuthorityBatchSequence = false
+    allowAuthorityBatchSequence = false,
+    includePhysicalEvidence = true
   ): Promise<CanonicalPublicationEvidence> => {
     const head = expectedCommitSha ?? await currentHead();
     if (!head) throw new Error("AUTHORITY_CANONICAL_PUBLICATION_MISSING");
@@ -337,11 +250,20 @@ export function createGitCanonicalPublicationInspector(
       sessionMessage,
       expectedOpIds
     });
-    const mergeTreeMatchesSession = sessionCommit
+    const mergeTreeMatchesSessionExactly = sessionCommit
       ? metadata?.treeSha && metadata.sessionTreeSha
         ? metadata.treeSha === metadata.sessionTreeSha
         : publicationGitExitCode(rootDir, "diff", "--quiet", head, sessionCommit) === 0
       : false;
+    const sessionBase = sessionParents[0];
+    const mergeTreeMatchesSession = mergeTreeMatchesSessionExactly || Boolean(
+      sessionCommit
+      && sessionBase
+      && expectedPreviousHead
+      && publicationGitExitCode(rootDir, "merge-base", "--is-ancestor", sessionBase, expectedPreviousHead) === 0
+      && readAuthorityGitBytes(rootDir, "diff", "--raw", "--no-renames", "-z", sessionBase, sessionCommit)
+        .equals(readAuthorityGitBytes(rootDir, "diff", "--raw", "--no-renames", "-z", expectedPreviousHead, head))
+    );
     if (!expectedPreviousHead
       || parentCommits.length !== 2
       || parentCommits[0] !== expectedPreviousHead
@@ -364,13 +286,24 @@ export function createGitCanonicalPublicationInspector(
     }
     const publicationBase = allowAuthorityBatchSequence
       ? expectedPreviousHead
-      : sessionParents[0]!;
+      : sessionBase!;
     if (!allowAuthorityBatchSequence) {
       await assertNoUnanchoredAuthorityBatchPrefix({
         rootDir,
         expectedPreviousHead,
         publicationBase
       });
+    }
+    if (!includePhysicalEvidence) {
+      return {
+        opIds: [...expectedOpIds],
+        commitSha: head,
+        previousCommit: expectedPreviousHead,
+        parentCommits,
+        physicalChanges: [],
+        pipelineGeneratedPaths: [],
+        contentAddressedPaths: []
+      };
     }
     const changedPaths = readAuthorityGitBytes(rootDir, "diff", "--name-only", "-z", publicationBase, head)
       .toString("utf8")
@@ -420,7 +353,10 @@ export function createGitCanonicalPublicationInspector(
       contentAddressedPaths
     };
   };
-  const findPublicationForOperation = async (opId: string): Promise<CanonicalPublicationEvidence> => {
+  const findPublicationForOperationWithMode = async (
+    opId: string,
+    includePhysicalEvidence: boolean
+  ): Promise<CanonicalPublicationEvidence> => {
     const history = await indexedHistory();
     const unanchored = history?.unanchoredByOperationId.get(opId) ?? [];
     if (unanchored.length > 0) throw unanchoredBatchError(unanchored);
@@ -429,21 +365,29 @@ export function createGitCanonicalPublicationInspector(
         anchor.previousCommit,
         anchor.opIds,
         anchor.commitSha,
-        anchor.metadata
+        anchor.metadata,
+        false,
+        includePhysicalEvidence
       ),
       notFound: (expectedOpId) => new AuthorityCanonicalPublicationNotFoundError(expectedOpId)
     });
   };
-  const findDurableSuccessorPublicationForOperation = async (
+  const findPublicationForOperation = (opId: string): Promise<CanonicalPublicationEvidence> =>
+    findPublicationForOperationWithMode(opId, true);
+  const findPublicationTopologyForOperation = (opId: string): Promise<CanonicalPublicationEvidence> =>
+    findPublicationForOperationWithMode(opId, false);
+  const findDurableSuccessorPublicationForOperationWithMode = async (
     opId: string,
-    expectedCommitSha: string
+    expectedCommitSha: string,
+    includePhysicalEvidence: boolean
   ): Promise<CanonicalPublicationEvidence> => {
     const history = await indexedHistory();
     const publication = history?.commits.find((commit) => commit.commitSha === expectedCommitSha);
     const previousCommit = publication?.parents[0];
     const sessionCommit = publication?.parents[1];
-    if (!publication || !previousCommit || !sessionCommit || publication.parents.length !== 2
-      || !/^materializer: merge session [A-Za-z0-9][A-Za-z0-9._-]*$/u.test(publication.subject)) {
+    const sessionBase = publication?.sessionParents?.[0];
+    if (!publication || !previousCommit || !sessionCommit || !sessionBase
+      || publication.parents.length !== 2) {
       throw new AuthorityCanonicalPublicationNotFoundError(opId);
     }
     const commitShas = publicationGitText(
@@ -451,15 +395,15 @@ export function createGitCanonicalPublicationInspector(
       "rev-list",
       "--reverse",
       "--first-parent",
-      `${previousCommit}..${sessionCommit}`
+      `${sessionBase}..${sessionCommit}`
     ).split("\n").filter(Boolean);
     const batches = await scanAuthorityBatchCommits({
       rootDir,
       headCommit: sessionCommit,
-      exclusiveCommit: previousCommit
+      exclusiveCommit: sessionBase
     });
     const batchesByCommit = new Map(batches.map((batch) => [batch.commitSha, batch]));
-    let parent = previousCommit;
+    let parent = sessionBase;
     const orderedBatches: AuthorityBatchCommitMetadata[] = [];
     for (const commitSha of commitShas) {
       const parents = publicationGitText(rootDir, "rev-list", "--parents", "-n", "1", commitSha)
@@ -483,15 +427,30 @@ export function createGitCanonicalPublicationInspector(
       opIds,
       expectedCommitSha,
       publication,
-      true
+      true,
+      includePhysicalEvidence
     );
   };
+  const findDurableSuccessorPublicationForOperation = (
+    opId: string,
+    expectedCommitSha: string
+  ): Promise<CanonicalPublicationEvidence> => findDurableSuccessorPublicationForOperationWithMode(
+    opId,
+    expectedCommitSha,
+    true
+  );
+  const findDurableSuccessorTopologyForOperation = (
+    opId: string,
+    expectedCommitSha: string
+  ): Promise<CanonicalPublicationEvidence> => findDurableSuccessorPublicationForOperationWithMode(
+    opId,
+    expectedCommitSha,
+    false
+  );
   return {
     currentHead,
-    inspectPublishedHead: async (expectedPreviousHead, expectedOpIds) => {
-      const evidence = await inspectPublication(expectedPreviousHead, expectedOpIds);
-      return { commitSha: evidence.commitSha, parentCommits: evidence.parentCommits };
-    },
+    inspectPublishedHead: (expectedPreviousHead, expectedOpIds) =>
+      inspectPublication(expectedPreviousHead, expectedOpIds, undefined, undefined, false, false),
     inspectPublication,
     scanFirstParentOperationAnchors,
     findPublication: async (expectedOpIds) => {
@@ -516,7 +475,9 @@ export function createGitCanonicalPublicationInspector(
       return matches[0]!;
     },
     findPublicationForOperation,
+    findPublicationTopologyForOperation,
     findDurableSuccessorPublicationForOperation,
+    findDurableSuccessorTopologyForOperation,
     shutdown: () => shutdownPublicationGitObjectReader(rootDir),
     findHistoricalPublicationForOperation: async (opId) => {
       const publication = await findPublicationForOperation(opId);
@@ -560,7 +521,9 @@ async function publicationGitTextAsync(rootDir: string, ...args: ReadonlyArray<s
   const { stdout } = await execFileAsync("git", ["-C", rootDir, ...args], {
     encoding: "utf8",
     windowsHide: true,
-    maxBuffer: 64 * 1024 * 1024
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: 15_000,
+    killSignal: "SIGKILL"
   });
   return stdout.trim();
 }
@@ -581,6 +544,8 @@ export function readAuthorityGitBatchBytes(
       ? { input, stdio: ["pipe", "pipe", "pipe"] as const }
       : { stdio: ["ignore", "pipe", "pipe"] as const }),
     windowsHide: true,
-    maxBuffer: 64 * 1024 * 1024
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: 15_000,
+    killSignal: "SIGKILL"
   });
 }

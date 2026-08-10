@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { makeLocalVersionControlSystem } from "../../src/persistence/git/local-version-control-system.ts";
 import { commitTouchedPaths } from "../../src/write-coordination/journal/publication/git.ts";
 import { withTempStore } from "./helpers.ts";
 
@@ -74,6 +75,44 @@ test("session publication preserves worktree content throughout every commit pha
 
     // The worktree file is still the real content post-publish.
     assert.equal(readFileSync(planPath, "utf8"), realContent);
+  });
+});
+
+test("session publication reuses its already witnessed base commit", () => {
+  withTempStore((rootDir) => {
+    const harnessRoot = path.join(rootDir, "harness");
+    mkdirSync(harnessRoot, { recursive: true });
+    runGit(harnessRoot, "init");
+    runGit(harnessRoot, "symbolic-ref", "HEAD", "refs/heads/main");
+    writeFileSync(path.join(harnessRoot, "harness.yaml"), "schema: harness-anything/v1\n", "utf8");
+    runGit(harnessRoot, "add", "harness.yaml");
+    runGit(harnessRoot, "commit", "-m", "seed trunk");
+
+    const witnessedHead = runGit(harnessRoot, "rev-parse", "HEAD");
+    const planPath = path.join(harnessRoot, "tasks/task-base/task_plan.md");
+    mkdirSync(path.dirname(planPath), { recursive: true });
+    writeFileSync(planPath, "# Base witness\n", "utf8");
+    const local = makeLocalVersionControlSystem();
+    const commitSha = commitTouchedPaths(
+      rootDir,
+      [planPath],
+      ["op-base-witness"],
+      rootDir,
+      "test witnessed base",
+      "base-witness-session",
+      {
+        author: { name: "Harness Test", email: "harness-test@example.invalid" },
+        sessionBaseRef: witnessedHead,
+        versionControlSystem: {
+          ...local,
+          currentBranch: () => {
+            throw new Error("current branch must not be queried after the base commit is witnessed");
+          }
+        }
+      }
+    );
+
+    assert.equal(runGit(harnessRoot, "rev-parse", `${commitSha}^`), witnessedHead);
   });
 });
 

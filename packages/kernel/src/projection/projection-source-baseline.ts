@@ -45,6 +45,7 @@ export type TrustedProjectionFingerprintDiagnostic =
 
 export interface TrustedProjectionFingerprintOptions {
   readonly onDiagnostic?: (diagnostic: TrustedProjectionFingerprintDiagnostic) => void;
+  readonly onHeadWitness?: (head: string) => void;
 }
 
 interface TrustedProjectionFingerprint {
@@ -109,6 +110,7 @@ export function captureTrustedAuthoredProjectionFingerprint(
 
   const key = trustedProjectionFingerprintKey(resolvedRepoRoot, layout.authoredRoot, layout.projectionPath);
   const head = vcs.currentHead(resolvedRepoRoot);
+  options.onHeadWitness?.(head);
   const cached = trustedProjectionFingerprints.get(key);
   if (cached && cached.head === head) {
     if (cached.worktreeVerified) {
@@ -197,6 +199,7 @@ export function captureTrustedAuthoredProjectionFingerprint(
   const source = captureAuthoredProjectionSource(rootInput);
   const fingerprint = source.fingerprint;
   const capturedHead = vcs.currentHead(resolvedRepoRoot);
+  options.onHeadWitness?.(capturedHead);
   if (capturedHead === head) {
     trustedProjectionFingerprints.set(key, { head: capturedHead, fingerprint, worktreeVerified: false });
   } else {

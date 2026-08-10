@@ -8,6 +8,7 @@ import {
   type JournaledBatchEntry
 } from "@harness-anything/kernel";
 import type {
+  AuthorityCommittedPhysicalObservationV2,
   AuthorityCommittedReceipt,
   AuthorityOperationEnvelope,
   AuthorityOperationReceipt,
@@ -25,7 +26,7 @@ import {
 } from "./semantic-mutation-envelope-v2.ts";
 import { BoundedAuthorityBatcher, KeyedSerialAuthorityExecutor } from "./authority-batcher.ts";
 import { shadowPublicationSchema } from "./shadow.ts";
-import { completeAuthorityCommittedReceiptV2 } from "./committed-event-publication-v2.ts";
+import { completeAuthorityCommittedReceiptsV2 } from "./committed-event-publication-v2.ts";
 import {
   validateLegacyAuthorityIngress,
   validateLegacyTokenEnvelopeClaims
@@ -61,18 +62,19 @@ import {
 import type { ReplicaPublicationOperation } from "./replica-publication-change.ts";
 import {
   authorityServiceErrorDescription as describe,
-  createAuthorityCoordinatorResolver,
-  createPromiseSerializer
+  createAuthorityCoordinatorResolver
 } from "./service-support.ts";
 import { createAuthorityRecoverySubmitterV2 } from "./authority-recovery-submission-v2.ts";
 import { authorityOperationPublicView } from "./operation-record-public-view.ts";
 import { prepareAuthorityV2 } from "./authority-v2-preparation.ts";
 import { classifyAuthorityPublicationOutcome } from "./publication-outcome.ts";
+import { completedPublicationCut, segmentedPublicationCut, settleAuthorityPublicationCut, type AuthorityPublicationCut } from "./publication-cut.ts";
 export type {
   AuthorityPublicationExecutionContext,
   AuthoritySubmissionServiceOptions,
   AuthoritySubmissionV2Options
 } from "./service-options.ts";
+
 export function createAuthoritySubmissionService(options: AuthoritySubmissionServiceOptions): AuthoritySubmissionService {
   const writableEntityRegistry = options.v2
     ? createWritableEntityRegistry(options.v2.entityRegistrations)
@@ -89,11 +91,13 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
   const { put } = persistence;
   const persistTerminal = (...args: Parameters<typeof persistence.persistTerminal>) =>
     persistTerminalOrRejectGeneration(persistence.persistTerminal, args);
-  const serializeSettlement = createPromiseSerializer();
   const publications = new BoundedAuthorityBatcher<AuthorityAdmission, AuthorityOperationReceipt>(
-    (admissions) => options.publicationExecutor
-      ? options.publicationExecutor.run((execution) => publishBatch(admissions, execution))
-      : publishBatch(admissions, { allowDurableSuccessor: false }),
+    async (admissions) => {
+      const cut = options.publicationExecutor
+        ? await options.publicationExecutor.run((execution) => publishBatchToCut(admissions, execution))
+        : await publishBatchToCut(admissions, { allowDurableSuccessor: false });
+      return settleAuthorityPublicationCut(cut);
+    },
     authorityPublicationBatchSize,
     authorityPublicationMaxWaitMs,
     { allowOverlappingBatches: options.publicationExecutor !== undefined }
@@ -238,28 +242,30 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     };
   }
 
-  async function publishBatch(
+  async function publishBatchToCut(
     admissions: ReadonlyArray<AuthorityAdmission>,
     execution: AuthorityPublicationExecutionContext
-  ): Promise<ReadonlyArray<AuthorityOperationReceipt>> {
+  ): Promise<AuthorityPublicationCut> {
     options.onTelemetry?.("authority-batch-start");
     const receipts = new Map<PreparedAuthoritySubmission, AuthorityOperationReceipt>();
     const prepared = admissions.filter((admission): admission is PreparedAuthoritySubmission => admission.kind === "prepared");
-    if (prepared.length === 0) return admissions.map((admission) => (admission as TerminalAuthoritySubmission).receipt);
+    if (prepared.length === 0) {
+      return completedPublicationCut(admissions.map((admission) => (admission as TerminalAuthoritySubmission).receipt));
+    }
     const segments = authorityPublicationSegments(prepared);
     if (segments.length > 1) {
       // V1 and V2 may coexist after explicit schema negotiation, but one Git
       // commit cannot truthfully anchor a V2 "exactly this batch" vector while
       // also containing unanchored legacy operations. Publication revalidation
       // similarly requires a single-operation FIFO segment.
-      const settled = new Map<PreparedAuthoritySubmission, AuthorityOperationReceipt>();
+      const cuts: Array<{
+        readonly segment: ReadonlyArray<PreparedAuthoritySubmission>;
+        readonly cut: AuthorityPublicationCut;
+      }> = [];
       for (const segment of segments) {
-        const segmentReceipts = await publishBatch(segment, execution);
-        segment.forEach((candidate, index) => settled.set(candidate, segmentReceipts[index]!));
+        cuts.push({ segment, cut: await publishBatchToCut(segment, execution) });
       }
-      return admissions.map((admission) => admission.kind === "terminal"
-        ? admission.receipt
-        : settled.get(admission)!);
+      return segmentedPublicationCut(admissions, cuts);
     }
 
     let previousHead: string | null;
@@ -269,17 +275,17 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     } catch (error) {
       await settlePrepared(prepared, receipts, "INDETERMINATE", (entry) =>
         indeterminate(entry, entry.semanticDigest, `AUTHORITY_FENCE_LOST:${describe(error)}`));
-      return batchReceipts(admissions, receipts);
+      return completedPublicationCut(batchReceipts(admissions, receipts));
     }
 
     if (await rejectGenerationFencedBatch(options.generationFenceWitness, prepared, receipts)) {
-      return batchReceipts(admissions, receipts);
+      return completedPublicationCut(batchReceipts(admissions, receipts));
     }
 
     const candidates: PreparedAuthoritySubmission[] = [];
     const batchEntries = new Map<PreparedAuthoritySubmission, JournaledBatchEntry>();
     let canonicalFlushCommitted = false;
-    const publishWhileGenerationCurrent = async (): Promise<ReadonlyArray<AuthorityOperationReceipt>> => {
+    const publishWhileGenerationCurrent = async (): Promise<AuthorityPublicationCut> => {
       for (const entry of prepared) {
         try {
           await options.generationFenceWitness?.assertHeld("before-prepare", entry);
@@ -319,7 +325,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
           ));
         }
       }
-      if (candidates.length === 0) return batchReceipts(admissions, receipts);
+      if (candidates.length === 0) return completedPublicationCut(batchReceipts(admissions, receipts));
       let outcome: ReturnType<typeof classifyAuthorityPublicationOutcome>;
       let publicationReport: FlushReport | undefined;
       try {
@@ -352,23 +358,23 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       if (outcome.kind === "rejected") {
         await settlePrepared(candidates, receipts, "REJECTED", (entry) =>
           rejected(entry, entry.semanticDigest, outcome.reason));
-        return batchReceipts(admissions, receipts);
+        return completedPublicationCut(batchReceipts(admissions, receipts));
       }
       if (outcome.kind === "retryable") {
         await settlePrepared(candidates, receipts, "RETRYABLE_NOT_COMMITTED", (entry) =>
           retryable(entry, entry.semanticDigest, outcome.reason));
-        return batchReceipts(admissions, receipts);
+        return completedPublicationCut(batchReceipts(admissions, receipts));
       }
       if (outcome.kind === "indeterminate") {
         await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
           indeterminate(entry, entry.semanticDigest, outcome.reason));
-        return batchReceipts(admissions, receipts);
+        return completedPublicationCut(batchReceipts(admissions, receipts));
       }
       canonicalFlushCommitted = true;
 
-      return serializeSettlement(async () => {
       let commitSha: string;
       let publicationOperations: ReadonlyArray<ReplicaPublicationOperation>;
+      let publicationObservation: AuthorityCommittedPhysicalObservationV2 | undefined;
       try {
         await options.fenceWitness.assertHeld("after-canonical-publish", candidates[0]);
         const publication = await inspectAuthoritySettlementPublication({
@@ -382,26 +388,12 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         commitSha = publication.commitSha;
         previousHead = publication.previousHead;
         publicationOperations = publication.operations;
-        for (const entry of candidates) {
-          await options.generationFenceWitness?.assertHeld("after-canonical-publish", entry);
-          await put(
-            entry,
-            entry.semanticDigest,
-            "PUBLISHED",
-            undefined,
-            commitSha,
-            entry.authorityIntegrity,
-            entry.canonicalRequestEnvelope,
-            entry.operation,
-            entry.recoveryPublicationPolicy,
-            entry.fixedOperationBinding
-          );
-        }
+        publicationObservation = publication.observation;
       } catch (error) {
         if (isDaemonGenerationFenced(error)) throw error;
         await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
           indeterminate(entry, entry.semanticDigest, `PUBLICATION_PROOF_FAILED:${describe(error)}`));
-        return batchReceipts(admissions, receipts);
+        return completedPublicationCut(batchReceipts(admissions, receipts));
       }
 
     const replicaPublication = await resolveAuthorityReplicaPublicationChange({
@@ -430,30 +422,28 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
           observedAt: change.changedAt
         });
       }
-      for (const entry of candidates) {
-        await options.generationFenceWitness?.assertHeld("before-terminal-visibility", entry);
-        await put(
-          entry,
-          entry.semanticDigest,
-          "INDEXED",
-          undefined,
-          commitSha,
-          entry.authorityIntegrity,
-          entry.canonicalRequestEnvelope,
-          entry.operation,
-          entry.recoveryPublicationPolicy,
-          entry.fixedOperationBinding
-        );
-      }
+      await options.generationFenceWitness?.assertHeld("before-terminal-visibility", candidates[0]);
+      await persistence.putMany(candidates.map((entry) => ({
+        envelope: entry,
+        semanticDigest: entry.semanticDigest,
+        state: "INDEXED" as const,
+        commitSha,
+        authorityIntegrity: entry.authorityIntegrity,
+        canonicalRequestEnvelope: entry.canonicalRequestEnvelope,
+        canonicalOperation: entry.operation,
+        recoveryPublicationPolicy: entry.recoveryPublicationPolicy,
+        fixedOperationBinding: entry.fixedOperationBinding
+      })));
     } catch (error) {
       if (isDaemonGenerationFenced(error)) throw error;
       await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
         indeterminate(entry, entry.semanticDigest, `INDEX_RECOVERY_REQUIRED:${describe(error)}`, commitSha));
-      return batchReceipts(admissions, receipts);
+      return completedPublicationCut(batchReceipts(admissions, receipts));
     }
 
-    for (let index = 0; index < candidates.length; index += 1) {
-      const entry = candidates[index]!;
+    return { settle: async () => {
+    const committed = new Map<PreparedAuthoritySubmission, AuthorityCommittedReceipt>();
+    for (const entry of candidates) {
       const baseReceipt: AuthorityCommittedReceipt = {
         tag: "COMMITTED" as const,
         workspaceId: entry.workspaceId,
@@ -464,64 +454,75 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         previousCommit: previousHead,
         ...(entry.authorityIntegrity ? { authorityIntegrity: entry.authorityIntegrity } : {})
       };
-      let receipt: AuthorityOperationReceipt = baseReceipt;
-      try {
-        await options.generationFenceWitness?.assertHeld("before-terminal-visibility", entry);
-      } catch (error) {
-        receipt = isDaemonGenerationFenced(error)
-          ? generationFencedIndeterminateReceipt(entry, entry.semanticDigest, error, commitSha)
-          : await persistPostCommitIntegrityFailure(entry, `AUTHORITY_FENCE_LOST:${describe(error)}`, commitSha);
-        receipts.set(entry, receipt);
-        continue;
+      if (entry.authorityIntegrity && !entry.actorAxesBinding) {
+        receipts.set(entry, await persistPostCommitIntegrityFailure(
+          entry,
+          "PROTOCOL_DAMAGED:ACTOR_AXES_BINDING_CORE_REQUIRED",
+          commitSha
+        ));
+      } else {
+        committed.set(entry, baseReceipt);
       }
-      if (entry.authorityIntegrity) {
-        if (!entry.actorAxesBinding) {
-          receipt = await persistPostCommitIntegrityFailure(entry, "PROTOCOL_DAMAGED:ACTOR_AXES_BINDING_CORE_REQUIRED", commitSha);
-          receipts.set(entry, receipt);
-          continue;
+    }
+
+    const v2Entries = [...committed.keys()].filter((entry) => entry.authorityIntegrity);
+    if (v2Entries.length > 0) {
+      try {
+        await options.generationFenceWitness?.assertHeld("before-terminal-visibility", v2Entries[0]);
+        const completed = await completeAuthorityCommittedReceiptsV2({
+          publisher: options.v2!.committedEventPublisher,
+          publications: v2Entries.map((entry) => ({
+            receipt: committed.get(entry)!,
+            actorAxesBinding: entry.actorAxesBinding!,
+            occurredAt: change.changedAt
+          })),
+          ...(publicationObservation ? { observation: publicationObservation } : {})
+        });
+        v2Entries.forEach((entry, index) => committed.set(entry, completed[index]!));
+        options.onTelemetry?.("authority-event-published");
+      } catch (error) {
+        for (const entry of v2Entries) {
+          committed.delete(entry);
+          receipts.set(entry, isDaemonGenerationFenced(error)
+            ? generationFencedIndeterminateReceipt(entry, entry.semanticDigest, error, commitSha)
+            : await persistPostCommitIntegrityFailure(
+                entry,
+                `PROTOCOL_DAMAGED:V2_EVENT_PUBLICATION_FAILED:${describe(error)}`,
+                commitSha
+              ));
         }
       }
+    }
+
+    const committedEntries = [...committed.entries()];
+    if (committedEntries.length > 0) {
       try {
-        const persistCommitted = async () => {
-          if (entry.authorityIntegrity) {
-            await options.generationFenceWitness?.assertHeld("before-terminal-visibility", entry);
-            receipt = await completeAuthorityCommittedReceiptV2({
-              publisher: options.v2!.committedEventPublisher,
-              receipt: baseReceipt,
-              actorAxesBinding: entry.actorAxesBinding!,
-              occurredAt: change.changedAt
-            });
-            options.onTelemetry?.("authority-event-published");
-          }
-          await options.generationFenceWitness?.assertHeld("before-terminal-visibility", entry);
-          options.onTelemetry?.("authority-terminal-record-start");
-          await put(
-            entry,
-            entry.semanticDigest,
-            "COMMITTED",
-            receipt,
-            commitSha,
-            entry.authorityIntegrity,
-            entry.canonicalRequestEnvelope,
-            entry.operation,
-            entry.recoveryPublicationPolicy,
-            entry.fixedOperationBinding
-          );
-          options.onTelemetry?.("authority-terminal-record-persisted");
-          return receipt;
-        };
-        receipt = options.generationFenceWitness
-          ? await options.generationFenceWitness.runExclusive("before-terminal-visibility", entry, persistCommitted)
-          : await persistCommitted();
+        await options.generationFenceWitness?.assertHeld("before-terminal-visibility", committedEntries[0]![0]);
+        options.onTelemetry?.("authority-terminal-record-start");
+        await persistence.putMany(committedEntries.map(([entry, receipt]) => ({
+          envelope: entry,
+          semanticDigest: entry.semanticDigest,
+          state: "COMMITTED" as const,
+          receipt,
+          commitSha,
+          authorityIntegrity: entry.authorityIntegrity,
+          canonicalRequestEnvelope: entry.canonicalRequestEnvelope,
+          canonicalOperation: entry.operation,
+          recoveryPublicationPolicy: entry.recoveryPublicationPolicy,
+          fixedOperationBinding: entry.fixedOperationBinding
+        })));
+        options.onTelemetry?.("authority-terminal-record-persisted");
+        for (const [entry, receipt] of committedEntries) receipts.set(entry, receipt);
       } catch (error) {
-        receipt = isDaemonGenerationFenced(error)
-          ? generationFencedIndeterminateReceipt(entry, entry.semanticDigest, error, commitSha)
-          : await persistPostCommitIntegrityFailure(entry, `PROTOCOL_DAMAGED:V2_EVENT_PUBLICATION_FAILED:${describe(error)}`, commitSha);
+        for (const [entry] of committedEntries) {
+          receipts.set(entry, isDaemonGenerationFenced(error)
+            ? generationFencedIndeterminateReceipt(entry, entry.semanticDigest, error, commitSha)
+            : await persistPostCommitIntegrityFailure(entry, `TERMINAL_RECORD_FAILED:${describe(error)}`, commitSha));
+        }
       }
-      receipts.set(entry, receipt);
     }
     return batchReceipts(admissions, receipts);
-      });
+    } };
     };
     try {
       options.onTelemetry?.("authority-generation-acquire");
@@ -546,7 +547,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
           ? generationFencedIndeterminateReceipt(entry, entry.semanticDigest, error)
           : generationFencedReceipt(entry, entry.semanticDigest, error));
       }
-      return batchReceipts(admissions, receipts);
+      return completedPublicationCut(batchReceipts(admissions, receipts));
     }
   }
 

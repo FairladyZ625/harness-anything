@@ -7,6 +7,6 @@ export function resolveAuthoritySessionCommit(
   return execFileSync(
     "git",
     ["-C", authoredRoot, "rev-parse", "--verify", `refs/heads/sessions/${sessionId}^{commit}`],
-    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true }
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true, timeout: 10_000, killSignal: "SIGKILL" }
   ).trim();
 }

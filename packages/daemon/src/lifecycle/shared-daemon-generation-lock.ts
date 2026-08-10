@@ -2,6 +2,7 @@ import type { AsyncLocalStorage } from "node:async_hooks";
 
 export interface DaemonGenerationLockContext {
   readonly heldLocks: ReadonlyMap<string, string>;
+  readonly verifiedLocks: Set<string>;
   active: boolean;
 }
 
@@ -32,7 +33,7 @@ export async function runWithSharedDaemonGenerationLock<Result>(input: {
     return joinSharedLock(shared, input.storage, input.operation);
   }
   if (shared) {
-    await shared.released;
+    await waitForSharedRelease(shared.released, input.lockPath);
     return runWithSharedDaemonGenerationLock(input);
   }
 
@@ -42,6 +43,7 @@ export async function runWithSharedDaemonGenerationLock<Result>(input: {
       ...(parent?.active ? parent.heldLocks : []),
       [input.lockPath, ownerToken] as const
     ]),
+    verifiedLocks: new Set(parent?.active ? parent.verifiedLocks : []),
     active: true
   };
   let signalReleased!: () => void;
@@ -91,6 +93,21 @@ export async function runWithSharedDaemonGenerationLock<Result>(input: {
     owned?.release();
   }
   return result as Result;
+}
+
+function waitForSharedRelease(released: Promise<void>, lockPath: string): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  return Promise.race([
+    released,
+    new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(
+        `DAEMON_GENERATION_SHARED_LOCK_TIMEOUT:lockPath=${lockPath};elapsedMs=15000;lastPhase=waiting-for-owner-release`
+      )), 15_000);
+      timer.unref();
+    })
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 function joinSharedLock<Result>(

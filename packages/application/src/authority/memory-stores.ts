@@ -8,12 +8,14 @@ import type {
 
 export function createInMemoryAuthorityOperationRegistry(): AuthorityOperationRegistry {
   const records = new Map<string, AuthorityStoredOperationRecord>();
+  const put = (record: AuthorityStoredOperationRecord): void => {
+    const recordKey = key(record.workspaceId, record.opId);
+    records.set(recordKey, structuredClone({ ...records.get(recordKey), ...record }));
+  };
   return {
     get: async (workspaceId, opId) => cloneOptional(records.get(key(workspaceId, opId))),
-    put: async (record) => {
-      const recordKey = key(record.workspaceId, record.opId);
-      records.set(recordKey, structuredClone({ ...records.get(recordKey), ...record }));
-    },
+    put: async (record) => put(record),
+    putMany: async (batch) => batch.forEach(put),
     list: async (workspaceId) => [...records.values()]
       .filter((record) => record.workspaceId === workspaceId)
       .sort((left, right) => left.opId.localeCompare(right.opId))
@@ -45,6 +47,8 @@ export function createInMemoryReplicaChangeLog(): ReplicaChangeLog {
     latest: async (workspaceId) => cloneOptional(records.filter((record) => record.workspaceId === workspaceId).at(-1)),
     getByOperation: async (workspaceId, opId) => cloneOptional(records.find((record) => record.workspaceId === workspaceId
       && record.operations.some((operation) => operation.opId === opId))),
+    getByCommit: async (workspaceId, commitSha) => cloneOptional(records.find((record) =>
+      record.workspaceId === workspaceId && record.commitSha === commitSha)),
     changesAfter: async (workspaceId, revision) => records
       .filter((record) => record.workspaceId === workspaceId && record.revision > revision)
       .map((record) => structuredClone(record)),

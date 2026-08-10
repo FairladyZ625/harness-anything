@@ -182,6 +182,9 @@ export function createContentEnrichedReplicaChangeLog(
     },
     latest: async (workspaceId) => hydrate(await base.latest(workspaceId)),
     getByOperation: async (workspaceId, opId) => hydrate(await base.getByOperation(workspaceId, opId)),
+    ...(base.getByCommit
+      ? { getByCommit: async (workspaceId: string, commitSha: string) => hydrate(await base.getByCommit!(workspaceId, commitSha)) }
+      : {}),
     changesAfter: async (workspaceId, revision) =>
       (await base.changesAfter(workspaceId, revision)).map((record) => hydrateRecord(record, content)),
     subscribe: (workspaceId, listener) => base.subscribe(workspaceId, (record) => listener(hydrateRecord(record, content)))

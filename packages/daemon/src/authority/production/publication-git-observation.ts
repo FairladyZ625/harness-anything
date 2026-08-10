@@ -4,7 +4,9 @@ export function publicationGitExitCode(rootDir: string, ...args: ReadonlyArray<s
   try {
     execFileSync("git", ["-C", rootDir, ...args], {
       stdio: "ignore",
-      windowsHide: true
+      windowsHide: true,
+      timeout: 15_000,
+      killSignal: "SIGKILL"
     });
     return 0;
   } catch (error) {

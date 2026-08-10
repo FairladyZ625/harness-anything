@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -169,6 +169,61 @@ test("durable operation state preserves the exact fixed WriteOp across restart",
       fixedOperationBinding,
       recoveryPublicationPolicy: "EXACT_FIXED_OPERATION"
     }), /AUTHORITY_STORED_OPERATION_FIXED_BINDING_MISMATCH/u);
+    await restarted.close();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("durable operation transitions batch compact deltas and replay them after restart", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-operation-transition-batch-"));
+  try {
+    const first = openDurableAuthorityServiceState({ serviceStateRoot: root, repoId: "repo-1" });
+    const prepared = ["op-a", "op-b"].map((opId) => ({
+      workspaceId: "workspace-1",
+      opId,
+      semanticDigest: `${opId === "op-a" ? "a" : "b"}`.repeat(64),
+      state: "PREPARED" as const
+    }));
+    for (const record of prepared) await first.operationRegistry.put(record);
+    await first.operationRegistry.putMany!(prepared.map((record) => ({
+      ...record,
+      state: "INDEXED" as const,
+      commitSha: "commit-1"
+    })));
+    await first.operationRegistry.putMany!(prepared.map((record, revision) => ({
+      ...record,
+      state: "COMMITTED" as const,
+      commitSha: "commit-1",
+      receipt: {
+        tag: "COMMITTED" as const,
+        workspaceId: record.workspaceId,
+        opId: record.opId,
+        semanticDigest: record.semanticDigest,
+        revision: revision + 1,
+        commitSha: "commit-1",
+        previousCommit: "commit-0"
+      }
+    })));
+    const operationPath = path.join(first.stateDirectory, "operations.jsonl");
+    const rows = readFileSync(operationPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as {
+      readonly schema: string;
+      readonly transitions?: ReadonlyArray<unknown>;
+    });
+    assert.deepEqual(rows.map((row) => row.schema), [
+      "authority-service-state/v1",
+      "authority-service-state/v1",
+      "authority-operation-transition-batch/v1",
+      "authority-operation-transition-batch/v1"
+    ]);
+    assert.deepEqual(rows.slice(2).map((row) => row.transitions?.length), [2, 2]);
+    await first.close();
+
+    const restarted = openDurableAuthorityServiceState({ serviceStateRoot: root, repoId: "repo-1" });
+    assert.deepEqual(
+      (await restarted.operationRegistry.list("workspace-1")).map((record) => [record.opId, record.state]),
+      [["op-a", "COMMITTED"], ["op-b", "COMMITTED"]]
+    );
     await restarted.close();
   } finally {
     rmSync(root, { recursive: true, force: true });

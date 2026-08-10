@@ -19,12 +19,25 @@ import type {
 import { stableStringify } from "@harness-anything/kernel";
 
 const serviceStateSchema = "authority-service-state/v1" as const;
+const operationTransitionSchema = "authority-operation-transition-batch/v1" as const;
 
 interface DurableStateEnvelope {
   readonly schema: typeof serviceStateSchema;
   readonly table: "operation" | "replica-change" | "binding" | "namespace" | "cutover" | "replication";
   readonly key: string;
   readonly value: unknown;
+}
+
+interface DurableOperationTransitionEnvelope {
+  readonly schema: typeof operationTransitionSchema;
+  readonly table: "operation";
+  readonly transitions: ReadonlyArray<{
+    readonly key: string;
+    readonly semanticDigest: string;
+    readonly state: AuthorityStoredOperationRecord["state"];
+    readonly receipt?: AuthorityStoredOperationRecord["receipt"];
+    readonly commitSha?: string;
+  }>;
 }
 
 export interface DurableAuthorityStateTable {
@@ -87,6 +100,17 @@ export function openDurableAuthorityServiceState(input: {
       validateStoredOperation(record);
       operationLog.append(compoundKey(record.workspaceId, record.opId), record);
     },
+    putMany: async (records) => {
+      ensureOpen();
+      records.forEach(validateStoredOperation);
+      operationLog.appendTransitions(records.map((record) => ({
+        key: compoundKey(record.workspaceId, record.opId),
+        semanticDigest: record.semanticDigest,
+        state: record.state,
+        ...(record.receipt ? { receipt: record.receipt } : {}),
+        ...(record.commitSha ? { commitSha: record.commitSha } : {})
+      })));
+    },
     list: async (workspaceId) => {
       ensureOpen();
       return [...operationLog.values.values()]
@@ -131,6 +155,13 @@ export function openDurableAuthorityServiceState(input: {
         return row.workspaceId === workspaceId && row.operations.some((operation) => operation.opId === opId);
       }) as ReplicaChangeRecord | undefined;
     },
+    getByCommit: async (workspaceId, commitSha) => {
+      ensureOpen();
+      return [...replicaLog.values.values()].find((candidate) => {
+        const row = candidate as ReplicaChangeRecord;
+        return row.workspaceId === workspaceId && row.commitSha === commitSha;
+      }) as ReplicaChangeRecord | undefined;
+    },
     changesAfter: async (workspaceId, revision) => {
       ensureOpen();
       return [...replicaLog.values.values()]
@@ -173,6 +204,7 @@ function openLog(
 ): {
   readonly values: Map<string, unknown>;
   readonly append: (key: string, value: unknown) => void;
+  readonly appendTransitions: (transitions: DurableOperationTransitionEnvelope["transitions"]) => void;
 } {
   const logPath = path.join(stateDirectory, fileName);
   const values = new Map<string, unknown>();
@@ -181,11 +213,18 @@ function openLog(
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index]!;
       if (!line) continue;
-      let envelope: DurableStateEnvelope;
+      let envelope: DurableStateEnvelope | DurableOperationTransitionEnvelope;
       try {
-        envelope = JSON.parse(line) as DurableStateEnvelope;
+        envelope = JSON.parse(line) as DurableStateEnvelope | DurableOperationTransitionEnvelope;
       } catch {
         throw new Error(`AUTHORITY_SERVICE_STATE_INVALID_JSON:${fileName}:${index + 1}`);
+      }
+      if (envelope.schema === operationTransitionSchema) {
+        if (table !== "operation" || envelope.table !== "operation" || envelope.transitions.length === 0) {
+          throw new Error(`AUTHORITY_SERVICE_STATE_INVALID_ROW:${fileName}:${index + 1}`);
+        }
+        applyOperationTransitions(values, envelope.transitions, fileName, index + 1);
+        continue;
       }
       if (envelope.schema !== serviceStateSchema || envelope.table !== table || !envelope.key) {
         throw new Error(`AUTHORITY_SERVICE_STATE_INVALID_ROW:${fileName}:${index + 1}`);
@@ -197,17 +236,54 @@ function openLog(
     values,
     append: (key, value) => {
       const envelope: DurableStateEnvelope = { schema: serviceStateSchema, table, key, value };
-      const fd = openSync(logPath, "a", 0o600);
-      try {
-        writeSync(fd, `${stableStringify(envelope)}\n`);
-        fsyncSync(fd);
-      } finally {
-        closeSync(fd);
-      }
-      syncAuthorityServiceStateDirectory(stateDirectory);
+      appendDurableLine(logPath, stateDirectory, envelope);
       values.set(key, value);
+    },
+    appendTransitions: (transitions) => {
+      if (table !== "operation" || transitions.length === 0) return;
+      appendDurableLine(logPath, stateDirectory, {
+        schema: operationTransitionSchema,
+        table: "operation",
+        transitions
+      });
+      applyOperationTransitions(values, transitions, fileName);
     }
   };
+}
+
+function applyOperationTransitions(
+  values: Map<string, unknown>,
+  transitions: DurableOperationTransitionEnvelope["transitions"],
+  fileName: string,
+  line?: number
+): void {
+  for (const transition of transitions) {
+    const known = values.get(transition.key) as AuthorityStoredOperationRecord | undefined;
+    if (!known || known.semanticDigest !== transition.semanticDigest) {
+      throw new Error(`AUTHORITY_SERVICE_STATE_TRANSITION_BASE_MISSING:${fileName}:${line ?? "append"}:${transition.key}`);
+    }
+    values.set(transition.key, {
+      ...known,
+      state: transition.state,
+      ...(transition.receipt ? { receipt: transition.receipt } : {}),
+      ...(transition.commitSha ? { commitSha: transition.commitSha } : {})
+    } satisfies AuthorityStoredOperationRecord);
+  }
+}
+
+function appendDurableLine(
+  logPath: string,
+  stateDirectory: string,
+  envelope: DurableStateEnvelope | DurableOperationTransitionEnvelope
+): void {
+  const fd = openSync(logPath, "a", 0o600);
+  try {
+    writeSync(fd, `${stableStringify(envelope)}\n`);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  syncAuthorityServiceStateDirectory(stateDirectory);
 }
 
 function syncAuthorityServiceStateDirectory(directory: string): void {

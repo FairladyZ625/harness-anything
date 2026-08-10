@@ -48,6 +48,7 @@ export interface VersionControlSystem {
   readonly normalizePath: (inputPath: string) => string;
   readonly topLevel: (inputPath: string) => string | null;
   readonly isIgnored: (repoRoot: string, relativePath: string) => boolean;
+  readonly ignoredPaths?: (repoRoot: string, relativePaths: ReadonlyArray<string>) => ReadonlySet<string>;
   readonly add: (repoRoot: string, input: { readonly paths: ReadonlyArray<string>; readonly force?: boolean }) => void;
   readonly workingTreeFiles: (repoRoot: string, paths: ReadonlyArray<string>) => string;
   readonly stagedFiles: (repoRoot: string, paths: ReadonlyArray<string>) => string;

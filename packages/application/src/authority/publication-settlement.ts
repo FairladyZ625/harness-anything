@@ -1,6 +1,7 @@
 import { isIndeterminateFlushReport, type FlushReport } from "@harness-anything/kernel";
 import type { PreparedAuthoritySubmission } from "./service-admission-types.ts";
 import type {
+  AuthorityCommittedPhysicalObservationV2,
   AuthorityOperationRegistry,
   CanonicalPublicationInspector,
   ReplicaChangeDraft,
@@ -24,28 +25,51 @@ export async function inspectAuthoritySettlementPublication(input: {
   readonly commitSha: string;
   readonly previousHead: string | null;
   readonly operations: ReadonlyArray<ReplicaPublicationOperation>;
+  readonly observation?: AuthorityCommittedPhysicalObservationV2;
 }> {
   const expectedOpIds = input.candidates.map((entry) => entry.opId);
   const exactCommitSha = input.publicationReport && !isIndeterminateFlushReport(input.publicationReport)
     ? input.publicationReport.canonicalCommitSha
     : undefined;
-  const successorLookup = input.inspector.findDurableSuccessorPublicationForOperation
+  const successorLookup = input.inspector.findDurableSuccessorTopologyForOperation
+    ?? input.inspector.findDurableSuccessorPublicationForOperation
     ?? (input.inspector.findPublicationForOperation
       ? (opId: string) => input.inspector.findPublicationForOperation!(opId)
       : input.inspector.findPublication
         ? () => input.inspector.findPublication!(expectedOpIds)
         : undefined);
-  const publication = input.execution.allowDurableSuccessor && exactCommitSha && successorLookup
-    ? await successorLookup(expectedOpIds[0]!, exactCommitSha)
+  const membershipLookup = input.inspector.findPublicationTopologyForOperation;
+  const inspectExactCommit = Boolean(exactCommitSha && successorLookup);
+  const inspectIndexedCommit = inspectExactCommit || membershipLookup !== undefined;
+  const publication = inspectExactCommit
+    ? await successorLookup!(expectedOpIds[0]!, exactCommitSha!)
+    : membershipLookup
+      ? await membershipLookup(expectedOpIds[0]!)
     : await input.inspector.inspectPublishedHead(input.previousHead, expectedOpIds);
-  if (input.execution.allowDurableSuccessor && exactCommitSha
+  if (inspectExactCommit && exactCommitSha
     && publication.commitSha !== exactCommitSha) {
     throw new Error(
       `AUTHORITY_CANONICAL_PUBLICATION_COMMIT_MISMATCH:expected=${exactCommitSha};actual=${publication.commitSha}`
     );
   }
-  if (!input.execution.allowDurableSuccessor) {
-    return { commitSha: publication.commitSha, previousHead: input.previousHead, operations: input.candidates };
+  if (!inspectIndexedCommit) {
+    return {
+      commitSha: publication.commitSha,
+      previousHead: input.previousHead,
+      operations: input.candidates,
+      ...(publication.physicalChanges && publication.physicalChanges.length > 0
+        ? {
+            observation: {
+              opIds: publication.opIds ?? expectedOpIds,
+              commitSha: publication.commitSha,
+              previousCommit: publication.previousCommit ?? input.previousHead,
+              physicalChanges: publication.physicalChanges,
+              pipelineGeneratedPaths: publication.pipelineGeneratedPaths ?? [],
+              contentAddressedPaths: publication.contentAddressedPaths ?? []
+            }
+          }
+        : {})
+    };
   }
   if (publication.parentCommits.length !== 2) {
     throw new Error("AUTHORITY_CANONICAL_PUBLICATION_SUCCESSOR_TOPOLOGY_INVALID");
@@ -65,7 +89,19 @@ export async function inspectAuthoritySettlementPublication(input: {
   return {
     commitSha: publication.commitSha,
     previousHead: publication.previousCommit ?? publication.parentCommits[0]!,
-    operations
+    operations,
+    ...(publication.physicalChanges && publication.physicalChanges.length > 0
+      ? {
+          observation: {
+            opIds: publicationOpIds,
+            commitSha: publication.commitSha,
+            previousCommit: publication.previousCommit ?? publication.parentCommits[0]!,
+            physicalChanges: publication.physicalChanges,
+            pipelineGeneratedPaths: publication.pipelineGeneratedPaths ?? [],
+            contentAddressedPaths: publication.contentAddressedPaths ?? []
+          }
+        }
+      : {})
   };
 }
 

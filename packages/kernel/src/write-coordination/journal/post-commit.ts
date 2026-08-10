@@ -52,6 +52,11 @@ export function finalizeJournalPostCommit(input: {
   } satisfies WriteWatermark;
   writeWatermarkDurably(input.watermarkPath, fullWatermark);
   report(input, "watermark-done");
+  const reclaimableRecordCount = input.records.filter((record) =>
+    allCommitted.includes(record.opId)
+      && (record.schema !== "write-journal/v2" || input.confirmedAttributionOpIds.has(record.opId))).length;
+  const shouldCompact = reclaimableRecordCount >= 32 || allCommitted.length > 128;
+  if (!shouldCompact) return notifyProjection(input, projectionUpdate);
   report(input, "compaction-start");
   if (compactJournalAndCanTrimWatermark(input.journalPath, new Set(allCommitted), input.confirmedAttributionOpIds) && recentCommitted.length < allCommitted.length) {
     writeWatermarkDurably(input.watermarkPath, {
@@ -61,6 +66,13 @@ export function finalizeJournalPostCommit(input: {
     });
   }
   report(input, "compaction-done");
+  notifyProjection(input, projectionUpdate);
+}
+
+function notifyProjection(
+  input: Parameters<typeof finalizeJournalPostCommit>[0],
+  projectionUpdate: ReturnType<typeof rebuildProjectionHash> | undefined
+): void {
   if (!projectionUpdate) return;
   report(input, "projection-notify-start");
   try {

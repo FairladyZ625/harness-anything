@@ -78,7 +78,7 @@ test("WriteCoordinator preserves same-task FIFO across two coordinators", () => 
   });
 });
 
-test("WriteCoordinator records real projection hash and compacts watermark-covered journal entries", () => {
+test("WriteCoordinator records projection hash and defers low-benefit journal compaction", () => {
   withTempStore((rootDir) => {
     const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
 
@@ -91,7 +91,10 @@ test("WriteCoordinator records real projection hash and compacts watermark-cover
 
     assert.equal(report.watermark, "op-1");
     assert.equal(watermark.projectionHash, expectedHash);
-    assert.equal(readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8"), "");
+    assert.match(
+      readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8"),
+      /"opId":"op-1"/u
+    );
 
     const recovered = Effect.runSync(makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir }).recover);
     assert.equal(recovered.replayedOps, 0);

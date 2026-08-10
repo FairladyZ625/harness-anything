@@ -359,9 +359,13 @@ function flushRecords(
     readPayload: (record) => readVerifiedPayload(rootDir, record)
   });
   onProjectionFingerprintPhase?.("capture-start");
+  let projectionHeadWitness: string | undefined;
   const previousProjectionSourceFingerprint = records.length > 0 && projectionRelevant
     ? captureTrustedAuthoredProjectionFingerprint(rootInput, publicationVcs, undefined, {
-      onDiagnostic: onProjectionFingerprintDiagnostic
+      onDiagnostic: onProjectionFingerprintDiagnostic,
+      onHeadWitness: (head) => {
+        projectionHeadWitness = head;
+      }
     })
     : undefined;
   onProjectionFingerprintPhase?.("capture-done");
@@ -383,7 +387,13 @@ function flushRecords(
   const attributedRecords = plannedRecords
     .map((entry) => entry.record)
     .filter((record): record is Extract<ReadableJournalRecord, { readonly schema: "write-journal/v2" }> => record.schema === "write-journal/v2");
-  const eventCommitPlan = planAttributionEventCommit(rootDir, rootInput, touchedPaths, eventVcs);
+  const eventCommitPlan = planAttributionEventCommit(
+    rootDir,
+    rootInput,
+    touchedPaths,
+    eventVcs,
+    projectionHeadWitness
+  );
   const mutationWillCommit = eventCommitPlan.willCommit;
   const eventWrites = mutationWillCommit
     ? attributedRecords
@@ -407,6 +417,7 @@ function flushRecords(
     sessionId,
     {
       author: commitAuthor,
+      sessionBaseRef: eventCommitPlan.preCommitSha,
       preserveExplicitLogPaths: plannedRecords.flatMap(({ touchedPaths: operationPaths }) => operationPaths),
       versionControlSystem: publicationVcs,
       ...(onCommitPhase ? { onCommitPhase } : {})

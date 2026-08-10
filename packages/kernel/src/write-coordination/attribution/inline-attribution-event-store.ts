@@ -31,13 +31,14 @@ export function planAttributionEventCommit(
   rootDir: string,
   rootInput: HarnessLayoutInput,
   touchedPaths: ReadonlyArray<string>,
-  versionControlSystem: VersionControlSystem
+  versionControlSystem: VersionControlSystem,
+  witnessedHead?: string
 ): { readonly willCommit: boolean; readonly preCommitSha: string } {
   const plan = resolveCommitPlan(rootDir, touchedPaths, rootInput, versionControlSystem);
   if (plan) {
     return {
       willCommit: versionControlSystem.workingTreeFiles(plan.repoRoot, plan.relativePaths).trim().length > 0,
-      preCommitSha: versionControlSystem.currentHead(plan.repoRoot)
+      preCommitSha: witnessedHead ?? versionControlSystem.currentHead(plan.repoRoot)
     };
   }
   const localRoot = resolveHarnessLayout(rootInput).localRoot;

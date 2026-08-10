@@ -25,6 +25,10 @@ export interface GitCanonicalPublicationInspector extends CanonicalPublicationIn
     opId: string,
     expectedCommitSha: string
   ) => Promise<CanonicalPublicationEvidence>;
+  readonly findDurableSuccessorTopologyForOperation: (
+    opId: string,
+    expectedCommitSha: string
+  ) => Promise<CanonicalPublicationEvidence>;
   readonly findHistoricalPublicationForOperation: (opId: string) => Promise<{
     readonly commitSha: string;
     readonly semanticDigest: string;
