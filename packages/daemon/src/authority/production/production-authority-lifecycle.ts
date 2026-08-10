@@ -1,6 +1,4 @@
 // @slice-activation PLT-Boundary W2 exports the daemon-owned production authority lifecycle to CLI host composition.
-import { createHash } from "node:crypto";
-import { readFileSync, realpathSync } from "node:fs";
 import {
   createAuthorityCutoverEntityRegistryQualification,
   createAuthorityCutoverControlService,
@@ -81,6 +79,10 @@ import type { RetryBudgetSignal } from "../../observability/visible-retry-budget
 import { settleProductionRecovery, type ProductionRecoveryState } from "./production-recovery-state.ts";
 import { productionPublicationRetryOptions } from "./production-publication-retry-options.ts";
 import { createSerialPublicationExecutor } from "./serial-publication-executor.ts";
+import {
+  authorityManifestSourceDigest,
+  canonicalProductionAuthorityRoot
+} from "./production-authority-manifest-identity.ts";
 export { createSerialPublicationExecutor } from "./serial-publication-executor.ts";
 export { recoverPendingProductionEvents } from "./recovery.ts";
 
@@ -114,6 +116,9 @@ export function createProductionAuthorityLifecycle(input: {
   readonly layoutOverrides?: { readonly authoredRoot?: string };
   readonly daemonLogService?: DaemonLogService;
   readonly onPublicationRetryBudgetSignal?: (signal: RetryBudgetSignal) => void;
+  readonly onServiceStateReplayProgress?: Parameters<
+    typeof createAuthorityRepoLifecycleController
+  >[0]["onServiceStateReplayProgress"];
   readonly backgroundRecovery?: true;
   readonly hostServices: ProductionAuthorityHostServices<ProductionAuthorityIdentity>;
 }): AuthorityRepoLifecycleController {
@@ -124,13 +129,18 @@ export function createProductionAuthorityLifecycle(input: {
   const controller = createAuthorityRepoLifecycleController({
     hooks,
     serviceStateRoot: manifest.serviceStateRoot,
+    ...(input.onServiceStateReplayProgress ? {
+      onServiceStateReplayProgress: input.onServiceStateReplayProgress
+    } : {}),
     resolvePublicationInspectorOptions: (repo) => {
       const config = manifest.repos.find((candidate) => candidate.repoId === repo.repoId);
       return config ? productionPublicationRetryOptions(input, config) : {};
     },
     resolveCompositionData: async (repo, state, runtime) => {
       const config = manifest.repos.find((candidate) => candidate.repoId === repo.repoId);
-      if (!config || canonicalRoot(config.canonicalRoot) !== canonicalRoot(repo.canonicalRoot)) {
+      if (!config
+        || canonicalProductionAuthorityRoot(config.canonicalRoot)
+          !== canonicalProductionAuthorityRoot(repo.canonicalRoot)) {
         throw new Error("AUTHORITY_PRODUCTION_REPO_NOT_CONFIGURED");
       }
       const identity = input.hostServices.loadDaemonIdentity(
@@ -578,19 +588,4 @@ function assertConnectionContext(
     || config.sessionId !== input.serverData.sessionId) {
     throw new Error("AUTHORITY_SERVER_AXIS_MISMATCH");
   }
-}
-
-function canonicalRoot(value: string): string {
-  try {
-    return realpathSync(value);
-  } catch {
-    return value;
-  }
-}
-
-function authorityManifestSourceDigest(manifestPath: string): string {
-  return createHash("sha256")
-    .update("ha/authority-production-manifest-source/v1\0", "utf8")
-    .update(readFileSync(manifestPath))
-    .digest("hex");
 }

@@ -21,6 +21,7 @@ import {
   openDurableAuthorityServiceState,
   type CanonicalPublicationEvidence,
   type DurableAuthorityServiceState,
+  type DurableAuthorityServiceStateReplayProgress,
   type GitCanonicalPublicationInspector
 } from "@harness-anything/daemon";
 import {
@@ -256,6 +257,10 @@ type PublicationInspectorOptions = NonNullable<
 export function createAuthorityRepoLifecycleController(input: {
   readonly hooks: AuthorityRepoLifecycleHooks;
   readonly serviceStateRoot: string;
+  readonly onServiceStateReplayProgress?: (
+    repo: DaemonRepoNamespace,
+    progress: DurableAuthorityServiceStateReplayProgress
+  ) => void;
   readonly resolveCompositionData: (
     repo: DaemonRepoNamespace,
     state: DurableAuthorityServiceState,
@@ -313,13 +318,17 @@ export function createAuthorityRepoLifecycleController(input: {
     repo: DaemonRepoNamespace,
     runtime: AuthorityLifecycleRuntime
   ): Promise<AuthorityRepoStartResult> {
+    const onServiceStateReplayProgress = input.onServiceStateReplayProgress;
     let state: DurableAuthorityServiceState | undefined;
     let component: AuthorityRepoComponent | undefined;
     let publicationInspector: GitCanonicalPublicationInspector | undefined;
     try {
       state = openDurableAuthorityServiceState({
         serviceStateRoot: input.serviceStateRoot,
-        repoId: repo.repoId
+        repoId: repo.repoId,
+        ...(onServiceStateReplayProgress ? {
+          onReplayProgress: (progress) => onServiceStateReplayProgress(repo, progress)
+        } : {})
       });
       const serverData = await input.resolveCompositionData(repo, state, runtime);
       validateServerData(repo, serverData, input.allowInMemoryFixture === true);

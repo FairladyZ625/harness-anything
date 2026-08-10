@@ -20,6 +20,24 @@ type PendingSettlement = Extract<
   { readonly canonicalVisibility: "pending" }
 >;
 
+export const receiptSettlementRecoveryPhases = [
+  "inspect",
+  "materializer",
+  "canonical-proof",
+  "authority-receipt",
+  "canonical-publication",
+  "settlement-store"
+] as const;
+
+export type ReceiptSettlementRecoveryPhase =
+  typeof receiptSettlementRecoveryPhases[number];
+
+export interface ReceiptSettlementRecoveryProgress {
+  readonly receiptId: string;
+  readonly phase: ReceiptSettlementRecoveryPhase;
+  readonly status: "started" | "visible" | "failed" | "pending" | "timed-out";
+}
+
 export interface ReceiptSettlementRecoveryLoop {
   readonly trigger: () => Promise<void>;
   readonly stop: () => void;
@@ -60,10 +78,13 @@ export async function settleAcceptedSession(input: {
   readonly authoredRoot: string;
   readonly acceptedReceipt: CommandReceiptEnvelope;
   readonly pending: PendingSettlement;
+  readonly onRecoveryPhase?: (phase: ReceiptSettlementRecoveryPhase) => void;
 }): Promise<void> {
   try {
     await nextEventLoopTurn();
+    input.onRecoveryPhase?.("materializer");
     await input.runtime.enqueueMaterializerBatch({ sessionId: input.pending.sessionId });
+    input.onRecoveryPhase?.("canonical-proof");
     const visible = withCommandReceiptSettlement(
       input.acceptedReceipt,
       visibleCommandReceiptSettlement(
@@ -73,6 +94,7 @@ export async function settleAcceptedSession(input: {
       )
     );
     if (!visible.ok) throw new Error("DOC_SYNC_VISIBLE_RECEIPT_REVERSED");
+    input.onRecoveryPhase?.("settlement-store");
     input.settlements.visible(visible);
   } catch (error) {
     failSettlement(input.settlements, input.acceptedReceipt, input.pending, error);
@@ -85,6 +107,8 @@ export async function recoverPendingSettlementMaterialization(input: {
   readonly runtime: HarnessDaemonRuntime;
   readonly authoredRoot: string;
   readonly deadlineAt: number;
+  readonly perReceiptTimeoutMs?: number;
+  readonly onReceiptProgress?: (progress: ReceiptSettlementRecoveryProgress) => void;
   readonly recoverCommittedReceipt: (opId: string) => Promise<AuthorityCommittedReceipt>;
   readonly recoverCanonicalPublication?: (input: {
     readonly outerOpId: string;
@@ -103,55 +127,130 @@ export async function recoverPendingSettlementMaterialization(input: {
       && observedSettlement.receipt.settlement.failure.retryable === false) {
       continue;
     }
-    if (durable.state === "proceeding"
-      && durable.outcome.canonicalCommand.commandName === "doc-sync-submit") {
-      try {
-        await nextEventLoopTurn();
-        await input.runtime.enqueueMaterializerBatch({ sessionId: pending.sessionId });
-        const canonicalCommitSha = canonicalCommitContaining(
-          input.authoredRoot,
-          pending.acceptedCommitSha
+    let lastPhase: ReceiptSettlementRecoveryPhase = "inspect";
+    const onRecoveryPhase = (phase: ReceiptSettlementRecoveryPhase): void => {
+      lastPhase = phase;
+      input.onReceiptProgress?.({
+        receiptId: record.receiptId,
+        phase,
+        status: "started"
+      });
+    };
+    onRecoveryPhase("inspect");
+    const recovery = recoverPendingSettlementRecord({
+      ...input,
+      record,
+      pending,
+      onRecoveryPhase
+    });
+    try {
+      if (input.perReceiptTimeoutMs === undefined) {
+        await recovery;
+      } else {
+        await waitForReceiptRecovery(
+          recovery,
+          Math.min(
+            Math.max(1, input.perReceiptTimeoutMs),
+            Math.max(1, input.deadlineAt - Date.now())
+          )
         );
-        if (!input.recoverCanonicalPublication) {
-          throw new Error("DOC_SYNC_CANONICAL_PUBLICATION_RECOVERY_UNAVAILABLE");
-        }
-        await input.recoverCanonicalPublication({
-          outerOpId: record.receiptId,
-          canonicalCommitSha
-        });
-      } catch (error) {
-        failSettlement(input.settlements, record.receipt, pending, error);
       }
-      continue;
-    }
-    if (record.receiptId.startsWith("doc-sync:")) {
-      await settleAcceptedSession({
-        settlements: input.settlements,
-        runtime: input.runtime,
-        authoredRoot: input.authoredRoot,
-        acceptedReceipt: record.receipt,
-        pending
+    } catch (error) {
+      if (!(error instanceof ReceiptSettlementRecoveryTimeoutError)) throw error;
+      input.onReceiptProgress?.({
+        receiptId: record.receiptId,
+        phase: lastPhase,
+        status: "timed-out"
       });
       continue;
     }
-    if (record.receiptId.startsWith("repo-write-direct:")) {
-      await recoverDirectSettlement({ ...input, acceptedReceipt: record.receipt, pending });
-      continue;
-    }
+    const recovered = input.settlements.lookup(record.receiptId);
+    input.onReceiptProgress?.({
+      receiptId: record.receiptId,
+      phase: lastPhase,
+      status: recovered?.state === "canonical-visible"
+        ? "visible"
+        : recovered?.state ?? "pending"
+    });
+  }
+}
+
+async function recoverPendingSettlementRecord(input: {
+  readonly settlements: ReceiptSettlementStore;
+  readonly outcomes: DurableRepoWriteOutcomeStoreV1;
+  readonly runtime: HarnessDaemonRuntime;
+  readonly authoredRoot: string;
+  readonly recoverCommittedReceipt: (opId: string) => Promise<AuthorityCommittedReceipt>;
+  readonly recoverCanonicalPublication?: (input: {
+    readonly outerOpId: string;
+    readonly canonicalCommitSha: string;
+  }) => Promise<"live-owner" | "recovered" | "terminal" | "blocked">;
+  readonly record: ReturnType<ReceiptSettlementStore["listUnsettled"]>[number];
+  readonly pending: PendingSettlement;
+  readonly onRecoveryPhase: (phase: ReceiptSettlementRecoveryPhase) => void;
+}): Promise<void> {
+  const { record, pending } = input;
+  const durable = input.outcomes.lookup(record.receiptId);
+  if (durable.state === "proceeding"
+    && durable.outcome.canonicalCommand.commandName === "doc-sync-submit") {
     try {
+      await nextEventLoopTurn();
+      input.onRecoveryPhase("materializer");
       await input.runtime.enqueueMaterializerBatch({ sessionId: pending.sessionId });
-      const visible = withCommandReceiptSettlement(
-        record.receipt,
-        visibleCommandReceiptSettlement(
-          pending,
-          canonicalCommitContaining(input.authoredRoot, pending.acceptedCommitSha),
-          new Date().toISOString()
-        )
+      input.onRecoveryPhase("canonical-proof");
+      const canonicalCommitSha = canonicalCommitContaining(
+        input.authoredRoot,
+        pending.acceptedCommitSha
       );
-      input.settlements.visible(visible);
+      if (!input.recoverCanonicalPublication) {
+        throw new Error("DOC_SYNC_CANONICAL_PUBLICATION_RECOVERY_UNAVAILABLE");
+      }
+      input.onRecoveryPhase("canonical-publication");
+      await input.recoverCanonicalPublication({
+        outerOpId: record.receiptId,
+        canonicalCommitSha
+      });
     } catch (error) {
       failSettlement(input.settlements, record.receipt, pending, error);
     }
+    return;
+  }
+  if (record.receiptId.startsWith("doc-sync:")) {
+    await settleAcceptedSession({
+      settlements: input.settlements,
+      runtime: input.runtime,
+      authoredRoot: input.authoredRoot,
+      acceptedReceipt: record.receipt,
+      pending,
+      onRecoveryPhase: input.onRecoveryPhase
+    });
+    return;
+  }
+  if (record.receiptId.startsWith("repo-write-direct:")) {
+    await recoverDirectSettlement({
+      ...input,
+      acceptedReceipt: record.receipt,
+      pending,
+      onRecoveryPhase: input.onRecoveryPhase
+    });
+    return;
+  }
+  try {
+    input.onRecoveryPhase("materializer");
+    await input.runtime.enqueueMaterializerBatch({ sessionId: pending.sessionId });
+    input.onRecoveryPhase("canonical-proof");
+    const visible = withCommandReceiptSettlement(
+      record.receipt,
+      visibleCommandReceiptSettlement(
+        pending,
+        canonicalCommitContaining(input.authoredRoot, pending.acceptedCommitSha),
+        new Date().toISOString()
+      )
+    );
+    input.onRecoveryPhase("settlement-store");
+    input.settlements.visible(visible);
+  } catch (error) {
+    failSettlement(input.settlements, record.receipt, pending, error);
   }
 }
 
@@ -193,14 +292,18 @@ async function recoverDirectSettlement(input: {
   readonly recoverCommittedReceipt: (opId: string) => Promise<AuthorityCommittedReceipt>;
   readonly acceptedReceipt: CommandReceiptEnvelope;
   readonly pending: PendingSettlement;
+  readonly onRecoveryPhase: (phase: ReceiptSettlementRecoveryPhase) => void;
 }): Promise<void> {
   try {
+    input.onRecoveryPhase("materializer");
     await input.runtime.enqueueMaterializerBatch({ sessionId: input.pending.sessionId });
     const operationIds = input.pending.authorityOperationIds ?? [];
     if (operationIds.length === 0) {
       throw new Error("AUTHORITY_DIRECT_RECOVERY_OPERATION_IDS_MISSING");
     }
+    input.onRecoveryPhase("authority-receipt");
     await Promise.all(operationIds.map(input.recoverCommittedReceipt));
+    input.onRecoveryPhase("canonical-proof");
     const visible = withCommandReceiptSettlement(
       input.acceptedReceipt,
       visibleCommandReceiptSettlement(
@@ -209,9 +312,38 @@ async function recoverDirectSettlement(input: {
         new Date().toISOString()
       )
     );
+    input.onRecoveryPhase("settlement-store");
     input.settlements.visible(visible);
   } catch (error) {
     failSettlement(input.settlements, input.acceptedReceipt, input.pending, error);
+  }
+}
+
+class ReceiptSettlementRecoveryTimeoutError extends Error {
+  constructor() {
+    super("RECEIPT_SETTLEMENT_RECOVERY_TIMEOUT");
+    this.name = "ReceiptSettlementRecoveryTimeoutError";
+  }
+}
+
+async function waitForReceiptRecovery(
+  recovery: Promise<void>,
+  timeoutMs: number
+): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      recovery,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new ReceiptSettlementRecoveryTimeoutError()),
+          timeoutMs
+        );
+        timer.unref();
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -235,12 +367,17 @@ export function canonicalCommitContaining(authoredRoot: string, acceptedCommitSh
   const canonicalCommitSha = execFileSync(
     "git",
     ["-C", authoredRoot, "rev-parse", "--verify", "HEAD^{commit}"],
-    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true }
+    {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+      timeout: 5_000
+    }
   ).trim();
   execFileSync(
     "git",
     ["-C", authoredRoot, "merge-base", "--is-ancestor", acceptedCommitSha, canonicalCommitSha],
-    { stdio: ["ignore", "ignore", "pipe"], windowsHide: true }
+    { stdio: ["ignore", "ignore", "pipe"], windowsHide: true, timeout: 5_000 }
   );
   return canonicalCommitSha;
 }
