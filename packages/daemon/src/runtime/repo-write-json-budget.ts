@@ -71,6 +71,10 @@ export function repoWriteJsonValueAt(
     if (key === "__proto__" || key === "prototype" || key === "constructor") {
       repoWriteJsonBudgetInvalid(path, "safe JSON object keys");
     }
+    // Match JSON object encoding at the in-process/wire boundary. Optional
+    // command fields are represented as undefined before serialization and
+    // therefore must be omitted before strict semantic decoding.
+    if (entry === undefined) continue;
     repoWriteJsonBudgetConsumeBytes(budget, key, `${path} key`);
     result[key] = repoWriteJsonValueAt(
       entry,

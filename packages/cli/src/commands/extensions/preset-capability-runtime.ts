@@ -250,7 +250,10 @@ export function materializeSemanticPresetExecution(options: {
   readonly runId: string;
   readonly resultPath: string;
 }): MaterializationResult {
-  const executionRootInput = options.stage?.rootInput ?? options.rootInput;
+  // Sparse stages contain only declared writer roots. Capability requirements
+  // remain canonical read projections and are materialized into immutable run
+  // handles; only produced artifacts are remapped into the stage below.
+  const executionRootInput = options.rootInput;
   const capabilitiesRoot = path.join(options.runDir, "capabilities");
   mkdirSync(capabilitiesRoot, { recursive: true });
   const readBindings: Record<string, unknown[]> = {};

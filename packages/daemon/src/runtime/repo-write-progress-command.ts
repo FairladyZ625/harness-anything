@@ -53,8 +53,7 @@ export function encodeRepoWriteCommand(input: {
   if (authority.actor.personId !== input.context.actor.personId) {
     throw new Error("REPO_WRITE_PROGRESS_ACTOR_CONTEXT_MISMATCH");
   }
-  const decoded = repoWriteCommandDtoFromDecodedFields({
-    commandName,
+  const fields = repoWriteJsonObjectAt({
     actor: actorStampJson(input.context.actor),
     context: {
       authorityConnection: {
@@ -94,14 +93,14 @@ export function encodeRepoWriteCommand(input: {
     payload: {
       command: input.command,
       session: input.context.currentSession
-    } as unknown as RepoWriteJsonObject
+    }
+  }, "$.command", repoWriteJsonBudget(), 0);
+  return repoWriteCommandDtoFromDecodedFields({
+    commandName,
+    actor: fields.actor as RepoWriteJsonObject,
+    context: fields.context as RepoWriteJsonObject,
+    payload: fields.payload as RepoWriteJsonObject
   });
-  return repoWriteJsonObjectAt(
-    decoded,
-    "$.command",
-    repoWriteJsonBudget(),
-    0
-  ) as unknown as RepoWriteCommandDto;
 }
 
 export function encodeRepoWriteProgressCommand(input: {
