@@ -8,7 +8,8 @@ import {
   pollUntil,
   runDaemonCommand,
   runRawJsonMaybeFail,
-  stopDaemon
+  stopDaemon,
+  waitForReceiptCommitted
 } from "./helpers/daemon-cli.ts";
 import { assertHelpOrder, cliHelp, packetTemplate } from "./helpers/cli-help-fixture.ts";
 import {
@@ -73,35 +74,100 @@ test("completion help documents the canonical production sequence", () => {
   }
 });
 
-test("unpublished closeout blocks task complete and task closeout through the production daemon", { timeout: 60_000 }, async () => {
+test("task complete automatically materializes unpublished task prose while dry-run remains read-only", { timeout: 90_000 }, async () => {
   await withReviewedCompletionFixture("complete-unpublished-closeout", {
     exercisePlanPublication: true,
     assertReleasedHolder: true
-  }, ({ fixture, taskId, approvalPath, closeoutPacketPath, env }) => {
+  }, async ({ fixture, taskId, taskRoot, approvalPath, closeoutPacketPath, env }) => {
+    const artifactPath = path.join(taskRoot, "artifacts", "completion-evidence.md");
+    mkdirSync(path.dirname(artifactPath), { recursive: true });
+    writeFileSync(artifactPath, "# Initial evidence\n", "utf8");
+    const artifactAdded = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "artifact", "add", taskId, artifactPath
+    ], env);
+    assert.equal(artifactAdded.status, 0, JSON.stringify(artifactAdded.receipt));
+    const artifactSettlement = (((artifactAdded.receipt.details as {
+      readonly data?: { readonly report?: { readonly docSync?: { readonly settlement?: unknown } } };
+    } | undefined)?.data?.report?.docSync?.settlement) ?? artifactAdded.receipt.settlement) as {
+      readonly receiptId?: unknown;
+    } | undefined;
+    assert.equal(typeof artifactSettlement?.receiptId, "string", JSON.stringify(artifactAdded.receipt));
+    await waitForReceiptCommitted(fixture.repoRoot, String(artifactSettlement?.receiptId), env);
+    const settledSetup = runRawJsonMaybeFail(fixture.repoRoot, ["materializer", "run"], env);
+    assert.equal(settledSetup.status, 0, JSON.stringify(settledSetup.receipt));
+    writeFileSync(artifactPath, "# Updated evidence\n\nThe tracked artifact changed before completion.\n", "utf8");
+    writeFileSync(path.join(taskRoot, "task_plan.md"), productionPlan("Plan amended immediately before completion."));
+    const headBeforeDryRun = git(fixture.authoredRoot, "rev-parse", "HEAD");
+
     const blockedCompleteDryRun = runRawJsonMaybeFail(fixture.repoRoot, [
       "task", "complete", taskId, "--approve", "--from-file", approvalPath, "--dry-run"
     ], env);
     const blockedCloseoutDryRun = runRawJsonMaybeFail(fixture.repoRoot, [
       "task", "closeout", taskId, "--from-file", closeoutPacketPath, "--dry-run"
     ], env);
-    const blockedCompleteReal = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "complete", taskId, "--approve", "--from-file", approvalPath
-    ], env);
-    for (const blocked of [blockedCompleteDryRun, blockedCloseoutDryRun, blockedCompleteReal]) {
+    for (const blocked of [blockedCompleteDryRun, blockedCloseoutDryRun]) {
       assert.equal(blocked.status, 1, JSON.stringify(blocked.receipt));
       assert.match(JSON.stringify(blocked.receipt), /AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED[\s\S]*closeout\.md/u);
     }
-    const blockedErrors = [blockedCompleteDryRun, blockedCloseoutDryRun, blockedCompleteReal]
+    const blockedErrors = [blockedCompleteDryRun, blockedCloseoutDryRun]
       .map(({ receipt }) => JSON.stringify(receipt).match(/AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED[\s\S]*?closeout\.md/u)?.[0]);
     assert.deepEqual(
       blockedErrors.map((error) => error?.match(/^AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED/u)?.[0]),
       [
         "AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED",
-        "AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED",
         "AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED"
       ]
     );
     for (const error of blockedErrors) assert.match(error ?? "", /closeout\.md/u);
+    assert.equal(git(fixture.authoredRoot, "rev-parse", "HEAD"), headBeforeDryRun);
+    const blockedCompleteReal = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "complete", taskId, "--approve", "--from-file", approvalPath
+    ], env);
+    assert.equal(blockedCompleteReal.status, 0, JSON.stringify(blockedCompleteReal.receipt));
+    assert.equal(blockedCompleteReal.receipt.ok, true, JSON.stringify(blockedCompleteReal.receipt));
+    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: done$/mu);
+    assert.equal(
+      git(fixture.authoredRoot, "show", `HEAD:tasks/${taskId}-production-route/closeout.md`),
+      readFileSync(path.join(taskRoot, "closeout.md"), "utf8").trim()
+    );
+    assert.equal(
+      git(fixture.authoredRoot, "show", `HEAD:tasks/${taskId}-production-route/task_plan.md`),
+      readFileSync(path.join(taskRoot, "task_plan.md"), "utf8").trim()
+    );
+    assert.equal(
+      git(fixture.authoredRoot, "show", `HEAD:tasks/${taskId}-production-route/artifacts/completion-evidence.md`),
+      readFileSync(artifactPath, "utf8").trim()
+    );
+  });
+});
+
+test("task complete reports file reason and repair when automatic doc sync rejects a task document", { timeout: 60_000 }, async () => {
+  await withReviewedCompletionFixture("complete-auto-materialize-rejected", {
+    exercisePlanPublication: true,
+    assertReleasedHolder: true
+  }, ({ fixture, taskId, taskRoot, approvalPath, env }) => {
+    writeFileSync(
+      path.join(taskRoot, "task_plan.md"),
+      productionPlan("Invalid completion plan edit.").replace("## Goal", "## Objective"),
+      "utf8"
+    );
+    const taskIndexBefore = readFileSync(path.join(taskRoot, "INDEX.md"), "utf8");
+    const rejected = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "complete", taskId, "--approve", "--from-file", approvalPath
+    ], env);
+
+    assert.equal(rejected.status, 1, JSON.stringify(rejected.receipt));
+    assert.match(
+      String((rejected.receipt.error as { readonly code?: unknown } | undefined)?.code),
+      /^task_complete_auto_materialization_/u
+    );
+    const diagnostic = JSON.stringify(rejected.receipt);
+    assert.match(diagnostic, new RegExp(`file=tasks/${taskId}-production-route/task_plan\\.md`, "u"));
+    assert.match(diagnostic, /reason=/u);
+    assert.match(diagnostic, /fix=/u);
+    assert.match(diagnostic, /ha doc status --json/u);
+    assert.match(diagnostic, /ha doc sync --submit/u);
+    assert.equal(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), taskIndexBefore);
   });
 });
 

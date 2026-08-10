@@ -45,6 +45,10 @@ import {
   repoWriteOutcomeQuery,
   repoWriteOutcomeUnknownHint
 } from "./repo-write-outcome-guidance.ts";
+import {
+  dispatchTaskCompleteWithAutoMaterialization,
+  type TaskCompleteAutoMaterializer
+} from "./task-complete-auto-materialization.ts";
 
 export interface DaemonCommandService {
   readonly runCommand: (payload?: JsonObject, context?: {
@@ -73,6 +77,7 @@ export interface DaemonCommandServiceOptions {
     connection: AuthorityConnectionDispatch | undefined
   ) => DaemonAuthorityCommandSubmissionV2 | undefined;
   readonly authorityCutoverControl?: AuthorityCutoverControlService;
+  readonly autoMaterializeTaskComplete?: TaskCompleteAutoMaterializer;
 }
 
 export function createDaemonCommandService<
@@ -155,12 +160,21 @@ export function createDaemonCommandService<
                   executor: context?.executor ?? null
                 }
               });
-            return await measureCurrentDaemonRequestPerformancePhase(
+            const dispatch = () => measureCurrentDaemonRequestPerformancePhase(
               "command-execute",
               () => hostServices.repoWriteChildExecutionMode(parsedCommand) === "durable"
                 ? options.repoWriteDispatch!.submit(childCommand)
                 : options.repoWriteDispatch!.direct(childCommand)
             );
+            return await dispatchTaskCompleteWithAutoMaterialization({
+              command: parsedCommand,
+              currentSession,
+              actor: daemonActor,
+              executor: context?.executor ?? null,
+              authorityConnection: authority,
+              autoMaterialize: options.autoMaterializeTaskComplete,
+              dispatch
+            });
           } catch (error) {
             const outerOpId = error instanceof RepoWriteOutcomeUnknownError
               ? error.opId

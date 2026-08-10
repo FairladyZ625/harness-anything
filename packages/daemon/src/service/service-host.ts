@@ -56,7 +56,7 @@ import {
   sortedDaemonRepos
 } from "./daemon-host-boundary-policy.ts";
 import { repoWriteCommandDispatch } from "./repo-write-command-dispatch.ts";
-import { makeDocSyncSubmitHandler } from "./doc-sync-submit-handler.ts";
+import { makeTaskCompleteDocumentMaterializationServices } from "./task-complete-auto-materialization.ts";
 
 export { localAuthorityPeerPolicy } from "./daemon-host-boundary-policy.ts";
 
@@ -494,10 +494,20 @@ function createRepoServiceBinding<
     ...agentRuntimeControllerOptions,
     agentHolderProjection
   });
+  const documentMaterialization = makeTaskCompleteDocumentMaterializationServices({
+    rootDir,
+    layoutOverrides,
+    repoId: repo.repoId,
+    runtime,
+    hostServices: hostServices.docSync,
+    actorAttribution: hostServices.daemonActorAttribution,
+    ...(repoWriteSupervisor ? { supervisor: repoWriteSupervisor } : {})
+  });
   const daemonCommandService = createDaemonCommandService(runtime, hostServices.command, {
     ...commandOptions,
     ...(repoWriteSupervisor ? {
-      repoWriteDispatch: repoWriteCommandDispatch(repoWriteSupervisor)
+      repoWriteDispatch: repoWriteCommandDispatch(repoWriteSupervisor),
+      autoMaterializeTaskComplete: documentMaterialization.autoMaterializeTaskComplete
     } : {}),
     ...(authorityComponent ? { authorityCutoverControl: authorityComponent.cutoverControl } : {}),
     ...(authorityComponent ? {
@@ -561,16 +571,7 @@ function createRepoServiceBinding<
           lookup: (receiptId: string) => repoWriteSupervisor.lookup(receiptId)
         }
       } : {}),
-      DocSyncService: {
-        submit: makeDocSyncSubmitHandler({
-          rootDir,
-          layoutOverrides,
-          runtime,
-          hostServices: hostServices.docSync,
-          actorAttribution: hostServices.daemonActorAttribution,
-          ...(repoWriteSupervisor ? { supervisor: repoWriteSupervisor } : {})
-        })
-      }
+      DocSyncService: { submit: documentMaterialization.docSyncSubmit }
     },
     appendRuntimeEvent
   };

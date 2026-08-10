@@ -184,6 +184,24 @@ registered doc-sync surface. Keep using its governed repository workflow until
 the write-road registry explicitly classifies those paths; `doc sync` fails
 closed instead of treating an unknown Markdown file as prose.
 
+### Automatic materialization during task completion
+
+When `ha task complete` detects unpublished registered task prose or files under
+the task's `artifacts/` directory, the daemon submits exactly those dirty paths
+through the existing doc-sync/artifact publication road, waits for canonical
+settlement, and then reruns the prepublish check. This automation only performs
+the mechanical publication step; closeout truthfulness, execution review,
+code-doc reconciliation, and consent checks still run in their original order.
+Tracked artifacts are supported, so editing a previously published artifact
+does not require manually removing it from the Git index first.
+
+Dry runs remain read-only and report the original prepublish finding. If
+automatic materialization fails, completion fails too. Its receipt identifies
+each file, the rejection or settlement reason, and an executable recovery step.
+Start with `ha doc status --json`; after repairing the named file, use
+`ha doc sync --submit` and retry task completion. For settlement failures, run
+the receipt-status command printed in the failure receipt.
+
 ## Remote SSH Relay
 
 Remote mode is a client of a persistent remote daemon. Declare the repository
