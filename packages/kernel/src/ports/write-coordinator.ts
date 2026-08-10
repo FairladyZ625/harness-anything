@@ -148,7 +148,7 @@ export interface DeterminateFlushReport {
   readonly canonicalCommitSha?: string;
 }
 
-export type FlushLockHolderSnapshot = {
+type FlushLockHolderSnapshot = {
   readonly lockPath: string;
 } & (
   | {
@@ -168,7 +168,7 @@ export type FlushLockHolderSnapshot = {
   }
 );
 
-export type IndeterminateFlushCause =
+type IndeterminateFlushCause =
   | {
     readonly kind: "foreign-committer";
     readonly detail: string;

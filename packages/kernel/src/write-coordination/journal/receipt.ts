@@ -2,13 +2,17 @@ import type { WriteError } from "../../domain/index.ts";
 import type {
   DeterminateFlushReport,
   FlushReason,
-  FlushLockHolderSnapshot,
   IndeterminateFlushReport,
   JournalRecordWitnessV1,
   WriteOp
 } from "../../ports/write-coordinator.ts";
 import type { LockRecord } from "./types.ts";
 import { durableFileExists, readDurableState, readFileBytes } from "./durable.ts";
+
+type FlushLockHolderSnapshot = Extract<
+  IndeterminateFlushReport["cause"],
+  { readonly kind: "foreign-committer" }
+>["lockHolder"];
 
 export function reconcileDurableFlush(
   reason: FlushReason,

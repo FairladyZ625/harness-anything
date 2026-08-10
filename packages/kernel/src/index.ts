@@ -207,8 +207,7 @@ export type {
 export {
   requireDeterminateFlushReport,
   writeCoordinatedPayload,
-  writeCoordinatedTaskDocuments,
-  type CoordinatedWriteControl
+  writeCoordinatedTaskDocuments
 } from "./write-coordination/submit.ts";
 export {
   projectDaemonRepoRegistration,

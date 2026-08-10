@@ -31,7 +31,7 @@ export function commandFailureResult(
     },
     error: cliError(
       CliErrorCode.WriteOutcomeIndeterminate,
-      `Canonical commitment proof is unavailable for ${error.report.operationIds.join(",")}. Run 'ha daemon logs --error-only --json', compare those IDs with canonical Git state, and do not retry the original write blindly.`,
+      `Write outcome is unknown for ${error.report.operationIds.join(",")}. Run 'ha daemon logs --errors --json', compare those IDs with canonical Git state, and do not retry the original write blindly.`,
       { operationIds: error.report.operationIds, cause: error.report.cause }
     )
   };

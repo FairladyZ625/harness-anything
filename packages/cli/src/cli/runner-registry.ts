@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import type { DecisionWriteService, FactWriteService, ProvenanceSessionExporter, ProvenanceSessionExporterRejected, ProvenanceSessionExportResult, RuntimeEventLedgerService, TaskHolderPrincipal, TaskHolderService } from "@harness-anything/application";
+import { isIndeterminateFlushControlOutcome } from "@harness-anything/kernel";
 import type { ArtifactStore, CurrentSessionProbePort, OperationalActor } from "@harness-anything/kernel";
 import type { ArtifactStoreError, DomainStatus, EngineError, PriorityTier, TaskWorkKind, WriteControl } from "@harness-anything/kernel";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "@harness-anything/kernel";
@@ -217,6 +218,9 @@ export function runRegisteredCommand(
     }
   }
   return runner(context, command).pipe(
+    Effect.catchAll((error) => isIndeterminateFlushControlOutcome(error)
+      ? Effect.fail(error)
+      : Effect.succeed(commandFailureResult(command, error))),
     Effect.flatMap((result) => appendCommandRuntimeEvent(context, command, result)),
     Effect.catchAll((error) => Effect.succeed(commandFailureResult(command, error)))
   );

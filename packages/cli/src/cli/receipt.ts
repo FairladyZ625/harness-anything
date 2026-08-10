@@ -149,9 +149,11 @@ function renderCompletionText(receipt: CommandReceipt): string {
 
 function renderFailureReceiptText(receipt: CommandFailureReceipt): string {
   const settlement = receipt.settlement;
+  const outcomeIndeterminate = receipt.error?.code === CliErrorCode.WriteOutcomeIndeterminate;
   const parts = [
-    "error",
+    outcomeIndeterminate ? "indeterminate" : "error",
     `code=${formatToken(receipt.error?.code ?? "unknown")}`,
+    ...(outcomeIndeterminate ? ["outcome=unknown"] : []),
     `hint=${formatToken(receipt.error?.hint ?? "Command failed.")}`
   ];
   if (settlement) {

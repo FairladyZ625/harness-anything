@@ -55,8 +55,6 @@ export type {
   FlushReason,
   DeterminateFlushReport,
   IndeterminateFlushReport,
-  IndeterminateFlushCause,
-  FlushLockHolderSnapshot,
   IndeterminateFlushControlOutcome,
   WriteControl,
   FlushReport,

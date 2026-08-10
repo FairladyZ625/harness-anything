@@ -4,7 +4,7 @@ import test from "node:test";
 import { Effect } from "effect";
 import { taskEntityId } from "../../src/domain/index.ts";
 import type { IndeterminateFlushReport, WriteCoordinator, WriteOp } from "../../src/ports/index.ts";
-import { isIndeterminateFlushControlOutcome, stablePayloadHash, writeCoordinatedPayload } from "../../src/index.ts";
+import { isIndeterminateFlushControlOutcome, requireDeterminateFlushReport, stablePayloadHash, writeCoordinatedPayload } from "../../src/index.ts";
 
 test("coordinated payload op ids include entity and kind identity", () => {
   const enqueued: WriteOp[] = [];
@@ -38,6 +38,12 @@ test("coordinated payload op ids include entity and kind identity", () => {
   }, { flush: false }));
 
   assert.equal(new Set(enqueued.map((op) => op.opId)).size, 3);
+});
+
+test("determinate committed false remains a valid flush report", () => {
+  const report = { reason: "explicit", opCount: 0, committed: false } as const;
+
+  assert.equal(Effect.runSync(requireDeterminateFlushReport(report)), report);
 });
 
 test("coordinated payload stops later steps with the original indeterminate report", () => {

@@ -55,6 +55,30 @@ test("command receipts fail closed on undeclared command names", () => {
   }
 });
 
+test("indeterminate write outcomes render as unknown rather than failed", () => {
+  const receipt = toCommandReceipt({
+    ok: false,
+    command: "task-create",
+    report: {
+      schema: "write-outcome-indeterminate/v1",
+      status: "indeterminate",
+      flush: {
+        status: "indeterminate",
+        operationIds: ["op_unknown"]
+      }
+    },
+    error: {
+      code: "write_outcome_indeterminate",
+      category: "domain",
+      hint: "Write outcome is unknown for op_unknown. Do not retry the original write blindly."
+    }
+  });
+
+  assert.equal(receipt.ok, false);
+  assert.match(renderReceiptText(receipt), /^indeterminate code=write_outcome_indeterminate outcome=unknown /u);
+  assert.doesNotMatch(renderReceiptText(receipt), /\bfailed\b|^error\b/iu);
+});
+
 test("command receipts fail closed on undeclared success data", () => {
   const receipt = toCommandReceipt({
     ok: true,

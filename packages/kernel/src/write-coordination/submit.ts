@@ -15,8 +15,6 @@ import {
 
 export type PayloadHasher = (payload: unknown) => string;
 
-export type CoordinatedWriteControl = WriteControl;
-
 export function requireDeterminateFlushReport(
   report: FlushReport
 ): Effect.Effect<DeterminateFlushReport, IndeterminateFlushControlOutcome> {
@@ -39,7 +37,7 @@ export function writeCoordinatedTaskDocuments(
   coordinator: WriteCoordinator,
   hashPayload: PayloadHasher,
   writes: ReadonlyArray<CoordinatedTaskDocumentWrite>
-): Effect.Effect<void, CoordinatedWriteControl> {
+): Effect.Effect<void, WriteControl> {
   return Effect.gen(function* () {
     for (const write of writes) {
       yield* writeCoordinatedPayload(coordinator, hashPayload, {
@@ -66,7 +64,7 @@ export function writeCoordinatedPayload(
     readonly opIdPrefix?: string;
   },
   options: { readonly flush?: boolean } = {}
-): Effect.Effect<void, CoordinatedWriteControl> {
+): Effect.Effect<void, WriteControl> {
   return Effect.gen(function* () {
     // Default op ids carry random entropy: delta-shaped payloads (e.g. progress_append)
     // are constant for identical text, so timestamp+hash alone would collide within one

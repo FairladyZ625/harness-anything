@@ -50,8 +50,8 @@ export function docSyncIndeterminate(
     status: "indeterminate",
     intentId: request.payload.intentId,
     code: "write_outcome_indeterminate",
-    reason: `Canonical commitment proof is unavailable for doc sync operation ${error.report.operationIds.join(",")}. Run 'ha daemon logs --error-only --json', compare that ID with canonical Git state, and do not retry the original write blindly.`,
-    hint: "Canonical commitment proof is unavailable. Run 'ha daemon logs --error-only --json', inspect the attached flush operation IDs in canonical Git state, and do not retry the original write blindly.",
+    reason: `Write outcome is unknown for doc sync operation ${error.report.operationIds.join(",")}. Run 'ha daemon logs --errors --json', compare those IDs with canonical Git state, and do not retry the original write blindly.`,
+    hint: "Write outcome is unknown. Run 'ha daemon logs --errors --json', inspect the attached flush operation IDs in canonical Git state, and do not retry the original write blindly.",
     retryable: false,
     flush: error.report
   };
