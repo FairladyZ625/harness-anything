@@ -98,6 +98,9 @@ function durableSuccessorMessageShape(
   if (/^materializer: merge session [A-Za-z0-9][A-Za-z0-9._-]*$/u.test(publication.subject)) {
     return true;
   }
+  if (batchCount > 1 && /^materializer: merge [^\r\n]+$/u.test(publication.subject)) {
+    return true;
+  }
   if (batchCount !== 1 || !publication.sessionSubject || !publication.sessionMessage) return false;
   return publicationMessageShape({
     mergeSubject: publication.subject,
