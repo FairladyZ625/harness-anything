@@ -75,6 +75,40 @@ test("publisher adapter ensures and exact-reads the production V2 log with byte-
   });
 });
 
+test("same operation derives byte-identical publication bytes after observation time advances", async () => {
+  await withTempEventLog(async (eventLog) => {
+    const recordedAtByDerivation = [
+      "2026-07-16T00:00:01.000Z",
+      "2026-07-16T00:00:02.000Z"
+    ];
+    let derivation = 0;
+    const publisher = createDurableAuthorityCommittedEventPublisherV2({
+      eventLog,
+      observation: {
+        observe: async (input) => ({
+          commitSha: input.commitSha,
+          previousCommit: input.previousCommit,
+          physicalChanges: [
+            { path: "task.md", beforeDigest: null, afterDigest: "55".repeat(32) }
+          ],
+          // Legacy/parallel observers may still carry their own wall clock.
+          // It is observation metadata, not a publish-once byte input.
+          recordedAt: recordedAtByDerivation[derivation++]!
+        })
+      }
+    });
+    const input = publicationInput();
+
+    const first = await publisher.publish(input);
+    const firstBytes = eventLog.readBytes(first.workspaceId, first.opId);
+    const rederived = await publisher.publish(input);
+    const rederivedBytes = eventLog.readBytes(rederived.workspaceId, rederived.opId);
+
+    assert.deepEqual(rederivedBytes, firstBytes);
+    assert.equal(rederived.recordedAt, input.occurredAt);
+  });
+});
+
 test("publisher adapter preserves protocol damage when the same durable key receives different bytes", async () => {
   await withTempEventLog(async (eventLog) => {
     let afterDigest = "55".repeat(32);
@@ -169,8 +203,7 @@ function physicalObservation(
     }) => ({
       commitSha: boundary?.commitSha ?? input.commitSha,
       previousCommit: boundary?.previousCommit ?? input.previousCommit,
-      physicalChanges: changes(),
-      recordedAt: "2026-07-16T00:00:01.000Z"
+      physicalChanges: changes()
     })
   };
 }

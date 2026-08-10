@@ -12,7 +12,6 @@ export interface AuthorityCommittedPhysicalObservationV2 {
   readonly commitSha: string;
   readonly previousCommit: string | null;
   readonly physicalChanges: ReadonlyArray<PhysicalChangeV2>;
-  readonly recordedAt: string;
 }
 
 export interface AuthorityCommittedPhysicalObservationPortV2 {
@@ -46,7 +45,7 @@ export function createDurableAuthorityCommittedEventPublisherV2(options: {
         actorAxesBinding: input.actorAxesBinding,
         physicalChanges: observed.physicalChanges,
         occurredAt: input.occurredAt,
-        recordedAt: observed.recordedAt
+        recordedAt: input.occurredAt
       });
       const ensured = options.eventLog.ensure(event);
       const stored = options.eventLog.read(event.workspaceId, event.opId);
