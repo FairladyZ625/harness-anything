@@ -8,12 +8,12 @@ export function canonicalCommitContaining(
     const head = execFileSync(
       "git",
       ["-C", authoredRoot, "rev-parse", "--verify", "HEAD^{commit}"],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true }
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true, timeout: 10_000, killSignal: "SIGKILL" }
     ).trim();
     execFileSync(
       "git",
       ["-C", authoredRoot, "merge-base", "--is-ancestor", acceptedCommitSha, head],
-      { stdio: ["ignore", "ignore", "pipe"], windowsHide: true }
+      { stdio: ["ignore", "ignore", "pipe"], windowsHide: true, timeout: 10_000, killSignal: "SIGKILL" }
     );
     return head;
   } catch {

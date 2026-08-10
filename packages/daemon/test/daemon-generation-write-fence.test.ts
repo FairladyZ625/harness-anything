@@ -390,59 +390,67 @@ test("authority replacement between prepare and flush is fenced without a canoni
   }
 });
 
-test("generation exclusion spans canonical flush through the corresponding terminal record", async () => {
+test("serial publication executor releases at replica cut while terminal continuation is pending", async () => {
   const memory = createInMemoryAuthorityOperationRegistry();
-  const changeLog = createInMemoryReplicaChangeLog();
-  let generationLockDepth = 0;
+  let releaseFirstTerminal!: () => void;
+  const firstTerminalRelease = new Promise<void>((resolve) => { releaseFirstTerminal = resolve; });
+  let firstTerminalStarted!: () => void;
+  const firstTerminal = new Promise<void>((resolve) => { firstTerminalStarted = resolve; });
+  let terminalCount = 0;
   const registry = {
     get: memory.get,
     list: memory.list,
     put: async (record: Parameters<typeof memory.put>[0]) => {
-      assert.equal(generationLockDepth > 0, true, `${record.state} escaped the generation exclusion`);
+      if (record.state === "COMMITTED" && terminalCount++ === 0) {
+        firstTerminalStarted();
+        await firstTerminalRelease;
+      }
       await memory.put(record);
     }
   };
+  let executorTail = Promise.resolve();
+  const publicationExecutor = {
+    run: <Result>(publication: (context: { readonly allowDurableSuccessor: boolean }) => Promise<Result>) => {
+      const result = executorTail.then(() => publication({ allowDurableSuccessor: false }));
+      executorTail = result.then(() => undefined, () => undefined);
+      return result;
+    }
+  };
+  let canonicalHead = "head-0";
+  let flushCount = 0;
+  let secondFlush!: () => void;
+  const secondFlushed = new Promise<void>((resolve) => { secondFlush = resolve; });
   const service = createAuthoritySubmissionService({
-    workspaceId: "workspace-flush-lock",
+    workspaceId: "workspace-serial-cut",
     coordinatorFactory: {
       create: ({ exactWriteScope }) => withExactCommit({
         enqueue: (operation) => Effect.succeed({ opId: operation.opId, entityId: operation.entityId, accepted: true as const }),
         recover: Effect.succeed({ replayedOps: 0 })
-      }, (reason) => {
-          assert.equal(generationLockDepth > 0, true, "canonical flush escaped the generation exclusion");
-          return Effect.succeed({ reason, opCount: 1, committed: true });
-        }, exactWriteScope)
+      }, (reason) => Effect.sync(() => {
+        flushCount += 1;
+        canonicalHead = `head-${flushCount}`;
+        if (flushCount === 2) secondFlush();
+        return { reason, opCount: 1, committed: true };
+      }), exactWriteScope)
     },
-    tokenVerifier: validLegacyVerifier("workspace-flush-lock"),
+    tokenVerifier: validLegacyVerifier("workspace-serial-cut"),
     operationRegistry: registry,
-    replicaChangeLog: {
-      ...changeLog,
-      append: async (change) => {
-        assert.equal(generationLockDepth > 0, true, "replica append escaped the generation exclusion");
-        await changeLog.append(change);
-      }
-    },
+    replicaChangeLog: createInMemoryReplicaChangeLog(),
     publicationInspector: {
-      currentHead: async () => "head-before",
-      inspectPublishedHead: async () => ({ commitSha: "head-after", parentCommits: ["head-before"] })
+      currentHead: async () => canonicalHead,
+      inspectPublishedHead: async (previousHead) => ({ commitSha: canonicalHead, parentCommits: [previousHead!] })
     },
-    fenceWitness: { assertHeld: async () => undefined },
-    generationFenceWitness: {
-      assertHeld: async () => undefined,
-      runExclusive: async (_stage, _context, operation) => {
-        generationLockDepth += 1;
-        try {
-          return await operation();
-        } finally {
-          generationLockDepth -= 1;
-        }
-      }
-    }
+    publicationExecutor,
+    fenceWitness: { assertHeld: async () => undefined }
   });
 
-  const receipt = await service.submit(legacyEnvelope("workspace-flush-lock", "op-flush-lock"));
-  assert.equal(receipt.tag, "COMMITTED");
-  assert.equal(generationLockDepth, 0);
+  const first = service.submit(legacyEnvelope("workspace-serial-cut", "op-serial-cut-a"));
+  await firstTerminal;
+  const second = service.submit(legacyEnvelope("workspace-serial-cut", "op-serial-cut-b"));
+  await secondFlushed;
+  assert.equal(flushCount, 2, "the second canonical cut was not held behind the first terminal append");
+  releaseFirstTerminal();
+  assert.deepEqual((await Promise.all([first, second])).map((receipt) => receipt.tag), ["COMMITTED", "COMMITTED"]);
 });
 
 test("a process that observes post-publish staleness leaves PREPARED for current-owner recovery", async () => {

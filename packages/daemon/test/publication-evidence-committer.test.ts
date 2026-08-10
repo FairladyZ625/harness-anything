@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -115,6 +115,46 @@ test("canonical HEAD advancement that changes evidence history forces full verif
     () => committer.commitPending(git(root, "rev-parse", "HEAD"))
   ));
   assert.ok(phases.includes("authority-evidence-history-verify"), phases.join(","));
+});
+
+test("one evidence batch commits two shards with a bounded Git spawn count and a clean shared index", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "publication-evidence-batch-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q");
+  git(root, "config", "user.name", "Harness Test");
+  git(root, "config", "user.email", "harness@example.test");
+  writeFileSync(path.join(root, "seed.txt"), "seed\n");
+  git(root, "add", ".");
+  git(root, "commit", "-q", "-m", "seed");
+  const canonicalCommitSha = git(root, "rev-parse", "HEAD");
+  const log = makeLocalAuthorityAttributionEventV2Log(root);
+  log.ensure(v2Event("op-batch-a"));
+  log.ensure(v2Event("op-batch-b"));
+  const tracePath = path.join(root, "git-trace.jsonl");
+  const priorTrace = process.env.GIT_TRACE2_EVENT;
+  process.env.GIT_TRACE2_EVENT = tracePath;
+  const startedAt = performance.now();
+  try {
+    await createGitAuthorityAttributionEvidenceCommitterV2(root).commitPending(canonicalCommitSha);
+  } finally {
+    if (priorTrace === undefined) delete process.env.GIT_TRACE2_EVENT;
+    else process.env.GIT_TRACE2_EVENT = priorTrace;
+  }
+
+  const spawnCount = readFileSync(tracePath, "utf8").split("\n").filter((line) => {
+    if (!line) return false;
+    return (JSON.parse(line) as { readonly event?: string }).event === "start";
+  }).length;
+  context.diagnostic(JSON.stringify({
+    schema: "authority-evidence-batch-measurement/v1",
+    operationCount: 2,
+    gitSpawnCount: spawnCount,
+    wallMs: performance.now() - startedAt
+  }));
+  assert.equal(git(root, "rev-list", "--count", `${canonicalCommitSha}..HEAD`), "1");
+  assert.equal(git(root, "diff", "--cached", "--name-only"), "");
+  assert.equal(git(root, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").split("\n").length, 2);
+  assert.equal(spawnCount <= 14, true, `evidence commit spawned ${spawnCount} Git processes`);
 });
 
 function v2Event(opId: string): AttributionEventV2 {

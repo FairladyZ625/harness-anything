@@ -6,6 +6,7 @@ import type { VerifiedActorAxesBindingV2 } from "./actor-axes-binding-v2.ts";
 import type {
   AuthorityCommittedEventPublisherV2,
   AuthorityCommittedReceipt,
+  AuthorityCommittedPhysicalObservationV2,
   AuthorityIntegrityTupleV2
 } from "./types.ts";
 
@@ -37,6 +38,38 @@ export async function completeAuthorityCommittedReceiptV2(input: {
     occurredAt: input.occurredAt
   }));
   return { ...input.receipt, integrityTuple: integrityTuple(input.receipt, event, input.occurredAt) };
+}
+
+export async function completeAuthorityCommittedReceiptsV2(input: {
+  readonly publisher: AuthorityCommittedEventPublisherV2;
+  readonly publications: ReadonlyArray<{
+    readonly receipt: AuthorityCommittedReceipt;
+    readonly actorAxesBinding: ActorAxesBindingCoreV2;
+    readonly occurredAt: string;
+  }>;
+  readonly observation?: AuthorityCommittedPhysicalObservationV2;
+}): Promise<ReadonlyArray<AuthorityCommittedReceipt>> {
+  if (!input.publisher.publishBatch) {
+    return Promise.all(input.publications.map((publication) => completeAuthorityCommittedReceiptV2({
+      publisher: input.publisher,
+      ...publication
+    })));
+  }
+  const events = await input.publisher.publishBatch({
+    events: input.publications,
+    ...(input.observation ? { observation: input.observation } : {})
+  });
+  if (events.length !== input.publications.length) {
+    throw new Error("AUTHORITY_EVENT_V2_PUBLICATION_GROUP_CARDINALITY_MISMATCH");
+  }
+  return events.map((event, index) => {
+    const publication = input.publications[index]!;
+    const verified = decodeAndVerifyAttributionEventV2(event);
+    return {
+      ...publication.receipt,
+      integrityTuple: integrityTuple(publication.receipt, verified, publication.occurredAt)
+    };
+  });
 }
 
 export function isCompleteAuthorityCommittedReceiptV2(

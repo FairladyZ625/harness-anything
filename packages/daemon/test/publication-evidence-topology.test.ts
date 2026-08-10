@@ -248,6 +248,47 @@ test("publication proof accepts a strongly matched session based on an older tru
   }
 });
 
+test("exact topology lookup accepts a byte-identical session delta over an advanced canonical parent", async (context) => {
+  const fixture = publicationFixture(context);
+  writeFileSync(path.join(fixture.root, "prior-evidence.txt"), "prior evidence\n");
+  fixtureGit(fixture.root, "add", "--", "prior-evidence.txt");
+  fixtureGit(fixture.root, "commit", "-q", "-m", "authority: prior evidence");
+  const currentTrunk = fixtureGit(fixture.root, "rev-parse", "HEAD");
+  fixtureGit(
+    fixture.root,
+    "merge",
+    "--no-ff",
+    "sessions/topology",
+    "-m",
+    fixture.sessionMessage
+  );
+  const merged = fixtureGit(fixture.root, "rev-parse", "HEAD");
+
+  const evidence = await fixture.inspector.findDurableSuccessorTopologyForOperation!(opId, merged);
+
+  assert.deepEqual(evidence.parentCommits, [currentTrunk, fixture.session]);
+  assert.deepEqual(evidence.physicalChanges, []);
+});
+
+test("exact topology lookup retains every operation from a multi-commit session branch", async (context) => {
+  const fixture = publicationFixture(context);
+  const nextOpId = "namespace-test:publication-topology-next";
+  fixtureGit(fixture.root, "checkout", "-q", "sessions/topology");
+  writeFileSync(path.join(fixture.root, "tasks/task_topology/progress.md"), "publication\nnext\n");
+  const nextAttributionPath = attributionPath(nextOpId);
+  writeFileSync(path.join(fixture.root, nextAttributionPath), "{\"schema\":\"attribution-event/v1\"}\n");
+  fixtureGit(fixture.root, "add", "--", ".");
+  fixtureGit(fixture.root, "commit", "-q", "-m", semanticMessage(nextOpId));
+  fixtureGit(fixture.root, "checkout", "-q", "master");
+  fixtureGit(fixture.root, "merge", "--no-ff", "sessions/topology", "-m", "materializer: merge multi-commit session");
+  const merged = fixtureGit(fixture.root, "rev-parse", "HEAD");
+
+  const evidence = await fixture.inspector.findDurableSuccessorTopologyForOperation!(opId, merged);
+
+  assert.deepEqual(evidence.opIds, [opId, nextOpId]);
+  assert.deepEqual(evidence.physicalChanges, []);
+});
+
 test("publication proof rejects a merge tree that differs from the session tree", async (context) => {
   const fixture = publicationFixture(context);
   const mismatchedTree = commitTree(

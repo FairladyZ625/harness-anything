@@ -18,6 +18,7 @@ export function commitTouchedPaths(
   sessionId?: string,
   options: {
     readonly preserveExplicitLogPaths?: ReadonlyArray<string>;
+    readonly sessionBaseRef?: string;
     readonly author?: VcsCommitAuthor;
     readonly versionControlSystem?: VersionControlSystem;
     readonly onCommitPhase?: VcsCommitOptions["onPhase"];
@@ -34,9 +35,7 @@ export function commitTouchedPaths(
   };
 
   report("commit-plan-start");
-  const plan = assertCommitPlanAddable(rootDir, touchedPaths, layoutInput, {
-    versionControlSystem: vcs
-  });
+  const plan = resolveCommitPlan(rootDir, touchedPaths, layoutInput, vcs);
   report("commit-plan-done");
   if (!plan) return "no-git-change";
   const preserveExplicitLogs = resolveExplicitLogSet(
@@ -54,7 +53,7 @@ export function commitTouchedPaths(
     // touched, eliminating the publication window in which the old
     // checkout-based publisher clobbered user-authored content by restoring
     // the worktree to trunk between session commit and materializer merge.
-    const trunkBranch = resolveTrunkBranch(plan.repoRoot, undefined, vcs);
+    const trunkBranch = options.sessionBaseRef ?? resolveTrunkBranch(plan.repoRoot, undefined, vcs);
     const excludePaths = new Set(
       plan.relativePaths.filter(
         (relativePath) => relativePath.endsWith(".log") && !preserveExplicitLogs.has(relativePath)
@@ -131,7 +130,10 @@ export function assertCommitPlanAddable(
   const plan = resolveCommitPlan(rootDir, touchedPaths, layoutInput, vcs);
   if (!plan) return null;
   const forceAdd = resolveForceAddSet(rootDir, options.forceAddPaths ?? [], layoutInput, vcs);
-  const ignoredPaths = plan.relativePaths.filter((relativePath) => !forceAdd.has(relativePath) && vcs.isIgnored(plan.repoRoot, relativePath));
+  const candidates = plan.relativePaths.filter((relativePath) => !forceAdd.has(relativePath));
+  const ignoredPaths = vcs.ignoredPaths
+    ? [...vcs.ignoredPaths(plan.repoRoot, candidates)]
+    : candidates.filter((relativePath) => vcs.isIgnored(plan.repoRoot, relativePath));
   if (ignoredPaths.length > 0) {
     throw new Error(`gitignored authored path requires explicit forceAddPaths: ${ignoredPaths.join(", ")}`);
   }
@@ -139,14 +141,14 @@ export function assertCommitPlanAddable(
 }
 
 function resolveCommitTarget(rootDir: string, authoredRoot: string, touchedPaths: ReadonlyArray<string>, vcs: VersionControlSystem): { readonly repoRoot: string } | null {
-  const rootRepo = vcs.topLevel(rootDir);
   const authoredRepo = vcs.topLevel(authoredRoot);
   if (!touchedPaths.every((filePath) => isPathInside(authoredRoot, filePath, vcs))) return null;
   if (!authoredRepo) {
+    const rootRepo = vcs.topLevel(rootDir);
     if (!rootRepo || !isPathInsideRepo(rootRepo, authoredRoot, vcs)) return null;
     throw new WriteRejectedError(authoredRootNotIsolatedMessage, undefined, { code: authoredRootNotIsolatedCode });
   }
-  if (rootRepo && authoredRepo === rootRepo && !isSamePath(rootRepo, authoredRoot, vcs)) {
+  if (!isSamePath(authoredRepo, authoredRoot, vcs)) {
     throw new WriteRejectedError(authoredRootNotIsolatedMessage, undefined, { code: authoredRootNotIsolatedCode });
   }
   return { repoRoot: authoredRepo };

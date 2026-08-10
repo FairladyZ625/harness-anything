@@ -431,7 +431,7 @@ function installGitAmplifier(root: string): {
     'const { spawnSync } = require("node:child_process");',
     "const args = process.argv.slice(2);",
     "const env = process.env;",
-    'if (args.includes("commit") && existsSync(env.HA_WRITER_READER_ARM ?? "") && !existsSync(env.HA_WRITER_READER_HIT ?? "")) {',
+    'if ((args.includes("commit") || args.includes("commit-tree")) && existsSync(env.HA_WRITER_READER_ARM ?? "") && !existsSync(env.HA_WRITER_READER_HIT ?? "")) {',
     '  closeSync(openSync(env.HA_WRITER_READER_HIT, "wx", 0o600));',
     `  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${amplifierDelayMs});`,
     "}",

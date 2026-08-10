@@ -3,12 +3,15 @@ import {
   type PhysicalChangeV2,
   type SemanticMutationSetV2
 } from "@harness-anything/kernel";
-import type { CanonicalPublicationEvidence } from "./publication-evidence.ts";
 import { AuthorityImmutablePublicationProofError } from "./publication-proof-error.ts";
 
 /** Fail closed unless every observed tree change is covered by the canonical registry mutation set. */
 export function assertPublicationMatchesMutationSet(
-  evidence: CanonicalPublicationEvidence,
+  evidence: {
+    readonly physicalChanges: ReadonlyArray<PhysicalChangeV2>;
+    readonly pipelineGeneratedPaths: ReadonlyArray<string>;
+    readonly contentAddressedPaths: ReadonlyArray<string>;
+  },
   mutationSet: SemanticMutationSetV2
 ): void {
   const targets = mutationSet.mutations.flatMap((mutation) => {

@@ -11,7 +11,7 @@ export function createDurableSuccessorPublicationObserver(
   expectedCommitSha?: string
 ) => Promise<CanonicalPublicationEvidence> {
   return async (previousCommit, expectedOpIds, expectedCommitSha) => {
-    if (expectedCommitSha && expectedOpIds.length > 1) {
+    if (expectedCommitSha && expectedOpIds.length > 0) {
       const successor = await inspector.findDurableSuccessorPublicationForOperation(
         expectedOpIds[0]!,
         expectedCommitSha

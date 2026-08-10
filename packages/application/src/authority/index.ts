@@ -9,14 +9,14 @@ export {
 export { makeCompositeAuthoritySemanticCompilerV2 } from "./composite-semantic-compiler-v2.ts";
 export {
   completeAuthorityCommittedReceiptV2,
+  completeAuthorityCommittedReceiptsV2,
   isCompleteAuthorityCommittedReceiptV2
 } from "./committed-event-publication-v2.ts";
 export {
   createDurableAuthorityCommittedEventPublisherV2
 } from "./durable-committed-event-publisher-v2.ts";
 export type {
-  AuthorityCommittedPhysicalObservationPortV2,
-  AuthorityCommittedPhysicalObservationV2
+  AuthorityCommittedPhysicalObservationPortV2
 } from "./durable-committed-event-publisher-v2.ts";
 export type { AuthoritySemanticCompilerRouteV2 } from "./composite-semantic-compiler-v2.ts";
 export {
@@ -44,6 +44,7 @@ export type {
   AttributedCoordinatorFactory,
   AuthorityAlreadySatisfiedReceipt,
   AuthorityCommittedEventPublisherV2,
+  AuthorityCommittedPhysicalObservationV2,
   AuthorityCommittedReceipt,
   AuthorityFenceWitness,
   AuthorityGenerationFence,

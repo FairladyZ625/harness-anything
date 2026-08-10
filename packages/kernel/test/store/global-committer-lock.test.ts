@@ -570,6 +570,7 @@ test("WriteCoordinator accepts validated dedicated code-doc writes", () => {
         normalizePath: (inputPath) => path.resolve(inputPath),
         topLevel: (inputPath) => path.resolve(inputPath).startsWith(harnessRoot) ? harnessRoot : rootDir,
         isIgnored: () => false,
+        ignoredPaths: () => new Set(),
         commitExists: () => true,
         pathExistsAtCommit: () => true
       }
@@ -601,6 +602,7 @@ test("WriteCoordinator accepts task-tree staging with an authored code-doc file"
         normalizePath: (inputPath) => path.resolve(inputPath),
         topLevel: (inputPath) => path.resolve(inputPath).startsWith(harnessRoot) ? harnessRoot : rootDir,
         isIgnored: () => false,
+        ignoredPaths: () => new Set(),
         workingTreeFiles: () => "?? tasks/task-1/code-doc-anchors.json\n"
       }
     });

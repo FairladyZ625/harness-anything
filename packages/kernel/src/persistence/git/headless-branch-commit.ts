@@ -38,10 +38,11 @@ export function commitPathsToBranchHeadless(
   // working-tree or HEAD movement.
   const branchExists = canResolveRef(repoRoot, input.branchName, git);
   const baseRef = branchExists ? input.branchName : input.baseBranchName;
-  const baseSha = git.runGitWithEnvironment(repoRoot, undefined, {}, "rev-parse", baseRef).trim();
-  const baseTreeSha = git
-    .runGitWithEnvironment(repoRoot, undefined, {}, "rev-parse", `${baseRef}^{tree}`)
-    .trim();
+  const [baseSha, baseTreeSha] = git
+    .runGitWithEnvironment(repoRoot, undefined, {}, "rev-parse", baseRef, `${baseRef}^{tree}`)
+    .trim()
+    .split(/\r?\n/u);
+  if (!baseSha || !baseTreeSha) throw new Error(`git could not resolve commit and tree for ${baseRef}`);
 
   const temporaryIndexDirectory = git.fileSystem.makeTemporaryDirectory("ha-git-branch-commit-");
   const temporaryIndex = path.join(temporaryIndexDirectory, "index");
@@ -50,21 +51,15 @@ export function commitPathsToBranchHeadless(
     git.runGitWithEnvironment(repoRoot, undefined, indexEnv, "read-tree", baseSha);
 
     report("stage-start");
-    for (const relativePath of input.stagePaths) {
-      if (input.excludePaths.has(relativePath)) continue;
-      if (worktreePathExists(repoRoot, relativePath, git)) {
-        git.runGitWithEnvironment(repoRoot, undefined, indexEnv, "update-index", "--add", "--", relativePath);
-      } else {
-        git.runGitWithEnvironment(
-          repoRoot,
-          undefined,
-          indexEnv,
-          "update-index",
-          "--force-remove",
-          "--",
-          relativePath
-        );
-      }
+    const includedPaths = input.stagePaths.filter((relativePath) => !input.excludePaths.has(relativePath));
+    const presentPaths = includedPaths.filter((relativePath) => worktreePathExists(repoRoot, relativePath, git));
+    const presentPathSet = new Set(presentPaths);
+    const removedPaths = includedPaths.filter((relativePath) => !presentPathSet.has(relativePath));
+    if (presentPaths.length > 0) {
+      git.runGitWithEnvironment(repoRoot, undefined, indexEnv, "update-index", "--add", "--", ...presentPaths);
+    }
+    if (removedPaths.length > 0) {
+      git.runGitWithEnvironment(repoRoot, undefined, indexEnv, "update-index", "--force-remove", "--", ...removedPaths);
     }
     report("stage-done");
 

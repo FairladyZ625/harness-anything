@@ -34,7 +34,7 @@ const actorAxesBinding: ActorAxesBindingCoreV2 = {
 };
 const mutationSet: SemanticMutationSetV2 = { registryVersion: 1, mutations: [] };
 
-test("publisher adapter ensures and exact-reads the production V2 log with byte-identical replay", async () => {
+test("publisher adapter uses ensure as the single authoritative readback with byte-identical replay", async () => {
   await withTempEventLog(async (eventLog) => {
     const observedInputs: Array<Parameters<ReturnType<typeof physicalObservation>["observe"]>[0]> = [];
     const observation = physicalObservation();
@@ -61,13 +61,13 @@ test("publisher adapter ensures and exact-reads the production V2 log with byte-
     assert.deepEqual(observedInputs, [
       {
         workspaceId: "workspace-v2",
-        opId: "op-v2",
+        opIds: ["op-v2"],
         commitSha: "commit-8",
         previousCommit: "commit-7"
       },
       {
         workspaceId: "workspace-v2",
-        opId: "op-v2",
+        opIds: ["op-v2"],
         commitSha: "commit-8",
         previousCommit: "commit-7"
       }
@@ -86,6 +86,7 @@ test("same operation derives byte-identical publication bytes after observation 
       eventLog,
       observation: {
         observe: async (input) => ({
+          opIds: input.opIds,
           commitSha: input.commitSha,
           previousCommit: input.previousCommit,
           physicalChanges: [
@@ -93,7 +94,9 @@ test("same operation derives byte-identical publication bytes after observation 
           ],
           // Legacy/parallel observers may still carry their own wall clock.
           // It is observation metadata, not a publish-once byte input.
-          recordedAt: recordedAtByDerivation[derivation++]!
+          recordedAt: recordedAtByDerivation[derivation++]!,
+          pipelineGeneratedPaths: [],
+          contentAddressedPaths: []
         })
       }
     });
@@ -156,33 +159,85 @@ test("publisher adapter rejects observation commit and previous-commit mismatche
   }
 });
 
-test("publisher adapter fails closed when the durable event or exact bytes cannot be read", async (t) => {
-  for (const missing of ["event", "bytes"] as const) {
-    await t.test(missing, async () => {
-      await withTempEventLog(async (productionLog) => {
-        const eventLog: AuthorityAttributionEventV2Log = {
-          ...productionLog,
-          ...(missing === "event"
-            ? { read: () => undefined }
-            : { readBytes: () => undefined })
-        };
-        const publisher = createDurableAuthorityCommittedEventPublisherV2({
-          eventLog,
-          observation: physicalObservation()
-        });
-
-        await assert.rejects(
-          publisher.publish(publicationInput()),
-          /AUTHORITY_EVENT_V2_DURABLE_READ_MISSING/u
-        );
-      });
+test("publisher does not repeat read or readBytes after ensure already verified stored bytes", async () => {
+  await withTempEventLog(async (productionLog) => {
+    const eventLog: AuthorityAttributionEventV2Log = {
+      ...productionLog,
+      read: () => { throw new Error("redundant read"); },
+      readBytes: () => { throw new Error("redundant readBytes"); }
+    };
+    const publisher = createDurableAuthorityCommittedEventPublisherV2({
+      eventLog,
+      observation: physicalObservation()
     });
-  }
+
+    const event = await publisher.publish(publicationInput());
+    assert.equal(event.opId, "op-v2");
+  });
 });
 
-function publicationInput() {
+test("publisher batches one physical observation and one evidence commit for a canonical group", async () => {
+  await withTempEventLog(async (eventLog) => {
+    let observationCount = 0;
+    let evidenceCommitCount = 0;
+    const observation = physicalObservation();
+    const publisher = createDurableAuthorityCommittedEventPublisherV2({
+      eventLog,
+      observation: {
+        observe: async (input) => {
+          observationCount += 1;
+          return observation.observe(input);
+        }
+      },
+      commitEvidence: async () => { evidenceCommitCount += 1; }
+    });
+    const events = await publisher.publishBatch!({
+      events: [publicationInput("op-v2"), publicationInput("op-v2-peer")]
+    });
+
+    assert.equal(events.length, 2);
+    assert.equal(observationCount, 1);
+    assert.equal(evidenceCommitCount, 1);
+    assert.equal(eventLog.readAll().length, 2);
+  });
+});
+
+test("partial batch append is replayable and does not commit incomplete evidence", async () => {
+  await withTempEventLog(async (productionLog) => {
+    let ensureCount = 0;
+    let evidenceCommitCount = 0;
+    const failingLog: AuthorityAttributionEventV2Log = {
+      ...productionLog,
+      ensure: (event) => {
+        ensureCount += 1;
+        if (ensureCount === 2) throw new Error("simulated crash between immutable appends");
+        return productionLog.ensure(event);
+      }
+    };
+    const failedPublisher = createDurableAuthorityCommittedEventPublisherV2({
+      eventLog: failingLog,
+      observation: physicalObservation(),
+      commitEvidence: async () => { evidenceCommitCount += 1; }
+    });
+    const events = [publicationInput("op-v2"), publicationInput("op-v2-peer")];
+    await assert.rejects(failedPublisher.publishBatch!({ events }), /simulated crash/u);
+    assert.equal(productionLog.readAll().length, 1);
+    assert.equal(evidenceCommitCount, 0);
+
+    const replayPublisher = createDurableAuthorityCommittedEventPublisherV2({
+      eventLog: productionLog,
+      observation: physicalObservation(),
+      commitEvidence: async () => { evidenceCommitCount += 1; }
+    });
+    assert.equal((await replayPublisher.publishBatch!({ events })).length, 2);
+    assert.equal(productionLog.readAll().length, 2);
+    assert.equal(evidenceCommitCount, 1);
+  });
+});
+
+function publicationInput(opId = "op-v2") {
   return {
-    receipt: committedReceipt(),
+    receipt: committedReceipt(opId),
     actorAxesBinding,
     occurredAt: "2026-07-16T00:00:00.000Z"
   };
@@ -197,13 +252,16 @@ function physicalObservation(
   return {
     observe: async (input: {
       readonly workspaceId: string;
-      readonly opId: string;
+      readonly opIds: ReadonlyArray<string>;
       readonly commitSha: string;
       readonly previousCommit: string | null;
     }) => ({
+      opIds: input.opIds,
       commitSha: boundary?.commitSha ?? input.commitSha,
       previousCommit: boundary?.previousCommit ?? input.previousCommit,
-      physicalChanges: changes()
+      physicalChanges: changes(),
+      pipelineGeneratedPaths: [],
+      contentAddressedPaths: []
     })
   };
 }
@@ -219,11 +277,11 @@ async function withTempEventLog(
   }
 }
 
-function committedReceipt(): AuthorityCommittedReceipt {
+function committedReceipt(opId = "op-v2"): AuthorityCommittedReceipt {
   return {
     tag: "COMMITTED",
     workspaceId: "workspace-v2",
-    opId: "op-v2",
+    opId,
     semanticDigest: "11".repeat(32),
     revision: 8,
     commitSha: "commit-8",

@@ -223,11 +223,30 @@ function operationRecords(serviceRoot: string, repoId: string): ReadonlyArray<Re
       readonly table?: string;
       readonly key?: string;
       readonly value?: Record<string, any>;
-    })
-    .filter((row) => row.table === "operation" && row.key && row.value);
+      readonly transitions?: ReadonlyArray<{
+        readonly key: string;
+        readonly semanticDigest: string;
+        readonly state: string;
+        readonly receipt?: Record<string, any>;
+        readonly commitSha?: string;
+      }>;
+    });
   assert.ok(rows.length > 0, operationPath);
   const latest = new Map<string, Record<string, any>>();
-  for (const row of rows) latest.set(row.key!, row.value!);
+  for (const row of rows) {
+    if (row.table === "operation" && row.key && row.value) latest.set(row.key, row.value);
+    for (const transition of row.table === "operation" ? row.transitions ?? [] : []) {
+      const known = latest.get(transition.key);
+      assert.ok(known, `operation transition must follow its base record: ${transition.key}`);
+      assert.equal(known.semanticDigest, transition.semanticDigest);
+      latest.set(transition.key, {
+        ...known,
+        state: transition.state,
+        ...(transition.receipt ? { receipt: transition.receipt } : {}),
+        ...(transition.commitSha ? { commitSha: transition.commitSha } : {})
+      });
+    }
+  }
   return [...latest.values()];
 }
 

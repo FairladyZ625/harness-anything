@@ -15,6 +15,19 @@ type OperationIdentity = Pick<AuthorityOperationEnvelope, "workspaceId" | "opId"
   readonly recordedProtocol?: RecordedAuthorityProtocol;
 };
 
+interface AuthorityOperationRecordTransition {
+  readonly envelope: OperationIdentity;
+  readonly semanticDigest: string;
+  readonly state: AuthorityOperationState;
+  readonly receipt?: AuthorityOperationReceipt;
+  readonly commitSha?: string;
+  readonly authorityIntegrity?: AuthorityOperationIntegrity;
+  readonly canonicalRequestEnvelope?: string;
+  readonly canonicalOperation?: WriteOp;
+  readonly recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1;
+  readonly fixedOperationBinding?: AuthorityFixedOperationBindingV1;
+}
+
 export type PersistAuthorityTerminal = (
   envelope: OperationIdentity,
   digest: string,
@@ -43,6 +56,7 @@ export function createAuthorityOperationRecordPersistence(
     recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1,
     fixedOperationBinding?: AuthorityFixedOperationBindingV1
   ) => Promise<void>;
+  readonly putMany: (records: ReadonlyArray<AuthorityOperationRecordTransition>) => Promise<void>;
   readonly persistTerminal: PersistAuthorityTerminal;
 } {
   const put = (
@@ -56,26 +70,37 @@ export function createAuthorityOperationRecordPersistence(
     canonicalOperation?: WriteOp,
     recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1,
     fixedOperationBinding?: AuthorityFixedOperationBindingV1
-  ): Promise<void> => operationRegistry.put({
-    workspaceId: envelope.workspaceId,
-    opId: envelope.opId,
+  ): Promise<void> => operationRegistry.put(operationRecord(
+    envelope,
     semanticDigest,
     state,
-    ...(receipt ? { receipt } : {}),
-    ...(commitSha ? { commitSha } : {}),
-    ...(authorityIntegrity ? { authorityIntegrity } : {}),
-    ...(canonicalRequestEnvelope ? { canonicalRequestEnvelope } : {}),
-    ...(canonicalOperation ? { canonicalOperation } : {}),
-    ...(recoveryPublicationPolicy ? { recoveryPublicationPolicy } : {}),
-    ...(fixedOperationBinding ? { fixedOperationBinding } : {}),
-    ...("recordedProtocol" in envelope && envelope.recordedProtocol
-      ? { recordedProtocol: envelope.recordedProtocol }
-      : "protocol" in envelope && envelope.protocol
-        ? { recordedProtocol: { kind: "authority-operation/v1" as const, schemaTuple: envelope.protocol } }
-        : {})
-  });
+    receipt,
+    commitSha,
+    authorityIntegrity,
+    canonicalRequestEnvelope,
+    canonicalOperation,
+    recoveryPublicationPolicy,
+    fixedOperationBinding
+  ));
+  const putMany = async (records: ReadonlyArray<AuthorityOperationRecordTransition>): Promise<void> => {
+    const stored = records.map((record) => operationRecord(
+      record.envelope,
+      record.semanticDigest,
+      record.state,
+      record.receipt,
+      record.commitSha,
+      record.authorityIntegrity,
+      record.canonicalRequestEnvelope,
+      record.canonicalOperation,
+      record.recoveryPublicationPolicy,
+      record.fixedOperationBinding
+    ));
+    if (operationRegistry.putMany) await operationRegistry.putMany(stored);
+    else for (const record of stored) await operationRegistry.put(record);
+  };
   return {
     put,
+    putMany,
     persistTerminal: async (
       envelope,
       digest,
@@ -106,5 +131,37 @@ export function createAuthorityOperationRecordPersistence(
         ? generationFence.runExclusive("before-terminal-journal", envelope, persist)
         : persist();
     }
+  };
+}
+
+function operationRecord(
+  envelope: OperationIdentity,
+  semanticDigest: string,
+  state: AuthorityOperationState,
+  receipt?: AuthorityOperationReceipt,
+  commitSha?: string,
+  authorityIntegrity?: AuthorityOperationIntegrity,
+  canonicalRequestEnvelope?: string,
+  canonicalOperation?: WriteOp,
+  recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1,
+  fixedOperationBinding?: AuthorityFixedOperationBindingV1
+): import("./types.ts").AuthorityStoredOperationRecord {
+  return {
+    workspaceId: envelope.workspaceId,
+    opId: envelope.opId,
+    semanticDigest,
+    state,
+    ...(receipt ? { receipt } : {}),
+    ...(commitSha ? { commitSha } : {}),
+    ...(authorityIntegrity ? { authorityIntegrity } : {}),
+    ...(canonicalRequestEnvelope ? { canonicalRequestEnvelope } : {}),
+    ...(canonicalOperation ? { canonicalOperation } : {}),
+    ...(recoveryPublicationPolicy ? { recoveryPublicationPolicy } : {}),
+    ...(fixedOperationBinding ? { fixedOperationBinding } : {}),
+    ...("recordedProtocol" in envelope && envelope.recordedProtocol
+      ? { recordedProtocol: envelope.recordedProtocol }
+      : "protocol" in envelope && envelope.protocol
+        ? { recordedProtocol: { kind: "authority-operation/v1" as const, schemaTuple: envelope.protocol } }
+        : {})
   };
 }

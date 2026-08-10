@@ -89,10 +89,10 @@ export function settlementFailure(error: unknown): {
   readonly message: string;
 } {
   const message = error instanceof Error ? error.message : String(error);
-  const stage = /MATERIALIZATION|materializer|merge conflict/iu.test(message)
-    ? "materializer"
-    : /PUBLICATION_PROOF/iu.test(message)
-      ? "publication-proof"
+  const stage = /PUBLICATION_PROOF/iu.test(message)
+    ? "publication-proof"
+    : /MATERIALIZATION|materializer|merge conflict/iu.test(message)
+      ? "materializer"
       : /EVENT_PUBLICATION|evidence/iu.test(message)
         ? "evidence"
         : /INTEGRITY|PROTOCOL_DAMAGED/iu.test(message)

@@ -24,6 +24,7 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
         return false;
       }
     },
+    ignoredPaths: readIgnoredPaths,
     add: (repoRoot, input) => {
       if (input.paths.length === 0) return;
       runGit(repoRoot, "add", "-A", ...(input.force ? ["-f"] : []), "--", ...input.paths);
@@ -371,6 +372,24 @@ function runGit(repoRoot: string, ...args: ReadonlyArray<string>): string {
   return runGitAs(repoRoot, undefined, ...args);
 }
 
+function readIgnoredPaths(repoRoot: string, relativePaths: ReadonlyArray<string>): ReadonlySet<string> {
+  if (relativePaths.length === 0) return new Set();
+  const input = `${relativePaths.join("\0")}\0`;
+  try {
+    return new Set(runGitWithInput(
+      repoRoot,
+      input,
+      "check-ignore",
+      "--no-index",
+      "-z",
+      "--stdin"
+    ).split("\0").filter(Boolean));
+  } catch (error) {
+    if (error instanceof VcsCommandError && String(error.exitCode) === "1") return new Set();
+    throw error;
+  }
+}
+
 function runGitBytes(repoRoot: string, ...args: ReadonlyArray<string>): Uint8Array {
   try {
     return execFileSync("git", ["-C", repoRoot, ...args], {
@@ -490,6 +509,8 @@ export function localGitProcessOptions(author?: VcsCommitAuthor): ExecFileSyncOp
   return {
     encoding: "utf8",
     maxBuffer: gitMaxBuffer,
+    timeout: 15_000,
+    killSignal: "SIGKILL",
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
     env: {

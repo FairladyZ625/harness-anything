@@ -196,20 +196,25 @@ export function createProductionAuthorityLifecycle(input: {
         commitEvidence,
         observation: {
           observe: async (request) => {
-            reportCurrentRepoWriteTelemetry("git");
-            const inspect = publicationObservers.get(repo.repoId);
-            if (!inspect) throw new Error("AUTHORITY_PRODUCTION_PUBLICATION_OBSERVER_UNAVAILABLE");
-            reportCurrentRepoWriteTelemetry("authority-replica-change-read");
-            const changes = await replicaChangeLog.changesAfter(request.workspaceId, 0);
-            const expectedOpIds = changes
-              .filter((change) => change.commitSha === request.commitSha)
-              .sort((left, right) => left.revision - right.revision)
-              .flatMap((change) => change.operations.map((operation) => operation.opId));
-            if (!expectedOpIds.includes(request.opId)) {
-              throw new Error(`AUTHORITY_PRODUCTION_PUBLICATION_OPERATION_MISSING:opId=${request.opId};commitSha=${request.commitSha}`);
+            let expectedOpIds = request.observation?.opIds ?? request.opIds;
+            if (!request.observation) {
+              reportCurrentRepoWriteTelemetry("authority-replica-change-read");
+              const change = await replicaChangeLog.getByCommit?.(request.workspaceId, request.commitSha);
+              if (!change) {
+                throw new Error(`AUTHORITY_PRODUCTION_PUBLICATION_CHANGE_MISSING:commitSha=${request.commitSha}`);
+              }
+              expectedOpIds = change.operations.map((operation) => operation.opId);
             }
-            reportCurrentRepoWriteTelemetry("authority-publication-proof");
-            const evidence = await inspect(request.previousCommit, expectedOpIds, request.commitSha);
+            if (request.opIds.some((opId) => !expectedOpIds.includes(opId))) {
+              throw new Error(`AUTHORITY_PRODUCTION_PUBLICATION_OPERATION_MISSING:opIds=${request.opIds.join(",")};commitSha=${request.commitSha}`);
+            }
+            const evidence = request.observation ?? await (async () => {
+              reportCurrentRepoWriteTelemetry("git");
+              const inspect = publicationObservers.get(repo.repoId);
+              if (!inspect) throw new Error("AUTHORITY_PRODUCTION_PUBLICATION_OBSERVER_UNAVAILABLE");
+              reportCurrentRepoWriteTelemetry("authority-publication-proof");
+              return inspect(request.previousCommit, expectedOpIds, request.commitSha);
+            })();
             if (evidence.commitSha !== request.commitSha || evidence.previousCommit !== request.previousCommit) {
               throw new Error("AUTHORITY_PRODUCTION_PUBLICATION_OBSERVATION_MISMATCH");
             }
@@ -225,7 +230,7 @@ export function createProductionAuthorityLifecycle(input: {
               registryVersion: 1,
               mutations: mutationSets.flatMap((mutationSet) => mutationSet.mutations)
             });
-            return evidence;
+            return { ...evidence, opIds: expectedOpIds };
           }
         }
       });

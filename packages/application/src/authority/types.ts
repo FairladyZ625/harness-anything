@@ -117,6 +117,28 @@ export interface AuthorityCommittedEventPublisherV2 {
     readonly actorAxesBinding: ActorAxesBindingCoreV2;
     readonly occurredAt: string;
   }) => Promise<AttributionEventV2>;
+  /**
+   * Publishes one canonical publication group with one shared physical proof
+   * and one evidence commit. The single-event method remains the recovery
+   * adapter for operation records written by older processes.
+   */
+  readonly publishBatch?: (input: {
+    readonly events: ReadonlyArray<{
+      readonly receipt: AuthorityCommittedReceipt;
+      readonly actorAxesBinding: ActorAxesBindingCoreV2;
+      readonly occurredAt: string;
+    }>;
+    readonly observation?: AuthorityCommittedPhysicalObservationV2;
+  }) => Promise<ReadonlyArray<AttributionEventV2>>;
+}
+
+export interface AuthorityCommittedPhysicalObservationV2 {
+  readonly opIds: ReadonlyArray<string>;
+  readonly commitSha: string;
+  readonly previousCommit: string | null;
+  readonly physicalChanges: ReadonlyArray<import("@harness-anything/kernel").PhysicalChangeV2>;
+  readonly pipelineGeneratedPaths: ReadonlyArray<string>;
+  readonly contentAddressedPaths: ReadonlyArray<string>;
 }
 
 export interface AuthorityRejectedReceipt {
@@ -219,6 +241,8 @@ export type AuthorityRecoveryPublicationPolicyV1 =
 export interface AuthorityOperationRegistry {
   readonly get: (workspaceId: string, opId: string) => Promise<AuthorityStoredOperationRecord | undefined>;
   readonly put: (record: AuthorityStoredOperationRecord) => Promise<void>;
+  /** Applies one state transition group at one durable append/fsync cut. */
+  readonly putMany?: (records: ReadonlyArray<AuthorityStoredOperationRecord>) => Promise<void>;
   readonly list: (workspaceId: string) => Promise<ReadonlyArray<AuthorityStoredOperationRecord>>;
 }
 
@@ -275,6 +299,7 @@ export interface ReplicaChangeLog {
   readonly append: (record: ReplicaChangeDraft) => Promise<void>;
   readonly latest: (workspaceId: string) => Promise<ReplicaChangeRecord | undefined>;
   readonly getByOperation: (workspaceId: string, opId: string) => Promise<ReplicaChangeRecord | undefined>;
+  readonly getByCommit?: (workspaceId: string, commitSha: string) => Promise<ReplicaChangeRecord | undefined>;
   readonly changesAfter: (workspaceId: string, revision: number) => Promise<ReadonlyArray<ReplicaChangeRecord>>;
   readonly subscribe: (workspaceId: string, listener: ReplicaChangeListener) => () => void;
 }
@@ -325,6 +350,9 @@ export interface CanonicalPublication {
   readonly parentCommits: ReadonlyArray<string>;
   readonly opIds?: ReadonlyArray<string>;
   readonly previousCommit?: string | null;
+  readonly physicalChanges?: ReadonlyArray<import("@harness-anything/kernel").PhysicalChangeV2>;
+  readonly pipelineGeneratedPaths?: ReadonlyArray<string>;
+  readonly contentAddressedPaths?: ReadonlyArray<string>;
 }
 
 export interface CanonicalPublicationInspector {
@@ -339,7 +367,14 @@ export interface CanonicalPublicationInspector {
   readonly findPublicationForOperation?: (
     opId: string
   ) => Promise<CanonicalPublication>;
+  readonly findPublicationTopologyForOperation?: (
+    opId: string
+  ) => Promise<CanonicalPublication>;
   readonly findDurableSuccessorPublicationForOperation?: (
+    opId: string,
+    expectedCommitSha: string
+  ) => Promise<CanonicalPublication>;
+  readonly findDurableSuccessorTopologyForOperation?: (
     opId: string,
     expectedCommitSha: string
   ) => Promise<CanonicalPublication>;

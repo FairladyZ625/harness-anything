@@ -31,13 +31,14 @@ export function planAttributionEventCommit(
   rootDir: string,
   rootInput: HarnessLayoutInput,
   touchedPaths: ReadonlyArray<string>,
-  versionControlSystem: VersionControlSystem
+  versionControlSystem: VersionControlSystem,
+  witnessedHead?: string
 ): { readonly willCommit: boolean; readonly preCommitSha: string } {
   const plan = resolveCommitPlan(rootDir, touchedPaths, rootInput, versionControlSystem);
   if (plan) {
     return {
       willCommit: versionControlSystem.workingTreeFiles(plan.repoRoot, plan.relativePaths).trim().length > 0,
-      preCommitSha: versionControlSystem.currentHead(plan.repoRoot)
+      preCommitSha: witnessedHead ?? versionControlSystem.currentHead(plan.repoRoot)
     };
   }
   const localRoot = resolveHarnessLayout(rootInput).localRoot;
@@ -109,7 +110,6 @@ function localEventIsDurable(event: AttributionEvent, context: AttributionEventS
 function eventExistsAtCommit(eventPath: string, context: AttributionEventStoreContext): boolean {
   const plan = resolveCommitPlan(context.rootDir, [eventPath], context.rootInput, context.versionControlSystem);
   return plan !== null &&
-    context.versionControlSystem.commitExists(plan.repoRoot, context.commitSha) &&
     plan.relativePaths.every((relativePath) => context.versionControlSystem.pathExistsAtCommit(plan.repoRoot, context.commitSha, relativePath));
 }
 

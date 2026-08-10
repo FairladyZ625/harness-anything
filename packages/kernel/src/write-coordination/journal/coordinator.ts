@@ -23,7 +23,7 @@ import type { ProjectionChangeEvent } from "../../projection/projection-change-e
 import { captureTrustedAuthoredProjectionFingerprint } from "../../projection/projection-source-baseline.ts";
 import { appendJsonLineDurably, readDurableState, readPayloadRef } from "./durable.ts";
 import { finalizeRecoverableDocumentTransaction } from "./operations/recoverable-document-transaction.ts";
-import { assertCommitPlanAddable, commitTouchedPaths } from "./publication/git.ts";
+import { commitTouchedPaths } from "./publication/git.ts";
 import { makeLocalVersionControlSystem } from "../../persistence/git/local-version-control-system.ts";
 import { writeJournalRecordCommitSummary } from "./publication/commit-summary.ts";
 import { createAttributionEvent, makeInlineAttributionEventStore, planAttributionEventCommit, type AttributionEventStore } from "../attribution/inline-attribution-event-store.ts";
@@ -350,7 +350,6 @@ function flushRecords(
     operationPaths.some((filePath) => !isLocalProjectionPath(localRoot, filePath))
   );
 
-  assertCommitPlanAddable(rootDir, plannedRecords.flatMap((record) => record.touchedPaths), rootInput, { versionControlSystem: publicationVcs });
   assertCodeDocReplacementHasAuthoredChange({
     rootDir,
     rootInput,
@@ -360,9 +359,13 @@ function flushRecords(
     readPayload: (record) => readVerifiedPayload(rootDir, record)
   });
   onProjectionFingerprintPhase?.("capture-start");
+  let projectionHeadWitness: string | undefined;
   const previousProjectionSourceFingerprint = records.length > 0 && projectionRelevant
     ? captureTrustedAuthoredProjectionFingerprint(rootInput, publicationVcs, undefined, {
-      onDiagnostic: onProjectionFingerprintDiagnostic
+      onDiagnostic: onProjectionFingerprintDiagnostic,
+      onHeadWitness: (head) => {
+        projectionHeadWitness = head;
+      }
     })
     : undefined;
   onProjectionFingerprintPhase?.("capture-done");
@@ -384,7 +387,13 @@ function flushRecords(
   const attributedRecords = plannedRecords
     .map((entry) => entry.record)
     .filter((record): record is Extract<ReadableJournalRecord, { readonly schema: "write-journal/v2" }> => record.schema === "write-journal/v2");
-  const eventCommitPlan = planAttributionEventCommit(rootDir, rootInput, touchedPaths, eventVcs);
+  const eventCommitPlan = planAttributionEventCommit(
+    rootDir,
+    rootInput,
+    touchedPaths,
+    eventVcs,
+    projectionHeadWitness
+  );
   const mutationWillCommit = eventCommitPlan.willCommit;
   const eventWrites = mutationWillCommit
     ? attributedRecords
@@ -408,6 +417,7 @@ function flushRecords(
     sessionId,
     {
       author: commitAuthor,
+      sessionBaseRef: eventCommitPlan.preCommitSha,
       preserveExplicitLogPaths: plannedRecords.flatMap(({ touchedPaths: operationPaths }) => operationPaths),
       versionControlSystem: publicationVcs,
       ...(onCommitPhase ? { onCommitPhase } : {})
@@ -446,7 +456,8 @@ function flushRecords(
     entityIds: plannedRecords.map(({ record }) => record.entityId),
     versionControlSystem: publicationVcs,
     onProjectionChange,
-    onPostCommitPhase
+    onPostCommitPhase,
+    forceCompaction: reason === "recovery"
   });
 
   return {

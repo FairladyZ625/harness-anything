@@ -45,9 +45,10 @@ export function assertCodeDocGitEvidence(
   writes: ReadonlyArray<DocumentWrite>,
   versionControlSystem: VersionControlSystem
 ): void {
+  const codeDocWrites = writes.filter((write) => normalizedPath(write.path, op) === CODE_DOC_RECONCILIATION_PATH);
+  if (codeDocWrites.length === 0) return;
   const gitEvidence = makeCodeDocGitEvidenceResolver({ rootDir, authoredRoot }, versionControlSystem);
-  for (const write of writes) {
-    if (normalizedPath(write.path, op) !== CODE_DOC_RECONCILIATION_PATH) continue;
+  for (const write of codeDocWrites) {
     const document = parseAndValidateDocument(write, op);
     for (const record of document.records) {
       for (const anchor of record.anchors) {

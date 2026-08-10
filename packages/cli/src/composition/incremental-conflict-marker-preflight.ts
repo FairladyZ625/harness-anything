@@ -32,9 +32,10 @@ export function makeIncrementalConflictMarkerPreflight(
 
   return {
     read: () => {
-      const currentHead = readGitHead(layout.authoredRoot);
-      const changedAuthoredPaths = cleanAuthoredHead && currentHead
-        ? readChangedGitPaths(layout.authoredRoot, cleanAuthoredHead)
+      const gitState = readAuthoredGitState(layout.authoredRoot);
+      const currentHead = gitState?.head ?? null;
+      const changedAuthoredPaths = cleanAuthoredHead && gitState
+        ? readChangedGitPaths(layout.authoredRoot, cleanAuthoredHead, gitState)
         : null;
       if (changedAuthoredPaths === null) {
         options.onScan?.({ mode: "full" });
@@ -56,9 +57,52 @@ export function makeIncrementalConflictMarkerPreflight(
   };
 }
 
-function readGitHead(repoRoot: string): string | null {
+interface AuthoredGitState {
+  readonly head: string;
+  readonly worktreePaths: ReadonlyArray<string>;
+}
+
+function readAuthoredGitState(repoRoot: string): AuthoredGitState | null {
   try {
-    return readGit(repoRoot, ["rev-parse", "--verify", "HEAD"]).trim() || null;
+    const entries = readGit(repoRoot, [
+      "status",
+      "--porcelain=v2",
+      "--branch",
+      "-z",
+      "--untracked-files=all",
+      "--ignored=matching"
+    ]).split("\0");
+    let head: string | undefined;
+    const worktreePaths: string[] = [];
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index]!;
+      const oid = /^# branch\.oid ([0-9a-f]{40})$/u.exec(entry)?.[1];
+      if (oid) {
+        head = oid;
+        continue;
+      }
+      const fieldCount = entry.startsWith("1 ")
+        ? 8
+        : entry.startsWith("2 ")
+          ? 9
+          : entry.startsWith("u ")
+            ? 10
+            : undefined;
+      if (fieldCount !== undefined) {
+        const changedPath = pathAfterFields(entry, fieldCount);
+        if (changedPath) worktreePaths.push(changedPath);
+        if (entry.startsWith("2 ")) {
+          const originalPath = entries[index + 1];
+          if (originalPath) worktreePaths.push(originalPath);
+          index += 1;
+        }
+        continue;
+      }
+      if (entry.startsWith("? ") || entry.startsWith("! ")) {
+        worktreePaths.push(entry.slice(2));
+      }
+    }
+    return head ? { head, worktreePaths } : null;
   } catch {
     return null;
   }
@@ -66,14 +110,14 @@ function readGitHead(repoRoot: string): string | null {
 
 function readChangedGitPaths(
   repoRoot: string,
-  cleanHead: string
+  cleanHead: string,
+  state: AuthoredGitState
 ): ReadonlyArray<string> | null {
   try {
-    const outputs = [
-      readGit(repoRoot, ["diff", "--name-only", "-z", cleanHead, "--"]),
-      readGit(repoRoot, ["ls-files", "--others", "-z"])
-    ];
-    return [...new Set(outputs.flatMap(nullSeparatedPaths))]
+    const committedPaths = state.head === cleanHead
+      ? []
+      : nullSeparatedPaths(readGit(repoRoot, ["diff", "--name-only", "-z", cleanHead, state.head, "--"]));
+    return [...new Set([...state.worktreePaths, ...committedPaths])]
       .filter((entry) => safeRepoRelativePath(entry))
       .filter((entry) => !entry.split(/[\\/]/u).some((part) =>
         part === ".git" || part === "node_modules"
@@ -81,6 +125,16 @@ function readChangedGitPaths(
   } catch {
     return null;
   }
+}
+
+function pathAfterFields(entry: string, fieldCount: number): string | null {
+  let cursor = 0;
+  for (let index = 0; index < fieldCount; index += 1) {
+    cursor = entry.indexOf(" ", cursor);
+    if (cursor < 0) return null;
+    cursor += 1;
+  }
+  return entry.slice(cursor);
 }
 
 function nullSeparatedPaths(output: string): ReadonlyArray<string> {

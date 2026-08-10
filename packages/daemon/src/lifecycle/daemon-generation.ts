@@ -154,6 +154,7 @@ export function createDaemonGenerationWitness(input: {
     }
     const lockContext = daemonGenerationLockContext.getStore();
     const ownerToken = lockContext?.active ? lockContext.heldLocks.get(lockPath) : undefined;
+    if (ownerToken && lockContext?.verifiedLocks.has(lockPath)) return;
     if (ownerToken) {
       try {
         assertDaemonGenerationMutationLockOwner(lockPath, ownerToken);
@@ -167,6 +168,7 @@ export function createDaemonGenerationWitness(input: {
       lost = new DaemonGenerationWitnessLostError(expected, observed);
       throw lost;
     }
+    if (ownerToken) lockContext!.verifiedLocks.add(lockPath);
   };
   return {
     ...expected,

@@ -241,7 +241,8 @@ async function taskCompletePublicationGitTextRaw(rootDir: string, args: Readonly
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
     windowsHide: true,
-    timeout: 25_000
+    timeout: 25_000,
+    killSignal: "SIGKILL"
   });
   return stdout;
 }
@@ -250,7 +251,8 @@ async function gitHashObject(rootDir: string, body: string): Promise<string> {
   const child = execFile("git", ["-C", rootDir, "hash-object", "--stdin"], {
     encoding: "utf8",
     windowsHide: true,
-    timeout: 25_000
+    timeout: 25_000,
+    killSignal: "SIGKILL"
   });
   child.stdin?.write(body);
   child.stdin?.end();

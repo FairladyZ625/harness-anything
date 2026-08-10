@@ -16,6 +16,7 @@ const maximumGitObjectBytes = 64 * 1024 * 1024;
 const exactSha1Pattern = /^[a-f0-9]{40}$/u;
 const batchHeaderPattern = /^([a-f0-9]{40}) ([a-z]+) ([0-9]+)$/u;
 const maximumConsecutiveRebuilds = 1;
+const gitObjectReadDeadlineMs = 15_000;
 const readersByRoot = new Map<string, PublicationGitObjectReader>();
 const canonicalRootsByInput = new Map<string, string>();
 const execFileAsync = promisify(execFile);
@@ -242,7 +243,7 @@ class PublicationGitObjectReader {
     const batch = this.batch;
     let response: Awaited<ReturnType<GitCatFileBatchProcess["read"]>>;
     try {
-      response = await batch.read(objectName);
+      response = await withGitObjectReadDeadline(batch.read(objectName), this.rootDir, objectName);
     } catch (error) {
       this.batch = undefined;
       await batch.terminate();
@@ -461,9 +462,30 @@ async function oneShotGitObject(rootDir: string, objectName: string): Promise<Bu
   const { stdout } = await execFileAsync("git", ["-C", rootDir, "show", objectName], {
     encoding: "buffer",
     windowsHide: true,
-    maxBuffer: maximumGitObjectBytes
+    maxBuffer: maximumGitObjectBytes,
+    timeout: gitObjectReadDeadlineMs,
+    killSignal: "SIGKILL"
   });
   return stdout;
+}
+
+function withGitObjectReadDeadline<Result>(
+  operation: Promise<Result>,
+  rootDir: string,
+  objectName: string
+): Promise<Result> {
+  let timer: NodeJS.Timeout | undefined;
+  return Promise.race([
+    operation,
+    new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new GitObjectBatchValidationError(
+        `AUTHORITY_GIT_OBJECT_BATCH_TIMEOUT:root=${rootDir};object=${objectName};elapsedMs=${gitObjectReadDeadlineMs};lastPhase=cat-file-response`
+      )), gitObjectReadDeadlineMs);
+      timer.unref();
+    })
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 function reportBatchFailure(

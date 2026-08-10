@@ -132,7 +132,9 @@ function gitHeadFile(target: string): string {
       cwd,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true
+      windowsHide: true,
+      timeout: 10_000,
+      killSignal: "SIGKILL"
     }
   ).trim();
   const head = execFileSync(
@@ -142,7 +144,9 @@ function gitHeadFile(target: string): string {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true
+      windowsHide: true,
+      timeout: 10_000,
+      killSignal: "SIGKILL"
     }
   ).trim();
   const relative = path.relative(root, realpathSync(target))
@@ -154,7 +158,9 @@ function gitHeadFile(target: string): string {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "ignore", "pipe"],
-      windowsHide: true
+      windowsHide: true,
+      timeout: 10_000,
+      killSignal: "SIGKILL"
     }
   );
   if (exists.status === 1) return "# Progress\n\n## Entries\n\n";
@@ -172,7 +178,9 @@ function gitHeadFile(target: string): string {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true
+      windowsHide: true,
+      timeout: 10_000,
+      killSignal: "SIGKILL"
     }
   );
 }
