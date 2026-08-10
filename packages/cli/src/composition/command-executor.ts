@@ -59,6 +59,7 @@ export interface ParsedCommandExecutionOptions {
   readonly onLockConflictRetrySignal?: (signal: RetryBudgetSignal) => void;
   readonly onTelemetry?: DaemonHostCommandExecutionOptions["onTelemetry"];
   readonly onCommandTelemetry?: DaemonHostCommandExecutionOptions["onCommandTelemetry"];
+  readonly deferCommandRuntimeEvent?: DaemonHostCommandExecutionOptions["deferCommandRuntimeEvent"];
   readonly conflictMarkerPreflight?: DaemonHostCommandExecutionOptions["conflictMarkerPreflight"];
 }
 
@@ -276,6 +277,7 @@ export async function runRegisteredCommandWithCliComposition(
     authorityCommandPreflight: options.authorityCommandPreflight === true,
     outerProceedingRecovery: options.outerProceedingRecovery === true,
     onCommandTelemetry: options.onCommandTelemetry,
+    deferCommandRuntimeEvent: options.deferCommandRuntimeEvent,
     onTelemetry: options.onTelemetry,
     conflictMarkerPreflight: options.conflictMarkerPreflight
   }).pipe(

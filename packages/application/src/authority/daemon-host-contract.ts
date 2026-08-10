@@ -305,6 +305,10 @@ export interface DaemonHostCommandExecutionOptions {
   readonly onTelemetry?: (phase: DaemonHostCommandExecutionTelemetryPhase) => void;
   /** Cheap child-local boundaries for work that runs after the authority result is durable. */
   readonly onCommandTelemetry?: (phase: "runtime-event-append-start" | "runtime-event-append-done") => void;
+  /** Child writers may hand the automatic audit append to their post-response drain. */
+  readonly deferCommandRuntimeEvent?: (
+    append: () => Promise<DaemonHostCommandResult>
+  ) => void;
   readonly conflictMarkerPreflight?: () => ProjectionWarning | undefined;
 }
 

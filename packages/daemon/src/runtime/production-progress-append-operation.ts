@@ -2,22 +2,15 @@ import { randomUUID } from "node:crypto";
 import {
   type AuthorityOperationReceipt,
   type CommandReceiptEnvelope,
-  type DaemonCommandHostServices,
   type DaemonHostCommand,
   type DaemonHostCommandResult
 } from "@harness-anything/application";
 import type {
-  AuthorityRepoComponent,
   AuthorityRepoConnectionBinding
 } from "../authority/authority-lifecycle.ts";
-import type { AuthenticatedActor } from "../identity/types.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import { createDaemonCommandService } from "../service/command-service.ts";
-import type { HarnessDaemonRuntime } from "./repo-runtime.ts";
-import {
-  RepoWriteAuthorityRecoveryGate,
-  type RepoWriteAuthorityRecoveryGateOptions
-} from "./repo-write-authority-recovery-gate.ts";
+import { RepoWriteAuthorityRecoveryGate } from "./repo-write-authority-recovery-gate.ts";
 import {
   RepoWriteDurableOperationController,
   type RepoWriteDurableExecutionResult
@@ -41,8 +34,6 @@ import {
   type RepoWriteProceedingOutcomeV1,
   type RepoWriteTerminalEvidenceV1
 } from "./repo-write-outcome-schema.ts";
-import { DurableRepoWriteOutcomeStoreV1 } from "./durable-repo-write-outcome-store.ts";
-import { ReceiptSettlementStore } from "./receipt-settlement-store.ts";
 import {
   holdBackgroundAuthoritySettlement,
   type AuthorityDurableAcceptance
@@ -67,61 +58,32 @@ import {
 } from "./repo-write-telemetry-context.ts";
 import {
   executeRepoWriteDocSyncOperation,
-  prepareRepoWriteDocSyncOperation,
-  type RepoWriteDocSyncExecution
+  prepareRepoWriteDocSyncOperation
 } from "./repo-write-doc-sync-operation.ts";
 import { exactRepoWriteReceipt } from "./repo-write-exact-receipt.ts";
 import { repoWriteCommandReceiptJsonObject } from "./repo-write-command-receipt.ts";
+import {
+  BackgroundCommandRuntimeEventDrain,
+  type DeferredCommandRuntimeEventAppend
+} from "./background-command-runtime-event.ts";
+import type {
+  ProductionRepoWriteOperationHostOptions,
+  ResolvedProductionRepoWriteOperationHostOptions
+} from "./production-repo-write-operation-options.ts";
 
 export type { RepoWriteDocSyncExecution } from "./repo-write-doc-sync-operation.ts";
+export type { BackgroundRuntimeEventFailure } from "./background-command-runtime-event.ts";
 
 export class ProductionRepoWriteOperationHost<
   Command extends DaemonHostCommand,
   Result extends DaemonHostCommandResult
 > {
-  private readonly options: {
-    readonly repoId: string;
-    readonly workspaceId: string;
-    readonly generation: number;
-    readonly runtime: HarnessDaemonRuntime;
-    readonly authorityComponent: AuthorityRepoComponent;
-    readonly hostServices: DaemonCommandHostServices<Command, Result, AuthenticatedActor>;
-    readonly outcomeStore: DurableRepoWriteOutcomeStoreV1;
-    readonly settlementStore: ReceiptSettlementStore;
-    readonly resolveHistoricalPublication?: RepoWriteAuthorityRecoveryGateOptions["resolveHistoricalPublication"];
-    readonly recoverHistoricalCommittedReceipt?: RepoWriteAuthorityRecoveryGateOptions["recoverHistoricalCommittedReceipt"];
-    readonly executeDocSyncSubmit?: (input: {
-      readonly command: RepoWriteCommandDto;
-      readonly decoded: ReturnType<typeof decodeRepoWriteCommand>;
-    }) => Promise<RepoWriteDocSyncExecution | undefined>;
-    readonly conflictMarkerPreflight?: () => import("@harness-anything/kernel").ProjectionWarning | undefined;
-    readonly recoverSettlements?: () => Promise<void>;
-    readonly now: () => Date;
-    readonly newOuterOpId: () => string;
-  };
+  private readonly options: ResolvedProductionRepoWriteOperationHostOptions<Command, Result>;
   private readonly recoveryGate: RepoWriteAuthorityRecoveryGate;
   private readonly operations: RepoWriteDurableOperationController;
+  private readonly runtimeEventDrain: BackgroundCommandRuntimeEventDrain;
 
-  constructor(options: {
-    readonly repoId: string;
-    readonly workspaceId: string;
-    readonly generation: number;
-    readonly runtime: HarnessDaemonRuntime;
-    readonly authorityComponent: AuthorityRepoComponent;
-    readonly hostServices: DaemonCommandHostServices<Command, Result, AuthenticatedActor>;
-    readonly outcomeStore: DurableRepoWriteOutcomeStoreV1;
-    readonly settlementStore: ReceiptSettlementStore;
-    readonly resolveHistoricalPublication?: RepoWriteAuthorityRecoveryGateOptions["resolveHistoricalPublication"];
-    readonly recoverHistoricalCommittedReceipt?: RepoWriteAuthorityRecoveryGateOptions["recoverHistoricalCommittedReceipt"];
-    readonly executeDocSyncSubmit?: (input: {
-      readonly command: RepoWriteCommandDto;
-      readonly decoded: ReturnType<typeof decodeRepoWriteCommand>;
-    }) => Promise<RepoWriteDocSyncExecution | undefined>;
-    readonly conflictMarkerPreflight?: () => import("@harness-anything/kernel").ProjectionWarning | undefined;
-    readonly recoverSettlements?: () => Promise<void>;
-    readonly now?: () => Date;
-    readonly newOuterOpId?: () => string;
-  }) {
+  constructor(options: ProductionRepoWriteOperationHostOptions<Command, Result>) {
     this.options = {
       ...options,
       now: options.now ?? (() => new Date()),
@@ -149,6 +111,11 @@ export class ProductionRepoWriteOperationHost<
       now: this.options.now,
       recover: (proceeding) => this.execute(proceeding, true)
     });
+    this.runtimeEventDrain = new BackgroundCommandRuntimeEventDrain({
+      ...(options.onBackgroundRuntimeEventFailure ? {
+        onFailure: options.onBackgroundRuntimeEventFailure
+      } : {})
+    });
   }
 
   readonly runAuthorizedRecoveryPlan: RepoWriteAuthorityRecoveryGate["runPlannedRecovery"] =
@@ -159,7 +126,10 @@ export class ProductionRepoWriteOperationHost<
     (recovery, useDurableProceeding) =>
       this.recoveryGate.runAttemptRecovery(recovery, useDurableProceeding);
 
-  readonly settlementIdle = (): Promise<void> => this.operations.settlementIdle();
+  readonly settlementIdle = async (): Promise<void> => {
+    await this.operations.settlementIdle();
+    await this.runtimeEventDrain.idle();
+  };
 
   readonly recoverCanonicalPublicationSettlement = (input: {
     readonly outerOpId: string;
@@ -246,10 +216,12 @@ export class ProductionRepoWriteOperationHost<
         };
       }
     };
+    const deferredRuntimeEvents: DeferredCommandRuntimeEventAppend[] = [];
     const commandService = createDaemonCommandService(
       this.options.runtime,
       this.options.hostServices,
       {
+        deferCommandRuntimeEvent: (append) => deferredRuntimeEvents.push(append),
         resolveAuthoritySubmissionV2: () => capturingBinding,
         authorityCutoverControl: this.options.authorityComponent.cutoverControl,
         ...(this.options.conflictMarkerPreflight ? {
@@ -269,6 +241,12 @@ export class ProductionRepoWriteOperationHost<
         }
       }
     ));
+    const releaseAfterResponse = this.runtimeEventDrain.responseRelease({
+      requestId: input.requestId,
+      command: command.action.kind,
+      releaseAuthoritySettlement: held.releaseAfterResponse,
+      appends: deferredRuntimeEvents
+    });
     try {
       if (command.action.kind === "materializer-run") {
         await this.options.recoverSettlements?.();
@@ -280,10 +258,10 @@ export class ProductionRepoWriteOperationHost<
           store: this.options.settlementStore,
           now: this.options.now
         })),
-        held.releaseAfterResponse
+        releaseAfterResponse
       );
     } catch (error) {
-      held.releaseAfterResponse();
+      releaseAfterResponse();
       throw error;
     }
   }
@@ -511,11 +489,13 @@ export class ProductionRepoWriteOperationHost<
         };
       }
     };
+    const deferredRuntimeEvents: DeferredCommandRuntimeEventAppend[] = [];
     const commandService = createDaemonCommandService(
       this.options.runtime,
       this.options.hostServices,
       {
         taskLeaseGuardMode: "read-only",
+        deferCommandRuntimeEvent: (append) => deferredRuntimeEvents.push(append),
         ...(recovery ? { outerProceedingRecovery: true as const } : {}),
         resolveAuthoritySubmissionV2: () => capturingSubmission,
         ...(this.options.conflictMarkerPreflight ? {
@@ -535,6 +515,12 @@ export class ProductionRepoWriteOperationHost<
         }
       }
     ));
+    const releaseAfterResponse = this.runtimeEventDrain.responseRelease({
+      requestId: proceeding.outerOpId,
+      command: currentCommand.commandName,
+      releaseAuthoritySettlement: held.releaseAfterResponse,
+      appends: deferredRuntimeEvents
+    });
     try {
       const receipt = exactRepoWriteReceipt(held.result, proceeding, authorityEvidence);
       const accepted = durableSubmissions
@@ -554,17 +540,18 @@ export class ProductionRepoWriteOperationHost<
             }
             return exact;
           }),
-          releaseSettlement: held.releaseAfterResponse
+          releaseSettlement: releaseAfterResponse
         };
       }
-      held.releaseAfterResponse();
+      releaseAfterResponse();
       const evidence = terminalEvidence(authorityEvidence, receipt, proceeding);
       return { kind: "terminal", receipt, authorityEvidence: evidence };
     } catch (error) {
-      held.releaseAfterResponse();
+      releaseAfterResponse();
       throw error;
     }
   }
+
 }
 
 export {

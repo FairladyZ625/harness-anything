@@ -63,6 +63,9 @@ export interface DaemonCommandServiceOptions {
   readonly onCommandSettled?: () => void;
   readonly taskLeaseGuardMode?: "read-only";
   readonly outerProceedingRecovery?: true;
+  readonly deferCommandRuntimeEvent?: (
+    append: () => Promise<DaemonHostCommandResult>
+  ) => void;
   readonly conflictMarkerPreflight?: () => import("@harness-anything/kernel").ProjectionWarning | undefined;
   readonly repoWriteDispatch?: {
     readonly repoId: string;
@@ -308,6 +311,7 @@ export function createDaemonCommandService<
               ),
             onTelemetry: reportCurrentRepoWriteTelemetry,
             onCommandTelemetry: reportCurrentRepoWriteTelemetry,
+            deferCommandRuntimeEvent: options.deferCommandRuntimeEvent,
             ...(options.conflictMarkerPreflight ? {
               conflictMarkerPreflight: options.conflictMarkerPreflight
             } : {})
