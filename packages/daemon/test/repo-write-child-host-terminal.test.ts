@@ -1,6 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import {
+  pendingCommandReceiptSettlement,
+  withCommandReceiptSettlement
+} from "../src/runtime/command-receipt-settlement.ts";
+import { repoWriteDirectResponseDelivery } from "../src/runtime/repo-write-child-direct.ts";
 import { createRepoWriteChildHost } from "../src/runtime/repo-write-child-host.ts";
 import {
   repoWriteProtocolType,
@@ -156,6 +161,73 @@ test("volatile direct returns an exact receipt without durable frames or lookup"
     requestId: "direct-receipt",
     receipt: rejectedCommandReceipt()
   });
+});
+
+test("direct task write delivers its pending receipt before releasing slow settlement", async (t) => {
+  const messages: Array<{ readonly frame: RepoWriteChildMessage; readonly at: number }> = [];
+  const settlementDelayMs = 120;
+  const settled = deferred<void>();
+  let settlementStartedAt: number | undefined;
+  let settlementFinishedAt: number | undefined;
+  const receipt = withCommandReceiptSettlement(
+    committedCommandReceipt("accepted task create"),
+    pendingCommandReceiptSettlement({
+      receiptId: "repo-write-direct:op-task-create",
+      acceptedAt: "2026-08-05T00:00:00.000Z",
+      sessionId: "session-task-create",
+      acceptedCommitSha: "a".repeat(40),
+      authorityOperationIds: ["op-task-create"]
+    })
+  );
+  const host = createRepoWriteChildHost({
+    repoId: "repo-canonical",
+    workspaceId: "workspace-canonical",
+    generation: 3,
+    artifactIdentity: `sha256:${"a".repeat(64)}`,
+    transport: {
+      send: (frame) => {
+        messages.push({ frame, at: performance.now() });
+      }
+    },
+    hooks: {
+      prepare: async () => { throw new Error("direct must not prepare"); },
+      direct: async () => repoWriteDirectResponseDelivery(
+        receipt as unknown as import("../src/runtime/repo-write-protocol.ts").RepoWriteJsonObject,
+        () => setImmediate(() => {
+          settlementStartedAt = performance.now();
+          const deadline = settlementStartedAt + settlementDelayMs;
+          while (performance.now() < deadline) {
+            // Deliberately model synchronous Git/projection work in the child.
+          }
+          settlementFinishedAt = performance.now();
+          settled.resolve();
+        })
+      ),
+      lookup: async () => ({ state: "not-found" }),
+      shutdown: async () => undefined
+    }
+  });
+  await host.start();
+
+  const startedAt = performance.now();
+  await host.receive(direct("direct-task-create"));
+  const response = messages.find(({ frame }) => frame.kind === "direct-result");
+  assert.equal(response?.frame.kind, "direct-result");
+  if (!response || response.frame.kind !== "direct-result") return;
+  await settled.promise;
+
+  assert.equal(response.frame.receipt.settlement?.canonicalVisibility, "pending");
+  assert.equal(response.frame.receipt.settlement?.statusQuery.command,
+    "ha receipt status repo-write-direct:op-task-create --json");
+  assert.ok(settlementStartedAt !== undefined);
+  assert.ok(settlementFinishedAt !== undefined);
+  assert.ok(response.at < settlementStartedAt);
+  t.diagnostic(JSON.stringify({
+    responseMs: response.at - startedAt,
+    settlementDelayMs,
+    settlementStartedAfterMs: settlementStartedAt - startedAt,
+    settlementFinishedAfterMs: settlementFinishedAt - startedAt
+  }));
 });
 
 test("durable proceed, replacement recovery, and volatile direct share one FIFO", async () => {
