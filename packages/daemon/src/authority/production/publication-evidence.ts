@@ -8,7 +8,6 @@ import {
   type PhysicalChangeV2
 } from "@harness-anything/kernel";
 import {
-  scanAuthorityBatchCommits,
   scanFirstParentPublicationMetadata,
   type AuthorityBatchCommitMetadata,
   type FirstParentPublicationMetadata
@@ -37,6 +36,10 @@ import {
 import type { RetryBudgetSignal } from "../../observability/visible-retry-budget.ts";
 import { createDaemonRetryBudgetSignalSink } from "../../observability/daemon-retry-budget-log.ts";
 import {
+  resolveDurableSuccessorPublication,
+  type DurableSuccessorPublicationRetryOptions
+} from "./durable-successor-publication.ts";
+import {
   AuthorityCanonicalPublicationNotFoundError,
   AuthorityRecoveryWatermarkInvalidError,
   type CanonicalPublicationEvidence,
@@ -59,9 +62,13 @@ export function publicationRetryOptions(
     : {};
 }
 
+interface GitCanonicalPublicationInspectorOptions {
+  readonly onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void;
+  readonly durableSuccessorRetry?: DurableSuccessorPublicationRetryOptions;
+}
 export function createGitCanonicalPublicationInspector(
   canonicalRoot: string,
-  options: { readonly onRetryBudgetSignal?: (signal: RetryBudgetSignal) => void } = {}
+  options: GitCanonicalPublicationInspectorOptions = {}
 ): GitCanonicalPublicationInspector {
   const rootDir = path.resolve(canonicalRoot);
   const readerOwner = publicationReaderOwner();
@@ -380,57 +387,26 @@ export function createGitCanonicalPublicationInspector(
     opId: string,
     expectedCommitSha: string,
     includePhysicalEvidence: boolean
-  ): Promise<CanonicalPublicationEvidence> => {
-    const history = await indexedHistory();
-    const publication = history?.commits.find((commit) => commit.commitSha === expectedCommitSha);
-    const previousCommit = publication?.parents[0];
-    const sessionCommit = publication?.parents[1];
-    if (!publication || !previousCommit || !sessionCommit || publication.parents.length !== 2) {
-      throw new AuthorityCanonicalPublicationNotFoundError(opId);
-    }
-    const sessionBase = publicationGitText(rootDir, "merge-base", previousCommit, sessionCommit);
-    if (!sessionBase) throw new AuthorityCanonicalPublicationNotFoundError(opId);
-    const commitShas = publicationGitText(
-      rootDir,
-      "rev-list",
-      "--reverse",
-      "--first-parent",
-      `${sessionBase}..${sessionCommit}`
-    ).split("\n").filter(Boolean);
-    const batches = await scanAuthorityBatchCommits({
-      rootDir,
-      headCommit: sessionCommit,
-      exclusiveCommit: sessionBase
-    });
-    const batchesByCommit = new Map(batches.map((batch) => [batch.commitSha, batch]));
-    let parent = sessionBase;
-    const orderedBatches: AuthorityBatchCommitMetadata[] = [];
-    for (const commitSha of commitShas) {
-      const parents = publicationGitText(rootDir, "rev-list", "--parents", "-n", "1", commitSha)
-        .split(" ").slice(1).filter(Boolean);
-      const batch = batchesByCommit.get(commitSha);
-      if (parents.length !== 1 || parents[0] !== parent || !batch) {
-        throw new Error(`AUTHORITY_CANONICAL_PUBLICATION_SUCCESSOR_SEQUENCE_INVALID:${commitSha}`);
-      }
-      orderedBatches.push(batch);
-      parent = commitSha;
-    }
-    if (parent !== sessionCommit || orderedBatches.length !== batches.length) {
-      throw new Error("AUTHORITY_CANONICAL_PUBLICATION_SUCCESSOR_SEQUENCE_INCOMPLETE");
-    }
-    const opIds = orderedBatches.flatMap((batch) => batch.opIds);
-    if (!opIds.includes(opId) || new Set(opIds).size !== opIds.length) {
-      throw new Error("AUTHORITY_CANONICAL_PUBLICATION_SUCCESSOR_OPERATION_GROUP_INVALID");
-    }
-    return inspectPublication(
+  ): Promise<CanonicalPublicationEvidence> => resolveDurableSuccessorPublication({
+    rootDir,
+    opId,
+    expectedCommitSha,
+    observe: async () => {
+      const history = await indexedHistory();
+      return history?.commits.find((commit) => commit.commitSha === expectedCommitSha);
+    },
+    inspect: (previousCommit, opIds, publication) => inspectPublication(
       previousCommit,
       opIds,
       expectedCommitSha,
       publication,
       true,
       includePhysicalEvidence
-    );
-  };
+    ),
+    readGitText: (...args) => publicationGitText(rootDir, ...args),
+    ...(options.durableSuccessorRetry ? { retry: options.durableSuccessorRetry } : {}),
+    ...(options.onRetryBudgetSignal ? { onRetryBudgetSignal: options.onRetryBudgetSignal } : {})
+  });
   const findDurableSuccessorPublicationForOperation = (
     opId: string,
     expectedCommitSha: string

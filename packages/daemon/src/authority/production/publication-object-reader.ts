@@ -343,7 +343,8 @@ class GitCatFileBatchProcess {
 
   async terminate(): Promise<void> {
     if (this.child.exitCode !== null || this.child.signalCode !== null) return;
-    this.child.stdin.destroy();
+    this.child.stdin.end();
+    if (await waitForExit(this.child, 250)) return;
     this.child.kill("SIGTERM");
     if (await waitForExit(this.child, 250)) return;
     this.child.kill("SIGKILL");
