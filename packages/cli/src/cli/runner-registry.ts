@@ -6,7 +6,7 @@ import type { ArtifactStoreError, DomainStatus, EngineError, PriorityTier, TaskW
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "@harness-anything/kernel";
 import { createHarnessRuntimeContext } from "@harness-anything/kernel";
 import type { WriteCoordinator } from "@harness-anything/kernel";
-import { requiresConflictMarkerPreflight, taskPrincipalRequiredForAction } from "./command-event-policy.ts";
+import { requiresConflictMarkerPreflight, runtimeEventPolicyForAction, taskPrincipalRequiredForAction } from "./command-event-policy.ts";
 import { receiptCommandKind } from "./receipt-command-kind.ts";
 import { commandSpecMap, commandSpecs, type CommandKind } from "./command-spec/index.ts";
 import type { CommandSpecDefinition } from "./command-spec/types.ts";
@@ -221,7 +221,18 @@ export function runRegisteredCommand(
     Effect.catchAll((error) => isIndeterminateFlushControlOutcome(error)
       ? Effect.fail(error)
       : Effect.succeed(commandFailureResult(command, error))),
-    Effect.flatMap((result) => appendCommandRuntimeEvent(context, command, result)),
+    Effect.flatMap((result) => {
+      if (runtimeEventPolicyForAction(command.action) !== "auto"
+        || execution.deferCommandRuntimeEvent === undefined) {
+        return appendCommandRuntimeEvent(context, command, result);
+      }
+      return Effect.sync(() => {
+        execution.deferCommandRuntimeEvent?.(
+          () => Effect.runPromise(appendCommandRuntimeEvent(context, command, result))
+        );
+        return result;
+      });
+    }),
     Effect.catchAll((error) => Effect.succeed(commandFailureResult(command, error)))
   );
 }

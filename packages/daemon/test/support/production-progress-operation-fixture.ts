@@ -27,11 +27,17 @@ export function productionProgressOperationHost(
   events: string[],
   outcomeDirectory: string,
   executeDocSyncSubmit?: () => Promise<RepoWriteDocSyncExecution>,
-  requireOuterProceeding = true
+  requireOuterProceeding = true,
+  runtimeEventTail?: {
+    readonly materializerDelayMs: number;
+    readonly timing: { startedAt?: number; finishedAt?: number };
+    readonly failReason?: string;
+    readonly failures?: Array<{ readonly requestId: string; readonly command: string; readonly reason: string }>;
+  }
 ) {
   return new ProductionProgressAppendOperationHost({
     ...productionProgressOperationAxes(),
-    runtime: progressOperationRuntime(events, requireOuterProceeding),
+    runtime: progressOperationRuntime(events, requireOuterProceeding, runtimeEventTail),
     authorityComponent,
     hostServices: cliDaemonCommandHostServices,
     outcomeStore: store,
@@ -41,6 +47,9 @@ export function productionProgressOperationHost(
     }),
     now: () => new Date("2026-07-24T00:00:00.000Z"),
     newOuterOpId: () => "outer-progress-operation",
+    ...(runtimeEventTail?.failures ? {
+      onBackgroundRuntimeEventFailure: (failure) => runtimeEventTail.failures!.push(failure)
+    } : {}),
     ...(executeDocSyncSubmit ? { executeDocSyncSubmit } : {})
   });
 }
@@ -340,7 +349,13 @@ function alreadySatisfiedEvidence(semanticDigest: string) {
 
 function progressOperationRuntime(
   events: string[],
-  requireOuterProceeding: boolean
+  requireOuterProceeding: boolean,
+  runtimeEventTail?: {
+    readonly materializerDelayMs: number;
+    readonly timing: { startedAt?: number; finishedAt?: number };
+    readonly failReason?: string;
+    readonly failures?: Array<{ readonly requestId: string; readonly command: string; readonly reason: string }>;
+  }
 ): HarnessDaemonRuntime {
   return {
     start: async () => { throw new Error("not used"); },
@@ -351,6 +366,18 @@ function progressOperationRuntime(
         throw new Error("operational write started before durable PROCEEDING");
       }
       events.push("runtime-event-write");
+      if (runtimeEventTail) {
+        runtimeEventTail.timing.startedAt = performance.now();
+        events.push("runtime-event-materializer-start");
+        const deadline = runtimeEventTail.timing.startedAt + runtimeEventTail.materializerDelayMs;
+        while (performance.now() < deadline) {
+          // Model the real queue drain: resolving the interactive append cannot
+          // resume its promise continuation until the adjacent materializer yields.
+        }
+        runtimeEventTail.timing.finishedAt = performance.now();
+        events.push("runtime-event-materializer-end");
+        if (runtimeEventTail.failReason) throw new Error(runtimeEventTail.failReason);
+      }
       return {
         commandId: request.commandId,
         opIds: request.ops.map((op) => op.opId),

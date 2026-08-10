@@ -11,6 +11,7 @@ export interface ConflictMarkerExecutionBoundary {
   readonly outerProceedingRecovery: boolean;
   readonly onTelemetry?: (phase: "command-conflict-preflight" | "command-conflict-recheck") => void;
   readonly onCommandTelemetry?: (phase: "runtime-event-append-start" | "runtime-event-append-done") => void;
+  readonly deferCommandRuntimeEvent?: (append: () => Promise<CliResult>) => void;
   readonly conflictMarkerPreflight?: () => ProjectionWarning | undefined;
 }
 
