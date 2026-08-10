@@ -89,26 +89,35 @@ export interface DaemonAuthorityDurableSubmissionV2 {
 
 export class AuthorityCompileRejectedError extends Error {
   readonly code: string;
+  readonly details: Readonly<Record<string, unknown>> | undefined;
   readonly outcome = "not-started" as const;
   readonly replay = "caller-may-retry" as const;
 
-  constructor(code: string, message: string, options: { readonly cause?: unknown } = {}) {
+  constructor(code: string, message: string, options: {
+    readonly cause?: unknown;
+    readonly details?: Readonly<Record<string, unknown>>;
+  } = {}) {
     super(
       message,
       options.cause === undefined ? undefined : { cause: options.cause }
     );
     this.name = "AuthorityCompileRejectedError";
     this.code = code;
+    this.details = options.details;
   }
 }
 
 export function authorityCompileRejected(cause: unknown): AuthorityCompileRejectedError {
   if (cause instanceof AuthorityCompileRejectedError) return cause;
   const reason = cause instanceof Error ? cause.message : String(cause);
+  const details = compileRejectionDetails(cause);
+  const structuredCode = details && typeof (cause as { readonly code?: unknown }).code === "string"
+    ? (cause as { readonly code: string }).code
+    : undefined;
   return new AuthorityCompileRejectedError(
-    authorityRejectionCode(reason),
+    structuredCode ?? authorityRejectionCode(reason),
     reason,
-    { cause }
+    { cause, ...(details ? { details } : {}) }
   );
 }
 
@@ -135,7 +144,8 @@ export function createDaemonAuthorityCommandSubmissionV2(options: {
       throw authorityWriteRejected(
         rejected.message,
         false,
-        rejected.code
+        rejected.code,
+        rejected.details
       );
     }
   };
@@ -160,6 +170,14 @@ export function createDaemonAuthorityCommandSubmissionV2(options: {
     submit: (input) => compileAndSubmit(() => options.attemptCompiler.compile(input)),
     submitDurable: (input) => compileAndSubmitDurable(() => options.attemptCompiler.compile(input))
   };
+}
+
+function compileRejectionDetails(cause: unknown): Readonly<Record<string, unknown>> | undefined {
+  if (!cause || typeof cause !== "object" || !("details" in cause)) return undefined;
+  const details = cause.details;
+  return details && typeof details === "object" && !Array.isArray(details)
+    ? details as Readonly<Record<string, unknown>>
+    : undefined;
 }
 
 /** Preserve one settlement promise while exposing its durable publication cut. */

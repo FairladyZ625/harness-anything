@@ -22,6 +22,9 @@ import {
 import {
   productionAuthorityCommandHasPurePlan
 } from "../src/authority/production/production-authority-pure-command-plan.ts";
+import {
+  TaskCompletePrepublishNotMaterializedError
+} from "../src/authority/production/task-complete-prepublish-publication.ts";
 import type {
   ProductionAuthorityCommandPlanInput,
   ProductionCanonicalAttemptCompilerV2
@@ -70,6 +73,17 @@ test("task-plan publication rejection keeps its stable public code and repair co
 
   assert.equal(error.code, "task_plan_placeholder");
   assert.equal(error.message, reason);
+});
+
+test("task-complete prepublish rejection preserves typed file details through compile rejection", () => {
+  const source = new TaskCompletePrepublishNotMaterializedError([{
+    path: "work-items/task_01ABC/artifacts/proof, (final).md",
+    reason: "missing from HEAD"
+  }]);
+  const error = authorityCompileRejected(source);
+
+  assert.equal(error.code, "task_complete_prepublish_not_materialized");
+  assert.deepEqual(error.details, source.details);
 });
 
 test("return-to-idea publication rejection keeps its stable public code and cleanup commands", () => {

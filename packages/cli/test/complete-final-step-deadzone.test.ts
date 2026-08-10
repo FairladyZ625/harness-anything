@@ -141,36 +141,6 @@ test("task complete automatically materializes unpublished task prose while dry-
   });
 });
 
-test("task complete reports file reason and repair when automatic doc sync rejects a task document", { timeout: 60_000 }, async () => {
-  await withReviewedCompletionFixture("complete-auto-materialize-rejected", {
-    exercisePlanPublication: true,
-    assertReleasedHolder: true
-  }, ({ fixture, taskId, taskRoot, approvalPath, env }) => {
-    writeFileSync(
-      path.join(taskRoot, "task_plan.md"),
-      productionPlan("Invalid completion plan edit.").replace("## Goal", "## Objective"),
-      "utf8"
-    );
-    const taskIndexBefore = readFileSync(path.join(taskRoot, "INDEX.md"), "utf8");
-    const rejected = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "complete", taskId, "--approve", "--from-file", approvalPath
-    ], env);
-
-    assert.equal(rejected.status, 1, JSON.stringify(rejected.receipt));
-    assert.match(
-      String((rejected.receipt.error as { readonly code?: unknown } | undefined)?.code),
-      /^task_complete_auto_materialization_/u
-    );
-    const diagnostic = JSON.stringify(rejected.receipt);
-    assert.match(diagnostic, new RegExp(`file=tasks/${taskId}-production-route/task_plan\\.md`, "u"));
-    assert.match(diagnostic, /reason=/u);
-    assert.match(diagnostic, /fix=/u);
-    assert.match(diagnostic, /ha doc status --json/u);
-    assert.match(diagnostic, /ha doc sync --submit/u);
-    assert.equal(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), taskIndexBefore);
-  });
-});
-
 test("published completion dry-runs report checked gates without mutating holders", { timeout: 60_000 }, async () => {
   await withReviewedCompletionFixture("complete-ready-dry-run", {}, ({
     fixture, taskId, approvalPath, closeoutPacketPath, taskHolderRoot, env

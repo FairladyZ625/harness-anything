@@ -5,6 +5,28 @@ import { reportCurrentRepoWriteTelemetry } from "../../runtime/repo-write-teleme
 
 const execFileAsync = promisify(execFile);
 
+export const taskCompletePrepublishFailureSchema = "task-complete-prepublish-failure/v1" as const;
+export const taskCompletePrepublishFailureCode = "task_complete_prepublish_not_materialized" as const;
+
+export interface TaskCompletePrepublishFailureDetails {
+  readonly schema: typeof taskCompletePrepublishFailureSchema;
+  readonly code: typeof taskCompletePrepublishFailureCode;
+  readonly files: ReadonlyArray<{ readonly path: string; readonly reason: string }>;
+}
+
+export class TaskCompletePrepublishNotMaterializedError extends Error {
+  readonly code = taskCompletePrepublishFailureCode;
+  readonly details: TaskCompletePrepublishFailureDetails;
+
+  constructor(files: TaskCompletePrepublishFailureDetails["files"]) {
+    super(`AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED:${files.map((entry) =>
+      `${entry.path} (${entry.reason})`
+    ).join(", ")}`);
+    this.name = "TaskCompletePrepublishNotMaterializedError";
+    this.details = { schema: taskCompletePrepublishFailureSchema, code: this.code, files };
+  }
+}
+
 export async function findAttributedMaterializedPublication(
   rootDir: string,
   repositoryPaths: ReadonlyArray<string>,
@@ -16,8 +38,8 @@ export async function findAttributedMaterializedPublication(
   for (const body of bodies) expectedBlobs.push(await gitHashObject(rootDir, body));
   const currentBlobs = await gitBlobIds(rootDir, headRef, repositoryPaths);
   if (currentBlobs.some((actual, index) => actual !== expectedBlobs[index])) {
-    throw new Error(
-      `AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED:${describeMaterializationMismatches(repositoryPaths, currentBlobs, expectedBlobs)}`
+    throw new TaskCompletePrepublishNotMaterializedError(
+      materializationMismatches(repositoryPaths, currentBlobs, expectedBlobs)
     );
   }
   const historyPromise = firstParentHistory(rootDir, repositoryPaths, headRef);
@@ -39,16 +61,20 @@ export async function findAttributedMaterializedPublication(
   );
   const missing = attributions.flatMap((attribution, index) => attribution ? [] : [repositoryPaths[index]!]);
   if (missing.length > 0) {
-    throw new Error(
-      `AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED:${missing.map((repositoryPath) =>
-        `${repositoryPath} (no canonical publication changed this path to its current content)`
-      ).join(", ")}`
-    );
+    throw new TaskCompletePrepublishNotMaterializedError(missing.map((repositoryPath) => ({
+      path: repositoryPath,
+      reason: "no canonical publication changed this path to its current content"
+    })));
   }
   const attributed = attributions.filter((entry): entry is NonNullable<typeof entry> => entry !== null);
   const attributedCommits = new Set(attributed.map((entry) => entry.commit));
   const representative = history.find((entry) => attributedCommits.has(entry.commit));
-  if (!representative) throw new Error("AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED:attributed publication missing from first-parent history");
+  if (!representative) {
+    throw new TaskCompletePrepublishNotMaterializedError(repositoryPaths.map((repositoryPath) => ({
+      path: repositoryPath,
+      reason: "attributed publication missing from first-parent history"
+    })));
+  }
   return {
     commit: representative.commit,
     operationIds: [...new Set(attributed.flatMap((entry) => entry.operationIds))].sort()
@@ -156,18 +182,19 @@ async function attributedPathOperationIds(
   return publicationOperationIds(subject);
 }
 
-function describeMaterializationMismatches(
+function materializationMismatches(
   repositoryPaths: ReadonlyArray<string>,
   actualBlobs: ReadonlyArray<string | null>,
   expectedBlobs: ReadonlyArray<string>
-): string {
+): TaskCompletePrepublishFailureDetails["files"] {
   return repositoryPaths.flatMap((repositoryPath, index) => {
     const actual = actualBlobs[index];
     if (actual === expectedBlobs[index]) return [];
-    return [actual === null
-      ? `${repositoryPath} (missing from HEAD)`
-      : `${repositoryPath} (content differs from expected)`];
-  }).join(", ");
+    return [{
+      path: repositoryPath,
+      reason: actual === null ? "missing from HEAD" : "content differs from expected"
+    }];
+  });
 }
 
 async function firstParentHistory(rootDir: string, repositoryPaths: ReadonlyArray<string>, headRef = "HEAD"): Promise<ReadonlyArray<{

@@ -233,6 +233,38 @@ test("setTaskStatus accepts active when a scaffold section contains substantive 
   if (result.ok) assert.equal(result.status, "active");
 });
 
+test("task lifecycle preserves typed task-complete prepublish rejection details", async () => {
+  const details = {
+    schema: "task-complete-prepublish-failure/v1",
+    code: "task_complete_prepublish_not_materialized",
+    files: [{ path: "work-items/task-1/closeout.md", reason: "content differs from expected" }]
+  } as const;
+  const writer: TaskLifecycleWriter = {
+    ...successfulWriter(),
+    setStatus: () => Effect.fail({
+      _tag: "WriteRejected" as const,
+      code: "task_complete_prepublish_not_materialized",
+      reason: "AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED",
+      retryable: false,
+      context: details
+    })
+  };
+  const orchestrator = makeTaskLifecycleOrchestrator({
+    rootDir: "/unused",
+    taskWriter: writer,
+    artifactStore: inMemoryTaskPackageStore("task-1", {
+      "task_plan.md": "# Plan\n\n## Goal\n\nPublish the completion package.\n"
+    })
+  });
+
+  const result = await runEffect(orchestrator.setTaskStatus({ taskId: "task-1", status: "active" }));
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "task_complete_prepublish_not_materialized");
+  assert.deepEqual(result.error.context, details);
+});
+
 test("reviewTask accepts zero Facts through ArtifactStore under dec_mrg3z1we/CH4", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-artifact-store-"));
   try {

@@ -67,6 +67,7 @@ export interface TaskLifecycleOrchestratorOptions {
 export interface TaskLifecycleError {
   readonly code: string;
   readonly hint: string;
+  readonly context?: Readonly<Record<string, unknown>>;
 }
 
 export interface TaskLifecycleFailure {
@@ -281,7 +282,19 @@ export function readTaskLifecyclePolicy(artifactStore: Pick<ArtifactStore, "read
 }
 
 function writeFailure(taskId: string, error: EngineError | WriteError, fallbackHint: string): TaskLifecycleFailure {
-  return taskFailure(taskId, writeFailureCode(error), `${fallbackHint} ${writeFailureCauseHint(error)}`);
+  const failure = taskFailure(taskId, writeFailureCode(error), `${fallbackHint} ${writeFailureCauseHint(error)}`);
+  return error._tag === "WriteRejected"
+    && error.code === "task_complete_prepublish_not_materialized"
+    && error.context
+    ? {
+        ...failure,
+        error: {
+          ...failure.error,
+          code: error.code,
+          context: error.context
+        }
+      }
+    : failure;
 }
 
 // Canonical kernel-tag -> CLI error-code mapping. Kept exhaustive by the mapped

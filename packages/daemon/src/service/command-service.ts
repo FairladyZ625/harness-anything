@@ -167,6 +167,7 @@ export function createDaemonCommandService<
                 : options.repoWriteDispatch!.direct(childCommand)
             );
             return await dispatchTaskCompleteWithAutoMaterialization({
+              repoId: options.repoWriteDispatch.repoId,
               command: parsedCommand,
               currentSession,
               actor: daemonActor,

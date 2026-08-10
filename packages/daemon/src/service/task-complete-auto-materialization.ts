@@ -1,102 +1,82 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import type {
   AuthorityHostAttribution,
-  CommandReceiptEnvelope,
   DaemonDocSyncHostServices,
-  DaemonHostCommand,
   DocSyncSubmitRequestV1,
   DocSyncSubmitResultV1,
   TaskHolderExecutor
 } from "@harness-anything/application";
 import {
   resolveHarnessLayout,
+  sha256Text,
   taskPackagePath,
-  type CurrentSessionRef,
   type HarnessLayoutOverrides
 } from "@harness-anything/kernel";
 import type { AuthenticatedActor } from "../identity/types.ts";
-import type { AuthorityConnectionDispatch } from "../protocol/connection-context.ts";
 import type { DocSyncServiceContext } from "../protocol/doc-sync-service-context.ts";
 import type { RepoWriteOperationLookupResult } from "../runtime/repo-write-protocol.ts";
 import type { HarnessDaemonRuntime } from "../runtime/repo-runtime.ts";
 import type { RepoWriteProcessSupervisor } from "../runtime/repo-write-process-supervisor.ts";
-import {
-  buildDocSyncReport,
-  buildDocSyncSubmitRequest
-} from "./doc-sync-service.ts";
+import { buildDocSyncReport } from "./doc-sync-service.ts";
 import { makeDocSyncSubmitHandler } from "./doc-sync-submit-handler.ts";
+import {
+  taskCompleteErrorMessage,
+  taskCompleteMaterializationFailure,
+  type TaskCompleteAutoMaterializationResult,
+  type TaskCompleteAutoMaterializer,
+  type TaskCompletePrepublishFailure
+} from "./task-complete-auto-materialization-orchestration.ts";
+import { waitForTaskCompleteCanonicalSettlement } from "./task-complete-auto-materialization-settlement.ts";
 
-const settlementPollIntervalMs = 25;
-const settlementPollLimit = 200;
+export {
+  dispatchTaskCompleteWithAutoMaterialization,
+  type TaskCompleteAutoMaterializationResult,
+  type TaskCompleteAutoMaterializer,
+  type TaskCompleteMaterializationFailureFile,
+  type TaskCompletePrepublishFailure
+} from "./task-complete-auto-materialization-orchestration.ts";
+export {
+  defaultTaskCompleteSettlementTimeoutMs,
+  waitForTaskCompleteCanonicalSettlement
+} from "./task-complete-auto-materialization-settlement.ts";
 
-export interface TaskCompletePrepublishFailure {
+export interface TaskCompleteMaterializationSnapshot {
   readonly path: string;
-  readonly reason: string;
+  readonly baseBlobSha256: string | null;
+  readonly body: string;
+  readonly bodySha256: string;
+  readonly mediaType: string;
+  readonly size: number;
+  readonly pathClass: string | null;
 }
 
-export type TaskCompleteAutoMaterializationResult =
-  | { readonly ok: true; readonly paths: ReadonlyArray<string> }
-  | {
-      readonly ok: false;
-      readonly code: string;
-      readonly hint: string;
-      readonly files: ReadonlyArray<TaskCompletePrepublishFailure & { readonly fix: string }>;
-    };
-
-export type TaskCompleteAutoMaterializer = (input: {
-  readonly taskId: string;
-  readonly currentSession: CurrentSessionRef;
-  readonly actor: AuthenticatedActor;
-  readonly executor: TaskHolderExecutor | null;
-  readonly authorityConnection: Extract<AuthorityConnectionDispatch, { readonly available: true }>;
-  readonly prepublishFailures: ReadonlyArray<TaskCompletePrepublishFailure>;
-}) => Promise<TaskCompleteAutoMaterializationResult>;
-
-export async function dispatchTaskCompleteWithAutoMaterialization(input: {
-  readonly command: DaemonHostCommand;
-  readonly currentSession: CurrentSessionRef;
-  readonly actor: AuthenticatedActor;
-  readonly executor: TaskHolderExecutor | null;
-  readonly authorityConnection: Extract<AuthorityConnectionDispatch, { readonly available: true }>;
-  readonly autoMaterialize?: TaskCompleteAutoMaterializer;
-  readonly dispatch: () => Promise<CommandReceiptEnvelope>;
-}): Promise<CommandReceiptEnvelope> {
-  const taskId = taskCompleteTaskId(input.command);
-  const enabled = input.command.action.kind === "task-complete"
-    && input.command.action.dryRun !== true
-    && input.autoMaterialize !== undefined
-    && taskId !== undefined;
-  const materializeAndRetry = async (
-    prepublishFailures: ReadonlyArray<TaskCompletePrepublishFailure>
-  ): Promise<CommandReceiptEnvelope> => {
-    const materialized = await runAutoMaterializer(input, taskId!, prepublishFailures);
-    if (!materialized.ok) return materializationFailureReceipt(input.command.action.kind, materialized);
-    input.authorityConnection.assertActive();
+export function verifyTaskCompleteMaterializationSnapshot(
+  snapshots: ReadonlyArray<TaskCompleteMaterializationSnapshot>,
+  readBody: (filePath: string) => string
+): {
+  readonly path: string;
+  readonly expectedBodySha256: string;
+  readonly actualBodySha256: string | null;
+} | undefined {
+  for (const snapshot of snapshots) {
+    let actualBodySha256: string | null;
     try {
-      const retried = await input.dispatch();
-      if (!retried.ok) {
-        const remaining = taskCompletePrepublishFailures(retried);
-        if (remaining.length > 0) return incompleteMaterializationFailure(input.command.action.kind, remaining);
-      }
-      return retried;
-    } catch (error) {
-      const remaining = taskCompletePrepublishFailuresFromText(taskCompleteErrorMessage(error));
-      if (remaining.length > 0) return incompleteMaterializationFailure(input.command.action.kind, remaining);
-      throw error;
+      actualBodySha256 = sha256Text(readBody(snapshot.path));
+    } catch {
+      actualBodySha256 = null;
     }
-  };
-  let receipt: CommandReceiptEnvelope;
-  try {
-    receipt = await input.dispatch();
-  } catch (error) {
-    const failures = enabled ? taskCompletePrepublishFailuresFromText(taskCompleteErrorMessage(error)) : [];
-    if (failures.length > 0) return materializeAndRetry(failures);
-    throw error;
+    if (actualBodySha256 !== snapshot.bodySha256) {
+      return {
+        path: snapshot.path,
+        expectedBodySha256: snapshot.bodySha256,
+        actualBodySha256
+      };
+    }
   }
-  if (!enabled || receipt.ok) return receipt;
-  const failures = taskCompletePrepublishFailures(receipt);
-  return failures.length > 0 ? materializeAndRetry(failures) : receipt;
+  return undefined;
 }
+
 
 export function makeTaskCompleteDocumentMaterializationServices(options: {
   readonly rootDir: string;
@@ -132,32 +112,6 @@ export function makeTaskCompleteDocumentMaterializationServices(options: {
       })
     } : {})
   };
-}
-
-async function runAutoMaterializer(
-  input: Parameters<typeof dispatchTaskCompleteWithAutoMaterialization>[0],
-  taskId: string,
-  failures: ReadonlyArray<TaskCompletePrepublishFailure>
-): Promise<TaskCompleteAutoMaterializationResult> {
-  try {
-    return await input.autoMaterialize!({
-      taskId,
-      currentSession: input.currentSession,
-      actor: input.actor,
-      executor: input.executor,
-      authorityConnection: input.authorityConnection,
-      prepublishFailures: failures
-    });
-  } catch (error) {
-    const fix = docSyncFix();
-    const files = failures.map((entry) => ({ ...entry, reason: taskCompleteErrorMessage(error), fix }));
-    return {
-      ok: false,
-      code: "task_complete_auto_materialization_failed",
-      hint: `Automatic task document publication failed. Run \`ha doc status --json\`, repair the named file, then run \`ha doc sync --submit\`. ${failureHint(files)}`,
-      files
-    };
-  }
 }
 
 export function makeTaskCompleteAutoMaterializer(options: {
@@ -202,18 +156,63 @@ export function makeTaskCompleteAutoMaterializer(options: {
         "doc sync found no eligible dirty change for the prepublish path"
       );
     }
+    if (!report.baseLedgerSha) {
+      return taskCompleteMaterializationFailure(
+        "task_complete_auto_materialization_preflight_failed",
+        input.prepublishFailures,
+        "Doc sync submit requires an initialized authored Git repository."
+      );
+    }
+    const snapshots: TaskCompleteMaterializationSnapshot[] = [];
+    for (const selectedPath of selectedPaths) {
+      const candidate = report.candidateBlobs.find((entry) => entry.path === selectedPath);
+      if (!candidate?.newBlobSha256) {
+        const diagnostic = report.unresolvedTouches.find((entry) => entry.path === selectedPath)?.reason
+          ?? report.forbiddenTouches.find((entry) => entry.path === selectedPath)?.hunks[0]?.summary
+          ?? "doc sync did not classify the dirty path as an eligible candidate";
+        return taskCompleteMaterializationFailure(
+          "task_complete_auto_materialization_preflight_failed",
+          selectedFailures(input.prepublishFailures, [selectedPath]),
+          diagnostic
+        );
+      }
+      const body = readFileSync(path.join(layout.authoredRoot, selectedPath), "utf8");
+      const bodySha256 = sha256Text(body);
+      if (bodySha256 !== candidate.newBlobSha256) {
+        return taskCompleteMaterializationFailure(
+          "task_complete_auto_materialization_working_tree_changed",
+          selectedFailures(input.prepublishFailures, [selectedPath]),
+          "Working tree content changed while the automatic publication snapshot was being captured."
+        );
+      }
+      snapshots.push({
+        path: selectedPath,
+        baseBlobSha256: candidate.baseBlobSha256,
+        body,
+        bodySha256,
+        mediaType: candidate.mediaType,
+        size: candidate.size,
+        pathClass: candidate.pathClass
+      });
+    }
     const artifactRoot = `${packageRoot}/artifacts/`;
     const groups: ReadonlyArray<{
       readonly intent: DocSyncSubmitRequestV1["payload"]["declaredIntent"];
-      readonly paths: ReadonlyArray<string>;
+      readonly snapshots: ReadonlyArray<TaskCompleteMaterializationSnapshot>;
     }> = [
-      { intent: "manual-artifact", paths: selectedPaths.filter((entry) => entry.startsWith(artifactRoot)) },
-      { intent: "prose-edit", paths: selectedPaths.filter((entry) => !entry.startsWith(artifactRoot)) }
+      { intent: "manual-artifact", snapshots: snapshots.filter((entry) => entry.path.startsWith(artifactRoot)) },
+      { intent: "prose-edit", snapshots: snapshots.filter((entry) => !entry.path.startsWith(artifactRoot)) }
     ];
     const appliedPaths: string[] = [];
     for (const group of groups) {
-      if (group.paths.length === 0) continue;
-      const submitted = await submitMaterializationGroup(options, input, rootInput, group);
+      if (group.snapshots.length === 0) continue;
+      const submitted = await submitMaterializationGroup(
+        options,
+        input,
+        layout.authoredRoot,
+        report.baseLedgerSha,
+        group
+      );
       if (!submitted.ok) return submitted.failure;
       appliedPaths.push(...submitted.paths);
     }
@@ -224,10 +223,11 @@ export function makeTaskCompleteAutoMaterializer(options: {
 async function submitMaterializationGroup(
   options: Parameters<typeof makeTaskCompleteAutoMaterializer>[0],
   input: Parameters<TaskCompleteAutoMaterializer>[0],
-  rootInput: { readonly rootDir: string; readonly layoutOverrides?: HarnessLayoutOverrides },
+  authoredRoot: string,
+  baseLedgerSha: string,
   group: {
     readonly intent: DocSyncSubmitRequestV1["payload"]["declaredIntent"];
-    readonly paths: ReadonlyArray<string>;
+    readonly snapshots: ReadonlyArray<TaskCompleteMaterializationSnapshot>;
   }
 ): Promise<
   | { readonly ok: true; readonly paths: ReadonlyArray<string> }
@@ -235,23 +235,27 @@ async function submitMaterializationGroup(
 > {
   let request: DocSyncSubmitRequestV1;
   try {
-    const docSyncRequest = buildDocSyncSubmitRequest(
-      rootInput,
-      options.repoId,
-      group.paths,
-      input.executor,
-      options.hostServices,
-      input.currentSession
+    const changed = verifyTaskCompleteMaterializationSnapshot(
+      group.snapshots,
+      (filePath) => readFileSync(path.join(authoredRoot, filePath), "utf8")
     );
-    request = group.intent === docSyncRequest.payload.declaredIntent
-      ? docSyncRequest
-      : { ...docSyncRequest, payload: { ...docSyncRequest.payload, declaredIntent: group.intent } };
+    if (changed) {
+      return {
+        ok: false,
+        failure: taskCompleteMaterializationFailure(
+          "task_complete_auto_materialization_working_tree_changed",
+          selectedFailures(input.prepublishFailures, [changed.path]),
+          `Working tree content changed after snapshot capture for ${changed.path}.`
+        )
+      };
+    }
+    request = taskCompleteDocSyncRequest(options.repoId, baseLedgerSha, group, input);
   } catch (error) {
     return {
       ok: false,
       failure: taskCompleteMaterializationFailure(
         "task_complete_auto_materialization_preflight_failed",
-        selectedFailures(input.prepublishFailures, group.paths),
+        selectedFailures(input.prepublishFailures, group.snapshots.map((entry) => entry.path)),
         taskCompleteErrorMessage(error)
       )
     };
@@ -268,76 +272,81 @@ async function submitMaterializationGroup(
       ok: false,
       failure: taskCompleteMaterializationFailure(
         "task_complete_auto_materialization_submit_failed",
-        selectedFailures(input.prepublishFailures, group.paths),
+        selectedFailures(input.prepublishFailures, group.snapshots.map((entry) => entry.path)),
         taskCompleteErrorMessage(error)
       )
     };
   }
   if (!result.ok) {
-    return { ok: false, failure: rejectedResultFailure(result, input.prepublishFailures, group.paths) };
+    return {
+      ok: false,
+      failure: rejectedResultFailure(
+        result,
+        input.prepublishFailures,
+        group.snapshots.map((entry) => entry.path)
+      )
+    };
   }
-  const settlement = await waitForCanonicalSettlement(result, options.lookup);
+  const settlement = await waitForTaskCompleteCanonicalSettlement(result, options.lookup);
   if (!settlement.settled) {
     return {
       ok: false,
       failure: taskCompleteMaterializationFailure(
         settlement.code,
-        selectedFailures(input.prepublishFailures, group.paths),
+        selectedFailures(input.prepublishFailures, group.snapshots.map((entry) => entry.path)),
         settlement.reason,
-        settlement.fix
+        {
+          fix: settlement.fix,
+          argv: settlement.recoveryArgv ?? ["ha", "daemon", "logs", "--json"],
+          ...(settlement.receiptId && settlement.statusCommand ? {
+            receiptId: settlement.receiptId,
+            statusCommand: settlement.statusCommand
+          } : {})
+        }
       )
     };
   }
   return { ok: true, paths: result.appliedChanges.map((entry) => entry.path) };
 }
 
-async function waitForCanonicalSettlement(
-  result: Extract<DocSyncSubmitResultV1, { readonly ok: true }>,
-  lookup: ((receiptId: string) => Promise<RepoWriteOperationLookupResult>) | undefined
-): Promise<
-  | { readonly settled: true }
-  | { readonly settled: false; readonly code: string; readonly reason: string; readonly fix: string }
-> {
-  const settlement = result.settlement;
-  if (result.settlementMode === "synchronous-canonical-final/v1"
-    || settlement?.canonicalVisibility === "visible") return { settled: true };
-  if (settlement?.canonicalVisibility === "failed") {
-    return {
-      settled: false,
-      code: "task_complete_auto_materialization_settlement_failed",
-      reason: `${settlement.failure.code}: ${settlement.failure.message}`,
-      fix: `Run \`${settlement.statusQuery.command}\` and follow the reported recovery guidance before retrying task completion.`
-    };
-  }
-  if (!settlement || !lookup) {
-    return {
-      settled: false,
-      code: "task_complete_auto_materialization_settlement_unavailable",
-      reason: "doc sync returned no proof of canonical settlement",
-      fix: docSyncFix()
-    };
-  }
-  let state = "accepted";
-  for (let attempt = 0; attempt < settlementPollLimit; attempt += 1) {
-    const observed = await lookup(settlement.receiptId);
-    state = observed.state;
-    if (observed.state === "committed") return { settled: true };
-    if (observed.state === "rejected" || observed.state === "settlement-failed"
-      || observed.state === "failed" || observed.state === "unknown") {
-      return {
-        settled: false,
-        code: "task_complete_auto_materialization_settlement_failed",
-        reason: `doc sync settlement ended in ${observed.state}`,
-        fix: `Run \`${settlement.statusQuery.command}\` and repair the reported settlement before retrying task completion.`
-      };
-    }
-    await waitBeforeTaskCompleteSettlementPoll(settlementPollIntervalMs);
-  }
+function taskCompleteDocSyncRequest(
+  repoId: string,
+  baseLedgerSha: string,
+  group: {
+    readonly intent: DocSyncSubmitRequestV1["payload"]["declaredIntent"];
+    readonly snapshots: ReadonlyArray<TaskCompleteMaterializationSnapshot>;
+  },
+  input: Parameters<TaskCompleteAutoMaterializer>[0]
+): DocSyncSubmitRequestV1 {
+  const changes = group.snapshots.map((snapshot) => ({
+    path: snapshot.path,
+    baseBlobSha256: snapshot.baseBlobSha256,
+    newBlobSha256: snapshot.bodySha256,
+    mediaType: snapshot.mediaType,
+    size: snapshot.size,
+    declaredBearing: "task-document",
+    declaredZoneClass: "task-authored-prose-or-stage",
+    ...(snapshot.pathClass ? { declaredPathClass: snapshot.pathClass } : {}),
+    content: { kind: "inline" as const, body: snapshot.body }
+  }));
+  const intentMaterial = JSON.stringify({
+    baseLedgerSha,
+    changes: changes.map(({ path: changePath, baseBlobSha256, newBlobSha256 }) => ({
+      path: changePath,
+      baseBlobSha256,
+      newBlobSha256
+    }))
+  });
   return {
-    settled: false,
-    code: "task_complete_auto_materialization_settlement_pending",
-    reason: `doc sync settlement remained ${state} after ${settlementPollIntervalMs * settlementPollLimit}ms`,
-    fix: `Run \`${settlement.statusQuery.command}\` and wait for canonical visibility before retrying task completion.`
+    repo: { repoId },
+    ...(input.executor !== undefined ? { executor: input.executor } : {}),
+    session: input.currentSession,
+    payload: {
+      baseLedgerSha,
+      intentId: `intent_${sha256Text(intentMaterial).slice(0, 24)}`,
+      declaredIntent: group.intent,
+      changes
+    }
   };
 }
 
@@ -360,14 +369,19 @@ function rejectedResultFailure(
     ...entry,
     reason: diagnostics.find((diagnostic) => diagnostic.path === entry.path)?.reason ?? result.reason
   }));
-  const fix = "outcomeUnknown" in result && result.outcomeUnknown
-    ? `Run \`${result.outcomeUnknown.statusCommand}\` and resolve the reported write outcome before retrying task completion.`
-    : docSyncFix();
+  const recovery = "outcomeUnknown" in result && result.outcomeUnknown
+    ? {
+        fix: `Do not resubmit this unknown result. Run \`${result.outcomeUnknown.statusCommand}\` before retrying task completion.`,
+        argv: ["ha", "receipt", "status", result.outcomeUnknown.receiptId, "--json"],
+        receiptId: result.outcomeUnknown.receiptId,
+        statusCommand: result.outcomeUnknown.statusCommand
+      }
+    : undefined;
   return taskCompleteMaterializationFailure(
     `task_complete_auto_materialization_${result.code}`,
     files,
     result.reason,
-    fix,
+    recovery,
     true
   );
 }
@@ -380,106 +394,6 @@ function selectedFailures(
   return failures.filter((entry) => selected.has(entry.path));
 }
 
-function taskCompleteMaterializationFailure(
-  code: string,
-  files: ReadonlyArray<TaskCompletePrepublishFailure>,
-  reason: string,
-  fix = docSyncFix(),
-  preserveFileReasons = false
-): Extract<TaskCompleteAutoMaterializationResult, { readonly ok: false }> {
-  const detailed = files.map((entry) => ({
-    ...entry,
-    reason: preserveFileReasons ? entry.reason : reason,
-    fix
-  }));
-  return {
-    ok: false,
-    code,
-    hint: failureHint(detailed),
-    files: detailed
-  };
-}
-
-function taskCompleteTaskId(command: DaemonHostCommand): string | undefined {
-  const action = command.action as DaemonHostCommand["action"] & { readonly taskId?: unknown };
-  return typeof action.taskId === "string" && action.taskId ? action.taskId : undefined;
-}
-
-function taskCompletePrepublishFailures(receipt: CommandReceiptEnvelope): ReadonlyArray<TaskCompletePrepublishFailure> {
-  if (receipt.ok) return [];
-  return taskCompletePrepublishFailuresFromText(`${receipt.summary}\n${receipt.error?.hint ?? ""}`);
-}
-
-function taskCompletePrepublishFailuresFromText(text: string): ReadonlyArray<TaskCompletePrepublishFailure> {
-  if (!text.includes("AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED:")) return [];
-  const failures: TaskCompletePrepublishFailure[] = [];
-  const pattern = /(tasks\/[^(,\n]+?) \(([^)]+)\)/gu;
-  for (const match of text.matchAll(pattern)) {
-    const pathValue = match[1]?.trim();
-    const reason = match[2]?.trim();
-    if (pathValue && reason && !failures.some((entry) => entry.path === pathValue)) {
-      failures.push({ path: pathValue, reason });
-    }
-  }
-  return failures;
-}
-
-function incompleteMaterializationFailure(
-  command: string,
-  remaining: ReadonlyArray<TaskCompletePrepublishFailure>
-): CommandReceiptEnvelope {
-  const fix = docSyncFix();
-  const files = remaining.map((entry) => ({ ...entry, fix }));
-  return materializationFailureReceipt(command, {
-    ok: false,
-    code: "task_complete_auto_materialization_incomplete",
-    hint: `Task document publication failed to materialize every file after retry. Run \`ha doc status --json\`, repair the named file, then run \`ha doc sync --submit\`. ${failureHint(files)}`,
-    files
-  });
-}
-
-function materializationFailureReceipt(
-  command: string,
-  failure: Extract<TaskCompleteAutoMaterializationResult, { readonly ok: false }>
-): CommandReceiptEnvelope {
-  return {
-    ok: false,
-    schema: "command-receipt/v2",
-    command,
-    action: "run",
-    summary: failure.hint,
-    error: { code: failure.code, hint: failure.hint },
-    details: {
-      data: {
-        schema: "task-complete-auto-materialization-failure/v1",
-        files: failure.files
-      }
-    },
-    meta: {
-      generatedAt: new Date().toISOString(),
-      compatibility: { legacyReceipt: "CommandReceipt/v1" }
-    }
-  };
-}
-
-function failureHint(files: ReadonlyArray<TaskCompletePrepublishFailure & { readonly fix: string }>): string {
-  return `Task completion could not automatically materialize its document package. ${files.map((entry) =>
-    `file=${entry.path}; reason=${entry.reason}; fix=${entry.fix}`
-  ).join(" | ")}`;
-}
-
-function docSyncFix(): string {
-  return "Run `ha doc status --json`, repair the named file, then run `ha doc sync --submit` and retry task completion.";
-}
-
 function portable(value: string): string {
   return value.split(path.sep).join("/");
-}
-
-function waitBeforeTaskCompleteSettlementPoll(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-function taskCompleteErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

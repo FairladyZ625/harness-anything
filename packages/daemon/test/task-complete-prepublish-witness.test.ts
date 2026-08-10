@@ -219,6 +219,17 @@ test("unpublished document rejection names only the path whose body is not mater
         assert.match(message, /closeout\.md/u);
         assert.doesNotMatch(message, /code-doc-anchors\.json/u);
         assert.match(message, /content differs from expected/u);
+        assert.deepEqual(
+          (error as { readonly details?: unknown }).details,
+          {
+            schema: "task-complete-prepublish-failure/v1",
+            code: "task_complete_prepublish_not_materialized",
+            files: [{
+              path: `tasks/${taskId}-witness/closeout.md`,
+              reason: "content differs from expected"
+            }]
+          }
+        );
         return true;
       }
     );
