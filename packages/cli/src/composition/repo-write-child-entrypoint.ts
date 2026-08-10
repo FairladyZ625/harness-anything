@@ -199,6 +199,7 @@ export async function runRepoWriteChildEntrypoint(
     runAuthorizedRepoWriteRecoveryAttempt:
       recoveryGate.runAttemptRecovery.bind(recoveryGate)
   };
+  const recoveryStartGate = createPostReadyRecoveryStartGate();
   const authorityLifecycle = createCliProductionAuthorityLifecycle({
     manifestPath: config.authorityManifest,
     ...(layoutOverrides ? { layoutOverrides } : {}),
@@ -218,7 +219,24 @@ export async function runRepoWriteChildEntrypoint(
         );
       });
     },
-    backgroundRecovery: true
+    onRecoveryProgress: (repoId, progress) => {
+      try {
+        process.stderr.write(`${JSON.stringify({
+          schema: "repo-write-child-authority-recovery/v1",
+          pid: process.pid,
+          repoId,
+          generation: config.generation,
+          phase: "first-parent-scan",
+          workUnit: progress.commitSha,
+          scannedCommitCount: progress.scannedCommitCount,
+          deadlineAt: progress.deadlineAt
+        })}\n`);
+      } catch {
+        // Recovery diagnostics must never alter durable recovery semantics.
+      }
+    },
+    backgroundRecovery: true,
+    waitForBackgroundRecoveryStart: recoveryStartGate.wait
   });
   const repo = {
     repoId: config.repoId,
@@ -289,7 +307,9 @@ export async function runRepoWriteChildEntrypoint(
     operation.recoverCanonicalPublicationSettlement(recovery);
   let initialRecovery: Promise<void> | undefined;
   const startInitialRecovery = (): void => {
-    initialRecovery ??= postReadyRecovery.runInitialSweep().catch(async (error) => {
+    initialRecovery ??= recoveryStartGate.wait().then(
+      () => postReadyRecovery.runInitialSweep()
+    ).catch(async (error) => {
       const diagnostic = boundedRecoveryError(error);
       process.stderr.write(
         `[repo-write-child] post-READY recovery deferred: ${diagnostic}\n`
@@ -342,12 +362,34 @@ export async function runRepoWriteChildEntrypoint(
     void childHost.start().then(() => {
       startupPhase.mark("child-host-start-ready");
       startupPhase.reportTotal();
+      recoveryStartGate.ready();
       startInitialRecovery();
     }).catch(async (error: unknown) => {
       await cleanup().catch(() => undefined);
       reject(error);
     });
   });
+}
+
+interface PostReadyRecoveryStartGate {
+  readonly ready: () => void;
+  readonly wait: () => Promise<void>;
+}
+
+const postReadyRecoveryDelayMs = 10_000;
+
+function createPostReadyRecoveryStartGate(): PostReadyRecoveryStartGate {
+  let markReady!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    markReady = resolve;
+  });
+  const start = ready.then(() => new Promise<void>((resolve) => {
+    setTimeout(resolve, postReadyRecoveryDelayMs);
+  }));
+  return {
+    ready: markReady,
+    wait: () => start
+  };
 }
 
 interface RepoWriteChildStartupPhaseReporter {

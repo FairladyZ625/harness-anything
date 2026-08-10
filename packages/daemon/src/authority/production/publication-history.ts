@@ -123,7 +123,9 @@ async function publicationHistoryGitText(rootDir: string, ...args: ReadonlyArray
   const { stdout } = await execFileAsync("git", ["-C", rootDir, ...args], {
     encoding: "utf8",
     windowsHide: true,
-    maxBuffer: 64 * 1024 * 1024
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: 15_000,
+    killSignal: "SIGKILL"
   });
   return stdout;
 }

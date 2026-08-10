@@ -16,6 +16,7 @@ import {
   createReceiptSettlementRecoveryLoop,
   recoverPendingSettlementMaterialization
 } from "../src/composition/receipt-settlement-runtime.ts";
+import { createRepoWriteChildPostReadyRecovery } from "../src/composition/repo-write-child-post-ready-recovery.ts";
 
 const durableSettlementStore = {
   skip: process.platform === "win32"
@@ -271,6 +272,64 @@ test("a poisoned receipt times out without blocking later settlement recovery", 
     assert.ok(progress.findIndex((event) => event === timeout)
       < progress.findIndex((event) =>
         event.receiptId === healthyReceiptId && event.status === "visible"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("post-READY recovery backs off a poisoned receipt for the rest of the writer generation", durableSettlementStore, async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "ha-receipt-generation-backoff-"));
+  try {
+    const authoredRoot = path.join(root, "harness");
+    mkdirSync(authoredRoot);
+    git(authoredRoot, "init");
+    git(authoredRoot, "config", "user.name", "Receipt Recovery");
+    git(authoredRoot, "config", "user.email", "receipt-recovery@example.test");
+    writeFileSync(path.join(authoredRoot, "README.md"), "canonical\n");
+    git(authoredRoot, "add", "README.md");
+    git(authoredRoot, "commit", "-m", "canonical base");
+    const acceptedCommitSha = git(authoredRoot, "rev-parse", "HEAD");
+    const settlements = settlementStore(path.join(root, "settlements"), 7);
+    acceptPending(settlements, {
+      receiptId: "repo-write-direct:poison-generation",
+      sessionId: "session-poison-generation",
+      acceptedCommitSha,
+      authorityOperationIds: ["op-poison-generation"]
+    });
+    const outcomes = new DurableRepoWriteOutcomeStoreV1({
+      directory: path.join(root, "outcomes"),
+      repoId: "canonical",
+      workspaceId: "workspace-recovery",
+      generation: 7
+    });
+    let authorityAttempts = 0;
+    const recovery = createRepoWriteChildPostReadyRecovery({
+      repoId: "canonical",
+      generation: 7,
+      transport: { send: async () => undefined } as never,
+      settlements,
+      outcomes,
+      runtime: {
+        enqueueMaterializerBatch: async () => ({ branches: [] })
+      } as unknown as HarnessDaemonRuntime,
+      authoredRoot,
+      recoveryGate: {
+        recoverHistoricalProceeding: async () => ({ disposition: "deferred" })
+      } as never,
+      recoverCommittedReceipt: async () => {
+        authorityAttempts += 1;
+        return new Promise(() => undefined);
+      },
+      recoverCanonicalPublication: async () => "blocked",
+      totalBudgetMs: 100,
+      perReceiptTimeoutMs: 10
+    });
+
+    await recovery.recoverSettlements();
+    await recovery.recoverSettlements();
+
+    assert.equal(authorityAttempts, 1);
+    assert.equal(settlements.lookup("repo-write-direct:poison-generation")?.state, "pending");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

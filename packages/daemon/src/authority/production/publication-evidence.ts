@@ -134,25 +134,34 @@ export function createGitCanonicalPublicationInspector(
     readonly exclusiveCommit?: string;
     readonly interestedOpIds: ReadonlySet<string>;
     readonly progressBatchSize?: number;
+    readonly deadlineAt?: number;
     readonly onProgress?: (progress: FirstParentOperationAnchorScanProgress) => Promise<void>;
   }): Promise<FirstParentOperationAnchorScan> => {
+    assertRecoveryScanDeadline(input.deadlineAt, "head");
     const headCommit = await currentHead();
+    assertRecoveryScanDeadline(input.deadlineAt, "head");
     if (!headCommit) {
       return { headCommit: null, scannedCommitCount: 0, anchors: [], unanchoredOperationIds: [] };
     }
-    let commits: Awaited<ReturnType<typeof scanFirstParentPublicationMetadata>>;
-    try {
-      commits = input.exclusiveCommit === headCommit
-        ? []
-        : await scanFirstParentPublicationMetadata({
-          rootDir,
-          headCommit,
-          ...(input.exclusiveCommit ? { exclusiveCommit: input.exclusiveCommit } : {})
-        });
-    } catch (error) {
-      if (input.exclusiveCommit) throw new AuthorityRecoveryWatermarkInvalidError(input.exclusiveCommit);
-      throw error;
+    if (input.exclusiveCommit
+      && input.exclusiveCommit !== headCommit
+      && publicationGitExitCode(
+        rootDir,
+        "merge-base",
+        "--is-ancestor",
+        input.exclusiveCommit,
+        headCommit
+      ) !== 0) {
+      throw new AuthorityRecoveryWatermarkInvalidError(input.exclusiveCommit);
     }
+    const commits = input.exclusiveCommit === headCommit
+      ? []
+      : await scanFirstParentPublicationMetadata({
+        rootDir,
+        headCommit,
+        ...(input.exclusiveCommit ? { exclusiveCommit: input.exclusiveCommit } : {})
+      });
+    assertRecoveryScanDeadline(input.deadlineAt, "metadata");
     const recoveryWatermark = input.exclusiveCommit;
     if (recoveryWatermark && headCommit !== recoveryWatermark) {
       const oldest = commits.at(-1);
@@ -171,6 +180,7 @@ export function createGitCanonicalPublicationInspector(
     // A watermark may advance only from the old boundary toward HEAD. Scanning
     // oldest-to-newest makes every reported commit a complete prefix.
     for (const commit of [...commits].reverse()) {
+      assertRecoveryScanDeadline(input.deadlineAt, "commit");
       const expectedPreviousHead = commit.parents[0];
       const publicationBase = commit.sessionParents?.[0];
       if (expectedPreviousHead && publicationBase && expectedPreviousHead !== publicationBase) {
@@ -207,6 +217,7 @@ export function createGitCanonicalPublicationInspector(
           batchAnchors = [];
         }
         await yieldToEventLoop();
+        assertRecoveryScanDeadline(input.deadlineAt, "progress");
       }
     }
     return {
@@ -465,6 +476,11 @@ export function createGitCanonicalPublicationInspector(
       });
     }
   };
+}
+
+function assertRecoveryScanDeadline(deadlineAt: number | undefined, phase: string): void {
+  if (deadlineAt === undefined || Date.now() < deadlineAt) return;
+  throw new Error(`AUTHORITY_RECOVERY_SCAN_DEADLINE_EXCEEDED:phase=${phase};deadlineAt=${deadlineAt}`);
 }
 
 function yieldToEventLoop(): Promise<void> {

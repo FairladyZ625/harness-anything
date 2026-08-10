@@ -6,13 +6,11 @@ import type {
 import type { DurableAuthorityServiceState } from "./service-state.ts";
 
 export async function recoverProductionCommittedReceipt(input: {
-  readonly recovery: Promise<void>;
   readonly operationRegistry: DurableAuthorityServiceState["operationRegistry"];
   readonly publisher: AuthorityCommittedEventPublisherV2;
   readonly workspaceId: string;
   readonly opId: string;
 }): Promise<AuthorityCommittedReceipt> {
-  await input.recovery;
   const record = await input.operationRegistry.get(input.workspaceId, input.opId);
   if (!record) throw new Error(`AUTHORITY_OPERATION_NOT_FOUND:opId=${input.opId}`);
   if (record.receipt?.tag === "COMMITTED") return record.receipt;

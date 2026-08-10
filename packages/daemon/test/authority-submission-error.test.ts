@@ -5,7 +5,6 @@ import { Effect } from "effect";
 import {
   createDaemonAuthorityCommandSubmissionV2,
   authoritySubmissionWriteError,
-  gateAuthoritySubmissionForRecovery,
   makeDaemonAuthorityWriteCoordinator
 } from "../src/index.ts";
 import {
@@ -13,9 +12,6 @@ import {
   receiptToFlushReport
 } from "../src/authority/authority-command-submission.ts";
 import { gateCutoverAdmission } from "../src/authority/production/cutover-admission.ts";
-import {
-  defaultProductionRecoveryAdmissionTimeoutMs
-} from "../src/authority/production/production-recovery-admission.ts";
 import {
   createProductionPlannedCommandSubmission
 } from "../src/authority/production/production-progress-append-submission.ts";
@@ -32,7 +28,6 @@ import type {
 import type {
   ProductionAuthorityAttemptPlanV1
 } from "../src/authority/production/production-authority-attempt-plan.ts";
-import { defaultRepoWriteRequestTimeoutMs } from "../src/runtime/repo-write-client-contract.ts";
 import { runWithRepoWriteTelemetry } from "../src/runtime/repo-write-telemetry-context.ts";
 import {
   encodeSemanticMutationEnvelopeV2,
@@ -92,89 +87,6 @@ test("return-to-idea publication rejection keeps its stable public code and clea
 
   assert.equal(error.code, "task_return_to_idea_blocked");
   assert.equal(error.message, reason);
-});
-
-test("recovery gate waits before admitting legacy, V2, and V2 recovery ingress", async () => {
-  let submissions = 0;
-  let releaseRecovery!: () => void;
-  let recovering = true;
-  const recovery = new Promise<void>((resolve) => {
-    releaseRecovery = () => {
-      recovering = false;
-      resolve();
-    };
-  });
-  const service = gateAuthoritySubmissionForRecovery({
-    submit: async (envelope) => {
-      submissions += 1;
-      return {
-        tag: "COMMITTED",
-        workspaceId: envelope.workspaceId,
-        opId: envelope.opId,
-        semanticDigest: envelope.claimedDigest,
-        commitSha: "c".repeat(40),
-        receiptId: "receipt-legacy"
-      };
-    },
-    submitV2: async (attempt) => {
-      submissions += 1;
-      const envelope = authorityCommandAttemptFixture().envelope;
-      return {
-        tag: "COMMITTED",
-        workspaceId: "workspace-command-service",
-        opId: operationIdDiagnosticV2(envelope.operationId),
-        semanticDigest: "d".repeat(64),
-        commitSha: "e".repeat(40),
-        receiptId: Buffer.from(attempt.requestId).toString("hex")
-      };
-    },
-    resumeV2: async (recoveryAttempt) => {
-      submissions += 1;
-      return {
-        tag: "COMMITTED",
-        workspaceId: recoveryAttempt.witness.workspaceId,
-        opId: recoveryAttempt.witness.opId,
-        semanticDigest: recoveryAttempt.witness.semanticDigest,
-        commitSha: "f".repeat(40),
-        receiptId: recoveryAttempt.attempt.requestId
-      };
-    },
-    getOperation: async () => undefined
-  }, async () => {
-    if (!recovering) return undefined;
-    await recovery;
-    return undefined;
-  });
-  const legacyPromise = service.submit({
-    workspaceId: "workspace-recovery",
-    opId: "op-recovery",
-    claimedDigest: "a".repeat(64),
-    command: "task.append",
-    operation: { opId: "op-recovery", entityId: "task/task_RECOVERY", kind: "progress_append", payload: { path: "progress.md", append: "x" } },
-    delegationToken: "token",
-    channelNonceDigest: "b".repeat(64),
-    protocol: { wire: 1, event: 1, receipt: 1, digest: 1, commandRegistry: 1 }
-  });
-  const fixture = authorityCommandAttemptFixture();
-  const v2Promise = service.submitV2!(fixture.attempt);
-  const recoveryAttempt = authorityRecoveryAttemptFixture(fixture);
-  const recoveryV2Promise = service.resumeV2!(recoveryAttempt);
-
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(submissions, 0);
-  releaseRecovery();
-  const [legacy, v2, recoveryV2] = await Promise.all([
-    legacyPromise,
-    v2Promise,
-    recoveryV2Promise
-  ]);
-
-  assert.equal(legacy.tag, "COMMITTED");
-  assert.equal(v2.tag, "COMMITTED");
-  assert.equal(v2.opId, fixture.expectedOpId);
-  assert.equal(recoveryV2.tag, "COMMITTED");
-  assert.equal(recoveryV2.opId, fixture.expectedOpId);
-  assert.equal(submissions, 3);
 });
 
 test("cutover admission preserves V2 recovery admission", async () => {
@@ -501,31 +413,6 @@ function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
     });
   });
 }
-
-test("production recovery admission expires before the repo-write transport deadline", () => {
-  assert.ok(defaultProductionRecoveryAdmissionTimeoutMs < defaultRepoWriteRequestTimeoutMs);
-});
-
-test("recovery gate preserves unresolved outer recovery instead of returning a terminal receipt", async () => {
-  let recoverySubmissions = 0;
-  const fixture = authorityCommandAttemptFixture();
-  const service = gateAuthoritySubmissionForRecovery({
-    submit: async () => {
-      throw new Error("legacy admission not used");
-    },
-    resumeV2: async () => {
-      recoverySubmissions += 1;
-      throw new Error("unresolved recovery must remain gated");
-    },
-    getOperation: async () => undefined
-  }, () => "AUTHORITY_RECOVERY_IN_PROGRESS:repoId=canonical");
-
-  await assert.rejects(
-    service.resumeV2!(authorityRecoveryAttemptFixture(fixture)),
-    /AUTHORITY_RECOVERY_IN_PROGRESS:repoId=canonical/u
-  );
-  assert.equal(recoverySubmissions, 0);
-});
 
 test("stale daemon generation receipts expose a stable retryable write error code", () => {
   const failure = (() => {

@@ -1,6 +1,5 @@
 import type { AuthorityCommittedReceipt } from "@harness-anything/application";
 import {
-  defaultProductionRecoveryAdmissionTimeoutMs,
   type DurableRepoWriteOutcomeStoreV1,
   type HarnessDaemonRuntime,
   type ReceiptSettlementStore,
@@ -14,6 +13,7 @@ import {
 } from "./receipt-settlement-runtime.ts";
 
 const defaultReceiptRecoveryTimeoutMs = 5_000;
+const defaultPostReadyRecoveryBudgetMs = 25_000;
 
 export interface RepoWriteChildPostReadyRecovery {
   readonly recoverSettlements: (budgetMs?: number) => Promise<void>;
@@ -37,10 +37,11 @@ export function createRepoWriteChildPostReadyRecovery(input: {
   readonly totalBudgetMs?: number;
   readonly perReceiptTimeoutMs?: number;
 }): RepoWriteChildPostReadyRecovery {
-  const totalBudgetMs = input.totalBudgetMs ?? defaultProductionRecoveryAdmissionTimeoutMs;
+  const totalBudgetMs = input.totalBudgetMs ?? defaultPostReadyRecoveryBudgetMs;
   const perReceiptTimeoutMs = input.perReceiptTimeoutMs ?? defaultReceiptRecoveryTimeoutMs;
   const reporter = createPostReadyRecoveryReporter(input.repoId, input.generation);
   const diagnosticDeliveries = new Set<Promise<void>>();
+  const deferredReceipts = new Set<string>();
   let activeSettlementSweep: Promise<void> | undefined;
 
   const sendDeferred = (outerOpId: string, code: string, diagnostic: string): void => {
@@ -73,6 +74,11 @@ export function createRepoWriteChildPostReadyRecovery(input: {
     reporter.mark("receipt-settlement", progress.receiptId, progress.status, {
       lastPhase: progress.phase
     });
+    if (progress.status === "timed-out"
+      || progress.status === "failed"
+      || progress.status === "pending") {
+      deferredReceipts.add(progress.receiptId);
+    }
     if (progress.status !== "timed-out") return;
     sendDeferred(
       progress.receiptId,
@@ -94,6 +100,7 @@ export function createRepoWriteChildPostReadyRecovery(input: {
         deadlineAt: Date.now() + Math.max(0, budgetMs),
         perReceiptTimeoutMs,
         onReceiptProgress: reportReceiptProgress,
+        shouldRecoverReceipt: (receiptId) => !deferredReceipts.has(receiptId),
         recoverCommittedReceipt: input.recoverCommittedReceipt,
         recoverCanonicalPublication: input.recoverCanonicalPublication
       });
