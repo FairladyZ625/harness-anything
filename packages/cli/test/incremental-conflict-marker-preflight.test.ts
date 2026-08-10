@@ -89,6 +89,38 @@ test("generation conflict preflight observes committed deltas and root policy fi
   }
 });
 
+test("machine-internal .harness snapshots never trip the conflict preflight in full or incremental mode", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-conflict-marker-harness-layer-"));
+  const authoredRoot = path.join(rootDir, "harness");
+  const preservedDir = path.join(
+    authoredRoot, ".harness", "preserved-worktree-edits", "snap-1", "tasks"
+  );
+  try {
+    mkdirSync(preservedDir, { recursive: true });
+    writeFileSync(path.join(authoredRoot, "harness.yaml"), "schema: harness-anything/v1\n");
+    writeFileSync(path.join(preservedDir, "progress.md"), conflictMarker());
+    git(authoredRoot, "init", "-b", "main");
+    git(authoredRoot, "config", "user.name", "Harness Test");
+    git(authoredRoot, "config", "user.email", "harness@example.test");
+    git(authoredRoot, "add", ".");
+    git(authoredRoot, "commit", "-m", "seed with preserved snapshot marker");
+
+    const preflight = makeIncrementalConflictMarkerPreflight({ rootDir });
+    // Full-mode scan: the snapshot marker must not pin the preflight in full mode.
+    assert.equal(preflight.read(), undefined);
+
+    // Incremental mode: a fresh snapshot with markers stays invisible.
+    writeFileSync(path.join(preservedDir, "late-snapshot.md"), conflictMarker());
+    assert.equal(preflight.read(), undefined);
+
+    // Positive control: an authored marker is still caught.
+    writeFileSync(path.join(authoredRoot, "authored.md"), conflictMarker());
+    assert.equal(preflight.read()?.code, "conflict_marker_present");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function conflictMarker(): string {
   return "<<<<<<< HEAD\nleft\n=======\nright\n>>>>>>> branch\n";
 }
