@@ -107,7 +107,6 @@
     ],
     "applicationServiceSnippets": [
       { "value": "makeLocalControllerService", "ref": "ADR-0022#D6", "reason": "Application service surface must expose the local controller service." },
-      { "value": "taskWriter", "ref": "ADR-0022#D6", "reason": "Application service writes must use the injected task writer seam." },
       { "value": "readTaskProjection", "ref": "ADR-0022#D6", "reason": "Application service reads must use the task projection seam." }
     ],
     "guiSecurityEvidence": [
@@ -115,7 +114,7 @@
       { "value": "preload exposes only the approved API methods", "ref": "ADR-0022#D6", "reason": "GUI tests must prove preload API allowlist enforcement." },
       { "value": "main process registers one IPC handler for each preload allowlist method", "ref": "ADR-0022#D6", "reason": "GUI tests must prove IPC/preload alignment." },
       { "value": "GUI service bridge reaches application service", "ref": "ADR-0022#D6", "reason": "GUI tests must prove bridge-to-service wiring." },
-      { "value": "local controller service reads projection and writes through injected task writer", "ref": "ADR-0022#D6", "reason": "GUI tests must prove application service read/write seams." },
+      { "value": "local controller service reads projections and authored documents", "ref": "task_P4_INT", "reason": "After lifecycle cutover the GUI controller is read-only and its tests must prove projection and authored-document reads." },
       { "value": "Markdown sanitizer strips scripts", "ref": "ADR-0022#D6", "reason": "GUI tests must prove markdown sanitization." },
       { "value": "local API binds localhost", "ref": "ADR-0022#D6", "reason": "GUI tests must prove localhost-only API binding." },
       { "value": "path guard rejects traversal", "ref": "ADR-0022#D6", "reason": "GUI tests must prove path traversal rejection." },

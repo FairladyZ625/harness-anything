@@ -1,5 +1,4 @@
-import type { DomainStatus } from "../../kernel/src/index.ts";
-import { isDomainStatus, normalizeRelativeDocumentPath, validateTaskIdSyntax } from "../../kernel/src/index.ts";
+import { normalizeRelativeDocumentPath, validateTaskIdSyntax } from "../../kernel/src/index.ts";
 import type { LocalControllerFailure } from "./index.ts";
 import { isRecord } from "./record.ts";
 
@@ -26,24 +25,6 @@ export function readTaskDocumentPayload(payload: unknown): { readonly ok: true; 
   } catch {
     return invalidPayload("portable document path is required.");
   }
-}
-
-export function readSetStatusPayload(payload: unknown): { readonly ok: true; readonly taskId: string; readonly status: DomainStatus } | LocalControllerFailure {
-  const taskPayload = readTaskIdPayload(payload);
-  if (!taskPayload.ok) return taskPayload;
-  if (!isRecord(payload) || typeof payload.status !== "string" || !isDomainStatus(payload.status)) {
-    return invalidPayload("valid status is required.");
-  }
-  return { ok: true, taskId: taskPayload.taskId, status: payload.status };
-}
-
-export function readAppendProgressPayload(payload: unknown): { readonly ok: true; readonly taskId: string; readonly text: string } | LocalControllerFailure {
-  const taskPayload = readTaskIdPayload(payload);
-  if (!taskPayload.ok) return taskPayload;
-  if (!isRecord(payload) || typeof payload.text !== "string" || payload.text.length === 0) {
-    return invalidPayload("text is required.");
-  }
-  return { ok: true, taskId: taskPayload.taskId, text: payload.text };
 }
 
 export function validateLocalControllerTaskId(taskId: string): void {

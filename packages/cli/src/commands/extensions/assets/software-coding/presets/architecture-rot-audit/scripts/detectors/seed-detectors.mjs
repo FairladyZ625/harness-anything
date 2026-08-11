@@ -7,7 +7,7 @@ const seedDetectors = new Map([
   ["ROT-003", detectExecutableApiContracts],
   ["ROT-004", detectDaemonClasses],
   ["ROT-005", detectWriteOpInterpreters],
-  ["ROT-006", detectTaskHolderAtomicity],
+  ["ROT-006", detectTaskLeaseAtomicity],
   ["ROT-007", detectDaemonRuntimeOwnership],
   ["ROT-008", detectScriptExecutorOwnership],
   ["ROT-009", detectPresetIdLeaks],
@@ -97,11 +97,11 @@ function detectWriteOpInterpreters(rootDir) {
   return verdict(interpreters.size <= 1, { opKindInterpreterCount: interpreters.size, interpreters: [...interpreters] });
 }
 
-function detectTaskHolderAtomicity(rootDir) {
-  const source = read(rootDir, "packages/kernel/src/local/task-holder-state.ts");
-  const helper = /(?:async\s+)?function\s+withTaskHolderMutationLock\b/u.test(source);
-  const lockCalls = count(source, /\bwithTaskHolderMutationLock\s*\(/gu);
-  return verdict(helper && lockCalls >= 2, { atomicMutationHelper: helper, guardedMutationCallsites: lockCalls });
+function detectTaskLeaseAtomicity(rootDir) {
+  const source = read(rootDir, "packages/kernel/src/local/task-lease-store.ts");
+  const helper = /function\s+transaction\b/u.test(source);
+  const transactionCalls = count(source, /\btransaction\s*\(/gu) - (helper ? 1 : 0);
+  return verdict(helper && transactionCalls >= 2, { atomicMutationHelper: helper, guardedMutationCallsites: transactionCalls });
 }
 
 function detectDaemonRuntimeOwnership(rootDir) {
@@ -138,9 +138,9 @@ function detectRelationSourceCatalog(rootDir) {
 
 function detectVcsSeam(rootDir) {
   const vcs = interfaceMembers(read(rootDir, "packages/kernel/src/ports/version-control-system.ts"), "VersionControlSystem");
-  const app = interfaceMembers(read(rootDir, "packages/application/src/code-doc-reconciliation.ts"), "GitRunner");
+  const appDir = path.join(rootDir, "packages/application/src"), appGitRunnerDeclarations = readdirSync(appDir).filter((name) => name.endsWith(".ts") && /interface\s+GitRunner\b/u.test(readFileSync(path.join(appDir, name), "utf8")));
   const pathAtRef = vcs.includes("pathExistsAtCommit") || vcs.includes("pathExistsAtRef");
-  return verdict(pathAtRef && app.length === 0, { vcsSupportsPathAtRef: pathAtRef, applicationGitRunnerMembers: app });
+  return verdict(pathAtRef && appGitRunnerDeclarations.length === 0, { vcsSupportsPathAtRef: pathAtRef, applicationGitRunnerDeclarations: appGitRunnerDeclarations });
 }
 
 function detectPrAdmission(rootDir) {

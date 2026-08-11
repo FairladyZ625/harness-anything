@@ -10,7 +10,7 @@ import { discoverDeclaredEntityRows, projectDeclaredEntities, readDeclaredProjec
 import { buildCheckReport, hardFail, runPostMergeChecks, warning } from "./post-merge-checks.ts";
 import type { FactAnchorRow, RelationCoverageRow, RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import { buildRelationGraphProjection } from "./relation-graph-projection.ts";
-import { projectionVersion, queryDecisionProjectionRows, queryTaskChildrenRows, queryTaskProjectionRows, queryTaskSubtreeRows, readRelationGraphRows, writeProjectionDatabase, tryReadProjectionDatabase } from "./sqlite-projection-store.ts";
+import { projectionVersion, queryDecisionProjectionRows, queryTaskChildrenRows, queryTaskProjectionRows, readRelationGraphRows, writeProjectionDatabase, tryReadProjectionDatabase } from "./sqlite-projection-store.ts";
 import { compareDecisionRows, hashDecisionProjectionRows, readDecisionProjectionRows } from "./sqlite-decision-source.ts";
 import { compareRows, hashExactRows, readMarkdownSource, taskEntryToRow } from "./sqlite-task-source.ts";
 export { hashTaskProjectionRows } from "./sqlite-task-source.ts";
@@ -222,25 +222,6 @@ export function queryTaskChildren(options: TaskProjectionOptions & { readonly pa
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return {
       rows: queryTaskChildrenRows(projectionPath, options.parentTaskId),
-      warnings: [...projection.warnings, ...rebuilt.warnings]
-    };
-  }
-}
-
-export function queryTaskSubtree(options: TaskProjectionOptions & { readonly rootTaskId: string }): ProjectionReadResult {
-  const rootDir = path.resolve(options.rootDir);
-  const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
-  const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
-  const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-  try {
-    return {
-      rows: queryTaskSubtreeRows(projectionPath, options.rootTaskId),
-      warnings: projection.warnings
-    };
-  } catch {
-    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-    return {
-      rows: queryTaskSubtreeRows(projectionPath, options.rootTaskId),
       warnings: [...projection.warnings, ...rebuilt.warnings]
     };
   }

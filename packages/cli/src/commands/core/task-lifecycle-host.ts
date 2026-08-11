@@ -230,11 +230,7 @@ function credentialHash(value: string): string {
 }
 
 function actorAxes(context: CommandRunnerContext): ActorAxes {
-  const principal = context.taskHolderPrincipal();
-  return {
-    principal: { personId: principal.principal.personId },
-    executor: principal.executor
-  };
+  return context.actorAxes();
 }
 
 function isTaskLifecycleAction(action: { readonly kind: string }): action is TaskLifecycleCliAction {

@@ -1,5 +1,12 @@
 import type { AuthenticatedActor } from "../../../daemon/src/index.ts";
-import type { TaskHolderPersonPrincipal } from "../../../application/src/index.ts";
+
+export interface CliPersonPrincipal {
+  readonly personId: string;
+  readonly displayName?: string;
+  readonly primaryEmail?: string;
+  readonly providerId?: string;
+  readonly credential?: { readonly kind: string; readonly issuer: string; readonly subject: string };
+}
 
 export interface CliJournalActor {
   readonly kind: "agent" | "human" | "system";
@@ -15,7 +22,7 @@ export interface CliActorAttribution {
   readonly actor: CliJournalActor;
   readonly commitAuthor: CliGitCommitAuthor;
   readonly source: "env" | "flag" | "daemon";
-  readonly authenticatedPrincipal?: TaskHolderPersonPrincipal;
+  readonly authenticatedPrincipal?: CliPersonPrincipal;
 }
 
 export class CliActorAttributionError extends Error {

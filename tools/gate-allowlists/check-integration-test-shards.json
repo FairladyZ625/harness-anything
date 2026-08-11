@@ -2,6 +2,22 @@
   "schema": "harness-anything/gate-allowlist/v1",
   "gateId": "check-integration-test-shards",
   "entries": {
-    "intentionalTestDeletions": []
+    "intentionalTestDeletions": [
+      {
+        "value": "packages/application/test/execution-saga.test.ts",
+        "ref": "task_P4_INT",
+        "reason": "The event-backed replay lifecycle service replaces the holder-backed execution saga and its integration test."
+      },
+      {
+        "value": "packages/cli/test/task-lease-cli.test.ts",
+        "ref": "task_P4_INT",
+        "reason": "The explicit replay lease credential replaces the legacy implicit task-holder CLI guard and its integration test."
+      },
+      {
+        "value": "packages/cli/test/task-document-gates-cli.test.ts",
+        "ref": "task_P4_INT",
+        "reason": "Explicit opaque gate receipts replace the legacy local completion-gate evaluator and its CLI integration test."
+      }
+    ]
   }
 }

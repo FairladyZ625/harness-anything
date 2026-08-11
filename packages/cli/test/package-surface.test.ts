@@ -176,10 +176,10 @@ test("architecture-rot-audit check action writes snapshot and non-blocking triag
       "void specs;",
       ""
     ].join("\n"));
-    writeFixture(rootDir, "packages/kernel/src/local/task-holder-state.ts", [
-      "function withTaskHolderMutationLock() {}",
-      "withTaskHolderMutationLock();",
-      "withTaskHolderMutationLock();",
+    writeFixture(rootDir, "packages/kernel/src/local/task-lease-store.ts", [
+      "function transaction() {}",
+      "transaction();",
+      "transaction();",
       ""
     ].join("\n"));
     writeFixture(rootDir, "packages/cli/src/commands/extensions/script-executor.ts", "import { spawnSync } from \"node:child_process\";\nvoid spawnSync;\n");

@@ -139,12 +139,12 @@ export const entityRegistry = {
       anchors: []
     },
     dispositionMatrix: dispositionMatrix([
-      supported("D1", "supersede", ["package_supersede"], "task replacement is expressed as supersession"),
-      unsupported("D1", "retire", "task semantic retirement uses supersede in the current task surface"),
+      unsupported("D1", "supersede", "replay/v1 does not expose authored task package disposition writes"),
+      unsupported("D1", "retire", "replay/v1 does not expose authored task package disposition writes"),
       unsupported("D1", "invalidate", "task invalidation is not a task disposition action"),
-      supported("D2", "archive", ["package_archive"], "task archive exits the work view while preserving the package"),
-      supported("D3", "tombstone", ["package_tombstone"], "task tombstone preserves id existence after mistaken creation"),
-      supported("D4", "hard-delete", ["package_delete_hard"], "task hard delete is allowed only after lower-bound checks and explicit confirmation")
+      unsupported("D2", "archive", "replay/v1 does not expose authored task package disposition writes"),
+      unsupported("D3", "tombstone", "replay/v1 does not expose authored task package disposition writes"),
+      unsupported("D4", "hard-delete", "replay/v1 does not expose authored task package disposition writes")
     ]),
     storageForm: "lifecycle"
   },

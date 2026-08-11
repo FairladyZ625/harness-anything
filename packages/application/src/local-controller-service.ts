@@ -1,6 +1,6 @@
 import path from "node:path";
 import { Effect } from "effect";
-import type { ArtifactStore, EngineError, FactRecord, WriteError } from "../../kernel/src/index.ts";
+import type { ArtifactStore, FactRecord } from "../../kernel/src/index.ts";
 import {
   parseFactFlowRecords,
   queryDecisionProjection,
@@ -19,24 +19,14 @@ import {
 } from "./local-controller-payloads.ts";
 import type {
   FactProjectionRow,
-  LocalControllerError,
   LocalControllerFailure,
   LocalControllerResult,
   LocalControllerService,
   LocalControllerServiceOptions
 } from "./index.ts";
-import { makeTaskLifecycleOrchestrator } from "./task-lifecycle-orchestrator.ts";
 
 export function makeLocalControllerService(options: LocalControllerServiceOptions): LocalControllerService {
   const rootDir = path.resolve(options.rootDir);
-  const taskWriter = options.taskWriter;
-  const lifecycleOrchestrator = makeTaskLifecycleOrchestrator({
-    rootDir,
-    layoutOverrides: options.layoutOverrides,
-    taskWriter,
-    artifactStore: options.artifactStore
-  });
-
   return {
     getTasks: () => {
       const result = queryTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, filters: {} });
@@ -109,23 +99,6 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
         }))
       ));
     },
-    setTaskStatus: async (payload) => {
-      validateLocalControllerTaskId(payload.taskId);
-      return Effect.runPromise(lifecycleOrchestrator.setTaskStatus(payload).pipe(Effect.map(toLocalControllerResult)));
-    },
-    reviewTask: async (payload) => {
-      validateLocalControllerTaskId(payload.taskId);
-      return Effect.runPromise(lifecycleOrchestrator.startTaskReview(payload).pipe(Effect.map(toLocalControllerResult)));
-    },
-    appendTaskProgress: async (payload) => {
-      validateLocalControllerTaskId(payload.taskId);
-      return Effect.runPromise(taskWriter.appendProgress({ taskId: payload.taskId, text: payload.text }).pipe(
-        Effect.match({
-          onFailure: (error) => toProgressFailure(error as EngineError | WriteError),
-          onSuccess: () => ({ ok: true })
-        })
-      ));
-    },
     rebuildGovernance: () => {
       const result = queryTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, filters: {} });
       return { ok: true, tasks: result.rows, warnings: result.warnings };
@@ -195,12 +168,4 @@ function readControllerTaskDocument(artifactStore: Pick<ArtifactStore, "readTask
       ? ({ ok: false, error: { code: "document_not_found", hint: portablePath } } satisfies LocalControllerFailure)
       : ({ ok: true, taskId, path: portablePath, body }))
   );
-}
-
-function toLocalControllerResult(result: { readonly ok: true } | { readonly ok: false; readonly error: LocalControllerError }): LocalControllerResult {
-  return result.ok ? { ok: true } : { ok: false, error: result.error };
-}
-
-function toProgressFailure(error: EngineError | WriteError): LocalControllerResult {
-  return { ok: false, error: { code: error._tag, hint: "Progress append failed." } };
 }

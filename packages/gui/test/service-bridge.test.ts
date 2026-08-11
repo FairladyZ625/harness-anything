@@ -110,11 +110,6 @@ test("GUI daemon bridge rejects malformed payload contracts before request dispa
   assert.equal(nonRecord.error?.code, "invalid_payload");
   assert.match(nonRecord.error?.hint ?? "", /taskId is required/u);
 
-  const malformedRecord = await bridge.invoke("setTaskStatus", { taskId: "task-1", status: "unknown-status" }) as { readonly ok: boolean; readonly error?: { readonly code: string; readonly hint: string } };
-  assert.equal(malformedRecord.ok, false);
-  assert.equal(malformedRecord.error?.code, "invalid_payload");
-  assert.match(malformedRecord.error?.hint ?? "", /valid status/u);
-
   assert.equal(requests, 0);
 });
 

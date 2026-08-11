@@ -207,7 +207,6 @@ export function BoardView({
   filters,
   onFiltersChange,
   onSelect,
-  onUpdate,
   drill,
   relations,
   favorites,
@@ -220,7 +219,6 @@ export function BoardView({
   filters: TaskFilters;
   onFiltersChange: (filters: TaskFilters) => void;
   onSelect: (id: string) => void;
-  onUpdate: (id: string, patch: Partial<TaskRow>) => void;
   drill?: { lane: string; status: SnapshotStatus; groupBy: LaneGroupBy } | null;
   relations: RelationEdge[];
   favorites: ReadonlySet<string>;
@@ -251,14 +249,8 @@ export function BoardView({
   const onDragStart = (e: DragStartEvent) =>
     setActiveTask(tasks.find((t) => t.taskId === e.active.id) ?? null);
 
-  const onDragEnd = (e: DragEndEvent) => {
+  const onDragEnd = (_event: DragEndEvent) => {
     setActiveTask(null);
-    const target = e.over?.id as SnapshotStatus | undefined;
-    if (!target || target === "unknown") return;
-    const task = tasks.find((t) => t.taskId === e.active.id);
-    if (!task || isExternal(task)) return;
-    if (target === task.coordinationStatus) return;
-    onUpdate(task.taskId, { coordinationStatus: target, rawStatus: target });
   };
 
   const seg = (active: boolean) =>
@@ -277,7 +269,7 @@ export function BoardView({
           <button
             onClick={() => setLayout("column")}
             className={seg(layout === "column")}
-            title="按 coordinationStatus 分列(可拖拽改状态)"
+            title="按 coordinationStatus 分列"
           >
             列
           </button>

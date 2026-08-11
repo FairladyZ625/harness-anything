@@ -15,7 +15,7 @@ import {
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import { authoredRelativePath } from "./authored-git.ts";
-import { scanLegacyHolders, scanRuntimeExecutionCandidates } from "./session-cutover-candidates.ts";
+import { scanRuntimeExecutionCandidates } from "./session-cutover-candidates.ts";
 
 type SyncAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "session-sync" }>;
 
@@ -27,7 +27,6 @@ export function runSessionSync(
   return Effect.gen(function* () {
     const paths = listCutoverSessionPaths(context.layoutInput);
     const runtimeScan = scanRuntimeExecutionCandidates(context.layoutInput);
-    const holderBackfill = scanLegacyHolders(context.layoutInput);
     const documents = paths.map((entry) => {
       const body = readFileSync(path.join(resolveHarnessLayout(context.layoutInput).authoredRoot, entry), "utf8");
       return { entry, body, kind: sessionDocumentKind(body) };
@@ -56,7 +55,6 @@ export function runSessionSync(
           applied: action.mode === "apply" ? legacy.length : 0
         },
         executionCandidates: runtimeScan.candidates,
-        holderBackfill,
         warnings: runtimeScan.warnings,
         git: cutoverGitReport(action.mode === "apply" && legacy.length > 0, legacy.map((entry) => entry.entry), flush)
       }

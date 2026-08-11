@@ -1,4 +1,5 @@
-import type { CloseoutReadiness, DomainStatus, PackageDisposition, PriorityTier, TaskWorkKind } from "../domain/index.ts";
+import type { CloseoutReadiness, DomainStatus, PriorityTier, TaskWorkKind } from "../domain/index.ts";
+import type { PackageDisposition } from "../domain/package-disposition.ts";
 import type { HarnessLayoutOverrides } from "../layout/index.ts";
 
 export type ProjectionFreshness = "fresh" | "stale-but-usable" | "unavailable-no-cache";

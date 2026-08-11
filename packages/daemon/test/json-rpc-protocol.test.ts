@@ -429,11 +429,17 @@ test("RBAC rejects non-arbiter methods and records a runtime event with actor", 
     const response = await server.handle({
       jsonrpc: "2.0",
       id: "rbac-1",
-      method: "repo.tasks.review",
+      method: "repo.command.run",
       params: {
         repo: { repoId: "canonical" },
         session: { sessionId: "codex-session-rbac", runtime: "codex" },
-        payload: { taskId: "task-1" }
+        payload: {
+          command: {
+            rootDir: "/tmp/canonical",
+            json: true,
+            action: { kind: "decision-accept" }
+          }
+        }
       }
     });
     const receipt = resultReceipt(response);
@@ -450,7 +456,7 @@ test("RBAC rejects non-arbiter methods and records a runtime event with actor", 
     assert.equal(event.actor?.executor, null);
     assert.equal(event.actor?.responsibleHuman, "person:person_viewer");
     assert.equal(event.result?.errorCode, "rbac_forbidden");
-    assert.equal(event.tool?.toolName, "repo.tasks.review");
+    assert.equal(event.tool?.toolName, "decision-accept");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -555,9 +561,9 @@ function emptyLocalController(): LocalControllerService {
     getDecisions: () => ({ ok: true, decisions: [], warnings: [] }),
     getDecisionDetail: () => ({ ok: false, error: { code: "decision_not_found", hint: "missing" } }),
     getTaskFacts: async (payload) => ({ ok: true, taskId: payload.taskId, path: "harness/tasks/task/facts.md", facts: [] }),
-    setTaskStatus: async () => ({ ok: true }),
-    reviewTask: async () => ({ ok: true }),
-    appendTaskProgress: async () => ({ ok: true }),
+    getTaskExecutions: (payload) => ({ ok: true, taskId: payload.taskId, executions: [] }),
+    getExecutionDetail: () => ({ ok: false, error: { code: "execution_not_found", hint: "missing" } }),
+    getReviewDetail: () => ({ ok: false, error: { code: "review_not_found", hint: "missing" } }),
     rebuildGovernance: () => ({ ok: true, tasks: [], warnings: [] }),
     archiveTask: () => ({ ok: true }),
     openShell: () => ({ ok: true, policy: { displayOnly: true, outputCreatesTaskState: false } })

@@ -12,22 +12,11 @@ export type {
 } from "./task-lifecycle.contract.ts";
 
 export { reviewVerdicts } from "./review.ts";
-export type { ReviewRecord, ReviewVerdict } from "./review.ts";
+export type { ReviewVerdict } from "./review.ts";
 
 export { isPriorityTier, isTaskWorkKind, priorityTiers, taskWorkKinds } from "./task-metadata.ts";
 export type { PriorityTier, TaskWorkKind } from "./task-metadata.ts";
 
-export {
-  domainStatuses,
-  openDomainStatuses,
-  terminalDomainStatuses,
-  reviewArtifactStatuses,
-  explainStatusTransition,
-  isDomainStatus,
-  isTerminalStatus,
-  needsReviewArtifacts,
-  statusCoarseClass
-} from "./lifecycle-status.ts";
 export type { DomainStatus, CanonicalStatus, StatusCoarseClass, StatusTransitionExplanation, StatusTransitionRejectionReason } from "./lifecycle-status.ts";
 
 export {
@@ -42,9 +31,6 @@ export type { LifecycleBinding, BindingInvariantResult, ImmutableBindingField } 
 
 export { closeoutReadinesses, isCloseoutReadiness } from "./closeout-readiness.ts";
 export type { CloseoutReadiness } from "./closeout-readiness.ts";
-
-export { packageDispositions, isPackageDisposition } from "./package-disposition.ts";
-export type { PackageDisposition } from "./package-disposition.ts";
 
 export { findEntityRefs, parseEntityRef } from "./entity-ref.ts";
 export type { EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";

@@ -10,8 +10,8 @@ import type {
   ArtifactWriteReceipt,
   DocumentWrite
 } from "../ports/artifact-store-writer.ts";
-import { isPackageDisposition } from "../domain/index.ts";
-import type { ArtifactStoreError, EngineId, ExternalRef, PackageDisposition, TaskId } from "../domain/index.ts";
+import type { ArtifactStoreError, EngineId, ExternalRef, TaskId } from "../domain/index.ts";
+import { isPackageDisposition, type PackageDisposition } from "../domain/package-disposition.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../layout/index.ts";

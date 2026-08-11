@@ -29,7 +29,6 @@ export type {
   WriteOpKind,
   TaskWriteOpKind,
   DecisionWriteOpKind,
-  LocalTransitionWriteOp,
   ProvenancePayload,
   WriteAck,
   FlushReason,

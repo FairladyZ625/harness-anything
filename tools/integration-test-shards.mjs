@@ -6,7 +6,6 @@ export const defaultIntegrationTestWeightMs = 1000;
 export const integrationTestFileWeightsMs = Object.freeze({
   "packages/adapters/multica/test/multica-readonly-adopt.test.ts": 782.5,
   "packages/application/test/local-controller-service.test.ts": 507.0,
-  "packages/application/test/execution-saga.test.ts": 1200.0,
   "packages/cli/test/actor-attribution-cli.test.ts": 3640.4,
   "packages/cli/test/anchor-backfill-cli.test.ts": 16962.1,
   "packages/cli/test/attribution-diff-cli.test.ts": 4299.9,
@@ -49,8 +48,6 @@ export const integrationTestFileWeightsMs = Object.freeze({
   "packages/cli/test/settings-cli.test.ts": 20342.2,
   "packages/cli/test/task-archive-distill-cli.test.ts": 15682.0,
   "packages/cli/test/task-delete-disposition-cli.test.ts": 15148.2,
-  "packages/cli/test/task-document-gates-cli.test.ts": 10050.9,
-  "packages/cli/test/task-lease-cli.test.ts": 2210.6,
   "packages/cli/test/task-list-cli.test.ts": 4079.4,
   "packages/cli/test/task-show-relation-list-cli.test.ts": 9469.7,
   "packages/cli/test/task-transition-sweep-cli.test.ts": 24335.2,

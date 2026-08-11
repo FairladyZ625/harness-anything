@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { CloseoutReadiness } from "../domain/index.ts";
-import { isDomainStatus, isPackageDisposition, isPriorityTier, isTaskWorkKind, isTerminalStatus } from "../domain/index.ts";
+import { isPriorityTier, isTaskWorkKind } from "../domain/index.ts";
+import { isDomainStatus, isTerminalStatus } from "../domain/lifecycle-status.ts";
+import { isPackageDisposition } from "../domain/package-disposition.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";

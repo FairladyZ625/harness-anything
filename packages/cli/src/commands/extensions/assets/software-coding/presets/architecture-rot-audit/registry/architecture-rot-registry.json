@@ -256,17 +256,17 @@
     {
       "id": "ROT-006",
       "category": "atomicity-outsourcing",
-      "title": "Task-holder mutations are atomic inside the lease module",
+      "title": "Task lease CAS mutations are atomic inside the lease store",
       "mechanism": {
-        "mustBeTrue": "The task-holder module itself guards claim and release with a task-scoped cross-process mutation lock; daemon queueing is not a correctness prerequisite.",
+        "mustBeTrue": "The replay/v1 lease store guards reserve and CAS transitions with SQLite immediate transactions; daemon queueing is not a correctness prerequisite.",
         "scope": [
-          "packages/kernel/src/local/task-holder-state.ts",
-          "packages/cli/src/composition/command-executor.ts"
+          "packages/kernel/src/local/task-lease-store.ts",
+          "packages/application/src/task-lifecycle-facade.ts"
         ]
       },
       "detection": {
         "detector": "ROT-006",
-        "command": "node --input-type=module -e 'import { readFileSync } from \"node:fs\"; import ts from \"typescript\"; const file=\"packages/kernel/src/local/task-holder-state.ts\"; const source=ts.createSourceFile(file,readFileSync(file,\"utf8\"),ts.ScriptTarget.Latest,true,ts.ScriptKind.TS); let helper=false,lockCalls=0; const visit=(node)=>{if(ts.isFunctionDeclaration(node)&&node.name?.text===\"withTaskHolderMutationLock\") helper=true; if(ts.isCallExpression(node)&&ts.isIdentifier(node.expression)&&node.expression.text===\"withTaskHolderMutationLock\") lockCalls++; ts.forEachChild(node,visit);}; visit(source); console.log(JSON.stringify({atomicMutationHelper:helper,guardedMutationCallsites:lockCalls})); process.exit(helper&&lockCalls>=2?0:1);'",
+        "command": "node --input-type=module -e 'import { readFileSync } from \"node:fs\"; const file=\"packages/kernel/src/local/task-lease-store.ts\"; const body=readFileSync(file,\"utf8\"); const helper=/function\\s+transaction\\b/u.test(body); const calls=(body.match(/\\btransaction\\s*\\(/gu)??[]).length-(helper?1:0); console.log(JSON.stringify({atomicMutationHelper:helper,guardedMutationCallsites:calls})); process.exit(helper&&calls>=2?0:1);'",
         "cwd": ".",
         "successExitCodes": [
           0
@@ -278,9 +278,8 @@
           "report": "architecture-review-A-fable-4way-20260710.html",
           "card": "A#6 / #c6",
           "evidence": [
-            "packages/kernel/src/local/task-holder-state.ts:140-225",
-            "packages/cli/src/composition/command-executor.ts:130-135",
-            "packages/cli/src/index.ts:377-380"
+            "packages/kernel/src/local/task-lease-store.ts",
+            "packages/application/src/task-lifecycle-facade.ts"
           ]
         }
       ],
@@ -296,7 +295,7 @@
         "stdout": "{\"atomicMutationHelper\":true,\"guardedMutationCallsites\":2}\n",
         "stderr": "",
         "mechanismVerdict": "pass",
-        "interpretation": "The module owns an atomic mutation helper and both claim/release mutation paths call it."
+        "interpretation": "The lease store owns an atomic transaction helper and both reserve/CAS mutation paths call it."
       }
     },
     {
@@ -488,18 +487,17 @@
     {
       "id": "ROT-011",
       "category": "imaginary-seam",
-      "title": "Code-doc reconciliation uses the canonical VCS port",
+      "title": "Application code uses the canonical VCS port",
       "mechanism": {
-        "mustBeTrue": "VersionControlSystem owns the path-at-ref query needed by code-doc reconciliation, and application code does not declare a second GitRunner seam.",
+        "mustBeTrue": "VersionControlSystem owns path-at-ref queries, and application code does not declare a second GitRunner seam.",
         "scope": [
           "packages/kernel/src/ports/version-control-system.ts",
-          "packages/application/src/code-doc-reconciliation.ts",
-          "packages/cli/src/commands/core/task-gates.ts"
+          "packages/application/src/**"
         ]
       },
       "detection": {
         "detector": "ROT-011",
-        "command": "node --input-type=module -e 'import { readFileSync } from \"node:fs\"; import ts from \"typescript\"; const members=(file,name)=>{const source=ts.createSourceFile(file,readFileSync(file,\"utf8\"),ts.ScriptTarget.Latest,true,ts.ScriptKind.TS); const found=[]; for(const statement of source.statements) if(ts.isInterfaceDeclaration(statement)&&statement.name.text===name) for(const member of statement.members) if(member.name&&ts.isIdentifier(member.name)) found.push(member.name.text); return found;}; const vcs=members(\"packages/kernel/src/ports/version-control-system.ts\",\"VersionControlSystem\"); const app=members(\"packages/application/src/code-doc-reconciliation.ts\",\"GitRunner\"); const pathAtRef=vcs.includes(\"pathExistsAtCommit\")||vcs.includes(\"pathExistsAtRef\"); console.log(JSON.stringify({vcsSupportsPathAtRef:pathAtRef,applicationGitRunnerMembers:app})); process.exit(pathAtRef&&app.length===0?0:1);'",
+        "command": "node --input-type=module -e 'import { readFileSync,readdirSync } from \"node:fs\"; import ts from \"typescript\"; const members=(file,name)=>{const source=ts.createSourceFile(file,readFileSync(file,\"utf8\"),ts.ScriptTarget.Latest,true,ts.ScriptKind.TS); const found=[]; for(const statement of source.statements) if(ts.isInterfaceDeclaration(statement)&&statement.name.text===name) for(const member of statement.members) if(member.name&&ts.isIdentifier(member.name)) found.push(member.name.text); return found;}; const vcs=members(\"packages/kernel/src/ports/version-control-system.ts\",\"VersionControlSystem\"); const app=readdirSync(\"packages/application/src\").filter(file=>file.endsWith(\".ts\")&&/interface\\s+GitRunner\\b/u.test(readFileSync(`packages/application/src/${file}`,\"utf8\"))); const pathAtRef=vcs.includes(\"pathExistsAtCommit\")||vcs.includes(\"pathExistsAtRef\"); console.log(JSON.stringify({vcsSupportsPathAtRef:pathAtRef,applicationGitRunnerDeclarations:app})); process.exit(pathAtRef&&app.length===0?0:1);'",
         "cwd": ".",
         "successExitCodes": [
           0
@@ -511,9 +509,7 @@
           "report": "architecture-review-A-fable-4way-20260710.html",
           "card": "A#11 / #c11",
           "evidence": [
-            "packages/application/src/code-doc-reconciliation.ts:50",
-            "packages/cli/src/commands/core/task-gates.ts:140",
-            "packages/kernel/src/ports/version-control-system.ts:8-28"
+            "packages/kernel/src/ports/version-control-system.ts"
           ]
         }
       ],

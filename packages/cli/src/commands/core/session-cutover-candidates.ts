@@ -119,61 +119,6 @@ function compareNullable(left: string | null, right: string | null): number {
   return left.localeCompare(right);
 }
 
-export function scanLegacyHolders(rootInput: HarnessLayoutInput): ReadonlyArray<{
-  readonly taskId: string;
-  readonly disposition: "seed_active_execution" | "unknown";
-  readonly confidence: "high" | "low";
-  readonly worker: string | null;
-  readonly acquiredAt: string | null;
-  readonly releasedAt: string | null;
-}> {
-  const layout = resolveHarnessLayout(rootInput);
-  const holdersRoot = path.join(layout.localRoot, "task-holders");
-  const now = Date.now();
-  return readDirectory(holdersRoot).flatMap((fileName) => legacyHolderEntry(
-    path.join(holdersRoot, fileName), fileName, layout, now
-  )).sort((left, right) => left.taskId.localeCompare(right.taskId));
-}
-
-function legacyHolderEntry(
-  filePath: string,
-  fileName: string,
-  layout: ReturnType<typeof resolveHarnessLayout>,
-  now: number
-): ReturnType<typeof scanLegacyHolders> {
-  if (!fileName.endsWith(".json")) return [];
-  try {
-    const record = JSON.parse(readFileSync(filePath, "utf8")) as {
-      readonly schema?: unknown; readonly taskId?: unknown;
-      readonly holder?: { readonly executor?: { readonly kind?: unknown; readonly id?: unknown } | null } | null;
-      readonly acquiredAt?: unknown; readonly leaseExpiresAt?: unknown; readonly releasedAt?: unknown;
-    };
-    if (record.schema !== "task-holder/v1" || typeof record.taskId !== "string") return [];
-    const effective = taskStatus(layout, record.taskId) === "active" && record.holder !== null &&
-      typeof record.holder === "object" && typeof record.leaseExpiresAt === "string" &&
-      Date.parse(record.leaseExpiresAt) > now && record.releasedAt === null;
-    return [{
-      taskId: record.taskId,
-      disposition: effective ? "seed_active_execution" : "unknown",
-      confidence: effective ? "high" : "low",
-      worker: effective && record.holder?.executor?.kind === "agent" && typeof record.holder.executor.id === "string" ? record.holder.executor.id : null,
-      acquiredAt: typeof record.acquiredAt === "string" ? record.acquiredAt : null,
-      releasedAt: typeof record.releasedAt === "string" ? record.releasedAt : null
-    }];
-  } catch {
-    return [];
-  }
-}
-
-function taskStatus(layout: ReturnType<typeof resolveHarnessLayout>, taskId: string): string | null {
-  try {
-    const body = readFileSync(layout.taskDocumentPath(taskId as `task_${string}`, "INDEX.md"), "utf8");
-    return body.match(/^  status:\s*(\S+)$/mu)?.[1] ?? null;
-  } catch {
-    return null;
-  }
-}
-
 function readDirectory(root: string): ReadonlyArray<string> {
   try {
     return readdirSync(root).sort();

@@ -12,10 +12,6 @@ export interface ProjectHarnessIdentity {
   readonly displayName?: string;
 }
 
-export interface ProjectHarnessTaskSettings {
-  readonly leaseEnforcement: boolean;
-}
-
 export interface ProjectHarnessSettings {
   readonly present: boolean;
   readonly locale?: HarnessLocale;
@@ -23,7 +19,6 @@ export interface ProjectHarnessSettings {
   readonly defaultPreset?: string;
   readonly defaultProfile?: string;
   readonly identity?: ProjectHarnessIdentity;
-  readonly tasks: ProjectHarnessTaskSettings;
   readonly customVerticalsEnabled: boolean;
 }
 
@@ -44,7 +39,6 @@ type RawSettings = Record<string, unknown>;
 
 const EMPTY_SETTINGS: ProjectHarnessSettings = {
   present: false,
-  tasks: { leaseEnforcement: false },
   customVerticalsEnabled: false
 };
 
@@ -105,21 +99,6 @@ export function readUserHarnessSettings(rootInput: HarnessLayoutInput, command =
       result: userSettingsError(command, error instanceof Error ? error.message : "Unable to read .harness/user-settings.json.")
     };
   }
-}
-
-/**
- * Resolves the lease gate for one workspace. The environment is an explicit
- * operational override; absent that override, the workspace ledger owns the
- * policy and new or temporary roots remain unenforced by default.
- */
-export function leaseEnforcementEnabled(
-  rootInput: HarnessLayoutInput,
-  env: NodeJS.ProcessEnv = process.env
-): boolean {
-  const envOverride = parseLeaseEnforcementEnv(env.HARNESS_TASK_LEASE_ENFORCEMENT);
-  if (envOverride !== undefined) return envOverride;
-  const settings = readProjectHarnessSettings(rootInput, "lease-enforcement");
-  return settings.ok && settings.settings.tasks.leaseEnforcement;
 }
 
 export function customVerticalGateResult(
@@ -187,7 +166,6 @@ function parseSettingsDocument(body: string): { readonly present: boolean; reado
       defaultPreset: fromSettings.defaultPreset ?? decoded.presets?.default,
       defaultProfile: fromSettings.defaultProfile,
       identity: fromSettings.identity,
-      tasks: fromSettings.tasks,
       customVerticals: fromSettings.customVerticals
     };
     return {
@@ -205,7 +183,6 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
   let inSettings = false;
   let inCustomVerticals = false;
   let inIdentity = false;
-  let inTasks = false;
   let foundSettings = false;
 
   for (const rawLine of lines) {
@@ -217,7 +194,6 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       inSettings = topLevel[1] === "settings";
       inCustomVerticals = false;
       inIdentity = false;
-      inTasks = false;
       foundSettings ||= inSettings;
       if (inSettings && topLevel[2]?.trim()) {
         throw new Error("settings must be a mapping.");
@@ -234,7 +210,6 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       const value = rawValue.trim();
       inCustomVerticals = key === "customVerticals";
       inIdentity = key === "identity";
-      inTasks = key === "tasks";
       if (inCustomVerticals) {
         if (value) throw new Error("settings.customVerticals must be a mapping.");
         settings.customVerticals = {};
@@ -243,11 +218,6 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       if (inIdentity) {
         if (value) throw new Error("settings.identity must be a mapping.");
         settings.identity = {};
-        continue;
-      }
-      if (inTasks) {
-        if (value) throw new Error("settings.tasks must be a mapping.");
-        settings.tasks = {};
         continue;
       }
       if (!isKnownSettingsScalar(key)) throw new Error(`Unknown settings key: ${key}`);
@@ -273,15 +243,6 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       settings.identity = { ...(isRecord(settings.identity) ? settings.identity : {}), [key]: unquoteScalar(value) };
       continue;
     }
-    if (inTasks && customNested) {
-      const [, key, rawValue = ""] = customNested;
-      if (key !== "leaseEnforcement") throw new Error(`Unknown settings.tasks key: ${key}`);
-      const value = rawValue.trim();
-      if (value !== "true" && value !== "false") throw new Error("settings.tasks.leaseEnforcement must be true or false.");
-      settings.tasks = { leaseEnforcement: value === "true" };
-      continue;
-    }
-
     throw new Error(`Unsupported settings YAML line: ${withoutComment.trim()}`);
   }
 
@@ -301,14 +262,6 @@ function validateSettings(command: string, raw: RawSettings): SettingsResult {
   if (!defaultProfile.ok) return invalid(command, defaultProfile.message);
   const identity = validateIdentity(command, raw.identity);
   if (!identity.ok) return identity;
-  const tasks = raw.tasks;
-  if (tasks !== undefined) {
-    if (!isRecord(tasks)) return invalid(command, "settings.tasks must be a mapping.");
-    const keys = Object.keys(tasks);
-    if (keys.length !== 1 || keys[0] !== "leaseEnforcement" || typeof tasks.leaseEnforcement !== "boolean") {
-      return invalid(command, "settings.tasks.leaseEnforcement must be a boolean.");
-    }
-  }
   const customVerticals = raw.customVerticals;
   if (customVerticals !== undefined) {
     if (!isRecord(customVerticals)) {
@@ -329,7 +282,6 @@ function validateSettings(command: string, raw: RawSettings): SettingsResult {
       defaultPreset: normalizeDefaultSentinel(defaultPreset.value),
       defaultProfile: normalizeDefaultSentinel(defaultProfile.value),
       ...(identity.value ? { identity: identity.value } : {}),
-      tasks: { leaseEnforcement: isRecord(tasks) && tasks.leaseEnforcement === true },
       customVerticalsEnabled: isRecord(customVerticals) ? customVerticals.enabled === true : false
     }
   };
@@ -389,19 +341,6 @@ function userSettingsError(command: string, hint: string): CliResult {
 
 function isKnownSettingsScalar(key: string): boolean {
   return key === "locale" || key === "defaultVertical" || key === "defaultPreset" || key === "defaultProfile";
-}
-
-function parseLeaseEnforcementEnv(value: string | undefined): boolean | undefined {
-  switch (value?.trim().toLowerCase()) {
-    case "1":
-    case "true":
-      return true;
-    case "0":
-    case "false":
-      return false;
-    default:
-      return undefined;
-  }
 }
 
 function hasExactKeys(value: Record<string, unknown>, expected: ReadonlyArray<string>): boolean {

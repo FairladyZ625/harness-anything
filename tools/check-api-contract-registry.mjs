@@ -167,7 +167,10 @@ function collectDeferredGuiBridgeContracts(root, relativePath, violations) {
 }
 
 function collectApiRouteContracts(root, relativePath, taskWritePolicyPath, violations) {
-  const taskWriteRoutes = collectStringObjectArray(root, taskWritePolicyPath, "taskWriteApiRoutePolicies", violations);
+  const registryText = readFileSync(path.join(root, relativePath), "utf8");
+  const taskWriteRoutes = /\.\.\.taskWriteApiRoutePolicies\b/u.test(registryText)
+    ? collectStringObjectArray(root, taskWritePolicyPath, "taskWriteApiRoutePolicies", violations)
+    : [];
   return collectStringObjectArray(root, relativePath, "apiRouteContracts", violations, {
     spreadEntries: new Map([["taskWriteApiRoutePolicies", taskWriteRoutes]])
   });

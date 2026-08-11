@@ -2,10 +2,6 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  taskHolderExecutorFromJournalActor,
-  type TaskHolderExecutor
-} from "../../../application/src/index.ts";
-import {
   daemonIdFromEnv,
   daemonUserRoot,
   defaultDaemonAutostartTimeoutMs,
@@ -21,7 +17,7 @@ import { CliErrorCode, cliError } from "../cli/error-codes.ts";
 import type { CommandFailureReceipt, CommandReceipt } from "../cli/receipt.ts";
 import { toCommandReceipt } from "../cli/receipt.ts";
 import type { ParsedCommand } from "../cli/types.ts";
-import { CliActorAttributionError, readCliJournalActorFromEnv, readCliJournalActorFromFlag } from "../composition/actor-attribution.ts";
+import { CliActorAttributionError } from "../composition/actor-attribution.ts";
 import { parsePositiveIntegerOr } from "../cli/value-utils.ts";
 
 export {
@@ -204,22 +200,6 @@ function isCommandReceipt(value: JsonObject): boolean {
 }
 
 function commandRunPayload(command: ParsedCommand): JsonObject {
-  const executor = taskHolderExecutorPayload(command);
   const { actor: _localActorFlag, ...transportCommand } = command;
-  return {
-    command: transportCommand as unknown as JsonObject,
-    ...(executor !== undefined ? { executor } : {})
-  };
-}
-
-function taskHolderExecutorPayload(command: ParsedCommand): JsonObject | null | undefined {
-  const actor = command.actor
-    ? readCliJournalActorFromFlag(command.actor)
-    : readCliJournalActorFromEnv(process.env);
-  if (!actor) return undefined;
-  return taskHolderExecutorJson(taskHolderExecutorFromJournalActor(actor));
-}
-
-function taskHolderExecutorJson(executor: TaskHolderExecutor | null): JsonObject | null {
-  return executor ? { kind: executor.kind, id: executor.id } : null;
+  return { command: transportCommand as unknown as JsonObject };
 }

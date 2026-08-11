@@ -33,9 +33,6 @@
       "personId": "person_zeyu",
       "displayName": "Zeyu Li"
     },
-    "tasks": {
-      "leaseEnforcement": true
-    },
     "customVerticals": {
       "enabled": false
     }

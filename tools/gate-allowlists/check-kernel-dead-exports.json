@@ -574,11 +574,6 @@
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
       },
       {
-        "value": "LocalTransitionWriteOp",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
         "value": "MaterializationRequest",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
@@ -594,9 +589,9 @@
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
       },
       {
-        "value": "needsReviewArtifacts",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "value": "detectRelationGraphCycles",
+        "ref": "task_P4_INT",
+        "reason": "The dynamically loaded decision-conformance preset consumes the canonical relation-cycle detector through the kernel public surface."
       },
       {
         "value": "NonBlankStringSchema",
@@ -609,14 +604,14 @@
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
       },
       {
-        "value": "openDomainStatuses",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "value": "formatRelationFlowRecord",
+        "ref": "task_P4_INT",
+        "reason": "Relation flow serialization remains a public read/document substrate independent of the retired task lifecycle writer."
       },
       {
-        "value": "packageDispositions",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "value": "ReviewVerdict",
+        "ref": "task_P4_INT",
+        "reason": "W1 RecordReviewCommand exposes ReviewVerdict as part of the replay/v1 public contract."
       },
       {
         "value": "ParsedEntityRef",
@@ -899,9 +894,9 @@
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
       },
       {
-        "value": "reviewArtifactStatuses",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "value": "reviewVerdicts",
+        "ref": "task_P4_INT",
+        "reason": "W1 review/v1 validation and command construction share the public verdict catalog."
       },
       {
         "value": "runPostMergeChecks",
@@ -959,9 +954,9 @@
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
       },
       {
-        "value": "statusCoarseClass",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "value": "validateRelationGraphRecords",
+        "ref": "task_P4_INT",
+        "reason": "Relation graph validation remains part of the retained read projection surface."
       },
       {
         "value": "StatusCoarseClass",
@@ -1089,9 +1084,9 @@
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
       },
       {
-        "value": "terminalDomainStatuses",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "value": "VersionControlSystem",
+        "ref": "task_P4_INT",
+        "reason": "VersionControlSystem is the canonical public port used by composition roots and externally supplied implementations."
       },
       {
         "value": "validateLifecycleBindingInvariant",

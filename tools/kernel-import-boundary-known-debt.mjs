@@ -7,13 +7,6 @@ export const kernelImportBoundaryKnownDebt = [
     reason: "Local adapter composition root still reaches the store implementation to construct the journaled WriteCoordinator; F6 owns the seam cleanup."
   },
   {
-    file: "packages/adapters/local/src/task-writes.ts",
-    specifier: "../../../kernel/src/write-coordination/write-helpers.ts",
-    target: "packages/kernel/src/write-coordination/write-helpers.ts",
-    decision: "dec_GATE_DEFENSE_ROOT_CAUSE",
-    reason: "Task write helpers call write-coordination helpers directly instead of consuming a public WriteCoordinator-facing application seam; F6 owns the cleanup."
-  },
-  {
     file: "packages/adapters/multica/src/index.ts",
     specifier: "../../../kernel/src/write-coordination/write-helpers.ts",
     target: "packages/kernel/src/write-coordination/write-helpers.ts",

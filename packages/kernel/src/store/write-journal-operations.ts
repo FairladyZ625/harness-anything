@@ -22,24 +22,15 @@ import { assertReservedCodeDocWrite } from "./write-journal-code-doc-policy.ts";
 import { writeDocument } from "./markdown-artifact-store.ts";
 import {
   applyDocumentAppendRecord,
-  applyProgressAppendDelta,
-  applyProgressAppendSnapshot,
-  assertHardDeleteAllowed,
   decisionPayloadTaskWrites,
   documentAppendRecordWrite,
   documentStageWrite,
   documentTargetPath,
-  isBatchDocumentWritePayload,
   isDocumentAppendRecordPayload,
   isModuleRegistryWritePayload,
-  isProgressAppendDeltaPayload,
-  isProgressAppendSnapshotPayload,
   machineArtifactJsonlAppend,
   machineArtifactWriteDescriptor,
   moduleScaffoldWrites,
-  progressAppendDeltaWrite,
-  progressAppendSnapshotWrite,
-  readHardDeletePayload,
   resolveMachineArtifactPath,
   resolveMachineArtifactWrite,
   toDocumentWrite,
@@ -158,81 +149,6 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
     };
   }
 
-  if ((op.kind === "package_create" || op.kind === "package_supersede") && isBatchDocumentWritePayload(op.payload)) {
-    const payload = op.payload;
-    return {
-      touchedPaths: (rootInput) => payload.writes.map((write) => documentTargetPath(rootInput, write)),
-      documentWrites: () => payload.writes,
-      apply: (rootInput) => {
-        writeDocumentsAtomically(rootInput, payload.writes);
-        return null;
-      },
-      validate: () => {
-        if (!isBatchDocumentWritePayload(payload)) {
-          rejectWrite(`${op.kind} op requires writes payload: ${op.opId}`, op.entityId);
-        }
-      }
-    };
-  }
-
-  if (op.kind === "package_delete_hard") {
-    const taskId = taskIdForWriteOp(op);
-    return {
-      touchedPaths: (rootInput) => [taskPackagePath(rootInput, taskId)],
-      documentWrites: () => [],
-      apply: (rootInput) => {
-        assertHardDeleteAllowed(rootInput, taskId, { allowMissing: true });
-        rmSync(taskPackagePath(rootInput, taskId), { recursive: true, force: true });
-        return null;
-      },
-      validate: (rootInput) => {
-        readHardDeletePayload(op);
-        assertHardDeleteAllowed(rootInput, taskId);
-      }
-    };
-  }
-
-  if (op.kind === "progress_append") {
-    if (isProgressAppendDeltaPayload(op.payload)) {
-      const payload = op.payload;
-      const write = progressAppendDeltaWrite(op, payload);
-      return {
-        touchedPaths: (rootInput) => [documentTargetPath(rootInput, write)],
-        documentWrites: () => [write],
-        apply: (rootInput) => applyProgressAppendDelta(rootInput, op, payload),
-        validate: () => {
-          if (!isProgressAppendDeltaPayload(payload)) {
-            rejectWrite(`${op.kind} op requires path and append payload: ${op.opId}`, op.entityId);
-          }
-        }
-      };
-    }
-    if (isProgressAppendSnapshotPayload(op.payload)) {
-      const payload = op.payload;
-      const write = progressAppendSnapshotWrite(op, payload);
-      return {
-        touchedPaths: (rootInput) => [documentTargetPath(rootInput, write)],
-        documentWrites: () => [write],
-        apply: (rootInput) => applyProgressAppendSnapshot(rootInput, op, payload),
-        validate: () => {
-          if (!isProgressAppendSnapshotPayload(payload)) {
-            rejectWrite(`${op.kind} op requires path and body payload: ${op.opId}`, op.entityId);
-          }
-        }
-      };
-    }
-    return {
-      touchedPaths: () => [],
-      documentWrites: () => [],
-      apply: () => {
-        rejectWrite(`${op.kind} op requires path and append or body payload: ${op.opId}`, op.entityId);
-      },
-      validate: () => {
-        rejectWrite(`${op.kind} op requires path and append or body payload: ${op.opId}`, op.entityId);
-      }
-    };
-  }
-
   if ((op.kind === "doc_write" || op.kind === "fact_invalidate") && isDocumentAppendRecordPayload(op.payload)) {
     const payload = op.payload;
     const write = documentAppendRecordWrite(op, payload);
@@ -344,63 +260,6 @@ export function writeOpTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp):
 export function documentWritesForWriteOp(op: WriteOp): ReadonlyArray<DocumentWrite> {
   return writeTransactionPlan(op).documentWrites();
 }
-
-export { isProgressAppendDeltaPayload, readHardDeletePayload } from "./write-journal-operations-internal.ts";
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

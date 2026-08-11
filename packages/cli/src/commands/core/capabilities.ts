@@ -132,10 +132,6 @@ function commandForWriteOpKind(kind: string): string {
   const commands: Record<string, string> = {
     decision_retire: "ha decision retire <id>",
     decision_supersede: "ha decision supersede <id>",
-    package_archive: "ha task archive <id> --reason <reason>",
-    package_tombstone: "ha task delete --soft <id> --reason <reason>",
-    package_delete_hard: "ha task delete --hard <id> --confirm <id> --reason <reason>",
-    package_supersede: "ha task supersede <old-id> --title <title> --reason <reason>",
     fact_invalidate: "ha fact invalidate --task <task-id> --id <fact-id> --by <fact-id> --rationale <text>",
     relation_retire: "ha decision relation retire <decision-id> --relation <relation-id>"
   };

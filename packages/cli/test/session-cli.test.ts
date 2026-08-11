@@ -184,55 +184,6 @@ test("CLI session sync keeps uncertain Runtime Event associations as candidates"
   });
 });
 
-test("CLI session sync seeds only active Holder v1 evidence and keeps released history unknown", () => {
-  withTempRoot((rootDir) => {
-    const activeTask = "task_01KX7H00000000000000000000";
-    const releasedTask = "task_01KX7H00000000000000000002";
-    writeActiveTask(rootDir, activeTask);
-    writeActiveTask(rootDir, releasedTask);
-    const holdersRoot = path.join(rootDir, ".harness", "task-holders");
-    mkdirSync(holdersRoot, { recursive: true });
-    writeFileSync(path.join(holdersRoot, `${activeTask}.json`), JSON.stringify({
-      schema: "task-holder/v1",
-      taskId: activeTask,
-      holder: {
-        principal: { personId: "person_zeyu" },
-        executor: { kind: "agent", id: "codex" },
-        responsibleHuman: "person:person_zeyu"
-      },
-      acquiredVia: "claim",
-      acquiredAt: "2026-07-04T00:00:00.000Z",
-      leaseExpiresAt: "2099-07-04T01:00:00.000Z",
-      releasedAt: null,
-      updatedAt: "2026-07-04T00:00:00.000Z",
-      version: "v1"
-    }));
-    writeFileSync(path.join(holdersRoot, `${releasedTask}.json`), JSON.stringify({
-      schema: "task-holder/v1",
-      taskId: releasedTask,
-      holder: null,
-      acquiredVia: null,
-      acquiredAt: null,
-      leaseExpiresAt: null,
-      releasedAt: "2026-07-04T02:00:00.000Z",
-      updatedAt: "2026-07-04T02:00:00.000Z",
-      version: "v2"
-    }));
-
-    const planned = runJson(rootDir, ["session", "sync"]);
-
-    assert.deepEqual(planned.report.holderBackfill.map((entry: Record<string, unknown>) => ({
-      taskId: entry.taskId,
-      disposition: entry.disposition,
-      confidence: entry.confidence,
-      worker: entry.worker
-    })), [
-      { taskId: activeTask, disposition: "seed_active_execution", confidence: "high", worker: "codex" },
-      { taskId: releasedTask, disposition: "unknown", confidence: "low", worker: null }
-    ]);
-  });
-});
-
 test("CLI session backfill discovers Codex runtime logs and writes exports through the journal", () => {
   withTempRoot((rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
@@ -363,19 +314,4 @@ function runtimeEvent(eventId: string, linkage: { readonly taskId?: string }): R
     result: { status: "succeeded" },
     cost: null
   };
-}
-
-function writeActiveTask(rootDir: string, taskId: string): void {
-  const taskRoot = path.join(rootDir, "harness", "tasks", taskId);
-  mkdirSync(taskRoot, { recursive: true });
-  writeFileSync(path.join(taskRoot, "INDEX.md"), [
-    "---",
-    "schema: task-package/v2",
-    `task_id: ${taskId}`,
-    "lifecycle:",
-    "  engine: local",
-    "  status: active",
-    "---",
-    ""
-  ].join("\n"));
 }

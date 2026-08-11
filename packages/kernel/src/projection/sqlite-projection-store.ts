@@ -211,26 +211,6 @@ export function queryTaskChildrenRows(projectionPath: string, parentTaskId: stri
   }));
 }
 
-export function queryTaskSubtreeRows(projectionPath: string, rootTaskId: string): ReadonlyArray<TaskProjectionRow> {
-  return runSqlite(projectionPath, Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const records = yield* sql.unsafe<TaskRecord>(`
-      WITH RECURSIVE subtree(task_id) AS (
-        SELECT task_id FROM task_projection WHERE task_id = ?
-        UNION
-        SELECT child.task_id
-        FROM task_projection child
-        JOIN subtree parent ON child.parent_task_id = parent.task_id
-      )
-      SELECT task_projection.*
-      FROM task_projection
-      JOIN subtree ON task_projection.task_id = subtree.task_id
-      ORDER BY task_projection.task_id
-    `, [rootTaskId]);
-    return records.map((record) => recordToTaskRow(record));
-  }));
-}
-
 export function readRelationGraphRows(projectionPath: string): ProjectionGraphRows {
   return runSqlite(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;

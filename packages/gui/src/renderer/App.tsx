@@ -41,7 +41,7 @@ import {
   type TaskFilters,
 } from "./model/taskFilters.ts";
 import { adaptProjectionRows, buildRealProject } from "./task-adapter.ts";
-import { useTasksQuery, useSetTaskStatusMutation } from "./task-data.ts";
+import { useTasksQuery } from "./task-data.ts";
 import { useTriadicProjectionQuery } from "./triadic-data.ts";
 import { useFavorites } from "./model/favorites.ts";
 import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
@@ -158,17 +158,6 @@ function AppShell() {
 
   // 决策批准角标:proposed 决策数(唯一面向人的"待人处理"计数)
   const inboxCount = decisions.filter((d) => d.state === "proposed").length;
-
-  // 状态写真桥:乐观更新本地态 + setTaskStatus 持久化(查询刷新时被权威投影覆盖)。
-  const statusMutation = useSetTaskStatusMutation();
-  const updateTask = (taskId: string, patch: Partial<import("./model/types.ts").TaskRow>) => {
-    setTasks((prev) =>
-      prev.map((t) => (t.taskId === taskId ? { ...t, ...patch } : t)),
-    );
-    if (patch.coordinationStatus && patch.coordinationStatus !== "unknown") {
-      statusMutation.mutate({ taskId, status: patch.coordinationStatus });
-    }
-  };
 
   const goto = (v: ViewId) => {
     setView(v);
@@ -411,7 +400,6 @@ function AppShell() {
                 relations={relations}
                 decisions={decisions}
                 onBack={() => setSelectedId(null)}
-                onUpdate={updateTask}
                 onSelect={setSelectedId}
                 projectName={project.name}
                 fromViewLabel={VIEW_LABEL[view]}
@@ -445,7 +433,6 @@ function AppShell() {
                 filters={taskFilters}
                 onFiltersChange={setTaskFilters}
                 onSelect={openTaskPreview}
-                onUpdate={updateTask}
                 drill={drill}
                 relations={MOCK_TASK_RELATIONS}
                 favorites={favorites}

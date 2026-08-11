@@ -1,5 +1,5 @@
 {
-  "governanceNotice": "Authority for write-road and write-channel coverage. Task write lease and command-class semantics live in packages/application/src/task-write-route-policy.ts; task rows here are coverage projections only.",
+  "governanceNotice": "Authority for write-road and write-channel coverage. Replay command classes live in packages/application/src/task-write-route-policy.ts; task rows here are coverage projections only.",
   "schema": "harness-anything/write-road-registry/v1",
   "taskWriteRoutePolicy": "packages/application/src/task-write-route-policy.ts",
   "authorityBasis": [
@@ -11,61 +11,23 @@
   ],
   "rowCountReconciliation": {
     "phase1FunctionalRows": 26,
-    "registryRows": 31,
-    "difference": "Five additional rows split mixed write functions and infrastructure: module canonical/view, runtime-event coordinated/direct, script declared writes/produces, worktree code/binding, task-holder runtime state, plus one WriteCoordinator runtime substrate row; the retired force-terminal CLI row is folded into task lifecycle."
+    "registryRows": 28,
+    "difference": "Two additional rows split mixed write functions and infrastructure after the legacy task package writer, progress writer, and holder state roads were retired."
   },
   "rows": [
     {
-      "id": "task.package.create",
-      "sourceInventoryRows": [1],
-      "road": "A",
-      "bearing": "task-lifecycle",
-      "channel": { "pathClass": "rpc-only", "zoneClass": "task-authored-structured" },
-      "entry": ["daemon-rpc", "preset-internal"],
-      "writeKinds": ["package_create"],
-      "evidence": ["packages/adapters/local/src/index.ts:122"],
-      "freshness": "coordinator-batch-document"
-    },
-    {
       "id": "task.lifecycle.transition",
-      "sourceInventoryRows": [2, 4],
+      "sourceInventoryRows": [1, 2, 4],
       "road": "A",
       "bearing": "task-lifecycle",
       "channel": { "pathClass": "rpc-only", "zoneClass": "task-authored-structured" },
-      "entry": ["cli", "daemon-rpc", "gui-bridge"],
-      "writeKinds": ["transition_local", "package_archive", "package_tombstone", "package_reopen", "package_supersede", "package_delete_hard", "machine_artifact_append_jsonl"],
+      "entry": ["cli", "daemon-rpc"],
+      "writeKinds": ["machine_artifact_append_jsonl"],
       "machineArtifactBoundaries": ["task-event-stream"],
       "cliActions": ["task-create", "task-start", "task-submit", "task-review-execution", "task-complete"],
-      "apiRoutes": ["tasks.status.set", "tasks.review"],
-      "guiBridgeMethods": ["setTaskStatus", "reviewTask"],
-      "callsiteFiles": ["packages/adapters/local/src/task-writes.ts", "packages/kernel/src/store/task-event-store.ts"],
+      "callsiteFiles": ["packages/kernel/src/store/task-event-store.ts"],
       "evidence": ["packages/cli/src/commands/core/task-lifecycle-host.ts:34", "packages/application/src/task-lifecycle-service.ts:58", "packages/kernel/src/store/task-event-store.ts:54"],
       "freshness": "coordinator-conditional-task-state"
-    },
-    {
-      "id": "task.progress.append",
-      "sourceInventoryRows": [3],
-      "road": "A",
-      "bearing": "task-progress",
-      "channel": { "pathClass": "rpc-only", "zoneClass": "task-authored-structured" },
-      "entry": ["daemon-rpc", "gui-bridge"],
-      "writeKinds": ["progress_append"],
-      "apiRoutes": ["tasks.progress.append"],
-      "guiBridgeMethods": ["appendTaskProgress"],
-      "callsiteFiles": ["packages/adapters/local/src/task-writes.ts"],
-      "evidence": ["packages/adapters/local/src/task-writes.ts:54", "packages/kernel/src/store/write-journal-operations.ts:256"],
-      "freshness": "append-delta"
-    },
-    {
-      "id": "task.holder.runtime-state",
-      "sourceInventoryRows": [2],
-      "road": "A",
-      "bearing": "task-holder",
-      "channel": { "pathClass": "coordinator-runtime-state", "zoneClass": "task-holder-runtime-state" },
-      "entry": ["daemon-rpc"],
-      "directWrites": [{ "file": "packages/kernel/src/local/local-layout-file-system.ts" }],
-      "evidence": ["packages/kernel/src/local/task-holder-state.ts:287", "packages/kernel/src/local/local-layout-file-system.ts:11"],
-      "freshness": "runtime-state-cas"
     },
     {
       "id": "task.document.write-stage",
@@ -73,14 +35,13 @@
       "road": "D",
       "bearing": "task-document",
       "channel": { "pathClass": "doc-sync-allowed", "zoneClass": "task-authored-prose-or-stage" },
-      "entry": ["daemon-rpc", "internal", "gui-review"],
+      "entry": ["daemon-rpc", "internal"],
       "writeKinds": ["doc_write", "doc_stage", "task_tree_stage", "code_doc_reconcile"],
-      "callsiteFiles": ["packages/adapters/local/src/task-writes.ts"],
       "directWrites": [
         { "file": "packages/cli/src/daemon/doc-sync-service.ts" },
         { "file": "packages/cli/src/daemon/doc-sync-service.ts", "command": "git" }
       ],
-      "evidence": ["packages/adapters/local/src/index.ts:224", "packages/adapters/local/src/task-writes.ts:67", "packages/application/src/task-lifecycle-orchestrator.ts:115", "packages/cli/src/daemon/doc-sync-service.ts:166"],
+      "evidence": ["packages/cli/src/daemon/doc-sync-service.ts:166"],
       "freshness": "doc-sync-submit-cas-post-apply"
     },
     {
@@ -97,6 +58,7 @@
         "packages/kernel/src/write-coordination/write-helpers.ts"
       ],
       "directWrites": [
+        { "file": "packages/kernel/src/local/local-layout-file-system.ts" },
         { "file": "packages/kernel/src/store/local-lock-registry.ts" },
         { "file": "packages/kernel/src/store/markdown-artifact-store.ts" },
         { "file": "packages/kernel/src/store/write-journal-decision-documents.ts" },
@@ -389,7 +351,6 @@
         { "file": "packages/cli/src/commands/init.ts" },
         { "file": "packages/cli/src/commands/extensions/repository-scaffold.ts" },
         { "file": "packages/cli/src/commands/daemon/productization.ts" },
-        { "file": "packages/adapters/local/src/created-by.ts", "command": "git" },
         { "file": "packages/daemon/src/transport/unix-socket.ts" },
         { "file": "packages/kernel/src/daemon/registry.ts" }
       ],
@@ -465,7 +426,6 @@
       "cliActions": ["adopt-multica", "git-diff", "worktree-create"],
       "directWrites": [
         { "file": "packages/adapters/local/src/git-diff-evidence.ts", "command": "git" },
-        { "file": "packages/adapters/local/src/index.ts", "command": "git" },
         { "file": "packages/cli/src/commands/core/authored-git.ts", "command": "git" },
         { "file": "packages/cli/src/commands/doctor.ts", "command": "git" },
         { "file": "packages/kernel/src/projection/post-merge-checks.ts", "command": "git" },
