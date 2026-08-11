@@ -1,3 +1,4 @@
+// harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
 import { classifyModule, classifyPath, isProductionPath, isTestPath, MODULES } from "../module-policy.mjs";

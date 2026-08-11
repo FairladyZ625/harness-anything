@@ -3,7 +3,10 @@ import tseslint from "typescript-eslint";
 import { kernelImportBoundaryKnownDebt } from "./tools/kernel-import-boundary-known-debt.mjs";
 import { portPhysicalIoBoundaryKnownDebt } from "./tools/port-physical-io-boundary-known-debt.mjs";
 import noSwallowedFailure from "./tools/gates/eslint-rules/no-swallowed-failure.js";
+import noManualContractProjection from "./tools/gates/eslint-rules/no-manual-contract-projection.js";
+import processPortOnly from "./tools/gates/eslint-rules/process-port-only.js";
 import { noSwallowedFailureBaseline } from "./tools/gates/no-swallowed-failure-baseline.mjs";
+import { processPortOnlyBaseline } from "./tools/gates/process-port-only-baseline.mjs";
 
 const nodeGlobals = Object.fromEntries([
   "AbortController",
@@ -263,12 +266,16 @@ export default tseslint.config(
     plugins: {
       ha: {
         rules: {
-          "no-swallowed-failure": noSwallowedFailure
+          "no-manual-contract-projection": noManualContractProjection,
+          "no-swallowed-failure": noSwallowedFailure,
+          "process-port-only": processPortOnly
         }
       }
     },
     rules: {
-      "ha/no-swallowed-failure": ["error", { baseline: noSwallowedFailureBaseline }]
+      "ha/no-manual-contract-projection": "error",
+      "ha/no-swallowed-failure": ["error", { baseline: noSwallowedFailureBaseline }],
+      "ha/process-port-only": ["error", { baseline: processPortOnlyBaseline }]
     }
   },
   {

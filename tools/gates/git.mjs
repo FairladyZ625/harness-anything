@@ -21,3 +21,9 @@ export function pathExistsAt(rootDir, revision, filePath) {
     return false;
   }
 }
+
+export function changedFiles(rootDir, base, head = "HEAD") {
+  return git(rootDir, ["diff", "--name-only", "-z", base, head, "--"])
+    .split("\0")
+    .filter(Boolean);
+}
