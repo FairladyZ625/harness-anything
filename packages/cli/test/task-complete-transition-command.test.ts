@@ -13,6 +13,10 @@ const actor = {
   executor: { kind: "agent" as const, id: "owner-session" }
 };
 const workspaceId = "/workspace";
+const applied = (opId: string, revision: number, evidence: string) => ({
+  outcome: "applied" as const, opId, revision, evidence, visibility: "center" as const,
+  proof: { committedRevision: revision, appliedCut: revision }
+});
 
 test("complete sends a field-equal CompleteTask intent to the host", async () => {
   const parsed = parseTaskLifecycleArgs([
@@ -27,9 +31,9 @@ test("complete sends a field-equal CompleteTask intent to the host", async () =>
     service: {
       execute: async (input) => {
         received = input;
-        return { outcome: "applied", opId: input.command.opId, revision: 8, evidence: "task-event:event-8" };
+        return applied(input.command.opId, 8, "task-event:event-8");
       },
-      show: async () => ({ outcome: "applied", opId: "read:task", revision: 8, evidence: "unused" })
+      show: async () => applied("read:task", 8, "unused")
     }
   });
   assert.deepEqual(received, {
@@ -39,6 +43,8 @@ test("complete sends a field-equal CompleteTask intent to the host", async () =>
       workspaceId,
       taskId: "task_TYPED",
       actor,
+      source: "local",
+      expectedRevision: 8,
       opId: received?.command.opId,
       commandDigest: received?.command.commandDigest,
       executionId: "exe_TYPED"
@@ -62,9 +68,9 @@ test("complete preserves opaque gate receipt references and rejects malformed pa
     service: {
       execute: async (input) => {
         received = input;
-        return { outcome: "applied", opId: input.command.opId, revision: 8, evidence: "task-event:event-8" };
+        return applied(input.command.opId, 8, "task-event:event-8");
       },
-      show: async () => ({ outcome: "applied", opId: "read:task", revision: 8, evidence: "unused" })
+      show: async () => applied("read:task", 8, "unused")
     }
   });
   assert.deepEqual(received?.gateReceipts, [
@@ -115,9 +121,9 @@ test("same complete intent produces the same load-bearing opId", async () => {
   const service = {
     execute: async (input: TaskLifecycleServiceInput) => {
       opIds.push(input.command.opId);
-      return { outcome: "applied" as const, opId: input.command.opId, revision: 8, evidence: "task-event:event-8" };
+      return applied(input.command.opId, 8, "task-event:event-8");
     },
-    show: async () => ({ outcome: "applied" as const, opId: "read:task", revision: 8, evidence: "unused" })
+    show: async () => applied("read:task", 8, "unused")
   };
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const parsed = parseTaskLifecycleArgs(["task", "complete", "task_RETRY", "--execution-id", "exe_RETRY"]);
@@ -145,7 +151,7 @@ test("complete without a current submitted Execution stays rejected and teaches 
         origin: "task-lifecycle-service",
         nextAction: "Run `ha task show task_NO_SUBMISSION`; then start and submit an Execution before requesting both reviews."
       }),
-      show: async () => ({ outcome: "applied", opId: "read:task", revision: 8, evidence: "unused" })
+      show: async () => applied("read:task", 8, "unused")
     }
   });
   assert.equal(receipt.outcome, "rejected");

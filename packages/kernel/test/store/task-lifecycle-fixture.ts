@@ -19,8 +19,8 @@ export const implementer: ActorAxes = { principal: { personId: "person-owner" },
 export const reviewer: ActorAxes = { principal: { personId: "person-reviewer" }, executor: { kind: "agent", id: "reviewer" } };
 export const commitSha = "a".repeat(40);
 
-function command<C extends Parameters<typeof normalizeTaskLifecycleCommand>[2]>(actor: ActorAxes, revision: number, intent: C) {
-  return { ...normalizeTaskLifecycleCommand("workspace-1", actor, intent), eventId: `event-${revision}`,
+function command<C extends Parameters<typeof normalizeTaskLifecycleCommand>[1]>(actor: ActorAxes, revision: number, intent: C) {
+  return { ...normalizeTaskLifecycleCommand({ workspaceId: "workspace-1", actor, source: "local", expectedRevision: revision - 1 }, intent), eventId: `event-${revision}`,
     workspaceRevision: revision, occurredAt: `2026-08-11T00:0${revision - 1}:00.000Z` };
 }
 
@@ -38,21 +38,22 @@ export function lifecycleFixture(): { readonly events: readonly TaskEventV1[]; r
   run(command(implementer, 2, {
     type: "StartExecution", taskId: "task-1", executionId: "execution-1"
   }), {
-    actorBinding: implementer, expectedRevision: 1,
-    reservation: { taskId: "task-1", executionId: "execution-1", expiresAt: "2026-08-11T01:00:00.000Z", version: 0 }
+    actorBinding: implementer,
+    reservation: { taskId: "task-1", executionId: "execution-1", expiresAt: "2026-08-11T01:00:00.000Z", ttlMs: 1_800_000,
+      previousHolder: null, reason: "initial_claim", version: 0 }
   });
   run(command(implementer, 3, {
     type: "SubmitExecution", taskId: "task-1", executionId: "execution-1",
     submission: { claim: "implemented", deliverables: [], evidenceRefs: [], verification: ["tests"], knownGaps: [], residualRisks: [], commitSha }
-  }), { expectedRevision: 2, actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" });
+  }), { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" });
   run(reviewCommand(4, "anti_entropy", "approved", "review-ae"), {
-    expectedRevision: 3, actorBinding: reviewer, capability: "anti-entropy@v1", capabilityRef: "cap-ae", archiveWarningsPresent: false
+    actorBinding: reviewer, capability: "anti-entropy@v1", capabilityRef: "cap-ae", archiveWarningsPresent: false
   });
   run(reviewCommand(5, "acceptance", "approved", "review-acceptance"), {
-    expectedRevision: 4, actorBinding: reviewer, capability: "acceptance-review@v1", capabilityRef: "cap-acceptance", archiveWarningsPresent: false
+    actorBinding: reviewer, capability: "acceptance-review@v1", capabilityRef: "cap-acceptance", archiveWarningsPresent: false
   });
   run(command(implementer, 6, { type: "CompleteTask", taskId: "task-1", executionId: "execution-1" }),
-    { expectedRevision: 5, capability: "task-complete@v1", capabilityRef: "cap-complete", actorRole: "owner", noActiveLease: true, gateReceipts: [] });
+    { capability: "task-complete@v1", capabilityRef: "cap-complete", actorRole: "owner", noActiveLease: true, gateReceipts: [] });
   return { events, snapshot };
 }
 

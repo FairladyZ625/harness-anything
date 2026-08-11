@@ -1,7 +1,7 @@
 import type { LifecycleBinding } from "./lifecycle-binding.js";
 import { validateTaskGraph } from "./task-graph.ts";
 import type { TaskGraphV1, TaskNodeId } from "./task-graph.ts";
-import { hasOnlyFields, isNonEmptyString, isRecord } from "./write-chain.contract.ts";
+import { hasOnlyFields, isNonEmptyString, isRecord, validateActorIdentity } from "./write-chain.contract.ts";
 export { canonicalizeWriteValue as canonicalizeContractValue, hasOnlyFields, isNonEmptyString, isRecord } from "./write-chain.contract.ts";
 export type { FrozenWritePlan, WritePlan, WriteTarget } from "./write-chain.contract.ts";
 
@@ -34,15 +34,7 @@ export interface TaskV1 { readonly schema: "task/v1"; readonly taskId: string; r
 export interface ContractValidationIssue { readonly code: string; readonly message: string }
 export const TASK_V1_SCHEMA = Object.freeze({ id: "Task/v1", required: Object.freeze(["schema", "taskId", "title", "status", "graph", "currentNode", "iteration", "createdBy", "completionGateIds"]), statuses: replayTaskStatuses });
 export function validateActorAxes(value: unknown): readonly ContractValidationIssue[] {
-  if (!isRecord(value) || !hasOnlyFields(value, ["principal", "executor"]) || !isRecord(value.principal)
-    || !hasOnlyFields(value.principal, ["personId"]) || !isNonEmptyString(value.principal.personId)) {
-    return [{ code: "invalid_actor", message: "actor requires only principal.personId and executor" }];
-  }
-  if (value.executor !== null && (!isRecord(value.executor) || !hasOnlyFields(value.executor, ["kind", "id"])
-    || value.executor.kind !== "agent" || !isNonEmptyString(value.executor.id))) {
-    return [{ code: "invalid_actor", message: "executor must be null or an agent identity" }];
-  }
-  return [];
+  return validateActorIdentity(value).map((message) => ({ code: "invalid_actor", message }));
 }
 export function validateTaskV1(value: unknown): readonly ContractValidationIssue[] {
   const fields = TASK_V1_SCHEMA.required;

@@ -7,8 +7,10 @@ import { createWriteReceipt, validateWriteReceipt, WriteChainContractError } fro
 const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
 
 test("G04 accepts all four receipt outcomes and requires honest error fields", () => {
-  assert.deepEqual(validateWriteReceipt({ outcome: "applied", opId: "op_0", revision: 7, evidence: "event:7" }), []);
-  assert.deepEqual(validateWriteReceipt({ outcome: "pending", opId: "op_1", revision: 7, evidence: "event:7", nextAction: "wait for the view" }), []);
+  assert.deepEqual(validateWriteReceipt({ outcome: "applied", opId: "op_0", revision: 7, evidence: "event:7",
+    visibility: "center", proof: { committedRevision: 7, appliedCut: 7 } }), []);
+  assert.deepEqual(validateWriteReceipt({ outcome: "pending", opId: "op_1", revision: 7, evidence: "event:7", nextAction: "wait for the view",
+    visibility: { kind: "replica", viewId: "node-1/task-view" }, proof: { committedRevision: 7, appliedCut: 6 } }), []);
   assert.deepEqual(validateWriteReceipt({
     outcome: "indeterminate",
     opId: "op_2",
@@ -17,6 +19,14 @@ test("G04 accepts all four receipt outcomes and requires honest error fields", (
     nextAction: "query the operation by opId"
   }), []);
   assert.deepEqual(validateWriteReceipt(fixture("receipt-error-golden.json")), []);
+});
+
+test("G04 rejects replica applied without an ACK committed at the applied cut", () => {
+  const receipt = { outcome: "applied", opId: "op_replica", revision: 7, evidence: "event:7",
+    visibility: { kind: "replica", viewId: "node-1/task-view" }, proof: { committedRevision: 7, appliedCut: 7 } };
+  assert.match(validateWriteReceipt(receipt).join("\n"), /ackCut/u);
+  assert.match(validateWriteReceipt({ ...receipt, proof: { ...receipt.proof, ackCut: 6 } }).join("\n"), /same cut/u);
+  assert.deepEqual(validateWriteReceipt({ ...receipt, proof: { ...receipt.proof, ackCut: 7 } }), []);
 });
 
 test("G04 rejects the removed one-time lease credential fields", () => {

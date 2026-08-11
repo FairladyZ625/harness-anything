@@ -10,7 +10,7 @@ test("approval retry reuses Review identity and ignores transport-only metadata"
     await harness.create();
     await harness.start("execution-1");
     await harness.submit("execution-1");
-    const command = { ...normalizeTaskLifecycleCommand(harness.rootDir, reviewer, {
+    const command = { ...normalizeTaskLifecycleCommand({ workspaceId: harness.rootDir, actor: reviewer, source: "local", expectedRevision: 3 }, {
       type: "RecordReview" as const, taskId: "task-1", executionId: "execution-1", reviewId: "review-ae",
       kind: "anti_entropy" as const, verdict: "approved" as const, actorRole: "anti_entropy" as const,
       reason: "approved", evidenceChecked: [], commitSha, iteration: 0,
@@ -19,7 +19,7 @@ test("approval retry reuses Review identity and ignores transport-only metadata"
       workspaceRevision: 4, occurredAt: "2026-08-11T00:04:00.000Z", transport: { attempt: 1 }
     };
     const proof = {
-      expectedRevision: 3, actorBinding: reviewer, capability: "anti-entropy@v1" as const,
+      actorBinding: reviewer, capability: "anti-entropy@v1" as const,
       capabilityRef: "cap-ae", archiveWarningsPresent: false
     };
     const first = await harness.service.execute(command, proof);

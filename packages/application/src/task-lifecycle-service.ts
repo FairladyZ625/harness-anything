@@ -48,11 +48,12 @@ interface ProjectionPort {
 }
 interface LeasePort {
   readonly current: (taskId: string) => LeaseV1 | null;
-  readonly reserve: (input: { readonly taskId: string; readonly executionId: string; readonly actor: TaskLifecycleCommand["actor"]; readonly expiresAt: string }) => Promise<LeaseV1>;
+  readonly reserve: (input: { readonly taskId: string; readonly executionId: string; readonly actor: TaskLifecycleCommand["actor"];
+    readonly source: TaskLifecycleCommand["source"]; readonly expiresAt: string; readonly ttlMs: number }) => Promise<LeaseV1>;
   readonly activate: (input: LeaseCas) => Promise<LeaseV1>;
   readonly release: (input: LeaseCas) => Promise<LeaseV1>;
 }
-interface LeaseCas { readonly taskId: string; readonly executionId: string; readonly actor: TaskLifecycleCommand["actor"]; readonly version: number }
+interface LeaseCas { readonly taskId: string; readonly executionId: string; readonly actor: TaskLifecycleCommand["actor"]; readonly source: TaskLifecycleCommand["source"]; readonly version: number }
 export interface TaskLifecycleService {
   readonly execute: <C extends TaskLifecycleCommand>(command: C, proof: ProofFor<C>) => Promise<WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot, TaskLifecycleCommand["type"]>>;
   readonly read: (taskId: string) => Promise<TaskLifecycleServiceRead>;
@@ -75,6 +76,7 @@ export function makeTaskLifecycleService(options: {
       }
       const current = await readAndConverge(options.projection, options.leases, command.taskId, recoveryWritePlan(command.taskId));
       if (current.status !== "ready") return pendingReceipt(current, plan, command.opId, "projection catch-up is pending");
+      if (command.type === "StartExecution") applyTransition(current.snapshot, command, suppliedProof);
       let proof = suppliedProof;
       let reservation: LeaseV1 | null = null;
       let event: TaskEventV1 | undefined;
@@ -85,16 +87,16 @@ export function makeTaskLifecycleService(options: {
             taskId: command.taskId,
             executionId: command.executionId,
             actor: command.actor,
-            expiresAt: startProof.reservation.expiresAt
+            source: command.source,
+            expiresAt: startProof.reservation.expiresAt,
+            ttlMs: startProof.reservation.ttlMs
           }));
           proof = { ...startProof, reservation: { ...startProof.reservation, version: reservation.version } } as ProofFor<C>;
           options.killpoint?.("after_reservation");
         }
-
         const snapshot = { ...current.snapshot, lease: command.type === "StartExecution" ? null : options.leases.current(command.taskId) };
         const transition = applyTransition(snapshot, command, proof);
         event = transition.event;
-
         const publication = await planned(plan, eventTarget(), () => runTaskLifecycleEffect(options.eventStore.append(event!)));
         if (publication.status === "indeterminate") {
           await releaseReservation(options.leases, reservation, plan);
@@ -158,7 +160,6 @@ async function finalizeLease(leases: LeasePort, command: TaskLifecycleCommand, r
     if (lease !== null) await planned(plan, leaseTarget(command.taskId, "release"), () => leases.release(cas(lease)));
   }
 }
-
 async function releaseReservation(leases: LeasePort, reservation: LeaseV1 | null, plan: FrozenWritePlan<TaskLifecycleCommand["type"]>): Promise<void> {
   if (reservation === null) return;
   try {
@@ -167,11 +168,9 @@ async function releaseReservation(leases: LeasePort, reservation: LeaseV1 | null
     consumeKnownError(error);
   }
 }
-
 function cas(lease: LeaseV1): LeaseCas {
-  return { taskId: lease.taskId, executionId: lease.executionId, actor: lease.actor, version: lease.version };
+  return { taskId: lease.taskId, executionId: lease.executionId, actor: lease.actor, source: lease.source, version: lease.version };
 }
-
 function eventTarget(): WriteTarget { return { kind: "event_stream", stream: "harness/task-events.ndjson", operation: "append" }; }
 function projectionTarget(taskId: string): WriteTarget { return { kind: "projection_invalidation", projection: "task-lifecycle/v1", taskId }; }
 function leaseTarget(taskId: string, operation: "reserve" | "activate" | "release"): WriteTarget { return { kind: "lease_sqlite", table: "lease_cas", taskId, operation }; }
@@ -179,19 +178,20 @@ function planned<A>(plan: FrozenWritePlan<TaskLifecycleCommand["type"]>, target:
 export function assertWriteTargetDeclared(plan: FrozenWritePlan<TaskLifecycleCommand["type"]>, target: WriteTarget): void { if (!Object.isFrozen(plan) || !Object.isFrozen(plan.targets) || !plan.targets.some((candidate) => canonicalJson(candidate) === canonicalJson(target))) throw new TaskLifecycleOperationConflict(`undeclared_write_target: ${canonicalJson(target)}`); }
 function receiptFromRead(read: TaskLifecycleServiceRead, event: TaskEventV1, plan: FrozenWritePlan<TaskLifecycleCommand["type"]>): WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot, TaskLifecycleCommand["type"]> {
   return read.status === "ready"
-    ? { outcome: "applied", opId: event.opId, event, revision: event.workspaceRevision, evidence: `task-event:${event.eventId}`, snapshot: read.snapshot, frozenPlan: plan }
+    ? { outcome: "applied", opId: event.opId, event, revision: event.workspaceRevision, evidence: `task-event:${event.eventId}`,
+      visibility: "center", proof: { committedRevision: read.sourceRevision, appliedCut: read.watermark }, snapshot: read.snapshot, frozenPlan: plan }
     : pendingReceipt(read, plan, event.opId, "projection or lease convergence is pending", event);
 }
-
 function pendingReceipt(read: TaskLifecycleServiceRead, plan: FrozenWritePlan<TaskLifecycleCommand["type"]>, opId: string, reason: string, event?: TaskEventV1): WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot, TaskLifecycleCommand["type"]> {
   const revision = event?.workspaceRevision ?? read.sourceRevision;
   return { outcome: "pending", opId, ...(event ? { event } : {}), revision, evidence: `task-stream-revision:${revision}`,
+    visibility: "center", proof: { committedRevision: read.sourceRevision, appliedCut: read.watermark },
     snapshot: read.snapshot, frozenPlan: plan, nextAction: `retry task lifecycle read: ${reason}` };
 }
 
 function indeterminateReceipt(read: TaskLifecycleServiceRead, plan: FrozenWritePlan<TaskLifecycleCommand["type"]>, opId: string, reason: string, query: string, event?: TaskEventV1): WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot, TaskLifecycleCommand["type"]> {
   return { outcome: "indeterminate", opId, ...(event ? { event } : {}), revision: event?.workspaceRevision ?? read.sourceRevision,
-    snapshot: read.snapshot, frozenPlan: plan, code: "publication_unknown", origin: "task-event-store", nextAction: `${query}: ${reason}` };
+    visibility: "center", snapshot: read.snapshot, frozenPlan: plan, code: "publication_unknown", origin: "task-event-store", nextAction: `${query}: ${reason}` };
 }
 
 function eventMatchesOperation<C extends TaskLifecycleCommand>(event: TaskEventV1, command: C, proof: ProofFor<C>): boolean {

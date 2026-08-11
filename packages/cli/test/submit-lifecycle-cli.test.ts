@@ -12,6 +12,10 @@ const actor = {
   executor: { kind: "agent" as const, id: "executor-session" }
 };
 const workspaceId = "/workspace";
+const applied = (opId: string, revision: number, evidence: string) => ({
+  outcome: "applied" as const, opId, revision, evidence, visibility: "center" as const,
+  proof: { committedRevision: revision, appliedCut: revision }
+});
 
 const argv = [
   "task", "submit", "task_TYPED",
@@ -36,9 +40,9 @@ test("submit sends a field-equal SubmitExecution intent to the host", async () =
     service: {
       execute: async (input) => {
         received = input;
-        return { outcome: "applied", opId: input.command.opId, revision: 3, evidence: "task-event:event-3" };
+        return applied(input.command.opId, 3, "task-event:event-3");
       },
-      show: async () => ({ outcome: "applied", opId: "read:task", revision: 3, evidence: "unused" })
+      show: async () => applied("read:task", 3, "unused")
     }
   });
 
@@ -50,6 +54,8 @@ test("submit sends a field-equal SubmitExecution intent to the host", async () =
       workspaceId,
       taskId: "task_TYPED",
       actor,
+      source: "local",
+      expectedRevision: 3,
       opId: received?.command.opId,
       commandDigest: received?.command.commandDigest,
       executionId: "exe_TYPED",
@@ -86,9 +92,9 @@ test("same submit intent produces the same load-bearing opId", async () => {
   const service = {
     execute: async (input: TaskLifecycleServiceInput) => {
       opIds.push(input.command.opId);
-      return { outcome: "applied" as const, opId: input.command.opId, revision: 3, evidence: "task-event:event-3" };
+      return applied(input.command.opId, 3, "task-event:event-3");
     },
-    show: async () => ({ outcome: "applied" as const, opId: "read:task", revision: 3, evidence: "unused" })
+    show: async () => applied("read:task", 3, "unused")
   };
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const parsed = parseTaskLifecycleArgs(argv);
@@ -114,7 +120,7 @@ test("rejected submit preserves G04 recovery guidance", async () => {
         origin: "task-lifecycle-service",
         nextAction: "Run `ha task show task_TYPED` and start an Execution before submitting."
       }),
-      show: async () => ({ outcome: "applied", opId: "read:task", revision: 3, evidence: "unused" })
+      show: async () => applied("read:task", 3, "unused")
     }
   });
   assert.deepEqual(receipt, {
@@ -141,7 +147,7 @@ test("indeterminate submit preserves all G04 recovery fields", async () => {
         origin: "task-event-store",
         nextAction: "Run `ha task show task_TYPED`; retry only if the projection does not contain this opId."
       }),
-      show: async () => ({ outcome: "applied", opId: "read:task", revision: 3, evidence: "unused" })
+      show: async () => applied("read:task", 3, "unused")
     }
   });
   assert.equal(receipt.outcome, "indeterminate");

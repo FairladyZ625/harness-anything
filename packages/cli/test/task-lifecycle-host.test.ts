@@ -45,13 +45,17 @@ test("host binds the lease to the authenticated actor, execution, and version", 
     assert.equal(projectionBytes.includes("credential"), false);
 
     const retried = await runTaskLifecycleFacade(start, { actor, workspaceId: rootDir, service: host });
-    assert.equal(retried.outcome, "applied");
+    assert.equal(retried.outcome, "rejected");
+    assert.equal(retried.code, "invalid_transition");
+    const shown = await host.show({ taskId: "task_HOST" });
+    assert.deepEqual(JSON.parse(shown.evidence ?? "{}").lease?.actor, actor);
 
     const submit = parsed([
       "task", "submit", "task_HOST", "--execution-id", "execution_HOST",
       "--claim", "ready", "--commit-sha", "a".repeat(40)
     ]);
-    assert.equal((await runTaskLifecycleFacade(submit, { actor, workspaceId: rootDir, service: host })).outcome, "applied");
+    const submitted = await runTaskLifecycleFacade(submit, { actor, workspaceId: rootDir, service: host });
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

@@ -1,13 +1,12 @@
 import { Context, Effect } from "effect";
 import type { EntityId, WriteError } from "../domain/index.js";
+import type { LeaseHolder } from "../domain/execution.ts";
 import type { CurrentSessionRuntime } from "./current-session-probe.js";
-
 export type TaskWriteOpKind =
   | "doc_stage"
   | "task_tree_stage"
   | "doc_write"
   | "code_doc_reconcile";
-
 export type DecisionWriteOpKind =
   | "decision_propose"
   | "decision_accept"
@@ -17,10 +16,8 @@ export type DecisionWriteOpKind =
   | "decision_amend"
   | "decision_relate"
   | "decision_retire";
-
 export type FactWriteOpKind =
   | "fact_invalidate";
-
 export type RelationWriteOpKind =
   | "relation_retire"
   | "relation_replace";
@@ -34,6 +31,10 @@ export type MachineArtifactWriteOpKind =
   | "machine_artifact_append_jsonl";
 
 export type RuntimeWriteOpKind = "lease_cas";
+export interface LeaseCasPayload extends LeaseHolder {
+  readonly operation: "reserve" | "activate" | "renew" | "release"; readonly now: string; readonly expiresAt?: string;
+  readonly ttlMs?: number; readonly version?: number; readonly capacity: number;
+}
 
 export type WriteOpKind = TaskWriteOpKind | DecisionWriteOpKind | FactWriteOpKind | RelationWriteOpKind | ModuleWriteOpKind | MachineArtifactWriteOpKind | RuntimeWriteOpKind;
 

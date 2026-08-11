@@ -218,9 +218,10 @@ export interface TaskLifecycleFacadeDependencies {
 
 export async function runTaskLifecycleFacade(action: TaskLifecycleCliAction, dependencies: TaskLifecycleFacadeDependencies): Promise<TaskLifecycleReceipt> {
   if (action.verb === "show") return validateReceipt(await dependencies.service.show({ taskId: action.taskId }));
-  let opId = operationId(action, dependencies.actor, dependencies.workspaceId);
+  let opId = operationId(action, dependencies.actor, dependencies.workspaceId, 0);
   try {
-    const input = await buildServiceInput(action, dependencies, opId);
+    const expectedRevision = action.verb === "create" ? 0 : (await dependencies.service.show({ taskId: action.taskId })).revision ?? 0;
+    const input = await buildServiceInput(action, dependencies, opId, expectedRevision);
     opId = input.command.opId;
     return validateReceipt(await dependencies.service.execute(input));
   } catch (error) {
@@ -234,10 +235,11 @@ export async function runTaskLifecycleFacade(action: TaskLifecycleCliAction, dep
   }
 }
 
-async function buildServiceInput(action: Exclude<TaskLifecycleCliAction, ShowAction>, dependencies: TaskLifecycleFacadeDependencies, opId: string): Promise<TaskLifecycleServiceInput> {
+async function buildServiceInput(action: Exclude<TaskLifecycleCliAction, ShowAction>, dependencies: TaskLifecycleFacadeDependencies, opId: string, expectedRevision: number): Promise<TaskLifecycleServiceInput> {
   const actor = dependencies.actor;
+  const binding = { workspaceId: dependencies.workspaceId, actor, source: "local" as const, expectedRevision };
   if (action.verb === "create") {
-    return { command: normalizeTaskLifecycleCommand(dependencies.workspaceId, actor, {
+    return { command: normalizeTaskLifecycleCommand(binding, {
       type: action.commandType,
       taskId: action.taskId ?? `task_${opId.slice(-26)}`,
       title: action.title,
@@ -246,12 +248,12 @@ async function buildServiceInput(action: Exclude<TaskLifecycleCliAction, ShowAct
     }) };
   }
   if (action.verb === "start") {
-    return { command: normalizeTaskLifecycleCommand(dependencies.workspaceId, actor,
+    return { command: normalizeTaskLifecycleCommand(binding,
       { type: action.commandType, taskId: action.taskId, executionId: action.executionId }) };
   }
   if (action.verb === "submit") {
     return {
-      command: normalizeTaskLifecycleCommand(dependencies.workspaceId, actor, {
+      command: normalizeTaskLifecycleCommand(binding, {
         type: action.commandType,
         taskId: action.taskId,
         executionId: action.executionId,
@@ -268,8 +270,8 @@ async function buildServiceInput(action: Exclude<TaskLifecycleCliAction, ShowAct
     };
   }
   if (action.verb === "review-execution") {
-    if ("antiEntropyToken" in action) return antiEntropyReviewInput(action, dependencies);
-    return { command: normalizeTaskLifecycleCommand(dependencies.workspaceId, actor, {
+    if ("antiEntropyToken" in action) return antiEntropyReviewInput(action, dependencies, expectedRevision);
+    return { command: normalizeTaskLifecycleCommand(binding, {
       type: action.commandType,
       taskId: action.taskId,
       executionId: action.executionId,
@@ -286,7 +288,7 @@ async function buildServiceInput(action: Exclude<TaskLifecycleCliAction, ShowAct
   }
   if (action.verb === "complete") {
     return {
-      command: normalizeTaskLifecycleCommand(dependencies.workspaceId, actor,
+      command: normalizeTaskLifecycleCommand(binding,
         { type: action.commandType, taskId: action.taskId, executionId: action.executionId }),
       gateReceipts: action.gateReceipts
     };
@@ -294,10 +296,11 @@ async function buildServiceInput(action: Exclude<TaskLifecycleCliAction, ShowAct
   throw Object.assign(new Error("Lifecycle input is incomplete; run the command with --help."), { code: "invalid_command" });
 }
 
-function operationId(action: TaskLifecycleCliAction, actor: ActorAxes, workspaceId: string): string {
+function operationId(action: TaskLifecycleCliAction, actor: ActorAxes, workspaceId: string, expectedRevision: number): string {
   const intent = action.verb === "review-execution" && "antiEntropyToken" in action ? { ...action, antiEntropyToken: undefined, antiEntropyReport: undefined }
     : action;
-  return normalizeCommandEnvelope({ workspaceId, actor, command: intent as unknown as Readonly<Record<string, unknown>> }).opId;
+  return normalizeCommandEnvelope({ workspaceId, actor, source: "local", expectedRevision,
+    command: intent as unknown as Readonly<Record<string, unknown>> }).opId;
 }
 
 function flags(tokens: readonly string[], singleAllowed: ReadonlySet<string>, repeatedAllowed: ReadonlySet<string> = new Set(), booleanAllowed: ReadonlySet<string> = new Set()):
@@ -357,7 +360,7 @@ interface FrozenAntiEntropyReport {
   readonly digest: string;
 }
 
-async function antiEntropyReviewInput(action: AntiEntropyReviewAction, dependencies: TaskLifecycleFacadeDependencies): Promise<TaskLifecycleServiceInput> {
+async function antiEntropyReviewInput(action: AntiEntropyReviewAction, dependencies: TaskLifecycleFacadeDependencies, expectedRevision: number): Promise<TaskLifecycleServiceInput> {
   const body = await (dependencies.readReport ?? readAntiEntropyReport)(action.antiEntropyReport);
   const report = parseAntiEntropyReport(body);
   if (dependencies.verifyReceipt === undefined) throw Object.assign(new Error("Configure the receipt-verify adapter, then retry the signed frozen report."), { code: "receipt_verifier_unavailable", origin: "receipt-verify" });
@@ -381,7 +384,7 @@ async function antiEntropyReviewInput(action: AntiEntropyReviewAction, dependenc
   };
   const verdict = report.verdict === "rejected" ? "changes_requested" as const : "approved" as const;
   return {
-    command: normalizeTaskLifecycleCommand(dependencies.workspaceId, reviewer, {
+    command: normalizeTaskLifecycleCommand({ workspaceId: dependencies.workspaceId, actor: reviewer, source: "local", expectedRevision }, {
       type: action.commandType,
       taskId: action.taskId,
       executionId: action.executionId,

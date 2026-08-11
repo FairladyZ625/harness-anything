@@ -8,7 +8,8 @@ import {
   normalizeTaskLifecycleCommand,
   reduceTaskEvent,
   serializeTaskEvent,
-  TaskLifecycleContractError
+  TaskLifecycleContractError,
+  validateTaskEvent
 } from "../../../packages/kernel/src/domain/task-lifecycle.contract.ts";
 import { REPLAY_TASK_GRAPH } from "../../../packages/kernel/src/domain/task-graph.ts";
 import { TASK_LEASE_BROKER_CONTRACT } from "../../../packages/kernel/src/domain/execution.ts";
@@ -26,7 +27,7 @@ test("G10 Lease broker contract declares one positive capacity ceiling", () => {
 
 function command(actor, revision, intent, suffix = intent.type) {
   return {
-    ...normalizeTaskLifecycleCommand("workspace-1", actor, intent),
+    ...normalizeTaskLifecycleCommand({ workspaceId: "workspace-1", actor, source: "local", expectedRevision: revision - 1 }, intent),
     eventId: `evt-${suffix}`,
     workspaceRevision: revision,
     occurredAt: `2026-08-11T00:00:0${revision}.000Z`
@@ -55,14 +56,16 @@ function startCommand(revision = 2, executionId = "execution-0") {
   return command(executor, revision, { type: "StartExecution", taskId: "task-1", executionId }, `start-${executionId}`);
 }
 
-function startProof(revision = 1, executionId = "execution-0") {
+function startProof(executionId = "execution-0") {
   return {
     actorBinding: executor,
-    expectedRevision: revision,
     reservation: {
       taskId: "task-1",
       executionId,
       expiresAt: "2026-08-11T01:00:00.000Z",
+      ttlMs: 1_800_000,
+      previousHolder: null,
+      reason: "initial_claim",
       version: 1
     }
   };
@@ -89,15 +92,15 @@ function submitCommand(revision = 3, commitSha = commit0) {
 }
 
 function submitProof(leaseVersion = 1) {
-  return submitRoundProof(2, leaseVersion);
+  return submitRoundProof(leaseVersion);
 }
 
 function submitRoundCommand(revision, executionId, commitSha) {
   return command(executor, revision, { type: "SubmitExecution", taskId: "task-1", executionId, submission: submission(commitSha) }, `submit-${executionId}`);
 }
 
-function submitRoundProof(expectedRevision, leaseVersion = 1) {
-  return { expectedRevision, actorBinding: executor, leaseVersion, sessionDisposition: "complete" };
+function submitRoundProof(leaseVersion = 1) {
+  return { actorBinding: executor, leaseVersion, sessionDisposition: "complete" };
 }
 
 function submittedSnapshot() {
@@ -121,9 +124,8 @@ function reviewCommand({ kind = "anti_entropy", verdict = "approved", actor = an
   }, suffix);
 }
 
-function reviewProof({ kind = "anti_entropy", revision = 3, actor = antiEntropy, archiveWarningsPresent = false } = {}) {
+function reviewProof({ kind = "anti_entropy", actor = antiEntropy, archiveWarningsPresent = false } = {}) {
   return {
-    expectedRevision: revision,
     actorBinding: actor,
     capability: kind === "anti_entropy" ? "anti-entropy@v1" : "acceptance-review@v1",
     capabilityRef: `capability:${kind}`,
@@ -139,7 +141,7 @@ function acceptanceApprovedSnapshot() {
   return applyTransition(
     antiEntropyApprovedSnapshot(),
     reviewCommand({ kind: "acceptance", actor: acceptance, actorRole: "acceptance", revision: 5, suffix: "acceptance-approved" }),
-    reviewProof({ kind: "acceptance", revision: 4, actor: acceptance })
+    reviewProof({ kind: "acceptance", actor: acceptance })
   ).snapshot;
 }
 
@@ -147,9 +149,8 @@ function completeCommand(revision = 6, executionId = "execution-0") {
   return command(owner, revision, { type: "CompleteTask", taskId: "task-1", executionId }, "complete");
 }
 
-function completeProof(expectedRevision = 5) {
+function completeProof() {
   return {
-    expectedRevision,
     capability: "task-complete@v1",
     capabilityRef: "capability:task-complete",
     actorRole: "owner",
@@ -166,7 +167,7 @@ test("G10 CreateReplayTask moves only a missing aggregate to planned/implementat
     { status: "planned", node: "implementation", iteration: 0 }
   );
   assert.throws(
-    () => applyTransition(created.snapshot, { ...createCommand(), workspaceRevision: 2 }, createProof()),
+    () => applyTransition(created.snapshot, createCommand(), createProof()),
     (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition"
   );
 });
@@ -177,8 +178,15 @@ test("G10 StartExecution atomically activates one execution and its lease", () =
   assert.equal(started.snapshot.task.status, "active");
   assert.equal(started.snapshot.executions[0].state, "active");
   assert.equal(started.snapshot.lease.phase, "active");
+  assert.deepEqual(started.event.payload.lease, started.snapshot.lease);
+  assert.deepEqual({ previousHolder: started.event.payload.previousHolder,
+    leaseExpiresAt: started.event.payload.leaseExpiresAt, reason: started.event.payload.reason }, {
+    previousHolder: null, leaseExpiresAt: "2026-08-11T01:00:00.000Z", reason: "initial_claim"
+  });
+  const { previousHolder: _previousHolder, ...missingHistory } = started.event.payload;
+  assert.match(validateTaskEvent({ ...started.event, payload: missingHistory }).map((issue) => issue.code).join(","), /invalid_event_payload/u);
   assert.throws(
-    () => applyTransition(started.snapshot, startCommand(3, "execution-other"), startProof(2, "execution-other")),
+    () => applyTransition(started.snapshot, startCommand(3, "execution-other"), startProof("execution-other")),
     (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition"
   );
 });
@@ -205,7 +213,7 @@ test("G10 anti-entropy approval advances only to in_review/review", () => {
   );
   assert.equal(reviewed.snapshot.edgesTaken[1].edgeId, "anti-entropy-approved");
   assert.throws(
-    () => applyTransition(startedSnapshot(), reviewCommand({ revision: 3 }), reviewProof({ revision: 2 })),
+    () => applyTransition(startedSnapshot(), reviewCommand({ revision: 3 }), reviewProof()),
     (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition"
   );
 });
@@ -224,17 +232,17 @@ test("G10 anti-entropy changes_requested consumes the sole return budget", () =>
   assert.equal(rejected.snapshot.lease, null);
   assert.equal(rejected.snapshot.edgesTaken[1].edgeId, "anti-entropy-changes-requested");
 
-  const startedAgain = applyTransition(rejected.snapshot, startCommand(5, "execution-1"), startProof(4, "execution-1"));
+  const startedAgain = applyTransition(rejected.snapshot, startCommand(5, "execution-1"), startProof("execution-1"));
   const submittedAgain = applyTransition(
     startedAgain.snapshot,
     submitRoundCommand(6, "execution-1", "1123456789abcdef0123456789abcdef01234567"),
-    submitRoundProof(5)
+    submitRoundProof()
   );
   assert.throws(
     () => applyTransition(
       submittedAgain.snapshot,
       reviewCommand({ verdict: "changes_requested", revision: 7, iteration: 1, commitSha: "1123456789abcdef0123456789abcdef01234567", suffix: "reject-1" }),
-      reviewProof({ revision: 6 })
+      reviewProof()
     ),
     (error) => error instanceof TaskLifecycleContractError && error.code === "manual_intervention_required"
   );
@@ -262,7 +270,7 @@ test("G10 dismissed review is immutable but does not advance its node", () => {
 
 test("G10 acceptance approval marks the same round ready without completing it", () => {
   const command = reviewCommand({ kind: "acceptance", actor: acceptance, actorRole: "acceptance", revision: 5, suffix: "acceptance-approved" });
-  const proof = reviewProof({ kind: "acceptance", revision: 4, actor: acceptance });
+  const proof = reviewProof({ kind: "acceptance", actor: acceptance });
   const acceptedReview = applyTransition(antiEntropyApprovedSnapshot(), command, proof);
   assert.equal(acceptedReview.snapshot.task.status, "in_review");
   assert.equal(acceptedReview.snapshot.executions[0].state, "submitted");
@@ -284,11 +292,11 @@ test("G10 CompleteTask consumes both same-round approvals and alone marks done",
   assert.equal(completed.snapshot.task.status, "done");
   assert.equal(completed.snapshot.executions[0].state, "accepted");
   assert.throws(
-    () => applyTransition(antiEntropyApprovedSnapshot(), completeCommand(5), completeProof(4)),
+    () => applyTransition(antiEntropyApprovedSnapshot(), completeCommand(5), completeProof()),
     (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition"
   );
   assert.throws(
-    () => applyTransition(completed.snapshot, startCommand(7, "execution-terminal"), startProof(6, "execution-terminal")),
+    () => applyTransition(completed.snapshot, startCommand(7, "execution-terminal"), startProof("execution-terminal")),
     (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition"
   );
   const ready = acceptanceApprovedSnapshot();
@@ -381,22 +389,22 @@ test("G34 anti-entropy approve cannot mark Task done or Execution accepted", () 
 test("G34 replays reject to new execution to both approvals to complete", () => {
   const commit1 = "1123456789abcdef0123456789abcdef01234567";
   const rejected = applyTransition(submittedSnapshot(), reviewCommand({ verdict: "changes_requested", suffix: "chain-reject" }), reviewProof());
-  const started = applyTransition(rejected.snapshot, startCommand(5, "execution-1"), startProof(4, "execution-1"));
-  const submitted = applyTransition(started.snapshot, submitRoundCommand(6, "execution-1", commit1), submitRoundProof(5));
+  const started = applyTransition(rejected.snapshot, startCommand(5, "execution-1"), startProof("execution-1"));
+  const submitted = applyTransition(started.snapshot, submitRoundCommand(6, "execution-1", commit1), submitRoundProof());
   const antiApproved = applyTransition(
     submitted.snapshot,
     reviewCommand({ revision: 7, iteration: 1, commitSha: commit1, suffix: "chain-anti-approved" }),
-    reviewProof({ revision: 6 })
+    reviewProof()
   );
   const acceptanceApproved = applyTransition(
     antiApproved.snapshot,
     reviewCommand({ kind: "acceptance", actor: acceptance, actorRole: "acceptance", revision: 8, iteration: 1, commitSha: commit1, suffix: "chain-acceptance-approved" }),
-    reviewProof({ kind: "acceptance", revision: 7, actor: acceptance })
+    reviewProof({ kind: "acceptance", actor: acceptance })
   );
   const completed = applyTransition(
     acceptanceApproved.snapshot,
     completeCommand(9, "execution-1"),
-    completeProof(8)
+    completeProof()
   );
   assert.equal(completed.snapshot.task.status, "done");
   assert.deepEqual(completed.snapshot.executions.map((execution) => execution.state), ["changes_requested", "accepted"]);
@@ -411,7 +419,7 @@ test("G09 projection reducer replays all five task-event/v1 envelope types", () 
   const acceptanceApproved = applyTransition(
     antiApproved.snapshot,
     reviewCommand({ kind: "acceptance", actor: acceptance, actorRole: "acceptance", revision: 5, suffix: "replay-acceptance" }),
-    reviewProof({ kind: "acceptance", revision: 4, actor: acceptance })
+    reviewProof({ kind: "acceptance", actor: acceptance })
   );
   const completed = applyTransition(acceptanceApproved.snapshot, completeCommand(), completeProof());
   const events = [created.event, started.event, submitted.event, antiApproved.event, acceptanceApproved.event, completed.event];

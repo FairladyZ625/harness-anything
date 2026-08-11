@@ -55,8 +55,8 @@ export function lifecycleHarness() {
   });
   const revision = () => eventStore.read().revision;
   const at = (next: number) => `2026-08-11T00:${String(next).padStart(2, "0")}:00.000Z`;
-  const command = <C extends Parameters<typeof normalizeTaskLifecycleCommand>[2]>(actor: typeof owner | typeof reviewer, next: number, intent: C, tag: string) => ({
-    ...normalizeTaskLifecycleCommand(rootDir, actor, intent), eventId: `event-${tag}`, workspaceRevision: next, occurredAt: at(next)
+  const command = <C extends Parameters<typeof normalizeTaskLifecycleCommand>[1]>(actor: typeof owner | typeof reviewer, next: number, intent: C, tag: string) => ({
+    ...normalizeTaskLifecycleCommand({ workspaceId: rootDir, actor, source: "local", expectedRevision: next - 1 }, intent), eventId: `event-${tag}`, workspaceRevision: next, occurredAt: at(next)
   });
   return {
     rootDir,
@@ -76,8 +76,9 @@ export function lifecycleHarness() {
     start: (executionId = `execution-${revision() + 1}`, opId = `op-start-${revision() + 1}`) => {
       const next = revision() + 1;
       return service.execute(command(owner, next, { type: "StartExecution", taskId: "task-1", executionId }, opId), {
-        actorBinding: owner, expectedRevision: next - 1,
-        reservation: { taskId: "task-1", executionId, expiresAt: "2026-08-11T01:00:00.000Z", version: 0 }
+        actorBinding: owner,
+        reservation: { taskId: "task-1", executionId, expiresAt: "2026-08-11T01:00:00.000Z", ttlMs: 1_800_000,
+          previousHolder: null, reason: "initial_claim", version: 0 }
       });
     },
     submit: async (executionId: string, opId = `op-submit-${revision() + 1}`, claim = "implemented") => {
@@ -87,7 +88,7 @@ export function lifecycleHarness() {
       return service.execute(command(owner, next, {
         type: "SubmitExecution", taskId: "task-1", executionId,
         submission: { claim, deliverables: [], evidenceRefs: [], verification: ["tests"], knownGaps: [], residualRisks: [], commitSha }
-      }, opId), { expectedRevision: next - 1, actorBinding: owner, leaseVersion, sessionDisposition: "complete" });
+      }, opId), { actorBinding: owner, leaseVersion, sessionDisposition: "complete" });
     },
     review: async (executionId: string, kind: "anti_entropy" | "acceptance", verdict: "approved" | "changes_requested" | "dismissed", opId = `op-review-${revision() + 1}`) => {
       const next = revision() + 1;
@@ -97,7 +98,7 @@ export function lifecycleHarness() {
         actorRole: kind, reason: `${kind} ${verdict}`, evidenceChecked: [], commitSha,
         iteration: snapshot.task?.iteration ?? 0, archiveWarningsAcknowledged: false
       }, opId), {
-        expectedRevision: next - 1, actorBinding: reviewer,
+        actorBinding: reviewer,
         capability: kind === "anti_entropy" ? "anti-entropy@v1" : "acceptance-review@v1",
         capabilityRef: `cap-${opId}`, archiveWarningsPresent: false
       });
@@ -105,7 +106,7 @@ export function lifecycleHarness() {
     complete: (executionId: string, opId = `op-complete-${revision() + 1}`) => {
       const next = revision() + 1;
       return service.execute(command(owner, next, { type: "CompleteTask", taskId: "task-1", executionId }, opId), {
-        expectedRevision: next - 1, capability: "task-complete@v1", capabilityRef: `cap-${opId}`,
+        capability: "task-complete@v1", capabilityRef: `cap-${opId}`,
         actorRole: "owner", noActiveLease: true, gateReceipts: []
       });
     }

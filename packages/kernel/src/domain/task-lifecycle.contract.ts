@@ -1,25 +1,23 @@
-import { EXECUTION_V1_SCHEMA, isNativeCommitSha, LEASE_V1_SCHEMA, validateExecutionV1, validateSubmissionV1 } from "./execution.ts";
-import type { ExecutionV1, LeaseV1 } from "./execution.ts";
+import { EXECUTION_V1_SCHEMA, isNativeCommitSha, LEASE_V1_SCHEMA, validateExecutionV1, validateLeaseHolder, validateLeaseV1, validateSubmissionV1 } from "./execution.ts";
+import type { ExecutionV1, LeaseHolder, LeaseV1 } from "./execution.ts";
 import { REVIEW_V1_SCHEMA, validateReviewV1 } from "./review.ts";
 import type { ReviewV1 } from "./review.ts";
 import { TASK_V1_SCHEMA, validateActorAxes, validateTaskV1 } from "./task.ts";
 import type { ActorAxes, ContractValidationIssue, TaskV1 } from "./task.ts";
 import { TASK_EDGE_TAKEN_SCHEMA, TASK_GRAPH_V1_SCHEMA, validateTaskGraph } from "./task-graph.ts";
 import type { TaskEdgeTaken, TaskGraphV1 } from "./task-graph.ts";
-import { appendWriteTarget, assertCurrentWriter, createWriteReceipt, freezeDeclaredWritePlan, hasOnlyFields, isFrozenWritePlan, isNonEmptyString, isRecord, normalizeCommandEnvelope, serializeEventEnvelope, validateDeclaredWritePlan, validateNormalizedCommandEnvelope } from "./write-chain.contract.ts";
-import type { EventEnvelope, FrozenWritePlan, NormalizedCommandEnvelope, WritePlan, WriteReceipt, WriteTarget, WriterGeneration, WriterGenerationToken } from "./write-chain.contract.ts";
-
+import { appendWriteTarget, assertCurrentWriter, createWriteReceipt, freezeDeclaredWritePlan, hasOnlyFields, isFrozenWritePlan, isNonEmptyString, isRecord, normalizeCommandEnvelope, serializeEventEnvelope, validateDeclaredWritePlan, validateNormalizedCommandEnvelope, validateWriteSource } from "./write-chain.contract.ts";
+import type { EventEnvelope, FrozenWritePlan, NormalizedCommandEnvelope, WritePlan, WriteReceipt, WriteSource, WriteTarget, WriterGeneration, WriterGenerationToken } from "./write-chain.contract.ts";
 export const taskEventTypes = ["task_created", "execution_started", "execution_submitted", "review_recorded", "task_completed"] as const;
 export type TaskEventType = (typeof taskEventTypes)[number];
-
 type TaskEventEnvelope<T extends TaskEventType, P> = EventEnvelope<"task-event/v1", T, ActorAxes, P> & { readonly taskId: string };
 export type TaskCreatedEvent = TaskEventEnvelope<"task_created", { readonly task: TaskV1 }>;
-export type ExecutionStartedEvent = TaskEventEnvelope<"execution_started", { readonly task: TaskV1; readonly execution: ExecutionV1 }>;
+export type LeaseChangeReason = "initial_claim" | "same_principal_reconnect" | "ttl_expired_takeover";
+export type ExecutionStartedEvent = TaskEventEnvelope<"execution_started", { readonly task: TaskV1; readonly execution: ExecutionV1; readonly lease: LeaseV1; readonly previousHolder: LeaseHolder | null; readonly leaseExpiresAt: string; readonly reason: LeaseChangeReason }>;
 export type ExecutionSubmittedEvent = TaskEventEnvelope<"execution_submitted", { readonly task: TaskV1; readonly execution: ExecutionV1; readonly edge: TaskEdgeTaken }>;
 export type ReviewRecordedEvent = TaskEventEnvelope<"review_recorded", { readonly task: TaskV1; readonly execution: ExecutionV1; readonly review: ReviewV1; readonly edge?: TaskEdgeTaken }>;
 export type TaskCompletedEvent = TaskEventEnvelope<"task_completed", { readonly task: TaskV1; readonly execution: ExecutionV1 }>;
 export type TaskEventV1 = TaskCreatedEvent | ExecutionStartedEvent | ExecutionSubmittedEvent | ReviewRecordedEvent | TaskCompletedEvent;
-
 export interface TaskLifecycleSnapshot { readonly revision: number; readonly task: TaskV1 | null; readonly executions: readonly ExecutionV1[]; readonly reviews: readonly ReviewV1[]; readonly edgesTaken: readonly TaskEdgeTaken[]; readonly lease: LeaseV1 | null }
 interface CommandIntent<T extends string> { readonly type: T; readonly taskId: string }
 export interface CreateReplayTaskIntent extends CommandIntent<"CreateReplayTask"> { readonly title: string; readonly graph: TaskGraphV1; readonly completionGateIds: readonly string[] }
@@ -34,29 +32,29 @@ export type CreateReplayTaskCommand = NormalizedTaskLifecycleCommand<CreateRepla
 export type SubmitExecutionCommand = NormalizedTaskLifecycleCommand<SubmitExecutionIntent> & ServerCommandMeta; export type RecordReviewCommand = NormalizedTaskLifecycleCommand<RecordReviewIntent> & ServerCommandMeta;
 export type CompleteTaskCommand = NormalizedTaskLifecycleCommand<CompleteTaskIntent> & ServerCommandMeta;
 export type TaskLifecycleCommand = CreateReplayTaskCommand | StartExecutionCommand | SubmitExecutionCommand | RecordReviewCommand | CompleteTaskCommand;
-export function normalizeTaskLifecycleCommand<C extends TaskLifecycleCommandIntent>(workspaceId: string, actor: ActorAxes, command: C): NormalizedTaskLifecycleCommand<C> {
-  return Object.freeze({ ...command, ...normalizeCommandEnvelope({ workspaceId, actor, command: command as unknown as Readonly<Record<string, unknown>> }) }) as unknown as NormalizedTaskLifecycleCommand<C>;
+export function normalizeTaskLifecycleCommand<C extends TaskLifecycleCommandIntent>(binding: {
+  readonly workspaceId: string; readonly actor: ActorAxes; readonly source: WriteSource; readonly expectedRevision: number;
+}, command: C): NormalizedTaskLifecycleCommand<C> {
+  return Object.freeze({ ...command, ...normalizeCommandEnvelope({ ...binding, command: command as unknown as Readonly<Record<string, unknown>> }) }) as unknown as NormalizedTaskLifecycleCommand<C>;
 }
 function lifecycleCommandIntent(command: TaskLifecycleCommand): TaskLifecycleCommandIntent {
-  const { schema: _schema, workspaceId: _workspaceId, actor: _actor, opId: _opId, commandDigest: _commandDigest,
+  const { schema: _schema, workspaceId: _workspaceId, actor: _actor, source: _source, expectedRevision: _expectedRevision, opId: _opId, commandDigest: _commandDigest,
     eventId: _eventId, workspaceRevision: _workspaceRevision, occurredAt: _occurredAt, transport: _transport, ...intent } = command as TaskLifecycleCommand & { readonly transport?: unknown };
   return intent as TaskLifecycleCommandIntent; }
 function normalizedCommandIssues(command: TaskLifecycleCommand): readonly ContractValidationIssue[] {
-  return validateNormalizedCommandEnvelope(command, { workspaceId: command.workspaceId, actor: command.actor,
+  return validateNormalizedCommandEnvelope(command, { workspaceId: command.workspaceId, actor: command.actor, source: command.source, expectedRevision: command.expectedRevision,
     command: lifecycleCommandIntent(command) as unknown as Readonly<Record<string, unknown>> }).map((message) => ({ code: "invalid_schema", message })); }
-
 export interface CreateReplayTaskProof { readonly taskIdUnique: true; readonly actorBinding: ActorAxes }
-export interface StartExecutionProof { readonly actorBinding: ActorAxes; readonly expectedRevision: number; readonly reservation: { readonly taskId: string; readonly executionId: string; readonly expiresAt: string; readonly version: number } }
-export interface SubmitExecutionProof { readonly expectedRevision: number; readonly actorBinding: ActorAxes; readonly leaseVersion: number; readonly sessionDisposition: "complete" | "partial" | "unavailable" }
-export interface ReviewProof { readonly expectedRevision: number; readonly actorBinding: ActorAxes; readonly capability: "anti-entropy@v1" | "acceptance-review@v1"; readonly capabilityRef: string; readonly archiveWarningsPresent: boolean }
-export interface CompleteTaskProof { readonly expectedRevision: number; readonly capability: "task-complete@v1"; readonly capabilityRef: string; readonly actorRole: "owner" | "commander"; readonly noActiveLease: true; readonly gateReceipts: readonly { readonly gateId: string; readonly receiptRef: string; readonly result: "pass"; readonly executionId: string; readonly commitSha: string; readonly iteration: number }[] }
+export interface StartExecutionProof { readonly actorBinding: ActorAxes; readonly reservation: { readonly taskId: string; readonly executionId: string; readonly expiresAt: string; readonly ttlMs: number; readonly previousHolder: LeaseHolder | null; readonly reason: LeaseChangeReason; readonly version: number } }
+export interface SubmitExecutionProof { readonly actorBinding: ActorAxes; readonly leaseVersion: number; readonly sessionDisposition: "complete" | "partial" | "unavailable" }
+export interface ReviewProof { readonly actorBinding: ActorAxes; readonly capability: "anti-entropy@v1" | "acceptance-review@v1"; readonly capabilityRef: string; readonly archiveWarningsPresent: boolean }
+export interface CompleteTaskProof { readonly capability: "task-complete@v1"; readonly capabilityRef: string; readonly actorRole: "owner" | "commander"; readonly noActiveLease: true; readonly gateReceipts: readonly { readonly gateId: string; readonly receiptRef: string; readonly result: "pass"; readonly executionId: string; readonly commitSha: string; readonly iteration: number }[] }
 export type ProofFor<C extends TaskLifecycleCommand> =
   C extends CreateReplayTaskCommand ? CreateReplayTaskProof :
   C extends StartExecutionCommand ? StartExecutionProof :
   C extends SubmitExecutionCommand ? SubmitExecutionProof :
   C extends RecordReviewCommand ? ReviewProof :
   C extends CompleteTaskCommand ? CompleteTaskProof : never;
-
 export type TaskLifecycleErrorCode = "invalid_schema" | "invalid_transition" | "invalid_proof" | "invalid_graph" | "manual_intervention_required" | "frozen_write_plan";
 export class TaskLifecycleContractError extends Error {
   readonly code: TaskLifecycleErrorCode;
@@ -75,20 +73,16 @@ interface TransitionDefinition {
   readonly validate: (snapshot: TaskLifecycleSnapshot, command: TaskLifecycleCommand, proof: unknown) => readonly ContractValidationIssue[];
   readonly reduce: (snapshot: TaskLifecycleSnapshot, command: TaskLifecycleCommand, proof: unknown) => TransitionResult;
 }
-
 export function emptyTaskLifecycleSnapshot(revision = 0): TaskLifecycleSnapshot {
   return { revision, task: null, executions: [], reviews: [], edgesTaken: [], lease: null };
 }
-
 function sameActor(left: ActorAxes, right: ActorAxes): boolean {
   return left.principal.personId === right.principal.personId
     && left.executor?.kind === right.executor?.kind && left.executor?.id === right.executor?.id;
 }
-
 function envelope<C extends TaskLifecycleCommand, E extends TaskEventV1>(command: C, type: E["type"], payload: E["payload"]): E {
-  return { schema: "task-event/v1", eventId: command.eventId, workspaceRevision: command.workspaceRevision, opId: command.opId, taskId: command.taskId, type, actor: command.actor, occurredAt: command.occurredAt, payload } as E;
+  return { schema: "task-event/v1", eventId: command.eventId, workspaceRevision: command.workspaceRevision, opId: command.opId, taskId: command.taskId, type, actor: command.actor, source: command.source, occurredAt: command.occurredAt, payload } as E;
 }
-
 const createReplayTaskTransition: TransitionDefinition = {
   id: "create_replay_task", commandType: "CreateReplayTask", from: "missing",
   proof: ["taskIdUnique", "actorBinding", "validGraph"], eventType: "task_created",
@@ -98,7 +92,7 @@ const createReplayTaskTransition: TransitionDefinition = {
     const proof = rawProof as Partial<CreateReplayTaskProof>;
     const issues: ContractValidationIssue[] = [];
     if (snapshot.task !== null) issues.push({ code: "invalid_transition", message: "CreateReplayTask requires a missing aggregate" });
-    if (command.workspaceRevision !== snapshot.revision + 1) issues.push({ code: "invalid_transition", message: "workspace revision must advance by one" });
+    issues.push(...revisionIssues(snapshot, command));
     if (!isNonEmptyString(command.taskId) || !isNonEmptyString(command.title) || !Array.isArray(command.completionGateIds)) issues.push({ code: "invalid_schema", message: "create command fields are invalid" });
     if (proof.taskIdUnique !== true || proof.actorBinding === undefined || !sameActor(command.actor, proof.actorBinding)) issues.push({ code: "invalid_proof", message: "task identity and actor binding proof are required" });
     issues.push(...validateTaskGraph(command.graph));
@@ -111,21 +105,19 @@ const createReplayTaskTransition: TransitionDefinition = {
     return { snapshot: { ...snapshot, revision: command.workspaceRevision, task }, event };
   }
 };
-
-function revisionIssues(snapshot: TaskLifecycleSnapshot, command: TaskLifecycleCommand, expectedRevision: unknown): ContractValidationIssue[] {
-  return expectedRevision === snapshot.revision && command.workspaceRevision === snapshot.revision + 1
+function revisionIssues(snapshot: TaskLifecycleSnapshot, command: TaskLifecycleCommand): ContractValidationIssue[] {
+  return command.expectedRevision === snapshot.revision && command.workspaceRevision === snapshot.revision + 1
     ? []
-    : [{ code: "invalid_proof", message: "expected revision and next workspace revision must match the snapshot" }];
+    : [{ code: "invalid_transition", message: "expected revision and next workspace revision must match the snapshot" }];
 }
-
 const startExecutionTransition: TransitionDefinition = {
   id: "start_execution", commandType: "StartExecution", from: "planned|active/implementation",
-  proof: ["actorBinding", "reservation", "expectedRevision"], eventType: "execution_started",
+  proof: ["actorBinding", "reservation"], eventType: "execution_started",
   matches: (command) => command.type === "StartExecution",
   validate: (snapshot, rawCommand, rawProof) => {
     const command = rawCommand as StartExecutionCommand;
     const proof = rawProof as Partial<StartExecutionProof>;
-    const issues = revisionIssues(snapshot, command, proof.expectedRevision);
+    const issues = revisionIssues(snapshot, command);
     const task = snapshot.task;
     if (task === null || !["planned", "active"].includes(task.status) || task.currentNode !== "implementation") issues.push({ code: "invalid_transition", message: "StartExecution requires planned or active implementation" });
     if (snapshot.lease !== null || snapshot.executions.some((execution) => execution.iteration === task?.iteration && execution.state === "active")) issues.push({ code: "invalid_transition", message: "the current round already has an active execution or lease" });
@@ -133,7 +125,8 @@ const startExecutionTransition: TransitionDefinition = {
     if (proof.actorBinding === undefined || !sameActor(command.actor, proof.actorBinding)) issues.push({ code: "invalid_proof", message: "start actor binding does not match" });
     const reservation = proof.reservation;
     if (reservation === undefined || reservation.taskId !== command.taskId || reservation.executionId !== command.executionId
-      || !isNonEmptyString(reservation.expiresAt)
+      || !isNonEmptyString(reservation.expiresAt) || !Number.isInteger(reservation.ttlMs) || (reservation.ttlMs ?? 0) < 1
+      || !["initial_claim", "same_principal_reconnect", "ttl_expired_takeover"].includes(String(reservation.reason))
       || !Number.isInteger(reservation.version) || (reservation.version ?? -1) < 0) issues.push({ code: "invalid_proof", message: "active reservation CAS proof is required" });
     return issues;
   },
@@ -142,35 +135,32 @@ const startExecutionTransition: TransitionDefinition = {
     const proof = rawProof as StartExecutionProof;
     const task = { ...snapshot.task as TaskV1, status: "active" as const };
     const execution: ExecutionV1 = { schema: "execution/v1", executionId: command.executionId, taskId: command.taskId, nodeId: "implementation", iteration: task.iteration, state: "active", actor: command.actor, claimedAt: command.occurredAt, submittedAt: null, closedAt: null, submission: null };
-    const lease: LeaseV1 = { schema: "lease/v1", taskId: command.taskId, executionId: command.executionId, actor: command.actor, phase: "active", expiresAt: proof.reservation.expiresAt, version: proof.reservation.version };
-    const event = envelope<StartExecutionCommand, ExecutionStartedEvent>(command, "execution_started", { task, execution });
+    const lease: LeaseV1 = { schema: "lease/v1", taskId: command.taskId, executionId: command.executionId, actor: command.actor, source: command.source,
+      phase: "active", expiresAt: proof.reservation.expiresAt, ttlMs: proof.reservation.ttlMs, version: proof.reservation.version };
+    const event = envelope<StartExecutionCommand, ExecutionStartedEvent>(command, "execution_started", { task, execution, lease,
+      previousHolder: proof.reservation.previousHolder, leaseExpiresAt: lease.expiresAt, reason: proof.reservation.reason });
     return { snapshot: { ...snapshot, revision: command.workspaceRevision, task, executions: [...snapshot.executions, execution], lease }, event };
   }
 };
-
 function replaceExecution(executions: readonly ExecutionV1[], replacement: ExecutionV1): readonly ExecutionV1[] {
   return executions.map((execution) => execution.executionId === replacement.executionId ? replacement : execution);
 }
-
 function takeEdge(task: TaskV1, trigger: TaskEdgeTaken["on"], reason: string, commitSha: string, iteration: number): TaskEdgeTaken {
   const definition = task.graph.edges.find((edge) => edge.on === trigger);
   if (definition === undefined) throw new TaskLifecycleContractError("invalid_graph", [{ code: "invalid_graph_shape", message: `graph has no ${trigger} edge` }]);
   return { edgeId: definition.id, from: definition.from, to: definition.to, on: definition.on, actorRole: definition.actorRole, reason, commitSha, iteration };
 }
-
 function isSelfReview(executionActor: ActorAxes, reviewer: ActorAxes): boolean {
   return executionActor.executor === null || reviewer.executor === null
     ? executionActor.executor === null && reviewer.executor === null && executionActor.principal.personId === reviewer.principal.personId
     : executionActor.executor.id === reviewer.executor.id;
 }
-
 function currentSubmittedExecution(snapshot: TaskLifecycleSnapshot, command: RecordReviewCommand): ExecutionV1 | undefined {
   return snapshot.executions.find((execution) => execution.executionId === command.executionId
     && execution.iteration === snapshot.task?.iteration && execution.state === "submitted");
 }
-
 function reviewProofIssues(snapshot: TaskLifecycleSnapshot, command: RecordReviewCommand, proof: Partial<ReviewProof>, capability: ReviewProof["capability"]): ContractValidationIssue[] {
-  const issues = revisionIssues(snapshot, command, proof.expectedRevision);
+  const issues = revisionIssues(snapshot, command);
   const execution = currentSubmittedExecution(snapshot, command);
   if (execution === undefined || execution.submission === null) issues.push({ code: "invalid_transition", message: "review requires the current submitted execution" });
   else {
@@ -182,19 +172,17 @@ function reviewProofIssues(snapshot: TaskLifecycleSnapshot, command: RecordRevie
   if (!isNonEmptyString(command.reviewId) || !isNonEmptyString(command.reason) || !Array.isArray(command.evidenceChecked)) issues.push({ code: "invalid_schema", message: "review identity, reason, and evidence are required" });
   return issues;
 }
-
 function reviewFrom(command: RecordReviewCommand, proof: ReviewProof): ReviewV1 {
   return { schema: "review/v1", reviewId: command.reviewId, taskId: command.taskId, executionId: command.executionId, kind: command.kind, verdict: command.verdict, actor: command.actor, actorRole: command.actorRole, capabilityRef: proof.capabilityRef, reason: command.reason, evidenceChecked: command.evidenceChecked, commitSha: command.commitSha, iteration: command.iteration as 0 | 1, archiveWarningsAcknowledged: command.archiveWarningsAcknowledged, reviewedAt: command.occurredAt };
 }
-
 const submitExecutionTransition: TransitionDefinition = {
   id: "submit_execution", commandType: "SubmitExecution", from: "active/implementation",
-  proof: ["actorBinding", "executionId", "leaseVersion", "sessionDisposition", "submission", "expectedRevision"], eventType: "execution_submitted",
+  proof: ["actorBinding", "executionId", "leaseVersion", "sessionDisposition", "submission"], eventType: "execution_submitted",
   matches: (command) => command.type === "SubmitExecution",
   validate: (snapshot, rawCommand, rawProof) => {
     const command = rawCommand as SubmitExecutionCommand;
     const proof = rawProof as Partial<SubmitExecutionProof>;
-    const issues = revisionIssues(snapshot, command, proof.expectedRevision);
+    const issues = revisionIssues(snapshot, command);
     const task = snapshot.task;
     const execution = snapshot.executions.find((candidate) => candidate.executionId === command.executionId);
     if (task === null || task.status !== "active" || task.currentNode !== "implementation" || execution?.state !== "active" || execution.iteration !== task.iteration) issues.push({ code: "invalid_transition", message: "SubmitExecution requires the active execution in the current implementation round" });
@@ -216,10 +204,9 @@ const submitExecutionTransition: TransitionDefinition = {
     return { snapshot: { ...snapshot, revision: command.workspaceRevision, task, executions: replaceExecution(snapshot.executions, execution), edgesTaken: [...snapshot.edgesTaken, edge], lease: null }, event };
   }
 };
-
 const approveAntiEntropyTransition: TransitionDefinition = {
   id: "approve_anti_entropy", commandType: "RecordReview", from: "active/anti_entropy",
-  proof: ["independentActor", "anti-entropy@v1", "sameCommit", "sameIteration", "reason", "expectedRevision"], eventType: "review_recorded",
+  proof: ["independentActor", "anti-entropy@v1", "sameCommit", "sameIteration", "reason"], eventType: "review_recorded",
   matches: (command) => command.type === "RecordReview" && command.kind === "anti_entropy" && command.verdict === "approved",
   validate: (snapshot, rawCommand, rawProof) => {
     const command = rawCommand as RecordReviewCommand;
@@ -240,10 +227,9 @@ const approveAntiEntropyTransition: TransitionDefinition = {
     return { snapshot: { ...snapshot, revision: command.workspaceRevision, task, reviews: [...snapshot.reviews, review], edgesTaken: [...snapshot.edgesTaken, edge] }, event };
   }
 };
-
 const requestAntiEntropyChangesTransition: TransitionDefinition = {
   id: "request_anti_entropy_changes", commandType: "RecordReview", from: "active/anti_entropy/iteration<1",
-  proof: ["independentActor", "anti-entropy@v1", "sameCommit", "sameIteration", "nonEmptyReason", "expectedRevision"], eventType: "review_recorded",
+  proof: ["independentActor", "anti-entropy@v1", "sameCommit", "sameIteration", "nonEmptyReason"], eventType: "review_recorded",
   matches: (command) => command.type === "RecordReview" && command.kind === "anti_entropy" && command.verdict === "changes_requested",
   validate: (snapshot, rawCommand, rawProof) => {
     const command = rawCommand as RecordReviewCommand;
@@ -266,10 +252,9 @@ const requestAntiEntropyChangesTransition: TransitionDefinition = {
     return { snapshot: { ...snapshot, revision: command.workspaceRevision, task, executions: replaceExecution(snapshot.executions, execution), reviews: [...snapshot.reviews, review], edgesTaken: [...snapshot.edgesTaken, edge], lease: null }, event };
   }
 };
-
 const dismissReviewTransition: TransitionDefinition = {
   id: "dismiss_review", commandType: "RecordReview", from: "corresponding review node",
-  proof: ["independentActor", "roleCapability", "reason", "sameCommit", "sameIteration", "expectedRevision"], eventType: "review_recorded",
+  proof: ["independentActor", "roleCapability", "reason", "sameCommit", "sameIteration"], eventType: "review_recorded",
   matches: (command) => command.type === "RecordReview" && command.verdict === "dismissed",
   validate: (snapshot, rawCommand, rawProof) => {
     const command = rawCommand as RecordReviewCommand;
@@ -296,7 +281,7 @@ const dismissReviewTransition: TransitionDefinition = {
 
 const approveAcceptanceTransition: TransitionDefinition = {
   id: "approve_acceptance", commandType: "RecordReview", from: "in_review/review",
-  proof: ["independentActor", "acceptance-review@v1", "sameCommit", "sameIteration", "archiveWarningAcknowledgement", "expectedRevision"], eventType: "review_recorded",
+  proof: ["independentActor", "acceptance-review@v1", "sameCommit", "sameIteration", "archiveWarningAcknowledgement"], eventType: "review_recorded",
   matches: (command) => command.type === "RecordReview" && command.kind === "acceptance" && command.verdict === "approved",
   validate: (snapshot, rawCommand, rawProof) => {
     const command = rawCommand as RecordReviewCommand;
@@ -334,12 +319,12 @@ export function isReadyToComplete(snapshot: TaskLifecycleSnapshot): boolean {
 
 const completeTaskTransition: TransitionDefinition = {
   id: "complete_task", commandType: "CompleteTask", from: "in_review/review/ready-to-complete",
-  proof: ["ownerOrCommander", "sameRoundApprovals", "gateReceipts", "noActiveLease", "expectedRevision"], eventType: "task_completed",
+  proof: ["ownerOrCommander", "sameRoundApprovals", "gateReceipts", "noActiveLease"], eventType: "task_completed",
   matches: (command) => command.type === "CompleteTask",
   validate: (snapshot, rawCommand, rawProof) => {
     const command = rawCommand as CompleteTaskCommand;
     const proof = rawProof as Partial<CompleteTaskProof>;
-    const issues = revisionIssues(snapshot, command, proof.expectedRevision);
+    const issues = revisionIssues(snapshot, command);
     const task = snapshot.task;
     const execution = snapshot.executions.find((candidate) => candidate.executionId === command.executionId
       && candidate.iteration === task?.iteration && candidate.state === "submitted");
@@ -495,7 +480,7 @@ export function decideTaskLifecycleWrite<C extends TaskLifecycleCommand>(input: 
       return Object.freeze({ accepted: true, event: input.existingOperation.event, frozenPlan, receipt: input.existingOperation.receipt });
     const event = applyTransition(input.snapshot, input.command, input.proof).event;
     const receipt = createWriteReceipt({ outcome: "indeterminate", opId: input.command.opId,
-      code: "publication_unverified", origin: "task-lifecycle-contract", nextAction: `read operation ${input.command.opId} before retrying` });
+      visibility: "center", code: "publication_unverified", origin: "task-lifecycle-contract", nextAction: `read operation ${input.command.opId} before retrying` });
     return Object.freeze({ accepted: true, event, frozenPlan, receipt });
   } catch (error) {
     const rawCode = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "write_rejected";
@@ -505,11 +490,11 @@ export function decideTaskLifecycleWrite<C extends TaskLifecycleCommand>(input: 
 }
 function rejectedDecision(opId: string, code: string, detail: string): TaskLifecycleWriteDecision {
   return Object.freeze({ accepted: false, event: null, frozenPlan: null, receipt: createWriteReceipt({ outcome: "rejected", opId,
-    code, origin: "task-lifecycle-contract", nextAction: `correct the command or writer proof before retrying: ${detail}` }) }); }
+    visibility: "center", code, origin: "task-lifecycle-contract", nextAction: `correct the command or writer proof before retrying: ${detail}` }) }); }
 
 export const TASK_EVENT_V1_SCHEMA = Object.freeze({
   id: "task-event/v1",
-  required: Object.freeze(["schema", "eventId", "workspaceRevision", "opId", "taskId", "type", "actor", "occurredAt", "payload"]),
+  required: Object.freeze(["schema", "eventId", "workspaceRevision", "opId", "taskId", "type", "actor", "source", "occurredAt", "payload"]),
   types: taskEventTypes
 });
 
@@ -534,6 +519,7 @@ export function validateTaskEvent(value: unknown): readonly ContractValidationIs
     || typeof value.workspaceRevision !== "number" || !Number.isInteger(value.workspaceRevision) || value.workspaceRevision < 1
     || !(taskEventTypes as readonly unknown[]).includes(value.type)) issues.push({ code: "invalid_event", message: "event identity, revision, or type is invalid" });
   issues.push(...validateActorAxes(value.actor));
+  if (validateWriteSource(value.source).length > 0) issues.push({ code: "invalid_event", message: "event source is invalid" });
   if (!isRecord(value.payload)) issues.push({ code: "invalid_event_payload", message: "event payload must be an object" });
   else if (value.type === "task_created") {
     if (!hasOnlyFields(value.payload, ["task"])) issues.push({ code: "invalid_event_payload", message: "task_created payload must contain only task" });
@@ -543,10 +529,17 @@ export function validateTaskEvent(value: unknown): readonly ContractValidationIs
       ? ["task", "execution", "review", "edge"]
       : value.type === "review_recorded" ? ["task", "execution", "review"]
       : value.type === "execution_submitted" ? ["task", "execution", "edge"]
+      : value.type === "execution_started" ? ["task", "execution", "lease", "previousHolder", "leaseExpiresAt", "reason"]
       : ["task", "execution"];
     if (!hasOnlyFields(value.payload, fields)) issues.push({ code: "invalid_event_payload", message: `${String(value.type)} payload fields are incomplete or unknown` });
     else {
       issues.push(...validateTaskV1(value.payload.task), ...validateExecutionV1(value.payload.execution));
+      if (value.type === "execution_started") {
+        issues.push(...validateLeaseV1(value.payload.lease));
+        if (value.payload.previousHolder !== null) issues.push(...validateLeaseHolder(value.payload.previousHolder));
+        if (!isNonEmptyString(value.payload.leaseExpiresAt) || !["initial_claim", "same_principal_reconnect", "ttl_expired_takeover"].includes(String(value.payload.reason)))
+          issues.push({ code: "invalid_event_payload", message: "execution_started requires lease expiry and history reason" });
+      }
       if (value.type === "review_recorded") issues.push(...validateReviewV1(value.payload.review));
       if ("edge" in value.payload) issues.push(...validateTakenEdge(value.payload.edge));
     }
@@ -607,7 +600,7 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
   }
   let next: TaskLifecycleSnapshot;
   if (event.type === "task_created") next = { ...snapshot, revision: event.workspaceRevision, task: event.payload.task };
-  else if (event.type === "execution_started") next = { ...snapshot, revision: event.workspaceRevision, task: event.payload.task, executions: [...snapshot.executions, event.payload.execution], lease: null };
+  else if (event.type === "execution_started") next = { ...snapshot, revision: event.workspaceRevision, task: event.payload.task, executions: [...snapshot.executions, event.payload.execution], lease: event.payload.lease };
   else if (event.type === "execution_submitted") next = { ...snapshot, revision: event.workspaceRevision, task: event.payload.task, executions: replaceExecution(snapshot.executions, event.payload.execution), edgesTaken: [...snapshot.edgesTaken, event.payload.edge], lease: null };
   else if (event.type === "review_recorded") next = {
     ...snapshot,

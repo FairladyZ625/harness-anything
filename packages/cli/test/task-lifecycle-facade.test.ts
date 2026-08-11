@@ -16,6 +16,13 @@ const actor = {
 };
 const workspaceId = "/workspace";
 
+function appliedReceipt(opId: string, revision: number, evidence: string) {
+  return {
+    outcome: "applied" as const, opId, revision, evidence, visibility: "center" as const,
+    proof: { committedRevision: revision, appliedCut: revision }
+  };
+}
+
 test("lifecycle facade derives its five write commands from the W1 catalog", () => {
   const domainTypes = [...new Set(TASK_LIFECYCLE_COMMAND_CATALOG.map((entry) => entry.commandType))].sort();
   assert.deepEqual(TASK_LIFECYCLE_CLI_COMMANDS.map((entry) => entry.commandType).sort(), domainTypes);
@@ -51,9 +58,9 @@ test("task create always sends the fixed replay/v1 graph", async () => {
     service: {
       execute: async (input) => {
         received.push(input);
-        return { outcome: "applied", opId: input.command.opId, revision: 1, evidence: "task-event:event-1" };
+        return appliedReceipt(input.command.opId, 1, "task-event:event-1");
       },
-      show: async () => ({ outcome: "applied", opId: "read:task", revision: 1, evidence: "projection:task" })
+      show: async () => appliedReceipt("read:task", 1, "projection:task")
     }
   });
 
@@ -74,9 +81,9 @@ test("task start is one StartExecution host call and cannot enter review", async
     service: {
       execute: async (input) => {
         received.push(input);
-        return { outcome: "applied", opId: input.command.opId, revision: 2, evidence: "task-event:event-2" };
+        return appliedReceipt(input.command.opId, 2, "task-event:event-2");
       },
-      show: async () => ({ outcome: "applied", opId: "read:task", revision: 2, evidence: "projection:task" })
+      show: async () => appliedReceipt("read:task", 2, "projection:task")
     }
   });
 
@@ -92,16 +99,11 @@ test("task start returns only the shared receipt contract", async () => {
     actor,
     workspaceId,
     service: {
-      execute: async (input) => ({
-        outcome: "applied",
-        opId: input.command.opId,
-        revision: 2,
-        evidence: "task-event:event-2"
-      }),
-      show: async () => ({ outcome: "applied", opId: "read:task", revision: 2, evidence: "unused" })
+      execute: async (input) => appliedReceipt(input.command.opId, 2, "task-event:event-2"),
+      show: async () => appliedReceipt("read:task", 2, "unused")
     }
   });
-  assert.deepEqual(Object.keys(applied).sort(), ["evidence", "opId", "outcome", "revision"]);
+  assert.deepEqual(Object.keys(applied).sort(), ["evidence", "opId", "outcome", "proof", "revision", "visibility"]);
 });
 
 test("task show uses only the projection read port", async () => {
@@ -117,12 +119,12 @@ test("task show uses only the projection read port", async () => {
         writes += 1;
         throw new Error("show attempted a write");
       },
-      show: async ({ taskId }) => ({ outcome: "applied", opId: `read:${taskId}`, revision: 4, evidence: `projection:${taskId}` })
+      show: async ({ taskId }) => appliedReceipt(`read:${taskId}`, 4, `projection:${taskId}`)
     }
   });
 
   assert.equal(writes, 0);
-  assert.deepEqual(receipt, { outcome: "applied", opId: "read:task_READ", revision: 4, evidence: "projection:task_READ" });
+  assert.deepEqual(receipt, appliedReceipt("read:task_READ", 4, "projection:task_READ"));
 });
 
 test("signed rejected anti-entropy report records changes_requested without completing", async () => {
@@ -156,9 +158,9 @@ test("signed rejected anti-entropy report records changes_requested without comp
     service: {
       execute: async (input) => {
         received.push(input);
-        return { outcome: "applied", opId: input.command.opId, revision: 4, evidence: "task-event:event-4" };
+        return appliedReceipt(input.command.opId, 4, "task-event:event-4");
       },
-      show: async () => ({ outcome: "applied", opId: "read:task", revision: 4, evidence: "unused" })
+      show: async () => appliedReceipt("read:task", 4, "unused")
     }
   });
 
@@ -209,9 +211,9 @@ test("invalid anti-entropy token rejects with a concrete signing next action", a
     service: {
       execute: async () => {
         calls += 1;
-        return { outcome: "applied", opId: "unexpected", revision: 1, evidence: "unexpected" };
+        return appliedReceipt("unexpected", 1, "unexpected");
       },
-      show: async () => ({ outcome: "applied", opId: "read:task", revision: 1, evidence: "unused" })
+      show: async () => appliedReceipt("read:task", 1, "unused")
     }
   });
 
@@ -244,9 +246,9 @@ test("acceptance review maps strict CLI fields to RecordReview without a return 
     service: {
       execute: async (input) => {
         received = input;
-        return { outcome: "applied", opId: input.command.opId, revision: 7, evidence: "task-event:event-7" };
+        return appliedReceipt(input.command.opId, 7, "task-event:event-7");
       },
-      show: async () => ({ outcome: "applied", opId: "read:task", revision: 7, evidence: "unused" })
+      show: async () => appliedReceipt("read:task", 7, "unused")
     }
   });
   const input = received as { command: Record<string, unknown>; verifiedReceipt?: unknown };
@@ -256,6 +258,8 @@ test("acceptance review maps strict CLI fields to RecordReview without a return 
     workspaceId,
     taskId: "task_ACCEPT",
     actor,
+    source: "local",
+    expectedRevision: 7,
     opId: input.command.opId,
     commandDigest: input.command.commandDigest,
     executionId: "exe_ACCEPT",

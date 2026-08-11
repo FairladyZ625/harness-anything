@@ -10,8 +10,8 @@ import { makeTaskLifecycleService, runTaskLifecycleEffect, TaskLifecycleOperatio
 import { lifecycleHarness, replayGraph } from "./task-lifecycle-test-harness.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } };
-const command = <C extends Parameters<typeof normalizeTaskLifecycleCommand>[2]>(rootDir: string, intent: C, meta: { readonly eventId: string; readonly workspaceRevision: number; readonly occurredAt: string }) =>
-  ({ ...normalizeTaskLifecycleCommand(rootDir, actor, intent), ...meta });
+const command = <C extends Parameters<typeof normalizeTaskLifecycleCommand>[1]>(rootDir: string, intent: C, meta: { readonly eventId: string; readonly workspaceRevision: number; readonly occurredAt: string }) =>
+  ({ ...normalizeTaskLifecycleCommand({ workspaceId: rootDir, actor, source: "local", expectedRevision: meta.workspaceRevision - 1 }, intent), ...meta });
 
 test("transition service freezes targets and makes create/start idempotent by opId payload", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-service-"));
@@ -35,8 +35,9 @@ test("transition service freezes targets and makes create/start idempotent by op
     const started = await service.execute(command(rootDir, {
       type: "StartExecution", taskId: "task-1", executionId: "execution-1"
     }, { eventId: "event-start", workspaceRevision: 2, occurredAt: "2026-08-11T00:01:00.000Z" }), {
-      actorBinding: actor, expectedRevision: 1,
-      reservation: { taskId: "task-1", executionId: "execution-1", expiresAt: "2026-08-11T01:00:00.000Z", version: 0 }
+      actorBinding: actor,
+      reservation: { taskId: "task-1", executionId: "execution-1", expiresAt: "2026-08-11T01:00:00.000Z", ttlMs: 1_800_000,
+        previousHolder: null, reason: "initial_claim", version: 0 }
     });
 
     assert.equal(started.outcome, "applied");
@@ -83,13 +84,13 @@ test("lease broker capacity ceiling rejects concurrent exhaustion and release re
     const leases = store();
     for (let index = 0; index < TASK_LEASE_BROKER_CONTRACT.capacity - 1; index += 1) {
       await leases.reserve({
-        taskId: `task-cap-${index}`, executionId: `execution-cap-${index}`, actor,
-        expiresAt: "2026-08-11T01:00:00.000Z"
+        taskId: `task-cap-${index}`, executionId: `execution-cap-${index}`, actor, source: "local",
+        expiresAt: "2026-08-11T01:00:00.000Z", ttlMs: 1_800_000
       });
     }
     const contenders = ["left", "right"].map(async (id) => store().reserve({
-      taskId: `task-${id}`, executionId: `execution-${id}`, actor,
-      expiresAt: "2026-08-11T01:00:00.000Z"
+      taskId: `task-${id}`, executionId: `execution-${id}`, actor, source: "local",
+      expiresAt: "2026-08-11T01:00:00.000Z", ttlMs: 1_800_000
     }));
     const results = await Promise.allSettled(contenders);
     assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
@@ -104,12 +105,12 @@ test("lease broker capacity ceiling rejects concurrent exhaustion and release re
     if (winner?.status !== "fulfilled") throw new Error("capacity contender did not win");
     await leases.release({
       taskId: winner.value.taskId, executionId: winner.value.executionId,
-      actor: winner.value.actor, version: winner.value.version
+      actor: winner.value.actor, source: winner.value.source, version: winner.value.version
     });
     const loserId = winner.value.taskId === "task-left" ? "right" : "left";
     const recovered = await store().reserve({
-      taskId: `task-${loserId}`, executionId: `execution-${loserId}`, actor,
-      expiresAt: "2026-08-11T01:00:00.000Z"
+      taskId: `task-${loserId}`, executionId: `execution-${loserId}`, actor, source: "local",
+      expiresAt: "2026-08-11T01:00:00.000Z", ttlMs: 1_800_000
     });
     assert.equal(recovered.taskId, `task-${loserId}`);
   } finally {

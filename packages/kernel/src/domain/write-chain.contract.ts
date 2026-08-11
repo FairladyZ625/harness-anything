@@ -5,10 +5,18 @@ export interface ActorIdentity {
   readonly executor: { readonly kind: "agent"; readonly id: string } | null;
 }
 
+export type WriteSource = "local" | "remote_direct" | {
+  readonly kind: "assignment";
+  readonly nodeId: string;
+  readonly assignmentId: string;
+};
+
 export interface NormalizedCommandEnvelope<A extends ActorIdentity = ActorIdentity> {
   readonly schema: "normalized-command/v1";
   readonly workspaceId: string;
   readonly actor: A;
+  readonly source: WriteSource;
+  readonly expectedRevision: number;
   readonly opId: string;
   readonly commandDigest: `sha256:${string}`;
 }
@@ -21,6 +29,8 @@ export interface WriterGeneration {
 
 export const writeReceiptOutcomes = Object.freeze(["applied", "pending", "indeterminate", "rejected"] as const);
 export type WriteReceiptOutcome = (typeof writeReceiptOutcomes)[number];
+export type ReceiptVisibility = "center" | { readonly kind: "replica"; readonly viewId: string };
+export interface ReceiptProof { readonly committedRevision: number; readonly appliedCut: number; readonly ackCut?: number }
 export interface WriteReceipt {
   readonly outcome: WriteReceiptOutcome;
   readonly opId: string;
@@ -29,6 +39,8 @@ export interface WriteReceipt {
   readonly origin?: string;
   readonly nextAction?: string;
   readonly evidence?: string;
+  readonly visibility?: ReceiptVisibility;
+  readonly proof?: ReceiptProof;
 }
 
 export interface RecoveryBudget {
@@ -61,6 +73,7 @@ export interface EventEnvelope<S extends string, T extends string, A extends Act
   readonly opId: string;
   readonly type: T;
   readonly actor: A;
+  readonly source: WriteSource;
   readonly occurredAt: string;
   readonly payload: P;
 }
@@ -113,11 +126,25 @@ export function hasOnlyFields(value: Readonly<Record<string, unknown>>, fields: 
   return Object.keys(value).every((field) => fields.includes(field)) && fields.every((field) => Object.hasOwn(value, field));
 }
 
+export function validateActorIdentity(value: unknown): readonly string[] {
+  if (!isRecord(value) || !hasOnlyFields(value, ["principal", "executor"]) || !isRecord(value.principal)
+    || !hasOnlyFields(value.principal, ["personId"]) || !isNonEmptyString(value.principal.personId)) return ["principal must be a person identity"];
+  if (value.executor !== null && (!isRecord(value.executor) || !hasOnlyFields(value.executor, ["kind", "id"])
+    || value.executor.kind !== "agent" || !isNonEmptyString(value.executor.id))) return ["executor must be an agent identity or null"];
+  return [];
+}
+
+export function validateWriteSource(value: unknown): readonly string[] {
+  if (value === "local" || value === "remote_direct") return [];
+  return isRecord(value) && hasOnlyFields(value, ["kind", "nodeId", "assignmentId"]) && value.kind === "assignment"
+    && isNonEmptyString(value.nodeId) && isNonEmptyString(value.assignmentId) ? [] : ["source must be local, remote_direct, or an assignment identity"];
+}
+
 export const WRITE_RECEIPT_SCHEMA = Object.freeze({
   id: "write-receipt/v1",
   outcomes: writeReceiptOutcomes,
   required: Object.freeze(["outcome", "opId"]),
-  optional: Object.freeze(["revision", "code", "origin", "nextAction", "evidence"])
+  optional: Object.freeze(["revision", "code", "origin", "nextAction", "evidence", "visibility", "proof"])
 });
 
 export function validateWriteReceipt(value: unknown): readonly string[] {
@@ -131,6 +158,19 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
   for (const field of ["code", "origin", "nextAction", "evidence"] as const) {
     if (Object.hasOwn(receipt, field) && !isNonEmptyString(receipt[field])) errors.push(`${field} must be a non-empty string`);
   }
+  const visibility = receipt.visibility;
+  const replica = isRecord(visibility) && hasOnlyFields(visibility, ["kind", "viewId"])
+    && visibility.kind === "replica" && isNonEmptyString(visibility.viewId);
+  if (Object.hasOwn(receipt, "visibility") && visibility !== "center" && !replica) errors.push("visibility must be center or replica(viewId)");
+  const proof = receipt.proof;
+  const proofFields = isRecord(proof) && Object.hasOwn(proof, "ackCut")
+    ? ["committedRevision", "appliedCut", "ackCut"] : ["committedRevision", "appliedCut"];
+  const validProof = isRecord(proof) && hasOnlyFields(proof, proofFields)
+    && proofFields.every((field) => Number.isInteger(proof[field]) && (proof[field] as number) >= 0);
+  if (Object.hasOwn(receipt, "proof") && !validProof) errors.push("proof revisions must be non-negative integer cuts");
+  if ((receipt.outcome === "applied" || receipt.outcome === "pending") && (visibility === undefined || !validProof)) errors.push(`${String(receipt.outcome)} requires visibility and proof`);
+  if (receipt.outcome === "applied" && validProof && proof.committedRevision !== proof.appliedCut) errors.push("applied proof must use the same committed and applied cut");
+  if (receipt.outcome === "applied" && replica && validProof && proof.ackCut !== proof.appliedCut) errors.push("replica applied requires ackCut at the same cut");
   if (receipt.outcome === "applied" && (!Number.isInteger(receipt.revision) || !isNonEmptyString(receipt.evidence))) errors.push("applied requires revision and evidence");
   if (receipt.outcome === "pending" && (!Number.isInteger(receipt.revision) || !isNonEmptyString(receipt.evidence) || !isNonEmptyString(receipt.nextAction))) errors.push("pending requires committed evidence, revision, and nextAction");
   if (receipt.outcome === "indeterminate" || receipt.outcome === "rejected") {
@@ -170,7 +210,8 @@ export function canonicalizeWriteValue(value: unknown): unknown {
 
 export function serializeEventEnvelope(event: EventEnvelope<string, string, ActorIdentity, unknown>): string {
   if (!isNonEmptyString(event.schema) || !isNonEmptyString(event.eventId) || !isNonEmptyString(event.opId) || !isNonEmptyString(event.type)
-    || !isNonEmptyString(event.occurredAt) || !Number.isInteger(event.workspaceRevision) || event.workspaceRevision < 1) {
+    || !isNonEmptyString(event.occurredAt) || !Number.isInteger(event.workspaceRevision) || event.workspaceRevision < 1
+    || validateActorIdentity(event.actor).length > 0 || validateWriteSource(event.source).length > 0) {
     throw new WriteChainContractError("invalid_contract", "event envelope identity is invalid");
   }
   return `${JSON.stringify(canonicalizeWriteValue(event))}\n`;
@@ -236,22 +277,34 @@ export function appendWriteTarget<C extends string>(plan: WritePlan<C>, target: 
 export function normalizeCommandEnvelope<A extends ActorIdentity>(input: {
   readonly workspaceId: string;
   readonly actor: A;
+  readonly source: WriteSource;
+  readonly expectedRevision: number;
   readonly command: Readonly<Record<string, unknown>>;
 }): NormalizedCommandEnvelope<A> {
+  const payloadBinding = ["actor", "source", "workspaceId"].find((field) => Object.hasOwn(input.command, field));
+  const errors = [...validateActorIdentity(input.actor), ...validateWriteSource(input.source)];
+  if (!isNonEmptyString(input.workspaceId) || !Number.isInteger(input.expectedRevision) || input.expectedRevision < 0) errors.push("workspace namespace and expected revision are invalid");
+  if (input.command.type === "CreateReplayTask" && input.expectedRevision !== 0) errors.push("create commands require expectedRevision 0");
+  if (payloadBinding !== undefined) errors.push(`command payload cannot report ingress binding ${payloadBinding}`);
+  if (errors.length > 0) throw new WriteChainContractError("invalid_contract", errors.join("; "));
   const digest = stablePayloadHash(input);
   return Object.freeze({ schema: "normalized-command/v1", workspaceId: input.workspaceId, actor: input.actor,
-    opId: `op_${digest}`, commandDigest: `sha256:${digest}` });
+    source: input.source, expectedRevision: input.expectedRevision, opId: `op_${digest}`, commandDigest: `sha256:${digest}` });
 }
 
 export function validateNormalizedCommandEnvelope<A extends ActorIdentity>(envelope: NormalizedCommandEnvelope<A>, input: {
   readonly workspaceId: string;
   readonly actor: A;
+  readonly source: WriteSource;
+  readonly expectedRevision: number;
   readonly command: Readonly<Record<string, unknown>>;
 }): readonly string[] {
   const expected = normalizeCommandEnvelope(input);
   const errors: string[] = [];
   if (envelope.schema !== "normalized-command/v1" || envelope.workspaceId !== input.workspaceId) errors.push("normalized command schema or workspace is invalid");
   if (JSON.stringify(canonicalizeWriteValue(envelope.actor)) !== JSON.stringify(canonicalizeWriteValue(input.actor))) errors.push("normalized command actor is invalid");
+  if (JSON.stringify(canonicalizeWriteValue(envelope.source)) !== JSON.stringify(canonicalizeWriteValue(input.source))
+    || envelope.expectedRevision !== input.expectedRevision) errors.push("normalized command source or expected revision is invalid");
   if (envelope.commandDigest !== expected.commandDigest) errors.push("normalized command digest does not match its payload");
   if (envelope.opId !== expected.opId) errors.push("normalized command opId does not match its digest");
   return errors;

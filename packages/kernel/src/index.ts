@@ -4,8 +4,8 @@ export type { CompleteTaskProof, ProofFor, StartExecutionProof, TaskEventV1, Tas
 export { canonicalizeContractValue } from "./domain/task.ts";
 export type { FrozenWritePlan, TaskV1, WriteTarget } from "./domain/task.ts";
 export type { LeaseV1 } from "./domain/execution.ts";
-export { assertCurrentWriter, createWriteReceipt, issueWriterGenerationToken, normalizeCommandEnvelope, nextRecoveryBatch, RECOVERY_BUDGET, serializeEventEnvelope, serializeEventHead, validateWriteReceipt, writeReceiptOutcomes, WriteChainContractError } from "./domain/write-chain.contract.ts";
-export type { EventHead, NormalizedCommandEnvelope, RecoveryBudget, WriteOperationReceipt, WriteReceipt, WriterGeneration, WriterGenerationToken, WriterPort } from "./domain/write-chain.contract.ts";
+export { assertCurrentWriter, createWriteReceipt, issueWriterGenerationToken, normalizeCommandEnvelope, nextRecoveryBatch, RECOVERY_BUDGET, serializeEventEnvelope, serializeEventHead, validateActorIdentity, validateWriteReceipt, validateWriteSource, writeReceiptOutcomes, WriteChainContractError } from "./domain/write-chain.contract.ts";
+export type { EventHead, NormalizedCommandEnvelope, ReceiptProof, ReceiptVisibility, RecoveryBudget, WriteOperationReceipt, WriteReceipt, WriteSource, WriterGeneration, WriterGenerationToken, WriterPort } from "./domain/write-chain.contract.ts";
 export * from "./docmap/index.ts";
 export * from "./docmap/docmap-unique.ts";
 export * from "./entity/disposition.ts";

@@ -22,6 +22,7 @@ test("G09 closes the Task/v1 schema through a task-event/v1 parser", () => {
     taskId: "task-1",
     type: "task_created",
     actor,
+    source: "local",
     occurredAt: "2026-08-11T00:00:00.000Z",
     payload: {
       task: {
@@ -54,11 +55,15 @@ test("G09 exposes only Task, Execution, Lease, and Review v1 entity facets", () 
     taskId: "task-1",
     executionId: "execution-0",
     actor,
+    source: { kind: "assignment", nodeId: "node-1", assignmentId: "assignment-1" },
     phase: "active",
     expiresAt: "2026-08-11T01:00:00.000Z",
+    ttlMs: 1_800_000,
     version: 1
   };
   assert.deepEqual(validateLeaseV1(lease), []);
+  assert.deepEqual(validateLeaseV1({ ...lease, phase: "orphaned" }), []);
+  assert.match(validateLeaseV1({ ...lease, ttlMs: undefined }).map((issue) => issue.code).join(","), /invalid_lease/u);
   assert.match(validateLeaseV1({ ...lease, credentialHash: "removed" }).map((issue) => issue.code).join(","), /invalid_lease/u);
   assert.match(validateLeaseV1({ ...lease, schema: "lease/v0" }).map((issue) => issue.code).join(","), /invalid_schema/u);
 });
