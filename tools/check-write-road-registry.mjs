@@ -229,7 +229,12 @@ function discoverSourceSinks() {
   for (const rel of sourceRoots.flatMap(walkTypeScriptFiles)) {
     const sourceFile = parseSource(rel);
     const bindings = fsBindings(sourceFile);
+    const sqlite = sqliteBindings(sourceFile);
     visit(sourceFile, (node) => {
+      if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && sqlite.has(node.expression.text) && !readOnlySqliteOpen(node)) {
+        out.push(discovery("direct-write", rel, node.expression, sourceFile, "writable SQLite database", { api: "sqlite" }));
+        return;
+      }
       if (!ts.isCallExpression(node)) return;
       const callName = calledIdentifier(node.expression);
       if (["writeCoordinatedPayload", "writeCoordinatedTaskDocuments"].includes(callName)) {
@@ -254,6 +259,27 @@ function discoverSourceSinks() {
     });
   }
   return uniqueDiscoveries(out);
+}
+
+function sqliteBindings(sourceFile) {
+  const bindings = new Set();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)
+      || statement.moduleSpecifier.text !== "node:sqlite") continue;
+    const named = statement.importClause?.namedBindings;
+    if (!named || !ts.isNamedImports(named)) continue;
+    for (const element of named.elements) {
+      if ((element.propertyName ?? element.name).text === "DatabaseSync") bindings.add(element.name.text);
+    }
+  }
+  return bindings;
+}
+
+function readOnlySqliteOpen(node) {
+  const options = node.arguments?.[1];
+  if (!options || !ts.isObjectLiteralExpression(options)) return false;
+  return options.properties.some((property) => ts.isPropertyAssignment(property)
+    && property.name.getText() === "readOnly" && property.initializer.kind === ts.SyntaxKind.TrueKeyword);
 }
 
 function discoverDaemonCliActions() {

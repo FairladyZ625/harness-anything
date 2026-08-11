@@ -9,7 +9,7 @@ export type { CommandFailureReceipt, CommandReceipt, CommandReceiptEnvelope } fr
 export { currentSessionToProvenancePayload, defaultRuntimeSessionEnvCandidates, makeEnvironmentCurrentSessionProbe, makeHumanFallbackSessionProbe } from "./current-session-probe.ts";
 export { bindCreateProvenance } from "./provenance-binding.ts";
 export { makeDecisionWriteService } from "./decision-write-service.ts";
-export { makeTaskLifecycleService, TaskLifecycleOperationConflict } from "./task-lifecycle-service.ts";
+export { makeTaskLifecycleService, runTaskLifecycleEffect, TaskLifecycleOperationConflict } from "./task-lifecycle-service.ts";
 export type {
   TaskLifecycleKillpoint,
   TaskLifecycleOperationReceipt,

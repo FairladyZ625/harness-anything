@@ -1,178 +1,49 @@
-// @slice-activation P4 W2 owns the sole replay/v1 runtime Lease CAS table used by application transactions.
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { validateLeaseV1, type LeaseV1 } from "../domain/execution.ts";
+// @slice-activation P4 W2 delegates every replay/v1 Lease mutation to the sole WriteCoordinator.
+import { createHash } from "node:crypto";
+import type { Effect } from "effect";
+import { TASK_LEASE_BROKER_CONTRACT, type LeaseV1 } from "../domain/execution.ts";
+import { taskEntityId } from "../domain/entity-id.ts";
+import type { WriteError } from "../domain/errors.ts";
 import { canonicalizeContractValue, type ActorAxes } from "../domain/task.ts";
-import { defaultLifecycleTaskProjectionPath } from "../projection/task-projection.ts";
-import { localRuntimeStateFileSystem } from "./local-layout-file-system.ts";
-
+import type { WriteCoordinator } from "../ports/index.ts";
+import { readEffectiveTaskLease, readStoredTaskLease, TaskLeaseCasRejected, type LeaseCasPayload } from "../store/task-lease-cas.ts";
 export class TaskLeaseConflictError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "TaskLeaseConflictError";
-  }
+  readonly code: string; readonly origin = "task-lease-broker";
+  constructor(message: string, code = "lease_conflict") { super(message); this.name = "TaskLeaseConflictError"; this.code = code; }
 }
-
+interface LeaseCasInput { readonly taskId: string; readonly executionId: string; readonly credentialHash: string; readonly version: number }
 export interface TaskLeaseStore {
   readonly current: (taskId: string) => LeaseV1 | null;
-  readonly reserve: (input: {
-    readonly taskId: string;
-    readonly executionId: string;
-    readonly actor: ActorAxes;
-    readonly credentialHash: string;
-    readonly expiresAt: string;
-  }) => LeaseV1;
-  readonly activate: (input: LeaseCasInput) => LeaseV1;
-  readonly renew: (input: LeaseCasInput & { readonly expiresAt: string }) => LeaseV1;
-  readonly release: (input: LeaseCasInput) => LeaseV1;
+  readonly reserve: (input: Omit<LeaseCasInput, "version"> & { readonly actor: ActorAxes; readonly expiresAt: string }) => Promise<LeaseV1>;
+  readonly activate: (input: LeaseCasInput) => Promise<LeaseV1>;
+  readonly renew: (input: LeaseCasInput & { readonly expiresAt: string }) => Promise<LeaseV1>;
+  readonly release: (input: LeaseCasInput) => Promise<LeaseV1>;
 }
-
-interface LeaseCasInput {
-  readonly taskId: string;
-  readonly executionId: string;
-  readonly credentialHash: string;
-  readonly version: number;
-}
-
-interface LeaseRow {
-  readonly task_id: string;
-  readonly execution_id: string;
-  readonly actor_json: string;
-  readonly credential_hash: string;
-  readonly phase: LeaseV1["phase"];
-  readonly expires_at: string;
-  readonly version: number;
-}
-
-export function makeTaskLeaseStore(options: {
-  readonly rootDir: string;
-  readonly projectionPath?: string;
-  readonly now?: () => string;
-}): TaskLeaseStore {
-  const databasePath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
+export function makeTaskLeaseStore(options: { readonly rootDir: string; readonly coordinator: WriteCoordinator;
+  readonly runEffect: <A>(effect: Effect.Effect<A, WriteError>) => Promise<A>; readonly now?: () => string }): TaskLeaseStore {
   const now = options.now ?? (() => new Date().toISOString());
-  return {
-    current: (taskId) => withLeaseDatabase(databasePath, (db) => effectiveLease(readRow(db, taskId), now())),
-    reserve: (input) => withLeaseDatabase(databasePath, (db) => transaction(db, () => {
-      const existing = readRow(db, input.taskId);
-      if (effectiveLease(existing, now()) !== null) throw new TaskLeaseConflictError(`task ${input.taskId} already has an effective lease`);
-      const lease = checkedLease({
-        schema: "lease/v1",
-        ...input,
-        phase: "reserving",
-        version: existing === null ? 0 : existing.version + 1
-      });
-      db.prepare(`
-        INSERT OR REPLACE INTO lease_cas
-          (task_id, execution_id, actor_json, credential_hash, phase, expires_at, version)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        lease.taskId,
-        lease.executionId,
-        canonicalJson(lease.actor),
-        lease.credentialHash,
-        lease.phase,
-        lease.expiresAt,
-        lease.version
-      );
-      return lease;
-    })),
-    activate: (input) => updateLease(databasePath, input, ["reserving"], "active"),
-    renew: (input) => updateLease(databasePath, input, ["active"], "active", input.expiresAt),
-    release: (input) => updateLease(databasePath, input, ["reserving", "active"], "released")
-  };
-}
-
-function updateLease(
-  databasePath: string,
-  input: LeaseCasInput,
-  from: readonly LeaseV1["phase"][],
-  phase: LeaseV1["phase"],
-  expiresAt?: string
-): LeaseV1 {
-  return withLeaseDatabase(databasePath, (db) => transaction(db, () => {
-    const row = readRow(db, input.taskId);
-    if (row === null || row.execution_id !== input.executionId || row.credential_hash !== input.credentialHash
-      || row.version !== input.version || !from.includes(row.phase)) {
-      throw new TaskLeaseConflictError(`lease CAS rejected stale holder for task ${input.taskId}`);
+  const mutate = async (payload: Omit<LeaseCasPayload, "now" | "capacity">): Promise<LeaseV1> => {
+    const mutation = { ...payload, now: now(), capacity: TASK_LEASE_BROKER_CONTRACT.capacity } satisfies LeaseCasPayload;
+    const opId = `lease-${payload.operation}-${createHash("sha256").update(JSON.stringify(canonicalizeContractValue(mutation))).digest("hex")}`;
+    try {
+      await options.runEffect(options.coordinator.enqueue({ opId, entityId: taskEntityId(payload.taskId), kind: "lease_cas", payload: mutation }));
+      await options.runEffect(options.coordinator.flush("explicit"));
+    } catch (error) { throw leaseError(error); }
+    const lease = readStoredTaskLease(options.rootDir, payload.taskId);
+    if (lease === null || lease.executionId !== payload.executionId || lease.credentialHash !== payload.credentialHash) {
+      throw new TaskLeaseConflictError(`lease coordinator did not publish the requested ${payload.operation} for task ${payload.taskId}`, "lease_publication_unknown");
     }
-    const next = checkedLease({
-      schema: "lease/v1",
-      taskId: row.task_id,
-      executionId: row.execution_id,
-      actor: JSON.parse(row.actor_json) as ActorAxes,
-      credentialHash: row.credential_hash,
-      phase,
-      expiresAt: expiresAt ?? row.expires_at,
-      version: row.version + 1
-    });
-    const result = db.prepare(`
-      UPDATE lease_cas SET phase = ?, expires_at = ?, version = ?
-      WHERE task_id = ? AND execution_id = ? AND credential_hash = ? AND version = ? AND phase = ?
-    `).run(phase, next.expiresAt, next.version, input.taskId, input.executionId, input.credentialHash, input.version, row.phase);
-    if (result.changes !== 1) throw new TaskLeaseConflictError(`lease CAS lost a concurrent update for task ${input.taskId}`);
-    return next;
-  }));
+    return lease;
+  };
+  return { current: (taskId) => readEffectiveTaskLease(options.rootDir, taskId, now()),
+    reserve: (input) => mutate({ operation: "reserve", ...input }), activate: (input) => mutate({ operation: "activate", ...input }),
+    renew: (input) => mutate({ operation: "renew", ...input }), release: (input) => mutate({ operation: "release", ...input }) };
 }
-
-function withLeaseDatabase<A>(databasePath: string, use: (db: DatabaseSync) => A): A {
-  localRuntimeStateFileSystem.mkdirp(path.dirname(databasePath));
-  const db = new DatabaseSync(databasePath);
-  try {
-    db.exec(`
-      PRAGMA journal_mode = DELETE;
-      CREATE TABLE IF NOT EXISTS lease_cas (
-        task_id TEXT PRIMARY KEY,
-        execution_id TEXT NOT NULL,
-        actor_json TEXT NOT NULL,
-        credential_hash TEXT NOT NULL,
-        phase TEXT NOT NULL CHECK (phase IN ('reserving', 'active', 'released')),
-        expires_at TEXT NOT NULL,
-        version INTEGER NOT NULL
-      )
-    `);
-    return use(db);
-  } finally {
-    db.close();
-  }
+function leaseError(error: unknown): TaskLeaseConflictError {
+  const cause = isWriteError(error) && error._tag === "JournalUnavailable" ? error.cause : error;
+  if (cause instanceof TaskLeaseCasRejected) return new TaskLeaseConflictError(cause.message, cause.code);
+  if (typeof cause === "object" && cause !== null && "code" in cause && typeof cause.code === "string"
+    && "message" in cause && typeof cause.message === "string") return new TaskLeaseConflictError(cause.message, cause.code);
+  return new TaskLeaseConflictError(cause instanceof Error ? cause.message : String(cause));
 }
-
-function transaction<A>(db: DatabaseSync, run: () => A): A {
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    const result = run();
-    db.exec("COMMIT");
-    return result;
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
-}
-
-function readRow(db: DatabaseSync, taskId: string): LeaseRow | null {
-  return db.prepare("SELECT * FROM lease_cas WHERE task_id = ?").get(taskId) as LeaseRow | undefined ?? null;
-}
-
-function effectiveLease(row: LeaseRow | null, now: string): LeaseV1 | null {
-  if (row === null || row.phase === "released" || row.expires_at <= now) return null;
-  return checkedLease({
-    schema: "lease/v1",
-    taskId: row.task_id,
-    executionId: row.execution_id,
-    actor: JSON.parse(row.actor_json) as ActorAxes,
-    credentialHash: row.credential_hash,
-    phase: row.phase,
-    expiresAt: row.expires_at,
-    version: row.version
-  });
-}
-
-function checkedLease(lease: LeaseV1): LeaseV1 {
-  const issues = validateLeaseV1(lease);
-  if (issues.length > 0) throw new TaskLeaseConflictError(issues.map((issue) => issue.message).join("; "));
-  return lease;
-}
-
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(canonicalizeContractValue(value));
-}
+function isWriteError(error: unknown): error is WriteError { return typeof error === "object" && error !== null && "_tag" in error; }

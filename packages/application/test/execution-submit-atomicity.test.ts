@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { lifecycleHarness } from "./task-lifecycle-test-harness.ts";
 
-test("submit publishes Execution, Task edge, and Lease release as one convergent event", async () => {
+test("G29 submit publishes only its frozen targets while preserving unrelated bytes", async () => {
   const harness = lifecycleHarness();
   try {
     await harness.create();

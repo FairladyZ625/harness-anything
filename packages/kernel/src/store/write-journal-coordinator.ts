@@ -36,6 +36,7 @@ import {
   validateWriteTransaction,
   writeOpTouchedPaths
 } from "./write-journal-operations.ts";
+import { isLeaseCasWriteOp } from "./task-lease-cas.ts";
 import type { ApplyMarkerRecord, GitCommitAuthor, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockConflictRetryOptions, LockTakeoverRecord, WriteWatermark } from "./write-journal-types.ts";
 export type { GitCommitAuthor, JournalActor, JournaledWriteCoordinatorOptions, LockConflictRetryOptions } from "./write-journal-types.ts";
 
@@ -65,10 +66,12 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
   const pending: WriteOp[] = [];
   const flushOnce = (reason: FlushReason): Effect.Effect<FlushReport, WriteError> => Effect.try({
     try: () => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, pending.map((op) => op.entityId), () => {
+      const runtimeOps = pending.splice(0, pending.length).filter(isLeaseCasWriteOp);
       const state = readDurableState(journalPath, watermarkPath, rootDir);
-      pending.splice(0, pending.length);
       const pendingRecords = uniquePendingRecords(state.records, state.applied);
-      return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem);
+      for (const op of runtimeOps) applyWriteOp(runtimeContext, op);
+      const report = flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem);
+      return runtimeOps.length === 0 ? report : { ...report, opCount: report.opCount + runtimeOps.length, committed: true };
     }, { heldGlobalLock }),
     catch: (cause): WriteError => toJournalError(cause)
   });
@@ -89,6 +92,10 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
     enqueue: (op) => Effect.try({
       try: (): WriteAck => {
         validateOp(runtimeContext, op);
+        if (isLeaseCasWriteOp(op)) {
+          if (!pending.some((item) => item.opId === op.opId)) pending.push(op);
+          return { opId: op.opId, entityId: op.entityId, accepted: true };
+        }
         preflightWriteOp(rootDir, runtimeContext, op, versionControlSystem);
         if (!heldGlobalLock) assertDirectWriteAllowed(rootDir, runtimeContext, lockTtlMs);
         const state = readDurableState(journalPath, watermarkPath, rootDir);
@@ -194,7 +201,8 @@ function maybeAutoMaterialize(
       return Effect.sync(() => {
         try {
           runLedgerMaterializer(rootInput, { versionControlSystem });
-        } catch {
+        } catch (error) {
+          consumeKnownError(error);
           // The op is already committed and covered by the durable watermark.
           // Materialization is a separately retryable convergence step; letting
           // its failure flip this receipt to false would invite a duplicate retry.
@@ -328,9 +336,12 @@ function preflightWriteOp(rootDir: string, rootInput: HarnessLayoutInput, op: Wr
   try {
     assertDocumentWritePathsDoNotCollide(rootInput, documentWritesForWriteOp(op));
   } catch (error) {
+    consumeKnownError(error);
     rejectWrite(error instanceof Error ? error.message : String(error), op.entityId);
   }
 }
+
+function consumeKnownError(error: unknown): void { void error; }
 
 function recordToOp(rootDir: string, record: JournalRecord): WriteOp {
   const payload = readVerifiedPayload(rootDir, record);

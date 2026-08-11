@@ -29,6 +29,7 @@ export interface TaskLifecycleServiceInput {
   readonly command: ClientCommand;
   readonly credential?: string;
   readonly capabilityRef?: string;
+  readonly antiEntropyReceipt?: { readonly token: string; readonly scope: string; readonly verdict: "approved" | "rejected"; readonly headSha: string };
   readonly gateReceipts?: readonly { readonly gateId: string; readonly receiptRef: string }[];
 }
 
@@ -424,7 +425,8 @@ async function antiEntropyReviewInput(action: AntiEntropyReviewAction, dependenc
       iteration: report.iteration,
       archiveWarningsAcknowledged: false
     },
-    capabilityRef: `anti-entropy-receipt:sha256:${createHash("sha256").update(action.antiEntropyToken).digest("hex")}`
+    capabilityRef: `anti-entropy-receipt:sha256:${createHash("sha256").update(action.antiEntropyToken).digest("hex")}`,
+    antiEntropyReceipt: { token: action.antiEntropyToken, scope: report.scope, verdict: report.verdict, headSha: report.headSha }
   };
 }
 

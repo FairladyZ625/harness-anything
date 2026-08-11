@@ -33,7 +33,9 @@ export type MachineArtifactWriteOpKind =
   | "machine_artifact_write"
   | "machine_artifact_append_jsonl";
 
-export type WriteOpKind = TaskWriteOpKind | DecisionWriteOpKind | FactWriteOpKind | RelationWriteOpKind | ModuleWriteOpKind | MachineArtifactWriteOpKind;
+export type RuntimeWriteOpKind = "lease_cas";
+
+export type WriteOpKind = TaskWriteOpKind | DecisionWriteOpKind | FactWriteOpKind | RelationWriteOpKind | ModuleWriteOpKind | MachineArtifactWriteOpKind | RuntimeWriteOpKind;
 
 export type FlushReason = "debounce" | "count" | "explicit" | "shutdown" | "recovery";
 

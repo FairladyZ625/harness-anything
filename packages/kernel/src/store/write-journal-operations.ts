@@ -1,17 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import {
-  decodeEntityPathDeclaration,
-  resolveEntityDocumentPath,
-  type DeclaredEntityDocumentWritePayload
-} from "../entity/declaration.ts";
+import { decodeEntityPathDeclaration, resolveEntityDocumentPath, type DeclaredEntityDocumentWritePayload } from "../entity/declaration.ts";
 import type { DocumentWrite } from "../ports/artifact-store-writer.ts";
 import type { WriteOp } from "../ports/write-coordinator.ts";
-import {
-  type HarnessLayoutInput,
-  resolveHarnessLayout,
-  taskPackagePath
-} from "../layout/index.ts";
+import { type HarnessLayoutInput, resolveHarnessLayout, taskPackagePath } from "../layout/index.ts";
 import { decisionDocumentTargetPath, decisionWriteKinds, writeDecisionDocument } from "./write-journal-decision-documents.ts";
 import { taskIdForWriteOp } from "./write-journal-entity.ts";
 import { appendJsonLineDurably, writeFileDurably } from "./write-journal-durable.ts";
@@ -19,6 +11,7 @@ import { rejectTaskWrite, rejectWrite } from "./write-journal-rejection.ts";
 import { resolveContentAddressedBlobPath } from "./content-addressed-blob-store.ts";
 import { appendTaskEventAtPublicationBoundary } from "./task-event-store.ts";
 import { assertReservedCodeDocWrite } from "./write-journal-code-doc-policy.ts";
+import { applyLeaseCasWrite, taskLeaseDatabasePath, validateLeaseCasWrite } from "./task-lease-cas.ts";
 import { writeDocument } from "./markdown-artifact-store.ts";
 import {
   applyDocumentAppendRecord,
@@ -43,6 +36,14 @@ export interface WriteTransactionPlan {
   readonly validate: (rootInput: HarnessLayoutInput) => void;
 }
 export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
+  if (op.kind === "lease_cas") {
+    return {
+      touchedPaths: (rootInput) => [taskLeaseDatabasePath(rootInput)],
+      documentWrites: () => [],
+      apply: (rootInput) => { applyLeaseCasWrite(rootInput, op); return null; },
+      validate: () => { validateLeaseCasWrite(op); }
+    };
+  }
   if (op.kind === "doc_write" && hasDeclaredEntityDocument(op.payload)) {
     const companionWrites = declaredEntityCompanionWrites(op.payload);
     return {
@@ -234,9 +235,12 @@ function declaredEntityDocument(
       body: document.body, ...(document.blobRef ? { blobPath: resolveContentAddressedBlobPath(rootInput, document.blobRef) } : {})
     };
   } catch (error) {
+    consumeKnownError(error);
     rejectWrite(error instanceof Error ? error.message : String(error), op.entityId);
   }
 }
+
+function consumeKnownError(error: unknown): void { void error; }
 
 function isStringRecord(value: unknown): value is Readonly<Record<string, string>> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value) &&

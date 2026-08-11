@@ -15,6 +15,8 @@ import { requiresConflictMarkerPreflight, runRegisteredCommand } from "../cli/ru
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { CliActorAttributionError, journalActorWithSource, resolveLocalCliActorAttribution, type CliActorAttribution } from "./actor-attribution.ts";
 import { resolveCliActorAxes } from "./local-principal.ts";
+import { makeLocalGateReceiptVerifier, makeTaskActorAuthorizer, verifySignedAntiEntropyReceipt } from "../cli/task-lifecycle-authority.ts";
+import type { AntiEntropyReceiptVerifier, GateReceiptVerifier, TaskActorAuthorizer } from "../cli/task-lifecycle-authority.ts";
 import {
   defaultCliAdapterProvider,
   type CliCompositionAdapterProvider
@@ -26,6 +28,9 @@ export interface ParsedCommandExecutionOptions {
   readonly actorAttribution?: CliActorAttribution;
   readonly missingActorAttributionMessage?: string;
   readonly requireProvidedActorAttribution?: boolean;
+  readonly verifyAntiEntropyReceipt?: AntiEntropyReceiptVerifier | null;
+  readonly authorizeTaskLifecycleActor?: TaskActorAuthorizer;
+  readonly verifyGateReceipt?: GateReceiptVerifier;
 }
 
 export async function runRegisteredCommandWithCliComposition(
@@ -68,6 +73,7 @@ export async function runRegisteredCommandWithCliComposition(
           actorAttribution = resolveLocalCliActorAttribution(process.env, command.actor);
         }
       } catch (error) {
+        consumeKnownError(error);
         actorAttributionError = error instanceof CliActorAttributionError
           ? error
           : new CliActorAttributionError(error instanceof Error ? error.message : String(error));
@@ -130,7 +136,10 @@ export async function runRegisteredCommandWithCliComposition(
   }), () => makeRuntimeEventLedgerService({
     rootInput: layoutInput,
     coordinator: makeWriteCoordinator({ kind: "agent", id: "runtime-event-cli" })
-  }), provider.runLedgerMaterializer).pipe(
+  }), provider.runLedgerMaterializer,
+  options.verifyAntiEntropyReceipt === null ? undefined : options.verifyAntiEntropyReceipt ?? verifySignedAntiEntropyReceipt,
+  options.authorizeTaskLifecycleActor ?? makeTaskActorAuthorizer(command.rootDir),
+  options.verifyGateReceipt ?? makeLocalGateReceiptVerifier(command.rootDir)).pipe(
     Effect.match({
       onFailure: (error): CliResult => ({
         ok: false,
@@ -142,6 +151,8 @@ export async function runRegisteredCommandWithCliComposition(
     })
   ));
 }
+
+function consumeKnownError(error: unknown): void { void error; }
 
 export function commandRootInput(command: ParsedCommand): ReturnType<typeof createHarnessRuntimeContext> {
   return createHarnessRuntimeContext(command.rootDir, command.layoutOverrides);

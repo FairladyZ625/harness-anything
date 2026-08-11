@@ -7,6 +7,7 @@ import { entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allo
 
 const targetRoots = [
   "packages/kernel/src/store",
+  "packages/kernel/src/local",
   "packages/adapters/local/src",
   "packages/cli/src/commands"
 ];
@@ -45,13 +46,15 @@ function inspectFile(root, rel) {
   const sourceText = readFileSync(path.join(root, rel), "utf8");
   const sourceFile = ts.createSourceFile(rel, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const bindings = fsBindings(sourceFile);
-  if (bindings.named.size === 0 && bindings.namespaces.size === 0) return [];
+  const sqlite = sqliteBindings(sourceFile);
+  const sqliteWritable = hasWritableSqliteOpen(sourceFile, sqlite);
+  if (bindings.named.size === 0 && bindings.namespaces.size === 0 && sqlite.size === 0) return [];
   const occurrences = new Map();
   const findings = [];
 
   visit(sourceFile, (node) => {
-    if (!ts.isCallExpression(node)) return;
-    const api = calledFsApi(node.expression, bindings);
+    const api = ts.isCallExpression(node) ? calledFsApi(node.expression, bindings) ?? calledSqliteApi(node.expression, sqlite, sqliteWritable)
+      : ts.isNewExpression(node) && ts.isIdentifier(node.expression) && sqlite.has(node.expression.text) && !readOnlySqliteOpen(node) ? "DatabaseSync" : undefined;
     if (!api) return;
     const occurrence = (occurrences.get(api) ?? 0) + 1;
     occurrences.set(api, occurrence);
@@ -63,6 +66,40 @@ function inspectFile(root, rel) {
     });
   });
   return findings;
+}
+
+function sqliteBindings(sourceFile) {
+  const bindings = new Set();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)
+      || statement.moduleSpecifier.text !== "node:sqlite") continue;
+    const named = statement.importClause?.namedBindings;
+    if (!named || !ts.isNamedImports(named)) continue;
+    for (const element of named.elements) {
+      if ((element.propertyName ?? element.name).text === "DatabaseSync") bindings.add(element.name.text);
+    }
+  }
+  return bindings;
+}
+
+function calledSqliteApi(expression, sqlite, sqliteWritable) {
+  if (!sqliteWritable || sqlite.size === 0 || !ts.isPropertyAccessExpression(expression)) return undefined;
+  return ["exec", "prepare"].includes(expression.name.text) ? `sqlite.${expression.name.text}` : undefined;
+}
+
+function hasWritableSqliteOpen(sourceFile, sqlite) {
+  let writable = false;
+  visit(sourceFile, (node) => {
+    if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && sqlite.has(node.expression.text) && !readOnlySqliteOpen(node)) writable = true;
+  });
+  return writable;
+}
+
+function readOnlySqliteOpen(node) {
+  const options = node.arguments?.[1];
+  if (!options || !ts.isObjectLiteralExpression(options)) return false;
+  return options.properties.some((property) => ts.isPropertyAssignment(property)
+    && property.name.getText() === "readOnly" && property.initializer.kind === ts.SyntaxKind.TrueKeyword);
 }
 
 function fsBindings(sourceFile) {
@@ -113,7 +150,7 @@ function main() {
     for (const finding of result.violations) console.error(`- ${finding.key}: ${finding.message}`);
     process.exitCode = 1;
   } else {
-    console.log(`Bypass write boundary check passed (${result.findings.length} governed fs write call(s)).`);
+    console.log(`Bypass write boundary check passed (${result.findings.length} governed filesystem/SQLite call(s)).`);
   }
 }
 

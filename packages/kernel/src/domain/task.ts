@@ -74,6 +74,7 @@ const taskNodeIdsForValidation = ["implementation", "anti_entropy", "review"] as
 export type WriteTarget =
   | { readonly kind: "event_stream"; readonly stream: string; readonly operation: "append" }
   | { readonly kind: "projection_invalidation"; readonly projection: string; readonly taskId: string }
+  | { readonly kind: "lease_sqlite"; readonly table: "lease_cas"; readonly taskId: string; readonly operation: "reserve" | "activate" | "release" }
   | { readonly kind: "task_artifact"; readonly path: string; readonly operation: "create" | "replace" };
 export interface WritePlan<C extends string = string> { readonly commandType: C; readonly targets: readonly WriteTarget[] }
 declare const frozenWritePlanBrand: unique symbol;
@@ -82,6 +83,7 @@ export type FrozenWritePlan<C extends string = string> = Readonly<WritePlan<C>> 
 function writeTargetKey(target: WriteTarget): string {
   return target.kind === "event_stream" ? `${target.kind}:${target.stream}`
     : target.kind === "projection_invalidation" ? `${target.kind}:${target.projection}:${target.taskId}`
+    : target.kind === "lease_sqlite" ? `${target.kind}:${target.table}:${target.taskId}:${target.operation}`
     : `${target.kind}:${target.path}`;
 }
 export function validateWritePlanShape(plan: WritePlan, commandTypes: readonly string[]): readonly ContractValidationIssue[] {
@@ -95,6 +97,8 @@ export function validateWritePlanShape(plan: WritePlan, commandTypes: readonly s
     keys.add(writeTargetKey(target));
     if (target.kind === "event_stream" && (!isNonEmptyString(target.stream) || target.operation !== "append")) issues.push({ code: "invalid_write_plan", message: "event stream targets require append" });
     if (target.kind === "projection_invalidation" && (!isNonEmptyString(target.projection) || !isNonEmptyString(target.taskId))) issues.push({ code: "invalid_write_plan", message: "projection invalidation requires projection and task identity" });
+    if (target.kind === "lease_sqlite" && (target.table !== "lease_cas" || !isNonEmptyString(target.taskId)
+      || !["reserve", "activate", "release"].includes(target.operation))) issues.push({ code: "invalid_write_plan", message: "Lease SQLite targets require lease_cas task identity and operation" });
     if (target.kind === "task_artifact" && (!isNonEmptyString(target.path) || !["create", "replace"].includes(target.operation))) issues.push({ code: "invalid_write_plan", message: "artifact targets require an explicit write operation" });
   }
   return issues;

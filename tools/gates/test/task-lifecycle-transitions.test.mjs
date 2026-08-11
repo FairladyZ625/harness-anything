@@ -10,12 +10,18 @@ import {
   TaskLifecycleContractError
 } from "../../../packages/kernel/src/domain/task-lifecycle.contract.ts";
 import { REPLAY_TASK_GRAPH } from "../../../packages/kernel/src/domain/task-graph.ts";
+import { TASK_LEASE_BROKER_CONTRACT } from "../../../packages/kernel/src/domain/execution.ts";
 
 const owner = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "owner-agent" } };
 const executor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "worker-agent" } };
 const antiEntropy = { principal: { personId: "person-reviewer" }, executor: { kind: "agent", id: "anti-entropy-agent" } };
 const acceptance = { principal: { personId: "person-acceptance" }, executor: null };
 const commit0 = "0123456789abcdef0123456789abcdef01234567";
+
+test("G10 Lease broker contract declares one positive capacity ceiling", () => {
+  assert.deepEqual(TASK_LEASE_BROKER_CONTRACT, { capacity: 32 });
+  assert.equal(Object.isFrozen(TASK_LEASE_BROKER_CONTRACT), true);
+});
 
 function meta(type, actor, revision, suffix = type) {
   return {
@@ -294,7 +300,7 @@ test("G10 CompleteTask consumes both same-round approvals and alone marks done",
   );
   assert.equal(applyTransition(gated, completeCommand(), {
     ...completeProof(),
-    gateReceipts: [{ gateId: "G-test", result: "pass", executionId: "execution-0", commitSha: commit0, iteration: 0 }]
+    gateReceipts: [{ gateId: "G-test", receiptRef: "artifacts/g-test.json", result: "pass", executionId: "execution-0", commitSha: commit0, iteration: 0 }]
   }).snapshot.task.status, "done");
 });
 

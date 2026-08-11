@@ -22,11 +22,15 @@
       "bearing": "task-lifecycle",
       "channel": { "pathClass": "rpc-only", "zoneClass": "task-authored-structured" },
       "entry": ["cli", "daemon-rpc"],
-      "writeKinds": ["machine_artifact_append_jsonl"],
+      "writeKinds": ["machine_artifact_append_jsonl", "lease_cas"],
       "machineArtifactBoundaries": ["task-event-stream"],
       "cliActions": ["task-create", "task-start", "task-submit", "task-review-execution", "task-complete"],
-      "callsiteFiles": ["packages/kernel/src/store/task-event-store.ts"],
-      "evidence": ["packages/cli/src/commands/core/task-lifecycle-host.ts:34", "packages/application/src/task-lifecycle-service.ts:58", "packages/kernel/src/store/task-event-store.ts:54"],
+      "callsiteFiles": ["packages/kernel/src/store/task-event-store.ts", "packages/kernel/src/local/task-lease-store.ts"],
+      "directWrites": [
+        { "file": "packages/kernel/src/store/task-lease-cas.ts" },
+        { "file": "packages/kernel/src/projection/task-projection.ts", "api": "sqlite" }
+      ],
+      "evidence": ["packages/cli/src/commands/core/task-lifecycle-host.ts:26", "packages/application/src/task-lifecycle-service.ts:153", "packages/kernel/src/store/task-event-store.ts:74", "packages/kernel/src/store/task-lease-cas.ts:40"],
       "freshness": "coordinator-conditional-task-state"
     },
     {

@@ -17,6 +17,7 @@ import { actionTaskId } from "./parse-args.ts";
 import { appendCommandRuntimeEvent } from "./command-runtime-events.ts";
 import type { CliResult, CommandRegistryEntry, MaterializerCommandReport, ParsedCommand } from "./types.ts";
 import type { CliActorAttribution } from "../composition/actor-attribution.ts";
+import type { AntiEntropyReceiptVerifier, GateReceiptVerifier, TaskActorAuthorizer } from "./task-lifecycle-authority.ts";
 
 export interface CommandRunnerContext {
   readonly rootDir: string;
@@ -33,6 +34,9 @@ export interface CommandRunnerContext {
   readonly makeWriteCoordinator: (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => WriteCoordinator;
   readonly actorAttribution: () => CliActorAttribution;
   readonly actorAxes: () => ActorAxes;
+  readonly verifyAntiEntropyReceipt?: AntiEntropyReceiptVerifier;
+  readonly authorizeTaskLifecycleActor?: TaskActorAuthorizer;
+  readonly verifyGateReceipt?: GateReceiptVerifier;
   readonly decisionWriteService: DecisionWriteService;
   readonly factWriteService: FactWriteService;
   readonly runLedgerMaterializer: (options: { readonly dryRun?: boolean }) => MaterializerCommandReport;
@@ -59,7 +63,10 @@ export function runRegisteredCommand(
   makeDecisionWriteService: () => DecisionWriteService,
   makeFactWriteService: () => FactWriteService,
   makeRuntimeEventLedgerService: () => RuntimeEventLedgerService,
-  runLedgerMaterializer: (rootInput: HarnessLayoutInput, options: { readonly dryRun?: boolean }) => MaterializerCommandReport
+  runLedgerMaterializer: (rootInput: HarnessLayoutInput, options: { readonly dryRun?: boolean }) => MaterializerCommandReport,
+  verifyAntiEntropyReceipt: AntiEntropyReceiptVerifier | undefined,
+  authorizeTaskLifecycleActor: TaskActorAuthorizer,
+  verifyGateReceipt: GateReceiptVerifier
 ): CommandRunnerEffect {
   const runner = runnerRegistry[command.action.kind];
   const layoutInput = createHarnessRuntimeContext(command.rootDir, command.layoutOverrides);
@@ -103,6 +110,9 @@ export function runRegisteredCommand(
     makeWriteCoordinator,
     actorAttribution,
     actorAxes,
+    verifyAntiEntropyReceipt,
+    authorizeTaskLifecycleActor,
+    verifyGateReceipt,
     get decisionWriteService() {
       decisionWriteService ??= makeDecisionWriteService();
       return decisionWriteService;

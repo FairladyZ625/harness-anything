@@ -6,6 +6,7 @@ export {
   validateTransition
 } from "./domain/task-lifecycle.contract.ts";
 export type {
+  CompleteTaskProof,
   ProofFor,
   StartExecutionProof,
   TaskEventV1,
@@ -13,7 +14,8 @@ export type {
   TaskLifecycleSnapshot
 } from "./domain/task-lifecycle.contract.ts";
 export { canonicalizeContractValue } from "./domain/task.ts";
-export type { FrozenWritePlan } from "./domain/task.ts";
+export type { FrozenWritePlan, TaskV1 } from "./domain/task.ts";
+export { TASK_LEASE_BROKER_CONTRACT } from "./domain/execution.ts";
 export type { LeaseV1 } from "./domain/execution.ts";
 export * from "./docmap/index.ts";
 export * from "./docmap/docmap-unique.ts";
@@ -77,6 +79,7 @@ export {
   makeMarkdownArtifactStore,
   makeTaskEventStore,
   makeTaskLeaseStore,
+  TaskLeaseConflictError,
   makeTaskProjection,
   readContentAddressedTextBlob,
   writeContentAddressedBlob

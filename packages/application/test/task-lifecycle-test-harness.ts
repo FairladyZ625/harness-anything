@@ -4,7 +4,7 @@ import path from "node:path";
 import type { TaskLifecycleKillpoint } from "../src/task-lifecycle-service.ts";
 import { makeJournaledWriteCoordinator } from "../../kernel/src/index.ts";
 import { makeTaskEventStore, makeTaskLeaseStore, makeTaskProjection } from "../../kernel/test/store/task-lifecycle-runtime.ts";
-import { makeTaskLifecycleService } from "../src/task-lifecycle-service.ts";
+import { makeTaskLifecycleService, runTaskLifecycleEffect } from "../src/task-lifecycle-service.ts";
 
 export const owner = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } };
 export const reviewer = { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "reviewer" } };
@@ -26,9 +26,10 @@ export const replayGraph = {
 
 export function lifecycleHarness() {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-"));
-  const eventStore = makeTaskEventStore({ rootDir, coordinator: makeJournaledWriteCoordinator({ rootDir }) });
+  const coordinator = makeJournaledWriteCoordinator({ rootDir });
+  const eventStore = makeTaskEventStore({ rootDir, coordinator });
   const realProjection = makeTaskProjection({ rootDir, eventStore });
-  const leases = makeTaskLeaseStore({ rootDir, now: () => "2026-08-11T00:00:00.000Z" });
+  const leases = makeTaskLeaseStore({ rootDir, coordinator, runEffect: runTaskLifecycleEffect, now: () => "2026-08-11T00:00:00.000Z" });
   let killAt: TaskLifecycleKillpoint | null = null;
   let failProjection = false;
   const projection = {

@@ -75,6 +75,29 @@ test("bypass write boundary rejects new fs writes outside the allowlist", () => 
   }
 });
 
+test("bypass write boundary rejects SQLite access and kernel local mutators outside the coordinator allowlist", () => {
+  const root = makeFixtureRoot();
+  const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-w8-policy-"));
+  try {
+    writeFileSync(path.join(root, "packages/kernel/src/local/lease.ts"), [
+      "import { DatabaseSync } from 'node:sqlite';",
+      "export function bypass() {",
+      "  const db = new DatabaseSync('lease.sqlite');",
+      "  db.prepare('INSERT INTO lease_cas VALUES (?)').run('x');",
+      "}"
+    ].join("\n"), "utf8");
+    writeAllowlist(policyRoot);
+
+    const result = runChecker(root, policyRoot);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /packages\/kernel\/src\/local\/lease\.ts#DatabaseSync@1/u);
+    assert.match(result.stderr, /packages\/kernel\/src\/local\/lease\.ts#sqlite\.prepare@1/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(policyRoot, { recursive: true, force: true });
+  }
+});
+
 test("bypass write boundary rejects stale stable anchors", () => {
   const root = makeFixtureRoot();
   const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-w8-policy-"));
@@ -110,6 +133,7 @@ test("bypass write anchor migration converts legacy positions mechanically", () 
 function makeFixtureRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-w8-boundary-"));
   mkdirSync(path.join(root, "packages/kernel/src/store"), { recursive: true });
+  mkdirSync(path.join(root, "packages/kernel/src/local"), { recursive: true });
   mkdirSync(path.join(root, "packages/adapters/local/src"), { recursive: true });
   mkdirSync(path.join(root, "packages/cli/src/commands"), { recursive: true });
   return root;

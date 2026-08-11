@@ -1,11 +1,11 @@
 {
   "version": 1,
   "ceilings": {
-    "kernel": 15697,
+    "kernel": 15696,
     "task-lifecycle": 3068,
     "doc-sync": 679,
     "preset": 6926,
-    "cli": 16798,
+    "cli": 16778,
     "gui": 15309,
     "daemon": 2333,
     "authority-write-path": 0,

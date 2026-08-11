@@ -31,7 +31,7 @@ export interface CreateReplayTaskProof { readonly taskIdUnique: true; readonly a
 export interface StartExecutionProof { readonly actorBinding: ActorAxes; readonly expectedRevision: number; readonly reservation: { readonly taskId: string; readonly executionId: string; readonly credentialHash: string; readonly expiresAt: string; readonly version: number } }
 export interface SubmitExecutionProof { readonly expectedRevision: number; readonly credentialHash: string; readonly sessionDisposition: "complete" | "partial" | "unavailable" }
 export interface ReviewProof { readonly expectedRevision: number; readonly actorBinding: ActorAxes; readonly capability: "anti-entropy@v1" | "acceptance-review@v1"; readonly capabilityRef: string; readonly archiveWarningsPresent: boolean }
-export interface CompleteTaskProof { readonly expectedRevision: number; readonly capability: "task-complete@v1"; readonly capabilityRef: string; readonly actorRole: "owner" | "commander"; readonly noActiveLease: true; readonly gateReceipts: readonly { readonly gateId: string; readonly result: "pass"; readonly executionId: string; readonly commitSha: string; readonly iteration: number }[] }
+export interface CompleteTaskProof { readonly expectedRevision: number; readonly capability: "task-complete@v1"; readonly capabilityRef: string; readonly actorRole: "owner" | "commander"; readonly noActiveLease: true; readonly gateReceipts: readonly { readonly gateId: string; readonly receiptRef: string; readonly result: "pass"; readonly executionId: string; readonly commitSha: string; readonly iteration: number }[] }
 export type ProofFor<C extends TaskLifecycleCommand> =
   C extends CreateReplayTaskCommand ? CreateReplayTaskProof :
   C extends StartExecutionCommand ? StartExecutionProof :
@@ -332,7 +332,7 @@ const completeTaskTransition: TransitionDefinition = {
       const declared = new Set(task.completionGateIds);
       const received = new Set(receipts.map((receipt) => receipt.gateId));
       if (declared.size !== received.size || [...declared].some((gateId) => !received.has(gateId))
-        || receipts.some((receipt) => receipt.result !== "pass" || receipt.executionId !== execution.executionId
+        || receipts.some((receipt) => !isNonEmptyString(receipt.receiptRef) || receipt.result !== "pass" || receipt.executionId !== execution.executionId
           || receipt.commitSha !== execution.submission?.commitSha || receipt.iteration !== execution.iteration)) issues.push({ code: "invalid_proof", message: "all declared gate receipts must pass on the same execution, commit, and iteration" });
     }
     return issues;
