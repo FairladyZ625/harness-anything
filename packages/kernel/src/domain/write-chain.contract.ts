@@ -314,7 +314,7 @@ export default Object.freeze({
   id: "write-chain",
   phases: Object.freeze(["P4"]),
   commands: Object.freeze([]),
-  gates: Object.freeze(["G01", "G02", "G03", "G07", "G08"]),
+  gates: Object.freeze([]),
   guards: Object.freeze([]),
   schemas: Object.freeze([Object.freeze({
     id: "write-receipt/v1",
