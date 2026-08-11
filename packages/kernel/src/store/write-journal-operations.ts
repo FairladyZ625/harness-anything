@@ -17,6 +17,7 @@ import { taskIdForWriteOp } from "./write-journal-entity.ts";
 import { appendJsonLineDurably, writeFileDurably } from "./write-journal-durable.ts";
 import { rejectTaskWrite, rejectWrite } from "./write-journal-rejection.ts";
 import { resolveContentAddressedBlobPath } from "./content-addressed-blob-store.ts";
+import { appendTaskEventAtPublicationBoundary } from "./task-event-store.ts";
 import { assertReservedCodeDocWrite } from "./write-journal-code-doc-policy.ts";
 import { writeDocument } from "./markdown-artifact-store.ts";
 import {
@@ -44,14 +45,12 @@ import {
   toDocumentWrite,
   documentWriteKinds
 } from "./write-journal-operations-internal.ts";
-
 export interface WriteTransactionPlan {
   readonly touchedPaths: (rootInput: HarnessLayoutInput) => ReadonlyArray<string>;
   readonly documentWrites: () => ReadonlyArray<DocumentWrite>;
   readonly apply: (rootInput: HarnessLayoutInput, op: WriteOp) => DocumentWrite | null;
   readonly validate: (rootInput: HarnessLayoutInput) => void;
 }
-
 export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
   if (op.kind === "doc_write" && hasDeclaredEntityDocument(op.payload)) {
     const companionWrites = declaredEntityCompanionWrites(op.payload);
@@ -149,7 +148,8 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
       documentWrites: () => [],
       apply: (rootInput) => {
         const artifact = machineArtifactJsonlAppend(rootInput, op);
-        appendJsonLineDurably(artifact.targetPath, artifact.value);
+        if (artifact.boundary === "task-event-stream") appendTaskEventAtPublicationBoundary(artifact.targetPath, artifact.value);
+        else appendJsonLineDurably(artifact.targetPath, artifact.value);
         return null;
       },
       validate: (rootInput) => {
@@ -475,6 +475,7 @@ function writeModuleScaffold(rootInput: HarnessLayoutInput, op: WriteOp): void {
 }
 export type MachineArtifactBoundary =
   | "runtime-event-ledger"
+  | "task-event-stream"
   | "provenance-session"
   | "docmap-derived"
   | "distill-candidate"

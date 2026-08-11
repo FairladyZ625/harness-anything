@@ -6,6 +6,7 @@ import test from "node:test";
 import { Schema } from "effect";
 import { reviewDeclaration } from "../../src/entity/review-declaration.ts";
 import { resolveEntityDocumentPath } from "../../src/entity/declaration.ts";
+import { validateReviewV1 } from "../../src/domain/review.ts";
 import { withTempStore } from "./helpers.ts";
 
 const actor = {
@@ -51,14 +52,25 @@ test("Review is a hosted entity whose verdict schema fails closed", () => {
   });
 });
 
-test("review/v1 reads upgrade with reviewer rationale and malformed legacy fails closed", () => {
-  const decode = (value: unknown) => Schema.decodeUnknownSync(reviewDeclaration.schema)(
-    reviewDeclaration.documentCodec.decode(JSON.stringify(value))
-  );
-  const legacy = { ...review("approved"), schema: "review/v1" };
-  const upgraded = decode(legacy);
-  assert.equal(upgraded.schema, "review/v2");
-  assert.deepEqual(upgraded.evidence_checked, []);
-  assert.equal(upgraded.rationale, legacy.findings);
-  assert.throws(() => decode({ ...legacy, findings: "" }));
+test("Review/v1 rejects invalid verdicts and old review entity shapes", () => {
+  const current = {
+    schema: "review/v1",
+    reviewId: "review-1",
+    taskId: "task-1",
+    executionId: "execution-1",
+    kind: "anti_entropy",
+    verdict: "approved",
+    actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent", id: "reviewer" } },
+    actorRole: "anti_entropy",
+    capabilityRef: "capability-1",
+    reason: "approved",
+    evidenceChecked: [],
+    commitSha: "a".repeat(40),
+    iteration: 0,
+    archiveWarningsAcknowledged: false,
+    reviewedAt: "2026-08-11T00:00:00.000Z"
+  };
+  assert.deepEqual(validateReviewV1(current), []);
+  assert.notDeepEqual(validateReviewV1({ ...current, verdict: "direction_changed" }), []);
+  assert.notDeepEqual(validateReviewV1(review("approved")), []);
 });

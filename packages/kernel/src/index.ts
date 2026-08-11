@@ -1,8 +1,24 @@
 export * from "./domain/index.ts";
+export {
+  applyTransition,
+  assertAntiEntropyGraph,
+  freezeWritePlan,
+  validateTransition
+} from "./domain/task-lifecycle.contract.ts";
+export type {
+  ProofFor,
+  StartExecutionProof,
+  TaskEventV1,
+  TaskLifecycleCommand,
+  TaskLifecycleSnapshot
+} from "./domain/task-lifecycle.contract.ts";
+export { canonicalizeContractValue } from "./domain/task.ts";
+export type { FrozenWritePlan } from "./domain/task.ts";
 export { executionStates } from "./domain/execution.ts";
 export type {
   ExecutionRecord,
   ExecutionState,
+  LeaseV1,
   OutputEvidence
 } from "./domain/execution.ts";
 export { executionDeclaration } from "./entity/execution-declaration.ts";

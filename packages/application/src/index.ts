@@ -20,6 +20,13 @@ export { makeReviewExecutionService } from "./review-execution-service.ts";
 export type { ReviewExecutionService } from "./review-execution-service.ts";
 export { makeExecutionCompletionService } from "./execution-completion-service.ts";
 export type { ExecutionCompletionService } from "./execution-completion-service.ts";
+export { makeTaskLifecycleService, TaskLifecycleOperationConflict } from "./task-lifecycle-service.ts";
+export type {
+  TaskLifecycleKillpoint,
+  TaskLifecycleOperationReceipt,
+  TaskLifecycleService,
+  TaskLifecycleServiceRead
+} from "./task-lifecycle-service.ts";
 export { makeFactWriteService } from "./fact-write-service.ts";
 export {
   taskWriteApiRoutePolicies,

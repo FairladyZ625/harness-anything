@@ -40,7 +40,6 @@ function readHardDeletePayload(op: WriteOp): { readonly reason: string } {
   }
   return { reason: payloadRecord.reason };
 }
-
 function assertHardDeleteAllowed(rootInput: HarnessLayoutInput, taskId: TaskId, options: { readonly allowMissing?: boolean } = {}): void {
   const packagePath = taskPackagePath(rootInput, taskId);
   const indexPath = path.join(packagePath, "INDEX.md");
@@ -73,7 +72,6 @@ function assertHardDeleteAllowed(rootInput: HarnessLayoutInput, taskId: TaskId, 
     rejectTaskWrite(evaluation.reason, taskId);
   }
 }
-
 function isProgressAppendDeltaPayload(payload: unknown): payload is ProgressAppendDeltaPayload {
   if (!payload || typeof payload !== "object") return false;
   const candidate = payload as { readonly path?: unknown; readonly append?: unknown };
@@ -81,7 +79,6 @@ function isProgressAppendDeltaPayload(payload: unknown): payload is ProgressAppe
   // legacy snapshot path instead of silently ignoring `body` here.
   return typeof candidate.path === "string" && typeof candidate.append === "string" && !("body" in candidate);
 }
-
 function isProgressAppendSnapshotPayload(payload: unknown): payload is ProgressAppendSnapshotPayload {
   if (!payload || typeof payload !== "object") return false;
   const candidate = payload as { readonly path?: unknown; readonly body?: unknown; readonly packageSlug?: unknown };
@@ -342,6 +339,7 @@ function isMachineArtifactAppendJsonlPayload(payload: unknown): payload is Machi
 
 function isMachineArtifactBoundary(value: unknown): value is MachineArtifactBoundary {
   return value === "runtime-event-ledger" ||
+    value === "task-event-stream" ||
     value === "provenance-session" ||
     value === "docmap-derived" ||
     value === "distill-candidate" ||
@@ -366,6 +364,8 @@ function resolveMachineArtifactPath(
 
   const allowed = boundary === "runtime-event-ledger"
     ? normalized.startsWith(`${generatedRelative}/runtime-events/`) && normalized.endsWith(".jsonl")
+    : boundary === "task-event-stream"
+      ? normalized === `${authoredRelative}/task-events.ndjson`
     : boundary === "provenance-session"
       ? normalized.startsWith(`${authoredRelative}/sessions/`) && normalized.endsWith(".md")
     : boundary === "docmap-derived"

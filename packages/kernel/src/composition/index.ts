@@ -5,3 +5,6 @@ export { makeMarkdownArtifactStore } from "../store/markdown-artifact-store.ts";
 export { makeJournaledWriteCoordinator } from "../store/write-journal-coordinator.ts";
 export { makeLocalLockRegistry } from "../store/local-lock-registry.ts";
 export { makeLocalVersionControlSystem } from "../store/local-version-control-system.ts";
+export { makeTaskLeaseStore, TaskLeaseConflictError } from "../local/task-lease-store.ts";
+export { defaultLifecycleTaskProjectionPath, makeTaskProjection } from "../projection/task-projection.ts";
+export { makeTaskEventStore, readTaskEventStream, TaskEventStoreError } from "../store/task-event-store.ts";

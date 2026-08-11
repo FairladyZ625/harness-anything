@@ -34,12 +34,13 @@
       "bearing": "task-lifecycle",
       "channel": { "pathClass": "rpc-only", "zoneClass": "task-authored-structured" },
       "entry": ["cli", "daemon-rpc", "gui-bridge"],
-      "writeKinds": ["transition_local", "package_archive", "package_tombstone", "package_reopen", "package_supersede", "package_delete_hard"],
+      "writeKinds": ["transition_local", "package_archive", "package_tombstone", "package_reopen", "package_supersede", "package_delete_hard", "machine_artifact_append_jsonl"],
+      "machineArtifactBoundaries": ["task-event-stream"],
       "cliActions": ["status-set", "task-archive", "task-delete", "task-reopen", "task-supersede", "task-complete", "task-review", "task-review-execution"],
       "apiRoutes": ["tasks.status.set", "tasks.review"],
       "guiBridgeMethods": ["setTaskStatus", "reviewTask"],
-      "callsiteFiles": ["packages/adapters/local/src/task-writes.ts"],
-      "evidence": ["packages/adapters/local/src/index.ts:182", "packages/adapters/local/src/index.ts:310", "packages/application/src/local-controller-service.ts:95"],
+      "callsiteFiles": ["packages/adapters/local/src/task-writes.ts", "packages/kernel/src/store/task-event-store.ts"],
+      "evidence": ["packages/adapters/local/src/index.ts:182", "packages/adapters/local/src/index.ts:310", "packages/application/src/local-controller-service.ts:95", "packages/kernel/src/store/task-event-store.ts:54"],
       "freshness": "coordinator-conditional-task-state"
     },
     {
