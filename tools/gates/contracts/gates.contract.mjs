@@ -8,9 +8,14 @@ export default Object.freeze({
   commands: [],
   guards: [],
   gates: [
+    { id: "G01", phase: "P4", job: "lint", command: "npm run lint" },
+    { id: "G02", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
+    { id: "G03", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G04", phase: "P2", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G05", phase: "P2", job: "lint", command: "npm run lint" },
     { id: "G06", phase: "P2", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
+    { id: "G07", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
+    { id: "G08", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G09", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G10", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G11", phase: "P2", job: "derived-contracts", command: "node tools/gates/derived-contracts.mjs --check" },
@@ -32,12 +37,5 @@ export default Object.freeze({
     { id: "G34", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G35", phase: "P2", job: "anti-entropy-review", command: "node tools/gates/anti-entropy-review.mjs --event \"$GITHUB_EVENT_PATH\"", required: false }
   ],
-  schemas: [{
-    id: "receipt",
-    schema: "tools/gates/receipt-contract.mjs#RECEIPT_SCHEMA",
-    parser: "tools/gates/receipt-contract.mjs#validateReceipt",
-    writer: "tools/gates/receipt-contract.mjs#createReceipt",
-    error: "tools/gates/receipt-contract.mjs#ReceiptContractError",
-    negativeFixtures: ["tools/gates/test/fixtures/receipt-missing-next-action.json"]
-  }]
+  schemas: []
 });

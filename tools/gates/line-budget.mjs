@@ -51,7 +51,9 @@ export function measureProductionLines({ rootDir, revision = null }) {
   return { counts, unclassified };
 }
 
-export function parseBudgets(body, source = "line-budgets.json") {
+const INITIAL_MODULE_CEILINGS = Object.freeze({ "write-contract": 350 });
+
+export function parseBudgets(body, source = "line-budgets.json", historical = false) {
   let parsed;
   try {
     parsed = JSON.parse(body);
@@ -63,18 +65,21 @@ export function parseBudgets(body, source = "line-budgets.json") {
   }
   const unknown = Object.keys(parsed.ceilings).filter((name) => !MODULES.includes(name));
   const missing = MODULES.filter((name) => !Object.hasOwn(parsed.ceilings, name));
-  if (unknown.length > 0 || missing.length > 0) {
-    throw new Error(`${source} module keys do not match module-policy (missing: ${missing.join(", ") || "none"}; unknown: ${unknown.join(", ") || "none"})`);
+  const invalidMissing = historical ? missing.filter((name) => !Object.hasOwn(INITIAL_MODULE_CEILINGS, name)) : missing;
+  if (unknown.length > 0 || invalidMissing.length > 0) {
+    throw new Error(`${source} module keys do not match module-policy (missing: ${invalidMissing.join(", ") || "none"}; unknown: ${unknown.join(", ") || "none"})`);
   }
   for (const [moduleName, ceiling] of Object.entries(parsed.ceilings)) {
     if (!Number.isInteger(ceiling) || ceiling < 0) throw new Error(`${source} ceiling for ${moduleName} must be a non-negative integer`);
   }
-  return parsed.ceilings;
+  const ceilings = { ...INITIAL_MODULE_CEILINGS, ...parsed.ceilings };
+  if (ceilings["write-contract"] > INITIAL_MODULE_CEILINGS["write-contract"]) throw new Error(`${source} ceiling for write-contract exceeds its design limit 350`);
+  return ceilings;
 }
 
 function readBaseBudgets(rootDir, base, relativeBudgetPath) {
   if (!pathExistsAt(rootDir, base, relativeBudgetPath)) return null;
-  return parseBudgets(git(rootDir, ["show", `${base}:${relativeBudgetPath}`]), `${base}:${relativeBudgetPath}`);
+  return parseBudgets(git(rootDir, ["show", `${base}:${relativeBudgetPath}`]), `${base}:${relativeBudgetPath}`, true);
 }
 
 function hasBudgetReceipt(receipts, moduleName, minimumLimit, now) {

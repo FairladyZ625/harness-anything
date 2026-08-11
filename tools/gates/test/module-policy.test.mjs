@@ -5,11 +5,12 @@ import { classifyModule, classifyPath, isProductionPath, isTestPath, MODULES } f
 
 test("module-policy is the single ordered module catalog", () => {
   assert.deepEqual(MODULES, [
-    "kernel", "task-lifecycle", "doc-sync", "preset", "cli", "gui",
+    "kernel", "task-lifecycle", "write-contract", "doc-sync", "preset", "cli", "gui",
     "daemon", "authority-write-path", "identity-rbac", "test-infra"
   ]);
   assert.equal(classifyModule("packages/kernel/src/domain/task.ts"), "kernel");
   assert.equal(classifyModule("packages/application/src/task-lifecycle-gates.ts"), "task-lifecycle");
+  assert.equal(classifyModule("packages/kernel/src/domain/write-chain.contract.ts"), "write-contract");
   assert.equal(classifyModule("packages/cli/src/daemon/doc-sync-service.ts"), "doc-sync");
   assert.equal(classifyModule("packages/cli/src/commands/extensions/preset.ts"), "preset");
   assert.equal(classifyModule("packages/cli/src/index.ts"), "cli");

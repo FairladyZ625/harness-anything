@@ -54,11 +54,11 @@ test("G09 exposes only Task, Execution, Lease, and Review v1 entity facets", () 
     taskId: "task-1",
     executionId: "execution-0",
     actor,
-    credentialHash: "sha256:lease",
     phase: "active",
     expiresAt: "2026-08-11T01:00:00.000Z",
     version: 1
   };
   assert.deepEqual(validateLeaseV1(lease), []);
+  assert.match(validateLeaseV1({ ...lease, credentialHash: "removed" }).map((issue) => issue.code).join(","), /invalid_lease/u);
   assert.match(validateLeaseV1({ ...lease, schema: "lease/v0" }).map((issue) => issue.code).join(","), /invalid_schema/u);
 });

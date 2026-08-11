@@ -12,7 +12,7 @@ test("G29 compares the complete published byte delta with the frozen plan declar
   try {
     await harness.create();
     const started = await harness.start("execution-1");
-    assert.deepEqual(started.writePlan.targets.filter((target) => target.kind === "lease_sqlite"), [
+    assert.deepEqual(started.frozenPlan.targets.filter((target) => target.kind === "lease_sqlite"), [
       { kind: "lease_sqlite", table: "lease_cas", taskId: "task-1", operation: "reserve" },
       { kind: "lease_sqlite", table: "lease_cas", taskId: "task-1", operation: "activate" },
       { kind: "lease_sqlite", table: "lease_cas", taskId: "task-1", operation: "release" }
@@ -25,15 +25,15 @@ test("G29 compares the complete published byte delta with the frozen plan declar
     const before = snapshotTree(harness.rootDir);
 
     const receipt = await harness.submit("execution-1");
-    assert.equal(receipt.status, "applied");
-    assert.deepEqual(receipt.writePlan.targets.filter((target) => target.kind === "lease_sqlite"), [
+    assert.equal(receipt.outcome, "applied");
+    assert.deepEqual(receipt.frozenPlan.targets.filter((target) => target.kind === "lease_sqlite"), [
       { kind: "lease_sqlite", table: "lease_cas", taskId: "task-1", operation: "release" }
     ]);
-    assertChangedPathsDeclared(before, snapshotTree(harness.rootDir), receipt.writePlan);
+    assertChangedPathsDeclared(before, snapshotTree(harness.rootDir), receipt.frozenPlan);
     assert.deepEqual(readFileSync(artifact), Buffer.from([9, 8, 7, 6]));
     assert.deepEqual(readFileSync(sentinel), Buffer.from([0, 1, 2, 255]));
     assert.throws(
-      () => addWriteTarget(receipt.writePlan, { kind: "task_artifact", path: "harness/tasks/task-1/late.bin", operation: "create" }),
+      () => addWriteTarget(receipt.frozenPlan, { kind: "task_artifact", path: "harness/tasks/task-1/late.bin", operation: "create" }),
       (error) => error instanceof TaskLifecycleContractError && error.code === "frozen_write_plan"
     );
   } finally {
@@ -48,12 +48,12 @@ test("G29 rejects an undeclared write outside the frozen plan", async () => {
     await harness.start("execution-1");
     const before = snapshotTree(harness.rootDir);
     const receipt = await harness.submit("execution-1");
-    assert.throws(() => assertWriteTargetDeclared(receipt.writePlan,
+    assert.throws(() => assertWriteTargetDeclared(receipt.frozenPlan,
       { kind: "task_artifact", path: "harness/undeclared-side-effect.bin", operation: "create" }), /undeclared_write_target/u);
     const injected = path.join(harness.rootDir, "harness/undeclared-side-effect.bin");
     writeFileSync(injected, Buffer.from([4, 3, 2, 1]));
     assert.throws(
-      () => assertChangedPathsDeclared(before, snapshotTree(harness.rootDir), receipt.writePlan),
+      () => assertChangedPathsDeclared(before, snapshotTree(harness.rootDir), receipt.frozenPlan),
       /G29 undeclared byte mutation.*harness\/undeclared-side-effect\.bin/iu
     );
   } finally {

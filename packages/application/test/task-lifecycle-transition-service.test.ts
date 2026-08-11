@@ -4,12 +4,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeJournaledWriteCoordinator } from "../../kernel/src/index.ts";
+import { makeJournaledWriteCoordinator, normalizeTaskLifecycleCommand } from "../../kernel/src/index.ts";
 import { makeTaskEventStore, makeTaskLeaseStore, makeTaskProjection, TASK_LEASE_BROKER_CONTRACT, TaskLeaseConflictError } from "../../kernel/test/store/task-lifecycle-runtime.ts";
 import { makeTaskLifecycleService, runTaskLifecycleEffect, TaskLifecycleOperationConflict } from "../src/task-lifecycle-service.ts";
 import { lifecycleHarness, replayGraph } from "./task-lifecycle-test-harness.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } };
+const command = <C extends Parameters<typeof normalizeTaskLifecycleCommand>[2]>(rootDir: string, intent: C, meta: { readonly eventId: string; readonly workspaceRevision: number; readonly occurredAt: string }) =>
+  ({ ...normalizeTaskLifecycleCommand(rootDir, actor, intent), ...meta });
 
 test("transition service freezes targets and makes create/start idempotent by opId payload", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-service-"));
@@ -19,33 +21,28 @@ test("transition service freezes targets and makes create/start idempotent by op
     const projection = makeTaskProjection({ rootDir, eventStore });
     const leases = makeTaskLeaseStore({ rootDir, coordinator, runEffect: runTaskLifecycleEffect, now: () => "2026-08-11T00:00:00.000Z" });
     const service = makeTaskLifecycleService({ eventStore, projection, leases });
-    const create = {
-      type: "CreateReplayTask" as const, taskId: "task-1", title: "Replay task", graph: replayGraph,
-      completionGateIds: [], actor, opId: "op-create", eventId: "event-create", workspaceRevision: 1,
-      occurredAt: "2026-08-11T00:00:00.000Z"
-    };
+    const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: "task-1", title: "Replay task", graph: replayGraph,
+      completionGateIds: [] }, { eventId: "event-create", workspaceRevision: 1, occurredAt: "2026-08-11T00:00:00.000Z" });
     const createProof = { taskIdUnique: true as const, actorBinding: actor };
     const created = await service.execute(create, createProof);
 
-    assert.equal(created.status, "applied");
+    assert.equal(created.outcome, "applied");
     assert.equal((await service.execute(create, createProof)).revision, 1);
-    assert.equal(Object.isFrozen(created.writePlan), true);
-    assert.equal(Object.isFrozen(created.writePlan.targets), true);
+    assert.equal(Object.isFrozen(created.frozenPlan), true);
+    assert.equal(Object.isFrozen(created.frozenPlan.targets), true);
     await assert.rejects(service.execute({ ...create, title: "Different" }, createProof), TaskLifecycleOperationConflict);
 
-    const started = await service.execute({
-      type: "StartExecution", taskId: "task-1", executionId: "execution-1", actor,
-      opId: "op-start", eventId: "event-start", workspaceRevision: 2,
-      occurredAt: "2026-08-11T00:01:00.000Z"
-    }, {
+    const started = await service.execute(command(rootDir, {
+      type: "StartExecution", taskId: "task-1", executionId: "execution-1"
+    }, { eventId: "event-start", workspaceRevision: 2, occurredAt: "2026-08-11T00:01:00.000Z" }), {
       actorBinding: actor, expectedRevision: 1,
-      reservation: { taskId: "task-1", executionId: "execution-1", credentialHash: "credential-hash", expiresAt: "2026-08-11T01:00:00.000Z", version: 0 }
+      reservation: { taskId: "task-1", executionId: "execution-1", expiresAt: "2026-08-11T01:00:00.000Z", version: 0 }
     });
 
-    assert.equal(started.status, "applied");
+    assert.equal(started.outcome, "applied");
     assert.equal(started.snapshot.lease?.phase, "active");
     assert.equal(started.snapshot.executions[0]?.state, "active");
-    assert.equal(JSON.stringify(eventStore.read().events).includes("credential-hash"), false);
+    assert.equal(JSON.stringify(eventStore.read().events).includes("credential"), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -87,12 +84,12 @@ test("lease broker capacity ceiling rejects concurrent exhaustion and release re
     for (let index = 0; index < TASK_LEASE_BROKER_CONTRACT.capacity - 1; index += 1) {
       await leases.reserve({
         taskId: `task-cap-${index}`, executionId: `execution-cap-${index}`, actor,
-        credentialHash: `credential-cap-${index}`, expiresAt: "2026-08-11T01:00:00.000Z"
+        expiresAt: "2026-08-11T01:00:00.000Z"
       });
     }
     const contenders = ["left", "right"].map(async (id) => store().reserve({
       taskId: `task-${id}`, executionId: `execution-${id}`, actor,
-      credentialHash: `credential-${id}`, expiresAt: "2026-08-11T01:00:00.000Z"
+      expiresAt: "2026-08-11T01:00:00.000Z"
     }));
     const results = await Promise.allSettled(contenders);
     assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
@@ -107,12 +104,12 @@ test("lease broker capacity ceiling rejects concurrent exhaustion and release re
     if (winner?.status !== "fulfilled") throw new Error("capacity contender did not win");
     await leases.release({
       taskId: winner.value.taskId, executionId: winner.value.executionId,
-      credentialHash: winner.value.credentialHash, version: winner.value.version
+      actor: winner.value.actor, version: winner.value.version
     });
     const loserId = winner.value.taskId === "task-left" ? "right" : "left";
     const recovered = await store().reserve({
       taskId: `task-${loserId}`, executionId: `execution-${loserId}`, actor,
-      credentialHash: `credential-${loserId}`, expiresAt: "2026-08-11T01:00:00.000Z"
+      expiresAt: "2026-08-11T01:00:00.000Z"
     });
     assert.equal(recovered.taskId, `task-${loserId}`);
   } finally {

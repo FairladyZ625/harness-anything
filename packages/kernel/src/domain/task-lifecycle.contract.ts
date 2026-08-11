@@ -2,15 +2,17 @@ import { EXECUTION_V1_SCHEMA, isNativeCommitSha, LEASE_V1_SCHEMA, validateExecut
 import type { ExecutionV1, LeaseV1 } from "./execution.ts";
 import { REVIEW_V1_SCHEMA, validateReviewV1 } from "./review.ts";
 import type { ReviewV1 } from "./review.ts";
-import { appendWriteTarget, canonicalizeContractValue, freezeValidatedWritePlan, hasOnlyFields, isFrozenWritePlan, isNonEmptyString, isRecord, TASK_V1_SCHEMA, validateActorAxes, validateTaskV1, validateWritePlanShape } from "./task.ts";
-import type { ActorAxes, ContractValidationIssue, FrozenWritePlan, TaskV1, WritePlan, WriteTarget } from "./task.ts";
+import { TASK_V1_SCHEMA, validateActorAxes, validateTaskV1 } from "./task.ts";
+import type { ActorAxes, ContractValidationIssue, TaskV1 } from "./task.ts";
 import { TASK_EDGE_TAKEN_SCHEMA, TASK_GRAPH_V1_SCHEMA, validateTaskGraph } from "./task-graph.ts";
 import type { TaskEdgeTaken, TaskGraphV1 } from "./task-graph.ts";
+import { appendWriteTarget, assertCurrentWriter, createWriteReceipt, freezeDeclaredWritePlan, hasOnlyFields, isFrozenWritePlan, isNonEmptyString, isRecord, normalizeCommandEnvelope, serializeEventEnvelope, validateDeclaredWritePlan, validateNormalizedCommandEnvelope } from "./write-chain.contract.ts";
+import type { EventEnvelope, FrozenWritePlan, NormalizedCommandEnvelope, WritePlan, WriteReceipt, WriteTarget, WriterGeneration, WriterGenerationToken } from "./write-chain.contract.ts";
 
 export const taskEventTypes = ["task_created", "execution_started", "execution_submitted", "review_recorded", "task_completed"] as const;
 export type TaskEventType = (typeof taskEventTypes)[number];
 
-interface TaskEventEnvelope<T extends TaskEventType, P> { readonly schema: "task-event/v1"; readonly eventId: string; readonly workspaceRevision: number; readonly opId: string; readonly taskId: string; readonly type: T; readonly actor: ActorAxes; readonly occurredAt: string; readonly payload: P }
+type TaskEventEnvelope<T extends TaskEventType, P> = EventEnvelope<"task-event/v1", T, ActorAxes, P> & { readonly taskId: string };
 export type TaskCreatedEvent = TaskEventEnvelope<"task_created", { readonly task: TaskV1 }>;
 export type ExecutionStartedEvent = TaskEventEnvelope<"execution_started", { readonly task: TaskV1; readonly execution: ExecutionV1 }>;
 export type ExecutionSubmittedEvent = TaskEventEnvelope<"execution_submitted", { readonly task: TaskV1; readonly execution: ExecutionV1; readonly edge: TaskEdgeTaken }>;
@@ -19,17 +21,33 @@ export type TaskCompletedEvent = TaskEventEnvelope<"task_completed", { readonly 
 export type TaskEventV1 = TaskCreatedEvent | ExecutionStartedEvent | ExecutionSubmittedEvent | ReviewRecordedEvent | TaskCompletedEvent;
 
 export interface TaskLifecycleSnapshot { readonly revision: number; readonly task: TaskV1 | null; readonly executions: readonly ExecutionV1[]; readonly reviews: readonly ReviewV1[]; readonly edgesTaken: readonly TaskEdgeTaken[]; readonly lease: LeaseV1 | null }
-interface CommandMeta<T extends string> { readonly type: T; readonly taskId: string; readonly actor: ActorAxes; readonly opId: string; readonly eventId: string; readonly workspaceRevision: number; readonly occurredAt: string }
-export interface CreateReplayTaskCommand extends CommandMeta<"CreateReplayTask"> { readonly title: string; readonly graph: TaskGraphV1; readonly completionGateIds: readonly string[] }
-export interface StartExecutionCommand extends CommandMeta<"StartExecution"> { readonly executionId: string }
-export interface SubmitExecutionCommand extends CommandMeta<"SubmitExecution"> { readonly executionId: string; readonly submission: import("./execution.ts").SubmissionV1 }
-export interface RecordReviewCommand extends CommandMeta<"RecordReview"> { readonly executionId: string; readonly reviewId: string; readonly kind: import("./review.ts").ReviewKind; readonly verdict: import("./review.ts").ReviewVerdict; readonly actorRole: import("./review.ts").ReviewActorRole; readonly reason: string; readonly evidenceChecked: readonly string[]; readonly commitSha: string; readonly iteration: number; readonly archiveWarningsAcknowledged: boolean }
-export interface CompleteTaskCommand extends CommandMeta<"CompleteTask"> { readonly executionId: string }
+interface CommandIntent<T extends string> { readonly type: T; readonly taskId: string }
+export interface CreateReplayTaskIntent extends CommandIntent<"CreateReplayTask"> { readonly title: string; readonly graph: TaskGraphV1; readonly completionGateIds: readonly string[] }
+export interface StartExecutionIntent extends CommandIntent<"StartExecution"> { readonly executionId: string }
+export interface SubmitExecutionIntent extends CommandIntent<"SubmitExecution"> { readonly executionId: string; readonly submission: import("./execution.ts").SubmissionV1 }
+export interface RecordReviewIntent extends CommandIntent<"RecordReview"> { readonly executionId: string; readonly reviewId: string; readonly kind: import("./review.ts").ReviewKind; readonly verdict: import("./review.ts").ReviewVerdict; readonly actorRole: import("./review.ts").ReviewActorRole; readonly reason: string; readonly evidenceChecked: readonly string[]; readonly commitSha: string; readonly iteration: number; readonly archiveWarningsAcknowledged: boolean }
+export interface CompleteTaskIntent extends CommandIntent<"CompleteTask"> { readonly executionId: string }
+export type TaskLifecycleCommandIntent = CreateReplayTaskIntent | StartExecutionIntent | SubmitExecutionIntent | RecordReviewIntent | CompleteTaskIntent;
+export type NormalizedTaskLifecycleCommand<C extends TaskLifecycleCommandIntent = TaskLifecycleCommandIntent> = C & NormalizedCommandEnvelope<ActorAxes>;
+type ServerCommandMeta = { readonly eventId: string; readonly workspaceRevision: number; readonly occurredAt: string };
+export type CreateReplayTaskCommand = NormalizedTaskLifecycleCommand<CreateReplayTaskIntent> & ServerCommandMeta; export type StartExecutionCommand = NormalizedTaskLifecycleCommand<StartExecutionIntent> & ServerCommandMeta;
+export type SubmitExecutionCommand = NormalizedTaskLifecycleCommand<SubmitExecutionIntent> & ServerCommandMeta; export type RecordReviewCommand = NormalizedTaskLifecycleCommand<RecordReviewIntent> & ServerCommandMeta;
+export type CompleteTaskCommand = NormalizedTaskLifecycleCommand<CompleteTaskIntent> & ServerCommandMeta;
 export type TaskLifecycleCommand = CreateReplayTaskCommand | StartExecutionCommand | SubmitExecutionCommand | RecordReviewCommand | CompleteTaskCommand;
+export function normalizeTaskLifecycleCommand<C extends TaskLifecycleCommandIntent>(workspaceId: string, actor: ActorAxes, command: C): NormalizedTaskLifecycleCommand<C> {
+  return Object.freeze({ ...command, ...normalizeCommandEnvelope({ workspaceId, actor, command: command as unknown as Readonly<Record<string, unknown>> }) }) as unknown as NormalizedTaskLifecycleCommand<C>;
+}
+function lifecycleCommandIntent(command: TaskLifecycleCommand): TaskLifecycleCommandIntent {
+  const { schema: _schema, workspaceId: _workspaceId, actor: _actor, opId: _opId, commandDigest: _commandDigest,
+    eventId: _eventId, workspaceRevision: _workspaceRevision, occurredAt: _occurredAt, transport: _transport, ...intent } = command as TaskLifecycleCommand & { readonly transport?: unknown };
+  return intent as TaskLifecycleCommandIntent; }
+function normalizedCommandIssues(command: TaskLifecycleCommand): readonly ContractValidationIssue[] {
+  return validateNormalizedCommandEnvelope(command, { workspaceId: command.workspaceId, actor: command.actor,
+    command: lifecycleCommandIntent(command) as unknown as Readonly<Record<string, unknown>> }).map((message) => ({ code: "invalid_schema", message })); }
 
 export interface CreateReplayTaskProof { readonly taskIdUnique: true; readonly actorBinding: ActorAxes }
-export interface StartExecutionProof { readonly actorBinding: ActorAxes; readonly expectedRevision: number; readonly reservation: { readonly taskId: string; readonly executionId: string; readonly credentialHash: string; readonly expiresAt: string; readonly version: number } }
-export interface SubmitExecutionProof { readonly expectedRevision: number; readonly credentialHash: string; readonly sessionDisposition: "complete" | "partial" | "unavailable" }
+export interface StartExecutionProof { readonly actorBinding: ActorAxes; readonly expectedRevision: number; readonly reservation: { readonly taskId: string; readonly executionId: string; readonly expiresAt: string; readonly version: number } }
+export interface SubmitExecutionProof { readonly expectedRevision: number; readonly actorBinding: ActorAxes; readonly leaseVersion: number; readonly sessionDisposition: "complete" | "partial" | "unavailable" }
 export interface ReviewProof { readonly expectedRevision: number; readonly actorBinding: ActorAxes; readonly capability: "anti-entropy@v1" | "acceptance-review@v1"; readonly capabilityRef: string; readonly archiveWarningsPresent: boolean }
 export interface CompleteTaskProof { readonly expectedRevision: number; readonly capability: "task-complete@v1"; readonly capabilityRef: string; readonly actorRole: "owner" | "commander"; readonly noActiveLease: true; readonly gateReceipts: readonly { readonly gateId: string; readonly receiptRef: string; readonly result: "pass"; readonly executionId: string; readonly commitSha: string; readonly iteration: number }[] }
 export type ProofFor<C extends TaskLifecycleCommand> =
@@ -115,7 +133,7 @@ const startExecutionTransition: TransitionDefinition = {
     if (proof.actorBinding === undefined || !sameActor(command.actor, proof.actorBinding)) issues.push({ code: "invalid_proof", message: "start actor binding does not match" });
     const reservation = proof.reservation;
     if (reservation === undefined || reservation.taskId !== command.taskId || reservation.executionId !== command.executionId
-      || !isNonEmptyString(reservation.credentialHash) || !isNonEmptyString(reservation.expiresAt)
+      || !isNonEmptyString(reservation.expiresAt)
       || !Number.isInteger(reservation.version) || (reservation.version ?? -1) < 0) issues.push({ code: "invalid_proof", message: "active reservation CAS proof is required" });
     return issues;
   },
@@ -124,7 +142,7 @@ const startExecutionTransition: TransitionDefinition = {
     const proof = rawProof as StartExecutionProof;
     const task = { ...snapshot.task as TaskV1, status: "active" as const };
     const execution: ExecutionV1 = { schema: "execution/v1", executionId: command.executionId, taskId: command.taskId, nodeId: "implementation", iteration: task.iteration, state: "active", actor: command.actor, claimedAt: command.occurredAt, submittedAt: null, closedAt: null, submission: null };
-    const lease: LeaseV1 = { schema: "lease/v1", taskId: command.taskId, executionId: command.executionId, actor: command.actor, credentialHash: proof.reservation.credentialHash, phase: "active", expiresAt: proof.reservation.expiresAt, version: proof.reservation.version };
+    const lease: LeaseV1 = { schema: "lease/v1", taskId: command.taskId, executionId: command.executionId, actor: command.actor, phase: "active", expiresAt: proof.reservation.expiresAt, version: proof.reservation.version };
     const event = envelope<StartExecutionCommand, ExecutionStartedEvent>(command, "execution_started", { task, execution });
     return { snapshot: { ...snapshot, revision: command.workspaceRevision, task, executions: [...snapshot.executions, execution], lease }, event };
   }
@@ -171,7 +189,7 @@ function reviewFrom(command: RecordReviewCommand, proof: ReviewProof): ReviewV1 
 
 const submitExecutionTransition: TransitionDefinition = {
   id: "submit_execution", commandType: "SubmitExecution", from: "active/implementation",
-  proof: ["leaseCredential", "sessionDisposition", "submission", "expectedRevision"], eventType: "execution_submitted",
+  proof: ["actorBinding", "executionId", "leaseVersion", "sessionDisposition", "submission", "expectedRevision"], eventType: "execution_submitted",
   matches: (command) => command.type === "SubmitExecution",
   validate: (snapshot, rawCommand, rawProof) => {
     const command = rawCommand as SubmitExecutionCommand;
@@ -182,7 +200,8 @@ const submitExecutionTransition: TransitionDefinition = {
     if (task === null || task.status !== "active" || task.currentNode !== "implementation" || execution?.state !== "active" || execution.iteration !== task.iteration) issues.push({ code: "invalid_transition", message: "SubmitExecution requires the active execution in the current implementation round" });
     const lease = snapshot.lease;
     if (lease === null || lease.phase !== "active" || lease.taskId !== command.taskId || lease.executionId !== command.executionId
-      || !sameActor(lease.actor, command.actor) || proof.credentialHash !== lease.credentialHash) issues.push({ code: "invalid_proof", message: "the exact active lease holder and credential are required" });
+      || !sameActor(lease.actor, command.actor) || proof.actorBinding === undefined || !sameActor(proof.actorBinding, command.actor)
+      || proof.leaseVersion !== lease.version) issues.push({ code: "invalid_proof", message: "the authenticated actor, execution, and lease version must match the active lease" });
     if (!["complete", "partial", "unavailable"].includes(String(proof.sessionDisposition))) issues.push({ code: "invalid_proof", message: "session disposition must be terminal" });
     issues.push(...validateSubmissionV1(command.submission));
     return issues;
@@ -359,6 +378,8 @@ export const TASK_LIFECYCLE_TRANSITIONS: readonly TransitionDefinition[] = Objec
 ]);
 
 export function validateTransition<C extends TaskLifecycleCommand>(snapshot: TaskLifecycleSnapshot, command: C, proof: ProofFor<C>): readonly ContractValidationIssue[] {
+  const normalizedIssues = normalizedCommandIssues(command);
+  if (normalizedIssues.length > 0) return normalizedIssues;
   const transition = TASK_LIFECYCLE_TRANSITIONS.find((candidate) => candidate.matches(command));
   return transition === undefined
     ? [{ code: "invalid_transition", message: `no lifecycle transition accepts ${command.type}` }]
@@ -373,6 +394,8 @@ function transitionErrorCode(issues: readonly ContractValidationIssue[]): TaskLi
 }
 
 function previewTransition<C extends TaskLifecycleCommand>(snapshot: TaskLifecycleSnapshot, command: C, proof: ProofFor<C>): TransitionResult {
+  const normalizedIssues = normalizedCommandIssues(command);
+  if (normalizedIssues.length > 0) throw new TaskLifecycleContractError("invalid_schema", normalizedIssues);
   const transition = TASK_LIFECYCLE_TRANSITIONS.find((candidate) => candidate.matches(command));
   if (transition === undefined) throw new TaskLifecycleContractError("invalid_transition", [{ code: "invalid_transition", message: `no lifecycle transition accepts ${command.type}` }]);
   const issues = transition.validate(snapshot, command, proof);
@@ -430,15 +453,16 @@ export function applyTransition<C extends TaskLifecycleCommand>(snapshot: TaskLi
 }
 
 export type TaskLifecycleCommandType = TaskLifecycleCommand["type"];
-export type { FrozenWritePlan, WritePlan, WriteTarget } from "./task.ts";
+export type { FrozenWritePlan, WritePlan, WriteTarget } from "./write-chain.contract.ts";
 export function validateWritePlan(plan: WritePlan<TaskLifecycleCommandType>): readonly ContractValidationIssue[] {
-  return validateWritePlanShape(plan, TASK_LIFECYCLE_TRANSITIONS.map((transition) => transition.commandType));
+  return validateDeclaredWritePlan(plan, TASK_LIFECYCLE_TRANSITIONS.map((transition) => transition.commandType))
+    .map((message) => ({ code: "invalid_write_plan", message }));
 }
 
 export function freezeWritePlan<C extends TaskLifecycleCommandType>(plan: WritePlan<C>): FrozenWritePlan<C> {
   const issues = validateWritePlan(plan);
   if (issues.length > 0) throw new TaskLifecycleContractError("frozen_write_plan", issues);
-  return freezeValidatedWritePlan(plan);
+  return freezeDeclaredWritePlan(plan, TASK_LIFECYCLE_TRANSITIONS.map((transition) => transition.commandType));
 }
 
 export function addWriteTarget<C extends TaskLifecycleCommandType>(plan: WritePlan<C> | FrozenWritePlan<C>, target: WriteTarget): WritePlan<C> {
@@ -447,6 +471,41 @@ export function addWriteTarget<C extends TaskLifecycleCommandType>(plan: WritePl
   }
   return appendWriteTarget(plan, target);
 }
+export function taskLifecycleWritePlan(command: TaskLifecycleCommand): FrozenWritePlan<TaskLifecycleCommandType> {
+  const leaseTargets: readonly WriteTarget[] = command.type === "StartExecution"
+    ? [leaseTarget(command.taskId, "reserve"), leaseTarget(command.taskId, "activate"), leaseTarget(command.taskId, "release")]
+    : command.type === "SubmitExecution" ? [leaseTarget(command.taskId, "release")] : [];
+  return freezeWritePlan({ commandType: command.type, targets: [{ kind: "event_stream", stream: "harness/task-events.ndjson", operation: "append" },
+    { kind: "projection_invalidation", projection: "task-lifecycle/v1", taskId: command.taskId }, ...leaseTargets] }); }
+function leaseTarget(taskId: string, operation: "reserve" | "activate" | "release"): WriteTarget { return { kind: "lease_sqlite", table: "lease_cas", taskId, operation }; }
+export interface ExistingTaskOperation { readonly opId: string; readonly commandDigest: string; readonly event: TaskEventV1; readonly receipt: WriteReceipt }
+export type TaskLifecycleWriteDecision =
+  | { readonly accepted: true; readonly event: TaskEventV1; readonly frozenPlan: FrozenWritePlan<TaskLifecycleCommandType>; readonly receipt: WriteReceipt }
+  | { readonly accepted: false; readonly event: null; readonly frozenPlan: null; readonly receipt: WriteReceipt };
+export function decideTaskLifecycleWrite<C extends TaskLifecycleCommand>(input: {
+  readonly snapshot: TaskLifecycleSnapshot; readonly command: C; readonly proof: ProofFor<C>; readonly activeWriter: WriterGeneration;
+  readonly writerToken: WriterGenerationToken; readonly existingOperation?: ExistingTaskOperation;
+}): TaskLifecycleWriteDecision {
+  try {
+    assertCurrentWriter(input.activeWriter, input.writerToken, input.command.workspaceId);
+    if (input.existingOperation?.opId === input.command.opId && input.existingOperation.commandDigest !== input.command.commandDigest)
+      return rejectedDecision(input.command.opId, "operation_conflict", "the same opId already names a different command payload");
+    const frozenPlan = taskLifecycleWritePlan(input.command);
+    if (input.existingOperation?.opId === input.command.opId)
+      return Object.freeze({ accepted: true, event: input.existingOperation.event, frozenPlan, receipt: input.existingOperation.receipt });
+    const event = applyTransition(input.snapshot, input.command, input.proof).event;
+    const receipt = createWriteReceipt({ outcome: "indeterminate", opId: input.command.opId,
+      code: "publication_unverified", origin: "task-lifecycle-contract", nextAction: `read operation ${input.command.opId} before retrying` });
+    return Object.freeze({ accepted: true, event, frozenPlan, receipt });
+  } catch (error) {
+    const rawCode = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "write_rejected";
+    const code = rawCode === "frozen_write_plan" ? "invalid_write_plan" : rawCode;
+    return rejectedDecision(input.command.opId, code, error instanceof Error ? error.message : String(error));
+  }
+}
+function rejectedDecision(opId: string, code: string, detail: string): TaskLifecycleWriteDecision {
+  return Object.freeze({ accepted: false, event: null, frozenPlan: null, receipt: createWriteReceipt({ outcome: "rejected", opId,
+    code, origin: "task-lifecycle-contract", nextAction: `correct the command or writer proof before retrying: ${detail}` }) }); }
 
 export const TASK_EVENT_V1_SCHEMA = Object.freeze({
   id: "task-event/v1",
@@ -514,7 +573,7 @@ function validateTakenEdge(value: unknown): readonly ContractValidationIssue[] {
 export function serializeTaskEvent(value: TaskEventV1): string {
   const issues = validateTaskEvent(value);
   if (issues.length > 0) throw new TaskLifecycleContractError("invalid_schema", issues);
-  return `${JSON.stringify(canonicalizeContractValue(value))}\n`;
+  return serializeEventEnvelope(value);
 }
 
 function assertReplayEvent(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next: TaskLifecycleSnapshot): void {

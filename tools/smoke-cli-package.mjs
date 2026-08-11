@@ -74,12 +74,12 @@ export function runCliPackageSmoke(root = process.cwd()) {
       throw new Error(`unexpected task show smoke output: ${JSON.stringify(shown)}`);
     }
     const started = runJson(binPath, ["--json", "task", "start", "task_SMOKE", "--execution-id", "execution_SMOKE"], projectDir);
-    if (started.ok !== true || started.outcome !== "applied" || typeof started.leaseCredential !== "string" || typeof started.leaseExpiry !== "string") {
+    if (started.ok !== true || started.outcome !== "applied" || typeof started.opId !== "string") {
       throw new Error(`unexpected task start smoke output: ${JSON.stringify(started)}`);
     }
     const submitted = runJson(binPath, [
       "--json", "task", "submit", "task_SMOKE", "--execution-id", "execution_SMOKE",
-      "--lease-credential", started.leaseCredential, "--claim", "packaged smoke", "--commit-sha", "a".repeat(40)
+      "--claim", "packaged smoke", "--commit-sha", "a".repeat(40)
     ], projectDir);
     if (submitted.ok !== true || submitted.outcome !== "applied") {
       throw new Error(`unexpected task submit smoke output: ${JSON.stringify(submitted)}`);

@@ -18,7 +18,7 @@ const actor = {
   executor: { kind: "agent" as const, id: "executor-host" }
 };
 
-test("host issues a start credential once and persists neither plaintext channel nor proof", async () => {
+test("host binds the lease to the authenticated actor, execution, and version", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-host-"));
   try {
     const host = makeTaskLifecycleHost({
@@ -33,30 +33,25 @@ test("host issues a start credential once and persists neither plaintext channel
     } as CommandRunnerContext);
 
     const create = parsed(["task", "create", "--task-id", "task_HOST", "--title", "Host task"]);
-    assert.equal((await runTaskLifecycleFacade(create, { actor, service: host })).outcome, "applied");
+    assert.equal((await runTaskLifecycleFacade(create, { actor, workspaceId: rootDir, service: host })).outcome, "applied");
 
     const start = parsed(["task", "start", "task_HOST", "--execution-id", "execution_HOST"]);
-    const first = await runTaskLifecycleFacade(start, { actor, service: host });
+    const first = await runTaskLifecycleFacade(start, { actor, workspaceId: rootDir, service: host });
     assert.equal(first.outcome, "applied");
-    assert.match(first.leaseCredential ?? "", /^[A-Za-z0-9_-]+$/u);
-    assert.match(first.nextAction ?? "", /Save.*shown once.*submit.*requires/iu);
 
     const streamPath = path.join(rootDir, "harness/task-events.ndjson");
-    assert.equal(readFileSync(streamPath, "utf8").includes(first.leaseCredential!), false);
+    assert.equal(readFileSync(streamPath, "utf8").includes("credential"), false);
     const projectionBytes = readFileSync(path.join(rootDir, ".harness/cache/task.sqlite")).toString("latin1");
-    assert.equal(projectionBytes.includes(first.leaseCredential!), false);
+    assert.equal(projectionBytes.includes("credential"), false);
 
-    const retried = await runTaskLifecycleFacade(start, { actor, service: host });
+    const retried = await runTaskLifecycleFacade(start, { actor, workspaceId: rootDir, service: host });
     assert.equal(retried.outcome, "applied");
-    assert.equal(retried.leaseCredential, undefined);
-    assert.match(retried.nextAction ?? "", /not reissued.*saved/iu);
 
     const submit = parsed([
       "task", "submit", "task_HOST", "--execution-id", "execution_HOST",
-      "--lease-credential", first.leaseCredential!, "--claim", "ready", "--commit-sha", "a".repeat(40)
+      "--claim", "ready", "--commit-sha", "a".repeat(40)
     ]);
-    assert.equal((await runTaskLifecycleFacade(submit, { actor, service: host })).outcome, "applied");
-    assert.equal(readFileSync(streamPath, "utf8").includes(first.leaseCredential!), false);
+    assert.equal((await runTaskLifecycleFacade(submit, { actor, workspaceId: rootDir, service: host })).outcome, "applied");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -172,10 +167,8 @@ async function submittedTask(context: CommandRunnerContext, taskId: string, exec
   assert.equal((await runRunner(context, ["task", "create", "--task-id", taskId, "--title", "Runner task", ...createExtra])).ok, true);
   const started = await runRunner(context, ["task", "start", taskId, "--execution-id", executionId]);
   assert.equal(started.ok, true);
-  const credential = (started as { readonly leaseCredential?: string }).leaseCredential;
-  assert.ok(credential);
   assert.equal((await runRunner(context, [
-    "task", "submit", taskId, "--execution-id", executionId, "--lease-credential", credential,
+    "task", "submit", taskId, "--execution-id", executionId,
     "--claim", "ready", "--commit-sha", "b".repeat(40)
   ])).ok, true);
 }

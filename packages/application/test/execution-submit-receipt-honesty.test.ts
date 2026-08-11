@@ -11,8 +11,8 @@ test("an authored submit with failed projection reports pending and a safe read 
     harness.failNextProjection();
     const receipt = await harness.submit("execution-1");
 
-    assert.equal(receipt.status, "pending");
-    assert.match(receipt.query ?? "", /retry task lifecycle read/u);
+    assert.equal(receipt.outcome, "pending");
+    assert.match(receipt.nextAction ?? "", /retry task lifecycle read/u);
     assert.equal(harness.eventStore.read().events.at(-1)?.type, "execution_submitted");
     const recovered = await harness.service.read("task-1");
     assert.equal(recovered.status, "ready");

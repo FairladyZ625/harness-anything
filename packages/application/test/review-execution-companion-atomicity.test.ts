@@ -12,7 +12,7 @@ test("changes_requested records Review, return edge, Execution closure, and Task
     harness.kill("after_event_append");
     const receipt = await harness.review("execution-1", "anti_entropy", "changes_requested");
 
-    assert.equal(receipt.status, "indeterminate");
+    assert.equal(receipt.outcome, "indeterminate");
     const snapshot = (await harness.service.read("task-1")).snapshot;
     assert.equal(snapshot.reviews.at(-1)?.verdict, "changes_requested");
     assert.equal(snapshot.edgesTaken.at(-1)?.on, "changes_requested");

@@ -1,6 +1,9 @@
 import type { LifecycleBinding } from "./lifecycle-binding.js";
 import { validateTaskGraph } from "./task-graph.ts";
 import type { TaskGraphV1, TaskNodeId } from "./task-graph.ts";
+import { hasOnlyFields, isNonEmptyString, isRecord } from "./write-chain.contract.ts";
+export { canonicalizeWriteValue as canonicalizeContractValue, hasOnlyFields, isNonEmptyString, isRecord } from "./write-chain.contract.ts";
+export type { FrozenWritePlan, WritePlan, WriteTarget } from "./write-chain.contract.ts";
 
 export type TaskId = string;
 export type EngineId = string;
@@ -30,20 +33,6 @@ export interface ActorAxes { readonly principal: { readonly personId: string }; 
 export interface TaskV1 { readonly schema: "task/v1"; readonly taskId: string; readonly title: string; readonly status: ReplayTaskStatus; readonly graph: TaskGraphV1; readonly currentNode: TaskNodeId; readonly iteration: 0 | 1; readonly createdBy: ActorAxes; readonly completionGateIds: readonly string[] }
 export interface ContractValidationIssue { readonly code: string; readonly message: string }
 export const TASK_V1_SCHEMA = Object.freeze({ id: "Task/v1", required: Object.freeze(["schema", "taskId", "title", "status", "graph", "currentNode", "iteration", "createdBy", "completionGateIds"]), statuses: replayTaskStatuses });
-export function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-export function canonicalizeContractValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalizeContractValue);
-  if (!isRecord(value)) return value;
-  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalizeContractValue(value[key])]));
-}
-export function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
-}
-export function hasOnlyFields(value: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean {
-  return Object.keys(value).every((field) => fields.includes(field)) && fields.every((field) => Object.hasOwn(value, field));
-}
 export function validateActorAxes(value: unknown): readonly ContractValidationIssue[] {
   if (!isRecord(value) || !hasOnlyFields(value, ["principal", "executor"]) || !isRecord(value.principal)
     || !hasOnlyFields(value.principal, ["personId"]) || !isNonEmptyString(value.principal.personId)) {
@@ -70,43 +59,3 @@ export function validateTaskV1(value: unknown): readonly ContractValidationIssue
 }
 
 const taskNodeIdsForValidation = ["implementation", "anti_entropy", "review"] as const;
-
-export type WriteTarget =
-  | { readonly kind: "event_stream"; readonly stream: string; readonly operation: "append" }
-  | { readonly kind: "projection_invalidation"; readonly projection: string; readonly taskId: string }
-  | { readonly kind: "lease_sqlite"; readonly table: "lease_cas"; readonly taskId: string; readonly operation: "reserve" | "activate" | "release" }
-  | { readonly kind: "task_artifact"; readonly path: string; readonly operation: "create" | "replace" };
-export interface WritePlan<C extends string = string> { readonly commandType: C; readonly targets: readonly WriteTarget[] }
-declare const frozenWritePlanBrand: unique symbol;
-export type FrozenWritePlan<C extends string = string> = Readonly<WritePlan<C>> & { readonly [frozenWritePlanBrand]: true };
-
-function writeTargetKey(target: WriteTarget): string {
-  return target.kind === "event_stream" ? `${target.kind}:${target.stream}`
-    : target.kind === "projection_invalidation" ? `${target.kind}:${target.projection}:${target.taskId}`
-    : target.kind === "lease_sqlite" ? `${target.kind}:${target.table}:${target.taskId}:${target.operation}`
-    : `${target.kind}:${target.path}`;
-}
-export function validateWritePlanShape(plan: WritePlan, commandTypes: readonly string[]): readonly ContractValidationIssue[] {
-  const issues: ContractValidationIssue[] = [];
-  if (!commandTypes.includes(plan.commandType)) issues.push({ code: "invalid_write_plan", message: "write plan command must come from the lifecycle contract" });
-  if (!Array.isArray(plan.targets) || !plan.targets.some((target) => target.kind === "event_stream")
-    || !plan.targets.some((target) => target.kind === "projection_invalidation")) issues.push({ code: "invalid_write_plan", message: "every command must declare its event stream and projection invalidation" });
-  const keys = new Set<string>();
-  for (const target of plan.targets) {
-    if (keys.has(writeTargetKey(target))) issues.push({ code: "duplicate_write_target", message: `duplicate write target: ${writeTargetKey(target)}` });
-    keys.add(writeTargetKey(target));
-    if (target.kind === "event_stream" && (!isNonEmptyString(target.stream) || target.operation !== "append")) issues.push({ code: "invalid_write_plan", message: "event stream targets require append" });
-    if (target.kind === "projection_invalidation" && (!isNonEmptyString(target.projection) || !isNonEmptyString(target.taskId))) issues.push({ code: "invalid_write_plan", message: "projection invalidation requires projection and task identity" });
-    if (target.kind === "lease_sqlite" && (target.table !== "lease_cas" || !isNonEmptyString(target.taskId)
-      || !["reserve", "activate", "release"].includes(target.operation))) issues.push({ code: "invalid_write_plan", message: "Lease SQLite targets require lease_cas task identity and operation" });
-    if (target.kind === "task_artifact" && (!isNonEmptyString(target.path) || !["create", "replace"].includes(target.operation))) issues.push({ code: "invalid_write_plan", message: "artifact targets require an explicit write operation" });
-  }
-  return issues;
-}
-export function freezeValidatedWritePlan<C extends string>(plan: WritePlan<C>): FrozenWritePlan<C> {
-  return Object.freeze({ commandType: plan.commandType, targets: Object.freeze(plan.targets.map((target) => Object.freeze({ ...target }))) }) as FrozenWritePlan<C>;
-}
-export function isFrozenWritePlan(plan: WritePlan): boolean { return Object.isFrozen(plan) && Object.isFrozen(plan.targets); }
-export function appendWriteTarget<C extends string>(plan: WritePlan<C>, target: WriteTarget): WritePlan<C> {
-  return { commandType: plan.commandType, targets: [...plan.targets, target] };
-}

@@ -14,6 +14,7 @@ const actor = {
   principal: { personId: "person_zeyu" },
   executor: { kind: "agent" as const, id: "executor-session" }
 };
+const workspaceId = "/workspace";
 
 test("lifecycle facade derives its five write commands from the W1 catalog", () => {
   const domainTypes = [...new Set(TASK_LIFECYCLE_COMMAND_CATALOG.map((entry) => entry.commandType))].sort();
@@ -34,7 +35,7 @@ test("lifecycle facade derives its five write commands from the W1 catalog", () 
 
 test("four lifecycle write facades expose actionable help", () => {
   assert.match(renderTaskLifecycleHelp("start"), /Usage: ha task start <task-id> --execution-id <execution-id>/u);
-  assert.match(renderTaskLifecycleHelp("submit"), /--lease-credential.*--commit-sha/u);
+  assert.match(renderTaskLifecycleHelp("submit"), /--execution-id.*--commit-sha/u);
   assert.match(renderTaskLifecycleHelp("review-execution"), /--anti-entropy-token.*--anti-entropy-report/u);
   assert.match(renderTaskLifecycleHelp("complete"), /--execution-id <submitted-execution-id>/u);
 });
@@ -46,12 +47,13 @@ test("task create always sends the fixed replay/v1 graph", async () => {
   const received: unknown[] = [];
   const receipt = await runTaskLifecycleFacade(parsed.value, {
     actor,
+    workspaceId,
     service: {
       execute: async (input) => {
         received.push(input);
-        return { outcome: "applied", opId: input.command.opId, revision: 1 };
+        return { outcome: "applied", opId: input.command.opId, revision: 1, evidence: "task-event:event-1" };
       },
-      show: async () => ({ outcome: "applied", evidence: "projection:task" })
+      show: async () => ({ outcome: "applied", opId: "read:task", revision: 1, evidence: "projection:task" })
     }
   });
 
@@ -68,12 +70,13 @@ test("task start is one StartExecution host call and cannot enter review", async
   const received: unknown[] = [];
   await runTaskLifecycleFacade(parsed.value, {
     actor,
+    workspaceId,
     service: {
       execute: async (input) => {
         received.push(input);
-        return { outcome: "applied", opId: input.command.opId, revision: 2 };
+        return { outcome: "applied", opId: input.command.opId, revision: 2, evidence: "task-event:event-2" };
       },
-      show: async () => ({ outcome: "applied", evidence: "projection:task" })
+      show: async () => ({ outcome: "applied", opId: "read:task", revision: 2, evidence: "projection:task" })
     }
   });
 
@@ -81,41 +84,24 @@ test("task start is one StartExecution host call and cannot enter review", async
   assert.equal((received[0] as { command: { type: string } }).command.type, "StartExecution");
 });
 
-test("task start accepts the one-time credential only on an applied receipt", async () => {
+test("task start returns only the shared receipt contract", async () => {
   const parsed = parseTaskLifecycleArgs(["task", "start", "task_LEASE", "--execution-id", "exe_LEASE"]);
   assert.equal(parsed.ok, true);
   if (!parsed.ok) return;
   const applied = await runTaskLifecycleFacade(parsed.value, {
     actor,
+    workspaceId,
     service: {
       execute: async (input) => ({
         outcome: "applied",
         opId: input.command.opId,
         revision: 2,
-        leaseCredential: "shown-once",
-        leaseExpiry: "2026-08-11T01:00:00.000Z",
-        nextAction: "Save it; submit requires it."
+        evidence: "task-event:event-2"
       }),
-      show: async () => ({ outcome: "applied", evidence: "unused" })
+      show: async () => ({ outcome: "applied", opId: "read:task", revision: 2, evidence: "unused" })
     }
   });
-  assert.equal(applied.leaseCredential, "shown-once");
-
-  const invalid = await runTaskLifecycleFacade(parsed.value, {
-    actor,
-    service: {
-      execute: async (input) => ({
-        outcome: "pending",
-        opId: input.command.opId,
-        leaseCredential: "must-not-escape",
-        leaseExpiry: "2026-08-11T01:00:00.000Z"
-      }),
-      show: async () => ({ outcome: "applied", evidence: "unused" })
-    }
-  });
-  assert.equal(invalid.outcome, "rejected");
-  assert.equal(invalid.code, "service_rejected");
-  assert.equal(invalid.leaseCredential, undefined);
+  assert.deepEqual(Object.keys(applied).sort(), ["evidence", "opId", "outcome", "revision"]);
 });
 
 test("task show uses only the projection read port", async () => {
@@ -125,17 +111,18 @@ test("task show uses only the projection read port", async () => {
   let writes = 0;
   const receipt = await runTaskLifecycleFacade(parsed.value, {
     actor,
+    workspaceId,
     service: {
       execute: async () => {
         writes += 1;
         throw new Error("show attempted a write");
       },
-      show: async ({ taskId }) => ({ outcome: "applied", evidence: `projection:${taskId}` })
+      show: async ({ taskId }) => ({ outcome: "applied", opId: `read:${taskId}`, revision: 4, evidence: `projection:${taskId}` })
     }
   });
 
   assert.equal(writes, 0);
-  assert.deepEqual(receipt, { outcome: "applied", evidence: "projection:task_READ" });
+  assert.deepEqual(receipt, { outcome: "applied", opId: "read:task_READ", revision: 4, evidence: "projection:task_READ" });
 });
 
 test("signed rejected anti-entropy report records changes_requested without completing", async () => {
@@ -161,6 +148,7 @@ test("signed rejected anti-entropy report records changes_requested without comp
   const received: unknown[] = [];
   const receipt = await runTaskLifecycleFacade(parsed.value, {
     actor,
+    workspaceId,
     environment: { ANTI_ENTROPY_HMAC_KEY: key.toString("utf8") },
     now: new Date("2026-08-11T00:00:00.000Z"),
     readReport: async () => report,
@@ -168,9 +156,9 @@ test("signed rejected anti-entropy report records changes_requested without comp
     service: {
       execute: async (input) => {
         received.push(input);
-        return { outcome: "applied", opId: input.command.opId, revision: 4 };
+        return { outcome: "applied", opId: input.command.opId, revision: 4, evidence: "task-event:event-4" };
       },
-      show: async () => ({ outcome: "applied", evidence: "unused" })
+      show: async () => ({ outcome: "applied", opId: "read:task", revision: 4, evidence: "unused" })
     }
   });
 
@@ -213,6 +201,7 @@ test("invalid anti-entropy token rejects with a concrete signing next action", a
   let calls = 0;
   const receipt = await runTaskLifecycleFacade(parsed.value, {
     actor,
+    workspaceId,
     environment: { ANTI_ENTROPY_HMAC_KEY: "anti-entropy-test-key" },
     now: new Date("2026-08-11T00:00:00.000Z"),
     readReport: async () => antiEntropyReport({ verdict: "approved", headSha, iteration: 2 }),
@@ -220,9 +209,9 @@ test("invalid anti-entropy token rejects with a concrete signing next action", a
     service: {
       execute: async () => {
         calls += 1;
-        return { outcome: "applied" };
+        return { outcome: "applied", opId: "unexpected", revision: 1, evidence: "unexpected" };
       },
-      show: async () => ({ outcome: "applied", evidence: "unused" })
+      show: async () => ({ outcome: "applied", opId: "read:task", revision: 1, evidence: "unused" })
     }
   });
 
@@ -251,20 +240,24 @@ test("acceptance review maps strict CLI fields to RecordReview without a return 
   let received: unknown;
   await runTaskLifecycleFacade(parsed.value, {
     actor,
+    workspaceId,
     service: {
       execute: async (input) => {
         received = input;
-        return { outcome: "applied", opId: input.command.opId, revision: 7 };
+        return { outcome: "applied", opId: input.command.opId, revision: 7, evidence: "task-event:event-7" };
       },
-      show: async () => ({ outcome: "applied", evidence: "unused" })
+      show: async () => ({ outcome: "applied", opId: "read:task", revision: 7, evidence: "unused" })
     }
   });
   const input = received as { command: Record<string, unknown>; verifiedReceipt?: unknown };
   assert.deepEqual(input.command, {
     type: "RecordReview",
+    schema: "normalized-command/v1",
+    workspaceId,
     taskId: "task_ACCEPT",
     actor,
     opId: input.command.opId,
+    commandDigest: input.command.commandDigest,
     executionId: "exe_ACCEPT",
     reviewId: "review_ACCEPT",
     kind: "acceptance",

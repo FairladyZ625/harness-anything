@@ -15,7 +15,7 @@ const lifecycleOptionalData = {
   opId: "Present after the facade derives the stable operation identity.",
   revision: "Present when the service resolved a workspace revision.",
   origin: "Present when a receipt identifies the deciding subsystem.",
-  nextAction: "Present when the caller must save a secret or take a recovery action.",
+  nextAction: "Present when the caller must take a recovery action.",
   evidence: "Present when an event or projection read proves the result."
 } as const;
 
@@ -29,15 +29,6 @@ const executionReceiptContract = {
   data: ["taskId", "executionId", "outcome", "report"],
   optionalData: lifecycleOptionalData,
   paths: []
-} as const;
-
-const startReceiptContract = {
-  ...executionReceiptContract,
-  optionalData: {
-    ...lifecycleOptionalData,
-    leaseCredential: "Present exactly once on a newly applied task start.",
-    leaseExpiry: "Present with leaseCredential on a newly applied task start."
-  }
 } as const;
 
 export const coreCommandSpecs = defineCommandSpecs([
@@ -119,21 +110,20 @@ export const coreCommandSpecs = defineCommandSpecs([
     usage: "task start <id> --execution-id <execution-id> [--json]",
     options: [
       { flag: "--execution-id", description: "Create exactly this Execution in the current implementation round." },
-      { flag: "--json", description: "Emit command-receipt/v2 JSON; save its one-time leaseCredential." }
+      { flag: "--json", description: "Emit command-receipt/v2 JSON." }
     ],
-    summary: "Atomically start an Execution and issue its one-time lease credential.",
+    summary: "Atomically start an Execution with an actor-bound lease.",
     examples: ["harness-anything task start task_01ABC --execution-id execution_01ABC --json"],
     parse: parseTaskLifecycleCommandArgs,
     run: runTaskLifecycleFacadeCommand,
-    receiptContract: startReceiptContract,
+    receiptContract: executionReceiptContract,
     eventPolicy: { conflictMarkerPreflight: true, runtimeEvent: "none" }
   },
   {
     kind: "task-submit",
-    usage: "task submit <id> --execution-id <execution-id> --lease-credential <credential> --claim <text> --commit-sha <40-sha> [--deliverable <text>]... [--evidence-ref <ref>]... [--verification <text>]... [--known-gap <text>]... [--residual-risk <text>]... [--json]",
+    usage: "task submit <id> --execution-id <execution-id> --claim <text> --commit-sha <40-sha> [--deliverable <text>]... [--evidence-ref <ref>]... [--verification <text>]... [--known-gap <text>]... [--residual-risk <text>]... [--json]",
     options: [
       { flag: "--execution-id", description: "Submit exactly this active Execution." },
-      { flag: "--lease-credential", description: "Authenticate with the one-time credential returned by task start." },
       { flag: "--claim", description: "Record the submission claim." },
       { flag: "--commit-sha", description: "Record the full lowercase 40-character code commit SHA." },
       { flag: "--deliverable", description: "Record a deliverable; repeat as needed." },
@@ -143,8 +133,8 @@ export const coreCommandSpecs = defineCommandSpecs([
       { flag: "--residual-risk", description: "Record a residual risk; repeat as needed." },
       { flag: "--json", description: "Emit command-receipt/v2 JSON." }
     ],
-    summary: "Submit the active Execution using its exact lease credential.",
-    examples: ["harness-anything task submit task_01ABC --execution-id execution_01ABC --lease-credential <saved> --claim \"ready\" --commit-sha 0123456789abcdef0123456789abcdef01234567"],
+    summary: "Submit the active Execution through its actor-bound lease.",
+    examples: ["harness-anything task submit task_01ABC --execution-id execution_01ABC --claim \"ready\" --commit-sha 0123456789abcdef0123456789abcdef01234567"],
     parse: parseTaskLifecycleCommandArgs,
     run: runTaskLifecycleFacadeCommand,
     receiptContract: executionReceiptContract,

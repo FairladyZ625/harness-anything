@@ -14,7 +14,7 @@ test("claim releases a pre-publication reservation and converges after an author
 
     harness.kill("after_event_append");
     const interrupted = await harness.start("execution-1", "op-start-1");
-    assert.equal(interrupted.status, "indeterminate");
+    assert.equal(interrupted.outcome, "indeterminate");
     const converged = await harness.service.read("task-1");
     assert.equal(converged.status, "ready");
     assert.equal(converged.snapshot.executions[0]?.state, "active");

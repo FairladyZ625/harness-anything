@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
+import { normalizeTaskLifecycleCommand } from "../../kernel/src/index.ts";
 import { commitSha, lifecycleHarness, reviewer } from "./task-lifecycle-test-harness.ts";
 
 test("approval retry reuses Review identity and ignores transport-only metadata", async () => {
@@ -9,11 +10,12 @@ test("approval retry reuses Review identity and ignores transport-only metadata"
     await harness.create();
     await harness.start("execution-1");
     await harness.submit("execution-1");
-    const command = {
+    const command = { ...normalizeTaskLifecycleCommand(harness.rootDir, reviewer, {
       type: "RecordReview" as const, taskId: "task-1", executionId: "execution-1", reviewId: "review-ae",
       kind: "anti_entropy" as const, verdict: "approved" as const, actorRole: "anti_entropy" as const,
       reason: "approved", evidenceChecked: [], commitSha, iteration: 0,
-      archiveWarningsAcknowledged: false, actor: reviewer, opId: "op-review-ae", eventId: "event-review-ae",
+      archiveWarningsAcknowledged: false
+    }), eventId: "event-review-ae",
       workspaceRevision: 4, occurredAt: "2026-08-11T00:04:00.000Z", transport: { attempt: 1 }
     };
     const proof = {

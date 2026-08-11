@@ -5,6 +5,7 @@ import {
   applyTransition,
   assertAntiEntropyGraph,
   emptyTaskLifecycleSnapshot,
+  normalizeTaskLifecycleCommand,
   reduceTaskEvent,
   serializeTaskEvent,
   TaskLifecycleContractError
@@ -23,12 +24,9 @@ test("G10 Lease broker contract declares one positive capacity ceiling", () => {
   assert.equal(Object.isFrozen(TASK_LEASE_BROKER_CONTRACT), true);
 });
 
-function meta(type, actor, revision, suffix = type) {
+function command(actor, revision, intent, suffix = intent.type) {
   return {
-    type,
-    taskId: "task-1",
-    actor,
-    opId: `op-${suffix}`,
+    ...normalizeTaskLifecycleCommand("workspace-1", actor, intent),
     eventId: `evt-${suffix}`,
     workspaceRevision: revision,
     occurredAt: `2026-08-11T00:00:0${revision}.000Z`
@@ -36,12 +34,13 @@ function meta(type, actor, revision, suffix = type) {
 }
 
 function createCommand() {
-  return {
-    ...meta("CreateReplayTask", owner, 1, "create"),
+  return command(owner, 1, {
+    type: "CreateReplayTask",
+    taskId: "task-1",
     title: "Replay task",
     graph: REPLAY_TASK_GRAPH,
     completionGateIds: []
-  };
+  }, "create");
 }
 
 function createProof() {
@@ -53,7 +52,7 @@ function createdSnapshot() {
 }
 
 function startCommand(revision = 2, executionId = "execution-0") {
-  return { ...meta("StartExecution", executor, revision, `start-${executionId}`), executionId };
+  return command(executor, revision, { type: "StartExecution", taskId: "task-1", executionId }, `start-${executionId}`);
 }
 
 function startProof(revision = 1, executionId = "execution-0") {
@@ -63,7 +62,6 @@ function startProof(revision = 1, executionId = "execution-0") {
     reservation: {
       taskId: "task-1",
       executionId,
-      credentialHash: "sha256:lease-0",
       expiresAt: "2026-08-11T01:00:00.000Z",
       version: 1
     }
@@ -90,26 +88,27 @@ function submitCommand(revision = 3, commitSha = commit0) {
   return submitRoundCommand(revision, "execution-0", commitSha);
 }
 
-function submitProof(credentialHash = "sha256:lease-0") {
-  return submitRoundProof(2, credentialHash);
+function submitProof(leaseVersion = 1) {
+  return submitRoundProof(2, leaseVersion);
 }
 
 function submitRoundCommand(revision, executionId, commitSha) {
-  return { ...meta("SubmitExecution", executor, revision, `submit-${executionId}`), executionId, submission: submission(commitSha) };
+  return command(executor, revision, { type: "SubmitExecution", taskId: "task-1", executionId, submission: submission(commitSha) }, `submit-${executionId}`);
 }
 
-function submitRoundProof(expectedRevision, credentialHash = "sha256:lease-0") {
-  return { expectedRevision, credentialHash, sessionDisposition: "complete" };
+function submitRoundProof(expectedRevision, leaseVersion = 1) {
+  return { expectedRevision, actorBinding: executor, leaseVersion, sessionDisposition: "complete" };
 }
 
 function submittedSnapshot() {
   return applyTransition(startedSnapshot(), submitCommand(), submitProof()).snapshot;
 }
 
-function reviewCommand({ kind = "anti_entropy", verdict = "approved", actor = antiEntropy, actorRole = kind, revision = 4, iteration = 0, commitSha = commit0, suffix = `${kind}-${verdict}-${iteration}` } = {}) {
-  return {
-    ...meta("RecordReview", actor, revision, suffix),
-    executionId: `execution-${iteration}`,
+function reviewCommand({ kind = "anti_entropy", verdict = "approved", actor = antiEntropy, actorRole = kind, revision = 4, iteration = 0, executionId = `execution-${iteration}`, commitSha = commit0, suffix = `${kind}-${verdict}-${iteration}` } = {}) {
+  return command(actor, revision, {
+    type: "RecordReview",
+    taskId: "task-1",
+    executionId,
     reviewId: `review-${suffix}`,
     kind,
     verdict,
@@ -119,7 +118,7 @@ function reviewCommand({ kind = "anti_entropy", verdict = "approved", actor = an
     commitSha,
     iteration,
     archiveWarningsAcknowledged: false
-  };
+  }, suffix);
 }
 
 function reviewProof({ kind = "anti_entropy", revision = 3, actor = antiEntropy, archiveWarningsPresent = false } = {}) {
@@ -144,8 +143,8 @@ function acceptanceApprovedSnapshot() {
   ).snapshot;
 }
 
-function completeCommand(revision = 6) {
-  return { ...meta("CompleteTask", owner, revision, "complete"), executionId: "execution-0" };
+function completeCommand(revision = 6, executionId = "execution-0") {
+  return command(owner, revision, { type: "CompleteTask", taskId: "task-1", executionId }, "complete");
 }
 
 function completeProof(expectedRevision = 5) {
@@ -192,7 +191,7 @@ test("G10 SubmitExecution submits the execution, releases its exact lease, and a
   assert.equal(submitted.snapshot.task.currentNode, "anti_entropy");
   assert.equal(submitted.snapshot.edgesTaken[0].edgeId, "implementation-submitted");
   assert.throws(
-    () => applyTransition(startedSnapshot(), submitCommand(), submitProof("sha256:not-the-holder")),
+    () => applyTransition(startedSnapshot(), submitCommand(), submitProof(2)),
     (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof"
   );
 });
@@ -354,7 +353,7 @@ test("G34 rejects iteration=2 rather than silently extending the budget", () => 
   assert.throws(
     () => assertAntiEntropyGraph(
       submittedSnapshot(),
-      { ...reviewCommand({ verdict: "changes_requested", iteration: 2, suffix: "iteration-2" }), executionId: "execution-0" },
+      reviewCommand({ verdict: "changes_requested", iteration: 2, executionId: "execution-0", suffix: "iteration-2" }),
       reviewProof()
     ),
     (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof"
@@ -365,7 +364,7 @@ test("G34 rejects metadata-shaped attempts to create a return edge", () => {
   assert.throws(
     () => assertAntiEntropyGraph(
       submittedSnapshot(),
-      { ...meta("UpdateTaskMetadata", antiEntropy, 4, "metadata-return"), status: "active", currentNode: "implementation", iteration: 1 },
+      command(antiEntropy, 4, { type: "UpdateTaskMetadata", taskId: "task-1", status: "active", currentNode: "implementation", iteration: 1 }, "metadata-return"),
       reviewProof()
     ),
     (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition"
@@ -396,7 +395,7 @@ test("G34 replays reject to new execution to both approvals to complete", () => 
   );
   const completed = applyTransition(
     acceptanceApproved.snapshot,
-    { ...completeCommand(9), executionId: "execution-1" },
+    completeCommand(9, "execution-1"),
     completeProof(8)
   );
   assert.equal(completed.snapshot.task.status, "done");
@@ -431,4 +430,4 @@ test("G09 projection reducer replays all five task-event/v1 envelope types", () 
   assert.equal(replayed.task.status, "done");
 });
 
-export { acceptance, antiEntropy, commit0, createCommand, createProof, executor, meta, owner, reviewCommand, reviewProof, startCommand, startProof, submitCommand, submitProof };
+export { acceptance, antiEntropy, commit0, command, createCommand, createProof, executor, owner, reviewCommand, reviewProof, startCommand, startProof, submitCommand, submitProof };

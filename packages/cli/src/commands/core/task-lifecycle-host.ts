@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import { makeTaskLifecycleService, runTaskLifecycleEffect } from "../../../../application/src/index.ts";
 import { makeTaskEventStore, makeTaskLeaseStore, makeTaskProjection, type CompleteTaskCommand, type ProofFor, type TaskLifecycleCommand } from "../../../../kernel/src/index.ts";
@@ -9,12 +9,12 @@ import { runTaskLifecycleFacade, type TaskLifecycleReceipt, type TaskLifecycleSe
 
 const leaseTtlMs = 30 * 60 * 1_000;
 type Snapshot = Awaited<ReturnType<ReturnType<typeof makeTaskLifecycleService>["read"]>>["snapshot"];
-type IssuedCredential = { readonly plaintext?: string; readonly hash: string; readonly expiresAt: string };
 
 export const runTaskLifecycleFacadeCommand: CommandRunner = (context, command) => Effect.promise(async () => {
   if (!isTaskLifecycleAction(command.action)) throw new Error(`Unexpected lifecycle action ${command.action.kind}.`);
   const receipt = await runTaskLifecycleFacade(command.action, {
-    actor: context.actorAxes(), service: makeTaskLifecycleHost(context), verifyReceipt: context.verifyAntiEntropyReceipt
+    actor: context.actorAxes(), workspaceId: context.rootDir,
+    service: makeTaskLifecycleHost(context), verifyReceipt: context.verifyAntiEntropyReceipt
   });
   return cliResult(command.action, receipt);
 });
@@ -28,31 +28,17 @@ export function makeTaskLifecycleHost(context: CommandRunnerContext): TaskLifecy
   return {
     show: async ({ taskId }) => {
       const read = await service.read(taskId);
-      return read.status === "ready" ? { outcome: "applied", revision: read.sourceRevision, evidence: JSON.stringify(read.snapshot) } : {
-        outcome: "pending", revision: read.sourceRevision, evidence: JSON.stringify(read.snapshot),
+      const opId = `read:${taskId}`;
+      return read.status === "ready" ? { outcome: "applied", opId, revision: read.sourceRevision, evidence: JSON.stringify(read.snapshot) } : {
+        outcome: "pending", opId, revision: read.sourceRevision, evidence: JSON.stringify(read.snapshot),
         nextAction: `Retry \`ha task show ${taskId}\` after the projection catches up.`
       };
     },
     execute: async (input) => {
       const before = eventStore.read(), existing = before.events.find((event) => event.opId === input.command.opId);
       const command = withServerMeta(input.command, existing ?? null, before.revision), read = await service.read(command.taskId);
-      let issued: IssuedCredential | undefined;
-      if (command.type === "StartExecution" && existing === undefined) {
-        const plaintext = randomBytes(32).toString("base64url");
-        issued = { plaintext, hash: credentialHash(plaintext), expiresAt: new Date(Date.now() + leaseTtlMs).toISOString() };
-      }
-      const result = await service.execute(command, await proofFor(context, command, input, read.snapshot, read.sourceRevision, issued));
-      const receipt = operationReceipt(command, result);
-      if (command.type === "StartExecution" && existing !== undefined && result.status === "applied") return {
-        ...receipt, nextAction: "This start was already applied; the one-time lease credential is not reissued. Use the credential saved from the original receipt."
-      };
-      if (command.type !== "StartExecution" || issued?.plaintext === undefined || result.status !== "applied") return receipt;
-      if (result.snapshot.lease?.credentialHash !== issued.hash) return {
-        outcome: "indeterminate", opId: command.opId, code: "lease_publication_unknown", origin: "task-lifecycle-host",
-        nextAction: `Run \`ha task show ${command.taskId}\`; the lease credential was not issued because its active reservation could not be proven.`
-      };
-      return { ...receipt, leaseCredential: issued.plaintext, leaseExpiry: issued.expiresAt,
-        nextAction: "Save leaseCredential now; it is shown once and `ha task submit --lease-credential <credential>` requires it. Lost credentials are not reissued." };
+      const result = await service.execute(command, await proofFor(context, command, input, read.snapshot, read.sourceRevision));
+      return operationReceipt(command, result);
     }
   };
 }
@@ -65,16 +51,18 @@ function withServerMeta(command: TaskLifecycleServiceInput["command"], existing:
 }
 
 async function proofFor(context: CommandRunnerContext, command: TaskLifecycleCommand, input: TaskLifecycleServiceInput,
-  snapshot: Snapshot, expectedRevision: number, issued: IssuedCredential | undefined): Promise<ProofFor<typeof command>> {
+  snapshot: Snapshot, expectedRevision: number): Promise<ProofFor<typeof command>> {
   if (command.type === "CreateReplayTask") return { taskIdUnique: true, actorBinding: command.actor };
   if (command.type === "StartExecution") {
-    const reservation = issued ?? { hash: "already-issued", expiresAt: new Date().toISOString() };
     return { actorBinding: command.actor, expectedRevision, reservation: { taskId: command.taskId, executionId: command.executionId,
-      credentialHash: reservation.hash, expiresAt: reservation.expiresAt, version: 0 } };
+      expiresAt: new Date(Date.now() + leaseTtlMs).toISOString(), version: 0 } };
   }
   if (command.type === "SubmitExecution") {
-    if (!input.credential) throw hostError("missing_lease_credential", "Submit requires the one-time --lease-credential returned by task start.");
-    return { expectedRevision, credentialHash: credentialHash(input.credential), sessionDisposition: "unavailable" };
+    const lease = snapshot.lease;
+    if (lease === null || lease.taskId !== command.taskId || lease.executionId !== command.executionId || !sameActor(lease.actor, command.actor)) {
+      throw hostError("lease_actor_mismatch", "Submit requires the active lease bound to this authenticated actor and execution.");
+    }
+    return { expectedRevision, actorBinding: command.actor, leaseVersion: lease.version, sessionDisposition: "unavailable" };
   }
   if (command.type === "RecordReview") {
     if (command.kind === "anti_entropy") return antiEntropyProof(command, input, expectedRevision);
@@ -135,14 +123,16 @@ export function validateGateReceiptSet(declared: readonly string[], supplied: re
 }
 
 function operationReceipt(command: TaskLifecycleCommand, result: Awaited<ReturnType<ReturnType<typeof makeTaskLifecycleService>["execute"]>>): TaskLifecycleReceipt {
-  if (result.status === "applied") return { outcome: "applied", opId: command.opId, revision: result.revision,
+  if (result.outcome === "applied") return { outcome: "applied", opId: command.opId, revision: result.revision,
     evidence: result.event ? `task-event:${result.event.eventId}` : `task-revision:${result.revision}` };
-  if (result.status === "pending") return { outcome: "pending", opId: command.opId, revision: result.revision,
-    nextAction: result.query ?? `Retry \`ha task show ${command.taskId}\` after projection catch-up.` };
+  if (result.outcome === "pending") return { outcome: "pending", opId: command.opId, revision: result.revision,
+    evidence: result.evidence ?? `task-revision:${result.revision}`, nextAction: result.nextAction ?? `Retry \`ha task show ${command.taskId}\` after projection catch-up.` };
   return { outcome: "indeterminate", opId: command.opId, revision: result.revision, code: "publication_unknown", origin: "task-event-store",
-    nextAction: result.query ?? `Run \`ha task show ${command.taskId}\` before retrying.` };
+    nextAction: result.nextAction ?? `Run \`ha task show ${command.taskId}\` before retrying.` };
 }
-function credentialHash(value: string): string { return createHash("sha256").update(value).digest("hex"); }
+function sameActor(left: TaskLifecycleCommand["actor"], right: TaskLifecycleCommand["actor"]): boolean {
+  return left.principal.personId === right.principal.personId && left.executor?.kind === right.executor?.kind && left.executor?.id === right.executor?.id;
+}
 function verifyLeaseAbsence(lease: { readonly executionId: string } | null, taskId: string): true {
   if (lease === null) return true;
   throw hostError("active_lease", `Release or submit active Lease ${lease.executionId} before completing ${taskId}.`);
@@ -151,9 +141,8 @@ function isTaskLifecycleAction(action: { readonly kind: string }): action is Tas
   return ["task-create", "task-start", "task-submit", "task-review-execution", "task-complete", "task-show"].includes(action.kind);
 }
 function cliResult(action: TaskLifecycleCliAction, receipt: TaskLifecycleReceipt): CliResult {
-  const { leaseCredential: _leaseCredential, ...publicReport } = receipt;
   const common = { command: action.kind, taskId: action.taskId,
-    ...(action.verb !== "create" && action.verb !== "show" ? { executionId: action.executionId } : {}), ...receipt, report: publicReport };
+    ...(action.verb !== "create" && action.verb !== "show" ? { executionId: action.executionId } : {}), ...receipt, report: receipt };
   return receipt.outcome === "applied" || receipt.outcome === "pending" ? { ok: true, ...common } : {
     ok: false, ...common, error: cliError(CliErrorCode.WriteRejected, receipt.nextAction)
   };

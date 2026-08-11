@@ -1,21 +1,20 @@
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { TASK_LEASE_BROKER_CONTRACT, validateLeaseV1, type LeaseV1 } from "../domain/execution.ts";
-import { canonicalizeContractValue, isRecord, type ActorAxes } from "../domain/task.ts";
+import { canonicalizeContractValue, isRecord, validateActorAxes, type ActorAxes } from "../domain/task.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import type { WriteOp } from "../ports/write-coordinator.ts";
 import { defaultLifecycleTaskProjectionPath } from "../projection/task-projection.ts";
 export interface LeaseCasPayload {
   readonly operation: "reserve" | "activate" | "renew" | "release";
-  readonly taskId: string; readonly executionId: string; readonly credentialHash: string;
-  readonly now: string; readonly actor?: ActorAxes; readonly expiresAt?: string;
+  readonly taskId: string; readonly executionId: string; readonly actor: ActorAxes;
+  readonly now: string; readonly expiresAt?: string;
   readonly version?: number; readonly capacity: number;
 }
 interface LeaseRow {
   readonly task_id: string; readonly execution_id: string; readonly actor_json: string;
-  readonly credential_hash: string; readonly phase: LeaseV1["phase"];
-  readonly expires_at: string; readonly version: number;
+  readonly phase: LeaseV1["phase"]; readonly expires_at: string; readonly version: number;
 }
 export class TaskLeaseCasRejected extends Error {
   readonly origin = "task-lease-broker"; readonly code: string;
@@ -29,7 +28,7 @@ export function validateLeaseCasWrite(op: WriteOp): LeaseCasPayload {
   if (op.kind !== "lease_cas" || !isRecord(op.payload)) throw reject("invalid_lease_cas", "lease_cas requires an object payload");
   const p = op.payload as unknown as LeaseCasPayload;
   if (!(["reserve", "activate", "renew", "release"] as const).includes(p.operation) || !text(p.taskId) || !text(p.executionId)
-    || !text(p.credentialHash) || !text(p.now) || p.capacity !== TASK_LEASE_BROKER_CONTRACT.capacity) {
+    || validateActorAxes(p.actor).length > 0 || !text(p.now) || p.capacity !== TASK_LEASE_BROKER_CONTRACT.capacity) {
     throw reject("invalid_lease_cas", "lease_cas identity, operation, timestamp, or capacity is invalid");
   }
   if (p.operation === "reserve" && (p.actor === undefined || !text(p.expiresAt))) throw reject("invalid_lease_cas", "reserve requires actor and expiry");
@@ -42,7 +41,7 @@ export function applyLeaseCasWrite(root: HarnessLayoutInput, op: WriteOp): void 
   localRuntimeStateFileSystem.mkdirp(path.dirname(databasePath));
   const db = new DatabaseSync(databasePath);
   try {
-    db.exec("PRAGMA journal_mode = DELETE; CREATE TABLE IF NOT EXISTS lease_cas (task_id TEXT PRIMARY KEY, execution_id TEXT NOT NULL, actor_json TEXT NOT NULL, credential_hash TEXT NOT NULL, phase TEXT NOT NULL CHECK (phase IN ('reserving', 'active', 'released')), expires_at TEXT NOT NULL, version INTEGER NOT NULL)");
+    db.exec("PRAGMA journal_mode = DELETE; CREATE TABLE IF NOT EXISTS lease_cas (task_id TEXT PRIMARY KEY, execution_id TEXT NOT NULL, actor_json TEXT NOT NULL, phase TEXT NOT NULL CHECK (phase IN ('reserving', 'active', 'released')), expires_at TEXT NOT NULL, version INTEGER NOT NULL)");
     transaction(db, () => mutate(db, payload));
   } finally { db.close(); }
 }
@@ -61,26 +60,26 @@ export function readEffectiveTaskLease(root: HarnessLayoutInput, taskId: string,
   return lease === null || lease.phase === "released" || lease.expiresAt <= now ? null : lease;
 }
 function mutate(db: DatabaseSync, p: LeaseCasPayload): void {
-  const current = row(db, p.taskId);
+  const current = row(db, p.taskId), actorJson = JSON.stringify(canonicalizeContractValue(p.actor));
   if (p.operation === "reserve") {
     const effective = current !== null && current.phase !== "released" && current.expires_at > p.now;
-    if (effective && current.execution_id === p.executionId && current.credential_hash === p.credentialHash) return;
+    if (effective && current.execution_id === p.executionId && current.actor_json === actorJson) return;
     if (effective) throw reject("lease_conflict", `task ${p.taskId} already has an effective lease`);
     const count = db.prepare("SELECT COUNT(*) AS count FROM lease_cas WHERE phase != 'released' AND expires_at > ?").get(p.now) as { readonly count: number };
     if (count.count >= p.capacity) throw reject("lease_capacity_exhausted", `Lease broker capacity ${p.capacity} is exhausted. Wait for an existing lease to be released or expire, then retry task start.`);
-    const lease = checked({ schema: "lease/v1", taskId: p.taskId, executionId: p.executionId, actor: p.actor!, credentialHash: p.credentialHash,
+    const lease = checked({ schema: "lease/v1", taskId: p.taskId, executionId: p.executionId, actor: p.actor,
       phase: "reserving", expiresAt: p.expiresAt!, version: current === null ? 0 : current.version + 1 });
-    db.prepare("INSERT INTO lease_cas (task_id, execution_id, actor_json, credential_hash, phase, expires_at, version) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET execution_id=excluded.execution_id, actor_json=excluded.actor_json, credential_hash=excluded.credential_hash, phase=excluded.phase, expires_at=excluded.expires_at, version=excluded.version")
-      .run(lease.taskId, lease.executionId, JSON.stringify(canonicalizeContractValue(lease.actor)), lease.credentialHash, lease.phase, lease.expiresAt, lease.version);
+    db.prepare("INSERT INTO lease_cas (task_id, execution_id, actor_json, phase, expires_at, version) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET execution_id=excluded.execution_id, actor_json=excluded.actor_json, phase=excluded.phase, expires_at=excluded.expires_at, version=excluded.version")
+      .run(lease.taskId, lease.executionId, actorJson, lease.phase, lease.expiresAt, lease.version);
     return;
   }
-  if (current === null || current.execution_id !== p.executionId || current.credential_hash !== p.credentialHash) throw stale(p);
+  if (current === null || current.execution_id !== p.executionId || current.actor_json !== actorJson) throw stale(p);
   const phase = p.operation === "release" ? "released" : "active", expiry = p.expiresAt ?? current.expires_at;
   if (current.version === p.version! + 1 && current.phase === phase && current.expires_at === expiry) return;
   const from = p.operation === "activate" ? ["reserving"] : p.operation === "renew" ? ["active"] : ["reserving", "active"];
   if (current.version !== p.version || !from.includes(current.phase)) throw stale(p);
-  const result = db.prepare("UPDATE lease_cas SET phase = ?, expires_at = ?, version = ? WHERE task_id = ? AND execution_id = ? AND credential_hash = ? AND version = ? AND phase = ?")
-    .run(phase, expiry, current.version + 1, p.taskId, p.executionId, p.credentialHash, p.version!, current.phase);
+  const result = db.prepare("UPDATE lease_cas SET phase = ?, expires_at = ?, version = ? WHERE task_id = ? AND execution_id = ? AND actor_json = ? AND version = ? AND phase = ?")
+    .run(phase, expiry, current.version + 1, p.taskId, p.executionId, actorJson, p.version!, current.phase);
   if (result.changes !== 1) throw stale(p);
 }
 function transaction(db: DatabaseSync, run: () => void): void {
@@ -90,7 +89,7 @@ function transaction(db: DatabaseSync, run: () => void): void {
 function row(db: DatabaseSync, taskId: string): LeaseRow | null { return db.prepare("SELECT * FROM lease_cas WHERE task_id = ?").get(taskId) as LeaseRow | undefined ?? null; }
 function fromRow(value: LeaseRow | null): LeaseV1 | null {
   return value === null ? null : checked({ schema: "lease/v1", taskId: value.task_id, executionId: value.execution_id,
-    actor: JSON.parse(value.actor_json) as ActorAxes, credentialHash: value.credential_hash, phase: value.phase, expiresAt: value.expires_at, version: value.version });
+    actor: JSON.parse(value.actor_json) as ActorAxes, phase: value.phase, expiresAt: value.expires_at, version: value.version });
 }
 function checked(lease: LeaseV1): LeaseV1 {
   const issues = validateLeaseV1(lease);

@@ -12,6 +12,7 @@ const actor = {
   principal: { personId: "person_zeyu" },
   executor: { kind: "agent" as const, id: "owner-session" }
 };
+const workspaceId = "/workspace";
 
 test("complete sends a field-equal CompleteTask intent to the host", async () => {
   const parsed = parseTaskLifecycleArgs([
@@ -22,20 +23,24 @@ test("complete sends a field-equal CompleteTask intent to the host", async () =>
   let received: TaskLifecycleServiceInput | undefined;
   await runTaskLifecycleFacade(parsed.value, {
     actor,
+    workspaceId,
     service: {
       execute: async (input) => {
         received = input;
-        return { outcome: "applied", opId: input.command.opId, revision: 8 };
+        return { outcome: "applied", opId: input.command.opId, revision: 8, evidence: "task-event:event-8" };
       },
-      show: async () => ({ outcome: "applied", evidence: "unused" })
+      show: async () => ({ outcome: "applied", opId: "read:task", revision: 8, evidence: "unused" })
     }
   });
   assert.deepEqual(received, {
     command: {
       type: "CompleteTask",
+      schema: "normalized-command/v1",
+      workspaceId,
       taskId: "task_TYPED",
       actor,
       opId: received?.command.opId,
+      commandDigest: received?.command.commandDigest,
       executionId: "exe_TYPED"
     },
     gateReceipts: []
@@ -53,12 +58,13 @@ test("complete preserves opaque gate receipt references and rejects malformed pa
   let received: TaskLifecycleServiceInput | undefined;
   await runTaskLifecycleFacade(parsed.value, {
     actor,
+    workspaceId,
     service: {
       execute: async (input) => {
         received = input;
-        return { outcome: "applied", opId: input.command.opId, revision: 8 };
+        return { outcome: "applied", opId: input.command.opId, revision: 8, evidence: "task-event:event-8" };
       },
-      show: async () => ({ outcome: "applied", evidence: "unused" })
+      show: async () => ({ outcome: "applied", opId: "read:task", revision: 8, evidence: "unused" })
     }
   });
   assert.deepEqual(received?.gateReceipts, [
@@ -109,16 +115,16 @@ test("same complete intent produces the same load-bearing opId", async () => {
   const service = {
     execute: async (input: TaskLifecycleServiceInput) => {
       opIds.push(input.command.opId);
-      return { outcome: "applied" as const, opId: input.command.opId, revision: 8 };
+      return { outcome: "applied" as const, opId: input.command.opId, revision: 8, evidence: "task-event:event-8" };
     },
-    show: async () => ({ outcome: "applied" as const, evidence: "unused" })
+    show: async () => ({ outcome: "applied" as const, opId: "read:task", revision: 8, evidence: "unused" })
   };
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const parsed = parseTaskLifecycleArgs(["task", "complete", "task_RETRY", "--execution-id", "exe_RETRY"]);
     assert.equal(parsed.ok, true);
-    if (parsed.ok) await runTaskLifecycleFacade(parsed.value, { actor, service });
+    if (parsed.ok) await runTaskLifecycleFacade(parsed.value, { actor, workspaceId, service });
   }
-  assert.match(opIds[0] ?? "", /^task-complete-[a-f0-9]{64}$/u);
+  assert.match(opIds[0] ?? "", /^op_[a-f0-9]{64}$/u);
   assert.equal(opIds[1], opIds[0]);
 });
 
@@ -130,6 +136,7 @@ test("complete without a current submitted Execution stays rejected and teaches 
   if (!parsed.ok) return;
   const receipt = await runTaskLifecycleFacade(parsed.value, {
     actor,
+    workspaceId,
     service: {
       execute: async (input) => ({
         outcome: "rejected",
@@ -138,7 +145,7 @@ test("complete without a current submitted Execution stays rejected and teaches 
         origin: "task-lifecycle-service",
         nextAction: "Run `ha task show task_NO_SUBMISSION`; then start and submit an Execution before requesting both reviews."
       }),
-      show: async () => ({ outcome: "applied", evidence: "unused" })
+      show: async () => ({ outcome: "applied", opId: "read:task", revision: 8, evidence: "unused" })
     }
   });
   assert.equal(receipt.outcome, "rejected");
