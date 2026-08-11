@@ -14,7 +14,7 @@ type IssuedCredential = { readonly plaintext?: string; readonly hash: string; re
 export const runTaskLifecycleFacadeCommand: CommandRunner = (context, command) => Effect.promise(async () => {
   if (!isTaskLifecycleAction(command.action)) throw new Error(`Unexpected lifecycle action ${command.action.kind}.`);
   const receipt = await runTaskLifecycleFacade(command.action, {
-    actor: context.actorAxes(), service: makeTaskLifecycleHost(context), verifyAntiEntropyReceipt: context.verifyAntiEntropyReceipt
+    actor: context.actorAxes(), service: makeTaskLifecycleHost(context), verifyReceipt: context.verifyAntiEntropyReceipt
   });
   return cliResult(command.action, receipt);
 });
@@ -77,7 +77,7 @@ async function proofFor(context: CommandRunnerContext, command: TaskLifecycleCom
     return { expectedRevision, credentialHash: credentialHash(input.credential), sessionDisposition: "unavailable" };
   }
   if (command.type === "RecordReview") {
-    if (command.kind === "anti_entropy") return antiEntropyProof(context, command, input, expectedRevision);
+    if (command.kind === "anti_entropy") return antiEntropyProof(command, input, expectedRevision);
     const task = snapshot.task, authorize = context.authorizeTaskLifecycleActor;
     if (task === null || authorize === undefined) throw hostError("actor_authority_unavailable", "Configure the task actor authority and retry the acceptance review.");
     const authorization = await authorize({ capability: "acceptance-review@v1", actor: command.actor, task });
@@ -88,14 +88,12 @@ async function proofFor(context: CommandRunnerContext, command: TaskLifecycleCom
   return completeProof(context, command, input, snapshot, expectedRevision);
 }
 
-async function antiEntropyProof(context: CommandRunnerContext, command: Extract<TaskLifecycleCommand, { readonly type: "RecordReview" }>,
-  input: TaskLifecycleServiceInput, expectedRevision: number): Promise<ProofFor<typeof command>> {
-  const verifier = context.verifyAntiEntropyReceipt, receipt = input.antiEntropyReceipt;
-  if (verifier === undefined || receipt === undefined) throw hostError("receipt_verifier_unavailable", "Configure the anti-entropy receipt verifier and supply its signed frozen report, then retry.");
-  const verification = await verifier({ ...receipt, now: new Date(), environment: process.env });
-  if (!verification.ok) throw hostError("invalid_anti_entropy_receipt", `The anti-entropy receipt is not authoritative: ${verification.errors.join("; ")}. Sign the frozen report for the current HEAD and retry.`);
+function antiEntropyProof(command: Extract<TaskLifecycleCommand, { readonly type: "RecordReview" }>,
+  input: TaskLifecycleServiceInput, expectedRevision: number): ProofFor<typeof command> {
+  const receipt = input.verifiedReceipt;
+  if (receipt === undefined) throw hostError("verified_receipt_required", "Pass anti-entropy review through the CLI receipt-verification boundary, then retry.");
   return { expectedRevision, actorBinding: command.actor, capability: "anti-entropy@v1",
-    capabilityRef: `anti-entropy-receipt:sha256:${credentialHash(receipt.token)}`, archiveWarningsPresent: false };
+    capabilityRef: `anti-entropy-receipt:sha256:${receipt.digest}`, archiveWarningsPresent: false };
 }
 
 async function completeProof(context: CommandRunnerContext, command: CompleteTaskCommand, input: TaskLifecycleServiceInput,

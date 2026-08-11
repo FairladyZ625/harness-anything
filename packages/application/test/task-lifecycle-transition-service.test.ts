@@ -4,8 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeJournaledWriteCoordinator, makeTaskLeaseStore, TASK_LEASE_BROKER_CONTRACT, TaskLeaseConflictError } from "../../kernel/src/index.ts";
-import { makeTaskEventStore, makeTaskProjection } from "../../kernel/test/store/task-lifecycle-runtime.ts";
+import { makeJournaledWriteCoordinator } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, makeTaskLeaseStore, makeTaskProjection, TASK_LEASE_BROKER_CONTRACT, TaskLeaseConflictError } from "../../kernel/test/store/task-lifecycle-runtime.ts";
 import { makeTaskLifecycleService, runTaskLifecycleEffect, TaskLifecycleOperationConflict } from "../src/task-lifecycle-service.ts";
 import { lifecycleHarness, replayGraph } from "./task-lifecycle-test-harness.ts";
 

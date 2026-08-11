@@ -164,7 +164,7 @@ test("signed rejected anti-entropy report records changes_requested without comp
     environment: { ANTI_ENTROPY_HMAC_KEY: key.toString("utf8") },
     now: new Date("2026-08-11T00:00:00.000Z"),
     readReport: async () => report,
-    verifyAntiEntropyReceipt: verifyWithGate,
+    verifyReceipt: verifyWithGate,
     service: {
       execute: async (input) => {
         received.push(input);
@@ -176,7 +176,7 @@ test("signed rejected anti-entropy report records changes_requested without comp
 
   assert.equal(receipt.outcome, "applied");
   assert.equal(received.length, 1);
-  const input = received[0] as { command: Record<string, unknown>; capabilityRef: string };
+  const input = received[0] as { command: Record<string, unknown>; verifiedReceipt: { readonly digest: string } };
   assert.equal(input.command.type, "RecordReview");
   assert.equal(input.command.kind, "anti_entropy");
   assert.equal(input.command.verdict, "changes_requested");
@@ -188,8 +188,8 @@ test("signed rejected anti-entropy report records changes_requested without comp
   assert.equal(input.command.commitSha, headSha);
   assert.equal(input.command.iteration, 0);
   assert.match(String(input.command.reason), /reconcile the deletion list.*declared deletion count/iu);
-  assert.match(input.capabilityRef, /^anti-entropy-receipt:sha256:[a-f0-9]{64}$/u);
-  assert.equal(input.capabilityRef.includes(token), false);
+  assert.match(input.verifiedReceipt.digest, /^[a-f0-9]{64}$/u);
+  assert.equal(JSON.stringify(input).includes(token), false);
 });
 
 test("invalid anti-entropy token rejects with a concrete signing next action", async () => {
@@ -216,7 +216,7 @@ test("invalid anti-entropy token rejects with a concrete signing next action", a
     environment: { ANTI_ENTROPY_HMAC_KEY: "anti-entropy-test-key" },
     now: new Date("2026-08-11T00:00:00.000Z"),
     readReport: async () => antiEntropyReport({ verdict: "approved", headSha, iteration: 2 }),
-    verifyAntiEntropyReceipt: verifyWithGate,
+    verifyReceipt: verifyWithGate,
     service: {
       execute: async () => {
         calls += 1;
@@ -259,7 +259,7 @@ test("acceptance review maps strict CLI fields to RecordReview without a return 
       show: async () => ({ outcome: "applied", evidence: "unused" })
     }
   });
-  const input = received as { command: Record<string, unknown>; capabilityRef?: string };
+  const input = received as { command: Record<string, unknown>; verifiedReceipt?: unknown };
   assert.deepEqual(input.command, {
     type: "RecordReview",
     taskId: "task_ACCEPT",
@@ -276,7 +276,7 @@ test("acceptance review maps strict CLI fields to RecordReview without a return 
     iteration: 1,
     archiveWarningsAcknowledged: true
   });
-  assert.equal(input.capabilityRef, undefined);
+  assert.equal(input.verifiedReceipt, undefined);
 });
 
 test("acceptance review refuses changes_requested and points to anti-entropy", () => {

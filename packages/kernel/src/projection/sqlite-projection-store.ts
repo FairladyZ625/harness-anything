@@ -1,3 +1,4 @@
+// @write-boundary-exemption rebuildable-projection
 import { mkdirSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
 import { SqlClient } from "@effect/sql";

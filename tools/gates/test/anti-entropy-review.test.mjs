@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { evaluateAntiEntropyReview } from "../anti-entropy-review.mjs";
+import gatesContract from "../contracts/gates.contract.mjs";
 import { encodeReceiptToken, signReceipt } from "../receipt-verify.mjs";
 
 const headSha = "0123456789abcdef0123456789abcdef01234567";
@@ -103,9 +104,11 @@ test("G35 is N/A for non-production changes without requiring a token or key", (
   });
 });
 
-test("G35 workflow executes the verifier from base with only the secret exposed", () => {
+test("G35 workflow matches the gate contract and executes the verifier from base with only the secret exposed", () => {
   const workflow = readFileSync(new URL("../../../.github/workflows/rebuild-gates.yml", import.meta.url), "utf8");
   const job = workflowJob(workflow, "anti-entropy-review");
+  const gate = gatesContract.gates.find((candidate) => candidate.id === "G35");
+  assert.notEqual(gate, undefined);
   assert.match(workflow, /^  pull_request_target:$/mu);
   for (const name of [
     "gate-contract-tests",
@@ -123,7 +126,8 @@ test("G35 workflow executes the verifier from base with only the secret exposed"
     assert.match(workflowJob(workflow, name), /if: github\.event_name (?:!= 'pull_request_target'|== 'pull_request')/u);
   }
   assert.match(job, /if: github\.event_name == 'pull_request_target'/u);
-  assert.match(job, /continue-on-error: true/u);
+  assert.equal(/continue-on-error: true/u.test(job), gate?.required === false,
+    "workflow non-blocking mode must be the inverse of the G35 required contract");
   assert.match(job, /ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/u);
   assert.match(job, /ANTI_ENTROPY_HMAC_KEY: \$\{\{ secrets\.ANTI_ENTROPY_HMAC_KEY \}\}/u);
   assert.doesNotMatch(job, /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/u);

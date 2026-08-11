@@ -106,7 +106,7 @@ export function validateWritePlanShape(plan: WritePlan, commandTypes: readonly s
 export function freezeValidatedWritePlan<C extends string>(plan: WritePlan<C>): FrozenWritePlan<C> {
   return Object.freeze({ commandType: plan.commandType, targets: Object.freeze(plan.targets.map((target) => Object.freeze({ ...target }))) }) as FrozenWritePlan<C>;
 }
-export function isFrozenWritePlan(plan: WritePlan): boolean { return Object.isFrozen(plan) || Object.isFrozen(plan.targets); }
+export function isFrozenWritePlan(plan: WritePlan): boolean { return Object.isFrozen(plan) && Object.isFrozen(plan.targets); }
 export function appendWriteTarget<C extends string>(plan: WritePlan<C>, target: WriteTarget): WritePlan<C> {
   return { commandType: plan.commandType, targets: [...plan.targets, target] };
 }

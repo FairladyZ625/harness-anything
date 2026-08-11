@@ -25,11 +25,13 @@ export interface TaskLifecycleReceipt {
   readonly leaseCredential?: string; readonly leaseExpiry?: string;
 }
 
+const verifiedReceiptBrand: unique symbol = Symbol("verified-anti-entropy-receipt");
+export interface VerifiedReceipt { readonly digest: string; readonly [verifiedReceiptBrand]: true }
+
 export interface TaskLifecycleServiceInput {
   readonly command: ClientCommand;
   readonly credential?: string;
-  readonly capabilityRef?: string;
-  readonly antiEntropyReceipt?: { readonly token: string; readonly scope: string; readonly verdict: "approved" | "rejected"; readonly headSha: string };
+  readonly verifiedReceipt?: VerifiedReceipt;
   readonly gateReceipts?: readonly { readonly gateId: string; readonly receiptRef: string }[];
 }
 
@@ -216,7 +218,7 @@ export interface TaskLifecycleFacadeDependencies {
   readonly actor: ActorAxes;
   readonly service: TaskLifecycleServicePort;
   readonly readReport?: (path: string) => Promise<string>;
-  readonly verifyAntiEntropyReceipt?: (input: { readonly token: string; readonly scope: string; readonly verdict: "approved" | "rejected"; readonly headSha: string; readonly now: Date; readonly environment: NodeJS.ProcessEnv }) => Promise<{ readonly ok: boolean; readonly errors: readonly string[] }>;
+  readonly verifyReceipt?: (input: { readonly token: string; readonly scope: string; readonly verdict: "approved" | "rejected"; readonly headSha: string; readonly now: Date; readonly environment: NodeJS.ProcessEnv }) => Promise<{ readonly ok: boolean; readonly errors: readonly string[] }>;
   readonly environment?: NodeJS.ProcessEnv;
   readonly now?: Date;
 }
@@ -386,8 +388,8 @@ interface FrozenAntiEntropyReport {
 async function antiEntropyReviewInput(action: AntiEntropyReviewAction, dependencies: TaskLifecycleFacadeDependencies): Promise<TaskLifecycleServiceInput> {
   const body = await (dependencies.readReport ?? readAntiEntropyReport)(action.antiEntropyReport);
   const report = parseAntiEntropyReport(body);
-  if (dependencies.verifyAntiEntropyReceipt === undefined) throw Object.assign(new Error("Configure the receipt-verify adapter, then retry the signed frozen report."), { code: "receipt_verifier_unavailable", origin: "receipt-verify" });
-  const verification = await dependencies.verifyAntiEntropyReceipt({
+  if (dependencies.verifyReceipt === undefined) throw Object.assign(new Error("Configure the receipt-verify adapter, then retry the signed frozen report."), { code: "receipt_verifier_unavailable", origin: "receipt-verify" });
+  const verification = await dependencies.verifyReceipt({
     token: action.antiEntropyToken,
     now: dependencies.now ?? new Date(),
     environment: dependencies.environment ?? process.env,
@@ -425,8 +427,7 @@ async function antiEntropyReviewInput(action: AntiEntropyReviewAction, dependenc
       iteration: report.iteration,
       archiveWarningsAcknowledged: false
     },
-    capabilityRef: `anti-entropy-receipt:sha256:${createHash("sha256").update(action.antiEntropyToken).digest("hex")}`,
-    antiEntropyReceipt: { token: action.antiEntropyToken, scope: report.scope, verdict: report.verdict, headSha: report.headSha }
+    verifiedReceipt: Object.freeze({ digest: createHash("sha256").update(action.antiEntropyToken).digest("hex"), [verifiedReceiptBrand]: true as const })
   };
 }
 

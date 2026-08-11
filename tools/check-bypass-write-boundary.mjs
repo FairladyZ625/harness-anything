@@ -8,6 +8,7 @@ import { entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allo
 const targetRoots = [
   "packages/kernel/src/store",
   "packages/kernel/src/local",
+  "packages/kernel/src/projection",
   "packages/adapters/local/src",
   "packages/cli/src/commands"
 ];
@@ -25,16 +26,21 @@ export function scanBypassWriteCalls(root = process.cwd()) {
 
 export function checkBypassWriteBoundary(root = process.cwd()) {
   const allowlist = loadGateAllowlist("check-bypass-write-boundary", {
-    requiredSections: ["coordinatedCore", "exemptHumanOrBootstrap", "legacyArchive", "freshGateRegistry"]
+    requiredSections: ["coordinatedCore", "rebuildable-projection", "exemptHumanOrBootstrap", "legacyArchive", "freshGateRegistry"]
   });
-  const allowed = new Set(Object.values(allowlist).flatMap((entries) => entryValues(entries)));
+  const rebuildableProjection = new Set(entryValues(allowlist["rebuildable-projection"]));
+  const governed = new Set(Object.entries(allowlist)
+    .filter(([section]) => section !== "rebuildable-projection")
+    .flatMap(([, entries]) => entryValues(entries)));
   const findings = scanBypassWriteCalls(root).map((finding) => ({
     ...finding,
-    message: `${finding.api} writes filesystem state outside the coordinator unless explicitly governed`,
-    allowed: allowed.has(finding.key)
+    message: finding.category === "rebuildable-projection"
+      ? `${finding.api} writes a rebuildable projection cache under the explicit rebuildable-projection exemption`
+      : `${finding.api} writes filesystem state outside the coordinator unless explicitly governed`,
+    allowed: finding.category === "rebuildable-projection" ? rebuildableProjection.has(finding.key) : governed.has(finding.key)
   }));
 
-  for (const entry of allowed) {
+  for (const entry of [...governed, ...rebuildableProjection]) {
     if (!findings.some((finding) => finding.key === entry)) {
       findings.push({ key: entry, message: `allowlist entry is stale and should be removed: ${entry}`, allowed: false });
     }
@@ -44,6 +50,8 @@ export function checkBypassWriteBoundary(root = process.cwd()) {
 
 function inspectFile(root, rel) {
   const sourceText = readFileSync(path.join(root, rel), "utf8");
+  const category = rel.startsWith("packages/kernel/src/projection/")
+    && sourceText.includes("@write-boundary-exemption rebuildable-projection") ? "rebuildable-projection" : "governed-write";
   const sourceFile = ts.createSourceFile(rel, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const bindings = fsBindings(sourceFile);
   const sqlite = sqliteBindings(sourceFile);
@@ -61,6 +69,7 @@ function inspectFile(root, rel) {
     const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.expression.getStart(sourceFile));
     findings.push({
       api,
+      category,
       key: `${rel}#${api}@${occurrence}`,
       legacyKey: `${rel}#${api}@${line + 1}:${character + 1}`
     });

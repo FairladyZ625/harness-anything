@@ -134,6 +134,7 @@ function makeFixtureRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-w8-boundary-"));
   mkdirSync(path.join(root, "packages/kernel/src/store"), { recursive: true });
   mkdirSync(path.join(root, "packages/kernel/src/local"), { recursive: true });
+  mkdirSync(path.join(root, "packages/kernel/src/projection"), { recursive: true });
   mkdirSync(path.join(root, "packages/adapters/local/src"), { recursive: true });
   mkdirSync(path.join(root, "packages/cli/src/commands"), { recursive: true });
   return root;
@@ -151,6 +152,7 @@ function writeAllowlist(policyRoot, allowedValue = "packages/kernel/src/store/un
   }];
   const entries = {
     coordinatedCore: entry,
+    "rebuildable-projection": entry,
     exemptHumanOrBootstrap: entry,
     legacyArchive: entry,
     freshGateRegistry: entry

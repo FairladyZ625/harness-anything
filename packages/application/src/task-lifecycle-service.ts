@@ -2,10 +2,8 @@
 import { Effect } from "effect";
 import {
   applyTransition,
-  assertAntiEntropyGraph,
   canonicalizeContractValue,
   freezeWritePlan,
-  validateTransition,
   type FrozenWritePlan,
   type LeaseV1,
   type ProofFor,
@@ -13,6 +11,7 @@ import {
   type TaskEventV1,
   type TaskLifecycleCommand,
   type TaskLifecycleSnapshot,
+  type WriteTarget,
   type WriteError
 } from "../../kernel/src/index.ts";
 export async function runTaskLifecycleEffect<A>(effect: Effect.Effect<A, WriteError>): Promise<A> {
@@ -58,14 +57,12 @@ interface LeasePort {
   readonly current: (taskId: string) => LeaseV1 | null;
   readonly reserve: (input: { readonly taskId: string; readonly executionId: string; readonly actor: TaskLifecycleCommand["actor"]; readonly credentialHash: string; readonly expiresAt: string }) => Promise<LeaseV1>;
   readonly activate: (input: LeaseCas) => Promise<LeaseV1>;
-  readonly renew: (input: LeaseCas & { readonly expiresAt: string }) => Promise<LeaseV1>;
   readonly release: (input: LeaseCas) => Promise<LeaseV1>;
 }
 interface LeaseCas { readonly taskId: string; readonly executionId: string; readonly credentialHash: string; readonly version: number }
 export interface TaskLifecycleService {
   readonly execute: <C extends TaskLifecycleCommand>(command: C, proof: ProofFor<C>) => Promise<TaskLifecycleOperationReceipt>;
   readonly read: (taskId: string) => Promise<TaskLifecycleServiceRead>;
-  readonly renewLease: (input: LeaseCas & { readonly expiresAt: string }) => Promise<LeaseV1>;
 }
 export function makeTaskLifecycleService(options: {
   readonly eventStore: EventStorePort;
@@ -73,10 +70,9 @@ export function makeTaskLifecycleService(options: {
   readonly leases: LeasePort;
   readonly killpoint?: (point: TaskLifecycleKillpoint) => void;
 }): TaskLifecycleService {
-  const read = (taskId: string) => readAndConverge(options.projection, options.leases, taskId);
+  const read = (taskId: string) => readAndConverge(options.projection, options.leases, taskId, recoveryWritePlan(taskId));
   return {
     read,
-    renewLease: (input) => options.leases.renew(input),
     execute: async <C extends TaskLifecycleCommand>(command: C, suppliedProof: ProofFor<C>) => {
       const plan = commandWritePlan(command);
       const existing = options.eventStore.read().events.find((event) => event.opId === command.opId);
@@ -84,7 +80,7 @@ export function makeTaskLifecycleService(options: {
         if (!eventMatchesOperation(existing, command, suppliedProof)) throw new TaskLifecycleOperationConflict(`opId ${command.opId} already has a different payload`);
         return receiptFromRead(await read(command.taskId), existing, plan);
       }
-      const current = await read(command.taskId);
+      const current = await readAndConverge(options.projection, options.leases, command.taskId, recoveryWritePlan(command.taskId));
       if (current.status !== "ready") return pendingReceipt(current, plan, "projection catch-up is pending");
       let proof = suppliedProof;
       let reservation: LeaseV1 | null = null;
@@ -92,53 +88,50 @@ export function makeTaskLifecycleService(options: {
       try {
         if (command.type === "StartExecution") {
           const startProof = suppliedProof as StartExecutionProof;
-          reservation = await options.leases.reserve({
+          reservation = await planned(plan, leaseTarget(command.taskId, "reserve"), () => options.leases.reserve({
             taskId: command.taskId,
             executionId: command.executionId,
             actor: command.actor,
             credentialHash: startProof.reservation.credentialHash,
             expiresAt: startProof.reservation.expiresAt
-          });
+          }));
           proof = { ...startProof, reservation: { ...startProof.reservation, version: reservation.version } } as ProofFor<C>;
           options.killpoint?.("after_reservation");
         }
 
         const snapshot = { ...current.snapshot, lease: command.type === "StartExecution" ? null : options.leases.current(command.taskId) };
-        const issues = validateTransition(snapshot, command, proof);
-        if (issues.length > 0) applyTransition(snapshot, command, proof);
-        assertAntiEntropyGraph(snapshot, command, proof);
         const transition = applyTransition(snapshot, command, proof);
         event = transition.event;
 
-        const publication = await runTaskLifecycleEffect(options.eventStore.append(event));
+        const publication = await planned(plan, eventTarget(), () => runTaskLifecycleEffect(options.eventStore.append(event!)));
         if (publication.status === "indeterminate") {
-          await releaseReservation(options.leases, reservation);
+          await releaseReservation(options.leases, reservation, plan);
           return indeterminateReceipt(current, plan, publication.reason, publication.query);
         }
         event = publication.event;
         options.killpoint?.("after_event_append");
         options.killpoint?.("before_projection_apply");
         try {
-          options.projection.apply(event);
+          planned(plan, projectionTarget(command.taskId), () => options.projection.apply(event!));
         } catch (error) {
           return pendingReceipt(await read(command.taskId), plan, errorMessage(error), event);
         }
         options.killpoint?.("after_projection_apply");
         options.killpoint?.("before_lease_finalize");
         try {
-          await finalizeLease(options.leases, command, reservation);
+          await finalizeLease(options.leases, command, reservation, plan);
         } catch (error) {
           return pendingReceipt(await read(command.taskId), plan, errorMessage(error), event);
         }
         return receiptFromRead(await read(command.taskId), event, plan);
       } catch (error) {
         if (event === undefined) {
-          await releaseReservation(options.leases, reservation);
+          await releaseReservation(options.leases, reservation, plan);
           throw error;
         }
         const stream = options.eventStore.read();
         if (!stream.events.some((candidate) => candidate.opId === event?.opId)) {
-          await releaseReservation(options.leases, reservation);
+          await releaseReservation(options.leases, reservation, plan);
           if (stream.events.some((candidate) => candidate.workspaceRevision === event?.workspaceRevision)) {
             throw new TaskLifecycleOperationConflict(`workspace revision ${event.workspaceRevision} was accepted by another operation`);
           }
@@ -153,47 +146,49 @@ export function commandWritePlan(command: TaskLifecycleCommand): FrozenWritePlan
   const leaseTargets = command.type === "StartExecution"
     ? [
       { kind: "lease_sqlite" as const, table: "lease_cas" as const, taskId: command.taskId, operation: "reserve" as const },
-      { kind: "lease_sqlite" as const, table: "lease_cas" as const, taskId: command.taskId, operation: "activate" as const }]
+      { kind: "lease_sqlite" as const, table: "lease_cas" as const, taskId: command.taskId, operation: "activate" as const },
+      { kind: "lease_sqlite" as const, table: "lease_cas" as const, taskId: command.taskId, operation: "release" as const }]
     : command.type === "SubmitExecution"
       ? [{ kind: "lease_sqlite" as const, table: "lease_cas" as const, taskId: command.taskId, operation: "release" as const }]
       : [];
   return freezeWritePlan({
     commandType: command.type,
     targets: [
-      { kind: "event_stream", stream: "harness/task-events.ndjson", operation: "append" },
-      { kind: "projection_invalidation", projection: "task-lifecycle/v1", taskId: command.taskId },
+      eventTarget(),
+      projectionTarget(command.taskId),
       ...leaseTargets
     ]
   });
 }
-async function readAndConverge(projection: ProjectionPort, leases: LeasePort, taskId: string): Promise<TaskLifecycleServiceRead> {
-  const read = projection.read(taskId);
+function recoveryWritePlan(taskId: string): FrozenWritePlan<"StartExecution"> { return freezeWritePlan({ commandType: "StartExecution", targets: [eventTarget(), projectionTarget(taskId), leaseTarget(taskId, "activate"), leaseTarget(taskId, "release")] }); }
+async function readAndConverge(projection: ProjectionPort, leases: LeasePort, taskId: string, plan: FrozenWritePlan<TaskLifecycleCommand["type"]>): Promise<TaskLifecycleServiceRead> {
+  const read = planned(plan, projectionTarget(taskId), () => projection.read(taskId));
   if (read.status !== "ready") return read;
   let lease = leases.current(taskId);
   if (lease !== null) {
     const execution = read.snapshot.executions.find((candidate) => candidate.executionId === lease?.executionId);
-    if (lease.phase === "reserving" && execution?.state === "active") lease = await leases.activate(cas(lease));
+    if (lease.phase === "reserving" && execution?.state === "active") lease = await planned(plan, leaseTarget(taskId, "activate"), () => leases.activate(cas(lease!)));
     else if (execution?.state !== "active") {
-      await leases.release(cas(lease));
+      await planned(plan, leaseTarget(taskId, "release"), () => leases.release(cas(lease!)));
       lease = null;
     }
   }
   const activeWithoutLease = read.snapshot.executions.some((execution) => execution.state === "active") && lease === null;
   return { ...read, status: activeWithoutLease ? "pending" : "ready", snapshot: { ...read.snapshot, lease } };
 }
-async function finalizeLease(leases: LeasePort, command: TaskLifecycleCommand, reservation: LeaseV1 | null): Promise<void> {
+async function finalizeLease(leases: LeasePort, command: TaskLifecycleCommand, reservation: LeaseV1 | null, plan: FrozenWritePlan<TaskLifecycleCommand["type"]>): Promise<void> {
   if (command.type === "StartExecution" && reservation !== null) {
-    await leases.activate(cas(reservation));
+    await planned(plan, leaseTarget(command.taskId, "activate"), () => leases.activate(cas(reservation)));
   } else if (command.type === "SubmitExecution") {
     const lease = leases.current(command.taskId);
-    if (lease !== null) await leases.release(cas(lease));
+    if (lease !== null) await planned(plan, leaseTarget(command.taskId, "release"), () => leases.release(cas(lease)));
   }
 }
 
-async function releaseReservation(leases: LeasePort, reservation: LeaseV1 | null): Promise<void> {
+async function releaseReservation(leases: LeasePort, reservation: LeaseV1 | null, plan: FrozenWritePlan<TaskLifecycleCommand["type"]>): Promise<void> {
   if (reservation === null) return;
   try {
-    await leases.release(cas(reservation));
+    await planned(plan, leaseTarget(reservation.taskId, "release"), () => leases.release(cas(reservation)));
   } catch (error) {
     consumeKnownError(error);
   }
@@ -203,6 +198,11 @@ function cas(lease: LeaseV1): LeaseCas {
   return { taskId: lease.taskId, executionId: lease.executionId, credentialHash: lease.credentialHash, version: lease.version };
 }
 
+function eventTarget(): WriteTarget { return { kind: "event_stream", stream: "harness/task-events.ndjson", operation: "append" }; }
+function projectionTarget(taskId: string): WriteTarget { return { kind: "projection_invalidation", projection: "task-lifecycle/v1", taskId }; }
+function leaseTarget(taskId: string, operation: "reserve" | "activate" | "release"): WriteTarget { return { kind: "lease_sqlite", table: "lease_cas", taskId, operation }; }
+function planned<A>(plan: FrozenWritePlan<TaskLifecycleCommand["type"]>, target: WriteTarget, write: () => A): A { assertWriteTargetDeclared(plan, target); return write(); }
+export function assertWriteTargetDeclared(plan: FrozenWritePlan<TaskLifecycleCommand["type"]>, target: WriteTarget): void { if (!Object.isFrozen(plan) || !Object.isFrozen(plan.targets) || !plan.targets.some((candidate) => canonicalJson(candidate) === canonicalJson(target))) throw new TaskLifecycleOperationConflict(`undeclared_write_target: ${canonicalJson(target)}`); }
 function receiptFromRead(read: TaskLifecycleServiceRead, event: TaskEventV1, plan: FrozenWritePlan<TaskLifecycleCommand["type"]>): TaskLifecycleOperationReceipt {
   return read.status === "ready"
     ? { status: "applied", event, revision: event.workspaceRevision, snapshot: read.snapshot, writePlan: plan }
