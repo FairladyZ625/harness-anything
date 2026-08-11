@@ -234,6 +234,15 @@ export interface RecoveryReport {
   readonly deferredOps?: number;
 }
 
+/** Daemon-owned global-lock capability accepted by coordinated write runtimes. */
+export interface DaemonGlobalLock {
+  readonly path: string;
+  readonly ownerToken: string;
+  readonly ownerKind?: "daemon";
+  readonly refreshHeartbeat: () => void;
+  readonly release: () => void;
+}
+
 export interface WriteCoordinator {
   readonly enqueue: (op: WriteOp) => Effect.Effect<WriteAck, WriteError>;
   readonly flush: (reason: FlushReason) => Effect.Effect<FlushReport, WriteError>;

@@ -9,7 +9,7 @@ export {
   acquireDaemonGlobalLock,
   assertDaemonGlobalLockHeld
 } from "./write-coordination/journal/locks.ts";
-export type { DaemonGlobalLock } from "./write-coordination/journal/locks.ts";
+export type { DaemonGlobalLock } from "./ports/write-coordinator.ts";
 export { recoverJournaledWrites } from "./write-coordination/journal/coordinator.ts";
 export {
   singleWriteIntegrityDomain,
