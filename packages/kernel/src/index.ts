@@ -185,6 +185,8 @@ export type {
 export { DaemonDrainTimeoutError } from "./daemon/drain-timeout.ts";
 export { daemonAdmissionBytes } from "./daemon/admission-budget.ts";
 export type { DaemonAdmissionBudget } from "./daemon/admission-budget.ts";
+export type { ProjectionChangeEvent } from "./projection/projection-change-event.ts";
+export type { DaemonGlobalLock } from "./write-coordination/journal/locks.ts";
 export {
   runLedgerMaterializer,
   type LedgerMaterializerProgressStep,

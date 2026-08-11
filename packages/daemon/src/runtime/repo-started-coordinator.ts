@@ -1,10 +1,11 @@
 import {
   makeJournaledWriteCoordinator,
   makeOperationalJournaledWriteCoordinator,
+  type DaemonGlobalLock,
   type HarnessLayoutOverrides,
-  type OperationalActor
+  type OperationalActor,
+  type ProjectionChangeEvent
 } from "@harness-anything/kernel";
-import type { DaemonGlobalLock, ProjectionChangeEvent } from "@harness-anything/kernel/daemon-runtime-support";
 import type { HarnessDaemonRuntime } from "./repo-runtime-options.ts";
 import type { InteractiveWriteAttribution } from "./write-queue.ts";
 import {

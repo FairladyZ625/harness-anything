@@ -1,5 +1,4 @@
-import type { HarnessLayoutInput, LedgerMaterializerReport } from "@harness-anything/kernel";
-import type { DaemonGlobalLock } from "@harness-anything/kernel/daemon-runtime-support";
+import type { DaemonGlobalLock, HarnessLayoutInput, LedgerMaterializerReport } from "@harness-anything/kernel";
 import type { DaemonMaterializerBatchOptions } from "./repo-runtime-options.ts";
 import { bindCurrentRepoWriteTelemetry, reportCurrentRepoWriteTelemetry } from "./repo-write-telemetry-context.ts";
 import {
