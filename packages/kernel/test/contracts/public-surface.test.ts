@@ -211,6 +211,7 @@ const publicRuntimeSurface = [
   "validateRelationGraphRecords",
   "validateRelationRecordsForHost",
   "validateTaskIdSyntax",
+  "validateTaskLifecycleCommandEnvelope",
   "validateTemplateCatalog",
   "validateVerticalDefinition",
   "warning",

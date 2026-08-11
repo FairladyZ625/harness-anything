@@ -10,8 +10,8 @@ import { makeTaskLifecycleService, runTaskLifecycleEffect, TaskLifecycleOperatio
 import { lifecycleHarness, replayGraph } from "./task-lifecycle-test-harness.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } };
-const command = <C extends Parameters<typeof normalizeTaskLifecycleCommand>[1]>(rootDir: string, intent: C, meta: { readonly eventId: string; readonly workspaceRevision: number; readonly occurredAt: string }) =>
-  ({ ...normalizeTaskLifecycleCommand({ workspaceId: rootDir, actor, source: "local", expectedRevision: meta.workspaceRevision - 1 }, intent), ...meta });
+const command = <C extends Parameters<typeof normalizeTaskLifecycleCommand>[1]>(rootDir: string, intent: C, meta: { readonly eventId: string; readonly workspaceRevision: number; readonly occurredAt: string }, expectedRevision = meta.workspaceRevision - 1) =>
+  ({ ...normalizeTaskLifecycleCommand({ workspaceId: rootDir, actor, source: "local", expectedRevision }, intent), ...meta });
 
 test("transition service freezes targets and makes create/start idempotent by opId payload", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-service-"));
@@ -44,6 +44,28 @@ test("transition service freezes targets and makes create/start idempotent by op
     assert.equal(started.snapshot.lease?.phase, "active");
     assert.equal(started.snapshot.executions[0]?.state, "active");
     assert.equal(JSON.stringify(eventStore.read().events).includes("credential"), false);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("second distinct task create uses aggregate revision zero in a non-empty workspace", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-two-tasks-"));
+  try {
+    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const eventStore = makeTaskEventStore({ rootDir, coordinator });
+    const projection = makeTaskProjection({ rootDir, eventStore });
+    const leases = makeTaskLeaseStore({ rootDir, coordinator, runEffect: runTaskLifecycleEffect, now: () => "2026-08-11T00:00:00.000Z" });
+    const service = makeTaskLifecycleService({ eventStore, projection, leases });
+    const create = (taskId: string, title: string, revision: number) => command(rootDir, {
+      type: "CreateReplayTask" as const, taskId, title, graph: replayGraph, completionGateIds: []
+    }, { eventId: `event-create-${revision}`, workspaceRevision: revision, occurredAt: `2026-08-11T00:0${revision}:00.000Z` }, 0);
+    await service.execute(create("task-1", "First task", 1), { taskIdUnique: true, actorBinding: actor });
+    const second = await service.execute(create("task-2", "Second task", 2), { taskIdUnique: true, actorBinding: actor });
+    assert.equal(second.snapshot.task?.taskId, "task-2");
+    assert.equal(second.snapshot.revision, 2);
+    assert.equal(eventStore.read().events.length, 2);
+    await assert.rejects(() => service.execute(create("task-2", "Duplicate task", 3), { taskIdUnique: true, actorBinding: actor }));
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

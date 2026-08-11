@@ -1,5 +1,5 @@
 export * from "./domain/index.ts";
-export { applyTransition, normalizeTaskLifecycleCommand } from "./domain/task-lifecycle.contract.ts";
+export { applyTransition, normalizeTaskLifecycleCommand, validateTaskLifecycleCommandEnvelope } from "./domain/task-lifecycle.contract.ts";
 export { freezeWritePlan, taskLifecycleWritePlan } from "./domain/task-write-decision.ts";
 export type { CompleteTaskProof, ProofFor, StartExecutionProof, TaskEventV1, TaskLifecycleCommand, TaskLifecycleSnapshot } from "./domain/task-lifecycle.contract.ts";
 export { canonicalizeContractValue } from "./domain/task.ts";

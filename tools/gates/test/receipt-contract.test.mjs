@@ -15,7 +15,7 @@ test("G04 accepts all four receipt outcomes and requires honest error fields", (
     outcome: "indeterminate",
     opId: "op_2",
     code: "readback_unknown",
-    origin: "daemon",
+    origin: "N/A",
     nextAction: "query the operation by opId"
   }), []);
   assert.deepEqual(validateWriteReceipt(fixture("receipt-error-golden.json")), []);
@@ -50,6 +50,7 @@ test("G06 evidence-free results can only be N/A indeterminate", () => {
     nextAction: "collect readback evidence"
   };
   assert.deepEqual(validateWriteReceipt(honest), []);
+  assert.match(validateWriteReceipt({ ...honest, origin: "daemon" }).join("\n"), /evidence-free.*N\/A indeterminate/u);
   assert.match(validateWriteReceipt({ outcome: "applied", opId: "op_4", revision: 1 }).join("\n"), /requires revision and evidence/u);
   assert.throws(() => createWriteReceipt({ ...honest, origin: "" }), WriteChainContractError);
 });

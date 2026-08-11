@@ -4,7 +4,7 @@ import {
   applyTransition,
   canonicalizeContractValue,
   freezeWritePlan,
-  taskLifecycleWritePlan,
+  taskLifecycleWritePlan, validateTaskLifecycleCommandEnvelope,
   type FrozenWritePlan,
   type LeaseV1,
   type ProofFor,
@@ -68,6 +68,8 @@ export function makeTaskLifecycleService(options: {
   return {
     read,
     execute: async <C extends TaskLifecycleCommand>(command: C, suppliedProof: ProofFor<C>) => {
+      const envelopeIssues = validateTaskLifecycleCommandEnvelope(command);
+      if (envelopeIssues.length > 0) throw new TaskLifecycleOperationConflict(`invalid normalized command envelope: ${envelopeIssues.map((issue) => issue.message).join("; ")}`);
       const plan = taskLifecycleWritePlan(command);
       const existing = options.eventStore.read().events.find((event) => event.opId === command.opId);
       if (existing !== undefined) {
@@ -188,18 +190,16 @@ function pendingReceipt(read: TaskLifecycleServiceRead, plan: FrozenWritePlan<Ta
     visibility: "center", proof: { committedRevision: read.sourceRevision, appliedCut: read.watermark },
     snapshot: read.snapshot, frozenPlan: plan, nextAction: `retry task lifecycle read: ${reason}` };
 }
-
 function indeterminateReceipt(read: TaskLifecycleServiceRead, plan: FrozenWritePlan<TaskLifecycleCommand["type"]>, opId: string, reason: string, query: string, event?: TaskEventV1): WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot, TaskLifecycleCommand["type"]> {
-  return { outcome: "indeterminate", opId, ...(event ? { event } : {}), revision: event?.workspaceRevision ?? read.sourceRevision,
-    visibility: "center", snapshot: read.snapshot, frozenPlan: plan, code: "publication_unknown", origin: "task-event-store", nextAction: `${query}: ${reason}` };
+  return { outcome: "indeterminate", opId, ...(event ? { event, evidence: `task-event:${event.eventId}` } : {}), revision: event?.workspaceRevision ?? read.sourceRevision,
+    visibility: "center", snapshot: read.snapshot, frozenPlan: plan, code: "publication_unknown", origin: event ? "task-event-store" : "N/A", nextAction: `${query}: ${reason}` };
 }
-
 function eventMatchesOperation<C extends TaskLifecycleCommand>(event: TaskEventV1, command: C, proof: ProofFor<C>): boolean {
   return canonicalJson(operationIdentityFromEvent(event)) === canonicalJson(operationIdentityFromCommand(command, proof));
 }
 
 function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C, proof: ProofFor<C>): unknown {
-  const common = { type: command.type, taskId: command.taskId, eventId: command.eventId, workspaceRevision: command.workspaceRevision, actor: command.actor, occurredAt: command.occurredAt };
+  const common = { type: command.type, taskId: command.taskId, eventId: command.eventId, workspaceRevision: command.workspaceRevision, actor: command.actor, source: command.source, occurredAt: command.occurredAt };
   if (command.type === "CreateReplayTask") return { ...common, title: command.title, graph: command.graph, completionGateIds: command.completionGateIds };
   if (command.type === "StartExecution") return { ...common, executionId: command.executionId };
   if (command.type === "SubmitExecution") return { ...common, executionId: command.executionId, submission: command.submission };
@@ -209,7 +209,7 @@ function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C
 
 function operationIdentityFromEvent(event: TaskEventV1): unknown {
   const type = event.type === "task_created" ? "CreateReplayTask" : event.type === "execution_started" ? "StartExecution" : event.type === "execution_submitted" ? "SubmitExecution" : event.type === "task_completed" ? "CompleteTask" : "RecordReview";
-  const common = { type, taskId: event.taskId, eventId: event.eventId, workspaceRevision: event.workspaceRevision, actor: event.actor, occurredAt: event.occurredAt };
+  const common = { type, taskId: event.taskId, eventId: event.eventId, workspaceRevision: event.workspaceRevision, actor: event.actor, source: event.source, occurredAt: event.occurredAt };
   if (event.type === "task_created") return { ...common, title: event.payload.task.title, graph: event.payload.task.graph, completionGateIds: event.payload.task.completionGateIds };
   if (event.type === "execution_started" || event.type === "task_completed") return { ...common, executionId: event.payload.execution.executionId };
   if (event.type === "execution_submitted") return { ...common, executionId: event.payload.execution.executionId, submission: event.payload.execution.submission };

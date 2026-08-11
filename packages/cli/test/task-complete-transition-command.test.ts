@@ -149,6 +149,7 @@ test("complete without a current submitted Execution stays rejected and teaches 
         opId: input.command.opId,
         code: "invalid_transition",
         origin: "task-lifecycle-service",
+        evidence: "service-rejection:invalid_transition",
         nextAction: "Run `ha task show task_NO_SUBMISSION`; then start and submit an Execution before requesting both reviews."
       }),
       show: async () => applied("read:task", 8, "unused")

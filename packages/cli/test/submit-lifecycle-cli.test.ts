@@ -118,6 +118,7 @@ test("rejected submit preserves G04 recovery guidance", async () => {
         opId: input.command.opId,
         code: "invalid_transition",
         origin: "task-lifecycle-service",
+        evidence: "service-rejection:invalid_transition",
         nextAction: "Run `ha task show task_TYPED` and start an Execution before submitting."
       }),
       show: async () => applied("read:task", 3, "unused")
@@ -128,6 +129,7 @@ test("rejected submit preserves G04 recovery guidance", async () => {
     opId: receipt.opId,
     code: "invalid_transition",
     origin: "task-lifecycle-service",
+    evidence: "service-rejection:invalid_transition",
     nextAction: "Run `ha task show task_TYPED` and start an Execution before submitting."
   });
 });
@@ -144,7 +146,7 @@ test("indeterminate submit preserves all G04 recovery fields", async () => {
         outcome: "indeterminate",
         opId: input.command.opId,
         code: "publication_unknown",
-        origin: "task-event-store",
+        origin: "N/A",
         nextAction: "Run `ha task show task_TYPED`; retry only if the projection does not contain this opId."
       }),
       show: async () => applied("read:task", 3, "unused")
@@ -153,6 +155,6 @@ test("indeterminate submit preserves all G04 recovery fields", async () => {
   assert.equal(receipt.outcome, "indeterminate");
   assert.deepEqual(
     [receipt.code, receipt.origin, receipt.nextAction?.includes("task show"), receipt.opId?.startsWith("op_")],
-    ["publication_unknown", "task-event-store", true, true]
+    ["publication_unknown", "N/A", true, true]
   );
 });

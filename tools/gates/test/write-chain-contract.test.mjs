@@ -113,6 +113,23 @@ test("G02/G07 expose one four-state receipt and bounded recovery contract", asyn
   }), WriteChainContractError);
 });
 
+test("G08 recovery cursor is monotonic, visits once, defers exhausted budgets, and escalates exhausted retry", () => {
+  const budget = { deadline: 100, maxItems: 2, retry: 1 };
+  for (const invalid of [{ ...budget, deadline: -1 }, { ...budget, maxItems: -1 }, { ...budget, retry: -1 }]) {
+    assert.throws(() => nextRecoveryBatch([0, 1], 0, invalid), WriteChainContractError);
+  }
+  const first = nextRecoveryBatch([0, 1, 2, 3, 4], 0, budget);
+  const second = nextRecoveryBatch([0, 1, 2, 3, 4], first.nextCursor, budget);
+  const third = nextRecoveryBatch([0, 1, 2, 3, 4], second.nextCursor, budget);
+  assert.deepEqual([first.nextCursor, second.nextCursor, third.nextCursor], [2, 4, 5]);
+  assert.deepEqual([...first.items, ...second.items, ...third.items], [0, 1, 2, 3, 4]);
+  assert.deepEqual([first.deferred, first.state, third.deferred, third.state], [3, "deferred", 0, "done"]);
+  assert.deepEqual(nextRecoveryBatch([0, 1], 0, budget, { elapsed: 100, attempt: 0 }),
+    { items: [], deferred: 2, nextCursor: 0, state: "deferred" });
+  assert.deepEqual(nextRecoveryBatch([0, 1], 0, budget, { elapsed: 0, attempt: 2 }),
+    { items: [], deferred: 2, nextCursor: 0, state: "failed" });
+});
+
 test("G02/G03 task decision rejects stale writers, conflicting opIds, and unsafe targets before publication", () => {
   const activeWriter = { workspaceId: "workspace-1", generation: 2, ownerId: "daemon-a" };
   const writerToken = issueWriterGenerationToken(activeWriter);
@@ -136,11 +153,32 @@ test("G02/G03 task decision rejects stale writers, conflicting opIds, and unsafe
     event: legal.event, receipt: legal.receipt } });
   assert.deepEqual([conflict.accepted, conflict.receipt.outcome, conflict.receipt.code], [false, "rejected", "operation_conflict"]);
 
+  const sourceDrift = decide({ command: { ...command, source: "remote_direct" }, existingOperation: {
+    opId: command.opId, commandDigest: command.commandDigest, event: legal.event, receipt: legal.receipt } });
+  assert.deepEqual([sourceDrift.accepted, sourceDrift.receipt.outcome, sourceDrift.receipt.code], [false, "rejected", "invalid_schema"]);
+
   const unsafe = { ...normalizeTaskLifecycleCommand({ workspaceId: "workspace-1", actor, source: "local", expectedRevision: 0 }, {
     type: "CreateReplayTask", taskId: "../escape", title: "Unsafe", graph: REPLAY_TASK_GRAPH, completionGateIds: []
   }), eventId: "event-unsafe", workspaceRevision: 1, occurredAt: "2026-08-11T00:00:00.000Z" };
   const invalidTarget = decide({ command: unsafe });
   assert.deepEqual([invalidTarget.accepted, invalidTarget.receipt.outcome, invalidTarget.receipt.code], [false, "rejected", "invalid_write_plan"]);
+});
+
+test("G03 returns an immutable event with stable canonical bytes", () => {
+  const activeWriter = { workspaceId: "workspace-1", generation: 2, ownerId: "daemon-a" };
+  const command = { ...normalizeTaskLifecycleCommand({ workspaceId: "workspace-1", actor, source: "local", expectedRevision: 0 }, {
+    type: "CreateReplayTask", taskId: "task-1", title: "Replay task", graph: REPLAY_TASK_GRAPH, completionGateIds: []
+  }), eventId: "event-1", workspaceRevision: 1, occurredAt: "2026-08-11T00:00:00.000Z" };
+  const decision = decideTaskLifecycleWrite({ snapshot: emptyTaskLifecycleSnapshot(), command,
+    proof: { taskIdUnique: true, actorBinding: actor }, activeWriter, writerToken: issueWriterGenerationToken(activeWriter) });
+  assert.equal(decision.accepted, true);
+  if (!decision.accepted) return;
+  const before = serializeTaskEvent(decision.event);
+  assert.equal(Object.isFrozen(decision.event), true);
+  assert.equal(Object.isFrozen(decision.event.payload), true);
+  assert.equal(Object.isFrozen(decision.event.payload.task), true);
+  assert.throws(() => { decision.event.payload.task.title = "mutated"; }, TypeError);
+  assert.equal(serializeTaskEvent(decision.event), before);
 });
 
 test("G03 rejects a second writer and a token from an old generation", () => {

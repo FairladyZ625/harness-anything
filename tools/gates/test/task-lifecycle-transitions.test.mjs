@@ -191,6 +191,21 @@ test("G10 StartExecution atomically activates one execution and its lease", () =
   );
 });
 
+test("G10 rejects cross-source lease submit before release", () => {
+  const crossSource = {
+    ...normalizeTaskLifecycleCommand({ workspaceId: "workspace-1", actor: executor, source: "remote_direct", expectedRevision: 2 }, {
+      type: "SubmitExecution", taskId: "task-1", executionId: "execution-0", submission: submission()
+    }),
+    eventId: "evt-submit-cross-source",
+    workspaceRevision: 3,
+    occurredAt: "2026-08-11T00:00:03.000Z"
+  };
+  assert.throws(
+    () => applyTransition(startedSnapshot(), crossSource, submitProof()),
+    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof"
+  );
+});
+
 test("G10 SubmitExecution submits the execution, releases its exact lease, and advances one edge", () => {
   const submitted = applyTransition(startedSnapshot(), submitCommand(), submitProof());
   assert.equal(submitted.event.type, "execution_submitted");

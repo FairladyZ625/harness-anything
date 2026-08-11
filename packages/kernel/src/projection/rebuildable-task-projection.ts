@@ -78,7 +78,7 @@ function readProjection(projectionPath: string, stream: TaskEventStreamV1, taskI
     }));
     watermark += pending.length;
   }
-  const snapshot = withDatabase(projectionPath, (db) => readSnapshot(db, taskId, stream.revision));
+  const snapshot = withDatabase(projectionPath, (db) => readSnapshot(db, taskId));
   return {
     status: watermark === stream.revision ? "ready" : "pending",
     snapshot,
@@ -154,7 +154,7 @@ function transaction(db: DatabaseSync, run: () => void): void {
 }
 
 function applyEvent(db: DatabaseSync, event: TaskEventV1): void {
-  const previous = readSnapshot(db, event.taskId, event.workspaceRevision - 1);
+  const previous = readSnapshot(db, event.taskId);
   const snapshot = reduceTaskEvent(previous, event);
   db.prepare("INSERT INTO task (task_id, op_id, workspace_revision, event_json, snapshot_json) VALUES (?, ?, ?, ?, ?)").run(
     event.taskId,
@@ -198,11 +198,11 @@ function projectionWatermark(db: DatabaseSync): number {
   return Number(row.revision);
 }
 
-function readSnapshot(db: DatabaseSync, taskId: string, globalRevision: number): TaskLifecycleSnapshot {
+function readSnapshot(db: DatabaseSync, taskId: string): TaskLifecycleSnapshot {
   const row = db.prepare("SELECT snapshot_json FROM task WHERE task_id = ? ORDER BY workspace_revision DESC LIMIT 1").get(taskId) as { readonly snapshot_json: string } | undefined;
-  if (row === undefined) return emptyTaskLifecycleSnapshot(globalRevision);
+  if (row === undefined) return emptyTaskLifecycleSnapshot();
   const snapshot = JSON.parse(row.snapshot_json) as TaskLifecycleSnapshot;
-  return { ...snapshot, revision: globalRevision, lease: null };
+  return { ...snapshot, lease: null };
 }
 
 function projectionMatches(db: DatabaseSync, events: readonly TaskEventV1[]): boolean {

@@ -2,7 +2,7 @@ import { EXECUTION_V1_SCHEMA, isNativeCommitSha, LEASE_V1_SCHEMA, validateExecut
 import type { ExecutionV1, LeaseHolder, LeaseV1 } from "./execution.ts";
 import { REVIEW_V1_SCHEMA, validateReviewV1 } from "./review.ts";
 import type { ReviewV1 } from "./review.ts";
-import { TASK_V1_SCHEMA, validateActorAxes, validateTaskV1 } from "./task.ts";
+import { canonicalizeContractValue, TASK_V1_SCHEMA, validateActorAxes, validateTaskV1 } from "./task.ts";
 import type { ActorAxes, ContractValidationIssue, TaskV1 } from "./task.ts";
 import { TASK_EDGE_TAKEN_SCHEMA, TASK_GRAPH_V1_SCHEMA, validateTaskGraph } from "./task-graph.ts";
 import type { TaskEdgeTaken, TaskGraphV1 } from "./task-graph.ts";
@@ -41,7 +41,7 @@ function lifecycleCommandIntent(command: TaskLifecycleCommand): TaskLifecycleCom
   const { schema: _schema, workspaceId: _workspaceId, actor: _actor, source: _source, expectedRevision: _expectedRevision, opId: _opId, commandDigest: _commandDigest,
     eventId: _eventId, workspaceRevision: _workspaceRevision, occurredAt: _occurredAt, transport: _transport, ...intent } = command as TaskLifecycleCommand & { readonly transport?: unknown };
   return intent as TaskLifecycleCommandIntent; }
-function normalizedCommandIssues(command: TaskLifecycleCommand): readonly ContractValidationIssue[] {
+export function validateTaskLifecycleCommandEnvelope(command: TaskLifecycleCommand): readonly ContractValidationIssue[] {
   return validateNormalizedCommandEnvelope(command, { workspaceId: command.workspaceId, actor: command.actor, source: command.source, expectedRevision: command.expectedRevision,
     command: lifecycleCommandIntent(command) as unknown as Readonly<Record<string, unknown>> }).map((message) => ({ code: "invalid_schema", message })); }
 export interface CreateReplayTaskProof { readonly taskIdUnique: true; readonly actorBinding: ActorAxes }
@@ -106,9 +106,9 @@ const createReplayTaskTransition: TransitionDefinition = {
   }
 };
 function revisionIssues(snapshot: TaskLifecycleSnapshot, command: TaskLifecycleCommand): ContractValidationIssue[] {
-  return command.expectedRevision === snapshot.revision && command.workspaceRevision === snapshot.revision + 1
+  return command.expectedRevision === snapshot.revision && command.workspaceRevision > snapshot.revision
     ? []
-    : [{ code: "invalid_transition", message: "expected revision and next workspace revision must match the snapshot" }];
+    : [{ code: "invalid_transition", message: "aggregate expected revision must match and workspace revision must advance" }];
 }
 const startExecutionTransition: TransitionDefinition = {
   id: "start_execution", commandType: "StartExecution", from: "planned|active/implementation",
@@ -188,7 +188,7 @@ const submitExecutionTransition: TransitionDefinition = {
     if (task === null || task.status !== "active" || task.currentNode !== "implementation" || execution?.state !== "active" || execution.iteration !== task.iteration) issues.push({ code: "invalid_transition", message: "SubmitExecution requires the active execution in the current implementation round" });
     const lease = snapshot.lease;
     if (lease === null || lease.phase !== "active" || lease.taskId !== command.taskId || lease.executionId !== command.executionId
-      || !sameActor(lease.actor, command.actor) || proof.actorBinding === undefined || !sameActor(proof.actorBinding, command.actor)
+      || !sameActor(lease.actor, command.actor) || JSON.stringify(canonicalizeContractValue(lease.source)) !== JSON.stringify(canonicalizeContractValue(command.source)) || proof.actorBinding === undefined || !sameActor(proof.actorBinding, command.actor)
       || proof.leaseVersion !== lease.version) issues.push({ code: "invalid_proof", message: "the authenticated actor, execution, and lease version must match the active lease" });
     if (!["complete", "partial", "unavailable"].includes(String(proof.sessionDisposition))) issues.push({ code: "invalid_proof", message: "session disposition must be terminal" });
     issues.push(...validateSubmissionV1(command.submission));
@@ -363,7 +363,7 @@ export const TASK_LIFECYCLE_TRANSITIONS: readonly TransitionDefinition[] = Objec
 ]);
 
 export function validateTransition<C extends TaskLifecycleCommand>(snapshot: TaskLifecycleSnapshot, command: C, proof: ProofFor<C>): readonly ContractValidationIssue[] {
-  const normalizedIssues = normalizedCommandIssues(command);
+  const normalizedIssues = validateTaskLifecycleCommandEnvelope(command);
   if (normalizedIssues.length > 0) return normalizedIssues;
   const transition = TASK_LIFECYCLE_TRANSITIONS.find((candidate) => candidate.matches(command));
   return transition === undefined
@@ -379,7 +379,7 @@ function transitionErrorCode(issues: readonly ContractValidationIssue[]): TaskLi
 }
 
 function previewTransition<C extends TaskLifecycleCommand>(snapshot: TaskLifecycleSnapshot, command: C, proof: ProofFor<C>): TransitionResult {
-  const normalizedIssues = normalizedCommandIssues(command);
+  const normalizedIssues = validateTaskLifecycleCommandEnvelope(command);
   if (normalizedIssues.length > 0) throw new TaskLifecycleContractError("invalid_schema", normalizedIssues);
   const transition = TASK_LIFECYCLE_TRANSITIONS.find((candidate) => candidate.matches(command));
   if (transition === undefined) throw new TaskLifecycleContractError("invalid_transition", [{ code: "invalid_transition", message: `no lifecycle transition accepts ${command.type}` }]);
@@ -540,7 +540,7 @@ function assertReplayEvent(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, 
 export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEventV1): TaskLifecycleSnapshot {
   const issues = validateTaskEvent(event);
   if (issues.length > 0) throw new TaskLifecycleContractError("invalid_schema", issues);
-  if (event.workspaceRevision !== snapshot.revision + 1 || (event.type === "task_created" ? snapshot.task !== null : snapshot.task?.taskId !== event.taskId)) {
+  if (event.workspaceRevision <= snapshot.revision || (event.type === "task_created" ? snapshot.task !== null : snapshot.task?.taskId !== event.taskId)) {
     throw new TaskLifecycleContractError("invalid_transition", [{ code: "invalid_transition", message: "event revision or aggregate identity is not replayable" }]);
   }
   let next: TaskLifecycleSnapshot;

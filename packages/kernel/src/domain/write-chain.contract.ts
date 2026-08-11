@@ -50,20 +50,29 @@ export interface RecoveryBudget {
 }
 export const RECOVERY_BUDGET: Readonly<RecoveryBudget> = Object.freeze({ deadline: 100, maxItems: 64, retry: 1 });
 export const recoveryStates = Object.freeze(["queued", "running", "deferred", "failed", "done"] as const);
+export type RecoveryState = (typeof recoveryStates)[number];
+export interface RecoveryWindow { readonly elapsed: number; readonly attempt: number }
 
 export interface RecoveryBatch<T> {
   readonly items: readonly T[];
   readonly deferred: number;
   readonly nextCursor: number;
+  readonly state: RecoveryState;
 }
 
-export function nextRecoveryBatch<T>(items: readonly T[], cursor = 0, budget: RecoveryBudget = RECOVERY_BUDGET): RecoveryBatch<T> {
-  if (!Number.isInteger(cursor) || cursor < 0 || !Number.isInteger(budget.maxItems) || budget.maxItems < 1) {
-    throw new WriteChainContractError("invalid_contract", "recovery cursor and item budget must be positive integers");
+export function nextRecoveryBatch<T>(items: readonly T[], cursor = 0, budget: RecoveryBudget = RECOVERY_BUDGET,
+  window: RecoveryWindow = { elapsed: 0, attempt: 0 }): RecoveryBatch<T> {
+  if (!Number.isInteger(cursor) || cursor < 0 || !Number.isInteger(budget.deadline) || budget.deadline < 0
+    || !Number.isInteger(budget.maxItems) || budget.maxItems < 1 || !Number.isInteger(budget.retry) || budget.retry < 0
+    || !Number.isInteger(window.elapsed) || window.elapsed < 0 || !Number.isInteger(window.attempt) || window.attempt < 0) {
+    throw new WriteChainContractError("invalid_contract", "recovery cursor, budget, and window must be non-negative integers with a positive item limit");
   }
+  const exhausted: RecoveryState | null = window.attempt > budget.retry ? "failed" : window.elapsed >= budget.deadline ? "deferred" : null;
+  if (exhausted !== null) return Object.freeze({ items: Object.freeze([]) as readonly T[], deferred: Math.max(0, items.length - cursor), nextCursor: cursor, state: exhausted });
   const batch = Object.freeze(items.slice(cursor, cursor + budget.maxItems));
   const nextCursor = cursor + batch.length;
-  return Object.freeze({ items: batch, deferred: Math.max(0, items.length - nextCursor), nextCursor });
+  const deferred = Math.max(0, items.length - nextCursor);
+  return Object.freeze({ items: batch, deferred, nextCursor, state: deferred === 0 ? "done" : "deferred" });
 }
 
 export interface EventEnvelope<S extends string, T extends string, A extends ActorIdentity, P> {
@@ -172,6 +181,7 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
   if (receipt.outcome === "indeterminate" || receipt.outcome === "rejected") {
     for (const field of ["code", "origin", "nextAction"] as const) if (!isNonEmptyString(receipt[field])) errors.push(`${field} is required for ${receipt.outcome}`);
   }
+  if (!isNonEmptyString(receipt.evidence) && (receipt.outcome !== "indeterminate" || receipt.origin !== "N/A")) errors.push("evidence-free receipt must be N/A indeterminate");
   return errors;
 }
 
@@ -202,6 +212,12 @@ export function canonicalizeWriteValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalizeWriteValue);
   if (typeof value !== "object" || value === null) return value;
   return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalizeWriteValue((value as Readonly<Record<string, unknown>>)[key])]));
+}
+
+export function freezeWriteValue<T>(value: T): Readonly<T> {
+  if (typeof value !== "object" || value === null) return value;
+  for (const nested of Object.values(value)) freezeWriteValue(nested);
+  return Object.freeze(value);
 }
 
 export function serializeEventEnvelope(event: EventEnvelope<string, string, ActorIdentity, unknown>): string {

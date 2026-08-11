@@ -228,7 +228,7 @@ export async function runTaskLifecycleFacade(action: TaskLifecycleCliAction, dep
     return validateReceipt({
       outcome: "rejected",
       opId,
-      code: errorCode(error),
+      code: errorCode(error), evidence: `cli-rejection:${errorCode(error)}`,
       origin: errorOrigin(error),
       nextAction: errorOrigin(error) !== "task-lifecycle-cli" && error instanceof Error ? error.message : `Run \`ha task show ${action.taskId}\` before retrying. Details: ${error instanceof Error ? error.message : "unclassified service rejection"}`
     });

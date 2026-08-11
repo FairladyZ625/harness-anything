@@ -124,7 +124,7 @@ function operationReceipt(command: TaskLifecycleCommand, result: Awaited<ReturnT
   if (result.outcome === "pending") return { outcome: "pending", opId: command.opId, revision: result.revision,
     evidence: result.evidence ?? `task-revision:${result.revision}`, visibility: result.visibility, proof: result.proof,
     nextAction: result.nextAction ?? `Retry \`ha task show ${command.taskId}\` after projection catch-up.` };
-  return { outcome: "indeterminate", opId: command.opId, revision: result.revision, code: "publication_unknown", origin: "task-event-store",
+  return { outcome: "indeterminate", opId: command.opId, revision: result.revision, code: "publication_unknown", origin: "N/A",
     visibility: "center", nextAction: result.nextAction ?? `Run \`ha task show ${command.taskId}\` before retrying.` };
 }
 function sameActor(left: TaskLifecycleCommand["actor"], right: TaskLifecycleCommand["actor"]): boolean {
