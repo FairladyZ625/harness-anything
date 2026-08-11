@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "ceilings": {
+    "kernel": 16060,
+    "task-lifecycle": 5262,
+    "doc-sync": 679,
+    "preset": 6926,
+    "cli": 19282,
+    "gui": 15529,
+    "daemon": 2469,
+    "authority-write-path": 0,
+    "identity-rbac": 475,
+    "test-infra": 0
+  }
+}

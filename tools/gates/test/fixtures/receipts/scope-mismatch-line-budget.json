@@ -1,0 +1,8 @@
+{
+  "decisionId": "dec_01KZQ92VEPTDRS2HS8CKDBKW2Q",
+  "scope": "module:cli",
+  "kind": "line-budget",
+  "limit": 20000,
+  "expiry": "2099-12-31T23:59:59Z",
+  "signature": "2ca77d16a99927dd4c9d75c73a4d155bcb03b823f9756d5b1ab5c8f35958d55f"
+}

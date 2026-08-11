@@ -2,6 +2,8 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import { kernelImportBoundaryKnownDebt } from "./tools/kernel-import-boundary-known-debt.mjs";
 import { portPhysicalIoBoundaryKnownDebt } from "./tools/port-physical-io-boundary-known-debt.mjs";
+import noSwallowedFailure from "./tools/gates/eslint-rules/no-swallowed-failure.js";
+import { noSwallowedFailureBaseline } from "./tools/gates/no-swallowed-failure-baseline.mjs";
 
 const nodeGlobals = Object.fromEntries([
   "AbortController",
@@ -250,6 +252,23 @@ export default tseslint.config(
     files: ["**/*.{ts,tsx}"],
     rules: {
       "no-undef": "off"
+    }
+  },
+  {
+    files: [
+      "packages/*/src/**/*.{ts,tsx,js,mjs}",
+      "packages/adapters/*/src/**/*.{ts,tsx,js,mjs}",
+      "tools/gates/**/*.{js,mjs}"
+    ],
+    plugins: {
+      ha: {
+        rules: {
+          "no-swallowed-failure": noSwallowedFailure
+        }
+      }
+    },
+    rules: {
+      "ha/no-swallowed-failure": ["error", { baseline: noSwallowedFailureBaseline }]
     }
   },
   {

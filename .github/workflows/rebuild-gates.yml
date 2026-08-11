@@ -1,0 +1,55 @@
+name: rebuild-gates
+
+on:
+  pull_request:
+    branches:
+      - "rebuild/**"
+    types: [opened, reopened, synchronize, edited]
+  push:
+    branches:
+      - "rebuild/**"
+
+permissions:
+  contents: read
+
+jobs:
+  line-budget:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Enforce module line ceilings
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: node tools/gates/line-budget.mjs --base "$BASE_SHA"
+
+  production-delta:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify declared production delta
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node tools/gates/production-delta.mjs --base "$BASE_SHA"
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
