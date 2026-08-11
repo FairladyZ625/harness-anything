@@ -1,5 +1,4 @@
 import {
-  runLedgerMaterializer,
   type IncrementalProjectionPhase,
   type IncrementalProjectionDiagnostic,
   type IncrementalProjectionRebuildReason,
@@ -88,6 +87,7 @@ const attributionDecisionReasons: Record<AttributionProjectionDecisionReason, Re
   "v1-v2-precedence": "authority-materializer-projection-attribution-decision-v1-v2-precedence",
   replay: "authority-materializer-projection-attribution-decision-replay",
   "new-source-path": "authority-materializer-projection-attribution-decision-new-source-path",
+  "append-batch": "authority-materializer-projection-attribution-decision-append-batch",
   "v1-to-v2-replacement": "authority-materializer-projection-attribution-decision-v1-to-v2-replacement",
   "op-id-collision": "authority-materializer-projection-attribution-decision-op-id-collision",
   other: "authority-materializer-projection-attribution-decision-other"
@@ -248,9 +248,11 @@ function reportProjectionDiagnostic(
   );
 }
 
-export function reportMaterializerProjectionDiagnostic(
-  diagnostic: IncrementalProjectionDiagnostic
-): void {
+export function reportMaterializerProjectionDiagnostic(diagnostic: ProjectionDiagnostic): void {
+  if (diagnostic.kind === "cache" || diagnostic.kind === "advance") {
+    reportProjectionDiagnostic(diagnostic, "materializer");
+    return;
+  }
   reportCurrentRepoWriteTelemetry(
     "authority-materializer-projection-source-summary",
     sourceSummaryDetails(diagnostic.summary)
@@ -295,43 +297,4 @@ function sourceSummaryDetails(summary: ProjectionSourceSummary): RepoWriteTeleme
     legacyPersonIdsHash: summary.legacyPersonIdsHash,
     fingerprint: summary.fingerprint
   };
-}
-
-export function runMaterializerWithRepoWriteTelemetry(
-  rootInput: Parameters<typeof runLedgerMaterializer>[0],
-  options: NonNullable<Parameters<typeof runLedgerMaterializer>[1]> = {}
-): ReturnType<typeof runLedgerMaterializer> {
-  reportCurrentRepoWriteTelemetry("authority-materializer-start");
-  try {
-    return runLedgerMaterializer(rootInput, {
-      ...options,
-      onProgress: (step) => {
-        reportCurrentRepoWriteTelemetry(materializerProgressPhase(step));
-        options.onProgress?.(step);
-      },
-      onProjectionPhase: (phase) => {
-        reportCurrentRepoWriteTelemetry(materializerProjectionPhase(phase));
-        options.onProjectionPhase?.(phase);
-      },
-      onProjectionMode: (mode, reason) => {
-        reportCurrentRepoWriteTelemetry(materializerProjectionModePhase(mode));
-        if (reason) reportCurrentRepoWriteTelemetry(materializerProjectionRebuildReasonPhase(reason));
-        options.onProjectionMode?.(mode, reason);
-      },
-      onProjectionDiagnostic: (diagnostic) => {
-        if (diagnostic.kind === "cache" || diagnostic.kind === "advance") {
-          reportProjectionDiagnostic(diagnostic, "materializer");
-        } else {
-          reportMaterializerProjectionDiagnostic(diagnostic);
-        }
-        options.onProjectionDiagnostic?.(diagnostic);
-      },
-      onProjectionAttributionDecision: (reason) => {
-        reportCurrentRepoWriteTelemetry(materializerAttributionDecisionPhase(reason));
-        options.onProjectionAttributionDecision?.(reason);
-      }
-    });
-  } finally {
-    reportCurrentRepoWriteTelemetry("authority-materializer-end");
-  }
 }

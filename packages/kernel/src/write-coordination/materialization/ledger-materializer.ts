@@ -44,6 +44,7 @@ export interface LedgerMaterializerReport {
   readonly branches: ReadonlyArray<LedgerMaterializerBranchReport>;
   readonly warnings: ReadonlyArray<string>;
   readonly projectionRebuilt: boolean;
+  readonly projectionSourceHash?: string;
   readonly attributionEventsProjected: number;
 }
 
@@ -77,7 +78,9 @@ export type LedgerMaterializerProgressStep =
   | "attribution-start"
   | "attribution-done";
 
-const defaultVersionControlSystem = makeLocalVersionControlSystem();
+// A materializer worker owns one stable repository topology for its lifetime.
+// Avoid rediscovering the same authored repository before every Git operation.
+const defaultVersionControlSystem = makeLocalVersionControlSystem({ cacheRepositoryDiscovery: true });
 
 export function runLedgerMaterializer(rootInput: HarnessLayoutInput, options: LedgerMaterializerOptions = {}): LedgerMaterializerReport {
   const layout = resolveHarnessLayout(rootInput);
@@ -130,6 +133,7 @@ function materializeBranches(
   let merged = 0;
   let processed = 0;
   let projectionSourceFingerprintBeforeMerge: string | undefined;
+  let projectionSourceHash: string | undefined;
   const touchedPaths = new Set<string>();
 
   const trunkBranch = resolveTrunkBranch(repoRoot, undefined, vcs);
@@ -151,7 +155,7 @@ function materializeBranches(
     // filtering on undefined would silently report "no branches to materialize".
     const targetBranch = sessionBranchName(sessionId);
     if (!targetBranch) throw new Error(`invalid materializer session id: ${sessionId}`);
-    branches = vcs.sessionBranches(repoRoot).filter((branch) => branch === targetBranch);
+    branches = vcs.refExists(repoRoot, targetBranch) ? [targetBranch] : [];
   } else {
     branches = vcs.sessionBranches(repoRoot);
   }
@@ -168,14 +172,6 @@ function materializeBranches(
       continue;
     }
 
-    if (projectionSourceFingerprintBeforeMerge === undefined) {
-      onProgress?.("baseline-start");
-      projectionSourceFingerprintBeforeMerge = captureTrustedAuthoredProjectionFingerprint(rootInput, vcs, repoRoot, {
-        onDiagnostic: onProjectionDiagnostic
-      });
-      onProgress?.("baseline-done");
-    }
-
     const mergeMessage = semanticMergeMessage(commits, repoRoot, branch, vcs)
       ?? `materializer: merge session ${branch.slice("sessions/".length)}`;
     vcs.checkout(repoRoot, trunkBranch);
@@ -190,13 +186,25 @@ function materializeBranches(
     // differs from the session branch carries an edit no ref holds — authored
     // after the submission — and resetting would destroy it. Those are copied
     // aside and reported rather than discarded or allowed to wedge the merge.
+    const branchTouchedPaths = vcs.changedFilesBetween(repoRoot, trunkBranch, branch);
     const preservedWorktreeEdits = vcs.resetWorktreePaths(
       repoRoot,
       trunkBranch,
-      vcs.changedFilesBetween(repoRoot, trunkBranch, branch),
+      branchTouchedPaths,
       { restoreRef: branch }
     );
-    const beforeMergeHead = vcs.currentHead(repoRoot);
+    if (projectionSourceFingerprintBeforeMerge === undefined) {
+      // Session publication deliberately leaves its authored bytes in the
+      // worktree. Capture the canonical projection baseline only after the
+      // touched paths have been restored to trunk, otherwise those future
+      // merge bytes make a clean trusted generation look dirty and force a
+      // full rebuild.
+      onProgress?.("baseline-start");
+      projectionSourceFingerprintBeforeMerge = captureTrustedAuthoredProjectionFingerprint(rootInput, vcs, repoRoot, {
+        onDiagnostic: onProjectionDiagnostic
+      });
+      onProgress?.("baseline-done");
+    }
     let preservedArtifacts: ReadonlyArray<PreservedMachineArtifact> = [];
     try {
       onProgress?.("merge-start");
@@ -239,8 +247,7 @@ function materializeBranches(
         continue;
       }
     }
-    const afterMergeHead = vcs.currentHead(repoRoot);
-    for (const relativePath of vcs.changedFilesBetween(repoRoot, beforeMergeHead, afterMergeHead)) {
+    for (const relativePath of branchTouchedPaths) {
       touchedPaths.add(path.join(repoRoot, relativePath));
     }
     vcs.deleteBranch(repoRoot, branch);
@@ -269,6 +276,7 @@ function materializeBranches(
       onAttributionDecision: onProjectionAttributionDecision,
       onDiagnostic: onProjectionDiagnostic
     });
+    projectionSourceHash = projectionUpdate.sourceHash;
     onProjectionMode?.(
       projectionUpdate.mode,
       projectionUpdate.mode === "rebuild" ? projectionUpdate.rebuildReason : undefined
@@ -302,6 +310,7 @@ function materializeBranches(
     branches: reports,
     warnings,
     projectionRebuilt,
+    ...(projectionSourceHash ? { projectionSourceHash } : {}),
     attributionEventsProjected: 0
   };
 }

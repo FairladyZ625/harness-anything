@@ -269,6 +269,9 @@ export async function runRepoWriteChildEntrypoint(
       readonly canonicalCommitSha: string;
     }) => Promise<"live-owner" | "recovered" | "terminal" | "blocked">;
   } = {};
+  const liveSettlement: {
+    current?: (receiptId: string) => boolean;
+  } = {};
   const postReadyRecovery = createRepoWriteChildPostReadyRecovery({
     repoId: config.repoId,
     generation: config.generation,
@@ -278,6 +281,7 @@ export async function runRepoWriteChildEntrypoint(
     runtime,
     authoredRoot,
     recoveryGate,
+    isSettlementActive: (receiptId) => liveSettlement.current?.(receiptId) === true,
     recoverCommittedReceipt: recoverAuthorityCommittedReceipt,
     recoverCanonicalPublication: (recovery) => canonicalPublicationRecovery.current
       ? canonicalPublicationRecovery.current(recovery)
@@ -306,6 +310,7 @@ export async function runRepoWriteChildEntrypoint(
   });
   canonicalPublicationRecovery.current = (recovery) =>
     operation.recoverCanonicalPublicationSettlement(recovery);
+  liveSettlement.current = operation.isSettlementActive;
   let initialRecovery: Promise<void> | undefined;
   const startInitialRecovery = (): void => {
     initialRecovery ??= recoveryStartGate.wait().then(
@@ -346,6 +351,14 @@ export async function runRepoWriteChildEntrypoint(
     artifactIdentity: entrypointArtifactIdentity,
     transport,
     hooks: {
+      beginDirectAdmission: () => {
+        recoveryStartGate.activity();
+        const releaseAdmission = runtime.beginAuthorityAdmission();
+        return () => {
+          releaseAdmission();
+          recoveryStartGate.activity();
+        };
+      },
       prepare: (input) => operation.prepare(input),
       direct: (input) => operation.direct(input),
       lookup: (input) => operation.lookup(input),
@@ -377,6 +390,7 @@ export async function runRepoWriteChildEntrypoint(
 
 interface PostReadyRecoveryStartGate {
   readonly ready: () => void;
+  readonly activity: () => void;
   readonly cancel: () => void;
   readonly wait: () => Promise<boolean>;
 }
@@ -387,6 +401,7 @@ function createPostReadyRecoveryStartGate(): PostReadyRecoveryStartGate {
   let resolveStart!: (shouldStart: boolean) => void;
   let timer: NodeJS.Timeout | undefined;
   let settled = false;
+  let ready = false;
   const start = new Promise<boolean>((resolve) => {
     resolveStart = resolve;
   });
@@ -399,7 +414,13 @@ function createPostReadyRecoveryStartGate(): PostReadyRecoveryStartGate {
   };
   return {
     ready: () => {
-      if (settled || timer) return;
+      if (settled || ready) return;
+      ready = true;
+      timer = setTimeout(() => settle(true), postReadyRecoveryDelayMs);
+    },
+    activity: () => {
+      if (settled || !ready) return;
+      if (timer) clearTimeout(timer);
       timer = setTimeout(() => settle(true), postReadyRecoveryDelayMs);
     },
     cancel: () => settle(false),

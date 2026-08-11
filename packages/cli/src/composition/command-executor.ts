@@ -6,6 +6,7 @@ import {
   makeDecisionWriteService,
   makeEnvironmentCurrentSessionProbe,
   makeFactWriteService,
+  makeLightweightRuntimeEventLedgerService,
   makeProvenanceSessionExporter,
   makeRuntimeEventLedgerService,
   makeRuntimeEventAppendPromise,
@@ -226,6 +227,9 @@ export async function runRegisteredCommandWithCliComposition(
   const appendLeaseEvent: ReturnType<typeof makeRuntimeEventAppendPromise> = async (event) => {
     await makeRuntimeEventAppendPromise(getRuntimeEventLedgerService())(event);
   };
+  const automaticRuntimeEventLedgerService = makeLightweightRuntimeEventLedgerService({
+    rootInput: layoutInput
+  });
   const makeTaskHolder = () => makeTaskHolderService({
     rootInput: layoutInput,
     appendLeaseEvent,
@@ -278,6 +282,7 @@ export async function runRegisteredCommandWithCliComposition(
     outerProceedingRecovery: options.outerProceedingRecovery === true,
     onCommandTelemetry: options.onCommandTelemetry,
     deferCommandRuntimeEvent: options.deferCommandRuntimeEvent,
+    automaticRuntimeEventLedgerService,
     onTelemetry: options.onTelemetry,
     conflictMarkerPreflight: options.conflictMarkerPreflight
   }).pipe(

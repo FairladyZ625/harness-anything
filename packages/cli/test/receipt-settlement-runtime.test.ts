@@ -335,6 +335,76 @@ test("post-READY recovery backs off a poisoned receipt for the rest of the write
   }
 });
 
+test("post-READY recovery leaves a receipt with a live settlement owner alone", durableSettlementStore, async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "ha-receipt-live-owner-"));
+  try {
+    const authoredRoot = path.join(root, "harness");
+    mkdirSync(authoredRoot);
+    git(authoredRoot, "init");
+    git(authoredRoot, "config", "user.name", "Receipt Recovery");
+    git(authoredRoot, "config", "user.email", "receipt-recovery@example.test");
+    writeFileSync(path.join(authoredRoot, "README.md"), "canonical\n");
+    git(authoredRoot, "add", "README.md");
+    git(authoredRoot, "commit", "-m", "canonical base");
+    const acceptedCommitSha = git(authoredRoot, "rev-parse", "HEAD");
+    const settlements = settlementStore(path.join(root, "settlements"), 8);
+    const receiptId = "repo-write-direct:live-owner";
+    acceptPending(settlements, {
+      receiptId,
+      sessionId: "session-live-owner",
+      acceptedCommitSha,
+      authorityOperationIds: ["op-live-owner"]
+    });
+    const outcomes = new DurableRepoWriteOutcomeStoreV1({
+      directory: path.join(root, "outcomes"),
+      repoId: "canonical",
+      workspaceId: "workspace-recovery",
+      generation: 8
+    });
+    let live = true;
+    let authorityAttempts = 0;
+    const recovery = createRepoWriteChildPostReadyRecovery({
+      repoId: "canonical",
+      generation: 8,
+      transport: { send: async () => undefined } as never,
+      settlements,
+      outcomes,
+      runtime: {
+        enqueueMaterializerBatch: async () => ({ branches: [] })
+      } as unknown as HarnessDaemonRuntime,
+      authoredRoot,
+      recoveryGate: {
+        recoverHistoricalProceeding: async () => ({ disposition: "deferred" })
+      } as never,
+      isSettlementActive: (candidate) => live && candidate === receiptId,
+      recoverCommittedReceipt: async (opId) => {
+        authorityAttempts += 1;
+        return {
+          tag: "COMMITTED",
+          workspaceId: "workspace-recovery",
+          opId,
+          semanticDigest: "d".repeat(64),
+          revision: 1,
+          commitSha: acceptedCommitSha,
+          previousCommit: null
+        };
+      },
+      recoverCanonicalPublication: async () => "blocked"
+    });
+
+    await recovery.recoverSettlements();
+    assert.equal(authorityAttempts, 0);
+    assert.equal(settlements.lookup(receiptId)?.state, "pending");
+
+    live = false;
+    await recovery.recoverSettlements();
+    assert.equal(authorityAttempts, 1);
+    assert.equal(settlements.lookup(receiptId)?.state, "canonical-visible");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function acceptPending(
   settlements: ReceiptSettlementStore,
   input: {

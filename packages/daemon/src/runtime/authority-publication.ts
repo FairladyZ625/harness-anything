@@ -1,5 +1,4 @@
 import { isIndeterminateFlushReport, type FlushReport, type LedgerMaterializerReport } from "@harness-anything/kernel";
-import { setImmediate as nextEventLoopTurn } from "node:timers/promises";
 import type { DaemonWriteQueue } from "./write-queue.ts";
 import { measureCurrentDaemonRequestPerformancePhase } from "../observability/request-performance.ts";
 import {
@@ -26,9 +25,11 @@ export interface DaemonAuthorityPublicationReport {
 export function enqueueDaemonAuthorityPublication(
   queue: DaemonWriteQueue,
   options: DaemonAuthorityPublicationOptions,
-  materialize: (sessionId: string) => LedgerMaterializerReport,
+  materialize: (sessionId: string) => LedgerMaterializerReport | Promise<LedgerMaterializerReport>,
   resolveAcceptedCommitSha: (sessionId: string) => string,
-  resolveCanonicalCommitContaining: (acceptedCommitSha: string) => string | undefined = () => undefined
+  resolveCanonicalCommitContaining: (acceptedCommitSha: string) => string | undefined = () => undefined,
+  scheduleMaterializer: <Result>(run: () => Result | Promise<Result>) => Promise<Result> = (run) =>
+    queue.enqueueBackground({ source: "authority-publication", priority: "background", run })
 ): Promise<DaemonAuthorityPublicationReport> {
   reportCurrentRepoWriteTelemetry("projection");
   const reportDurableAcceptance = captureCurrentAuthorityDurableAcceptanceReporter();
@@ -55,18 +56,11 @@ export function enqueueDaemonAuthorityPublication(
   return durableAcceptance.then(async ({ flush, acceptedCommitSha }) => {
     if (isIndeterminateFlushReport(flush) || !flush.committed || flush.opCount === 0) return { flush };
     await waitForCurrentAuthoritySettlementRelease();
-    // The production queue may begin a synchronous materializer inside
-    // enqueueBackground. Yield once so admission continuations can persist and
-    // deliver the durable receipt before that CPU/Git work starts.
-    await nextEventLoopTurn();
-    return queue.enqueueBackground({
-      source: "authority-publication",
-      priority: "background",
-      run: bindCurrentRepoWriteTelemetry(() => {
+    return scheduleMaterializer(bindCurrentRepoWriteTelemetry(async () => {
         reportCurrentRepoWriteTelemetry("materializer");
         reportCurrentRepoWriteTelemetry("git");
         reportCurrentRepoWriteTelemetry("fsync");
-        const materialization = measureCurrentDaemonRequestPerformancePhase(
+        const materialization = await measureCurrentDaemonRequestPerformancePhase(
           "materializer",
           () => materialize(options.sessionId)
         );
@@ -80,7 +74,6 @@ export function enqueueDaemonAuthorityPublication(
           ...(canonicalCommitSha ? { canonicalCommitSha } : {}),
           materialization
         };
-      })
-    });
+      }));
   });
 }

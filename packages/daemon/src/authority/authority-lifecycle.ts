@@ -139,6 +139,11 @@ export interface AuthorityRepoLifecycleHooks {
 }
 
 export interface AuthorityLifecycleRuntime {
+  readonly enqueueBackgroundBatch?: <Result>(request: {
+    readonly source: string;
+    readonly priority?: "normal" | "background" | "maintenance";
+    readonly run: () => Result | Promise<Result>;
+  }) => Promise<Result>;
   readonly createAttributedCoordinator: (input: {
     readonly attribution: WriteAttribution;
     readonly sessionId: string;
@@ -182,6 +187,7 @@ export interface AuthorityLifecycleRuntime {
     readonly canonicalCommitSha?: string;
     readonly materialization?: Awaited<ReturnType<AuthorityLifecycleRuntime["enqueueMaterializerBatch"]>>;
   }>;
+  readonly beginAuthorityAdmission: () => () => void;
   readonly admissionBudget: DaemonAdmissionBudget;
 }
 

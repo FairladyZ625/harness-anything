@@ -10,11 +10,18 @@ import {
   createInMemoryReplicaChangeLog
 } from "@harness-anything/application";
 import { taskEntityId, withExactCommit, type WriteAttribution } from "@harness-anything/kernel";
+import { createSerialPublicationExecutor } from "../src/authority/production/serial-publication-executor.ts";
+import {
+  captureCurrentAuthorityDurableAcceptanceReporter,
+  runWithAuthorityDurableAcceptance
+} from "../src/runtime/authority-durable-acceptance-context.ts";
 
 test("generation exclusion ends at durable replica cut before derived terminal evidence", async () => {
   const memory = createInMemoryAuthorityOperationRegistry();
   const changeLog = createInMemoryReplicaChangeLog();
   let generationLockDepth = 0;
+  const terminalGate = deferred<void>();
+  const accepted = deferred<void>();
   const registry = {
     get: memory.get,
     list: memory.list,
@@ -33,10 +40,17 @@ test("generation exclusion ends at durable replica cut before derived terminal e
       create: ({ exactWriteScope }) => withExactCommit({
         enqueue: (operation) => Effect.succeed({ opId: operation.opId, entityId: operation.entityId, accepted: true as const }),
         recover: Effect.succeed({ replayedOps: 0 })
-      }, (reason) => {
+      }, (reason) => Effect.promise(async () => {
         assert.equal(generationLockDepth > 0, true, "canonical flush escaped the generation exclusion");
-        return Effect.succeed({ reason, opCount: 1, committed: true });
-      }, exactWriteScope)
+        const flush = { reason, opCount: 1, committed: true as const, watermark: "op-flush-lock" };
+        captureCurrentAuthorityDurableAcceptanceReporter()?.({
+          sessionId: "session-generation",
+          acceptedCommitSha: "a".repeat(40),
+          flush
+        });
+        await terminalGate.promise;
+        return flush;
+      }), exactWriteScope)
     },
     tokenVerifier: validLegacyVerifier("workspace-flush-lock"),
     operationRegistry: registry,
@@ -62,10 +76,18 @@ test("generation exclusion ends at durable replica cut before derived terminal e
           generationLockDepth -= 1;
         }
       }
-    }
+    },
+    publicationExecutor: createSerialPublicationExecutor()
   });
 
-  const receipt = await service.submit(legacyEnvelope("workspace-flush-lock", "op-flush-lock"));
+  const submission = runWithAuthorityDurableAcceptance({
+    accept: () => accepted.resolve()
+  }, () => service.submit(legacyEnvelope("workspace-flush-lock", "op-flush-lock")));
+  await accepted.promise;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(generationLockDepth, 0, "generation exclusion outlived the durable session cut");
+  terminalGate.resolve();
+  const receipt = await submission;
   assert.equal(receipt.tag, "COMMITTED");
   assert.equal(generationLockDepth, 0);
 });
@@ -87,6 +109,14 @@ function legacyEnvelope(workspaceId: string, opId: string) {
     protocol: authorityProtocolTuple
   };
   return { ...envelope, claimedDigest: canonicalAuthorityRequestDigest(envelope) };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 
 function validLegacyVerifier(workspaceId: string) {

@@ -9,13 +9,27 @@ import { VcsCommandError } from "../../ports/version-control-system.ts";
 import { resolveGitMaxBufferBytes } from "../../runtime/operational-limits.ts";
 import { commitPathsToBranchHeadless } from "./headless-branch-commit.ts";
 import { commitWithScopedIndex, nullDelimitedGitPaths } from "./scoped-index-commit.ts";
+import { readGitObjectsAtRef, type GitObjectAtRef } from "./batch-object-reader.ts";
+import { vcsCommandError } from "./git-command-error.ts";
 
 const gitMaxBuffer = resolveGitMaxBufferBytes();
 
-export function makeLocalVersionControlSystem(): VersionControlSystem {
+export function makeLocalVersionControlSystem(options: {
+  readonly cacheRepositoryDiscovery?: boolean;
+} = {}): VersionControlSystem {
+  const topLevels = new Map<string, string>();
   return {
     normalizePath: normalizeExistingPath,
-    topLevel: gitTopLevel,
+    topLevel: (inputPath) => {
+      const normalized = normalizeExistingPath(inputPath);
+      const cached = options.cacheRepositoryDiscovery ? topLevels.get(normalized) : undefined;
+      if (cached) return cached;
+      const resolved = gitTopLevel(normalized);
+      // Cache only positive discovery. A caller may create a repository after
+      // constructing this adapter; retaining a negative answer would hide it.
+      if (resolved && options.cacheRepositoryDiscovery) topLevels.set(normalized, resolved);
+      return resolved;
+    },
     isIgnored: (repoRoot, relativePath) => {
       try {
         runGit(repoRoot, "check-ignore", "--no-index", "-q", "--", relativePath);
@@ -238,7 +252,10 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
     ),
     resetWorktreePaths: (repoRoot, ref, paths, options) => {
       if (paths.length === 0) return [];
-      const refSha = runGit(repoRoot, "rev-parse", ref).trim();
+      const refObjects = readGitObjectsAtRef(repoRoot, ref, paths, runGitBytesWithInput);
+      const restoreObjects = options?.restoreRef
+        ? readGitObjectsAtRef(repoRoot, options.restoreRef, paths, runGitBytesWithInput)
+        : new Map<string, GitObjectAtRef>();
       const preserved: PreservedWorktreeEdit[] = [];
       for (const relativePath of paths) {
         const absolutePath = path.join(repoRoot, ...relativePath.split("/"));
@@ -246,32 +263,32 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
           repoRoot,
           relativePath,
           absolutePath,
-          restoreRef: options?.restoreRef,
+          restoreBytes: restoreObjects.get(relativePath)?.blobBytes,
+          shouldPreserve: options?.restoreRef !== undefined,
           preserveDir: options?.preserveDir
         });
         if (rescued) preserved.push(rescued);
-        let existsAtRef = false;
+      }
+      const existingPaths = paths.filter((relativePath) => refObjects.get(relativePath)?.exists === true);
+      const missingPaths = paths.filter((relativePath) => refObjects.get(relativePath)?.exists !== true);
+      if (existingPaths.length > 0) {
         try {
-          runGit(repoRoot, "cat-file", "-e", `${refSha}:${relativePath}`);
-          existsAtRef = true;
+          runGit(repoRoot, "checkout", ref, "--", ...existingPaths);
         } catch {
-          // Path does not exist in ref — it will be removed below.
+          // The merge will surface a real conflict if Git cannot restore the
+          // complete touched set (for example because a path changed type).
         }
-        if (existsAtRef) {
+      }
+      if (missingPaths.length > 0) {
+        try {
+          runGit(repoRoot, "reset", "-q", "HEAD", "--", ...missingPaths);
+        } catch {
+          // Paths may not be in the index; they still need removing below so
+          // an untracked file cannot block the merge.
+        }
+        for (const relativePath of missingPaths) {
           try {
-            runGit(repoRoot, "checkout", ref, "--", relativePath);
-          } catch {
-            // If checkout fails (e.g. path is a directory in ref), skip —
-            // the merge will surface any real conflict.
-          }
-        } else {
-          try {
-            runGit(repoRoot, "reset", "-q", "HEAD", "--", relativePath);
-          } catch {
-            // Path may not be in the index; ignore.
-          }
-          try {
-            rmSync(absolutePath, { force: true });
+            rmSync(path.join(repoRoot, ...relativePath.split("/")), { force: true });
           } catch {
             // Worktree file may already be gone; ignore.
           }
@@ -286,23 +303,18 @@ function preserveDivergentWorktreeEdit(input: {
   readonly repoRoot: string;
   readonly relativePath: string;
   readonly absolutePath: string;
-  readonly restoreRef: string | undefined;
+  readonly restoreBytes: Buffer | undefined;
+  readonly shouldPreserve: boolean;
   readonly preserveDir: string | undefined;
 }): PreservedWorktreeEdit | undefined {
-  if (!input.restoreRef) return undefined;
+  if (!input.shouldPreserve) return undefined;
   let worktreeBytes: Buffer;
   try {
     worktreeBytes = readFileSync(input.absolutePath);
   } catch {
     return undefined;
   }
-  let restoreBytes: Buffer | undefined;
-  try {
-    restoreBytes = Buffer.from(runGitBytes(input.repoRoot, "cat-file", "blob", `${input.restoreRef}:${input.relativePath}`));
-  } catch {
-    restoreBytes = undefined;
-  }
-  if (restoreBytes && restoreBytes.equals(worktreeBytes)) return undefined;
+  if (input.restoreBytes?.equals(worktreeBytes)) return undefined;
   const preserveRoot = input.preserveDir ?? path.join(input.repoRoot, ".harness", "preserved-worktree-edits");
   const stamp = `${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
   const target = path.join(preserveRoot, stamp, ...input.relativePath.split("/"));
@@ -402,6 +414,24 @@ function runGitBytes(repoRoot: string, ...args: ReadonlyArray<string>): Uint8Arr
   }
 }
 
+function runGitBytesWithInput(
+  repoRoot: string,
+  input: string | Uint8Array,
+  ...args: ReadonlyArray<string>
+): Uint8Array {
+  try {
+    return execFileSync("git", ["-C", repoRoot, ...args], {
+      ...localGitProcessOptions(),
+      encoding: "buffer",
+      input,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true
+    });
+  } catch (error) {
+    throw vcsCommandError(repoRoot, args, error);
+  }
+}
+
 function gitPathBytesKey(input: Uint8Array): string {
   return Buffer.from(input).toString("base64");
 }
@@ -490,16 +520,6 @@ function runGitWithEnvironment(
   }
 }
 
-function vcsCommandError(repoRoot: string, args: ReadonlyArray<string>, error: unknown): VcsCommandError {
-  return new VcsCommandError({
-    command: args[0] ?? "command",
-    cwd: repoRoot,
-    exitCode: commandErrorCode(error),
-    signal: commandErrorSignal(error),
-    stderrSummary: commandErrorSummary(error)
-  });
-}
-
 export function localGitProcessOptions(author?: VcsCommitAuthor): ExecFileSyncOptionsWithStringEncoding {
   const env = { ...process.env };
   for (const key of gitRepositoryRedirectEnvironmentKeys) delete env[key];
@@ -544,34 +564,3 @@ const gitRepositoryRedirectEnvironmentKeys = [
   "GIT_CONFIG_PARAMETERS",
   "GIT_CONFIG_COUNT"
 ] as const;
-
-function commandErrorCode(error: unknown): string | number | undefined {
-  if (typeof error === "object" && error && "status" in error) {
-    const status = (error as { readonly status?: unknown }).status;
-    if (typeof status === "number" || typeof status === "string") return status;
-  }
-  if (typeof error === "object" && error && "code" in error) {
-    const code = (error as { readonly code?: unknown }).code;
-    if (typeof code === "number" || typeof code === "string") return code;
-  }
-  return undefined;
-}
-
-function commandErrorSignal(error: unknown): string | undefined {
-  if (typeof error === "object" && error && "signal" in error) {
-    const signal = (error as { readonly signal?: unknown }).signal;
-    if (typeof signal === "string" && signal.length > 0) return signal;
-  }
-  return undefined;
-}
-
-function commandErrorSummary(error: unknown): string | undefined {
-  if (typeof error === "object" && error && "stderr" in error) {
-    const stderr = (error as { readonly stderr?: unknown }).stderr;
-    const text = Buffer.isBuffer(stderr) ? stderr.toString("utf8") : typeof stderr === "string" ? stderr : "";
-    const firstLine = text.trim().split(/\r?\n/u).find((line) => line.trim().length > 0);
-    if (firstLine) return firstLine;
-  }
-  if (error instanceof Error) return error.message.split(/\r?\n/u)[0] ?? error.message;
-  return String(error);
-}

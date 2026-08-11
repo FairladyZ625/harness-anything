@@ -5,7 +5,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeRuntimeEventLedgerService } from "../src/index.ts";
+import {
+  makeLightweightRuntimeEventLedgerService,
+  makeRuntimeEventLedgerService
+} from "../src/index.ts";
 import { makeOperationalJournaledWriteCoordinator } from "../../kernel/src/index.ts";
 import { runEffect, runEffectExit } from "./effect-test-helpers.ts";
 
@@ -56,6 +59,40 @@ test("runtime event ledger appends fsynced JSONL and reads schema-validated reco
     assert.equal("responsibleHuman" in (readBack.events[0]?.actor ?? {}), false);
     assert.equal(readBack.events[0]?.session.executionId, "exe_01KX7H00000000000000000001");
     assert.equal(readBack.events[0]?.session.reviewId, null);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("lightweight runtime audit appends durably without a second coordinated publication", async () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const ledger = makeLightweightRuntimeEventLedgerService({
+      rootInput: rootDir,
+      now: () => "2026-07-03T00:00:00.000Z",
+      makeEventId: () => "evt_lightweight_audit"
+    });
+
+    const appended = await runEffect(ledger.append({
+      kind: "result",
+      session: { sessionId: "codex-lightweight-audit", runtime: "codex" },
+      actor: {
+        principal: { kind: "person", personId: "person_zeyu" },
+        executor: { kind: "agent", id: "codex" }
+      },
+      result: { status: "succeeded", summary: "automatic command audit" }
+    }));
+
+    assert.equal(
+      readFileSync(path.join(rootDir, ".harness", appended.path), "utf8").trim().split("\n").length,
+      1
+    );
+    assert.equal(
+      existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")),
+      false,
+      "automatic audit append must not publish a second journaled authority mutation"
+    );
+    assert.deepEqual((await runEffect(ledger.readSession("codex-lightweight-audit"))).events, [appended.event]);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

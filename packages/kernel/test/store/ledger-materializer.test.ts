@@ -51,6 +51,7 @@ test("session publication defers projection notification until materializer merg
     let commitExistenceReads = 0;
     let ignoredPathReads = 0;
     const postCommitPhases: string[] = [];
+    const projectionFingerprintDiagnostics: unknown[] = [];
     const projectionChanges: unknown[] = [];
     const coordinator = makeJournaledWriteCoordinator({
       attribution: testWriteAttribution(),
@@ -72,6 +73,7 @@ test("session publication defers projection notification until materializer merg
           return local.ignoredPaths!(repoRoot, relativePaths);
         }
       },
+      onProjectionFingerprintDiagnostic: (diagnostic) => projectionFingerprintDiagnostics.push(diagnostic),
       onPostCommitPhase: (phase) => postCommitPhases.push(phase),
       onProjectionChange: (event) => projectionChanges.push(event)
     });
@@ -88,6 +90,11 @@ test("session publication defers projection notification until materializer merg
     assert.ok(postCommitPhases.includes("projection-hash-start"));
     assert.ok(postCommitPhases.includes("projection-hash-done"));
     assert.deepEqual(projectionChanges, []);
+    assert.deepEqual(
+      projectionFingerprintDiagnostics,
+      [],
+      "session acceptance defers projection fingerprint work to the materializer"
+    );
     assert.equal(commitExistenceReads, 0, "path-at-commit is already the event durability check");
     assert.equal(ignoredPathReads, 1, "accepted paths are checked once before durable enqueue");
     assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-deferred-projection/INDEX.md")), true);

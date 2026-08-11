@@ -40,22 +40,24 @@ export type PersistAuthorityTerminal = (
   fixedOperationBinding?: AuthorityFixedOperationBindingV1
 ) => Promise<AuthorityOperationReceipt>;
 
+export type PutAuthorityOperationRecord = (
+  envelope: OperationIdentity,
+  semanticDigest: string,
+  state: AuthorityOperationState,
+  receipt?: AuthorityOperationReceipt,
+  commitSha?: string,
+  authorityIntegrity?: AuthorityOperationIntegrity,
+  canonicalRequestEnvelope?: string,
+  canonicalOperation?: WriteOp,
+  recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1,
+  fixedOperationBinding?: AuthorityFixedOperationBindingV1
+) => Promise<void>;
+
 export function createAuthorityOperationRecordPersistence(
   operationRegistry: AuthorityOperationRegistry,
   generationFence?: AuthorityGenerationFence
 ): {
-  readonly put: (
-    envelope: OperationIdentity,
-    semanticDigest: string,
-    state: AuthorityOperationState,
-    receipt?: AuthorityOperationReceipt,
-    commitSha?: string,
-    authorityIntegrity?: AuthorityOperationIntegrity,
-    canonicalRequestEnvelope?: string,
-    canonicalOperation?: WriteOp,
-    recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1,
-    fixedOperationBinding?: AuthorityFixedOperationBindingV1
-  ) => Promise<void>;
+  readonly put: PutAuthorityOperationRecord;
   readonly putMany: (records: ReadonlyArray<AuthorityOperationRecordTransition>) => Promise<void>;
   readonly persistTerminal: PersistAuthorityTerminal;
 } {

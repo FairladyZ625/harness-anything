@@ -116,6 +116,10 @@ export class RepoWriteDurableOperationController {
     }
   }
 
+  hasActiveSettlement(outerOpId: string): boolean {
+    return this.activeSettlements.has(outerOpId);
+  }
+
   async recoverCanonicalPublicationSettlement(input: {
     readonly outerOpId: string;
     readonly canonicalCommitSha: string;

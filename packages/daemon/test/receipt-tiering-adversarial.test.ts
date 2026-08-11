@@ -122,11 +122,11 @@ test("settlement status wire accepts a pending failure receipt with partial dura
   );
 });
 
-test("two batched publications in one command release the serial slot at durable acceptance", async () => {
+test("two batched publications in one command release the serial slot at the explicit replica cut", async () => {
   const executor = createSerialPublicationExecutor();
   const settled: string[] = [];
   const publications = new BoundedAuthorityBatcher<number, AuthorityOperationReceipt>(
-    (indexes) => executor.run(async () => {
+    (indexes) => executor.run(async (execution) => {
       const index = indexes[0]!;
       reportCurrentAuthorityDurableAcceptance(
         `session-${index}`,
@@ -138,6 +138,7 @@ test("two batched publications in one command release the serial slot at durable
           watermark: `op-${index}`
         }
       );
+      execution.reportDurableCut?.();
       await waitForCurrentAuthoritySettlementRelease();
       settled.push(`op-${index}`);
       return [committedReceipt(`op-${index}`)];
@@ -163,6 +164,70 @@ test("two batched publications in one command release the serial slot at durable
   ]), "accepted");
   await new Promise<void>((resolve) => setImmediate(() => setImmediate(resolve)));
   assert.deepEqual(settled, ["op-1", "op-2"]);
+});
+
+test("a different command enters after the durable cut while prior settlement remains pending", async () => {
+  const executor = createSerialPublicationExecutor();
+  const firstSettlement = deferred<void>();
+  const executionContexts: Array<{ allowDurableSuccessor: boolean }> = [];
+  const first = durableAuthoritySubmissionFromSettlement(() => executor.run(async (execution) => {
+    executionContexts.push(execution);
+    reportCurrentAuthorityDurableAcceptance(
+      "session-first",
+      "1".repeat(40),
+      { reason: "explicit", opCount: 1, committed: true, watermark: "op-first" }
+    );
+    execution.reportDurableCut?.();
+    await firstSettlement.promise;
+    return committedReceipt("op-first");
+  }));
+  assert.equal((await first.admission).kind, "accepted");
+
+  const second = durableAuthoritySubmissionFromSettlement(() => executor.run(async (execution) => {
+    executionContexts.push(execution);
+    reportCurrentAuthorityDurableAcceptance(
+      "session-second",
+      "2".repeat(40),
+      { reason: "explicit", opCount: 1, committed: true, watermark: "op-second" }
+    );
+    execution.reportDurableCut?.();
+    return committedReceipt("op-second");
+  }));
+  const secondAdmission = await Promise.race([
+    second.admission,
+    new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 100))
+  ]);
+
+  assert.notEqual(secondAdmission, "timeout");
+  assert.equal(executionContexts.length, 2);
+  assert.equal(executionContexts[0]?.allowDurableSuccessor, true);
+  assert.equal(executionContexts[1]?.allowDurableSuccessor, true);
+  firstSettlement.resolve();
+  await Promise.all([first.settlement, second.settlement]);
+});
+
+test("the explicit session-durable cut releases batching even when no outer acceptance context is active", async () => {
+  const executor = createSerialPublicationExecutor();
+  const firstSettlement = deferred<void>();
+  let secondEntered = false;
+  const first = executor.run(async (execution) => {
+    execution.reportDurableCut?.();
+    await firstSettlement.promise;
+    return "first";
+  });
+
+  const second = executor.run(async (execution) => {
+    secondEntered = true;
+    execution.reportDurableCut?.();
+    return "second";
+  });
+  assert.equal(await Promise.race([
+    second,
+    new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 100))
+  ]), "second");
+  assert.equal(secondEntered, true);
+  firstSettlement.resolve();
+  assert.equal(await first, "first");
 });
 
 function committedReceipt(opId = "op-queued"): AuthorityOperationReceipt {

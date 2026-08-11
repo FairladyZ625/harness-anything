@@ -1,5 +1,6 @@
 import { SqlClient } from "@effect/sql";
 import { Effect } from "effect";
+import { isDeepStrictEqual } from "node:util";
 import type { ProjectionMeta, TaskFieldExtensionProjection, TaskProjectionRow, DecisionProjectionRow } from "./types.ts";
 import type { ProjectionGraphRows } from "./sqlite-projection-store.ts";
 import { deleteDeclaredProjectionRows, upsertDeclaredProjectionRows } from "./entity-declaration-projection.ts";
@@ -49,6 +50,7 @@ export function updateProjectionDatabase(
     readonly upsertDecisionRows: ReadonlyArray<DecisionProjectionRow>;
     readonly meta: ProjectionMeta;
     readonly graphRows?: ProjectionGraphRows;
+    readonly previousGraphRows?: ProjectionGraphRows;
     readonly preserveGraphFactRows?: boolean;
     readonly declaredDelta: DeclaredProjectionDelta;
     readonly attributionDelta?: AttributionProjectionDelta;
@@ -64,6 +66,9 @@ export function updateProjectionDatabase(
       // Projection telemetry is non-authoritative.
     }
   };
+  const graphDelta = change.graphRows && change.previousGraphRows
+    ? projectionGraphDelta(change.previousGraphRows, change.graphRows, change.preserveGraphFactRows === true)
+    : undefined;
   report("start");
   runSqlite(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -90,17 +95,32 @@ export function updateProjectionDatabase(
       }
       report("decision-rows-done");
       if (change.graphRows) {
-        yield* sql`DELETE FROM relation_edges`;
-        yield* sql`DELETE FROM relation_coverage`;
-        yield* insertRelationEdges(sql, change.graphRows.relationEdges);
-        yield* insertCoverageRows(sql, change.graphRows.coverageRows);
-        if (!change.preserveGraphFactRows) {
-          yield* sql`DELETE FROM task_fact_anchors`;
-          yield* sql`DELETE FROM task_fact_projection`;
-          yield* sql`DELETE FROM relation_projection_warnings`;
-          yield* insertFactAnchors(sql, change.graphRows.factAnchors);
-          yield* insertTaskFactRows(sql, change.graphRows.factRows);
-          for (const [index, row] of change.graphRows.warnings.entries()) yield* insertRelationProjectionWarning(sql, index, row);
+        if (graphDelta) {
+          for (const relationId of graphDelta.edges.deleteKeys) yield* sql`DELETE FROM relation_edges WHERE relation_id = ${relationId}`;
+          for (const claimRef of graphDelta.coverage.deleteKeys) yield* sql`DELETE FROM relation_coverage WHERE claim_ref = ${claimRef}`;
+          yield* insertRelationEdges(sql, graphDelta.edges.upsertRows);
+          yield* insertCoverageRows(sql, graphDelta.coverage.upsertRows);
+          if (!change.preserveGraphFactRows) {
+            for (const factRef of graphDelta.factAnchors.deleteKeys) yield* sql`DELETE FROM task_fact_anchors WHERE fact_ref = ${factRef}`;
+            for (const factRef of graphDelta.factRows.deleteKeys) yield* sql`DELETE FROM task_fact_projection WHERE fact_ref = ${factRef}`;
+            for (const warningIndex of graphDelta.warnings.deleteKeys) yield* sql`DELETE FROM relation_projection_warnings WHERE warning_index = ${warningIndex}`;
+            yield* insertFactAnchors(sql, graphDelta.factAnchors.upsertRows);
+            yield* insertTaskFactRows(sql, graphDelta.factRows.upsertRows);
+            for (const { index, row } of graphDelta.warnings.upsertRows) yield* insertRelationProjectionWarning(sql, index, row);
+          }
+        } else {
+          yield* sql`DELETE FROM relation_edges`;
+          yield* sql`DELETE FROM relation_coverage`;
+          yield* insertRelationEdges(sql, change.graphRows.relationEdges);
+          yield* insertCoverageRows(sql, change.graphRows.coverageRows);
+          if (!change.preserveGraphFactRows) {
+            yield* sql`DELETE FROM task_fact_anchors`;
+            yield* sql`DELETE FROM task_fact_projection`;
+            yield* sql`DELETE FROM relation_projection_warnings`;
+            yield* insertFactAnchors(sql, change.graphRows.factAnchors);
+            yield* insertTaskFactRows(sql, change.graphRows.factRows);
+            for (const [index, row] of change.graphRows.warnings.entries()) yield* insertRelationProjectionWarning(sql, index, row);
+          }
         }
       }
       report("graph-rows-done");
@@ -149,6 +169,46 @@ export function updateProjectionDatabase(
     }
   }));
   report("done");
+}
+
+function projectionGraphDelta(
+  previous: ProjectionGraphRows,
+  current: ProjectionGraphRows,
+  preserveFactRows: boolean
+) {
+  return {
+    edges: changedRows(previous.relationEdges, current.relationEdges, (row) => row.relationId),
+    coverage: changedRows(previous.coverageRows, current.coverageRows, (row) => row.claimRef),
+    factAnchors: preserveFactRows
+      ? { deleteKeys: [] as string[], upsertRows: [] as ProjectionGraphRows["factAnchors"] }
+      : changedRows(previous.factAnchors, current.factAnchors, (row) => row.factRef),
+    factRows: preserveFactRows
+      ? { deleteKeys: [] as string[], upsertRows: [] as ProjectionGraphRows["factRows"] }
+      : changedRows(previous.factRows, current.factRows, (row) => row.ref),
+    warnings: preserveFactRows
+      ? { deleteKeys: [] as number[], upsertRows: [] as Array<{ readonly index: number; readonly row: ProjectionGraphRows["warnings"][number] }> }
+      : changedRows(
+        previous.warnings.map((row, index) => ({ index, row })),
+        current.warnings.map((row, index) => ({ index, row })),
+        (entry) => entry.index
+      )
+  };
+}
+
+function changedRows<Key, Row>(
+  previous: ReadonlyArray<Row>,
+  current: ReadonlyArray<Row>,
+  keyOf: (row: Row) => Key
+): { readonly deleteKeys: ReadonlyArray<Key>; readonly upsertRows: ReadonlyArray<Row> } {
+  const previousByKey = new Map(previous.map((row) => [keyOf(row), row]));
+  const currentByKey = new Map(current.map((row) => [keyOf(row), row]));
+  return {
+    deleteKeys: [...previousByKey.keys()].filter((key) => !currentByKey.has(key)),
+    upsertRows: current.filter((row) => {
+      const previousRow = previousByKey.get(keyOf(row));
+      return previousRow === undefined || !isDeepStrictEqual(previousRow, row);
+    })
+  };
 }
 
 function canReuseAttributionRowsHash(

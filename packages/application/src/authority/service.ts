@@ -69,6 +69,7 @@ import { authorityOperationPublicView } from "./operation-record-public-view.ts"
 import { prepareAuthorityV2 } from "./authority-v2-preparation.ts";
 import { classifyAuthorityPublicationOutcome } from "./publication-outcome.ts";
 import { completedPublicationCut, segmentedPublicationCut, settleAuthorityPublicationCut, type AuthorityPublicationCut } from "./publication-cut.ts";
+import { persistPreparedAuthorityEntry, runWithAuthorityGenerationFence, startAuthorityCommitAtDurableCut } from "./generation-fence-execution.ts";
 export type {
   AuthorityPublicationExecutionContext,
   AuthoritySubmissionServiceOptions,
@@ -180,7 +181,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
           writableEntityRegistry: writableEntityRegistry!,
           put,
           persistTerminal
-        }))
+          }))
       )
     });
   }
@@ -294,19 +295,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
           const acknowledgement = await Effect.runPromise(entry.coordinator.enqueue(entry.operation));
           options.onTelemetry?.("authority-coordinator-enqueued");
           batchEntries.set(entry, acknowledgement);
-          await options.generationFenceWitness?.assertHeld("before-prepare", entry);
-          await put(
-            entry,
-            entry.semanticDigest,
-            "PREPARED",
-            undefined,
-            undefined,
-            entry.authorityIntegrity,
-            entry.canonicalRequestEnvelope,
-            entry.operation,
-            entry.recoveryPublicationPolicy,
-            entry.fixedOperationBinding
-          );
+          await persistPreparedAuthorityEntry(options.generationFenceWitness, entry, put);
           options.onTelemetry?.("authority-prepared-persisted");
           candidates.push(entry);
         } catch (error) {
@@ -329,7 +318,6 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       let outcome: ReturnType<typeof classifyAuthorityPublicationOutcome>;
       let publicationReport: FlushReport | undefined;
       try {
-        await options.generationFenceWitness?.assertHeld("before-canonical-publish", candidates[0]);
         const [firstCandidate, ...remainingCandidates] = candidates;
         const batchCoordinator = firstCandidate!.coordinator;
         const batch = createJournaledBatch([
@@ -337,10 +325,19 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
           ...remainingCandidates.map((candidate) => batchEntries.get(candidate)!)
         ]);
         options.onTelemetry?.("authority-flush-start");
-        const result = await Effect.runPromise(Effect.either(batchCoordinator.commitExact(
-          firstCandidate!.recoveryMode ? "recovery" : "explicit",
-          batch
-        )));
+        const commit = async () => {
+          await options.generationFenceWitness?.assertHeld("before-canonical-publish", firstCandidate!);
+          return Effect.runPromise(Effect.either(batchCoordinator.commitExact(
+            firstCandidate!.recoveryMode ? "recovery" : "explicit",
+            batch
+          )));
+        };
+        const result = await startAuthorityCommitAtDurableCut({
+          fence: options.generationFenceWitness,
+          context: firstCandidate!,
+          durableAcceptance: execution.durableAcceptance,
+          commit
+        });
         if (result._tag === "Left") {
           outcome = classifyAuthorityPublicationOutcome({ kind: "error", error: result.left });
         } else {
@@ -405,41 +402,48 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     });
     const { change } = replicaPublication;
     try {
-      for (const entry of candidates) {
-        await options.generationFenceWitness?.assertHeld("before-terminal-visibility", entry);
-      }
-      if (!replicaPublication.existing) await options.replicaChangeLog.append(change);
-      if (!replicaPublication.existing && options.shadowPublicationLog) {
-        const priorShadow = await options.shadowPublicationLog.list(candidates[0]!.workspaceId);
-        await options.generationFenceWitness?.assertHeld("before-terminal-visibility", candidates[0]);
-        await options.shadowPublicationLog.append({
-          schema: shadowPublicationSchema,
-          workspaceId: candidates[0]!.workspaceId,
-          sequence: priorShadow.length + 1,
+      const persistIndexed = async () => {
+        for (const entry of candidates) {
+          await options.generationFenceWitness?.assertHeld("before-terminal-visibility", entry);
+        }
+        if (!replicaPublication.existing) await options.replicaChangeLog.append(change);
+        if (!replicaPublication.existing && options.shadowPublicationLog) {
+          const priorShadow = await options.shadowPublicationLog.list(candidates[0]!.workspaceId);
+          await options.shadowPublicationLog.append({
+            schema: shadowPublicationSchema,
+            workspaceId: candidates[0]!.workspaceId,
+            sequence: priorShadow.length + 1,
+            commitSha,
+            previousCommit: previousHead,
+            opIds: candidates.map((entry) => entry.opId),
+            observedAt: change.changedAt
+          });
+        }
+        await persistence.putMany(candidates.map((entry) => ({
+          envelope: entry,
+          semanticDigest: entry.semanticDigest,
+          state: "INDEXED" as const,
           commitSha,
-          previousCommit: previousHead,
-          opIds: candidates.map((entry) => entry.opId),
-          observedAt: change.changedAt
-        });
-      }
-      await options.generationFenceWitness?.assertHeld("before-terminal-visibility", candidates[0]);
-      await persistence.putMany(candidates.map((entry) => ({
-        envelope: entry,
-        semanticDigest: entry.semanticDigest,
-        state: "INDEXED" as const,
-        commitSha,
-        authorityIntegrity: entry.authorityIntegrity,
-        canonicalRequestEnvelope: entry.canonicalRequestEnvelope,
-        canonicalOperation: entry.operation,
-        recoveryPublicationPolicy: entry.recoveryPublicationPolicy,
-        fixedOperationBinding: entry.fixedOperationBinding
-      })));
+          authorityIntegrity: entry.authorityIntegrity,
+          canonicalRequestEnvelope: entry.canonicalRequestEnvelope,
+          canonicalOperation: entry.operation,
+          recoveryPublicationPolicy: entry.recoveryPublicationPolicy,
+          fixedOperationBinding: entry.fixedOperationBinding
+        })));
+      };
+      await runWithAuthorityGenerationFence(
+        options.generationFenceWitness,
+        "before-terminal-visibility",
+        candidates[0],
+        persistIndexed
+      );
     } catch (error) {
       if (isDaemonGenerationFenced(error)) throw error;
       await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
         indeterminate(entry, entry.semanticDigest, `INDEX_RECOVERY_REQUIRED:${describe(error)}`, commitSha));
       return completedPublicationCut(batchReceipts(admissions, receipts));
     }
+    execution.reportDurableCut?.();
 
     return { settle: async () => {
     const committed = new Map<PreparedAuthoritySubmission, AuthorityCommittedReceipt>();
@@ -526,19 +530,8 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     };
     try {
       options.onTelemetry?.("authority-generation-acquire");
-      return options.generationFenceWitness
-        ? await options.generationFenceWitness.runExclusive(
-          "before-canonical-publish",
-          prepared[0],
-          () => {
-            options.onTelemetry?.("authority-generation-held");
-            return publishWhileGenerationCurrent();
-          }
-        )
-        : await (() => {
-          options.onTelemetry?.("authority-generation-held");
-          return publishWhileGenerationCurrent();
-        })();
+      options.onTelemetry?.("authority-generation-held");
+      return await publishWhileGenerationCurrent();
     } catch (error) {
       if (!isDaemonGenerationFenced(error)) throw error;
       for (const entry of prepared) {

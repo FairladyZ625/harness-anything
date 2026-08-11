@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -24,26 +24,21 @@ import {
   productionProgressOperationHost,
   slowFailedDirectAuthorityComponent
 } from "./support/production-progress-operation-fixture.ts";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
 
 const operationTest = process.platform === "win32" ? test.skip : test;
 
-operationTest("task create responds before its auto runtime-event append and attached materializer tail", async (t) => {
+operationTest("task create responds before its lightweight auto runtime-event append", async (t) => {
   const fast = await runTaskCreate(0);
   const slow = await runTaskCreate(180);
 
   assert.equal(fast.response.settlement?.canonicalVisibility, "pending");
   assert.equal(slow.response.settlement?.canonicalVisibility, "pending");
   assert.equal(typeof slow.response.settlement?.statusQuery, "object");
-  assert.deepEqual(
-    slow.events.filter((event) => event === "runtime-event-write"),
-    ["runtime-event-write"]
-  );
-  assert.ok(slow.runtimeEventTiming.startedAt !== undefined);
-  assert.ok(slow.runtimeEventTiming.finishedAt !== undefined);
-  assert.ok(
-    slow.responseAt < slow.runtimeEventTiming.startedAt,
-    `response at ${slow.responseMs.toFixed(1)}ms followed runtime-event append at ${(slow.runtimeEventTiming.startedAt - slow.startedAt).toFixed(1)}ms`
-  );
+  assert.deepEqual(slow.events.filter((event) => event === "runtime-event-write"), []);
+  assert.equal(slow.runtimeEventPresentAtResponse, false);
+  assert.equal(slow.runtimeEvents.length, 1);
+  assert.equal(slow.runtimeEvents[0]?.kind, "result");
   assert.ok(
     Math.abs(slow.responseMs - fast.responseMs) < 90,
     `180ms runtime-event materializer changed acceptance latency from ${fast.responseMs.toFixed(1)}ms to ${slow.responseMs.toFixed(1)}ms`
@@ -51,8 +46,8 @@ operationTest("task create responds before its auto runtime-event append and att
   t.diagnostic(JSON.stringify({
     fastResponseMs: fast.responseMs,
     slowResponseMs: slow.responseMs,
-    runtimeEventStartedAfterMs: slow.runtimeEventTiming.startedAt - slow.startedAt,
-    runtimeEventFinishedAfterMs: slow.runtimeEventTiming.finishedAt - slow.startedAt
+    runtimeEventPresentAtResponse: slow.runtimeEventPresentAtResponse,
+    runtimeEventCountAfterDrain: slow.runtimeEvents.length
   }));
 });
 
@@ -60,12 +55,11 @@ operationTest("a post-response runtime-event append failure is surfaced and drai
   const run = await runTaskCreate(20, "simulated runtime-event append failure");
 
   assert.equal(run.response.settlement?.canonicalVisibility, "pending");
-  assert.ok(run.runtimeEventTiming.startedAt !== undefined);
-  assert.ok(run.responseAt < run.runtimeEventTiming.startedAt);
+  assert.equal(run.runtimeEventPresentAtResponse, false);
   assert.equal(run.failures.length, 1);
   assert.equal(run.failures[0]?.requestId, "request-task-create-early-return");
   assert.equal(run.failures[0]?.command, "new-task");
-  assert.match(run.failures[0]?.reason ?? "", /simulated runtime-event append failure/u);
+  assert.match(run.failures[0]?.reason ?? "", /EEXIST|not a directory/iu);
 });
 
 async function runTaskCreate(materializerDelayMs: number, failReason?: string) {
@@ -76,7 +70,15 @@ async function runTaskCreate(materializerDelayMs: number, failReason?: string) {
   const settlementTiming: { startedAt?: number; finishedAt?: number } = {};
   const runtimeEventTiming: { startedAt?: number; finishedAt?: number } = {};
   const failures: Array<{ readonly requestId: string; readonly command: string; readonly reason: string }> = [];
+  let runtimeEventPresentAtResponse = false;
   try {
+    const sessionId = `session-task-create-runtime-tail-${materializerDelayMs}`;
+    const runtimeEventPath = resolveHarnessLayout(fixture.repoRoot).runtimeEventLedgerPath(sessionId);
+    if (failReason) {
+      const ledgerRoot = path.dirname(runtimeEventPath);
+      mkdirSync(path.dirname(ledgerRoot), { recursive: true });
+      writeFileSync(ledgerRoot, failReason, "utf8");
+    }
     const actor = productionAuthorityActor();
     const store = new DurableRepoWriteOutcomeStoreV1({
       directory: outcomeDirectory,
@@ -97,6 +99,7 @@ async function runTaskCreate(materializerDelayMs: number, failReason?: string) {
       transport: {
         send: async (frame) => {
           messages.push({ frame, at: performance.now() });
+          if (frame.kind === "direct-result") runtimeEventPresentAtResponse = existsSync(runtimeEventPath);
         }
       },
       hooks: {
@@ -115,7 +118,7 @@ async function runTaskCreate(materializerDelayMs: number, failReason?: string) {
         authorityConnection: productionAuthorityConnection(actor),
         currentSession: {
           runtime: "codex",
-          sessionId: `session-task-create-runtime-tail-${materializerDelayMs}`,
+          sessionId,
           source: "manual",
           detectedAt: "2026-08-10T00:00:00.000Z"
         },
@@ -137,6 +140,10 @@ async function runTaskCreate(materializerDelayMs: number, failReason?: string) {
       responseAt: delivered.at,
       responseMs: delivered.at - startedAt,
       runtimeEventTiming,
+      runtimeEventPresentAtResponse,
+      runtimeEvents: existsSync(runtimeEventPath)
+        ? readFileSync(runtimeEventPath, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>)
+        : [],
       failures,
       startedAt
     };

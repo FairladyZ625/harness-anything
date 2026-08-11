@@ -226,6 +226,57 @@ integrationTest("task create and doc sync return durable acceptance before canon
   assert.ok(docSync.wallMs < 2_500, `doc sync acceptance took ${docSync.wallMs}ms`);
 });
 
+integrationTest("three concurrent production writes all reach durable acceptance and canonical visibility", {
+  timeout: 90_000
+}, async (t) => {
+  const probe = await startProbe();
+  t.after(() => probe.close());
+  const session = {
+    runtime: "codex" as const,
+    sessionId: "receipt-tiering-three-concurrent",
+    source: "runtime" as const,
+    detectedAt: "2026-08-09T00:00:00.000Z"
+  };
+  const warmClient = await probe.openClient();
+  const warm = await requestTaskCreate(warmClient, probe.repoRoot, session, "Three concurrent warmup");
+  assert.equal(warm.receipt.ok, true, JSON.stringify(warm.receipt));
+  await waitForReceiptVisible(warmClient, settlementOf(warm.receipt).receiptId);
+
+  const clients = await Promise.all([probe.openClient(), probe.openClient(), probe.openClient()]);
+  const started = performance.now();
+  const results = await Promise.all(clients.map((client, index) =>
+    requestTaskCreate(client, probe.repoRoot, session, `Three concurrent ${index + 1}`)
+  ));
+  const batchWallMs = performance.now() - started;
+  for (const result of results) {
+    assert.equal(result.receipt.ok, true, JSON.stringify(result.receipt));
+    assert.equal(settlementOf(result.receipt).canonicalVisibility, "pending");
+  }
+  await Promise.all(results.map((result, index) =>
+    waitForReceiptVisible(clients[index]!, settlementOf(result.receipt).receiptId, 30_000)
+  ));
+  const logs = await request(
+    warmClient,
+    "repo.daemon.logs.list",
+    repoParams({ limit: 1_000 }),
+    10_000
+  );
+  t.diagnostic(JSON.stringify({
+    schema: "receipt-tiering-three-concurrent/v2",
+    warmWallMs: warm.wallMs,
+    batchWallMs,
+    requestWallMs: results.map((result) => result.wallMs),
+    gitCalls: gitCallSummary(probe.gitCalls()),
+    performance: performanceLogMessages(logs.receipt)
+  }));
+  for (const result of results) {
+    assert.ok(
+      result.wallMs < 10_000,
+      `concurrent durable acceptance exceeded 10s: ${result.wallMs.toFixed(1)}ms`
+    );
+  }
+});
+
 async function requestTaskCreate(
   client: JsonRpcLineClient,
   repoRoot: string,
@@ -279,6 +330,7 @@ interface Probe {
   readonly arm: () => void;
   readonly waitForAmplifier: () => Promise<void>;
   readonly openClient: () => Promise<JsonRpcLineClient>;
+  readonly gitCalls: () => ReadonlyArray<ReadonlyArray<string>>;
   readonly close: () => Promise<void>;
 }
 
@@ -330,6 +382,7 @@ async function startProbe(): Promise<Probe> {
       HA_WRITER_READER_ARM: amplifier.armPath,
       HA_WRITER_READER_HIT: amplifier.hitPath,
       HA_WRITER_READER_REAL_GIT: amplifier.realGit,
+      HA_WRITER_READER_GIT_LOG: amplifier.logPath,
       HA_WRITER_READER_CHECKOUT_ROOT: process.cwd()
     }, inheritedEnv),
     stdio: ["pipe", "pipe", "pipe"]
@@ -394,6 +447,10 @@ async function startProbe(): Promise<Probe> {
         + ` stdout=${stdout} stderr=${stderr}`
       );
     },
+    gitCalls: () => existsSync(amplifier.logPath)
+      ? readFileSync(amplifier.logPath, "utf8").trim().split("\n").filter(Boolean)
+        .map((line) => JSON.parse(line) as ReadonlyArray<string>)
+      : [],
     close: async () => {
       for (const client of clients) client.close();
       await stopDaemon(daemon);
@@ -416,21 +473,24 @@ function installGitAmplifier(root: string): {
   readonly armPath: string;
   readonly binDir: string;
   readonly hitPath: string;
+  readonly logPath: string;
   readonly realGit: string;
 } {
   const binDir = path.join(root, "probe-bin");
   const armPath = path.join(root, "git-amplifier.arm");
   const hitPath = path.join(root, "git-amplifier.hit");
+  const logPath = path.join(root, "git-calls.jsonl");
   const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
   const wrapperPath = path.join(binDir, "git");
   mkdirSync(binDir, { recursive: true, mode: 0o700 });
   writeFileSync(wrapperPath, [
     "#!/usr/bin/env node",
     '"use strict";',
-    'const { closeSync, existsSync, openSync } = require("node:fs");',
+    'const { appendFileSync, closeSync, existsSync, openSync } = require("node:fs");',
     'const { spawnSync } = require("node:child_process");',
     "const args = process.argv.slice(2);",
     "const env = process.env;",
+    'appendFileSync(env.HA_WRITER_READER_GIT_LOG, `${JSON.stringify(args)}\\n`);',
     'if ((args.includes("commit") || args.includes("commit-tree")) && existsSync(env.HA_WRITER_READER_ARM ?? "") && !existsSync(env.HA_WRITER_READER_HIT ?? "")) {',
     '  closeSync(openSync(env.HA_WRITER_READER_HIT, "wx", 0o600));',
     `  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${amplifierDelayMs});`,
@@ -442,7 +502,26 @@ function installGitAmplifier(root: string): {
     ""
   ].join("\n"), { encoding: "utf8", mode: 0o700 });
   chmodSync(wrapperPath, 0o700);
-  return { armPath, binDir, hitPath, realGit };
+  return { armPath, binDir, hitPath, logPath, realGit };
+}
+
+function gitCallSummary(calls: ReadonlyArray<ReadonlyArray<string>>): Readonly<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  for (const args of calls) {
+    let command = "unknown";
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index]!;
+      if (["-C", "-c", "--git-dir", "--work-tree"].includes(arg)) {
+        index += 1;
+        continue;
+      }
+      if (arg.startsWith("-")) continue;
+      command = arg;
+      break;
+    }
+    counts[command] = (counts[command] ?? 0) + 1;
+  }
+  return counts;
 }
 
 function installCheckoutLoader(root: string): string {
@@ -500,7 +579,8 @@ function settlementOf(receipt: JsonObject): {
 
 async function waitForReceiptVisible(
   client: JsonRpcLineClient,
-  receiptId: string
+  receiptId: string,
+  timeoutMs = 10_000
 ): Promise<void> {
   let latest = "unknown";
   let latestData = "unknown";
@@ -516,7 +596,7 @@ async function waitForReceiptVisible(
       : "invalid";
     latestData = JSON.stringify(data);
     return latest === "committed";
-  }, 10_000, () => `receipt ${receiptId} remained ${latest}: ${latestData}`);
+  }, timeoutMs, () => `receipt ${receiptId} remained ${latest}: ${latestData}`);
 }
 
 function percentile95(samples: ReadonlyArray<number>): number {

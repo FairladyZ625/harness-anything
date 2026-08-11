@@ -360,7 +360,11 @@ function flushRecords(
   });
   onProjectionFingerprintPhase?.("capture-start");
   let projectionHeadWitness: string | undefined;
-  const previousProjectionSourceFingerprint = records.length > 0 && projectionRelevant
+  // A session publication does not update the canonical projection here. Its
+  // materializer captures the canonical baseline immediately before merging,
+  // so capturing the same authored tree during durable acceptance only blocks
+  // the next queued writer and cannot be consumed by this post-commit path.
+  const previousProjectionSourceFingerprint = records.length > 0 && projectionRelevant && !sessionId
     ? captureTrustedAuthoredProjectionFingerprint(rootInput, publicationVcs, undefined, {
       onDiagnostic: onProjectionFingerprintDiagnostic,
       onHeadWitness: (head) => {

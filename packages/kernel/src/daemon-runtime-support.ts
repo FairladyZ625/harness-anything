@@ -38,3 +38,4 @@ export type {
   ProjectionSourceFenceFactory,
   StableProjectionSourceFence
 } from "./ports/projection-source-fence.ts";
+export { rememberTrustedAuthoredProjectionFingerprint } from "./projection/projection-source-baseline.ts";

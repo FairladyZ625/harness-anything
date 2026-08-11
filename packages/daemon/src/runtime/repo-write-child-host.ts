@@ -44,7 +44,7 @@ import type {
   RepoWritePreparedOperation
 } from "./repo-write-child-contract.ts";
 import { advanceRepoWritePhase } from "./repo-write-phase.ts";
-
+import { runWithRepoWriteDirectAdmission } from "./repo-write-child-admission.ts";
 export type { RepoWriteChildTransport } from "./repo-write-child-response-writer.ts";
 export type { RepoWriteDirectInput } from "./repo-write-child-direct.ts";
 export type {
@@ -56,7 +56,6 @@ export type {
   RepoWritePrepareInput,
   RepoWriteShutdownInput
 } from "./repo-write-child-contract.ts";
-
 interface HostedOperation {
   readonly requestId: string;
   state: RepoWriteHostedOperationSnapshot;
@@ -135,30 +134,32 @@ export class RepoWriteChildHost {
       );
       return;
     }
-    await executeRepoWriteChildDirect({
-      message,
-      repoId: this.options.repoId,
-      workspaceId: this.options.workspaceId,
-      generation: this.options.generation,
-      execute: executeDirect,
-      responses: this.responses,
-      sequencer: this.executionSequencer,
-      requestIds: this.directRequestIds,
-      requestIdOwnedByDurableLane: (requestId) =>
-        this.operationsByRequest.has(requestId),
-      admissionOpen: this.admissionOpen,
-      retainedRequestCount: this.retainedRequestCount(),
-      activeAdmissions: this.activeAdmissions,
-      maxRetainedOperations: this.limits.maxRetainedOperations,
-      maxAdmissions: this.limits.maxAdmissions,
-      boundaryError: this.boundaryError(message),
-      admit: () => {
-        this.activeAdmissions += 1;
-      },
-      release: () => {
-        this.activeAdmissions -= 1;
-      }
-    });
+    await runWithRepoWriteDirectAdmission(this.options.hooks.beginDirectAdmission, () =>
+      executeRepoWriteChildDirect({
+        message,
+        repoId: this.options.repoId,
+        workspaceId: this.options.workspaceId,
+        generation: this.options.generation,
+        execute: executeDirect,
+        responses: this.responses,
+        sequencer: this.executionSequencer,
+        requestIds: this.directRequestIds,
+        requestIdOwnedByDurableLane: (requestId) =>
+          this.operationsByRequest.has(requestId),
+        admissionOpen: this.admissionOpen,
+        retainedRequestCount: this.retainedRequestCount(),
+        activeAdmissions: this.activeAdmissions,
+        maxRetainedOperations: this.limits.maxRetainedOperations,
+        maxAdmissions: this.limits.maxAdmissions,
+        boundaryError: this.boundaryError(message),
+        admit: () => {
+          this.activeAdmissions += 1;
+        },
+        release: () => {
+          this.activeAdmissions -= 1;
+        }
+      })
+    );
     await this.maybeCompleteShutdown();
   }
 

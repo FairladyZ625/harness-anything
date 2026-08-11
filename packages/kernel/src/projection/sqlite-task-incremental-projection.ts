@@ -2,10 +2,11 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { createHarnessRuntimeContext, resolveHarnessLayout } from "../layout/index.ts";
-import { readScalar } from "../markdown/frontmatter.ts";
+import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import type { RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import { buildRelationGraphProjection } from "./relation-graph-projection.ts";
 import { relationGraphFactProjectionSemanticHash, relationGraphSourceSemanticHash } from "./relation-graph-source-semantics.ts";
+import { parseRelationFlowRecords } from "./relation-flow-frontmatter.ts";
 import { compareDecisionRows, hashDecisionProjectionRows, readDecisionProjectionRowsForPathsFromSource } from "./sqlite-decision-source.ts";
 import {
   buildDeclaredProjectionDeltaFromSources,
@@ -16,7 +17,7 @@ import {
 } from "./sqlite-declared-source-manifest.ts";
 import {
   readAttributionProjectionStateHash,
-  readRelationGraphReuseSeed,
+  readRelationGraphRows,
   projectionVersion,
   tryReadProjectionDatabase
 } from "./sqlite-projection-store.ts";
@@ -193,7 +194,14 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
   if (graphSourceChange.changed && reusableGraph === null) {
     return rebuild("relation-graph-reuse-unavailable");
   }
-  const oldGraph = reusableGraph ?? { relationEdges: [], factRefs: new Set<string>() };
+  const oldGraph = reusableGraph ?? {
+    relationEdges: [],
+    coverageRows: [],
+    factAnchors: [],
+    factRows: [],
+    warnings: [],
+    factRefs: new Set<string>()
+  };
   const preserveGraphFactRows = graphSourceChange.changed && graphSourceChange.factProjectionReusable && reusableGraph !== null;
   const newGraph = declaredEntityOnly || !graphSourceChange.changed || options.touchedPaths.length === 0
     ? null
@@ -360,7 +368,7 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
         factAnchors: newGraph.factAnchors,
         factRows: newGraph.factRows,
         warnings: newGraph.warnings
-      }, preserveGraphFactRows } : {}),
+      }, previousGraphRows: oldGraph, preserveGraphFactRows } : {}),
       declaredDelta,
       ...(sourceCacheChange ? { sourceCache: sourceCacheChange } : {}),
       ...(attributionDelta ? { attributionDelta } : {}),
@@ -445,9 +453,21 @@ function projectionRowsMatchMeta(existing: {
 function safeReadRelationGraphReuseSeed(projectionPath: string): {
   readonly relationEdges: ReadonlyArray<RelationGraphEdgeRow>;
   readonly factRefs: ReadonlySet<string>;
+  readonly coverageRows: ReturnType<typeof readRelationGraphRows>["coverageRows"];
+  readonly factAnchors: ReturnType<typeof readRelationGraphRows>["factAnchors"];
+  readonly factRows: ReturnType<typeof readRelationGraphRows>["factRows"];
+  readonly warnings: ReturnType<typeof readRelationGraphRows>["warnings"];
 } | null {
   try {
-    return readRelationGraphReuseSeed(projectionPath);
+    const graph = readRelationGraphRows(projectionPath);
+    const factRefs = new Set<string>();
+    for (const row of graph.factRows) factRefs.add(row.ref.slice("fact/".length));
+    for (const edge of graph.relationEdges) {
+      for (const ref of [edge.sourceRef, edge.targetRef]) {
+        if (ref.startsWith("fact/")) factRefs.add(ref.slice("fact/".length));
+      }
+    }
+    return { ...graph, factRefs };
   } catch {
     return null;
   }
@@ -467,7 +487,17 @@ function relationGraphSourceChange(
     const relativePath = sourcePath(normalizedRoot, realPathIfExists(touchedPath));
     const currentBody = currentBodies.get(relativePath);
     const previousBody = readProjectionSourceCacheBody(projectionPath, "task", relativePath);
+    // Attribution, contracts, and other non-graph files can share the same
+    // publication touched-path set. If neither task-source snapshot contains
+    // the path, it cannot affect the relation graph.
+    if (currentBody === undefined && previousBody === undefined) continue;
     if (currentBody === undefined || previousBody === undefined) {
+      if (relationFreeTaskIdentityChangeIsIsolated(
+        relativePath,
+        previousBody,
+        currentBody,
+        sourceInputs
+      )) continue;
       changed = true;
       factProjectionReusable = false;
       continue;
@@ -479,6 +509,37 @@ function relationGraphSourceChange(
         relationGraphFactProjectionSemanticHash(relativePath, currentBody)) factProjectionReusable = false;
   }
   return { changed, factProjectionReusable };
+}
+
+function relationFreeTaskIdentityChangeIsIsolated(
+  relativePath: string,
+  previousBody: string | undefined,
+  currentBody: string | undefined,
+  sourceInputs: ReturnType<typeof readMarkdownSource>["sourceInputs"]
+): boolean {
+  if (path.basename(relativePath) !== "INDEX.md") return false;
+  const taskIds = new Set<string>();
+  for (const body of [previousBody, currentBody]) {
+    if (body === undefined) continue;
+    const frontmatter = readFrontmatter(body);
+    if (!frontmatter || parseRelationFlowRecords(frontmatter).length > 0) return false;
+    const taskId = readScalar(frontmatter, "task_id");
+    if (!taskId) return false;
+    taskIds.add(taskId);
+  }
+  if (taskIds.size === 0) return false;
+
+  // A new/deleted task endpoint can make an otherwise unchanged relation
+  // valid/invalid. Prove the affected subgraph is empty by checking every
+  // other cached relation source for the exact endpoint; false positives only
+  // fall back to the full graph path.
+  for (const input of sourceInputs) {
+    if (input.sourcePath === relativePath) continue;
+    for (const taskId of taskIds) {
+      if (input.body.includes(`task/${taskId}`)) return false;
+    }
+  }
+  return true;
 }
 
 function incrementalTaskRows(

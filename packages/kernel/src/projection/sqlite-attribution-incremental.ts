@@ -23,6 +23,7 @@ export type AttributionProjectionDecisionReason =
   | "v1-v2-precedence"
   | "replay"
   | "new-source-path"
+  | "append-batch"
   | "v1-to-v2-replacement"
   | "op-id-collision"
   | "other";
@@ -41,39 +42,64 @@ export function buildAppendOnlyAttributionProjectionDelta(
   const deleted = change.deleteFiles.filter((row) => row.cacheKind === "attribution");
   const upserted = change.upsertFiles.filter((row) => row.cacheKind === "attribution");
   if (deleted.length > 0) return full("delete-present");
-  if (upserted.length !== 1) return full("non-single-upsert");
+  if (upserted.length === 0) return full("non-single-upsert");
+  const previousSourcePaths = new Set(change.previous.files
+    .filter((row) => row.cacheKind === "attribution")
+    .map((row) => row.sourcePath));
+  if (upserted.some((candidate) => previousSourcePaths.has(candidate.sourcePath))) {
+    return full("source-path-exists");
+  }
 
-  const [candidate] = upserted;
-  if (!candidate || change.previous.files.some((row) =>
-    row.cacheKind === "attribution" && row.sourcePath === candidate.sourcePath)) return full("source-path-exists");
-
-  let event: UnionAttributionEvent;
+  let events: ReadonlyArray<UnionAttributionEvent>;
   try {
-    event = decodeUnionAttributionEventBody(candidate.body);
+    events = upserted.map((candidate) => decodeUnionAttributionEventBody(candidate.body));
   } catch {
     return full("event-decode-failed");
   }
-
-  let projected: ReadonlyArray<UnionAttributionEvent>;
-  try {
-    projected = readProjectedAttributionEventsByOpId(projectionPath, event.opId);
-  } catch {
-    return full("projected-read-failed");
+  if (new Set(events.map((event) => event.opId)).size !== events.length) {
+    return full("op-id-ambiguous");
   }
-  if (projected.length > 1) return full("op-id-ambiguous");
 
-  const prior = projected[0];
-  if (!prior) return incremental("new-source-path", delta([], [event], eventToProjectionRows(event)));
-  if (prior.schema === "attribution-event/v2" && event.schema === "attribution-event/v1") {
-    return incremental("v1-v2-precedence", delta([], [], []));
+  const deleteEventIds = new Set<string>();
+  const upsertEvents: UnionAttributionEvent[] = [];
+  const affectedSubjects = new Set<string>();
+  let singleReason: AttributionProjectionDecisionReason = "new-source-path";
+  for (const event of events) {
+    let projected: ReadonlyArray<UnionAttributionEvent>;
+    try {
+      projected = readProjectedAttributionEventsByOpId(projectionPath, event.opId);
+    } catch {
+      return full("projected-read-failed");
+    }
+    if (projected.length > 1) return full("op-id-ambiguous");
+
+    const prior = projected[0];
+    if (!prior) {
+      upsertEvents.push(event);
+      for (const row of eventToProjectionRows(event)) affectedSubjects.add(row.subjectRef);
+      continue;
+    }
+    if (prior.schema === "attribution-event/v2" && event.schema === "attribution-event/v1") {
+      singleReason = "v1-v2-precedence";
+      continue;
+    }
+    if (stableStringify(prior) === stableStringify(event)) {
+      singleReason = "replay";
+      continue;
+    }
+    if (prior.schema === event.schema && prior.eventId !== event.eventId) return full("op-id-collision");
+    singleReason = "v1-to-v2-replacement";
+    deleteEventIds.add(prior.eventId);
+    upsertEvents.push(event);
+    for (const row of [...eventToProjectionRows(prior), ...eventToProjectionRows(event)]) {
+      affectedSubjects.add(row.subjectRef);
+    }
   }
-  if (stableStringify(prior) === stableStringify(event)) return incremental("replay", delta([], [], []));
-  if (prior.schema === event.schema && prior.eventId !== event.eventId) return full("op-id-collision");
-  return incremental("v1-to-v2-replacement", delta(
-    [prior.eventId],
-    [event],
-    [...eventToProjectionRows(prior), ...eventToProjectionRows(event)]
-  ));
+  return incremental(events.length === 1 ? singleReason : "append-batch", {
+    deleteEventIds: [...deleteEventIds],
+    upsertEvents,
+    affectedSubjects: [...affectedSubjects]
+  });
 }
 
 function full(reason: AttributionProjectionDecisionReason): AttributionProjectionDecision {
@@ -82,18 +108,6 @@ function full(reason: AttributionProjectionDecisionReason): AttributionProjectio
 
 function incremental(reason: AttributionProjectionDecisionReason, deltaValue: AttributionProjectionDelta): AttributionProjectionDecision {
   return { mode: "incremental", reason, delta: deltaValue };
-}
-
-function delta(
-  deleteEventIds: ReadonlyArray<string>,
-  upsertEvents: ReadonlyArray<UnionAttributionEvent>,
-  rows: ReadonlyArray<{ readonly subjectRef: string }>
-): AttributionProjectionDelta {
-  return {
-    deleteEventIds,
-    upsertEvents,
-    affectedSubjects: rows.map((row) => row.subjectRef)
-  };
 }
 
 function readProjectedAttributionEventsByOpId(

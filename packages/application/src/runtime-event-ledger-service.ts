@@ -38,6 +38,11 @@ export interface RuntimeEventLedgerServiceOptions {
   readonly makeEventId?: () => string;
 }
 
+export type LightweightRuntimeEventLedgerServiceOptions = Omit<
+  RuntimeEventLedgerServiceOptions,
+  "coordinator"
+>;
+
 export interface RuntimeEventAppendInput {
   readonly eventId?: string;
   readonly recordedAt?: string;
@@ -120,6 +125,25 @@ export function makeRuntimeEventLedgerService(options: RuntimeEventLedgerService
   };
 }
 
+/**
+ * Automatic command audit is already a post-response, failure-observed tail.
+ * Persist that local-only JSONL evidence directly instead of manufacturing a
+ * second journal, session commit, canonical merge, and projection cycle.
+ */
+export function makeLightweightRuntimeEventLedgerService(
+  options: LightweightRuntimeEventLedgerServiceOptions
+): RuntimeEventLedgerService {
+  const timestamp = () => options.now?.() ?? new Date().toISOString();
+  const eventId = () => options.makeEventId?.() ?? makeRuntimeEventId(timestamp());
+  return {
+    append: (input) => appendRuntimeEventLightweight(
+      options.rootInput,
+      toRuntimeEventRecord(input, timestamp, eventId)
+    ),
+    readSession: (sessionId) => readRuntimeEventSession(options.rootInput, sessionId)
+  };
+}
+
 function toRuntimeEventRecord(
   input: RuntimeEventAppendInput,
   timestamp: () => string,
@@ -195,6 +219,35 @@ function appendRuntimeEvent(
       );
     })
   );
+}
+
+function appendRuntimeEventLightweight(
+  rootInput: HarnessLayoutInput,
+  event: RuntimeEventRecordV2
+): Effect.Effect<RuntimeEventLedgerAppendResult, RuntimeEventLedgerRejected> {
+  return Effect.tryPromise({
+    try: async () => {
+      const decoded = Schema.decodeUnknownSync(RuntimeEventRecordV2Schema)(event);
+      const target = resolveRuntimeEventLedgerPath(rootInput, decoded.session.sessionId);
+      const directoryPath = path.dirname(target.absolutePath);
+      await fs.promises.mkdir(directoryPath, { recursive: true, mode: 0o700 });
+      const descriptor = await fs.promises.open(target.absolutePath, "a", 0o600);
+      try {
+        await descriptor.writeFile(`${JSON.stringify(decoded)}\n`, "utf8");
+        await descriptor.sync();
+      } finally {
+        await descriptor.close();
+      }
+      const directoryDescriptor = await fs.promises.open(directoryPath, "r");
+      try {
+        await directoryDescriptor.sync();
+      } finally {
+        await directoryDescriptor.close();
+      }
+      return { event: decoded, path: target.relativePath };
+    },
+    catch: (error) => runtimeEventRejection(event.session.sessionId, runtimeEventErrorMessage(error))
+  });
 }
 
 function readRuntimeEventSession(

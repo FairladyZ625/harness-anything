@@ -83,7 +83,7 @@ export async function settleAcceptedSession(input: {
   try {
     await nextEventLoopTurn();
     input.onRecoveryPhase?.("materializer");
-    await input.runtime.enqueueMaterializerBatch({ sessionId: input.pending.sessionId });
+    await input.runtime.enqueueMaterializerBatch({ sessionId: input.pending.sessionId, priority: "recovery" });
     input.onRecoveryPhase?.("canonical-proof");
     const visible = withCommandReceiptSettlement(
       input.acceptedReceipt,
@@ -198,7 +198,7 @@ async function recoverPendingSettlementRecord(input: {
     try {
       await nextEventLoopTurn();
       input.onRecoveryPhase("materializer");
-      await input.runtime.enqueueMaterializerBatch({ sessionId: pending.sessionId });
+      await input.runtime.enqueueMaterializerBatch({ sessionId: pending.sessionId, priority: "recovery" });
       input.onRecoveryPhase("canonical-proof");
       const canonicalCommitSha = canonicalCommitContaining(
         input.authoredRoot,
@@ -239,7 +239,7 @@ async function recoverPendingSettlementRecord(input: {
   }
   try {
     input.onRecoveryPhase("materializer");
-    await input.runtime.enqueueMaterializerBatch({ sessionId: pending.sessionId });
+    await input.runtime.enqueueMaterializerBatch({ sessionId: pending.sessionId, priority: "recovery" });
     input.onRecoveryPhase("canonical-proof");
     const visible = withCommandReceiptSettlement(
       record.receipt,
@@ -298,7 +298,7 @@ async function recoverDirectSettlement(input: {
 }): Promise<void> {
   try {
     input.onRecoveryPhase("materializer");
-    await input.runtime.enqueueMaterializerBatch({ sessionId: input.pending.sessionId });
+    await input.runtime.enqueueMaterializerBatch({ sessionId: input.pending.sessionId, priority: "recovery" });
     const operationIds = input.pending.authorityOperationIds ?? [];
     if (operationIds.length === 0) {
       throw new Error("AUTHORITY_DIRECT_RECOVERY_OPERATION_IDS_MISSING");

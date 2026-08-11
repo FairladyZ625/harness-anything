@@ -30,6 +30,8 @@ import type { DaemonProjectionGenerationSnapshot } from "./projection-generation
 export interface DaemonMaterializerBatchOptions {
   readonly dryRun?: boolean;
   readonly sessionId?: string;
+  /** Recovery may finish in the background, but must not queue ahead of live settlement. */
+  readonly priority?: "foreground" | "recovery";
 }
 
 export interface DaemonDrainOptions {
@@ -103,6 +105,8 @@ export interface HarnessDaemonRuntime {
   readonly enqueueAuthorityPublication: (
     options: DaemonAuthorityPublicationOptions
   ) => Promise<DaemonAuthorityPublicationReport>;
+  /** Hold canonical settlement until every command already in admission reaches a durable cut. */
+  readonly beginAuthorityAdmission: () => () => void;
   readonly queryExecutionEvidencePage: (query: ExecutionEvidencePageQuery) => Promise<ExecutionEvidencePage>;
   /** Authority/application port backed by this runtime's current held global lock. */
   readonly createAttributedCoordinator: (input: {

@@ -184,7 +184,7 @@ async function recoverIncrementally(input: ProductionRecoveryInput, watermarkPat
         anchor.opIds,
         anchor.commitSha
       );
-      await runTerminalRecovery(input, record, () => recoverPublishedRecord(input, record, evidence));
+      await recoverPublishedRecord(input, record, evidence);
     } catch (error) {
       await input.onDeferred?.(record, error);
     }
@@ -211,7 +211,7 @@ async function recoverByOperationLookup(input: ProductionRecoveryInput): Promise
     for (const record of remaining) {
       try {
         const evidence = await input.publicationInspector.findPublicationForOperation(record.opId);
-        await runTerminalRecovery(input, record, () => recoverPublishedRecord(input, record, evidence));
+        await recoverPublishedRecord(input, record, evidence);
         progressed = true;
       } catch (error) {
         if (error instanceof AuthorityCanonicalPublicationNotFoundError
@@ -254,7 +254,11 @@ async function recoverPublishedRecord(
     operationRegistry: input.operationRegistry,
     replicaChangeLog: input.replicaChangeLog,
     evidence,
-    beforeAppend: () => assertRecoveryGeneration(input, record)
+    beforeAppend: () => assertRecoveryGeneration(input, record),
+    append: (draft) => runTerminalRecovery(input, record, async () => {
+      await assertRecoveryGeneration(input, record);
+      await input.replicaChangeLog.append(draft);
+    })
   });
   const changeOperation = change?.operations.find((operation) => operation.opId === record.opId);
   if (change.commitSha !== evidence.commitSha
@@ -264,12 +268,15 @@ async function recoverPublishedRecord(
     throw new Error("AUTHORITY_V2_RECOVERY_CHANGE_MISMATCH");
   }
   const indexed = { ...record, state: "INDEXED" as const, commitSha: evidence.commitSha };
-  await assertRecoveryGeneration(input, record);
-  await input.operationRegistry.put(indexed);
-  await assertRecoveryGeneration(input, record);
+  await runTerminalRecovery(input, record, async () => {
+    await assertRecoveryGeneration(input, record);
+    await input.operationRegistry.put(indexed);
+  });
   const receipt = await input.recover(indexed);
-  await assertRecoveryGeneration(input, record);
-  await input.operationRegistry.put({ ...indexed, state: "COMMITTED", receipt, commitSha: receipt.commitSha });
+  await runTerminalRecovery(input, record, async () => {
+    await assertRecoveryGeneration(input, record);
+    await input.operationRegistry.put({ ...indexed, state: "COMMITTED", receipt, commitSha: receipt.commitSha });
+  });
 }
 
 async function terminalizeConfirmedAbsent(

@@ -47,7 +47,6 @@ test("first task edit after a full rebuild stays incremental", () => {
     assert.equal(fresh.rows.find((row) => row.taskId === "task-a")?.canonicalStatus, "done");
   });
 });
-
 test("task edit with a new attribution event stays incremental and immediately fresh", () => {
   withProjectionPair((rootDir) => {
     seedHarness(rootDir);
@@ -68,6 +67,31 @@ test("task edit with a new attribution event stays incremental and immediately f
     assert.equal(fresh.warnings.some((warning) => warning.code === "projection_stale"), false);
     assert.equal(fresh.warnings.some((warning) => warning.severity === "hard-fail"), false);
     assert.equal(fresh.rows.find((row) => row.taskId === "task-a")?.attribution.latestActor?.principal.personId, "person_test");
+  });
+});
+
+test("a batch of append-only attribution events stays on the projected op-id delta path", () => {
+  withProjectionPair((rootDir) => {
+    seedHarness(rootDir);
+    rebuildTaskProjection({ rootDir });
+    const previousSourceFingerprint = captureProjectionSourceSnapshot(rootDir).fingerprint;
+    const touchedPaths = [
+      writeAttributionEvent(rootDir, "event-batch-a", "task/task-a"),
+      writeAttributionEvent(rootDir, "event-batch-b", "task/task-b"),
+      writeAttributionEvent(rootDir, "event-batch-c", "task/task-c")
+    ];
+    const decisions: string[] = [];
+
+    const result = updateTaskProjectionIncrementally({
+      rootDir,
+      touchedPaths,
+      previousSourceFingerprint,
+      onAttributionDecision: (reason) => decisions.push(reason)
+    });
+
+    assert.equal(result.mode, "incremental");
+    assert.deepEqual(decisions, ["append-batch"]);
+    assert.equal(readAttributionProjection(rootDir).length, 3);
   });
 });
 
