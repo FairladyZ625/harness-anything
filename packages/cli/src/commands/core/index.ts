@@ -11,11 +11,22 @@ export { runDistillCommand } from "./distill.ts";
 export { runDocCommand } from "./doc.ts";
 export { runFactCommand } from "./fact.ts";
 export { runMigrationCommand } from "./migration.ts";
-export { runNewTaskCommand } from "./new-task.ts";
 export { runRuntimeEventCommand } from "./runtime-event.ts";
 export { runSessionCommand } from "./session.ts";
-export { runTaskGatesCommand } from "./task-gates.ts";
-export { FORCE_STATUS_AUDIT_MARKER, runTaskLifecycleCommand } from "./task-lifecycle.ts";
+export { runTaskLifecycleFacadeCommand } from "./task-lifecycle-host.ts";
+export {
+  TASK_LIFECYCLE_CLI_COMMANDS,
+  parseTaskLifecycleArgs,
+  renderTaskLifecycleHelp,
+  runTaskLifecycleFacade
+} from "./task-lifecycle.ts";
+export type {
+  TaskLifecycleFacadeDependencies,
+  TaskLifecycleParseResult,
+  TaskLifecycleReceipt,
+  TaskLifecycleServiceInput,
+  TaskLifecycleServicePort
+} from "./task-lifecycle.ts";
 export { runTaskQueryCommand } from "./task-query.ts";
 export { runVersionCommand } from "./version.ts";
 export { runWorktreeCommand } from "./worktree.ts";

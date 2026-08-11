@@ -2,17 +2,13 @@ import {
   localAdapterProviderMetadata,
   createDaemonRuntime,
   createMultiRepoDaemonRuntime,
-  makeLocalLifecycleEngine,
   makeLocalWriteCoordinator,
   runLedgerMaterializer
 } from "../../../adapters/local/src/index.ts";
 import { multicaAdapterProviderMetadata } from "../../../adapters/multica/src/index.ts";
 import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
 import { makeMarkdownArtifactStore } from "../../../kernel/src/index.ts";
-import type {
-  LocalLifecycleOptions,
-  LocalWriteCoordinatorOptions
-} from "../../../adapters/local/src/index.ts";
+import type { LocalWriteCoordinatorOptions } from "../../../adapters/local/src/index.ts";
 import type { MaterializerCommandReport } from "../cli/types.ts";
 
 export type AdapterCapability =
@@ -36,7 +32,6 @@ export interface AdapterProviderRegistryEntry {
 
 export interface CliCompositionAdapterProvider {
   readonly metadata: AdapterProviderRegistryEntry;
-  readonly createLifecycleEngine: typeof makeLocalLifecycleEngine;
   readonly createArtifactStore: typeof makeMarkdownArtifactStore;
   readonly createWriteCoordinator: typeof makeLocalWriteCoordinator;
   readonly createDaemonRuntime: typeof createDaemonRuntime;
@@ -46,7 +41,6 @@ export interface CliCompositionAdapterProvider {
 
 const localProvider = {
   metadata: localAdapterProviderMetadata,
-  createLifecycleEngine: (options: LocalLifecycleOptions) => makeLocalLifecycleEngine(options),
   createArtifactStore: (options) => makeMarkdownArtifactStore(options),
   createWriteCoordinator: (options: LocalWriteCoordinatorOptions) => makeLocalWriteCoordinator(options),
   createDaemonRuntime: (options) => createDaemonRuntime(options),

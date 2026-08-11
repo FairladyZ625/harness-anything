@@ -2,6 +2,103 @@
   "schema": "harness-anything/gate-allowlist/v1",
   "gateId": "check-bypass-write-boundary",
   "entries": {
+    "rebuildable-projection": [
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#DatabaseSync@1",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle SQLite is a disposable projection cache rebuilt exclusively from the authoritative task event stream."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.exec@1",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle projection rebuild drops only disposable derived tables."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.exec@2",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle projection configures its disposable SQLite cache."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.exec@3",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle projection creates disposable derived tables."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.exec@4",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle projection begins an atomic cache-only transaction."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.exec@5",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle projection commits an atomic cache-only transaction."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.exec@6",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle projection rolls back an atomic cache-only transaction."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@1",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle projection materializes a task event into the disposable cache."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@2",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle projection materializes an execution into the disposable cache."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@3",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle projection materializes a review into the disposable cache."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@4",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle projection materializes a graph edge into the disposable cache."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@5",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle projection reads its derived watermark."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@6",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle projection reads a derived task snapshot."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@7",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle projection compares derived event rows with authoritative events."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@8",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle projection reads latest disposable snapshots for validation."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@9",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle projection reads disposable entity rows for validation."
+      },
+      {
+        "value": "packages/kernel/src/projection/sqlite-projection-store.ts#mkdirSync@1",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "The entity SQLite projection is a disposable cache rebuilt from canonical task and decision documents."
+      },
+      {
+        "value": "packages/kernel/src/projection/sqlite-projection-store.ts#rmSync@1",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "The entity SQLite projection removes only a disposable temporary cache before rebuilding it."
+      },
+      {
+        "value": "packages/kernel/src/projection/sqlite-projection-store.ts#renameSync@1",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "The entity SQLite projection atomically publishes a fully rebuildable cache file."
+      }
+    ],
     "coordinatedCore": [
       {
         "value": "packages/kernel/src/store/markdown-artifact-store.ts#mkdirSync@1",
@@ -20,8 +117,88 @@
       },
       {
         "value": "packages/kernel/src/store/write-journal-operations.ts#rmSync@1",
-        "ref": "task_01KX68A7MK6HH9TM16T95M8ZZK",
-        "reason": "P3-1 hard-delete apply relocated from coordinator to the op transaction plan; same coordinator-executed durable write path, not a bypass caller."
+        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
+        "reason": "C0 coordinator transaction rollback removes a target created by a failed declared batch; it is not a caller-side bypass."
+      },
+      {
+        "value": "packages/kernel/src/store/task-lease-cas.ts#DatabaseSync@1",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 sole Lease SQLite mutator is invoked only by the coordinator-held lease_cas write plan."
+      },
+      {
+        "value": "packages/kernel/src/store/task-lease-cas.ts#sqlite.exec@1",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 coordinator-held Lease CAS initializes its sole runtime table."
+      },
+      {
+        "value": "packages/kernel/src/store/task-lease-cas.ts#sqlite.exec@2",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 coordinator-held Lease CAS begins its atomic capacity/CAS transaction."
+      },
+      {
+        "value": "packages/kernel/src/store/task-lease-cas.ts#sqlite.exec@3",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 coordinator-held Lease CAS commits its atomic capacity/CAS transaction."
+      },
+      {
+        "value": "packages/kernel/src/store/task-lease-cas.ts#sqlite.exec@4",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 coordinator-held Lease CAS rolls back a rejected atomic capacity/CAS transaction."
+      },
+      {
+        "value": "packages/kernel/src/store/task-lease-cas.ts#sqlite.prepare@1",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 coordinator-held Lease broker counts effective leases before reserve."
+      },
+      {
+        "value": "packages/kernel/src/store/task-lease-cas.ts#sqlite.prepare@2",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 coordinator-held Lease broker publishes a capacity-checked reservation."
+      },
+      {
+        "value": "packages/kernel/src/store/task-lease-cas.ts#sqlite.prepare@3",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 coordinator-held Lease broker applies versioned phase CAS."
+      },
+      {
+        "value": "packages/kernel/src/store/task-lease-cas.ts#sqlite.prepare@4",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 Lease read side reads the coordinator-owned runtime row."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#openSync@1",
+        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
+        "reason": "Kernel local runtime filesystem port implements exclusive coordinator/lock creation."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#writeFileSync@1",
+        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
+        "reason": "Kernel local runtime filesystem port completes exclusive coordinator/lock creation."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#closeSync@1",
+        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
+        "reason": "Kernel local runtime filesystem port closes its exclusive coordinator/lock descriptor."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#mkdirSync@1",
+        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
+        "reason": "Kernel local runtime filesystem port creates coordinator-owned runtime directories."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#renameSync@1",
+        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
+        "reason": "Kernel local runtime filesystem port performs coordinator-owned atomic replacement."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#rmSync@1",
+        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
+        "reason": "Kernel local runtime filesystem port removes coordinator-owned runtime state."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#writeFileSync@2",
+        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
+        "reason": "Kernel local runtime filesystem port writes coordinator-owned runtime state."
       },
       {
         "value": "packages/kernel/src/store/local-lock-registry.ts#mkdirSync@1",
@@ -235,11 +412,6 @@
       },
       {
         "value": "packages/kernel/src/store/write-journal-operations.ts#mkdirSync@3",
-        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
-        "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
-      },
-      {
-        "value": "packages/kernel/src/store/write-journal-operations.ts#rmSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },

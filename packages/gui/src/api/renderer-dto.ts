@@ -12,17 +12,14 @@ export type {
   TaskProjectionRow
 } from "../../../kernel/src/index.ts";
 export type {
-  AppendTaskProgressPayload,
   DecisionDetailResult,
   DecisionIdPayload,
   DecisionListResult,
   FactAnchorRow,
   FactProjectionRow,
-  LocalControllerResult,
   RelationCoverageRow,
   RelationGraphEdgeRow,
   RelationGraphReadResult,
-  SetTaskStatusPayload,
   TaskDetailResult,
   TaskDocumentPayload,
   TaskDocumentResult,

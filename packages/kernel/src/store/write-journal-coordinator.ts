@@ -28,16 +28,16 @@ import { makeLocalVersionControlSystem } from "./local-version-control-system.ts
 import { assertCodeDocGitEvidence, assertNoUncoordinatedCodeDocChange } from "./write-journal-code-doc-policy.ts";
 import { runLedgerMaterializer } from "./ledger-materializer.ts";
 import { assertDirectWriteAllowed, withRepoLocks, WriteLockHeldError } from "./write-journal-locks.ts";
-import { NonTaskWriteEntityError, taskIdForJournalRecord } from "./write-journal-entity.ts";
+import { NonTaskWriteEntityError } from "./write-journal-entity.ts";
 import { rejectWrite, WriteRejectedError } from "./write-journal-rejection.ts";
 import {
   applyWriteOp,
   documentWritesForWriteOp,
-  readHardDeletePayload,
   validateWriteTransaction,
   writeOpTouchedPaths
 } from "./write-journal-operations.ts";
-import type { ApplyMarkerRecord, DeleteAuditRecord, GitCommitAuthor, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockConflictRetryOptions, LockTakeoverRecord, WriteWatermark } from "./write-journal-types.ts";
+import { isLeaseCasWriteOp } from "./task-lease-cas.ts";
+import type { ApplyMarkerRecord, GitCommitAuthor, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockConflictRetryOptions, LockTakeoverRecord, WriteWatermark } from "./write-journal-types.ts";
 export type { GitCommitAuthor, JournalActor, JournaledWriteCoordinatorOptions, LockConflictRetryOptions } from "./write-journal-types.ts";
 
 const defaultActor: JournalActor = { kind: "agent", id: "local" };
@@ -66,10 +66,12 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
   const pending: WriteOp[] = [];
   const flushOnce = (reason: FlushReason): Effect.Effect<FlushReport, WriteError> => Effect.try({
     try: () => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, pending.map((op) => op.entityId), () => {
+      const runtimeOps = pending.splice(0, pending.length).filter(isLeaseCasWriteOp);
       const state = readDurableState(journalPath, watermarkPath, rootDir);
-      pending.splice(0, pending.length);
       const pendingRecords = uniquePendingRecords(state.records, state.applied);
-      return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem);
+      for (const op of runtimeOps) applyWriteOp(runtimeContext, op);
+      const report = flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem);
+      return runtimeOps.length === 0 ? report : { ...report, opCount: report.opCount + runtimeOps.length, committed: true };
     }, { heldGlobalLock }),
     catch: (cause): WriteError => toJournalError(cause)
   });
@@ -90,6 +92,10 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
     enqueue: (op) => Effect.try({
       try: (): WriteAck => {
         validateOp(runtimeContext, op);
+        if (isLeaseCasWriteOp(op)) {
+          if (!pending.some((item) => item.opId === op.opId)) pending.push(op);
+          return { opId: op.opId, entityId: op.entityId, accepted: true };
+        }
         preflightWriteOp(rootDir, runtimeContext, op, versionControlSystem);
         if (!heldGlobalLock) assertDirectWriteAllowed(rootDir, runtimeContext, lockTtlMs);
         const state = readDurableState(journalPath, watermarkPath, rootDir);
@@ -195,7 +201,8 @@ function maybeAutoMaterialize(
       return Effect.sync(() => {
         try {
           runLedgerMaterializer(rootInput, { versionControlSystem });
-        } catch {
+        } catch (error) {
+          consumeKnownError(error);
           // The op is already committed and covered by the durable watermark.
           // Materialization is a separately retryable convergence step; letting
           // its failure flip this receipt to false would invite a duplicate retry.
@@ -286,18 +293,6 @@ function flushRecords(
 function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath: string, record: JournalRecord): void {
   const op = recordToOp(rootDir, record);
   applyWriteOp(rootInput, op);
-  if (op.kind === "package_delete_hard") {
-    const payload = readHardDeletePayload(op);
-    appendJsonLineDurably(journalPath, {
-      schema: "delete-audit/v1",
-      opId: `${record.opId}:applied`,
-      taskId: taskIdForJournalRecord(record),
-      kind: "package_delete_hard_applied",
-      actor: record.actor,
-      at: new Date().toISOString(),
-      reason: payload.reason
-    });
-  }
   // Every successful file mutation is durably recognizable before commit and the
   // global watermark. If either later step fails, replay skips the already-applied
   // effect and continues the batch instead of turning this record into a poison op.
@@ -341,9 +336,12 @@ function preflightWriteOp(rootDir: string, rootInput: HarnessLayoutInput, op: Wr
   try {
     assertDocumentWritePathsDoNotCollide(rootInput, documentWritesForWriteOp(op));
   } catch (error) {
+    consumeKnownError(error);
     rejectWrite(error instanceof Error ? error.message : String(error), op.entityId);
   }
 }
+
+function consumeKnownError(error: unknown): void { void error; }
 
 function recordToOp(rootDir: string, record: JournalRecord): WriteOp {
   const payload = readVerifiedPayload(rootDir, record);
@@ -407,8 +405,6 @@ function writeKindVerb(kind: JournalRecordKind): string {
 }
 
 function recordCommitDetail(kind: JournalRecordKind, payload: Record<string, unknown>): string {
-  if (kind === "transition_local" && typeof payload.to === "string") return `-> ${payload.to}`;
-  if (kind === "progress_append") return "progress.md";
   if ((kind === "machine_artifact_write" || kind === "machine_artifact_append_jsonl") && typeof payload.path === "string") return payload.path;
   if ((kind === "doc_write" || kind === "doc_stage" || kind === "code_doc_reconcile") && typeof payload.path === "string") return payload.path;
   if (kind === "task_tree_stage") return "task package";
@@ -467,7 +463,7 @@ function compactJournalDurably(journalPath: string, coveredOpIds: ReadonlySet<st
     .split("\n")
     .filter((line) => line.trim().length > 0)
     .filter((line) => {
-      const parsed = JSON.parse(line) as Partial<JournalRecord | LockTakeoverRecord | DeleteAuditRecord | ApplyMarkerRecord>;
+      const parsed = JSON.parse(line) as Partial<JournalRecord | LockTakeoverRecord | ApplyMarkerRecord>;
       if (parsed.schema !== "write-journal/v1" && parsed.schema !== "apply-marker/v1") return true;
       return typeof parsed.opId !== "string" || !coveredOpIds.has(parsed.opId);
     });

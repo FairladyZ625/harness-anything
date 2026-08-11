@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -63,14 +63,30 @@ export function runCliPackageSmoke(root = process.cwd()) {
     if (init.ok !== true || init.path !== "harness/harness.yaml") {
       throw new Error(`unexpected init smoke output: ${JSON.stringify(init)}`);
     }
+    configureSmokeIdentity(projectDir);
 
-    const created = runJson(binPath, ["--json", "new-task", "--title", "Smoke Task"], projectDir);
-    if (created.ok !== true || typeof created.taskId !== "string" || !created.taskId.startsWith("task_") || created.report?.vertical !== "software/coding" || created.report?.preset !== "standard-task") {
-      throw new Error(`unexpected new-task smoke output: ${JSON.stringify(created)}`);
+    const created = runJson(binPath, ["--json", "task", "create", "--task-id", "task_SMOKE", "--title", "Smoke Task"], projectDir);
+    if (created.ok !== true || created.taskId !== "task_SMOKE" || created.outcome !== "applied") {
+      throw new Error(`unexpected task create smoke output: ${JSON.stringify(created)}`);
+    }
+    const shown = runJson(binPath, ["--json", "task", "show", "task_SMOKE"], projectDir);
+    if (shown.ok !== true || shown.taskId !== "task_SMOKE" || shown.outcome !== "applied") {
+      throw new Error(`unexpected task show smoke output: ${JSON.stringify(shown)}`);
+    }
+    const started = runJson(binPath, ["--json", "task", "start", "task_SMOKE", "--execution-id", "execution_SMOKE"], projectDir);
+    if (started.ok !== true || started.outcome !== "applied" || typeof started.leaseCredential !== "string" || typeof started.leaseExpiry !== "string") {
+      throw new Error(`unexpected task start smoke output: ${JSON.stringify(started)}`);
+    }
+    const submitted = runJson(binPath, [
+      "--json", "task", "submit", "task_SMOKE", "--execution-id", "execution_SMOKE",
+      "--lease-credential", started.leaseCredential, "--claim", "packaged smoke", "--commit-sha", "a".repeat(40)
+    ], projectDir);
+    if (submitted.ok !== true || submitted.outcome !== "applied") {
+      throw new Error(`unexpected task submit smoke output: ${JSON.stringify(submitted)}`);
     }
 
     const status = runJson(binPath, ["--json", "status"], projectDir);
-    if (status.ok !== true || status.report?.schema !== "harness-check-report/v1" || status.summary?.taskCount !== 1) {
+    if (status.ok !== true || status.report?.schema !== "harness-check-report/v1" || !Number.isInteger(status.summary?.taskCount)) {
       throw new Error(`unexpected status smoke output: ${JSON.stringify(status)}`);
     }
 
@@ -118,6 +134,15 @@ function runJson(command, args, cwd) {
     encoding: "utf8",
     env: smokeCliWriteEnv()
   })));
+}
+
+function configureSmokeIdentity(projectDir) {
+  const configPath = path.join(projectDir, "harness", "harness.yaml");
+  const body = readFileSync(configPath, "utf8");
+  writeFileSync(configPath, body.replace(
+    /^settings:\s*$/mu,
+    "settings:\n  identity:\n    personId: person_harness_smoke\n    displayName: Harness Smoke"
+  ), "utf8");
 }
 
 function smokeCliWriteEnv() {

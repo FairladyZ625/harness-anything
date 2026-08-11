@@ -1,7 +1,4 @@
 import type {
-  AppendTaskProgressPayload,
-  LocalControllerResult,
-  SetTaskStatusPayload,
   TaskDetailResult,
   TaskDocumentPayload,
   TaskDocumentResult,
@@ -29,9 +26,6 @@ type HarnessBridgeMethod =
   | "getDecisions"
   | "getDecisionDetail"
   | "getTaskFacts"
-  | "setTaskStatus"
-  | "reviewTask"
-  | "appendTaskProgress"
   | "rebuildGovernance";
 
 type HarnessBridge = Record<HarnessBridgeMethod, (payload?: object | null) => Promise<unknown>> & {
@@ -90,20 +84,6 @@ export interface TaskFactListSuccess {
   readonly facts: ReadonlyArray<FactProjectionRow>;
 }
 
-export interface CommandSuccess {
-  readonly ok: true;
-}
-
-export interface CommandFailure {
-  readonly ok: false;
-  readonly error: {
-    readonly code: string;
-    readonly hint: string;
-  };
-}
-
-export type CommandResult = CommandSuccess | CommandFailure;
-
 export const harnessClient = {
   async getTasks(): Promise<TaskListSuccess> {
     const result = await invokeBridge("getTasks", null);
@@ -132,15 +112,6 @@ export const harnessClient = {
   async getTaskFacts(payload: TaskIdPayload): Promise<TaskFactListSuccess> {
     const result = await invokeBridge("getTaskFacts", payload);
     return readTaskFactListResult(result);
-  },
-  async setTaskStatus(payload: SetTaskStatusPayload): Promise<CommandResult> {
-    return readCommandResult(await invokeBridge("setTaskStatus", payload));
-  },
-  async reviewTask(payload: TaskIdPayload): Promise<CommandResult> {
-    return readCommandResult(await invokeBridge("reviewTask", payload));
-  },
-  async appendTaskProgress(payload: AppendTaskProgressPayload): Promise<CommandResult> {
-    return readCommandResult(await invokeBridge("appendTaskProgress", payload));
   },
   async rebuildGovernance(): Promise<TaskListSuccess> {
     const result = await invokeBridge("rebuildGovernance", null);
@@ -251,27 +222,6 @@ function readTaskFactListResult(value: unknown): TaskFactListSuccess {
     taskId: result.taskId,
     path: typeof result.path === "string" ? result.path : "",
     facts
-  };
-}
-
-function readCommandResult(value: unknown): CommandResult {
-  const result = value as LocalControllerResult;
-  if (result && typeof result === "object" && result.ok === true) return { ok: true };
-  if (result && typeof result === "object" && result.ok === false && result.error) {
-    return {
-      ok: false,
-      error: {
-        code: String(result.error.code),
-        hint: String(result.error.hint)
-      }
-    };
-  }
-  return {
-    ok: false,
-    error: {
-      code: "invalid_bridge_result",
-      hint: "The GUI bridge returned an unrecognized command result."
-    }
   };
 }
 

@@ -86,9 +86,6 @@ export const HarnessConfigSchema = Schema.Struct({
       personId: ConfigIdentifierSchema,
       displayName: Schema.optional(Schema.String)
     })),
-    tasks: Schema.optional(Schema.Struct({
-      leaseEnforcement: Schema.Boolean
-    })),
     customVerticals: Schema.optional(Schema.Struct({
       enabled: Schema.Boolean
     }))
@@ -145,16 +142,8 @@ export const WriteJournalOpSchema = Schema.Struct({
   opId: Schema.String,
   entityId: Schema.String,
   kind: Schema.Literal(
-    "package_create",
-    "transition_local",
-    "progress_append",
     "task_tree_stage",
     "doc_write",
-    "package_archive",
-    "package_tombstone",
-    "package_reopen",
-    "package_supersede",
-    "package_delete_hard",
     "decision_propose",
     "decision_accept",
     "decision_reject",

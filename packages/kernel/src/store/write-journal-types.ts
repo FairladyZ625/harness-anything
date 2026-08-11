@@ -1,4 +1,4 @@
-import type { EntityId, TaskId } from "../domain/index.ts";
+import type { EntityId } from "../domain/index.ts";
 import type { HarnessLayoutOverrides } from "../layout/index.ts";
 import type { VersionControlSystem } from "../ports/version-control-system.ts";
 import type { WriteOp } from "../ports/write-coordinator.ts";
@@ -58,16 +58,6 @@ export interface LockTakeoverRecord {
   readonly at: string;
   readonly lockPath: string;
   readonly oldPid: number;
-  readonly reason: string;
-}
-
-export interface DeleteAuditRecord {
-  readonly schema: "delete-audit/v1";
-  readonly opId: string;
-  readonly taskId: TaskId;
-  readonly kind: "package_delete_hard_applied";
-  readonly actor: JournalActor;
-  readonly at: string;
   readonly reason: string;
 }
 

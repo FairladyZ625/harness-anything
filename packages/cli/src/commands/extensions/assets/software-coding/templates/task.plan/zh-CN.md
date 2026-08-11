@@ -29,7 +29,7 @@ Task Contract: harness-task v1
 ## Implementation Plan
 
 - 确认现有代码、文档和契约。
-- 用 `ha task progress append <task-id> --text "..." --evidence type:PATH:summary` 记录关键进展。
+- 用 `ha task start <task-id> --execution-id <execution-id> --json` 启动 Execution 并保存一次性 lease credential；提交该 Execution 时再记录 deliverable、evidence ref 与 verification。
 - 对未来 decision 或跨任务推理所需的承重观察，使用 `ha fact record --task <task-id> --statement "..." --source "..." --confidence high` 显式晋升；Fact 保持 `0..N`，交付证据归入 Execution outputs。
 - 对选路、推翻、长期边界或派生后续工作的承重选择，运行 `ha decision propose ...`；fact 支撑 decision 或 decision 派生 task 时，用 `ha decision relate ...` 建边。
 - 用测试和检查验证行为。

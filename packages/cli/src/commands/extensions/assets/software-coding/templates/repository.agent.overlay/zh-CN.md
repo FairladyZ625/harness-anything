@@ -1,9 +1,9 @@
 ## Harness CLI (software/coding)
 
-- 通过 `ha <command>` 或 `npx harness-anything <command>` 调用。用 `ha task create --title "<title>"` 创建任务包；不要在 tasks 根下手工搭目录。
+- 通过 `ha <command>` 或 `npx harness-anything <command>` 调用。用 `ha task create --title "<title>"` 创建 replay task，并为任务声明的每个 gate 重复传入 `--completion-gate <gate-id>`；不要在 tasks 根下手工搭目录。
 - 创建任务前先选 preset。普通实现或文档修复用 `standard-task`，长跑任务用 `long-running-task`，模块搭建用 `module`，拆分父任务用 `subtask-expansion`，GitHub issue intake 用 `github-issue-repair`，遗留迁移用 `legacy-migration`；`create-milestone`、`milestone-closeout`、`milestone-dossier` 与 `decision-conformance` 分别用于对应工作流。拿不准就 `ha preset list`；不要什么都默认 `standard-task`。
 - 组装写入前优先自描述：`ha <command> --help`、preset manifest、capabilities 元数据。命令支持 JSON / `--from-file` 时用结构化输入，别塞 shell 转义的长文本；不支持时用当前 flag。
-- 提交、复核与完成：用 `ha task transition <id> in_review --completion-claim "..."` 提交 active Execution，并按需重复传入 `--deliverable`、`--output`、`--verification`、`--known-gap` 与 `--residual-risk`；纯文字提交与零条 Evidence 合法。另一位 reviewer 再运行 `ha task review-execution <id> --execution-id <exe-id> --verdict <approved|changes_requested|dismissed> --findings "..." --rationale "..." [--evidence-checked <evidence-id>]...` 复核该轮交付。然后运行 `ha task complete <id>`；只有解析出的 preset/profile 声明 `ci` gate 时才传 `--ci passed`。Fact 保持 `0..N` 的显式晋升；review 或 closeout 占位内容仍会 fail closed（依据 `dec_mrg3z1we/CH1`、`CH4`、ADR-0027 D3、D5-D7）。
+- Execution 生命周期：先运行 `ha task start <id> --execution-id <exe-id> --json`，并保存 applied receipt 里只签发一次的 `leaseCredential`。再用 `ha task submit <id> --execution-id <exe-id> --lease-credential <saved> --claim "..." --commit-sha <sha>` 提交，并按需重复传入 `--deliverable`、`--evidence-ref`、`--verification`、`--known-gap` 与 `--residual-risk`。由另一位 reviewer 用 `ha task review-execution` 写入所需的 anti-entropy 与 acceptance review。最后运行 `ha task complete <id> --execution-id <exe-id>`，并为创建时声明的每个 gate 恰好传一份 `--gate-receipt <gate-id>:<receipt-ref>`；空 gate 集无需传。Fact 保持 `0..N` 的显式晋升（依据 `dec_mrg3z1we/CH1`、`CH4`、ADR-0027 D3、D5-D7）。
 - 走投影查询：`ha decision list --state active --module <key> --compact`、`ha decision show <id|E<n>>`、`ha task list --module <key>`。
 - 非 coordinator 写入收尾：手工改文档、标准、模板、artifact 索引或源码后，结束前检查对应仓库 `git status --short`，只提交自己触碰的路径；不要把已有无关脏文件卷进来。若明确不提交，必须记录 owner 和 no-commit 理由。
 - 模板资产是操作面的一部分。AGENTS/task/governance 工作流文本变更时，同步更新 seeded 模板，避免新 scaffold 教旧行为。

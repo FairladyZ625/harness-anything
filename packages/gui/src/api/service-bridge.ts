@@ -23,9 +23,6 @@ type LocalControllerGuiMethod =
   | "getTaskExecutions"
   | "getExecutionDetail"
   | "getReviewDetail"
-  | "setTaskStatus"
-  | "reviewTask"
-  | "appendTaskProgress"
   | "rebuildGovernance";
 
 interface GuiBridgeServiceProxy {
@@ -39,9 +36,6 @@ interface GuiBridgeServiceProxy {
   readonly getTaskExecutions: (payload: unknown) => Promise<unknown> | unknown;
   readonly getExecutionDetail: (payload: unknown) => Promise<unknown> | unknown;
   readonly getReviewDetail: (payload: unknown) => Promise<unknown> | unknown;
-  readonly setTaskStatus: (payload: unknown) => Promise<unknown> | unknown;
-  readonly reviewTask: (payload: unknown) => Promise<unknown> | unknown;
-  readonly appendTaskProgress: (payload: unknown) => Promise<unknown> | unknown;
   readonly rebuildGovernance: () => Promise<unknown> | unknown;
 }
 
@@ -95,18 +89,6 @@ export const guiBridgeHandlerImplementations = {
   getReviewDetail: {
     serviceMethod: "getReviewDetail",
     invoke: ({ service, payload }) => service.getReviewDetail(payload)
-  },
-  setTaskStatus: {
-    serviceMethod: "setTaskStatus",
-    invoke: ({ service, payload }) => service.setTaskStatus(payload)
-  },
-  reviewTask: {
-    serviceMethod: "reviewTask",
-    invoke: ({ service, payload }) => service.reviewTask(payload)
-  },
-  appendTaskProgress: {
-    serviceMethod: "appendTaskProgress",
-    invoke: ({ service, payload }) => service.appendTaskProgress(payload)
   },
   rebuildGovernance: {
     serviceMethod: "rebuildGovernance",
@@ -175,9 +157,6 @@ function createDaemonServiceProxy(request: GuiDaemonRequester): GuiBridgeService
     getTaskExecutions: (payload) => invokeDaemonGuiRoute(request, "getTaskExecutions", payload),
     getExecutionDetail: (payload) => invokeDaemonGuiRoute(request, "getExecutionDetail", payload),
     getReviewDetail: (payload) => invokeDaemonGuiRoute(request, "getReviewDetail", payload),
-    setTaskStatus: (payload) => invokeDaemonGuiRoute(request, "setTaskStatus", payload),
-    reviewTask: (payload) => invokeDaemonGuiRoute(request, "reviewTask", payload),
-    appendTaskProgress: (payload) => invokeDaemonGuiRoute(request, "appendTaskProgress", payload),
     rebuildGovernance: () => invokeDaemonGuiRoute(request, "rebuildGovernance", undefined)
   };
 }

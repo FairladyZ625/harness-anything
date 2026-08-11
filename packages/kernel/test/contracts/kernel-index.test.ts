@@ -4,13 +4,16 @@ import test from "node:test";
 import * as kernel from "../../src/index.ts";
 
 test("kernel public source index is importable by the explicit TS test runner", () => {
-  assert.deepEqual([...kernel.domainStatuses], [
-    "planned",
-    "active",
-    "blocked",
-    "in_review",
-    "done",
-    "cancelled"
+  assert.equal(kernel.REPLAY_TASK_GRAPH.template, "replay/v1");
+  assert.deepEqual(kernel.TASK_LIFECYCLE_COMMAND_CATALOG.map((entry) => entry.commandType), [
+    "CreateReplayTask",
+    "StartExecution",
+    "SubmitExecution",
+    "RecordReview",
+    "RecordReview",
+    "RecordReview",
+    "RecordReview",
+    "CompleteTask"
   ]);
   assert.deepEqual([...kernel.decisionStates], [
     "proposed",

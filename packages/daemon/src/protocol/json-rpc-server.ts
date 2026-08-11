@@ -1,21 +1,16 @@
 // @slice-activation PLT-Daemon W2 protocol core exported for W3 transport adapters.
 import {
-  isTaskHolderError,
-  runtimeEventActorFromTaskHolderPrincipal,
-  taskHolderPrincipalFromActor,
   type CommandFailureReceipt,
   type CommandReceipt,
   type DocSyncSubmitRequestV1,
   type DocSyncSubmitResultV1,
-  type LocalControllerService,
-  type TaskHolderService
+  type LocalControllerService
 } from "../../../application/src/index.ts";
 import type { RuntimeEventAppendInput } from "../../../application/src/runtime-event-ledger-service.ts";
 import type { TerminalSessionService } from "../../../gui/src/terminal/session-registry.ts";
 import { commandClassForJsonRpcRequest, currentDaemonProtocolVersion, jsonRpcMethodContracts, type JsonRpcMethodContract } from "./method-registry.ts";
 import { failureReceipt, serviceResultReceipt, successReceipt } from "./receipt-envelope.ts";
 import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse, type JsonValue } from "./json-rpc-types.ts";
-import { readTaskHolderExecutor, readTaskHolderExecutorForEvent } from "./task-holder-payload.ts";
 import { commandRootMismatch, validateForcedCommandRoot } from "./forced-command-root.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { authorizeActorForMethod } from "../identity/authorization.ts";
@@ -54,7 +49,6 @@ export interface DaemonRepoServiceContext {
 export interface DaemonServiceHost {
   readonly LocalControllerService: LocalControllerService;
   readonly TerminalSessionService: TerminalSessionService;
-  readonly TaskHolderService?: TaskHolderService;
   readonly DaemonStatusService?: {
     readonly getStatus: (context?: DaemonRepoServiceContext) => JsonObject | Promise<JsonObject>;
   };
@@ -72,8 +66,6 @@ export interface JsonRpcServerOptions {
   readonly services: DaemonServiceHost;
   readonly resolveRepoServices?: (repo: DaemonRepoNamespace) => DaemonServiceHost | undefined;
   readonly resolveRepoAvailability?: (repo: DaemonRepoNamespace) => DaemonRepoAvailabilityFailure | undefined;
-  /** Workspace policy resolver supplied by the CLI composition root. */
-  readonly leaseEnforcementEnabled?: (repo: DaemonRepoNamespace) => boolean;
   readonly authContext?: DaemonAuthenticationContext;
   readonly identityProvider?: IdentityProvider;
   readonly peopleRoster?: PeopleRoster;
@@ -274,9 +266,6 @@ async function callServiceMethod(
     }
     return services.CliCommandService.runCommand(payload, { actor, repo });
   }
-  if (contract.method === "repo.task.claim" || contract.method === "repo.task.holder" || contract.method === "repo.task.release") {
-    return callTaskHolderMethod(contract, payload, services, actor);
-  }
   if (contract.method === "repo.doc.sync.submit") {
     if (!services.DocSyncService) {
       return failureReceipt(contract.method, "doc_sync_service_unavailable", "Doc sync submit service is not configured.");
@@ -286,89 +275,12 @@ async function callServiceMethod(
       ? successReceipt(contract.method, `completed ${contract.method}`, result as unknown as JsonObject)
       : failureReceipt(contract.method, result.code, result.reason, { data: result as unknown as JsonObject });
   }
-  const taskLeaseFailure = await validateTaskLeaseForServiceWrite(contract, payload, services, actor, repo, options);
-  if (taskLeaseFailure) return taskLeaseFailure;
   const result = contract.service === "TerminalSessionService"
     ? await invokeServiceMethod(services.TerminalSessionService, String(contract.serviceMethod), payload)
     : await invokeServiceMethod(services.LocalControllerService, String(contract.serviceMethod), payload);
   return isJsonObject(result)
     ? serviceResultReceipt(contract.method, result)
     : successReceipt(contract.method, `completed ${contract.method}`, { value: toJsonValue(result) });
-}
-
-async function callTaskHolderMethod(
-  contract: JsonRpcMethodContract,
-  payload: JsonObject | undefined,
-  services: DaemonServiceHost,
-  actor: AuthenticatedActor | undefined
-): Promise<ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt>> {
-  if (!services.TaskHolderService) {
-    return failureReceipt(contract.method, "task_holder_service_unavailable", "Task holder service is not configured.");
-  }
-  const taskId = typeof payload?.taskId === "string" ? payload.taskId : undefined;
-  if (!taskId) return failureReceipt(contract.method, "task_id_required", "Task holder methods require payload.taskId.");
-  try {
-    if (contract.method === "repo.task.holder") {
-      return successReceipt(contract.method, "read task holder", toJsonValue(await services.TaskHolderService.holder({ taskId })) as JsonObject);
-    }
-    if (!actor) return failureReceipt(contract.method, "actor_required", "Task holder writes require a per-request authenticated actor.");
-    const executor = readTaskHolderExecutor(payload);
-    const principal = taskHolderPrincipalFromActor(actor, { executor });
-    if (contract.method === "repo.task.claim") {
-      const ttlMs = typeof payload?.ttlMs === "number" ? payload.ttlMs : undefined;
-      return successReceipt(contract.method, "claimed task", toJsonValue(await services.TaskHolderService.claim({ taskId, principal, ttlMs })) as JsonObject);
-    }
-    return successReceipt(contract.method, "released task holder", toJsonValue(await services.TaskHolderService.release({ taskId, principal })) as JsonObject);
-  } catch (error) {
-    if (isTaskHolderError(error)) {
-      return failureReceipt(contract.method, error.code, error.message, taskHolderErrorDetails(error));
-    }
-    return failureReceipt(contract.method, "task_holder_failed", error instanceof Error ? error.message : String(error));
-  }
-}
-
-function taskHolderErrorDetails(error: {
-  readonly code: string;
-  readonly taskId: string;
-  readonly holder?: unknown;
-  readonly principal?: unknown;
-  readonly leaseExpiresAt?: string | null;
-  readonly orphan?: boolean;
-}): JsonObject {
-  return {
-    taskId: error.taskId,
-    code: error.code,
-    ...(error.holder ? { holder: toJsonValue(error.holder) } : {}),
-    ...(error.principal ? { principal: toJsonValue(error.principal) } : {}),
-    leaseExpiresAt: error.leaseExpiresAt ?? null,
-    ...(typeof error.orphan === "boolean" ? { orphan: error.orphan } : {})
-  };
-}
-
-async function validateTaskLeaseForServiceWrite(
-  contract: JsonRpcMethodContract,
-  payload: JsonObject | undefined,
-  services: DaemonServiceHost,
-  actor: AuthenticatedActor | undefined,
-  repo: DaemonRepoNamespace | undefined,
-  options: JsonRpcServerOptions
-): Promise<ReturnType<typeof failureReceipt> | undefined> {
-  if (!repo || !options.leaseEnforcementEnabled?.(repo) || contract.leaseRequired !== true) return undefined;
-  const taskId = typeof payload?.taskId === "string" ? payload.taskId : undefined;
-  if (!taskId) return failureReceipt(contract.method, "task_id_required", "Task lease enforcement requires payload.taskId.");
-  if (!services.TaskHolderService) {
-    return failureReceipt(contract.method, "task_holder_service_unavailable", "Task holder service is not configured.");
-  }
-  if (!actor) return failureReceipt(contract.method, "actor_required", "Task lease enforcement requires a per-request authenticated actor.");
-  try {
-    await services.TaskHolderService.assertActiveLease({ taskId, principal: taskHolderPrincipalFromActor(actor) });
-    return undefined;
-  } catch (error) {
-    if (isTaskHolderError(error)) {
-      return failureReceipt(contract.method, error.code, error.message, taskHolderErrorDetails(error));
-    }
-    return failureReceipt(contract.method, "task_holder_failed", error instanceof Error ? error.message : String(error));
-  }
 }
 
 function resolveServicesForRepo(
@@ -479,10 +391,7 @@ async function appendCommandEvent(
   if (!options.appendRuntimeEvent) return;
   const command = commandEventDetails(params);
   const session = runtimeSession(params, options.daemonId, command.taskId);
-  const executor = readTaskHolderExecutorForEvent(isJsonObject(params.payload) ? params.payload : undefined);
-  const eventActor = actor
-    ? runtimeEventActorFromTaskHolderPrincipal(taskHolderPrincipalFromActor(actor, { executor }))
-    : undefined;
+  const eventActor = actor ? runtimeEventActor(actor) : undefined;
   await options.appendRuntimeEvent({
     kind: "result",
     ...(eventActor ? { actor: eventActor } : {}),
@@ -502,13 +411,27 @@ async function appendCommandEvent(
 
 function actorAxes(
   session: ReturnType<typeof runtimeSession>,
-  actor: ReturnType<typeof runtimeEventActorFromTaskHolderPrincipal> | undefined
+  actor: ReturnType<typeof runtimeEventActor> | undefined
 ): RuntimeEventAppendInput["actorAxes"] {
   const principal = actor?.principal ?? null;
   return {
     principal,
     executor: { runtime: session.runtime, sessionId: session.sessionId },
     responsibleHuman: principal
+  };
+}
+
+function runtimeEventActor(actor: AuthenticatedActor) {
+  return {
+    principal: {
+      personId: actor.personId,
+      displayName: actor.displayName,
+      ...(actor.primaryEmail ? { primaryEmail: actor.primaryEmail } : {}),
+      providerId: actor.providerId,
+      credential: actor.resolvedCredential
+    },
+    executor: null,
+    responsibleHuman: `person:${actor.personId}`
   };
 }
 

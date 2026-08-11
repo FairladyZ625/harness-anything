@@ -1,35 +1,20 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { Effect } from "effect";
 import { makeLocalControllerService } from "../src/index.ts";
 import { makeMarkdownArtifactStore } from "../../kernel/src/index.ts";
 
-test("local controller service reads projection and writes through injected task writer", async () => {
+test("local controller service reads projections and authored documents", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-app-"));
   try {
     writeTaskIndex(rootDir, "task-1", "Task One", "planned");
     writeTaskIndex(rootDir, "task-archived", "Archived Task", "done", "harness", "archived");
-    const writes: string[] = [];
     const service = makeLocalControllerService({
       rootDir,
-      artifactStore: makeMarkdownArtifactStore({ rootDir }),
-      taskWriter: {
-        setStatus: (payload) => Effect.sync(() => {
-          writes.push(`status:${payload.taskId}:${payload.status}`);
-          patchTaskStatus(rootDir, payload.taskId, payload.status);
-          return { taskId: payload.taskId, status: payload.status };
-        }),
-        appendProgress: (payload) => Effect.sync(() => {
-          writes.push(`progress:${payload.taskId}:${payload.text}`);
-          const progressPath = path.join(rootDir, "harness/tasks", payload.taskId, "progress.md");
-          writeFileSync(progressPath, `${payload.text}\n`, "utf8");
-          return { taskId: payload.taskId, path: "progress.md" };
-        })
-      }
+      artifactStore: makeMarkdownArtifactStore({ rootDir })
     });
 
     const list = service.getTasks();
@@ -76,32 +61,12 @@ test("local controller service reads projection and writes through injected task
       body: document.body
     });
 
-    assert.deepEqual(await service.setTaskStatus({ taskId: "task-1", status: "active" }), { ok: true });
-    assert.deepEqual(writes, ["status:task-1:active"]);
-    assert.deepEqual(await service.setTaskStatus({ taskId: "task-1", status: "done" }), {
-      ok: false,
-      error: {
-        code: "terminal_status_requires_task_complete",
-        hint: "Use task-complete after review, CI, and closeout gates pass."
-      }
-    });
-    assert.deepEqual(await service.setTaskStatus({ taskId: "task-1", status: "cancelled" }), {
-      ok: false,
-      error: {
-        code: "terminal_status_requires_task_complete",
-        hint: "Terminal cancellation requires an audited recovery path."
-      }
-    });
-    assert.match(readFileSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md"), "utf8"), /status: active/);
-    assert.deepEqual(await service.appendTaskProgress({ taskId: "task-1", text: "GUI update" }), { ok: true });
-    assert.deepEqual(writes, ["status:task-1:active", "progress:task-1:GUI update"]);
-    assert.match(readFileSync(path.join(rootDir, "harness/tasks/task-1/progress.md"), "utf8"), /GUI update/);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
-test("local controller service honors explicit authored root for reads and writes", async () => {
+test("local controller service honors explicit authored root for reads", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-app-"));
   const layoutOverrides = { authoredRoot: ".custom-harness" };
   try {
@@ -109,15 +74,7 @@ test("local controller service honors explicit authored root for reads and write
     const service = makeLocalControllerService({
       rootDir,
       layoutOverrides,
-      artifactStore: makeMarkdownArtifactStore({ rootDir, layoutOverrides }),
-      taskWriter: {
-        setStatus: (payload) => Effect.sync(() => ({ taskId: payload.taskId, status: payload.status })),
-        appendProgress: (payload) => Effect.sync(() => {
-          const progressPath = path.join(rootDir, layoutOverrides.authoredRoot, "tasks", payload.taskId, "progress.md");
-          writeFileSync(progressPath, `${payload.text}\n`, "utf8");
-          return { taskId: payload.taskId, path: "progress.md" };
-        })
-      }
+      artifactStore: makeMarkdownArtifactStore({ rootDir, layoutOverrides })
     });
 
     const list = service.getTasks();
@@ -126,8 +83,6 @@ test("local controller service honors explicit authored root for reads and write
     const document = await service.getTaskDocument({ taskId: "task-1", path: "INDEX.md" });
     assert.equal(document.ok, true);
     assert.match(document.body ?? "", /Custom Task/);
-    assert.deepEqual(await service.appendTaskProgress({ taskId: "task-1", text: "custom progress" }), { ok: true });
-    assert.match(readFileSync(path.join(rootDir, ".custom-harness/tasks/task-1/progress.md"), "utf8"), /custom progress/);
     assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md")), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -156,12 +111,6 @@ function writeTaskIndex(rootDir: string, taskId: string, title: string, status: 
     "---",
     ""
   ].join("\n"), "utf8");
-}
-
-function patchTaskStatus(rootDir: string, taskId: string, status: string): void {
-  const indexPath = path.join(rootDir, "harness/tasks", taskId, "INDEX.md");
-  const index = readFileSync(indexPath, "utf8");
-  writeFileSync(indexPath, index.replace(/^  status: .+$/m, `  status: ${status}`), "utf8");
 }
 
 function writeTaskFacts(rootDir: string, taskId: string): void {

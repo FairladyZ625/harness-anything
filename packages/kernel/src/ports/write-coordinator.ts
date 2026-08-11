@@ -1,20 +1,12 @@
 import { Context, Effect } from "effect";
-import type { DomainStatus, EntityId, WriteError } from "../domain/index.js";
+import type { EntityId, WriteError } from "../domain/index.js";
 import type { CurrentSessionRuntime } from "./current-session-probe.js";
 
 export type TaskWriteOpKind =
-  | "package_create"
-  | "transition_local"
-  | "progress_append"
   | "doc_stage"
   | "task_tree_stage"
   | "doc_write"
-  | "code_doc_reconcile"
-  | "package_archive"
-  | "package_tombstone"
-  | "package_reopen"
-  | "package_supersede"
-  | "package_delete_hard";
+  | "code_doc_reconcile";
 
 export type DecisionWriteOpKind =
   | "decision_propose"
@@ -41,7 +33,9 @@ export type MachineArtifactWriteOpKind =
   | "machine_artifact_write"
   | "machine_artifact_append_jsonl";
 
-export type WriteOpKind = TaskWriteOpKind | DecisionWriteOpKind | FactWriteOpKind | RelationWriteOpKind | ModuleWriteOpKind | MachineArtifactWriteOpKind;
+export type RuntimeWriteOpKind = "lease_cas";
+
+export type WriteOpKind = TaskWriteOpKind | DecisionWriteOpKind | FactWriteOpKind | RelationWriteOpKind | ModuleWriteOpKind | MachineArtifactWriteOpKind | RuntimeWriteOpKind;
 
 export type FlushReason = "debounce" | "count" | "explicit" | "shutdown" | "recovery";
 
@@ -57,11 +51,6 @@ export interface WriteOp {
   readonly kind: WriteOpKind;
   readonly payload?: unknown;
   readonly provenance?: ProvenancePayload;
-}
-
-export interface LocalTransitionWriteOp extends WriteOp {
-  readonly kind: "transition_local";
-  readonly to: DomainStatus;
 }
 
 export interface WriteAck {

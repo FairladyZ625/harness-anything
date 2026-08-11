@@ -1,4 +1,4 @@
-import { taskWriteApiRoutePolicies, type LocalControllerService } from "../../../application/src/index.ts";
+import type { LocalControllerService } from "../../../application/src/index.ts";
 import type { TerminalSessionService } from "../terminal/session-registry.ts";
 
 export type ApiRouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "WS";
@@ -40,7 +40,6 @@ export interface EmptyGuiPayload {
 
 export const apiSchemaContracts = [
   { id: "gui.empty/v1", owner: "gui", typeName: "EmptyGuiPayload" },
-  { id: "application.append-task-progress-payload/v1", owner: "application", typeName: "AppendTaskProgressPayload" },
   { id: "application.decision-detail-result/v1", owner: "application", typeName: "DecisionDetailResult" },
   { id: "application.decision-id-payload/v1", owner: "application", typeName: "DecisionIdPayload" },
   { id: "application.decision-list-result/v1", owner: "application", typeName: "DecisionListResult" },
@@ -48,11 +47,9 @@ export const apiSchemaContracts = [
   { id: "application.execution-id-payload/v1", owner: "application", typeName: "ExecutionIdPayload" },
   { id: "application.fact-list-result/v1", owner: "application", typeName: "TaskFactListResult" },
   { id: "application.local-controller-error/v1", owner: "application", typeName: "LocalControllerError" },
-  { id: "application.local-controller-result/v1", owner: "application", typeName: "LocalControllerResult" },
   { id: "application.relation-graph-result/v1", owner: "application", typeName: "RelationGraphReadResult" },
   { id: "application.review-detail-result/v1", owner: "application", typeName: "ReviewDetailResult" },
   { id: "application.review-id-payload/v1", owner: "application", typeName: "ReviewIdPayload" },
-  { id: "application.set-task-status-payload/v1", owner: "application", typeName: "SetTaskStatusPayload" },
   { id: "application.task-detail-result/v1", owner: "application", typeName: "TaskDetailResult" },
   { id: "application.task-document-payload/v1", owner: "application", typeName: "TaskDocumentPayload" },
   { id: "application.task-document-result/v1", owner: "application", typeName: "TaskDocumentResult" },
@@ -105,7 +102,6 @@ export const apiRouteContracts = [
     auth: "local-session-token",
     guiBridgeMethod: "getTaskDocument"
   },
-  ...taskWriteApiRoutePolicies,
   {
     id: "governance.rebuild",
     method: "POST",

@@ -1,3 +1,4 @@
+// @write-boundary-exemption rebuildable-projection
 import { mkdirSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
 import { SqlClient } from "@effect/sql";
@@ -207,26 +208,6 @@ export function queryTaskChildrenRows(projectionPath: string, parentTaskId: stri
   return runSqlite(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const records = yield* sql.unsafe<TaskRecord>("SELECT * FROM task_projection WHERE parent_task_id = ? ORDER BY task_id", [parentTaskId]);
-    return records.map((record) => recordToTaskRow(record));
-  }));
-}
-
-export function queryTaskSubtreeRows(projectionPath: string, rootTaskId: string): ReadonlyArray<TaskProjectionRow> {
-  return runSqlite(projectionPath, Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const records = yield* sql.unsafe<TaskRecord>(`
-      WITH RECURSIVE subtree(task_id) AS (
-        SELECT task_id FROM task_projection WHERE task_id = ?
-        UNION
-        SELECT child.task_id
-        FROM task_projection child
-        JOIN subtree parent ON child.parent_task_id = parent.task_id
-      )
-      SELECT task_projection.*
-      FROM task_projection
-      JOIN subtree ON task_projection.task_id = subtree.task_id
-      ORDER BY task_projection.task_id
-    `, [rootTaskId]);
     return records.map((record) => recordToTaskRow(record));
   }));
 }

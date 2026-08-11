@@ -80,9 +80,9 @@ function emptyLocalController(): LocalControllerService {
     getDecisions: () => ({ ok: true, decisions: [], warnings: [] }),
     getDecisionDetail: () => ({ ok: false, error: { code: "decision_not_found", hint: "missing" } }),
     getTaskFacts: async (payload) => ({ ok: true, taskId: payload.taskId, path: "harness/tasks/task/facts.md", facts: [] }),
-    setTaskStatus: async () => ({ ok: true }),
-    reviewTask: async () => ({ ok: true }),
-    appendTaskProgress: async () => ({ ok: true }),
+    getTaskExecutions: (payload) => ({ ok: true, taskId: payload.taskId, executions: [] }),
+    getExecutionDetail: () => ({ ok: false, error: { code: "execution_not_found", hint: "missing" } }),
+    getReviewDetail: () => ({ ok: false, error: { code: "review_not_found", hint: "missing" } }),
     rebuildGovernance: () => ({ ok: true, tasks: [], warnings: [] }),
     archiveTask: () => ({ ok: true }),
     openShell: () => ({ ok: true, policy: { displayOnly: true, outputCreatesTaskState: false } })

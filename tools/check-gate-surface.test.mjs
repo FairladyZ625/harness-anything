@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,29 @@ import test from "node:test";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const checkerPath = path.join(repoRoot, "tools/check-gate-surface.mjs");
+
+test("rewrite CI scopes baseline lifecycle retirement to rebuild PRs", () => {
+  const workflow = readFileSync(path.join(repoRoot, ".github/workflows/rewrite-ci.yml"), "utf8");
+  const integrationBlock = workflow.slice(workflow.indexOf("  integration-shard:"), workflow.indexOf("  boundaries:"));
+  assert.match(integrationBlock, /!startsWith\(github\.base_ref, 'rebuild\/'\)/u);
+
+  const rebuildBoundaryCommand = workflow.split(/\r?\n/u)
+    .find((line) => line.includes("--workflow-job boundaries") && line.includes("check-cli-structure"));
+  assert.ok(rebuildBoundaryCommand, "rebuild boundary command must explicitly retire replaced baseline checks");
+  for (const gateId of [
+    "check-import-boundaries",
+    "check-write-road-registry",
+    "check-duplicate-definitions",
+    "check-integration-test-shards",
+    "check-mergify-queue-contexts",
+    "check-github-required-contexts",
+    "check-legacy-intake-readiness"
+  ]) assert.match(rebuildBoundaryCommand, new RegExp(`(?:^|,)${gateId}(?:,|$)`, "u"));
+
+  for (const job of ["pr-body-lint", "typecheck", "fast-contract", "boundaries", "package-policy", "supply-chain", "gui-build", "node26-compatibility"]) {
+    assert.match(workflow, new RegExp(`^  ${job}:`, "mu"), `${job} must remain a general PR lane`);
+  }
+});
 
 test("gate surface check accepts a consistent minimal manifest", () => {
   const root = makeFixtureRoot();

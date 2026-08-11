@@ -4,4 +4,6 @@ export { readContentAddressedBlob, readContentAddressedTextBlob, writeContentAdd
 export { makeMarkdownArtifactStore } from "../store/markdown-artifact-store.ts";
 export { makeJournaledWriteCoordinator } from "../store/write-journal-coordinator.ts";
 export { makeLocalLockRegistry } from "../store/local-lock-registry.ts";
-export { makeLocalVersionControlSystem } from "../store/local-version-control-system.ts";
+export { makeTaskLeaseStore } from "../local/task-lease-store.ts";
+export { makeTaskProjection } from "../projection/task-projection.ts";
+export { makeTaskEventStore, TaskEventStoreError } from "../store/task-event-store.ts";

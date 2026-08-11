@@ -1,58 +1,49 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import {
-  decodeEntityPathDeclaration,
-  resolveEntityDocumentPath,
-  type DeclaredEntityDocumentWritePayload
-} from "../entity/declaration.ts";
+import { decodeEntityPathDeclaration, resolveEntityDocumentPath, type DeclaredEntityDocumentWritePayload } from "../entity/declaration.ts";
 import type { DocumentWrite } from "../ports/artifact-store-writer.ts";
 import type { WriteOp } from "../ports/write-coordinator.ts";
-import {
-  type HarnessLayoutInput,
-  resolveHarnessLayout,
-  taskPackagePath
-} from "../layout/index.ts";
+import { type HarnessLayoutInput, resolveHarnessLayout, taskPackagePath } from "../layout/index.ts";
 import { decisionDocumentTargetPath, decisionWriteKinds, writeDecisionDocument } from "./write-journal-decision-documents.ts";
 import { taskIdForWriteOp } from "./write-journal-entity.ts";
 import { appendJsonLineDurably, writeFileDurably } from "./write-journal-durable.ts";
 import { rejectTaskWrite, rejectWrite } from "./write-journal-rejection.ts";
 import { resolveContentAddressedBlobPath } from "./content-addressed-blob-store.ts";
+import { appendTaskEventAtPublicationBoundary } from "./task-event-store.ts";
 import { assertReservedCodeDocWrite } from "./write-journal-code-doc-policy.ts";
+import { applyLeaseCasWrite, taskLeaseDatabasePath, validateLeaseCasWrite } from "./task-lease-cas.ts";
 import { writeDocument } from "./markdown-artifact-store.ts";
 import {
   applyDocumentAppendRecord,
-  applyProgressAppendDelta,
-  applyProgressAppendSnapshot,
-  assertHardDeleteAllowed,
   decisionPayloadTaskWrites,
   documentAppendRecordWrite,
   documentStageWrite,
   documentTargetPath,
-  isBatchDocumentWritePayload,
   isDocumentAppendRecordPayload,
   isModuleRegistryWritePayload,
-  isProgressAppendDeltaPayload,
-  isProgressAppendSnapshotPayload,
   machineArtifactJsonlAppend,
   machineArtifactWriteDescriptor,
   moduleScaffoldWrites,
-  progressAppendDeltaWrite,
-  progressAppendSnapshotWrite,
-  readHardDeletePayload,
   resolveMachineArtifactPath,
   resolveMachineArtifactWrite,
   toDocumentWrite,
   documentWriteKinds
 } from "./write-journal-operations-internal.ts";
-
 export interface WriteTransactionPlan {
   readonly touchedPaths: (rootInput: HarnessLayoutInput) => ReadonlyArray<string>;
   readonly documentWrites: () => ReadonlyArray<DocumentWrite>;
   readonly apply: (rootInput: HarnessLayoutInput, op: WriteOp) => DocumentWrite | null;
   readonly validate: (rootInput: HarnessLayoutInput) => void;
 }
-
 export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
+  if (op.kind === "lease_cas") {
+    return {
+      touchedPaths: (rootInput) => [taskLeaseDatabasePath(rootInput)],
+      documentWrites: () => [],
+      apply: (rootInput) => { applyLeaseCasWrite(rootInput, op); return null; },
+      validate: () => { validateLeaseCasWrite(op); }
+    };
+  }
   if (op.kind === "doc_write" && hasDeclaredEntityDocument(op.payload)) {
     const companionWrites = declaredEntityCompanionWrites(op.payload);
     return {
@@ -149,86 +140,12 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
       documentWrites: () => [],
       apply: (rootInput) => {
         const artifact = machineArtifactJsonlAppend(rootInput, op);
-        appendJsonLineDurably(artifact.targetPath, artifact.value);
+        if (artifact.boundary === "task-event-stream") appendTaskEventAtPublicationBoundary(artifact.targetPath, artifact.value);
+        else appendJsonLineDurably(artifact.targetPath, artifact.value);
         return null;
       },
       validate: (rootInput) => {
         machineArtifactJsonlAppend(rootInput, op);
-      }
-    };
-  }
-
-  if ((op.kind === "package_create" || op.kind === "package_supersede") && isBatchDocumentWritePayload(op.payload)) {
-    const payload = op.payload;
-    return {
-      touchedPaths: (rootInput) => payload.writes.map((write) => documentTargetPath(rootInput, write)),
-      documentWrites: () => payload.writes,
-      apply: (rootInput) => {
-        writeDocumentsAtomically(rootInput, payload.writes);
-        return null;
-      },
-      validate: () => {
-        if (!isBatchDocumentWritePayload(payload)) {
-          rejectWrite(`${op.kind} op requires writes payload: ${op.opId}`, op.entityId);
-        }
-      }
-    };
-  }
-
-  if (op.kind === "package_delete_hard") {
-    const taskId = taskIdForWriteOp(op);
-    return {
-      touchedPaths: (rootInput) => [taskPackagePath(rootInput, taskId)],
-      documentWrites: () => [],
-      apply: (rootInput) => {
-        assertHardDeleteAllowed(rootInput, taskId, { allowMissing: true });
-        rmSync(taskPackagePath(rootInput, taskId), { recursive: true, force: true });
-        return null;
-      },
-      validate: (rootInput) => {
-        readHardDeletePayload(op);
-        assertHardDeleteAllowed(rootInput, taskId);
-      }
-    };
-  }
-
-  if (op.kind === "progress_append") {
-    if (isProgressAppendDeltaPayload(op.payload)) {
-      const payload = op.payload;
-      const write = progressAppendDeltaWrite(op, payload);
-      return {
-        touchedPaths: (rootInput) => [documentTargetPath(rootInput, write)],
-        documentWrites: () => [write],
-        apply: (rootInput) => applyProgressAppendDelta(rootInput, op, payload),
-        validate: () => {
-          if (!isProgressAppendDeltaPayload(payload)) {
-            rejectWrite(`${op.kind} op requires path and append payload: ${op.opId}`, op.entityId);
-          }
-        }
-      };
-    }
-    if (isProgressAppendSnapshotPayload(op.payload)) {
-      const payload = op.payload;
-      const write = progressAppendSnapshotWrite(op, payload);
-      return {
-        touchedPaths: (rootInput) => [documentTargetPath(rootInput, write)],
-        documentWrites: () => [write],
-        apply: (rootInput) => applyProgressAppendSnapshot(rootInput, op, payload),
-        validate: () => {
-          if (!isProgressAppendSnapshotPayload(payload)) {
-            rejectWrite(`${op.kind} op requires path and body payload: ${op.opId}`, op.entityId);
-          }
-        }
-      };
-    }
-    return {
-      touchedPaths: () => [],
-      documentWrites: () => [],
-      apply: () => {
-        rejectWrite(`${op.kind} op requires path and append or body payload: ${op.opId}`, op.entityId);
-      },
-      validate: () => {
-        rejectWrite(`${op.kind} op requires path and append or body payload: ${op.opId}`, op.entityId);
       }
     };
   }
@@ -318,9 +235,12 @@ function declaredEntityDocument(
       body: document.body, ...(document.blobRef ? { blobPath: resolveContentAddressedBlobPath(rootInput, document.blobRef) } : {})
     };
   } catch (error) {
+    consumeKnownError(error);
     rejectWrite(error instanceof Error ? error.message : String(error), op.entityId);
   }
 }
+
+function consumeKnownError(error: unknown): void { void error; }
 
 function isStringRecord(value: unknown): value is Readonly<Record<string, string>> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value) &&
@@ -344,63 +264,6 @@ export function writeOpTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp):
 export function documentWritesForWriteOp(op: WriteOp): ReadonlyArray<DocumentWrite> {
   return writeTransactionPlan(op).documentWrites();
 }
-
-export { isProgressAppendDeltaPayload, readHardDeletePayload } from "./write-journal-operations-internal.ts";
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -475,6 +338,7 @@ function writeModuleScaffold(rootInput: HarnessLayoutInput, op: WriteOp): void {
 }
 export type MachineArtifactBoundary =
   | "runtime-event-ledger"
+  | "task-event-stream"
   | "provenance-session"
   | "docmap-derived"
   | "distill-candidate"

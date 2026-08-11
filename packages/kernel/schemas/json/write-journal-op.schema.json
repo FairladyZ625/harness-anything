@@ -9,7 +9,7 @@
     "schema": { "const": "write-journal/v1" },
     "opId": { "type": "string" },
     "entityId": { "type": "string" },
-    "kind": { "enum": ["package_create", "transition_local", "progress_append", "task_tree_stage", "doc_write", "package_archive", "package_tombstone", "package_reopen", "package_supersede", "package_delete_hard", "decision_propose", "decision_accept", "decision_reject", "decision_defer", "decision_supersede", "decision_amend", "decision_retire"] },
+    "kind": { "enum": ["task_tree_stage", "doc_write", "decision_propose", "decision_accept", "decision_reject", "decision_defer", "decision_supersede", "decision_amend", "decision_relate", "decision_retire", "relation_retire", "relation_replace", "fact_invalidate"] },
     "actor": { "type": "object" },
     "at": { "type": "string" }
   }

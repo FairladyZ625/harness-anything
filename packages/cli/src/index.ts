@@ -9,7 +9,7 @@ import {
 import { cliError, CliErrorCode } from "./cli/error-codes.ts";
 import { parseArgs } from "./cli/parse-args.ts";
 import { readOption, stripGlobalOptions } from "./cli/parse-options.ts";
-import { makeCoordinatedExecutionAuthoredStore, makeExecutionReservationReconciler, makeLocalControllerService, makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService, makeTaskHolderService } from "../../application/src/index.ts";
+import { makeLocalControllerService, makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "../../application/src/index.ts";
 import { appendParseFailureRuntimeEvent } from "./cli/parse-failure-runtime-event.ts";
 import {
   createJsonRpcProtocolServer,
@@ -35,8 +35,7 @@ import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, runCommandThr
 import { createCliCommandService } from "./daemon/command-service.ts";
 import { makeDocSyncService } from "./daemon/doc-sync-service.ts";
 import { makeDaemonQueuedWriteCoordinator } from "./daemon/queued-write-coordinator.ts";
-import { leaseEnforcementEnabled } from "./commands/settings.ts";
-import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore } from "../../kernel/src/index.ts";
+import { makeMarkdownArtifactStore } from "../../kernel/src/index.ts";
 
 const runRegisteredCommand = runRegisteredCommandWithCliComposition;
 const daemonRuntimeProvider = selectCliAdapterProvider("daemon.runtime");
@@ -102,15 +101,6 @@ async function runDaemonServe(
   const defaultRepoId = defaultDaemonServeRepoId(serveRepos, rootDir, requestedRepoId);
   const runtime = createMultiRepoDaemonRuntime({
     materializerPollMs: 5_000,
-    reservationReconciler: async (rootInput) => makeExecutionReservationReconciler({
-      rootInput,
-      taskHolderService: makeTaskHolderService({ rootInput }),
-      authoredStore: makeCoordinatedExecutionAuthoredStore({
-        rootInput,
-        coordinator: makeJournaledWriteCoordinator({ rootDir: rootInput.rootDir, layoutOverrides: rootInput.layoutOverrides }),
-        artifactStore: makeMarkdownArtifactStore(rootInput)
-      })
-    })(),
     repos: serveRepos.map((repo) => ({
       repoId: repo.repoId,
       rootDir: repo.canonicalRoot,
@@ -278,7 +268,6 @@ function createDaemonServiceHost(
       services: defaultRepoBinding().services,
       resolveRepoServices: (repo) => repoBindings.get(repo.repoId)?.services,
       resolveRepoAvailability: (repo) => repoAvailabilityFailure(runtime, repo),
-      leaseEnforcementEnabled: (repo) => leaseEnforcementEnabled({ rootDir: repo.canonicalRoot, layoutOverrides }),
       authContext,
       ...(defaultRepoBinding().identity.identityProvider ? { identityProvider: defaultRepoBinding().identity.identityProvider } : {}),
       ...(defaultRepoBinding().identity.peopleRoster ? { peopleRoster: defaultRepoBinding().identity.peopleRoster } : {}),
@@ -374,18 +363,11 @@ function createRepoServiceBinding(
 } {
   const rootDir = repo.canonicalRoot;
   const identity = loadDaemonIdentity(rootDir, layoutOverrides);
-  const taskWriter = selectCliAdapterProvider("task.lifecycle").createLifecycleEngine({
-    rootDir,
-    layoutOverrides,
-    coordinator: makeDaemonQueuedWriteCoordinator(runtime, "local-controller")
-  });
   const localController = makeLocalControllerService({
     rootDir,
     layoutOverrides,
-    taskWriter,
     artifactStore: makeMarkdownArtifactStore({ rootDir, layoutOverrides })
   });
-  const taskHolderService = makeTaskHolderService({ rootInput: { rootDir, layoutOverrides } });
   const cliCommandService = createCliCommandService(runtime, commandOptions);
   const docSyncService = makeDocSyncService({ rootDir, layoutOverrides });
   const appendRuntimeEvent = makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({
@@ -398,7 +380,6 @@ function createRepoServiceBinding(
     services: {
       LocalControllerService: localController,
       TerminalSessionService: makeUnavailableTerminalSessionService(),
-      TaskHolderService: taskHolderService,
       DaemonStatusService: {
         getStatus: (context) => {
           const targetRepo = context?.repo ?? repo;
@@ -488,7 +469,6 @@ function renderHelp(result: Record<string, unknown>): string {
 function renderCommandHelp(command: CommandRegistryEntry): string {
   const aliases = command.aliases.length > 0 ? ["", "Aliases:", ...command.aliases.map((alias) => `  ${alias}`)] : [];
   const options = command.options.length > 0 ? ["", "Options:", ...command.options.map((option) => `  ${option.flag.padEnd(18)} ${option.description}`)] : [];
-  const additional = command.kind === "new-task" ? taskCreatePresetHelp() : [];
   const examples = command.examples.length > 0 ? ["", "Example:", ...command.examples.map((example) => `  ${example}`)] : [];
   return [
     `Usage: ${command.primary}`,
@@ -496,29 +476,8 @@ function renderCommandHelp(command: CommandRegistryEntry): string {
     command.summary,
     ...aliases,
     ...options,
-    ...additional,
     ...examples
   ].join("\n");
-}
-
-function taskCreatePresetHelp(): ReadonlyArray<string> {
-  return [
-    "",
-    "Recommended presets:",
-    "  standard-task           General implementation or maintenance task; the default starting point.",
-    "  long-running-task       Extended task that needs explicit long-running coordination.",
-    "  module                  Module-scoped task with registered module metadata.",
-    "  subtask-expansion       Plan and fan out a parent task into concrete subtasks.",
-    "  github-issue-repair     Pull a GitHub issue and prepare an evidence-backed repair plan.",
-    "  legacy-migration        Legacy task intake or migration planning.",
-    "  create-milestone        Create a milestone root task, then scaffold and check the milestone map files.",
-    "  decision-conformance    Work that must prove alignment with recorded decisions.",
-    "  milestone-closeout      Milestone wrap-up checks and evidence collection.",
-    "",
-    "Start here:",
-    "  ha task create --title \"...\" --vertical software/coding --preset <id>",
-    "  ha task create --title \"<name> milestone root\" --vertical software/coding --preset create-milestone --long-running"
-  ];
 }
 
 function helpReport(report: unknown): { readonly kind: "global" | "command" | "prefix"; readonly prefix?: unknown } | undefined {

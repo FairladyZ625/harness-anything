@@ -9,7 +9,6 @@ import type {
   RuntimeEventKind,
   RuntimeEventRuntime,
   RuntimeEventResultStatus,
-  ReviewVerdict,
   TaskWorkKind
 } from "../../../kernel/src/index.ts";
 import type { DecisionAmendField, DecisionAmendOperation } from "../../../kernel/src/index.ts";
@@ -95,6 +94,58 @@ export interface DecisionAmendPatchInput {
   readonly value: string;
 }
 
+export type TaskLifecycleCliAction =
+  | { readonly kind: "task-create"; readonly verb: "create"; readonly commandType: "CreateReplayTask"; readonly taskId?: string; readonly title: string; readonly completionGateIds: readonly string[] }
+  | { readonly kind: "task-start"; readonly verb: "start"; readonly commandType: "StartExecution"; readonly taskId: string; readonly executionId: string }
+  | {
+      readonly kind: "task-submit";
+      readonly verb: "submit";
+      readonly commandType: "SubmitExecution";
+      readonly taskId: string;
+      readonly executionId: string;
+      readonly leaseCredential: string;
+      readonly claim: string;
+      readonly deliverables: readonly string[];
+      readonly evidenceRefs: readonly string[];
+      readonly verification: readonly string[];
+      readonly knownGaps: readonly string[];
+      readonly residualRisks: readonly string[];
+      readonly commitSha: string;
+    }
+  | {
+      readonly kind: "task-review-execution";
+      readonly verb: "review-execution";
+      readonly commandType: "RecordReview";
+      readonly taskId: string;
+      readonly executionId: string;
+      readonly antiEntropyToken: string;
+      readonly antiEntropyReport: string;
+    }
+  | {
+      readonly kind: "task-review-execution";
+      readonly verb: "review-execution";
+      readonly commandType: "RecordReview";
+      readonly taskId: string;
+      readonly executionId: string;
+      readonly reviewId: string;
+      readonly reviewKind: "acceptance";
+      readonly verdict: "approved" | "dismissed";
+      readonly reason: string;
+      readonly evidenceChecked: readonly string[];
+      readonly commitSha: string;
+      readonly iteration: 0 | 1;
+      readonly archiveWarningsAcknowledged: boolean;
+    }
+  | {
+      readonly kind: "task-complete";
+      readonly verb: "complete";
+      readonly commandType: "CompleteTask";
+      readonly taskId: string;
+      readonly executionId: string;
+      readonly gateReceipts: readonly { readonly gateId: string; readonly receiptRef: string }[];
+    }
+  | { readonly kind: "task-show"; readonly verb: "show"; readonly taskId: string };
+
 export interface CliResult {
   readonly ok: boolean;
   readonly command: string;
@@ -139,6 +190,14 @@ export interface CliResult {
     readonly path: string;
     readonly marker: string;
   };
+  readonly outcome?: "applied" | "pending" | "indeterminate" | "rejected";
+  readonly opId?: string;
+  readonly revision?: number;
+  readonly origin?: string;
+  readonly nextAction?: string;
+  readonly evidence?: string;
+  readonly leaseCredential?: string;
+  readonly leaseExpiry?: string;
   readonly summary?: {
     readonly taskCount: number;
     readonly byPackageDisposition: Record<string, number>;
@@ -188,23 +247,7 @@ export interface ParsedCommand {
   readonly json: boolean;
   readonly action:
     | { readonly kind: "init"; readonly addNpmScripts: boolean; readonly projectName?: string }
-    | { readonly kind: "new-task"; readonly taskId?: string; readonly title: string; readonly parent?: string; readonly slug: string; readonly allowManualId: boolean; readonly fromLegacyId?: string; readonly titleProvided: boolean; readonly slugProvided: boolean; readonly workKind?: TaskWorkKind; readonly riskTier?: PriorityTier; readonly urgency?: PriorityTier; readonly vertical?: string; readonly preset?: string; readonly profile?: string; readonly moduleKey?: string; readonly registerModule?: { readonly key: string; readonly title: string; readonly prefix?: string; readonly scope: string }; readonly longRunning: boolean; readonly dryRun: boolean; readonly locale?: "zh-CN" | "en-US" }
-    | { readonly kind: "task-claim"; readonly taskId: string; readonly ttlMs?: number; readonly execution?: boolean }
-    | { readonly kind: "task-holder"; readonly taskId: string }
-    | { readonly kind: "task-release"; readonly taskId: string }
-    | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus; readonly force: boolean; readonly reason?: string; readonly executionSubmission?: { readonly executionId?: string; readonly leaseToken: string; readonly completionClaim: string; readonly deliverables: ReadonlyArray<string>; readonly verificationNotes: ReadonlyArray<string>; readonly knownGaps: ReadonlyArray<string>; readonly residualRisks: ReadonlyArray<string>; readonly outputs: ReadonlyArray<string> } }
-    | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string; readonly evidence?: ReadonlyArray<EvidenceAppendInput> }
-    | { readonly kind: "task-amend"; readonly taskId: string; readonly patches: ReadonlyArray<{ readonly field: string; readonly value: string }> }
-    | { readonly kind: "task-archive"; readonly taskId?: string; readonly ids?: ReadonlyArray<string>; readonly filter?: string; readonly before?: string; readonly reason: string; readonly archivedBy?: string; readonly archiveField?: string }
-    | { readonly kind: "task-supersede"; readonly oldTaskId: string; readonly title?: string; readonly slug?: string; readonly reason: string; readonly byTaskId?: string; readonly confirm?: string; readonly allowOpenFindings: boolean; readonly deletedBy?: string }
-    | { readonly kind: "task-delete"; readonly taskId: string; readonly mode: "soft" | "hard"; readonly reason: string; readonly confirm?: string; readonly deletedBy?: string }
-    | { readonly kind: "task-reopen"; readonly taskId: string; readonly reason: string }
-    | { readonly kind: "task-code-doc-reconcile"; readonly taskId: string; readonly sha: string; readonly paths: ReadonlyArray<string>; readonly prRef?: string; readonly force: boolean }
-    | { readonly kind: "task-review"; readonly taskId: string; readonly reviewerId: string }
-    | { readonly kind: "task-review-execution"; readonly taskId: string; readonly executionId: string; readonly verdict: ReviewVerdict; readonly findings: string; readonly evidenceChecked: ReadonlyArray<string>; readonly rationale: string; readonly archiveWarningsAcknowledged: boolean }
-    | { readonly kind: "task-complete"; readonly taskId: string; readonly ciGate?: "passed" | "failed"; readonly reviewerId: string }
-    | { readonly kind: "task-show"; readonly taskId: string }
-    | { readonly kind: "task-tree"; readonly taskId: string }
+    | TaskLifecycleCliAction
     | { readonly kind: "task-trace"; readonly taskId: string }
     | { readonly kind: "session-show"; readonly sessionId: string }
     | { readonly kind: "session-trace"; readonly sessionId: string }
@@ -212,7 +255,6 @@ export interface ParsedCommand {
     | { readonly kind: "execution-list"; readonly taskId: string }
     | { readonly kind: "review-show"; readonly reviewId: string }
     | { readonly kind: "audit-provenance"; readonly taskId: string }
-    | { readonly kind: "task-relate"; readonly sourceTaskId: string; readonly relationType: "depends-on"; readonly targetTaskId: string; readonly rationale: string; readonly dryRun: boolean }
     | { readonly kind: "relation-list"; readonly filters: RelationListFilters }
     | { readonly kind: "decision-list"; readonly search?: string; readonly legacyId?: string; readonly legacyRange?: string; readonly state?: string; readonly moduleKey?: string; readonly productLine?: string; readonly compact?: boolean }
     | { readonly kind: "decision-show"; readonly selector: string }

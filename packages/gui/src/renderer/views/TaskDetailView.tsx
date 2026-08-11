@@ -3,12 +3,9 @@ import {
   ArrowLeft,
   CaretRight,
   FileText,
-  Lock,
   CheckCircle,
   XCircle,
-  ArrowSquareOut,
   Spinner,
-  SealCheck,
 } from "@phosphor-icons/react";
 import type {
   DecisionRow,
@@ -17,9 +14,8 @@ import type {
   TaskRow,
   RelationEdge,
 } from "../model/types";
-import { isExternal, isTerminal, DOC_GROUPS } from "../model/types";
+import { isExternal, DOC_GROUPS } from "../model/types";
 import {
-  STATUS_META,
   StatusBadge,
   CloseoutBadge,
   DecisionSourceBadge,
@@ -28,16 +24,12 @@ import {
 } from "../components/badges";
 import { SAMPLE_MARKDOWN, DOC_CONTENT } from "../model/mock";
 import { DocReader } from "../components/DocReader";
-import {
-  LOCAL_TRANSITIONS,
-  OUT_LABEL,
-  IN_LABEL,
-} from "../components/taskDetail/constants";
+import { OUT_LABEL, IN_LABEL } from "../components/taskDetail/constants";
 import { AxisRow, DocPresence } from "../components/taskDetail/widgets";
 import { PhaseSteps } from "../components/taskDetail/PhaseSteps";
 import { RelationRow } from "../components/taskDetail/RelationRow";
 import { normalizeTaskId, spawningDecisionOf } from "../model/triadic";
-import { useTaskDetailQuery, useTaskDocumentQuery, useReviewTaskMutation } from "../task-data";
+import { useTaskDetailQuery, useTaskDocumentQuery } from "../task-data";
 
 /**
  * 推断文档分组:preset 模板里常见文件名 → DocGroup。投影只给 path,组别靠命名启发式。
@@ -134,7 +126,6 @@ function DocBody({
 export function TaskDetailView({
   task,
   onBack,
-  onUpdate,
   tasks,
   relations,
   decisions = [],
@@ -146,7 +137,6 @@ export function TaskDetailView({
 }: {
   task: TaskRow;
   onBack: () => void;
-  onUpdate: (id: string, patch: Partial<TaskRow>) => void;
   tasks?: TaskRow[];
   relations?: RelationEdge[];
   decisions?: DecisionRow[];
@@ -161,8 +151,6 @@ export function TaskDetailView({
   const external = isExternal(task);
   // 真实文档清单:从 useTaskDetailQuery 拉,投影本身不内嵌 docs(task-adapter 给空数组)。
   const detailQuery = useTaskDetailQuery(task.taskId);
-  // 收口机判:review gate 只机判 PASS/FAIL,人工不可覆写(dec_mrca9hx4 CH1)。
-  const reviewMutation = useReviewTaskMutation();
   const realDocs = useMemo<DocEntry[]>(() => {
     const docs = detailQuery.data?.documents ?? [];
     if (docs.length === 0) return task.docs;
@@ -446,72 +434,6 @@ export function TaskDetailView({
               )}
             </div>
 
-            <hr className="border-border" />
-
-            {/* 操作区：external 灰显 + 引导 */}
-            <div className="flex flex-col gap-2">
-              <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
-                状态转换
-              </span>
-              {external ? (
-                <div className="rounded-md border border-border bg-surface-raised p-2.5">
-                  <div className="flex items-center gap-1.5 text-[12px] text-text-muted">
-                    <Lock weight="bold" />
-                    由 {task.engine} 管理
-                  </div>
-                  <button className="mt-2 inline-flex items-center gap-1 text-[12px] text-accent hover:underline">
-                    在 {task.engine} 中打开
-                    <ArrowSquareOut weight="bold" />
-                  </button>
-                </div>
-              ) : isTerminal(task.coordinationStatus) ? (
-                <p className="text-[12px] text-text-faint">终态不可再转出</p>
-              ) : (
-                <div className="grid grid-cols-2 gap-1.5">
-                  {LOCAL_TRANSITIONS.filter(
-                    (s) => s !== task.coordinationStatus,
-                  ).map((s) => (
-                    <button
-                      key={s}
-                      onClick={() =>
-                        onUpdate(task.taskId, {
-                          coordinationStatus: s,
-                          rawStatus: s,
-                        })
-                      }
-                      className="rounded-md border border-border px-2 py-1 text-left font-mono text-[11px] text-text-muted hover:border-border-strong hover:text-text active:scale-[0.98]"
-                      style={{ color: STATUS_META[s].color }}
-                    >
-                      → {s}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {task.closeoutReadiness === "ready" && (
-              <div className="flex flex-col gap-2">
-                <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
-                  收口机判
-                </span>
-                <button
-                  onClick={() => reviewMutation.mutate({ taskId: task.taskId })}
-                  disabled={reviewMutation.isPending}
-                  className="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-accent px-2 py-1.5 text-[12px] font-semibold text-accent-fg active:scale-[0.98] disabled:opacity-50"
-                >
-                  <SealCheck weight="bold" />
-                  {reviewMutation.isPending ? "机判中…" : "请求 review gate 机判"}
-                </button>
-                {reviewMutation.isError && (
-                  <p className="text-[11px] leading-relaxed text-danger">
-                    机判请求失败:{(reviewMutation.error as Error)?.message ?? "本地台账桥未返回"}
-                  </p>
-                )}
-                <p className="text-[11px] leading-relaxed text-text-faint">
-                  判定由 review gate 机判(PASS/FAIL 由 findings 与 gates 决定),人工不可覆写。结果经投影重读回写 closeoutReadiness。
-                </p>
-              </div>
-            )}
           </div>
         </aside>
       </div>

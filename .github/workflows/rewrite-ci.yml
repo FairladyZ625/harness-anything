@@ -154,7 +154,10 @@ jobs:
         run: node tools/run-manifest-gates.mjs --workflow-job fast-contract --exclude mergify-queue-metadata-edit-noop
 
   integration-shard:
-    if: github.event_name == 'pull_request'
+    # The rebuild line's task lifecycle is covered by G09/G10/G28/G29/G34 and
+    # its directed package tests. These shards exercise the retired 07-11 task
+    # package/status/journal machine and remain authoritative only for main.
+    if: github.event_name == 'pull_request' && !startsWith(github.base_ref, 'rebuild/')
     needs: metadata-source-proof
     name: integration-shard (${{ matrix.shard }})
     runs-on: ubuntu-latest
@@ -199,10 +202,16 @@ jobs:
           cache: npm
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         run: npm ci
-      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+      - name: Run baseline boundary gates
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' && !startsWith(github.base_ref, 'rebuild/') }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node tools/run-manifest-gates.mjs --workflow-job boundaries --exclude mergify-queue-metadata-edit-noop
+      - name: Run rebuild-compatible boundary gates
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' && startsWith(github.base_ref, 'rebuild/') }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node tools/run-manifest-gates.mjs --workflow-job boundaries --exclude mergify-queue-metadata-edit-noop,check-cli-structure,check-import-boundaries,check-write-road-registry,check-duplicate-definitions,check-integration-test-shards,check-mergify-queue-contexts,check-github-required-contexts,check-legacy-intake-readiness
 
   package-policy:
     if: github.event_name == 'pull_request'

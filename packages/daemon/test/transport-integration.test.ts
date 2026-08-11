@@ -242,7 +242,7 @@ test("named pipe transport completes JSON-RPC on Windows", { skip: process.platf
   socket.end();
 });
 
-test("SSH exec bridge carries read and write JSON-RPC frames over stdio streams", async () => {
+test("SSH exec bridge carries JSON-RPC read frames over stdio streams", async () => {
   const clientToServer = new PassThrough();
   const serverToClient = new PassThrough();
   const calls: string[] = [];
@@ -259,10 +259,7 @@ test("SSH exec bridge carries read and write JSON-RPC frames over stdio streams"
   assert.equal(resultReceipt(await client.read()).ok, true);
   client.send(repoRequest("ssh-read", "repo.tasks.list"));
   assert.equal(resultReceipt(await client.read()).command, "repo.tasks.list");
-  client.send(repoRequest("ssh-write", "repo.tasks.progress.append"));
-  assert.equal(resultReceipt(await client.read()).command, "repo.tasks.progress.append");
-
-  assert.deepEqual(calls, ["getTasks", "appendTaskProgress"]);
+  assert.deepEqual(calls, ["getTasks"]);
   assert.equal(connection.authContext.sshExecUser?.username, "alice");
   await connection.close();
 });
@@ -392,12 +389,9 @@ function localController(calls: string[]): LocalControllerService {
     getDecisions: () => ({ ok: true, decisions: [], warnings: [] }),
     getDecisionDetail: () => ({ ok: false, error: { code: "decision_not_found", hint: "missing" } }),
     getTaskFacts: async (payload) => ({ ok: true, taskId: payload.taskId, path: "harness/tasks/task/facts.md", facts: [] }),
-    setTaskStatus: async () => ({ ok: true }),
-    reviewTask: async () => ({ ok: true }),
-    appendTaskProgress: async () => {
-      calls.push("appendTaskProgress");
-      return { ok: true, appended: true };
-    },
+    getTaskExecutions: (payload) => ({ ok: true, taskId: payload.taskId, executions: [] }),
+    getExecutionDetail: () => ({ ok: false, error: { code: "execution_not_found", hint: "missing" } }),
+    getReviewDetail: () => ({ ok: false, error: { code: "review_not_found", hint: "missing" } }),
     rebuildGovernance: () => ({ ok: true, tasks: [], warnings: [] }),
     archiveTask: () => ({ ok: true }),
     openShell: () => ({ ok: true, policy: { displayOnly: true, outputCreatesTaskState: false } })

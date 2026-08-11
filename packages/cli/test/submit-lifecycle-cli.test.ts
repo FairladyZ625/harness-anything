@@ -1,66 +1,147 @@
-// harness-test-tier: integration
+// harness-test-tier: fast
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import test from "node:test";
-import { runRawJson, runRawJsonMaybeFail, withTempRoot } from "./helpers/daemon-cli.ts";
-import { unwrapCommandReceipt } from "./helpers/receipt.ts";
-import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
+import {
+  parseTaskLifecycleArgs,
+  runTaskLifecycleFacade,
+  type TaskLifecycleServiceInput
+} from "../src/commands/core/task-lifecycle.ts";
 
-const noRuntimeSession = {
-  HARNESS_ACTOR: "agent:test",
-  CLAUDE_SESSION_ID: "",
-  CLAUDE_CODE_SESSION_ID: "",
-  CODEX_THREAD_ID: "",
-  CODEX_SESSION_ID: "",
-  ZCODE_SESSION_ID: "",
-  ANTIGRAVITY_SESSION_ID: ""
-} as const;
+const actor = {
+  principal: { personId: "person_zeyu" },
+  executor: { kind: "agent" as const, id: "executor-session" }
+};
 
-test("in_review without an Execution preserves the legacy transition receipt", () => {
-  withTempRoot((rootDir) => {
-    runRawJson(rootDir, ["init"], noRuntimeSession);
-    const created = unwrapCommandReceipt(runRawJson(rootDir, ["new-task", "--title", "Legacy Review"], noRuntimeSession));
-    const taskId = String(created.taskId);
-    writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
-    runRawJson(rootDir, ["task", "transition", taskId, "active"], noRuntimeSession);
+const argv = [
+  "task", "submit", "task_TYPED",
+  "--execution-id", "exe_TYPED",
+  "--lease-credential", "lease-secret",
+  "--claim", "The typed submission is ready for review.",
+  "--deliverable", "typed task-submit",
+  "--evidence-ref", "artifact:integration",
+  "--verification", "npm run check:local",
+  "--known-gap", "W2 integration remains",
+  "--residual-risk", "integration tier remains",
+  "--commit-sha", "a".repeat(40)
+] as const;
 
-    const receipt = runRawJson(rootDir, ["task", "transition", taskId, "in_review"], noRuntimeSession);
-    assert.equal(receipt.ok, true);
-    assert.equal(receipt.command, "task transition");
-    assert.deepEqual((receipt.details as { readonly data: unknown }).data, { taskId, status: "in_review" });
-    assert.equal(JSON.stringify(receipt).includes("executionId"), false);
-    assert.equal(JSON.stringify(receipt).includes("execution-submit-result"), false);
+test("submit sends a field-equal SubmitExecution intent to the host", async () => {
+  const parsed = parseTaskLifecycleArgs(argv);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  let received: TaskLifecycleServiceInput | undefined;
+  const receipt = await runTaskLifecycleFacade(parsed.value, {
+    actor,
+    service: {
+      execute: async (input) => {
+        received = input;
+        return { outcome: "applied", opId: input.command.opId, revision: 3 };
+      },
+      show: async () => ({ outcome: "applied", evidence: "unused" })
+    }
+  });
+
+  assert.equal(receipt.outcome, "applied");
+  assert.deepEqual(received, {
+    command: {
+      type: "SubmitExecution",
+      taskId: "task_TYPED",
+      actor,
+      opId: received?.command.opId,
+      executionId: "exe_TYPED",
+      submission: {
+        claim: "The typed submission is ready for review.",
+        deliverables: ["typed task-submit"],
+        evidenceRefs: ["artifact:integration"],
+        verification: ["npm run check:local"],
+        knownGaps: ["W2 integration remains"],
+        residualRisks: ["integration tier remains"],
+        commitSha: "a".repeat(40)
+      }
+    },
+    credential: "lease-secret"
   });
 });
 
-test("Execution claim without a detectable runtime session records a pending primary and submit fails actionably", () => {
-  withTempRoot((rootDir) => {
-    runRawJson(rootDir, ["init"], noRuntimeSession);
-    const created = unwrapCommandReceipt(runRawJson(rootDir, ["new-task", "--title", "Pending Primary"], noRuntimeSession));
-    const taskId = String(created.taskId);
-    const claimed = unwrapCommandReceipt(runRawJson(rootDir, ["task", "claim", taskId, "--execution"], noRuntimeSession));
-    const executionId = String(claimed.executionId);
-    const execution = JSON.parse(readFileSync(path.join(
-      rootDir,
-      `harness/tasks/${taskId}-pending-primary/executions/${executionId}.md`
-    ), "utf8"));
-    assert.deepEqual(execution.session_bindings, [{
-      binding_id: "primary:pending",
-      session_ref: null,
-      role: "primary",
-      archive_status: "pending",
-      attached_at: execution.session_bindings[0].attached_at,
-      session: null,
-      capture_range: execution.session_bindings[0].capture_range
-    }]);
+test("submit rejects unknown or missing fields before calling the host", () => {
+  const unknown = parseTaskLifecycleArgs([...argv, "--silently-dropped", "true"]);
+  const missing = parseTaskLifecycleArgs(argv.filter((value, index) => value !== "--commit-sha" && argv[index - 1] !== "--commit-sha"));
+  assert.equal(unknown.ok, false);
+  assert.equal(missing.ok, false);
+  if (!unknown.ok) {
+    assert.equal(unknown.error.code, "unknown_field");
+    assert.match(unknown.error.nextAction, /--help/u);
+  }
+  if (!missing.ok) {
+    assert.equal(missing.error.code, "missing_field");
+    assert.match(missing.error.nextAction, /--commit-sha/u);
+  }
+});
 
-    const submitted = runRawJsonMaybeFail(rootDir, [
-      "task", "transition", taskId, "in_review",
-      "--lease-token", String(claimed.report.leaseToken),
-      "--summary", "ready"
-    ], noRuntimeSession);
-    assert.equal(submitted.status, 1);
-    assert.match(String((submitted.receipt.error as { readonly hint?: string }).hint), /primary Session binding is required.*ExecutionSagaService\.attachSession/u);
+test("same submit intent produces the same load-bearing opId", async () => {
+  const opIds: string[] = [];
+  const service = {
+    execute: async (input: TaskLifecycleServiceInput) => {
+      opIds.push(input.command.opId);
+      return { outcome: "applied" as const, opId: input.command.opId, revision: 3 };
+    },
+    show: async () => ({ outcome: "applied" as const, evidence: "unused" })
+  };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const parsed = parseTaskLifecycleArgs(argv);
+    assert.equal(parsed.ok, true);
+    if (parsed.ok) await runTaskLifecycleFacade(parsed.value, { actor, service });
+  }
+  assert.match(opIds[0] ?? "", /^task-submit-[a-f0-9]{64}$/u);
+  assert.equal(opIds[1], opIds[0]);
+});
+
+test("rejected submit preserves G04 recovery guidance", async () => {
+  const parsed = parseTaskLifecycleArgs(argv);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  const receipt = await runTaskLifecycleFacade(parsed.value, {
+    actor,
+    service: {
+      execute: async (input) => ({
+        outcome: "rejected",
+        opId: input.command.opId,
+        code: "invalid_transition",
+        origin: "task-lifecycle-service",
+        nextAction: "Run `ha task show task_TYPED` and start an Execution before submitting."
+      }),
+      show: async () => ({ outcome: "applied", evidence: "unused" })
+    }
   });
+  assert.deepEqual(receipt, {
+    outcome: "rejected",
+    opId: receipt.opId,
+    code: "invalid_transition",
+    origin: "task-lifecycle-service",
+    nextAction: "Run `ha task show task_TYPED` and start an Execution before submitting."
+  });
+});
+
+test("indeterminate submit preserves all G04 recovery fields", async () => {
+  const parsed = parseTaskLifecycleArgs(argv);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  const receipt = await runTaskLifecycleFacade(parsed.value, {
+    actor,
+    service: {
+      execute: async (input) => ({
+        outcome: "indeterminate",
+        opId: input.command.opId,
+        code: "publication_unknown",
+        origin: "task-event-store",
+        nextAction: "Run `ha task show task_TYPED`; retry only if the projection does not contain this opId."
+      }),
+      show: async () => ({ outcome: "applied", evidence: "unused" })
+    }
+  });
+  assert.equal(receipt.outcome, "indeterminate");
+  assert.deepEqual(
+    [receipt.code, receipt.origin, receipt.nextAction?.includes("task show"), receipt.opId?.startsWith("task-submit-")],
+    ["publication_unknown", "task-event-store", true, true]
+  );
 });

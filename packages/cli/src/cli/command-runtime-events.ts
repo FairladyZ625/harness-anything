@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-import { runtimeEventActorFromTaskHolderPrincipal } from "../../../application/src/index.ts";
 import { runtimeEventPolicyForAction } from "./command-event-policy.ts";
 import { cliError, CliErrorCode } from "./error-codes.ts";
 import { actionTaskId } from "./parse-args.ts";
@@ -59,7 +58,7 @@ function eventEntityRefs(
   const taskId = result.taskId ?? actionTaskId(action);
   const decisionId = result.decisionId ?? ("decisionId" in action ? action.decisionId : undefined);
   const factRef = result.factRef;
-  const executionId = result.executionId ?? ("executionSubmission" in action ? action.executionSubmission?.executionId : undefined);
+  const executionId = result.executionId;
   return {
     ...(taskId ? { taskId } : {}),
     ...(executionId ? { executionId } : {}),
@@ -70,7 +69,12 @@ function eventEntityRefs(
 
 function commandRuntimeEventActor(context: CommandRunnerContext) {
   try {
-    return runtimeEventActorFromTaskHolderPrincipal(context.taskHolderPrincipal());
+    const actor = context.actorAxes();
+    return {
+      principal: actor.principal,
+      executor: actor.executor,
+      responsibleHuman: `person:${actor.principal.personId}`
+    };
   } catch (error) {
     process.stderr.write(`warning: runtime event actor attribution unavailable: ${runtimeEventActorResolutionMessage(error)}\n`);
     return undefined;

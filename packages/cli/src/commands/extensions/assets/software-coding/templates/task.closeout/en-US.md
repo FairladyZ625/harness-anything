@@ -1,6 +1,6 @@
 # Closeout
 
-Replace this file's placeholder content before closeout; `ha task complete` rejects placeholder text. Closeout summarizes the verdict, but it does not replace the fact ledger or decision/relation records.
+Replace this file's placeholder content before closeout. `ha task complete` requires the reviewed Execution and an exact receipt set for its declared completion gates; closeout prose does not replace those proofs, the fact ledger, or decision/relation records.
 
 ## Summary
 

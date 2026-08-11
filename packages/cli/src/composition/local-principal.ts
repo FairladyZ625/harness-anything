@@ -1,15 +1,9 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import {
-  taskHolderActor,
-  taskHolderExecutorFromJournalActor,
-  type TaskHolderPersonPrincipal,
-  type TaskHolderPrincipal
-} from "../../../application/src/index.ts";
 import { loadPeopleRoster } from "../../../daemon/src/index.ts";
-import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../kernel/src/index.ts";
+import { resolveHarnessLayout, type ActorAxes, type HarnessLayoutInput } from "../../../kernel/src/index.ts";
 import { readProjectHarnessSettings } from "../commands/settings.ts";
-import type { CliActorAttribution } from "./actor-attribution.ts";
+import type { CliActorAttribution, CliPersonPrincipal } from "./actor-attribution.ts";
 
 export class CliPrincipalResolutionError extends Error {
   constructor(message: string) {
@@ -18,15 +12,18 @@ export class CliPrincipalResolutionError extends Error {
   }
 }
 
-export function resolveCliTaskHolderPrincipal(
+export function resolveCliActorAxes(
   rootInput: HarnessLayoutInput,
   attribution: CliActorAttribution
-): TaskHolderPrincipal {
+): ActorAxes {
   const principal = attribution.authenticatedPrincipal ?? readConfiguredLocalPrincipal(rootInput);
-  return taskHolderActor(principal, taskHolderExecutorFromJournalActor(attribution.actor));
+  return {
+    principal: { personId: principal.personId },
+    executor: attribution.actor.kind === "agent" ? { kind: "agent", id: attribution.actor.id } : null
+  };
 }
 
-export function readConfiguredLocalPrincipal(rootInput: HarnessLayoutInput): TaskHolderPersonPrincipal {
+export function readConfiguredLocalPrincipal(rootInput: HarnessLayoutInput): CliPersonPrincipal {
   const settings = readProjectHarnessSettings(rootInput, "identity");
   if (!settings.ok) {
     throw new CliPrincipalResolutionError(settings.result.error?.hint ?? "Unable to read settings.identity from harness/harness.yaml.");

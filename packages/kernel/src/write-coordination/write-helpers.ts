@@ -50,7 +50,7 @@ export function writeCoordinatedPayload(
   options: { readonly flush?: boolean } = {}
 ): Effect.Effect<void, WriteError> {
   return Effect.gen(function* () {
-    // Default op ids carry random entropy: delta-shaped payloads (e.g. progress_append)
+    // Default op ids carry random entropy: append-shaped payloads
     // are constant for identical text, so timestamp+hash alone would collide within one
     // millisecond and silently dedupe a legitimate second append. Callers that pass an
     // explicit opIdPrefix opt into deterministic ids for intentional idempotency. The

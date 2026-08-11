@@ -3,13 +3,10 @@ import path from "node:path";
 import type { DocumentWrite } from "../ports/artifact-store-writer.ts";
 import type { MachineArtifactBoundary } from "./write-journal-operations.ts";
 import type { WriteOp } from "../ports/write-coordinator.ts";
-import type { EntityId, EntityRelationRecord, FactRecord, TaskId } from "../domain/index.ts";
+import type { EntityId, EntityRelationRecord, FactRecord } from "../domain/index.ts";
 import {
   formatFactFlowRecord,
   formatRelationFlowRecord,
-  isDomainStatus,
-  isPackageDisposition,
-  isTerminalStatus,
   moduleKeyFromEntityId,
   parseFactFlowRecords,
   taskEntityId
@@ -26,67 +23,9 @@ import {
   resolveHarnessLayout,
   taskPackagePath
 } from "../layout/index.ts";
-import { evaluateEntityDisposition } from "../entity/disposition.ts";
-import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import { writeDocument } from "./markdown-artifact-store.ts";
-import { writeFileDurably } from "./write-journal-durable.ts";
-import { rejectTaskWrite, rejectWrite } from "./write-journal-rejection.ts";
+import { rejectWrite } from "./write-journal-rejection.ts";
 import { taskIdForWriteOp } from "./write-journal-entity.ts";
-function readHardDeletePayload(op: WriteOp): { readonly reason: string } {
-  const payload = op.payload;
-  const payloadRecord = typeof payload === "object" && payload !== null ? payload as Record<string, unknown> : null;
-  if (!payloadRecord || typeof payloadRecord.reason !== "string" || payloadRecord.reason.trim().length === 0) {
-    rejectWrite("hard delete requires reason payload", op.entityId);
-  }
-  return { reason: payloadRecord.reason };
-}
-
-function assertHardDeleteAllowed(rootInput: HarnessLayoutInput, taskId: TaskId, options: { readonly allowMissing?: boolean } = {}): void {
-  const packagePath = taskPackagePath(rootInput, taskId);
-  const indexPath = path.join(packagePath, "INDEX.md");
-  if (!existsSync(indexPath)) {
-    if (options.allowMissing) return;
-    rejectTaskWrite(`hard delete forbidden: task package missing ${taskId}`, taskId);
-  }
-
-  const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8"));
-  if (!frontmatter) rejectTaskWrite(`hard delete forbidden: malformed task package ${taskId}`, taskId);
-  const packageDisposition = readScalar(frontmatter, "packageDisposition");
-  if (!isPackageDisposition(packageDisposition)) {
-    rejectTaskWrite(`hard delete forbidden: invalid package disposition ${taskId}`, taskId);
-  }
-  if (packageDisposition === "archived") {
-    rejectTaskWrite(`hard delete forbidden for archived task: ${taskId}`, taskId);
-  }
-  const status = readScalar(frontmatter, "  status");
-  if (!isDomainStatus(status)) rejectTaskWrite(`hard delete forbidden: invalid task status ${taskId}`, taskId);
-  if (isTerminalStatus(status)) {
-    rejectTaskWrite(`hard delete forbidden for terminal task: ${taskId}`, taskId);
-  }
-  const evaluation = evaluateEntityDisposition({
-    rootDir: typeof rootInput === "string" ? path.resolve(rootInput) : rootInput.rootDir,
-    layoutOverrides: typeof rootInput === "string" ? undefined : rootInput.layoutOverrides,
-    entityRef: `task/${taskId}`,
-    action: "hard-delete"
-  });
-  if (!evaluation.allowed) {
-    rejectTaskWrite(evaluation.reason, taskId);
-  }
-}
-
-function isProgressAppendDeltaPayload(payload: unknown): payload is ProgressAppendDeltaPayload {
-  if (!payload || typeof payload !== "object") return false;
-  const candidate = payload as { readonly path?: unknown; readonly append?: unknown };
-  // An ambiguous payload carrying both `append` and `body` falls through to the
-  // legacy snapshot path instead of silently ignoring `body` here.
-  return typeof candidate.path === "string" && typeof candidate.append === "string" && !("body" in candidate);
-}
-
-function isProgressAppendSnapshotPayload(payload: unknown): payload is ProgressAppendSnapshotPayload {
-  if (!payload || typeof payload !== "object") return false;
-  const candidate = payload as { readonly path?: unknown; readonly body?: unknown; readonly packageSlug?: unknown };
-  return typeof candidate.path === "string" && typeof candidate.body === "string" && !("append" in candidate);
-}
 
 function isDocumentAppendRecordPayload(payload: unknown): payload is DocumentAppendRecordPayload {
   if (!payload || typeof payload !== "object") return false;
@@ -103,28 +42,12 @@ function isAppendRecord(value: unknown): value is DocumentAppendRecordPayload["a
     (candidate.kind === "fact-relation/v1" && Boolean(candidate.relation && typeof candidate.relation === "object"));
 }
 
-interface ProgressAppendDeltaPayload {
-  readonly path: string;
-  readonly append: string;
-  readonly packageSlug?: string;
-}
-
-interface ProgressAppendSnapshotPayload {
-  readonly path: string;
-  readonly body: string;
-  readonly packageSlug?: string;
-}
-
 interface DocumentAppendRecordPayload {
   readonly path: string;
   readonly appendRecord:
     | { readonly kind: "fact-record/v1"; readonly record: FactRecord }
     | { readonly kind: "fact-relation/v1"; readonly relation: EntityRelationRecord; readonly requiresFacts?: ReadonlyArray<string> };
   readonly packageSlug?: string;
-}
-
-interface BatchDocumentWritePayload {
-  readonly writes: ReadonlyArray<DocumentWrite>;
 }
 
 interface ModuleRegistryWritePayload {
@@ -149,27 +72,10 @@ interface MachineArtifactAppendJsonlPayload {
 }
 
 const documentWriteKinds = new Set<WriteOp["kind"]>([
-  "package_create",
-  "transition_local",
-  "progress_append",
   "doc_write",
   "code_doc_reconcile",
-  "fact_invalidate",
-  "package_archive",
-  "package_tombstone",
-  "package_reopen",
-  "package_supersede"
+  "fact_invalidate"
 ]);
-
-function progressAppendDeltaWrite(op: WriteOp, payload: ProgressAppendDeltaPayload): DocumentWrite {
-  const taskId = taskIdForWriteOp(op);
-  return {
-    taskId,
-    path: payload.path,
-    body: "",
-    packageSlug: typeof payload.packageSlug === "string" ? payload.packageSlug : undefined
-  };
-}
 
 function documentAppendRecordWrite(op: WriteOp, payload: DocumentAppendRecordPayload): DocumentWrite {
   return {
@@ -180,34 +86,6 @@ function documentAppendRecordWrite(op: WriteOp, payload: DocumentAppendRecordPay
   };
 }
 
-function applyProgressAppendDelta(rootInput: HarnessLayoutInput, op: WriteOp, payload: ProgressAppendDeltaPayload): DocumentWrite {
-  const targetPath = documentTargetPath(rootInput, progressAppendDeltaWrite(op, payload));
-  const existing = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
-  const separator = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
-  const write: DocumentWrite = {
-    taskId: taskIdForWriteOp(op),
-    path: payload.path,
-    body: `${existing}${separator}${payload.append}\n`,
-    packageSlug: typeof payload.packageSlug === "string" ? payload.packageSlug : undefined
-  };
-  writeDocument(rootInput, write);
-  return write;
-}
-
-function progressAppendSnapshotWrite(op: WriteOp, payload: ProgressAppendSnapshotPayload): DocumentWrite {
-  return {
-    taskId: taskIdForWriteOp(op),
-    path: payload.path,
-    body: payload.body,
-    packageSlug: typeof payload.packageSlug === "string" ? payload.packageSlug : undefined
-  };
-}
-
-function applyProgressAppendSnapshot(rootInput: HarnessLayoutInput, op: WriteOp, payload: ProgressAppendSnapshotPayload): DocumentWrite {
-  const write = progressAppendSnapshotWrite(op, payload);
-  writeFileDurably(documentTargetPath(rootInput, write), write.body);
-  return write;
-}
 
 function applyDocumentAppendRecord(rootInput: HarnessLayoutInput, op: WriteOp, payload: DocumentAppendRecordPayload): DocumentWrite {
   const targetPath = documentTargetPath(rootInput, documentAppendRecordWrite(op, payload));
@@ -256,11 +134,6 @@ function appendFactRelationDelta(
 
 function ensureTrailingNewline(value: string): string {
   return value.endsWith("\n") ? value : `${value}\n`;
-}
-
-function isBatchDocumentWritePayload(payload: unknown): payload is BatchDocumentWritePayload {
-  if (!payload || typeof payload !== "object" || !("writes" in payload)) return false;
-  return Array.isArray((payload as { readonly writes?: unknown }).writes);
 }
 
 function isModuleRegistryWritePayload(payload: unknown): payload is ModuleRegistryWritePayload {
@@ -342,6 +215,7 @@ function isMachineArtifactAppendJsonlPayload(payload: unknown): payload is Machi
 
 function isMachineArtifactBoundary(value: unknown): value is MachineArtifactBoundary {
   return value === "runtime-event-ledger" ||
+    value === "task-event-stream" ||
     value === "provenance-session" ||
     value === "docmap-derived" ||
     value === "distill-candidate" ||
@@ -366,6 +240,8 @@ function resolveMachineArtifactPath(
 
   const allowed = boundary === "runtime-event-ledger"
     ? normalized.startsWith(`${generatedRelative}/runtime-events/`) && normalized.endsWith(".jsonl")
+    : boundary === "task-event-stream"
+      ? normalized === `${authoredRelative}/task-events.ndjson`
     : boundary === "provenance-session"
       ? normalized.startsWith(`${authoredRelative}/sessions/`) && normalized.endsWith(".md")
     : boundary === "docmap-derived"
@@ -472,24 +348,15 @@ function normalizeWriteDocumentPath(documentPath: string, entityId?: EntityId): 
 
 export {
   applyDocumentAppendRecord,
-  applyProgressAppendDelta,
-  applyProgressAppendSnapshot,
-  assertHardDeleteAllowed,
   decisionPayloadTaskWrites,
   documentAppendRecordWrite,
   documentStageWrite,
   documentTargetPath,
-  isBatchDocumentWritePayload,
   isDocumentAppendRecordPayload,
   isModuleRegistryWritePayload,
-  isProgressAppendDeltaPayload,
-  isProgressAppendSnapshotPayload,
   machineArtifactJsonlAppend,
   machineArtifactWriteDescriptor,
   moduleScaffoldWrites,
-  progressAppendDeltaWrite,
-  progressAppendSnapshotWrite,
-  readHardDeletePayload,
   resolveMachineArtifactPath,
   resolveMachineArtifactWrite,
   toDocumentWrite,

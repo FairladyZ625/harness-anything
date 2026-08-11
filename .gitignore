@@ -1,6 +1,5 @@
 # Local-only agent entrypoints for developing this source repository.
 # They route agents into .harness-private/ and must not be published.
-/AGENTS.md
 /CLAUDE.md
 /docs/
 
