@@ -1,0 +1,6 @@
+{
+  "schema": "execution/v2",
+  "execution_id": "execution-old",
+  "task_ref": "task/task-old",
+  "state": "submitted"
+}
