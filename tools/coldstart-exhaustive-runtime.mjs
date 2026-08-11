@@ -20,9 +20,10 @@ const protectedDaemonPids = [...new Set([4919, 26328, ...discoverExistingDaemonP
 const repositoryRoot = realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."));
 const cliEntry = path.join(repositoryRoot, "packages/cli/dist/cli/src/index.js");
 
-export function createFixture() {
+export function createFixture(options = {}) {
   assertNode24();
-  if (!existsSync(cliEntry)) throw new Error(`CLI dist entry is missing: ${cliEntry}; run npm run build -w @harness-anything/cli`);
+  const selectedCliEntry = options.cliEntry ?? cliEntry;
+  if (!existsSync(selectedCliEntry)) throw new Error(`CLI entry is missing: ${selectedCliEntry}; run npm run build -w @harness-anything/cli when using the exhaustive runner`);
   const base = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-coldstart-exhaustive-")));
   const root = makePrivateDirectory(path.join(base, "project"));
   const home = makePrivateDirectory(path.join(base, "home"));
@@ -52,6 +53,7 @@ export function createFixture() {
     discoveryHome,
     discoveryDaemonRoot,
     daemonId,
+    cliEntry: selectedCliEntry,
     baseEnv,
     discoveryEnv,
     protectedBefore: daemonFingerprints(),
@@ -63,7 +65,7 @@ export function createFixture() {
 export function runCli(fixture, args, options = {}) {
   const root = options.root ?? fixture.root;
   const env = { ...fixture.baseEnv, ...(options.env ?? {}) };
-  const argv = [cliEntry, "--root", root, "--json", ...args];
+  const argv = [fixture.cliEntry ?? cliEntry, "--root", root, "--json", ...args];
   const startedAt = new Date().toISOString();
   const result = spawnSync(process.execPath, argv, {
     cwd: root,
@@ -89,6 +91,33 @@ export function runCli(fixture, args, options = {}) {
   };
   observeDaemonIdentity(fixture, record);
   return record;
+}
+
+export function settleCliWrite(fixture, record, options = {}) {
+  const receiptId = record.receipt?.settlement?.receiptId;
+  if (typeof receiptId !== "string") return record;
+  const deadline = Date.now() + (options.timeoutMs ?? 20_000);
+  let lastStatus;
+  while (Date.now() < deadline) {
+    lastStatus = runCli(fixture, ["receipt", "status", receiptId]);
+    const data = lastStatus.receipt?.details?.data;
+    if (lastStatus.exitCode === 0 && lastStatus.receiptOk && data?.state === "committed") {
+      if (data.receipt?.settlement?.canonicalVisibility !== "visible") {
+        throw new Error(`Receipt ${receiptId} committed without canonical visibility`);
+      }
+      return {
+        ...record,
+        settlementReadback: {
+          receiptId,
+          state: data.state,
+          canonicalVisibility: data.receipt.settlement.canonicalVisibility
+        }
+      };
+    }
+    if (data?.state === "failed") break;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+  }
+  throw new Error(`Receipt ${receiptId} did not become canonical-visible: ${lastStatus?.stdout ?? "no status receipt"}${lastStatus?.stderr ?? ""}`);
 }
 
 export function discoverCapabilities(fixture) {
@@ -233,9 +262,9 @@ export function renderMarkdownReport(report) {
     "",
     "## Coverage",
     "",
-    "| total | passed | failed | excluded-by-design |",
-    "| ---: | ---: | ---: | ---: |",
-    `| ${report.coverage.total} | ${report.coverage.passed} | ${report.coverage.failed} | ${report.coverage.excludedByDesign} |`,
+    "| total | passed | known issue | failed | excluded-by-design |",
+    "| ---: | ---: | ---: | ---: | ---: |",
+    `| ${report.coverage.total} | ${report.coverage.passed} | ${report.coverage.knownIssue} | ${report.coverage.failed} | ${report.coverage.excludedByDesign} |`,
     "",
     `Repeat signature: \`${report.signature}\``,
     "",
@@ -246,8 +275,12 @@ export function renderMarkdownReport(report) {
   for (const failure of report.discovery.advertisedFailures) {
     lines.push(`- \`${failure.kind}.capabilities\` [${failure.failureClass}]: exit ${failure.exitCode}; ${failure.errorCode ?? "invalid capability receipt"} — ${failure.errorHint ?? "advertised spelling did not return entity capabilities"}`);
   }
-  lines.push("", "## Failed operations", "");
-  const failed = report.results.filter((result) => result.status === "failed");
+  lines.push("", "## Conclusion matrix", "");
+  for (const [name, conclusion] of Object.entries(report.conclusions)) {
+    lines.push(`- \`${name}\`: ${conclusion.count}${conclusion.ids.length > 0 ? ` (${conclusion.ids.join(", ")})` : ""}`);
+  }
+  lines.push("", "## Non-passing operations", "");
+  const failed = report.results.filter((result) => !["passed", "known_issue"].includes(result.conclusion) && result.status !== "excluded-by-design");
   if (failed.length === 0) lines.push("None.", "");
   for (const result of failed) {
     lines.push(
@@ -255,7 +288,8 @@ export function renderMarkdownReport(report) {
       "",
       `- Command: \`${result.commandLine}\``,
       `- Exit: ${String(result.exitCode)}; receipt ok: ${String(result.receiptOk)}`,
-      `- Classification: ${result.failureClass ?? "untriaged"} — ${result.failureSymptom ?? "not triaged"}`,
+      `- Conclusion: ${result.conclusion ?? "unclassified"} — ${result.detail ?? "no detail"}`,
+      `- Known issue: ${result.knownIssue ?? "none"}`,
       `- Error: \`${result.errorCode ?? "none"}\` — ${result.errorHint ?? "no structured hint"}`,
       "",
       "```text",

@@ -70,6 +70,31 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
+  coldstart-exhaustive-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Build packaged CLI
+        run: npm run build --workspace @harness-anything/cli
+      - name: Exercise the complete advertised CLI surface
+        run: |
+          mkdir -p artifacts/coldstart-exhaustive
+          node tools/coldstart-exhaustive-exercise.mjs --report "$GITHUB_WORKSPACE/artifacts/coldstart-exhaustive/report.md"
+      - name: Upload exhaustive report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coldstart-exhaustive-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/coldstart-exhaustive/
+          if-no-files-found: error
+          retention-days: 14
+
   production-authority-perf-matrix:
     runs-on: ubuntu-latest
     env:

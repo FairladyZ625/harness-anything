@@ -116,6 +116,7 @@
         "check-file-complexity",
         "check-cli-structure",
         "check-cli-help-contract",
+        "check-command-surface-parity",
         "check-cli-error-codes",
         "check-error-next-steps",
         "check-error-classification",
@@ -171,6 +172,7 @@
         "check-file-complexity",
         "check-cli-structure",
         "check-cli-help-contract",
+        "check-command-surface-parity",
         "check-cli-error-codes",
         "check-error-next-steps",
         "check-error-classification",
@@ -213,7 +215,7 @@
         "check-stage0-manifest",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 49
+      "harnessLeafGateCount": 50
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -1569,6 +1571,81 @@
         "status": "covered",
         "evidence": [
           "tools/check-cli-help-contract.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "check-command-surface-parity",
+      "command": "npm run harness:check-command-surface-parity",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "decision/dec_01KZNXM97N0HNF2JYJ6ZEF7K46",
+        "packages/cli/src/cli/command-registry.ts",
+        "packages/cli/src/commands/core/capabilities.ts",
+        "packages/cli/src/commands/help.ts",
+        "tools/check-command-surface-parity.mjs"
+      ],
+      "consumerScope": [
+        "bidirectional command registry, capabilities, and packaged command-help parity"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "fast-contract"
+        ],
+        "workflowJobs": [
+          "fast-contract"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Every registry command must be help-addressable and either capability-advertised or explicitly excluded; no parity exception is permitted."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-command-surface-parity.mjs",
+          "tools/check-command-surface-parity.test.mjs",
+          "package.json:scripts.harness:check-command-surface-parity",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-command-surface-parity"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "fast-contract"
+          ],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "fast-contract"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-command-surface-parity.test.mjs"
         ]
       }
     },
