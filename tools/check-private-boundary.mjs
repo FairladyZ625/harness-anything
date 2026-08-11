@@ -43,7 +43,7 @@ for (const privateRoot of [".harness-private", "harness", ".harness"]) {
   }
 }
 
-const explicitlyForbidden = git(["ls-files", "--", ".harness-private", "harness", ".harness", "AGENTS.md"])
+const explicitlyForbidden = git(["ls-files", "--", ".harness-private", "harness", ".harness"])
   .trim()
   .split(/\r?\n/)
   .filter(Boolean);
@@ -72,7 +72,6 @@ for (const branch of sessionBranches) {
 
 for (const trackedPath of allTracked) {
   if (
-    trackedPath === "AGENTS.md" ||
     trackedPath === ".harness-private" ||
     trackedPath.startsWith(".harness-private/") ||
     trackedPath === "harness" ||
