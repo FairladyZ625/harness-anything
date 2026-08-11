@@ -3,7 +3,6 @@ import {
   decodeSemanticMutationEnvelopeV2,
   isCompleteAuthorityCommittedReceiptV2,
   operationIdDiagnosticV2,
-  semanticRequestDigestV2,
   type AuthorityOperationReceipt,
   type AuthorityHostAttribution,
   type AuthorityHostCommand,
@@ -211,51 +210,6 @@ export function durableAuthoritySubmissionFromSettlement(
     }
   );
   return { admission, settlement };
-}
-
-export function gateAuthoritySubmissionForRecovery(
-  service: AuthoritySubmissionService,
-  unavailableReason: () => Promise<string | undefined> | string | undefined
-): AuthoritySubmissionService {
-  return {
-    getOperation: service.getOperation,
-    submit: async (envelope) => {
-      const reason = await unavailableReason();
-      return reason
-        ? {
-          tag: "RETRYABLE_NOT_COMMITTED",
-          workspaceId: envelope.workspaceId,
-          opId: envelope.opId,
-          semanticDigest: envelope.claimedDigest,
-          reason
-        }
-        : service.submit(envelope);
-    },
-    ...(service.submitV2 ? {
-      submitV2: async (attempt) => {
-        const reason = await unavailableReason();
-        if (!reason) return service.submitV2!(attempt);
-        const envelope = decodeSemanticMutationEnvelopeV2(attempt.envelope);
-        return {
-          tag: "RETRYABLE_NOT_COMMITTED",
-          workspaceId: envelope.workspaceId,
-          opId: operationIdDiagnosticV2(envelope.operationId),
-          semanticDigest: Buffer.from(semanticRequestDigestV2(envelope)).toString("hex"),
-          reason
-        };
-      }
-    } : {}),
-    ...(service.resumeV2 ? {
-      resumeV2: async (recovery) => {
-        const reason = await unavailableReason();
-        if (!reason) return service.resumeV2!(recovery);
-        // Unlike a fresh admission, a recovery candidate may already have
-        // canonical side effects. Preserve the outer PROCEEDING instead of
-        // manufacturing a not-committed receipt while recovery is unresolved.
-        throw new Error(reason);
-      }
-    } : {})
-  };
 }
 
 export function makeDaemonAuthorityWriteCoordinator(

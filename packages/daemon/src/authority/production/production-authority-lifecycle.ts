@@ -22,10 +22,7 @@ import {
   daemonGenerationAxes
 } from "../../fence/daemon-generation-fence.ts";
 import type { AuthorityConnectionContext } from "../../protocol/connection-context.ts";
-import {
-  createDaemonAuthorityCommandSubmissionV2,
-  gateAuthoritySubmissionForRecovery
-} from "../authority-command-submission.ts";
+import { createDaemonAuthorityCommandSubmissionV2 } from "../authority-command-submission.ts";
 import {
   createAuthorityRepoLifecycleController,
   type AuthorityRepoComponent,
@@ -50,7 +47,8 @@ import { createAuthorityProductionScanner } from "./production-scanner.ts";
 import {
   recoverPendingProductionEvents,
   recoveryErrorCode,
-  recoveryErrorSummary
+  recoveryErrorSummary,
+  type ProductionRecoveryProgress
 } from "./recovery.ts";
 import {
   entityRegistry,
@@ -72,7 +70,6 @@ import { withProductionRecoveryV2 } from "./authority-attribution-event-v2-produ
 import { createProductionProgressAppendConnectionBinding } from "./production-progress-append-submission.ts";
 import { createProductionAuthoritySemanticCompiler } from "./production-authority-semantic-compiler.ts";
 import { connectionBoundRuntime } from "./connection-bound-runtime.ts";
-import { waitForProductionRecovery } from "./production-recovery-admission.ts";
 import { attestSubmissionService } from "./transport-attested-submission-service.ts";
 import { recoverProductionCommittedReceipt } from "./production-committed-receipt-recovery.ts";
 import type { RetryBudgetSignal } from "../../observability/visible-retry-budget.ts";
@@ -119,7 +116,9 @@ export function createProductionAuthorityLifecycle(input: {
   readonly onServiceStateReplayProgress?: Parameters<
     typeof createAuthorityRepoLifecycleController
   >[0]["onServiceStateReplayProgress"];
+  readonly onRecoveryProgress?: (repoId: string, progress: ProductionRecoveryProgress) => void;
   readonly backgroundRecovery?: true;
+  readonly waitForBackgroundRecoveryStart?: () => Promise<boolean>;
   readonly hostServices: ProductionAuthorityHostServices<ProductionAuthorityIdentity>;
 }): AuthorityRepoLifecycleController {
   const manifest = loadAuthorityProductionManifest(input.manifestPath);
@@ -283,6 +282,11 @@ export function createProductionAuthorityLifecycle(input: {
         eventLog,
         publicationInspector,
         recover: committedEventPublisher.recoverCommittedReceipt,
+        ...(input.onRecoveryProgress ? {
+          onProgress: (progress: ProductionRecoveryProgress) => {
+            input.onRecoveryProgress!(config.repoId, progress);
+          }
+        } : {}),
         ...(recoveryGenerationFence ? { generationFence: recoveryGenerationFence } : {}),
         watermarkPath: `${state.stateDirectory}/recovery-watermark.json`,
         ...(input.daemonLogService ? {
@@ -300,11 +304,15 @@ export function createProductionAuthorityLifecycle(input: {
       });
       recovery.status = "recovering";
       recovery.promise = input.backgroundRecovery
-        ? new Promise<void>((resolve) => {
-          setImmediate(() => {
-            void settleProductionRecovery(recovery, runRecovery).finally(resolve);
-          });
-        })
+        ? (async () => {
+          const shouldStart = await input.waitForBackgroundRecoveryStart?.() ?? true;
+          if (!shouldStart) {
+            recovery.status = "failed";
+            recovery.error = "AUTHORITY_BACKGROUND_RECOVERY_DEFERRED_ON_SHUTDOWN";
+            return;
+          }
+          await settleProductionRecovery(recovery, runRecovery);
+        })()
         : settleProductionRecovery(recovery, runRecovery);
       if (!input.backgroundRecovery) await recovery.promise;
       return {
@@ -443,7 +451,7 @@ function createRepoComponent(
     cutoverControl,
     compoundReceipt,
     recoverCommittedReceipt: (opId) => recoverProductionCommittedReceipt({
-      recovery: material.recovery.promise, operationRegistry: input.operationRegistry,
+      operationRegistry: input.operationRegistry,
       publisher: input.committedEventPublisher, workspaceId: material.config.workspaceId, opId
     }),
     setServing: (value) => {
@@ -453,18 +461,15 @@ function createRepoComponent(
     bindConnection: (context) => {
       if (!serving || stopped) throw new Error("AUTHORITY_REPO_COMPONENT_NOT_SERVING");
       assertConnectionContext(input, material.config, context);
-      const authorityService = gateAuthoritySubmissionForRecovery(
-        gateCutoverAdmission(
-          attestSubmissionService(createConnectionAuthorityService(
-            input,
-            material,
-            context,
-            publicationExecutor,
-            hostServices
-          ), context),
-          cutoverControl
-        ),
-        () => waitForProductionRecovery({ repoId: material.config.repoId, recovery: material.recovery })
+      const authorityService = gateCutoverAdmission(
+        attestSubmissionService(createConnectionAuthorityService(
+          input,
+          material,
+          context,
+          publicationExecutor,
+          hostServices
+        ), context),
+        cutoverControl
       );
       const {
         compiler: progressCompiler,

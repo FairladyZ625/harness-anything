@@ -18,6 +18,13 @@ import {
 import { AuthorityCanonicalPublicationUnanchoredBatchPrefixError } from "./publication-unanchored-batches.ts";
 import { recoverReplicaPublicationGroup } from "./publication-recovery-group.ts";
 
+export interface ProductionRecoveryProgress {
+  readonly workspaceId: string;
+  readonly commitSha: string;
+  readonly scannedCommitCount: number;
+  readonly deadlineAt: number;
+}
+
 interface ProductionRecoveryInput {
   readonly workspaceId: string;
   readonly operationRegistry: AuthorityOperationRegistry;
@@ -27,18 +34,38 @@ interface ProductionRecoveryInput {
   readonly recover: (record: AuthorityStoredOperationRecord) => Promise<AuthorityCommittedReceipt>;
   readonly watermarkPath?: string;
   readonly onDeferred?: (record: AuthorityStoredOperationRecord, error: unknown) => Promise<void>;
+  readonly onProgress?: (progress: ProductionRecoveryProgress) => Promise<void> | void;
+  readonly scanDeadlineMs?: number;
   readonly generationFence?: AuthorityGenerationFence;
 }
 
+const productionRecoveryFlights = new Map<string, Promise<void>>();
+const defaultProductionRecoveryScanDeadlineMs = 25_000;
+
 export async function recoverPendingProductionEvents(input: ProductionRecoveryInput): Promise<void> {
   if (input.watermarkPath && typeof input.publicationInspector.scanFirstParentOperationAnchors === "function") {
-    await recoverIncrementally(input, input.watermarkPath);
+    const flightKey = path.resolve(input.watermarkPath);
+    const active = productionRecoveryFlights.get(flightKey);
+    if (active) {
+      await active;
+      return;
+    }
+    const recovery = recoverIncrementally(input, input.watermarkPath);
+    productionRecoveryFlights.set(flightKey, recovery);
+    try {
+      await recovery;
+    } finally {
+      if (productionRecoveryFlights.get(flightKey) === recovery) {
+        productionRecoveryFlights.delete(flightKey);
+      }
+    }
     return;
   }
   await recoverByOperationLookup(input);
 }
 
 async function recoverIncrementally(input: ProductionRecoveryInput, watermarkPath: string): Promise<void> {
+  const deadlineAt = Date.now() + (input.scanDeadlineMs ?? defaultProductionRecoveryScanDeadlineMs);
   const records = await input.operationRegistry.list(input.workspaceId);
   const pending = records.filter(isRecoverablePendingRecord);
   const interestedOpIds = new Set(pending.map((record) => record.opId));
@@ -69,6 +96,7 @@ async function recoverIncrementally(input: ProductionRecoveryInput, watermarkPat
       scan = await input.publicationInspector.scanFirstParentOperationAnchors({
         ...(exclusiveCommit ? { exclusiveCommit } : {}),
         interestedOpIds,
+        deadlineAt,
         onProgress: async (progress) => {
           progressAnchors.push(...progress.anchors);
           for (const opId of progress.unanchoredOperationIds ?? []) {
@@ -80,6 +108,12 @@ async function recoverIncrementally(input: ProductionRecoveryInput, watermarkPat
             interestedOpIdsDigest,
             anchors: progressAnchors,
             unanchoredOperationIds: [...progressUnanchoredOperationIds]
+          });
+          await input.onProgress?.({
+            workspaceId: input.workspaceId,
+            commitSha: progress.commitSha,
+            scannedCommitCount: progress.scannedCommitCount,
+            deadlineAt
           });
         }
       });

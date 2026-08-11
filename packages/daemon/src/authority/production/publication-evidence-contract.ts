@@ -37,6 +37,7 @@ export interface GitCanonicalPublicationInspector extends CanonicalPublicationIn
     readonly exclusiveCommit?: string;
     readonly interestedOpIds: ReadonlySet<string>;
     readonly progressBatchSize?: number;
+    readonly deadlineAt?: number;
     readonly onProgress?: (progress: FirstParentOperationAnchorScanProgress) => Promise<void>;
   }) => Promise<FirstParentOperationAnchorScan>;
 }

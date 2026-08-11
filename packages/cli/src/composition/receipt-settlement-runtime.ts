@@ -109,6 +109,7 @@ export async function recoverPendingSettlementMaterialization(input: {
   readonly deadlineAt: number;
   readonly perReceiptTimeoutMs?: number;
   readonly onReceiptProgress?: (progress: ReceiptSettlementRecoveryProgress) => void;
+  readonly shouldRecoverReceipt?: (receiptId: string) => boolean;
   readonly recoverCommittedReceipt: (opId: string) => Promise<AuthorityCommittedReceipt>;
   readonly recoverCanonicalPublication?: (input: {
     readonly outerOpId: string;
@@ -117,6 +118,7 @@ export async function recoverPendingSettlementMaterialization(input: {
 }): Promise<void> {
   for (const record of input.settlements.listUnsettled()) {
     if (Date.now() >= input.deadlineAt) return;
+    if (input.shouldRecoverReceipt && !input.shouldRecoverReceipt(record.receiptId)) continue;
     const pending = record.receipt.settlement;
     if (!pending || pending.canonicalVisibility !== "pending") continue;
     const durable = input.outcomes.lookup(record.receiptId);
