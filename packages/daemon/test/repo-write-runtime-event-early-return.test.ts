@@ -29,6 +29,8 @@ import { resolveHarnessLayout } from "@harness-anything/kernel";
 const operationTest = process.platform === "win32" ? test.skip : test;
 
 operationTest("task create responds before its lightweight auto runtime-event append", async (t) => {
+  // Keep one-time command/schema initialization out of the steady-state tail comparison.
+  await runTaskCreate(0);
   const fast = await runTaskCreate(0);
   const slow = await runTaskCreate(180);
 
@@ -91,7 +93,7 @@ async function runTaskCreate(materializerDelayMs: number, failReason?: string) {
       outcomeDirectory,
       undefined,
       false,
-      { materializerDelayMs, timing: runtimeEventTiming, failures, ...(failReason ? { failReason } : {}) }
+      { materializerDelayMs, timing: runtimeEventTiming, failures }
     );
     const child = createRepoWriteChildHost({
       ...productionProgressOperationAxes(),
