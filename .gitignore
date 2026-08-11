@@ -1,6 +1,7 @@
 # Local-only agent entrypoints for developing this source repository.
 # They route agents into .harness-private/ and must not be published.
 /CLAUDE.md
+/AGENTS.md
 /docs/
 
 # Phase working documents (盘点/报告):not for commit, excluded from public-text gates.

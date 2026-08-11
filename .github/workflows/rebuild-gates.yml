@@ -93,7 +93,11 @@ jobs:
       - name: Derive required test tiers
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-        run: node tools/gates/test-selection.mjs --base "$BASE_SHA"
+        run: |
+          if [ -z "$BASE_SHA" ] || ! git cat-file -e "$BASE_SHA^{tree}" 2>/dev/null; then
+            BASE_SHA=$(git rev-parse origin/rebuild/main)
+          fi
+          node tools/gates/test-selection.mjs --base "$BASE_SHA"
 
   clean-build:
     if: github.event_name != 'pull_request_target'
@@ -134,7 +138,11 @@ jobs:
       - name: Enforce module line ceilings
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-        run: node tools/gates/line-budget.mjs --base "$BASE_SHA"
+        run: |
+          if [ -z "$BASE_SHA" ] || ! git cat-file -e "$BASE_SHA^{tree}" 2>/dev/null; then
+            BASE_SHA=$(git rev-parse origin/rebuild/main)
+          fi
+          node tools/gates/line-budget.mjs --base "$BASE_SHA"
 
   production-delta:
     if: github.event_name == 'pull_request'
