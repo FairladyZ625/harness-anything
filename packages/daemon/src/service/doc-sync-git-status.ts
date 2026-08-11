@@ -12,7 +12,10 @@ interface DirtyEntry {
 }
 
 export function readDocSyncDirtyEntries(authoredRoot: string): ReadonlyArray<DirtyEntry> {
-  const output = gitText(authoredRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."]) ?? "";
+  const output = gitText(authoredRoot, [
+    "status", "--porcelain=v1", "-z", "--untracked-files=all",
+    "--", ".", ":(exclude).harness"
+  ]) ?? "";
   const records = output.split("\0");
   const entries: DirtyEntry[] = [];
   for (let index = 0; index < records.length; index += 1) {
