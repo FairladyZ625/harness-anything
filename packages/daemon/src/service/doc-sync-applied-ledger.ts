@@ -33,8 +33,16 @@ export function resolveDocSyncAppliedLedgerSha(
 
 export function gitText(cwd: string, args: ReadonlyArray<string>): string | null {
   try {
-    return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).trimEnd();
-  } catch {
+    return execFileSync("git", ["-C", cwd, ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      maxBuffer: 64 * 1024 * 1024,
+      windowsHide: true
+    }).trimEnd();
+  } catch (error) {
+    // A swallowed ENOBUFS once rendered a 5.6MB status as "clean tree" (issue #1340);
+    // callers keep the null contract, but the failure must not be invisible.
+    process.stderr.write(`[doc-sync] git ${args[0] ?? ""} failed in ${cwd}: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}\n`);
     return null;
   }
 }
