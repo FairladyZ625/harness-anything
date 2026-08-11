@@ -44,7 +44,7 @@ import type {
   RepoWritePreparedOperation
 } from "./repo-write-child-contract.ts";
 import { advanceRepoWritePhase } from "./repo-write-phase.ts";
-import { runWithRepoWriteDirectAdmission } from "./repo-write-child-admission.ts";
+import { releaseDirectAdmissionBeforeExecution, runWithRepoWriteDirectAdmission } from "./repo-write-child-admission.ts";
 export type { RepoWriteChildTransport } from "./repo-write-child-response-writer.ts";
 export type { RepoWriteDirectInput } from "./repo-write-child-direct.ts";
 export type {
@@ -134,13 +134,13 @@ export class RepoWriteChildHost {
       );
       return;
     }
-    await runWithRepoWriteDirectAdmission(this.options.hooks.beginDirectAdmission, () =>
+    await runWithRepoWriteDirectAdmission(this.options.hooks.beginDirectAdmission, (releaseAdmission) =>
       executeRepoWriteChildDirect({
         message,
         repoId: this.options.repoId,
         workspaceId: this.options.workspaceId,
         generation: this.options.generation,
-        execute: executeDirect,
+        execute: releaseDirectAdmissionBeforeExecution(executeDirect, releaseAdmission),
         responses: this.responses,
         sequencer: this.executionSequencer,
         requestIds: this.directRequestIds,
