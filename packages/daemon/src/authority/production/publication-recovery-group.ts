@@ -16,6 +16,7 @@ export async function recoverReplicaPublicationGroup(input: {
   readonly replicaChangeLog: ReplicaChangeLog;
   readonly evidence: CanonicalPublicationEvidence;
   readonly beforeAppend?: () => Promise<void>;
+  readonly append?: (draft: Parameters<ReplicaChangeLog["append"]>[0]) => Promise<void>;
 }): Promise<ReplicaChangeRecord> {
   const opIds = input.evidence.opIds ?? [input.record.opId];
   if (opIds.length === 0
@@ -54,7 +55,7 @@ export async function recoverReplicaPublicationGroup(input: {
     (latest?.revision ?? 0) + 1,
     input.evidence
   );
-  await input.replicaChangeLog.append(draft);
+  await (input.append ? input.append(draft) : input.replicaChangeLog.append(draft));
   const appended = await input.replicaChangeLog.getByOperation(input.record.workspaceId, input.record.opId);
   if (!appended) throw new Error("AUTHORITY_V2_RECOVERY_CHANGE_APPEND_MISSING");
   assertChangeMatchesPublication(appended, records, input.evidence);

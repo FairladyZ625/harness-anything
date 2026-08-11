@@ -42,6 +42,7 @@ export {
 } from "./write-coordinator.ts";
 export type {
   AuthorityOperationIntegrity,
+  DaemonGlobalLock,
   ExactWriteScope,
   ExactWriteCoordinator,
   WriteOp,

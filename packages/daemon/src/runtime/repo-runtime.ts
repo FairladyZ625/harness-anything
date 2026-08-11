@@ -3,8 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import {
   createHarnessRuntimeContext,
-  makeJournaledWriteCoordinator,
-  makeOperationalJournaledWriteCoordinator,
+  makeLocalVersionControlSystem,
   type DaemonAdmissionBudget,
   type LedgerMaterializerReport,
   type OperationalActor,
@@ -17,6 +16,7 @@ import {
   createProjectionChangePublisher,
   createRuntimeAdmissionBudget,
   recoverJournaledWrites,
+  rememberTrustedAuthoredProjectionFingerprint,
   writeOpTouchedPaths,
   type ExecutionEvidencePage,
   type ExecutionEvidencePageQuery,
@@ -65,10 +65,7 @@ export type {
   MultiRepoDaemonRuntimeStatus,
   MultiRepoHarnessDaemonRuntime
 } from "./repo-runtime-options.ts";
-import {
-  createDaemonProjectionGenerationManager,
-  type DaemonProjectionGenerationManager
-} from "./projection-generation-manager.ts";
+import type { DaemonProjectionGenerationManager } from "./projection-generation-manager.ts";
 import { toDaemonRuntimeStatus } from "./repo-runtime-status.ts";
 import { defaultDaemonRuntimePolicy } from "./runtime-policy.ts";
 import { ReservationReconcilerRunner } from "./reservation-reconciler-runner.ts";
@@ -79,8 +76,11 @@ import { bindCurrentRepoWriteTelemetry } from "./repo-write-telemetry-context.ts
 import { resolveAuthoritySessionCommit } from "./authority-session-commit.ts";
 import { canonicalCommitContaining } from "./canonical-commit-ancestry.ts";
 import { requireContext, sortedContexts } from "./repo-runtime-context-map.ts";
-import { reportFlushGitCommitPhase, reportFlushPostCommitPhase, reportFlushProjectionFingerprintDiagnostic, reportFlushProjectionFingerprintPhase, runMaterializerWithRepoWriteTelemetry } from "./repo-write-materializer-telemetry.ts";
-
+import { RepoMaterializerWorker } from "./repo-materializer-worker.ts";
+import { RepoMaterializerScheduler } from "./repo-materializer-scheduler.ts";
+import { runRepoMaterializerBatch } from "./repo-materializer-execution.ts";
+import { makeStartedRepoWriteCoordinator } from "./repo-started-coordinator.ts";
+import { createRepoProjectionGenerationManager } from "./repo-projection-generation.ts";
 const defaultDaemonOperationalActor: OperationalActor = { scope: "operational", kind: "system", id: "daemon-runtime" };
 export type {
   BackgroundBatchRequest,
@@ -99,6 +99,7 @@ export function createDaemonRuntime(options: DaemonRuntimeOptions): HarnessDaemo
     enqueueBackgroundBatch: (request) => context.enqueueBackgroundBatch(request),
     enqueueMaterializerBatch: (batchOptions) => context.enqueueMaterializerBatch(batchOptions),
     enqueueAuthorityPublication: (publication) => context.enqueueAuthorityPublication(publication),
+    beginAuthorityAdmission: () => context.beginAuthorityAdmission(),
     queryExecutionEvidencePage: (query) => context.queryExecutionEvidencePage(query),
     createAttributedCoordinator: (input) => context.createAttributedCoordinator(input),
     assertWriteFenceHeld: () => context.assertWriteFenceHeld(),
@@ -112,11 +113,9 @@ export function createMultiRepoDaemonRuntime(options: MultiRepoDaemonRuntimeOpti
   const contexts = new Map<string, DaemonRepoRuntimeContext>();
   let started = false;
   let assertBuildCurrent = options.assertBuildCurrent;
-
   for (const repo of sortedRepoOptions(options.repos)) {
     addContext(mergeRepoRuntimeDefaults(repo, options));
   }
-
   const runtime: MultiRepoHarnessDaemonRuntime = {
     start: async () => {
       started = true;
@@ -168,7 +167,6 @@ export function createMultiRepoDaemonRuntime(options: MultiRepoDaemonRuntimeOpti
     enqueueMaterializerBatch: (repoId, batchOptions) => requireContext(contexts, repoId).enqueueMaterializerBatch(batchOptions)
   };
   return runtime;
-
   function status(): MultiRepoDaemonRuntimeStatus {
     const repos = sortedContexts(contexts).map((context) => context.status());
     return {
@@ -179,7 +177,6 @@ export function createMultiRepoDaemonRuntime(options: MultiRepoDaemonRuntimeOpti
       repos
     };
   }
-
   function addContext(repo: DaemonRepoRuntimeOptions): DaemonRepoRuntimeContext {
     if (contexts.has(repo.repoId)) throw new Error(`duplicate daemon repoId: ${repo.repoId}`);
     const rootDir = path.resolve(repo.rootDir);
@@ -195,7 +192,6 @@ export function createMultiRepoDaemonRuntime(options: MultiRepoDaemonRuntimeOpti
     return context;
   }
 }
-
 class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   readonly repoId: string;
   readonly rootDir: string;
@@ -219,6 +215,10 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   private lastError: string | undefined;
   private lastMaterializerError: string | undefined;
   private materializerTimer: ReturnType<typeof setInterval> | undefined;
+  private readonly knownPendingMaterializerSessions = new Set<string>();
+  private readonly materializerWorker = new RepoMaterializerWorker();
+  private readonly materializerScheduler: RepoMaterializerScheduler;
+  private readonly runtimeVersionControlSystem = makeLocalVersionControlSystem({ cacheRepositoryDiscovery: true });
   private readonly reservationReconciler: ReservationReconcilerRunner;
   private assertBuildCurrent: () => void;
   private runtimeRegistrationId: string | undefined;
@@ -240,6 +240,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       options.interactiveMicroBatchMs ?? defaultDaemonRuntimePolicy.write.interactiveMicroBatchMs,
       this.admissionBudget
     );
+    this.materializerScheduler = new RepoMaterializerScheduler(this.queue);
     this.projectionGeneration = this.createProjectionGenerationManager();
     this.reservationReconciler = new ReservationReconcilerRunner(
       options.reservationReconciler,
@@ -333,6 +334,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       projectionCloseError = error;
     }
     try {
+      await this.materializerWorker.stop();
       this.lock?.release();
       if (projectionCloseError !== undefined) throw projectionCloseError;
       this.lastError = undefined;
@@ -379,6 +381,12 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     }
     const projectionWrite = this.projectionGeneration.beginCanonicalWrite(touchedPaths);
     return this.queue.enqueueInteractive(request, (batch) => this.makeStartedCoordinator(started, batch), <Result>(operation: () => Result): Result => bindCurrentRepoWriteTelemetry(operation)())
+      .then((receipt) => {
+        if (request.sessionId && receipt.flush.committed && receipt.flush.opCount > 0) {
+          this.knownPendingMaterializerSessions.add(request.sessionId);
+        }
+        return receipt;
+      })
       .catch((error: unknown) => {
         this.lastError = describeRepoRuntimeError(error);
         throw error;
@@ -395,30 +403,44 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       });
   }
 
-  enqueueMaterializerBatch(batchOptions: DaemonMaterializerBatchOptions = {}): Promise<LedgerMaterializerReport> {
-    return this.enqueueBackgroundBatch({
-      source: "ledger-materializer",
-      priority: "background",
-      run: () => this.runMaterializerBatch(batchOptions)
-    }).catch((error: unknown) => {
+  async enqueueMaterializerBatch(batchOptions: DaemonMaterializerBatchOptions = {}): Promise<LedgerMaterializerReport> {
+    const priority = batchOptions.priority ?? "foreground";
+    const releaseForeground = priority === "foreground"
+      ? this.materializerScheduler.beginForegroundMaterializer()
+      : undefined;
+    try {
+      return await this.materializerScheduler.schedule("ledger-materializer", () =>
+        this.runMaterializerBatch(batchOptions),
+        priority
+      );
+    } catch (error) {
       this.lastMaterializerError = describeRepoRuntimeError(error);
       this.projectionGeneration.invalidate();
       throw error;
-    });
+    } finally {
+      releaseForeground?.();
+    }
   }
 
   enqueueAuthorityPublication(options: DaemonAuthorityPublicationOptions): Promise<DaemonAuthorityPublicationReport> {
     this.requireWriterAttached();
+    this.knownPendingMaterializerSessions.add(options.sessionId);
+    const releaseForeground = this.materializerScheduler.beginForegroundMaterializer();
     return enqueueDaemonAuthorityPublication(
       this.queue,
       options,
       (sessionId) => this.runMaterializerBatch({ sessionId }),
       (sessionId) => resolveAuthoritySessionCommit(this.layout.authoredRoot, sessionId),
-      (acceptedCommitSha) => canonicalCommitContaining(this.layout.authoredRoot, acceptedCommitSha)
-    ).catch((error: unknown) => {
+      (acceptedCommitSha) => canonicalCommitContaining(this.layout.authoredRoot, acceptedCommitSha),
+      (run) => this.materializerScheduler.schedule("authority-publication", run, "foreground")
+    ).finally(releaseForeground).catch((error: unknown) => {
       this.lastError = describeRepoRuntimeError(error);
       throw error;
     });
+  }
+
+  beginAuthorityAdmission(): () => void {
+    return this.materializerScheduler.beginAuthorityAdmission();
   }
 
   queryExecutionEvidencePage(query: ExecutionEvidencePageQuery): Promise<ExecutionEvidencePage> {
@@ -491,24 +513,16 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     started: ReturnType<DaemonRepoRuntimeContext["requireWriterAttached"]>,
     request: InteractiveWriteAttribution & Partial<Parameters<HarnessDaemonRuntime["createAttributedCoordinator"]>[0]>
   ) {
-    const common = {
+    return makeStartedRepoWriteCoordinator({
       rootDir: this.rootDir,
       layoutOverrides: this.options.layoutOverrides,
       operationalActor: this.operationalActor,
       lockTtlMs: this.lockTtlMs,
-      heldGlobalLock: started.lock,
-      autoMaterialize: false,
+      lock: started.lock,
       onProjectionChange: this.projectionChanges.publish,
-      onCommitPhase: reportFlushGitCommitPhase,
-      onProjectionFingerprintPhase: reportFlushProjectionFingerprintPhase, onProjectionFingerprintDiagnostic: reportFlushProjectionFingerprintDiagnostic,
-      onPostCommitPhase: reportFlushPostCommitPhase,
-      ...(request.sessionId ? { sessionId: request.sessionId } : {}),
-      ...(request.commitAuthor ? { commitAuthor: request.commitAuthor } : {}),
-      ...(request.exactWriteScope ? { exactWriteScope: request.exactWriteScope } : {})
-    };
-    return request.attribution
-      ? makeJournaledWriteCoordinator({ ...common, attribution: request.attribution })
-      : makeOperationalJournaledWriteCoordinator({ ...common, operationalActor: request.operationalActor });
+      versionControlSystem: this.runtimeVersionControlSystem,
+      request
+    });
   }
 
   private startMaterializerTimer(): void {
@@ -526,28 +540,30 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     try {
       this.requireWriterAttached();
       await this.reservationReconciler.run();
-      await this.enqueueMaterializerBatch();
+      const sessionId = this.knownPendingMaterializerSessions.values().next().value as string | undefined;
+      if (sessionId) await this.enqueueMaterializerBatch({ sessionId, priority: "recovery" });
     } catch (error) {
       this.lastMaterializerError = describeRepoRuntimeError(error);
     }
   }
 
-  private runMaterializerBatch(batchOptions: DaemonMaterializerBatchOptions): LedgerMaterializerReport {
+  private async runMaterializerBatch(batchOptions: DaemonMaterializerBatchOptions): Promise<LedgerMaterializerReport> {
     const started = this.requireWriterAttached();
-    const report = runMaterializerWithRepoWriteTelemetry(this.runtimeContext, {
-      heldGlobalLock: started.lock,
-      ...(batchOptions.dryRun ? { dryRun: true } : {}),
-      ...(batchOptions.sessionId
-        ? { sessionId: batchOptions.sessionId }
-        : { maxBranches: this.materializerMaxBranchesPerBatch })
+    return runRepoMaterializerBatch({
+      rootInput: this.runtimeContext,
+      lock: started.lock,
+      options: batchOptions,
+      maxBranches: this.materializerMaxBranchesPerBatch,
+      worker: this.materializerWorker,
+      knownPendingSessions: this.knownPendingMaterializerSessions,
+      invalidateProjection: () => this.projectionGeneration.invalidate(),
+      rememberFingerprint: (sourceHash) => rememberTrustedAuthoredProjectionFingerprint(
+        this.runtimeContext,
+        sourceHash,
+        this.runtimeVersionControlSystem
+      ),
+      setLastError: (value) => { this.lastMaterializerError = value; }
     });
-    if (report.projectionRebuilt) this.projectionGeneration.invalidate();
-    if (report.warnings.length > 0) {
-      this.lastMaterializerError = report.warnings.join("; ");
-    } else if (!batchOptions.sessionId) {
-      this.lastMaterializerError = undefined;
-    }
-    return report;
   }
 
   private stopMaterializerTimer(): void {
@@ -559,6 +575,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     this.stopMaterializerTimer();
     this.projectionGeneration.reset();
     try {
+      await this.materializerWorker.stop();
       await this.closeProjectionGenerationManager();
     } catch {
       // Attach failure reporting should keep the original attach error.
@@ -572,17 +589,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   }
 
   private createProjectionGenerationManager(): DaemonProjectionGenerationManager {
-    return createDaemonProjectionGenerationManager({
-      rootDir: this.rootDir,
-      ...(this.options.layoutOverrides ? { layoutOverrides: this.options.layoutOverrides } : {}),
-      ...(this.options.projectionSourceFenceFactory ? {
-        sourceFence: this.options.projectionSourceFenceFactory({
-          rootDir: this.rootDir,
-          ...(this.options.layoutOverrides ? { layoutOverrides: this.options.layoutOverrides } : {})
-        })
-      } : {}),
-      reconcileIntervalMs: this.options.projectionReconcileIntervalMs ?? defaultDaemonRuntimePolicy.projection.reconcileIntervalMs
-    });
+    return createRepoProjectionGenerationManager(this.rootDir, this.options);
   }
 
   private closeProjectionGenerationManager(): Promise<void> {

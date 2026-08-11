@@ -33,7 +33,9 @@ export class BoundedAuthorityBatcher<Input, Result> {
     runBatch: (inputs: ReadonlyArray<Input>) => Promise<ReadonlyArray<Result>>,
     maxBatchSize: number,
     maxWaitMs: number,
-    options: { readonly allowOverlappingBatches?: boolean } = {}
+    options: {
+      readonly allowOverlappingBatches?: boolean;
+    } = {}
   ) {
     this.runBatch = runBatch;
     this.maxBatchSize = maxBatchSize;

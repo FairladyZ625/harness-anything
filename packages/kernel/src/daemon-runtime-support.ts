@@ -9,7 +9,7 @@ export {
   acquireDaemonGlobalLock,
   assertDaemonGlobalLockHeld
 } from "./write-coordination/journal/locks.ts";
-export type { DaemonGlobalLock } from "./write-coordination/journal/locks.ts";
+export type { DaemonGlobalLock } from "./ports/write-coordinator.ts";
 export { recoverJournaledWrites } from "./write-coordination/journal/coordinator.ts";
 export {
   singleWriteIntegrityDomain,
@@ -38,3 +38,4 @@ export type {
   ProjectionSourceFenceFactory,
   StableProjectionSourceFence
 } from "./ports/projection-source-fence.ts";
+export { rememberTrustedAuthoredProjectionFingerprint } from "./projection/projection-source-baseline.ts";

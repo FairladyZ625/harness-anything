@@ -31,15 +31,16 @@ export function productionProgressOperationHost(
   runtimeEventTail?: {
     readonly materializerDelayMs: number;
     readonly timing: { startedAt?: number; finishedAt?: number };
-    readonly failReason?: string;
     readonly failures?: Array<{ readonly requestId: string; readonly command: string; readonly reason: string }>;
   }
 ) {
   return new ProductionProgressAppendOperationHost({
     ...productionProgressOperationAxes(),
-    runtime: progressOperationRuntime(events, requireOuterProceeding, runtimeEventTail),
+    runtime: progressOperationRuntime(events, requireOuterProceeding),
     authorityComponent,
-    hostServices: cliDaemonCommandHostServices,
+    hostServices: runtimeEventTail
+      ? runtimeEventTailHostServices(runtimeEventTail)
+      : cliDaemonCommandHostServices,
     outcomeStore: store,
     settlementStore: new ReceiptSettlementStore({
       directory: path.join(outcomeDirectory, "settlements"),
@@ -349,13 +350,7 @@ function alreadySatisfiedEvidence(semanticDigest: string) {
 
 function progressOperationRuntime(
   events: string[],
-  requireOuterProceeding: boolean,
-  runtimeEventTail?: {
-    readonly materializerDelayMs: number;
-    readonly timing: { startedAt?: number; finishedAt?: number };
-    readonly failReason?: string;
-    readonly failures?: Array<{ readonly requestId: string; readonly command: string; readonly reason: string }>;
-  }
+  requireOuterProceeding: boolean
 ): HarnessDaemonRuntime {
   return {
     start: async () => { throw new Error("not used"); },
@@ -366,18 +361,6 @@ function progressOperationRuntime(
         throw new Error("operational write started before durable PROCEEDING");
       }
       events.push("runtime-event-write");
-      if (runtimeEventTail) {
-        runtimeEventTail.timing.startedAt = performance.now();
-        events.push("runtime-event-materializer-start");
-        const deadline = runtimeEventTail.timing.startedAt + runtimeEventTail.materializerDelayMs;
-        while (performance.now() < deadline) {
-          // Model the real queue drain: resolving the interactive append cannot
-          // resume its promise continuation until the adjacent materializer yields.
-        }
-        runtimeEventTail.timing.finishedAt = performance.now();
-        events.push("runtime-event-materializer-end");
-        if (runtimeEventTail.failReason) throw new Error(runtimeEventTail.failReason);
-      }
       return {
         commandId: request.commandId,
         opIds: request.ops.map((op) => op.opId),
@@ -411,6 +394,27 @@ function progressOperationRuntime(
     } as HarnessDaemonRuntime["admissionBudget"],
     subscribeProjectionChanges: () => () => undefined
   };
+}
+
+function runtimeEventTailHostServices(tail: {
+  readonly materializerDelayMs: number;
+  readonly timing: { startedAt?: number; finishedAt?: number };
+}) {
+  return {
+    ...cliDaemonCommandHostServices,
+    executeCommand: (command, options) => cliDaemonCommandHostServices.executeCommand(command, {
+      ...options,
+      deferCommandRuntimeEvent: (append) => options.deferCommandRuntimeEvent?.(async () => {
+        tail.timing.startedAt = performance.now();
+        try {
+          await new Promise<void>((resolve) => setTimeout(resolve, tail.materializerDelayMs));
+          return await append();
+        } finally {
+          tail.timing.finishedAt = performance.now();
+        }
+      })
+    })
+  } satisfies typeof cliDaemonCommandHostServices;
 }
 
 export function progressOperationCommand(rootDir: string): ParsedCommand {

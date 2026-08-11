@@ -80,6 +80,7 @@ import {
   authorityManifestSourceDigest,
   canonicalProductionAuthorityRoot
 } from "./production-authority-manifest-identity.ts";
+import { commitAuthorityEvidence } from "./authority-evidence-commit.ts";
 export { createSerialPublicationExecutor } from "./serial-publication-executor.ts";
 export { recoverPendingProductionEvents } from "./recovery.ts";
 
@@ -197,7 +198,7 @@ export function createProductionAuthorityLifecycle(input: {
       const commitEvidence = async (canonicalCommitSha: string): Promise<void> => {
         reportCurrentRepoWriteTelemetry("authority-evidence-commit");
         reportCurrentRepoWriteTelemetry("fsync");
-        await evidenceCommitter.commitPending(canonicalCommitSha);
+        await commitAuthorityEvidence(runtime, () => evidenceCommitter.commitPending(canonicalCommitSha));
         reportCurrentRepoWriteTelemetry("authority-evidence-publish-returned");
       };
       const basePublisher = createDurableAuthorityCommittedEventPublisherV2({

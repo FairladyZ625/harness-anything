@@ -100,6 +100,7 @@ export const repoWriteTelemetryPhases = [
   "authority-materializer-projection-attribution-decision-v1-v2-precedence",
   "authority-materializer-projection-attribution-decision-replay",
   "authority-materializer-projection-attribution-decision-new-source-path",
+  "authority-materializer-projection-attribution-decision-append-batch",
   "authority-materializer-projection-attribution-decision-v1-to-v2-replacement",
   "authority-materializer-projection-attribution-decision-op-id-collision",
   "authority-materializer-projection-attribution-decision-other",

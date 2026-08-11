@@ -26,6 +26,7 @@ import {
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { cliTestEnv } from "./helpers/cli-test-env.ts";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
 
 const createCliCommandService = (
   runtime: Parameters<typeof createDaemonCommandService>[0],
@@ -203,16 +204,23 @@ test("daemon command service preserves A/X attribution through the queued coordi
     assert.ok(requests.length > 0);
     const attributed = requests.filter((request) => "attribution" in request);
     const operational = requests.filter((request) => "operationalActor" in request);
+    const runtimeEvents = readFileSync(
+      resolveHarnessLayout(rootDir).runtimeEventLedgerPath("thread-cross-boundary"),
+      "utf8"
+    ).trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    const runtimeEvent = runtimeEvents[0] as {
+      readonly actor?: unknown; readonly session?: { readonly sessionId?: string }; readonly tool?: { readonly toolName?: string };
+    };
     assert.equal(attributed.every((request) => request.attribution.actor.principal.personId === "person_alice"), true);
     assert.equal(attributed.every((request) => request.attribution.actor.executor?.id === "codex"), true);
     assert.equal(attributed.every((request) => request.sessionId === "thread-cross-boundary"), true);
-    assert.equal(operational.length, 1);
-    assert.deepEqual(operational[0]?.operationalActor, {
-      scope: "operational",
-      kind: "agent",
-      id: "runtime-event-cli"
-    });
-    assert.equal("attribution" in operational[0]!, false);
+    assert.equal(operational.length, 0);
+    assert.deepEqual(runtimeEvents.map((event) => event.actor), [{
+      principal: { kind: "person", personId: "person_alice" },
+      executor: { kind: "agent", id: "codex" }
+    }]);
+    assert.equal(runtimeEvent.session?.sessionId, "thread-cross-boundary");
+    assert.equal(runtimeEvent.tool?.toolName, "new-task");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

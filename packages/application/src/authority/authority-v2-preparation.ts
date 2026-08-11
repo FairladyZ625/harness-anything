@@ -107,27 +107,33 @@ export async function prepareAuthorityV2(input: {
             identity
           )
         } : {}),
-        persist: (receipt) => input.put(
-          identity,
-          semanticDigest,
-          "COMMITTED",
-          receipt,
-          known.commitSha,
-          known.authorityIntegrity,
-          known.canonicalRequestEnvelope,
-          known.canonicalOperation,
-          known.recoveryPublicationPolicy,
-          known.fixedOperationBinding
-        )
+        persist: (receipt) => {
+          const persist = () => input.put(
+            identity,
+            semanticDigest,
+            "COMMITTED",
+            receipt,
+            known.commitSha,
+            known.authorityIntegrity,
+            known.canonicalRequestEnvelope,
+            known.canonicalOperation,
+            known.recoveryPublicationPolicy,
+            known.fixedOperationBinding
+          );
+          return options.generationFenceWitness
+            ? options.generationFenceWitness.runExclusive(
+              "before-terminal-journal",
+              identity,
+              async () => {
+                await options.generationFenceWitness!.assertHeld("before-terminal-journal", identity);
+                await persist();
+              }
+            )
+            : persist();
+        }
       });
       try {
-        const recovered = options.generationFenceWitness
-          ? await options.generationFenceWitness.runExclusive(
-            "before-terminal-journal",
-            identity,
-            recover
-          )
-          : await recover();
+        const recovered = await recover();
         if (recovered) return terminal(recovered);
       } catch (error) {
         if (!isDaemonGenerationFenced(error)) throw error;

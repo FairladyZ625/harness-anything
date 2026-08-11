@@ -36,6 +36,8 @@ export interface RepoWriteShutdownInput {
 }
 
 export interface RepoWriteChildHostHooks {
+  /** Marks a direct frame known-pending before it waits behind the execution sequencer. */
+  readonly beginDirectAdmission?: () => () => void;
   readonly prepare: (
     input: RepoWritePrepareInput
   ) => RepoWritePreparedOperation | Promise<RepoWritePreparedOperation>;

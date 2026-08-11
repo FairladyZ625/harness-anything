@@ -9,7 +9,7 @@ export function ensureAttributionEventTables(
 ): Effect.Effect<unknown, unknown> {
   return Effect.gen(function* () {
     yield* ensureEntityAttributionSummaryTable(sql);
-    yield* migrateWorkspaceScopedRevisionIdentity(sql);
+    yield* migrateOperationScopedRevisionIdentity(sql);
     yield* sql`
       CREATE TABLE IF NOT EXISTS attribution_events (
         event_id TEXT PRIMARY KEY,
@@ -37,7 +37,7 @@ export function ensureAttributionEventTables(
         occurred_at TEXT NOT NULL,
         recorded_at TEXT NOT NULL,
         source_json TEXT NOT NULL,
-        UNIQUE (workspace_id, revision)
+        UNIQUE (workspace_id, revision, op_id)
       )
     `;
     yield* sql`
@@ -56,13 +56,18 @@ export function ensureAttributionEventTables(
   });
 }
 
-function migrateWorkspaceScopedRevisionIdentity(sql: SqlClient.SqlClient): Effect.Effect<void, unknown> {
+/**
+ * A replica publication revision identifies a physical publication group, not
+ * one operation. Every operation in that group owns a complete attribution
+ * event and therefore legitimately shares (workspace_id, revision).
+ */
+function migrateOperationScopedRevisionIdentity(sql: SqlClient.SqlClient): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
     const [header] = yield* sql<{ readonly sql: string | null }>`
       SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'attribution_event_headers'
     `;
-    if (!header?.sql || !/revision\s+INTEGER\s+NOT\s+NULL\s+UNIQUE/iu.test(header.sql)) return;
-    yield* sql`ALTER TABLE attribution_event_headers RENAME TO attribution_event_headers_global_revision`;
+    if (!header?.sql || /UNIQUE\s*\(\s*workspace_id\s*,\s*revision\s*,\s*op_id\s*\)/iu.test(header.sql)) return;
+    yield* sql`ALTER TABLE attribution_event_headers RENAME TO attribution_event_headers_legacy_revision`;
     yield* sql`
       CREATE TABLE attribution_event_headers (
         event_id TEXT PRIMARY KEY,
@@ -76,19 +81,19 @@ function migrateWorkspaceScopedRevisionIdentity(sql: SqlClient.SqlClient): Effec
         occurred_at TEXT NOT NULL,
         recorded_at TEXT NOT NULL,
         source_json TEXT NOT NULL,
-        UNIQUE (workspace_id, revision)
+        UNIQUE (workspace_id, revision, op_id)
       )
     `;
     yield* sql`
       INSERT INTO attribution_event_headers
-      SELECT * FROM attribution_event_headers_global_revision
+      SELECT * FROM attribution_event_headers_legacy_revision
     `;
     const [mutations] = yield* sql<{ readonly name: string }>`
       SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'attribution_event_mutations'
     `;
     if (mutations) {
       yield* sql`
-        CREATE TABLE attribution_event_mutations_workspace_revision (
+        CREATE TABLE attribution_event_mutations_operation_revision (
           event_id TEXT NOT NULL,
           mutation_index INTEGER NOT NULL,
           registry_version INTEGER NOT NULL,
@@ -99,11 +104,11 @@ function migrateWorkspaceScopedRevisionIdentity(sql: SqlClient.SqlClient): Effec
           FOREIGN KEY (event_id) REFERENCES attribution_event_headers(event_id) ON DELETE CASCADE
         )
       `;
-      yield* sql`INSERT INTO attribution_event_mutations_workspace_revision SELECT * FROM attribution_event_mutations`;
+      yield* sql`INSERT INTO attribution_event_mutations_operation_revision SELECT * FROM attribution_event_mutations`;
       yield* sql`DROP TABLE attribution_event_mutations`;
-      yield* sql`ALTER TABLE attribution_event_mutations_workspace_revision RENAME TO attribution_event_mutations`;
+      yield* sql`ALTER TABLE attribution_event_mutations_operation_revision RENAME TO attribution_event_mutations`;
     }
-    yield* sql`DROP TABLE attribution_event_headers_global_revision`;
+    yield* sql`DROP TABLE attribution_event_headers_legacy_revision`;
   });
 }
 

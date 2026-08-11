@@ -277,7 +277,11 @@ export {
   docSyncWriterWorkingTreeContentKind,
   forbiddenTouchesForZones
 } from "./doc-sync.ts";
-export { makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "./runtime-event-ledger-service.ts";
+export {
+  makeLightweightRuntimeEventLedgerService,
+  makeRuntimeEventAppendPromise,
+  makeRuntimeEventLedgerService
+} from "./runtime-event-ledger-service.ts";
 export { listDecisionDocuments, readDecisionDocument } from "./decision-document-reader.ts";
 export type { CodeDocDocument, CodeDocReconciliationDraft, CodeDocReconciliationDraftInput, CodeDocReconciliationInput, CodeDocReconciliationIssue, CodeDocReconciliationResult, CodeDocReconciliationWarning } from "./code-doc-reconciliation.ts";
 export type { EnvironmentCurrentSessionProbeOptions, HumanFallbackSessionProbeOptions, RuntimeSessionEnvCandidate } from "./current-session-probe.ts";

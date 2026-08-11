@@ -47,6 +47,10 @@ export interface AuthoritySubmissionServiceOptions {
 
 export interface AuthorityPublicationExecutionContext {
   readonly allowDurableSuccessor: boolean;
+  /** Resolves when the nested session publication has reached its durable cut. */
+  readonly durableAcceptance?: Promise<void>;
+  /** Release only the in-process publication slot after the session commit is durable. */
+  readonly reportDurableCut?: () => void;
 }
 
 export type AuthoritySubmissionTelemetryPhase =

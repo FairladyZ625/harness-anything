@@ -35,6 +35,7 @@ export function createRepoWriteChildPostReadyRecovery(input: {
     readonly outerOpId: string;
     readonly canonicalCommitSha: string;
   }) => Promise<"live-owner" | "recovered" | "terminal" | "blocked">;
+  readonly isSettlementActive?: (receiptId: string) => boolean;
   readonly totalBudgetMs?: number;
   readonly perReceiptTimeoutMs?: number;
 }): RepoWriteChildPostReadyRecovery {
@@ -101,7 +102,8 @@ export function createRepoWriteChildPostReadyRecovery(input: {
         deadlineAt: Date.now() + Math.max(0, budgetMs),
         perReceiptTimeoutMs,
         onReceiptProgress: reportReceiptProgress,
-        shouldRecoverReceipt: (receiptId) => !deferredReceipts.has(receiptId),
+        shouldRecoverReceipt: (receiptId) =>
+          !deferredReceipts.has(receiptId) && !input.isSettlementActive?.(receiptId),
         recoverCommittedReceipt: input.recoverCommittedReceipt,
         recoverCanonicalPublication: input.recoverCanonicalPublication
       });

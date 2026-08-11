@@ -131,6 +131,9 @@ export class ProductionRepoWriteOperationHost<
     await this.runtimeEventDrain.idle();
   };
 
+  readonly isSettlementActive = (receiptId: string): boolean =>
+    this.operations.hasActiveSettlement(receiptId);
+
   readonly recoverCanonicalPublicationSettlement = (input: {
     readonly outerOpId: string;
     readonly canonicalCommitSha: string;

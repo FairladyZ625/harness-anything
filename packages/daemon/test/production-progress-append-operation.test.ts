@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   makeTaskHolderService,
+  resolveHarnessLayout,
   taskHolderActor
 } from "@harness-anything/kernel";
 import {
@@ -139,14 +140,15 @@ operationTest("progress pilot orders outer fsync before read-only lease and inne
     }));
     assert.equal(terminal.innerOpId, "inner-progress-operation");
     assert.equal(readFileSync(holderPath, "utf8"), holderBefore);
+    await host.settlementIdle();
     assert.deepEqual(events, [
       "plan-fixed-attempt",
       "parent-proceed",
       "outer-proceeding-fsynced",
       "inner-submit",
-      "runtime-event-write",
       "outer-terminal-fsynced"
     ]);
+    assert.deepEqual(runtimeEventTools(fixture.repoRoot, "session-progress-operation"), ["progress-append"]);
     assert.equal(terminal.receipt.meta.generatedAt, "2026-07-24T00:00:00.000Z");
     assert.equal(terminal.receipt.details?.actor?.personId, actor.personId);
     assert.deepEqual(terminal.receipt.details?.data?.repoWrite, {
@@ -306,7 +308,7 @@ operationTest("progress pilot resumes one exact fixed attempt after a post-PROCE
     assert.equal(proceeding.state, "proceeding");
     if (proceeding.state !== "proceeding") return;
 
-    const terminal = await operationHost(
+    const recoveryHost = operationHost(
       durable,
       authorityComponent(events, {
         outerOpId: prepared.opId,
@@ -314,7 +316,9 @@ operationTest("progress pilot resumes one exact fixed attempt after a post-PROCE
       }),
       events,
       outcomeDirectory
-    ).lookup({ opId: prepared.opId });
+    );
+    const terminal = await recoveryHost.lookup({ opId: prepared.opId });
+    await recoveryHost.settlementIdle();
 
     assert.equal(terminal.state, "terminal");
     if (terminal.state !== "terminal") return;
@@ -323,9 +327,9 @@ operationTest("progress pilot resumes one exact fixed attempt after a post-PROCE
     assert.deepEqual(events, [
       "plan-fixed-attempt",
       "outer-proceeding-fsynced",
-      "inner-submit-recovery",
-      "runtime-event-write"
+      "inner-submit-recovery"
     ]);
+    assert.deepEqual(runtimeEventTools(fixture.repoRoot, "session-progress-recovery"), ["progress-append"]);
   } finally {
     rmSync(outcomeDirectory, { recursive: true, force: true });
     rmSync(fixture.root, { recursive: true, force: true });
@@ -667,6 +671,13 @@ function durabilityEvents(events: string[]) {
       target = "";
     }
   };
+}
+
+function runtimeEventTools(rootDir: string, sessionId: string): Array<unknown> {
+  const body = readFileSync(resolveHarnessLayout(rootDir).runtimeEventLedgerPath(sessionId), "utf8");
+  return body.trim().split("\n").map((line) => (
+    (JSON.parse(line) as { readonly tool?: { readonly toolName?: unknown } }).tool?.toolName
+  ));
 }
 
 function axes() {

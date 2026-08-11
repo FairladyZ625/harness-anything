@@ -201,6 +201,7 @@ export function repoWriteWaitingStage(
     case "authority-materializer-projection-attribution-decision-v1-v2-precedence":
     case "authority-materializer-projection-attribution-decision-replay":
     case "authority-materializer-projection-attribution-decision-new-source-path":
+    case "authority-materializer-projection-attribution-decision-append-batch":
     case "authority-materializer-projection-attribution-decision-v1-to-v2-replacement":
     case "authority-materializer-projection-attribution-decision-op-id-collision":
     case "authority-materializer-projection-attribution-decision-other":

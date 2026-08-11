@@ -1,4 +1,5 @@
 import type { HarnessLayoutInput, ProjectionWarning } from "@harness-anything/kernel";
+import type { RuntimeEventLedgerService } from "@harness-anything/application";
 import { findConflictMarkerWarnings } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "./error-codes.ts";
 import { requiresConflictMarkerPreflight } from "./command-event-policy.ts";
@@ -12,6 +13,8 @@ export interface ConflictMarkerExecutionBoundary {
   readonly onTelemetry?: (phase: "command-conflict-preflight" | "command-conflict-recheck") => void;
   readonly onCommandTelemetry?: (phase: "runtime-event-append-start" | "runtime-event-append-done") => void;
   readonly deferCommandRuntimeEvent?: (append: () => Promise<CliResult>) => void;
+  /** Local-only durable sink for automatic command audit. */
+  readonly automaticRuntimeEventLedgerService?: RuntimeEventLedgerService;
   readonly conflictMarkerPreflight?: () => ProjectionWarning | undefined;
 }
 

@@ -65,12 +65,12 @@ export async function executeRepoWriteChildWithTelemetry<Result>(
   });
 }
 
-export function bindCurrentRepoWriteTelemetry<Result>(
-  operation: () => Result
-): () => Result {
+export function bindCurrentRepoWriteTelemetry<Arguments extends ReadonlyArray<unknown>, Result>(
+  operation: (...args: Arguments) => Result
+): (...args: Arguments) => Result {
   const current = storage.getStore();
   return current
-    ? () => storage.run(current, operation)
+    ? (...args) => storage.run(current, () => operation(...args))
     : operation;
 }
 

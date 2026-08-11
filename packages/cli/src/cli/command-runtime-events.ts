@@ -1,15 +1,20 @@
 import { Effect } from "effect";
-import { runtimeEventActorFromTaskHolderPrincipal } from "@harness-anything/application";
+import {
+  runtimeEventActorFromTaskHolderPrincipal,
+  type RuntimeEventLedgerService
+} from "@harness-anything/application";
 import { isIndeterminateFlushControlOutcome } from "@harness-anything/kernel";
 import { runtimeEventPolicyForAction } from "./command-event-policy.ts";
 import { actionTaskId } from "./parse-args.ts";
 import type { CommandRunnerContext, CommandRunnerEffect } from "./runner-registry.ts";
+import type { ConflictMarkerExecutionBoundary } from "./conflict-preflight.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
 
 export function appendCommandRuntimeEvent(
   context: CommandRunnerContext,
   command: ParsedCommand,
-  result: CliResult
+  result: CliResult,
+  ledger: RuntimeEventLedgerService = context.runtimeEventLedgerService
 ): CommandRunnerEffect {
   if (runtimeEventPolicyForAction(command.action) !== "auto") return Effect.succeed(result);
   context.onCommandTelemetry?.("runtime-event-append-start");
@@ -23,7 +28,7 @@ export function appendCommandRuntimeEvent(
         sessionId: session.sessionId,
         reason: runtimeEventActorResolutionMessage(error)
       })
-    }).pipe(Effect.flatMap((actor) => context.runtimeEventLedgerService.append({
+    }).pipe(Effect.flatMap((actor) => ledger.append({
       kind: "result",
       actor,
       session: {
@@ -62,6 +67,26 @@ export function appendCommandRuntimeEvent(
     }),
     Effect.tap(() => Effect.sync(() => context.onCommandTelemetry?.("runtime-event-append-done")))
   );
+}
+
+export function appendOrDeferCommandRuntimeEvent(
+  context: CommandRunnerContext,
+  command: ParsedCommand,
+  result: CliResult,
+  execution: ConflictMarkerExecutionBoundary
+): CommandRunnerEffect {
+  const append = () => appendCommandRuntimeEvent(
+    context,
+    command,
+    result,
+    execution.automaticRuntimeEventLedgerService ?? context.runtimeEventLedgerService
+  );
+  if (runtimeEventPolicyForAction(command.action) !== "auto"
+    || execution.deferCommandRuntimeEvent === undefined) return append();
+  return Effect.sync(() => {
+    execution.deferCommandRuntimeEvent?.(() => Effect.runPromise(append()));
+    return result;
+  });
 }
 
 interface RuntimeEventActorRejected {

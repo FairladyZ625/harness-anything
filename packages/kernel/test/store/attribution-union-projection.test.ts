@@ -184,7 +184,7 @@ test("materializer applies V2-over-V1 precedence even when called with both vers
   });
 });
 
-test("V2 revisions are unique within a workspace across full rebuild and incremental writes", () => {
+test("V2 projection preserves every operation in a shared workspace publication revision", () => {
   withTempStore((rootDir) => {
     const projectionPath = path.join(rootDir, "projection.sqlite");
     writeFileSync(projectionPath, "", "utf8");
@@ -209,11 +209,43 @@ test("V2 revisions are unique within a workspace across full rebuild and increme
     const duplicate = v2Event([mutation("fact", "fact/task_T/F-4", "create")], {
       workspaceId: "workspace-1", opId: "v2-op-4", revision: 1
     });
-    assert.throws(() => materializeAttributionProjectionFromEvents(projectionPath, [first, duplicate]));
+    assert.equal(materializeAttributionProjectionFromEvents(projectionPath, [first, duplicate]).length, 2);
+    const sharedRevision = new DatabaseSync(projectionPath, { readOnly: true });
+    try {
+      assert.deepEqual(sharedRevision.prepare(`
+        SELECT op_id FROM attribution_event_headers
+        WHERE workspace_id = 'workspace-1' AND revision = 1
+        ORDER BY op_id
+      `).all().map((row) => row.op_id), ["v2-op", "v2-op-4"]);
+    } finally {
+      sharedRevision.close();
+    }
+
+    const batchFirst = v2Event([mutation("fact", "fact/task_T/F-5", "create")], {
+      workspaceId: "workspace-1", opId: "v2-op-5", revision: 2
+    });
+    const batchSecond = v2Event([mutation("fact", "fact/task_T/F-6", "create")], {
+      workspaceId: "workspace-1", opId: "v2-op-6", revision: 2
+    });
+    runSqlite(projectionPath, Effect.flatMap(SqlClient.SqlClient, (sql) => applyAttributionProjectionDelta(sql, {
+      deleteEventIds: [],
+      upsertEvents: [batchFirst, batchSecond],
+      affectedSubjects: ["fact/task_T/F-5", "fact/task_T/F-6"]
+    })));
+    const incrementalBatch = new DatabaseSync(projectionPath, { readOnly: true });
+    try {
+      assert.deepEqual(incrementalBatch.prepare(`
+        SELECT op_id FROM attribution_event_headers
+        WHERE workspace_id = 'workspace-1' AND revision = 2
+        ORDER BY op_id
+      `).all().map((row) => row.op_id), ["v2-op-5", "v2-op-6"]);
+    } finally {
+      incrementalBatch.close();
+    }
   });
 });
 
-test("existing global-revision SQLite projection migrates to workspace-scoped uniqueness", () => {
+test("existing global-revision SQLite projection migrates to operation-scoped revision identity", () => {
   withTempStore((rootDir) => {
     const projectionPath = path.join(rootDir, "projection.sqlite");
     const db = new DatabaseSync(projectionPath);
@@ -238,6 +270,37 @@ test("existing global-revision SQLite projection migrates to workspace-scoped un
     const first = v2Event([mutation("fact", "fact/task_T/F-1", "create")]);
     const second = v2Event([mutation("fact", "fact/task_T/F-2", "create")], {
       workspaceId: "workspace-2", opId: "v2-op-2", revision: 1
+    });
+    assert.equal(materializeAttributionProjectionFromEvents(projectionPath, [first, second]).length, 2);
+  });
+});
+
+test("existing workspace-revision SQLite projection accepts a multi-operation revision after migration", () => {
+  withTempStore((rootDir) => {
+    const projectionPath = path.join(rootDir, "projection.sqlite");
+    const db = new DatabaseSync(projectionPath);
+    try {
+      db.exec(`
+        CREATE TABLE attribution_event_headers (
+          event_id TEXT PRIMARY KEY, op_id TEXT NOT NULL UNIQUE, workspace_id TEXT NOT NULL,
+          revision INTEGER NOT NULL, commit_sha TEXT NOT NULL, previous_commit TEXT,
+          principal_person_id TEXT NOT NULL, executor_agent_id TEXT, occurred_at TEXT NOT NULL,
+          recorded_at TEXT NOT NULL, source_json TEXT NOT NULL,
+          UNIQUE (workspace_id, revision)
+        );
+        CREATE TABLE attribution_event_mutations (
+          event_id TEXT NOT NULL, mutation_index INTEGER NOT NULL, registry_version INTEGER NOT NULL,
+          entity_kind TEXT NOT NULL, subject_ref TEXT NOT NULL, operation TEXT NOT NULL,
+          PRIMARY KEY (event_id, mutation_index),
+          FOREIGN KEY (event_id) REFERENCES attribution_event_headers(event_id) ON DELETE CASCADE
+        );
+      `);
+    } finally {
+      db.close();
+    }
+    const first = v2Event([mutation("fact", "fact/task_T/F-1", "create")]);
+    const second = v2Event([mutation("fact", "fact/task_T/F-2", "create")], {
+      workspaceId: "workspace-1", opId: "v2-op-2", revision: 1
     });
     assert.equal(materializeAttributionProjectionFromEvents(projectionPath, [first, second]).length, 2);
   });

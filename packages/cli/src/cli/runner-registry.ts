@@ -6,7 +6,7 @@ import type { ArtifactStoreError, DomainStatus, EngineError, PriorityTier, TaskW
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "@harness-anything/kernel";
 import { createHarnessRuntimeContext } from "@harness-anything/kernel";
 import type { WriteCoordinator } from "@harness-anything/kernel";
-import { requiresConflictMarkerPreflight, runtimeEventPolicyForAction, taskPrincipalRequiredForAction } from "./command-event-policy.ts";
+import { requiresConflictMarkerPreflight, taskPrincipalRequiredForAction } from "./command-event-policy.ts";
 import { receiptCommandKind } from "./receipt-command-kind.ts";
 import { commandSpecMap, commandSpecs, type CommandKind } from "./command-spec/index.ts";
 import type { CommandSpecDefinition } from "./command-spec/types.ts";
@@ -18,7 +18,7 @@ import {
 } from "./conflict-preflight.ts";
 import { cliError, CliErrorCode } from "./error-codes.ts";
 import { actionTaskId } from "./parse-args.ts";
-import { appendCommandRuntimeEvent } from "./command-runtime-events.ts";
+import { appendOrDeferCommandRuntimeEvent } from "./command-runtime-events.ts";
 import { commandFailureResult } from "./runner-failure-result.ts";
 import type { CliResult, CommandRegistryEntry, MaterializerCommandReport, ParsedCommand } from "./types.ts";
 import type { CliActorAttribution } from "../composition/actor-attribution.ts";
@@ -221,18 +221,7 @@ export function runRegisteredCommand(
     Effect.catchAll((error) => isIndeterminateFlushControlOutcome(error)
       ? Effect.fail(error)
       : Effect.succeed(commandFailureResult(command, error))),
-    Effect.flatMap((result) => {
-      if (runtimeEventPolicyForAction(command.action) !== "auto"
-        || execution.deferCommandRuntimeEvent === undefined) {
-        return appendCommandRuntimeEvent(context, command, result);
-      }
-      return Effect.sync(() => {
-        execution.deferCommandRuntimeEvent?.(
-          () => Effect.runPromise(appendCommandRuntimeEvent(context, command, result))
-        );
-        return result;
-      });
-    }),
+    Effect.flatMap((result) => appendOrDeferCommandRuntimeEvent(context, command, result, execution)),
     Effect.catchAll((error) => Effect.succeed(commandFailureResult(command, error)))
   );
 }

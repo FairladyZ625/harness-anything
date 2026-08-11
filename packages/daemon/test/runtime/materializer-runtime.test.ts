@@ -32,6 +32,29 @@ const deterministicProjectionSourceFenceFactory: ProjectionSourceFenceFactory = 
   return { capture: () => fence };
 };
 
+test("daemon runtime does not run an empty materializer poll without known pending work", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    let reconciliations = 0;
+    const runtime = createMultiRepoDaemonRuntime({
+      repos: [{
+        repoId: "empty",
+        rootDir,
+        reservationReconciler: async () => {
+          reconciliations += 1;
+        }
+      }],
+      materializerPollMs: 10
+    });
+
+    await runtime.start();
+    await new Promise<void>((resolve) => setTimeout(resolve, 500));
+
+    assert.ok(reconciliations > 1, `expected periodic reconciliation, saw ${reconciliations}`);
+    assert.equal(runtime.status().repos[0]?.lastMaterializerError, undefined);
+    await runtime.stop();
+  });
+});
+
 test("daemon materializer producer runs bounded batches under the lifetime global lock", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initAuthoredGit(rootDir);

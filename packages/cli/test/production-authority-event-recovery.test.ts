@@ -182,7 +182,7 @@ test("restart recovery publishes one missing event for a committed effect withou
   assert.deepEqual(durable.receipt, receipt);
 });
 
-test("current generation recovers a PREPARED operation left by a post-publish stale process", async () => {
+test("current generation fences recovery transitions without holding the lock across terminal evidence", async () => {
   let durable: AuthorityStoredOperationRecord = {
     workspaceId: "workspace-production",
     opId: "namespace-production:prepared-stale-owner",
@@ -248,7 +248,7 @@ test("current generation recovers a PREPARED operation left by a post-publish st
       findPublicationForOperation: async () => publicationEvidence()
     } as ReturnType<typeof createGitCanonicalPublicationInspector>,
     recover: async (indexed) => {
-      assert.equal(insideGenerationLock, true);
+      assert.equal(insideGenerationLock, false);
       assert.equal(indexed.state, "INDEXED");
       assert.equal(indexed.commitSha, receipt.commitSha);
       return receipt;

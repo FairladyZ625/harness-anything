@@ -161,9 +161,10 @@ export function createDaemonAuthorityCommandSubmissionV2(options: {
       "authority",
       () => compileAttempt(compile)
     );
-    return durableAuthoritySubmissionFromSettlement(() =>
+    const durable = durableAuthoritySubmissionFromSettlement(() =>
       measureCurrentDaemonRequestPerformancePhase("authority", () => submitAttempt(attempt))
     );
+    return durable;
   };
   return {
     submit: (input) => compileAndSubmit(() => options.attemptCompiler.compile(input)),
