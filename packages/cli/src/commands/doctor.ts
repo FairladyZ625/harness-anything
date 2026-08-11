@@ -13,6 +13,10 @@ import {
 import type { CliResult } from "../cli/types.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { resolveSettingsView, type ResolvedSettingRow } from "./resolved-settings-view.ts";
+import {
+  collectRuntimeAttestation,
+  type RuntimeAttestationReport
+} from "./runtime-attestation.ts";
 
 export interface DoctorReport {
   readonly schema: "harness-doctor/v1";
@@ -73,6 +77,7 @@ export interface DoctorReport {
       readonly error?: string;
     };
   };
+  readonly runtime: RuntimeAttestationReport;
   readonly recommendedCommands: readonly string[];
 }
 
@@ -136,6 +141,11 @@ function collectDoctorReport(
   const gitInsideWorkTree = isInsideDoctorGitWorkTree(rootDir);
   const harnessIsolation = inspectHarnessIsolation(rootDir, doctorRelativeLayoutPath(rootDir, layout.authoredRoot), gitInsideWorkTree);
   const ledger = collectLedgerReport(rootInput, options);
+  const runtime = collectRuntimeAttestation({
+    rootDir,
+    cliPackageRoot: resolveCliPackageRoot(),
+    bindingRoot: path.join(layout.generatedRoot, "worktree-bindings")
+  });
   return {
     schema: "harness-doctor/v1",
     readOnly: !options.repairRequested,
@@ -166,11 +176,12 @@ function collectDoctorReport(
       ...(options.settingsError ? { error: options.settingsError } : {})
     },
     ledger,
-    recommendedCommands: recommendedDoctorCommands(ledger),
+    runtime,
+    recommendedCommands: recommendedDoctorCommands(ledger, runtime),
   };
 }
 
-function recommendedDoctorCommands(ledger: DoctorReport["ledger"]): readonly string[] {
+function recommendedDoctorCommands(ledger: DoctorReport["ledger"], runtime: RuntimeAttestationReport): readonly string[] {
   const commands = [
       "harness-anything init",
       "harness-anything status --json",
@@ -179,6 +190,22 @@ function recommendedDoctorCommands(ledger: DoctorReport["ledger"]): readonly str
   ];
   const repairNeeded = !ledger.ok || ledger.repair.error !== undefined || (ledger.repair.report?.unresolved.length ?? 0) > 0;
   if (repairNeeded) commands.push("harness-anything doctor --repair --json");
+  const runtimeNeedsRestart = runtime.findings.some((finding) =>
+    finding.findingCode === "daemon_socket_orphan"
+    || finding.findingCode === "daemon_socket_missing_with_owner"
+    || finding.findingCode === "daemon_process_stale"
+    || finding.findingCode === "daemon_socket_owner_unknown");
+  const runtimeNeedsRebuild = runtime.findings.some((finding) =>
+    finding.findingCode === "cli_dist_missing"
+    || finding.findingCode === "cli_dist_stale"
+    || finding.findingCode === "daemon_provenance_drift"
+    || finding.findingCode === "daemon_provenance_unavailable");
+  if (runtimeNeedsRebuild && !commands.includes("npm -w @harness-anything/cli run build")) {
+    commands.push("npm -w @harness-anything/cli run build");
+  }
+  if (runtimeNeedsRestart && !commands.includes("harness-anything daemon restart")) {
+    commands.push("harness-anything daemon restart");
+  }
   return commands;
 }
 
@@ -305,4 +332,26 @@ function isInsideDoctorGitWorkTree(rootDir: string): boolean {
   } catch {
     return false;
   }
+}
+
+// Resolve the CLI's own package root from this module's location so the
+// runtime attestation can compare src/ and dist/ mtimes regardless of whether
+// doctor is loaded from TypeScript source (dev / test) or compiled dist.
+function resolveCliPackageRoot(): string {
+  let current = path.resolve(import.meta.dirname);
+  for (let depth = 0; depth < 8; depth++) {
+    const manifestPath = path.join(current, "package.json");
+    if (existsSync(manifestPath)) {
+      try {
+        const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { readonly name?: unknown };
+        if (manifest.name === "@harness-anything/cli") return current;
+      } catch {
+        // Skip malformed package.json and keep walking.
+      }
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return path.resolve(import.meta.dirname, "../..");
 }
