@@ -6,6 +6,7 @@ import {
   runTaskLifecycleFacade,
   type TaskLifecycleServiceInput
 } from "../src/commands/core/task-lifecycle.ts";
+import { validateGateReceiptSet } from "../src/commands/core/task-lifecycle-host.ts";
 
 const actor = {
   principal: { personId: "person_zeyu" },
@@ -36,8 +37,57 @@ test("complete sends a field-equal CompleteTask intent to the host", async () =>
       actor,
       opId: received?.command.opId,
       executionId: "exe_TYPED"
+    },
+    gateReceipts: []
+  });
+});
+
+test("complete preserves opaque gate receipt references and rejects malformed pairs", async () => {
+  const parsed = parseTaskLifecycleArgs([
+    "task", "complete", "task_GATED", "--execution-id", "exe_GATED",
+    "--gate-receipt", "G10:artifacts/g10.json",
+    "--gate-receipt", "G32:token:opaque"
+  ]);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  let received: TaskLifecycleServiceInput | undefined;
+  await runTaskLifecycleFacade(parsed.value, {
+    actor,
+    service: {
+      execute: async (input) => {
+        received = input;
+        return { outcome: "applied", opId: input.command.opId, revision: 8 };
+      },
+      show: async () => ({ outcome: "applied", evidence: "unused" })
     }
   });
+  assert.deepEqual(received?.gateReceipts, [
+    { gateId: "G10", receiptRef: "artifacts/g10.json" },
+    { gateId: "G32", receiptRef: "token:opaque" }
+  ]);
+  const malformed = parseTaskLifecycleArgs([
+    "task", "complete", "task_GATED", "--execution-id", "exe_GATED", "--gate-receipt", "G10:"
+  ]);
+  assert.equal(malformed.ok, false);
+  if (!malformed.ok) assert.match(malformed.error.nextAction, /gate-id.*receipt-ref/iu);
+});
+
+test("complete host names missing, unknown, and duplicate gate receipt differences", () => {
+  assert.deepEqual(validateGateReceiptSet([], []), []);
+  assert.deepEqual(validateGateReceiptSet(["G10"], [{ gateId: "G10", receiptRef: "opaque" }]), [
+    { gateId: "G10", receiptRef: "opaque" }
+  ]);
+  assert.throws(
+    () => validateGateReceiptSet(["G10", "G32"], [
+      { gateId: "G10", receiptRef: "one" },
+      { gateId: "G10", receiptRef: "two" },
+      { gateId: "G99", receiptRef: "extra" }
+    ]),
+    (error: unknown) => {
+      assert.match(error instanceof Error ? error.message : String(error), /missing=\[G32\].*unknown=\[G99\].*duplicate=\[G10\]/u);
+      return true;
+    }
+  );
 });
 
 test("complete strict parser rejects unknown and missing fields", () => {

@@ -87,7 +87,5 @@ function commandWithLayoutOverrides(command: ParsedCommand, layoutOverrides?: Ha
 }
 
 export function actionTaskId(action: ParsedCommand["action"]): string | undefined {
-  if ("oldTaskId" in action) return action.oldTaskId;
-  if ("sourceTaskId" in action) return action.sourceTaskId;
   return "taskId" in action ? action.taskId : undefined;
 }

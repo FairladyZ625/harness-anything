@@ -488,7 +488,6 @@ function renderHelp(result: Record<string, unknown>): string {
 function renderCommandHelp(command: CommandRegistryEntry): string {
   const aliases = command.aliases.length > 0 ? ["", "Aliases:", ...command.aliases.map((alias) => `  ${alias}`)] : [];
   const options = command.options.length > 0 ? ["", "Options:", ...command.options.map((option) => `  ${option.flag.padEnd(18)} ${option.description}`)] : [];
-  const additional = command.kind === "new-task" ? taskCreatePresetHelp() : [];
   const examples = command.examples.length > 0 ? ["", "Example:", ...command.examples.map((example) => `  ${example}`)] : [];
   return [
     `Usage: ${command.primary}`,
@@ -496,29 +495,8 @@ function renderCommandHelp(command: CommandRegistryEntry): string {
     command.summary,
     ...aliases,
     ...options,
-    ...additional,
     ...examples
   ].join("\n");
-}
-
-function taskCreatePresetHelp(): ReadonlyArray<string> {
-  return [
-    "",
-    "Recommended presets:",
-    "  standard-task           General implementation or maintenance task; the default starting point.",
-    "  long-running-task       Extended task that needs explicit long-running coordination.",
-    "  module                  Module-scoped task with registered module metadata.",
-    "  subtask-expansion       Plan and fan out a parent task into concrete subtasks.",
-    "  github-issue-repair     Pull a GitHub issue and prepare an evidence-backed repair plan.",
-    "  legacy-migration        Legacy task intake or migration planning.",
-    "  create-milestone        Create a milestone root task, then scaffold and check the milestone map files.",
-    "  decision-conformance    Work that must prove alignment with recorded decisions.",
-    "  milestone-closeout      Milestone wrap-up checks and evidence collection.",
-    "",
-    "Start here:",
-    "  ha task create --title \"...\" --vertical software/coding --preset <id>",
-    "  ha task create --title \"<name> milestone root\" --vertical software/coding --preset create-milestone --long-running"
-  ];
 }
 
 function helpReport(report: unknown): { readonly kind: "global" | "command" | "prefix"; readonly prefix?: unknown } | undefined {

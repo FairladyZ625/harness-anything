@@ -32,33 +32,17 @@ export interface CommandInputDescriptor {
 }
 
 const explicitInputDescriptors = {
-  "new-task": {
+  "task-create": {
     required: ["title"],
     properties: {
-      title: { type: "string", description: "Task title used for package metadata and slug." },
-      workKind: { type: "string", description: "Task work kind: feat, fix, refactor, docs, test, or chore." },
-      riskTier: { type: "string", description: "Task risk tier: low, medium, or high. Explicit task values override one-time derives-edge seeding." },
-      urgency: { type: "string", description: "Task urgency: low, medium, or high. Explicit task values override one-time derives-edge seeding." },
-      vertical: { type: "string", description: "Vertical id, usually software/coding." },
-      preset: { type: "string", description: "Preset id used to materialize task content." },
-      moduleKey: { type: "string", description: "Registered module key." },
-      slug: { type: "string", description: "Explicit task package slug." },
-      locale: { type: "string", description: "Generated content locale." },
-      longRunning: { type: "boolean", description: "Use the long-running task preset." },
-      dryRun: { type: "boolean", description: "Preview task creation without writing files." }
+      title: { type: "string", description: "Replay/v1 task title." },
+      taskId: { type: "string", description: "Optional explicit task id." },
+      completionGate: { type: "array", description: "Completion gate ids.", items: { type: "string" } }
     },
     shortcuts: [
       shortcut("--title", "$.title", "set"),
-      shortcut("--kind", "$.workKind", "set"),
-      shortcut("--risk-tier", "$.riskTier", "set"),
-      shortcut("--urgency", "$.urgency", "set"),
-      shortcut("--vertical", "$.vertical", "set"),
-      shortcut("--preset", "$.preset", "set"),
-      shortcut("--module", "$.moduleKey", "set"),
-      shortcut("--slug", "$.slug", "set"),
-      shortcut("--locale", "$.locale", "set"),
-      shortcut("--long-running", "$.longRunning", "set"),
-      shortcut("--dry-run", "$.dryRun", "set")
+      shortcut("--task-id", "$.taskId", "set"),
+      shortcut("--completion-gate", "$.completionGate", "append")
     ]
   },
   "decision-propose": {
@@ -201,7 +185,7 @@ export function commandInputDescriptorFor(command: CommandDescriptor): CommandIn
 export function entityForCommand(command: CommandDescriptorIdentity): string {
   const first = commandPath(command)[0] ?? command.kind.split("-")[0] ?? "command";
   if (command.kind === "decision-relation-retire" || command.kind === "decision-relation-replace") return "relation";
-  if (command.kind === "new-task" || first === "task") return "task";
+  if (first === "task") return "task";
   if (command.kind === "record-fact" || first === "fact") return "fact";
   if (first === "event") return "event";
   return first;
@@ -210,7 +194,6 @@ export function entityForCommand(command: CommandDescriptorIdentity): string {
 export function actionForCommand(command: CommandDescriptorIdentity, entity = entityForCommand(command)): string {
   const path = commandPath(command);
   if (path[0] === entity && path[1]) return path.slice(1).join(" ");
-  if (command.kind === "new-task") return "create";
   if (command.kind === "record-fact") return "record";
   return path.slice(1).join(" ") || command.kind.replace(`${entity}-`, "");
 }

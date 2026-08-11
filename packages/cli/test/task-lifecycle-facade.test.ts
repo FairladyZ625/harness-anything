@@ -34,7 +34,7 @@ test("lifecycle facade derives its five write commands from the W1 catalog", () 
 
 test("four lifecycle write facades expose actionable help", () => {
   assert.match(renderTaskLifecycleHelp("start"), /Usage: ha task start <task-id> --execution-id <execution-id>/u);
-  assert.match(renderTaskLifecycleHelp("submit"), /--lease-token.*--commit-sha/u);
+  assert.match(renderTaskLifecycleHelp("submit"), /--lease-credential.*--commit-sha/u);
   assert.match(renderTaskLifecycleHelp("review-execution"), /--anti-entropy-token.*--anti-entropy-report/u);
   assert.match(renderTaskLifecycleHelp("complete"), /--execution-id <submitted-execution-id>/u);
 });
@@ -79,6 +79,43 @@ test("task start is one StartExecution host call and cannot enter review", async
 
   assert.equal(received.length, 1);
   assert.equal((received[0] as { command: { type: string } }).command.type, "StartExecution");
+});
+
+test("task start accepts the one-time credential only on an applied receipt", async () => {
+  const parsed = parseTaskLifecycleArgs(["task", "start", "task_LEASE", "--execution-id", "exe_LEASE"]);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  const applied = await runTaskLifecycleFacade(parsed.value, {
+    actor,
+    service: {
+      execute: async (input) => ({
+        outcome: "applied",
+        opId: input.command.opId,
+        revision: 2,
+        leaseCredential: "shown-once",
+        leaseExpiry: "2026-08-11T01:00:00.000Z",
+        nextAction: "Save it; submit requires it."
+      }),
+      show: async () => ({ outcome: "applied", evidence: "unused" })
+    }
+  });
+  assert.equal(applied.leaseCredential, "shown-once");
+
+  const invalid = await runTaskLifecycleFacade(parsed.value, {
+    actor,
+    service: {
+      execute: async (input) => ({
+        outcome: "pending",
+        opId: input.command.opId,
+        leaseCredential: "must-not-escape",
+        leaseExpiry: "2026-08-11T01:00:00.000Z"
+      }),
+      show: async () => ({ outcome: "applied", evidence: "unused" })
+    }
+  });
+  assert.equal(invalid.outcome, "rejected");
+  assert.equal(invalid.code, "service_rejected");
+  assert.equal(invalid.leaseCredential, undefined);
 });
 
 test("task show uses only the projection read port", async () => {

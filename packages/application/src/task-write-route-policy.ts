@@ -67,20 +67,11 @@ export const taskWriteApiRoutePolicies = [
 ] as const satisfies ReadonlyArray<TaskWriteApiRoutePolicy>;
 
 export const taskWriteCliRoutePolicies = [
-  { actionKind: "new-task", leaseRequired: true, commandClass: "repo-write" },
-  { actionKind: "status-set", leaseRequired: true, commandClass: "arbiter" },
-  { actionKind: "progress-append", leaseRequired: true, commandClass: "repo-write" },
-  { actionKind: "task-amend", leaseRequired: false, commandClass: "repo-write" },
-  { actionKind: "task-archive", leaseRequired: true, commandClass: "repo-write" },
-  { actionKind: "task-claim", leaseRequired: false, commandClass: "repo-write" },
-  { actionKind: "task-code-doc-reconcile", leaseRequired: true, commandClass: "repo-write" },
-  { actionKind: "task-complete", leaseRequired: true, commandClass: "arbiter" },
-  { actionKind: "task-delete", leaseRequired: true, commandClass: "repo-write" },
-  { actionKind: "task-relate", leaseRequired: false, commandClass: "repo-write" },
-  { actionKind: "task-release", leaseRequired: false, commandClass: "repo-write" },
-  { actionKind: "task-reopen", leaseRequired: true, commandClass: "repo-write" },
-  { actionKind: "task-review", leaseRequired: true, commandClass: "arbiter" },
-  { actionKind: "task-supersede", leaseRequired: true, commandClass: "repo-write" }
+  { actionKind: "task-create", leaseRequired: false, commandClass: "repo-write" },
+  { actionKind: "task-start", leaseRequired: false, commandClass: "repo-write" },
+  { actionKind: "task-submit", leaseRequired: true, commandClass: "repo-write" },
+  { actionKind: "task-review-execution", leaseRequired: false, commandClass: "arbiter" },
+  { actionKind: "task-complete", leaseRequired: false, commandClass: "arbiter" },
 ] as const satisfies ReadonlyArray<TaskWriteCliRoutePolicy>;
 
 export function taskWriteCliRoutePolicy(actionKind: string): TaskWriteCliRoutePolicy | undefined {

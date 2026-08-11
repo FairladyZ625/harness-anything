@@ -9,17 +9,11 @@ const conflictMarkerPreflightByKind = commandSpecMap((entry) => entry.eventPolic
 const runtimeEventPolicyByKind = commandSpecMap((entry) => entry.eventPolicy.runtimeEvent) satisfies Record<CommandKind, RuntimeEventPolicy>;
 
 const taskPrincipalRequiredKinds = new Set<CommandKind>([
-  "status-set",
-  "task-archive",
-  "task-claim",
-  "task-code-doc-reconcile",
+  "task-create",
+  "task-start",
+  "task-submit",
   "task-complete",
-  "task-delete",
-  "task-release",
-  "task-reopen",
-  "task-review",
-  "task-review-execution",
-  "task-supersede"
+  "task-review-execution"
 ]);
 
 export function requiresConflictMarkerPreflight(action: ParsedCommand["action"] | CommandKind): boolean {

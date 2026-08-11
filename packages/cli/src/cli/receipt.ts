@@ -187,8 +187,6 @@ function classifyPrimaryPath(command: string, paths: Record<string, string>, val
   if (typeof value !== "string" || value.length === 0) return;
   const keyByCommand: Record<string, string> = {
     init: "config",
-    "progress-append": "progress",
-    "task-supersede": "replacement",
     "migrate-run": "session",
     "legacy-intake-plan": "plan",
     "legacy-index": "index",
@@ -201,21 +199,10 @@ function classifyPrimaryPath(command: string, paths: Record<string, string>, val
 function summarizeResult(raw: Record<string, unknown>): string {
   const command = typeof raw.command === "string" ? raw.command : "unknown";
   const taskId = typeof raw.taskId === "string" ? raw.taskId : undefined;
-  const status = typeof raw.status === "string" ? raw.status : undefined;
-  const packagePath = typeof raw.packagePath === "string" ? raw.packagePath : undefined;
   const path = typeof raw.path === "string" ? raw.path : undefined;
   const rows = typeof raw.rows === "number" ? raw.rows : undefined;
   const version = typeof raw.version === "string" ? raw.version : undefined;
 
-  if (command === "new-task" && taskId && packagePath) {
-    const report = raw.report;
-    const dryRun = report && typeof report === "object" && !Array.isArray(report)
-      ? (report as { readonly dryRun?: unknown }).dryRun === true
-      : false;
-    return dryRun ? `would create task ${taskId} at ${packagePath}` : `created task ${taskId} at ${packagePath}`;
-  }
-  if (command === "status-set" && taskId && status) return `set task ${taskId} to ${status}`;
-  if (command === "progress-append" && taskId) return `appended progress for ${taskId}`;
   if (command === "init" && path) return initSummary(path, raw.report);
   if (command === "version" && version) return `resolved CLI version ${version}`;
   if (command === "help") return "rendered CLI help";
@@ -238,8 +225,6 @@ function initSummary(path: string, report: unknown): string {
 
 function displayCommand(command: string): { readonly command: string; readonly entity?: string; readonly action: string } {
   const explicit: Record<string, string> = {
-    "new-task": "task create",
-    "status-set": "task transition",
     "record-fact": "fact record",
     "distill-commit": "distill promote",
     "runtime-event-append": "event append",

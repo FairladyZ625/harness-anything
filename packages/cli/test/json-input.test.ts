@@ -54,15 +54,14 @@ test("parseArgs passes structured task create input without argv conversion", ()
     "task",
     "create",
     "--json-input",
-    JSON.stringify({ title: "Structured task", workKind: "fix", riskTier: "high", urgency: "medium", dryRun: true })
+    JSON.stringify({ title: "Structured task", taskId: "task_STRUCTURED", completionGate: ["G10"] })
   ]);
 
   assert.equal(parsed.ok, true);
-  if (!parsed.ok || parsed.value.action.kind !== "new-task") return;
+  if (!parsed.ok || parsed.value.action.kind !== "task-create") return;
   assert.equal(parsed.value.action.title, "Structured task");
-  assert.equal(parsed.value.action.workKind, "fix");
-  assert.equal(parsed.value.action.riskTier, "high");
-  assert.equal(parsed.value.action.dryRun, true);
+  assert.equal(parsed.value.action.taskId, "task_STRUCTURED");
+  assert.deepEqual(parsed.value.action.completionGateIds, ["G10"]);
 });
 
 test("parseArgs passes structured runtime event input without argv conversion", () => {
@@ -85,7 +84,7 @@ test("parseArgs reads task and runtime structured input from actual files", () =
   try {
     const taskPath = path.join(tempDir, "task.json");
     const eventPath = path.join(tempDir, "event.json");
-    writeFileSync(taskPath, JSON.stringify({ title: "Task from file", workKind: "fix", dryRun: true }), "utf8");
+    writeFileSync(taskPath, JSON.stringify({ title: "Task from file", completionGate: [] }), "utf8");
     writeFileSync(eventPath, JSON.stringify({ sessionId: "session-from-file", eventKind: "cost", totalTokens: 7 }), "utf8");
 
     const task = parseArgs(["task", "create", "--from-file", taskPath]);
@@ -93,7 +92,7 @@ test("parseArgs reads task and runtime structured input from actual files", () =
 
     assert.equal(task.ok, true);
     assert.equal(event.ok, true);
-    if (!task.ok || !event.ok || task.value.action.kind !== "new-task" || event.value.action.kind !== "runtime-event-append") return;
+    if (!task.ok || !event.ok || task.value.action.kind !== "task-create" || event.value.action.kind !== "runtime-event-append") return;
     assert.equal(task.value.action.title, "Task from file");
     assert.equal(event.value.action.sessionId, "session-from-file");
     assert.equal(event.value.action.totalTokens, 7);

@@ -283,7 +283,10 @@ function assertPresetScriptImportsStayInsidePackage(presetRoot: string, command:
 }
 
 function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {
-  const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], { encoding: "utf8" });
+  const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
+    encoding: "utf8",
+    env: { ...process.env, HARNESS_USER_HOME: path.join(rootDir, ".isolated-user-home") }
+  });
   return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
 }
 

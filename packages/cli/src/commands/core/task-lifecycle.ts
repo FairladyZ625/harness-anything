@@ -10,6 +10,8 @@ import type {
   SubmitExecutionCommand,
   TaskLifecycleCommandType
 } from "../../../../kernel/src/index.ts";
+import type { TaskLifecycleCliAction } from "../../cli/types.ts";
+export type { TaskLifecycleCliAction } from "../../cli/types.ts";
 
 type ClientMeta = "eventId" | "workspaceRevision" | "occurredAt";
 type ClientCommand =
@@ -20,12 +22,14 @@ export interface TaskLifecycleReceipt {
   readonly outcome: "applied" | "pending" | "indeterminate" | "rejected";
   readonly opId?: string; readonly revision?: number; readonly code?: string;
   readonly origin?: string; readonly nextAction?: string; readonly evidence?: string;
+  readonly leaseCredential?: string; readonly leaseExpiry?: string;
 }
 
 export interface TaskLifecycleServiceInput {
   readonly command: ClientCommand;
   readonly credential?: string;
   readonly capabilityRef?: string;
+  readonly gateReceipts?: readonly { readonly gateId: string; readonly receiptRef: string }[];
 }
 
 export interface TaskLifecycleServicePort {
@@ -33,48 +37,11 @@ export interface TaskLifecycleServicePort {
   readonly show: (input: { readonly taskId: string }) => Promise<TaskLifecycleReceipt>;
 }
 
-interface CreateAction { readonly verb: "create"; readonly commandType: "CreateReplayTask"; readonly taskId?: string; readonly title: string; readonly completionGateIds: readonly string[] }
-interface StartAction { readonly verb: "start"; readonly commandType: "StartExecution"; readonly taskId: string; readonly executionId: string }
-interface SubmitAction {
-  readonly verb: "submit";
-  readonly commandType: "SubmitExecution";
-  readonly taskId: string;
-  readonly executionId: string;
-  readonly leaseToken: string;
-  readonly claim: string;
-  readonly deliverables: readonly string[];
-  readonly evidenceRefs: readonly string[];
-  readonly verification: readonly string[];
-  readonly knownGaps: readonly string[];
-  readonly residualRisks: readonly string[];
-  readonly commitSha: string;
-}
-interface AntiEntropyReviewAction {
-  readonly verb: "review-execution";
-  readonly commandType: "RecordReview";
-  readonly taskId: string;
-  readonly executionId: string;
-  readonly antiEntropyToken: string;
-  readonly antiEntropyReport: string;
-}
-interface AcceptanceReviewAction {
-  readonly verb: "review-execution";
-  readonly commandType: "RecordReview";
-  readonly taskId: string;
-  readonly executionId: string;
-  readonly reviewId: string;
-  readonly kind: "acceptance";
-  readonly verdict: "approved" | "dismissed";
-  readonly reason: string;
-  readonly evidenceChecked: readonly string[];
-  readonly commitSha: string;
-  readonly iteration: 0 | 1;
-  readonly archiveWarningsAcknowledged: boolean;
-}
-type ReviewAction = AntiEntropyReviewAction | AcceptanceReviewAction;
-interface CompleteAction { readonly verb: "complete"; readonly commandType: "CompleteTask"; readonly taskId: string; readonly executionId: string }
-interface ShowAction { readonly verb: "show"; readonly taskId: string }
-export type TaskLifecycleCliAction = CreateAction | StartAction | SubmitAction | ReviewAction | CompleteAction | ShowAction;
+type ShowAction = Extract<TaskLifecycleCliAction, { readonly verb: "show" }>;
+type AntiEntropyReviewAction = Extract<TaskLifecycleCliAction, { readonly antiEntropyToken: string }>;
+type ReviewAction = Extract<TaskLifecycleCliAction, { readonly verb: "review-execution" }>;
+type SubmitAction = Extract<TaskLifecycleCliAction, { readonly verb: "submit" }>;
+type CompleteAction = Extract<TaskLifecycleCliAction, { readonly verb: "complete" }>;
 
 export type TaskLifecycleParseResult =
   | { readonly ok: true; readonly value: TaskLifecycleCliAction }
@@ -93,9 +60,9 @@ export const TASK_LIFECYCLE_CLI_COMMANDS = Object.freeze(
 const writeCommandByVerb = new Map<string, TaskLifecycleCommandType>(TASK_LIFECYCLE_CLI_COMMANDS.map((entry) => [entry.verb, entry.commandType]));
 const helpByVerb = Object.freeze({
   start: "Usage: ha task start <task-id> --execution-id <execution-id>",
-  submit: "Usage: ha task submit <task-id> --execution-id <execution-id> --lease-token <token> --claim <text> --commit-sha <40-sha> [--deliverable <text>]... [--evidence-ref <ref>]... [--verification <text>]... [--known-gap <text>]... [--residual-risk <text>]...",
+  submit: "Usage: ha task submit <task-id> --execution-id <execution-id> --lease-credential <credential> --claim <text> --commit-sha <40-sha> [--deliverable <text>]... [--evidence-ref <ref>]... [--verification <text>]... [--known-gap <text>]... [--residual-risk <text>]...",
   "review-execution": "Usage: ha task review-execution <task-id> --execution-id <execution-id> (--anti-entropy-token <token> --anti-entropy-report <path> | --kind acceptance --verdict approved|dismissed --review-id <id> --reason <text> --commit-sha <40-sha> --iteration 0|1)",
-  complete: "Usage: ha task complete <task-id> --execution-id <submitted-execution-id>"
+  complete: "Usage: ha task complete <task-id> --execution-id <submitted-execution-id> [--gate-receipt <gate-id>:<receipt-ref>]..."
 });
 export function renderTaskLifecycleHelp(verb: keyof typeof helpByVerb): string {
   if (!writeCommandByVerb.has(verb)) throw new Error(`Lifecycle command ${verb} is absent from TASK_LIFECYCLE_COMMAND_CATALOG.`);
@@ -107,7 +74,7 @@ export function parseTaskLifecycleArgs(args: readonly string[]): TaskLifecyclePa
   const verb = args[1];
   if (verb === "show") {
     return args.length === 3 && nonEmpty(args[2])
-      ? { ok: true, value: { verb, taskId: args[2] } }
+      ? { ok: true, value: { kind: "task-show", verb, taskId: args[2] } }
       : rejected("invalid_command", "Run `ha task show <task-id>`." );
   }
   const commandType = writeCommandByVerb.get(verb ?? "");
@@ -119,6 +86,7 @@ export function parseTaskLifecycleArgs(args: readonly string[]): TaskLifecyclePa
     if (!nonEmpty(title)) return rejected("missing_field", "Add `--title <title>` to create a replay/v1 task." );
     const taskId = parsed.single.get("--task-id");
     return { ok: true, value: {
+      kind: "task-create",
       verb,
       commandType: commandType as "CreateReplayTask",
       ...(taskId ? { taskId } : {}),
@@ -133,30 +101,31 @@ export function parseTaskLifecycleArgs(args: readonly string[]): TaskLifecyclePa
     if (!parsed.ok) return parsed;
     const executionId = parsed.single.get("--execution-id");
     if (!nonEmpty(executionId)) return rejected("missing_field", "Add `--execution-id <execution-id>`; start creates exactly that Execution." );
-    return { ok: true, value: { verb, commandType: commandType as "StartExecution", taskId, executionId } };
+    return { ok: true, value: { kind: "task-start", verb, commandType: commandType as "StartExecution", taskId, executionId } };
   }
   if (verb === "submit") {
     const parsed = flags(
       args.slice(3),
-      new Set(["--execution-id", "--lease-token", "--claim", "--commit-sha"]),
+      new Set(["--execution-id", "--lease-credential", "--claim", "--commit-sha"]),
       new Set(["--deliverable", "--evidence-ref", "--verification", "--known-gap", "--residual-risk"])
     );
     if (!parsed.ok) return parsed;
     const executionId = parsed.single.get("--execution-id");
-    const leaseToken = parsed.single.get("--lease-token");
+    const leaseCredential = parsed.single.get("--lease-credential");
     const claim = parsed.single.get("--claim");
     const commitSha = parsed.single.get("--commit-sha");
     if (!nonEmpty(executionId)) return rejected("missing_field", "Add `--execution-id <value>`; run `ha task submit --help`." );
-    if (!nonEmpty(leaseToken)) return rejected("missing_field", "Add `--lease-token <value>`; run `ha task submit --help`." );
+    if (!nonEmpty(leaseCredential)) return rejected("missing_field", "Add `--lease-credential <value>`; use the one-time credential returned by `ha task start`." );
     if (!nonEmpty(claim)) return rejected("missing_field", "Add `--claim <value>`; run `ha task submit --help`." );
     if (!nonEmpty(commitSha)) return rejected("missing_field", "Add `--commit-sha <value>`; run `ha task submit --help`." );
     if (!/^[0-9a-f]{40}$/u.test(commitSha)) return rejected("invalid_field", "Use `--commit-sha` with the full lowercase 40-character code commit SHA." );
     return { ok: true, value: {
+      kind: "task-submit",
       verb,
       commandType: commandType as "SubmitExecution",
       taskId,
       executionId,
-      leaseToken,
+      leaseCredential,
       claim,
       deliverables: parsed.repeated.get("--deliverable") ?? [],
       evidenceRefs: parsed.repeated.get("--evidence-ref") ?? [],
@@ -194,12 +163,13 @@ export function parseTaskLifecycleArgs(args: readonly string[]): TaskLifecyclePa
       if (!/^[0-9a-f]{40}$/u.test(commitSha)) return rejected("invalid_field", "Use `--commit-sha` with the full lowercase 40-character submitted commit SHA." );
       if (iteration !== 0 && iteration !== 1) return rejected("invalid_field", "Use `--iteration 0` or `--iteration 1` for the current Task round." );
       return { ok: true, value: {
+        kind: "task-review-execution",
         verb,
         commandType: commandType as "RecordReview",
         taskId,
         executionId,
         reviewId,
-        kind,
+        reviewKind: kind,
         verdict,
         reason,
         evidenceChecked: parsed.repeated.get("--evidence-checked") ?? [],
@@ -214,6 +184,7 @@ export function parseTaskLifecycleArgs(args: readonly string[]): TaskLifecyclePa
       return rejected("missing_field", "Anti-entropy review requires --execution-id, --anti-entropy-token, and --anti-entropy-report; run `ha task review-execution --help`." );
     }
     return { ok: true, value: {
+      kind: "task-review-execution",
       verb,
       commandType: commandType as "RecordReview",
       taskId,
@@ -223,13 +194,21 @@ export function parseTaskLifecycleArgs(args: readonly string[]): TaskLifecyclePa
     } };
   }
   if (verb === "complete") {
-    const parsed = flags(args.slice(3), new Set(["--execution-id"]));
+    const parsed = flags(args.slice(3), new Set(["--execution-id"]), new Set(["--gate-receipt"]));
     if (!parsed.ok) return parsed;
     const executionId = parsed.single.get("--execution-id");
     if (!nonEmpty(executionId)) return rejected("missing_field", "Add `--execution-id <submitted-execution-id>`; complete never guesses a round." );
-    return { ok: true, value: { verb, commandType: commandType as "CompleteTask", taskId, executionId } };
+    const gateReceipts: { gateId: string; receiptRef: string }[] = [];
+    for (const raw of parsed.repeated.get("--gate-receipt") ?? []) {
+      const separator = raw.indexOf(":");
+      const gateId = raw.slice(0, separator).trim();
+      const receiptRef = raw.slice(separator + 1).trim();
+      if (separator <= 0 || !nonEmpty(gateId) || !nonEmpty(receiptRef)) return rejected("invalid_field", "Use `--gate-receipt <gate-id>:<receipt-ref>` with both values present." );
+      gateReceipts.push({ gateId, receiptRef });
+    }
+    return { ok: true, value: { kind: "task-complete", verb, commandType: commandType as "CompleteTask", taskId, executionId, gateReceipts } };
   }
-  return { ok: true, value: { verb, commandType, taskId } as SubmitAction | ReviewAction | CompleteAction };
+  return { ok: true, value: { kind: `task-${verb}`, verb, commandType, taskId } as SubmitAction | ReviewAction | CompleteAction };
 }
 
 export interface TaskLifecycleFacadeDependencies {
@@ -293,7 +272,7 @@ async function buildServiceInput(action: Exclude<TaskLifecycleCliAction, ShowAct
           commitSha: action.commitSha
         }
       },
-      credential: action.leaseToken
+      credential: action.leaseCredential
     };
   }
   if (action.verb === "review-execution") {
@@ -305,7 +284,7 @@ async function buildServiceInput(action: Exclude<TaskLifecycleCliAction, ShowAct
       opId,
       executionId: action.executionId,
       reviewId: action.reviewId,
-      kind: action.kind,
+      kind: action.reviewKind,
       verdict: action.verdict,
       actorRole: "acceptance",
       reason: action.reason,
@@ -316,13 +295,16 @@ async function buildServiceInput(action: Exclude<TaskLifecycleCliAction, ShowAct
     } };
   }
   if (action.verb === "complete") {
-    return { command: { type: action.commandType, taskId: action.taskId, actor, opId, executionId: action.executionId } };
+    return {
+      command: { type: action.commandType, taskId: action.taskId, actor, opId, executionId: action.executionId },
+      gateReceipts: action.gateReceipts
+    };
   }
   throw Object.assign(new Error("Lifecycle input is incomplete; run the command with --help."), { code: "invalid_command" });
 }
 
 function operationId(action: TaskLifecycleCliAction, actor: ActorAxes): string {
-  const intent = action.verb === "submit" ? { ...action, leaseToken: undefined }
+  const intent = action.verb === "submit" ? { ...action, leaseCredential: undefined }
     : action.verb === "review-execution" && "antiEntropyToken" in action ? { ...action, antiEntropyToken: undefined, antiEntropyReport: undefined }
     : action;
   const payload = action.verb === "show" ? intent : { ...intent, actor };
@@ -375,11 +357,14 @@ function errorOrigin(error: unknown): string {
   return typeof error === "object" && error !== null && "origin" in error && typeof error.origin === "string" ? error.origin : "task-lifecycle-cli";
 }
 
-async function validateReceipt(receipt: TaskLifecycleReceipt): Promise<TaskLifecycleReceipt> {
-  const allowed = new Set(["outcome", "opId", "revision", "code", "origin", "nextAction", "evidence"]);
+function validateReceipt(receipt: TaskLifecycleReceipt): TaskLifecycleReceipt {
+  const allowed = new Set(["outcome", "opId", "revision", "code", "origin", "nextAction", "evidence", "leaseCredential", "leaseExpiry"]);
   if (typeof receipt !== "object" || receipt === null || !["applied", "pending", "indeterminate", "rejected"].includes(receipt.outcome)
     || Object.keys(receipt).some((key) => !allowed.has(key)) || (receipt.revision !== undefined && (!Number.isInteger(receipt.revision) || receipt.revision < 0))) throw new Error("invalid G04 receipt shape");
-  for (const key of ["opId", "code", "origin", "nextAction", "evidence"] as const) if (receipt[key] !== undefined && !nonEmpty(receipt[key])) throw new Error(`invalid G04 receipt ${key}`);
+  for (const key of ["opId", "code", "origin", "nextAction", "evidence", "leaseCredential", "leaseExpiry"] as const) if (receipt[key] !== undefined && !nonEmpty(receipt[key])) throw new Error(`invalid G04 receipt ${key}`);
+  const hasCredential = receipt.leaseCredential !== undefined;
+  const hasExpiry = receipt.leaseExpiry !== undefined;
+  if (hasCredential !== hasExpiry || hasCredential && (receipt.outcome !== "applied" || Number.isNaN(Date.parse(receipt.leaseExpiry!)))) throw new Error("invalid G04 lease credential receipt");
   if (["indeterminate", "rejected"].includes(receipt.outcome) && ![receipt.opId, receipt.code, receipt.origin, receipt.nextAction].every(nonEmpty)) throw new Error(`invalid G04 ${receipt.outcome} receipt recovery fields`);
   return Object.freeze({ ...receipt });
 }

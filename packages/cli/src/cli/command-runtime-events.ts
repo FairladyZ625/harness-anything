@@ -59,7 +59,7 @@ function eventEntityRefs(
   const taskId = result.taskId ?? actionTaskId(action);
   const decisionId = result.decisionId ?? ("decisionId" in action ? action.decisionId : undefined);
   const factRef = result.factRef;
-  const executionId = result.executionId ?? ("executionSubmission" in action ? action.executionSubmission?.executionId : undefined);
+  const executionId = result.executionId;
   return {
     ...(taskId ? { taskId } : {}),
     ...(executionId ? { executionId } : {}),

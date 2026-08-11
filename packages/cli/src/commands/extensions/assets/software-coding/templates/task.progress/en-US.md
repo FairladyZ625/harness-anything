@@ -1,6 +1,6 @@
 # Progress
 
-Progress must be recorded with `ha task progress append ... --evidence type:PATH:summary`; do not leave only template content. Progress is the timeline, not the fact ledger. Load-bearing observations must also be recorded with `ha fact record --task <task-id> ...` into `facts.md`.
+Record delivery progress when submitting the active Execution with repeatable `ha task submit <task-id> --execution-id <execution-id> --lease-credential <saved-credential> --claim "..." --commit-sha <sha> --deliverable "..." --evidence-ref <ref> --verification "..."` inputs. There is no standalone task-progress write command. Load-bearing observations must still be promoted with `ha fact record --task <task-id> ...`.
 
 ## Log
 

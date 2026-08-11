@@ -199,7 +199,8 @@ export function runRegisteredCommand(
       } satisfies CliResult);
     }
   }
-  return runner(context, command).pipe(
+  const commandEffect: CommandRunnerEffect = runner(context, command);
+  return commandEffect.pipe(
     Effect.catchAll((error) => Effect.succeed({
       ok: false,
       command: command.action.kind,

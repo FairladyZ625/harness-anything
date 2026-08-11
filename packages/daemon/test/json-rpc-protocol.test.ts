@@ -470,7 +470,7 @@ test("runtime event append receives the validated repo namespace", async () => {
           ok: true,
           schema: "command-receipt/v2",
           command: context?.repo?.repoId ?? "missing",
-          action: "new-task",
+          action: "task-create",
           summary: "created task",
           details: {},
           meta: { generatedAt: "2026-07-07T00:00:00.000Z", compatibility: { legacyReceipt: "CommandReceipt/v1" } }
@@ -480,7 +480,7 @@ test("runtime event append receives the validated repo namespace", async () => {
   });
   await server.handle(readFixture("hello-compatible.json"));
 
-  const response = await server.handle(commandRunRequest("new-task", "repo-event"));
+  const response = await server.handle(commandRunRequest("task-create", "repo-event"));
   const receipt = resultReceipt(response);
 
   assert.equal(receipt.ok, true);
@@ -524,14 +524,14 @@ test("repo.command.run derives RBAC from the inner CLI command", async () => {
 
   const readReceipt = resultReceipt(await server.handle(commandRunRequest("version", "rbac-read")));
   assert.equal(readReceipt.ok, true);
-  const writeReceipt = resultReceipt(await server.handle(commandRunRequest("new-task", "rbac-write")));
+  const writeReceipt = resultReceipt(await server.handle(commandRunRequest("task-create", "rbac-write")));
   assert.equal(writeReceipt.ok, true);
 
   const arbiterReceipt = resultReceipt(await server.handle(commandRunRequest("decision-accept", "rbac-arbiter")));
   assert.equal(arbiterReceipt.ok, false);
   assert.equal(arbiterReceipt.error?.code, "rbac_forbidden");
   assert.equal(arbiterReceipt.details.commandClass, "arbiter");
-  assert.deepEqual(calls, ["version", "new-task"]);
+  assert.deepEqual(calls, ["version", "task-create"]);
 });
 
 function makeServer(overrides: Partial<Parameters<typeof createJsonRpcProtocolServer>[0]> = {}) {

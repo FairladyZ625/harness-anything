@@ -15,7 +15,7 @@ const actor = {
 const argv = [
   "task", "submit", "task_TYPED",
   "--execution-id", "exe_TYPED",
-  "--lease-token", "lease-secret",
+  "--lease-credential", "lease-secret",
   "--claim", "The typed submission is ready for review.",
   "--deliverable", "typed task-submit",
   "--evidence-ref", "artifact:integration",

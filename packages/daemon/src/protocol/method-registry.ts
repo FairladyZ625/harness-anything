@@ -229,11 +229,9 @@ const repoReadCliActionKinds = new Set<string>([
   "session-trace",
   "snapshot-multica",
   "status",
-  "task-holder",
   "task-list",
   "task-show",
   "task-trace",
-  "task-tree",
   "template-list",
   "template-render",
   "vertical-validate",
@@ -292,7 +290,6 @@ const arbiterCliActionKinds = new Set<string>([
   "decision-reject",
   "decision-retire",
   "decision-supersede",
-  "task-review-execution",
 ]);
 
 export const repoCommandRunClassifiedActionKinds = [

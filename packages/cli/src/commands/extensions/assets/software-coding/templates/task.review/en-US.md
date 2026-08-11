@@ -2,7 +2,7 @@
 
 Status: not-started
 
-Record the actual review result before closeout; initial not-started with no findings blocks legacy `ha task complete`. An Execution Review produces `approved`, `changes_requested`, or `dismissed`, not a decision primitive. If review exposes a load-bearing route choice, run `ha decision propose ...` (ADR-0027 D5).
+Record the actual review result before completion; `ha task complete` rejects an Execution that has not passed the required reviews. An Execution Review produces `approved`, `changes_requested`, or `dismissed`, not a decision primitive. If review exposes a load-bearing route choice, run `ha decision propose ...` (ADR-0027 D5).
 
 For an Execution round, `review/v2` records the inspected `evidence_checked` IDs (possibly none), a non-empty semantic rationale, findings, and one of `approved`, `changes_requested`, or `dismissed`. Locator, digest, ownership, and checker-receipt checks are mechanical inputs, not a sufficiency verdict (dec_mrg3z1we/CH3-CH4; ADR-0027 D5-D6). Facts remain explicit `0..N` promotions; do not copy delivery Evidence into Facts to satisfy review.
 

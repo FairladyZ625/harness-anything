@@ -9,8 +9,9 @@ import { parseArgs } from "../src/cli/parse-args.ts";
 import { parserRegistry } from "../src/cli/parser-registry.ts";
 import { parseCoreTaskArgs } from "../src/cli/parsers/core-task.ts";
 import { parseVersionArgs } from "../src/cli/parsers/meta.ts";
+import { parseTaskLifecycleCommandArgs } from "../src/cli/parsers/task-lifecycle.ts";
 import { runInitCommand } from "../src/commands/core/init.ts";
-import { runTaskLifecycleCommand } from "../src/commands/core/task-lifecycle.ts";
+import { runTaskLifecycleFacadeCommand } from "../src/commands/core/task-lifecycle-host.ts";
 import { runVersionCommand } from "../src/commands/core/version.ts";
 import { requiresConflictMarkerPreflight } from "../src/cli/runner-registry.ts";
 import type { ParsedCommand } from "../src/cli/types.ts";
@@ -33,49 +34,12 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "init", argv: ["init"], kind: "init", fields: { addNpmScripts: false } },
   { name: "init add npm scripts", argv: ["init", "--add-npm-scripts"], kind: "init", fields: { addNpmScripts: true } },
   { name: "init project name", argv: ["init", "--name", "human-kernel"], kind: "init", fields: { projectName: "human-kernel" } },
-  {
-    name: "new-task preset task",
-    argv: ["task", "create", "--title", "Parser Task", "--parent", "task_parent", "--kind", "feat", "--risk-tier", "high", "--urgency", "medium", "--vertical", "software/coding", "--preset", "standard-task", "--profile", "baseline", "--module", "billing", "--long-running", "--locale", "en-US"],
-    kind: "new-task",
-    fields: { title: "Parser Task", parent: "task_parent", slug: "parser-task", workKind: "feat", riskTier: "high", urgency: "medium", vertical: "software/coding", preset: "standard-task", profile: "baseline", moduleKey: "billing", allowManualId: false, longRunning: true, locale: "en-US" }
-  },
-  {
-    name: "new-task register module dry run",
-    argv: ["task", "create", "--title", "Parser Task", "--register-module", "billing", "--module-title", "Billing", "--module-prefix", "BILL", "--module-scope", "packages/billing/**", "--dry-run"],
-    kind: "new-task",
-    fields: { registerModule: { key: "billing", title: "Billing", prefix: "BILL", scope: "packages/billing/**" }, moduleKey: "billing", dryRun: true }
-  },
-  {
-    name: "new-task legacy rebuild",
-    argv: ["task", "create", "--from-legacy", "legacy-1"],
-    kind: "new-task",
-    fields: { title: "Untitled task", fromLegacyId: "legacy-1", allowManualId: false }
-  },
-  { name: "task claim", argv: ["task", "claim", "task_1", "--ttl-ms", "60000"], kind: "task-claim", fields: { taskId: "task_1", ttlMs: 60000 } },
-  { name: "task holder", argv: ["task", "holder", "task_1"], kind: "task-holder", fields: { taskId: "task_1" } },
-  { name: "task release", argv: ["task", "release", "task_1"], kind: "task-release", fields: { taskId: "task_1" } },
-  {
-    name: "status set forced",
-    argv: ["task", "transition", "task_1", "done", "--force", "--reason", "verified"],
-    kind: "status-set",
-    fields: { taskId: "task_1", status: "done", force: true, reason: "verified" }
-  },
-  { name: "progress append repeated evidence", argv: ["task", "progress", "append", "task_1", "--text", "hello", "--evidence", "log:artifacts/run.log:passed", "--evidence", "test:artifacts/unit.log:green"], kind: "progress-append", fields: { taskId: "task_1", text: "hello", evidence: [{ type: "log", path: "artifacts/run.log", summary: "passed" }, { type: "test", path: "artifacts/unit.log", summary: "green" }] } },
-  { name: "task amend", argv: ["task", "amend", "task_1", "--set", "taskClass:milestone"], kind: "task-amend", fields: { taskId: "task_1", patches: [{ field: "taskClass", value: "milestone" }] } },
-  { name: "task archive", argv: ["task", "archive", "task_1", "--reason", "done", "--archived-by", "alice", "--archive-field", "packageDisposition"], kind: "task-archive", fields: { taskId: "task_1", reason: "done", archivedBy: "alice", archiveField: "packageDisposition" } },
-  { name: "task archive ids", argv: ["task", "archive", "--ids", "task_1,task_2", "--reason", "done"], kind: "task-archive", fields: { ids: ["task_1", "task_2"], reason: "done" } },
-  { name: "task archive filter before", argv: ["task", "archive", "--filter", "state:done", "--before", "2026-07-01", "--reason", "done"], kind: "task-archive", fields: { filter: "state:done", before: "2026-07-01", reason: "done" } },
-  { name: "task supersede", argv: ["task", "supersede", "task_old", "--title", "New Task", "--slug", "custom-slug", "--reason", "changed"], kind: "task-supersede", fields: { oldTaskId: "task_old", title: "New Task", slug: "custom-slug", reason: "changed", allowOpenFindings: false } },
-  { name: "task supersede by existing", argv: ["task", "supersede", "task_old", "--by", "task_new", "--confirm", "task_old", "--allow-open-findings", "--deleted-by", "alice"], kind: "task-supersede", fields: { oldTaskId: "task_old", byTaskId: "task_new", confirm: "task_old", allowOpenFindings: true, deletedBy: "alice" } },
-  { name: "task delete reason position", argv: ["task", "delete", "--hard", "--reason", "cleanup", "--confirm", "task_1", "--deleted-by", "alice", "task_1"], kind: "task-delete", fields: { taskId: "task_1", mode: "hard", reason: "cleanup", confirm: "task_1", deletedBy: "alice" } },
-  { name: "task delete skips option values before id", argv: ["task", "delete", "--soft", "--reason", "cleanup", "--deleted-by", "alice", "task_1"], kind: "task-delete", fields: { taskId: "task_1", mode: "soft", reason: "cleanup", deletedBy: "alice" } },
-  { name: "task reopen", argv: ["task", "reopen", "task_1", "--reason", "followup"], kind: "task-reopen", fields: { taskId: "task_1", reason: "followup" } },
-  { name: "task code-doc reconcile", argv: ["task", "code-doc", "reconcile", "task_1", "--commit", "0123456789abcdef0123456789abcdef01234567", "--path", "packages/cli/src/index.ts", "--path", "packages/application/src/index.ts", "--pr", "https://github.com/example/repo/pull/1", "--force"], kind: "task-code-doc-reconcile", fields: { taskId: "task_1", sha: "0123456789abcdef0123456789abcdef01234567", paths: ["packages/cli/src/index.ts", "packages/application/src/index.ts"], prRef: "https://github.com/example/repo/pull/1", force: true } },
-  { name: "task review", argv: ["task", "review", "task_1", "--reviewer", "alice"], kind: "task-review", fields: { taskId: "task_1", reviewerId: "alice" } },
-  { name: "task review execution", argv: ["task", "review-execution", "task_1", "--execution-id", "exe_1", "--verdict", "approved", "--findings", "ship it", "--evidence-checked", "ev_1", "--rationale", "Evidence supports approval", "--acknowledge-archive-warnings"], kind: "task-review-execution", fields: { taskId: "task_1", executionId: "exe_1", verdict: "approved", findings: "ship it", evidenceChecked: ["ev_1"], rationale: "Evidence supports approval", archiveWarningsAcknowledged: true } },
-  { name: "task complete", argv: ["task", "complete", "task_1", "--ci", "passed", "--reviewer", "alice"], kind: "task-complete", fields: { taskId: "task_1", ciGate: "passed", reviewerId: "alice" } },
+  { name: "task create", argv: ["task", "create", "--task-id", "task_1", "--title", "Parser Task", "--completion-gate", "G10"], kind: "task-create", fields: { taskId: "task_1", title: "Parser Task", completionGateIds: ["G10"] } },
+  { name: "task start", argv: ["task", "start", "task_1", "--execution-id", "exe_1"], kind: "task-start", fields: { taskId: "task_1", executionId: "exe_1" } },
+  { name: "task submit", argv: ["task", "submit", "task_1", "--execution-id", "exe_1", "--lease-credential", "secret", "--claim", "ready", "--commit-sha", "a".repeat(40)], kind: "task-submit", fields: { taskId: "task_1", executionId: "exe_1", leaseCredential: "secret", claim: "ready", commitSha: "a".repeat(40) } },
+  { name: "task review execution", argv: ["task", "review-execution", "task_1", "--execution-id", "exe_1", "--kind", "acceptance", "--verdict", "approved", "--review-id", "review_1", "--reason", "Evidence supports approval", "--commit-sha", "a".repeat(40), "--iteration", "0", "--evidence-checked", "ev_1", "--acknowledge-archive-warnings"], kind: "task-review-execution", fields: { taskId: "task_1", executionId: "exe_1", reviewKind: "acceptance", verdict: "approved", reviewId: "review_1", reason: "Evidence supports approval", evidenceChecked: ["ev_1"], archiveWarningsAcknowledged: true } },
+  { name: "task complete", argv: ["task", "complete", "task_1", "--execution-id", "exe_1", "--gate-receipt", "G10:receipt.json"], kind: "task-complete", fields: { taskId: "task_1", executionId: "exe_1", gateReceipts: [{ gateId: "G10", receiptRef: "receipt.json" }] } },
   { name: "task show", argv: ["task", "show", "task_1"], kind: "task-show", fields: { taskId: "task_1" } },
-  { name: "task tree", argv: ["task", "tree", "task_1"], kind: "task-tree", fields: { taskId: "task_1" } },
   { name: "task trace", argv: ["task", "trace", "task_1"], kind: "task-trace", fields: { taskId: "task_1" } },
   { name: "session show", argv: ["session", "show", "ses_1"], kind: "session-show", fields: { sessionId: "ses_1" } },
   { name: "session trace", argv: ["session", "trace", "ses_1"], kind: "session-trace", fields: { sessionId: "ses_1" } },
@@ -83,7 +47,6 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "execution list", argv: ["execution", "list", "--task", "task_1"], kind: "execution-list", fields: { taskId: "task_1" } },
   { name: "review show", argv: ["review", "show", "rev_1"], kind: "review-show", fields: { reviewId: "rev_1" } },
   { name: "audit provenance", argv: ["audit", "provenance", "--task", "task_1"], kind: "audit-provenance", fields: { taskId: "task_1" } },
-  { name: "task relate depends-on", argv: ["task", "relate", "task_1", "depends-on", "task_2", "--rationale", "needs output"], kind: "task-relate", fields: { sourceTaskId: "task_1", relationType: "depends-on", targetTaskId: "task_2", rationale: "needs output", dryRun: false } },
   { name: "relation list", argv: ["relation", "list", "--entity", "task/task_1", "--source", "task/task_1", "--target", "task/task_2", "--type", "depends-on", "--state", "active"], kind: "relation-list", fields: { filters: { entity: "task/task_1", source: "task/task_1", target: "task/task_2", type: "depends-on", state: "active" } } },
   {
     name: "decision propose",
@@ -234,10 +197,10 @@ test("parseArgs strips explicit authored root global override", () => {
 });
 
 test("parseArgs carries the explicit actor global flag without exposing it to command parsers", () => {
-  const parsed = parseArgs(["task", "claim", "task_1", "--actor", "human:person_zeyu"]);
+  const parsed = parseArgs(["task", "start", "task_1", "--execution-id", "exe_1", "--actor", "human:person_zeyu"]);
 
   assert.equal(parsed.ok, true);
-  assert.equal(parsed.ok && parsed.value.action.kind, "task-claim");
+  assert.equal(parsed.ok && parsed.value.action.kind, "task-start");
   assert.equal(parsed.ok && parsed.value.actor, "human:person_zeyu");
 });
 
@@ -288,14 +251,14 @@ test("command descriptor projections are derived from the command spec", () => {
 test("command specs can directly share parser and runner function references", () => {
   const version = commandSpecs.find((entry) => entry.kind === "version");
   const init = commandSpecs.find((entry) => entry.kind === "init");
-  const taskClaim = commandSpecs.find((entry) => entry.kind === "task-claim");
+  const taskStart = commandSpecs.find((entry) => entry.kind === "task-start");
 
   assert.equal(version?.parse, parseVersionArgs);
   assert.equal(version?.run, runVersionCommand);
   assert.equal(init?.parse, parseCoreTaskArgs);
   assert.equal(init?.run, runInitCommand);
-  assert.equal(taskClaim?.parse, init?.parse);
-  assert.equal(taskClaim?.run, runTaskLifecycleCommand);
+  assert.equal(taskStart?.parse, parseTaskLifecycleCommandArgs);
+  assert.equal(taskStart?.run, runTaskLifecycleFacadeCommand);
 });
 
 test("command specs own help option descriptions without a global fallback", () => {
@@ -396,7 +359,7 @@ for (const candidate of parseCases) {
 test("parseArgs pins stable parse error envelopes", () => {
   const cases = [
     { argv: ["template", "render", "template://planning/task@1", "--locale", "fr-FR"], code: "invalid_locale" },
-    { argv: ["task", "progress", "append", "task_1", "--text", "hello", "--evidence", "broken"], code: "invalid_evidence" },
+    { argv: ["task", "submit", "task_1", "--execution-id", "exe_1", "--claim", "ready", "--commit-sha", "a".repeat(40)], code: "invalid_task_metadata" },
     { argv: ["preset", "run", "standard-task", "deploy", "--task", "task_1"], code: "invalid_entrypoint" },
     { argv: ["module", "register", "billing", "--title", "Billing"], code: "missing_module_fields" },
     { argv: ["module-step", "billing", "T-1", "--state", "started"], code: "invalid_module_step_state" },
@@ -404,7 +367,7 @@ test("parseArgs pins stable parse error envelopes", () => {
     { argv: ["fact", "record", "--json-input", "{\"taskId\":\"task_1\"}", "--from-file", "input.json"], code: "invalid_json_input" },
     { argv: ["init", "--name"], code: "missing_name" },
     { argv: ["init", "--name", "--add-npm-scripts"], code: "missing_name" },
-    { argv: ["new-task"], code: "missing_title" },
+    { argv: ["task", "create"], code: "invalid_task_metadata" },
     { argv: ["unknown"], code: "unknown_command", hintIncludes: "harness-anything task create --title <title>" }
   ] as const;
 
@@ -433,12 +396,15 @@ test("parseArgs rejects invalid task metadata enum values", () => {
   assert.equal(invalidListUrgency.ok ? undefined : invalidListUrgency.error.code, "invalid_task_metadata");
 });
 
-test("parseArgs keeps deprecated command aliases during the E77/F6 transition", () => {
+test("parseArgs deletes replaced task aliases while retaining unrelated aliases", () => {
+  for (const argv of [
+    ["new-task", "--title", "Alias Task"],
+    ["task", "status", "set", "task_1", "active"],
+    ["task-review", "task_1"],
+    ["task-complete", "task_1"]
+  ]) assert.equal(parseArgs(argv).ok, false, argv.join(" "));
+
   const cases = [
-    { argv: ["new-task", "--title", "Alias Task"], kind: "new-task" },
-    { argv: ["task", "status", "set", "task_1", "active"], kind: "status-set" },
-    { argv: ["task-review", "task_1"], kind: "task-review" },
-    { argv: ["task-complete", "task_1", "--ci", "passed"], kind: "task-complete" },
     { argv: ["record", "fact", "--task", "task_1", "--statement", "Fact", "--source", "Fixture"], kind: "record-fact" },
     { argv: ["distill", "commit", "--task", "task_1", "--candidate", "candidate.json", "--claim", "Claim"], kind: "distill-commit" },
     { argv: ["runtime-event", "append", "--session", "s1", "--kind", "interrupt"], kind: "runtime-event-append" },
@@ -464,21 +430,12 @@ test("parseArgs keeps deprecated command aliases during the E77/F6 transition", 
   }
 });
 
-test("parseArgs preserves option values that look like flags for optional parsers", () => {
-  const parsed = parseArgs(["task", "progress", "append", "task_1", "--text", "--literal-value"]);
-
-  assert.equal(parsed.ok, true);
-  if (!parsed.ok) return;
-  assert.equal(parsed.value.action.kind, "progress-append");
-  assert.equal(parsed.value.action.text, "--literal-value");
-});
-
 test("parseArgs rejects flag-like tokens for required value options", () => {
-  const parsed = parseArgs(["new-task", "--title", "Parser Task", "--vertical", "--preset", "standard-task"]);
+  const parsed = parseArgs(["task", "create", "--title", "--completion-gate", "G10"]);
 
   assert.equal(parsed.ok, false);
   if (parsed.ok) return;
-  assert.equal(parsed.error.code, "missing_vertical");
+  assert.equal(parsed.error.code, "invalid_task_metadata");
 });
 
 test("parseArgs treats empty argv and help flags as help", () => {
@@ -492,11 +449,9 @@ test("parseArgs treats empty argv and help flags as help", () => {
 
 test("parseArgs handles command-level help before command parsers", () => {
   const cases = [
-    { argv: ["new-task", "--help"], commandKind: "new-task" },
-    { argv: ["new-task", "-h"], commandKind: "new-task" },
-    { argv: ["help", "new-task"], commandKind: "new-task" },
-    { argv: ["task", "transition", "--help"], commandKind: "status-set" },
-    { argv: ["task", "status", "set", "--help"], commandKind: "status-set" },
+    { argv: ["task", "create", "--help"], commandKind: "task-create" },
+    { argv: ["task", "start", "-h"], commandKind: "task-start" },
+    { argv: ["help", "task", "submit"], commandKind: "task-submit" },
     { argv: ["task", "show", "--help"], commandKind: "task-show" },
     { argv: ["relation", "list", "--help"], commandKind: "relation-list" },
     { argv: ["task", "--help"], commandPrefix: ["task"] }

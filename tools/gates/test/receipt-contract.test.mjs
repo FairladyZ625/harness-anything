@@ -19,6 +19,23 @@ test("G04 accepts all four receipt outcomes and requires honest error fields", (
   assert.deepEqual(validateReceipt(fixture("receipt-error-golden.json")), []);
 });
 
+test("G04 permits the one-time start credential only as a complete applied payload", () => {
+  assert.deepEqual(validateReceipt({
+    outcome: "applied",
+    opId: "task-start-op",
+    revision: 2,
+    nextAction: "Save it now; submit requires this credential.",
+    leaseCredential: "one-time-secret",
+    leaseExpiry: "2026-08-11T01:00:00.000Z"
+  }), []);
+  assert.match(validateReceipt({ outcome: "applied", leaseCredential: "orphan" }).join("\n"), /emitted together/u);
+  assert.match(validateReceipt({
+    outcome: "pending",
+    leaseCredential: "secret",
+    leaseExpiry: "2026-08-11T01:00:00.000Z"
+  }).join("\n"), /only valid for an applied/u);
+});
+
 test("G06 error golden retains nextAction and incomplete errors fail", () => {
   assert.equal(fixture("receipt-error-golden.json").nextAction.length > 0, true);
   assert.match(validateReceipt(fixture("receipt-missing-next-action.json")).join("\n"), /nextAction is required/u);

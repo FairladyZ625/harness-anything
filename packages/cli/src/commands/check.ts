@@ -19,8 +19,6 @@ import { bundledTaskDocumentPlaceholderPolicy } from "./core/task-document-place
 import { discoverScriptEntries } from "./extensions/script.ts";
 import { runScriptHost } from "./extensions/script-host.ts";
 
-const FORCE_STATUS_AUDIT_MARKER = "FORCE_STATUS_SET_AUDIT";
-
 export function runCheckProfile(
   rootInput: HarnessLayoutInput,
   action: { readonly kind: "check"; readonly profile: CheckProfile; readonly strict: boolean; readonly postMerge: boolean },
@@ -238,17 +236,6 @@ function validateTaskPackageContracts(
     if (isTaskDocumentPlaceholderMarkdown(taskPlanBody, placeholderPolicy.taskPlanPlaceholderFingerprintSets)) {
       issues.push(profileIssue("task-plan-contract", "task_plan_placeholder", "hard-fail", `${relativeTaskDir}/task_plan.md still contains template placeholders.`, "Replace scaffold placeholders before treating the task package as implementation-ready."));
     }
-  }
-
-  const progressPath = path.join(taskDir, "progress.md");
-  if (existsSync(progressPath) && readFileSync(progressPath, "utf8").includes(FORCE_STATUS_AUDIT_MARKER)) {
-    issues.push(profileIssue(
-      "completion-policy",
-      "forced_terminal_status_set",
-      "warning",
-      `${relativeTaskDir}/progress.md contains forced terminal status audit evidence.`,
-      "Review FORCE_STATUS_SET_AUDIT before treating this terminal state as normal completion."
-    ));
   }
 
   const reviewPath = path.join(taskDir, "review.md");

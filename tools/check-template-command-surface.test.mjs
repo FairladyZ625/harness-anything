@@ -9,7 +9,7 @@ import { checkTemplateCommandSurface } from "./check-template-command-surface.mj
 test("template command surface accepts current registry-derived command names", () => {
   withTempTemplates((rootDir) => {
     writeFileSync(path.join(rootDir, "current.md"), [
-      "`ha task transition <id> active`",
+      "`ha task start <id> --execution-id <execution-id>`",
       "`ha fact record --task <id> --statement \"Observed\" --source test`",
       "`ha capabilities --json`",
       "`ha decision relate dec_1 --anchor CH1 --type supports --target task/task_1 --rationale \"evidence\"`",

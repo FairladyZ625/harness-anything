@@ -12,11 +12,11 @@ const actor = {
   executor: { kind: "agent" as const, id: "executor-session" }
 };
 
-function submitArgs(leaseToken: string): string[] {
+function submitArgs(leaseCredential: string): string[] {
   return [
     "task", "submit", "task_RETRY",
     "--execution-id", "exe_RETRY",
-    "--lease-token", leaseToken,
+    "--lease-credential", leaseCredential,
     "--claim", "ready",
     "--commit-sha", "b".repeat(40)
   ];

@@ -59,11 +59,16 @@ export * from "./schemas/common.ts";
 export * from "./schemas/docmap.ts";
 export * from "./schemas/task-schema-resolver.ts";
 export {
+  defaultLifecycleTaskProjectionPath,
   makeJournaledWriteCoordinator,
   makeLocalLockRegistry,
   makeLocalVersionControlSystem,
   makeMarkdownArtifactStore,
+  makeTaskEventStore,
+  makeTaskLeaseStore,
+  makeTaskProjection,
   readContentAddressedTextBlob,
+  readTaskEventStream,
   writeContentAddressedBlob
 } from "./composition/index.ts";
 export { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "./write-coordination/write-helpers.ts";
