@@ -2,7 +2,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
-const PLACEHOLDER_HMAC_KEY = "harness-anything/rebuild-gates/placeholder-hmac-v1";
+const DECISION_RECEIPT_HMAC_KEY = "harness-anything/rebuild-gates/placeholder-hmac-v1";
+const BASE64URL = /^[0-9A-Za-z_-]+$/u;
 const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u;
 const DECISION_ID = /^dec_[0-9A-Za-z]+$/u;
 const HEAD_SHA = /^[0-9a-f]{40}$/u;
@@ -38,10 +39,15 @@ export const RECEIPT_SCHEMA = Object.freeze({
   ]
 });
 
-// HMAC is only the P2 contract seam. Governance must replace this repository-
-// visible placeholder with its exported verifier before receipts become trust-bearing.
+// Decision receipts are committed on the trusted base side, so their P2 seam
+// remains independent from G35's secret-backed anti-entropy verifier.
 export function receiptVerificationKey() {
-  return Buffer.from(PLACEHOLDER_HMAC_KEY, "utf8");
+  return Buffer.from(DECISION_RECEIPT_HMAC_KEY, "utf8");
+}
+
+export function antiEntropyVerificationKey(environment = process.env) {
+  const value = environment.ANTI_ENTROPY_HMAC_KEY;
+  return typeof value === "string" && Buffer.byteLength(value, "utf8") > 0 ? Buffer.from(value, "utf8") : null;
 }
 
 function isPlainObject(value) {
@@ -61,6 +67,28 @@ export function canonicalReceiptPayload(receipt) {
 
 export function signReceipt(receipt, key = receiptVerificationKey()) {
   return createHmac("sha256", key).update(canonicalReceiptPayload(receipt)).digest("hex");
+}
+
+export function encodeReceiptToken(receipt) {
+  return Buffer.from(JSON.stringify(receipt), "utf8").toString("base64url");
+}
+
+export function decodeReceiptToken(token) {
+  if (typeof token !== "string" || token.length === 0 || !BASE64URL.test(token) || token.length % 4 === 1) {
+    return { receipt: null, errors: ["anti-entropy token must be unpadded base64url"] };
+  }
+
+  const bytes = Buffer.from(token, "base64url");
+  if (bytes.toString("base64url") !== token) {
+    return { receipt: null, errors: ["anti-entropy token is not canonical base64url"] };
+  }
+
+  try {
+    const json = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return { receipt: JSON.parse(json), errors: [] };
+  } catch {
+    return { receipt: null, errors: ["anti-entropy token must decode to UTF-8 receipt JSON"] };
+  }
 }
 
 export function validateReceiptSchema(receipt) {
@@ -100,14 +128,25 @@ export function validateReceiptSchema(receipt) {
 export function verifyReceipt(receipt, expectations = {}) {
   const errors = validateReceiptSchema(receipt);
   if (errors.length === 0) {
-    const supplied = Buffer.from(receipt.signature, "hex");
-    const expected = Buffer.from(signReceipt(receipt, expectations.key), "hex");
-    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) errors.push("signature does not match receipt payload");
+    const key = expectations.key ?? (receipt.kind === "anti-entropy-review" ? null : receiptVerificationKey());
+    if (key === null) {
+      errors.push("anti-entropy verification key is required");
+    } else {
+      const supplied = Buffer.from(receipt.signature, "hex");
+      const expected = Buffer.from(signReceipt(receipt, key), "hex");
+      if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) errors.push("signature does not match receipt payload");
+    }
   }
 
   const now = expectations.now instanceof Date ? expectations.now : new Date(expectations.now ?? Date.now());
   if (typeof receipt?.expiry === "string" && !Number.isNaN(Date.parse(receipt.expiry)) && Date.parse(receipt.expiry) <= now.getTime()) {
     errors.push(`receipt expired at ${receipt.expiry}`);
+  }
+  if (expectations.maximumTtlMs !== undefined
+    && typeof receipt?.expiry === "string"
+    && !Number.isNaN(Date.parse(receipt.expiry))
+    && Date.parse(receipt.expiry) > now.getTime() + expectations.maximumTtlMs) {
+    errors.push(`receipt expiry exceeds maximum TTL of ${expectations.maximumTtlMs}ms`);
   }
   if (expectations.scope !== undefined && receipt?.scope !== expectations.scope) errors.push(`scope must be ${expectations.scope}`);
   if (expectations.kind !== undefined && receipt?.kind !== expectations.kind) errors.push(`kind must be ${expectations.kind}`);

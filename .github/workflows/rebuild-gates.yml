@@ -5,6 +5,10 @@ on:
     branches:
       - "rebuild/**"
     types: [opened, reopened, synchronize, edited]
+  pull_request_target:
+    branches:
+      - "rebuild/**"
+    types: [opened, reopened, synchronize, edited]
   push:
     branches:
       - "rebuild/**"
@@ -14,6 +18,7 @@ permissions:
 
 jobs:
   gate-contract-tests:
+    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,6 +30,7 @@ jobs:
       - run: node --test tools/gates/test/*.test.mjs
 
   derived-contracts:
+    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +52,7 @@ jobs:
       - run: node tools/gates/evidence-contract.mjs --event "$GITHUB_EVENT_PATH"
 
   platform-smoke:
+    if: github.event_name != 'pull_request_target'
     strategy:
       fail-fast: false
       matrix:
@@ -62,6 +69,7 @@ jobs:
       - run: node tools/gates/platform-smoke.mjs
 
   schema-closure:
+    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,6 +81,7 @@ jobs:
       - run: node tools/gates/schema-closure.mjs --check
 
   test-selection:
+    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -87,6 +96,7 @@ jobs:
         run: node tools/gates/test-selection.mjs --base "$BASE_SHA"
 
   clean-build:
+    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -100,6 +110,7 @@ jobs:
       - run: node tools/gates/clean-build.mjs --temp
 
   dependency-policy:
+    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -111,6 +122,7 @@ jobs:
       - run: node tools/gates/dependency-policy.mjs
 
   line-budget:
+    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -141,6 +153,7 @@ jobs:
         run: node tools/gates/production-delta.mjs --base "$BASE_SHA"
 
   lint:
+    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -152,15 +165,23 @@ jobs:
       - run: npm run lint
 
   anti-entropy-review:
-    if: github.event_name == 'pull_request'
-    # P3 接通独立 anti-entropy 角色后转为 required；P2 仅验证 receipt 契约骨架。
+    if: github.event_name == 'pull_request_target'
+    # A9 removes non-blocking only after dogfood evidence and ruleset promotion.
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+      - name: Fetch PR head tree as untrusted data
+        env:
+          PR_NUMBER: ${{ github.event.number }}
+        run: git fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/head"
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: node tools/gates/anti-entropy-review.mjs --event "$GITHUB_EVENT_PATH"
+      - name: Verify anti-entropy token with base-side gate
+        env:
+          ANTI_ENTROPY_HMAC_KEY: ${{ secrets.ANTI_ENTROPY_HMAC_KEY }}
+        run: node tools/gates/anti-entropy-review.mjs --event "$GITHUB_EVENT_PATH"

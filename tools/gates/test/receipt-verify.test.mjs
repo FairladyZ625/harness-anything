@@ -4,7 +4,14 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { signReceipt, validateReceiptSchema, verifyReceipt } from "../receipt-verify.mjs";
+import {
+  antiEntropyVerificationKey,
+  decodeReceiptToken,
+  encodeReceiptToken,
+  signReceipt,
+  validateReceiptSchema,
+  verifyReceipt
+} from "../receipt-verify.mjs";
 
 const fixtureDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures/receipts");
 const readFixture = (name) => JSON.parse(readFileSync(path.join(fixtureDir, name), "utf8"));
@@ -29,6 +36,7 @@ test("altered, expired, and wrong-scope receipt fixtures are rejected", () => {
 });
 
 test("anti-entropy review receipt binds verdict and HEAD", () => {
+  const key = Buffer.from("anti-entropy-test-key", "utf8");
   const unsigned = {
     scope: "replay-pr:task-lifecycle",
     kind: "anti-entropy-review",
@@ -36,7 +44,21 @@ test("anti-entropy review receipt binds verdict and HEAD", () => {
     headSha: "a".repeat(40),
     expiry: "2099-12-31T23:59:59Z"
   };
-  const receipt = { ...unsigned, signature: signReceipt(unsigned) };
-  assert.equal(verifyReceipt(receipt, { scope: unsigned.scope, kind: unsigned.kind, verdict: "approved", headSha: unsigned.headSha }).ok, true);
-  assert.equal(verifyReceipt(receipt, { headSha: "b".repeat(40) }).ok, false);
+  const receipt = { ...unsigned, signature: signReceipt(unsigned, key) };
+  const token = encodeReceiptToken(receipt);
+  assert.deepEqual(decodeReceiptToken(token), { receipt, errors: [] });
+  assert.equal(verifyReceipt(receipt, { key, scope: unsigned.scope, kind: unsigned.kind, verdict: "approved", headSha: unsigned.headSha }).ok, true);
+  assert.equal(verifyReceipt(receipt, { key, headSha: "b".repeat(40) }).ok, false);
+  assert.match(verifyReceipt(receipt).errors.join("\n"), /verification key is required/u);
+});
+
+test("anti-entropy key comes only from the explicit environment variable", () => {
+  assert.equal(antiEntropyVerificationKey({}), null);
+  assert.equal(antiEntropyVerificationKey({ ANTI_ENTROPY_HMAC_KEY: "" }), null);
+  assert.equal(antiEntropyVerificationKey({ ANTI_ENTROPY_HMAC_KEY: "local-key" }).toString("utf8"), "local-key");
+});
+
+test("anti-entropy token decoding rejects non-base64url and non-JSON values", () => {
+  assert.match(decodeReceiptToken("has=padding").errors.join("\n"), /base64url/u);
+  assert.match(decodeReceiptToken(Buffer.from("not json", "utf8").toString("base64url")).errors.join("\n"), /receipt JSON/u);
 });
