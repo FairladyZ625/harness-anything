@@ -2,7 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { loadPeopleRoster } from "../../../daemon/src/index.ts";
 import type { ActorAxes, CompleteTaskProof, TaskV1 } from "../../../kernel/src/index.ts";
-import { antiEntropyVerificationKey, decodeReceiptToken, verifyReceipt } from "../../../../tools/gates/receipt-verify.mjs";
+import { antiEntropyVerificationKey, decodeReceiptToken, verifyReceipt } from "../../runtime/receipt-verify.mjs";
 
 export interface AntiEntropyReceiptVerificationInput {
   readonly token: string; readonly scope: string; readonly verdict: "approved" | "rejected";
