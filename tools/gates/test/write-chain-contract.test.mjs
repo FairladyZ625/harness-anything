@@ -13,7 +13,8 @@ import {
   validateNormalizedCommandEnvelope,
   WriteChainContractError
 } from "../../../packages/kernel/src/domain/write-chain.contract.ts";
-import { decideTaskLifecycleWrite, emptyTaskLifecycleSnapshot, normalizeTaskLifecycleCommand, serializeTaskEvent } from "../../../packages/kernel/src/domain/task-lifecycle.contract.ts";
+import { emptyTaskLifecycleSnapshot, normalizeTaskLifecycleCommand, serializeTaskEvent } from "../../../packages/kernel/src/domain/task-lifecycle.contract.ts";
+import { decideTaskLifecycleWrite } from "../../../packages/kernel/src/domain/task-write-decision.ts";
 import { REPLAY_TASK_GRAPH } from "../../../packages/kernel/src/domain/task-graph.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "worker" } };

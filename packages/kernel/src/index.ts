@@ -1,11 +1,12 @@
 export * from "./domain/index.ts";
-export { applyTransition, decideTaskLifecycleWrite, freezeWritePlan, normalizeTaskLifecycleCommand, taskLifecycleWritePlan } from "./domain/task-lifecycle.contract.ts";
+export { applyTransition, normalizeTaskLifecycleCommand } from "./domain/task-lifecycle.contract.ts";
+export { freezeWritePlan, taskLifecycleWritePlan } from "./domain/task-write-decision.ts";
 export type { CompleteTaskProof, ProofFor, StartExecutionProof, TaskEventV1, TaskLifecycleCommand, TaskLifecycleSnapshot } from "./domain/task-lifecycle.contract.ts";
 export { canonicalizeContractValue } from "./domain/task.ts";
-export type { FrozenWritePlan, TaskV1, WriteTarget } from "./domain/task.ts";
+export type { TaskV1 } from "./domain/task.ts";
 export type { LeaseV1 } from "./domain/execution.ts";
-export { assertCurrentWriter, createWriteReceipt, issueWriterGenerationToken, normalizeCommandEnvelope, nextRecoveryBatch, RECOVERY_BUDGET, serializeEventEnvelope, serializeEventHead, validateActorIdentity, validateWriteReceipt, validateWriteSource, writeReceiptOutcomes, WriteChainContractError } from "./domain/write-chain.contract.ts";
-export type { EventHead, NormalizedCommandEnvelope, ReceiptProof, ReceiptVisibility, RecoveryBudget, WriteOperationReceipt, WriteReceipt, WriteSource, WriterGeneration, WriterGenerationToken, WriterPort } from "./domain/write-chain.contract.ts";
+export { createWriteReceipt, normalizeCommandEnvelope, WRITE_RECEIPT_SCHEMA } from "./domain/write-chain.contract.ts";
+export type { FrozenWritePlan, WriteOperationReceipt, WriteReceipt, WriteTarget } from "./domain/write-chain.contract.ts";
 export * from "./docmap/index.ts";
 export * from "./docmap/docmap-unique.ts";
 export * from "./entity/disposition.ts";

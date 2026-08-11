@@ -10,14 +10,10 @@ import { runInitCommand } from "../../commands/core/init.ts";
 import { runTaskLifecycleFacadeCommand } from "../../commands/core/task-lifecycle-host.ts";
 import { runTaskQueryCommand } from "../../commands/core/task-query.ts";
 import { runVersionCommand } from "../../commands/core/version.ts";
+import { WRITE_RECEIPT_SCHEMA } from "../../../../kernel/src/index.ts";
 
-const lifecycleOptionalData = {
-  opId: "Present after the facade derives the stable operation identity.",
-  revision: "Present when the service resolved a workspace revision.",
-  origin: "Present when a receipt identifies the deciding subsystem.",
-  nextAction: "Present when the caller must take a recovery action.",
-  evidence: "Present when an event or projection read proves the result."
-} as const;
+const lifecycleOptionalData: Readonly<Record<string, string>> = Object.fromEntries([...WRITE_RECEIPT_SCHEMA.required, ...WRITE_RECEIPT_SCHEMA.optional]
+  .filter((field) => field !== "outcome").map((field) => [field, `Declared by ${WRITE_RECEIPT_SCHEMA.id}.`]));
 
 const taskReceiptContract = {
   data: ["taskId", "outcome", "report"],

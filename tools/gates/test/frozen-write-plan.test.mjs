@@ -2,12 +2,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  addWriteTarget,
-  freezeWritePlan,
   TASK_LIFECYCLE_COMMAND_CATALOG,
-  validateWritePlan,
   TaskLifecycleContractError
 } from "../../../packages/kernel/src/domain/task-lifecycle.contract.ts";
+import { addWriteTarget, freezeWritePlan, validateWritePlan } from "../../../packages/kernel/src/domain/task-write-decision.ts";
 
 const targets = [
   { kind: "event_stream", stream: "harness/task-events.ndjson", operation: "append" },

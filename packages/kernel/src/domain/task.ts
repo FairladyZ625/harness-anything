@@ -3,7 +3,6 @@ import { validateTaskGraph } from "./task-graph.ts";
 import type { TaskGraphV1, TaskNodeId } from "./task-graph.ts";
 import { hasOnlyFields, isNonEmptyString, isRecord, validateActorIdentity } from "./write-chain.contract.ts";
 export { canonicalizeWriteValue as canonicalizeContractValue, hasOnlyFields, isNonEmptyString, isRecord } from "./write-chain.contract.ts";
-export type { FrozenWritePlan, WritePlan, WriteTarget } from "./write-chain.contract.ts";
 
 export type TaskId = string;
 export type EngineId = string;

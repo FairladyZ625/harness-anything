@@ -6,7 +6,7 @@ import { taskEntityId } from "../domain/entity-id.ts";
 import type { WriteError } from "../domain/errors.ts";
 import { canonicalizeContractValue, type ActorAxes } from "../domain/task.ts";
 import type { WriteSource } from "../domain/write-chain.contract.ts";
-import type { LeaseCasPayload, WriteCoordinator } from "../ports/index.ts";
+import type { LeaseCasPayload, WriteCoordinator } from "../ports/write-coordinator.ts";
 export class TaskLeaseConflictError extends Error {
   readonly code: string; readonly origin = "task-lease-broker";
   constructor(message: string, code = "lease_conflict") { super(message); this.name = "TaskLeaseConflictError"; this.code = code; }

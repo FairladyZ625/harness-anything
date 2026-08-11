@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { addWriteTarget, TaskLifecycleContractError } from "../../../packages/kernel/src/domain/task-lifecycle.contract.ts";
+import { TaskLifecycleContractError } from "../../../packages/kernel/src/domain/task-lifecycle.contract.ts";
+import { addWriteTarget } from "../../../packages/kernel/src/domain/task-write-decision.ts";
 import { lifecycleHarness } from "../../../packages/application/test/task-lifecycle-test-harness.ts";
 import { assertWriteTargetDeclared } from "../../../packages/application/src/task-lifecycle-service.ts";
 

@@ -106,12 +106,16 @@ test("command receipts accept explicitly optional declared data when present", (
     opId: "task-start-op",
     revision: 2,
     evidence: "task-event:event-2",
+    visibility: "center",
+    proof: { committedRevision: 2, appliedCut: 2 },
     report: { outcome: "applied" }
   });
 
   assert.equal(receipt.ok, true);
   if (!receipt.ok) return;
   assert.equal(receipt.details?.data && typeof receipt.details.data === "object" && "opId" in receipt.details.data, true);
+  assert.equal(receipt.details?.data && typeof receipt.details.data === "object" && "visibility" in receipt.details.data, true);
+  assert.equal(receipt.details?.data && typeof receipt.details.data === "object" && "proof" in receipt.details.data, true);
 });
 
 test("optional receipt contract fields carry non-empty absence reasons", () => {
@@ -124,6 +128,8 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
   assert.equal(optionalEntries.every((entry) => entry.reason.trim().length > 0), true);
   assert.equal(optionalEntries.some((entry) => entry.field === "data.leaseCredential"), false);
   assert.equal(optionalEntries.some((entry) => entry.command === "task-start" && entry.field === "data.opId"), true);
+  assert.equal(optionalEntries.some((entry) => entry.command === "task-start" && entry.field === "data.visibility"), true);
+  assert.equal(optionalEntries.some((entry) => entry.command === "task-start" && entry.field === "data.proof"), true);
   assert.equal(optionalEntries.some((entry) => ["new-task", "task-claim", "status-set"].includes(entry.command)), false);
 });
 

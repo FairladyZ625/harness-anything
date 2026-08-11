@@ -25,7 +25,7 @@ export type {
 
 export { WriteCoordinator } from "./write-coordinator.ts";
 export type {
-  LeaseCasPayload, WriteOp,
+  WriteOp,
   WriteOpKind,
   TaskWriteOpKind,
   DecisionWriteOpKind,

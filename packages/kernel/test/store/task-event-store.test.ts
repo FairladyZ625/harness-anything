@@ -18,6 +18,7 @@ const event: TaskCreatedEvent = {
   taskId: "task-1",
   type: "task_created",
   actor: { principal: { personId: "person-1" }, executor: { kind: "agent", id: "codex" } },
+  source: "local",
   occurredAt: "2026-08-11T00:00:00.000Z",
   payload: {
     task: {
@@ -51,7 +52,7 @@ test("task event store starts empty and appends one canonical event per revision
     assert.deepEqual(store.read().events, [event]);
     assert.equal(
       readFileSync(path.join(rootDir, "harness/task-events.ndjson"), "utf8"),
-      '{"actor":{"executor":{"id":"codex","kind":"agent"},"principal":{"personId":"person-1"}},"eventId":"event-1","occurredAt":"2026-08-11T00:00:00.000Z","opId":"op-1","payload":{"task":{"completionGateIds":[],"createdBy":{"executor":{"id":"codex","kind":"agent"},"principal":{"personId":"person-1"}},"currentNode":"implementation","graph":{"edges":[{"actorRole":"executor","from":"implementation","id":"implementation-submitted","kind":"forward","on":"submitted","to":"anti_entropy"},{"actorRole":"anti_entropy","from":"anti_entropy","id":"anti-entropy-approved","kind":"forward","on":"approved","to":"review"},{"actorRole":"anti_entropy","from":"anti_entropy","id":"anti-entropy-changes-requested","kind":"return","on":"changes_requested","to":"implementation"}],"maxIterations":1,"nodes":[{"id":"implementation","kind":"work"},{"id":"anti_entropy","kind":"adversarial"},{"id":"review","kind":"review"}],"template":"replay/v1"},"iteration":0,"schema":"task/v1","status":"planned","taskId":"task-1","title":"Replay task"}},"schema":"task-event/v1","taskId":"task-1","type":"task_created","workspaceRevision":1}\n'
+      '{"actor":{"executor":{"id":"codex","kind":"agent"},"principal":{"personId":"person-1"}},"eventId":"event-1","occurredAt":"2026-08-11T00:00:00.000Z","opId":"op-1","payload":{"task":{"completionGateIds":[],"createdBy":{"executor":{"id":"codex","kind":"agent"},"principal":{"personId":"person-1"}},"currentNode":"implementation","graph":{"edges":[{"actorRole":"executor","from":"implementation","id":"implementation-submitted","kind":"forward","on":"submitted","to":"anti_entropy"},{"actorRole":"anti_entropy","from":"anti_entropy","id":"anti-entropy-approved","kind":"forward","on":"approved","to":"review"},{"actorRole":"anti_entropy","from":"anti_entropy","id":"anti-entropy-changes-requested","kind":"return","on":"changes_requested","to":"implementation"}],"maxIterations":1,"nodes":[{"id":"implementation","kind":"work"},{"id":"anti_entropy","kind":"adversarial"},{"id":"review","kind":"review"}],"template":"replay/v1"},"iteration":0,"schema":"task/v1","status":"planned","taskId":"task-1","title":"Replay task"}},"schema":"task-event/v1","source":"local","taskId":"task-1","type":"task_created","workspaceRevision":1}\n'
     );
   });
 });

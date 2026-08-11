@@ -101,10 +101,6 @@ export type WriteOperationReceipt<E, S, C extends string = string> = WriteReceip
 declare const writerGenerationTokenBrand: unique symbol;
 export type WriterGenerationToken = Readonly<WriterGeneration> & { readonly [writerGenerationTokenBrand]: true };
 
-export interface WriterPort<C extends NormalizedCommandEnvelope = NormalizedCommandEnvelope> {
-  readonly execute: (token: WriterGenerationToken, command: C) => Promise<WriteReceipt>;
-}
-
 export class WriteChainContractError extends Error {
   readonly code: "invalid_contract" | "writer_rejected" | "invalid_write_plan";
   constructor(code: "invalid_contract" | "writer_rejected" | "invalid_write_plan", message: string) {

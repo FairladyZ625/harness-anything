@@ -6,8 +6,8 @@ import { TASK_V1_SCHEMA, validateActorAxes, validateTaskV1 } from "./task.ts";
 import type { ActorAxes, ContractValidationIssue, TaskV1 } from "./task.ts";
 import { TASK_EDGE_TAKEN_SCHEMA, TASK_GRAPH_V1_SCHEMA, validateTaskGraph } from "./task-graph.ts";
 import type { TaskEdgeTaken, TaskGraphV1 } from "./task-graph.ts";
-import { appendWriteTarget, assertCurrentWriter, createWriteReceipt, freezeDeclaredWritePlan, hasOnlyFields, isFrozenWritePlan, isNonEmptyString, isRecord, normalizeCommandEnvelope, serializeEventEnvelope, validateDeclaredWritePlan, validateNormalizedCommandEnvelope, validateWriteSource } from "./write-chain.contract.ts";
-import type { EventEnvelope, FrozenWritePlan, NormalizedCommandEnvelope, WritePlan, WriteReceipt, WriteSource, WriteTarget, WriterGeneration, WriterGenerationToken } from "./write-chain.contract.ts";
+import { hasOnlyFields, isNonEmptyString, isRecord, normalizeCommandEnvelope, serializeEventEnvelope, validateNormalizedCommandEnvelope, validateWriteSource } from "./write-chain.contract.ts";
+import type { EventEnvelope, NormalizedCommandEnvelope, WriteSource } from "./write-chain.contract.ts";
 export const taskEventTypes = ["task_created", "execution_started", "execution_submitted", "review_recorded", "task_completed"] as const;
 export type TaskEventType = (typeof taskEventTypes)[number];
 type TaskEventEnvelope<T extends TaskEventType, P> = EventEnvelope<"task-event/v1", T, ActorAxes, P> & { readonly taskId: string };
@@ -436,61 +436,6 @@ export function applyTransition<C extends TaskLifecycleCommand>(snapshot: TaskLi
   assertTransitionResult(snapshot, command, proof, result);
   return result;
 }
-
-export type TaskLifecycleCommandType = TaskLifecycleCommand["type"];
-export type { FrozenWritePlan, WritePlan, WriteTarget } from "./write-chain.contract.ts";
-export function validateWritePlan(plan: WritePlan<TaskLifecycleCommandType>): readonly ContractValidationIssue[] {
-  return validateDeclaredWritePlan(plan, TASK_LIFECYCLE_TRANSITIONS.map((transition) => transition.commandType))
-    .map((message) => ({ code: "invalid_write_plan", message }));
-}
-
-export function freezeWritePlan<C extends TaskLifecycleCommandType>(plan: WritePlan<C>): FrozenWritePlan<C> {
-  const issues = validateWritePlan(plan);
-  if (issues.length > 0) throw new TaskLifecycleContractError("frozen_write_plan", issues);
-  return freezeDeclaredWritePlan(plan, TASK_LIFECYCLE_TRANSITIONS.map((transition) => transition.commandType));
-}
-
-export function addWriteTarget<C extends TaskLifecycleCommandType>(plan: WritePlan<C> | FrozenWritePlan<C>, target: WriteTarget): WritePlan<C> {
-  if (isFrozenWritePlan(plan)) {
-    throw new TaskLifecycleContractError("frozen_write_plan", [{ code: "frozen_write_plan", message: "a frozen write plan cannot accept late targets" }]);
-  }
-  return appendWriteTarget(plan, target);
-}
-export function taskLifecycleWritePlan(command: TaskLifecycleCommand): FrozenWritePlan<TaskLifecycleCommandType> {
-  const leaseTargets: readonly WriteTarget[] = command.type === "StartExecution"
-    ? [leaseTarget(command.taskId, "reserve"), leaseTarget(command.taskId, "activate"), leaseTarget(command.taskId, "release")]
-    : command.type === "SubmitExecution" ? [leaseTarget(command.taskId, "release")] : [];
-  return freezeWritePlan({ commandType: command.type, targets: [{ kind: "event_stream", stream: "harness/task-events.ndjson", operation: "append" },
-    { kind: "projection_invalidation", projection: "task-lifecycle/v1", taskId: command.taskId }, ...leaseTargets] }); }
-function leaseTarget(taskId: string, operation: "reserve" | "activate" | "release"): WriteTarget { return { kind: "lease_sqlite", table: "lease_cas", taskId, operation }; }
-export interface ExistingTaskOperation { readonly opId: string; readonly commandDigest: string; readonly event: TaskEventV1; readonly receipt: WriteReceipt }
-export type TaskLifecycleWriteDecision =
-  | { readonly accepted: true; readonly event: TaskEventV1; readonly frozenPlan: FrozenWritePlan<TaskLifecycleCommandType>; readonly receipt: WriteReceipt }
-  | { readonly accepted: false; readonly event: null; readonly frozenPlan: null; readonly receipt: WriteReceipt };
-export function decideTaskLifecycleWrite<C extends TaskLifecycleCommand>(input: {
-  readonly snapshot: TaskLifecycleSnapshot; readonly command: C; readonly proof: ProofFor<C>; readonly activeWriter: WriterGeneration;
-  readonly writerToken: WriterGenerationToken; readonly existingOperation?: ExistingTaskOperation;
-}): TaskLifecycleWriteDecision {
-  try {
-    assertCurrentWriter(input.activeWriter, input.writerToken, input.command.workspaceId);
-    if (input.existingOperation?.opId === input.command.opId && input.existingOperation.commandDigest !== input.command.commandDigest)
-      return rejectedDecision(input.command.opId, "operation_conflict", "the same opId already names a different command payload");
-    const frozenPlan = taskLifecycleWritePlan(input.command);
-    if (input.existingOperation?.opId === input.command.opId)
-      return Object.freeze({ accepted: true, event: input.existingOperation.event, frozenPlan, receipt: input.existingOperation.receipt });
-    const event = applyTransition(input.snapshot, input.command, input.proof).event;
-    const receipt = createWriteReceipt({ outcome: "indeterminate", opId: input.command.opId,
-      visibility: "center", code: "publication_unverified", origin: "task-lifecycle-contract", nextAction: `read operation ${input.command.opId} before retrying` });
-    return Object.freeze({ accepted: true, event, frozenPlan, receipt });
-  } catch (error) {
-    const rawCode = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "write_rejected";
-    const code = rawCode === "frozen_write_plan" ? "invalid_write_plan" : rawCode;
-    return rejectedDecision(input.command.opId, code, error instanceof Error ? error.message : String(error));
-  }
-}
-function rejectedDecision(opId: string, code: string, detail: string): TaskLifecycleWriteDecision {
-  return Object.freeze({ accepted: false, event: null, frozenPlan: null, receipt: createWriteReceipt({ outcome: "rejected", opId,
-    visibility: "center", code, origin: "task-lifecycle-contract", nextAction: `correct the command or writer proof before retrying: ${detail}` }) }); }
 
 export const TASK_EVENT_V1_SCHEMA = Object.freeze({
   id: "task-event/v1",
