@@ -1,5 +1,15 @@
 export { createTaskIdentity } from "./task.ts";
-export type { Task, TaskIdentity, TaskId, EngineId, ExternalRef, IsoTimestamp, Sha256Fingerprint } from "./task.ts";
+export type { ActorAxes, Task, TaskIdentity, TaskId, EngineId, ExternalRef, IsoTimestamp, Sha256Fingerprint } from "./task.ts";
+export { REPLAY_TASK_GRAPH } from "./task-graph.ts";
+export { TASK_LIFECYCLE_COMMAND_CATALOG } from "./task-lifecycle.contract.ts";
+export type {
+  CompleteTaskCommand,
+  CreateReplayTaskCommand,
+  RecordReviewCommand,
+  StartExecutionCommand,
+  SubmitExecutionCommand,
+  TaskLifecycleCommandType
+} from "./task-lifecycle.contract.ts";
 
 export { reviewVerdicts } from "./review.ts";
 export type { ReviewRecord, ReviewVerdict } from "./review.ts";
