@@ -7,6 +7,7 @@ import { assertDocSyncWritePlan, isDocEvent, isTaskEvent, parseCanonicalEvent, s
 import { TASK_LEASE_BROKER_CONTRACT, validateLeaseV1, type LeaseHolder, type LeaseV1 } from "../domain/execution.ts";
 import { canonicalizeContractValue } from "../domain/task.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
+import { isAgentRuntimeEvent, markRuntimeSessionUnknown, reduceRuntimeInstallation, reduceRuntimeSession, runtimeSessionId, type AgentRuntimeEventV1, type RuntimeInstallation, type RuntimeSession } from "../domain/agent-runtime.ts";
 
 interface EventStreamPort {
   readonly readHead: () => { readonly revision: number } | null;
@@ -34,12 +35,14 @@ export interface LeaseInterval {
 }
 export interface DocumentProjectionRead { readonly status: "ready" | "pending"; readonly document: DocumentState | null; readonly watermark: number; readonly sourceRevision: number }
 export interface TaskProjection {
-  readonly path: string; readonly apply: { (event: TaskEventV1): ProjectionApplyReceipt; (event: DocEventV1, plan: FrozenWritePlan<"DocSyncSubmit">): ProjectionApplyReceipt }; readonly rebuild: () => ProjectionRebuildReceipt;
+  readonly path: string; readonly apply: { (event: TaskEventV1 | AgentRuntimeEventV1): ProjectionApplyReceipt; (event: DocEventV1, plan: FrozenWritePlan<"DocSyncSubmit">): ProjectionApplyReceipt }; readonly rebuild: () => ProjectionRebuildReceipt;
   readonly read: (taskId: string) => TaskProjectionRead; readonly list: () => TaskProjectionListRead; readonly readOperation: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
   readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null; readonly readDocument: (path: string) => DocumentProjectionRead;
   readonly readLeaseIntervals: (taskId: string) => readonly LeaseInterval[]; readonly currentLease: (taskId: string, now?: string) => LeaseV1 | null; readonly currentLeaseForExecution: (executionId: string, now?: string) => LeaseV1 | null;
   readonly reserveLease: (lease: LeaseV1, now: string) => LeaseV1; readonly activateLease: (lease: LeaseV1) => LeaseV1;
   readonly renewLease: (lease: LeaseV1, expiresAt: string) => LeaseV1; readonly releaseLease: (lease: LeaseV1) => LeaseV1;
+  readonly readRuntimeInstallation: (installationId: string) => RuntimeInstallation | null; readonly readRuntimeSession: (runtimeSessionId: string) => RuntimeSession | null;
+  readonly readRuntimeSessionsForTask: (taskId: string) => readonly RuntimeSession[]; readonly markRuntimeSessionsUnknown: () => number;
 }
 
 export function defaultLifecycleTaskProjectionPath(rootDir: string): string { return path.join(path.resolve(rootDir), ".harness/cache/task.sqlite"); }
@@ -61,6 +64,10 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
     }),
     readTaskOperation: (opId) => withDatabase(projectionPath, (db) => { const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as { readonly event_json: string } | undefined; if (!row) return null; const event = parseEventJson(row.event_json); return isTaskEvent(event) ? { event, watermark: watermark(db) } : null; }),
     readDocument: (documentPath) => readDocument(projectionPath, options.eventStore, documentPath, limit),
+    readRuntimeInstallation: (installationId) => withDatabase(projectionPath, (db) => readRuntimeInstallation(db, installationId)),
+    readRuntimeSession: (runtimeSessionIdValue) => withDatabase(projectionPath, (db) => readRuntimeSession(db, runtimeSessionIdValue)),
+    readRuntimeSessionsForTask: (taskId) => withDatabase(projectionPath, (db) => queryRows(db, "SELECT value_json FROM runtime_session ORDER BY runtime_session_id").map((row) => JSON.parse(String(row.value_json)) as RuntimeSession).filter((session) => session.taskBindings.some((binding) => binding.taskId === taskId))),
+    markRuntimeSessionsUnknown: () => withDatabase(projectionPath, (db) => transaction(db, () => markRuntimeSessionsUnknown(db))),
     readLeaseIntervals: (taskId) => withDatabase(projectionPath, (db) => readIntervals(db, taskId)),
     currentLease: (taskId, at) => withDatabase(projectionPath, (db) => effectiveLease(db, taskId, at ?? now())),
     currentLeaseForExecution: (executionId, at) => withDatabase(projectionPath, (db) => { const row = db.prepare("SELECT task_id FROM lease_cas WHERE json_extract(lease_json, '$.executionId') = ?").get(executionId) as { readonly task_id: string } | undefined; return row ? effectiveLease(db, row.task_id, at ?? now()) : null; }),
@@ -134,6 +141,8 @@ function createTables(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS event_source (workspace_revision INTEGER PRIMARY KEY, op_id TEXT NOT NULL UNIQUE, event_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS event_index (op_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL UNIQUE, task_id TEXT, event_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS runtime_installation (installation_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS runtime_session (runtime_session_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS execution (execution_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS review (review_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, execution_id TEXT NOT NULL, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
@@ -212,6 +221,9 @@ function drainDeferred(db: DatabaseSync, limit: number, readBlob: EventStreamPor
 }
 
 function applyEvent(db: DatabaseSync, event: CanonicalEventV1, eventJson: string, readBlob: EventStreamPort["readContentBlob"]): void {
+  if (isAgentRuntimeEvent(event)) { const taskId = event.type === "runtime_session_task_bound" ? event.payload.taskId : null; runSql(db, "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)", event.opId, event.workspaceRevision, taskId, eventJson);
+    const installation = reduceRuntimeInstallation(event.type === "runtime_installation_observed" ? readRuntimeInstallation(db, event.payload.installationId) : null, event); if (installation !== null) runSql(db, "INSERT INTO runtime_installation(installation_id, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(installation_id) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json", installation.installationId, event.workspaceRevision, canonicalJson(installation));
+    const sessionId = runtimeSessionId(event); if (sessionId !== null) { const session = reduceRuntimeSession(readRuntimeSession(db, sessionId), event); if (session !== null) runSql(db, "INSERT INTO runtime_session(runtime_session_id, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(runtime_session_id) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json", session.runtimeSessionId, event.workspaceRevision, canonicalJson(session)); } return; }
   if (isDocEvent(event)) { runSql(db, "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)", event.opId, event.workspaceRevision, eventJson); for (const change of event.payload.changes) { const bytes = readBlob(change.candidate.sha256); if (!bytes || bytes.byteLength !== change.candidate.size) throw new Error(`document blob ${change.candidate.sha256} is unavailable`); let body: string; try { body = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { throw new Error(`document blob ${change.candidate.sha256} is not UTF-8`); } const previous = db.prepare("SELECT value_json FROM document WHERE path = ?").get(change.path) as { readonly value_json: string } | undefined, base = previous ? JSON.parse(previous.value_json) as DocumentState : null; if (change.baseBlobSha256 !== (base?.blobSha256 ?? null) || !verifyDocEventChange(change, base?.body ?? "", body)) throw new Error(`document proof mismatch for ${change.path}`);
       const document: DocumentState = { path: change.path, blobSha256: change.candidate.sha256, body, size: change.candidate.size, mediaType: change.candidate.mediaType, policyId: change.policyId, workspaceRevision: event.workspaceRevision }; runSql(db, "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json", change.path, event.workspaceRevision, canonicalJson(document)); } return; }
   const snapshot = reduceTaskEvent(readSnapshot(db, event.taskId), event);
@@ -298,7 +310,10 @@ function effectiveLease(db: DatabaseSync, taskId: string, now: string): LeaseV1 
   return current;
 }
 
-function storedLease(db: DatabaseSync, taskId: string): LeaseV1 | null { const row = db.prepare("SELECT lease_json FROM lease_cas WHERE task_id = ?").get(taskId) as { readonly lease_json: string } | undefined; return row === undefined ? null : checkedLease(JSON.parse(row.lease_json) as LeaseV1); }
+function storedLease(db: DatabaseSync, taskId: string): LeaseV1 | null { const row = queryRows(db, "SELECT lease_json FROM lease_cas WHERE task_id = ?", taskId)[0]; return row === undefined ? null : checkedLease(JSON.parse(String(row.lease_json)) as LeaseV1); }
+function readRuntimeInstallation(db: DatabaseSync, installationId: string): RuntimeInstallation | null { const row = queryRows(db, "SELECT value_json FROM runtime_installation WHERE installation_id = ?", installationId)[0]; return row ? JSON.parse(String(row.value_json)) as RuntimeInstallation : null; }
+function readRuntimeSession(db: DatabaseSync, sessionId: string): RuntimeSession | null { const row = queryRows(db, "SELECT value_json FROM runtime_session WHERE runtime_session_id = ?", sessionId)[0]; return row ? JSON.parse(String(row.value_json)) as RuntimeSession : null; }
+function markRuntimeSessionsUnknown(db: DatabaseSync): number { const rows = queryRows(db, "SELECT runtime_session_id, value_json FROM runtime_session"); let changed = 0; for (const row of rows) { const current = JSON.parse(String(row.value_json)) as RuntimeSession, next = markRuntimeSessionUnknown(current); if (next !== current) { runSql(db, "UPDATE runtime_session SET value_json = ? WHERE runtime_session_id = ?", canonicalJson(next), String(row.runtime_session_id)); changed += 1; } } return changed; }
 function holder(lease: LeaseV1): LeaseHolder { return { taskId: lease.taskId, executionId: lease.executionId, actor: lease.actor, source: lease.source }; }
 function checkedLease(lease: LeaseV1): LeaseV1 { const issues = validateLeaseV1(lease); if (issues.length > 0) throw new Error(issues.map((issue) => issue.message).join("; ")); return lease; }
 function watermark(db: DatabaseSync): number { return Number((db.prepare("SELECT watermark FROM projection_meta WHERE singleton = 1").get() as { readonly watermark: number }).watermark); }
@@ -306,6 +321,6 @@ function transaction<A>(db: DatabaseSync, run: () => A): A {
   db.exec("BEGIN IMMEDIATE"); try { const value = run(); db.exec("COMMIT"); return value; }
   catch (error) { db.exec("ROLLBACK"); throw error; }
 }
-type SqlValue = string | number | bigint | Uint8Array | null; function runSql(db: DatabaseSync, sql: string, ...values: readonly SqlValue[]): void { db.prepare(sql).run(...values); }
+type SqlValue = string | number | bigint | Uint8Array | null; function runSql(db: DatabaseSync, sql: string, ...values: readonly SqlValue[]): void { db.prepare(sql).run(...values); } function queryRows(db: DatabaseSync, sql: string, ...values: readonly SqlValue[]): readonly Record<string, unknown>[] { return db.prepare(sql).all(...values) as unknown as readonly Record<string, unknown>[]; }
 function canonicalJson(value: unknown): string { return JSON.stringify(canonicalizeContractValue(value)); }
 function parseEventJson(value: string): CanonicalEventV1 { return parseCanonicalEvent(`${value}\n`); }

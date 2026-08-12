@@ -34,7 +34,6 @@ export interface HarnessLayout {
   readonly legacyRebuildGuidePath: string;
   readonly localRoot: string;
   readonly generatedRoot: string;
-  readonly runtimeEventLedgerRoot: string;
   readonly cacheRoot: string;
   readonly projectionPath: string;
   readonly claimsRoot: string;
@@ -46,7 +45,6 @@ export interface HarnessLayout {
   readonly decisionPackagePath: (decisionId: string) => string;
   readonly decisionDocumentPath: (decisionId: string) => string;
   readonly sessionDocumentPath: (sessionId: string) => string;
-  readonly runtimeEventLedgerPath: (sessionId: string) => string;
 }
 
 const crockfordBase32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -169,7 +167,6 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
     legacyRebuildGuidePath: path.join(legacyRoot, "rebuild-guide.md"),
     localRoot,
     generatedRoot,
-    runtimeEventLedgerRoot: path.join(generatedRoot, "runtime-events"),
     cacheRoot: path.join(localRoot, "cache"),
     projectionPath: path.join(localRoot, "cache", "projections.sqlite"),
     claimsRoot: path.join(localRoot, "adopt-claims"),
@@ -202,10 +199,6 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
     sessionDocumentPath: (sessionId) => {
       const safeSessionId = normalizeEntityRootSegment(sessionId, "session id");
       return path.join(sessionsRoot, `${safeSessionId}.md`);
-    },
-    runtimeEventLedgerPath: (sessionId) => {
-      const safeSessionId = normalizeEntityRootSegment(sessionId, "session id");
-      return path.join(generatedRoot, "runtime-events", `${safeSessionId}.jsonl`);
     }
   };
 }

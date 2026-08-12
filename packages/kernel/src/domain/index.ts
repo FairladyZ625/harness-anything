@@ -50,25 +50,6 @@ export {
 } from "./fact-record.ts";
 export type { FactConfidence, FactMemoryClass, FactMemoryTag, FactRecord } from "./fact-record.ts";
 
-export {
-  isRuntimeEventApprovalDecision,
-  isRuntimeEventInterruptAction,
-  isRuntimeEventKind,
-  isRuntimeEventResultStatus,
-  runtimeEventApprovalDecisions,
-  runtimeEventInterruptActions,
-  runtimeEventKinds,
-  runtimeEventResultStatuses
-} from "./runtime-event.ts";
-export type {
-  RuntimeEventApprovalDecision,
-  RuntimeEventInterruptAction,
-  RuntimeEventKind,
-  RuntimeEventRecord,
-  RuntimeEventRuntime,
-  RuntimeEventResultStatus
-} from "./runtime-event.ts";
-
 export { docmapDocumentKinds } from "./docmap.ts";
 export type { DocmapDocument, DocmapDocumentKind, DocmapManifest, DocmapReadSet, DocmapScope } from "./docmap.ts";
 

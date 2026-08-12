@@ -4,6 +4,7 @@ import { freezeDeclaredWritePlan, hasOnlyFields, isFrozenWritePlan, isNonEmptySt
   type ActorIdentity, type EventEnvelope, type FrozenWritePlan, type WriteSource, type WriteTarget } from "./write-chain.contract.ts";
 import type { DocSyncDifference, DocSyncReceiptDetail, DocSyncUnresolvedTouch } from "./receipt-domain-registry.ts";
 import type { LeaseV1 } from "./execution.ts";
+import { validateAgentRuntimeEvent, type AgentRuntimeEventV1 } from "./agent-runtime.ts";
 import { assertNoPortablePathCollisions, normalizeRelativeDocumentPath, type PortableDocumentPath } from "../layout/portable-path.ts";
 
 export const DOC_POLICY_ID = "markdown-additive/v1", DOC_CODEC_ID = "markdown-regions/v1";
@@ -18,7 +19,7 @@ export interface DocWriteIntent { readonly schema: "doc-write-intent/v1"; readon
 export interface RegionProof { readonly regionId: string; readonly policyId: string; readonly codecId: string; readonly baseSha256: string; readonly candidateSha256: string; readonly insertBytes: number }
 export interface DocEventChange { readonly path: PortableDocumentPath; readonly baseBlobSha256: string | null; readonly candidate: Omit<ContentClaim, "ref">; readonly policyId: string; readonly regionProofs: readonly RegionProof[] }
 export type DocEventV1 = EventEnvelope<"doc-event/v1", "documents_written", ActorIdentity, { readonly executionId: string; readonly baseLedgerSha: LedgerCommitSha; readonly changes: readonly DocEventChange[] }>;
-export type CanonicalEventV1 = TaskEventV1 | DocEventV1;
+export type CanonicalEventV1 = TaskEventV1 | DocEventV1 | AgentRuntimeEventV1;
 export interface DocumentState { readonly path: PortableDocumentPath; readonly blobSha256: string; readonly body: string; readonly size: DocByteLength; readonly mediaType: string; readonly policyId: string; readonly workspaceRevision: number }
 export interface DocContentBlob { readonly sha256: string; readonly size: DocByteLength; readonly mediaType: string; readonly body: string }
 export interface DocWriteDecisionInput { readonly intent: DocWriteIntent; readonly opId: string; readonly eventId: string; readonly workspaceRevision: number; readonly actor: ActorIdentity; readonly source: WriteSource; readonly occurredAt: string; readonly currentLedgerSha: LedgerCommitSha; readonly lease: LeaseV1 | null; readonly documents: readonly (DocumentState | null)[]; readonly claims: readonly (Uint8Array | null)[] }
@@ -42,7 +43,7 @@ export function docByteLength(value: number): DocByteLength { if (!Number.isSafe
 export function parseDocWriteIntent(value: unknown, repoId: string): DocWriteIntent { const errors = validateDocWriteIntent(value); if (errors.length) throw new DocSyncContractError(errors.join("; ")); const raw = value as { readonly schema: "doc-write-intent/v1"; readonly executionId: string; readonly baseLedgerSha: string; readonly changes: readonly { readonly path: string; readonly baseBlobSha256: string | null; readonly policyId: string; readonly candidate: { readonly ref: string; readonly sha256: string; readonly size: number; readonly mediaType: "text/markdown" | "text/plain" } | null }[] }; return { ...raw, baseLedgerSha: ledgerCommitSha(repoId, raw.baseLedgerSha), changes: raw.changes.map((change) => ({ ...change, path: documentPath(change.path), candidate: change.candidate === null ? null : { ...change.candidate, ref: docClaimRef(change.candidate.ref), size: docByteLength(change.candidate.size) } })) }; }
 export function serializeDocWriteIntent(intent: DocWriteIntent): string { const wire = { ...intent, baseLedgerSha: intent.baseLedgerSha.sha }, errors = validateDocWriteIntent(wire); if (errors.length) throw new DocSyncContractError(errors.join("; ")); return `${stableStringify(wire)}\n`; } export function serializeDocEvent(event: DocEventV1): string { const errors = validateDocEvent(event); if (errors.length) throw new DocSyncContractError(errors.join("; ")); return serializeCanonicalEvent(event); }
 export const canonicalEventSchemas = Object.freeze([{ schema: "task-event/v1", validate: (value: unknown) => validateTaskEvent(value).map((issue) => issue.message) },
-  { schema: "doc-event/v1", validate: validateDocEvent }] as const);
+  { schema: "doc-event/v1", validate: validateDocEvent }, { schema: "agent-runtime-event/v1", validate: validateAgentRuntimeEvent }] as const);
 export function serializeCanonicalEvent(event: CanonicalEventV1): string { const entry = canonicalEventSchemas.find((candidate) => candidate.schema === event.schema); const errors = entry?.validate(event) ?? ["canonical event schema is unknown"]; if (errors.length) throw new Error(errors.join("; ")); return serializeEventEnvelope(event); }
 export function parseCanonicalEvent(body: string): CanonicalEventV1 { let value: unknown; try { value = JSON.parse(body); } catch { throw new Error("canonical event is not JSON"); }
   if (!isRecord(value)) throw new Error("canonical event is not an object"); const entry = canonicalEventSchemas.find((candidate) => candidate.schema === value.schema); const errors = entry?.validate(value) ?? ["canonical event schema is unknown"];

@@ -1339,8 +1339,8 @@
             <span lang="zh">这正是让决策和裁决保持分开的机制。裁决住在某个 submitted Execution 的不可变 <code>review/v2</code> 记录里——它拿不到 <code>dec_</code> 式的 id，从不进入 decisions 目录，也从不上决策队列。把一个有战略意义的裁决变成新 decision，是人刻意的动作，从不自动发生（ADR-0027 D5）。</span>
           </p>
           <p>
-            <span lang="en">Underneath sits the <strong>event ledger</strong> — an append-only record of what happened during a run (<code>runtime-event/v1</code>). Each event has an <code>evt_</code> id and a <code>kind</code> from a fixed set: <code>session · turn · step · tool · approval · interrupt · result · cost</code>. Its CLI surface has exactly two operations — append and list. No edit, no delete; the ledger only grows. That ledger is what the Exit Gate reads to confirm a piece of work is actually complete.</span>
-            <span lang="zh">在这之下坐着<strong>事件账本</strong>——一次运行期间发生过什么的只增记录（<code>runtime-event/v1</code>）。每条事件有一个 <code>evt_</code> id 和一个来自固定集合的 <code>kind</code>：<code>session · turn · step · tool · approval · interrupt · result · cost</code>。它的 CLI 面恰好两个操作——append 和 list。无编辑，无删除；账本只会增长。正是这个账本，被 Exit Gate 读取，用来确认一项工作确实完成了。</span>
+            <span lang="en">Underneath sits the <strong>agent runtime witness</strong>: canonical lifecycle changes that bind a task and execution to the observed native provider session. Heartbeats, transcript bodies, tool calls, and cost streams stay out of the canonical log; the durable binding stores only a transcript reference.</span>
+            <span lang="zh">在这之下是 <strong>Agent Runtime 见证</strong>：canonical 生命周期变化把 task、execution 与观察到的原生 provider session 绑定起来。heartbeat、transcript 正文、tool call 与 cost stream 不进入 canonical log；持久绑定只保存 transcript ref。</span>
           </p>
         </section>
 

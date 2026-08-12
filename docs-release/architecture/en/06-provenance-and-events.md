@@ -111,48 +111,37 @@ bookkeeping until no one could watch it. By keeping verdicts in Execution-bound
 Review records and requiring a deliberate step to escalate, the flood of routine
 verdicts never reaches the one queue a human is meant to see (ADR-0027 D5).
 
-## The runtime event ledger
+## Agent runtime witness events
 
-The runtime event ledger is an **append record of what happened** during a run:
-sessions starting, turns, steps, tool calls, approvals, interrupts, results,
-costs. It is the raw log of activity, kept per session, and it is one of the
-structures the Exit Gate reads when it checks whether a body of work is genuinely
-complete.
+Agent runtime events are durable **witnesses of lifecycle changes**, not a raw
+activity stream. `AgentRuntimeEventV1` uses the same canonical envelope, head,
+Git-backed event store, and rebuildable projection as task and document events.
+It records installation observations, session lifecycle transitions, provider
+session binding, and explicit task/execution binding. A binding stores only a
+`transcriptRef`, so the original provider session can be located without putting
+the transcript body into the canonical log.
 
-Each event conforms to `RuntimeEventRecordSchema`
-(`packages/kernel/src/schemas/runtime-event.ts`, schema tag `runtime-event/v1`).
-An event has a stable `evt_`-prefixed id, a `recordedAt` timestamp, and a `kind`
-drawn from a fixed set:
-
-```text
-session · turn · step · tool · approval · interrupt · result · cost
-```
-
-Every event names its `session` (with the runtime, and optionally the `taskId`,
-`decisionId`, or `factRef` it touched), and then carries exactly one populated
-detail block matching its kind — a `tool` block names the tool and any error
-code; an `approval` block records `approved` / `rejected` / `timeout`; a
-`result` block records `started` / `succeeded` / `failed` / `cancelled`; a `cost`
-block records tokens and wall time. The CLI surface
-(`packages/cli/src/commands/core/runtime-event.ts`) offers exactly two
-operations: **append** a new event, and **list** a session's events. There is no
-edit and no delete — the ledger only grows.
+Heartbeat ticks, stdout/stderr, transcript bodies, tool calls, and token/cost
+streams are operational data and do not become canonical events. In particular,
+heartbeat traffic grows the log only when it crosses a liveness threshold and
+produces a `runtime_session_liveness_changed` event. Runtime liveness and task
+lease/lifecycle remain separate facts; a session event cannot renew a lease or
+complete a task.
 
 ## How the pieces connect
 
 Three separate structures, one spine of accountability:
 
 ```text
-provenance[]        ──▶  every entity names the run that produced it
-event ledger        ──▶  every run leaves an append-only trace of what it did
-verdict on ledger   ──▶  every judged output is recorded next to the work
+provenance[]          ──▶  every entity names the run that produced it
+runtime witness       ──▶  task and execution can locate the native session
+verdict on execution  ──▶  every judged output is recorded next to the work
 
-Exit Gate reads the event ledger for completeness (see 04-gates-in-the-pipeline)
 A strategic verdict → a human proposes a new decision (see learn/02)
 ```
 
-Provenance answers *who produced this record*. The event ledger answers *what
-happened, in order*. A verdict answers *did this one output hold*. None of the
+Provenance answers *who produced this record*. The runtime witness answers *which
+native session was observed*. A verdict answers *did this one output hold*. None of the
 three is a decision, and none of them silently becomes one — the escalation from
 a verdict to a decision is always a deliberate human act, which is exactly what
 keeps the decision spine, and the queue that watches it, worth reading. The
