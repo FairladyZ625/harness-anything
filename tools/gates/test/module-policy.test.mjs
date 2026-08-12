@@ -6,7 +6,7 @@ import { classifyModule, classifyPath, isProductionPath, isTestPath, MODULES } f
 test("module-policy is the single ordered module catalog", () => {
   assert.deepEqual(MODULES, [
     "kernel", "task-lifecycle", "write-contract", "doc-sync", "preset", "cli", "gui",
-    "daemon", "authority-write-path", "identity-rbac", "test-infra"
+    "daemon", "authority-write-path", "identity-rbac", "agent-runtime", "test-infra"
   ]);
   assert.equal(classifyModule("packages/kernel/src/domain/task.ts"), "kernel");
   assert.equal(classifyModule("packages/application/src/task-lifecycle-gates.ts"), "task-lifecycle");
@@ -18,6 +18,9 @@ test("module-policy is the single ordered module catalog", () => {
   assert.equal(classifyModule("packages/daemon/src/index.ts"), "daemon");
   assert.equal(classifyModule("packages/authority-write-path/src/index.ts"), "authority-write-path");
   assert.equal(classifyModule("packages/daemon/src/identity/authorization.ts"), "identity-rbac");
+  assert.equal(classifyModule("packages/agent-runtime/src/index.ts"), "agent-runtime");
+  assert.equal(classifyModule("packages/gui/src/renderer/agent-runtime-view.tsx"), "agent-runtime");
+  assert.equal(classifyModule("packages/daemon/src/agent-runtime-registry.ts"), "agent-runtime");
   assert.equal(classifyModule("tools/gates/line-budget.mjs"), "test-infra");
 });
 

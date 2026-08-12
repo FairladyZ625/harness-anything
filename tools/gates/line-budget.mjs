@@ -51,7 +51,7 @@ export function measureProductionLines({ rootDir, revision = null }) {
   return { counts, unclassified };
 }
 
-const INITIAL_MODULE_CEILINGS = Object.freeze({ "write-contract": 350 });
+const INITIAL_MODULE_CEILINGS = Object.freeze({ "write-contract": 350, "agent-runtime": 520 });
 
 export function parseBudgets(body, source = "line-budgets.json", historical = false) {
   let parsed;
@@ -73,7 +73,9 @@ export function parseBudgets(body, source = "line-budgets.json", historical = fa
     if (!Number.isInteger(ceiling) || ceiling < 0) throw new Error(`${source} ceiling for ${moduleName} must be a non-negative integer`);
   }
   const ceilings = { ...INITIAL_MODULE_CEILINGS, ...parsed.ceilings };
-  if (ceilings["write-contract"] > INITIAL_MODULE_CEILINGS["write-contract"]) throw new Error(`${source} ceiling for write-contract exceeds its design limit 350`);
+  for (const [designModule, designLimit] of Object.entries(INITIAL_MODULE_CEILINGS)) {
+    if (ceilings[designModule] > designLimit) throw new Error(`${source} ceiling for ${designModule} exceeds its design limit ${designLimit}`);
+  }
   return ceilings;
 }
 

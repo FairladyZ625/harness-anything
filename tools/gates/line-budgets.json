@@ -11,6 +11,7 @@
     "daemon": 831,
     "authority-write-path": 0,
     "identity-rbac": 416,
+    "agent-runtime": 520,
     "test-infra": 0
   }
 }
