@@ -1,56 +1,141 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { rmSync } from "node:fs";
-import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { Effect } from "effect";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
-import { makeJournaledWriteCoordinator } from "../../src/store/write-journal-coordinator.ts";
+import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
 import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
-test("event projection rebuild is deterministic and discards tampered SQLite state", async () => {
+test("steady apply and rebuild use the same reducer and reproduce watermark, op index, lease intervals", async () => {
   await withTempStoreAsync(async (rootDir) => {
-    const eventStore = makeTaskEventStore({ rootDir, coordinator: makeJournaledWriteCoordinator({ rootDir }) });
-    for (const event of lifecycleFixture().events) assert.equal(Effect.runSync(eventStore.append(event)).status, "applied");
-    const projection = makeTaskProjection({ rootDir, eventStore });
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ rootDir });
+    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
+    for (const event of lifecycleFixture().events) {
+      eventStore.append(event);
+      assert.deepEqual(projection.apply(event).metrics, { sqliteTransactions: 1, reducedItems: 1 });
+    }
 
     const first = projection.read("task-1");
     assert.equal(first.status, "ready");
+    assert.equal(first.watermark, 6);
     assert.equal(first.snapshot.task?.status, "done");
     assert.deepEqual(first.snapshot.executions.map((execution) => execution.state), ["accepted"]);
-    assert.deepEqual(first.snapshot.reviews.map((review) => review.kind), ["anti_entropy", "acceptance"]);
-    assert.deepEqual(first.snapshot.edgesTaken.map((edge) => edge.on), ["submitted", "approved"]);
+    const startOpId = lifecycleFixture().events[1]!.opId;
+    assert.equal(projection.readOperation(startOpId)?.event.type, "execution_started");
+    assert.deepEqual(projection.readLeaseIntervals("task-1").map((interval) => ({
+      executionId: interval.executionId,
+      acquiredRevision: interval.acquiredRevision,
+      releasedRevision: interval.releasedRevision,
+      reason: interval.reason
+    })), [{ executionId: "execution-1", acquiredRevision: 2, releasedRevision: 3, reason: "initial_claim" }]);
 
-    rmSync(path.join(rootDir, ".harness/cache/task.sqlite"), { force: true });
+    rmSync(projection.path, { force: true });
+    const rebuilt = projection.rebuild();
+    assert.equal(rebuilt.watermark, 6);
+    assert.equal(rebuilt.metrics.reducedItems, 6);
+    assert.equal(rebuilt.metrics.maxBatchItems <= 64, true);
+    assert.equal(rebuilt.metrics.maxBatchElapsedMs <= 100, true);
     assert.deepEqual(projection.read("task-1").snapshot, first.snapshot);
+    assert.equal(projection.readOperation(startOpId)?.event.type, "execution_started");
 
-    const db = new DatabaseSync(path.join(rootDir, ".harness/cache/task.sqlite"));
-    db.prepare("UPDATE execution SET value_json = json_set(value_json, '$.state', 'submitted')").run();
+    const db = new DatabaseSync(projection.path);
+    db.prepare("UPDATE task_snapshot SET snapshot_json = 'not-json'").run();
     db.close();
-
-    const repaired = projection.read("task-1");
-    assert.equal(repaired.snapshot.executions[0]?.state, "accepted");
-    assert.equal(repaired.warnings.includes("projection_tampered"), true);
+    assert.throws(() => projection.read("task-1"), /projection.*mismatch/u);
+    projection.rebuild();
+    assert.equal(projection.read("task-1").snapshot.executions[0]?.state, "accepted");
   });
 });
 
-test("projection catch-up is bounded and never reports a stale row as ready", async () => {
+test("projection catch-up processes at most one 64-item/100ms round and never reports stale data ready", async () => {
   await withTempStoreAsync(async (rootDir) => {
-    const eventStore = makeTaskEventStore({ rootDir, coordinator: makeJournaledWriteCoordinator({ rootDir }) });
-    for (const event of lifecycleFixture().events) Effect.runSync(eventStore.append(event));
-    const projection = makeTaskProjection({ rootDir, eventStore, catchUpLimit: 2 });
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ rootDir });
+    for (const event of lifecycleFixture().events) eventStore.append(event);
+    const projection = makeTaskProjection({ rootDir, eventStore, catchUpLimit: 2, now: () => "2026-08-11T00:30:00.000Z" });
 
-    assertPending(projection.read("task-1"), 2, 6);
-    assertPending(projection.read("task-1"), 4, 6);
-    assert.equal(projection.read("task-1").status, "ready");
+    let previousWatermark = 0;
+    for (let round = 0; round < 6; round += 1) {
+      const read = projection.read("task-1");
+      assert.equal(read.watermark >= previousWatermark, true);
+      assert.equal(read.sourceRevision, 6);
+      assert.equal(read.catchUp.reducedItems <= 2, true);
+      assert.equal(read.catchUp.elapsedMs <= 100, true);
+      if (read.status === "ready") { assert.equal(read.watermark, 6); return; }
+      previousWatermark = read.watermark;
+    }
+    assert.fail("bounded catch-up did not drain its persisted deferred events");
   });
 });
 
-function assertPending(read: ReturnType<ReturnType<typeof makeTaskProjection>["read"]>, watermark: number, sourceRevision: number) {
-  assert.equal(read.status, "pending");
-  assert.equal(read.watermark, watermark);
-  assert.equal(read.sourceRevision, sourceRevision);
+test("lease CAS rejects stale renew/release, marks expiry orphaned, and permits takeover", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ rootDir });
+    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
+    const fixture = lifecycleFixture();
+    eventStore.append(fixture.events[0]!);
+    projection.apply(fixture.events[0]!);
+    const started = fixture.events[1]!;
+    if (started.type !== "execution_started") throw new Error("fixture requires execution_started");
+
+    const reserving = projection.reserveLease({ ...started.payload.lease, phase: "reserving" }, started.occurredAt);
+    const active = projection.activateLease(reserving);
+    assert.equal(active.phase, "active");
+    assert.throws(() => projection.renewLease({ ...active, version: active.version - 1 }, "2026-08-11T02:00:00.000Z"), /stale/u);
+    const renewed = projection.renewLease(active, "2026-08-11T02:00:00.000Z");
+    assert.equal(renewed.version, active.version + 1);
+    assert.equal(projection.currentLease("task-1", "2026-08-11T02:00:00.000Z")?.phase, "orphaned");
+    assert.throws(() => projection.releaseLease(active), /stale/u);
+
+    const takeover = projection.reserveLease({ ...started.payload.lease, executionId: "execution-2", phase: "reserving",
+      expiresAt: "2026-08-11T03:00:00.000Z", version: renewed.version + 1 }, "2026-08-11T02:00:00.000Z");
+    assert.equal(takeover.executionId, "execution-2");
+  });
+});
+
+test("renewed lease survives database rebuild", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ rootDir });
+    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
+    const [created, started] = lifecycleFixture().events;
+    if (created === undefined || started?.type !== "execution_started") throw new Error("fixture requires start event");
+    eventStore.append(created); projection.apply(created);
+    eventStore.append(started); projection.apply(started);
+    const renewed = {
+      schema: "task-event/v1", eventId: "event-renew", workspaceRevision: 3, opId: "op-renew", taskId: started.taskId,
+      type: "lease_renewed", actor: started.actor, source: started.source, occurredAt: "2026-08-11T00:02:00.000Z",
+      payload: { task: started.payload.task, execution: started.payload.execution,
+        lease: { ...started.payload.lease, expiresAt: "2026-08-11T02:00:00.000Z", version: started.payload.lease.version + 1 },
+        previousHolder: { taskId: started.taskId, executionId: started.payload.execution.executionId, actor: started.actor, source: started.source },
+        leaseExpiresAt: "2026-08-11T02:00:00.000Z", reason: "same_principal_reconnect" }
+    } as unknown as TaskEventV1;
+    eventStore.append(renewed); projection.apply(renewed);
+    const beforeLease = projection.currentLease("task-1");
+    const beforeIntervals = projection.readLeaseIntervals("task-1");
+
+    rmSync(projection.path, { force: true });
+    const rebuilt = projection.rebuild();
+
+    assert.equal(rebuilt.watermark, 3);
+    assert.deepEqual(projection.currentLease("task-1"), beforeLease);
+    assert.deepEqual(projection.readLeaseIntervals("task-1"), beforeIntervals);
+  });
+});
+
+function initRepo(rootDir: string): void {
+  git(rootDir, "init", "--quiet");
+  git(rootDir, "config", "user.name", "Projection Test");
+  git(rootDir, "config", "user.email", "projection-test@example.invalid");
+  git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
+}
+
+function git(rootDir: string, ...args: readonly string[]): string {
+  return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }

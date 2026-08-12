@@ -100,7 +100,7 @@ test("WriteCoordinator flush uses injected VCS port for git operations", () => {
   });
 });
 
-test("a commit failure leaves a durable apply marker that recovery automatically incorporates", () => {
+test("a commit failure is recovered by replaying the idempotent declared write", () => {
   withTempStore((rootDir) => {
     const baseVcs = fakeVersionControlSystem(rootDir);
     let failCommit = true;
@@ -123,7 +123,7 @@ test("a commit failure leaves a durable apply marker that recovery automatically
 
     assert.equal(failure._tag, "JournalUnavailable");
     assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-recovery/notes.md"), "utf8"), "applied once\n");
-    assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8"), /"schema":"apply-marker\/v1","opId":"op-commit-recovery"/u);
+    assert.doesNotMatch(readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8"), /apply-marker/u);
 
     const recovered = Effect.runSync(coordinator.recover);
 

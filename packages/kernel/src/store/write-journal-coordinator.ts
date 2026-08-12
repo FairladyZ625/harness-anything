@@ -19,9 +19,8 @@ import {
   type HarnessLayoutInput,
   resolveHarnessLayout,
 } from "../layout/index.ts";
-import { updateTaskProjectionIncrementally } from "../projection/sqlite-task-incremental-projection.ts";
 import { hashTaskProjectionRows } from "../projection/sqlite-task-projection.ts";
-import { readMarkdownSource } from "../projection/sqlite-task-source.ts";
+import { rebuildTaskProjection } from "../projection/sqlite-task-projection.ts";
 import { appendJsonLineDurably, readDurableState, readPayloadRef, writePayloadRef, writeWatermarkDurably, writeFileDurably } from "./write-journal-durable.ts";
 import { assertCommitPlanAddable, commitTouchedPaths } from "./write-journal-git.ts";
 import { makeLocalVersionControlSystem } from "./local-version-control-system.ts";
@@ -36,8 +35,7 @@ import {
   validateWriteTransaction,
   writeOpTouchedPaths
 } from "./write-journal-operations.ts";
-import { isLeaseCasWriteOp } from "./task-lease-cas.ts";
-import type { ApplyMarkerRecord, GitCommitAuthor, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockConflictRetryOptions, LockTakeoverRecord, WriteWatermark } from "./write-journal-types.ts";
+import type { GitCommitAuthor, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockConflictRetryOptions, LockTakeoverRecord, WriteWatermark } from "./write-journal-types.ts";
 export type { GitCommitAuthor, JournalActor, JournaledWriteCoordinatorOptions, LockConflictRetryOptions } from "./write-journal-types.ts";
 
 const defaultActor: JournalActor = { kind: "agent", id: "local" };
@@ -66,12 +64,11 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
   const pending: WriteOp[] = [];
   const flushOnce = (reason: FlushReason): Effect.Effect<FlushReport, WriteError> => Effect.try({
     try: () => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, pending.map((op) => op.entityId), () => {
-      const runtimeOps = pending.splice(0, pending.length).filter(isLeaseCasWriteOp);
+      pending.splice(0, pending.length);
       const state = readDurableState(journalPath, watermarkPath, rootDir);
       const pendingRecords = uniquePendingRecords(state.records, state.applied);
-      for (const op of runtimeOps) applyWriteOp(runtimeContext, op);
-      const report = flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem);
-      return runtimeOps.length === 0 ? report : { ...report, opCount: report.opCount + runtimeOps.length, committed: true };
+      const report = flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, sessionId, commitAuthor, versionControlSystem);
+      return report;
     }, { heldGlobalLock }),
     catch: (cause): WriteError => toJournalError(cause)
   });
@@ -79,7 +76,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
     try: (): RecoveryReport => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, [], () => {
       const state = readDurableState(journalPath, watermarkPath, rootDir);
       const pendingRecords = uniquePendingRecords(state.records, state.applied);
-      const report = flushRecords("recovery", rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem);
+      const report = flushRecords("recovery", rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, sessionId, commitAuthor, versionControlSystem);
       return {
         replayedOps: report.opCount,
         recoveredWatermark: report.watermark
@@ -92,10 +89,6 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
     enqueue: (op) => Effect.try({
       try: (): WriteAck => {
         validateOp(runtimeContext, op);
-        if (isLeaseCasWriteOp(op)) {
-          if (!pending.some((item) => item.opId === op.opId)) pending.push(op);
-          return { opId: op.opId, entityId: op.entityId, accepted: true };
-        }
         preflightWriteOp(rootDir, runtimeContext, op, versionControlSystem);
         if (!heldGlobalLock) assertDirectWriteAllowed(rootDir, runtimeContext, lockTtlMs);
         const state = readDurableState(journalPath, watermarkPath, rootDir);
@@ -220,7 +213,6 @@ function flushRecords(
   watermarkPath: string,
   previousWatermark: WriteWatermark | null,
   records: ReadonlyArray<JournalRecord>,
-  fileApplied: ReadonlySet<string>,
   sessionId?: string,
   commitAuthor?: GitCommitAuthor,
   versionControlSystem?: VersionControlSystem
@@ -233,14 +225,9 @@ function flushRecords(
   }));
 
   assertCommitPlanAddable(rootDir, plannedRecords.flatMap((record) => record.touchedPaths), rootInput, { versionControlSystem });
-  const previousProjectionSourceHash = records.length > 0 ? readMarkdownSource(rootInput).hash : undefined;
 
   for (const { record, touchedPaths: recordTouchedPaths } of plannedRecords) {
-    // Ops with a durable apply marker already mutated their file before a crash;
-    // skip the (non-idempotent) file write but still commit and watermark them.
-    if (!fileApplied.has(record.opId)) {
-      applyRecord(rootDir, rootInput, journalPath, record);
-    }
+    applyRecord(rootDir, rootInput, record);
     touchedPaths.push(...recordTouchedPaths);
     committedOpIds.push(record.opId);
   }
@@ -258,7 +245,7 @@ function flushRecords(
     }
   );
   const projectionHash = committedOpIds.length > 0
-    ? rebuildProjectionHash(rootDir, rootInput, touchedPaths, previousProjectionSourceHash)
+    ? rebuildProjectionHash(rootDir, rootInput)
     : previousWatermark?.projectionHash ?? "no-projection-change";
   const allCommitted = [...(previousWatermark?.lastCommittedOpIds ?? []), ...committedOpIds];
   const recentCommitted = recentOpIds(allCommitted);
@@ -290,18 +277,9 @@ function flushRecords(
   };
 }
 
-function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath: string, record: JournalRecord): void {
+function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, record: JournalRecord): void {
   const op = recordToOp(rootDir, record);
   applyWriteOp(rootInput, op);
-  // Every successful file mutation is durably recognizable before commit and the
-  // global watermark. If either later step fails, replay skips the already-applied
-  // effect and continues the batch instead of turning this record into a poison op.
-  appendJsonLineDurably(journalPath, {
-    schema: "apply-marker/v1",
-    opId: record.opId,
-    entityId: record.entityId,
-    at: new Date().toISOString()
-  });
 }
 
 function createJournalRecord(rootDir: string, journalPath: string, op: {
@@ -426,16 +404,12 @@ function recordCommitDetail(kind: JournalRecordKind, payload: Record<string, unk
 
 function rebuildProjectionHash(
   rootDir: string,
-  rootInput: HarnessLayoutInput,
-  touchedPaths: ReadonlyArray<string>,
-  previousSourceHash: string | undefined
+  rootInput: HarnessLayoutInput
 ): string {
   const layoutOverrides = typeof rootInput === "string" ? undefined : rootInput.layoutOverrides;
-  return hashTaskProjectionRows(updateTaskProjectionIncrementally({
+  return hashTaskProjectionRows(rebuildTaskProjection({
     rootDir,
-    layoutOverrides,
-    touchedPaths,
-    previousSourceHash
+    layoutOverrides
   }).rows);
 }
 
@@ -463,8 +437,8 @@ function compactJournalDurably(journalPath: string, coveredOpIds: ReadonlySet<st
     .split("\n")
     .filter((line) => line.trim().length > 0)
     .filter((line) => {
-      const parsed = JSON.parse(line) as Partial<JournalRecord | LockTakeoverRecord | ApplyMarkerRecord>;
-      if (parsed.schema !== "write-journal/v1" && parsed.schema !== "apply-marker/v1") return true;
+      const parsed = JSON.parse(line) as Partial<JournalRecord | LockTakeoverRecord>;
+      if (parsed.schema !== "write-journal/v1") return true;
       return typeof parsed.opId !== "string" || !coveredOpIds.has(parsed.opId);
     });
   writeFileDurably(journalPath, retained.length === 0 ? "" : `${retained.join("\n")}\n`);

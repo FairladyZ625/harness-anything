@@ -17,6 +17,16 @@
         "value": "packages/cli/test/task-document-gates-cli.test.ts",
         "ref": "task_P4_INT",
         "reason": "Explicit opaque gate receipts replace the legacy local completion-gate evaluator and its CLI integration test."
+      },
+      {
+        "value": "packages/kernel/test/store/progress-append-delta.test.ts",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "Immutable task events carry the canonical progress snapshot, so publication no longer replays or guards a Markdown append delta."
+      },
+      {
+        "value": "packages/kernel/test/store/sqlite-incremental-projection.test.ts",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "The single rebuildable SQLite reducer replaces the incremental projector fallback and its separate integration test."
       }
     ]
   }

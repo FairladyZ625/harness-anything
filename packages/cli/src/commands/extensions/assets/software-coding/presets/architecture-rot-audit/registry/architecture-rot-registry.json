@@ -256,17 +256,17 @@
     {
       "id": "ROT-006",
       "category": "atomicity-outsourcing",
-      "title": "Task lease CAS mutations are atomic inside the lease store",
+      "title": "Task lease CAS mutations are atomic inside the rebuildable view",
       "mechanism": {
-        "mustBeTrue": "The replay/v1 lease store guards reserve and CAS transitions with SQLite immediate transactions; daemon queueing is not a correctness prerequisite.",
+        "mustBeTrue": "The replay/v1 view guards reducer and lease CAS transitions with SQLite immediate transactions; daemon queueing is not a correctness prerequisite.",
         "scope": [
-          "packages/kernel/src/local/task-lease-store.ts",
-          "packages/application/src/task-lifecycle-facade.ts"
+          "packages/kernel/src/projection/rebuildable-task-projection.ts",
+          "packages/application/src/task-lifecycle-service.ts"
         ]
       },
       "detection": {
         "detector": "ROT-006",
-        "command": "node --input-type=module -e 'import { readFileSync } from \"node:fs\"; const file=\"packages/kernel/src/local/task-lease-store.ts\"; const body=readFileSync(file,\"utf8\"); const helper=/function\\s+transaction\\b/u.test(body); const calls=(body.match(/\\btransaction\\s*\\(/gu)??[]).length-(helper?1:0); console.log(JSON.stringify({atomicMutationHelper:helper,guardedMutationCallsites:calls})); process.exit(helper&&calls>=2?0:1);'",
+        "command": "node --input-type=module -e 'import { readFileSync } from \"node:fs\"; const file=\"packages/kernel/src/projection/rebuildable-task-projection.ts\"; const body=readFileSync(file,\"utf8\"); const helper=/function\\s+transaction\\b/u.test(body)&&body.includes(\"BEGIN IMMEDIATE\"); const calls=(body.match(/\\btransaction\\s*\\(/gu)??[]).length-(helper?1:0); console.log(JSON.stringify({atomicMutationHelper:helper,guardedMutationCallsites:calls})); process.exit(helper&&calls>=2?0:1);'",
         "cwd": ".",
         "successExitCodes": [
           0

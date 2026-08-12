@@ -1,9 +1,7 @@
-import path from "node:path";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import type { VersionControlSystem } from "../ports/version-control-system.ts";
-import { updateTaskProjectionIncrementally } from "../projection/sqlite-task-incremental-projection.ts";
-import { readMarkdownSource } from "../projection/sqlite-task-source.ts";
+import { rebuildTaskProjection } from "../projection/sqlite-task-projection.ts";
 import { makeLocalVersionControlSystem } from "./local-version-control-system.ts";
 import { resolveTrunkBranch } from "./write-journal-git.ts";
 import { withRepoLocks } from "./write-journal-locks.ts";
@@ -60,8 +58,6 @@ function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dr
   const warnings: string[] = [];
   let merged = 0;
   let processed = 0;
-  const projectionSourceHashBeforeMerge = readMarkdownSource(rootInput).hash;
-  const touchedPaths = new Set<string>();
 
   const trunkBranch = resolveTrunkBranch(repoRoot, undefined, vcs);
   if (!vcs.refExists(repoRoot, trunkBranch)) {
@@ -94,18 +90,18 @@ function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dr
       const beforeMergeHead = vcs.currentHead(repoRoot);
       vcs.mergeNoFf(repoRoot, branch, `materializer: merge session ${branch.slice("sessions/".length)}`);
       const afterMergeHead = vcs.currentHead(repoRoot);
-      for (const relativePath of vcs.changedFilesBetween(repoRoot, beforeMergeHead, afterMergeHead)) {
-        touchedPaths.add(path.join(repoRoot, relativePath));
-      }
+      vcs.changedFilesBetween(repoRoot, beforeMergeHead, afterMergeHead);
       vcs.deleteBranch(repoRoot, branch);
       merged += 1;
       reports.push({ branch, commitCount: commits.length, status: "merged", commits });
     } catch (error) {
       const warning = `${branch}: ${error instanceof Error ? error.message : String(error)}`;
+      consumeKnownError(error);
       warnings.push(warning);
       try {
         vcs.abortMerge(repoRoot);
-      } catch {
+      } catch (abortError) {
+        consumeKnownError(abortError);
         // No merge was in progress or Git could not abort; keep the warning and continue.
       }
       reports.push({ branch, commitCount: commits.length, status: "conflict", commits, warning });
@@ -116,11 +112,9 @@ function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dr
 
   if (merged > 0) {
     const layout = resolveHarnessLayout(rootInput);
-    updateTaskProjectionIncrementally({
+    rebuildTaskProjection({
       rootDir: layout.rootDir,
-      ...(typeof rootInput === "object" && rootInput.layoutOverrides ? { layoutOverrides: rootInput.layoutOverrides } : {}),
-      touchedPaths: [...touchedPaths],
-      previousSourceHash: projectionSourceHashBeforeMerge
+      ...(typeof rootInput === "object" && rootInput.layoutOverrides ? { layoutOverrides: rootInput.layoutOverrides } : {})
     });
   }
 
@@ -133,6 +127,8 @@ function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dr
     projectionRebuilt: merged > 0
   };
 }
+
+function consumeKnownError(error: unknown): void { void error; }
 
 function reachedBranchLimit(processed: number, maxBranches: number | undefined): boolean {
   return typeof maxBranches === "number" && Number.isFinite(maxBranches) && maxBranches > 0 && processed >= maxBranches;

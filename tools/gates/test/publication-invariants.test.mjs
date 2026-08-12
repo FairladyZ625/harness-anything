@@ -66,6 +66,7 @@ function snapshotTree(rootDir) {
   const snapshot = new Map();
   const visit = (directory) => {
     for (const name of readdirSync(directory)) {
+      if (name === ".git") continue;
       const absolute = path.join(directory, name);
       if (statSync(absolute).isDirectory()) visit(absolute);
       else snapshot.set(path.relative(rootDir, absolute).split(path.sep).join("/"), readFileSync(absolute).toString("base64"));
@@ -85,11 +86,10 @@ function assertChangedPathsDeclared(before, after, plan) {
 
 function declaredMatchers(plan) {
   return plan.targets.flatMap((target) => {
-    if (target.kind === "event_stream") return [exact(target.stream), prefix(".harness/write-journal/")];
-    if (target.kind === "projection_invalidation" || target.kind === "lease_sqlite") return [exact(".harness/cache/task.sqlite"), prefix(".harness/write-journal/")];
+    if (target.kind === "event_file" || target.kind === "event_head") return [exact(target.path)];
+    if (target.kind === "projection_invalidation" || target.kind === "lease_sqlite") return [exact(".harness/cache/task.sqlite")];
     return [exact(target.path)];
   });
 }
 
 function exact(expected) { return (actual) => actual === expected; }
-function prefix(expected) { return (actual) => actual.startsWith(expected); }

@@ -1,11 +1,12 @@
-// harness-test-tier: fast
+// harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { runTaskLifecycleEffect } from "../../application/src/index.ts";
-import { makeJournaledWriteCoordinator } from "../../kernel/src/index.ts";
+import { applyTransition, makeJournaledWriteCoordinator, makeTaskEventStore, normalizeTaskLifecycleCommand, REPLAY_TASK_GRAPH, type TaskEventV1 } from "../../kernel/src/index.ts";
 import type { CommandRunnerContext } from "../src/cli/runner-registry.ts";
 import type { ParsedCommand, TaskLifecycleCliAction } from "../src/cli/types.ts";
 import { makeLocalGateReceiptVerifier, verifySignedAntiEntropyReceipt } from "../src/cli/task-lifecycle-authority.ts";
@@ -18,9 +19,37 @@ const actor = {
   executor: { kind: "agent" as const, id: "executor-host" }
 };
 
+test("startup recovers pending pair before receipt", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-host-recovery-"));
+  try {
+    initRepo(rootDir);
+    const pendingEvent: TaskEventV1 = {
+      schema: "task-event/v1", eventId: "event-recovery", workspaceRevision: 1, opId: "op-recovery", taskId: "task_RECOVERY",
+      type: "task_created", actor, source: "local", occurredAt: "2026-08-12T00:00:00.000Z",
+      payload: { task: { schema: "task/v1", taskId: "task_RECOVERY", title: "Recovered task", status: "planned",
+        graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [] } }
+    };
+    const interrupted = makeTaskEventStore({ rootDir, killpoint: (point) => {
+      if (point === "after_head_write") throw new Error(`killpoint:${point}`);
+    } });
+    assert.throws(() => interrupted.append(pendingEvent), /killpoint:after_head_write/u);
+    const before = Number(git(rootDir, "rev-list", "--count", "HEAD").trim());
+
+    const host = makeTaskLifecycleHost(runnerContext(rootDir, actor, {}));
+    const receipt = await host.show({ taskId: pendingEvent.taskId });
+
+    assert.equal(receipt.outcome, "applied");
+    assert.equal(Number(git(rootDir, "rev-list", "--count", "HEAD").trim()), before + 1);
+    assert.equal(JSON.parse(receipt.evidence ?? "{}").task?.taskId, pendingEvent.taskId);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("host binds the lease to the authenticated actor, execution, and version", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-host-"));
   try {
+    initRepo(rootDir);
     const host = makeTaskLifecycleHost({
       rootDir,
       layoutInput: rootDir,
@@ -39,8 +68,9 @@ test("host binds the lease to the authenticated actor, execution, and version", 
     const first = await runTaskLifecycleFacade(start, { actor, workspaceId: rootDir, service: host });
     assert.equal(first.outcome, "applied");
 
-    const streamPath = path.join(rootDir, "harness/task-events.ndjson");
-    assert.equal(readFileSync(streamPath, "utf8").includes("credential"), false);
+    const eventBodies = readdirSync(path.join(rootDir, "harness/events")).filter((name) => name !== "head.json")
+      .map((name) => readFileSync(path.join(rootDir, "harness/events", name), "utf8")).join("\n");
+    assert.equal(eventBodies.includes("credential"), false);
     const projectionBytes = readFileSync(path.join(rootDir, ".harness/cache/task.sqlite")).toString("latin1");
     assert.equal(projectionBytes.includes("credential"), false);
 
@@ -61,6 +91,67 @@ test("host binds the lease to the authenticated actor, execution, and version", 
   }
 });
 
+test("expired lease cannot authorize submit", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-host-expired-"));
+  try {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ rootDir });
+    const empty = { revision: 0, task: null, executions: [], reviews: [], edgesTaken: [], lease: null } as const;
+    const create = { ...normalizeTaskLifecycleCommand({ workspaceId: rootDir, actor, source: "local", expectedRevision: 0 }, {
+      type: "CreateReplayTask" as const, taskId: "task_EXPIRED", title: "Expired lease task", graph: REPLAY_TASK_GRAPH, completionGateIds: []
+    }), eventId: "event-expired-create", workspaceRevision: 1, occurredAt: "2099-01-01T00:00:00.000Z" };
+    const created = applyTransition(empty, create, { taskIdUnique: true, actorBinding: actor });
+    const start = { ...normalizeTaskLifecycleCommand({ workspaceId: rootDir, actor, source: "local", expectedRevision: 1 }, {
+      type: "StartExecution" as const, taskId: "task_EXPIRED", executionId: "execution_EXPIRED"
+    }), eventId: "event-expired-start", workspaceRevision: 2, occurredAt: "2099-01-01T00:01:00.000Z" };
+    const started = applyTransition(created.snapshot, start, { actorBinding: actor, reservation: {
+      taskId: start.taskId, executionId: start.executionId, expiresAt: "2099-01-01T00:30:00.000Z", ttlMs: 1_800_000,
+      previousHolder: null, reason: "initial_claim", version: 1
+    } });
+    eventStore.append(created.event); eventStore.append(started.event);
+    const makeWithClock = makeTaskLifecycleHost as unknown as (context: CommandRunnerContext, now: () => string) => ReturnType<typeof makeTaskLifecycleHost>;
+    const host = makeWithClock(runnerContext(rootDir, actor, {}), () => "2099-01-01T01:00:00.000Z");
+
+    const shown = await host.show({ taskId: "task_EXPIRED" });
+    assert.equal(JSON.parse(shown.evidence ?? "{}").lease?.phase, "orphaned");
+    const submit = parsed(["task", "submit", "task_EXPIRED", "--execution-id", "execution_EXPIRED", "--claim", "late", "--commit-sha", "a".repeat(40)]);
+    const receipt = await runTaskLifecycleFacade(submit, { actor, workspaceId: rootDir, service: host });
+    assert.equal(receipt.outcome, "rejected");
+    assert.equal(receipt.code, "lease_actor_mismatch");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("complete CLI write counts every Git process", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-host-git-count-"));
+  const previousPath = process.env.PATH, previousCountPath = process.env.HA_TEST_GIT_COUNT, previousRealGit = process.env.HA_TEST_REAL_GIT;
+  try {
+    initRepo(rootDir);
+    const realGit = (previousPath ?? "").split(path.delimiter).map((entry) => path.join(entry, "git")).find(existsSync);
+    assert.ok(realGit, "git executable is available");
+    const shimDir = path.join(rootDir, "git-shim"), countPath = path.join(shimDir, "calls");
+    mkdirSync(shimDir); writeFileSync(countPath, "", "utf8");
+    writeFileSync(path.join(shimDir, "git"), "#!/bin/sh\nprintf '1\\n' >> \"$HA_TEST_GIT_COUNT\"\nexec \"$HA_TEST_REAL_GIT\" \"$@\"\n", "utf8");
+    chmodSync(path.join(shimDir, "git"), 0o755); process.env.PATH = `${shimDir}${path.delimiter}${previousPath ?? ""}`;
+    process.env.HA_TEST_GIT_COUNT = countPath; process.env.HA_TEST_REAL_GIT = realGit;
+    const count = () => readFileSync(countPath, "utf8").split("\n").filter(Boolean).length;
+    const beforeStore = count();
+    const host = makeTaskLifecycleHost(runnerContext(rootDir, actor, {}));
+    const afterStore = count();
+    const create = parsed(["task", "create", "--task-id", "task_COUNT", "--title", "Counted task"]);
+    assert.equal((await runTaskLifecycleFacade(create, { actor, workspaceId: rootDir, service: host })).outcome, "applied");
+    const afterPublication = count();
+
+    assert.equal(afterStore - beforeStore, 4, "store construction Git processes are a separate phase");
+    assert.equal(afterPublication - afterStore, 3, "publication phase measures fast-import/update-ref/update-index");
+    assert.equal(afterPublication - beforeStore, 7, "the complete CLI phase counts store construction plus publication");
+  } finally {
+    setEnv("PATH", previousPath); setEnv("HA_TEST_GIT_COUNT", previousCountPath); setEnv("HA_TEST_REAL_GIT", previousRealGit);
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("real runner accepts a valid anti-entropy signature and rejects tampered, expired, or missing verification", async () => {
   const previousKey = process.env.ANTI_ENTROPY_HMAC_KEY;
   process.env.ANTI_ENTROPY_HMAC_KEY = "runner-receipt-key";
@@ -68,6 +159,7 @@ test("real runner accepts a valid anti-entropy signature and rejects tampered, e
     for (const variant of ["valid", "tampered", "expired", "missing"] as const) {
       const rootDir = mkdtempSync(path.join(tmpdir(), `ha-task-g34-${variant}-`));
       try {
+        initRepo(rootDir);
         const context = runnerContext(rootDir, actor, variant === "missing" ? {} : { verifyAntiEntropyReceipt: verifySignedAntiEntropyReceipt });
         await submittedTask(context, `task_${variant}`, `execution_${variant}`);
         const headSha = "b".repeat(40);
@@ -95,6 +187,7 @@ test("real runner accepts a valid anti-entropy signature and rejects tampered, e
 
 test("host rejects unauthorized completion and forged gate receipt before accepting verified authority", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-g09-"));
+  initRepo(rootDir);
   const previousKey = process.env.ANTI_ENTROPY_HMAC_KEY;
   process.env.ANTI_ENTROPY_HMAC_KEY = "runner-receipt-key";
   const ownerContext = runnerContext(rootDir, actor, {
@@ -207,3 +300,14 @@ const testAuthorizer: NonNullable<CommandRunnerContext["authorizeTaskLifecycleAc
   }
   return { ok: false, nextAction: `Authorize ${candidate.principal.personId} before retrying.` };
 };
+
+function initRepo(rootDir: string): void {
+  git(rootDir, "init", "--quiet");
+  git(rootDir, "config", "user.name", "CLI Host Test");
+  git(rootDir, "config", "user.email", "cli-host-test@example.invalid");
+  git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
+}
+function git(rootDir: string, ...args: readonly string[]): string {
+  return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+}
+function setEnv(name: string, value: string | undefined): void { if (value === undefined) delete process.env[name]; else process.env[name] = value; }

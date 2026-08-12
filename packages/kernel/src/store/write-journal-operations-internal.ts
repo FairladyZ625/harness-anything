@@ -215,7 +215,6 @@ function isMachineArtifactAppendJsonlPayload(payload: unknown): payload is Machi
 
 function isMachineArtifactBoundary(value: unknown): value is MachineArtifactBoundary {
   return value === "runtime-event-ledger" ||
-    value === "task-event-stream" ||
     value === "provenance-session" ||
     value === "docmap-derived" ||
     value === "distill-candidate" ||
@@ -240,8 +239,6 @@ function resolveMachineArtifactPath(
 
   const allowed = boundary === "runtime-event-ledger"
     ? normalized.startsWith(`${generatedRelative}/runtime-events/`) && normalized.endsWith(".jsonl")
-    : boundary === "task-event-stream"
-      ? normalized === `${authoredRelative}/task-events.ndjson`
     : boundary === "provenance-session"
       ? normalized.startsWith(`${authoredRelative}/sessions/`) && normalized.endsWith(".md")
     : boundary === "docmap-derived"
@@ -342,9 +339,12 @@ function normalizeWriteDocumentPath(documentPath: string, entityId?: EntityId): 
   try {
     return normalizeRelativeDocumentPath(documentPath);
   } catch (error) {
+    consumeKnownError(error);
     rejectWrite(error instanceof Error ? error.message : String(error), entityId);
   }
 }
+
+function consumeKnownError(error: unknown): void { void error; }
 
 export {
   applyDocumentAppendRecord,

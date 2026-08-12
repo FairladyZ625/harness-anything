@@ -1,10 +1,9 @@
 export * from "./domain/index.ts";
 export { applyTransition, normalizeTaskLifecycleCommand, validateTaskLifecycleCommandEnvelope } from "./domain/task-lifecycle.contract.ts";
-export { freezeWritePlan, taskLifecycleWritePlan } from "./domain/task-write-decision.ts";
-export type { CompleteTaskProof, ProofFor, StartExecutionProof, TaskEventV1, TaskLifecycleCommand, TaskLifecycleSnapshot } from "./domain/task-lifecycle.contract.ts";
+export { taskLifecycleWritePlan } from "./domain/task-write-decision.ts";
+export type { CompleteTaskProof, ProofFor, TaskEventV1, TaskLifecycleCommand, TaskLifecycleSnapshot } from "./domain/task-lifecycle.contract.ts";
 export { canonicalizeContractValue } from "./domain/task.ts";
 export type { TaskV1 } from "./domain/task.ts";
-export type { LeaseV1 } from "./domain/execution.ts";
 export { createWriteReceipt, normalizeCommandEnvelope, WRITE_RECEIPT_SCHEMA } from "./domain/write-chain.contract.ts";
 export type { FrozenWritePlan, WriteOperationReceipt, WriteReceipt, WriteTarget } from "./domain/write-chain.contract.ts";
 export * from "./docmap/index.ts";
@@ -68,7 +67,6 @@ export {
   makeLocalLockRegistry,
   makeMarkdownArtifactStore,
   makeTaskEventStore,
-  makeTaskLeaseStore,
   makeTaskProjection,
   readContentAddressedTextBlob,
   writeContentAddressedBlob
