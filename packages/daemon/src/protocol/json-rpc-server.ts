@@ -36,6 +36,7 @@ export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost
       try { return reply(parseDaemonGuiReadResult(request.method, await options.host.read(repo, request.method, params.payload as JsonObject | undefined ?? {}, options.authContext)) as unknown as JsonObject); }
       catch (error) { return reply(daemonProtocolError(request.method, rpcServerErrorCode(error), error instanceof Error ? error.message : String(error)) as unknown as JsonObject); } }
     const repo = (params.repo as JsonObject).repoId as string; let action: JsonObject & { readonly kind: string }; try { action = actionForDaemonMethod(request.method, params.payload as JsonObject); } catch (error) { return reply(daemonProtocolError(request.method, rpcServerErrorCode(error), error instanceof Error ? error.message : String(error)) as unknown as JsonObject); }
+    if (action.kind === "preset-run-start" || action.kind === "preset-run-status") return reply(await options.host.presetRun(repo, action, options.authContext) as unknown as JsonObject);
     const receipt = await options.host.run(repo, action, options.authContext);
     const ok = receipt.outcome === "applied" || receipt.outcome === "pending";
     return reply({ schema: "command-receipt/v2", ok, command: action.kind, ...receipt,

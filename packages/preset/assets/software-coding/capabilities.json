@@ -3,6 +3,7 @@
   "providers": [
     { "id": "standard-task-check", "kind": "checker", "version": "1" },
     { "id": "policy:artifact-contract/v1", "kind": "command", "version": "1" },
+    { "id": "policy:task-create/v1", "kind": "command", "version": "1", "actionKind": "task-create", "payloadFields": ["title", "taskId", "presetId", "profileId", "locale", "taskClass"] },
     { "id": "policy:template-override/task-plan/v1", "kind": "command", "version": "1", "requiredTaskClass": "milestone", "templateOverrides": { "task.plan": "template://planning/milestone-task-plan@1" } }
   ]
 }

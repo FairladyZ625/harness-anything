@@ -33,3 +33,9 @@ test("daemon-missing doc submit is explicitly rejected without a local Git or sc
     assert.equal(existsSync(path.join(root, "harness")), false); assert.equal(existsSync(path.join(root, ".harness")), false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("daemon-missing preset run rejects promptly without child or direct fallback", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-no-preset-daemon-"));
+  try { const started = performance.now(), result = spawnSync(process.execPath, [path.resolve("packages/cli/src/index.ts"), "--root", root, "--json", "script", "run", "preset:user-canary/check", "--idempotency-key", "once", "--inputs", "{}"], { encoding: "utf8", env: { ...process.env, HOME: path.join(root, ".home"), HARNESS_DAEMON_USER_ROOT: path.join(root, "user") } }), receipt = JSON.parse(result.stdout) as { error: { code: string } }; assert.notEqual(result.status, 0); assert.equal(receipt.error.code, "daemon_unavailable"); assert.equal(performance.now() - started < 1_000, true); assert.equal(existsSync(path.join(root, ".harness")), false); }
+  finally { rmSync(root, { recursive: true, force: true }); }
+});

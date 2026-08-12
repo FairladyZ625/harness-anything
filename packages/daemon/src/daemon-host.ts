@@ -1,5 +1,5 @@
 import { readDaemonRegistry, registerDaemonRepo, unregisterDaemonRepo, type ActorIdentity, type WriteReceipt, type WriteSource } from "../../kernel/src/index.ts";
-import { canonicalRoot, commandClassForAction, workspaceId, type DaemonGuiReadMethod, type DaemonGuiReadResultMap } from "./protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, commandClassForAction, workspaceId, type DaemonGuiReadMethod, type DaemonGuiReadResultMap } from "./protocol/daemon-protocol.contract.ts"; import { presetUserRoot, recoverPresetRunStatus } from "../../preset/src/index.ts";
 import { resolveRepoBootstrap, type RepoBootstrapRequest } from "./repo-bootstrap.ts";
 import { loadPeopleRoster } from "./identity/people-roster.ts";
 import { makeTransportDerivedIdentityProvider } from "./identity/transport-derived-provider.ts";
@@ -8,7 +8,7 @@ import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { openRepoCell, type RepoCell, type RepoCellStatus, type RepoTaskAction } from "./repo-cell.ts";
 import type { AgentRuntimeAttachEvent, AgentRuntimeAttachSubscription, AgentRuntimeNativeSignal, AgentRuntimeWitnessBinding, AgentRuntimeWitnessToken } from "./agent-runtime-stream.ts";
 export interface DaemonHost {
-  readonly run: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => Promise<WriteReceipt>;
+  readonly run: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => Promise<WriteReceipt>; readonly presetRun: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => ReturnType<RepoCell["presetRun"]>;
   readonly read: <M extends DaemonGuiReadMethod>(repoId: string, method: M, payload: Readonly<Record<string, unknown>>, auth: DaemonAuthenticationContext) => Promise<DaemonGuiReadResultMap[M]>;
   readonly attach: (repoId: string, runtimeSessionId: string, afterCursor: string, auth: DaemonAuthenticationContext) => Promise<AgentRuntimeAttachSubscription>;
   readonly issueRuntimeWitness: (repoId: string, runtimeSessionId: string, auth: DaemonAuthenticationContext) => Promise<AgentRuntimeWitnessToken>; readonly bindRuntimeWitness: (repoId: string, token: string) => AgentRuntimeWitnessBinding; readonly publishRuntimeWitness: (repoId: string, token: string, signal: AgentRuntimeNativeSignal) => AgentRuntimeAttachEvent;
@@ -55,6 +55,7 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
       try { return await cell.run(action, await binding(cell.status().rootDir, auth, commandClassForAction(action.kind), action.kind === "doc-submit")); }
       catch (error) { return reject(action, code(error), consumeKnownError(error)); }
     },
+    presetRun: async (repoId, action, auth) => { const cell = cells.get(repoId), missing = unavailable.get(repoId), recoveryRunId = recoverableRunId(action); if (!cell) { if (missing && recoveryRunId) try { await binding(missing.rootDir, auth, commandClassForAction(action.kind)); return recoverPresetRunStatus({ rootDir: missing.rootDir, userRoot: presetUserRoot(missing.rootDir) }, recoveryRunId); } catch (error) { return rejectPresetRun(recoveryRunId, code(error), consumeKnownError(error)); } return rejectPresetRun("run_invalid", missing ? "repo_unavailable" : "repo_namespace_unknown", missing?.lastError ?? `Unknown repo namespace: ${repoId}.`); } try { return await cell.presetRun(action, await binding(cell.status().rootDir, auth, commandClassForAction(action.kind))); } catch (error) { return rejectPresetRun(typeof action.runId === "string" ? action.runId : "run_invalid", code(error), consumeKnownError(error)); } },
     read: async (repoId, method, payload, auth) => { const cell = cells.get(repoId);
       if (!cell) throw hostCodedError(unavailable.has(repoId) ? "repo_unavailable" : "repo_namespace_unknown", unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`);
       await binding(cell.status().rootDir, auth, "repo-read"); return cell.read(method, payload); },
@@ -80,8 +81,8 @@ async function binding(rootDir: string, auth: DaemonAuthenticationContext, requi
     source: "local", docWriteAllowed: allowed };
 }
 function reject(action: RepoTaskAction, errorCode: string, nextAction: string): WriteReceipt { return { outcome: "rejected", opId: `rejected:${action.kind}`,
-  code: errorCode, origin: "daemon", evidence: `rejection:${errorCode}`, nextAction }; }
-function hostCodedError(errorCode: string, text: string): Error { const error = new Error(text) as Error & { code: string }; error.code = errorCode; return error; }
+  code: errorCode, origin: "daemon", evidence: `rejection:${errorCode}`, nextAction }; } function rejectPresetRun(runId: string, code: string, nextAction: string) { return { schema: "preset-run-receipt/v1" as const, runId, outcome: "rejected" as const, phase: "rejected" as const, phases: ["rejected"] as const, code, nextAction }; }
+function hostCodedError(errorCode: string, text: string): Error { const error = new Error(text) as Error & { code: string }; error.code = errorCode; return error; } function recoverableRunId(action: RepoTaskAction): string | undefined { return action.kind === "preset-run-status" && typeof action.runId === "string" ? action.runId : undefined; }
 function code(error: unknown): string { return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "daemon_error"; }
 function consumeKnownError(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function requiredCell(cells: Map<string, RepoCell>, unavailable: Map<string, RepoCellStatus>, repoId: string): RepoCell { const cell = cells.get(repoId); if (!cell) throw hostCodedError(unavailable.has(repoId) ? "repo_unavailable" : "repo_namespace_unknown", unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`); return cell; }
