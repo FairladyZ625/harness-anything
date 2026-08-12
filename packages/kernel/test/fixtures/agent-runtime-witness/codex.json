@@ -1,0 +1,108 @@
+{
+  "schema": "agent-runtime-witness-fixture/v1",
+  "profile": "codex",
+  "witnesses": [
+    {
+      "schema": "agent-runtime-witness/v1",
+      "protocolFamily": "codex",
+      "channel": "hook",
+      "type": "runtime_installation_observed",
+      "payload": {
+        "installationId": "installation-codex",
+        "kindId": "codex",
+        "version": "1.0.0",
+        "capabilities": ["structured_witness", "resume"],
+        "authState": "configured"
+      }
+    },
+    {
+      "schema": "agent-runtime-witness/v1",
+      "protocolFamily": "codex",
+      "channel": "hook",
+      "type": "runtime_dispatch_requested",
+      "payload": {
+        "dispatchId": "dispatch-codex",
+        "runtimeSessionId": "runtime-session-codex",
+        "kindId": "codex",
+        "idempotencyKey": "dispatch-codex-attempt-1",
+        "definitionSnapshotRef": "artifact:runtime-definitions/codex/v1"
+      }
+    },
+    {
+      "schema": "agent-runtime-witness/v1",
+      "protocolFamily": "codex",
+      "channel": "hook",
+      "type": "runtime_session_started",
+      "payload": {
+        "runtimeSessionId": "runtime-session-codex",
+        "installationId": "installation-codex",
+        "kindId": "codex",
+        "launchGeneration": 1,
+        "attachable": false
+      }
+    },
+    {
+      "schema": "agent-runtime-witness/v1",
+      "protocolFamily": "codex",
+      "channel": "hook",
+      "type": "runtime_session_provider_bound",
+      "payload": {
+        "runtimeSessionId": "runtime-session-codex",
+        "providerSessionId": "provider-session-codex",
+        "transcriptRef": "file:runtime-transcripts/codex/session.jsonl"
+      }
+    },
+    {
+      "schema": "agent-runtime-witness/v1",
+      "protocolFamily": "codex",
+      "channel": "hook",
+      "type": "runtime_session_task_bound",
+      "payload": {
+        "runtimeSessionId": "runtime-session-codex",
+        "taskId": "task-runtime",
+        "executionId": "execution-codex",
+        "providerSessionId": "provider-session-codex",
+        "transcriptRef": "file:runtime-transcripts/codex/session.jsonl"
+      }
+    },
+    {
+      "schema": "agent-runtime-witness/v1",
+      "protocolFamily": "codex",
+      "channel": "hook",
+      "type": "runtime_session_outcome_observed",
+      "payload": {
+        "runtimeSessionId": "runtime-session-codex",
+        "outcome": "succeeded",
+        "resultRef": "artifact:runtime-results/codex/succeeded"
+      }
+    },
+    {
+      "schema": "agent-runtime-witness/v1",
+      "protocolFamily": "codex",
+      "channel": "hook",
+      "type": "runtime_session_exited",
+      "payload": {
+        "runtimeSessionId": "runtime-session-codex"
+      }
+    },
+    {
+      "schema": "agent-runtime-witness/v1",
+      "protocolFamily": "codex",
+      "channel": "hook",
+      "type": "runtime_dispatch_outcome_unknown",
+      "payload": {
+        "dispatchId": "dispatch-codex",
+        "runtimeSessionId": "runtime-session-codex"
+      }
+    },
+    {
+      "schema": "agent-runtime-witness/v1",
+      "protocolFamily": "codex",
+      "channel": "hook",
+      "type": "heartbeat",
+      "payload": {
+        "runtimeSessionId": "runtime-session-codex"
+      }
+    }
+  ]
+}

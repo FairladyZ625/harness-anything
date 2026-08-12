@@ -1,7 +1,7 @@
 {
   "version": 1,
   "ceilings": {
-    "kernel": 10236,
+    "kernel": 10001,
     "task-lifecycle": 459,
     "write-contract": 294,
     "doc-sync": 300,
@@ -11,6 +11,7 @@
     "daemon": 831,
     "authority-write-path": 0,
     "identity-rbac": 416,
+    "agent-runtime": 82,
     "test-infra": 0
   }
 }

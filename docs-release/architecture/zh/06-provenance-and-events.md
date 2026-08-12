@@ -68,29 +68,29 @@ timestamp。legacy binding 暴露未指定区间，而不是搜索 transcript pr
 
 这正是 decision 队列之所以能保持有意义的机制性原因。如果每次日常裁决都自动创建 decision，队列会被逐条记账填满。把 verdict 留在与 Execution 绑定的 Review 记录里、把升级设成刻意步骤，日常 verdict 的洪水就到不了那条人类应该盯住的队列（ADR-0027 D5）。
 
-## 运行时事件账本
+## Agent Runtime 见证事件
 
-运行时事件账本是一次运行期间**发生过什么的 append 记录**:会话启动、轮次、步骤、工具调用、审批、中断、结果、成本。它是活动的原始日志,按会话保存,也是 Exit Gate 在核对一项工作是否真正完成时会读的结构之一。
+Agent Runtime 事件是持久化的**生命周期变化见证**,不是原始活动流。`AgentRuntimeEventV1`
+与 task、document 事件复用同一个 canonical envelope、head、Git-backed event store 与可重建投影。
+它记录 installation 观察、session 生命周期变化、provider session 绑定,以及显式的 task/execution
+绑定。绑定只保存 `transcriptRef`,因此可以定位原 provider session,但不会把 transcript 正文写入
+canonical log。
 
-每一条事件都符合 `RuntimeEventRecordSchema`(`packages/kernel/src/schemas/runtime-event.ts`,schema 标签 `runtime-event/v1`)。一条事件有一个稳定的 `evt_` 前缀 id、一个 `recordedAt` 时间戳,以及一个取自固定集合的 `kind`:
-
-```text
-session · turn · step · tool · approval · interrupt · result · cost
-```
-
-每条事件都写明它的 `session`(带 runtime,以及可选的它触及的 `taskId`、`decisionId` 或 `factRef`),然后携带恰好一个与其 kind 相匹配的、被填充的细节块——`tool` 块写明工具名和任何错误码;`approval` 块记录 `approved` / `rejected` / `timeout`;`result` 块记录 `started` / `succeeded` / `failed` / `cancelled`;`cost` 块记录 token 与墙钟时间。CLI 面(`packages/cli/src/commands/core/runtime-event.ts`)只提供恰好两个操作:**append** 一条新事件,和 **list** 一个会话的事件。没有编辑,也没有删除——账本只会增长。
+heartbeat tick、stdout/stderr、transcript 正文、tool call 与 token/cost stream 都是 operational data,
+不进入 canonical event。heartbeat 只有跨过 liveness 阈值、形成
+`runtime_session_liveness_changed` 时才增长日志。runtime liveness 与 task lease/lifecycle 始终是两组
+独立事实;session event 不能续租 lease,也不能完成 task。
 
 ## 各部分如何相连
 
 三种彼此独立的结构,一条问责的主干:
 
 ```text
-provenance[]     ──▶  每个实体写明产生它的那次运行
-事件账本          ──▶  每次运行都留下一条 append-only 的活动痕迹
-账本上的 verdict  ──▶  每个被判断的输出都被记录在工作旁边
+provenance[]       ──▶  每个实体写明产生它的那次运行
+runtime witness    ──▶  task 与 execution 可以定位原生 session
+execution verdict  ──▶  每个被判断的输出都被记录在工作旁边
 
-Exit Gate 读事件账本以核对完整性(见 04-gates-in-the-pipeline)
 一个战略性的 verdict → 由人提出一个新 decision(见 learn/02)
 ```
 
-provenance 回答*谁产生了这条记录*。事件账本回答*按顺序发生了什么*。verdict 回答*这一个输出成立吗*。三者都不是 decision,也都不会悄悄变成 decision——从 verdict 升级到 decision 永远是一个刻意的人类动作,而这恰恰是让 decision 主干、以及盯着它的那个队列,始终值得一读的原因。这条分离背后的"为什么",是[决策 vs 裁决](../../learn/zh/02-decision-and-verdict.md)里的论证;它所汇入的那个"完成",则是[采用律](../../learn/zh/05-adoption-law.md)。
+provenance 回答*谁产生了这条记录*。runtime witness 回答*见证的是哪个原生 session*。verdict 回答*这一个输出成立吗*。三者都不是 decision,也都不会悄悄变成 decision——从 verdict 升级到 decision 永远是一个刻意的人类动作,而这恰恰是让 decision 主干、以及盯着它的那个队列,始终值得一读的原因。这条分离背后的"为什么",是[决策 vs 裁决](../../learn/zh/02-decision-and-verdict.md)里的论证;它所汇入的那个"完成",则是[采用律](../../learn/zh/05-adoption-law.md)。

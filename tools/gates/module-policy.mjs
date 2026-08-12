@@ -13,6 +13,7 @@ export const MODULES = Object.freeze([
   "daemon",
   "authority-write-path",
   "identity-rbac",
+  "agent-runtime",
   "test-infra"
 ]);
 
@@ -49,6 +50,7 @@ export function classifyModule(filePath) {
   if (isTestPath(normalized) || /^(?:\.github|scripts|tools)\//u.test(normalized)) return "test-infra";
 
   if (normalized === "packages/kernel/src/domain/write-chain.contract.ts") return "write-contract";
+  if (/agent-runtime/u.test(normalized)) return "agent-runtime";
   if (/^packages\/gui\//u.test(normalized)) return "gui";
   if (/^packages\/daemon\/src\/identity\//u.test(normalized)) return "identity-rbac";
   if (/doc-sync/u.test(normalized)) return "doc-sync";

@@ -9,7 +9,6 @@ import { DocmapManifestSchema } from "./docmap.ts";
 import { EntityRelationsSchema } from "./entity-relations.ts";
 import { FactRecordSchema } from "./fact-record.ts";
 import { HarnessCheckReportSchema } from "./harness-check-report.ts";
-import { RuntimeEventRecordSchema } from "./runtime-event.ts";
 import { SubtaskPlanSchema } from "./subtask-plan.ts";
 import { VerticalDefinitionSchema } from "./vertical-definition.ts";
 
@@ -22,7 +21,6 @@ export {
   ProjectionWarningCodeSchema,
   ProjectionWarningSourceSchema
 } from "./harness-check-report.ts";
-export { RuntimeEventRecordSchema } from "./runtime-event.ts";
 export { SubtaskPlanSchema } from "./subtask-plan.ts";
 export {
   EntityRelationRecordSchema,
@@ -451,13 +449,6 @@ export const schemaRegistry = [
     jsonSchemaPath: "packages/kernel/schemas/json/fact-record.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/fact-record/valid.json",
     invalidFixturePath: "packages/kernel/fixtures/schemas/fact-record/invalid.json"
-  },
-  {
-    id: "runtime-event-record",
-    schema: RuntimeEventRecordSchema,
-    jsonSchemaPath: "packages/kernel/schemas/json/runtime-event-record.schema.json",
-    validFixturePath: "packages/kernel/fixtures/schemas/runtime-event-record/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/runtime-event-record/invalid.json"
   },
   {
     id: "docmap",
