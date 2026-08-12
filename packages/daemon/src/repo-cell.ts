@@ -8,15 +8,13 @@ import { REPLAY_TASK_GRAPH, assertCurrentWriter, bindWriterGenerationToken, make
 import { type CanonicalRoot, type DaemonGuiReadMethod, type DaemonGuiReadResultMap, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
 import { bootstrapRepo, type RepoBootstrapInput } from "./repo-bootstrap.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
-
 export type RepoTaskAction = Readonly<Record<string, unknown>> & { readonly kind: string };
 export interface RepoCellBinding { readonly actor: ActorIdentity; readonly source: WriteSource; readonly roles?: readonly string[] }
 export interface RepoCellStatus { readonly repoId: string; readonly rootDir: string; readonly state: "attached" | "unavailable" | "closed"; readonly generation: number; readonly queueDepth: number; readonly lastError: string | null; readonly recoveryMs: number }
-export interface RepoCell { readonly run: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceipt>; readonly read: (method: DaemonGuiReadMethod) => Promise<DaemonGuiReadResultMap[DaemonGuiReadMethod]>; readonly status: () => RepoCellStatus; readonly close: () => Promise<void> }
-
+export interface RepoCell { readonly run: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceipt>; readonly read: <M extends DaemonGuiReadMethod>(method: M) => Promise<DaemonGuiReadResultMap[M]>; readonly status: () => RepoCellStatus; readonly close: () => Promise<void> }
+type DaemonGuiReadHandlers = { readonly [M in DaemonGuiReadMethod]: () => DaemonGuiReadResultMap[M] };
 const leaseTtlMs = 30 * 60 * 1_000;
 type Snapshot = Awaited<ReturnType<ReturnType<typeof makeTaskLifecycleService>["read"]>>["snapshot"];
-
 export async function openRepoCell(input: { readonly repoId: WorkspaceId; readonly rootDir: CanonicalRoot; readonly ownerId: string;
   readonly bootstrap?: { readonly input: RepoBootstrapInput; readonly auth: DaemonAuthenticationContext };
   readonly now?: () => string; readonly killpoint?: (point: EventPublicationKillpoint) => void }): Promise<RepoCell> {
@@ -28,7 +26,6 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
   const service = makeTaskLifecycleService({ eventStore: store, projection, killpoint: input.killpoint }); let state: RepoCellStatus["state"] = recovery.status === "indeterminate" || recovery.elapsedMs > 250 ? "unavailable" : "attached";
   let lastError: string | null = state === "attached" ? null : `startup recovery ${recovery.status} after ${recovery.elapsedMs.toFixed(3)}ms`;
   let queueDepth = 0, tail = Promise.resolve();
-
   const run = (action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> => {
     if (state !== "attached") return Promise.resolve(rejected(operationId(action, binding, input.repoId, 0), "repo_unavailable", lastError ?? "RepoCell is unavailable."));
     queueDepth += 1;
@@ -37,14 +34,13 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
     return pending.catch((error) => { if (fatalCellError(error)) { state = "unavailable"; lastError = cellErrorMessage(error); }
       return rejected(operationId(action, binding, input.repoId, 0), cellErrorCode(error), cellErrorMessage(error)); });
   };
-
-  return { run, read: async (method) => { await tail; if (state !== "attached") throw cellCodedError("repo_unavailable", lastError ?? "RepoCell is unavailable.");
-      if (method === "repo.tasks.list") return { ok: true, ...projection.list() };
-      if (method === "repo.triadic.relationGraph") return { ok: true, ...readRelationGraphProjection({ rootDir }) };
-      const decisions = queryDecisionProjection({ rootDir, filters: {} }); return { ok: true, decisions: decisions.rows, warnings: decisions.warnings }; },
+  const readHandlers = { "repo.tasks.list": () => ({ ok: true, ...projection.list() }), "repo.triadic.relationGraph": () => ({ ok: true, ...readRelationGraphProjection({ rootDir }) }),
+    "repo.decisions.list": () => { const decisions = queryDecisionProjection({ rootDir, filters: {} }); return { ok: true, decisions: decisions.rows, warnings: decisions.warnings }; }
+  } satisfies Record<DaemonGuiReadMethod, () => DaemonGuiReadResultMap[DaemonGuiReadMethod]> & DaemonGuiReadHandlers;
+  const read: RepoCell["read"] = async (method) => { await tail; if (state !== "attached") throw cellCodedError("repo_unavailable", lastError ?? "RepoCell is unavailable."); return dispatchRead(readHandlers, method); };
+  return { run, read,
     status: () => ({ repoId: input.repoId, rootDir, state, generation, queueDepth, lastError, recoveryMs: recovery.elapsedMs }),
     close: async () => { if (state === "closed") return; state = "closed"; await tail; await lock.close(); } };
-
   async function executeAction(action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> {
     if (action.kind === "receipt-show") return receiptForOperation(String(action.opId ?? ""));
     if (action.kind === "task-show") return showTask(String(action.taskId ?? ""));
@@ -58,12 +54,10 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
     if (result.outcome === "pending") return { outcome: "pending", opId: command.opId, revision: result.revision, evidence: result.evidence, visibility: result.visibility, proof: result.proof, nextAction: result.nextAction ?? "Retry receipt show." };
     return rejected(command.opId, result.code ?? "publication_unknown", result.nextAction ?? "Retry receipt show before resubmitting.");
   }
-
   async function showTask(taskId: string): Promise<WriteReceipt> {
     const read = await service.read(requiredString(taskId, "taskId")), receipt = { opId: `read:${taskId}`, revision: read.sourceRevision, evidence: JSON.stringify(read.snapshot), visibility: "center" as const, proof: { committedRevision: read.sourceRevision, appliedCut: read.watermark } };
     return read.status === "ready" ? { outcome: "applied", ...receipt } : { outcome: "pending", ...receipt, nextAction: "Retry task show after projection catch-up." };
   }
-
   function receiptForOperation(opId: string): WriteReceipt {
     requiredString(opId, "opId"); const event = store.readEvent(opId);
     if (event === null) return rejected(opId, "operation_not_published", "No committed event exists; retry only if the original request was rejected.");
@@ -73,7 +67,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
       : { outcome: "pending", opId, revision: event.workspaceRevision, evidence: `event-file:${opId}`, visibility: "center", proof, nextAction: "Retry receipt show after projection catch-up." };
   }
 }
-
+function dispatchRead<M extends DaemonGuiReadMethod>(handlers: DaemonGuiReadHandlers, method: M): DaemonGuiReadResultMap[M] { return handlers[method](); }
 function buildCommand(action: RepoTaskAction, taskId: string, binding: RepoCellBinding, workspaceId: string, expectedRevision: number): Omit<TaskLifecycleCommand, "eventId" | "workspaceRevision" | "occurredAt"> {
   const bound = { workspaceId, actor: binding.actor, source: binding.source, expectedRevision };
   if (action.kind === "task-create") return normalizeTaskLifecycleCommand(bound, { type: "CreateReplayTask", taskId, title: requiredString(action.title, "title"), graph: REPLAY_TASK_GRAPH, completionGateIds: strings(action.completionGateIds) });
@@ -85,7 +79,6 @@ function buildCommand(action: RepoTaskAction, taskId: string, binding: RepoCellB
   if (action.kind === "task-complete") return normalizeTaskLifecycleCommand(bound, { type: "CompleteTask", taskId, executionId: requiredString(action.executionId, "executionId") });
   throw new Error(`unsupported lifecycle command ${action.kind}`);
 }
-
 function withServerMeta(command: Omit<TaskLifecycleCommand, "eventId" | "workspaceRevision" | "occurredAt">, existing: ReturnType<ReturnType<typeof makeTaskEventStore>["readEvent"]>, revision: number, occurredAt: string): TaskLifecycleCommand {
   return { ...command, eventId: existing?.eventId ?? `event-${createHash("sha256").update(command.opId).digest("hex")}`, workspaceRevision: existing?.workspaceRevision ?? revision + 1, occurredAt: existing?.occurredAt ?? occurredAt } as TaskLifecycleCommand; }
 async function proofFor(command: TaskLifecycleCommand, snapshot: Snapshot, binding: RepoCellBinding, action: RepoTaskAction,
@@ -138,7 +131,6 @@ function cellCodedError(code: string, text: string): Error { const error = new E
 function cellErrorCode(error: unknown): string { return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "service_rejected"; }
 function cellErrorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function fatalCellError(error: unknown): boolean { if (!(error instanceof Error) || !("code" in error)) return true; return ["invalid_store", "legacy_shape", "op_conflict", "revision_conflict", "publication_indeterminate", "writer_rejected"].includes(String(error.code)); }
-
 async function acquireWorkspaceLock(rootDir: CanonicalRoot): Promise<{ readonly close: () => Promise<void> }> { const lockPath = `${rootDir}.harness-anything-writer.lock`; let descriptor: number;
   try { descriptor = openSync(lockPath, "wx", 0o600); writeFileSync(descriptor, `${process.pid}\n`, "utf8"); }
   catch (error) { throw cellCodedError("writer_rejected", `Workspace writer lock is held for ${rootDir}: ${cellErrorMessage(error)}`); }

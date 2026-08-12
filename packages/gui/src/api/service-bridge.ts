@@ -1,11 +1,11 @@
 import type { PreloadApiMethod } from "../preload/allowlist.ts";
 import { apiRouteContracts, type ApiRouteContract } from "./api-contract-registry.ts";
-
+import type { DaemonGuiReadMethod } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 export interface GuiServiceBridge { readonly invoke: (method: string, payload: unknown) => Promise<unknown>; }
 
 type JsonObject = { readonly [key: string]: JsonValue };
 type JsonValue = string | number | boolean | null | JsonObject | ReadonlyArray<JsonValue>;
-type ShippedGuiRoute = ApiRouteContract & { readonly guiBridgeMethod: PreloadApiMethod; readonly rpcMethod: string };
+export type ShippedGuiRoute = ApiRouteContract & { readonly guiBridgeMethod: PreloadApiMethod; readonly rpcMethod: DaemonGuiReadMethod };
 
 export type GuiDaemonRequester = (route: ShippedGuiRoute, payload: unknown) => Promise<JsonObject>;
 

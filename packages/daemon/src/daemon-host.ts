@@ -6,16 +6,14 @@ import { makeTransportDerivedIdentityProvider } from "./identity/transport-deriv
 import type { DaemonCommandClass } from "./identity/types.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { openRepoCell, type RepoCell, type RepoCellStatus, type RepoTaskAction } from "./repo-cell.ts";
-
 export interface DaemonHost {
   readonly run: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => Promise<WriteReceipt>;
-  readonly read: (repoId: string, method: DaemonGuiReadMethod, auth: DaemonAuthenticationContext) => Promise<DaemonGuiReadResultMap[DaemonGuiReadMethod]>;
+  readonly read: <M extends DaemonGuiReadMethod>(repoId: string, method: M, auth: DaemonAuthenticationContext) => Promise<DaemonGuiReadResultMap[M]>;
   readonly bootstrap: (request: RepoBootstrapRequest, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
   readonly admin: (request: { readonly kind: "register"; readonly rootDir: string; readonly repoId: string } | { readonly kind: "unregister"; readonly repoId: string }, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
   readonly status: () => { readonly daemonId: string; readonly pid: number; readonly repos: readonly RepoCellStatus[] };
   readonly close: () => Promise<void>;
 }
-
 export async function openDaemonHost(input: { readonly daemonId: string; readonly userRoot: string }): Promise<DaemonHost> {
   const cells = new Map<string, RepoCell>();
   const unavailable = new Map<string, RepoCellStatus>();
@@ -62,7 +60,6 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
     close: async () => { await Promise.all([...cells.values()].map((cell) => cell.close())); }
   };
 }
-
 async function binding(rootDir: string, auth: DaemonAuthenticationContext, required: DaemonCommandClass): Promise<{ readonly actor: ActorIdentity; readonly source: WriteSource; readonly roles?: readonly string[] }> {
   if (auth.assignmentBinding) { if (required === "admin" || required === "arbiter") throw hostCodedError("rbac_forbidden", `Assignment ingress cannot perform ${required}.`); return { actor: auth.assignmentBinding.actor,
     source: { kind: "assignment", nodeId: auth.assignmentBinding.nodeId, assignmentId: auth.assignmentBinding.assignmentId } }; }

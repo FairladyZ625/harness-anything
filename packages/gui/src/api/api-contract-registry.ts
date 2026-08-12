@@ -1,4 +1,4 @@
-import { daemonGuiReadMethods } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonGuiReadMethods, daemonGuiReadSchemas, type DaemonGuiReadMethod } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import type { TerminalSessionService } from "../terminal/session-registry.ts";
 
 export type ApiRouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "WS";
@@ -16,7 +16,7 @@ export interface ApiRouteContract {
   readonly service: ApiServiceName;
   readonly serviceMethod: ApiServiceMethod;
   readonly auth: ApiRouteAuth;
-  readonly rpcMethod?: string;
+  readonly rpcMethod?: DaemonGuiReadMethod;
   readonly guiBridgeMethod?: string;
 }
 
@@ -32,7 +32,7 @@ export interface EmptyGuiPayload {
 
 export const apiSchemaContracts = [
   { id: "gui.empty/v1", owner: "gui", typeName: "EmptyGuiPayload" },
-  ...daemonGuiReadMethods.map(({ outputSchemaId }) => ({ id: outputSchemaId, owner: "daemon" as const, typeName: outputSchemaId })),
+  ...daemonGuiReadSchemas.map(({ id }) => ({ id, owner: "daemon" as const, typeName: id })),
   { id: "terminal.attach-policy-result/v1", owner: "gui", typeName: "TerminalAttachPolicyResult" },
   { id: "terminal.create-session-payload/v1", owner: "gui", typeName: "CreateTerminalSessionPayload" },
   { id: "terminal.resize-session-payload/v1", owner: "gui", typeName: "ResizeTerminalSessionPayload" },
