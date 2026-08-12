@@ -1,12 +1,12 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import docSyncContract, { DOC_POLICY_ID, decideDocWrite, documentPath, resolveDocRoute, validateDocWriteIntent, type DocWriteChange, type DocumentState } from "../../src/domain/doc-sync.contract.ts";
+import docSyncContract, { DOC_POLICY_ID, decideDocWrite, documentPath, ledgerCommitSha, parseDocWriteIntent, resolveDocRoute, serializeDocWriteIntent, validateDocWriteIntent, type DocWriteChange, type DocumentState } from "../../src/domain/doc-sync.contract.ts";
 import { validateWriteReceipt } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
-const baseLedgerSha = "a".repeat(40), currentLedgerSha = baseLedgerSha;
+const baseLedgerSha = ledgerCommitSha("docs", "a".repeat(40)), currentLedgerSha = baseLedgerSha;
 const lease = { schema: "lease/v1", taskId: "task-owner", executionId: "execution-1", actor, source: "local", phase: "active", expiresAt: "2026-08-12T12:00:00.000Z", ttlMs: 1_800_000, version: 3 } as const;
 const claim = (body: string) => ({ ref: "doc-sync-claims/candidate", sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/markdown" as const });
 const state = (body: string): DocumentState => ({ path: "context/notes.md", blobSha256: sha256Text(body), body, size: Buffer.byteLength(body), mediaType: "text/markdown", policyId: DOC_POLICY_ID, workspaceRevision: 2 });
@@ -17,12 +17,14 @@ function decide(change: DocWriteChange, document: DocumentState | null, bytes: U
 test("derived doc-sync contract closes intent and event schemas", () => {
   assert.deepEqual(docSyncContract.schemas.map((schema) => schema.id), ["doc-write-intent/v1", "doc-event/v1"]);
   assert.equal(docSyncContract.schemas.every((schema) => schema.negativeFixtures.length > 0), true);
+  const parsed = parseDocWriteIntent({ schema: "doc-write-intent/v1", executionId: "execution-1", baseLedgerSha: baseLedgerSha.sha, changes: [{ path: "context/notes.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: claim("body\n") }] }, "docs");
+  assert.equal(JSON.parse(serializeDocWriteIntent(parsed)).baseLedgerSha, baseLedgerSha.sha);
 });
 
 test("doc ingress rejects non-portable paths and same-batch Unicode collisions", () => {
   const change = { path: "context/CON.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: claim("body\n") };
-  assert.match(validateDocWriteIntent({ schema: "doc-write-intent/v1", executionId: "execution-1", baseLedgerSha, changes: [change] }).join("\n"), /portable|reserved/iu);
-  const collision = { schema: "doc-write-intent/v1", executionId: "execution-1", baseLedgerSha, changes: [
+  assert.match(validateDocWriteIntent({ schema: "doc-write-intent/v1", executionId: "execution-1", baseLedgerSha: baseLedgerSha.sha, changes: [change] }).join("\n"), /portable|reserved/iu);
+  const collision = { schema: "doc-write-intent/v1", executionId: "execution-1", baseLedgerSha: baseLedgerSha.sha, changes: [
     { ...change, path: "context/café.md" }, { ...change, path: "context/cafe\u0301.md" }
   ] };
   assert.match(validateDocWriteIntent(collision).join("\n"), /collision/iu);
@@ -47,7 +49,7 @@ test("equal/insert semantic policy accepts additive prose and freezes region pro
 
 test("stale ledger and stale blob reject the entire batch with current holder and typed conflict detail", () => {
   const body = "# Notes\nA\n", change = { path: "context/notes.md", baseBlobSha256: sha256Text(body), policyId: DOC_POLICY_ID, candidate: claim(`${body}B\n`) } as const;
-  const staleLedger = decide(change, state(body), Buffer.from(`${body}B\n`), { currentLedgerSha: "b".repeat(40) }); assert.equal(staleLedger.accepted, false); if (staleLedger.accepted) return;
+  const staleLedger = decide(change, state(body), Buffer.from(`${body}B\n`), { currentLedgerSha: ledgerCommitSha("docs", "b".repeat(40)) }); assert.equal(staleLedger.accepted, false); if (staleLedger.accepted) return;
   assert.equal(staleLedger.code, "base_ledger_changed"); assert.equal(staleLedger.detail.holder?.personId, "person-owner"); assert.equal(staleLedger.detail.paths[0]?.currentBlobSha256, sha256Text(body));
   assert.deepEqual(validateWriteReceipt({ outcome: "rejected", opId: "doc-op", code: staleLedger.code, origin: "doc-sync-contract", evidence: `contract-rejection:${staleLedger.code}`, nextAction: staleLedger.detail.nextAction, detail: staleLedger.detail }), []);
   const staleBlob = decide({ ...change, baseBlobSha256: "c".repeat(64) }, state(body), Buffer.from(`${body}B\n`)); assert.equal(staleBlob.accepted, false); if (!staleBlob.accepted) { assert.equal(staleBlob.code, "base_blob_changed"); assert.equal(staleBlob.detail.holder?.version, 3); }

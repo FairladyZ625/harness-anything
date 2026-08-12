@@ -13,7 +13,7 @@ import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
 test("task/doc reducers share one SQLite transaction and L2 rebuild restores exact document bytes", async () => {
-  await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const eventStore = makeTaskEventStore({ rootDir }), projection = makeTaskProjection({ rootDir, eventStore }), body = "# Notes\n\nAppended prose.\n", hash = sha256Text(body), base = eventStore.currentCommit();
+  await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir }), projection = makeTaskProjection({ rootDir, eventStore }), body = "# Notes\n\nAppended prose.\n", hash = sha256Text(body), base = eventStore.currentCommit();
     const event: DocEventV1 = { schema: "doc-event/v1", eventId: "doc-event", workspaceRevision: 1, opId: "doc-op", type: "documents_written", actor: { principal: { personId: "person-1" }, executor: null }, source: "local", occurredAt: "2026-08-11T00:00:00.000Z",
       payload: { executionId: "execution-1", baseLedgerSha: base, changes: [{ path: "context/notes.md", baseBlobSha256: null, candidate: { sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" }, policyId: DOC_POLICY_ID,
         regionProofs: [{ regionId: "heading/notes", policyId: DOC_POLICY_ID, codecId: DOC_CODEC_ID, baseSha256: sha256Text(""), candidateSha256: hash, insertBytes: Buffer.byteLength(body) }] }] } };
@@ -27,7 +27,7 @@ test("task/doc reducers share one SQLite transaction and L2 rebuild restores exa
 test("steady apply and rebuild use the same reducer and reproduce watermark, op index, lease intervals", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
-    const eventStore = makeTaskEventStore({ rootDir });
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
     const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     for (const event of lifecycleFixture().events) {
       eventStore.append(event);
@@ -69,7 +69,7 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
 test("projection catch-up processes at most one 64-item/100ms round and never reports stale data ready", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
-    const eventStore = makeTaskEventStore({ rootDir });
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
     for (const event of lifecycleFixture().events) eventStore.append(event);
     const projection = makeTaskProjection({ rootDir, eventStore, catchUpLimit: 2, now: () => "2026-08-11T00:30:00.000Z" });
 
@@ -90,7 +90,7 @@ test("projection catch-up processes at most one 64-item/100ms round and never re
 test("lease CAS rejects stale renew/release, marks expiry orphaned, and permits takeover", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
-    const eventStore = makeTaskEventStore({ rootDir });
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
     const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const fixture = lifecycleFixture();
     eventStore.append(fixture.events[0]!);
@@ -116,7 +116,7 @@ test("lease CAS rejects stale renew/release, marks expiry orphaned, and permits 
 test("renewed lease survives database rebuild", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
-    const eventStore = makeTaskEventStore({ rootDir });
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
     const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const [created, started] = lifecycleFixture().events;
     if (created === undefined || started?.type !== "execution_started") throw new Error("fixture requires start event");

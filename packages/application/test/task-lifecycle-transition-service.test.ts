@@ -19,7 +19,7 @@ test("transition service freezes targets and makes create/start idempotent by op
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-service-"));
   try {
     initRepo(rootDir);
-    const eventStore = makeTaskEventStore({ rootDir });
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
     const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const service = makeTaskLifecycleService({ eventStore, projection });
     const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: "task-1", title: "Replay task", graph: replayGraph,
@@ -54,7 +54,7 @@ test("second distinct task create uses aggregate revision zero in a non-empty wo
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-two-tasks-"));
   try {
     initRepo(rootDir);
-    const eventStore = makeTaskEventStore({ rootDir });
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
     const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const service = makeTaskLifecycleService({ eventStore, projection });
     const create = (taskId: string, title: string, revision: number) => command(rootDir, {
@@ -116,7 +116,7 @@ test("10,000 old events do not block a new write", async (context) => {
 
     const started = performance.now();
     const checkpoints = new Map<string, number>();
-    const eventStore = makeTaskEventStore({ rootDir, killpoint: (point) => checkpoints.set(point, performance.now() - started) });
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir, killpoint: (point) => checkpoints.set(point, performance.now() - started) });
     const storeReady = performance.now();
     const phase = { readMs: 0, appendMs: 0, applyMs: 0, maxAccessedItems: 0 };
     const boundedEventStore = { ...eventStore, readBatch: (cursor: string | null, maxItems: number) => {
@@ -204,7 +204,7 @@ test("SQLite/response killpoints reconstruct the exact applied receipt by opId w
     const rootDir = mkdtempSync(path.join(tmpdir(), `ha-response-${point}-`));
     try {
       initRepo(rootDir);
-      const eventStore = makeTaskEventStore({ rootDir });
+      const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
       const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
       let armed = true;
       const interrupted = makeTaskLifecycleService({ eventStore, projection, killpoint: (candidate) => {
@@ -237,7 +237,7 @@ test("lease broker capacity ceiling rejects concurrent exhaustion and release re
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lease-capacity-"));
   try {
     initRepo(rootDir);
-    const eventStore = makeTaskEventStore({ rootDir });
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
     const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const lease = (id: string) => ({ schema: "lease/v1" as const, taskId: `task-${id}`, executionId: `execution-${id}`, actor, source: "local" as const,
       phase: "reserving" as const, expiresAt: "2026-08-11T01:00:00.000Z", ttlMs: 1_800_000, version: 0 });

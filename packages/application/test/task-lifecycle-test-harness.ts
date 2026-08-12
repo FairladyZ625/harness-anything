@@ -32,7 +32,7 @@ export function lifecycleHarness() {
   git(rootDir, "config", "user.email", "lifecycle-test@example.invalid");
   git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
   let killAt: TaskLifecycleKillpoint | EventPublicationKillpoint | null = null;
-  const eventStore = makeTaskEventStore({ rootDir, killpoint: (point) => {
+  const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir, killpoint: (point) => {
     if (point === killAt) { killAt = null; throw new Error(`killpoint:${point}`); }
   } });
   const realProjection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });

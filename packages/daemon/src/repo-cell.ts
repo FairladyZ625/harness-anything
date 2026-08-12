@@ -21,7 +21,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
   const activeWriter: WriterGeneration = { workspaceId: input.repoId, generation, ownerId: input.ownerId }, writerToken = bindWriterGenerationToken(activeWriter), now = input.now ?? (() => new Date().toISOString());
   try { if (input.bootstrap) bootstrapRepo(input.bootstrap.input, input.bootstrap.auth, activeWriter, writerToken); }
   catch (error) { await lock.close(); throw error; }
-  const store = makeTaskEventStore({ rootDir, killpoint: input.killpoint }), recovery = store.recover(), projection = makeTaskProjection({ rootDir, eventStore: store, now });
+  const store = makeTaskEventStore({ repoId: input.repoId, rootDir, killpoint: input.killpoint }), recovery = store.recover(), projection = makeTaskProjection({ rootDir, eventStore: store, now });
   const service = makeTaskLifecycleService({ eventStore: store, projection, killpoint: input.killpoint }); let state: RepoCellStatus["state"] = recovery.status === "indeterminate" || recovery.elapsedMs > 250 ? "unavailable" : "attached";
   let lastError: string | null = state === "attached" ? null : `startup recovery ${recovery.status} after ${recovery.elapsedMs.toFixed(3)}ms`;
   let queueDepth = 0, tail = Promise.resolve();

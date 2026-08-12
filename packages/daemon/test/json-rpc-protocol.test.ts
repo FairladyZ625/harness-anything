@@ -7,6 +7,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { makeTaskEventStore } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
@@ -14,6 +15,13 @@ import { openRepoCell } from "../src/repo-cell.ts";
 const DOC_POLICY_ID = "markdown-additive/v1";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
+
+test("repo-bound ledger commit rejects cross-repo SHA", () => {
+  const roots = ["a", "b"].map((name) => mkdtempSync(path.join(tmpdir(), `ha-ledger-${name}-`)));
+  try { roots.forEach(initRepo); const left = makeTaskEventStore({ rootDir: roots[0]!, repoId: "repo-a" }), right = makeTaskEventStore({ rootDir: roots[1]!, repoId: "repo-b" });
+    assert.match(left.currentCommit().sha, /^[0-9a-f]{40}$/u); assert.throws(() => right.revisionAt(left.currentCommit()), /repo/iu);
+  } finally { roots.forEach((root) => rmSync(root, { recursive: true, force: true })); }
+});
 
 test("RepoCell serializes identical lifecycle intents into one Git publication and one applied receipt", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-"));
