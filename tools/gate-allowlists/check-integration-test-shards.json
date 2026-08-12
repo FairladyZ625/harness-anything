@@ -244,9 +244,9 @@
         "reason": "Task deletion has no W1 lifecycle command contract and is removed from rebuild."
       },
       {
-        "value": "packages/cli/test/task-lifecycle-host.test.ts",
+        "value": "packages/cli/test/submit-lifecycle-cli.test.ts",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "In-process CLI lifecycle hosting is replaced by resident daemon RepoCell tests."
+        "reason": "The resident daemon lifecycle integration replaces the legacy submit facade and its test-tier declaration."
       },
       {
         "value": "packages/cli/test/task-list-cli.test.ts",

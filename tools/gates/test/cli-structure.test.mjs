@@ -7,7 +7,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-const scriptPath = path.resolve(import.meta.dirname, "check-cli-structure.mjs");
+const scriptPath = path.resolve(import.meta.dirname, "../../check-cli-structure.mjs");
 
 test("thin CLI structure accepts only parser transport and render on the dist static graph", async () => {
   const root = await fixture();
@@ -27,7 +27,7 @@ test("thin CLI structure rejects a kernel public barrel reachable from the dist 
 
   const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /dist static import graph.*kernel public barrel.*packages\/kernel\/src\/index\.ts/u);
+  assert.ok(result.stderr.includes("dist static import graph reached kernel public barrel: packages/kernel/src/index.ts"));
 });
 
 test("thin CLI structure rejects modules outside the entry parser transport render whitelist", async () => {

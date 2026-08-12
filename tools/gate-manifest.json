@@ -1480,7 +1480,7 @@
       "positiveControl": {
         "status": "covered",
         "evidence": [
-          "tools/check-cli-structure.test.mjs"
+          "tools/gates/test/cli-structure.test.mjs"
         ]
       }
     },
