@@ -1,8 +1,9 @@
 // @write-boundary-exemption rebuildable-projection
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { emptyTaskLifecycleSnapshot, reduceTaskEvent, serializeTaskEvent, type LeaseChangeReason, type TaskEventV1,
+import { emptyTaskLifecycleSnapshot, reduceTaskEvent, type LeaseChangeReason, type TaskEventV1,
   type TaskLifecycleSnapshot } from "../domain/task-lifecycle.contract.ts";
+import { isDocEvent, isTaskEvent, parseCanonicalEvent, serializeCanonicalEvent, verifyDocEventChange, type CanonicalEventV1, type DocumentState } from "../domain/doc-sync.contract.ts";
 import { TASK_LEASE_BROKER_CONTRACT, validateLeaseV1, type LeaseHolder, type LeaseV1 } from "../domain/execution.ts";
 import { canonicalizeContractValue } from "../domain/task.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
@@ -10,9 +11,10 @@ import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.t
 interface EventStreamPort {
   readonly readHead: () => { readonly revision: number } | null;
   readonly readBatch: (cursor: string | null, maxItems: number) => {
-    readonly sourceRevision: number; readonly events: readonly TaskEventV1[]; readonly cursor: string | null;
+    readonly sourceRevision: number; readonly events: readonly CanonicalEventV1[]; readonly cursor: string | null;
     readonly done: boolean; readonly accessedItems: number;
   };
+  readonly readContentBlob: (sha256: string) => Uint8Array | null;
 }
 export type TaskProjectionWarning = "projection_missing";
 export interface TaskProjectionRead {
@@ -30,10 +32,12 @@ export interface LeaseInterval {
   readonly taskId: string; readonly executionId: string; readonly holder: LeaseHolder; readonly previousHolder: LeaseHolder | null;
   readonly acquiredRevision: number; readonly releasedRevision: number | null; readonly leaseExpiresAt: string; readonly reason: LeaseChangeReason;
 }
+export interface DocumentProjectionRead { readonly status: "ready" | "pending"; readonly document: DocumentState | null; readonly watermark: number; readonly sourceRevision: number }
 export interface TaskProjection {
-  readonly path: string; readonly apply: (event: TaskEventV1) => ProjectionApplyReceipt; readonly rebuild: () => ProjectionRebuildReceipt;
-  readonly read: (taskId: string) => TaskProjectionRead; readonly list: () => TaskProjectionListRead; readonly readOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null;
-  readonly readLeaseIntervals: (taskId: string) => readonly LeaseInterval[]; readonly currentLease: (taskId: string, now?: string) => LeaseV1 | null;
+  readonly path: string; readonly apply: (event: CanonicalEventV1) => ProjectionApplyReceipt; readonly rebuild: () => ProjectionRebuildReceipt;
+  readonly read: (taskId: string) => TaskProjectionRead; readonly list: () => TaskProjectionListRead; readonly readOperation: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
+  readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null; readonly readDocument: (path: string) => DocumentProjectionRead;
+  readonly readLeaseIntervals: (taskId: string) => readonly LeaseInterval[]; readonly currentLease: (taskId: string, now?: string) => LeaseV1 | null; readonly currentLeaseForExecution: (executionId: string, now?: string) => LeaseV1 | null;
   readonly reserveLease: (lease: LeaseV1, now: string) => LeaseV1; readonly activateLease: (lease: LeaseV1) => LeaseV1;
   readonly renewLease: (lease: LeaseV1, expiresAt: string) => LeaseV1; readonly releaseLease: (lease: LeaseV1) => LeaseV1;
 }
@@ -47,16 +51,19 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
   if (!Number.isInteger(limit) || limit < 1 || limit > 64) throw new Error("task projection catch-up limit must be between 1 and 64");
   return {
     path: projectionPath,
-    apply: (event) => withDatabase(projectionPath, (db) => reduceBatch(db, [event], limit)),
+    apply: (event) => withDatabase(projectionPath, (db) => reduceBatch(db, [event], limit, options.eventStore.readContentBlob)),
     rebuild: () => rebuildProjection(projectionPath, options.eventStore, limit),
     read: (taskId) => readProjection(projectionPath, options.eventStore, taskId, limit, now),
     list: () => listProjection(projectionPath, options.eventStore, limit, now),
     readOperation: (opId) => withDatabase(projectionPath, (db) => {
       const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as { readonly event_json: string } | undefined;
-      return row === undefined ? null : { event: JSON.parse(row.event_json) as TaskEventV1, watermark: watermark(db) };
+      return row === undefined ? null : { event: parseEventJson(row.event_json), watermark: watermark(db) };
     }),
+    readTaskOperation: (opId) => withDatabase(projectionPath, (db) => { const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as { readonly event_json: string } | undefined; if (!row) return null; const event = parseEventJson(row.event_json); return isTaskEvent(event) ? { event, watermark: watermark(db) } : null; }),
+    readDocument: (documentPath) => readDocument(projectionPath, options.eventStore, documentPath, limit),
     readLeaseIntervals: (taskId) => withDatabase(projectionPath, (db) => readIntervals(db, taskId)),
     currentLease: (taskId, at) => withDatabase(projectionPath, (db) => effectiveLease(db, taskId, at ?? now())),
+    currentLeaseForExecution: (executionId, at) => withDatabase(projectionPath, (db) => { const row = db.prepare("SELECT task_id FROM lease_cas WHERE json_extract(lease_json, '$.executionId') = ?").get(executionId) as { readonly task_id: string } | undefined; return row ? effectiveLease(db, row.task_id, at ?? now()) : null; }),
     reserveLease: (lease, now) => withDatabase(projectionPath, (db) => transaction(db, () => reserve(db, lease, now))),
     activateLease: (lease) => withDatabase(projectionPath, (db) => transaction(db, () => changeLease(db, lease, "active", lease.expiresAt, now()))),
     renewLease: (lease, expiresAt) => withDatabase(projectionPath, (db) => transaction(db, () => changeLease(db, lease, "active", expiresAt, now()))),
@@ -70,9 +77,14 @@ function listProjection(projectionPath: string, eventStore: EventStreamPort, lim
     const round = catchUpRound(db, eventStore, limit), current = watermark(db), at = now();
     const rows = db.prepare("SELECT task_snapshot.task_id AS task_id, task_snapshot.workspace_revision AS workspace_revision, event_index.event_json AS event_json FROM task_snapshot JOIN event_index USING(workspace_revision) ORDER BY task_snapshot.task_id").all() as unknown as readonly { readonly task_id: string; readonly workspace_revision: number; readonly event_json: string }[];
     return { status: current === round.sourceRevision ? "ready" : "pending", rows: rows.map((row) => ({ taskId: row.task_id, workspaceRevision: row.workspace_revision,
-      updatedAt: (JSON.parse(row.event_json) as TaskEventV1).occurredAt, snapshot: readSnapshot(db, row.task_id, at) })), watermark: current, sourceRevision: round.sourceRevision,
+      updatedAt: parseEventJson(row.event_json).occurredAt, snapshot: readSnapshot(db, row.task_id, at) })), watermark: current, sourceRevision: round.sourceRevision,
       warnings: !existed && round.sourceRevision > 0 ? ["projection_missing"] : [] };
   });
+}
+
+function readDocument(projectionPath: string, eventStore: EventStreamPort, documentPath: string, limit: number): DocumentProjectionRead {
+  return withDatabase(projectionPath, (db) => { const round = catchUpRound(db, eventStore, limit), current = watermark(db), row = db.prepare("SELECT value_json FROM document WHERE path = ?").get(documentPath) as { readonly value_json: string } | undefined;
+    return { status: current === round.sourceRevision ? "ready" : "pending", document: row ? JSON.parse(row.value_json) as DocumentState : null, watermark: current, sourceRevision: round.sourceRevision }; });
 }
 
 function readProjection(projectionPath: string, eventStore: EventStreamPort, taskId: string, limit: number, now: () => string): TaskProjectionRead {
@@ -120,7 +132,8 @@ function createTables(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS projection_meta (singleton INTEGER PRIMARY KEY CHECK(singleton=1), watermark INTEGER NOT NULL, scan_cursor TEXT, scanned_revision INTEGER NOT NULL);
     INSERT OR IGNORE INTO projection_meta(singleton, watermark, scan_cursor, scanned_revision) VALUES (1, 0, NULL, 0);
     CREATE TABLE IF NOT EXISTS event_source (workspace_revision INTEGER PRIMARY KEY, op_id TEXT NOT NULL UNIQUE, event_json TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS event_index (op_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL UNIQUE, task_id TEXT NOT NULL, event_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS event_index (op_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL UNIQUE, task_id TEXT, event_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS execution (execution_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS review (review_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, execution_id TEXT NOT NULL, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
@@ -130,10 +143,10 @@ function createTables(db: DatabaseSync): void {
   `);
 }
 
-function reduceBatch(db: DatabaseSync, events: readonly TaskEventV1[], limit: number): ProjectionApplyReceipt {
+function reduceBatch(db: DatabaseSync, events: readonly CanonicalEventV1[], limit: number, readBlob: EventStreamPort["readContentBlob"]): ProjectionApplyReceipt {
   return transaction(db, () => {
     for (const event of events) stageEvent(db, event);
-    const reducedItems = drainDeferred(db, limit);
+    const reducedItems = drainDeferred(db, limit, readBlob);
     const state = db.prepare("SELECT scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1").get() as {
       readonly scan_cursor: string | null; readonly scanned_revision: number;
     };
@@ -163,13 +176,13 @@ function catchUpRound(db: DatabaseSync, eventStore: EventStreamPort, limit: numb
       for (const event of batch.events) stageEvent(db, event);
       runSql(db, "UPDATE projection_meta SET scan_cursor = ?, scanned_revision = ? WHERE singleton = 1", batch.done ? null : batch.cursor, batch.done ? batch.sourceRevision : state.scanned_revision);
     }
-    return drainDeferred(db, limit);
+    return drainDeferred(db, limit, eventStore.readContentBlob);
   });
   return { sourceRevision, watermark: watermark(db), reducedItems, accessedItems: batch?.accessedItems ?? 0, sqliteTransactions: 1 };
 }
 
-function stageEvent(db: DatabaseSync, event: TaskEventV1): void {
-  const eventJson = serializeTaskEvent(event).trimEnd();
+function stageEvent(db: DatabaseSync, event: CanonicalEventV1): void {
+  const eventJson = serializeCanonicalEvent(event).trimEnd();
   const applied = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(event.opId) as { readonly event_json: string } | undefined;
   if (applied !== undefined) {
     if (applied.event_json !== eventJson) throw new Error(`projection opId ${event.opId} names different bytes`);
@@ -183,13 +196,13 @@ function stageEvent(db: DatabaseSync, event: TaskEventV1): void {
   runSql(db, "INSERT INTO event_source(workspace_revision, op_id, event_json) VALUES (?, ?, ?)", event.workspaceRevision, event.opId, eventJson);
 }
 
-function drainDeferred(db: DatabaseSync, limit: number): number {
+function drainDeferred(db: DatabaseSync, limit: number, readBlob: EventStreamPort["readContentBlob"]): number {
   let next = watermark(db), reduced = 0;
   while (reduced < limit) {
     const row = db.prepare("SELECT event_json FROM event_source WHERE workspace_revision = ?").get(next + 1) as { readonly event_json: string } | undefined;
     if (row === undefined) break;
-    const event = JSON.parse(row.event_json) as TaskEventV1;
-    applyEvent(db, event, row.event_json);
+    const event = parseEventJson(row.event_json);
+    applyEvent(db, event, row.event_json, readBlob);
     runSql(db, "DELETE FROM event_source WHERE workspace_revision = ?", event.workspaceRevision);
     next = event.workspaceRevision;
     reduced += 1;
@@ -198,7 +211,9 @@ function drainDeferred(db: DatabaseSync, limit: number): number {
   return reduced;
 }
 
-function applyEvent(db: DatabaseSync, event: TaskEventV1, eventJson: string): void {
+function applyEvent(db: DatabaseSync, event: CanonicalEventV1, eventJson: string, readBlob: EventStreamPort["readContentBlob"]): void {
+  if (isDocEvent(event)) { runSql(db, "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)", event.opId, event.workspaceRevision, eventJson); for (const change of event.payload.changes) { const bytes = readBlob(change.candidate.sha256); if (!bytes || bytes.byteLength !== change.candidate.size) throw new Error(`document blob ${change.candidate.sha256} is unavailable`); let body: string; try { body = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { throw new Error(`document blob ${change.candidate.sha256} is not UTF-8`); } const previous = db.prepare("SELECT value_json FROM document WHERE path = ?").get(change.path) as { readonly value_json: string } | undefined, base = previous ? JSON.parse(previous.value_json) as DocumentState : null; if (change.baseBlobSha256 !== (base?.blobSha256 ?? null) || !verifyDocEventChange(change, base?.body ?? "", body)) throw new Error(`document proof mismatch for ${change.path}`);
+      const document: DocumentState = { path: change.path, blobSha256: change.candidate.sha256, body, size: change.candidate.size, mediaType: change.candidate.mediaType, policyId: change.policyId, workspaceRevision: event.workspaceRevision }; runSql(db, "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json", change.path, event.workspaceRevision, canonicalJson(document)); } return; }
   const snapshot = reduceTaskEvent(readSnapshot(db, event.taskId), event);
   runSql(db, "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)", event.opId, event.workspaceRevision, event.taskId, eventJson);
   runSql(db, "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET workspace_revision=excluded.workspace_revision, snapshot_json=excluded.snapshot_json", event.taskId, event.workspaceRevision, canonicalJson(snapshot));
@@ -293,3 +308,4 @@ function transaction<A>(db: DatabaseSync, run: () => A): A {
 }
 type SqlValue = string | number | bigint | Uint8Array | null; function runSql(db: DatabaseSync, sql: string, ...values: readonly SqlValue[]): void { db.prepare(sql).run(...values); }
 function canonicalJson(value: unknown): string { return JSON.stringify(canonicalizeContractValue(value)); }
+function parseEventJson(value: string): CanonicalEventV1 { return parseCanonicalEvent(`${value}\n`); }

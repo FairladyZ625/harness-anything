@@ -34,7 +34,7 @@ test("G29 compares the complete published byte delta with the frozen plan declar
     assert.deepEqual(readFileSync(artifact), Buffer.from([9, 8, 7, 6]));
     assert.deepEqual(readFileSync(sentinel), Buffer.from([0, 1, 2, 255]));
     assert.throws(
-      () => addWriteTarget(receipt.frozenPlan, { kind: "task_artifact", path: "harness/tasks/task-1/late.bin", operation: "create" }),
+      () => addWriteTarget(receipt.frozenPlan, { kind: "content_blob", sha256: "a".repeat(64), size: 4, mediaType: "application/octet-stream" }),
       (error) => error instanceof TaskLifecycleContractError && error.code === "frozen_write_plan"
     );
   } finally {
@@ -50,8 +50,9 @@ test("G29 rejects an undeclared write outside the frozen plan", async () => {
     const before = snapshotTree(harness.rootDir);
     const receipt = await harness.submit("execution-1");
     assert.throws(() => assertWriteTargetDeclared(receipt.frozenPlan,
-      { kind: "task_artifact", path: "harness/undeclared-side-effect.bin", operation: "create" }), /undeclared_write_target/u);
+      { kind: "content_blob", sha256: "b".repeat(64), size: 4, mediaType: "application/octet-stream" }), /undeclared_write_target/u);
     const injected = path.join(harness.rootDir, "harness/undeclared-side-effect.bin");
+    mkdirSync(path.dirname(injected), { recursive: true });
     writeFileSync(injected, Buffer.from([4, 3, 2, 1]));
     assert.throws(
       () => assertChangedPathsDeclared(before, snapshotTree(harness.rootDir), receipt.frozenPlan),
@@ -88,7 +89,7 @@ function declaredMatchers(plan) {
   return plan.targets.flatMap((target) => {
     if (target.kind === "event_file" || target.kind === "event_head") return [exact(target.path)];
     if (target.kind === "projection_invalidation" || target.kind === "lease_sqlite") return [exact(".harness/cache/task.sqlite")];
-    return [exact(target.path)];
+    return target.kind === "content_blob" ? [exact(`harness/objects/sha256/${target.sha256}`)] : [];
   });
 }
 

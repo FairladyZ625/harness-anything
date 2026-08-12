@@ -30,7 +30,7 @@ test("write-road registry rejects stale legacy rows", () => withFixture((root) =
 function withFixture(run) { const root = mkdtempSync(path.join(tmpdir(), "w3-write-roads-")); try {
   write(root, "packages/cli/src/cli/thin-command.ts", `const actions = ["task-create", "task-start", "task-submit", "task-review-execution", "task-complete", "repo-bootstrap"];\n`);
   write(root, "packages/daemon/src/repo-cell.ts", `import { openSync } from "node:fs";\nopenSync(lockPath, "wx");\nconst store = makeTaskEventStore({ rootDir });\nconst service = makeTaskLifecycleService({ eventStore: store, projection });\nlet tail = Promise.resolve(); tail = tail.then(() => service.execute(command));\n`);
-  write(root, "packages/kernel/src/store/task-event-store.ts", `prepareLocalEventCommit(); finalizeLocalEventCommit();\n`);
+  write(root, "packages/kernel/src/store/task-event-store.ts", `const CANONICAL_EVENT_REF = "refs/ha/canonical"; prepareCommit(); finalizeRefs();\n`);
   write(root, "packages/application/src/task-lifecycle-service.ts", `export function makeTaskLifecycleService(options) { options.eventStore.append(event); }\n`);
   write(root, "tools/write-road-registry.json", JSON.stringify({ schema: "harness-anything/write-road-registry/v2", rows: [
     { id: "lifecycle.event-publication", actions: ["task-create", "task-start", "task-submit", "task-review-execution", "task-complete"], authority: "packages/daemon/src/repo-cell.ts", store: "packages/kernel/src/store/task-event-store.ts", leasePolicy: "domain-contract", evidence: ["packages/daemon/src/repo-cell.ts", "packages/kernel/src/store/task-event-store.ts"] },

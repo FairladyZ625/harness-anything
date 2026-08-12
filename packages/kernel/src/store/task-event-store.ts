@@ -1,261 +1,86 @@
 import path from "node:path";
-import { serializeTaskEvent, validateTaskEvent, type TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
-import { serializePendingPublication, validatePendingPublication, type PendingPublication } from "../domain/event-publication.contract.ts";
+import { isDocEvent, isTaskEvent, parseCanonicalEvent, serializeCanonicalEvent, type CanonicalEventV1, type DocContentBlob } from "../domain/doc-sync.contract.ts";
+import type { TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
 import { serializeEventHead, type EventHead } from "../domain/write-chain.contract.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
-import { localEventFileSystem } from "../local/local-layout-file-system.ts";
-import { finalizeLocalEventCommit, localGitProcessCount, localGitText, normalizeLocalPath, prepareLocalEventCommit } from "./local-version-control-system.ts";
+import { localGitObjectRefStore as gitObjects } from "./local-version-control-system.ts";
 
+export const CANONICAL_EVENT_REF = "refs/ha/canonical";
 export type TaskEventStoreErrorCode = "invalid_store" | "legacy_shape" | "op_conflict" | "revision_conflict" | "publication_indeterminate";
-
-export class TaskEventStoreError extends Error {
-  readonly code: TaskEventStoreErrorCode;
-  constructor(code: TaskEventStoreErrorCode, message: string) { super(message); this.name = "TaskEventStoreError"; this.code = code; }
+export class TaskEventStoreError extends Error { readonly code: TaskEventStoreErrorCode; constructor(code: TaskEventStoreErrorCode, message: string) { super(message); this.name = "TaskEventStoreError"; this.code = code; } }
+export interface CanonicalEventStreamV1 { readonly schema: "canonical-event-stream/v1"; readonly revision: number; readonly events: readonly CanonicalEventV1[] }
+export interface PublicationMetrics { readonly gitProcesses: number; readonly nodeSyncs: 0; readonly changedPaths: readonly string[] }
+export type CanonicalEventAppendReceipt = { readonly status: "applied"; readonly event: CanonicalEventV1; readonly revision: number; readonly commitSha: string; readonly metrics: PublicationMetrics };
+export interface EventRecoveryReceipt { readonly status: "none" | "committed" | "already_committed" | "indeterminate"; readonly publications: 0 | 1; readonly elapsedMs: number }
+export interface EventFileBatch { readonly sourceRevision: number; readonly events: readonly CanonicalEventV1[]; readonly cursor: string | null; readonly done: boolean; readonly accessedItems: number }
+export type EventPublicationKillpoint = "before_event_write" | "after_event_write" | "after_head_write" | "after_git_commit" | "after_sqlite_commit" | "before_response_write" | "after_response_write";
+export interface CanonicalEventStore {
+  readonly canonicalRef: string; readonly read: () => CanonicalEventStreamV1; readonly readHead: () => EventHead | null; readonly currentCommit: () => string;
+  readonly revisionAt: (commitSha: string) => number | null; readonly readEvent: (opId: string) => CanonicalEventV1 | null; readonly readTaskEvent: (opId: string) => TaskEventV1 | null;
+  readonly readBatch: (cursor: string | null, maxItems: number) => EventFileBatch; readonly readContentBlob: (sha256: string) => Uint8Array | null;
+  readonly append: (event: CanonicalEventV1, blobs?: readonly DocContentBlob[]) => CanonicalEventAppendReceipt; readonly recover: () => EventRecoveryReceipt;
 }
-
-export interface TaskEventStreamV1 {
-  readonly schema: "task-event-stream/v1"; readonly revision: number; readonly events: readonly TaskEventV1[];
-}
-
-export interface PublicationMetrics {
-  readonly gitProcesses: number; readonly nodeSyncs: number; readonly changedPaths: readonly string[];
-}
-
-export type TaskEventAppendReceipt = {
-  readonly status: "applied"; readonly event: TaskEventV1; readonly revision: number; readonly commitSha: string; readonly metrics: PublicationMetrics;
-};
-
-export interface EventRecoveryReceipt {
-  readonly status: "none" | "cleared" | "committed" | "already_committed" | "indeterminate"; readonly publications: 0 | 1; readonly elapsedMs: number;
-}
-
-export interface EventFileBatch {
-  readonly sourceRevision: number; readonly events: readonly TaskEventV1[]; readonly cursor: string | null; readonly done: boolean; readonly accessedItems: number;
-}
-
-export type EventPublicationKillpoint = "before_event_write" | "after_event_write" | "after_head_write" | "after_git_commit"
-  | "after_sqlite_commit" | "before_response_write" | "after_response_write";
-
-export interface TaskEventStore {
-  readonly path: string; readonly headPath: string; readonly read: () => TaskEventStreamV1; readonly readHead: () => EventHead | null;
-  readonly readEvent: (opId: string) => TaskEventV1 | null; readonly readBatch: (cursor: string | null, maxItems: number) => EventFileBatch;
-  readonly append: (event: TaskEventV1) => TaskEventAppendReceipt; readonly recover: () => EventRecoveryReceipt; readonly rebuildHead: () => EventHead | null;
-}
-
-export function makeTaskEventStore(options: { readonly rootInput?: HarnessLayoutInput; readonly rootDir?: string;
-  readonly killpoint?: (point: EventPublicationKillpoint) => void }): TaskEventStore {
-  const rootInput = options.rootInput ?? options.rootDir;
-  if (rootInput === undefined) throw new Error("task event store requires rootInput or rootDir");
-  const layout = resolveHarnessLayout(rootInput);
-  const eventsRoot = path.join(layout.authoredRoot, "events");
-  const headPath = path.join(eventsRoot, "head.json");
-  const pendingPath = path.join(layout.localRoot, "event-publication.json");
-  const repoRoot = localEventFileSystem.realpath(localGitText(localEventFileSystem.exists(layout.authoredRoot) ? layout.authoredRoot : layout.rootDir, "rev-parse", "--show-toplevel").trim());
-  const branchRef = localGitText(repoRoot, "symbolic-ref", "HEAD").trim();
-  const commonDirValue = localGitText(repoRoot, "rev-parse", "--git-common-dir").trim();
-  const commonDir = path.resolve(repoRoot, commonDirValue);
-  let parentSha = localGitText(repoRoot, "rev-parse", "HEAD").trim();
-
-  const readHead = () => readEventHead(headPath);
-  const readEvent = (opId: string) => {
-    const candidate = readEventFile(eventPath(eventsRoot, opId));
-    const head = readHead();
-    return candidate !== null && head !== null && candidate.workspaceRevision <= head.revision ? candidate : null;
-  };
-  const read = () => readTaskEventFiles(eventsRoot, readHead());
-  const rebuildHead = () => { relative(repoRoot, headPath);
-    const head = deriveEventHead(readTaskEventFiles(eventsRoot, undefined).events);
-    if (head !== null) localEventFileSystem.writeDurably(headPath, serializeEventHead(head));
-    return head;
-  };
-  return {
-    path: eventsRoot,
-    headPath,
-    read,
-    readHead,
-    readEvent,
-    readBatch: (cursor, maxItems) => readEventFileBatch(eventsRoot, readHead(), cursor, maxItems),
-    append: (event) => {
-      const gitStarted = localGitProcessCount(), eventBytes = serializeTaskEvent(event);
-      const targetPath = eventPath(eventsRoot, event.opId);
-      const relativeEvent = relative(repoRoot, targetPath), relativeHead = relative(repoRoot, headPath); relative(layout.rootDir, pendingPath);
-      const existing = readEventFile(targetPath);
-      if (existing !== null) {
-        if (serializeTaskEvent(existing) !== eventBytes) throw new TaskEventStoreError("op_conflict", `opId ${event.opId} already names a different event`);
-        if (readHead() === null) rebuildHead();
-        return existingReceipt(repoRoot, event, gitStarted);
-      }
-      const previousHead = readHead();
-      if (event.workspaceRevision !== (previousHead?.revision ?? 0) + 1) {
-        throw new TaskEventStoreError("revision_conflict", `workspace revision ${event.workspaceRevision} must follow ${previousHead?.revision ?? 0}`);
-      }
-      const head = { revision: event.workspaceRevision, opId: event.opId,
-        eventDigest: `sha256:${sha256Text(eventBytes)}` as const } satisfies EventHead;
-      const syncs = { count: 0 };
-      syncs.count += localEventFileSystem.writeDurably(pendingPath, serializePendingPublication({ schema: "event-publication-pending/v1", event, head, previousHead, previousCommitSha: parentSha }));
-      options.killpoint?.("before_event_write");
-      syncs.count += localEventFileSystem.writeDurably(targetPath, eventBytes);
-      options.killpoint?.("after_event_write");
-      const changedPaths = [relativeEvent, relativeHead].sort();
-      const preparedRef = publicationRef(event.opId);
-      const headBytes = serializeEventHead(head), preparedSha = prepareLocalEventCommit(repoRoot, preparedRef, parentSha, changedPaths.map((target) => ({ target, body: target === relativeEvent ? eventBytes : headBytes })), event.opId);
-      syncs.count += localEventFileSystem.writeDurably(headPath, headBytes);
-      options.killpoint?.("after_head_write");
-      finalizeLocalEventCommit(repoRoot, branchRef, parentSha, preparedSha, changedPaths);
-      parentSha = preparedSha;
-      options.killpoint?.("after_git_commit");
-      localEventFileSystem.remove(pendingPath);
-      localEventFileSystem.remove(looseRefPath(commonDir, preparedRef));
-      return { status: "applied", event, revision: event.workspaceRevision, commitSha: preparedSha,
-        metrics: { gitProcesses: localGitProcessCount() - gitStarted, nodeSyncs: syncs.count, changedPaths } };
+export function makeTaskEventStore(options: { readonly rootInput?: HarnessLayoutInput; readonly rootDir?: string; readonly killpoint?: (point: EventPublicationKillpoint) => void }): CanonicalEventStore {
+  const input = options.rootInput ?? options.rootDir; if (input === undefined) throw new Error("canonical event store requires rootInput or rootDir");
+  const layout = resolveHarnessLayout(input), repoRoot = real(layout.rootDir); let canonicalCommit = ensureRef(repoRoot, CANONICAL_EVENT_REF, "HEAD"), canonicalHead = readHeadAt(repoRoot, canonicalCommit);
+  const currentCommit = () => canonicalCommit, readHead = () => canonicalHead;
+  const readEvent = (opId: string) => readEventAt(repoRoot, canonicalCommit, opId), readTaskEvent = (opId: string) => { const event = readEvent(opId); return event !== null && isTaskEvent(event) ? event : null; };
+  const readContentBlob = (sha256: string) => readBlobAt(repoRoot, canonicalCommit, sha256);
+  return { canonicalRef: CANONICAL_EVENT_REF, currentCommit, readHead, readEvent, readTaskEvent, readContentBlob,
+    revisionAt: (commitSha) => canonicalRevisionAt(repoRoot, currentCommit(), commitSha),
+    read: () => readStream(repoRoot, canonicalCommit, canonicalHead), readBatch: (cursor, maxItems) => readBatch(repoRoot, canonicalCommit, canonicalHead, cursor, maxItems),
+    append: (event, blobs = []) => {
+      const started = gitObjects.processCount(), eventBytes = checkedEventBytes(event), parentSha = currentCommit(), existing = readEventAt(repoRoot, parentSha, event.opId);
+      if (existing !== null) { if (serializeCanonicalEvent(existing) !== eventBytes) throw new TaskEventStoreError("op_conflict", `opId ${event.opId} already names different event bytes`); return receipt(event, parentSha, started, []); }
+      const previousHead = readHeadAt(repoRoot, parentSha); if (event.workspaceRevision !== (previousHead?.revision ?? 0) + 1) throw new TaskEventStoreError("revision_conflict", `workspace revision ${event.workspaceRevision} must follow ${previousHead?.revision ?? 0}`);
+      if (isDocEvent(event) && event.payload.baseLedgerSha !== parentSha) throw new TaskEventStoreError("revision_conflict", "doc event Git parent must equal baseLedgerSha");
+      const eventPath = eventObjectPath(event.opId), head = { revision: event.workspaceRevision, opId: event.opId, eventDigest: `sha256:${sha256Text(eventBytes)}` as const }, headBytes = serializeEventHead(head);
+      const supplied = new Map(blobs.map((blob) => [blob.sha256, blob])), files: { target: string; body: string }[] = [{ target: eventPath, body: eventBytes }, { target: "harness/events/head.json", body: headBytes }];
+      if (isDocEvent(event)) for (const change of event.payload.changes) { const claim = supplied.get(change.candidate.sha256); if (!claim || claim.size !== change.candidate.size || claim.mediaType !== change.candidate.mediaType || Buffer.byteLength(claim.body) !== claim.size || sha256Text(claim.body) !== claim.sha256) throw new TaskEventStoreError("invalid_store", `content blob ${change.candidate.sha256} does not match the doc event`);
+        const existingBlob = readBlobAt(repoRoot, parentSha, claim.sha256); if (existingBlob !== null) { if (sha256Text(Buffer.from(existingBlob).toString("utf8")) !== claim.sha256) throw new TaskEventStoreError("invalid_store", `reachable content blob ${claim.sha256} is corrupt`); } else files.push({ target: blobObjectPath(claim.sha256), body: claim.body }); }
+      const changedPaths = files.map((file) => file.target).sort(), preparedRef = publicationRef(event.opId); options.killpoint?.("before_event_write"); options.killpoint?.("after_event_write");
+      const preparedSha = prepareCommit(repoRoot, preparedRef, parentSha, files, event.opId); options.killpoint?.("after_head_write");
+      finalizeRefs(repoRoot, preparedRef, preparedSha, parentSha); canonicalCommit = preparedSha; canonicalHead = head; options.killpoint?.("after_git_commit");
+      return receipt(event, preparedSha, started, changedPaths);
     },
-    recover: () => {
-      const started = performance.now(); relative(layout.rootDir, pendingPath); relative(repoRoot, headPath);
-      const pending = readPending(pendingPath);
-      if (pending === null) return { status: "none", publications: 0, elapsedMs: performance.now() - started };
-      const eventFile = eventPath(eventsRoot, pending.event.opId); relative(repoRoot, eventFile);
-      const preparedPath = looseRefPath(commonDir, publicationRef(pending.event.opId));
-      if (!localEventFileSystem.exists(eventFile) && sameHead(readHead(), pending.previousHead)) {
-        localEventFileSystem.remove(pendingPath); localEventFileSystem.remove(preparedPath);
-        return { status: "cleared", publications: 0, elapsedMs: performance.now() - started };
-      }
-      let onDiskEvent: TaskEventV1 | null;
-      try { onDiskEvent = readEventFile(eventFile); }
-      catch {
-        return { status: "indeterminate", publications: 0, elapsedMs: performance.now() - started };
-      }
-      if (onDiskEvent !== null && serializeTaskEvent(onDiskEvent) === serializeTaskEvent(pending.event)
-        && sameHead(readHead(), pending.previousHead)) {
-        localEventFileSystem.remove(eventFile); localEventFileSystem.remove(pendingPath); localEventFileSystem.remove(preparedPath);
-        return { status: "cleared", publications: 0, elapsedMs: performance.now() - started };
-      }
-      if (onDiskEvent !== null && serializeTaskEvent(onDiskEvent) === serializeTaskEvent(pending.event)
-        && sameHead(readHead(), pending.head)) {
-        const changedPaths = [relative(repoRoot, eventFile), relative(repoRoot, headPath)].sort();
-        const preparedRef = publicationRef(pending.event.opId);
-        let preparedSha = readLooseRef(preparedPath);
-        if (parentSha !== pending.previousCommitSha) {
-          if (preparedSha !== null && parentSha === preparedSha) {
-            localEventFileSystem.remove(pendingPath);
-            localEventFileSystem.remove(preparedPath);
-            return { status: "already_committed", publications: 0, elapsedMs: performance.now() - started };
-          }
-          return { status: "indeterminate", publications: 0, elapsedMs: performance.now() - started };
-        }
-        preparedSha ??= prepareLocalEventCommit(repoRoot, preparedRef, parentSha, changedPaths.map((target) => ({ target, body: localEventFileSystem.readText(path.join(repoRoot, target)) })), pending.event.opId);
-        finalizeLocalEventCommit(repoRoot, branchRef, parentSha, preparedSha, changedPaths);
-        parentSha = preparedSha;
-        localEventFileSystem.remove(pendingPath);
-        localEventFileSystem.remove(preparedPath);
-        return { status: "committed", publications: 1, elapsedMs: performance.now() - started };
-      }
+    recover: () => { const started = performance.now(), prepared = preparedRefs(repoRoot); if (prepared.length === 0) return { status: "none", publications: 0, elapsedMs: performance.now() - started };
+      if (prepared.length !== 1) return { status: "indeterminate", publications: 0, elapsedMs: performance.now() - started }; const [ref, sha] = prepared[0]!, current = currentCommit();
+      try { validatePrepared(repoRoot, sha); const parent = gitObjects.resolveCommit(repoRoot, `${sha}^`); if (current === parent) { updateRef(repoRoot, CANONICAL_EVENT_REF, sha, parent); canonicalCommit = sha; canonicalHead = readHeadAt(repoRoot, sha); deleteRef(repoRoot, ref); return { status: "committed", publications: 1, elapsedMs: performance.now() - started }; }
+        if (current === sha) { deleteRef(repoRoot, ref); return { status: "already_committed", publications: 0, elapsedMs: performance.now() - started }; } }
+      catch { return { status: "indeterminate", publications: 0, elapsedMs: performance.now() - started }; }
       return { status: "indeterminate", publications: 0, elapsedMs: performance.now() - started };
-    },
-    rebuildHead
-  };
+    } };
 }
-
-function existingReceipt(repoRoot: string, event: TaskEventV1, gitStarted: number): TaskEventAppendReceipt {
-  return { status: "applied", event, revision: event.workspaceRevision, commitSha: localGitText(repoRoot, "rev-parse", "HEAD").trim(),
-    metrics: { gitProcesses: localGitProcessCount() - gitStarted, nodeSyncs: 0, changedPaths: [] } };
-}
-
-function readPending(pendingPath: string): PendingPublication<TaskEventV1> | null {
-  if (!localEventFileSystem.exists(pendingPath)) return null;
-  const value: unknown = JSON.parse(localEventFileSystem.readText(pendingPath));
-  if (validatePendingPublication(value).length > 0) throw new TaskEventStoreError("publication_indeterminate", "pending publication descriptor is invalid");
-  const pending = value as PendingPublication<TaskEventV1>;
-  if (validateTaskEvent(pending.event).length > 0 || pending.head.eventDigest !== `sha256:${sha256Text(serializeTaskEvent(pending.event))}`) {
-    throw new TaskEventStoreError("publication_indeterminate", "pending publication event binding is invalid");
-  }
-  return pending;
-}
-
-function sameHead(left: EventHead | null, right: EventHead | null): boolean { return left === null || right === null ? left === right : serializeEventHead(left) === serializeEventHead(right); }
-
+function validatePrepared(repoRoot: string, commit: string): void { const head = readHeadAt(repoRoot, commit); if (head === null) throw new Error("prepared commit has no head"); const event = readEventAt(repoRoot, commit, head.opId); if (event === null || event.workspaceRevision !== head.revision || head.eventDigest !== `sha256:${sha256Text(serializeCanonicalEvent(event))}`) throw new Error("prepared event/head mismatch"); }
+function receipt(event: CanonicalEventV1, commitSha: string, started: number, changedPaths: readonly string[]): CanonicalEventAppendReceipt { return { status: "applied", event, revision: event.workspaceRevision, commitSha, metrics: { gitProcesses: gitObjects.processCount() - started, nodeSyncs: 0, changedPaths } }; }
+function readStream(repoRoot: string, commit: string, head: EventHead | null): CanonicalEventStreamV1 { if (head === null) return { schema: "canonical-event-stream/v1", revision: 0, events: [] }; const events = readEventsAt(repoRoot, commit, eventEntries(repoRoot, commit)).sort((a, b) => a.workspaceRevision - b.workspaceRevision);
+  const opIds = new Set<string>(); for (const [index, event] of events.entries()) { if (event.workspaceRevision !== index + 1) throw new TaskEventStoreError("invalid_store", `event revision ${event.workspaceRevision} is not contiguous`); if (opIds.has(event.opId)) throw new TaskEventStoreError("op_conflict", `duplicate event opId ${event.opId}`); opIds.add(event.opId); } if (events.length !== head.revision || events.at(-1)?.opId !== head.opId) throw new TaskEventStoreError("invalid_store", "event head does not match committed events"); return { schema: "canonical-event-stream/v1", revision: head.revision, events }; }
+function readBatch(repoRoot: string, commit: string, head: EventHead | null, cursor: string | null, maxItems: number): EventFileBatch { if (!Number.isInteger(maxItems) || maxItems < 1 || maxItems > 64) throw new TaskEventStoreError("invalid_store", "event batch maxItems must be between 1 and 64"); const entries = eventEntries(repoRoot, commit), names = entries.map((entry) => entry.name), start = cursor === null ? 0 : firstAfter(names, cursor), selected = entries.slice(start, start + maxItems), events = readEventsAt(repoRoot, commit, selected).filter((event) => event.workspaceRevision <= (head?.revision ?? 0)); return { sourceRevision: head?.revision ?? 0, events, cursor: selected.at(-1)?.name ?? cursor, done: start + selected.length >= names.length, accessedItems: selected.length }; }
+function readEventsAt(repoRoot: string, commit: string, entries: readonly EventEntry[]): CanonicalEventV1[] { if (!entries.length) return []; const output = gitObjects.batch(repoRoot, `${entries.map((entry) => entry.oid).join("\n")}\n`); const events: CanonicalEventV1[] = []; let cursor = 0; for (const entry of entries) { const headerEnd = output.indexOf(10, cursor), size = Number(output.subarray(cursor, headerEnd).toString("utf8").split(" ").at(-1)), start = headerEnd + 1, body = output.subarray(start, start + size).toString("utf8"); const event = parseCanonicalEvent(body); if (event.opId !== entry.name.slice(0, -5)) throw new TaskEventStoreError("invalid_store", "event object names do not match canonical event bytes"); if (isDocEvent(event)) validateDocBlobs(repoRoot, commit, event); events.push(event); cursor = start + size + 1; } return events; }
+function readEventAt(repoRoot: string, commit: string, opId: string): CanonicalEventV1 | null { safeOpId(opId); const body = showText(repoRoot, commit, eventObjectPath(opId)); if (body === null) return null; let event: CanonicalEventV1; try { event = parseCanonicalEvent(body); } catch (error) { throw shapeError(body, message(error)); } if (event.opId !== opId) throw new TaskEventStoreError("invalid_store", `event object does not match opId ${opId}`); if (isDocEvent(event)) validateDocBlobs(repoRoot, commit, event); return event; }
+function validateDocBlobs(repoRoot: string, commit: string, event: Extract<CanonicalEventV1, { readonly schema: "doc-event/v1" }>): void { for (const change of event.payload.changes) { const blob = readBlobAt(repoRoot, commit, change.candidate.sha256); if (blob === null || blob.byteLength !== change.candidate.size || sha256Text(Buffer.from(blob).toString("utf8")) !== change.candidate.sha256) throw new TaskEventStoreError("invalid_store", `doc event content blob ${change.candidate.sha256} is not reachable and exact`); } }
+function readHeadAt(repoRoot: string, commit: string): EventHead | null { const body = showText(repoRoot, commit, "harness/events/head.json"); if (body === null) return null; let head: EventHead; try { head = JSON.parse(body) as EventHead; } catch { throw new TaskEventStoreError("invalid_store", "event head is not JSON"); } if (serializeEventHead(head) !== body) throw new TaskEventStoreError("invalid_store", "event head is not canonical"); return head; }
+function readBlobAt(repoRoot: string, commit: string, sha256: string): Uint8Array | null { if (!/^[0-9a-f]{64}$/u.test(sha256)) throw new TaskEventStoreError("invalid_store", "content blob hash is invalid"); return showBytes(repoRoot, commit, blobObjectPath(sha256)); }
+function canonicalRevisionAt(repoRoot: string, current: string, commit: string): number | null { if (!/^[0-9a-f]{40}$/u.test(commit) || !gitObjects.isAncestor(repoRoot, commit, current)) return null; return readHeadAt(repoRoot, commit)?.revision ?? 0; }
+interface EventEntry { readonly name: string; readonly oid: string }
+function eventEntries(repoRoot: string, commit: string): readonly EventEntry[] { const output = gitObjects.batch(repoRoot, `${commit}:harness/events\n`), headerEnd = output.indexOf(10), header = output.subarray(0, headerEnd).toString("utf8"); if (header.endsWith(" missing")) return []; const size = Number(header.split(" ").at(-1)), entries: EventEntry[] = []; let cursor = headerEnd + 1; const end = cursor + size; while (cursor < end) { const nul = output.indexOf(0, cursor), name = output.subarray(output.indexOf(32, cursor) + 1, nul).toString("utf8"), oid = output.subarray(nul + 1, nul + 21).toString("hex"); if (name.endsWith(".json") && name !== "head.json") entries.push({ name: path.posix.basename(name), oid }); cursor = nul + 21; } return entries.sort((a, b) => a.name.localeCompare(b.name)); }
+function firstAfter(names: readonly string[], cursor: string): number { let low = 0, high = names.length; while (low < high) { const middle = Math.floor((low + high) / 2); if (names[middle]! <= cursor) low = middle + 1; else high = middle; } return low; }
+function checkedEventBytes(event: CanonicalEventV1): string { try { return serializeCanonicalEvent(event); } catch (error) { throw new TaskEventStoreError("invalid_store", message(error)); } }
+function eventObjectPath(opId: string): string { safeOpId(opId); return `harness/events/${opId}.json`; }
+function blobObjectPath(sha256: string): string { return `harness/objects/sha256/${sha256}`; }
+function safeOpId(opId: string): void { if (!opId || opId === "head" || /[\\/]/u.test(opId) || opId === "." || opId === "..") throw new TaskEventStoreError("invalid_store", "event opId is not a safe object name"); }
 function publicationRef(opId: string): string { return `refs/ha-event-prepared/${sha256Text(opId)}`; }
-
-function looseRefPath(commonDir: string, ref: string): string { return path.join(commonDir, ...ref.split("/")); }
-
-function readLooseRef(refPath: string): string | null { if (!localEventFileSystem.exists(refPath)) return null;
-  const sha = localEventFileSystem.readText(refPath).trim(); return /^[0-9a-f]{40}$/u.test(sha) ? sha : null; }
-
-function readTaskEventFiles(eventsRoot: string, committedHead?: EventHead | null): TaskEventStreamV1 {
-  if (!localEventFileSystem.exists(eventsRoot)) return { schema: "task-event-stream/v1", revision: 0, events: [] };
-  const allEvents = localEventFileSystem.readNames(eventsRoot)
-    .filter((name) => name.endsWith(".json") && name !== "head.json")
-    .map((name) => readEventFile(path.join(eventsRoot, name)))
-    .filter((event): event is TaskEventV1 => event !== null)
-    .sort((left, right) => left.workspaceRevision - right.workspaceRevision);
-  const events = committedHead === undefined ? allEvents : committedHead === null ? []
-    : allEvents.filter((event) => event.workspaceRevision <= committedHead.revision);
-  const opIds = new Set<string>();
-  for (const [index, event] of events.entries()) {
-    if (event.workspaceRevision !== index + 1) throw new TaskEventStoreError("invalid_store", `event revision ${event.workspaceRevision} is not contiguous`);
-    if (opIds.has(event.opId)) throw new TaskEventStoreError("op_conflict", `duplicate task event opId ${event.opId}`);
-    opIds.add(event.opId);
-  }
-  if (committedHead !== undefined && committedHead !== null) {
-    const derived = deriveEventHead(events);
-    if (!sameHead(derived, committedHead)) throw new TaskEventStoreError("invalid_store", "event head does not match committed event files");
-  }
-  return { schema: "task-event-stream/v1", revision: events.length, events };
-}
-
-function readEventFileBatch(eventsRoot: string, head: EventHead | null, cursor: string | null, maxItems: number): EventFileBatch {
-  if (!Number.isInteger(maxItems) || maxItems < 1 || maxItems > 64) throw new TaskEventStoreError("invalid_store", "event batch maxItems must be between 1 and 64");
-  if (!localEventFileSystem.exists(eventsRoot)) return { sourceRevision: head?.revision ?? 0, events: [], cursor: null, done: true, accessedItems: 0 };
-  const names = localEventFileSystem.readNames(eventsRoot).filter((name) => name.endsWith(".json") && name !== "head.json").sort();
-  const start = cursor === null ? 0 : firstNameAfter(names, cursor);
-  const selected = names.slice(start, start + maxItems);
-  const sourceRevision = head?.revision ?? 0;
-  const events = selected.map((name) => readEventFile(path.join(eventsRoot, name)))
-    .filter((event): event is TaskEventV1 => event !== null && event.workspaceRevision <= sourceRevision);
-  return { sourceRevision, events, cursor: selected.at(-1) ?? cursor, done: start + selected.length >= names.length, accessedItems: selected.length };
-}
-
-function firstNameAfter(names: readonly string[], cursor: string): number { let low = 0, high = names.length;
-  while (low < high) { const middle = Math.floor((low + high) / 2); if (names[middle]! <= cursor) low = middle + 1; else high = middle; }
-  return low; }
-
-function readEventFile(filePath: string): TaskEventV1 | null {
-  if (!localEventFileSystem.exists(filePath)) return null;
-  let value: unknown;
-  const body = localEventFileSystem.readText(filePath);
-  try { value = JSON.parse(body); }
-  catch { throw new TaskEventStoreError("invalid_store", `${filePath} is not JSON`); }
-  const issues = validateTaskEvent(value);
-  if (issues.length > 0) throw shapeError(value, issues.map((issue) => issue.message).join("; "));
-  const event = value as TaskEventV1;
-  if (serializeTaskEvent(event) !== body) throw new TaskEventStoreError("invalid_store", `${filePath} is not canonically serialized`);
-  if (path.basename(filePath) !== `${event.opId}.json`) throw new TaskEventStoreError("invalid_store", `${filePath} does not match event opId`);
-  return event;
-}
-
-function readEventHead(headPath: string): EventHead | null {
-  if (!localEventFileSystem.exists(headPath)) return null;
-  const body = localEventFileSystem.readText(headPath);
-  let head: EventHead;
-  try { head = JSON.parse(body) as EventHead; }
-  catch { throw new TaskEventStoreError("invalid_store", "event head is not JSON"); }
-  if (serializeEventHead(head) !== body) throw new TaskEventStoreError("invalid_store", "event head is not canonically serialized");
-  return head;
-}
-
-function deriveEventHead(events: readonly TaskEventV1[]): EventHead | null { const event = events.at(-1); if (event === undefined) return null;
-  return { revision: event.workspaceRevision, opId: event.opId, eventDigest: `sha256:${sha256Text(serializeTaskEvent(event))}` }; }
-
-function eventPath(eventsRoot: string, opId: string): string {
-  if (opId === "head" || opId.length === 0 || /[\\/]/u.test(opId) || opId === "." || opId === "..") throw new TaskEventStoreError("invalid_store", "event opId is not a safe filename");
-  return path.join(eventsRoot, `${opId}.json`);
-}
-
-function relative(repoRoot: string, filePath: string): string {
-  const value = path.relative(normalizeLocalPath(repoRoot), normalizeLocalPath(filePath)).split(path.sep).join("/");
-  if (value.startsWith("../") || path.isAbsolute(value)) throw new TaskEventStoreError("invalid_store", "event target is outside the Git repository");
-  return value;
-}
-
-function shapeError(value: unknown, message: string): TaskEventStoreError { const schema = value && typeof value === "object" && "schema" in value ? String(value.schema) : "unknown";
-  const legacy = /^(?:execution|review|task-holder)\//u.test(schema); return new TaskEventStoreError(legacy ? "legacy_shape" : "invalid_store", legacy ? `${message}; use the archived CLI on archive/main` : message); }
+function prepareCommit(repoRoot: string, ref: string, parent: string, files: readonly { target: string; body: string }[], opId: string): string { const message = `harness event ${opId}`, timestamp = Math.floor(Date.now() / 1_000); let input = `commit ${ref}\nmark :1\ncommitter Harness Event Store <harness-event-store@local.invalid> ${timestamp} +0000\ndata ${Buffer.byteLength(message)}\n${message}\nfrom ${parent}\n`; for (const file of files) input += `M 100644 inline ${file.target}\ndata ${Buffer.byteLength(file.body)}\n${file.body}\n`; input += "\nget-mark :1\ndone\n"; let output: Buffer; try { output = gitObjects.importCommit(repoRoot, input); } catch (error) { throw new TaskEventStoreError("publication_indeterminate", `Git object import failed: ${messageOf(error)}`); } const sha = output.toString("utf8").trim().split("\n").at(-1) ?? ""; if (!/^[0-9a-f]{40}$/u.test(sha)) throw new TaskEventStoreError("publication_indeterminate", "Git object import returned no commit"); return sha; }
+function preparedRefs(repoRoot: string): readonly (readonly [string, string])[] { const body = gitObjects.listPrepared(repoRoot); return body.trim() ? body.trim().split(/\r?\n/u).map((line) => line.split(" ") as [string, string]) : []; }
+function ensureRef(repoRoot: string, ref: string, target: string): string { try { return gitObjects.resolveCommit(repoRoot, ref); } catch (error) { consumeKnownError(error); const sha = gitObjects.resolveCommit(repoRoot, target); updateRef(repoRoot, ref, sha); return sha; } }
+function updateRef(repoRoot: string, ref: string, sha: string, previous?: string): void { gitObjects.updateRef(repoRoot, ref, sha, previous); }
+function finalizeRefs(repoRoot: string, preparedRef: string, sha: string, previous: string): void { gitObjects.updateRefs(repoRoot, `update ${CANONICAL_EVENT_REF} ${sha} ${previous}\ndelete ${preparedRef} ${sha}\n`); }
+function deleteRef(repoRoot: string, ref: string): void { gitObjects.deleteRef(repoRoot, ref); }
+function showText(repoRoot: string, commit: string, target: string): string | null { const bytes = showBytes(repoRoot, commit, target); return bytes === null ? null : Buffer.from(bytes).toString("utf8"); }
+function showBytes(repoRoot: string, commit: string, target: string): Uint8Array | null { return gitObjects.readPath(repoRoot, commit, target); }
+function real(value: string): string { return path.resolve(value); }
+function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+function shapeError(body: string, detail: string): TaskEventStoreError { let schema = "unknown"; try { const parsed = JSON.parse(body) as { schema?: unknown }; schema = String(parsed.schema); } catch (error) { consumeKnownError(error); } const legacy = /^(?:execution|review|task-holder)\//u.test(schema); return new TaskEventStoreError(legacy ? "legacy_shape" : "invalid_store", legacy ? `${detail}; use the archived CLI on archive/main` : detail); }
+function consumeKnownError(error: unknown): void { void error; }
+function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }

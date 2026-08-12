@@ -40,6 +40,7 @@ export function lifecycleHarness() {
   const projection = {
     read: realProjection.read,
     readOperation: realProjection.readOperation,
+    readTaskOperation: realProjection.readTaskOperation,
     currentLease: realProjection.currentLease,
     reserveLease: realProjection.reserveLease,
     activateLease: realProjection.activateLease,

@@ -20,9 +20,14 @@ test("W3 write authority rejects a second event-store composition root", () => w
   assert.match(findW3WriteAuthorityViolations(root).join("\n"), /production consumers must be exactly/u);
 }));
 
+test("W3 write authority rejects worktree mutation capability in the object/ref publisher", () => withFixture((root) => {
+  write(root, "packages/kernel/src/store/task-event-store.ts", `const CANONICAL_EVENT_REF = "refs/ha/canonical";\nprepareCommit();\nfinalizeRefs();\nrunGit("update-index");\n`);
+  assert.match(findW3WriteAuthorityViolations(root).join("\n"), /must not expose update-index/u);
+}));
+
 function withFixture(run) { const root = mkdtempSync(path.join(tmpdir(), "w3-write-authority-")); try {
   write(root, "packages/daemon/src/repo-cell.ts", `import { makeTaskEventStore } from "../../kernel/src/index.ts";\nimport { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";\nconst store = makeTaskEventStore({ rootDir });\nconst service = makeTaskLifecycleService({ eventStore: store, projection });\nlet tail = Promise.resolve();\ntail = tail.then(() => service.execute(command));\n`);
-  write(root, "packages/kernel/src/store/task-event-store.ts", `export function makeTaskEventStore() {}\nprepareLocalEventCommit();\nfinalizeLocalEventCommit();\n`);
+  write(root, "packages/kernel/src/store/task-event-store.ts", `export const CANONICAL_EVENT_REF = "refs/ha/canonical";\nexport function makeTaskEventStore() {}\nprepareCommit();\nfinalizeRefs();\n`);
   write(root, "packages/application/src/task-lifecycle-service.ts", `export function makeTaskLifecycleService(options) { options.eventStore.append(event); }\n`);
   write(root, "packages/cli/src/index.ts", `import { runCommandThroughDaemon } from "./daemon/client.ts";\n`);
   run(root);
