@@ -36,26 +36,49 @@ const repoRoot = path.resolve(import.meta.dirname, "..");
 const LOCK_DIR = "/tmp/harness-local-check.lock";
 const LOCK_PID_FILE = path.join(LOCK_DIR, "pid");
 
-// Step list. Each step is [label, npmScriptName]. Scripts already exist in
-// package.json; boundaries mirrors the CI `boundaries` job (minus lint, which is
-// listed once here). Keep this aligned with .github/workflows/rewrite-ci.yml.
+// Step list. Each step is [label, npmScriptName]. The boundaries/package-policy
+// portion is DERIVED from tools/gate-manifest.json (the same authority CI's
+// run-manifest-gates.mjs consumes), so the local set cannot drift from CI for
+// those jobs. Gates qualify when they run in a local-relevant PR job, expose an
+// npm script, participate in check:pr, and are deterministic (no network/PR
+// context needed).
+const LOCAL_MANIFEST_JOBS = new Set(["boundaries", "package-policy"]);
+
+// The rebuild line's boundaries job runs with an exclude list declared in the
+// workflow itself ("Run rebuild-compatible boundary gates"). Read it from there
+// so this runner never grows a second hand-maintained copy of that list.
+export function rebuildExcludedGateIds() {
+  const workflow = readFileSync(path.join(repoRoot, ".github/workflows/rewrite-ci.yml"), "utf8");
+  const step = workflow.match(/Run rebuild-compatible boundary gates[\s\S]*?--exclude\s+(\S+)/u);
+  if (!step) throw new Error("run-local-check: rebuild-compatible boundary gates step not found in rewrite-ci.yml");
+  return new Set(step[1].split(","));
+}
+
+function manifestDerivedSteps() {
+  const manifest = JSON.parse(readFileSync(path.join(repoRoot, "tools/gate-manifest.json"), "utf8"));
+  const excluded = rebuildExcludedGateIds();
+  return manifest.gates
+    .filter((gate) => {
+      const surfaces = gate.executionSurfaces ?? {};
+      const jobs = surfaces.rewriteCi?.pullRequestJobs ?? [];
+      const pkg = surfaces.packageJson ?? {};
+      return jobs.some((job) => LOCAL_MANIFEST_JOBS.has(job))
+        && !excluded.has(gate.id)
+        && typeof pkg.script === "string"
+        && pkg.checkPr === true
+        && gate.deterministic === true;
+    })
+    .map((gate) => [
+      `${(gate.executionSurfaces.rewriteCi.pullRequestJobs.find((job) => LOCAL_MANIFEST_JOBS.has(job)))}: ${gate.id}`,
+      gate.executionSurfaces.packageJson.script
+    ]);
+}
+
 const FAST_STEPS = [
   ["typecheck", "typecheck"],
-  ["lint", "lint"],
   ["test:fast", "test:fast"],
   ["test:contract", "test:contract"],
-  ["boundaries: import-boundaries", "harness:check-import-boundaries"],
-  ["boundaries: file-complexity", "harness:check-file-complexity"],
-  ["boundaries: forbidden-symbols", "harness:scan-forbidden-symbols"],
-  ["boundaries: private-boundary", "harness:check-private-boundary"],
-  ["boundaries: integration-test-shards", "harness:check-integration-test-shards"],
-  ["boundaries: gate-surface", "harness:check-gate-surface"],
-  ["boundaries: locale-content", "harness:check-locale-content"],
-  ["boundaries: runtime-release-readiness", "harness:check-runtime-release-readiness"],
-  ["boundaries: implementation-contracts", "harness:check-implementation-contracts"],
-  ["boundaries: schema-contracts", "harness:check-schema-contracts"],
-  ["boundaries: legacy-intake-readiness", "harness:check-legacy-intake-readiness"],
-  ["package-policy", "harness:check-package-policy"],
+  ...manifestDerivedSteps(),
   ["contracts: derived-contracts", "check:local:derived-contracts"],
   ["contracts: schema-closure", "check:local:schema-closure"]
 ];
