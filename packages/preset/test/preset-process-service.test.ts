@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,6 +13,15 @@ test("start durably returns admitted before spawn and status exposes every daemo
     assert.equal(started.outcome, "started"); assert.equal(started.phase, "admitted"); assert.deepEqual(service.status(started.runId).phases, ["admitted"]);
     const terminal = await waitFor(() => service.status(started.runId), ({ outcome }) => outcome === "applied");
     assert.equal(terminal.outcome, "applied"); assert.deepEqual(terminal.phases, ["admitted", "spawned", "running", "publishing", "applied"]); assert.match(terminal.resultDigest ?? "", /^sha256:[0-9a-f]{64}$/u);
+  } finally { await service.close(); fixture.cleanup(); }
+});
+
+test("an inherited entrypoint stages its declaring package and detects post-admission changes", async () => {
+  const fixture = inheritedScriptPackage(), service = createPresetProcessService({ rootDir: fixture.rootDir, userRoot: fixture.userRoot, timeoutMs: 1_000, publish: async () => { throw new Error("unexpected produce"); } });
+  try {
+    const started = await service.start({ presetId: "leaf-canary", entrypoint: "check", inputs: { title: "Inherited" }, idempotencyKey: "inherit-ok" }); assert.equal(started.phase, "admitted"); const applied = await waitFor(() => service.status(started.runId), ({ outcome }) => outcome === "applied" || outcome === "failed");
+    assert.equal(applied.outcome, "applied", JSON.stringify(applied)); assert.deepEqual(applied.phases, ["admitted", "spawned", "running", "publishing", "applied"]);
+    const admitted = await service.start({ presetId: "leaf-canary", entrypoint: "check", inputs: { title: "Tamper" }, idempotencyKey: "inherit-tamper" }); assert.equal(admitted.phase, "admitted"); write(path.join(fixture.parentObject, "scripts/check.mjs"), "process.exit(0);"); const failed = await waitFor(() => service.status(admitted.runId), ({ outcome }) => outcome === "failed"); assert.equal(failed.code, "package_changed"); assert.deepEqual(failed.phases, ["admitted", "failed"]);
   } finally { await service.close(); fixture.cleanup(); }
 });
 
@@ -31,6 +40,20 @@ test("bounded child protocol classifies every failure without a silent phase", a
     ["never-output", "setInterval(() => {}, 1_000);", "timeout"], ["nonzero", "process.exit(7);", "child_exit"], ["signal", 'process.kill(process.pid, "SIGTERM");', "child_signal"], ["malformed", 'console.log("{");', "malformed_result"], ["oversize", 'process.stdout.write("x".repeat(200));', "result_oversize"], ["disconnect", "(await import('node:fs')).closeSync(1); setInterval(() => {}, 1_000);", "child_disconnect"]
   ] as const;
   for (const [name, script, code] of cases) { const fixture = scriptedPackage(script), service = createPresetProcessService({ rootDir: fixture.rootDir, userRoot: fixture.userRoot, timeoutMs: 300, maxResultBytes: 128, publish: async () => { throw new Error("not reached"); } }); try { const started = await service.start({ presetId: "user-canary", entrypoint: "check", inputs: { title: "Canary" }, idempotencyKey: name }); assert.equal(started.phase, "admitted"); const result = await waitFor(() => service.status(started.runId), ({ outcome }) => outcome === "failed"); assert.equal(result.code, code, JSON.stringify(result)); assert.equal(result.phases[0], "admitted"); assert.equal(result.phases.at(-1), "failed"); } finally { await service.close(); fixture.cleanup(); } }
+});
+
+test("timeout forcibly reaps a child that ignores SIGTERM before publishing terminal receipt", async () => {
+  const fixture = scriptedPackage('const { writeFileSync } = await import("node:fs"); process.on("SIGTERM", () => {}); writeFileSync("child.pid", String(process.pid)); setInterval(() => {}, 1_000);'), service = createPresetProcessService({ rootDir: fixture.rootDir, userRoot: fixture.userRoot, timeoutMs: 500, publish: async () => { throw new Error("not reached"); } }); let pid: number | undefined;
+  try {
+    const started = await service.start({ presetId: "user-canary", entrypoint: "check", inputs: { title: "Canary" }, idempotencyKey: "ignore-term-timeout" }), pidPath = path.join(fixture.rootDir, ".harness/preset-runs/staging", started.runId, "child.pid"); await waitFor(() => existsSync(pidPath), Boolean); pid = Number(readFileSync(pidPath, "utf8")); const terminal = await waitFor(() => service.status(started.runId), ({ outcome }) => outcome === "failed"); assert.equal(terminal.code, "timeout"); assert.throws(() => process.kill(pid!, 0), { code: "ESRCH" });
+  } finally { if (pid) try { process.kill(pid, "SIGKILL"); } catch { /* already reaped */ } await service.close(); fixture.cleanup(); }
+});
+
+test("close forcibly reaps a child that ignores SIGTERM within a fixed bound", async () => {
+  const fixture = scriptedPackage('const { writeFileSync } = await import("node:fs"); process.on("SIGTERM", () => {}); writeFileSync("child.pid", String(process.pid)); setInterval(() => {}, 1_000);'), service = createPresetProcessService({ rootDir: fixture.rootDir, userRoot: fixture.userRoot, timeoutMs: 5_000, publish: async () => { throw new Error("not reached"); } }); let pid: number | undefined;
+  try {
+    const started = await service.start({ presetId: "user-canary", entrypoint: "check", inputs: { title: "Canary" }, idempotencyKey: "ignore-term-close" }), pidPath = path.join(fixture.rootDir, ".harness/preset-runs/staging", started.runId, "child.pid"); await waitFor(() => existsSync(pidPath), Boolean); pid = Number(readFileSync(pidPath, "utf8")); const before = performance.now(); await service.close(); assert.equal(performance.now() - before < 1_000, true); assert.equal(service.status(started.runId).outcome, "outcome_unknown"); assert.throws(() => process.kill(pid!, 0), { code: "ESRCH" });
+  } finally { if (pid) try { process.kill(pid, "SIGKILL"); } catch { /* already reaped */ } await service.close(); fixture.cleanup(); }
 });
 
 test("idempotency never respawns and restart recovery stays outcome_unknown without retry", async () => {
@@ -56,6 +79,11 @@ function scriptedPackage(script: string, entrypoint: Record<string, unknown> = {
   write(path.join(source, "preset.json"), JSON.stringify({ schema: "preset-manifest/v3", id: "user-canary", title: "User Canary", vertical: "software/coding", version: "3.0.0", kind: "process-action", outputShape: "repository-diff", kernelVersionRange: { min: "1.0.0" }, capabilityImports: [], entrypoints: { check: { type: "script", intent: "Run canary", inputs: [{ name: "title", type: "string", required: true }], requires: [], produces: [], sideEffects: [], command: "scripts/check.mjs", ...entrypoint } }, profiles: [{ id: "baseline", title: "Baseline", completionGates: [], templateSelections: [] }], defaultProfile: "baseline" }));
   write(path.join(source, "PRESET.md"), "---\nschema: preset-document/v1\ndescription: Canary\nwhenToUse: Verify process actions.\n---\n# Canary\n"); write(path.join(source, "scripts/check.mjs"), script); installPresetPackage({ source, userRoot });
   return { rootDir, userRoot, cleanup: () => rmSync(rootDir, { recursive: true, force: true }) };
+}
+function inheritedScriptPackage() {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-inherited-")), userRoot = path.join(rootDir, ".harness/presets"), source = path.join(rootDir, "source"), manifest = (id: string, extra: Record<string, unknown>) => ({ schema: "preset-manifest/v3", id, title: id, vertical: "software/coding", version: "3.0.0", kind: "process-action", outputShape: "repository-diff", kernelVersionRange: { min: "1.0.0" }, capabilityImports: [], profiles: [{ id: "baseline", title: "Baseline", completionGates: [], templateSelections: [] }], defaultProfile: "baseline", ...extra });
+  const parent = path.join(source, "base-canary"), leaf = path.join(source, "leaf-canary"); write(path.join(parent, "preset.json"), JSON.stringify(manifest("base-canary", { entrypoints: { check: { type: "script", intent: "Inherited check", inputs: [{ name: "title", type: "string", required: true }], requires: [], produces: [], sideEffects: [], command: "scripts/check.mjs" } } }))); write(path.join(parent, "PRESET.md"), "---\nschema: preset-document/v1\ndescription: Base\nwhenToUse: Run inherited scripts.\n---\n# Base\n"); write(path.join(parent, "scripts/check.mjs"), 'console.log(JSON.stringify({ schema: "preset-script-result/v1", produces: [] }));'); write(path.join(leaf, "preset.json"), JSON.stringify(manifest("leaf-canary", { extends: "base-canary" }))); write(path.join(leaf, "PRESET.md"), "---\nschema: preset-document/v1\ndescription: Leaf\nwhenToUse: Inherit the base.\n---\n# Leaf\n"); const installed = installPresetPackage({ source: parent, userRoot }); installPresetPackage({ source: leaf, userRoot });
+  return { rootDir, userRoot, parentObject: path.join(userRoot, "preset-objects", installed.digest), cleanup: () => rmSync(rootDir, { recursive: true, force: true }) };
 }
 function write(target: string, body: string): void { mkdirSync(path.dirname(target), { recursive: true }); writeFileSync(target, body); }
 async function waitFor<T>(read: () => T, done: (value: T) => boolean): Promise<T> { let last: T; for (let attempt = 0; attempt < 100; attempt += 1) { last = read(); if (done(last)) return last; await new Promise((resolve) => setTimeout(resolve, 10)); } throw new Error(`terminal preset run not observed: ${JSON.stringify(last!)}`); }
