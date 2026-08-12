@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DOC_POLICY_ID, decideDocWrite, resolveDocRoute, type DocWriteChange, type DocumentState } from "../../src/domain/doc-sync.contract.ts";
+import docSyncContract, { DOC_POLICY_ID, decideDocWrite, documentPath, resolveDocRoute, validateDocWriteIntent, type DocWriteChange, type DocumentState } from "../../src/domain/doc-sync.contract.ts";
 import { validateWriteReceipt } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 
@@ -14,11 +14,27 @@ function decide(change: DocWriteChange, document: DocumentState | null, bytes: U
   return decideDocWrite({ intent: { schema: "doc-write-intent/v1", executionId: "execution-1", baseLedgerSha, changes: [change] }, opId: "doc-op", eventId: "doc-event", workspaceRevision: 3, actor, source: "local", occurredAt: "2026-08-12T11:00:00.000Z", currentLedgerSha, lease, documents: [document], claims: [bytes], ...overrides });
 }
 
+test("derived doc-sync contract closes intent and event schemas", () => {
+  assert.deepEqual(docSyncContract.schemas.map((schema) => schema.id), ["doc-write-intent/v1", "doc-event/v1"]);
+  assert.equal(docSyncContract.schemas.every((schema) => schema.negativeFixtures.length > 0), true);
+});
+
+test("doc ingress rejects non-portable paths and same-batch Unicode collisions", () => {
+  const change = { path: "context/CON.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: claim("body\n") };
+  assert.match(validateDocWriteIntent({ schema: "doc-write-intent/v1", executionId: "execution-1", baseLedgerSha, changes: [change] }).join("\n"), /portable|reserved/iu);
+  const collision = { schema: "doc-write-intent/v1", executionId: "execution-1", baseLedgerSha, changes: [
+    { ...change, path: "context/café.md" }, { ...change, path: "context/cafe\u0301.md" }
+  ] };
+  assert.match(validateDocWriteIntent(collision).join("\n"), /collision/iu);
+  assert.match(validateDocWriteIntent({ ...collision, changes: [{ ...change, path: "context/ok.md", candidate: { ...change.candidate!, size: Number.MAX_SAFE_INTEGER + 1 } }] }).join("\n"), /claim/iu);
+  assert.match(validateDocWriteIntent({ ...collision, changes: [{ ...change, path: "context/ok.md", candidate: { ...change.candidate!, ref: "doc-sync-claims/CON" } }] }).join("\n"), /claim/iu);
+});
+
 test("default prose route is open while typed internal routes are denied", () => {
-  assert.deepEqual(resolveDocRoute("context/new-area/notes.md"), { allowed: true, requiredRoute: "doc-sync" });
-  assert.deepEqual(resolveDocRoute("events/op.json"), { allowed: false, requiredRoute: "canonical-event" });
-  assert.deepEqual(resolveDocRoute("people.yaml"), { allowed: false, requiredRoute: "people-registry" });
-  assert.equal(resolveDocRoute("../outside.md").allowed, false);
+  assert.deepEqual(resolveDocRoute(documentPath("context/new-area/notes.md")), { allowed: true, requiredRoute: "doc-sync" });
+  assert.deepEqual(resolveDocRoute(documentPath("events/op.json")), { allowed: false, requiredRoute: "canonical-event" });
+  assert.deepEqual(resolveDocRoute(documentPath("people.yaml")), { allowed: false, requiredRoute: "people-registry" });
+  assert.throws(() => documentPath("../outside.md"));
 });
 
 test("equal/insert semantic policy accepts additive prose and freezes region proofs/content target", () => {

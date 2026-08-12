@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -40,6 +40,17 @@ test("RepoCell serializes identical lifecycle intents into one Git publication a
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("receipt lookup reports Git object-store failure as indeterminate and marks the RepoCell unavailable", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-corrupt-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("corrupt"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" });
+    const applied = await cell.run({ kind: "task-create", taskId: "task-corrupt", title: "Corrupt", completionGateIds: [] }, { actor, source: "local" }); assert.equal(applied.outcome, "applied");
+    rmSync(path.join(rootDir, ".git/objects"), { recursive: true, force: true });
+    const receipt = await cell.run({ kind: "receipt-show", opId: applied.opId }, { actor, source: "local" });
+    assert.deepEqual({ outcome: receipt.outcome, code: receipt.code, origin: receipt.origin }, { outcome: "indeterminate", code: "vcs_command_failed", origin: "git" });
+    assert.match(receipt.nextAction ?? "", /repair.*object.*retry/iu); assert.equal(cell.status().state, "unavailable");
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
 for (const killpoint of ["before_event_write", "after_event_write", "after_head_write", "after_git_commit",
@@ -84,6 +95,19 @@ test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion r
     const beforeBatch = git(rootDir, "rev-parse", "refs/ha/canonical"), partial = await cell.run({ ...action, baseLedgerSha: base, changes: [{ ...action.changes[0], baseBlobSha256: hash, candidate: { ...action.changes[0].candidate, ref: "doc-sync-claims/two", sha256: nextHash, size: Buffer.byteLength(next) } }, { path: "context/missing.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: { ref: "doc-sync-claims/missing", sha256: "e".repeat(64), size: 1, mediaType: "text/markdown" } }] }, { actor, source: "local" }); assert.equal(partial.code, "content_claim_mismatch"); assert.equal(git(rootDir, "rev-parse", "refs/ha/canonical"), beforeBatch);
     const samples: number[] = []; for (let index = 0; index < 7; index += 1) { const candidate = `${body}${Array.from({ length: index + 1 }, (_, n) => `line-${n}\n`).join("")}`, candidateHash = createHash("sha256").update(candidate).digest("hex"), ref = `doc-sync-claims/perf-${index}`; writeFileSync(authored, candidate); writeFileSync(path.join(rootDir, ".harness", ref), candidate); const started = performance.now(), result = await cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: git(rootDir, "rev-parse", "refs/ha/canonical"), changes: [{ path: "context/notes.md", baseBlobSha256: hash, policyId: DOC_POLICY_ID, candidate: { ref, sha256: candidateHash, size: Buffer.byteLength(candidate), mediaType: "text/markdown" } }] }, { actor, source: "local" }); samples.push(performance.now() - started); assert.equal(result.outcome, "applied", JSON.stringify(result)); body = candidate; hash = candidateHash; }
     samples.sort((a, b) => a - b); const p50 = samples[Math.floor(samples.length / 2)]!; context.diagnostic(`doc-single-write-p50=${p50.toFixed(3)}ms samples=${samples.map((sample) => sample.toFixed(3)).join(",")}`); assert.equal(p50 < 500, true, `doc write p50 ${p50}ms`);
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("doc ingress rejects symbolic links in claim and authored path chains", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-claim-link-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("claim-link"), rootDir: canonicalRoot(rootDir), ownerId: "doc-daemon" });
+    await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs", completionGateIds: [] }, { actor, source: "local" }); await cell.run({ kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, { actor, source: "local" });
+    const body = "# Outside\n", hash = createHash("sha256").update(body).digest("hex"), claims = path.join(rootDir, ".harness/doc-sync-claims"); mkdirSync(claims, { recursive: true }); writeFileSync(path.join(rootDir, "outside.md"), body); symlinkSync("../../outside.md", path.join(claims, "linked"));
+    const base = git(rootDir, "rev-parse", "refs/ha/canonical"), result = await cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: base, changes: [{ path: "context/link.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: { ref: "doc-sync-claims/linked", sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" } }] }, { actor, source: "local" });
+    assert.equal(result.code, "content_claim_mismatch"); assert.equal(git(rootDir, "rev-parse", "refs/ha/canonical"), base);
+    writeFileSync(path.join(claims, "plain"), body); mkdirSync(path.join(rootDir, "harness/context"), { recursive: true }); symlinkSync("../../outside.md", path.join(rootDir, "harness/context/link.md"));
+    const authoredLink = await cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: base, changes: [{ path: "context/link.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: { ref: "doc-sync-claims/plain", sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" } }] }, { actor, source: "local" });
+    assert.equal(authoredLink.code, "invalid_command"); assert.equal(git(rootDir, "rev-parse", "refs/ha/canonical"), base);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 

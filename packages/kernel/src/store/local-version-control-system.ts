@@ -196,7 +196,7 @@ function localGitBytes(repoRoot: string, args: readonly string[], input?: Uint8A
 }
 export const localGitObjectRefStore = Object.freeze({
   processCount: () => localGitProcesses, resolveCommit: (repoRoot: string, revision: string) => runGit(repoRoot, "rev-parse", revision).trim(),
-  readPath: (repoRoot: string, commit: string, target: string): Buffer | null => { try { return localGitBytes(repoRoot, ["show", `${commit}:${target}`]); } catch (error) { consumeKnownError(error); return null; } },
+  readPath: (repoRoot: string, commit: string, target: string): Buffer | null => { try { return localGitBytes(repoRoot, ["show", `${commit}:${target}`]); } catch (error) { try { if (localGitBytes(repoRoot, ["ls-tree", "--name-only", "-z", commit, "--", target]).length === 0) return null; } catch (classificationError) { consumeKnownError(classificationError); } throw error; } },
   isAncestor: (repoRoot: string, ancestor: string, current: string): boolean => { try { runGit(repoRoot, "merge-base", "--is-ancestor", ancestor, current); return true; } catch (error) { consumeKnownError(error); return false; } },
   batch: (repoRoot: string, input: string) => localGitBytes(repoRoot, ["cat-file", "--batch"], Buffer.from(input)),
   importCommit: (repoRoot: string, input: string) => localGitBytes(repoRoot, ["-c", "core.fsync=committed,reference", "-c", "core.fsyncMethod=fsync", "fast-import", "--quiet", "--force"], Buffer.from(input)),

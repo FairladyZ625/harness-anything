@@ -5,11 +5,12 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { DOC_CODEC_ID, DOC_POLICY_ID, parseCanonicalEvent, serializeCanonicalEvent, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
+import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, parseCanonicalEvent, serializeCanonicalEvent, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import { serializeTaskEvent, type TaskCreatedEvent } from "../../src/domain/task-lifecycle.contract.ts";
-import { serializeEventHead } from "../../src/domain/write-chain.contract.ts";
+import { freezeDeclaredWritePlan, serializeEventHead } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
+import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { CANONICAL_EVENT_REF, makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
@@ -22,6 +23,17 @@ test("canonical schema registry parses task/doc once and rejects unknown or non-
   assert.deepEqual(parseCanonicalEvent(serializeTaskEvent(event)), event);
   assert.throws(() => parseCanonicalEvent(`${JSON.stringify({ ...event, schema: "unknown/v1" })}\n`), /unknown/u);
   assert.throws(() => parseCanonicalEvent(`${JSON.stringify(event)}\n`), /not canonical/u);
+});
+
+test("Git object reads distinguish a missing commit path from repository failure", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    assert.throws(() => localGitObjectRefStore.readPath(rootDir, "0".repeat(40), "harness/events/head.json"), (error: unknown) => {
+      assert.deepEqual({ code: (error as { code?: string }).code, origin: (error as { origin?: string }).origin }, { code: "vcs_command_failed", origin: "git" }); return true;
+    });
+    initRepo(rootDir); const commit = git(rootDir, "rev-parse", "HEAD");
+    assert.equal(localGitObjectRefStore.readPath(rootDir, commit, "harness/events/head.json"), null);
+    assert.throws(() => localGitObjectRefStore.readPath(rootDir, "f".repeat(40), "harness/events/head.json"), /git/u);
+  });
 });
 
 test("object/ref-only publication preserves HEAD, index, prose, and every dirty path byte", async (context) => {
@@ -39,7 +51,12 @@ test("doc event, head, and immutable content blob are reachable from one canonic
   await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const store = makeTaskEventStore({ rootDir }), base = store.currentCommit(), body = "# Notes\n\nMore prose.\n", hash = sha256Text(body);
     const doc: DocEventV1 = { schema: "doc-event/v1", eventId: "doc-event-1", workspaceRevision: 1, opId: "doc-op-1", type: "documents_written", actor: event.actor, source: "local", occurredAt: event.occurredAt,
       payload: { executionId: "execution-1", baseLedgerSha: base, changes: [{ path: "context/notes.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: { sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" }, regionProofs: [{ regionId: "heading/notes", policyId: DOC_POLICY_ID, codecId: DOC_CODEC_ID, baseSha256: sha256Text(""), candidateSha256: hash, insertBytes: Buffer.byteLength(body) }] }] } };
-    const receipt = store.append(doc, [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }]);
+    const plan = docSyncWritePlan(doc), extra = freezeDeclaredWritePlan({ commandType: "DocSyncSubmit", targets: [...plan.targets,
+      { kind: "content_blob", sha256: "f".repeat(64), size: 1, mediaType: "text/plain" }] }, ["DocSyncSubmit"]), missing = freezeDeclaredWritePlan({ commandType: "DocSyncSubmit", targets: plan.targets.filter((target) => target.kind !== "content_blob") }, ["DocSyncSubmit"]), before = store.currentCommit();
+    assert.throws(() => store.append(doc, extra, [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }]), /write plan/iu); assert.equal(store.currentCommit(), before);
+    assert.throws(() => store.append(doc, missing, [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }]), /write plan/iu); assert.equal(store.currentCommit(), before);
+    assert.throws(() => (plan.targets as unknown as unknown[]).push(extra.targets.at(-1))); assert.equal(store.currentCommit(), before);
+    const receipt = store.append(doc, plan, [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }]);
     assert.deepEqual(store.readEvent(doc.opId), doc); assert.equal(Buffer.from(store.readContentBlob(hash)!).toString("utf8"), body); assert.equal(git(rootDir, "show", `${receipt.commitSha}:harness/objects/sha256/${hash}`), body.trimEnd());
     assert.deepEqual(git(rootDir, "diff-tree", "--no-commit-id", "--name-only", "-r", receipt.commitSha).split("\n").sort(), ["harness/events/doc-op-1.json", "harness/events/head.json", `harness/objects/sha256/${hash}`]);
   });

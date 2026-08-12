@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
-import { DOC_CODEC_ID, DOC_POLICY_ID, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
+import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "./helpers.ts";
@@ -17,7 +17,8 @@ test("task/doc reducers share one SQLite transaction and L2 rebuild restores exa
     const event: DocEventV1 = { schema: "doc-event/v1", eventId: "doc-event", workspaceRevision: 1, opId: "doc-op", type: "documents_written", actor: { principal: { personId: "person-1" }, executor: null }, source: "local", occurredAt: "2026-08-11T00:00:00.000Z",
       payload: { executionId: "execution-1", baseLedgerSha: base, changes: [{ path: "context/notes.md", baseBlobSha256: null, candidate: { sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" }, policyId: DOC_POLICY_ID,
         regionProofs: [{ regionId: "heading/notes", policyId: DOC_POLICY_ID, codecId: DOC_CODEC_ID, baseSha256: sha256Text(""), candidateSha256: hash, insertBytes: Buffer.byteLength(body) }] }] } };
-    eventStore.append(event, [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }]); assert.deepEqual(projection.apply(event).metrics, { sqliteTransactions: 1, reducedItems: 1 });
+    const plan = docSyncWritePlan(event); eventStore.append(event, plan, [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }]); assert.throws(() => projection.apply(event), /write plan/iu);
+    assert.deepEqual(projection.apply(event, plan).metrics, { sqliteTransactions: 1, reducedItems: 1 });
     const first = projection.readDocument("context/notes.md"); assert.equal(first.status, "ready"); assert.equal(first.document?.body, body); assert.equal(first.document?.blobSha256, hash); assert.equal(projection.readOperation(event.opId)?.event.schema, "doc-event/v1");
     rmSync(projection.path, { force: true }); const rebuilt = projection.rebuild(); assert.equal(rebuilt.watermark, 1); assert.deepEqual(projection.readDocument("context/notes.md").document, first.document);
   });

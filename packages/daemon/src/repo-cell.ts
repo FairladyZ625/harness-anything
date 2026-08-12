@@ -4,7 +4,7 @@ import path from "node:path";
 import { makeTaskLifecycleService, type TaskLifecycleServiceProof } from "../../application/src/task-lifecycle-service.ts";
 import { REPLAY_TASK_GRAPH, assertCurrentWriter, bindWriterGenerationToken, makeTaskEventStore, makeTaskProjection, normalizeCommandEnvelope,
   normalizeTaskLifecycleCommand, queryDecisionProjection, readRelationGraphProjection, type ActorIdentity, type CompleteTaskCommand, type EventPublicationKillpoint, type ProofFor,
-  type TaskLifecycleCommand, type WriteReceipt, type WriteSource, type WriterGeneration } from "../../kernel/src/index.ts";
+  type TaskLifecycleCommand, VcsCommandError, type WriteReceipt, type WriteSource, type WriterGeneration } from "../../kernel/src/index.ts";
 import { type CanonicalRoot, type DaemonGuiReadMethod, type DaemonGuiReadResultMap, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
 import { bootstrapRepo, type RepoBootstrapInput } from "./repo-bootstrap.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
@@ -31,7 +31,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
     const pending = tail.then(async () => { queueDepth -= 1; assertCurrentWriter(activeWriter, writerToken, input.repoId); return executeAction(action, binding); });
     tail = pending.then(() => undefined, () => undefined);
     return pending.catch((error) => { if (fatalCellError(error)) { state = "unavailable"; lastError = cellErrorMessage(error); }
-      return rejected(operationId(action, binding, input.repoId, 0), cellErrorCode(error), cellErrorMessage(error)); });
+      return failed(operationId(action, binding, input.repoId, 0), error); });
   };
   const readHandlers = { "repo.tasks.list": () => ({ ok: true, ...projection.list() }), "repo.triadic.relationGraph": () => ({ ok: true, ...readRelationGraphProjection({ rootDir }) }),
     "repo.decisions.list": () => { const decisions = queryDecisionProjection({ rootDir, filters: {} }); return { ok: true, decisions: decisions.rows, warnings: decisions.warnings }; }
@@ -107,7 +107,7 @@ function createTaskId(action: RepoTaskAction, binding: RepoCellBinding, workspac
 function operationId(action: RepoTaskAction, binding: RepoCellBinding, workspaceId: string, expectedRevision: number): string { const { actor: _actor, source: _source, root: _root, workspaceId: _workspace, serverWorkspaceId: _server, ...intent } = action;
   return normalizeCommandEnvelope({ workspaceId, actor: binding.actor, source: binding.source, expectedRevision, command: intent }).opId; }
 function taskWriteKind(kind: string): boolean { return ["task-create", "task-start", "task-submit", "task-review-execution", "task-complete"].includes(kind); }
-function rejected(opId: string, code: string, nextAction: string): WriteReceipt { return { outcome: "rejected", opId, code, origin: "daemon", nextAction, evidence: `rejection:${code}` }; }
+function rejected(opId: string, code: string, nextAction: string): WriteReceipt { return { outcome: "rejected", opId, code, origin: "daemon", nextAction, evidence: `rejection:${code}` }; } function failed(opId: string, error: unknown): WriteReceipt { return error instanceof VcsCommandError ? { outcome: "indeterminate", opId, code: error.code, origin: error.origin, evidence: `git-failure:${error.command}`, nextAction: `repair the Git object store and retry: ${error.message}` } : rejected(opId, cellErrorCode(error), cellErrorMessage(error)); }
 function requiredString(value: unknown, name: string): string { if (typeof value === "string" && value.trim()) return value; throw cellCodedError("invalid_command", `${name} is required.`); }
 function strings(value: unknown): readonly string[] { return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : []; }
 function sameActor(left: ActorIdentity, right: ActorIdentity): boolean { return left.principal.personId === right.principal.personId && left.executor?.id === right.executor?.id; }
@@ -130,7 +130,7 @@ function gateReceipts(value: unknown, declared: readonly string[], executionId: 
 function cellCodedError(code: string, text: string): Error { const error = new Error(text) as Error & { code: string }; error.code = code; return error; }
 function cellErrorCode(error: unknown): string { return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "service_rejected"; }
 function cellErrorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
-function fatalCellError(error: unknown): boolean { if (!(error instanceof Error) || !("code" in error)) return true; return ["invalid_store", "legacy_shape", "op_conflict", "revision_conflict", "publication_indeterminate", "writer_rejected"].includes(String(error.code)); }
+function fatalCellError(error: unknown): boolean { if (error instanceof VcsCommandError) return true; if (!(error instanceof Error) || !("code" in error)) return true; return ["invalid_store", "legacy_shape", "op_conflict", "revision_conflict", "publication_indeterminate", "writer_rejected"].includes(String(error.code)); }
 async function acquireWorkspaceLock(rootDir: CanonicalRoot): Promise<{ readonly close: () => Promise<void> }> { const lockPath = `${rootDir}.harness-anything-writer.lock`; let descriptor: number;
   try { descriptor = openSync(lockPath, "wx", 0o600); writeFileSync(descriptor, `${process.pid}\n`, "utf8"); }
   catch (error) { throw cellCodedError("writer_rejected", `Workspace writer lock is held for ${rootDir}: ${cellErrorMessage(error)}`); }

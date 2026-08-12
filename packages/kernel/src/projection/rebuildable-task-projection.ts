@@ -3,7 +3,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { emptyTaskLifecycleSnapshot, reduceTaskEvent, type LeaseChangeReason, type TaskEventV1,
   type TaskLifecycleSnapshot } from "../domain/task-lifecycle.contract.ts";
-import { isDocEvent, isTaskEvent, parseCanonicalEvent, serializeCanonicalEvent, verifyDocEventChange, type CanonicalEventV1, type DocumentState } from "../domain/doc-sync.contract.ts";
+import { assertDocSyncWritePlan, isDocEvent, isTaskEvent, parseCanonicalEvent, serializeCanonicalEvent, verifyDocEventChange, type CanonicalEventV1, type DocEventV1, type DocumentState } from "../domain/doc-sync.contract.ts"; import type { FrozenWritePlan } from "../domain/write-chain.contract.ts";
 import { TASK_LEASE_BROKER_CONTRACT, validateLeaseV1, type LeaseHolder, type LeaseV1 } from "../domain/execution.ts";
 import { canonicalizeContractValue } from "../domain/task.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
@@ -34,7 +34,7 @@ export interface LeaseInterval {
 }
 export interface DocumentProjectionRead { readonly status: "ready" | "pending"; readonly document: DocumentState | null; readonly watermark: number; readonly sourceRevision: number }
 export interface TaskProjection {
-  readonly path: string; readonly apply: (event: CanonicalEventV1) => ProjectionApplyReceipt; readonly rebuild: () => ProjectionRebuildReceipt;
+  readonly path: string; readonly apply: { (event: TaskEventV1): ProjectionApplyReceipt; (event: DocEventV1, plan: FrozenWritePlan<"DocSyncSubmit">): ProjectionApplyReceipt }; readonly rebuild: () => ProjectionRebuildReceipt;
   readonly read: (taskId: string) => TaskProjectionRead; readonly list: () => TaskProjectionListRead; readonly readOperation: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
   readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null; readonly readDocument: (path: string) => DocumentProjectionRead;
   readonly readLeaseIntervals: (taskId: string) => readonly LeaseInterval[]; readonly currentLease: (taskId: string, now?: string) => LeaseV1 | null; readonly currentLeaseForExecution: (executionId: string, now?: string) => LeaseV1 | null;
@@ -51,7 +51,7 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
   if (!Number.isInteger(limit) || limit < 1 || limit > 64) throw new Error("task projection catch-up limit must be between 1 and 64");
   return {
     path: projectionPath,
-    apply: (event) => withDatabase(projectionPath, (db) => reduceBatch(db, [event], limit, options.eventStore.readContentBlob)),
+    apply: ((event: CanonicalEventV1, plan?: FrozenWritePlan<"DocSyncSubmit">) => { if (isDocEvent(event)) assertDocSyncWritePlan(event, plan); return withDatabase(projectionPath, (db) => reduceBatch(db, [event], limit, options.eventStore.readContentBlob)); }) as TaskProjection["apply"],
     rebuild: () => rebuildProjection(projectionPath, options.eventStore, limit),
     read: (taskId) => readProjection(projectionPath, options.eventStore, taskId, limit, now),
     list: () => listProjection(projectionPath, options.eventStore, limit, now),

@@ -31,7 +31,7 @@ export interface VersionControlSystem {
 }
 
 export class VcsCommandError extends Error {
-  readonly _tag = "VcsCommandError";
+  readonly _tag = "VcsCommandError"; readonly code = "vcs_command_failed"; readonly origin = "git";
   readonly command: string;
   readonly cwd: string;
   readonly exitCode?: string | number;
