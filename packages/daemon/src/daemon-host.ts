@@ -3,13 +3,14 @@ import { canonicalRoot, workspaceId } from "./protocol/daemon-protocol.contract.
 import { resolveRepoBootstrap, type RepoBootstrapRequest } from "./repo-bootstrap.ts";
 import { loadPeopleRoster } from "./identity/people-roster.ts";
 import { makeTransportDerivedIdentityProvider } from "./identity/transport-derived-provider.ts";
+import type { DaemonCommandClass } from "./identity/types.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { openRepoCell, type RepoCell, type RepoCellStatus, type RepoTaskAction } from "./repo-cell.ts";
 
 export interface DaemonHost {
   readonly run: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => Promise<WriteReceipt>;
   readonly bootstrap: (request: RepoBootstrapRequest, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
-  readonly admin: (request: { readonly kind: "register"; readonly rootDir: string; readonly repoId: string } | { readonly kind: "unregister"; readonly repoId: string }) => Promise<Record<string, unknown>>;
+  readonly admin: (request: { readonly kind: "register"; readonly rootDir: string; readonly repoId: string } | { readonly kind: "unregister"; readonly repoId: string }, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
   readonly status: () => { readonly daemonId: string; readonly pid: number; readonly repos: readonly RepoCellStatus[] };
   readonly close: () => Promise<void>;
 }
@@ -37,7 +38,9 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
       return { schema: "command-receipt/v2", ok: true, command: "init", outcome: "applied", repoId: registered.repo.repoId,
         rootDir: prepared.rootDir, changed: registered.changed, nextAction: "Create a task through the resident daemon." };
     },
-    admin: async (request) => { if (request.kind === "register") { const result = await attach(request.rootDir, request.repoId); return { schema: "command-receipt/v2", ok: true, command: "daemon-repo-register", outcome: "applied", repo: result.repo, changed: result.changed }; }
+    admin: async (request, auth) => { const rootDir = request.kind === "register" ? request.rootDir : readDaemonRegistry({ userRoot: input.userRoot }).repos.find((repo) => repo.repoId === request.repoId)?.canonicalRoot;
+      if (!rootDir) throw hostCodedError("repo_namespace_unknown", `Unknown repo namespace: ${request.repoId}.`); await binding(rootDir, auth, "admin");
+      if (request.kind === "register") { const result = await attach(request.rootDir, request.repoId); return { schema: "command-receipt/v2", ok: true, command: "daemon-repo-register", outcome: "applied", repo: result.repo, changed: result.changed }; }
       const result = unregisterDaemonRepo(request.repoId, { userRoot: input.userRoot, createConvenienceLinks: false }); await cells.get(request.repoId)?.close(); cells.delete(request.repoId); unavailable.delete(request.repoId);
       return { schema: "command-receipt/v2", ok: true, command: "daemon-repo-unregister", outcome: "applied", repo: result.repo, changed: result.changed }; },
     run: async (repoId, action, auth) => {
@@ -47,7 +50,7 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
       const spoof = ["actor", "root", "canonicalRoot", "source", "workspaceId", "expectedRevision", "eventId", "occurredAt"]
         .find((field) => Object.hasOwn(action, field));
       if (spoof) return reject(action, "ingress_binding_forbidden", `Payload cannot report ${spoof}; daemon binds actor, root, source, revision, and time.`);
-      try { return await cell.run(action, await binding(cell.status().rootDir, auth)); }
+      try { return await cell.run(action, await binding(cell.status().rootDir, auth, actionCapability(action.kind))); }
       catch (error) { return reject(action, code(error), hostErrorMessage(error)); }
     },
     status: () => ({ daemonId: input.daemonId, pid: process.pid,
@@ -56,20 +59,21 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
   };
 }
 
-async function binding(rootDir: string, auth: DaemonAuthenticationContext): Promise<{ readonly actor: ActorIdentity; readonly source: WriteSource; readonly roles?: readonly string[] }> {
-  if (auth.assignmentBinding) return { actor: auth.assignmentBinding.actor,
-    source: { kind: "assignment", nodeId: auth.assignmentBinding.nodeId, assignmentId: auth.assignmentBinding.assignmentId } };
+async function binding(rootDir: string, auth: DaemonAuthenticationContext, required: DaemonCommandClass): Promise<{ readonly actor: ActorIdentity; readonly source: WriteSource; readonly roles?: readonly string[] }> {
+  if (auth.assignmentBinding) { if (required === "admin" || required === "arbiter") throw hostCodedError("rbac_forbidden", `Assignment ingress cannot perform ${required}.`); return { actor: auth.assignmentBinding.actor,
+    source: { kind: "assignment", nodeId: auth.assignmentBinding.nodeId, assignmentId: auth.assignmentBinding.assignmentId } }; }
   const roster = loadPeopleRoster({ rootDir });
   const resolved = await makeTransportDerivedIdentityProvider(roster).resolveActor({ authContext: auth,
-    command: { method: "repo.task.run", namespace: "repo", requiresRepo: true } });
+    command: required === "admin" ? { method: "daemon.repo.admin", namespace: "admin", requiresRepo: true } : { method: "repo.task.run", namespace: "repo", requiresRepo: true } });
   if (!resolved.ok) throw hostCodedError(resolved.code, resolved.message);
-  if (!resolved.actor.roles.some((role) => roster.roleAllows(role, "repo-write") || roster.roleAllows(role, "repo-read"))) {
-    throw hostCodedError("rbac_forbidden", `Principal ${resolved.actor.personId} has no repo role.`);
+  if (!resolved.actor.roles.some((role) => roster.roleAllows(role, required))) {
+    throw hostCodedError("rbac_forbidden", `Principal ${resolved.actor.personId} lacks ${required}.`);
   }
   return { actor: { principal: { personId: resolved.actor.personId }, executor: null },
     roles: [...resolved.actor.roles, ...(resolved.actor.roles.some((role) => roster.roleAllows(role, "arbiter")) ? ["$arbiter"] : [])],
     source: "local" };
 }
+function actionCapability(kind: string): DaemonCommandClass { if (kind === "task-show" || kind === "receipt-show") return "repo-read"; return kind === "task-review-execution" ? "arbiter" : "repo-write"; }
 function reject(action: RepoTaskAction, errorCode: string, nextAction: string): WriteReceipt { return { outcome: "rejected", opId: `rejected:${action.kind}`,
   code: errorCode, origin: "daemon", evidence: `rejection:${errorCode}`, nextAction }; }
 function hostCodedError(errorCode: string, text: string): Error { const error = new Error(text) as Error & { code: string }; error.code = errorCode; return error; }

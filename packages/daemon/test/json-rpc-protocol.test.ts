@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
@@ -95,6 +95,32 @@ test("JSON-RPC failure receipt carries formal operation identity and origin", as
   assert.ok(malformed && !Array.isArray(malformed) && "result" in malformed); if (malformed && !Array.isArray(malformed) && "result" in malformed) assert.equal((malformed.result as Record<string, unknown>).code, "invalid_request");
 });
 
+test("read-only principal cannot write or admin while semantic capabilities pass", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-rbac-surfaces-")), root = path.join(parent, "repo"), second = path.join(parent, "second"), userRoot = path.join(parent, "user");
+  const ids = { reader: 4101, writer: 4102, arbiter: 4103, admin: 4104 }; [root, second].forEach((repo) => rbacRepo(repo, ids));
+  const auth = (ownerUid: number) => ({ transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" } } as const);
+  const host = await openDaemonHost({ daemonId: "rbac", userRoot });
+  try {
+    assert.equal((await rpc(host, auth(ids.admin), "daemon.repo.register", { rootDir: root, repoId: "rbac" })).outcome, "applied");
+    const created = await host.run("rbac", { kind: "task-create", taskId: "task-rbac", title: "RBAC", completionGateIds: [] }, auth(ids.writer)); assert.equal(created.outcome, "applied");
+    assert.equal((await host.run("rbac", { kind: "task-show", taskId: "task-rbac" }, auth(ids.reader))).outcome, "applied");
+    const deniedWrite = await host.run("rbac", { kind: "task-create", taskId: "task-denied", title: "Denied", completionGateIds: [] }, auth(ids.reader));
+    assert.equal(deniedWrite.outcome, "rejected"); assert.equal(deniedWrite.code, "rbac_forbidden");
+    const deniedReview = await host.run("rbac", { kind: "task-review-execution", taskId: "task-rbac" }, auth(ids.reader));
+    assert.equal(deniedReview.outcome, "rejected"); assert.equal(deniedReview.code, "rbac_forbidden");
+    const deniedAdmin = await rpc(host, auth(ids.reader), "daemon.repo.register", { rootDir: second, repoId: "second" });
+    assert.equal(deniedAdmin.outcome, "rejected"); assert.equal(deniedAdmin.code, "rbac_forbidden");
+    const executionId = "exec-rbac", commitSha = "a".repeat(40);
+    assert.equal((await host.run("rbac", { kind: "task-start", taskId: "task-rbac", executionId }, auth(ids.writer))).outcome, "applied");
+    assert.equal((await host.run("rbac", { kind: "task-submit", taskId: "task-rbac", executionId, claim: "done", commitSha }, auth(ids.writer))).outcome, "applied");
+    const review = await host.run("rbac", { kind: "task-review-execution", taskId: "task-rbac", executionId, reviewKind: "anti_entropy", verdict: "approved",
+      reviewId: "review-rbac", reason: "checked", commitSha, iteration: 0 }, auth(ids.arbiter)); assert.equal(review.outcome, "applied", JSON.stringify(review));
+    assert.equal((await rpc(host, auth(ids.admin), "daemon.repo.register", { rootDir: second, repoId: "second" })).outcome, "applied");
+    assert.equal((await rpc(host, auth(ids.reader), "daemon.repo.unregister", { repoId: "second" })).code, "rbac_forbidden");
+    assert.equal((await rpc(host, auth(ids.admin), "daemon.repo.unregister", { repoId: "second" })).outcome, "applied");
+  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+});
+
 function initRepo(rootDir: string): void {
   git(rootDir, "init", "--quiet");
   git(rootDir, "config", "user.name", "RepoCell Test");
@@ -103,6 +129,14 @@ function initRepo(rootDir: string): void {
   git(rootDir, "config", "maintenance.auto", "false");
   git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
 }
+function rbacRepo(rootDir: string, ids: Record<"reader" | "writer" | "arbiter" | "admin", number>): void { mkdirSync(rootDir, { recursive: true }); initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"));
+  writeFileSync(path.join(rootDir, "harness/harness.yaml"), "schema: harness-anything/v1\nname: rbac\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n");
+  const people = Object.entries(ids).map(([role, uid]) => ({ personId: role, displayName: role, roles: [role], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(uid) }] }));
+  const roles = [{ roleId: "reader", commandClasses: ["repo-read"] }, { roleId: "writer", commandClasses: ["repo-write"] }, { roleId: "arbiter", commandClasses: ["arbiter"] }, { roleId: "admin", commandClasses: ["admin"] }];
+  writeFileSync(path.join(rootDir, "harness/people.yaml"), `${JSON.stringify({ schema: "harness-people/v1", people, roles }, null, 2)}\n`); git(rootDir, "add", "harness"); git(rootDir, "commit", "--quiet", "-m", "add RBAC fixture"); }
+async function rpc(host: Awaited<ReturnType<typeof openDaemonHost>>, auth: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2], method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const server = createJsonRpcProtocolServer({ host, authContext: auth }); await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } });
+  const response = await server.handle({ jsonrpc: "2.0", id: 2, method, params }); assert.ok(response && !Array.isArray(response) && "result" in response); return (response as { result: Record<string, unknown> }).result; }
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }

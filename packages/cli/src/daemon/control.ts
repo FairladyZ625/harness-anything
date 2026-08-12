@@ -1,6 +1,6 @@
-import { spawn } from "node:child_process"; import { realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import path from "node:path"; import { fileURLToPath } from "node:url";
-import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint } from "../../../daemon/src/client/local-daemon-target.ts"; import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts";
+import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint } from "../../../daemon/src/client/local-daemon-target.ts"; import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts"; import { startDetachedProcess, terminateProcess } from "../../../daemon/src/process-port.ts";
 import { daemonPidPath, readDaemonPid, startDaemon } from "../../../daemon/src/runtime.ts";
 export async function runDaemonControl(argv: readonly string[]): Promise<number> {
   const at = argv.indexOf("daemon"), command = argv[at + 1], subcommand = argv[at + 2];
@@ -13,9 +13,9 @@ export async function runDaemonControl(argv: readonly string[]): Promise<number>
     if (command === "serve") return serve(userRoot, daemonId);
     if (command === "start") { if (!argv.includes("--service")) return emitDaemonReceipt(daemonFailure("daemon-start", "service_required", "Use explicit `ha daemon start --service`."), json, 2);
       const running = await status(userRoot, daemonId).catch(() => null); if (running?.ok === true) return emitDaemonReceipt(running, json, 0); const entry = realpathSync(fileURLToPath(new URL(import.meta.url.endsWith(".js") ? "../index.js" : "../index.ts", import.meta.url)));
-      const child = spawn(process.execPath, [entry, "daemon", "serve", "--user-root", userRoot, "--daemon-id", daemonId], { detached: true, stdio: "ignore", env: process.env }); child.unref(); const receipt = await waitForStatus(userRoot, daemonId); return emitDaemonReceipt(receipt, json, receipt.ok === true ? 0 : 1); }
+      startDetachedProcess(process.execPath, [entry, "daemon", "serve", "--user-root", userRoot, "--daemon-id", daemonId], process.env); const receipt = await waitForStatus(userRoot, daemonId); return emitDaemonReceipt(receipt, json, receipt.ok === true ? 0 : 1); }
     if (command === "status") { const receipt = await status(userRoot, daemonId); return emitDaemonReceipt(receipt, json, 0); }
-    if (command === "stop") { const pid = readDaemonPid(userRoot, daemonId); if (pid === null) return emitDaemonReceipt(daemonFailure("daemon-stop", "daemon_unavailable", "No explicit daemon is running."), json, 1); process.kill(pid, "SIGTERM"); return emitDaemonReceipt({ ok: true, command: "daemon-stop", pid }, json, 0); }
+    if (command === "stop") { const pid = readDaemonPid(userRoot, daemonId); if (pid === null) return emitDaemonReceipt(daemonFailure("daemon-stop", "daemon_unavailable", "No explicit daemon is running."), json, 1); terminateProcess(pid); return emitDaemonReceipt({ ok: true, command: "daemon-stop", pid }, json, 0); }
     return emitDaemonReceipt(daemonFailure("daemon", "unsupported_command", "Use daemon repo register|unregister, start --service, status, or stop."), json, 2);
   } catch (error) { return emitDaemonReceipt(daemonFailure(`daemon-${command ?? "unknown"}`, code(error), message(error)), json, 1); }
 }

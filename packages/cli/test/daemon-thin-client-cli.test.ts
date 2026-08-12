@@ -5,6 +5,11 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { detachedProcessOptions } from "../../daemon/src/process-port.ts";
+
+test("daemon process port hides detached startup windows", () => {
+  assert.deepEqual(detachedProcessOptions, { detached: true, stdio: "ignore", windowsHide: true });
+});
 
 test("daemon-missing write rejects without autostart or local fallback", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-no-daemon-"));

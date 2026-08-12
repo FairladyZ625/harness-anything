@@ -1,10 +1,10 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { assertCurrentWriter, type WriterGeneration, type WriterGenerationToken } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId, type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
+import { runProcessText } from "./process-port.ts";
 
 export interface RepoBootstrapRequest { readonly rootDir: string; readonly repoId: string; readonly personId: string; readonly displayName: string }
 export interface RepoBootstrapInput { readonly rootDir: CanonicalRoot; readonly repoId: WorkspaceId; readonly personId: string; readonly displayName: string }
@@ -30,5 +30,5 @@ export function bootstrapRepo(input: RepoBootstrapInput, auth: DaemonAuthenticat
   if (git(rootDir, ["status", "--porcelain", "--", "harness/harness.yaml", "harness/people.yaml"]).trim()) { git(rootDir, ["add", "--", "harness/harness.yaml", "harness/people.yaml"]);
     git(rootDir, ["-c", "user.name=Harness Bootstrap", "-c", "user.email=harness-bootstrap@local.invalid", "commit", "--quiet", "-m", "Initialize harness workspace"]); }
 }
-function git(rootDir: CanonicalRoot, args: readonly string[]): string { return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); }
+function git(rootDir: CanonicalRoot, args: readonly string[]): string { return runProcessText("git", ["-C", rootDir, ...args]); }
 function coded(code: string, message: string): Error { const error = new Error(message) as Error & { code: string }; error.code = code; return error; }

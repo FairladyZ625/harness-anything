@@ -26,7 +26,7 @@ export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost
       catch (error) { return reply(failure("init", rpcServerErrorCode(error), error instanceof Error ? error.message : String(error))); }
     }
     if (request.method === "daemon.repo.register" || request.method === "daemon.repo.unregister") {
-      try { return reply(await options.host.admin(request.method.endsWith("unregister") ? { kind: "unregister", repoId: params.repoId as string } : { kind: "register", repoId: params.repoId as string, rootDir: params.rootDir as string }) as JsonObject); }
+      try { return reply(await options.host.admin(request.method.endsWith("unregister") ? { kind: "unregister", repoId: params.repoId as string } : { kind: "register", repoId: params.repoId as string, rootDir: params.rootDir as string }, options.authContext) as JsonObject); }
       catch (error) { return reply(failure(request.method, rpcServerErrorCode(error), error instanceof Error ? error.message : String(error))); }
     }
     const repo = (params.repo as JsonObject).repoId as string, action = (params.payload as JsonObject).action as JsonObject;

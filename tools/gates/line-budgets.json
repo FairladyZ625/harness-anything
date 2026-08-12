@@ -8,7 +8,7 @@
     "preset": 0,
     "cli": 198,
     "gui": 15058,
-    "daemon": 799,
+    "daemon": 808,
     "authority-write-path": 0,
     "identity-rbac": 416,
     "test-infra": 0
