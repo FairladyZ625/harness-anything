@@ -14,7 +14,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   const parsed = parseThinCommand(argv);
   if (!parsed.ok) { emit(cliFailure("parse", parsed.code, parsed.nextAction), parsed.json); return 2; }
   try {
-    const receipt = await runCommandThroughDaemon(parsed.command);
+    const receipt = await runCommandThroughDaemon(parsed.command, (phase) => emit(phase, parsed.command.json));
     emit(receipt, parsed.command.json);
     return receipt.ok === true ? 0 : 1;
   } catch (error) {

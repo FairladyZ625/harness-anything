@@ -96,7 +96,7 @@ test("an inherited entrypoint remains bound to the package that declared its scr
   try {
     writePackage(fixture.bundledRoot, "script-parent", { kind: "process-action", entrypoints: { run: { type: "script", intent: "Run parent", inputs: [], requires: [], produces: [], sideEffects: [], command: "scripts/run.mjs" } } }); write(path.join(fixture.bundledRoot, "script-parent/scripts/run.mjs"), "export {};\n"); writePackage(fixture.bundledRoot, "script-child", { extends: "script-parent" });
     const result = await createCanonicalPresetResolver({ bundledRoot: fixture.bundledRoot, userRoot: fixture.userRoot, assetsRoot: fixture.assetsRoot }).resolve({ presetId: "script-child", verticalId: "software/coding", locale: "en-US", purpose: "script-run", entrypoint: "run" });
-    assert.equal(result.ok, true); if (result.ok) assert.match(result.snapshot.entrypoints.run!.commandSha256, /^[0-9a-f]{64}$/u);
+    assert.equal(result.ok, true); if (result.ok) { const parentDigest = decodePresetPackageV3(path.join(fixture.bundledRoot, "script-parent")).packageDigest; assert.match(result.snapshot.entrypoints.run!.commandSha256, /^[0-9a-f]{64}$/u); assert.equal(result.package?.packageDigest, parentDigest); assert.notEqual(result.snapshot.provenance.packageSha256, parentDigest); }
   } finally { fixture.cleanup(); }
 });
 
@@ -159,7 +159,7 @@ test("generic list, inspect, check, install, and uninstall actions share the can
     const listed = await runPresetAction({ rootDir, action: { kind: "preset-list" } }) as Array<{ id: string }>; assert.deepEqual(listed.map(({ id }) => id), ["create-milestone", "standard-task"]);
     const inspected = await runPresetAction({ rootDir, action: { kind: "preset-inspect", presetId: "standard-task" } }) as { digest: string }; assert.match(inspected.digest, /^sha256:/u);
     assert.deepEqual(await runPresetAction({ rootDir, action: { kind: "preset-check", presetId: "standard-task" } }), { valid: true, digest: inspected.digest });
-    writePackage(sourceRoot, "user-task", { version: "3.4.0" }); assert.deepEqual(Object.keys(await runPresetAction({ rootDir, action: { kind: "preset-install", source: path.join(sourceRoot, "user-task") } }) as object).sort(), ["digest", "presetId"]); assert.equal((await runPresetAction({ rootDir, action: { kind: "preset-inspect", presetId: "user-task" } }) as { identity: { layer: string } }).identity.layer, "user"); assert.deepEqual(await runPresetAction({ rootDir, action: { kind: "preset-uninstall", presetId: "user-task" } }), { presetId: "user-task", removed: true });
+    writePackage(sourceRoot, "user-task", { version: "3.4.0" }); assert.deepEqual(Object.keys(await runPresetAction({ rootDir, action: { kind: "preset-install", packageSource: path.join(sourceRoot, "user-task") } }) as object).sort(), ["digest", "presetId"]); assert.equal((await runPresetAction({ rootDir, action: { kind: "preset-inspect", presetId: "user-task" } }) as { identity: { layer: string } }).identity.layer, "user"); assert.deepEqual(await runPresetAction({ rootDir, action: { kind: "preset-uninstall", presetId: "user-task" } }), { presetId: "user-task", removed: true });
     await assert.rejects(runPresetAction({ rootDir, action: { kind: "preset-unknown", presetId: "standard-task" } }), (error: unknown) => (error as { code?: string }).code === "unsupported_command");
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });

@@ -17,13 +17,18 @@ const DOC_POLICY_ID = "markdown-additive/v1";
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 
 test("descriptor-derived RBAC preserves every preset, runtime, and doc-sync action class", () => {
-  const expected = { "task-create": "repo-write", "preset-list": "repo-read", "preset-inspect": "repo-read", "preset-check": "repo-read", "preset-install": "repo-write", "preset-uninstall": "repo-write", "task-start": "repo-write", "task-submit": "repo-write", "task-review-execution": "arbiter", "task-complete": "repo-write", "task-show": "repo-read", "receipt-show": "repo-read", "doc-status": "repo-read", "doc-submit": "repo-write", "doc-show": "repo-read" } as const;
+  const expected = { "task-create": "repo-write", "preset-list": "repo-read", "preset-inspect": "repo-read", "preset-check": "repo-read", "preset-install": "repo-write", "preset-uninstall": "repo-write", "preset-run-start": "repo-write", "preset-run-status": "repo-read", "task-start": "repo-write", "task-submit": "repo-write", "task-review-execution": "arbiter", "task-complete": "repo-write", "task-show": "repo-read", "receipt-show": "repo-read", "doc-status": "repo-read", "doc-submit": "repo-write", "doc-show": "repo-read" } as const;
   assert.deepEqual(Object.fromEntries(Object.keys(expected).map((kind) => [kind, commandClassForAction(kind)])), expected);
 });
 
 test("task-create and preset RPC descriptors enforce closed payloads and retire the open route", () => {
   const params = { repo: { repoId: "alpha" }, payload: { title: "Closed", presetId: "standard-task" } };
   assert.equal(parseDaemonRpcParams("repo.task.create", params).ok, true); assert.equal(parseDaemonRpcParams("repo.task.create", { ...params, payload: { ...params.payload, completionGateIds: [] } }).ok, false); assert.deepEqual(actionForDaemonMethod("repo.task.create", params.payload), { kind: "task-create", ...params.payload }); assert.throws(() => actionForDaemonMethod("repo.task.run", { action: { kind: "task-create", title: "Open" } }), /closed method/u);
+});
+
+test("preset process RPC enforces object inputs and keeps status closed", () => {
+  const start = { repo: { repoId: "alpha" }, payload: { presetId: "user-canary", entrypoint: "check", inputs: { title: "Canary" }, idempotencyKey: "once" } }, status = { repo: { repoId: "alpha" }, payload: { runId: "run_1" } };
+  assert.equal(parseDaemonRpcParams("repo.preset.run.start", start).ok, true); assert.equal(parseDaemonRpcParams("repo.preset.run.start", { ...start, payload: { ...start.payload, allowScripts: true } }).ok, false); assert.equal(parseDaemonRpcParams("repo.preset.run.start", { ...start, payload: { ...start.payload, inputs: "open" } }).ok, false); assert.equal(parseDaemonRpcParams("repo.preset.run.status", status).ok, true); assert.equal(parseDaemonRpcParams("repo.preset.run.status", { ...status, payload: { ...status.payload, retry: true } }).ok, false);
 });
 
 test("repo-bound ledger commit rejects cross-repo SHA", () => {
@@ -175,6 +180,7 @@ test("read-only principal cannot write or admin while semantic capabilities pass
     assert.equal((await host.run("rbac", { kind: "task-show", taskId: "task-rbac" }, auth(ids.reader))).outcome, "applied");
     const deniedWrite = await host.run("rbac", { kind: "task-create", taskId: "task-denied", title: "Denied" }, auth(ids.reader));
     assert.equal(deniedWrite.outcome, "rejected"); assert.equal(deniedWrite.code, "rbac_forbidden");
+    const deniedPresetRun = await host.presetRun("rbac", { kind: "preset-run-start", presetId: "missing", entrypoint: "run", idempotencyKey: "denied" }, auth(ids.reader)), readableStatus = await host.presetRun("rbac", { kind: "preset-run-status", runId: "run_missing" }, auth(ids.reader)); assert.equal(deniedPresetRun.code, "rbac_forbidden"); assert.equal(readableStatus.code, "run_not_found");
     assert.equal((await host.run("rbac", { kind: "doc-status", paths: ["context/notes.md"] }, auth(ids.reader))).outcome, "applied");
     mkdirSync(path.join(root, "harness/context"), { recursive: true }); writeFileSync(path.join(root, "harness/context/notes.md"), "# Reader denied\n");
     const readerDoc = await host.run("rbac", { kind: "doc-submit", executionId, baseLedgerSha: git(root, "rev-parse", "refs/ha/canonical"), selections: [{ path: "context/notes.md", baseBlobSha256: null }] }, auth(ids.reader));

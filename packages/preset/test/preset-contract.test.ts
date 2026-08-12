@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import presetContract, { parsePresetManifestV3, validatePresetManifestV3, validatePresetSnapshotV1 } from "../src/preset.contract.ts";
+import presetContract, { parsePresetManifestV3, validatePresetManifestV3, validatePresetRunReceiptV1, validatePresetSnapshotV1 } from "../src/preset.contract.ts";
 
 const manifest = {
   schema: "preset-manifest/v3",
@@ -29,4 +29,20 @@ test("preset snapshot codec rejects nested field deletion and unknown aliases", 
   assert.deepEqual(validatePresetSnapshotV1(snapshot), []);
   assert.match(validatePresetSnapshotV1({ ...snapshot, profile: { id: "baseline", completionGateIds: ["ci"] } }).join("\n"), /invalid/u);
   assert.match(validatePresetSnapshotV1({ ...snapshot, provenance: { ...snapshot.provenance, manifestDigest: hash } }).join("\n"), /invalid/u);
+});
+
+test("script run declares one closed start route and one read-only status route", () => {
+  const command = presetContract.commands.find(({ id }) => id === "preset-run-start");
+  assert.deepEqual(command && { path: command.path, method: command.method, commandClass: command.commandClass }, {
+    path: ["script", "run"], method: "repo.preset.run.start", commandClass: "repo-write"
+  });
+  assert.deepEqual(presetContract.methods.filter(({ method }) => method.startsWith("repo.preset.run.")).map(({ method, commandClass, params }) => ({ method, commandClass, fields: Object.keys(params.fields.payload.fields) })), [
+    { method: "repo.preset.run.start", commandClass: "repo-write", fields: ["presetId", "entrypoint", "taskId", "inputs", "idempotencyKey"] },
+    { method: "repo.preset.run.status", commandClass: "repo-read", fields: ["runId"] }
+  ]);
+});
+
+test("preset run receipt requires an exact current phase and bounded terminal vocabulary", () => {
+  const receipt = { schema: "preset-run-receipt/v1", runId: "run_1", outcome: "started", phase: "admitted", phases: ["admitted"], snapshotDigest: `sha256:${"a".repeat(64)}` };
+  assert.deepEqual(validatePresetRunReceiptV1(receipt), []); assert.match(validatePresetRunReceiptV1({ ...receipt, phase: "running" }).join("\n"), /invalid/u); assert.match(validatePresetRunReceiptV1({ ...receipt, outcome: "queued" }).join("\n"), /invalid/u); assert.match(validatePresetRunReceiptV1({ ...receipt, retry: true }).join("\n"), /invalid/u);
 });

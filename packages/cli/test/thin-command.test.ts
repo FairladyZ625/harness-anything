@@ -7,7 +7,7 @@ import { parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 
 test("thin command directory renders every supported user command", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 21);
+  assert.equal(thinCliCommands.length, 22);
   for (const command of thinCliCommands) assert.match(help, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   assert.doesNotMatch(help, /daemon serve|fact record/u);
 });
@@ -18,6 +18,13 @@ test("thin parser derives closed preset and task-create payloads from descriptor
   assert.equal(parseThinCommand(["task", "create", "--title", "Bound", "--completion-gate", "G32"]).ok, false);
   const create = parseThinCommand(["task", "create", "--title", "Bound", "--preset", "create-milestone", "--task-class", "milestone"]), inspect = parseThinCommand(["preset", "inspect", "standard-task", "--locale", "en-US"]);
   assert.equal(create.ok, true); assert.equal(inspect.ok, true); if (create.ok) { assert.equal(create.command.method, "repo.task.create"); assert.deepEqual(create.command.action, { kind: "task-create", title: "Bound", presetId: "create-milestone", taskClass: "milestone" }); } if (inspect.ok) { assert.equal(inspect.command.method, "repo.preset.inspect"); assert.deepEqual(inspect.command.action, { kind: "preset-inspect", presetId: "standard-task", locale: "en-US" }); }
+});
+
+test("thin parser converts the sole preset script target into closed typed start params", () => {
+  const parsed = parseThinCommand(["script", "run", "preset:user-canary/check", "--idempotency-key", "once", "--task-id", "task-1", "--inputs", '{"title":"Canary"}']);
+  assert.equal(parsed.ok, true); if (parsed.ok) assert.deepEqual(parsed.command, { rootDir: parsed.command.rootDir, json: false, method: "repo.preset.run.start", action: { kind: "preset-run-start", presetId: "user-canary", entrypoint: "check", idempotencyKey: "once", taskId: "task-1", inputs: { title: "Canary" } } });
+  assert.equal(parseThinCommand(["script", "run", "user-canary/check", "--idempotency-key", "once"]).ok, false);
+  assert.equal(parseThinCommand(["script", "run", "preset:user-canary/check", "--idempotency-key", "once", "--inputs", "not-json"]).ok, false);
 });
 
 test("thin doc commands derive descriptor-only actions from the protocol directory", () => {
