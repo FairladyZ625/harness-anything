@@ -24,8 +24,13 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     const beta = run(fixture.beta, fixture.userRoot, ["task", "create", "--task-id", "task-beta", "--title", "Beta"]);
     assert.equal(alpha.outcome, "applied", JSON.stringify(alpha)); assert.equal(beta.outcome, "applied", JSON.stringify(beta));
     assert.match(String(run(fixture.alpha, fixture.userRoot, ["task", "show", "task-alpha"]).evidence), /Alpha/u);
+    assert.equal(run(fixture.alpha, fixture.userRoot, ["task", "start", "task-alpha", "--execution-id", "exec-doc"]).outcome, "applied");
+    const docPath = "tasks/task-alpha/INDEX.md", docBody = "# CLI canonical document\n", authored = path.join(fixture.alpha, "harness", docPath); mkdirSync(path.dirname(authored), { recursive: true }); writeFileSync(authored, docBody);
+    const docStatus = run(fixture.alpha, fixture.userRoot, ["doc", "status", "--path", docPath]), base = (docStatus.detail as { baseLedgerSha: string }).baseLedgerSha;
+    assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--execution-id", "exec-doc", "--base-ledger-sha", base, "--path", docPath]).outcome, "applied");
+    assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", docPath]).evidence, docBody);
     for (const root of [fixture.alpha, fixture.beta]) {
-      assert.equal(git(root, "rev-list", "--count", "refs/ha/canonical"), "2");
+      assert.equal(git(root, "rev-list", "--count", "refs/ha/canonical"), root === fixture.alpha ? "4" : "2");
       assert.equal(git(root, "ls-tree", "--name-only", "refs/ha/canonical", "harness/events").includes("harness/events"), true);
       assert.equal(existsSync(path.join(root, ".harness/cache/task.sqlite")), true);
       assert.equal(existsSync(path.join(root, ".harness/write-journal")), false);

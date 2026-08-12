@@ -5,7 +5,7 @@ import type {
   ProjectionWarning,
   RelationCoverageRow,
   RelationGraphEdgeRow,
-  TaskSnapshotProjectionRow
+  TaskDocumentProjectionRead, TaskSnapshotProjectionRow
 } from "../api/renderer-dto.ts";
 
 type HarnessBridge = Record<GuiBridgeMethod, (payload?: object | null) => Promise<unknown>> & {
@@ -42,22 +42,18 @@ export interface DecisionListSuccess {
 }
 
 export const harnessClient = {
-  async getTasks(): Promise<TaskListSuccess> {
-    return readTaskListResult(await invokeBridge("getTasks"));
-  },
-  async getRelationGraph(): Promise<RelationGraphSuccess> {
-    return readRelationGraphResult(await invokeBridge("getRelationGraph"));
-  },
-  async getDecisions(): Promise<DecisionListSuccess> {
-    return readDecisionListResult(await invokeBridge("getDecisions"));
-  }
+  async getTasks(): Promise<TaskListSuccess> { return readTaskListResult(await invokeBridge("getTasks")); },
+  async getTaskDocument(payload: { readonly taskId: string; readonly path: string }): Promise<TaskDocumentProjectionRead> { return readTaskDocumentResult(await invokeBridge("getTaskDocument", payload)); },
+  async getRelationGraph(): Promise<RelationGraphSuccess> { return readRelationGraphResult(await invokeBridge("getRelationGraph")); },
+  async getDecisions(): Promise<DecisionListSuccess> { return readDecisionListResult(await invokeBridge("getDecisions")); }
 };
 
-async function invokeBridge(method: GuiBridgeMethod): Promise<unknown> {
-  const bridge = window.harness;
+async function invokeBridge(method: GuiBridgeMethod, payload: object | null = null): Promise<unknown> { const bridge = window.harness;
   if (!bridge || typeof bridge[method] !== "function") throw new Error(`Harness preload bridge is unavailable for ${method}.`);
-  return bridge[method](null);
+  return bridge[method](payload);
 }
+
+function readTaskDocumentResult(value: unknown): TaskDocumentProjectionRead { const result = value as Partial<TaskDocumentProjectionRead>; if (!result || result.ok !== true || (result.status !== "ready" && result.status !== "pending") || typeof result.taskId !== "string" || typeof result.path !== "string" || typeof result.body !== "string" || !Number.isInteger(result.watermark) || !Number.isInteger(result.sourceRevision)) throw new Error(localErrorHint(value, "Task document bridge returned an invalid result.")); return result as TaskDocumentProjectionRead; }
 
 function readTaskListResult(value: unknown): TaskListSuccess {
   const result = value as Partial<TaskListSuccess>;
