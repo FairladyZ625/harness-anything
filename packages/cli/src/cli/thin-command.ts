@@ -1,5 +1,5 @@
 import { resolveThinCliCommand, safePath, thinCliCommands, type SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts"; import { parseDocThinCommand } from "./doc-sync-command.ts";
-const docThinSyntax = new Set(["--submit", "--execution-id", "--base-ledger-sha", "--path", "--base-blob-sha256"]);
+const docThinSyntax = new Set(["--submit", "--execution-id", "--base-ledger-sha", "--path", "--base-blob-sha256"]); export const thinCliLocalErrorCodes = Object.freeze(["duplicate_field", "invalid_field", "missing_field", "unknown_field", "unsupported_command"]);
 
 export function renderThinHelp(): string { return ["Harness Anything thin CLI", "", "Commands:", ...thinCliCommands.map(({ usage, summary }) => `  ${usage}\n    ${summary}`)].join("\n"); }
 
