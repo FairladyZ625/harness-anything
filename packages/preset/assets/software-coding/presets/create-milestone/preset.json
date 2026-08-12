@@ -1,0 +1,23 @@
+{
+  "schema": "preset-manifest/v3",
+  "id": "create-milestone",
+  "title": "Create Milestone",
+  "vertical": "software/coding",
+  "version": "3.0.0",
+  "kind": "process-action",
+  "outputShape": "repository-diff",
+  "policyPath": "policy.json",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [
+    { "id": "policy:artifact-contract/v1", "kind": "command", "version": "1", "required": true },
+    { "id": "policy:template-override/task-plan/v1", "kind": "command", "version": "1", "required": true }
+  ],
+  "profiles": [{
+    "id": "baseline",
+    "title": "Baseline",
+    "checkerProfile": "software-coding-milestone",
+    "completionGates": ["ci", "code-doc-reconciliation"],
+    "templateSelections": [{ "slot": "task.plan", "templateRef": "template://planning/milestone-task-plan@1", "materializeAs": "task_plan.md", "localePolicy": { "prefer": "project", "fallback": "zh-CN" } }]
+  }],
+  "defaultProfile": "baseline"
+}

@@ -29,12 +29,14 @@ test("G09 closes the Task/v1 schema through a task-event/v1 parser", () => {
         schema: "task/v1",
         taskId: "task-1",
         title: "Replay task",
+        taskClass: "standard",
         status: "planned",
         graph: REPLAY_TASK_GRAPH,
         currentNode: "implementation",
         iteration: 0,
         createdBy: actor,
-        completionGateIds: []
+        completionGateIds: [],
+        presetSnapshotDigest: null
       }
     }
   };

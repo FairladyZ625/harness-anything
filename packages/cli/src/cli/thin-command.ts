@@ -7,6 +7,7 @@ export interface ThinCommand {
   readonly rootDir: SafePath;
   readonly repoId?: string;
   readonly json: boolean;
+  readonly method: string;
   readonly action: Readonly<Record<string, unknown>> & { readonly kind: string };
 }
 export type ThinParseResult = { readonly ok: true; readonly command: ThinCommand }
@@ -23,20 +24,13 @@ export function parseThinCommand(argv: readonly string[], cwd = process.cwd()): 
     return accepted(rootDir, undefined, json, { kind: "repo-bootstrap", repoId: initRepoId, personId, displayName });
   }
   if (route?.id === "receipt-show" && nonEmpty(args[2]) && args.length === 3) {
-    return { ok: true, command: { rootDir, ...(repoId ? { repoId } : {}), json, action: { kind: "receipt-show", opId: args[2] } } };
+    return accepted(rootDir, repoId, json, { kind: "receipt-show", opId: args[2] });
   }
   if (route?.id.startsWith("doc-")) return parseDocThinCommand(route.id, args, rootDir, repoId, json, docThinSyntax);
+  if (route?.phase === "Preset-A" && "flags" in route) { const positionalField = "positional" in route ? route.positional : undefined, positional = positionalField ? args[route.path.length] : undefined, offset = route.path.length + (positionalField ? 1 : 0), flags = readFlags(args.slice(offset), new Set(route.flags.map(({ name }) => name)), new Set()); if (!flags.ok) return rejected(flags.code, flags.nextAction, json); if (positionalField && !nonEmpty(positional)) return rejected("missing_field", `${positionalField} is required.`, json); const payload = Object.fromEntries(route.flags.flatMap((flag) => { const value = flags.one.get(flag.name); return value ? [[flag.field, value]] : []; })); for (const flag of route.flags) if ("required" in flag && flag.required && !payload[flag.field]) return rejected("missing_field", `${flag.name} is required.`, json); return accepted(rootDir, repoId, json, { kind: route.id, ...(positionalField ? { [positionalField]: positional } : {}), ...payload }, route.method); }
   if (!route || args[0] !== "task") return rejected("unsupported_command", "Only task lifecycle, receipt show, and explicit daemon commands exist on rebuild.", json);
   const verb = args[1];
   if (route.id === "task-show" && nonEmpty(args[2]) && args.length === 3) return accepted(rootDir, repoId, json, { kind: "task-show", verb, taskId: args[2] });
-  if (route.id === "task-create") {
-    const flags = readFlags(args.slice(2), new Set(["--title", "--task-id"]), new Set(["--completion-gate"]));
-    if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
-    const title = flags.one.get("--title");
-    if (!nonEmpty(title)) return rejected("missing_field", "Add --title <title>.", json);
-    return accepted(rootDir, repoId, json, { kind: "task-create", verb, commandType: "CreateReplayTask", title,
-      ...(flags.one.get("--task-id") ? { taskId: flags.one.get("--task-id") } : {}), completionGateIds: flags.many.get("--completion-gate") ?? [] });
-  }
   const taskId = args[2];
   if (!nonEmpty(taskId)) return rejected("missing_field", `Run ha task ${verb ?? "<verb>"} <task-id>.`, json);
   if (route.id === "task-start") return oneExecution(rootDir, repoId, json, args, taskId, "task-start", "StartExecution");
@@ -83,8 +77,8 @@ function oneExecution(rootDir: SafePath, repoId: string | undefined, json: boole
 }
 function splitGateReceipt(value: string): { readonly gateId: string; readonly receiptRef: string } | undefined { const at = value.indexOf(":");
   return at < 1 || at === value.length - 1 ? undefined : { gateId: value.slice(0, at), receiptRef: value.slice(at + 1) }; }
-function accepted(rootDir: SafePath, repoId: string | undefined, json: boolean, action: ThinCommand["action"]): ThinParseResult {
-  return { ok: true, command: { rootDir, ...(repoId ? { repoId } : {}), json, action } };
+function accepted(rootDir: SafePath, repoId: string | undefined, json: boolean, action: ThinCommand["action"], method = "repo.task.run"): ThinParseResult {
+  return { ok: true, command: { rootDir, ...(repoId ? { repoId } : {}), json, method, action } };
 }
 function rejected(code: string, nextAction: string, json: boolean): ThinParseResult { return { ok: false, code, nextAction, json }; }
 function globalOption(argv: readonly string[], name: string): string | undefined { const at = argv.indexOf(name); return at < 0 ? undefined : argv[at + 1]; }

@@ -1,0 +1,8 @@
+{
+  "schema": "preset-capabilities/v1",
+  "providers": [
+    { "id": "standard-task-check", "kind": "checker", "version": "1" },
+    { "id": "policy:artifact-contract/v1", "kind": "command", "version": "1" },
+    { "id": "policy:template-override/task-plan/v1", "kind": "command", "version": "1", "requiredTaskClass": "milestone", "templateOverrides": { "task.plan": "template://planning/milestone-task-plan@1" } }
+  ]
+}

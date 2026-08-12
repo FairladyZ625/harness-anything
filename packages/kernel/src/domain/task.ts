@@ -28,10 +28,12 @@ export function createTaskIdentity(id: TaskId, title: string): TaskIdentity {
 
 export const replayTaskStatuses = ["planned", "active", "in_review", "done"] as const;
 export type ReplayTaskStatus = (typeof replayTaskStatuses)[number];
+export const taskClasses = ["standard", "milestone", "epic"] as const;
+export type TaskClass = (typeof taskClasses)[number];
 export interface ActorAxes { readonly principal: { readonly personId: string }; readonly executor: { readonly kind: "agent"; readonly id: string } | null }
-export interface TaskV1 { readonly schema: "task/v1"; readonly taskId: string; readonly title: string; readonly status: ReplayTaskStatus; readonly graph: TaskGraphV1; readonly currentNode: TaskNodeId; readonly iteration: 0 | 1; readonly createdBy: ActorAxes; readonly completionGateIds: readonly string[] }
+export interface TaskV1 { readonly schema: "task/v1"; readonly taskId: string; readonly title: string; readonly taskClass: TaskClass; readonly status: ReplayTaskStatus; readonly graph: TaskGraphV1; readonly currentNode: TaskNodeId; readonly iteration: 0 | 1; readonly createdBy: ActorAxes; readonly completionGateIds: readonly string[]; readonly presetSnapshotDigest: `sha256:${string}` | null }
 export interface ContractValidationIssue { readonly code: string; readonly message: string }
-export const TASK_V1_SCHEMA = Object.freeze({ id: "Task/v1", required: Object.freeze(["schema", "taskId", "title", "status", "graph", "currentNode", "iteration", "createdBy", "completionGateIds"]), statuses: replayTaskStatuses });
+export const TASK_V1_SCHEMA = Object.freeze({ id: "Task/v1", required: Object.freeze(["schema", "taskId", "title", "taskClass", "status", "graph", "currentNode", "iteration", "createdBy", "completionGateIds", "presetSnapshotDigest"]), statuses: replayTaskStatuses, taskClasses });
 export function validateActorAxes(value: unknown): readonly ContractValidationIssue[] {
   return validateActorIdentity(value).map((message) => ({ code: "invalid_actor", message }));
 }
@@ -41,10 +43,12 @@ export function validateTaskV1(value: unknown): readonly ContractValidationIssue
   const issues: ContractValidationIssue[] = [];
   if (value.schema !== "task/v1") issues.push({ code: "invalid_schema", message: "Task must use task/v1" });
   if (!isNonEmptyString(value.taskId) || !isNonEmptyString(value.title)) issues.push({ code: "invalid_task", message: "taskId and title are required" });
+  if (!(taskClasses as readonly unknown[]).includes(value.taskClass)) issues.push({ code: "invalid_task", message: "invalid taskClass" });
   if (!(replayTaskStatuses as readonly unknown[]).includes(value.status)) issues.push({ code: "invalid_task", message: "invalid Task status" });
   if (!(taskNodeIdsForValidation as readonly unknown[]).includes(value.currentNode)) issues.push({ code: "invalid_task", message: "invalid current node" });
   if (value.iteration !== 0 && value.iteration !== 1) issues.push({ code: "invalid_iteration", message: "iteration must be 0 or 1" });
   if (!Array.isArray(value.completionGateIds) || value.completionGateIds.some((id) => !isNonEmptyString(id))) issues.push({ code: "invalid_task", message: "completion gate ids must be strings" });
+  if (value.presetSnapshotDigest !== null && (typeof value.presetSnapshotDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(value.presetSnapshotDigest))) issues.push({ code: "invalid_task", message: "preset snapshot digest must be null or SHA-256" });
   issues.push(...validateActorAxes(value.createdBy), ...validateTaskGraph(value.graph));
   return issues;
 }

@@ -8,13 +8,23 @@ import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { makeTaskEventStore, type AgentRuntimeEventV1 } from "../../kernel/src/index.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { actionForDaemonMethod, canonicalRoot, commandClassForAction, parseDaemonRpcParams, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 const DOC_POLICY_ID = "markdown-additive/v1";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
+
+test("descriptor-derived RBAC preserves every preset, runtime, and doc-sync action class", () => {
+  const expected = { "task-create": "repo-write", "preset-list": "repo-read", "preset-inspect": "repo-read", "preset-check": "repo-read", "preset-install": "repo-write", "preset-uninstall": "repo-write", "task-start": "repo-write", "task-submit": "repo-write", "task-review-execution": "arbiter", "task-complete": "repo-write", "task-show": "repo-read", "receipt-show": "repo-read", "doc-status": "repo-read", "doc-submit": "repo-write", "doc-show": "repo-read" } as const;
+  assert.deepEqual(Object.fromEntries(Object.keys(expected).map((kind) => [kind, commandClassForAction(kind)])), expected);
+});
+
+test("task-create and preset RPC descriptors enforce closed payloads and retire the open route", () => {
+  const params = { repo: { repoId: "alpha" }, payload: { title: "Closed", presetId: "standard-task" } };
+  assert.equal(parseDaemonRpcParams("repo.task.create", params).ok, true); assert.equal(parseDaemonRpcParams("repo.task.create", { ...params, payload: { ...params.payload, completionGateIds: [] } }).ok, false); assert.deepEqual(actionForDaemonMethod("repo.task.create", params.payload), { kind: "task-create", ...params.payload }); assert.throws(() => actionForDaemonMethod("repo.task.run", { action: { kind: "task-create", title: "Open" } }), /closed method/u);
+});
 
 test("repo-bound ledger commit rejects cross-repo SHA", () => {
   const roots = ["a", "b"].map((name) => mkdtempSync(path.join(tmpdir(), `ha-ledger-${name}-`)));
@@ -30,7 +40,7 @@ test("RepoCell serializes identical lifecycle intents into one Git publication a
     initRepo(rootDir);
     cell = await openRepoCell({ repoId: workspaceId("alpha"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" });
     const action = { kind: "task-create", verb: "create", commandType: "CreateReplayTask", taskId: "task-alpha",
-      title: "Alpha task", completionGateIds: [] } as const;
+      title: "Alpha task" } as const;
 
     const [left, right] = await Promise.all([
       cell.run(action, { actor, source: "local" }),
@@ -53,7 +63,7 @@ test("RepoCell serializes identical lifecycle intents into one Git publication a
 test("receipt lookup reports Git object-store failure as indeterminate and marks the RepoCell unavailable", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-corrupt-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("corrupt"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" });
-    const applied = await cell.run({ kind: "task-create", taskId: "task-corrupt", title: "Corrupt", completionGateIds: [] }, { actor, source: "local" }); assert.equal(applied.outcome, "applied");
+    const applied = await cell.run({ kind: "task-create", taskId: "task-corrupt", title: "Corrupt" }, { actor, source: "local" }); assert.equal(applied.outcome, "applied");
     rmSync(path.join(rootDir, ".git/objects"), { recursive: true, force: true });
     const receipt = await cell.run({ kind: "receipt-show", opId: applied.opId }, { actor, source: "local" });
     assert.deepEqual({ outcome: receipt.outcome, code: receipt.code, origin: receipt.origin }, { outcome: "indeterminate", code: "vcs_command_failed", origin: "git" });
@@ -65,13 +75,14 @@ for (const killpoint of ["before_event_write", "after_event_write", "after_head_
   "after_sqlite_commit", "before_response_write", "after_response_write"] as const) {
   test(`RepoCell new generation recovers ${killpoint} without a duplicate publication`, async () => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-crash-"));
-    const action = { kind: "task-create", taskId: `task-${killpoint}`, title: killpoint, completionGateIds: [] } as const;
+    const action = { kind: "task-create", taskId: `task-${killpoint}`, title: killpoint } as const;
     let crashed: Awaited<ReturnType<typeof openRepoCell>> | undefined, recovered: Awaited<ReturnType<typeof openRepoCell>> | undefined;
     try {
       initRepo(rootDir); crashed = await openRepoCell({ repoId: workspaceId("crash"), rootDir: canonicalRoot(rootDir), ownerId: "generation-one",
         killpoint: (point) => { if (point === killpoint) throw new Error(`crash:${point}`); } });
       const first = await crashed.run(action, { actor, source: "local" });
       assert.equal(first.outcome, "rejected"); assert.equal(crashed.status().state, "unavailable");
+      const prePublicationCrash = ["before_event_write", "after_event_write", "after_head_write"].includes(killpoint); assert.equal(makeTaskEventStore({ repoId: "crash", rootDir }).read().revision, prePublicationCrash ? 0 : 1);
       await crashed.close(); crashed = undefined;
       recovered = await openRepoCell({ repoId: workspaceId("crash"), rootDir: canonicalRoot(rootDir), ownerId: "generation-two" });
       const retried = await recovered.run(action, { actor, source: "local" });
@@ -84,7 +95,7 @@ for (const killpoint of ["before_event_write", "after_event_write", "after_head_
 test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion rejection, and worktree preservation", async (context) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-cell-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("docs"), rootDir: canonicalRoot(rootDir), ownerId: "doc-daemon" });
-    assert.equal((await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs", completionGateIds: [] }, { actor, source: "local" })).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, { actor, source: "local" })).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, { actor, source: "local" })).outcome, "applied");
     const claims = path.join(rootDir, ".harness/doc-sync-claims"), authored = path.join(rootDir, "harness/context/notes.md"); mkdirSync(claims, { recursive: true }); mkdirSync(path.dirname(authored), { recursive: true });
     let body = "# Notes\nA\n", hash = createHash("sha256").update(body).digest("hex"), base = git(rootDir, "rev-parse", "refs/ha/canonical"); writeFileSync(authored, body);
@@ -108,7 +119,7 @@ test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion r
 test("doc ingress rejects symbolic links in claim and authored path chains", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-claim-link-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("claim-link"), rootDir: canonicalRoot(rootDir), ownerId: "doc-daemon" }); const source = { kind: "assignment", nodeId: "node", assignmentId: "assignment" } as const;
-    await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs", completionGateIds: [] }, { actor, source }); await cell.run({ kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, { actor, source });
+    await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, { actor, source }); await cell.run({ kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, { actor, source });
     const body = "# Outside\n", hash = createHash("sha256").update(body).digest("hex"), claims = path.join(rootDir, ".harness/doc-sync-claims"); mkdirSync(claims, { recursive: true }); writeFileSync(path.join(rootDir, "outside.md"), body); symlinkSync("../../outside.md", path.join(claims, "linked"));
     const binding = { actor, source, assignmentScope: { repoId: "claim-link", taskId: "task-doc", executionId: "execution-doc", paths: ["context/link.md"] } }, base = git(rootDir, "rev-parse", "refs/ha/canonical"), result = await cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: base, changes: [{ path: "context/link.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: { ref: "doc-sync-claims/linked", sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" } }] }, binding);
     assert.equal(result.code, "content_claim_mismatch"); assert.equal(git(rootDir, "rev-parse", "refs/ha/canonical"), base);
@@ -159,10 +170,10 @@ test("read-only principal cannot write or admin while semantic capabilities pass
   const host = await openDaemonHost({ daemonId: "rbac", userRoot });
   try {
     assert.equal((await rpc(host, auth(ids.admin), "daemon.repo.register", { rootDir: root, repoId: "rbac" })).outcome, "applied");
-    const created = await host.run("rbac", { kind: "task-create", taskId: "task-rbac", title: "RBAC", completionGateIds: [] }, auth(ids.writer)); assert.equal(created.outcome, "applied");
+    const created = await host.run("rbac", { kind: "task-create", taskId: "task-rbac", title: "RBAC" }, auth(ids.writer)); assert.equal(created.outcome, "applied");
     const executionId = "exec-rbac", commitSha = "a".repeat(40); assert.equal((await host.run("rbac", { kind: "task-start", taskId: "task-rbac", executionId }, auth(ids.writer))).outcome, "applied");
     assert.equal((await host.run("rbac", { kind: "task-show", taskId: "task-rbac" }, auth(ids.reader))).outcome, "applied");
-    const deniedWrite = await host.run("rbac", { kind: "task-create", taskId: "task-denied", title: "Denied", completionGateIds: [] }, auth(ids.reader));
+    const deniedWrite = await host.run("rbac", { kind: "task-create", taskId: "task-denied", title: "Denied" }, auth(ids.reader));
     assert.equal(deniedWrite.outcome, "rejected"); assert.equal(deniedWrite.code, "rbac_forbidden");
     assert.equal((await host.run("rbac", { kind: "doc-status", paths: ["context/notes.md"] }, auth(ids.reader))).outcome, "applied");
     mkdirSync(path.join(root, "harness/context"), { recursive: true }); writeFileSync(path.join(root, "harness/context/notes.md"), "# Reader denied\n");

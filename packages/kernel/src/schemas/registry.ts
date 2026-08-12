@@ -49,7 +49,6 @@ const LegacyPathSchema = Schema.String.pipe(Schema.pattern(/^harness\/legacy\/(?
 const LegacyConfidenceSchema = Schema.Literal("high", "medium", "low");
 const StrictSha256Schema = Schema.String.pipe(Schema.pattern(/^sha256:[a-f0-9]{64}$/u));
 const ConfigIdentifierSchema = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9/_@.-]*$/u));
-const PresetPolicyPathSchema = Schema.String.pipe(Schema.pattern(/^\{\{paths\.authoredRoot\}\}\/policies\/presets\/[A-Za-z0-9][A-Za-z0-9._-]*\.policy\.json$/u));
 
 export const HarnessConfigSchema = Schema.Struct({
   schema: Schema.Literal("harness/v2"),
@@ -220,84 +219,6 @@ export const TemplateSelectionSchema = Schema.Struct({
   }))
 });
 
-const PresetProfileV1Schema = Schema.Struct({
-  id: Schema.String,
-  title: Schema.String,
-  checkerProfile: Schema.String,
-  templateSelections: Schema.Array(TemplateSelectionSchema),
-  capabilityImports: Schema.optional(Schema.Array(Schema.Struct({
-    id: Schema.String,
-    version: Schema.String
-  })))
-});
-const CompletionGateIdSchema = Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u));
-export const PresetProfileSchema = Schema.Struct({
-  id: Schema.String,
-  title: Schema.String,
-  checkerProfile: Schema.String,
-  completionGates: Schema.Array(CompletionGateIdSchema),
-  templateSelections: Schema.Array(TemplateSelectionSchema),
-  capabilityImports: Schema.optional(Schema.Array(Schema.Struct({
-    id: Schema.String,
-    version: Schema.String
-  })))
-});
-export const PresetEntrypointSchema = Schema.Union(
-  Schema.Struct({
-    type: Schema.Literal("template"),
-    writes: Schema.Array(Schema.String),
-    templates: Schema.Record({
-      key: Schema.String,
-      value: Schema.String
-    })
-  }),
-  Schema.Struct({
-    type: Schema.Literal("script"),
-    command: Schema.String,
-    reads: Schema.optional(Schema.Array(Schema.String)),
-    writes: Schema.Array(Schema.String),
-    inputs: Schema.optional(Schema.Record({
-      key: Schema.String,
-      value: Schema.String
-    }))
-  })
-);
-const PresetManifestCommonFields = {
-  id: Schema.String,
-  title: Schema.String,
-  vertical: Schema.String,
-  version: Schema.String,
-  kind: Schema.optional(Schema.Literal("template-content", "process-action")),
-  extends: OptionalString,
-  policyPath: Schema.optional(PresetPolicyPathSchema),
-  kernelVersionRange: Schema.Struct({
-    min: Schema.String,
-    maxExclusive: OptionalString
-  }),
-  capabilityImports: Schema.Array(Schema.Struct({
-    id: Schema.String,
-    kind: Schema.Literal("checker", "scaffold", "projection", "command", "template"),
-    version: Schema.String,
-    required: Schema.Boolean
-  })),
-  entrypoints: Schema.optional(Schema.Record({
-    key: Schema.String,
-    value: PresetEntrypointSchema
-  })),
-  defaultProfile: Schema.String
-};
-export const PresetManifestSchema = Schema.Union(
-  Schema.Struct({
-    schema: Schema.Literal("preset-manifest/v1"),
-    ...PresetManifestCommonFields,
-    profiles: Schema.Array(PresetProfileV1Schema).pipe(Schema.minItems(1))
-  }),
-  Schema.Struct({
-    schema: Schema.Literal("preset-manifest/v2"),
-    ...PresetManifestCommonFields,
-    profiles: Schema.Array(PresetProfileSchema).pipe(Schema.minItems(1))
-  })
-);
 export const LegacyEvidencePointerSchema = Schema.Struct({
   kind: Schema.Literal("progress", "review", "commit", "pr", "artifact", "note"),
   path: LegacyPathSchema,
@@ -402,8 +323,6 @@ export type TaskSnapshot = Schema.Schema.Type<typeof TaskSnapshotSchema>;
 export type PublishableProjection = Schema.Schema.Type<typeof PublishableProjectionSchema>;
 export type TemplateCatalog = Schema.Schema.Type<typeof TemplateCatalogSchema>;
 export type TemplateSelection = Schema.Schema.Type<typeof TemplateSelectionSchema>;
-export type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
-export type PresetProfile = Schema.Schema.Type<typeof PresetProfileSchema>;
 export type VerticalDefinition = Schema.Schema.Type<typeof VerticalDefinitionSchema>;
 export type LegacyEvidencePointer = Schema.Schema.Type<typeof LegacyEvidencePointerSchema>;
 export type LegacyIndexEntry = Schema.Schema.Type<typeof LegacyIndexEntrySchema>;
@@ -477,13 +396,6 @@ export const schemaRegistry = [
     jsonSchemaPath: "packages/kernel/schemas/json/template-catalog.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/template-catalog/valid.json",
     invalidFixturePath: "packages/kernel/fixtures/schemas/template-catalog/invalid.json"
-  },
-  {
-    id: "preset-manifest",
-    schema: PresetManifestSchema,
-    jsonSchemaPath: "packages/kernel/schemas/json/preset-manifest.schema.json",
-    validFixturePath: "packages/kernel/fixtures/schemas/preset-manifest/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/preset-manifest/invalid.json"
   },
   {
     id: "vertical-definition",

@@ -11,7 +11,8 @@ export async function runCommandThroughDaemon(command: ThinCommand): Promise<Jso
   if (command.action.kind === "repo-bootstrap") { const userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), { kind: _kind, ...params } = command.action; return requestLocalDaemonJsonRpcForTarget({ repoId: workspaceId("bootstrap"),
     canonicalRoot: canonicalRoot(command.rootDir, true), userRoot, daemonId, socketPath: localUserDaemonEndpoint(userRoot, daemonId) }, "daemon.repo.bootstrap", { rootDir: command.rootDir, ...params }, 75); }
   const target = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId });
-  return requestLocalDaemonJsonRpcForTarget(target, "repo.task.run", {
-    repo: { repoId: target.repoId }, payload: { action: command.action as JsonObject }
+  const { kind: _kind, ...payload } = command.action;
+  return requestLocalDaemonJsonRpcForTarget(target, command.method, {
+    repo: { repoId: target.repoId }, payload: command.method === "repo.task.run" ? { action: command.action as JsonObject } : payload as JsonObject
   }, 75);
 }

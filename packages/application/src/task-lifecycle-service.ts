@@ -114,7 +114,7 @@ function pendingReceipt(read: TaskLifecycleServiceRead, plan: FrozenWritePlan<Ta
 function eventMatchesOperation<C extends TaskLifecycleCommand>(event: TaskEventV1, command: C, proof: ProofFor<C>): boolean { return json(operationIdentityFromEvent(event)) === json(operationIdentityFromCommand(command, proof)); }
 function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C, proof: ProofFor<C>): unknown {
   const common = { type: command.type, taskId: command.taskId, eventId: command.eventId, workspaceRevision: command.workspaceRevision, actor: command.actor, source: command.source, occurredAt: command.occurredAt };
-  if (command.type === "CreateReplayTask") return { ...common, title: command.title, graph: command.graph, completionGateIds: command.completionGateIds };
+  if (command.type === "CreateReplayTask") return { ...common, title: command.title, taskClass: command.taskClass, graph: command.graph, completionGateIds: command.completionGateIds, presetSnapshotDigest: command.presetSnapshotDigest };
   if (command.type === "StartExecution" || command.type === "CompleteTask") return { ...common, executionId: command.executionId };
   if (command.type === "SubmitExecution") return { ...common, executionId: command.executionId, submission: command.submission };
   return { ...common, executionId: command.executionId, reviewId: command.reviewId, kind: command.kind, verdict: command.verdict, actorRole: command.actorRole, reason: command.reason,
@@ -124,7 +124,7 @@ function operationIdentityFromEvent(event: TaskEventV1): unknown {
   const type = event.type === "task_created" ? "CreateReplayTask" : event.type === "execution_started" ? "StartExecution" : event.type === "lease_renewed" ? "RenewLease"
     : event.type === "execution_submitted" ? "SubmitExecution" : event.type === "task_completed" ? "CompleteTask" : "RecordReview";
   const common = { type, taskId: event.taskId, eventId: event.eventId, workspaceRevision: event.workspaceRevision, actor: event.actor, source: event.source, occurredAt: event.occurredAt };
-  if (event.type === "task_created") return { ...common, title: event.payload.task.title, graph: event.payload.task.graph, completionGateIds: event.payload.task.completionGateIds };
+  if (event.type === "task_created") return { ...common, title: event.payload.task.title, taskClass: event.payload.task.taskClass, graph: event.payload.task.graph, completionGateIds: event.payload.task.completionGateIds, presetSnapshotDigest: event.payload.task.presetSnapshotDigest };
   if (event.type === "execution_started" || event.type === "task_completed") return { ...common, executionId: event.payload.execution.executionId };
   if (event.type === "lease_renewed") return { ...common, executionId: event.payload.execution.executionId, expiresAt: event.payload.lease.expiresAt };
   if (event.type === "execution_submitted") return { ...common, executionId: event.payload.execution.executionId, submission: event.payload.execution.submission };

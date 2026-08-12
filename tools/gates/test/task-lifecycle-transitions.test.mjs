@@ -39,8 +39,10 @@ function createCommand() {
     type: "CreateReplayTask",
     taskId: "task-1",
     title: "Replay task",
+    taskClass: "standard",
     graph: REPLAY_TASK_GRAPH,
-    completionGateIds: []
+    completionGateIds: [],
+    presetSnapshotDigest: null
   }, "create");
 }
 

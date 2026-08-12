@@ -7,7 +7,6 @@ const allowlist = new Set([
   "cli/helpReport",
   "cli/isSafeRelativePath",
   "cli/layoutOverridesFromInput",
-  "cli/loadBundledPresetManifests",
   "cli/writeIfMissing",
   "gui/failure",
   "gui/save",

@@ -6,7 +6,7 @@ import { repoRoot } from "./git.mjs";
 
 const CONTRACT_FILE = /\.contract\.(?:mjs|ts)$/u;
 const IGNORED_DIRECTORIES = new Set([".git", "coverage", "dist", "node_modules"]);
-const DOMAINS = Object.freeze(["commands", "gates", "guards", "methods"]);
+const DOMAINS = Object.freeze(["commands", "gates", "guards", "methods", "schemas"]);
 
 function repoPath(rootDir, absolutePath) {
   return path.relative(rootDir, absolutePath).split(path.sep).join("/");
@@ -125,6 +125,7 @@ function validateCatalogProjection(rootDir, contract, errors) {
     commands: (contract.declaration.commands ?? []).map(entryId),
     gates: (contract.declaration.gates ?? []).map(entryId),
     guards: (contract.declaration.guards ?? []).map(entryId),
+    schemas: (contract.declaration.schemas ?? []).map(entryId),
     phases: contract.declaration.phases ?? []
   };
   if (JSON.stringify(actual) !== JSON.stringify(expected)) errors.push(`${catalog}: catalog projection differs from ${contract.file}`);
@@ -162,7 +163,7 @@ export function validateDerivedContracts(rootDir, contracts) {
         const key = `${domain}:${id}`;
         if (seen.has(key)) errors.push(`${contract.file}: duplicate ${domain} id ${id}; first declared in ${seen.get(key)}`);
         else seen.set(key, contract.file);
-        if (typeof entry === "object" && entry !== null && !declaration.phases.includes(entry.phase)) {
+        if (domain !== "schemas" && typeof entry === "object" && entry !== null && !declaration.phases.includes(entry.phase)) {
           errors.push(`${contract.file}: ${domain} ${id} uses undeclared phase ${entry.phase}`);
         }
       }
