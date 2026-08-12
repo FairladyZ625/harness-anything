@@ -4,6 +4,7 @@ import { kernelImportBoundaryKnownDebt } from "./tools/kernel-import-boundary-kn
 import { portPhysicalIoBoundaryKnownDebt } from "./tools/port-physical-io-boundary-known-debt.mjs";
 import noSwallowedFailure from "./tools/gates/eslint-rules/no-swallowed-failure.js";
 import noManualContractProjection from "./tools/gates/eslint-rules/no-manual-contract-projection.js";
+import noWriterBypass from "./tools/gates/eslint-rules/no-writer-bypass.js";
 import processPortOnly from "./tools/gates/eslint-rules/process-port-only.js";
 import { noSwallowedFailureBaseline } from "./tools/gates/no-swallowed-failure-baseline.mjs";
 import { processPortOnlyBaseline } from "./tools/gates/process-port-only-baseline.mjs";
@@ -267,6 +268,7 @@ export default tseslint.config(
       ha: {
         rules: {
           "no-manual-contract-projection": noManualContractProjection,
+          "no-writer-bypass": noWriterBypass,
           "no-swallowed-failure": noSwallowedFailure,
           "process-port-only": processPortOnly
         }
@@ -274,6 +276,7 @@ export default tseslint.config(
     },
     rules: {
       "ha/no-manual-contract-projection": "error",
+      "ha/no-writer-bypass": "error",
       "ha/no-swallowed-failure": ["error", { baseline: noSwallowedFailureBaseline }],
       "ha/process-port-only": ["error", { baseline: processPortOnlyBaseline }]
     }

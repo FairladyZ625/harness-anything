@@ -3,5 +3,6 @@
   "opId": "op_01KZQ944F7RH6E0153Q3Q86Y63",
   "code": "registry_missing",
   "origin": "registry",
+  "evidence": "registry-preflight:registry_missing",
   "nextAction": "restore the registry declaration and retry"
 }

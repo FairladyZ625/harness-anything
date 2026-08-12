@@ -17,7 +17,7 @@ test("G29 submit publishes only its frozen targets while preserving unrelated by
 
     harness.kill("after_event_append");
     const interrupted = await harness.submit("execution-1");
-    assert.equal(interrupted.status, "indeterminate");
+    assert.equal(interrupted.outcome, "indeterminate");
 
     const read = await harness.service.read("task-1");
     assert.equal(read.snapshot.executions[0]?.state, "submitted");

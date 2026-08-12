@@ -36,7 +36,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "init project name", argv: ["init", "--name", "human-kernel"], kind: "init", fields: { projectName: "human-kernel" } },
   { name: "task create", argv: ["task", "create", "--task-id", "task_1", "--title", "Parser Task", "--completion-gate", "G10"], kind: "task-create", fields: { taskId: "task_1", title: "Parser Task", completionGateIds: ["G10"] } },
   { name: "task start", argv: ["task", "start", "task_1", "--execution-id", "exe_1"], kind: "task-start", fields: { taskId: "task_1", executionId: "exe_1" } },
-  { name: "task submit", argv: ["task", "submit", "task_1", "--execution-id", "exe_1", "--lease-credential", "secret", "--claim", "ready", "--commit-sha", "a".repeat(40)], kind: "task-submit", fields: { taskId: "task_1", executionId: "exe_1", leaseCredential: "secret", claim: "ready", commitSha: "a".repeat(40) } },
+  { name: "task submit", argv: ["task", "submit", "task_1", "--execution-id", "exe_1", "--claim", "ready", "--commit-sha", "a".repeat(40)], kind: "task-submit", fields: { taskId: "task_1", executionId: "exe_1", claim: "ready", commitSha: "a".repeat(40) } },
   { name: "task review execution", argv: ["task", "review-execution", "task_1", "--execution-id", "exe_1", "--kind", "acceptance", "--verdict", "approved", "--review-id", "review_1", "--reason", "Evidence supports approval", "--commit-sha", "a".repeat(40), "--iteration", "0", "--evidence-checked", "ev_1", "--acknowledge-archive-warnings"], kind: "task-review-execution", fields: { taskId: "task_1", executionId: "exe_1", reviewKind: "acceptance", verdict: "approved", reviewId: "review_1", reason: "Evidence supports approval", evidenceChecked: ["ev_1"], archiveWarningsAcknowledged: true } },
   { name: "task complete", argv: ["task", "complete", "task_1", "--execution-id", "exe_1", "--gate-receipt", "G10:receipt.json"], kind: "task-complete", fields: { taskId: "task_1", executionId: "exe_1", gateReceipts: [{ gateId: "G10", receiptRef: "receipt.json" }] } },
   { name: "task show", argv: ["task", "show", "task_1"], kind: "task-show", fields: { taskId: "task_1" } },
@@ -359,7 +359,7 @@ for (const candidate of parseCases) {
 test("parseArgs pins stable parse error envelopes", () => {
   const cases = [
     { argv: ["template", "render", "template://planning/task@1", "--locale", "fr-FR"], code: "invalid_locale" },
-    { argv: ["task", "submit", "task_1", "--execution-id", "exe_1", "--claim", "ready", "--commit-sha", "a".repeat(40)], code: "invalid_task_metadata" },
+    { argv: ["task", "submit", "task_1", "--execution-id", "exe_1", "--commit-sha", "a".repeat(40)], code: "invalid_task_metadata" },
     { argv: ["preset", "run", "standard-task", "deploy", "--task", "task_1"], code: "invalid_entrypoint" },
     { argv: ["module", "register", "billing", "--title", "Billing"], code: "missing_module_fields" },
     { argv: ["module-step", "billing", "T-1", "--state", "started"], code: "invalid_module_step_state" },

@@ -2,6 +2,7 @@ import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import {
   applyTransition,
   emptyTaskLifecycleSnapshot,
+  normalizeTaskLifecycleCommand,
   type CompleteTaskProof,
   type CreateReplayTaskProof,
   type RecordReviewCommand,
@@ -18,6 +19,11 @@ export const implementer: ActorAxes = { principal: { personId: "person-owner" },
 export const reviewer: ActorAxes = { principal: { personId: "person-reviewer" }, executor: { kind: "agent", id: "reviewer" } };
 export const commitSha = "a".repeat(40);
 
+function command<C extends Parameters<typeof normalizeTaskLifecycleCommand>[1]>(actor: ActorAxes, revision: number, intent: C) {
+  return { ...normalizeTaskLifecycleCommand({ workspaceId: "workspace-1", actor, source: "local", expectedRevision: revision - 1 }, intent), eventId: `event-${revision}`,
+    workspaceRevision: revision, occurredAt: `2026-08-11T00:0${revision - 1}:00.000Z` };
+}
+
 export function lifecycleFixture(): { readonly events: readonly TaskEventV1[]; readonly snapshot: TaskLifecycleSnapshot } {
   const events: TaskEventV1[] = [];
   let snapshot = emptyTaskLifecycleSnapshot();
@@ -26,41 +32,35 @@ export function lifecycleFixture(): { readonly events: readonly TaskEventV1[]; r
     snapshot = result.snapshot;
     events.push(result.event);
   };
-  run({
-    type: "CreateReplayTask", taskId: "task-1", title: "Replay task", graph: REPLAY_TASK_GRAPH,
-    completionGateIds: [], actor: implementer, opId: "op-1", eventId: "event-1", workspaceRevision: 1,
-    occurredAt: "2026-08-11T00:00:00.000Z"
-  }, { taskIdUnique: true, actorBinding: implementer });
-  run({
-    type: "StartExecution", taskId: "task-1", executionId: "execution-1", actor: implementer,
-    opId: "op-2", eventId: "event-2", workspaceRevision: 2, occurredAt: "2026-08-11T00:01:00.000Z"
-  }, {
-    actorBinding: implementer, expectedRevision: 1,
-    reservation: { taskId: "task-1", executionId: "execution-1", credentialHash: "credential-1", expiresAt: "2026-08-11T01:00:00.000Z", version: 0 }
+  run(command(implementer, 1, {
+    type: "CreateReplayTask", taskId: "task-1", title: "Replay task", graph: REPLAY_TASK_GRAPH, completionGateIds: []
+  }), { taskIdUnique: true, actorBinding: implementer });
+  run(command(implementer, 2, {
+    type: "StartExecution", taskId: "task-1", executionId: "execution-1"
+  }), {
+    actorBinding: implementer,
+    reservation: { taskId: "task-1", executionId: "execution-1", expiresAt: "2026-08-11T01:00:00.000Z", ttlMs: 1_800_000,
+      previousHolder: null, reason: "initial_claim", version: 0 }
   });
-  run({
-    type: "SubmitExecution", taskId: "task-1", executionId: "execution-1", actor: implementer,
-    opId: "op-3", eventId: "event-3", workspaceRevision: 3, occurredAt: "2026-08-11T00:02:00.000Z",
+  run(command(implementer, 3, {
+    type: "SubmitExecution", taskId: "task-1", executionId: "execution-1",
     submission: { claim: "implemented", deliverables: [], evidenceRefs: [], verification: ["tests"], knownGaps: [], residualRisks: [], commitSha }
-  }, { expectedRevision: 2, credentialHash: "credential-1", sessionDisposition: "complete" });
+  }), { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" });
   run(reviewCommand(4, "anti_entropy", "approved", "review-ae"), {
-    expectedRevision: 3, actorBinding: reviewer, capability: "anti-entropy@v1", capabilityRef: "cap-ae", archiveWarningsPresent: false
+    actorBinding: reviewer, capability: "anti-entropy@v1", capabilityRef: "cap-ae", archiveWarningsPresent: false
   });
   run(reviewCommand(5, "acceptance", "approved", "review-acceptance"), {
-    expectedRevision: 4, actorBinding: reviewer, capability: "acceptance-review@v1", capabilityRef: "cap-acceptance", archiveWarningsPresent: false
+    actorBinding: reviewer, capability: "acceptance-review@v1", capabilityRef: "cap-acceptance", archiveWarningsPresent: false
   });
-  run({
-    type: "CompleteTask", taskId: "task-1", executionId: "execution-1", actor: implementer,
-    opId: "op-6", eventId: "event-6", workspaceRevision: 6, occurredAt: "2026-08-11T00:05:00.000Z"
-  }, { expectedRevision: 5, capability: "task-complete@v1", capabilityRef: "cap-complete", actorRole: "owner", noActiveLease: true, gateReceipts: [] });
+  run(command(implementer, 6, { type: "CompleteTask", taskId: "task-1", executionId: "execution-1" }),
+    { capability: "task-complete@v1", capabilityRef: "cap-complete", actorRole: "owner", noActiveLease: true, gateReceipts: [] });
   return { events, snapshot };
 }
 
 function reviewCommand(revision: number, kind: "anti_entropy" | "acceptance", verdict: "approved", reviewId: string): RecordReviewCommand {
-  return {
+  return command(reviewer, revision, {
     type: "RecordReview", taskId: "task-1", executionId: "execution-1", reviewId, kind, verdict,
     actorRole: kind, reason: `${kind} approved`, evidenceChecked: [], commitSha, iteration: 0,
-    archiveWarningsAcknowledged: false, actor: reviewer, opId: `op-${revision}`, eventId: `event-${revision}`,
-    workspaceRevision: revision, occurredAt: `2026-08-11T00:0${revision}:00.000Z`
-  };
+    archiveWarningsAcknowledged: false
+  });
 }

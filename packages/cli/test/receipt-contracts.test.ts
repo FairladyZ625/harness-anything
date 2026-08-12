@@ -93,7 +93,7 @@ test("command receipts allow explicitly optional declared data to be absent", ()
   assert.equal(receipt.ok, true);
   if (!receipt.ok) return;
   assert.equal(receipt.entity?.id, "task_1");
-  assert.equal(receipt.details?.data && typeof receipt.details.data === "object" && "leaseCredential" in receipt.details.data, false);
+  assert.equal(receipt.details?.data && typeof receipt.details.data === "object" && "opId" in receipt.details.data, false);
 });
 
 test("command receipts accept explicitly optional declared data when present", () => {
@@ -105,15 +105,17 @@ test("command receipts accept explicitly optional declared data when present", (
     outcome: "applied",
     opId: "task-start-op",
     revision: 2,
-    nextAction: "Save it; submit requires it.",
-    leaseCredential: "shown-once",
-    leaseExpiry: "2026-08-11T01:00:00.000Z",
+    evidence: "task-event:event-2",
+    visibility: "center",
+    proof: { committedRevision: 2, appliedCut: 2 },
     report: { outcome: "applied" }
   });
 
   assert.equal(receipt.ok, true);
   if (!receipt.ok) return;
-  assert.equal(receipt.details?.data && typeof receipt.details.data === "object" && "leaseCredential" in receipt.details.data, true);
+  assert.equal(receipt.details?.data && typeof receipt.details.data === "object" && "opId" in receipt.details.data, true);
+  assert.equal(receipt.details?.data && typeof receipt.details.data === "object" && "visibility" in receipt.details.data, true);
+  assert.equal(receipt.details?.data && typeof receipt.details.data === "object" && "proof" in receipt.details.data, true);
 });
 
 test("optional receipt contract fields carry non-empty absence reasons", () => {
@@ -124,8 +126,10 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
     ]);
 
   assert.equal(optionalEntries.every((entry) => entry.reason.trim().length > 0), true);
-  assert.equal(optionalEntries.some((entry) => entry.command === "task-start" && entry.field === "data.leaseCredential"), true);
-  assert.equal(optionalEntries.some((entry) => entry.command !== "task-start" && entry.field === "data.leaseCredential"), false);
+  assert.equal(optionalEntries.some((entry) => entry.field === "data.leaseCredential"), false);
+  assert.equal(optionalEntries.some((entry) => entry.command === "task-start" && entry.field === "data.opId"), true);
+  assert.equal(optionalEntries.some((entry) => entry.command === "task-start" && entry.field === "data.visibility"), true);
+  assert.equal(optionalEntries.some((entry) => entry.command === "task-start" && entry.field === "data.proof"), true);
   assert.equal(optionalEntries.some((entry) => ["new-task", "task-claim", "status-set"].includes(entry.command)), false);
 });
 

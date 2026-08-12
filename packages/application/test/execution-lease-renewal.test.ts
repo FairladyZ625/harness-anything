@@ -9,35 +9,36 @@ import { makeTaskLeaseStore, TaskLeaseConflictError } from "../../kernel/test/st
 import { runTaskLifecycleEffect } from "../src/task-lifecycle-service.ts";
 
 const actor = { principal: { personId: "person-1" }, executor: { kind: "agent" as const, id: "codex" } };
+const otherActor = { principal: { personId: "person-2" }, executor: { kind: "agent" as const, id: "reviewer" } };
 
 test("lease CAS permits only the current holder to renew and release", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-lease-"));
   try {
     const leases = makeTaskLeaseStore({ rootDir, coordinator: makeJournaledWriteCoordinator({ rootDir }), runEffect: runTaskLifecycleEffect, now: () => "2026-08-11T00:00:00.000Z" });
     const reservation = await leases.reserve({
-      taskId: "task-1", executionId: "execution-1", actor, credentialHash: "hash-1",
-      expiresAt: "2026-08-11T01:00:00.000Z"
+      taskId: "task-1", executionId: "execution-1", actor, source: "local",
+      expiresAt: "2026-08-11T01:00:00.000Z", ttlMs: 1_800_000
     });
-    const active = await leases.activate({ taskId: "task-1", executionId: "execution-1", credentialHash: "hash-1", version: reservation.version });
+    const active = await leases.activate({ taskId: "task-1", executionId: "execution-1", actor, source: "local", version: reservation.version });
 
     assert.equal(active.phase, "active");
     await assert.rejects(leases.reserve({
-      taskId: "task-1", executionId: "execution-2", actor, credentialHash: "hash-2",
-      expiresAt: "2026-08-11T02:00:00.000Z"
+      taskId: "task-1", executionId: "execution-2", actor, source: "local",
+      expiresAt: "2026-08-11T02:00:00.000Z", ttlMs: 1_800_000
     }), TaskLeaseConflictError);
     await assert.rejects(leases.renew({
-      taskId: "task-1", executionId: "execution-1", credentialHash: "stale", version: active.version,
-      expiresAt: "2026-08-11T02:00:00.000Z"
+      taskId: "task-1", executionId: "execution-1", actor: otherActor, source: "local", version: active.version,
+      expiresAt: "2026-08-11T02:00:00.000Z", ttlMs: 1_800_000
     }), TaskLeaseConflictError);
     const renewed = await leases.renew({
-      taskId: "task-1", executionId: "execution-1", credentialHash: "hash-1", version: active.version,
-      expiresAt: "2026-08-11T02:00:00.000Z"
+      taskId: "task-1", executionId: "execution-1", actor, source: "local", version: active.version,
+      expiresAt: "2026-08-11T02:00:00.000Z", ttlMs: 1_800_000
     });
     await assert.rejects(leases.release({
-      taskId: "task-1", executionId: "execution-1", credentialHash: "hash-1", version: active.version
+      taskId: "task-1", executionId: "execution-1", actor, source: "local", version: active.version
     }), TaskLeaseConflictError);
     assert.equal((await leases.release({
-      taskId: "task-1", executionId: "execution-1", credentialHash: "hash-1", version: renewed.version
+      taskId: "task-1", executionId: "execution-1", actor, source: "local", version: renewed.version
     })).phase, "released");
     assert.equal(leases.current("task-1"), null);
   } finally {

@@ -62,3 +62,14 @@ test("G32 accepts a ceiling increase only with a scoped decision receipt", () =>
   const result = evaluateLineBudget({ rootDir, base, receiptsDir: path.join(rootDir, "tools/gates/receipts") });
   assert.equal(result.ok, true, result.errors.join("\n"));
 });
+
+test("G32 introduces the design-approved write-contract bucket at no more than 350 lines", () => {
+  const legacyModules = MODULES.filter((name) => name !== "write-contract");
+  const legacyBudget = `${JSON.stringify({ version: 1, ceilings: Object.fromEntries(legacyModules.map((name) => [name, name === "kernel" ? 2 : 0])) }, null, 2)}\n`;
+  const { rootDir, base } = makeRepo({ "packages/kernel/src/index.ts": "one\ntwo\n", "tools/gates/line-budgets.json": legacyBudget });
+  writeRepoFile(rootDir, "packages/kernel/src/domain/write-chain.contract.ts", "contract\n");
+  writeRepoFile(rootDir, "tools/gates/line-budgets.json", budgetBody(2).replace('"write-contract": 0', '"write-contract": 350'));
+  const result = evaluateLineBudget({ rootDir, base });
+  assert.equal(result.ok, true, result.errors.join("\n"));
+  assert.equal(result.actual["write-contract"], 1);
+});

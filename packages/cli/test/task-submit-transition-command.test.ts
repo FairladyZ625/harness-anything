@@ -12,41 +12,38 @@ const actor = {
   executor: { kind: "agent" as const, id: "executor-session" }
 };
 
-function submitArgs(leaseCredential: string): string[] {
+function submitArgs(): string[] {
   return [
     "task", "submit", "task_RETRY",
     "--execution-id", "exe_RETRY",
-    "--lease-credential", leaseCredential,
     "--claim", "ready",
     "--commit-sha", "b".repeat(40)
   ];
 }
 
 test("submit strict parser rejects unknown and missing command fields", () => {
-  const unknown = parseTaskLifecycleArgs([...submitArgs("lease-1"), "--extra", "ignored"]);
-  const missing = parseTaskLifecycleArgs(submitArgs("lease-1").slice(0, -2));
+  const unknown = parseTaskLifecycleArgs([...submitArgs(), "--extra", "ignored"]);
+  const missing = parseTaskLifecycleArgs(submitArgs().slice(0, -2));
   assert.equal(unknown.ok, false);
   assert.equal(missing.ok, false);
   if (!unknown.ok) assert.equal(unknown.error.code, "unknown_field");
   if (!missing.ok) assert.equal(missing.error.code, "missing_field");
 });
 
-test("refreshed lease credential preserves the same submit intent opId", async () => {
+test("repeated submit intent preserves the same normalized opId", async () => {
   const received: TaskLifecycleServiceInput[] = [];
   const service = {
     execute: async (input: TaskLifecycleServiceInput) => {
       received.push(input);
-      return { outcome: "applied" as const, opId: input.command.opId, revision: 9 };
+      return { outcome: "applied" as const, opId: input.command.opId, revision: 9, evidence: "task-event:event-9" };
     },
-    show: async () => ({ outcome: "applied" as const, evidence: "unused" })
+    show: async () => ({ outcome: "applied" as const, opId: "read:task", revision: 9, evidence: "unused" })
   };
-  for (const token of ["lease-1", "lease-2"]) {
-    const parsed = parseTaskLifecycleArgs(submitArgs(token));
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const parsed = parseTaskLifecycleArgs(submitArgs());
     assert.equal(parsed.ok, true);
-    if (parsed.ok) await runTaskLifecycleFacade(parsed.value, { actor, service });
+    if (parsed.ok) await runTaskLifecycleFacade(parsed.value, { actor, workspaceId: "/workspace", service });
   }
 
-  assert.equal(received[0]?.credential, "lease-1");
-  assert.equal(received[1]?.credential, "lease-2");
   assert.equal(received[1]?.command.opId, received[0]?.command.opId);
 });

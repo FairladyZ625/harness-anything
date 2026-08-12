@@ -7,9 +7,9 @@ export type {
   CreateReplayTaskCommand,
   RecordReviewCommand,
   StartExecutionCommand,
-  SubmitExecutionCommand,
-  TaskLifecycleCommandType
+  SubmitExecutionCommand
 } from "./task-lifecycle.contract.ts";
+export type { TaskLifecycleCommandType } from "./task-write-decision.ts";
 
 export { reviewVerdicts } from "./review.ts";
 export type { ReviewVerdict } from "./review.ts";

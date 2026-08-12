@@ -6,6 +6,8 @@ import {
 } from "./task.ts";
 import type { ActorAxes, ContractValidationIssue } from "./task.ts";
 import type { TaskNodeId } from "./task-graph.ts";
+import { validateWriteSource } from "./write-chain.contract.ts";
+import type { WriteSource } from "./write-chain.contract.ts";
 
 export const executionStates = ["active", "submitted", "accepted", "changes_requested", "abandoned"] as const;
 export type ExecutionState = (typeof executionStates)[number];
@@ -14,10 +16,12 @@ export const executionV1States = ["active", "submitted", "changes_requested", "a
 export type ExecutionV1State = (typeof executionV1States)[number];
 export interface SubmissionV1 { readonly claim: string; readonly deliverables: readonly string[]; readonly evidenceRefs: readonly string[]; readonly verification: readonly string[]; readonly knownGaps: readonly string[]; readonly residualRisks: readonly string[]; readonly commitSha: string }
 export interface ExecutionV1 { readonly schema: "execution/v1"; readonly executionId: string; readonly taskId: string; readonly nodeId: TaskNodeId; readonly iteration: 0 | 1; readonly state: ExecutionV1State; readonly actor: ActorAxes; readonly claimedAt: string; readonly submittedAt: string | null; readonly closedAt: string | null; readonly submission: SubmissionV1 | null }
-export interface LeaseV1 { readonly schema: "lease/v1"; readonly taskId: string; readonly executionId: string; readonly actor: ActorAxes; readonly credentialHash: string; readonly phase: "reserving" | "active" | "released"; readonly expiresAt: string; readonly version: number }
+export interface LeaseHolder { readonly taskId: string; readonly executionId: string; readonly actor: ActorAxes; readonly source: WriteSource }
+export interface LeaseV1 extends LeaseHolder { readonly schema: "lease/v1"; readonly phase: "reserving" | "active" | "orphaned" | "released"; readonly expiresAt: string; readonly ttlMs: number; readonly version: number }
 export const TASK_LEASE_BROKER_CONTRACT = Object.freeze({ capacity: 32 });
 export const EXECUTION_V1_SCHEMA = Object.freeze({ id: "Execution/v1", required: Object.freeze(["schema", "executionId", "taskId", "nodeId", "iteration", "state", "actor", "claimedAt", "submittedAt", "closedAt", "submission"]), states: executionV1States });
-export const LEASE_V1_SCHEMA = Object.freeze({ id: "Lease/v1", required: Object.freeze(["schema", "taskId", "executionId", "actor", "credentialHash", "phase", "expiresAt", "version"]) });
+export const LEASE_V1_SCHEMA = Object.freeze({ id: "Lease/v1", required: Object.freeze(["schema", "taskId", "executionId", "actor", "source", "phase", "expiresAt", "ttlMs", "version"]) });
+const LEASE_HOLDER_FIELDS = ["taskId", "executionId", "actor", "source"] as const;
 export function isNativeCommitSha(value: unknown): value is string {
   return typeof value === "string" && /^[0-9a-f]{40}$/u.test(value);
 }
@@ -50,9 +54,16 @@ export function validateLeaseV1(value: unknown): readonly ContractValidationIssu
   if (!isRecord(value) || !hasOnlyFields(value, LEASE_V1_SCHEMA.required)) return [{ code: "invalid_lease", message: "Lease/v1 fields are incomplete or unknown" }];
   const issues: ContractValidationIssue[] = [];
   if (value.schema !== "lease/v1") issues.push({ code: "invalid_schema", message: "Lease must use lease/v1" });
-  if (!isNonEmptyString(value.taskId) || !isNonEmptyString(value.executionId) || !isNonEmptyString(value.credentialHash)
-    || !isNonEmptyString(value.expiresAt) || !Number.isInteger(value.version) || typeof value.version !== "number" || value.version < 0
-    || !["reserving", "active", "released"].includes(String(value.phase))) issues.push({ code: "invalid_lease", message: "lease identity, phase, or version is invalid" });
-  issues.push(...validateActorAxes(value.actor));
+  if (!isNonEmptyString(value.taskId) || !isNonEmptyString(value.executionId) || !isNonEmptyString(value.expiresAt)
+    || !Number.isInteger(value.ttlMs) || typeof value.ttlMs !== "number" || value.ttlMs < 1
+    || !Number.isInteger(value.version) || typeof value.version !== "number" || value.version < 0
+    || !["reserving", "active", "orphaned", "released"].includes(String(value.phase))
+    || validateWriteSource(value.source).length > 0) issues.push({ code: "invalid_lease", message: "lease holder, lifecycle, or version is invalid" });
+  issues.push(...validateLeaseHolder({ taskId: value.taskId, executionId: value.executionId, actor: value.actor, source: value.source }));
   return issues;
+}
+export function validateLeaseHolder(value: unknown): readonly ContractValidationIssue[] {
+  if (!isRecord(value) || !hasOnlyFields(value, LEASE_HOLDER_FIELDS) || !isNonEmptyString(value.taskId) || !isNonEmptyString(value.executionId)
+    || validateActorAxes(value.actor).length > 0 || validateWriteSource(value.source).length > 0) return [{ code: "invalid_lease_holder", message: "lease holder requires task, execution, actor, and source" }];
+  return [];
 }

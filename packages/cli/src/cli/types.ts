@@ -103,7 +103,6 @@ export type TaskLifecycleCliAction =
       readonly commandType: "SubmitExecution";
       readonly taskId: string;
       readonly executionId: string;
-      readonly leaseCredential: string;
       readonly claim: string;
       readonly deliverables: readonly string[];
       readonly evidenceRefs: readonly string[];
@@ -196,8 +195,6 @@ export interface CliResult {
   readonly origin?: string;
   readonly nextAction?: string;
   readonly evidence?: string;
-  readonly leaseCredential?: string;
-  readonly leaseExpiry?: string;
   readonly summary?: {
     readonly taskCount: number;
     readonly byPackageDisposition: Record<string, number>;
