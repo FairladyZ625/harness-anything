@@ -19,8 +19,8 @@ import {
   EngineBadge,
   FreshnessTag,
 } from "../components/badges";
-import { SAMPLE_MARKDOWN, DOC_CONTENT } from "../model/mock";
 import { DocReader } from "../components/DocReader";
+import { useTaskDocumentQuery } from "../task-data";
 import { OUT_LABEL, IN_LABEL } from "../components/taskDetail/constants";
 import { AxisRow, DocPresence } from "../components/taskDetail/widgets";
 import { PhaseSteps } from "../components/taskDetail/PhaseSteps";
@@ -28,12 +28,13 @@ import { RelationRow } from "../components/taskDetail/RelationRow";
 import { normalizeTaskId, spawningDecisionOf } from "../model/triadic";
 
 function DocBody({
+  taskId,
   path,
-  fallbackPresent,
 }: {
+  taskId: string;
   path: string | null;
-  fallbackPresent: boolean;
 }) {
+  const document = useTaskDocumentQuery(taskId, path);
   if (!path) {
     return (
       <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-strong py-16 text-center">
@@ -43,17 +44,16 @@ function DocBody({
       </div>
     );
   }
-
-  if (!fallbackPresent) {
+  if (document.isPending) {
     return (
       <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-strong py-16 text-center">
         <FileText weight="duotone" className="text-2xl text-text-faint" />
-        <p className="text-[13px] text-text-muted">文档未物化</p>
-        <p className="font-mono text-[11px] text-text-faint">该骨架由 preset 定义</p>
+        <p className="text-[13px] text-text-muted">读取 canonical document projection…</p>
       </div>
     );
   }
-  return <DocReader content={DOC_CONTENT[path] ?? SAMPLE_MARKDOWN} />;
+  if (document.isError) return <p className="text-[13px] text-status-blocked">文档投影读取失败：{document.error.message}</p>;
+  return <><span data-testid="task-document-status" className="mb-3 block font-mono text-[11px] text-text-faint">L2 · {document.data.status}</span>{document.data.status === "ready" ? <DocReader content={document.data.body} /> : <p className="text-[13px] text-text-muted">canonical document projection 尚未追平</p>}</>;
 }
 
 export function TaskDetailView({
@@ -82,7 +82,7 @@ export function TaskDetailView({
   onNavigateEntity?: (ref: string) => void;
 }) {
   const external = isExternal(task);
-  const realDocs = task.docs;
+  const realDocs = task.docs.length ? task.docs : [{ path: "INDEX.md", title: "INDEX", group: "必读" as const, required: true, present: true }];
   // 文档清单只看必读/计划/设计/进度/收口/证据 6 组;其他归入进度(滚动日志)。
   const docGroups = useMemo(
     () => DOC_GROUPS.filter((g) => realDocs.some((d) => d.group === g)),
@@ -222,8 +222,8 @@ export function TaskDetailView({
               )}
             </div>
             <DocBody
+              taskId={task.taskId}
               path={doc?.path ?? null}
-              fallbackPresent={Boolean(doc?.present)}
             />
           </div>
         </article>

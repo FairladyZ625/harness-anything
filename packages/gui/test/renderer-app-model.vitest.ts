@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { TaskProjectionRow } from "../../kernel/src/index.ts";
-import type { DecisionRow } from "../src/renderer/model/types.ts";
+import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
 import {
   buildGuiViewModelFromTaskProjection,
   readGuiTaskDetailResult,
@@ -13,6 +14,8 @@ import {
 import { rendererCapabilityModel, rendererNavigation } from "../src/renderer/app-model.ts";
 import { GraphView } from "../src/renderer/views/GraphView.tsx";
 import { DecisionPoolView } from "../src/renderer/views/DecisionPoolView.tsx";
+import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
+import { taskDocumentQuery } from "../src/renderer/task-data.ts";
 
 describe("renderer app model", () => {
   it("keeps the renderer capability model privilege-free", () => {
@@ -147,6 +150,26 @@ describe("renderer app model", () => {
 
     expect(markup).toContain("triadic-graph-empty-state");
     expect(markup).toContain("暂无三元语关系数据");
+  });
+
+  it("renders the daemon L2 document body and status through the renderer query", async () => {
+    const getTaskDocument = vi.fn(async () => ({ ok: true, status: "ready", taskId: "task-1", path: "INDEX.md",
+      body: "# Canonical renderer document", blobSha256: null, watermark: 7, sourceRevision: 7 }));
+    vi.stubGlobal("window", { harness: { getTaskDocument } });
+    const queryClient = new QueryClient();
+    try {
+      await queryClient.fetchQuery(taskDocumentQuery("task-1", "INDEX.md"));
+      const task: TaskRow = { taskId: "task-1", title: "One", projectId: "project-1", coordinationStatus: "active", rawStatus: "active",
+        freshness: "fresh", packageDisposition: "active", closeoutReadiness: "not_required", engine: "local", source: "snapshot-cache",
+        module: "gui", lastKnownAt: "2026-08-13T00:00:00.000Z", gates: [], docs: [] };
+      const markup = renderToStaticMarkup(createElement(QueryClientProvider, { client: queryClient }, createElement(TaskDetailView,
+        { task, onBack: () => undefined, projectName: "Harness" })));
+      expect(getTaskDocument).toHaveBeenCalledWith({ taskId: "task-1", path: "INDEX.md" });
+      expect(markup).toContain("Canonical renderer document");
+      expect(markup).toContain("L2 · ready");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("keeps the selected decision card visible and focused under all filters", () => {
