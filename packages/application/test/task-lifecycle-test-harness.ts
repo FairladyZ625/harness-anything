@@ -35,7 +35,7 @@ export function lifecycleHarness() {
   const eventStore = makeTaskEventStore({ rootDir, killpoint: (point) => {
     if (point === killAt) { killAt = null; throw new Error(`killpoint:${point}`); }
   } });
-  const realProjection = makeTaskProjection({ rootDir, eventStore });
+  const realProjection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
   let failProjection = false;
   const projection = {
     read: realProjection.read,

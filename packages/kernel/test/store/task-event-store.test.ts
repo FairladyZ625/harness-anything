@@ -2,13 +2,15 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import { serializeTaskEvent, type TaskCreatedEvent } from "../../src/domain/task-lifecycle.contract.ts";
 import { serializeEventHead } from "../../src/domain/write-chain.contract.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
+import { localGitProcessCount } from "../../src/store/local-version-control-system.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
 const event: TaskCreatedEvent = {
@@ -42,13 +44,14 @@ test("event/head publisher commits one immutable event and exact head bytes toge
     const store = makeTaskEventStore({ rootDir });
 
     assert.deepEqual(store.read(), { schema: "task-event-stream/v1", revision: 0, events: [] });
+    const beforePublication = localGitProcessCount();
     const receipt = store.append(event);
     const eventBytes = serializeTaskEvent(event);
     const eventDigest = `sha256:${createHash("sha256").update(eventBytes).digest("hex")}` as const;
     const headBytes = serializeEventHead({ revision: 1, opId: event.opId, eventDigest });
 
     assert.equal(receipt.status, "applied");
-    assert.deepEqual(receipt.metrics, { gitProcesses: 3, nodeSyncs: 6,
+    assert.deepEqual(receipt.metrics, { gitProcesses: localGitProcessCount() - beforePublication, nodeSyncs: 6,
       changedPaths: ["harness/events/head.json", "harness/events/op-1.json"] });
     assert.equal(store.append(event).revision, 1);
     assert.throws(() => store.append({ ...event, payload: { task: { ...event.payload.task, title: "different" } } }), /different event/u);
@@ -85,6 +88,25 @@ test("missing head cannot overwrite immutable event", async () => {
     assert.equal(readFileSync(store.headPath, "utf8"), serializeEventHead(expectedHead!));
     assert.deepEqual(store.read(), { schema: "task-event-stream/v1", revision: 1, events: [event] });
   });
+});
+
+test("symlink event target is rejected before write", async () => {
+  const externalRoot = mkdtempSync(path.join(tmpdir(), "ha-external-events-"));
+  try {
+    await withTempStoreAsync(async (rootDir) => {
+      initRepo(rootDir);
+      mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+      symlinkSync(externalRoot, path.join(rootDir, "harness/events"), "dir");
+      const store = makeTaskEventStore({ rootDir });
+
+      assert.throws(() => store.append(event), /outside the Git repository/u);
+      assert.equal(existsSync(path.join(externalRoot, `${event.opId}.json`)), false);
+      assert.equal(existsSync(path.join(externalRoot, "head.json")), false);
+      assert.equal(existsSync(path.join(rootDir, ".harness/event-publication.json")), false);
+    });
+  } finally {
+    rmSync(externalRoot, { recursive: true, force: true });
+  }
 });
 
 test("publication fsync count includes the instrumented Git process and stays within the hard budget", { skip: process.platform !== "darwin" }, async (context) => {

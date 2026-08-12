@@ -1,12 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { runTaskLifecycleEffect } from "../../application/src/index.ts";
-import { makeJournaledWriteCoordinator, makeTaskEventStore, REPLAY_TASK_GRAPH, type TaskEventV1 } from "../../kernel/src/index.ts";
+import { applyTransition, makeJournaledWriteCoordinator, makeTaskEventStore, normalizeTaskLifecycleCommand, REPLAY_TASK_GRAPH, type TaskEventV1 } from "../../kernel/src/index.ts";
 import type { CommandRunnerContext } from "../src/cli/runner-registry.ts";
 import type { ParsedCommand, TaskLifecycleCliAction } from "../src/cli/types.ts";
 import { makeLocalGateReceiptVerifier, verifySignedAntiEntropyReceipt } from "../src/cli/task-lifecycle-authority.ts";
@@ -87,6 +87,67 @@ test("host binds the lease to the authenticated actor, execution, and version", 
     const submitted = await runTaskLifecycleFacade(submit, { actor, workspaceId: rootDir, service: host });
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("expired lease cannot authorize submit", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-host-expired-"));
+  try {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ rootDir });
+    const empty = { revision: 0, task: null, executions: [], reviews: [], edgesTaken: [], lease: null } as const;
+    const create = { ...normalizeTaskLifecycleCommand({ workspaceId: rootDir, actor, source: "local", expectedRevision: 0 }, {
+      type: "CreateReplayTask" as const, taskId: "task_EXPIRED", title: "Expired lease task", graph: REPLAY_TASK_GRAPH, completionGateIds: []
+    }), eventId: "event-expired-create", workspaceRevision: 1, occurredAt: "2099-01-01T00:00:00.000Z" };
+    const created = applyTransition(empty, create, { taskIdUnique: true, actorBinding: actor });
+    const start = { ...normalizeTaskLifecycleCommand({ workspaceId: rootDir, actor, source: "local", expectedRevision: 1 }, {
+      type: "StartExecution" as const, taskId: "task_EXPIRED", executionId: "execution_EXPIRED"
+    }), eventId: "event-expired-start", workspaceRevision: 2, occurredAt: "2099-01-01T00:01:00.000Z" };
+    const started = applyTransition(created.snapshot, start, { actorBinding: actor, reservation: {
+      taskId: start.taskId, executionId: start.executionId, expiresAt: "2099-01-01T00:30:00.000Z", ttlMs: 1_800_000,
+      previousHolder: null, reason: "initial_claim", version: 1
+    } });
+    eventStore.append(created.event); eventStore.append(started.event);
+    const makeWithClock = makeTaskLifecycleHost as unknown as (context: CommandRunnerContext, now: () => string) => ReturnType<typeof makeTaskLifecycleHost>;
+    const host = makeWithClock(runnerContext(rootDir, actor, {}), () => "2099-01-01T01:00:00.000Z");
+
+    const shown = await host.show({ taskId: "task_EXPIRED" });
+    assert.equal(JSON.parse(shown.evidence ?? "{}").lease?.phase, "orphaned");
+    const submit = parsed(["task", "submit", "task_EXPIRED", "--execution-id", "execution_EXPIRED", "--claim", "late", "--commit-sha", "a".repeat(40)]);
+    const receipt = await runTaskLifecycleFacade(submit, { actor, workspaceId: rootDir, service: host });
+    assert.equal(receipt.outcome, "rejected");
+    assert.equal(receipt.code, "lease_actor_mismatch");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("complete CLI write counts every Git process", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-host-git-count-"));
+  const previousPath = process.env.PATH, previousCountPath = process.env.HA_TEST_GIT_COUNT, previousRealGit = process.env.HA_TEST_REAL_GIT;
+  try {
+    initRepo(rootDir);
+    const realGit = (previousPath ?? "").split(path.delimiter).map((entry) => path.join(entry, "git")).find(existsSync);
+    assert.ok(realGit, "git executable is available");
+    const shimDir = path.join(rootDir, "git-shim"), countPath = path.join(shimDir, "calls");
+    mkdirSync(shimDir); writeFileSync(countPath, "", "utf8");
+    writeFileSync(path.join(shimDir, "git"), "#!/bin/sh\nprintf '1\\n' >> \"$HA_TEST_GIT_COUNT\"\nexec \"$HA_TEST_REAL_GIT\" \"$@\"\n", "utf8");
+    chmodSync(path.join(shimDir, "git"), 0o755); process.env.PATH = `${shimDir}${path.delimiter}${previousPath ?? ""}`;
+    process.env.HA_TEST_GIT_COUNT = countPath; process.env.HA_TEST_REAL_GIT = realGit;
+    const count = () => readFileSync(countPath, "utf8").split("\n").filter(Boolean).length;
+    const beforeStore = count();
+    const host = makeTaskLifecycleHost(runnerContext(rootDir, actor, {}));
+    const afterStore = count();
+    const create = parsed(["task", "create", "--task-id", "task_COUNT", "--title", "Counted task"]);
+    assert.equal((await runTaskLifecycleFacade(create, { actor, workspaceId: rootDir, service: host })).outcome, "applied");
+    const afterPublication = count();
+
+    assert.equal(afterStore - beforeStore, 4, "store construction Git processes are a separate phase");
+    assert.equal(afterPublication - afterStore, 3, "publication phase measures fast-import/update-ref/update-index");
+    assert.equal(afterPublication - beforeStore, 7, "the complete CLI phase counts store construction plus publication");
+  } finally {
+    setEnv("PATH", previousPath); setEnv("HA_TEST_GIT_COUNT", previousCountPath); setEnv("HA_TEST_REAL_GIT", previousRealGit);
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
@@ -249,3 +310,4 @@ function initRepo(rootDir: string): void {
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
+function setEnv(name: string, value: string | undefined): void { if (value === undefined) delete process.env[name]; else process.env[name] = value; }

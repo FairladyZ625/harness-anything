@@ -4,7 +4,7 @@ import { serializeEventHead, type EventHead } from "../domain/write-chain.contra
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localEventFileSystem } from "../local/local-layout-file-system.ts";
-import { finalizeLocalEventCommit, localGitText, prepareLocalEventCommit } from "./local-version-control-system.ts";
+import { finalizeLocalEventCommit, localGitProcessCount, localGitText, normalizeLocalPath, prepareLocalEventCommit } from "./local-version-control-system.ts";
 
 export type TaskEventStoreErrorCode = "invalid_store" | "legacy_shape" | "op_conflict" | "revision_conflict" | "publication_indeterminate";
 
@@ -68,7 +68,7 @@ export function makeTaskEventStore(options: { readonly rootInput?: HarnessLayout
     return candidate !== null && head !== null && candidate.workspaceRevision <= head.revision ? candidate : null;
   };
   const read = () => readTaskEventFiles(eventsRoot, readHead());
-  const rebuildHead = () => {
+  const rebuildHead = () => { relative(repoRoot, headPath);
     const head = deriveEventHead(readTaskEventFiles(eventsRoot, undefined).events);
     if (head !== null) localEventFileSystem.writeDurably(headPath, serializeEventHead(head));
     return head;
@@ -81,13 +81,14 @@ export function makeTaskEventStore(options: { readonly rootInput?: HarnessLayout
     readEvent,
     readBatch: (cursor, maxItems) => readEventFileBatch(eventsRoot, readHead(), cursor, maxItems),
     append: (event) => {
-      const eventBytes = serializeTaskEvent(event);
+      const gitStarted = localGitProcessCount(), eventBytes = serializeTaskEvent(event);
       const targetPath = eventPath(eventsRoot, event.opId);
+      const relativeEvent = relative(repoRoot, targetPath), relativeHead = relative(repoRoot, headPath); relative(layout.rootDir, pendingPath);
       const existing = readEventFile(targetPath);
       if (existing !== null) {
         if (serializeTaskEvent(existing) !== eventBytes) throw new TaskEventStoreError("op_conflict", `opId ${event.opId} already names a different event`);
         if (readHead() === null) rebuildHead();
-        return existingReceipt(repoRoot, event);
+        return existingReceipt(repoRoot, event, gitStarted);
       }
       const previousHead = readHead();
       if (event.workspaceRevision !== (previousHead?.revision ?? 0) + 1) {
@@ -100,7 +101,7 @@ export function makeTaskEventStore(options: { readonly rootInput?: HarnessLayout
       options.killpoint?.("before_event_write");
       syncs.count += localEventFileSystem.writeDurably(targetPath, eventBytes);
       options.killpoint?.("after_event_write");
-      const relativeEvent = relative(repoRoot, targetPath), relativeHead = `${path.posix.dirname(relativeEvent)}/head.json`, changedPaths = [relativeEvent, relativeHead].sort();
+      const changedPaths = [relativeEvent, relativeHead].sort();
       const preparedRef = publicationRef(event.opId);
       const headBytes = serializeEventHead(head), preparedSha = prepareLocalEventCommit(repoRoot, preparedRef, parentSha, changedPaths.map((target) => ({ target, body: target === relativeEvent ? eventBytes : headBytes })), event.opId);
       syncs.count += localEventFileSystem.writeDurably(headPath, headBytes);
@@ -111,13 +112,13 @@ export function makeTaskEventStore(options: { readonly rootInput?: HarnessLayout
       localEventFileSystem.remove(pendingPath);
       localEventFileSystem.remove(looseRefPath(commonDir, preparedRef));
       return { status: "applied", event, revision: event.workspaceRevision, commitSha: preparedSha,
-        metrics: { gitProcesses: 3, nodeSyncs: syncs.count, changedPaths } };
+        metrics: { gitProcesses: localGitProcessCount() - gitStarted, nodeSyncs: syncs.count, changedPaths } };
     },
     recover: () => {
-      const started = performance.now();
+      const started = performance.now(); relative(layout.rootDir, pendingPath); relative(repoRoot, headPath);
       const pending = readPending(pendingPath);
       if (pending === null) return { status: "none", publications: 0, elapsedMs: performance.now() - started };
-      const eventFile = eventPath(eventsRoot, pending.event.opId);
+      const eventFile = eventPath(eventsRoot, pending.event.opId); relative(repoRoot, eventFile);
       const preparedPath = looseRefPath(commonDir, publicationRef(pending.event.opId));
       if (!localEventFileSystem.exists(eventFile) && sameHead(readHead(), pending.previousHead)) {
         localEventFileSystem.remove(pendingPath); localEventFileSystem.remove(preparedPath);
@@ -159,9 +160,9 @@ export function makeTaskEventStore(options: { readonly rootInput?: HarnessLayout
   };
 }
 
-function existingReceipt(repoRoot: string, event: TaskEventV1): TaskEventAppendReceipt {
+function existingReceipt(repoRoot: string, event: TaskEventV1, gitStarted: number): TaskEventAppendReceipt {
   return { status: "applied", event, revision: event.workspaceRevision, commitSha: localGitText(repoRoot, "rev-parse", "HEAD").trim(),
-    metrics: { gitProcesses: 1, nodeSyncs: 0, changedPaths: [] } };
+    metrics: { gitProcesses: localGitProcessCount() - gitStarted, nodeSyncs: 0, changedPaths: [] } };
 }
 
 function readPending(pendingPath: string): PendingPublication | null {
@@ -251,7 +252,7 @@ function eventPath(eventsRoot: string, opId: string): string {
 }
 
 function relative(repoRoot: string, filePath: string): string {
-  const value = path.relative(repoRoot, localEventFileSystem.realpath(filePath)).split(path.sep).join("/");
+  const value = path.relative(normalizeLocalPath(repoRoot), normalizeLocalPath(filePath)).split(path.sep).join("/");
   if (value.startsWith("../") || path.isAbsolute(value)) throw new TaskEventStoreError("invalid_store", "event target is outside the Git repository");
   return value;
 }

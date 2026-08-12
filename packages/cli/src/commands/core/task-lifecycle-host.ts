@@ -16,11 +16,11 @@ export const runTaskLifecycleFacadeCommand: CommandRunner = (context, command) =
   });
   return cliResult(command.action, receipt);
 });
-export function makeTaskLifecycleHost(context: CommandRunnerContext): TaskLifecycleServicePort {
+export function makeTaskLifecycleHost(context: CommandRunnerContext, now: () => string = () => new Date().toISOString()): TaskLifecycleServicePort {
   const eventStore = makeTaskEventStore({ rootInput: context.layoutInput });
   const recovery = eventStore.recover();
   if (recovery.status === "indeterminate") throw hostError("publication_indeterminate", "The pending event/head pair could not be proven; inspect it before retrying the lifecycle command.");
-  const projection = makeTaskProjection({ rootDir: context.rootDir, eventStore });
+  const projection = makeTaskProjection({ rootDir: context.rootDir, eventStore, now });
   const service = makeTaskLifecycleService({ eventStore, projection });
   return {
     show: async ({ taskId }) => {
@@ -34,7 +34,7 @@ export function makeTaskLifecycleHost(context: CommandRunnerContext): TaskLifecy
       };
     },
     execute: async (input) => {
-      const existing = eventStore.readEvent(input.command.opId), command = withServerMeta(input.command, existing, eventStore.readHead()?.revision ?? 0), read = await service.read(command.taskId);
+      const existing = eventStore.readEvent(input.command.opId), command = withServerMeta(input.command, existing, eventStore.readHead()?.revision ?? 0, now()), read = await service.read(command.taskId);
       const result = await service.execute(command, await proofFor(context, command, input, read.snapshot));
       return operationReceipt(command, result);
     }
@@ -42,19 +42,19 @@ export function makeTaskLifecycleHost(context: CommandRunnerContext): TaskLifecy
 }
 function withServerMeta(command: TaskLifecycleServiceInput["command"], existing: {
   readonly eventId: string; readonly workspaceRevision: number; readonly occurredAt: string;
-} | null, revision: number): TaskLifecycleCommand {
+} | null, revision: number, now: string): TaskLifecycleCommand {
   return { ...command, eventId: existing?.eventId ?? `event-${createHash("sha256").update(command.opId).digest("hex")}`,
-    workspaceRevision: existing?.workspaceRevision ?? revision + 1, occurredAt: existing?.occurredAt ?? new Date().toISOString() } as TaskLifecycleCommand;
+    workspaceRevision: existing?.workspaceRevision ?? revision + 1, occurredAt: existing?.occurredAt ?? now } as TaskLifecycleCommand;
 }
 async function proofFor(context: CommandRunnerContext, command: TaskLifecycleCommand, input: TaskLifecycleServiceInput,
   snapshot: Snapshot): Promise<TaskLifecycleServiceProof<typeof command>> {
   if (command.type === "CreateReplayTask") return { taskIdUnique: true, actorBinding: command.actor };
   if (command.type === "StartExecution") {
-    return { actorBinding: command.actor, reservation: { taskId: command.taskId, executionId: command.executionId, expiresAt: new Date(Date.now() + leaseTtlMs).toISOString(), ttlMs: leaseTtlMs } };
+    return { actorBinding: command.actor, reservation: { taskId: command.taskId, executionId: command.executionId, expiresAt: new Date(Date.parse(command.occurredAt) + leaseTtlMs).toISOString(), ttlMs: leaseTtlMs } };
   }
   if (command.type === "SubmitExecution") {
     const lease = snapshot.lease;
-    if (lease === null || lease.taskId !== command.taskId || lease.executionId !== command.executionId || !sameActor(lease.actor, command.actor)) {
+    if (lease === null || lease.phase !== "active" || lease.taskId !== command.taskId || lease.executionId !== command.executionId || !sameActor(lease.actor, command.actor)) {
       throw hostError("lease_actor_mismatch", "Submit requires the active lease bound to this authenticated actor and execution.");
     }
     return { actorBinding: command.actor, leaseVersion: lease.version, sessionDisposition: "unavailable" };
@@ -122,8 +122,8 @@ function operationReceipt(command: TaskLifecycleCommand, result: Awaited<ReturnT
   if (result.outcome === "pending") return { outcome: "pending", opId: command.opId, revision: result.revision,
     evidence: result.evidence ?? `task-revision:${result.revision}`, visibility: result.visibility, proof: result.proof,
     nextAction: result.nextAction ?? `Retry \`ha task show ${command.taskId}\` after projection catch-up.` };
-  return { outcome: "indeterminate", opId: command.opId, revision: result.revision, code: "publication_unknown", origin: "N/A",
-    visibility: "center", nextAction: result.nextAction ?? `Run \`ha task show ${command.taskId}\` before retrying.` };
+  return { outcome: "indeterminate", opId: command.opId, code: result.code ?? "publication_unknown", origin: "N/A",
+    nextAction: result.nextAction ?? `Run \`ha task show ${command.taskId}\` before retrying.` };
 }
 function sameActor(left: TaskLifecycleCommand["actor"], right: TaskLifecycleCommand["actor"]): boolean {
   return left.principal.personId === right.principal.personId && left.executor?.kind === right.executor?.kind && left.executor?.id === right.executor?.id;

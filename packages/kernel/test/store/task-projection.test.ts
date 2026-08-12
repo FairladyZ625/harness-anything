@@ -14,7 +14,7 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ rootDir });
-    const projection = makeTaskProjection({ rootDir, eventStore });
+    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     for (const event of lifecycleFixture().events) {
       eventStore.append(event);
       assert.deepEqual(projection.apply(event).metrics, { sqliteTransactions: 1, reducedItems: 1 });
@@ -57,7 +57,7 @@ test("projection catch-up processes at most one 64-item/100ms round and never re
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ rootDir });
     for (const event of lifecycleFixture().events) eventStore.append(event);
-    const projection = makeTaskProjection({ rootDir, eventStore, catchUpLimit: 2 });
+    const projection = makeTaskProjection({ rootDir, eventStore, catchUpLimit: 2, now: () => "2026-08-11T00:30:00.000Z" });
 
     let previousWatermark = 0;
     for (let round = 0; round < 6; round += 1) {
@@ -77,7 +77,7 @@ test("lease CAS rejects stale renew/release, marks expiry orphaned, and permits 
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ rootDir });
-    const projection = makeTaskProjection({ rootDir, eventStore });
+    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const fixture = lifecycleFixture();
     eventStore.append(fixture.events[0]!);
     projection.apply(fixture.events[0]!);
@@ -103,7 +103,7 @@ test("renewed lease survives database rebuild", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ rootDir });
-    const projection = makeTaskProjection({ rootDir, eventStore });
+    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const [created, started] = lifecycleFixture().events;
     if (created === undefined || started?.type !== "execution_started") throw new Error("fixture requires start event");
     eventStore.append(created); projection.apply(created);

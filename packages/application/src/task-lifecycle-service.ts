@@ -39,7 +39,7 @@ export function makeTaskLifecycleService(options: { readonly eventStore: EventSt
       return receiptFromRead(await read(command.taskId), existing, plan);
     }
     const current = await read(command.taskId);
-    if (current.status !== "ready" && (command.type !== "CreateReplayTask" || current.snapshot.task !== null)) return pendingReceipt(current, plan, command.opId, "projection catch-up is pending");
+    if (current.status !== "ready" && (command.type !== "CreateReplayTask" || current.snapshot.task !== null)) return { outcome: "indeterminate", opId: command.opId, code: "operation_not_published", origin: "N/A", snapshot: current.snapshot, frozenPlan: plan, nextAction: "retry task lifecycle read: projection catch-up is pending" };
     const claim = command.type === "StartExecution" ? reserveClaim(options.projection, command, proof as TaskLifecycleServiceProof<StartCommand>) : null;
     const event = applyTransition(current.snapshot, command, (claim?.proof ?? proof) as ProofFor<C>).event;
     try { plannedPublication(plan, event, () => options.eventStore.append(event)); }
@@ -64,7 +64,7 @@ async function renewTaskLease(options: { readonly eventStore: EventStorePort; re
     if (options.projection.readOperation(input.opId) === null) options.projection.apply(existing);
     const replayed = options.projection.currentLease(input.taskId); if (replayed === null) throw new TaskLifecycleOperationConflict(`renewed lease ${input.opId} is not readable`); return replayed;
   }
-  const current = options.projection.currentLease(input.taskId, input.occurredAt);
+  const current = options.projection.currentLease(input.taskId);
   if (current === null || current.phase !== "active" || current.executionId !== input.executionId || !sameActor(current.actor, input.actor)
     || json(current.source) !== json(input.source) || current.version !== input.expectedVersion) throw new TaskLifecycleOperationConflict(`stale lease CAS for task ${input.taskId}`);
   const state = await read(input.taskId), task = state.snapshot.task, execution = state.snapshot.executions.find((candidate) => candidate.executionId === input.executionId);
@@ -107,8 +107,8 @@ function receiptFromRead(read: TaskLifecycleServiceRead, event: TaskEventV1, pla
     evidence: `event-file:${event.opId}`, visibility: "center", proof: { committedRevision: event.workspaceRevision, appliedCut: event.workspaceRevision }, snapshot: read.snapshot, frozenPlan: plan }
     : pendingReceipt(read, plan, event.opId, "projection catch-up is pending", event);
 }
-function pendingReceipt(read: TaskLifecycleServiceRead, plan: FrozenWritePlan<TaskLifecycleCommand["type"]>, opId: string, reason: string, event?: TaskEventV1): WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot, TaskLifecycleCommand["type"]> {
-  const revision = event?.workspaceRevision ?? read.sourceRevision; return { outcome: "pending", opId, ...(event ? { event } : {}), revision, evidence: `event-file:${opId}`,
+function pendingReceipt(read: TaskLifecycleServiceRead, plan: FrozenWritePlan<TaskLifecycleCommand["type"]>, opId: string, reason: string, event: TaskEventV1): WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot, TaskLifecycleCommand["type"]> {
+  const revision = event.workspaceRevision; return { outcome: "pending", opId, event, revision, evidence: `event-file:${opId}`,
     visibility: "center", proof: { committedRevision: revision, appliedCut: read.watermark }, snapshot: read.snapshot, frozenPlan: plan, nextAction: `retry task lifecycle read: ${reason}` };
 }
 function eventMatchesOperation<C extends TaskLifecycleCommand>(event: TaskEventV1, command: C, proof: ProofFor<C>): boolean { return json(operationIdentityFromEvent(event)) === json(operationIdentityFromCommand(command, proof)); }

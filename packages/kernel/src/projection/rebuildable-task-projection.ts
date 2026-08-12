@@ -39,36 +39,36 @@ export interface TaskProjection {
 export function defaultLifecycleTaskProjectionPath(rootDir: string): string { return path.join(path.resolve(rootDir), ".harness/cache/task.sqlite"); }
 
 export function makeTaskProjection(options: { readonly rootDir: string; readonly eventStore: EventStreamPort;
-  readonly projectionPath?: string; readonly catchUpLimit?: number }): TaskProjection {
+  readonly projectionPath?: string; readonly catchUpLimit?: number; readonly now?: () => string }): TaskProjection {
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
-  const limit = options.catchUpLimit ?? 64;
+  const limit = options.catchUpLimit ?? 64, now = options.now ?? (() => new Date().toISOString());
   if (!Number.isInteger(limit) || limit < 1 || limit > 64) throw new Error("task projection catch-up limit must be between 1 and 64");
   return {
     path: projectionPath,
     apply: (event) => withDatabase(projectionPath, (db) => reduceBatch(db, [event], limit)),
     rebuild: () => rebuildProjection(projectionPath, options.eventStore, limit),
-    read: (taskId) => readProjection(projectionPath, options.eventStore, taskId, limit),
+    read: (taskId) => readProjection(projectionPath, options.eventStore, taskId, limit, now),
     readOperation: (opId) => withDatabase(projectionPath, (db) => {
       const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as { readonly event_json: string } | undefined;
       return row === undefined ? null : { event: JSON.parse(row.event_json) as TaskEventV1, watermark: watermark(db) };
     }),
     readLeaseIntervals: (taskId) => withDatabase(projectionPath, (db) => readIntervals(db, taskId)),
-    currentLease: (taskId, now) => withDatabase(projectionPath, (db) => now === undefined ? storedLease(db, taskId) : transaction(db, () => effectiveLease(db, taskId, now))),
+    currentLease: (taskId, at) => withDatabase(projectionPath, (db) => effectiveLease(db, taskId, at ?? now())),
     reserveLease: (lease, now) => withDatabase(projectionPath, (db) => transaction(db, () => reserve(db, lease, now))),
-    activateLease: (lease) => withDatabase(projectionPath, (db) => transaction(db, () => changeLease(db, lease, "active", lease.expiresAt))),
-    renewLease: (lease, expiresAt) => withDatabase(projectionPath, (db) => transaction(db, () => changeLease(db, lease, "active", expiresAt))),
-    releaseLease: (lease) => withDatabase(projectionPath, (db) => transaction(db, () => changeLease(db, lease, "released", lease.expiresAt)))
+    activateLease: (lease) => withDatabase(projectionPath, (db) => transaction(db, () => changeLease(db, lease, "active", lease.expiresAt, now()))),
+    renewLease: (lease, expiresAt) => withDatabase(projectionPath, (db) => transaction(db, () => changeLease(db, lease, "active", expiresAt, now()))),
+    releaseLease: (lease) => withDatabase(projectionPath, (db) => transaction(db, () => changeLease(db, lease, "released", lease.expiresAt, now())))
   };
 }
 
-function readProjection(projectionPath: string, eventStore: EventStreamPort, taskId: string, limit: number): TaskProjectionRead {
+function readProjection(projectionPath: string, eventStore: EventStreamPort, taskId: string, limit: number, now: () => string): TaskProjectionRead {
   const started = performance.now();
   const existed = localRuntimeStateFileSystem.exists(projectionPath);
   return withDatabase(projectionPath, (db) => {
     const round = catchUpRound(db, eventStore, limit);
     const current = watermark(db);
     const elapsedMs = performance.now() - started;
-    return { status: current === round.sourceRevision ? "ready" : "pending", snapshot: readSnapshot(db, taskId), watermark: current,
+    return { status: current === round.sourceRevision ? "ready" : "pending", snapshot: readSnapshot(db, taskId, now()), watermark: current,
       sourceRevision: round.sourceRevision, warnings: !existed && round.sourceRevision > 0 ? ["projection_missing"] : [],
       catchUp: { deadlineMs: 100, maxItems: 64, elapsedMs, reducedItems: round.reducedItems, sqliteTransactions: round.sqliteTransactions } };
   });
@@ -221,13 +221,13 @@ function replayRelease(db: DatabaseSync, taskId: string, executionId: string, re
   db.prepare("UPDATE lease_interval SET released_revision = ? WHERE task_id = ? AND execution_id = ? AND released_revision IS NULL").run(revision, taskId, executionId);
 }
 
-function readSnapshot(db: DatabaseSync, taskId: string): TaskLifecycleSnapshot {
+function readSnapshot(db: DatabaseSync, taskId: string, now?: string): TaskLifecycleSnapshot {
   const row = db.prepare("SELECT snapshot_json FROM task_snapshot WHERE task_id = ?").get(taskId) as { readonly snapshot_json: string } | undefined;
   if (row === undefined) return emptyTaskLifecycleSnapshot();
   let snapshot: TaskLifecycleSnapshot;
   try { snapshot = JSON.parse(row.snapshot_json) as TaskLifecycleSnapshot; } catch { throw new Error(`projection snapshot mismatch for task ${taskId}`); }
-  const lease = storedLease(db, taskId);
-  return { ...snapshot, lease: lease?.phase === "active" || lease?.phase === "reserving" ? lease : null };
+  const lease = now === undefined ? storedLease(db, taskId) : effectiveLease(db, taskId, now);
+  return { ...snapshot, lease: lease?.phase === "released" ? null : lease };
 }
 
 function readIntervals(db: DatabaseSync, taskId: string): readonly LeaseInterval[] {
@@ -250,8 +250,8 @@ function reserve(db: DatabaseSync, lease: LeaseV1, now: string): LeaseV1 {
   return lease;
 }
 
-function changeLease(db: DatabaseSync, expected: LeaseV1, phase: "active" | "released", expiresAt: string): LeaseV1 {
-  const current = storedLease(db, expected.taskId);
+function changeLease(db: DatabaseSync, expected: LeaseV1, phase: "active" | "released", expiresAt: string, now: string): LeaseV1 {
+  const current = effectiveLease(db, expected.taskId, now);
   const allowed = phase === "released" ? ["reserving", "active"] : expected.phase === "reserving" ? ["reserving"] : ["active"];
   if (current === null || current.executionId !== expected.executionId || canonicalJson(current.actor) !== canonicalJson(expected.actor)
     || canonicalJson(current.source) !== canonicalJson(expected.source) || current.version !== expected.version || !allowed.includes(current.phase)) {
@@ -265,11 +265,7 @@ function changeLease(db: DatabaseSync, expected: LeaseV1, phase: "active" | "rel
 function effectiveLease(db: DatabaseSync, taskId: string, now: string): LeaseV1 | null {
   const current = storedLease(db, taskId);
   if (current === null || current.phase === "released") return current;
-  if (current.expiresAt <= now && current.phase !== "orphaned") {
-    const orphaned = checkedLease({ ...current, phase: "orphaned" });
-    runSql(db, "UPDATE lease_cas SET lease_json = ? WHERE task_id = ?", canonicalJson(orphaned), taskId);
-    return orphaned;
-  }
+  if (current.expiresAt <= now && current.phase !== "orphaned") return checkedLease({ ...current, phase: "orphaned" });
   return current;
 }
 

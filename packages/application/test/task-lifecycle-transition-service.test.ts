@@ -20,7 +20,7 @@ test("transition service freezes targets and makes create/start idempotent by op
   try {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ rootDir });
-    const projection = makeTaskProjection({ rootDir, eventStore });
+    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const service = makeTaskLifecycleService({ eventStore, projection });
     const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: "task-1", title: "Replay task", graph: replayGraph,
       completionGateIds: [] }, { eventId: "event-create", workspaceRevision: 1, occurredAt: "2026-08-11T00:00:00.000Z" });
@@ -55,7 +55,7 @@ test("second distinct task create uses aggregate revision zero in a non-empty wo
   try {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ rootDir });
-    const projection = makeTaskProjection({ rootDir, eventStore });
+    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const service = makeTaskLifecycleService({ eventStore, projection });
     const create = (taskId: string, title: string, revision: number) => command(rootDir, {
       type: "CreateReplayTask" as const, taskId, title, graph: replayGraph, completionGateIds: []
@@ -69,6 +69,31 @@ test("second distinct task create uses aggregate revision zero in a non-empty wo
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("pending without an event uses an honest receipt", async () => {
+  let appendCalls = 0;
+  const snapshot = { revision: 0, task: null, executions: [], reviews: [], edgesTaken: [], lease: null } as const;
+  const read = { status: "pending" as const, snapshot, watermark: 0, sourceRevision: 1, warnings: [] };
+  const service = makeTaskLifecycleService({
+    eventStore: { readEvent: () => null, append: (candidate) => { appendCalls += 1; return { status: "applied" as const, event: candidate, revision: candidate.workspaceRevision }; } },
+    projection: { read: () => read, readOperation: () => null, currentLease: () => null,
+      reserveLease: (lease) => lease, activateLease: (lease) => lease, renewLease: (lease) => lease, releaseLease: (lease) => lease,
+      apply: () => ({ metrics: { reducedItems: 0 } }) }
+  });
+  const start = command("workspace", { type: "StartExecution" as const, taskId: "task-pending", executionId: "execution-pending" },
+    { eventId: "event-pending", workspaceRevision: 1, occurredAt: "2026-08-12T00:00:00.000Z" });
+  const receipt = await service.execute(start, { actorBinding: actor,
+    reservation: { taskId: start.taskId, executionId: start.executionId, expiresAt: "2026-08-12T00:30:00.000Z", ttlMs: 1_800_000 } });
+
+  assert.equal(appendCalls, 0);
+  assert.equal(receipt.outcome, "indeterminate");
+  assert.equal(receipt.code, "operation_not_published");
+  assert.equal(receipt.origin, "N/A");
+  assert.equal("evidence" in receipt, false);
+  assert.equal("revision" in receipt, false);
+  assert.equal("proof" in receipt, false);
+  assert.match(receipt.nextAction ?? "", /retry.*read/iu);
 });
 
 test("10,000 old events do not block a new write", async (context) => {
@@ -98,7 +123,7 @@ test("10,000 old events do not block a new write", async (context) => {
       phase.maxAccessedItems = Math.max(phase.maxAccessedItems, batch.accessedItems);
       return batch;
     } };
-    const projection = makeTaskProjection({ rootDir, eventStore: boundedEventStore });
+    const projection = makeTaskProjection({ rootDir, eventStore: boundedEventStore, now: () => "2026-08-12T00:00:00.000Z" });
     const service = makeTaskLifecycleService({
       eventStore: { ...boundedEventStore, append: (candidate) => {
         const phaseStarted = performance.now(); try { return eventStore.append(candidate); } finally { phase.appendMs += performance.now() - phaseStarted; }
@@ -179,7 +204,7 @@ test("SQLite/response killpoints reconstruct the exact applied receipt by opId w
     try {
       initRepo(rootDir);
       const eventStore = makeTaskEventStore({ rootDir });
-      const projection = makeTaskProjection({ rootDir, eventStore });
+      const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
       let armed = true;
       const interrupted = makeTaskLifecycleService({ eventStore, projection, killpoint: (candidate) => {
         if (armed && candidate === point) { armed = false; throw new Error(`killpoint:${point}`); }
@@ -213,7 +238,7 @@ test("lease broker capacity ceiling rejects concurrent exhaustion and release re
   try {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ rootDir });
-    const projection = makeTaskProjection({ rootDir, eventStore });
+    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const lease = (id: string) => ({ schema: "lease/v1" as const, taskId: `task-${id}`, executionId: `execution-${id}`, actor, source: "local" as const,
       phase: "reserving" as const, expiresAt: "2026-08-11T01:00:00.000Z", ttlMs: 1_800_000, version: 0 });
     for (let index = 0; index < TASK_LEASE_BROKER_CONTRACT.capacity; index += 1) {
