@@ -10,7 +10,7 @@ import { discoverDeclaredEntityRows, projectDeclaredEntities, readDeclaredProjec
 import { buildCheckReport, hardFail, runPostMergeChecks, warning } from "./post-merge-checks.ts";
 import type { FactAnchorRow, RelationCoverageRow, RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import { buildRelationGraphProjection } from "./relation-graph-projection.ts";
-import { projectionVersion, queryDecisionProjectionRows, queryTaskChildrenRows, queryTaskProjectionRows, readRelationGraphRows, writeProjectionDatabase, tryReadProjectionDatabase } from "./sqlite-projection-store.ts";
+import { projectionVersion, queryDecisionProjectionRows, queryTaskChildrenRows, readRelationGraphRows, writeProjectionDatabase, tryReadProjectionDatabase } from "./sqlite-projection-store.ts";
 import { compareDecisionRows, hashDecisionProjectionRows, readDecisionProjectionRows } from "./sqlite-decision-source.ts";
 import { compareRows, hashExactRows, readMarkdownSource, taskEntryToRow } from "./sqlite-task-source.ts";
 export { hashTaskProjectionRows } from "./sqlite-task-source.ts";
@@ -39,8 +39,7 @@ import type {
   DecisionProjectionRow,
   ProjectionCheckResult,
   ProjectionReadResult,
-  TaskProjectionOptions,
-  TaskProjectionQueryFilters
+  TaskProjectionOptions
 } from "./types.ts";
 
 export function defaultTaskProjectionPath(rootDir: string): string {
@@ -186,25 +185,6 @@ function declaredProjectionMatches(rootInput: ReturnType<typeof createHarnessRun
     );
   } catch {
     return false;
-  }
-}
-
-export function queryTaskProjection(options: TaskProjectionOptions & { readonly filters: TaskProjectionQueryFilters }): ProjectionReadResult {
-  const rootDir = path.resolve(options.rootDir);
-  const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
-  const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
-  const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-  try {
-    return {
-      rows: queryTaskProjectionRows(projectionPath, options.filters, options.taskFieldExtensions),
-      warnings: projection.warnings
-    };
-  } catch {
-    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-    return {
-      rows: queryTaskProjectionRows(projectionPath, options.filters, options.taskFieldExtensions),
-      warnings: [...projection.warnings, ...rebuilt.warnings]
-    };
   }
 }
 

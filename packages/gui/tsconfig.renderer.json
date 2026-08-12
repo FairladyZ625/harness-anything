@@ -35,6 +35,9 @@
     },
     {
       "path": "../application"
+    },
+    {
+      "path": "../daemon"
     }
   ]
 }

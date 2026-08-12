@@ -99,7 +99,7 @@ function AppShell() {
   const tasksQuery = useTasksQuery();
   const triadicQuery = useTriadicProjectionQuery();
   const realTasks = useMemo(
-    () => adaptProjectionRows(tasksQuery.data?.tasks ?? []),
+    () => adaptProjectionRows(tasksQuery.data?.rows ?? [], tasksQuery.data?.status),
     [tasksQuery.data],
   );
   const [tasks, setTasks] = useState<import("./model/types.ts").TaskRow[]>([]);
@@ -264,8 +264,8 @@ function AppShell() {
               </span>
             )
           ) : tasksQuery.isError ? (
-            <span className="block font-mono text-[11px] text-status-blocked">
-              台账桥读取失败
+            <span data-testid="task-error-state" className="block font-mono text-[11px] text-status-blocked">
+              台账桥读取失败：{tasksQuery.error instanceof Error ? tasksQuery.error.message : String(tasksQuery.error)}
             </span>
           ) : (
             <span className="block font-mono text-[11px] text-text-faint">
@@ -443,7 +443,7 @@ function AppShell() {
                 tasks={projectTasks}
                 relations={relations}
                 decisions={decisions}
-                facts={facts}
+                facts={facts} factAnchors={factAnchors}
                 onNavigateEntity={navigateToEntity}
                 focusRef={focusedEntityRef}
               />

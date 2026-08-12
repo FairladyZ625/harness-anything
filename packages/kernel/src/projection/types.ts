@@ -1,10 +1,10 @@
-import type { CloseoutReadiness, DomainStatus, PriorityTier, TaskWorkKind } from "../domain/index.ts";
+import type { CanonicalStatus, CloseoutReadiness, PriorityTier, TaskWorkKind } from "../domain/index.ts";
 import type { PackageDisposition } from "../domain/package-disposition.ts";
 import type { HarnessLayoutOverrides } from "../layout/index.ts";
 
 export type ProjectionFreshness = "fresh" | "stale-but-usable" | "unavailable-no-cache";
 export type ProjectionSource = "local-document" | "external-engine" | "snapshot-cache";
-export type ProjectionCanonicalStatus = DomainStatus | "unknown";
+export type ProjectionCanonicalStatus = CanonicalStatus | "unknown";
 export type CoordinationStatus = "open" | "blocked" | "in_review" | "terminal" | "unknown";
 export type ProjectionWarningSource = "source-package" | "generated-cache" | "collaboration-gate";
 export type ProjectionWarningSeverity = "warning" | "hard-fail";

@@ -1,43 +1,31 @@
-import type { TaskProjectionRow } from "../api/renderer-dto.ts";
-import type { EngineId, Project, TaskRow } from "./model/types.ts";
+import type { TaskSnapshotProjectionRow } from "../api/renderer-dto.ts";
+import type { Project, TaskRow } from "./model/types.ts";
 
 /**
- * Maps a real `sqlite-task-row/v1` projection row onto the prototype's `TaskRow`
- * view model. The enum value spaces (freshness / packageDisposition /
- * closeoutReadiness / source) are identical between kernel and prototype, so
- * they pass through. The board column key uses `canonicalStatus` (the 6-color
- * lifecycle axis) rather than `coordinationStatus` (the coarse open/blocked
- * signal). Fields the projection does not carry (gates, per-task doc index)
- * are left empty — document bodies come from the separate document bridge.
+ * Maps the rebuild L2 task snapshot onto the renderer view model. UI-only
+ * readiness and freshness fields are derived here; the daemon returns the
+ * canonical snapshot without recreating the retired GUI projection schema.
  */
 
 const REAL_PROJECT_ID = "harness-anything";
 
-const KNOWN_ENGINES: ReadonlySet<string> = new Set(["local", "multica", "github", "linear"]);
-
-function toEngineId(lifecycleEngine: string): EngineId {
-  return (KNOWN_ENGINES.has(lifecycleEngine) ? lifecycleEngine : "local") as EngineId;
-}
-
-function adaptProjectionRow(row: TaskProjectionRow): TaskRow {
+function adaptProjectionRow(row: TaskSnapshotProjectionRow, projectionStatus: "ready" | "pending"): TaskRow {
+  const task = row.snapshot.task!;
   return {
     taskId: row.taskId,
-    title: row.title,
+    title: task.title,
     projectId: REAL_PROJECT_ID,
-    coordinationStatus: row.canonicalStatus,
-    rawStatus: row.rawStatus,
-    freshness: row.freshness,
-    packageDisposition: row.packageDisposition,
-    closeoutReadiness: row.closeoutReadiness,
-    engine: toEngineId(row.lifecycleEngine),
-    source: row.source,
-    module: row.moduleTitle ?? row.moduleKey ?? row.vertical ?? "unassigned",
+    coordinationStatus: task.status,
+    rawStatus: `${task.status}/${task.currentNode}`,
+    freshness: projectionStatus === "ready" ? "fresh" : "stale-but-usable",
+    packageDisposition: "active",
+    closeoutReadiness: task.status === "done" ? "passed" : task.status === "in_review" ? "ready" : "not_required",
+    engine: "local",
+    source: "snapshot-cache",
+    module: "unassigned",
     lastKnownAt: row.updatedAt,
     gates: [],
-    docs: [],
-    riskTier: row.riskTier,
-    urgency: row.urgency,
-    parentTaskId: row.parentTaskId
+    docs: []
   };
 }
 
@@ -65,8 +53,8 @@ export function computeRootTaskId(
  * 在 adaptProjectionRow 之上补齐 rootTaskId / rootTitle。两阶段:先建 parentById
  * 查找表,再按表给每个 row 标根与根标题。
  */
-export function adaptProjectionRows(rows: ReadonlyArray<TaskProjectionRow>): TaskRow[] {
-  const base = rows.map(adaptProjectionRow);
+export function adaptProjectionRows(rows: ReadonlyArray<TaskSnapshotProjectionRow>, projectionStatus: "ready" | "pending" = "ready"): TaskRow[] {
+  const base = rows.map((row) => adaptProjectionRow(row, projectionStatus));
   const parentById = new Map<string, string | undefined>();
   const titleById = new Map<string, string>();
   for (const task of base) {

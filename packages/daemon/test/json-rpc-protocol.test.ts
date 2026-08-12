@@ -84,7 +84,7 @@ test("unrelated workspace lock collision does not block either workspace", async
 });
 
 test("JSON-RPC failure receipt carries formal operation identity and origin", async () => {
-  const host = { run: async () => { throw new Error("unused"); }, bootstrap: async () => ({}), admin: async () => ({}),
+  const host = { run: async () => { throw new Error("unused"); }, read: async () => { throw new Error("unused"); }, bootstrap: async () => ({}), admin: async () => ({}),
     status: () => ({ daemonId: "test", pid: process.pid, repos: [] }), close: async () => undefined };
   const server = createJsonRpcProtocolServer({ host, authContext: { transportKind: "unix-socket" } });
   const response = await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: -1 } });

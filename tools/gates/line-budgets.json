@@ -1,14 +1,14 @@
 {
   "version": 1,
   "ceilings": {
-    "kernel": 10453,
+    "kernel": 10384,
     "task-lifecycle": 459,
     "write-contract": 344,
     "doc-sync": 0,
     "preset": 0,
     "cli": 198,
-    "gui": 15058,
-    "daemon": 808,
+    "gui": 14224,
+    "daemon": 831,
     "authority-write-path": 0,
     "identity-rbac": 416,
     "test-infra": 0

@@ -10,7 +10,6 @@ import type {
   DecisionProjectionRow,
   ProjectionMeta,
   TaskFieldExtensionProjection,
-  TaskProjectionQueryFilters,
   TaskProjectionRow
 } from "./types.ts";
 
@@ -180,19 +179,6 @@ export function tryReadProjectionDatabase(
   } catch {
     return { ok: false };
   }
-}
-
-export function queryTaskProjectionRows(
-  projectionPath: string,
-  filters: TaskProjectionQueryFilters,
-  taskFieldExtensions: ReadonlyArray<TaskFieldExtensionProjection> = []
-): ReadonlyArray<TaskProjectionRow> {
-  return runSqlite(projectionPath, Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const where = taskWhereClause(filters);
-    const records = yield* sql.unsafe<TaskRecord>(`SELECT * FROM task_projection ${where.sql} ORDER BY task_id`, where.params);
-    return records.map((record) => recordToTaskRow(record, taskFieldExtensions));
-  }));
 }
 
 export function queryDecisionProjectionRows(projectionPath: string, filters: DecisionProjectionQueryFilters): ReadonlyArray<DecisionProjectionRow> {
@@ -450,31 +436,6 @@ function recordToDecisionRow(record: DecisionRecord): DecisionProjectionRow {
   };
 }
 
-function taskWhereClause(filters: TaskProjectionQueryFilters): { readonly sql: string; readonly params: ReadonlyArray<unknown> } {
-  const clauses: string[] = [];
-  const params: unknown[] = [];
-  if (!filters.includeArchived) clauses.push("package_disposition = 'active'");
-  if (filters.state) addTaskStateFilter(clauses, params, filters.state);
-  if (filters.moduleKey) addClause(clauses, params, "module_key = ?", filters.moduleKey);
-  if (filters.queue) addTaskQueueFilter(clauses, params, filters.queue);
-  if (filters.preset) addClause(clauses, params, "preset = ?", filters.preset);
-  if (filters.workKind) addClause(clauses, params, "work_kind = ?", filters.workKind);
-  if (filters.riskTier) addClause(clauses, params, "risk_tier = ?", filters.riskTier);
-  if (filters.urgency) addClause(clauses, params, "urgency = ?", filters.urgency);
-  if (filters.review) addTaskReviewFilter(clauses, params, filters.review);
-  if (filters.lesson) clauses.push(filters.lesson === "present" ? "has_lesson_candidates = 1" : "has_lesson_candidates = 0");
-  if (filters.missingMaterials) clauses.push("closeout_readiness = 'missing'");
-  if (filters.search) {
-    const needle = `%${filters.search.toLocaleLowerCase()}%`;
-    clauses.push("(lower(task_id) LIKE ? OR lower(title) LIKE ? OR lower(source_path) LIKE ? OR lower(COALESCE(preset, '')) LIKE ? OR lower(COALESCE(module_key, '')) LIKE ? OR lower(COALESCE(module_title, '')) LIKE ? OR lower(COALESCE(created_by_json, '')) LIKE ?)");
-    params.push(needle, needle, needle, needle, needle, needle, needle);
-  }
-  for (const extensionFilter of filters.fieldExtensions ?? []) {
-    addClause(clauses, params, `${quoteIdentifier(extensionFilter.column)} = ?`, extensionFilter.value);
-  }
-  return where(clauses, params);
-}
-
 function decisionWhereClause(filters: DecisionProjectionQueryFilters): { readonly sql: string; readonly params: ReadonlyArray<unknown> } {
   const clauses: string[] = [];
   const params: unknown[] = [];
@@ -494,24 +455,6 @@ function decisionWhereClause(filters: DecisionProjectionQueryFilters): { readonl
   return where(clauses, params);
 }
 
-function addTaskStateFilter(clauses: string[], params: unknown[], state: string): void {
-  const normalized = normalizeTaskFilter(state);
-  clauses.push("(canonical_status = ? OR coordination_status = ?)");
-  params.push(normalized, normalized);
-}
-
-function addTaskQueueFilter(clauses: string[], params: unknown[], queue: string): void {
-  const normalized = normalizeTaskFilter(queue);
-  clauses.push("(coordination_status = ? OR package_disposition = ?)");
-  params.push(normalized, normalized);
-}
-
-function addTaskReviewFilter(clauses: string[], params: unknown[], review: string): void {
-  const normalized = normalizeTaskFilter(review);
-  clauses.push("(closeout_readiness = ? OR canonical_status = ? OR coordination_status = ?)");
-  params.push(normalized, normalized, normalized);
-}
-
 function addClause(clauses: string[], params: unknown[], clause: string, value: unknown): void {
   clauses.push(clause);
   params.push(value);
@@ -527,12 +470,6 @@ function where(clauses: ReadonlyArray<string>, params: ReadonlyArray<unknown>): 
     sql: clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "",
     params
   };
-}
-
-function normalizeTaskFilter(value: string): string {
-  if (value === "review") return "in_review";
-  if (value === "done") return "terminal";
-  return value;
 }
 
 function legacyNumberFromLabel(value: string): number | undefined {

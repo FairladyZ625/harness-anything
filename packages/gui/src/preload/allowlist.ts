@@ -1,67 +1,23 @@
-import type { apiRouteContracts, deferredGuiBridgeContracts } from "../api/api-contract-registry.ts";
+import { daemonGuiReadMethods } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 
 export const HARNESS_PRELOAD_API = "harness";
 
-type ShippedPreloadApiMethod = Extract<(typeof apiRouteContracts)[number], { readonly guiBridgeMethod: string }>["guiBridgeMethod"];
-type DeferredPreloadApiMethod = (typeof deferredGuiBridgeContracts)[number]["guiBridgeMethod"];
-export type PreloadApiMethod = ShippedPreloadApiMethod | DeferredPreloadApiMethod;
-export type PreloadApiCapabilityStatus = "shipped" | "deferred";
-
+export type PreloadApiMethod = (typeof daemonGuiReadMethods)[number]["guiBridgeMethod"];
 export interface PreloadApiCapability {
   readonly method: PreloadApiMethod;
-  readonly status: PreloadApiCapabilityStatus;
-  readonly reason?: string;
+  readonly status: "shipped";
 }
 
-export const allowedPreloadApi = Object.freeze({
-  getTasks: "getTasks",
-  getTaskDetail: "getTaskDetail",
-  getTaskDocument: "getTaskDocument",
-  rebuildGovernance: "rebuildGovernance",
-  getRelationGraph: "getRelationGraph",
-  getDecisions: "getDecisions",
-  getDecisionDetail: "getDecisionDetail",
-  getTaskFacts: "getTaskFacts",
-  getTaskExecutions: "getTaskExecutions",
-  getExecutionDetail: "getExecutionDetail",
-  getReviewDetail: "getReviewDetail",
-  archiveTask: "archiveTask",
-  openShell: "openShell"
-} as const satisfies { readonly [Method in PreloadApiMethod]: Method });
+export const allowedPreloadApi = Object.freeze(Object.fromEntries(
+  daemonGuiReadMethods.map(({ guiBridgeMethod }) => [guiBridgeMethod, guiBridgeMethod])
+)) as { readonly [Method in PreloadApiMethod]: Method };
 
-export const preloadApiCapabilities = Object.freeze({
-  getTasks: { method: "getTasks", status: "shipped" },
-  getTaskDetail: { method: "getTaskDetail", status: "shipped" },
-  getTaskDocument: { method: "getTaskDocument", status: "shipped" },
-  rebuildGovernance: { method: "rebuildGovernance", status: "shipped" },
-  getRelationGraph: { method: "getRelationGraph", status: "shipped" },
-  getDecisions: { method: "getDecisions", status: "shipped" },
-  getDecisionDetail: { method: "getDecisionDetail", status: "shipped" },
-  getTaskFacts: { method: "getTaskFacts", status: "shipped" },
-  getTaskExecutions: { method: "getTaskExecutions", status: "shipped" },
-  getExecutionDetail: { method: "getExecutionDetail", status: "shipped" },
-  getReviewDetail: { method: "getReviewDetail", status: "shipped" },
-  archiveTask: {
-    method: "archiveTask",
-    status: "deferred",
-    reason: "Archive is exposed in the preload allowlist as a disabled placeholder until the closeout/archive route contract is implemented."
-  },
-  openShell: {
-    method: "openShell",
-    status: "deferred",
-    reason: "Legacy shell button remains a display-only GUI policy placeholder; terminal sessions use explicit terminal route contracts."
-  }
-} as const satisfies Record<PreloadApiMethod, PreloadApiCapability>);
+export const preloadApiCapabilities = Object.freeze(Object.fromEntries(
+  daemonGuiReadMethods.map(({ guiBridgeMethod }) => [guiBridgeMethod, { method: guiBridgeMethod, status: "shipped" as const }])
+)) as Record<PreloadApiMethod, PreloadApiCapability>;
 
 export const preloadAllowlist = Object.freeze(Object.values(allowedPreloadApi)) as ReadonlyArray<PreloadApiMethod>;
-
-export const shippedPreloadMethods = Object.freeze(
-  preloadAllowlist.filter((method): method is ShippedPreloadApiMethod => preloadApiCapabilities[method].status === "shipped")
-) as ReadonlyArray<ShippedPreloadApiMethod>;
-
-export const deferredPreloadMethods = Object.freeze(
-  preloadAllowlist.filter((method): method is DeferredPreloadApiMethod => preloadApiCapabilities[method].status === "deferred")
-) as ReadonlyArray<DeferredPreloadApiMethod>;
+export const shippedPreloadMethods = preloadAllowlist;
 
 export function isAllowedPreloadApiMethod(method: string): method is PreloadApiMethod {
   return preloadAllowlist.includes(method as PreloadApiMethod);
@@ -72,9 +28,7 @@ export function getPreloadApiCapability(method: PreloadApiMethod): PreloadApiCap
 }
 
 export function assertPreloadPayload(method: string, payload: unknown): true {
-  if (!isAllowedPreloadApiMethod(method)) {
-    throw new Error(`Preload method is not allowed: ${method}`);
-  }
+  if (!isAllowedPreloadApiMethod(method)) throw new Error(`Preload method is not allowed: ${method}`);
   if (payload !== null && (typeof payload !== "object" || Array.isArray(payload))) {
     throw new Error("Preload payload must be an object or null.");
   }

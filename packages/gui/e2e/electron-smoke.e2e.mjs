@@ -1,25 +1,24 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path, { resolve } from "node:path";
+import { resolve } from "node:path";
 import test from "node:test";
 import electronPath from "electron";
 import { _electron as electron } from "playwright-core";
+import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
+import { writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
 const guiRoot = resolve(repoRoot, "packages/gui");
 test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async (t) => {
-  const ledgerRoot = mkdtempSync(path.join(tmpdir(), "ha-gui-e2e-"));
-  writeTriadicLedger(ledgerRoot);
+  const daemonFixture = await startGuiResidentDaemonFixture({ prefix: "ha-gui-e2e-", daemonId: "gui-e2e", repoId: "gui-e2e",
+    task: { taskId: "task-gui-smoke", title: "Render the real triadic projection" } });
+  const ledgerRoot = daemonFixture.rootDir;
   let electronApp;
   t.after(async () => {
     if (electronApp) await closeElectronApp(electronApp);
-    // The daemon is intentionally non-zero-idle; give the hermetic instance
-    // enough time to release its socket before deleting its user root.
-    await sleep(5_500);
-    rmSync(ledgerRoot, { recursive: true, force: true });
+    await daemonFixture.stop();
   });
+  writeTriadicLedger(ledgerRoot);
 
   electronApp = await electron.launch({
     executablePath: electronPath,
@@ -27,9 +26,8 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
     cwd: repoRoot,
     env: {
       ...process.env,
+      ...daemonFixture.env,
       HARNESS_GUI_ROOT: ledgerRoot,
-      HARNESS_DAEMON_USER_ROOT: path.join(ledgerRoot, "daemon-user"),
-      HARNESS_DAEMON_IDLE_MS: "5000"
     }
   });
   const page = await electronApp.firstWindow();
@@ -63,7 +61,9 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   });
 
   const taskSurface = page.getByTestId("real-task-summary").or(page.getByTestId("task-empty-state"));
-  await taskSurface.waitFor({ timeout: 20_000 });
+  const taskError = page.getByTestId("task-error-state");
+  await taskSurface.or(taskError).first().waitFor({ timeout: 20_000 });
+  if (await taskError.isVisible()) throw new Error(`GUI task bridge failed:\n${await taskError.innerText()}`);
   const taskSurfaceText = await taskSurface.textContent();
   assert.match(
     taskSurfaceText ?? "",
@@ -83,39 +83,10 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   assert.equal(await page.locator(".react-flow__edge").count(), 3);
   assert.equal(await page.getByText("MOCK", { exact: true }).count(), 0, "triadic views must not be mock-backed");
 
-  // Fact triage consumes confidence + coverageRows/factAnchors. The covered
-  // low-confidence fact is a candidate (not an orphan) and its context package
-  // contains enough identifiers and relation detail to hand to an agent.
-  await page.getByRole("button", { name: /事实分诊/u }).click();
-  const triageCard = page.locator('[data-fact-ref="fact/task-gui-smoke/F-ABCDEFGH"]');
-  await triageCard.waitFor({ timeout: 10_000 }).catch(async (error) => {
-    throw new Error(`${error.message}\nCurrent renderer text:\n${await page.locator("body").innerText()}`);
-  });
-  await triageCard.getByText("低 confidence", { exact: true }).waitFor();
-  assert.equal(await triageCard.getByText("孤儿 fact", { exact: true }).count(), 0);
-  await triageCard.getByRole("button", { name: /复制上下文/u }).click();
-  const triageClipboard = await page.evaluate(() => globalThis.__harnessCopiedText);
-  assert.match(triageClipboard, /task-gui-smoke\/F-ABCDEFGH/u);
-  assert.match(triageClipboard, /dec_gui_smoke/u);
-  assert.match(triageClipboard, /evidenced-by/u);
-  assert.match(triageClipboard, /当前问题/u);
-
-  // FactInspector has its own copy affordance and its supporting-decision link
-  // lands on the exact decision card rather than merely changing tabs.
-  await triageCard.locator('button[title="点击打开 Fact Inspector"]').click();
-  await page.getByText("Fact Inspector", { exact: true }).waitFor();
-  await page.getByRole("button", { name: /复制上下文/u }).last().click();
-  const inspectorClipboard = await page.evaluate(() => globalThis.__harnessCopiedText);
-  assert.match(inspectorClipboard, /正在检查此 fact/u);
-  await page.getByRole("button", { name: "dec_gui_smoke", exact: true }).click();
-  const focusedDecision = page.locator('#decision-card-dec_gui_smoke[data-focused="true"]');
-  await focusedDecision.waitFor({ timeout: 10_000 });
-
-  // Entity surfaces can focus the same node in GraphView. The graph drawer can
-  // then open a task detail, where both the DecisionSourceBadge and RelationRow
-  // are live links backed by the real derives edge.
-  await focusedDecision.locator('button[title="在关系图中聚焦此 decision"]').click();
-  await page.locator(".react-flow").waitFor({ timeout: 10_000 });
+  // Graph entities remain live links even though fact bodies are not part of
+  // the rebuild read schema. Open the task through the graph drawer and follow
+  // its derives edge to the exact decision.
+  await page.locator(".react-flow__node-decision").click();
   await page.locator("aside").getByText("decision/dec_gui_smoke", { exact: true }).waitFor();
   await page.locator(".react-flow__node-task").click();
   await page.locator("aside").getByText("task-gui-smoke", { exact: true }).waitFor();
@@ -136,78 +107,6 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   assert.match(decisionClipboard, /当前问题/u);
   assert.deepEqual(consoleFailures, [], "renderer emitted console errors");
 });
-
-function writeTriadicLedger(rootDir) {
-  const taskDir = path.join(rootDir, "harness/tasks/task-gui-smoke");
-  const decisionDir = path.join(rootDir, "harness/decisions/decision-dec_gui_smoke");
-  mkdirSync(taskDir, { recursive: true });
-  mkdirSync(decisionDir, { recursive: true });
-  writeFileSync(path.join(rootDir, "harness/harness.yaml"), [
-    "schema: harness-anything/v1",
-    "name: gui-triadic-smoke",
-    "layout:",
-    "  authoredRoot: harness",
-    "  localRoot: .harness",
-    ""
-  ].join("\n"));
-  writeFileSync(path.join(taskDir, "INDEX.md"), [
-    "---",
-    "schema: task-package/v2",
-    "task_id: task-gui-smoke",
-    "title: Render the real triadic projection",
-    "lifecycle:",
-    "  bindingSchema: lifecycle-binding/v1",
-    "  engine: local",
-    "  status: active",
-    "  ref:",
-    "  titleSnapshot: Render the real triadic projection",
-    "  url:",
-    "  bindingCreatedAt: 2026-07-10T00:00:00.000Z",
-    "  bindingFingerprint: sha256:gui-smoke",
-    "packageDisposition: active",
-    "vertical: software/coding",
-    "preset: implementation",
-    "relations:",
-    "  - {relation_id: rel_bfa32bfd7f399b66, source: task/task-gui-smoke, target: fact/task-gui-smoke/F-ABCDEFGH, type: produces, strength: strong, direction: directed, origin: declared, rationale: \"Task produced the renderer projection evidence\", state: active}",
-    "---",
-    ""
-  ].join("\n"));
-  writeFileSync(path.join(taskDir, "facts.md"), [
-    "- {fact_id: F-ABCDEFGH, statement: \"The GUI renderer received real triadic rows through the public bridge.\", source: \"GUI E2E\", observedAt: \"2026-07-10T00:30:00.000Z\", confidence: low, memoryClass: semantic, memoryTags: [pattern], provenance: [{runtime: \"codex\", sessionId: \"fg-p1-07-e2e\", boundAt: \"2026-07-10T00:30:00.000Z\"}]}",
-    ""
-  ].join("\n"));
-  writeFileSync(path.join(decisionDir, "decision.md"), [
-    "---",
-    "schema: decision-package/v1",
-    "decision_id: dec_gui_smoke",
-    "_coordinatorWatermark: gui-smoke-watermark",
-    "title: \"Expose the triadic projection to the GUI\"",
-    "state: proposed",
-    "riskTier: high",
-    "urgency: high",
-    "vertical: \"software/coding\"",
-    "preset: \"architecture-decision\"",
-    "applies_to:",
-    "  modules: [\"gui\"]",
-    "  productLines: []",
-    "proposedBy: {kind: \"agent\", id: \"codex\"}",
-    "proposedAt: \"2026-07-10T00:00:00.000Z\"",
-    "arbiter: {kind: \"human\", id: \"ZeyuLi\"}",
-    "provenance:",
-    "  - {runtime: \"codex\", sessionId: \"fg-p1-07-e2e\", boundAt: \"2026-07-10T00:00:00.000Z\"}",
-    "question: \"Should the GUI consume the public relation graph?\"",
-    "chosen:",
-    "  - {id: \"CH1\", text: \"Use the existing daemon/service bridge\"}",
-    "rejected: []",
-    "claims:",
-    "  - {id: \"CH1\", text: \"The public path preserves kernel relation names\", load_bearing: true}",
-    "relations:",
-    "  - {relation_id: rel_5287143733cccbd9, source: decision/dec_gui_smoke, target: task/task-gui-smoke, type: derives, strength: strong, direction: directed, origin: declared, rationale: \"Decision derived the GUI task\", state: active}",
-    "  - {relation_id: rel_f0e4909f80e86478, source: decision/dec_gui_smoke/CH1, target: fact/task-gui-smoke/F-ABCDEFGH, type: evidenced-by, strength: strong, direction: directed, origin: declared, rationale: \"Fact evidences the public projection\", state: active}",
-    "---",
-    ""
-  ].join("\n"));
-}
 
 async function closeElectronApp(electronApp) {
   const child = electronApp.process();

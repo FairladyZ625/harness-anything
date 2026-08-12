@@ -1,15 +1,13 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import type {
   DecisionProjectionRow,
-  FactProjectionRow,
   RelationCoverageRow,
   RelationGraphEdgeRow
 } from "../api/renderer-dto.ts";
 import { harnessClient } from "./api-client.ts";
 import type {
   DecisionListSuccess,
-  RelationGraphSuccess,
-  TaskFactListSuccess
+  RelationGraphSuccess
 } from "./api-client.ts";
 import { KIND_LABEL } from "./graph/constants.ts";
 import type { DecisionClaim, DecisionRow, DecisionState, FactRef, RelationEdge } from "./model/types.ts";
@@ -17,8 +15,7 @@ import type { DecisionClaim, DecisionRow, DecisionState, FactRef, RelationEdge }
 export const triadicQueryKeys = {
   all: ["harness", "triadic"] as const,
   graph: () => [...triadicQueryKeys.all, "relation-graph"] as const,
-  decisions: () => [...triadicQueryKeys.all, "decisions"] as const,
-  facts: (taskId: string) => [...triadicQueryKeys.all, "task-facts", taskId] as const
+  decisions: () => [...triadicQueryKeys.all, "decisions"] as const
 };
 
 export function useTriadicProjectionQuery() {
@@ -32,23 +29,12 @@ export function useTriadicProjectionQuery() {
     queryFn: () => harnessClient.getDecisions(),
     staleTime: 10_000
   });
-  const taskIds = graph.data ? [...new Set(graph.data.factAnchors.map((anchor) => anchor.taskId))].sort() : [];
-  const factQueries = useQueries({
-    queries: taskIds.map((taskId) => ({
-      queryKey: triadicQueryKeys.facts(taskId),
-      queryFn: () => harnessClient.getTaskFacts({ taskId }),
-      staleTime: 10_000,
-      enabled: graph.isSuccess
-    }))
-  });
-
   const rendererData = buildTriadicRendererData({
     graph: graph.data ?? emptyRelationGraph,
-    decisions: decisions.data ?? emptyDecisionList,
-    factResults: factQueries.flatMap((query) => query.data ? [query.data] : [])
+    decisions: decisions.data ?? emptyDecisionList
   });
-  const isLoading = graph.isLoading || decisions.isLoading || factQueries.some((query) => query.isLoading);
-  const isError = graph.isError || decisions.isError || factQueries.some((query) => query.isError);
+  const isLoading = graph.isLoading || decisions.isLoading;
+  const isError = graph.isError || decisions.isError;
 
   return {
     isLoading,
@@ -74,13 +60,11 @@ export interface TriadicRendererData {
 export function buildTriadicRendererData(input: {
   readonly graph: RelationGraphSuccess;
   readonly decisions: DecisionListSuccess;
-  readonly factResults: ReadonlyArray<TaskFactListSuccess>;
 }): TriadicRendererData {
   const relationRows = input.graph.edges;
-  const factRows = input.factResults.flatMap((result) => result.facts);
   return {
     decisions: adaptDecisionRows(input.decisions.decisions, relationRows, input.graph.coverageRows),
-    facts: adaptFactRows(factRows, relationRows),
+    facts: [],
     relations: adaptRelationRows(relationRows),
     coverageRows: input.graph.coverageRows,
     factAnchors: input.graph.factAnchors,
@@ -119,34 +103,6 @@ function adaptRelationRows(rows: ReadonlyArray<RelationGraphEdgeRow>): RelationE
 
 function isKernelRelationKind(value: string): value is RelationEdge["kind"] {
   return Object.hasOwn(KIND_LABEL, value);
-}
-
-function adaptFactRows(
-  rows: ReadonlyArray<FactProjectionRow>,
-  relationRows: ReadonlyArray<RelationGraphEdgeRow>
-): FactRef[] {
-  const invalidated = new Set(
-    relationRows.flatMap((row) => {
-      if (row.relationType === "invalidated-by" && row.sourceRef.startsWith("fact/")) {
-        return [row.sourceRef];
-      }
-      if (row.relationType === "supersedes-fact" && row.targetRef.startsWith("fact/")) {
-        return [row.targetRef];
-      }
-      return [];
-    })
-  );
-  return rows.map((row) => ({
-    anchor: `${row.taskId}/${row.factId}`,
-    taskId: row.taskId,
-    category: factCategory(row),
-    text: row.statement,
-    at: row.observedAt,
-    confidence: row.confidence,
-    source: row.source,
-    provenance: row.provenance,
-    invalidated: invalidated.has(row.ref)
-  }));
 }
 
 function adaptDecisionRows(
@@ -210,12 +166,6 @@ function decisionClaim(
     text,
     evidence: [...new Set(relationsBySource.get(ref) ?? [])]
   };
-}
-
-function factCategory(row: FactProjectionRow): FactRef["category"] {
-  if (row.memoryClass === "semantic") return "finding";
-  if (row.memoryClass === "procedural") return "lesson";
-  return "progress";
 }
 
 function decisionState(value: string): DecisionState {

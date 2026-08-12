@@ -25,6 +25,7 @@ import {
 import { spawningDecisionOf } from "../src/renderer/model/triadic.ts";
 import { buildTriadicRendererData } from "../src/renderer/triadic-data.ts";
 import { FactInspector } from "../src/renderer/components/FactInspector.tsx";
+import { computeGraphLayout } from "../src/renderer/graph/graphLayout.ts";
 
 function baseFact(overrides: Partial<FactRef> = {}): FactRef {
   return {
@@ -301,8 +302,7 @@ describe("cross-entity navigation projection", () => {
           productLineKeys: []
         }],
         warnings: []
-      },
-      factResults: []
+      }
     });
 
     expect(rendered.decisions[0]).toMatchObject({
@@ -327,7 +327,7 @@ describe("cross-entity navigation projection", () => {
     ).toBe("dec_parent");
   });
 
-  it("marks the source fact of invalidated-by as invalidated", () => {
+  it("keeps fact anchors without inventing fact bodies absent from L2", () => {
     const fact = baseFact();
     const rendered = buildTriadicRendererData({
       graph: {
@@ -352,31 +352,24 @@ describe("cross-entity navigation projection", () => {
         factAnchors: [anchor(fact)],
         warnings: [],
       },
-      decisions: { ok: true, decisions: [], warnings: [] },
-      factResults: [
-        {
-          ok: true,
-          taskId: fact.taskId,
-          path: "harness/tasks/task_a/facts.md",
-          facts: [
-            {
-              schema: "task-fact-row/v1",
-              ref: `fact/${fact.anchor}`,
-              taskId: fact.taskId,
-              factId: "F-001",
-              statement: fact.text,
-              source: "test",
-              observedAt: fact.at,
-              confidence: fact.confidence,
-              memoryClass: "semantic",
-              memoryTags: [],
-            },
-          ],
-        },
-      ],
+      decisions: { ok: true, decisions: [], warnings: [] }
     });
 
-    expect(rendered.facts[0].invalidated).toBe(true);
+    expect(rendered.factAnchors).toEqual([anchor(fact)]);
+    expect(rendered.facts).toEqual([]);
+  });
+
+  it("renders relation-graph fact anchors without inventing fact bodies", async () => {
+    const result = await computeGraphLayout(
+      [baseTask()],
+      [edge("decision/dec_1", "task/task_a", "derives"), edge("task/task_a", "fact/task_a/F-001", "produces"),
+        edge("decision/dec_1/CH1", "fact/task_a/F-001", "evidenced-by")],
+      [baseDecision()], [], [anchor()], new Set(), new Set(), new Set()
+    );
+
+    expect(result.nodes.filter(({ type }) => type !== "moduleGroup")).toHaveLength(3);
+    expect(result.nodes.filter(({ type }) => type === "fact")).toHaveLength(1);
+    expect(result.edges).toHaveLength(3);
   });
 
   it("shows an indirectly covered decision in FactInspector", () => {

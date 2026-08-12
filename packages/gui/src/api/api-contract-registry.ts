@@ -1,10 +1,10 @@
-import type { LocalControllerService } from "../../../application/src/index.ts";
+import { daemonGuiReadMethods, daemonGuiReadSchemas, type DaemonGuiReadMethod } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import type { TerminalSessionService } from "../terminal/session-registry.ts";
 
 export type ApiRouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "WS";
 export type ApiRouteAuth = "local-session-token" | "ssh-tunnel-local-token" | "none";
-export type ApiServiceName = "LocalControllerService" | "TerminalSessionService";
-export type ApiServiceMethod = keyof LocalControllerService | keyof TerminalSessionService;
+export type ApiServiceName = "DaemonProjectionService" | "TerminalSessionService";
+export type ApiServiceMethod = (typeof daemonGuiReadMethods)[number]["serviceMethod"] | keyof TerminalSessionService;
 
 export interface ApiRouteContract {
   readonly id: string;
@@ -16,22 +16,14 @@ export interface ApiRouteContract {
   readonly service: ApiServiceName;
   readonly serviceMethod: ApiServiceMethod;
   readonly auth: ApiRouteAuth;
+  readonly rpcMethod?: DaemonGuiReadMethod;
   readonly guiBridgeMethod?: string;
-  readonly leaseRequired?: boolean;
-  readonly commandClass?: "repo-write" | "arbiter";
 }
 
 export interface ApiSchemaContract {
   readonly id: string;
-  readonly owner: "application" | "gui";
+  readonly owner: "daemon" | "gui";
   readonly typeName: string;
-}
-
-export interface DeferredGuiBridgeContract {
-  readonly guiBridgeMethod: string;
-  readonly service: "LocalControllerService";
-  readonly serviceMethod: keyof LocalControllerService;
-  readonly reason: string;
 }
 
 export interface EmptyGuiPayload {
@@ -40,22 +32,7 @@ export interface EmptyGuiPayload {
 
 export const apiSchemaContracts = [
   { id: "gui.empty/v1", owner: "gui", typeName: "EmptyGuiPayload" },
-  { id: "application.decision-detail-result/v1", owner: "application", typeName: "DecisionDetailResult" },
-  { id: "application.decision-id-payload/v1", owner: "application", typeName: "DecisionIdPayload" },
-  { id: "application.decision-list-result/v1", owner: "application", typeName: "DecisionListResult" },
-  { id: "application.execution-detail-result/v1", owner: "application", typeName: "ExecutionDetailResult" },
-  { id: "application.execution-id-payload/v1", owner: "application", typeName: "ExecutionIdPayload" },
-  { id: "application.fact-list-result/v1", owner: "application", typeName: "TaskFactListResult" },
-  { id: "application.local-controller-error/v1", owner: "application", typeName: "LocalControllerError" },
-  { id: "application.relation-graph-result/v1", owner: "application", typeName: "RelationGraphReadResult" },
-  { id: "application.review-detail-result/v1", owner: "application", typeName: "ReviewDetailResult" },
-  { id: "application.review-id-payload/v1", owner: "application", typeName: "ReviewIdPayload" },
-  { id: "application.task-detail-result/v1", owner: "application", typeName: "TaskDetailResult" },
-  { id: "application.task-document-payload/v1", owner: "application", typeName: "TaskDocumentPayload" },
-  { id: "application.task-document-result/v1", owner: "application", typeName: "TaskDocumentResult" },
-  { id: "application.task-id-payload/v1", owner: "application", typeName: "TaskIdPayload" },
-  { id: "application.task-list-result/v1", owner: "application", typeName: "TaskListResult" },
-  { id: "application.task-execution-list-result/v1", owner: "application", typeName: "TaskExecutionListResult" },
+  ...daemonGuiReadSchemas.map(({ id }) => ({ id, owner: "daemon" as const, typeName: id })),
   { id: "terminal.attach-policy-result/v1", owner: "gui", typeName: "TerminalAttachPolicyResult" },
   { id: "terminal.create-session-payload/v1", owner: "gui", typeName: "CreateTerminalSessionPayload" },
   { id: "terminal.resize-session-payload/v1", owner: "gui", typeName: "ResizeTerminalSessionPayload" },
@@ -65,139 +42,21 @@ export const apiSchemaContracts = [
   { id: "terminal.session-list-result/v1", owner: "gui", typeName: "TerminalSessionListResult" }
 ] as const satisfies ReadonlyArray<ApiSchemaContract>;
 
-export const apiRouteContracts = [
-  {
-    id: "tasks.list",
-    method: "GET",
-    path: "/api/tasks",
-    inputSchemaId: "gui.empty/v1",
-    outputSchemaId: "application.task-list-result/v1",
-    errorSchemaId: "application.local-controller-error/v1",
-    service: "LocalControllerService",
-    serviceMethod: "getTasks",
-    auth: "local-session-token",
-    guiBridgeMethod: "getTasks"
-  },
-  {
-    id: "tasks.detail",
-    method: "GET",
-    path: "/api/tasks/:taskId",
-    inputSchemaId: "application.task-id-payload/v1",
-    outputSchemaId: "application.task-detail-result/v1",
-    errorSchemaId: "application.local-controller-error/v1",
-    service: "LocalControllerService",
-    serviceMethod: "getTaskDetail",
-    auth: "local-session-token",
-    guiBridgeMethod: "getTaskDetail"
-  },
-  {
-    id: "tasks.document.read",
-    method: "GET",
-    path: "/api/tasks/:taskId/documents/:path",
-    inputSchemaId: "application.task-document-payload/v1",
-    outputSchemaId: "application.task-document-result/v1",
-    errorSchemaId: "application.local-controller-error/v1",
-    service: "LocalControllerService",
-    serviceMethod: "getTaskDocument",
-    auth: "local-session-token",
-    guiBridgeMethod: "getTaskDocument"
-  },
-  {
-    id: "governance.rebuild",
-    method: "POST",
-    path: "/api/governance/rebuild",
-    inputSchemaId: "gui.empty/v1",
-    outputSchemaId: "application.task-list-result/v1",
-    errorSchemaId: "application.local-controller-error/v1",
-    service: "LocalControllerService",
-    serviceMethod: "rebuildGovernance",
-    auth: "local-session-token",
-    guiBridgeMethod: "rebuildGovernance"
-  },
-  {
-    id: "triadic.relationGraph",
-    method: "GET",
-    path: "/api/triadic/relation-graph",
-    inputSchemaId: "gui.empty/v1",
-    outputSchemaId: "application.relation-graph-result/v1",
-    errorSchemaId: "application.local-controller-error/v1",
-    service: "LocalControllerService",
-    serviceMethod: "getRelationGraph",
-    auth: "local-session-token",
-    guiBridgeMethod: "getRelationGraph"
-  },
-  {
-    id: "decisions.list",
-    method: "GET",
-    path: "/api/decisions",
-    inputSchemaId: "gui.empty/v1",
-    outputSchemaId: "application.decision-list-result/v1",
-    errorSchemaId: "application.local-controller-error/v1",
-    service: "LocalControllerService",
-    serviceMethod: "getDecisions",
-    auth: "local-session-token",
-    guiBridgeMethod: "getDecisions"
-  },
-  {
-    id: "decisions.detail",
-    method: "GET",
-    path: "/api/decisions/:decisionId",
-    inputSchemaId: "application.decision-id-payload/v1",
-    outputSchemaId: "application.decision-detail-result/v1",
-    errorSchemaId: "application.local-controller-error/v1",
-    service: "LocalControllerService",
-    serviceMethod: "getDecisionDetail",
-    auth: "local-session-token",
-    guiBridgeMethod: "getDecisionDetail"
-  },
-  {
-    id: "facts.taskList",
-    method: "GET",
-    path: "/api/tasks/:taskId/facts",
-    inputSchemaId: "application.task-id-payload/v1",
-    outputSchemaId: "application.fact-list-result/v1",
-    errorSchemaId: "application.local-controller-error/v1",
-    service: "LocalControllerService",
-    serviceMethod: "getTaskFacts",
-    auth: "local-session-token",
-    guiBridgeMethod: "getTaskFacts"
-  },
-  {
-    id: "executions.taskList",
-    method: "GET",
-    path: "/api/tasks/:taskId/executions",
-    inputSchemaId: "application.task-id-payload/v1",
-    outputSchemaId: "application.task-execution-list-result/v1",
-    errorSchemaId: "application.local-controller-error/v1",
-    service: "LocalControllerService",
-    serviceMethod: "getTaskExecutions",
-    auth: "local-session-token",
-    guiBridgeMethod: "getTaskExecutions"
-  },
-  {
-    id: "executions.detail",
-    method: "GET",
-    path: "/api/executions/:executionId",
-    inputSchemaId: "application.execution-id-payload/v1",
-    outputSchemaId: "application.execution-detail-result/v1",
-    errorSchemaId: "application.local-controller-error/v1",
-    service: "LocalControllerService",
-    serviceMethod: "getExecutionDetail",
-    auth: "local-session-token",
-    guiBridgeMethod: "getExecutionDetail"
-  },
-  {
-    id: "reviews.detail",
-    method: "GET",
-    path: "/api/reviews/:reviewId",
-    inputSchemaId: "application.review-id-payload/v1",
-    outputSchemaId: "application.review-detail-result/v1",
-    errorSchemaId: "application.local-controller-error/v1",
-    service: "LocalControllerService",
-    serviceMethod: "getReviewDetail",
-    auth: "local-session-token",
-    guiBridgeMethod: "getReviewDetail"
-  },
+const guiApiRouteContracts = daemonGuiReadMethods.map((contract) => ({
+  id: contract.id,
+  method: contract.httpMethod,
+  path: contract.path,
+  inputSchemaId: contract.inputSchemaId,
+  outputSchemaId: contract.outputSchemaId,
+  errorSchemaId: contract.errorSchemaId,
+  service: "DaemonProjectionService" as const,
+  serviceMethod: contract.serviceMethod,
+  auth: contract.auth,
+  rpcMethod: contract.method,
+  guiBridgeMethod: contract.guiBridgeMethod
+}));
+
+const terminalApiRouteContracts = [
   {
     id: "terminal.sessions.create",
     method: "POST",
@@ -266,17 +125,7 @@ export const apiRouteContracts = [
   }
 ] as const satisfies ReadonlyArray<ApiRouteContract>;
 
-export const deferredGuiBridgeContracts = [
-  {
-    guiBridgeMethod: "archiveTask",
-    service: "LocalControllerService",
-    serviceMethod: "archiveTask",
-    reason: "Archive is exposed in the preload allowlist as a disabled placeholder until the closeout/archive route contract is implemented."
-  },
-  {
-    guiBridgeMethod: "openShell",
-    service: "LocalControllerService",
-    serviceMethod: "openShell",
-    reason: "Legacy shell button remains a display-only GUI policy placeholder; terminal sessions use explicit terminal route contracts."
-  }
-] as const satisfies ReadonlyArray<DeferredGuiBridgeContract>;
+export const apiRouteContracts = Object.freeze([
+  ...guiApiRouteContracts,
+  ...terminalApiRouteContracts
+]) as ReadonlyArray<ApiRouteContract>;

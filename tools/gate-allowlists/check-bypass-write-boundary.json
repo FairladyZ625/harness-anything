@@ -30,6 +30,7 @@
       { "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@19", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Updates a holder-version matched lease row." },
       { "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@20", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Projects an expired lease as orphaned." },
       { "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@21", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Reads the disposable current lease row." },
+      { "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@22", "ref": "task_01KZRMM35JQWZP5SCMW8GD366E", "reason": "Reads the disposable task snapshot list for the GUI read surface." },
       { "value": "packages/kernel/src/projection/sqlite-projection-store.ts#mkdirSync@1", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Creates only a disposable entity projection directory." },
       { "value": "packages/kernel/src/projection/sqlite-projection-store.ts#rmSync@1", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Removes only a disposable temporary projection." },
       { "value": "packages/kernel/src/projection/sqlite-projection-store.ts#renameSync@1", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Atomically publishes a rebuildable projection." }
