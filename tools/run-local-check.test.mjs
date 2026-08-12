@@ -36,6 +36,8 @@ test("buildSteps appends integration and gui lanes only in the full tier", () =>
   assert.ok(fastScripts.includes("harness:check-integration-test-shards"));
   assert.ok(fastScripts.includes("harness:check-gate-surface"));
   assert.ok(fastScripts.includes("harness:check-package-policy"));
+  assert.deepEqual(fastScripts.slice(-2), ["check:local:derived-contracts", "check:local:schema-closure"]);
+  assert.equal(fastScripts.length, 18);
 });
 
 test("selectQosPrefix wraps with taskpolicy on darwin when available", () => {

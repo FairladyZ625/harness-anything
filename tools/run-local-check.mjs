@@ -15,9 +15,10 @@
  *   - Low QoS: on darwin, wrap each step in `taskpolicy -c utility`; otherwise
  *     fall back to `nice -n 10`; if neither is available, run bare.
  *   - Tiers: default "fast" (typecheck, lint, test:fast, test:contract,
- *     boundaries checkers, package-policy). `--full` appends test:integration
- *     test:gui, and test:gui:e2e. First failing step stops the run with a
- *     non-zero exit and a clear report of which step failed.
+ *     boundaries checkers, package-policy, and rebuild contract gates).
+ *     `--full` appends test:integration test:gui, and test:gui:e2e. First
+ *     failing step stops the run with a non-zero exit and a clear report of
+ *     which step failed.
  *
  * This file is deliberately named `run-local-check.mjs` (not `check-*.mjs`): the
  * `check-*` prefix is the governed gate command surface reconciled by
@@ -54,7 +55,9 @@ const FAST_STEPS = [
   ["boundaries: implementation-contracts", "harness:check-implementation-contracts"],
   ["boundaries: schema-contracts", "harness:check-schema-contracts"],
   ["boundaries: legacy-intake-readiness", "harness:check-legacy-intake-readiness"],
-  ["package-policy", "harness:check-package-policy"]
+  ["package-policy", "harness:check-package-policy"],
+  ["contracts: derived-contracts", "check:local:derived-contracts"],
+  ["contracts: schema-closure", "check:local:schema-closure"]
 ];
 
 const FULL_EXTRA_STEPS = [
