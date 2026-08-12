@@ -1,4 +1,5 @@
-import { isAgentRuntimeEvent, runtimeSessionId, type AgentRuntimeEventV1, type CanonicalEventStore, type RuntimeInstallation, type RuntimeSession, type TaskProjection } from "../../kernel/src/index.ts";
+import { isAgentRuntimeEvent, runtimeSessionId } from "../../kernel/src/domain/agent-runtime.ts";
+import type { AgentRuntimeEventV1, CanonicalEventStore, RuntimeInstallation, RuntimeSession, TaskProjection } from "../../kernel/src/index.ts";
 import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 
 export interface AgentRuntimeInstallationDto { readonly installationId: string; readonly kindId: string; readonly protocolFamily: "claude-compatible" | "codex"; readonly version: string; readonly credentialState: "configured" | "not_configured" | "invalid"; readonly attachCapability: "supported" | "unsupported"; readonly lastObservedAt: string }
