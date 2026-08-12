@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, makeTaskProjection, type AgentRuntimeEventV1, type RuntimeSession } from "../../kernel/src/index.ts";
-import { makeAgentRuntimeReadModel, validateAgentRuntimeOverview } from "../src/agent-runtime-read.ts";
+import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts"; import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
 import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
 import { daemonGuiReadMethods, daemonGuiStreamFacets, jsonRpcMethodContracts, parseDaemonGuiReadResult } from "../src/protocol/daemon-protocol.contract.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts"; import { openRepoCell } from "../src/repo-cell.ts";

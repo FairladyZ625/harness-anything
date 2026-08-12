@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AgentRuntimeOverviewResult, AgentRuntimeSessionDto } from "../../../../daemon/src/agent-runtime-read.ts";
+import type { AgentRuntimeOverviewResult, AgentRuntimeSessionDto } from "../../../../daemon/src/agent-runtime-contract.ts";
 import type { AgentRuntimeAttachEvent } from "../../../../daemon/src/agent-runtime-stream.ts";
 import { agentRuntimeClient, openAgentRuntimePane } from "../agent-runtime-client.ts";
 

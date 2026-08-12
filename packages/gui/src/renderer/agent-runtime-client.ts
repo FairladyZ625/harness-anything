@@ -1,4 +1,4 @@
-import type { AgentRuntimeEventsResult, AgentRuntimeOverviewResult, AgentRuntimeSessionResult } from "../../../daemon/src/agent-runtime-read.ts";
+import type { AgentRuntimeEventsResult, AgentRuntimeOverviewResult, AgentRuntimeSessionResult } from "../../../daemon/src/agent-runtime-contract.ts";
 import type { AgentRuntimeAttachEvent, AgentRuntimeAttachResult } from "../../../daemon/src/agent-runtime-stream.ts";
 import type { DaemonGuiReadPayloadMap, DaemonGuiStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 
