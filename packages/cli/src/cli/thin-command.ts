@@ -1,5 +1,5 @@
-import { resolveThinCliCommand, safePath, thinCliCommands, type SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { parseDocThinCommand } from "./doc-sync-command.ts";
+import { resolveThinCliCommand, safePath, thinCliCommands, type SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts"; import { parseDocThinCommand } from "./doc-sync-command.ts";
+const docThinSyntax = new Set(["--submit", "--execution-id", "--base-ledger-sha", "--path", "--base-blob-sha256"]);
 
 export function renderThinHelp(): string { return ["Harness Anything thin CLI", "", "Commands:", ...thinCliCommands.map(({ usage, summary }) => `  ${usage}\n    ${summary}`)].join("\n"); }
 
@@ -25,7 +25,7 @@ export function parseThinCommand(argv: readonly string[], cwd = process.cwd()): 
   if (route?.id === "receipt-show" && nonEmpty(args[2]) && args.length === 3) {
     return { ok: true, command: { rootDir, ...(repoId ? { repoId } : {}), json, action: { kind: "receipt-show", opId: args[2] } } };
   }
-  if (route?.id.startsWith("doc-")) return parseDocThinCommand(route.id, args, rootDir, repoId, json);
+  if (route?.id.startsWith("doc-")) return parseDocThinCommand(route.id, args, rootDir, repoId, json, docThinSyntax);
   if (!route || args[0] !== "task") return rejected("unsupported_command", "Only task lifecycle, receipt show, and explicit daemon commands exist on rebuild.", json);
   const verb = args[1];
   if (route.id === "task-show" && nonEmpty(args[2]) && args.length === 3) return accepted(rootDir, repoId, json, { kind: "task-show", verb, taskId: args[2] });
