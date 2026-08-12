@@ -1,18 +1,19 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { canonicalRoot as bindCanonicalRoot, endpointIdentity, workspaceId, type CanonicalRoot, type EndpointIdentity, type WorkspaceId } from "../protocol/daemon-protocol.contract.ts";
 
 export interface LocalDaemonTarget {
-  readonly repoId: string;
-  readonly canonicalRoot: string;
+  readonly repoId: WorkspaceId;
+  readonly canonicalRoot: CanonicalRoot;
   readonly userRoot: string;
   readonly daemonId: string;
-  readonly socketPath: string;
+  readonly socketPath: EndpointIdentity;
 }
-export function localUserDaemonEndpoint(userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), platform: NodeJS.Platform = process.platform): string {
+export function localUserDaemonEndpoint(userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), platform: NodeJS.Platform = process.platform): EndpointIdentity {
   const id = `u-${hash(`${path.resolve(userRoot)}\0${daemonId}`)}`;
-  return platform === "win32" ? `\\\\.\\pipe\\harness-anything-${safeDaemonId(id)}` : unixEndpoint(id);
+  return endpointIdentity(platform === "win32" ? `\\\\.\\pipe\\harness-anything-${safeDaemonId(id)}` : unixEndpoint(id));
 }
 export function daemonUserRoot(env: NodeJS.ProcessEnv = process.env): string { return path.resolve(env.HARNESS_DAEMON_USER_ROOT || path.join(os.homedir(), ".harness")); }
 export function daemonIdFromEnv(env: NodeJS.ProcessEnv = process.env): string { return env.HARNESS_DAEMON_ID || "default"; }
@@ -21,11 +22,11 @@ export function resolveLocalDaemonTarget(input: { readonly rootDir: string; read
   const env = input.env ?? process.env, userRoot = path.resolve(input.userRoot ?? daemonUserRoot(env));
   const daemonId = input.daemonId ?? daemonIdFromEnv(env), repos = readRegisteredRepos(userRoot);
   const requested = input.repoIdOverride ?? env.HARNESS_DAEMON_REPO_ID;
-  const rootDir = realpathSync.native(input.rootDir);
+  const rootDir = bindCanonicalRoot(input.rootDir);
   const repo = requested ? repos.find((candidate) => candidate.repoId === requested && candidate.state === "enabled")
     : repos.find((candidate) => candidate.canonicalRoot === rootDir);
   if (!repo || repo.state !== "enabled") throw new Error(`workspace is not registered; run ha daemon repo register --repo-id <id> --root ${JSON.stringify(path.resolve(input.rootDir))}`);
-  return { repoId: repo.repoId, canonicalRoot: repo.canonicalRoot, userRoot, daemonId, socketPath: localUserDaemonEndpoint(userRoot, daemonId) };
+  return { repoId: workspaceId(repo.repoId), canonicalRoot: bindCanonicalRoot(repo.canonicalRoot), userRoot, daemonId, socketPath: localUserDaemonEndpoint(userRoot, daemonId) };
 }
 function readRegisteredRepos(userRoot: string): readonly { readonly repoId: string; readonly canonicalRoot: string; readonly state: string }[] {
   const registryPath = path.join(userRoot, "registry.json");

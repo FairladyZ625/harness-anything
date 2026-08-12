@@ -1,5 +1,6 @@
 import { readDaemonRegistry, registerDaemonRepo, unregisterDaemonRepo, type ActorIdentity, type WriteReceipt, type WriteSource } from "../../kernel/src/index.ts";
-import { bootstrapRepo, type RepoBootstrapInput } from "./repo-bootstrap.ts";
+import { canonicalRoot, workspaceId } from "./protocol/daemon-protocol.contract.ts";
+import { resolveRepoBootstrap, type RepoBootstrapRequest } from "./repo-bootstrap.ts";
 import { loadPeopleRoster } from "./identity/people-roster.ts";
 import { makeTransportDerivedIdentityProvider } from "./identity/transport-derived-provider.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
@@ -7,7 +8,7 @@ import { openRepoCell, type RepoCell, type RepoCellStatus, type RepoTaskAction }
 
 export interface DaemonHost {
   readonly run: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => Promise<WriteReceipt>;
-  readonly bootstrap: (request: RepoBootstrapInput, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
+  readonly bootstrap: (request: RepoBootstrapRequest, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
   readonly admin: (request: { readonly kind: "register"; readonly rootDir: string; readonly repoId: string } | { readonly kind: "unregister"; readonly repoId: string }) => Promise<Record<string, unknown>>;
   readonly status: () => { readonly daemonId: string; readonly pid: number; readonly repos: readonly RepoCellStatus[] };
   readonly close: () => Promise<void>;
@@ -18,19 +19,23 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
   const unavailable = new Map<string, RepoCellStatus>();
   const repos = readDaemonRegistry({ userRoot: input.userRoot }).repos.filter((repo) => repo.state === "enabled");
   await Promise.all(repos.map(async (repo) => {
-    try { cells.set(repo.repoId, await openRepoCell({ repoId: repo.repoId, rootDir: repo.canonicalRoot, ownerId: input.daemonId })); }
+    try { cells.set(repo.repoId, await openRepoCell({ repoId: workspaceId(repo.repoId), rootDir: canonicalRoot(repo.canonicalRoot), ownerId: input.daemonId })); }
     catch (error) { consumeKnownError(error); unavailable.set(repo.repoId, { repoId: repo.repoId, rootDir: repo.canonicalRoot, state: "unavailable", generation: 0,
       queueDepth: 0, recoveryMs: 0, lastError: hostErrorMessage(error) }); }
   }));
-  const attach = async (rootDir: string, repoId: string) => { const registered = registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot: input.userRoot, createConvenienceLinks: false });
-    if (!cells.has(repoId)) { try { cells.set(repoId, await openRepoCell({ repoId, rootDir: registered.repo.canonicalRoot, ownerId: input.daemonId })); unavailable.delete(repoId); }
-      catch (error) { consumeKnownError(error); unavailable.set(repoId, { repoId, rootDir: registered.repo.canonicalRoot, state: "unavailable", generation: 0, queueDepth: 0, recoveryMs: 0, lastError: hostErrorMessage(error) }); } } return registered; };
+  const attach = async (rootDir: string, repoId: string) => { const root = canonicalRoot(rootDir), id = workspaceId(repoId);
+    const registered = registerDaemonRepo({ canonicalRoot: root, repoId, userRoot: input.userRoot, createConvenienceLinks: false });
+    if (!cells.has(repoId)) try { cells.set(repoId, await openRepoCell({ repoId: id, rootDir: root, ownerId: input.daemonId })); unavailable.delete(repoId); }
+    catch (error) { consumeKnownError(error); unavailable.set(repoId, { repoId, rootDir: root, state: "unavailable", generation: 0, queueDepth: 0, recoveryMs: 0, lastError: hostErrorMessage(error) }); }
+    return registered; };
   return {
     bootstrap: async (request, auth) => {
-      const rootDir = bootstrapRepo(request, auth);
-      const registered = await attach(rootDir, request.repoId);
+      const prepared = resolveRepoBootstrap(request), cell = await openRepoCell({ repoId: prepared.repoId, rootDir: prepared.rootDir,
+        ownerId: input.daemonId, bootstrap: { input: prepared, auth } });
+      let registered; try { registered = registerDaemonRepo({ canonicalRoot: prepared.rootDir, repoId: prepared.repoId, userRoot: input.userRoot, createConvenienceLinks: false }); cells.set(prepared.repoId, cell); unavailable.delete(prepared.repoId); }
+      catch (error) { await cell.close(); throw error; }
       return { schema: "command-receipt/v2", ok: true, command: "init", outcome: "applied", repoId: registered.repo.repoId,
-        rootDir, changed: registered.changed, nextAction: "Create a task through the resident daemon." };
+        rootDir: prepared.rootDir, changed: registered.changed, nextAction: "Create a task through the resident daemon." };
     },
     admin: async (request) => { if (request.kind === "register") { const result = await attach(request.rootDir, request.repoId); return { schema: "command-receipt/v2", ok: true, command: "daemon-repo-register", outcome: "applied", repo: result.repo, changed: result.changed }; }
       const result = unregisterDaemonRepo(request.repoId, { userRoot: input.userRoot, createConvenienceLinks: false }); await cells.get(request.repoId)?.close(); cells.delete(request.repoId); unavailable.delete(request.repoId);

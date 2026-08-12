@@ -3,11 +3,13 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const commandPath = "packages/cli/src/cli/thin-command.ts";
+const commandPath = "packages/daemon/src/protocol/daemon-protocol.contract.ts";
+const renderPath = "packages/cli/src/cli/thin-command.ts";
 const entrypointPath = "packages/cli/src/index.ts";
 
 export function findCliHelpContractViolations(rootDir = process.cwd(), options = {}) {
   const source = readFileSync(path.join(rootDir, commandPath), "utf8");
+  const render = readFileSync(path.join(rootDir, renderPath), "utf8");
   const entrypoint = readFileSync(path.join(rootDir, entrypointPath), "utf8");
   const commands = extractCommands(source), violations = [];
   const minimumCommands = options.minimumCommands ?? 13;
@@ -17,19 +19,19 @@ export function findCliHelpContractViolations(rootDir = process.cwd(), options =
   for (const command of commands) {
     if (!command.usage.startsWith("ha ")) violations.push(`usage must start with ha: ${command.usage}`);
     if (!command.summary.trim()) violations.push(`command ${command.usage} is missing summary`);
-    for (const flag of flags(command.usage)) if (!source.includes(`"${flag}"`) && !readControl(rootDir).includes(`"${flag}"`)) {
+    for (const flag of flags(command.usage)) if (!render.includes(`"${flag}"`) && !readControl(rootDir).includes(`"${flag}"`)) {
       violations.push(`command ${command.usage} documents unsupported option ${flag}`);
     }
   }
   if (!/argv\.length\s*===\s*0\s*\|\|\s*argv\.includes\("--help"\)/u.test(entrypoint) || !entrypoint.includes("renderThinHelp()")) {
     violations.push("CLI entrypoint must render the derived thin command directory for empty argv and --help");
   }
-  if (!source.includes("...thinCliCommands.map")) violations.push("help output must derive from thinCliCommands");
+  if (!render.includes("...thinCliCommands.map")) violations.push("help output must derive from thinCliCommands");
   if (/CliResult\/v1|command-registry/u.test(`${source}\n${entrypoint}`)) violations.push("thin help must not depend on the retired CLI registry or CliResult/v1");
   return violations;
 }
 
-function extractCommands(source) { return [...source.matchAll(/\{\s*usage:\s*"([^"]+)"\s*,\s*summary:\s*"([^"]*)"\s*\}/gu)]
+function extractCommands(source) { return [...source.matchAll(/\busage:\s*"([^"]+)"\s*,\s*summary:\s*"([^"]*)"/gu)]
   .map((match) => ({ usage: match[1], summary: match[2] })); }
 function flags(source) { return [...new Set([...source.matchAll(/--[a-z0-9-]+/gu)].map((match) => match[0]))]; }
 function readControl(rootDir) { return readFileSync(path.join(rootDir, "packages/cli/src/daemon/control.ts"), "utf8"); }

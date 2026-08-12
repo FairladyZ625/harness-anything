@@ -3,7 +3,7 @@ import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { currentDaemonProtocolVersion } from "../protocol/version.ts";
 import type { JsonObject, JsonRpcRequest, JsonRpcResponse } from "../protocol/json-rpc-types.ts";
-import { resolveLocalDaemonTarget, type LocalDaemonTarget } from "./local-daemon-target.ts";
+import { resolveLocalDaemonTarget } from "./local-daemon-target.ts";
 export { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalDaemonTarget, type LocalDaemonTarget } from "./local-daemon-target.ts";
 
 export interface LocalDaemonJsonRpcOptions {
@@ -22,7 +22,8 @@ export async function requestLocalDaemonJsonRpc(rootDir: string, method: string,
   return requestWithSocket(await connectSocket(socketPath, timeoutMs), method, params);
 }
 
-export async function requestLocalDaemonJsonRpcForTarget(target: LocalDaemonTarget, method: string, params: JsonObject,
+export async function requestLocalDaemonJsonRpcForTarget(target: { readonly socketPath: string; readonly repoId?: string; readonly canonicalRoot?: string;
+  readonly userRoot?: string; readonly daemonId?: string }, method: string, params: JsonObject,
   timeoutMs = 75): Promise<JsonObject> {
   return requestDaemonJsonRpcAt(target.socketPath, method, params, timeoutMs);
 }

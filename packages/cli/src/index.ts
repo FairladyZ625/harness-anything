@@ -24,7 +24,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
 }
 
 function cliFailure(command: string, code: string, nextAction: string): Record<string, unknown> {
-  return { schema: "command-receipt/v2", ok: false, command, outcome: "rejected", error: { code, hint: nextAction }, nextAction };
+  return { schema: "command-receipt/v2", ok: false, command, outcome: "rejected", opId: "N/A", origin: "cli", code,
+    evidence: `rejection:${code}`, error: { code, hint: nextAction }, nextAction };
 }
 function emit(receipt: Record<string, unknown>, json: boolean): void {
   if (json) console.log(JSON.stringify(receipt));

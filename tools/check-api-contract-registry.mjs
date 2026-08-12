@@ -26,7 +26,7 @@ const retiredAuthorities = [
 
 export function evaluateApiContractRegistry(root = process.cwd()) {
   const violations = [];
-  const registryPath = "packages/daemon/src/protocol/method-registry.ts";
+  const registryPath = "packages/daemon/src/protocol/daemon-protocol.contract.ts";
   const serverPath = "packages/daemon/src/protocol/json-rpc-server.ts";
   const hostPath = "packages/daemon/src/daemon-host.ts";
   const authPath = "packages/daemon/src/transport/auth-context.ts";
@@ -74,13 +74,14 @@ function collectMethodContracts(source, relativePath, violations) {
   for (const statement of file.statements) {
     if (!ts.isVariableStatement(statement)) continue;
     for (const declaration of statement.declarationList.declarations) {
-      if (ts.isIdentifier(declaration.name) && declaration.name.text === "jsonRpcMethodContracts") initializer = declaration.initializer;
+      if (ts.isIdentifier(declaration.name) && declaration.name.text === "daemonProtocolMethods") initializer = declaration.initializer;
     }
   }
   if (initializer && ts.isCallExpression(initializer) && ts.isPropertyAccessExpression(initializer.expression)
     && initializer.expression.expression.getText(file) === "Object" && initializer.expression.name.text === "freeze") initializer = initializer.arguments[0];
+  if (initializer && (ts.isAsExpression(initializer) || ts.isSatisfiesExpression(initializer))) initializer = initializer.expression;
   if (!initializer || !ts.isArrayLiteralExpression(initializer)) {
-    violations.push(`${relativePath}: jsonRpcMethodContracts must be one frozen array literal`);
+    violations.push(`${relativePath}: daemonProtocolMethods must be one frozen contract array literal`);
     return [];
   }
   return initializer.elements.flatMap((element) => {

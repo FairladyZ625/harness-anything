@@ -15,6 +15,12 @@ test("write-road registry rejects an undeclared physical write sink", () => with
   assert.match(findWriteRoadRegistryViolations(root).join("\n"), /physical write sink is not declared/u);
 }));
 
+test("write-road registry binds the workspace admission lock to RepoCell", () => withFixture((root) => {
+  const file = path.join(root, "tools/write-road-registry.json"), registry = JSON.parse(readFileSync(file, "utf8"));
+  registry.physicalWriteFiles = []; writeFileSync(file, JSON.stringify(registry));
+  assert.match(findWriteRoadRegistryViolations(root).join("\n"), /repo-cell\.ts: physical write sink is not declared/u);
+}));
+
 test("write-road registry rejects stale legacy rows", () => withFixture((root) => {
   const file = path.join(root, "tools/write-road-registry.json"), registry = JSON.parse(readFileSync(file, "utf8"));
   registry.rows.push({ id: "write-coordinator.runtime-substrate", actions: [], evidence: [] }); writeFileSync(file, JSON.stringify(registry));
@@ -23,7 +29,7 @@ test("write-road registry rejects stale legacy rows", () => withFixture((root) =
 
 function withFixture(run) { const root = mkdtempSync(path.join(tmpdir(), "w3-write-roads-")); try {
   write(root, "packages/cli/src/cli/thin-command.ts", `const actions = ["task-create", "task-start", "task-submit", "task-review-execution", "task-complete", "repo-bootstrap"];\n`);
-  write(root, "packages/daemon/src/repo-cell.ts", `const store = makeTaskEventStore({ rootDir });\nconst service = makeTaskLifecycleService({ eventStore: store, projection });\nlet tail = Promise.resolve(); tail = tail.then(() => service.execute(command));\n`);
+  write(root, "packages/daemon/src/repo-cell.ts", `import { openSync } from "node:fs";\nopenSync(lockPath, "wx");\nconst store = makeTaskEventStore({ rootDir });\nconst service = makeTaskLifecycleService({ eventStore: store, projection });\nlet tail = Promise.resolve(); tail = tail.then(() => service.execute(command));\n`);
   write(root, "packages/kernel/src/store/task-event-store.ts", `prepareLocalEventCommit(); finalizeLocalEventCommit();\n`);
   write(root, "packages/application/src/task-lifecycle-service.ts", `export function makeTaskLifecycleService(options) { options.eventStore.append(event); }\n`);
   write(root, "tools/write-road-registry.json", JSON.stringify({ schema: "harness-anything/write-road-registry/v2", rows: [
@@ -31,7 +37,7 @@ function withFixture(run) { const root = mkdtempSync(path.join(tmpdir(), "w3-wri
     { id: "workspace.bootstrap", actions: ["repo-bootstrap", "daemon-repo-register", "daemon-repo-unregister"], authority: "packages/daemon/src/daemon-host.ts", evidence: ["packages/daemon/src/daemon-host.ts"] },
     { id: "daemon.runtime-control", actions: ["daemon-start", "daemon-stop"], authority: "packages/daemon/src/runtime.ts", evidence: ["packages/daemon/src/runtime.ts"] },
     { id: "projection.sqlite", source: "task-event-store", authority: "packages/kernel/src/projection/rebuildable-task-projection.ts", evidence: ["packages/kernel/src/projection/rebuildable-task-projection.ts"] }
-  ], physicalWriteFiles: [] }, null, 2));
+  ], physicalWriteFiles: ["packages/daemon/src/repo-cell.ts"] }, null, 2));
   for (const file of ["packages/daemon/src/daemon-host.ts", "packages/daemon/src/runtime.ts", "packages/kernel/src/projection/rebuildable-task-projection.ts"]) write(root, file, "export {};\n");
   run(root);
 } finally { rmSync(root, { recursive: true, force: true }); } }

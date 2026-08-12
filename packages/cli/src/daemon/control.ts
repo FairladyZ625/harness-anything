@@ -28,7 +28,8 @@ async function waitForStatus(userRoot: string, daemonId: string): Promise<Record
 function delay(ms: number): Promise<void> { return new Promise((resolve) => setTimeout(resolve, ms)); }
 function daemonOption(argv: readonly string[], name: string): string | undefined { const at = argv.indexOf(name); return at < 0 ? undefined : argv[at + 1]; }
 function daemonFailure(command: string, errorCode: string, nextAction: string): Record<string, unknown> { return { schema: "command-receipt/v2", ok: false,
-  command, outcome: "rejected", error: { code: errorCode, hint: nextAction }, nextAction }; }
+  command, outcome: "rejected", opId: "N/A", origin: "cli", code: errorCode, evidence: `rejection:${errorCode}`,
+  error: { code: errorCode, hint: nextAction }, nextAction }; }
 function emitDaemonReceipt(receipt: Record<string, unknown>, json: boolean, exitCode: number): number { const output = { schema: "command-receipt/v2", command: "daemon", outcome: receipt.ok === true ? "applied" : "rejected", ...receipt }; if (json) console.log(JSON.stringify(output));
   else if (receipt.ok === true) console.log(String(receipt.command ?? "daemon")); else console.error(`error code=${String((receipt.error as { code?: unknown })?.code)} hint=${String(receipt.nextAction)}`); return exitCode; }
 function code(error: unknown): string { const value = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "daemon_control_failed"; return ["ENOENT", "ECONNREFUSED", "ETIMEDOUT"].includes(value) ? "daemon_unavailable" : value; }

@@ -17,6 +17,15 @@ function isContract(filename) {
   return /\.contract\.(?:mjs|ts)$/u.test(filename.replaceAll("\\", "/"));
 }
 
+function projectionArray(node) {
+  if (node?.type !== "ArrayExpression") return false;
+  return node.elements.some((entry) => {
+    if (entry?.type !== "ObjectExpression") return false;
+    const fields = new Set(entry.properties.map((property) => propertyName(property.key)).filter(Boolean));
+    return (fields.has("usage") && fields.has("summary")) || (fields.has("method") && fields.has("requiresRepo"));
+  });
+}
+
 export default {
   meta: {
     type: "problem",
@@ -35,8 +44,8 @@ export default {
         if (REGISTER_METHODS.has(name)) context.report({ node, messageId: "registration", data: { kind: name.slice("register".length) } });
       },
       VariableDeclarator(node) {
-        if (node.id.type !== "Identifier" || !REGISTRY_NAME.test(node.id.name)) return;
-        if (node.init?.type === "ArrayExpression" || node.init?.type === "ObjectExpression") {
+        if (node.id.type !== "Identifier") return;
+        if ((REGISTRY_NAME.test(node.id.name) && (node.init?.type === "ArrayExpression" || node.init?.type === "ObjectExpression")) || projectionArray(node.init)) {
           context.report({ node: node.init, messageId: "registry", data: { name: node.id.name } });
         }
       },

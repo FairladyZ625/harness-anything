@@ -8,7 +8,8 @@ export { loadPeopleRoster, peopleRosterFromDocument } from "./identity/people-ro
 export { makeTransportDerivedIdentityProvider, type TransportDerivedIdentityProviderOptions } from "./identity/transport-derived-provider.ts";
 export type { AuthenticatedActor, CredentialRef, IdentityProvider, PeopleRoster, PersonProfile, RolePolicy } from "./identity/types.ts";
 export { createJsonRpcProtocolServer, type JsonRpcProtocolServer } from "./protocol/json-rpc-server.ts";
-export { currentDaemonProtocolVersion, jsonRpcMethodContracts } from "./protocol/method-registry.ts";
+export { jsonRpcMethodContracts } from "./protocol/daemon-protocol.contract.ts";
+export { currentDaemonProtocolVersion } from "./protocol/version.ts";
 export type { JsonObject, JsonRpcRequest, JsonRpcResponse, JsonValue } from "./protocol/json-rpc-types.ts";
 export { openRepoCell, type RepoCell, type RepoCellBinding, type RepoCellStatus, type RepoTaskAction } from "./repo-cell.ts";
 export { daemonPidPath, readDaemonPid, startDaemon, type RunningDaemon } from "./runtime.ts";

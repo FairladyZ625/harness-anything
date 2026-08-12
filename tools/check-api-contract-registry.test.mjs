@@ -11,13 +11,13 @@ test("W3 API registry accepts the exact transport-bound daemon catalog", () => w
 }));
 
 test("W3 API registry rejects an unregistered compatibility method", () => withFixture((root) => {
-  const file = path.join(root, "packages/daemon/src/protocol/method-registry.ts");
+  const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts");
   writeFileSync(file, validRegistry().replace("  { method: \"repo.task.run\"", "  { method: \"repo.compat.run\", requiresRepo: true },\n  { method: \"repo.task.run\""));
   assert.match(evaluateApiContractRegistry(root).join("\n"), /method catalog must equal/u);
 }));
 
 test("W3 API registry rejects repo routing that is not repo-scoped", () => withFixture((root) => {
-  const file = path.join(root, "packages/daemon/src/protocol/method-registry.ts");
+  const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts");
   writeFileSync(file, validRegistry().replace('{ method: "repo.task.run", requiresRepo: true }', '{ method: "repo.task.run", requiresRepo: false }'));
   assert.match(evaluateApiContractRegistry(root).join("\n"), /method catalog must equal/u);
 }));
@@ -33,13 +33,13 @@ test("W3 API registry rejects loss of payload self-report filtering", () => with
 }));
 
 function withFixture(run) { const root = mkdtempSync(path.join(tmpdir(), "w3-api-registry-")); try {
-  write(root, "packages/daemon/src/protocol/method-registry.ts", validRegistry());
+  write(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts", validRegistry());
   write(root, "packages/daemon/src/protocol/json-rpc-server.ts", validServer());
   write(root, "packages/daemon/src/daemon-host.ts", validHost());
   write(root, "packages/daemon/src/transport/auth-context.ts", 'export type DaemonTransportKind = "unix-socket"; export interface Auth { unixSocketOwnerBoundary: unknown; assignmentBinding: { nodeId: string; assignmentId: string }; }\n');
   run(root);
 } finally { rmSync(root, { recursive: true, force: true }); } }
 function write(root, relative, body) { const file = path.join(root, relative); mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, body); }
-function validRegistry() { return `export const jsonRpcMethodContracts = Object.freeze([\n  { method: "protocol.hello", requiresRepo: false },\n  { method: "daemon.status", requiresRepo: false },\n  { method: "daemon.repo.bootstrap", requiresRepo: false },\n  { method: "daemon.repo.register", requiresRepo: false },\n  { method: "daemon.repo.unregister", requiresRepo: false },\n  { method: "repo.task.run", requiresRepo: true }\n]);\n`; }
+function validRegistry() { return `export const daemonProtocolMethods = Object.freeze([\n  { method: "protocol.hello", requiresRepo: false },\n  { method: "daemon.status", requiresRepo: false },\n  { method: "daemon.repo.bootstrap", requiresRepo: false },\n  { method: "daemon.repo.register", requiresRepo: false },\n  { method: "daemon.repo.unregister", requiresRepo: false },\n  { method: "repo.task.run", requiresRepo: true }\n]);\n`; }
 function validServer() { return `jsonRpcMethodContracts.some(() => true); request.method === "protocol.hello"; if (!handshaken) fail(); request.method === "daemon.status"; request.method === "daemon.repo.bootstrap"; request.method === "daemon.repo.register"; request.method === "daemon.repo.unregister"; options.host.run(repo, action, options.authContext);\n`; }
 function validHost() { return `const cells = new Map<string, RepoCell>(); auth.assignmentBinding; ({ kind: "assignment" }); makeTransportDerivedIdentityProvider(); ["actor", "root", "canonicalRoot", "source", "workspaceId", "expectedRevision", "eventId", "occurredAt"];\n`; }

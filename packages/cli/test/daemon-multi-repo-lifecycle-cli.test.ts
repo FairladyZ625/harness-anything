@@ -6,6 +6,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rpc-client.ts";
+import { canonicalRoot, workspaceId } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../../daemon/src/repo-cell.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
@@ -56,7 +57,7 @@ test("explicit daemon bootstraps an empty workspace before its first lifecycle w
 test("one RepoCell lock failure closes only that repo admission", async () => {
   const fixture = setup(); let held: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
-    held = await openRepoCell({ repoId: "held-alpha", rootDir: fixture.alpha, ownerId: "external-writer" });
+    held = await openRepoCell({ repoId: workspaceId("held-alpha"), rootDir: canonicalRoot(fixture.alpha), ownerId: "external-writer" });
     run(fixture.beta, fixture.userRoot, ["daemon", "start", "--service"]);
     register(fixture.alpha, fixture.userRoot, "alpha"); register(fixture.beta, fixture.userRoot, "beta");
     const status = run(fixture.beta, fixture.userRoot, ["daemon", "status"]);

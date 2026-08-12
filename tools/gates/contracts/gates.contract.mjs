@@ -20,6 +20,8 @@ export default Object.freeze({
     { id: "G10", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G11", phase: "P2", job: "derived-contracts", command: "node tools/gates/derived-contracts.mjs --check" },
     { id: "G12", phase: "P2", job: "lint", command: "npm run lint" },
+    { id: "G13", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
+    { id: "G14", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G17", phase: "P2", job: "evidence-contract", command: "node tools/gates/evidence-contract.mjs --event \"$GITHUB_EVENT_PATH\"" },
     { id: "G18", phase: "P2", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G19", phase: "P2", job: "lint", command: "npm run lint" },

@@ -27,7 +27,8 @@ test("thin help contract rejects entrypoints that do not render the directory", 
 }));
 
 function withFixture(run) { const rootDir = mkdtempSync(path.join(tmpdir(), "thin-help-"));
-  try { const commandPath = write(rootDir, "packages/cli/src/cli/thin-command.ts", commandSource("ha task show <id>", "Show a task."));
+  try { const commandPath = write(rootDir, "packages/daemon/src/protocol/daemon-protocol.contract.ts", commandSource("ha task show <id>", "Show a task."));
+    write(rootDir, "packages/cli/src/cli/thin-command.ts", "export function renderThinHelp() { return [...thinCliCommands.map(() => '')]; }\n");
     const entryPath = write(rootDir, "packages/cli/src/index.ts", `if (argv.length === 0 || argv.includes("--help")) renderThinHelp();\n`);
     write(rootDir, "packages/cli/src/daemon/control.ts", ""); run({ rootDir, commandPath, entryPath });
   } finally { rmSync(rootDir, { recursive: true, force: true }); } }

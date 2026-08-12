@@ -5,7 +5,7 @@ export type { CompleteTaskProof, ProofFor, TaskEventV1, TaskLifecycleCommand, Ta
 export { canonicalizeContractValue } from "./domain/task.ts";
 export type { TaskV1 } from "./domain/task.ts";
 export { assertCurrentWriter, bindWriterGenerationToken, createWriteReceipt, normalizeCommandEnvelope, WRITE_RECEIPT_SCHEMA } from "./domain/write-chain.contract.ts";
-export type { ActorIdentity, FrozenWritePlan, WriteOperationReceipt, WriteReceipt, WriteSource, WriteTarget, WriterGeneration } from "./domain/write-chain.contract.ts";
+export type { ActorIdentity, FrozenWritePlan, WriteOperationReceipt, WriteReceipt, WriteSource, WriteTarget, WriterGeneration, WriterGenerationToken } from "./domain/write-chain.contract.ts";
 export * from "./docmap/index.ts";
 export * from "./docmap/docmap-unique.ts";
 export * from "./entity/disposition.ts";
