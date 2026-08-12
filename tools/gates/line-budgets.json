@@ -1,10 +1,10 @@
 {
   "version": 1,
   "ceilings": {
-    "kernel": 10384,
+    "kernel": 10236,
     "task-lifecycle": 459,
-    "write-contract": 344,
-    "doc-sync": 0,
+    "write-contract": 294,
+    "doc-sync": 300,
     "preset": 0,
     "cli": 198,
     "gui": 14224,

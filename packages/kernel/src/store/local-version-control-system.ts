@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-control-system.ts";
@@ -189,19 +189,22 @@ function commandErrorSignal(error: unknown): string | undefined {
 }
 
 export function localGitText(repoRoot: string, ...args: readonly string[]): string { return runGit(repoRoot, ...args); }
-
-export function prepareLocalEventCommit(repoRoot: string, preparedRef: string, parentSha: string, files: readonly { readonly target: string; readonly body: string }[], opId: string): string {
-  const message = `harness event ${opId}`; const timestamp = Math.floor(Date.now() / 1_000);
-  let input = `commit ${preparedRef}\nmark :1\ncommitter Harness Event Store <harness-event-store@local.invalid> ${timestamp} +0000\ndata ${Buffer.byteLength(message)}\n${message}\nfrom ${parentSha}\n`; for (const file of files) input += `M 100644 inline ${file.target}\ndata ${Buffer.byteLength(file.body)}\n${file.body}\n`;
-  input += "\nget-mark :1\ndone\n"; localGitProcesses += 1; const imported = spawnSync("git", ["-C", repoRoot, "-c", "core.fsync=committed,reference", "-c", "core.fsyncMethod=fsync", "fast-import", "--quiet", "--force"], { input, encoding: "utf8" });
-  if (imported.status !== 0) throw new Error(`Git event import failed: ${imported.stderr.trim()}`); const sha = imported.stdout.trim().split("\n").at(-1) ?? "";
-  if (!/^[0-9a-f]{40}$/u.test(sha)) throw new Error("Git event import did not return a commit identity");
-  return sha;
+function localGitBytes(repoRoot: string, args: readonly string[], input?: Uint8Array): Buffer {
+  localGitProcesses += 1;
+  try { return execFileSync("git", ["-C", repoRoot, ...args], { input, encoding: "buffer", maxBuffer: gitMaxBuffer, stdio: [input ? "pipe" : "ignore", "pipe", "pipe"] }); }
+  catch (error) { throw new VcsCommandError({ command: args[0] ?? "command", cwd: repoRoot, exitCode: commandErrorCode(error), signal: commandErrorSignal(error), stderrSummary: commandErrorSummary(error) }); }
 }
-
-export function finalizeLocalEventCommit(repoRoot: string, branchRef: string, parentSha: string, preparedSha: string, changedPaths: readonly string[]): void {
-  runGit(repoRoot, "-c", "core.fsync=reference", "-c", "core.fsyncMethod=fsync", "update-ref", branchRef, preparedSha, parentSha); runGit(repoRoot, "update-index", "--add", "--", ...changedPaths);
-}
+export const localGitObjectRefStore = Object.freeze({
+  processCount: () => localGitProcesses, resolveCommit: (repoRoot: string, revision: string) => runGit(repoRoot, "rev-parse", revision).trim(),
+  readPath: (repoRoot: string, commit: string, target: string): Buffer | null => { try { return localGitBytes(repoRoot, ["show", `${commit}:${target}`]); } catch (error) { try { if (localGitBytes(repoRoot, ["ls-tree", "--name-only", "-z", commit, "--", target]).length === 0) return null; } catch (classificationError) { consumeKnownError(classificationError); } throw error; } },
+  isAncestor: (repoRoot: string, ancestor: string, current: string): boolean => { try { runGit(repoRoot, "merge-base", "--is-ancestor", ancestor, current); return true; } catch (error) { consumeKnownError(error); return false; } },
+  batch: (repoRoot: string, input: string) => localGitBytes(repoRoot, ["cat-file", "--batch"], Buffer.from(input)),
+  importCommit: (repoRoot: string, input: string) => localGitBytes(repoRoot, ["-c", "core.fsync=committed,reference", "-c", "core.fsyncMethod=fsync", "fast-import", "--quiet", "--force"], Buffer.from(input)),
+  listPrepared: (repoRoot: string) => runGit(repoRoot, "for-each-ref", "--format=%(refname) %(objectname)", "refs/ha-event-prepared/"),
+  updateRef: (repoRoot: string, ref: string, sha: string, previous?: string) => { runGit(repoRoot, "-c", "core.fsync=reference", "-c", "core.fsyncMethod=fsync", "update-ref", ref, sha, ...(previous ? [previous] : [])); },
+  updateRefs: (repoRoot: string, input: string) => { localGitBytes(repoRoot, ["-c", "core.fsync=reference", "-c", "core.fsyncMethod=fsync", "update-ref", "--stdin"], Buffer.from(input)); },
+  deleteRef: (repoRoot: string, ref: string) => { runGit(repoRoot, "update-ref", "-d", ref); }
+});
 
 function commandErrorSummary(error: unknown): string | undefined {
   if (typeof error === "object" && error && "stderr" in error) {
@@ -215,3 +218,4 @@ function commandErrorSummary(error: unknown): string | undefined {
 }
 let localGitProcesses = 0;
 export function localGitProcessCount(): number { return localGitProcesses; }
+function consumeKnownError(error: unknown): void { void error; }

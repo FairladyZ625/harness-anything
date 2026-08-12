@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -25,8 +25,8 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     assert.equal(alpha.outcome, "applied", JSON.stringify(alpha)); assert.equal(beta.outcome, "applied", JSON.stringify(beta));
     assert.match(String(run(fixture.alpha, fixture.userRoot, ["task", "show", "task-alpha"]).evidence), /Alpha/u);
     for (const root of [fixture.alpha, fixture.beta]) {
-      assert.equal(git(root, "rev-list", "--count", "HEAD"), "2");
-      assert.equal(readdirSync(path.join(root, "harness/events")).filter((name) => name.startsWith("op_")).length, 1);
+      assert.equal(git(root, "rev-list", "--count", "refs/ha/canonical"), "2");
+      assert.equal(git(root, "ls-tree", "--name-only", "refs/ha/canonical", "harness/events").includes("harness/events"), true);
       assert.equal(existsSync(path.join(root, ".harness/cache/task.sqlite")), true);
       assert.equal(existsSync(path.join(root, ".harness/write-journal")), false);
     }

@@ -74,7 +74,7 @@ async function binding(rootDir: string, auth: DaemonAuthenticationContext, requi
     roles: [...resolved.actor.roles, ...(resolved.actor.roles.some((role) => roster.roleAllows(role, "arbiter")) ? ["$arbiter"] : [])],
     source: "local" };
 }
-function actionCapability(kind: string): DaemonCommandClass { if (kind === "task-show" || kind === "receipt-show") return "repo-read"; return kind === "task-review-execution" ? "arbiter" : "repo-write"; }
+function actionCapability(kind: string): DaemonCommandClass { if (kind === "task-show" || kind === "receipt-show" || kind === "doc-status") return "repo-read"; return kind === "task-review-execution" ? "arbiter" : "repo-write"; }
 function reject(action: RepoTaskAction, errorCode: string, nextAction: string): WriteReceipt { return { outcome: "rejected", opId: `rejected:${action.kind}`,
   code: errorCode, origin: "daemon", evidence: `rejection:${errorCode}`, nextAction }; }
 function hostCodedError(errorCode: string, text: string): Error { const error = new Error(text) as Error & { code: string }; error.code = errorCode; return error; }

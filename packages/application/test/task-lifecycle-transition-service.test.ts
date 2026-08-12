@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -19,7 +19,7 @@ test("transition service freezes targets and makes create/start idempotent by op
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-service-"));
   try {
     initRepo(rootDir);
-    const eventStore = makeTaskEventStore({ rootDir });
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
     const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const service = makeTaskLifecycleService({ eventStore, projection });
     const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: "task-1", title: "Replay task", graph: replayGraph,
@@ -54,7 +54,7 @@ test("second distinct task create uses aggregate revision zero in a non-empty wo
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-two-tasks-"));
   try {
     initRepo(rootDir);
-    const eventStore = makeTaskEventStore({ rootDir });
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
     const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const service = makeTaskLifecycleService({ eventStore, projection });
     const create = (taskId: string, title: string, revision: number) => command(rootDir, {
@@ -76,8 +76,8 @@ test("pending without an event uses an honest receipt", async () => {
   const snapshot = { revision: 0, task: null, executions: [], reviews: [], edgesTaken: [], lease: null } as const;
   const read = { status: "pending" as const, snapshot, watermark: 0, sourceRevision: 1, warnings: [] };
   const service = makeTaskLifecycleService({
-    eventStore: { readEvent: () => null, append: (candidate) => { appendCalls += 1; return { status: "applied" as const, event: candidate, revision: candidate.workspaceRevision }; } },
-    projection: { read: () => read, readOperation: () => null, currentLease: () => null,
+    eventStore: { readTaskEvent: () => null, append: (candidate) => { appendCalls += 1; return { status: "applied" as const, event: candidate, revision: candidate.workspaceRevision }; } },
+    projection: { read: () => read, readTaskOperation: () => null, currentLease: () => null,
       reserveLease: (lease) => lease, activateLease: (lease) => lease, renewLease: (lease) => lease, releaseLease: (lease) => lease,
       apply: () => ({ metrics: { reducedItems: 0 } }) }
   });
@@ -112,10 +112,11 @@ test("10,000 old events do not block a new write", async (context) => {
       eventDigest: `sha256:${createHash("sha256").update(lastBytes).digest("hex")}` }));
     git(rootDir, "add", "--", "harness/events");
     git(rootDir, "commit", "--quiet", "-m", "10k old event fixture");
+    git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
 
     const started = performance.now();
     const checkpoints = new Map<string, number>();
-    const eventStore = makeTaskEventStore({ rootDir, killpoint: (point) => checkpoints.set(point, performance.now() - started) });
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir, killpoint: (point) => checkpoints.set(point, performance.now() - started) });
     const storeReady = performance.now();
     const phase = { readMs: 0, appendMs: 0, applyMs: 0, maxAccessedItems: 0 };
     const boundedEventStore = { ...eventStore, readBatch: (cursor: string | null, maxItems: number) => {
@@ -203,7 +204,7 @@ test("SQLite/response killpoints reconstruct the exact applied receipt by opId w
     const rootDir = mkdtempSync(path.join(tmpdir(), `ha-response-${point}-`));
     try {
       initRepo(rootDir);
-      const eventStore = makeTaskEventStore({ rootDir });
+      const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
       const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
       let armed = true;
       const interrupted = makeTaskLifecycleService({ eventStore, projection, killpoint: (candidate) => {
@@ -213,14 +214,13 @@ test("SQLite/response killpoints reconstruct the exact applied receipt by opId w
         completionGateIds: [] }, { eventId: "event-create", workspaceRevision: 1, occurredAt: "2026-08-11T00:00:00.000Z" });
       const proof = { taskIdUnique: true as const, actorBinding: actor };
       await assert.rejects(interrupted.execute(create, proof), new RegExp(`killpoint:${point}`, "u"));
-      const commitCount = git(rootDir, "rev-list", "--count", "HEAD").trim();
-      const published = eventStore.readEvent(create.opId);
+      const commitCount = git(rootDir, "rev-list", "--count", "refs/ha/canonical").trim();
+      const published = eventStore.readTaskEvent(create.opId);
       if (published === null) throw new Error(`${point} did not publish an event`);
       const eventBytes = serializeTaskEvent(published);
       const digest = `sha256:${createHash("sha256").update(eventBytes).digest("hex")}` as const;
-      assert.equal(readFileSync(path.join(rootDir, `harness/events/${create.opId}.json`), "utf8"), eventBytes);
-      assert.equal(readFileSync(path.join(rootDir, "harness/events/head.json"), "utf8"),
-        serializeEventHead({ revision: 1, opId: create.opId, eventDigest: digest }));
+      assert.equal(git(rootDir, "show", `refs/ha/canonical:harness/events/${create.opId}.json`), eventBytes);
+      assert.equal(git(rootDir, "show", "refs/ha/canonical:harness/events/head.json"), serializeEventHead({ revision: 1, opId: create.opId, eventDigest: digest }));
 
       const resumed = makeTaskLifecycleService({ eventStore, projection });
       const first = await resumed.execute(create, proof);
@@ -228,7 +228,7 @@ test("SQLite/response killpoints reconstruct the exact applied receipt by opId w
       assert.equal(first.outcome, "applied", point);
       assert.deepEqual(second, first, point);
       assert.equal(projection.readOperation(create.opId)?.event.opId, create.opId);
-      assert.equal(git(rootDir, "rev-list", "--count", "HEAD").trim(), commitCount);
+      assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical").trim(), commitCount);
     } finally { rmSync(rootDir, { recursive: true, force: true }); }
   }
 });
@@ -237,7 +237,7 @@ test("lease broker capacity ceiling rejects concurrent exhaustion and release re
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lease-capacity-"));
   try {
     initRepo(rootDir);
-    const eventStore = makeTaskEventStore({ rootDir });
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
     const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const lease = (id: string) => ({ schema: "lease/v1" as const, taskId: `task-${id}`, executionId: `execution-${id}`, actor, source: "local" as const,
       phase: "reserving" as const, expiresAt: "2026-08-11T01:00:00.000Z", ttlMs: 1_800_000, version: 0 });

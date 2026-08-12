@@ -467,24 +467,24 @@
         "reason": "W3 event store must retain exact durable publication, recovery, and budget evidence."
       },
       {
-        "value": "serializePendingPublication",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 event store must retain exact durable publication, recovery, and budget evidence."
+        "value": "CANONICAL_EVENT_REF",
+        "ref": "task_01KZRMKPA7XGF0NGBE961MCGET",
+        "reason": "Doc-sync U4 requires publication through an independent canonical Git ref."
       },
       {
-        "value": "prepareLocalEventCommit",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 event store must retain exact durable publication, recovery, and budget evidence."
+        "value": "prepareCommit",
+        "ref": "task_01KZRMKPA7XGF0NGBE961MCGET",
+        "reason": "Doc-sync U4 prepares immutable Git objects without worktree publication."
       },
       {
-        "value": "finalizeLocalEventCommit",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 event store must retain exact durable publication, recovery, and budget evidence."
+        "value": "finalizeRefs",
+        "ref": "task_01KZRMKPA7XGF0NGBE961MCGET",
+        "reason": "Doc-sync U4 atomically publishes the prepared commit through refs only."
       },
       {
-        "value": "localEventFileSystem.writeDurably",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 event store must retain exact durable publication, recovery, and budget evidence."
+        "value": "localGitObjectRefStore",
+        "ref": "task_01KZRMKPA7XGF0NGBE961MCGET",
+        "reason": "Doc-sync U4 constrains the publisher to a Git object/ref-only port."
       },
       {
         "value": "publication_indeterminate",

@@ -10,8 +10,8 @@ import { addWriteTarget, freezeWritePlan, validateWritePlan } from "../../../pac
 const targets = [
   { kind: "event_file", path: "harness/events/op-1.json", operation: "create" },
   { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
-  { kind: "projection_invalidation", projection: "task-lifecycle/v1", taskId: "task-1" },
-  { kind: "task_artifact", path: "harness/tasks/task-1/submission.json", operation: "create" }
+  { kind: "projection_invalidation", projection: "task-lifecycle/v1", key: "task-1" },
+  { kind: "content_blob", sha256: "a".repeat(64), size: 4, mediaType: "text/plain" }
 ];
 
 test("G28 freezes a unique declared write set and rejects late targets", () => {
@@ -19,7 +19,7 @@ test("G28 freezes a unique declared write set and rejects late targets", () => {
   assert.equal(Object.isFrozen(frozen), true);
   assert.equal(Object.isFrozen(frozen.targets), true);
   assert.throws(
-    () => addWriteTarget(frozen, { kind: "task_artifact", path: "late.json", operation: "create" }),
+    () => addWriteTarget(frozen, { kind: "content_blob", sha256: "b".repeat(64), size: 4, mediaType: "text/plain" }),
     (error) => error instanceof TaskLifecycleContractError && error.code === "frozen_write_plan"
   );
 });
@@ -32,11 +32,11 @@ test("G28 validates a predeclared write plan for every lifecycle command", () =>
   }
 });
 
-test("G28 rejects duplicate targets, missing projections, and artifacts without a write op", () => {
+test("G28 rejects duplicate targets, missing projections, and malformed content blobs", () => {
   assert.throws(() => freezeWritePlan({ commandType: "SubmitExecution", targets: [targets[0], targets[0], targets[1], targets[2]] }));
   assert.throws(() => freezeWritePlan({ commandType: "SubmitExecution", targets: [targets[0], targets[1]] }));
   assert.throws(() => freezeWritePlan({
     commandType: "SubmitExecution",
-    targets: [targets[0], targets[1], targets[2], { kind: "task_artifact", path: "submission.json" }]
+    targets: [targets[0], targets[1], targets[2], { kind: "content_blob", sha256: "short", size: 4, mediaType: "text/plain" }]
   }));
 });

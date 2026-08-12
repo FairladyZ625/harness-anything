@@ -5,13 +5,15 @@ export type { CompleteTaskProof, ProofFor, TaskEventV1, TaskLifecycleCommand, Ta
 export { canonicalizeContractValue } from "./domain/task.ts";
 export type { TaskV1 } from "./domain/task.ts";
 export { assertCurrentWriter, bindWriterGenerationToken, createWriteReceipt, normalizeCommandEnvelope, WRITE_RECEIPT_SCHEMA } from "./domain/write-chain.contract.ts";
-export type { ActorIdentity, FrozenWritePlan, WriteOperationReceipt, WriteReceipt, WriteSource, WriteTarget, WriterGeneration, WriterGenerationToken } from "./domain/write-chain.contract.ts";
+export type { ActorIdentity, DocSyncReceiptDetail, FrozenWritePlan, WriteOperationReceipt, WriteReceipt, WriteSource, WriteTarget, WriterGeneration, WriterGenerationToken } from "./domain/write-chain.contract.ts";
+export { decideDocWrite, docSyncWritePlan, documentPath, isDocEvent, parseDocWriteIntent, resolveDocRoute } from "./domain/doc-sync.contract.ts";
+export type { DocClaimRef, DocEventV1, DocWriteIntent, LedgerCommitSha } from "./domain/doc-sync.contract.ts";
 export * from "./docmap/index.ts";
 export * from "./docmap/docmap-unique.ts";
 export * from "./entity/disposition.ts";
 export * from "./entity/field-contracts.ts";
 export * from "./entity/registry.ts";
-export { sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
+export { sha256Bytes, sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
 export {
   assertNoPortablePathCollisions,
   createHarnessRuntimeContext,
@@ -52,7 +54,7 @@ export {
   makeTaskProjection,
   makeMarkdownArtifactStore
 } from "./composition/index.ts";
-export type { EventPublicationKillpoint } from "./composition/index.ts";
+export type { CanonicalEventStore, EventPublicationKillpoint, TaskProjection } from "./composition/index.ts";
 export {
   readDaemonRegistry,
   resolveDaemonRepoByRoot,

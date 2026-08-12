@@ -11,11 +11,11 @@ export class TaskLifecycleOperationConflict extends Error {
 }
 export type TaskLifecycleKillpoint = "after_sqlite_commit" | "before_response_write" | "after_response_write";
 export interface TaskLifecycleServiceRead { readonly status: "ready" | "pending"; readonly snapshot: TaskLifecycleSnapshot; readonly watermark: number; readonly sourceRevision: number; readonly warnings: readonly string[] }
-interface EventStorePort { readonly readEvent: (opId: string) => TaskEventV1 | null; readonly append: (event: TaskEventV1) => { readonly status: "applied"; readonly event: TaskEventV1; readonly revision: number } }
+interface EventStorePort { readonly readTaskEvent: (opId: string) => TaskEventV1 | null; readonly append: (event: TaskEventV1) => { readonly status: "applied"; readonly revision: number } }
 type Lease = NonNullable<TaskLifecycleSnapshot["lease"]>;
 interface ProjectionPort {
   readonly apply: (event: TaskEventV1) => { readonly metrics: { readonly reducedItems: number } }; readonly read: (taskId: string) => TaskLifecycleServiceRead;
-  readonly readOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null; readonly currentLease: (taskId: string, now?: string) => Lease | null;
+  readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null; readonly currentLease: (taskId: string, now?: string) => Lease | null;
   readonly reserveLease: (lease: Lease, now: string) => Lease; readonly activateLease: (lease: Lease) => Lease;
   readonly renewLease: (lease: Lease, expiresAt: string) => Lease; readonly releaseLease: (lease: Lease) => Lease;
 }
@@ -32,10 +32,10 @@ export function makeTaskLifecycleService(options: { readonly eventStore: EventSt
   return { read, renewLease: async (input) => renewTaskLease(options, read, input), execute: async <C extends TaskLifecycleCommand>(command: C, proof: TaskLifecycleServiceProof<C>) => {
     const issues = validateTaskLifecycleCommandEnvelope(command);
     if (issues.length > 0) throw new TaskLifecycleOperationConflict(`invalid normalized command envelope: ${issues.map((issue) => issue.message).join("; ")}`);
-    const plan = taskLifecycleWritePlan(command), existing = options.eventStore.readEvent(command.opId);
+    const plan = taskLifecycleWritePlan(command), existing = options.eventStore.readTaskEvent(command.opId);
     if (existing !== null) {
       if (!eventMatchesOperation(existing, command, proof as ProofFor<C>)) throw new TaskLifecycleOperationConflict(`opId ${command.opId} already has a different payload`);
-      if (options.projection.readOperation(command.opId) === null) options.projection.apply(existing);
+      if (options.projection.readTaskOperation(command.opId) === null) options.projection.apply(existing);
       return receiptFromRead(await read(command.taskId), existing, plan);
     }
     const current = await read(command.taskId);
@@ -58,10 +58,10 @@ export function makeTaskLifecycleService(options: { readonly eventStore: EventSt
 }
 
 async function renewTaskLease(options: { readonly eventStore: EventStorePort; readonly projection: ProjectionPort }, read: (taskId: string) => Promise<TaskLifecycleServiceRead>, input: TaskLeaseRenewInput): Promise<Lease> {
-  const existing = options.eventStore.readEvent(input.opId);
+  const existing = options.eventStore.readTaskEvent(input.opId);
   if (existing !== null) {
     if (!matchesRenewal(existing, input)) throw new TaskLifecycleOperationConflict(`opId ${input.opId} already has a different payload`);
-    if (options.projection.readOperation(input.opId) === null) options.projection.apply(existing);
+    if (options.projection.readTaskOperation(input.opId) === null) options.projection.apply(existing);
     const replayed = options.projection.currentLease(input.taskId); if (replayed === null) throw new TaskLifecycleOperationConflict(`renewed lease ${input.opId} is not readable`); return replayed;
   }
   const current = options.projection.currentLease(input.taskId);
@@ -96,7 +96,7 @@ function matchesRenewal(event: TaskEventV1, input: TaskLeaseRenewInput): boolean
   && sameActor(event.actor, input.actor) && json(event.source) === json(input.source); }
 function sameActor(left: TaskLifecycleCommand["actor"], right: TaskLifecycleCommand["actor"]): boolean { return left.principal.personId === right.principal.personId && left.executor?.kind === right.executor?.kind && left.executor?.id === right.executor?.id; }
 function eventTargets(opId: string): readonly [WriteTarget, WriteTarget] { return [{ kind: "event_file", path: `harness/events/${opId}.json`, operation: "create" }, { kind: "event_head", path: "harness/events/head.json", operation: "replace" }]; }
-function projectionTarget(taskId: string): WriteTarget { return { kind: "projection_invalidation", projection: "task-lifecycle/v1", taskId }; }
+function projectionTarget(taskId: string): WriteTarget { return { kind: "projection_invalidation", projection: "task-lifecycle/v1", key: taskId }; }
 function plannedPublication<A>(plan: FrozenWritePlan<TaskLifecycleCommand["type"]>, event: TaskEventV1, write: () => A): A { for (const target of eventTargets(event.opId)) assertWriteTargetDeclared(plan, target); return write(); }
 function planned<A>(plan: FrozenWritePlan<TaskLifecycleCommand["type"]>, target: WriteTarget, write: () => A): A { assertWriteTargetDeclared(plan, target); return write(); }
 export function assertWriteTargetDeclared(plan: FrozenWritePlan<TaskLifecycleCommand["type"]>, target: WriteTarget): void {
@@ -104,12 +104,12 @@ export function assertWriteTargetDeclared(plan: FrozenWritePlan<TaskLifecycleCom
 }
 function receiptFromRead(read: TaskLifecycleServiceRead, event: TaskEventV1, plan: FrozenWritePlan<TaskLifecycleCommand["type"]>): WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot, TaskLifecycleCommand["type"]> {
   return read.status === "ready" && read.watermark >= event.workspaceRevision ? { outcome: "applied", opId: event.opId, event, revision: event.workspaceRevision,
-    evidence: `event-file:${event.opId}`, visibility: "center", proof: { committedRevision: event.workspaceRevision, appliedCut: event.workspaceRevision }, snapshot: read.snapshot, frozenPlan: plan }
+    evidence: `event-object:${event.opId}`, visibility: "center", proof: { committedRevision: event.workspaceRevision, appliedCut: event.workspaceRevision, durable: true, canonicalVisible: true, worktreeVisible: null }, snapshot: read.snapshot, frozenPlan: plan }
     : pendingReceipt(read, plan, event.opId, "projection catch-up is pending", event);
 }
 function pendingReceipt(read: TaskLifecycleServiceRead, plan: FrozenWritePlan<TaskLifecycleCommand["type"]>, opId: string, reason: string, event: TaskEventV1): WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot, TaskLifecycleCommand["type"]> {
-  const revision = event.workspaceRevision; return { outcome: "pending", opId, event, revision, evidence: `event-file:${opId}`,
-    visibility: "center", proof: { committedRevision: revision, appliedCut: read.watermark }, snapshot: read.snapshot, frozenPlan: plan, nextAction: `retry task lifecycle read: ${reason}` };
+  const revision = event.workspaceRevision; return { outcome: "pending", opId, event, revision, evidence: `event-object:${opId}`,
+    visibility: "center", proof: { committedRevision: revision, appliedCut: read.watermark, durable: true, canonicalVisible: false, worktreeVisible: null }, snapshot: read.snapshot, frozenPlan: plan, nextAction: `retry task lifecycle read: ${reason}` };
 }
 function eventMatchesOperation<C extends TaskLifecycleCommand>(event: TaskEventV1, command: C, proof: ProofFor<C>): boolean { return json(operationIdentityFromEvent(event)) === json(operationIdentityFromCommand(command, proof)); }
 function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C, proof: ProofFor<C>): unknown {

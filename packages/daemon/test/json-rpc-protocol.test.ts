@@ -2,17 +2,26 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { makeTaskEventStore } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
+const DOC_POLICY_ID = "markdown-additive/v1";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
+
+test("repo-bound ledger commit rejects cross-repo SHA", () => {
+  const roots = ["a", "b"].map((name) => mkdtempSync(path.join(tmpdir(), `ha-ledger-${name}-`)));
+  try { roots.forEach(initRepo); const left = makeTaskEventStore({ rootDir: roots[0]!, repoId: "repo-a" }), right = makeTaskEventStore({ rootDir: roots[1]!, repoId: "repo-b" });
+    assert.match(left.currentCommit().sha, /^[0-9a-f]{40}$/u); assert.throws(() => right.revisionAt(left.currentCommit()), /repo/iu);
+  } finally { roots.forEach((root) => rmSync(root, { recursive: true, force: true })); }
+});
 
 test("RepoCell serializes identical lifecycle intents into one Git publication and one applied receipt", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-"));
@@ -31,7 +40,7 @@ test("RepoCell serializes identical lifecycle intents into one Git publication a
     assert.deepEqual([left.outcome, right.outcome], ["applied", "applied"], JSON.stringify([left, right]));
     assert.equal(left.opId, right.opId);
     assert.equal(left.revision, 1);
-    assert.equal(git(rootDir, "rev-list", "--count", "HEAD"), "2");
+    assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical"), "2");
     const shown = await cell.run({ kind: "task-show", verb: "show", taskId: "task-alpha" }, { actor, source: "local" });
     assert.equal(shown.outcome, "applied");
     assert.match(String(shown.evidence), /Alpha task/u);
@@ -39,6 +48,17 @@ test("RepoCell serializes identical lifecycle intents into one Git publication a
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("receipt lookup reports Git object-store failure as indeterminate and marks the RepoCell unavailable", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-corrupt-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("corrupt"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" });
+    const applied = await cell.run({ kind: "task-create", taskId: "task-corrupt", title: "Corrupt", completionGateIds: [] }, { actor, source: "local" }); assert.equal(applied.outcome, "applied");
+    rmSync(path.join(rootDir, ".git/objects"), { recursive: true, force: true });
+    const receipt = await cell.run({ kind: "receipt-show", opId: applied.opId }, { actor, source: "local" });
+    assert.deepEqual({ outcome: receipt.outcome, code: receipt.code, origin: receipt.origin }, { outcome: "indeterminate", code: "vcs_command_failed", origin: "git" });
+    assert.match(receipt.nextAction ?? "", /repair.*object.*retry/iu); assert.equal(cell.status().state, "unavailable");
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
 for (const killpoint of ["before_event_write", "after_event_write", "after_head_write", "after_git_commit",
@@ -56,10 +76,48 @@ for (const killpoint of ["before_event_write", "after_event_write", "after_head_
       recovered = await openRepoCell({ repoId: workspaceId("crash"), rootDir: canonicalRoot(rootDir), ownerId: "generation-two" });
       const retried = await recovered.run(action, { actor, source: "local" });
       assert.equal(retried.outcome, "applied", JSON.stringify(retried));
-      assert.equal(git(rootDir, "rev-list", "--count", "HEAD"), "2");
+      assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical"), "2");
     } finally { await crashed?.close(); await recovered?.close(); rmSync(rootDir, { recursive: true, force: true }); }
   });
 }
+
+test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion rejection, and worktree preservation", async (context) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-cell-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("docs"), rootDir: canonicalRoot(rootDir), ownerId: "doc-daemon" });
+    assert.equal((await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs", completionGateIds: [] }, { actor, source: "local" })).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, { actor, source: "local" })).outcome, "applied");
+    const claims = path.join(rootDir, ".harness/doc-sync-claims"), authored = path.join(rootDir, "harness/context/notes.md"); mkdirSync(claims, { recursive: true }); mkdirSync(path.dirname(authored), { recursive: true });
+    let body = "# Notes\nA\n", hash = createHash("sha256").update(body).digest("hex"), base = git(rootDir, "rev-parse", "refs/ha/canonical"); writeFileSync(authored, body); writeFileSync(path.join(claims, "one"), body);
+    const statusBefore = await cell.run({ kind: "doc-status", paths: ["context/notes.md"] }, { actor, source: "local" }); assert.equal(statusBefore.outcome, "applied"); assert.equal(statusBefore.proof?.worktreeVisible, null);
+    const action = { kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: base, changes: [{ path: "context/notes.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: { ref: "doc-sync-claims/one", sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" } }] } as const;
+    const before = { head: git(rootDir, "rev-parse", "HEAD"), status: git(rootDir, "status", "--porcelain", "-uall"), bytes: readFileSync(authored).toString("hex") }, applied = await cell.run(action, { actor, source: "local" });
+    assert.equal(applied.outcome, "applied", JSON.stringify(applied)); assert.equal(applied.detail?.kind, "doc_sync"); assert.equal(applied.proof?.worktreeVisible, true); assert.deepEqual({ head: git(rootDir, "rev-parse", "HEAD"), status: git(rootDir, "status", "--porcelain", "-uall"), bytes: readFileSync(authored).toString("hex") }, before);
+    const shown = await cell.run({ kind: "receipt-show", opId: applied.opId }, { actor, source: "local" }); assert.equal(shown.outcome, "applied"); assert.equal(shown.detail?.kind, "doc_sync"); assert.equal(shown.proof?.canonicalVisible, true);
+    const commits = git(rootDir, "rev-list", "--count", "refs/ha/canonical"); assert.deepEqual(await cell.run(action, { actor, source: "local" }), applied); assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical"), commits);
+    const next = `${body}B\n`, nextHash = createHash("sha256").update(next).digest("hex"); writeFileSync(path.join(claims, "two"), next);
+    const staleLedger = await cell.run({ ...action, baseLedgerSha: base, changes: [{ ...action.changes[0], baseBlobSha256: hash, candidate: { ...action.changes[0].candidate, ref: "doc-sync-claims/two", sha256: nextHash, size: Buffer.byteLength(next) } }] }, { actor, source: "local" });
+    assert.equal(staleLedger.code, "base_ledger_changed"); assert.equal(staleLedger.detail?.holder?.executionId, "execution-doc");
+    base = git(rootDir, "rev-parse", "refs/ha/canonical"); const staleBlob = await cell.run({ ...action, baseLedgerSha: base, changes: [{ ...action.changes[0], baseBlobSha256: "f".repeat(64), candidate: { ...action.changes[0].candidate, ref: "doc-sync-claims/two", sha256: nextHash, size: Buffer.byteLength(next) } }] }, { actor, source: "local" });
+    assert.equal(staleBlob.code, "base_blob_changed"); assert.equal(staleBlob.detail?.holder?.personId, "person-owner");
+    const deletion = await cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: base, changes: [{ path: "context/notes.md", baseBlobSha256: hash, policyId: DOC_POLICY_ID, candidate: null }] }, { actor, source: "local" }); assert.equal(deletion.code, "deletion_forbidden");
+    const beforeBatch = git(rootDir, "rev-parse", "refs/ha/canonical"), partial = await cell.run({ ...action, baseLedgerSha: base, changes: [{ ...action.changes[0], baseBlobSha256: hash, candidate: { ...action.changes[0].candidate, ref: "doc-sync-claims/two", sha256: nextHash, size: Buffer.byteLength(next) } }, { path: "context/missing.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: { ref: "doc-sync-claims/missing", sha256: "e".repeat(64), size: 1, mediaType: "text/markdown" } }] }, { actor, source: "local" }); assert.equal(partial.code, "content_claim_mismatch"); assert.equal(git(rootDir, "rev-parse", "refs/ha/canonical"), beforeBatch);
+    const samples: number[] = []; for (let index = 0; index < 7; index += 1) { const candidate = `${body}${Array.from({ length: index + 1 }, (_, n) => `line-${n}\n`).join("")}`, candidateHash = createHash("sha256").update(candidate).digest("hex"), ref = `doc-sync-claims/perf-${index}`; writeFileSync(authored, candidate); writeFileSync(path.join(rootDir, ".harness", ref), candidate); const started = performance.now(), result = await cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: git(rootDir, "rev-parse", "refs/ha/canonical"), changes: [{ path: "context/notes.md", baseBlobSha256: hash, policyId: DOC_POLICY_ID, candidate: { ref, sha256: candidateHash, size: Buffer.byteLength(candidate), mediaType: "text/markdown" } }] }, { actor, source: "local" }); samples.push(performance.now() - started); assert.equal(result.outcome, "applied", JSON.stringify(result)); body = candidate; hash = candidateHash; }
+    samples.sort((a, b) => a - b); const p50 = samples[Math.floor(samples.length / 2)]!; context.diagnostic(`doc-single-write-p50=${p50.toFixed(3)}ms samples=${samples.map((sample) => sample.toFixed(3)).join(",")}`); assert.equal(p50 < 500, true, `doc write p50 ${p50}ms`);
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("doc ingress rejects symbolic links in claim and authored path chains", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-claim-link-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("claim-link"), rootDir: canonicalRoot(rootDir), ownerId: "doc-daemon" });
+    await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs", completionGateIds: [] }, { actor, source: "local" }); await cell.run({ kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, { actor, source: "local" });
+    const body = "# Outside\n", hash = createHash("sha256").update(body).digest("hex"), claims = path.join(rootDir, ".harness/doc-sync-claims"); mkdirSync(claims, { recursive: true }); writeFileSync(path.join(rootDir, "outside.md"), body); symlinkSync("../../outside.md", path.join(claims, "linked"));
+    const base = git(rootDir, "rev-parse", "refs/ha/canonical"), result = await cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: base, changes: [{ path: "context/link.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: { ref: "doc-sync-claims/linked", sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" } }] }, { actor, source: "local" });
+    assert.equal(result.code, "content_claim_mismatch"); assert.equal(git(rootDir, "rev-parse", "refs/ha/canonical"), base);
+    writeFileSync(path.join(claims, "plain"), body); mkdirSync(path.join(rootDir, "harness/context"), { recursive: true }); symlinkSync("../../outside.md", path.join(rootDir, "harness/context/link.md"));
+    const authoredLink = await cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: base, changes: [{ path: "context/link.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: { ref: "doc-sync-claims/plain", sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" } }] }, { actor, source: "local" });
+    assert.equal(authoredLink.code, "invalid_command"); assert.equal(git(rootDir, "rev-parse", "refs/ha/canonical"), base);
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
 
 test("bootstrap concurrent writer admission commits one complete workspace", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-bootstrap-writer-")), rootDir = path.join(parent, "repo");
@@ -106,6 +164,8 @@ test("read-only principal cannot write or admin while semantic capabilities pass
     assert.equal((await host.run("rbac", { kind: "task-show", taskId: "task-rbac" }, auth(ids.reader))).outcome, "applied");
     const deniedWrite = await host.run("rbac", { kind: "task-create", taskId: "task-denied", title: "Denied", completionGateIds: [] }, auth(ids.reader));
     assert.equal(deniedWrite.outcome, "rejected"); assert.equal(deniedWrite.code, "rbac_forbidden");
+    assert.equal((await host.run("rbac", { kind: "doc-status", paths: ["context/notes.md"] }, auth(ids.reader))).outcome, "applied");
+    assert.equal((await host.run("rbac", { kind: "doc-submit" }, auth(ids.reader))).code, "rbac_forbidden");
     const deniedReview = await host.run("rbac", { kind: "task-review-execution", taskId: "task-rbac" }, auth(ids.reader));
     assert.equal(deniedReview.outcome, "rejected"); assert.equal(deniedReview.code, "rbac_forbidden");
     const deniedAdmin = await rpc(host, auth(ids.reader), "daemon.repo.register", { rootDir: second, repoId: "second" });

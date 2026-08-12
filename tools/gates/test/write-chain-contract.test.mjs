@@ -54,7 +54,7 @@ test("G03 rejects an unsafe target before freezing the write plan", () => {
     targets: [
       { kind: "event_file", path: "../events/op-1.json", operation: "create" },
       { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
-      { kind: "projection_invalidation", projection: "task-lifecycle/v1", taskId: "task-1" }
+      { kind: "projection_invalidation", projection: "task-lifecycle/v1", key: "task-1" }
     ]
   }, ["CreateReplayTask"]), (error) => error instanceof WriteChainContractError && error.code === "invalid_write_plan");
 });
@@ -105,12 +105,12 @@ test("G02/G07 expose one four-state receipt and bounded recovery contract", asyn
   assert.deepEqual({ deferred: recovery.deferred, nextCursor: recovery.nextCursor }, { deferred: 9_936, nextCursor: 64 });
   assert.deepEqual(createWriteReceipt({
     outcome: "applied", opId: "op_1", revision: 1, evidence: "event:op_1", visibility: "center",
-    proof: { committedRevision: 1, appliedCut: 1 }
+    proof: { committedRevision: 1, appliedCut: 1, durable: true, canonicalVisible: true, worktreeVisible: null }
   }), { outcome: "applied", opId: "op_1", revision: 1, evidence: "event:op_1", visibility: "center",
-    proof: { committedRevision: 1, appliedCut: 1 } });
+    proof: { committedRevision: 1, appliedCut: 1, durable: true, canonicalVisible: true, worktreeVisible: null } });
   assert.throws(() => createWriteReceipt({
     outcome: "applied", opId: "op_1", revision: 1, evidence: "event:op_1", visibility: "center",
-    proof: { committedRevision: 1, appliedCut: 1 }, leaseCredential: "removed"
+    proof: { committedRevision: 1, appliedCut: 1, durable: true, canonicalVisible: true, worktreeVisible: null }, leaseCredential: "removed"
   }), WriteChainContractError);
 });
 

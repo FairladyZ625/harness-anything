@@ -1,0 +1,1 @@
+{"schema":"doc-event/v1","eventId":"event-invalid","workspaceRevision":1,"opId":"op-invalid","type":"documents_written","actor":{},"source":"local","occurredAt":"2026-08-12T00:00:00.000Z","payload":{"executionId":"","baseLedgerSha":{"repoId":"INVALID","sha":"not-a-commit"},"changes":[]}}

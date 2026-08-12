@@ -1,14 +1,14 @@
 import path from "node:path";
 
 const windowsReservedName = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu;
-const windowsForbiddenChars = /[<>:"|?*]/u;
+const windowsForbiddenChars = /[<>:"|?*]/u; declare const portableDocumentPathBrand: unique symbol; export type PortableDocumentPath = string & { readonly [portableDocumentPathBrand]: true };
 
 export interface PortablePathCollision {
   readonly canonicalPath: string;
   readonly paths: readonly string[];
 }
 
-export function normalizeRelativeDocumentPath(value: string): string {
+export function normalizeRelativeDocumentPath(value: string): PortableDocumentPath {
   if (value.length === 0) throw new Error("document path must not be empty");
   if (value.includes("\0")) throw new Error(`document path contains NUL: ${value}`);
   if (value.includes("\\")) throw new Error(`document path must use POSIX separators: ${value}`);
@@ -25,7 +25,7 @@ export function normalizeRelativeDocumentPath(value: string): string {
     assertPortablePathSegment(segment, value);
   }
 
-  return normalized;
+  return normalized as PortableDocumentPath;
 }
 
 export function assertNoPortablePathCollisions(paths: readonly string[]): void {
@@ -41,7 +41,7 @@ export function findPortablePathCollisions(paths: readonly string[]): readonly P
     const normalized = normalizeRelativeDocumentPath(rawPath);
     const canonical = normalized.toLocaleLowerCase("en-US");
     const values = seen.get(canonical) ?? [];
-    values.push(normalized);
+    values.push(rawPath);
     seen.set(canonical, values);
   }
 

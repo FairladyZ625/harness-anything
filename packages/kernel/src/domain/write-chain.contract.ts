@@ -1,4 +1,7 @@
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
+import { validateWriteReceipt, type WriteReceipt } from "./receipt-domain-registry.ts";
+export { receiptDetailRegistry, validateWriteReceipt, WRITE_RECEIPT_SCHEMA } from "./receipt-domain-registry.ts";
+export type { DocSyncReceiptDetail, ReceiptProof, ReceiptVisibility, WriteReceipt, WriteReceiptDetail } from "./receipt-domain-registry.ts";
 
 export interface ActorIdentity {
   readonly principal: { readonly personId: string };
@@ -29,19 +32,6 @@ export interface WriterGeneration {
 
 export const writeReceiptOutcomes = Object.freeze(["applied", "pending", "indeterminate", "rejected"] as const);
 export type WriteReceiptOutcome = (typeof writeReceiptOutcomes)[number];
-export type ReceiptVisibility = "center" | { readonly kind: "replica"; readonly viewId: string };
-export interface ReceiptProof { readonly committedRevision: number; readonly appliedCut: number; readonly ackCut?: number }
-export interface WriteReceipt {
-  readonly outcome: WriteReceiptOutcome;
-  readonly opId: string;
-  readonly revision?: number;
-  readonly code?: string;
-  readonly origin?: string;
-  readonly nextAction?: string;
-  readonly evidence?: string;
-  readonly visibility?: ReceiptVisibility;
-  readonly proof?: ReceiptProof;
-}
 
 export interface RecoveryBudget {
   readonly deadline: number;
@@ -95,9 +85,9 @@ export interface EventHead {
 export type WriteTarget =
   | { readonly kind: "event_file"; readonly path: string; readonly operation: "create" }
   | { readonly kind: "event_head"; readonly path: string; readonly operation: "replace" }
-  | { readonly kind: "projection_invalidation"; readonly projection: string; readonly taskId: string }
+  | { readonly kind: "projection_invalidation"; readonly projection: string; readonly key: string }
   | { readonly kind: "lease_sqlite"; readonly table: "lease_cas"; readonly taskId: string; readonly operation: "reserve" | "activate" | "release" }
-  | { readonly kind: "task_artifact"; readonly path: string; readonly operation: "create" | "replace" };
+  | { readonly kind: "content_blob"; readonly sha256: string; readonly size: number; readonly mediaType: string };
 export interface WritePlan<C extends string = string> { readonly commandType: C; readonly targets: readonly WriteTarget[] }
 declare const frozenWritePlanBrand: unique symbol;
 export type FrozenWritePlan<C extends string = string> = Readonly<WritePlan<C>> & { readonly [frozenWritePlanBrand]: true };
@@ -144,46 +134,6 @@ export function validateWriteSource(value: unknown): readonly string[] {
   if (value === "local" || value === "remote_direct") return [];
   return isRecord(value) && hasOnlyFields(value, ["kind", "nodeId", "assignmentId"]) && value.kind === "assignment"
     && isNonEmptyString(value.nodeId) && isNonEmptyString(value.assignmentId) ? [] : ["source must be local, remote_direct, or an assignment identity"];
-}
-
-export const WRITE_RECEIPT_SCHEMA = Object.freeze({
-  id: "write-receipt/v1",
-  outcomes: writeReceiptOutcomes,
-  required: Object.freeze(["outcome", "opId"]),
-  optional: Object.freeze(["revision", "code", "origin", "nextAction", "evidence", "visibility", "proof"])
-});
-
-export function validateWriteReceipt(value: unknown): readonly string[] {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return ["receipt must be an object"];
-  const receipt = value as Readonly<Record<string, unknown>>;
-  const allowed = new Set([...WRITE_RECEIPT_SCHEMA.required, ...WRITE_RECEIPT_SCHEMA.optional]);
-  const errors = Object.keys(receipt).filter((key) => !allowed.has(key)).map((key) => `unexpected field: ${key}`);
-  if (!(writeReceiptOutcomes as readonly unknown[]).includes(receipt.outcome)) errors.push("receipt outcome is invalid");
-  if (!isNonEmptyString(receipt.opId)) errors.push("opId is required");
-  if (Object.hasOwn(receipt, "revision") && (!Number.isInteger(receipt.revision) || (receipt.revision as number) < 0)) errors.push("revision must be a non-negative integer");
-  for (const field of ["code", "origin", "nextAction", "evidence"] as const) {
-    if (Object.hasOwn(receipt, field) && !isNonEmptyString(receipt[field])) errors.push(`${field} must be a non-empty string`);
-  }
-  const visibility = receipt.visibility;
-  const replica = isRecord(visibility) && hasOnlyFields(visibility, ["kind", "viewId"])
-    && visibility.kind === "replica" && isNonEmptyString(visibility.viewId);
-  if (Object.hasOwn(receipt, "visibility") && visibility !== "center" && !replica) errors.push("visibility must be center or replica(viewId)");
-  const proof = receipt.proof;
-  const proofFields = isRecord(proof) && Object.hasOwn(proof, "ackCut")
-    ? ["committedRevision", "appliedCut", "ackCut"] : ["committedRevision", "appliedCut"];
-  const validProof = isRecord(proof) && hasOnlyFields(proof, proofFields)
-    && proofFields.every((field) => Number.isInteger(proof[field]) && (proof[field] as number) >= 0);
-  if (Object.hasOwn(receipt, "proof") && !validProof) errors.push("proof revisions must be non-negative integer cuts");
-  if ((receipt.outcome === "applied" || receipt.outcome === "pending") && (visibility === undefined || !validProof)) errors.push(`${String(receipt.outcome)} requires visibility and proof`);
-  if (receipt.outcome === "applied" && validProof && proof.committedRevision !== proof.appliedCut) errors.push("applied proof must use the same committed and applied cut");
-  if (receipt.outcome === "applied" && replica && validProof && proof.ackCut !== proof.appliedCut) errors.push("replica applied requires ackCut at the same cut");
-  if (receipt.outcome === "applied" && (!Number.isInteger(receipt.revision) || !isNonEmptyString(receipt.evidence))) errors.push("applied requires revision and evidence");
-  if (receipt.outcome === "pending" && (!Number.isInteger(receipt.revision) || !isNonEmptyString(receipt.evidence) || !isNonEmptyString(receipt.nextAction))) errors.push("pending requires committed evidence, revision, and nextAction");
-  if (receipt.outcome === "indeterminate" || receipt.outcome === "rejected") {
-    for (const field of ["code", "origin", "nextAction"] as const) if (!isNonEmptyString(receipt[field])) errors.push(`${field} is required for ${receipt.outcome}`);
-  }
-  if (!isNonEmptyString(receipt.evidence) && (receipt.outcome !== "indeterminate" || receipt.origin !== "N/A")) errors.push("evidence-free receipt must be N/A indeterminate");
-  return errors;
 }
 
 export function createWriteReceipt<R extends WriteReceipt>(receipt: R): Readonly<R> {
@@ -249,9 +199,9 @@ function safeIdentity(value: unknown): value is string {
 
 function targetKey(target: WriteTarget): string {
   return target.kind === "event_file" || target.kind === "event_head" ? `${target.kind}:${target.path}`
-    : target.kind === "projection_invalidation" ? `${target.kind}:${target.projection}:${target.taskId}`
+    : target.kind === "projection_invalidation" ? `${target.kind}:${target.projection}:${target.key}`
     : target.kind === "lease_sqlite" ? `${target.kind}:${target.table}:${target.taskId}:${target.operation}`
-    : `${target.kind}:${target.path}`;
+    : `${target.kind}:${target.sha256}`;
 }
 
 export function validateDeclaredWritePlan(plan: WritePlan, commandTypes: readonly string[]): readonly string[] {
@@ -268,10 +218,10 @@ export function validateDeclaredWritePlan(plan: WritePlan, commandTypes: readonl
     if (target.kind === "event_file" && (!safeWorkspacePath(target.path) || !target.path.startsWith("harness/events/")
       || !target.path.endsWith(".json") || target.path === "harness/events/head.json" || target.operation !== "create")) errors.push("event file target is invalid");
     if (target.kind === "event_head" && (target.path !== "harness/events/head.json" || target.operation !== "replace")) errors.push("event head target is invalid");
-    if (target.kind === "projection_invalidation" && (!isNonEmptyString(target.projection) || !safeIdentity(target.taskId))) errors.push("projection target is invalid");
+    if (target.kind === "projection_invalidation" && (!isNonEmptyString(target.projection) || !safeWorkspacePath(target.key))) errors.push("projection target is invalid");
     if (target.kind === "lease_sqlite" && (target.table !== "lease_cas" || !safeIdentity(target.taskId)
       || !["reserve", "activate", "release"].includes(target.operation))) errors.push("lease target is invalid");
-    if (target.kind === "task_artifact" && (!safeWorkspacePath(target.path) || !["create", "replace"].includes(target.operation))) errors.push("artifact target is invalid");
+    if (target.kind === "content_blob" && (!/^[0-9a-f]{64}$/u.test(target.sha256) || !Number.isInteger(target.size) || target.size < 0 || !isNonEmptyString(target.mediaType))) errors.push("content blob target is invalid");
   }
   return errors;
 }

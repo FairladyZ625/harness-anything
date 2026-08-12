@@ -18,7 +18,7 @@ test("lease CAS permits only the current holder and version to renew and release
     git(rootDir, "config", "user.name", "Lease Test");
     git(rootDir, "config", "user.email", "lease-test@example.invalid");
     git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
-    const projection = makeTaskProjection({ rootDir, eventStore: makeTaskEventStore({ rootDir }), now: () => "2026-08-11T00:30:00.000Z" });
+    const projection = makeTaskProjection({ rootDir, eventStore: makeTaskEventStore({ repoId: "test-repo", rootDir }), now: () => "2026-08-11T00:30:00.000Z" });
     const reservation = projection.reserveLease({ schema: "lease/v1", taskId: "task-1", executionId: "execution-1", actor, source: "local",
       phase: "reserving", expiresAt: "2026-08-11T01:00:00.000Z", ttlMs: 1_800_000, version: 0 }, "2026-08-11T00:00:00.000Z");
     const active = projection.activateLease(reservation);

@@ -11,7 +11,8 @@ export function findW3WriteAuthorityViolations(rootDir = process.cwd()) {
   const cellPath = "packages/daemon/src/repo-cell.ts", storePath = "packages/kernel/src/store/task-event-store.ts", servicePath = "packages/application/src/task-lifecycle-service.ts";
   const cell = source(rootDir, cellPath, violations), store = source(rootDir, storePath, violations), service = source(rootDir, servicePath, violations);
   for (const token of ["makeTaskEventStore", "makeTaskLifecycleService", "eventStore: store", "tail.then"]) if (!cell.includes(token)) violations.push(`${cellPath}: missing RepoCell authority token ${token}`);
-  for (const token of ["prepareLocalEventCommit", "finalizeLocalEventCommit"]) if (!store.includes(token)) violations.push(`${storePath}: missing Git publication token ${token}`);
+  for (const token of ["CANONICAL_EVENT_REF", "prepareCommit", "finalizeRefs"]) if (!store.includes(token)) violations.push(`${storePath}: missing object/ref publication token ${token}`);
+  for (const token of ["update-index", "checkout", "reset", "restore"]) if (store.includes(token)) violations.push(`${storePath}: object/ref publisher must not expose ${token}`);
   if (!service.includes("eventStore.append")) violations.push(`${servicePath}: lifecycle service must publish only through its eventStore port`);
   const consumers = files.filter((file) => file.endsWith(".ts") && !file.includes("/test/")).filter((file) => {
     const body = readFileSync(path.join(rootDir, file), "utf8"); return /(?<!function\s)\bmakeTaskEventStore\s*\(/u.test(body);

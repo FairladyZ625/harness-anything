@@ -66,3 +66,9 @@ test("portable document path collisions are detected case-insensitively", () => 
     }
   ]);
 });
+
+test("portable document path collisions retain raw NFC/NFD spellings", () => {
+  assert.deepEqual(findPortablePathCollisions(["notes/café.md", "notes/cafe\u0301.md"]), [{
+    canonicalPath: "notes/café.md", paths: ["notes/cafe\u0301.md", "notes/café.md"]
+  }]);
+});
