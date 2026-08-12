@@ -4,6 +4,11 @@
   "entries": {
     "intentionalTestDeletions": [
       {
+        "value": "packages/application/test/local-controller-service.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "The unused local controller implementation was a retired GUI-era read facade; daemon lifecycle integration is the active product path."
+      },
+      {
         "value": "packages/application/test/execution-saga.test.ts",
         "ref": "task_P4_INT",
         "reason": "The event-backed replay lifecycle service replaces the holder-backed execution saga and its integration test."
@@ -27,6 +32,321 @@
         "value": "packages/kernel/test/store/sqlite-incremental-projection.test.ts",
         "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
         "reason": "The single rebuildable SQLite reducer replaces the incremental projector fallback and its separate integration test."
+      },
+      {
+        "value": "packages/adapters/multica/test/multica-readonly-adopt.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "W3 removes the uncontracted adopt write surface; the multica adapter is read-only."
+      },
+      {
+        "value": "packages/cli/test/actor-attribution-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Transport-bound actor attribution replaces CLI payload attribution and is covered by daemon lifecycle integration."
+      },
+      {
+        "value": "packages/cli/test/anchor-backfill-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "W3 removes the uncontracted anchor-backfill command from the rebuild product surface."
+      },
+      {
+        "value": "packages/cli/test/attribution-diff-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "W3 removes the uncontracted attribution-diff command from the rebuild product surface."
+      },
+      {
+        "value": "packages/cli/test/check-governance-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "W3 removes the uncontracted governance check facade from the thin CLI."
+      },
+      {
+        "value": "packages/cli/test/conflict-preflight-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "RepoCell admission and lifecycle conflicts replace the legacy CLI preflight facade."
+      },
+      {
+        "value": "packages/cli/test/decision-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Decision writes have no W1 contract and are removed from the rebuild CLI."
+      },
+      {
+        "value": "packages/cli/test/decision-coverage-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Decision coverage has no W1 command contract and is removed from the rebuild CLI."
+      },
+      {
+        "value": "packages/cli/test/decision-task-metadata-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Legacy decision metadata writes are removed with the uncontracted decision CLI."
+      },
+      {
+        "value": "packages/cli/test/diagnostics-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "The legacy diagnostics command is outside the contracted thin CLI surface."
+      },
+      {
+        "value": "packages/cli/test/distill-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "The uncontracted distill write command is removed from the rebuild product."
+      },
+      {
+        "value": "packages/cli/test/docmap-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "W3 closes the document-write bypass and removes docmap generation from the thin CLI."
+      },
+      {
+        "value": "packages/cli/test/doctor-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Legacy doctor orchestration is outside the contracted thin CLI surface."
+      },
+      {
+        "value": "packages/cli/test/extension-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Extension mutation commands have no W1 contract and are removed from rebuild."
+      },
+      {
+        "value": "packages/cli/test/fact-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "The old fact writer lacks a W1 lifecycle contract and is removed instead of bypassing RepoCell."
+      },
+      {
+        "value": "packages/cli/test/graph-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Legacy graph command orchestration is outside the contracted thin CLI surface."
+      },
+      {
+        "value": "packages/cli/test/gui-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "GUI launch orchestration is removed from the rebuild thin CLI."
+      },
+      {
+        "value": "packages/cli/test/init-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Daemon-backed cold bootstrap in daemon-multi-repo-lifecycle-cli.test.ts replaces the legacy local init/scaffold implementation."
+      },
+      {
+        "value": "packages/cli/test/local-lifecycle-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Real CLI-to-daemon lifecycle integration replaces the legacy local lifecycle facade."
+      },
+      {
+        "value": "packages/cli/test/local-lifecycle-crlf-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "The local Markdown lifecycle path is deleted; lifecycle now publishes canonical events through RepoCell."
+      },
+      {
+        "value": "packages/cli/test/migration-adopt-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Migration adopt has no W1 contract and is removed from the rebuild product."
+      },
+      {
+        "value": "packages/cli/test/new-task-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Daemon lifecycle integration now covers the sole contracted task creation path."
+      },
+      {
+        "value": "packages/cli/test/p16-command-parity-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Parity with the deleted legacy command catalog is intentionally retired by the W3 product flip."
+      },
+      {
+        "value": "packages/cli/test/post-merge-check-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Post-merge check orchestration is outside the contracted thin CLI surface."
+      },
+      {
+        "value": "packages/cli/test/preset-create-milestone-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Preset writes have no W1 contract and are removed from the rebuild thin CLI."
+      },
+      {
+        "value": "packages/cli/test/preset-create-milestone-render-html-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Preset rendering is removed with the uncontracted preset command surface."
+      },
+      {
+        "value": "packages/cli/test/preset-github-issue-repair-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Preset execution is removed with the uncontracted preset command surface."
+      },
+      {
+        "value": "packages/cli/test/preset-milestone-closeout-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Preset closeout is removed with the uncontracted preset command surface."
+      },
+      {
+        "value": "packages/cli/test/preset-module-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Preset module writes have no W1 contract and are removed from rebuild."
+      },
+      {
+        "value": "packages/cli/test/preset-script-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Preset script execution has no W1 contract and is removed from rebuild."
+      },
+      {
+        "value": "packages/cli/test/preset-script-imports-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Preset script loading is removed with the uncontracted preset surface."
+      },
+      {
+        "value": "packages/cli/test/preset-subtask-expansion-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Preset subtask writes have no W1 contract and are removed from rebuild."
+      },
+      {
+        "value": "packages/cli/test/preset-user-root-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Preset user-root orchestration is removed with the uncontracted preset surface."
+      },
+      {
+        "value": "packages/cli/test/progress-evidence-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Legacy progress writes are removed because no W1 progress command contract exists."
+      },
+      {
+        "value": "packages/cli/test/projection-freshness-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "RepoCell receipts and task show replace the legacy CLI projection freshness facade."
+      },
+      {
+        "value": "packages/cli/test/projection-readers-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Uncontracted projection reader commands are removed from the rebuild CLI."
+      },
+      {
+        "value": "packages/cli/test/runtime-event-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "The legacy runtime-event writer is replaced by canonical lifecycle events in RepoCell."
+      },
+      {
+        "value": "packages/cli/test/self-host-git-boundary-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "The queued self-host Git facade is deleted; RepoCell is the sole event publication owner."
+      },
+      {
+        "value": "packages/cli/test/session-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "The old session writer and materializer are removed from the rebuild product."
+      },
+      {
+        "value": "packages/cli/test/settings-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Settings mutation has no W1 contract and is removed from the rebuild CLI."
+      },
+      {
+        "value": "packages/cli/test/task-archive-distill-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Archive distill writes are uncontracted and removed from the rebuild CLI."
+      },
+      {
+        "value": "packages/cli/test/task-delete-disposition-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Task deletion has no W1 lifecycle command contract and is removed from rebuild."
+      },
+      {
+        "value": "packages/cli/test/task-lifecycle-host.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "In-process CLI lifecycle hosting is replaced by resident daemon RepoCell tests."
+      },
+      {
+        "value": "packages/cli/test/task-list-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Task list is outside the W1 contracted read surface retained by the thin CLI."
+      },
+      {
+        "value": "packages/cli/test/task-show-relation-list-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Relation-list projection commands are outside the W1 contracted thin CLI surface."
+      },
+      {
+        "value": "packages/cli/test/task-transition-sweep-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Settlement status sweep is explicitly deleted by the W3 production flip."
+      },
+      {
+        "value": "packages/cli/test/task-tree-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Task tree is outside the W1 contracted read surface retained by the thin CLI."
+      },
+      {
+        "value": "packages/cli/test/worktree-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Worktree mutation has no W1 contract and is removed from rebuild."
+      },
+      {
+        "value": "packages/cli/test/write-lock-retry-cli.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "RepoCell OS lock and per-cell admission replace the legacy CLI lock retry facade."
+      },
+      {
+        "value": "packages/daemon/test/transport-integration.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "The old child and legacy transport matrix is replaced by JSON-RPC protocol and real thin-CLI daemon integration."
+      },
+      {
+        "value": "packages/kernel/test/store/concurrent-writers.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "RepoCell publish-once and per-workspace FIFO replace the legacy coordinator concurrency path."
+      },
+      {
+        "value": "packages/kernel/test/store/conditional-delta-writes.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Immutable lifecycle events replace conditional Markdown delta writes."
+      },
+      {
+        "value": "packages/kernel/test/store/crash-before-watermark.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "The seven-point event publication crash matrix replaces the journal watermark crash path."
+      },
+      {
+        "value": "packages/kernel/test/store/daemon-runtime.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Resident in-process RepoCell replaces the queued daemon runtime and child IPC."
+      },
+      {
+        "value": "packages/kernel/test/store/entity-registry-substrate.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Legacy entity registry write substrate is removed from the W1 lifecycle product surface."
+      },
+      {
+        "value": "packages/kernel/test/store/global-committer-lock.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Per-workspace RepoCell OS locks replace the global committer lock."
+      },
+      {
+        "value": "packages/kernel/test/store/journal-idempotency.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Event opId publish-once semantics replace write-journal idempotency."
+      },
+      {
+        "value": "packages/kernel/test/store/ledger-materializer.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "The SQLite task projection replaces the legacy ledger materializer."
+      },
+      {
+        "value": "packages/kernel/test/store/payload-hash.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Canonical command opId and immutable event bytes replace journal payload hashing."
+      },
+      {
+        "value": "packages/kernel/test/store/portable-path-collision.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Canonical RepoCell roots and event containment replace journal portable-path collision handling."
+      },
+      {
+        "value": "packages/kernel/test/store/same-task-fifo.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "RepoCell owns the sole per-workspace FIFO and its publish-once concurrency test."
+      },
+      {
+        "value": "packages/kernel/test/store/session-entity.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "The writable session entity path is removed with the legacy session materializer."
+      },
+      {
+        "value": "packages/kernel/test/store/sqlite-rebuild.test.ts",
+        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
+        "reason": "Task projection and lifecycle integration retain the rebuildable SQLite invariant after the legacy store test is retired."
       }
     ]
   }

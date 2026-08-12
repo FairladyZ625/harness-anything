@@ -8,6 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import { serializeTaskEvent, type TaskCreatedEvent } from "../../src/domain/task-lifecycle.contract.ts";
+import { serializePendingPublication, validatePendingPublication } from "../../src/domain/event-publication.contract.ts";
 import { serializeEventHead } from "../../src/domain/write-chain.contract.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { localGitProcessCount } from "../../src/store/local-version-control-system.ts";
@@ -38,7 +39,25 @@ const event: TaskCreatedEvent = {
   }
 };
 
-test("event/head publisher commits one immutable event and exact head bytes together", async () => {
+test("pending publication descriptor is a closed domain contract", () => {
+  const head = { revision: 1, opId: event.opId,
+    eventDigest: `sha256:${createHash("sha256").update(serializeTaskEvent(event)).digest("hex")}` as const };
+  const pending = { schema: "event-publication-pending/v1" as const, event, head, previousHead: null,
+    previousCommitSha: "a".repeat(40) };
+
+  assert.deepEqual(validatePendingPublication(pending), []);
+  assert.deepEqual(JSON.parse(serializePendingPublication(pending)), pending);
+  assert.equal(serializePendingPublication(pending), serializePendingPublication({ previousCommitSha: pending.previousCommitSha,
+    previousHead: null, head, event, schema: pending.schema }));
+  for (const malformed of [
+    { ...pending, previousCommitSha: "short" },
+    { ...pending, head: { ...head, opId: "different" } },
+    { ...pending, event: { ...event, workspaceRevision: 2 } },
+    { ...pending, legacy: true }
+  ]) assert.notEqual(validatePendingPublication(malformed).length, 0);
+});
+
+test("event/head publisher commits one immutable event and exact head bytes together", async (context) => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const store = makeTaskEventStore({ rootDir });
@@ -53,6 +72,8 @@ test("event/head publisher commits one immutable event and exact head bytes toge
     assert.equal(receipt.status, "applied");
     assert.deepEqual(receipt.metrics, { gitProcesses: localGitProcessCount() - beforePublication, nodeSyncs: 6,
       changedPaths: ["harness/events/head.json", "harness/events/op-1.json"] });
+    assert.equal(receipt.metrics.gitProcesses <= 3, true, `publication used ${receipt.metrics.gitProcesses} Git processes`);
+    context.diagnostic(`resident-writer-git-processes-per-write=${receipt.metrics.gitProcesses}`);
     assert.equal(store.append(event).revision, 1);
     assert.throws(() => store.append({ ...event, payload: { task: { ...event.payload.task, title: "different" } } }), /different event/u);
     assert.throws(() => store.append({ ...event, opId: "op-2", eventId: "event-2" }), /revision/u);

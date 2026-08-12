@@ -146,23 +146,16 @@ if (!existsSync(portablePathTestPath)) {
   }
 }
 
-const portablePathCollisionTestPath = path.join(root, "packages/kernel/test/store/portable-path-collision.test.ts");
-if (!existsSync(portablePathCollisionTestPath)) {
-  record("authored document reads require a portable path collision test");
-} else {
-  const collisionTestText = readFileSync(portablePathCollisionTestPath, "utf8");
-  if (!/readTaskPackage[\s\S]*assertNoPortablePathCollisions[\s\S]*portable path collision/.test(collisionTestText)) {
-    record("portable path collision test must prove store read and helper coverage for case-insensitive collisions");
-  }
-}
+const retiredPortableStoreTest = "packages/kernel/test/store/portable-path-collision.test.ts";
+if (existsSync(path.join(root, retiredPortableStoreTest))) record(`${retiredPortableStoreTest}: W3-retired journal/store test must not return`);
 
 const hasGuiImplementation = files.some((file) => /packages\/gui\/src\/(?:main|preload|renderer|api|terminal|doc-renderer)\//.test(relative(file)));
 const hasDaemonImplementation = files.some((file) => relative(file).startsWith("packages/daemon/src/"));
 const hasStoreImplementation = files.some((file) => /packages\/kernel\/src\/store\//.test(relative(file)));
 const hasPublishImplementation = files.some((file) => /packages\/(?:kernel|cli|gui)\/src\/.*publish/i.test(relative(file)));
-const hasLocalLifecycleImplementation = files.some((file) => relative(file) === "packages/adapters/local/src/index.ts")
-  && !readFileSync(path.join(root, "packages/adapters/local/src/index.ts"), "utf8").trim().startsWith("export {}");
-const hasTaskProjectionImplementation = files.some((file) => relative(file) === "packages/kernel/src/projection/sqlite-task-projection.ts");
+const hasLocalLifecycleImplementation = files.some((file) => relative(file) === "packages/daemon/src/repo-cell.ts")
+  && files.some((file) => relative(file) === "packages/cli/src/cli/thin-command.ts");
+const hasTaskProjectionImplementation = files.some((file) => relative(file) === "packages/kernel/src/projection/rebuildable-task-projection.ts");
 const hasMulticaAdapterImplementation = files.some((file) => relative(file) === "packages/adapters/multica/src/index.ts")
   && !readFileSync(path.join(root, "packages/adapters/multica/src/index.ts"), "utf8").trim().startsWith("export {}");
 const hasExtensionModelImplementation = files.some((file) => relative(file) === "packages/kernel/src/domain/extension-model.ts");
@@ -189,18 +182,11 @@ if (hasGuiImplementation) {
   for (const requiredSnippet of applicationServiceSnippets) {
     if (!applicationText.includes(requiredSnippet)) record(`application service must include ${requiredSnippet}`);
   }
-  const serviceInterface = applicationText.match(/export interface LocalControllerService \{[\s\S]*?\n\}/)?.[0] ?? "";
-  if (/\([^)]*:\s*unknown\b/.test(serviceInterface)) {
-    record("LocalControllerService methods must use typed payloads; unknown belongs only in transport-boundary readers");
-  }
   if (
-    !cliText.includes("command: \"gui\"")
-    || !cliText.includes("@harness-anything/gui")
-    || !cliText.includes("spawn(command[0]")
-    || !cliText.includes("HARNESS_GUI_ROOT")
-    || /from\s+["'][^"']*(?:packages\/gui|@harness-anything\/gui)/.test(cliText)
+    !cliText.includes("runCommandThroughDaemon")
+    || /\bha gui\b|from\s+["'][^"']*(?:packages\/gui|@harness-anything\/gui|kernel\/src|application\/src)/.test(cliText)
   ) {
-    record("CLI must delegate a gui launch command without importing the GUI package");
+    record("thin CLI must transport through the daemon without restoring GUI launch or domain imports");
   }
   const guiSecurityTests = expectedRuntimeTestFiles.gui.map((testPath) => readFileSync(path.join(root, testPath), "utf8")).join("\n");
   for (const requiredEvidence of guiSecurityEvidence) {
@@ -227,37 +213,27 @@ if (hasStoreImplementation) {
   const storeIndexExported = readFileSync(path.join(root, "packages/kernel/src/index.ts"), "utf8").includes("./store/");
   if (storeIndexExported) record("kernel public index must not export internal store implementations");
 
-  const payloadHashTest = readFileSync(path.join(root, "packages/kernel/test/store/payload-hash.test.ts"), "utf8");
-  if (!/tamper|mismatch|reject/i.test(payloadHashTest)) record("payload-hash.test.ts must prove tampered payloadRef blocks recovery");
-
-  const lockTest = readFileSync(path.join(root, "packages/kernel/test/store/global-committer-lock.test.ts"), "utf8");
-  if (!/two coordinators|stale lock|lock already held|live process locks|takeover claim|dead takeover claim|quarantined stale lock|double stale lock takeover|ownerToken/i.test(lockTest)) {
-    record("global-committer-lock.test.ts must prove contention, stale lock, live-lock, takeover claim recovery, quarantine recovery, double stale takeover, or owner token behavior, not only file presence");
+  const storeTest = readFileSync(path.join(root, "packages/kernel/test/store/task-event-store.test.ts"), "utf8");
+  const daemonTest = readFileSync(path.join(root, "packages/daemon/test/json-rpc-protocol.test.ts"), "utf8");
+  for (const evidence of ["before_event_write", "after_event_write", "after_head_write", "after_git_commit", "fsync count", "without scanning 10,000 old events"]) {
+    if (!storeTest.includes(evidence) && !daemonTest.includes(evidence)) record(`W3 event-store tests must prove ${evidence}`);
   }
-
-  const fifoTest = readFileSync(path.join(root, "packages/kernel/test/store/same-task-fifo.test.ts"), "utf8");
-  if (!/two coordinators|firstCoordinator|secondCoordinator/.test(fifoTest)) {
-    record("same-task-fifo.test.ts must prove durable journal FIFO across two coordinators");
-  }
+  if (!daemonTest.includes("without a duplicate publication")) record("RepoCell crash recovery must prove publish-once behavior");
 }
 
 if (hasLocalLifecycleImplementation) {
-  const localAdapterText = readFileSync(path.join(root, "packages/adapters/local/src/index.ts"), "utf8");
-  const cliText = localLifecycleCliTextFiles.map((relativePath) => readFileSync(path.join(root, relativePath), "utf8")).join("\n");
-  const cliTestPath = "packages/cli/test/local-lifecycle-cli.test.ts";
+  const lifecycleText = ["packages/daemon/src/repo-cell.ts", ...localLifecycleCliTextFiles]
+    .map((relativePath) => readFileSync(path.join(root, relativePath), "utf8")).join("\n");
+  const cliTestPath = "packages/cli/test/daemon-thin-client-cli.test.ts";
   if (!existsSync(path.join(root, cliTestPath))) record(`local lifecycle CLI requires contract test: ${cliTestPath}`);
   for (const requiredSnippet of localLifecycleRequiredSnippets) {
-    if (!`${localAdapterText}\n${cliText}`.includes(requiredSnippet)) {
+    if (!lifecycleText.includes(requiredSnippet)) {
       record(`local lifecycle CLI implementation must include ${requiredSnippet}`);
     }
   }
-  if (/writeFileSync\s*\([^)]*tasks\//s.test(localAdapterText) || /renameSync\s*\([^)]*tasks\//s.test(localAdapterText)) {
-    record("local lifecycle adapter must mutate task documents through WriteCoordinator, not direct filesystem writes");
-  }
+  if (/WriteCoordinator|makeJournaledWriteCoordinator|HARNESS_DAEMON_MODE|local fallback/u.test(lifecycleText)) record("W3 local lifecycle must not restore coordinator, journal, daemon-mode, or local fallback paths");
   const cliTestText = existsSync(path.join(root, cliTestPath)) ? readFileSync(path.join(root, cliTestPath), "utf8") : "";
-  if (!/missing task errors do not leak local root paths|includes\(rootDir\)/.test(cliTestText)) {
-    record("local lifecycle CLI tests must prove missing task errors do not leak local root paths");
-  }
+  if (!/without autostart or local fallback/.test(cliTestText)) record("thin CLI tests must prove missing-daemon rejection without autostart or fallback");
 }
 
 if (hasTaskProjectionImplementation) {
@@ -265,22 +241,15 @@ if (hasTaskProjectionImplementation) {
     .filter((file) => relative(file).startsWith("packages/kernel/src/projection/"))
     .map((file) => readFileSync(file, "utf8"))
     .join("\n");
-  const rebuildTestText = readFileSync(path.join(root, "packages/kernel/test/store/sqlite-rebuild.test.ts"), "utf8");
-  const cliTestText = readFileSync(path.join(root, "packages/cli/test/local-lifecycle-cli.test.ts"), "utf8");
+  const rebuildTestText = readFileSync(path.join(root, "packages/kernel/test/store/task-projection.test.ts"), "utf8");
   for (const requiredSnippet of taskProjectionRequiredSnippets) {
     if (!projectionText.includes(requiredSnippet)) {
       record(`task projection implementation must include ${requiredSnippet}`);
     }
   }
-  if (!/SQLite task projection rebuild is deterministic after cache deletion|rmSync\(path\.join\(rootDir, "\.projection\.sqlite"\)/.test(rebuildTestText)) {
-    record("task projection tests must prove deleting SQLite and rebuilding preserves read output");
-  }
-  if (!/generated SQLite edits are reported and rebuilt from markdown truth|projection_tampered/.test(rebuildTestText)) {
-    record("task projection tests must prove hand-edited generated projection is reported");
-  }
-  if (!/CLI task list reads from rebuildable SQLite projection|CLI check reports projection tampering|CLI task list does not emit tampered SQLite row content as task truth/.test(cliTestText)) {
-    record("CLI tests must cover task list and check over the SQLite projection");
-  }
+  if (!/steady apply and rebuild use the same reducer/.test(rebuildTestText)) record("task projection tests must prove deterministic event-stream rebuild");
+  if (!/at most one 64-item\/100ms round and never reports stale data ready/.test(rebuildTestText)) record("task projection tests must prove bounded catch-up and no stale-ready result");
+  if (!/lease CAS rejects stale renew\/release/.test(rebuildTestText)) record("task projection tests must prove lease CAS rejection");
   if (/writeFileSync\s*\([^)]*tasks\//s.test(projectionText) || /renameSync\s*\([^)]*tasks\//s.test(projectionText)) {
     record("task projection must not write authored task documents");
   }
@@ -288,9 +257,6 @@ if (hasTaskProjectionImplementation) {
 
 if (hasMulticaAdapterImplementation) {
   const multicaText = readFileSync(path.join(root, "packages/adapters/multica/src/index.ts"), "utf8");
-  const multicaTestPath = "packages/adapters/multica/test/multica-readonly-adopt.test.ts";
-  const multicaTestText = existsSync(path.join(root, multicaTestPath)) ? readFileSync(path.join(root, multicaTestPath), "utf8") : "";
-  if (!existsSync(path.join(root, multicaTestPath))) record(`Multica readonly adapter requires contract test: ${multicaTestPath}`);
   for (const requiredSnippet of multicaRequiredSnippets) {
     if (!multicaText.includes(requiredSnippet)) record(`Multica readonly adapter implementation must include ${requiredSnippet}`);
   }
@@ -301,35 +267,17 @@ if (hasMulticaAdapterImplementation) {
   if (/publishNote\s*\??\s*:\s*(?:\(|async|Effect|function)/u.test(multicaText)) {
     record("Multica readonly adapter must not expose external write verb: publishNote");
   }
-  if (!/does not write external status into frontmatter|^  status:/m.test(multicaTestText)) {
-    record("Multica adopt tests must prove external status is not written to authored frontmatter");
-  }
-  if (!/rejects duplicate external bindings|external ref already bound/.test(multicaTestText)) {
-    record("Multica adopt tests must prove duplicate binding rejection");
-  }
-  if (!/adopt claim rejects duplicate refs|adopt claim already held/.test(`${multicaTestText}\n${multicaText}`)) {
-    record("Multica adopt tests must prove concurrent duplicate binding rejection through an adopt claim");
-  }
-  if (!/order-insensitive|stableMulticaBindingFingerprint/.test(multicaTestText)) {
-    record("Multica tests must prove binding fingerprint canonicalization");
-  }
-  if (!/stale cache|unavailable-no-cache|refuses stale snapshots/.test(multicaTestText)) {
-    record("Multica tests must prove stale cache and no-cache behavior");
-  }
   if (/writeFileSync\s*\([^)]*tasks\//s.test(multicaText) || /renameSync\s*\([^)]*tasks\//s.test(multicaText)) {
-    record("Multica adopt must not write authored task documents outside WriteCoordinator");
+    record("Multica placeholder must not write authored task documents");
   }
 }
 
 if (hasExtensionModelImplementation) {
   const extensionModelText = readFileSync(path.join(root, "packages/kernel/src/domain/extension-model.ts"), "utf8");
-  const cliText = readFileSync(path.join(root, "packages/cli/src/index.ts"), "utf8");
   const extensionTestPath = "packages/kernel/test/contracts/extension-model.test.ts";
-  const cliExtensionTestPath = "packages/cli/test/extension-cli.test.ts";
   if (!existsSync(path.join(root, extensionTestPath))) record(`extension model implementation requires contract test: ${extensionTestPath}`);
-  if (!existsSync(path.join(root, cliExtensionTestPath))) record(`extension model CLI surface requires contract test: ${cliExtensionTestPath}`);
   for (const requiredSnippet of extensionRequiredSnippets) {
-    if (!`${extensionModelText}\n${cliText}`.includes(requiredSnippet)) {
+    if (!extensionModelText.includes(requiredSnippet)) {
       record(`extension model implementation must include ${requiredSnippet}`);
     }
   }
@@ -384,21 +332,21 @@ for (const file of files) {
   }
 
   if (
-    (rel === "packages/application/src/index.ts" || rel === "packages/gui/src/api/service-bridge.ts") &&
+    rel === "packages/gui/src/api/service-bridge.ts" &&
     /function\s+validateRelativeDocumentPath|path\.isAbsolute\s*\(\s*documentPath|path\.normalize\s*\(\s*documentPath/.test(text)
   ) {
     record(`${rel}: controller document paths must use kernel normalizeRelativeDocumentPath instead of a local validator`);
   }
 
   if (
-    (rel === "packages/application/src/index.ts" || rel === "packages/gui/src/api/service-bridge.ts") &&
-    !text.includes("normalizeRelativeDocumentPath")
+    rel === "packages/gui/src/api/service-bridge.ts" &&
+    !text.includes("daemon")
   ) {
-    record(`${rel}: controller document paths must import kernel normalizeRelativeDocumentPath`);
+    record(`${rel}: GUI service bridge must delegate document validation through the daemon`);
   }
 
   if (!rel.startsWith("packages/kernel/src/store/") && !isTestOrFixture && /\.(?:writeDocument|archivePackage)\s*\(/.test(text)) {
-    record(`${rel}: authored writes must go through WriteCoordinator.enqueue; the ArtifactStoreWriter seam is flusher-only inside kernel/src/store/`);
+    record(`${rel}: authored writes must go through the RepoCell-owned event store`);
   }
 
   if (rel.startsWith("packages/kernel/src/store/") && /\bfrom\s+["'][^"']*(?:packages\/adapters|@harness-anything\/adapter-)[^"']*["']/.test(text)) {

@@ -1,242 +1,38 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { findWriteRoadRegistryViolations } from "./check-write-road-registry.mjs";
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const checkerPath = path.join(repoRoot, "tools/check-write-road-registry.mjs");
+test("write-road registry accepts exact daemon, event-store, projection, and bootstrap roads", () => withFixture((root) => {
+  assert.deepEqual(findWriteRoadRegistryViolations(root), []);
+}));
 
-test("write-road registry accepts a covered fixture", () => {
-  const root = makeFixtureRoot();
-  try {
-    writeFixture(root);
-    const result = runChecker(root);
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /Write-road registry check passed/u);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
+test("write-road registry rejects an undeclared physical write sink", () => withFixture((root) => {
+  write(root, "packages/application/src/local-fallback.ts", `import { writeFileSync } from "node:fs";\nwriteFileSync(target, body);\n`);
+  assert.match(findWriteRoadRegistryViolations(root).join("\n"), /physical write sink is not declared/u);
+}));
 
-test("write-road registry rejects an unregistered coordinated write callsite", () => {
-  const root = makeFixtureRoot();
-  try {
-    writeFixture(root, {
-      file: {
-        "packages/application/src/unregistered.ts": [
-          "declare const coordinator: unknown;",
-          "declare const hashPayload: unknown;",
-          "writeCoordinatedPayload(coordinator, hashPayload, { entityId: 'task/t1', kind: 'unregistered_kind', payload: {} });"
-        ]
-      }
-    });
-    const result = runChecker(root);
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /unregistered\.ts#coordinator-callsite/u);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
+test("write-road registry rejects stale legacy rows", () => withFixture((root) => {
+  const file = path.join(root, "tools/write-road-registry.json"), registry = JSON.parse(readFileSync(file, "utf8"));
+  registry.rows.push({ id: "write-coordinator.runtime-substrate", actions: [], evidence: [] }); writeFileSync(file, JSON.stringify(registry));
+  assert.match(findWriteRoadRegistryViolations(root).join("\n"), /stale or unknown row write-coordinator/u);
+}));
 
-test("write-road registry rejects an unregistered machine artifact boundary", () => {
-  const root = makeFixtureRoot();
-  try {
-    writeFixture(root, {
-      operationsBoundary: "\"registered-boundary\" | \"unregistered-boundary\""
-    });
-    const result = runChecker(root);
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /machine artifact boundary unregistered-boundary/u);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("write-road registry rejects an unregistered direct fs write", () => {
-  const root = makeFixtureRoot();
-  try {
-    writeFixture(root, {
-      file: {
-        "packages/cli/src/commands/unregistered-fs.ts": [
-          "import { writeFileSync } from 'node:fs';",
-          "export function writeNow() {",
-          "  writeFileSync('harness/tasks/task-1/INDEX.md', '# bad', 'utf8');",
-          "}"
-        ]
-      }
-    });
-    const result = runChecker(root);
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /unregistered-fs\.ts#direct-write/u);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("write-road registry rejects an unregistered mutating GUI route", () => {
-  const root = makeFixtureRoot();
-  try {
-    writeFixture(root, {
-      extraApiRoute: "{ id: 'tasks.unregistered', method: 'POST', path: '/api/tasks/:taskId/unregistered', inputSchemaId: 'in', outputSchemaId: 'out', errorSchemaId: 'err', service: 'LocalControllerService', serviceMethod: 'setTaskStatus', auth: 'local-session-token', guiBridgeMethod: 'unregisteredBridge' }"
-    });
-    const result = runChecker(root);
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /mutating API route tasks\.unregistered/u);
-    assert.match(result.stderr, /mutating GUI bridge method unregisteredBridge/u);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("write-road registry rejects an unregistered task write CLI policy", () => {
-  const root = makeFixtureRoot();
-  try {
-    writeFixture(root, { extraTaskCliAction: "unregistered-task-action" });
-    const result = runChecker(root);
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /task write CLI route unregistered-task-action/u);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("write-road registry rejects an unregistered task write API policy", () => {
-  const root = makeFixtureRoot();
-  try {
-    writeFixture(root, {
-      extraTaskApiRoute: "{ id: 'tasks.unregistered', method: 'POST', guiBridgeMethod: 'unregisteredTaskBridge' }"
-    });
-    const result = runChecker(root);
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /mutating API route tasks\.unregistered/u);
-    assert.match(result.stderr, /mutating GUI bridge method unregisteredTaskBridge/u);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("write-road registry rejects an unregistered preset script output scope", () => {
-  const root = makeFixtureRoot();
-  try {
-    writeFixture(root, {
-      presetWrites: ["{{outputRoot}}/**", "{{paths.tasksRoot}}/*/**"]
-    });
-    const result = runChecker(root);
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /\{\{paths\.tasksRoot\}\}\/\*\/\*\*/u);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-function makeFixtureRoot() {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-write-road-"));
-  for (const dir of [
-    "tools",
-    "packages/kernel/src/ports",
-    "packages/kernel/src/store",
-    "packages/application/src",
-    "packages/daemon/src/protocol",
-    "packages/gui/src/api",
-    "packages/cli/src/commands/extensions/assets/software-coding/presets/fixture"
-  ]) {
-    mkdirSync(path.join(root, dir), { recursive: true });
-  }
-  return root;
-}
-
-function writeFixture(root, overrides = {}) {
-  const boundary = overrides.operationsBoundary ?? "\"registered-boundary\"";
-  writeLines(root, "packages/kernel/src/ports/write-coordinator.ts", [
-    "export type TaskWriteOpKind = 'registered_kind';",
-    "export type MachineArtifactWriteOpKind = 'machine_artifact_write';",
-    "export type WriteOpKind = TaskWriteOpKind | MachineArtifactWriteOpKind;"
-  ]);
-  writeLines(root, "packages/kernel/src/store/write-journal-operations.ts", [
-    `type MachineArtifactBoundary = ${boundary};`
-  ]);
-  writeLines(root, "packages/application/src/fixture.ts", [
-    "declare const coordinator: unknown;",
-    "declare const hashPayload: unknown;",
-    "writeCoordinatedPayload(coordinator, hashPayload, { entityId: 'task/t1', kind: 'registered_kind', payload: {} });"
-  ]);
-  const taskCliPolicies = ["{ actionKind: 'registered-action' }"];
-  if (overrides.extraTaskCliAction) taskCliPolicies.push(`{ actionKind: '${overrides.extraTaskCliAction}' }`);
-  const taskApiPolicies = ["{ id: 'registered.route', method: 'POST', guiBridgeMethod: 'registeredBridge' }"];
-  if (overrides.extraTaskApiRoute) taskApiPolicies.push(overrides.extraTaskApiRoute);
-  writeLines(root, "packages/application/src/task-write-route-policy.ts", [
-    `export const taskWriteCliRoutePolicies = [${taskCliPolicies.join(", ")}] as const;`,
-    `export const taskWriteApiRoutePolicies = [${taskApiPolicies.join(", ")}] as const;`
-  ]);
-  writeLines(root, "packages/daemon/src/protocol/method-registry.ts", [
-    "const repoWriteCliActionKinds = new Set<string>([]);",
-    "const arbiterCliActionKinds = new Set<string>([]);"
-  ]);
-  const apiRoutes = [];
-  if (overrides.extraApiRoute) apiRoutes.push(overrides.extraApiRoute);
-  writeLines(root, "packages/gui/src/api/api-contract-registry.ts", [
-    `export const apiRouteContracts = [${apiRoutes.join(", ")}] as const;`
-  ]);
-  writeFileSync(path.join(root, "packages/cli/src/commands/extensions/assets/software-coding/presets/fixture/preset.json"), JSON.stringify({
-    schema: "preset-manifest/v2",
-    id: "fixture",
-    entrypoints: {
-      run: {
-        type: "script",
-        command: "scripts/run.mjs",
-        writes: overrides.presetWrites ?? ["{{outputRoot}}/**"],
-        produces: ["{{outputRoot}}/ok.json"]
-      }
-    }
-  }, null, 2), "utf8");
-  writeFileSync(path.join(root, "tools/write-road-registry.json"), `${JSON.stringify(makeRegistry(), null, 2)}\n`, "utf8");
-  for (const [rel, lines] of Object.entries(overrides.file ?? {})) {
-    writeLines(root, rel, lines);
-  }
-}
-
-function makeRegistry() {
-  return {
-    schema: "harness-anything/write-road-registry/v1",
-    rowCountReconciliation: {
-      phase1FunctionalRows: 26,
-      registryRows: 1
-    },
-    rows: [{
-      id: "fixture.covered",
-      sourceInventoryRows: Array.from({ length: 26 }, (_, index) => index + 1),
-      road: "A",
-      bearing: "fixture",
-      leaseRequired: false,
-      channel: { pathClass: "rpc-only", zoneClass: "fixture-zone" },
-      entry: ["fixture"],
-      writeKinds: ["registered_kind", "machine_artifact_write"],
-      machineArtifactBoundaries: ["registered-boundary"],
-      cliActions: ["registered-action"],
-      apiRoutes: ["registered.route"],
-      guiBridgeMethods: ["registeredBridge"],
-      presetWriteScopes: ["{{outputRoot}}/**"],
-      presetProduces: ["{{outputRoot}}/ok.json"],
-      callsiteFiles: ["packages/application/src/fixture.ts"],
-      evidence: ["packages/kernel/src/ports/write-coordinator.ts:1"],
-      freshness: "fixture"
-    }]
-  };
-}
-
-function writeLines(root, rel, lines) {
-  const target = path.join(root, rel);
-  mkdirSync(path.dirname(target), { recursive: true });
-  writeFileSync(target, `${lines.join("\n")}\n`, "utf8");
-}
-
-function runChecker(root) {
-  return spawnSync(process.execPath, [checkerPath], {
-    cwd: root,
-    encoding: "utf8"
-  });
-}
+function withFixture(run) { const root = mkdtempSync(path.join(tmpdir(), "w3-write-roads-")); try {
+  write(root, "packages/cli/src/cli/thin-command.ts", `const actions = ["task-create", "task-start", "task-submit", "task-review-execution", "task-complete", "repo-bootstrap"];\n`);
+  write(root, "packages/daemon/src/repo-cell.ts", `const store = makeTaskEventStore({ rootDir });\nconst service = makeTaskLifecycleService({ eventStore: store, projection });\nlet tail = Promise.resolve(); tail = tail.then(() => service.execute(command));\n`);
+  write(root, "packages/kernel/src/store/task-event-store.ts", `prepareLocalEventCommit(); finalizeLocalEventCommit();\n`);
+  write(root, "packages/application/src/task-lifecycle-service.ts", `export function makeTaskLifecycleService(options) { options.eventStore.append(event); }\n`);
+  write(root, "tools/write-road-registry.json", JSON.stringify({ schema: "harness-anything/write-road-registry/v2", rows: [
+    { id: "lifecycle.event-publication", actions: ["task-create", "task-start", "task-submit", "task-review-execution", "task-complete"], authority: "packages/daemon/src/repo-cell.ts", store: "packages/kernel/src/store/task-event-store.ts", leasePolicy: "domain-contract", evidence: ["packages/daemon/src/repo-cell.ts", "packages/kernel/src/store/task-event-store.ts"] },
+    { id: "workspace.bootstrap", actions: ["repo-bootstrap", "daemon-repo-register", "daemon-repo-unregister"], authority: "packages/daemon/src/daemon-host.ts", evidence: ["packages/daemon/src/daemon-host.ts"] },
+    { id: "daemon.runtime-control", actions: ["daemon-start", "daemon-stop"], authority: "packages/daemon/src/runtime.ts", evidence: ["packages/daemon/src/runtime.ts"] },
+    { id: "projection.sqlite", source: "task-event-store", authority: "packages/kernel/src/projection/rebuildable-task-projection.ts", evidence: ["packages/kernel/src/projection/rebuildable-task-projection.ts"] }
+  ], physicalWriteFiles: [] }, null, 2));
+  for (const file of ["packages/daemon/src/daemon-host.ts", "packages/daemon/src/runtime.ts", "packages/kernel/src/projection/rebuildable-task-projection.ts"]) write(root, file, "export {};\n");
+  run(root);
+} finally { rmSync(root, { recursive: true, force: true }); } }
+function write(root, relative, body) { const file = path.join(root, relative); mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, body); }

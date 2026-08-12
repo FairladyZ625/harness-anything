@@ -1,0 +1,111 @@
+import path from "node:path";
+
+export const thinCliCommands = Object.freeze([
+  { usage: "ha init --repo-id <id> --person-id <id> --display-name <name>", summary: "Initialize and register a workspace through the explicit daemon." },
+  { usage: "ha task create --title <title> [--task-id <id>] [--completion-gate <id>]", summary: "Create a task." }, { usage: "ha task start <task-id> --execution-id <id>", summary: "Acquire the task execution lease." }, { usage: "ha task submit <task-id> --execution-id <id> --claim <text> --commit-sha <sha>", summary: "Submit leased execution evidence." }, { usage: "ha task review-execution <task-id> --execution-id <id> --kind <kind> --verdict <verdict> --review-id <id> --reason <text> --commit-sha <sha> --iteration <0|1>", summary: "Record an execution review." }, { usage: "ha task complete <task-id> --execution-id <id> [--gate-receipt <gate-id>:<receipt-ref>]", summary: "Complete a leased task." }, { usage: "ha task show <task-id>", summary: "Read the task projection." }, { usage: "ha receipt show <op-id>", summary: "Read a write receipt." },
+  { usage: "ha daemon repo register --repo-id <id> --root <path>", summary: "Register an initialized workspace." }, { usage: "ha daemon repo unregister --repo-id <id>", summary: "Disable a registered workspace." }, { usage: "ha daemon start --service", summary: "Explicitly start the resident daemon." }, { usage: "ha daemon status", summary: "Show daemon and RepoCell status." }, { usage: "ha daemon stop", summary: "Stop the resident daemon." }
+]);
+export const thinCliLocalErrorCodes = Object.freeze(["daemon_control_failed", "daemon_unavailable", "duplicate_field", "invalid_field", "missing_field", "service_required", "unknown_field", "unsupported_command"]);
+export function renderThinHelp(): string { return ["Harness Anything thin CLI", "", "Commands:", ...thinCliCommands.map(({ usage, summary }) => `  ${usage}\n    ${summary}`)].join("\n"); }
+
+export interface ThinCommand {
+  readonly rootDir: string;
+  readonly repoId?: string;
+  readonly json: boolean;
+  readonly action: Readonly<Record<string, unknown>> & { readonly kind: string };
+}
+export type ThinParseResult = { readonly ok: true; readonly command: ThinCommand }
+  | { readonly ok: false; readonly code: string; readonly nextAction: string; readonly json: boolean };
+
+export function parseThinCommand(argv: readonly string[], cwd = process.cwd()): ThinParseResult {
+  const rootDir = path.resolve(globalOption(argv, "--root") ?? cwd), repoId = globalOption(argv, "--repo"), json = argv.includes("--json");
+  const args = stripGlobals(argv);
+  if (args[0] === "init") {
+    const flags = readFlags(args.slice(1), new Set(["--repo-id", "--person-id", "--display-name"]), new Set());
+    if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
+    const initRepoId = flags.one.get("--repo-id"), personId = flags.one.get("--person-id"), displayName = flags.one.get("--display-name");
+    if (!nonEmpty(initRepoId) || !nonEmpty(personId) || !nonEmpty(displayName)) return rejected("missing_field", "Init requires repo-id, person-id, and display-name.", json);
+    return accepted(rootDir, undefined, json, { kind: "repo-bootstrap", repoId: initRepoId, personId, displayName });
+  }
+  if (args[0] === "receipt" && args[1] === "show" && nonEmpty(args[2]) && args.length === 3) {
+    return { ok: true, command: { rootDir, ...(repoId ? { repoId } : {}), json, action: { kind: "receipt-show", opId: args[2] } } };
+  }
+  if (args[0] !== "task") return rejected("unsupported_command", "Only task lifecycle, receipt show, and explicit daemon commands exist on rebuild.", json);
+  const verb = args[1];
+  if (verb === "show" && nonEmpty(args[2]) && args.length === 3) return accepted(rootDir, repoId, json, { kind: "task-show", verb, taskId: args[2] });
+  if (verb === "create") {
+    const flags = readFlags(args.slice(2), new Set(["--title", "--task-id"]), new Set(["--completion-gate"]));
+    if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
+    const title = flags.one.get("--title");
+    if (!nonEmpty(title)) return rejected("missing_field", "Add --title <title>.", json);
+    return accepted(rootDir, repoId, json, { kind: "task-create", verb, commandType: "CreateReplayTask", title,
+      ...(flags.one.get("--task-id") ? { taskId: flags.one.get("--task-id") } : {}), completionGateIds: flags.many.get("--completion-gate") ?? [] });
+  }
+  const taskId = args[2];
+  if (!nonEmpty(taskId)) return rejected("missing_field", `Run ha task ${verb ?? "<verb>"} <task-id>.`, json);
+  if (verb === "start") return oneExecution(rootDir, repoId, json, args, taskId, "task-start", "StartExecution");
+  if (verb === "submit") {
+    const flags = readFlags(args.slice(3), new Set(["--execution-id", "--claim", "--commit-sha"]),
+      new Set(["--deliverable", "--evidence-ref", "--verification", "--known-gap", "--residual-risk"]));
+    if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
+    const executionId = flags.one.get("--execution-id"), claim = flags.one.get("--claim"), commitSha = flags.one.get("--commit-sha");
+    if (!nonEmpty(executionId) || !nonEmpty(claim) || !commitSha?.match(/^[0-9a-f]{40}$/u)) return rejected("invalid_field", "Submit requires execution-id, claim, and a 40-character commit-sha.", json);
+    return accepted(rootDir, repoId, json, { kind: "task-submit", verb, commandType: "SubmitExecution", taskId, executionId, claim, commitSha,
+      deliverables: flags.many.get("--deliverable") ?? [], evidenceRefs: flags.many.get("--evidence-ref") ?? [], verification: flags.many.get("--verification") ?? [],
+      knownGaps: flags.many.get("--known-gap") ?? [], residualRisks: flags.many.get("--residual-risk") ?? [] });
+  }
+  if (verb === "review-execution") return parseReviewCommand(rootDir, repoId, json, args, taskId);
+  if (verb === "complete") return oneExecution(rootDir, repoId, json, args, taskId, "task-complete", "CompleteTask", "--gate-receipt");
+  return rejected("unsupported_command", "Use task create, start, submit, review-execution, complete, or show.", json);
+}
+
+function parseReviewCommand(rootDir: string, repoId: string | undefined, json: boolean, args: readonly string[], taskId: string): ThinParseResult {
+  const flags = readFlags(args.slice(3), new Set(["--execution-id", "--kind", "--verdict", "--review-id", "--reason", "--commit-sha", "--iteration"]),
+    new Set(["--evidence-checked"]), new Set(["--acknowledge-archive-warnings"]));
+  if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
+  const executionId = flags.one.get("--execution-id"), reviewKind = flags.one.get("--kind"), verdict = flags.one.get("--verdict"),
+    reviewId = flags.one.get("--review-id"), reason = flags.one.get("--reason"), commitSha = flags.one.get("--commit-sha"), round = Number(flags.one.get("--iteration"));
+  if (!nonEmpty(executionId) || !["anti_entropy", "acceptance"].includes(reviewKind ?? "") || !["approved", "changes_requested", "dismissed"].includes(verdict ?? "")
+    || !nonEmpty(reviewId) || !nonEmpty(reason) || !commitSha?.match(/^[0-9a-f]{40}$/u) || (round !== 0 && round !== 1)) {
+    return rejected("invalid_field", "Review requires execution-id, kind, verdict, review-id, reason, commit-sha, and iteration 0|1.", json);
+  }
+  return accepted(rootDir, repoId, json, { kind: "task-review-execution", verb: args[1], commandType: "RecordReview", taskId, executionId,
+    reviewKind, verdict, reviewId, reason, commitSha, iteration: round, evidenceChecked: flags.many.get("--evidence-checked") ?? [],
+    archiveWarningsAcknowledged: flags.booleans.has("--acknowledge-archive-warnings") });
+}
+
+function oneExecution(rootDir: string, repoId: string | undefined, json: boolean, args: readonly string[], taskId: string,
+  kind: string, commandType: string, repeated?: string): ThinParseResult {
+  const flags = readFlags(args.slice(3), new Set(["--execution-id"]), repeated ? new Set([repeated]) : new Set());
+  if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
+  const executionId = flags.one.get("--execution-id");
+  if (!nonEmpty(executionId)) return rejected("missing_field", "Add --execution-id <execution-id>.", json);
+  const gateReceipts: { readonly gateId: string; readonly receiptRef: string }[] = [];
+  if (repeated) for (const value of flags.many.get(repeated) ?? []) { const parsed = splitGateReceipt(value);
+    if (!parsed) return rejected("invalid_field", "Use --gate-receipt <gate-id>:<receipt-ref>.", json); gateReceipts.push(parsed); }
+  return accepted(rootDir, repoId, json, { kind, verb: args[1], commandType, taskId, executionId, ...(repeated ? { gateReceipts } : {}) });
+}
+function splitGateReceipt(value: string): { readonly gateId: string; readonly receiptRef: string } | undefined { const at = value.indexOf(":");
+  return at < 1 || at === value.length - 1 ? undefined : { gateId: value.slice(0, at), receiptRef: value.slice(at + 1) }; }
+function accepted(rootDir: string, repoId: string | undefined, json: boolean, action: ThinCommand["action"]): ThinParseResult {
+  return { ok: true, command: { rootDir, ...(repoId ? { repoId } : {}), json, action } };
+}
+function rejected(code: string, nextAction: string, json: boolean): ThinParseResult { return { ok: false, code, nextAction, json }; }
+function globalOption(argv: readonly string[], name: string): string | undefined { const at = argv.indexOf(name); return at < 0 ? undefined : argv[at + 1]; }
+function stripGlobals(argv: readonly string[]): string[] { return argv.filter((value, index) => value !== "--json" && !["--root", "--repo"].includes(value)
+  && !["--root", "--repo"].includes(argv[index - 1] ?? "")); }
+function nonEmpty(value: string | undefined): value is string { return typeof value === "string" && value.trim().length > 0; }
+function readFlags(tokens: readonly string[], singles: ReadonlySet<string>, repeated: ReadonlySet<string>, booleans: ReadonlySet<string> = new Set()): { readonly ok: true; readonly one: Map<string, string>; readonly many: Map<string, string[]>; readonly booleans: Set<string> }
+  | { readonly ok: false; readonly code: string; readonly nextAction: string } {
+  const one = new Map<string, string>(), many = new Map<string, string[]>(), flags = new Set<string>();
+  for (let index = 0; index < tokens.length;) { const name = tokens[index];
+    if (name && booleans.has(name)) { if (flags.has(name)) return { ok: false, code: "duplicate_field", nextAction: `${name} may appear once.` }; flags.add(name); index += 1; continue; }
+    const value = tokens[index + 1];
+    if (!name || (!singles.has(name) && !repeated.has(name))) return { ok: false, code: "unknown_field", nextAction: `Unknown option ${name ?? "<missing>"}.` };
+    if (!nonEmpty(value) || value.startsWith("--")) return { ok: false, code: "missing_field", nextAction: `${name} requires a value.` };
+    if (singles.has(name)) { if (one.has(name)) return { ok: false, code: "duplicate_field", nextAction: `${name} may appear once.` }; one.set(name, value); }
+    else many.set(name, [...many.get(name) ?? [], value]);
+    index += 2;
+  }
+  return { ok: true, one, many, booleans: flags };
+}

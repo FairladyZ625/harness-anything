@@ -202,6 +202,7 @@ export function issueWriterGenerationToken(writer: WriterGeneration): WriterGene
   }
   return Object.freeze({ ...writer }) as WriterGenerationToken;
 }
+export function bindWriterGenerationToken(writer: WriterGeneration): WriterGenerationToken { return issueWriterGenerationToken(writer); }
 
 export function assertCurrentWriter(active: WriterGeneration, token: WriterGenerationToken, workspaceId: string): void {
   if (active.workspaceId !== workspaceId || token.workspaceId !== workspaceId || token.generation !== active.generation || token.ownerId !== active.ownerId) {

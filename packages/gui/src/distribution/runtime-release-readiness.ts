@@ -56,9 +56,9 @@ export const harnessRuntimeReleaseReadiness: RuntimeReleaseReadinessPolicy = {
   commands: [
     {
       surface: "source-run",
-      command: "node packages/cli/src/index.ts --json doctor",
+      command: "node packages/cli/src/index.ts --help",
       requiredInCi: false,
-      notes: ["Source-entry commands rely on Node 24+ built-in TypeScript execution."]
+      notes: ["The thin source entry renders its product catalog without loading daemon domain modules or starting a daemon."]
     },
     {
       surface: "full-check",
@@ -107,6 +107,9 @@ export function validateRuntimeReleaseReadiness(
   }
   if (!policy.supportedNodeMajors.includes(24) || !policy.supportedNodeMajors.includes(26)) {
     errors.push({ code: "missing_node_coverage", message: "Runtime readiness must cover Node 24 and Node 26." });
+  }
+  if (policy.commands.find((command) => command.surface === "source-run")?.command !== "node packages/cli/src/index.ts --help") {
+    errors.push({ code: "missing_required_surface", surface: "source-run", message: "Source readiness must probe the thin CLI help surface." });
   }
 
   for (const surface of ["source-run", "full-check", "pr-check", "package-smoke", "gui-build"] as const) {

@@ -71,3 +71,17 @@ test("docmap freshness check warns when updatedAt lags source mtime by more than
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("docmap freshness check rejects restoration of the retired CLI writer", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-docmap-retired-cli-"));
+  try {
+    const retired = path.join(rootDir, "packages/cli/src/commands/core/docmap-generate.ts");
+    mkdirSync(path.dirname(retired), { recursive: true });
+    writeFileSync(retired, "export const restored = true;\n");
+    const result = checkDocmapFresh(rootDir);
+    assert.equal(result.ok, false);
+    assert.match(result.message, /W3-retired CLI write path/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

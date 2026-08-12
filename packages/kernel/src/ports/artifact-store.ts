@@ -15,8 +15,7 @@ export interface TaskPackageRead {
   readonly documents: ReadonlyArray<ArtifactDocument>;
 }
 
-// Read-side port. All authored writes go through WriteCoordinator; the
-// write surface lives in artifact-store-writer.ts as a flusher-only seam.
+// Read-side port. W3 authored lifecycle writes publish through RepoCell's event store.
 export interface ArtifactStore {
   readonly readTaskPackage: (taskId: TaskId) => Effect.Effect<TaskPackageRead, ArtifactStoreError>;
   readonly readAuthoredDocument: (path: string) => Effect.Effect<ArtifactDocument, ArtifactStoreError>;

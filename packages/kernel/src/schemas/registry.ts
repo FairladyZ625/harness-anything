@@ -3,7 +3,7 @@ import { domainStatuses } from "../domain/lifecycle-status.ts";
 import { packageDispositions } from "../domain/package-disposition.ts";
 import { priorityTiers, taskWorkKinds } from "../domain/task-metadata.ts";
 import type { LifecycleBinding } from "../domain/lifecycle-binding.ts";
-import { ActorRefSchema, LinkKindSchema, ProvenanceEntrySchema } from "./common.ts";
+import { LinkKindSchema, ProvenanceEntrySchema } from "./common.ts";
 import { DecisionPackageSchema } from "./decision-package.ts";
 import { DocmapManifestSchema } from "./docmap.ts";
 import { EntityRelationsSchema } from "./entity-relations.ts";
@@ -135,37 +135,6 @@ export const TaskFrontmatterSchema = Schema.Struct({
   provenance: Schema.Array(ProvenanceEntrySchema).pipe(Schema.minItems(1)),
   profile: Schema.optional(Schema.String),
   createdBy: Schema.optional(CreatedBySchema)
-});
-
-export const WriteJournalOpSchema = Schema.Struct({
-  schema: Schema.Literal("write-journal/v1"),
-  opId: Schema.String,
-  entityId: Schema.String,
-  kind: Schema.Literal(
-    "task_tree_stage",
-    "doc_write",
-    "decision_propose",
-    "decision_accept",
-    "decision_reject",
-    "decision_defer",
-    "decision_supersede",
-    "decision_amend",
-    "decision_relate",
-    "decision_retire",
-    "relation_retire",
-    "relation_replace",
-    "fact_invalidate"
-  ),
-  actor: ActorRefSchema,
-  at: Schema.String,
-  payloadRef: Schema.optional(Schema.Struct({
-    path: Schema.String,
-    sha256: Schema.String
-  })),
-  payload: Schema.optional(Schema.Record({
-    key: Schema.String,
-    value: Schema.Unknown
-  }))
 });
 
 export const TaskSnapshotSchema = Schema.Struct({
@@ -431,7 +400,6 @@ export type TaskFrontmatter = Schema.Schema.Type<typeof TaskFrontmatterSchema>;
 export type DecisionPackage = Schema.Schema.Type<typeof DecisionPackageSchema>;
 export type DocmapManifestContract = Schema.Schema.Type<typeof DocmapManifestSchema>;
 export type EntityRelations = Schema.Schema.Type<typeof EntityRelationsSchema>;
-export type WriteJournalOp = Schema.Schema.Type<typeof WriteJournalOpSchema>;
 export type TaskSnapshot = Schema.Schema.Type<typeof TaskSnapshotSchema>;
 export type PublishableProjection = Schema.Schema.Type<typeof PublishableProjectionSchema>;
 export type TemplateCatalog = Schema.Schema.Type<typeof TemplateCatalogSchema>;
@@ -497,13 +465,6 @@ export const schemaRegistry = [
     jsonSchemaPath: "packages/kernel/schemas/json/docmap.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/docmap/valid.json",
     invalidFixturePath: "packages/kernel/fixtures/schemas/docmap/invalid.json"
-  },
-  {
-    id: "write-journal-op",
-    schema: WriteJournalOpSchema,
-    jsonSchemaPath: "packages/kernel/schemas/json/write-journal-op.schema.json",
-    validFixturePath: "packages/kernel/fixtures/schemas/write-journal-op/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/write-journal-op/invalid.json"
   },
   {
     id: "task-snapshot",

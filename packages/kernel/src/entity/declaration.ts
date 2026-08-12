@@ -1,13 +1,8 @@
 import path from "node:path";
-import { Effect, Schema } from "effect";
-import { declaredEntityId } from "../domain/entity-id.ts";
-import type { WriteError } from "../domain/index.ts";
+import { Schema } from "effect";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { normalizeRelativeDocumentPath, resolveHarnessLayout, taskPackagePath } from "../layout/index.ts";
 import { localLayoutFileSystem } from "../local/local-layout-file-system.ts";
-import type { DocumentWrite } from "../ports/artifact-store-writer.ts";
-import type { WriteCoordinator } from "../ports/index.ts";
-import { writeCoordinatedPayload, type PayloadHasher } from "../write-coordination/write-helpers.ts";
 import {
   isEntityStorageForm,
   type CompositeManifestBlobDeclaration,
@@ -29,51 +24,6 @@ export type EntityDeclaration = Omit<
 };
 
 export type EntityPathDeclaration = Pick<EntityDeclaration, "kind" | "storageForm" | "rootResolver">;
-
-export interface DeclaredEntityDocumentWritePayload {
-  readonly entityDocument: {
-    readonly declaration: EntityPathDeclaration;
-    readonly identity: Readonly<Record<string, string>>;
-    readonly body: string;
-    readonly blobRef?: DeclaredContentAddressedBlobRef;
-  };
-  readonly companionWrites?: ReadonlyArray<DocumentWrite>;
-}
-
-export function writeDeclaredEntityTransaction(
-  coordinator: WriteCoordinator,
-  hashPayload: PayloadHasher,
-  declaration: EntityDeclaration,
-  identity: Readonly<Record<string, string>>,
-  value: unknown,
-  companionWrites: ReadonlyArray<DocumentWrite>
-): Effect.Effect<void, WriteError> {
-  const decoded = Schema.decodeUnknownSync(declaration.schema)(value) as Readonly<Record<string, unknown>>;
-  const identityKey = declaration.rootResolver.identity.at(-1)!;
-  return writeCoordinatedPayload(coordinator, hashPayload, {
-    entityId: declaredEntityId(declaration.kind, identity[identityKey] ?? ""),
-    kind: "doc_write",
-    payload: {
-      entityDocument: {
-        declaration: {
-          kind: declaration.kind,
-          storageForm: declaration.storageForm,
-          rootResolver: declaration.rootResolver
-        },
-        identity,
-        body: declaration.documentCodec.encode(decoded)
-      },
-      companionWrites
-    } satisfies DeclaredEntityDocumentWritePayload
-  });
-}
-
-export interface DeclaredContentAddressedBlobRef {
-  readonly ref: string;
-  readonly sha256: string;
-  readonly size: number;
-  readonly mediaType: string;
-}
 
 export function decodeEntityDeclaration(input: unknown): EntityDeclaration {
   const pathDeclaration = decodeEntityPathDeclaration(input);
@@ -136,42 +86,6 @@ export function resolveEntityDocumentPath(
     return path.join(hostPath, hostedSuffix);
   }
   return resolveDeclaredPath(layout.authoredRoot, resolver.pathTemplate, resolver.identity, identity);
-}
-
-export function writeDeclaredEntity(
-  coordinator: WriteCoordinator,
-  hashPayload: PayloadHasher,
-  declaration: EntityDeclaration,
-  identity: Readonly<Record<string, string>>,
-  value: unknown,
-  options: { readonly flush?: boolean; readonly opIdPrefix?: string } = {}
-): Effect.Effect<void, WriteError> {
-  const decoded = Schema.decodeUnknownSync(declaration.schema)(value) as Readonly<Record<string, unknown>>;
-  const bodyRef = declaration.storageForm === "composite-manifest-blob"
-    ? readField(decoded, declaration.blob!.referenceField)
-    : undefined;
-  if (declaration.storageForm === "composite-manifest-blob") {
-    if (!isContentAddressedBlobReference(bodyRef)) throw new Error(`composite manifest is missing a valid ${declaration.blob!.referenceField}`);
-  }
-  const identityKey = declaration.rootResolver.identity.at(-1)!;
-  const entityId = declaredEntityId(declaration.kind, identity[identityKey] ?? "");
-  return writeCoordinatedPayload(coordinator, hashPayload, {
-    entityId,
-    kind: "doc_write",
-    ...(options.opIdPrefix ? { opIdPrefix: options.opIdPrefix } : {}),
-    payload: {
-      entityDocument: {
-        declaration: {
-          kind: declaration.kind,
-          storageForm: declaration.storageForm,
-          rootResolver: declaration.rootResolver
-        },
-        identity,
-        body: declaration.documentCodec.encode(decoded),
-        ...(isContentAddressedBlobReference(bodyRef) ? { blobRef: bodyRef } : {})
-      }
-    } satisfies DeclaredEntityDocumentWritePayload
-  }, { flush: options.flush });
 }
 
 function validateRootResolver(rootResolver: EntityRootResolverDeclaration | undefined, storageForm: EntityStorageForm): void {
@@ -253,14 +167,6 @@ export function readField(entity: Readonly<Record<string, unknown>>, field: stri
   return field.split(".").reduce<unknown>((value, segment) => (
     value && typeof value === "object" ? (value as Record<string, unknown>)[segment] : undefined
   ), entity);
-}
-
-function isContentAddressedBlobReference(value: unknown): value is DeclaredContentAddressedBlobRef {
-  if (!value || typeof value !== "object") return false;
-  const ref = value as Record<string, unknown>;
-  return typeof ref.ref === "string" && typeof ref.sha256 === "string" && /^[0-9a-f]{64}$/u.test(ref.sha256) &&
-    typeof ref.size === "number" && Number.isSafeInteger(ref.size) && ref.size >= 0 &&
-    typeof ref.mediaType === "string" && ref.mediaType.length > 0;
 }
 
 function valueAt(input: unknown, key: string): unknown {

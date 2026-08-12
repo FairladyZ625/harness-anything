@@ -9,131 +9,86 @@ import test from "node:test";
 
 const scriptPath = path.resolve(import.meta.dirname, "check-cli-structure.mjs");
 
-test("CLI structure check catches multiline generic function declarations", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "harness-cli-structure-"));
-  writeFixtureTree(root);
-
-  const result = spawnSync(process.execPath, [scriptPath], {
-    cwd: root,
-    encoding: "utf8"
-  });
-
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /shared\.ts:1: function genericMonolith has 12[1-9] lines; max 120/u);
+test("thin CLI structure accepts only parser transport and render on the dist static graph", async () => {
+  const root = await fixture();
+  const result = run(root);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /CLI structure check passed/u);
 });
 
-test("CLI structure check rejects duplicate CLI utility helpers", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "harness-cli-structure-utilities-"));
-  writeFixtureTree(root);
-  writeFile(root, "packages/cli/src/commands/migration.ts", [
-    "function readOption(argv, name) {",
-    "  const index = argv.indexOf(name);",
-    "  return index >= 0 ? argv[index + 1] : undefined;",
-    "}",
+test("thin CLI structure rejects a kernel public barrel reachable from the dist entry", async () => {
+  const root = await fixture();
+  write(root, "packages/daemon/src/client/local-daemon-target.ts", [
+    "import { readDaemonRegistry } from '../../../kernel/src/index.ts';",
+    "export const resolveLocalDaemonTarget = readDaemonRegistry;",
     ""
   ].join("\n"));
+  write(root, "packages/kernel/src/index.ts", "export const readDaemonRegistry = () => ({});\n");
 
-  const result = spawnSync(process.execPath, [scriptPath], {
-    cwd: root,
-    encoding: "utf8"
-  });
-
+  const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /migration\.ts:1: duplicate readOption implementation; import from packages\/cli\/src\/cli\/parse-options\.ts/u);
+  assert.match(result.stderr, /dist static import graph.*kernel public barrel.*packages\/kernel\/src\/index\.ts/u);
 });
 
-test("CLI structure check rejects descriptors without direct parse and run references", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "harness-cli-structure-descriptor-functions-"));
-  writeFixtureTree(root);
-  writeFile(root, "packages/cli/src/cli/command-spec/command-spec-core.ts", [
-    "const parseHelp = () => null;",
-    "export const coreCommandSpecs = defineCommandSpecs([{ kind: 'help', parse: parseHelp }]);",
+test("thin CLI structure rejects modules outside the entry parser transport render whitelist", async () => {
+  const root = await fixture();
+  write(root, "packages/cli/src/index.ts", [
+    "import { parseThinCommand } from './cli/thin-command.ts';",
+    "import { runCommandThroughDaemon } from './daemon/client.ts';",
+    "import { legacy } from './commands/legacy.ts';",
+    "function emit(): void {}",
+    "void parseThinCommand; void runCommandThroughDaemon; void emit; void legacy;",
     ""
   ].join("\n"));
+  write(root, "packages/cli/src/commands/legacy.ts", "export const legacy = true;\n");
 
-  const result = spawnSync(process.execPath, [scriptPath], { cwd: root, encoding: "utf8" });
-
+  const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /descriptor help must carry direct parse and run function references/u);
+  assert.match(result.stderr, /dist static import graph reached module is outside entry\/parser\/transport\/render whitelist.*legacy\.ts/u);
 });
 
-test("CLI structure check rejects duplicate descriptors for one ParsedCommand kind", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "harness-cli-structure-descriptor-duplicate-"));
-  writeFixtureTree(root);
-  writeFile(root, "packages/cli/src/cli/command-spec/command-spec-core.ts", [
-    "const parseHelp = () => null;",
-    "const runHelp = () => null;",
-    "export const coreCommandSpecs = defineCommandSpecs([",
-    "  { kind: 'help', parse: parseHelp, run: runHelp },",
-    "  { kind: 'help', parse: parseHelp, run: runHelp }",
-    "]);",
-    ""
-  ].join("\n"));
+test("thin CLI structure retains CLI function complexity limits", async () => {
+  const root = await fixture();
+  write(root, "packages/cli/src/cli/thin-command.ts", genericLongFunction());
 
-  const result = spawnSync(process.execPath, [scriptPath], { cwd: root, encoding: "utf8" });
-
+  const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /ParsedCommand kind help must have exactly one registered descriptor; found 2/u);
+  assert.match(result.stderr, /thin-command\.ts:1: function genericMonolith has 12[1-9] lines; max 120/u);
 });
 
-function writeFixtureTree(root) {
-  const files = [
-    "packages/cli/src/cli/parse-args.ts",
-    "packages/cli/src/cli/parser-registry.ts",
-    "packages/cli/src/cli/runner-registry.ts",
-    "packages/cli/src/cli/parsers/core.ts",
-    "packages/cli/src/commands/extensions/index.ts",
-    "packages/cli/src/commands/extensions/module.ts",
-    "packages/cli/src/commands/extensions/preset.ts",
-    "packages/cli/src/commands/extensions/template.ts",
-    "packages/cli/src/commands/extensions/vertical.ts"
-  ];
-  for (const file of files) {
-    writeFile(root, file, "export function ok(): void {}\n");
-  }
-  writeFile(root, "packages/cli/src/cli/types.ts", [
-    "export interface ParsedCommand {",
-    "  readonly action: { readonly kind: 'help' };",
-    "}",
+async function fixture() {
+  const root = await mkdtemp(path.join(os.tmpdir(), "harness-thin-cli-structure-"));
+  write(root, "packages/cli/package.json", JSON.stringify({
+    bin: { "harness-anything": "dist/cli/src/index.js", ha: "dist/cli/src/index.js" }
+  }));
+  write(root, "packages/cli/src/index.ts", [
+    "import { parseThinCommand } from './cli/thin-command.ts';",
+    "import { runCommandThroughDaemon } from './daemon/client.ts';",
+    "function emit(): void {}",
+    "if (process.argv.includes('daemon')) void import('./daemon/control.ts');",
+    "void parseThinCommand; void runCommandThroughDaemon; void emit;",
     ""
   ].join("\n"));
-  writeFile(root, "packages/cli/src/cli/command-spec/command-spec-core.ts", [
-    "const parseHelp = () => null;",
-    "const runHelp = () => null;",
-    "export const coreCommandSpecs = defineCommandSpecs([{ kind: 'help', parse: parseHelp, run: runHelp }]);",
+  write(root, "packages/cli/src/cli/thin-command.ts", "export function parseThinCommand(): void {}\n");
+  write(root, "packages/cli/src/daemon/client.ts", [
+    "import { resolveLocalDaemonTarget } from '../../../daemon/src/client/local-daemon-target.ts';",
+    "export function runCommandThroughDaemon(): void { void resolveLocalDaemonTarget; }",
     ""
   ].join("\n"));
-  writeFile(root, "packages/cli/src/cli/command-spec/index.ts", [
-    "import { coreCommandSpecs } from './command-spec-core.ts';",
-    "export const commandSpecs = [...coreCommandSpecs];",
-    "export function commandSpecMap(select) { return Object.fromEntries(commandSpecs.map((spec) => [spec.kind, select(spec)])); }",
+  write(root, "packages/cli/src/daemon/control.ts", "export function runDaemonControl(): void {}\n");
+  write(root, "packages/daemon/src/client/local-daemon-target.ts", [
+    "import path from 'node:path';",
+    "export function resolveLocalDaemonTarget(): void { void path; }",
     ""
   ].join("\n"));
-  writeFile(root, "packages/cli/src/cli/command-registry.ts", [
-    "import { commandSpecs } from './command-spec/index.ts';",
-    "export const commandDescriptors = commandSpecs;",
-    ""
-  ].join("\n"));
-  writeFile(root, "packages/cli/src/cli/parser-registry.ts", [
-    "import { commandSpecs } from './command-spec/index.ts';",
-    "export const parserRegistry = commandSpecs.map((spec) => spec.parse);",
-    ""
-  ].join("\n"));
-  writeFile(root, "packages/cli/src/cli/runner-registry.ts", [
-    "import { commandSpecMap } from './command-spec/index.ts';",
-    "export const runnerRegistry = commandSpecMap((spec) => spec.run);",
-    "export function runRegisteredCommand(command) { return runnerRegistry[command.action.kind]; }",
-    ""
-  ].join("\n"));
-  writeFile(root, "packages/cli/src/index.ts", [
-    "import { runRegisteredCommand } from './cli/runner-registry.ts';",
-    "void runRegisteredCommand;",
-    ""
-  ].join("\n"));
-  writeFile(root, "packages/cli/src/commands/extensions/shared.ts", genericLongFunction());
+  return root;
 }
 
-function writeFile(root, relativePath, body) {
+function run(root) {
+  return spawnSync(process.execPath, [scriptPath], { cwd: root, encoding: "utf8" });
+}
+
+function write(root, relativePath, body) {
   const absolute = path.join(root, relativePath);
   mkdirSync(path.dirname(absolute), { recursive: true });
   writeFileSync(absolute, body, "utf8");
@@ -147,10 +102,7 @@ function genericLongFunction() {
     "): { readonly value: A; readonly input: I } {",
     "  const pair = { value, input };"
   ];
-  for (let index = 0; index < 118; index += 1) {
-    lines.push(`  void ${index};`);
-  }
-  lines.push("  return pair;");
-  lines.push("}");
+  for (let index = 0; index < 118; index += 1) lines.push(`  void ${index};`);
+  lines.push("  return pair;", "}");
   return `${lines.join("\n")}\n`;
 }

@@ -37,11 +37,6 @@ export interface HarnessLayout {
   readonly runtimeEventLedgerRoot: string;
   readonly cacheRoot: string;
   readonly projectionPath: string;
-  readonly writeJournalRoot: string;
-  readonly journalPath: string;
-  readonly watermarkPath: string;
-  readonly payloadsRoot: string;
-  readonly locksRoot: string;
   readonly claimsRoot: string;
   readonly factDocumentName: "facts.md";
   readonly taskPackagePath: (taskId: TaskId) => string;
@@ -154,7 +149,6 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
   const generatedRoot = generatedRootSetting
     ? resolveRootRelativePath(resolvedRoot, generatedRootSetting, "structure.generatedRoot")
     : path.join(localRoot, "generated");
-  const writeJournalRoot = path.join(localRoot, "write-journal");
   const factDocumentName = "facts.md";
   return {
     rootDir: resolvedRoot,
@@ -178,11 +172,6 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
     runtimeEventLedgerRoot: path.join(generatedRoot, "runtime-events"),
     cacheRoot: path.join(localRoot, "cache"),
     projectionPath: path.join(localRoot, "cache", "projections.sqlite"),
-    writeJournalRoot,
-    journalPath: path.join(writeJournalRoot, "writes.jsonl"),
-    watermarkPath: path.join(writeJournalRoot, "watermark.json"),
-    payloadsRoot: path.join(writeJournalRoot, "payloads"),
-    locksRoot: path.join(localRoot, "locks"),
     claimsRoot: path.join(localRoot, "adopt-claims"),
     factDocumentName,
     taskPackagePath: (taskId) => {

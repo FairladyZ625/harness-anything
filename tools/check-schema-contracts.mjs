@@ -13,7 +13,6 @@ const expectedSchemaIds = [
   "fact-record",
   "runtime-event-record",
   "docmap",
-  "write-journal-op",
   "task-snapshot",
   "publishable-projection",
   "template-catalog",
