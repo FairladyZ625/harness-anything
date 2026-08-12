@@ -41,7 +41,7 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
   const auth = (ownerUid: number) => ({ transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" } } as const);
   try {
     await host.admin({ kind: "register", rootDir: fixture.rootDir, repoId: "rbac" }, auth(fixture.ids.admin));
-    assert.equal((await host.run("rbac", { kind: "task-create", taskId: "task-doc", title: "Docs", completionGateIds: [] }, auth(fixture.ids.writer))).outcome, "applied");
+    assert.equal((await host.run("rbac", { kind: "task-create", taskId: "task-doc", title: "Docs" }, auth(fixture.ids.writer))).outcome, "applied");
     assert.equal((await host.run("rbac", { kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, auth(fixture.ids.writer))).outcome, "applied");
     const relativePath = "tasks/task-doc/notes.md", body = "# Notes\n", action = { kind: "doc-submit", executionId: "execution-doc",
       baseLedgerSha: canonicalSha(fixture.rootDir), selections: [{ path: relativePath, baseBlobSha256: null }] } as const;
@@ -121,7 +121,7 @@ async function docCell(repoId: string, now?: () => string) { const rootDir = mkd
   const cell = await openRepoCell({ repoId: workspaceId(repoId), rootDir: canonicalRoot(rootDir), ownerId: `daemon-${repoId}`, ...(now ? { now } : {}) });
   return { rootDir, cell, close: async () => { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); } }; }
 async function startLease(cell: Awaited<ReturnType<typeof openRepoCell>>, source: RepoCellBinding["source"]): Promise<void> {
-  assert.equal((await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs", completionGateIds: [] }, { actor, source })).outcome, "applied");
+  assert.equal((await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, { actor, source })).outcome, "applied");
   assert.equal((await cell.run({ kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, { actor, source })).outcome, "applied");
 }
 function assignmentBinding(repoId: string, paths: readonly string[]): RepoCellBinding { return { actor, source: assignmentSource,

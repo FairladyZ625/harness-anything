@@ -35,10 +35,10 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
       assert.equal(existsSync(path.join(root, ".harness/cache/task.sqlite")), true);
       assert.equal(existsSync(path.join(root, ".harness/write-journal")), false);
     }
-    const spoof = await requestLocalDaemonJsonRpc(fixture.alpha, "repo.task.run", { repo: { repoId: "alpha" },
-      payload: { action: { kind: "task-create", taskId: "task-spoof", title: "Spoof", actor: { principal: { personId: "attacker" } } } } }, 100,
+    const spoof = await requestLocalDaemonJsonRpc(fixture.alpha, "repo.task.create", { repo: { repoId: "alpha" },
+      payload: { taskId: "task-spoof", title: "Spoof", actor: { principal: { personId: "attacker" } } } }, 100,
     { userRoot: fixture.userRoot });
-    assert.equal(spoof.ok, false); assert.equal((spoof.error as { code?: string }).code, "ingress_binding_forbidden");
+    assert.equal(spoof.ok, false); assert.equal((spoof.error as { code?: string }).code, "invalid_request");
   } finally { stop(fixture.alpha, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
 });
 
@@ -83,8 +83,8 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
     const daemonSamples: number[] = [];
     for (let index = 0; index < 11; index += 1) {
       const started = performance.now();
-      const response = await requestLocalDaemonJsonRpc(fixture.alpha, "repo.task.run", { repo: { repoId: "alpha" },
-        payload: { action: { kind: "task-create", taskId: `task-daemon-latency-${index}`, title: `Daemon latency ${index}` } } }, 1_000,
+      const response = await requestLocalDaemonJsonRpc(fixture.alpha, "repo.task.create", { repo: { repoId: "alpha" },
+        payload: { taskId: `task-daemon-latency-${index}`, title: `Daemon latency ${index}` } }, 1_000,
       { userRoot: fixture.userRoot });
       daemonSamples.push(performance.now() - started);
       assert.equal(response.ok, true, JSON.stringify(response));

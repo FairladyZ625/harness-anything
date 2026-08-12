@@ -34,6 +34,11 @@
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
       },
       {
+        "value": "assertTaskBootstrapWritePlan",
+        "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
+        "reason": "Preset v3 Slice A exposes the fixed canonical task bootstrap event contract for downstream consumers and contract tests."
+      },
+      {
         "value": "assertUniqueDocmapIds",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
@@ -67,6 +72,11 @@
         "value": "buildRelationGraphProjection",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+      },
+      {
+        "value": "CanonicalEventV1",
+        "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
+        "reason": "Preset v3 Slice A keeps the closed canonical event union public for downstream consumers and contract tests."
       },
       {
         "value": "canonicalRelationIdentityInput",
@@ -749,6 +759,11 @@
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
       },
       {
+        "value": "InitialDocumentClaim",
+        "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
+        "reason": "Preset v3 Slice A exposes the fixed task bootstrap document claim contract."
+      },
+      {
         "value": "isAllowedRelationKindTriple",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
@@ -799,17 +814,17 @@
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
       },
       {
+        "value": "isTaskBootstrapEvent",
+        "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
+        "reason": "Preset v3 Slice A exposes the canonical task bootstrap event discriminator."
+      },
+      {
         "value": "isTaskWorkKind",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
       },
       {
         "value": "KernelEntityKind",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "KernelVersionContext",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
       },
@@ -909,6 +924,11 @@
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
       },
       {
+        "value": "parseCanonicalEvent",
+        "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
+        "reason": "Preset v3 Slice A keeps canonical event parsing public as the closed-union reader contract."
+      },
+      {
         "value": "ParsedEntityRef",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
@@ -939,29 +959,9 @@
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
       },
       {
-        "value": "PresetEntrypointSchema",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "PresetManifest",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "PresetManifestSchema",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
-      },
-      {
-        "value": "PresetProfile",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "PresetProfileSchema",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "value": "PresetSnapshotClaim",
+        "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
+        "reason": "Preset v3 Slice A exposes the fixed task bootstrap snapshot claim contract."
       },
       {
         "value": "PriorityTier",
@@ -1284,6 +1284,11 @@
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
       },
       {
+        "value": "serializeCanonicalEvent",
+        "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
+        "reason": "Preset v3 Slice A keeps canonical event serialization public as the closed-union writer contract."
+      },
+      {
         "value": "Sha256Fingerprint",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
@@ -1292,11 +1297,6 @@
         "value": "Sha256FingerprintSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "sha256Text",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
       },
       {
         "value": "SnapshotStatusSchema",
@@ -1362,6 +1362,16 @@
         "value": "TASK_LIFECYCLE_COMMAND_CATALOG",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+      },
+      {
+        "value": "taskBootstrapClaims",
+        "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
+        "reason": "Preset v3 Slice A exposes exact task bootstrap claims for canonical store admission."
+      },
+      {
+        "value": "taskClasses",
+        "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
+        "reason": "Preset v3 Slice A exposes the kernel-owned TaskV1 class vocabulary."
       },
       {
         "value": "taskDocumentPath",
@@ -1519,22 +1529,12 @@
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
       },
       {
-        "value": "validatePresetManifests",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
-      },
-      {
         "value": "validateRelationGraphRecords",
         "ref": "task_P4_INT",
         "reason": "Relation graph validation remains part of the retained read projection surface."
       },
       {
         "value": "validateRelationRecordsForHost",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
-      },
-      {
-        "value": "validateTaskIdSyntax",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
       },

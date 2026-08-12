@@ -2,9 +2,10 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, openSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { makeTaskLifecycleService, type TaskLifecycleServiceProof } from "../../application/src/task-lifecycle-service.ts";
-import { REPLAY_TASK_GRAPH, assertCurrentWriter, bindWriterGenerationToken, makeTaskEventStore, makeTaskProjection, normalizeCommandEnvelope,
+import { assertCurrentWriter, bindWriterGenerationToken, makeTaskEventStore, makeTaskProjection, normalizeCommandEnvelope,
   normalizeTaskLifecycleCommand, queryDecisionProjection, readRelationGraphProjection, type ActorIdentity, type CompleteTaskCommand, type EventPublicationKillpoint, type ProofFor,
   type TaskLifecycleCommand, VcsCommandError, type WriteReceipt, type WriteSource, type WriterGeneration } from "../../kernel/src/index.ts";
+import { compileRepoTaskBootstrap, runPresetAction } from "../../preset/src/index.ts";
 import { type CanonicalRoot, type DaemonGuiReadMethod, type DaemonGuiReadResultMap, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
 import { bootstrapRepo, type RepoBootstrapInput } from "./repo-bootstrap.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
@@ -45,10 +46,11 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
   async function executeAction(action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> {
     if (action.kind === "receipt-show") return receiptForOperation(String(action.opId ?? ""), binding);
     if (action.kind === "task-show") return showTask(String(action.taskId ?? ""));
+    if (action.kind.startsWith("preset-")) { const result = await runPresetAction({ rootDir, action }); return { outcome: "applied", opId: operationId(action, binding, input.repoId, store.readHead()?.revision ?? 0), revision: store.readHead()?.revision ?? 0, evidence: JSON.stringify(result), visibility: "center", proof: { committedRevision: store.readHead()?.revision ?? 0, appliedCut: projection.list().watermark, durable: true, canonicalVisible: true, worktreeVisible: action.kind === "preset-install" || action.kind === "preset-uninstall" } }; }
+    if (action.kind === "task-create") return createTask(action, binding);
     if (isDocAction(action.kind)) return runDocAction({ action, binding, workspaceId: input.repoId, rootDir, store, projection, now, killpoint: input.killpoint });
     if (!taskWriteKind(action.kind)) return rejected(operationId(action, binding, input.repoId, 0), "unsupported_command", "No domain contract exists for this write command.");
-    const taskId = action.kind === "task-create" ? createTaskId(action, binding, input.repoId) : requiredString(action.taskId, "taskId");
-    const current = await service.read(taskId), expectedRevision = action.kind === "task-create" ? 0 : current.snapshot.revision;
+    const taskId = requiredString(action.taskId, "taskId"), current = await service.read(taskId), expectedRevision = current.snapshot.revision;
     const normalized = buildCommand(action, taskId, binding, input.repoId, expectedRevision);
     const command = withServerMeta(normalized, store.readTaskEvent(normalized.opId), store.readHead()?.revision ?? 0, now());
     const result = await service.execute(command, await proofFor(command, current.snapshot, binding, action, rootDir));
@@ -56,6 +58,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
     if (result.outcome === "pending") return { outcome: "pending", opId: command.opId, revision: result.revision, evidence: result.evidence, visibility: result.visibility, proof: result.proof, nextAction: result.nextAction ?? "Retry receipt show." };
     return rejected(command.opId, result.code ?? "publication_unknown", result.nextAction ?? "Retry receipt show before resubmitting.");
   }
+  function createTask(action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt { const opId = operationId(action, binding, input.repoId, 0), existing = store.readEvent(opId); if (existing) { projection.list(); return receiptForOperation(opId, binding); } const taskId = createTaskId(action, binding, input.repoId); if (projection.read(taskId).snapshot.task) return rejected(opId, "task_exists", `Task ${taskId} already exists.`); const workspaceRevision = (store.readHead()?.revision ?? 0) + 1, eventId = `event-${createHash("sha256").update(opId).digest("hex")}`, compiled = compileRepoTaskBootstrap({ rootDir, action, taskId, actor: binding.actor, source: binding.source, workspaceRevision, eventId, opId, occurredAt: now() }), appended = store.append(compiled.event, compiled.plan, compiled.blobs); projection.apply(compiled.event, compiled.plan); input.killpoint?.("after_sqlite_commit"); const receipt: WriteReceipt = { outcome: "applied", opId, revision: appended.revision, evidence: `event-object:${opId}`, visibility: "center", proof: { committedRevision: appended.revision, appliedCut: appended.revision, durable: true, canonicalVisible: true, worktreeVisible: null } }; input.killpoint?.("before_response_write"); input.killpoint?.("after_response_write"); return receipt; }
   async function showTask(taskId: string): Promise<WriteReceipt> {
     const read = await service.read(requiredString(taskId, "taskId")), receipt = { opId: `read:${taskId}`, revision: read.sourceRevision, evidence: JSON.stringify(read.snapshot), visibility: "center" as const, proof: { committedRevision: read.sourceRevision, appliedCut: read.watermark, durable: true, canonicalVisible: read.status === "ready", worktreeVisible: null } };
     return read.status === "ready" ? { outcome: "applied", ...receipt } : { outcome: "pending", ...receipt, nextAction: "Retry task show after projection catch-up." };
@@ -72,7 +75,6 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
 } function dispatchRead<M extends DaemonGuiReadMethod>(handlers: DaemonGuiReadHandlers, method: M, payload: Readonly<Record<string, unknown>>): DaemonGuiReadResultMap[M] { return handlers[method](payload); }
 function buildCommand(action: RepoTaskAction, taskId: string, binding: RepoCellBinding, workspaceId: string, expectedRevision: number): Omit<TaskLifecycleCommand, "eventId" | "workspaceRevision" | "occurredAt"> {
   const bound = { workspaceId, actor: binding.actor, source: binding.source, expectedRevision };
-  if (action.kind === "task-create") return normalizeTaskLifecycleCommand(bound, { type: "CreateReplayTask", taskId, title: requiredString(action.title, "title"), taskClass: action.taskClass === "milestone" || action.taskClass === "epic" ? action.taskClass : "standard", graph: REPLAY_TASK_GRAPH, completionGateIds: strings(action.completionGateIds), presetSnapshotDigest: null });
   if (action.kind === "task-start") return normalizeTaskLifecycleCommand(bound, { type: "StartExecution", taskId, executionId: requiredString(action.executionId, "executionId") });
   if (action.kind === "task-submit") return normalizeTaskLifecycleCommand(bound, { type: "SubmitExecution", taskId, executionId: requiredString(action.executionId, "executionId"), submission: { claim: requiredString(action.claim, "claim"),
     deliverables: strings(action.deliverables), evidenceRefs: strings(action.evidenceRefs), verification: strings(action.verification), knownGaps: strings(action.knownGaps), residualRisks: strings(action.residualRisks), commitSha: requiredString(action.commitSha, "commitSha") } });
@@ -108,7 +110,7 @@ function createTaskId(action: RepoTaskAction, binding: RepoCellBinding, workspac
   return `task_${operationId(action, binding, workspaceId, 0).slice(-26)}`; }
 function operationId(action: RepoTaskAction, binding: RepoCellBinding, workspaceId: string, expectedRevision: number): string { const { actor: _actor, source: _source, root: _root, workspaceId: _workspace, serverWorkspaceId: _server, ...intent } = action;
   return normalizeCommandEnvelope({ workspaceId, actor: binding.actor, source: binding.source, expectedRevision, command: intent }).opId; }
-function taskWriteKind(kind: string): boolean { return ["task-create", "task-start", "task-submit", "task-review-execution", "task-complete"].includes(kind); }
+function taskWriteKind(kind: string): boolean { return ["task-start", "task-submit", "task-review-execution", "task-complete"].includes(kind); }
 function rejected(opId: string, code: string, nextAction: string): WriteReceipt { return { outcome: "rejected", opId, code, origin: "daemon", nextAction, evidence: `rejection:${code}` }; } function failed(opId: string, error: unknown): WriteReceipt { return error instanceof VcsCommandError ? { outcome: "indeterminate", opId, code: error.code, origin: error.origin, evidence: `git-failure:${error.command}`, nextAction: `repair the Git object store and retry: ${error.message}` } : rejected(opId, cellErrorCode(error), cellErrorMessage(error)); }
 function requiredString(value: unknown, name: string): string { if (typeof value === "string" && value.trim()) return value; throw cellCodedError("invalid_command", `${name} is required.`); }
 function strings(value: unknown): readonly string[] { return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : []; }

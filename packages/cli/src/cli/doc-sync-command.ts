@@ -21,5 +21,5 @@ function flags(tokens: readonly string[], syntax: ReadonlySet<string>): { readon
   return { ok: true, values };
 }
 function only(values: ReadonlyMap<string, string>, allowed: readonly string[]): boolean { return [...values.keys()].every((key) => allowed.includes(key)); }
-function accepted(rootDir: SafePath, repoId: string | undefined, json: boolean, action: { readonly kind: string } & Readonly<Record<string, unknown>>): ThinParseResult { return { ok: true, command: { rootDir, ...(repoId ? { repoId } : {}), json, action } }; }
+function accepted(rootDir: SafePath, repoId: string | undefined, json: boolean, action: { readonly kind: string } & Readonly<Record<string, unknown>>): ThinParseResult { return { ok: true, command: { rootDir, ...(repoId ? { repoId } : {}), json, method: "repo.task.run", action } }; }
 function failure(code: string, nextAction: string, json: boolean): ThinParseResult { return { ok: false, code, nextAction, json }; }

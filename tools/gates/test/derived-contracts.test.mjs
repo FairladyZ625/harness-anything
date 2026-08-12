@@ -58,22 +58,34 @@ test("G11 rejects duplicate registry entries and non-append phase histories", ()
   assert.match(assertPhaseAppendOnly(["P2", "P3"], ["P3"])[0], /append-only/u);
 });
 
-test("G11 rejects drift in command, gate, guard, and phase catalog projections", () => {
+test("G11 accepts distinct schema ids and rejects a duplicate across contracts", () => {
+  const contract = (file, id, schemaId) => ({ file, declaration: { id, phases: ["P2"], commands: [], gates: [], guards: [], schemas: [{ id: schemaId }] } });
+  const distinct = [contract("one.contract.mjs", "one", "example/one"), contract("two.contract.mjs", "two", "example/two")];
+  assert.deepEqual(validateDerivedContracts("/not-a-repo", distinct), []);
+  assert.match(validateDerivedContracts("/not-a-repo", [...distinct, contract("three.contract.mjs", "three", "example/one")]).join("\n"), /duplicate schemas id example\/one; first declared in one\.contract\.mjs/u);
+});
+
+test("G11 requires an exact command, gate, guard, schema, and phase catalog projection", () => {
   const declaration = {
     id: "one",
     phases: ["P2"],
     projection: { catalog: "tools/gates/contracts/catalog.json" },
     commands: [{ id: "run", phase: "P2" }],
     gates: [{ id: "G11", phase: "P2" }],
-    guards: [{ id: "safe", phase: "P2" }]
+    guards: [{ id: "safe", phase: "P2" }],
+    schemas: [{ id: "example/v1" }]
   };
   const { rootDir } = fixtureRepo(declaration, "jobs:\n");
-  writeFileSync(path.join(rootDir, "tools/gates/contracts/catalog.json"), JSON.stringify({
+  const catalog = path.join(rootDir, "tools/gates/contracts/catalog.json");
+  writeFileSync(catalog, JSON.stringify({
     contractId: "one",
     commands: ["run"],
-    gates: ["manual-copy"],
+    gates: ["G11"],
     guards: ["safe"],
+    schemas: ["example/v1"],
     phases: ["P2"]
   }));
+  assert.deepEqual(validateDerivedContracts(rootDir, [{ file: "example.contract.mjs", declaration }]), []);
+  writeFileSync(catalog, JSON.stringify({ contractId: "one", commands: ["run"], gates: ["G11"], guards: ["safe"], schemas: ["manual-copy/v1"], phases: ["P2"] }));
   assert.match(validateDerivedContracts(rootDir, [{ file: "example.contract.mjs", declaration }]).join("\n"), /catalog projection differs/u);
 });

@@ -1,27 +1,17 @@
-import type { PresetManifest, TemplateCatalog, TemplateSelection, VerticalDefinition } from "../schemas/registry.ts";
+import type { TemplateCatalog, TemplateSelection, VerticalDefinition } from "../schemas/registry.ts";
 import { createEntityKindRegistry } from "./entity-kind-registry.ts";
 
 export interface ExtensionValidationIssue {
   readonly code:
-    | "duplicate_capability"
     | "duplicate_document"
-    | "duplicate_preset"
-    | "duplicate_profile"
     | "duplicate_vertical_entity"
-    | "incompatible_kernel"
-    | "missing_default_profile"
     | "missing_fallback_locale"
-    | "missing_parent_preset"
-    | "missing_profile"
     | "missing_required_anchor"
     | "missing_template"
     | "custom_vertical_forbidden"
     | "duplicate_materialized_path"
     | "invalid_materialized_path"
-    | "preset_required_template_conflict"
-    | "preset_path_id_mismatch"
     | "reserved_materialized_path"
-    | "preset_extends_cycle"
     | "status_mapping_forbidden"
     | "template_locale_structure_mismatch"
     | "template_body_unavailable"
@@ -40,10 +30,6 @@ export interface ExtensionValidationIssue {
 export interface ExtensionValidationResult {
   readonly ok: boolean;
   readonly issues: ReadonlyArray<ExtensionValidationIssue>;
-}
-
-export interface KernelVersionContext {
-  readonly kernelVersion: string;
 }
 
 export interface MaterializationRequest {
@@ -70,7 +56,7 @@ export interface MaterializationResult {
   readonly issues: ReadonlyArray<ExtensionValidationIssue>;
 }
 
-export type ExtensionInputKind = "template-catalog" | "preset-manifest" | "vertical-definition";
+export type ExtensionInputKind = "template-catalog" | "vertical-definition";
 
 export type TemplateBodyResolver = (input: {
   readonly document: TemplateCatalog["documents"][number];
@@ -87,13 +73,7 @@ export function validateExtensionInputShape(kind: ExtensionInputKind, input: unk
   const issues: ExtensionValidationIssue[] = [];
   scanForbiddenKeys(input, "$", issues);
 
-  if (kind === "template-catalog") {
-    validateTemplateCatalogShape(input, "$", issues);
-  } else if (kind === "preset-manifest") {
-    validatePresetManifestShape(input, "$", issues);
-  } else {
-    validateVerticalDefinitionShape(input, "$", issues);
-  }
+  if (kind === "template-catalog") validateTemplateCatalogShape(input, "$", issues); else validateVerticalDefinitionShape(input, "$", issues);
 
   return { ok: issues.length === 0, issues };
 }
@@ -128,43 +108,6 @@ export function validateTemplateCatalog(catalog: TemplateCatalog, options: Templ
           }
         }
       }
-    }
-  }
-
-  return { ok: issues.length === 0, issues };
-}
-
-export function validatePresetManifests(
-  presets: ReadonlyArray<PresetManifest>,
-  kernel: KernelVersionContext
-): ExtensionValidationResult {
-  const issues: ExtensionValidationIssue[] = [];
-  const byId = new Map<string, PresetManifest>();
-
-  for (const [presetIndex, preset] of presets.entries()) {
-    if (byId.has(preset.id)) {
-      issues.push(issue("duplicate_preset", `Duplicate preset ${preset.id}.`, `presets[${presetIndex}].id`));
-    }
-    byId.set(preset.id, preset);
-    validateSinglePreset(preset, presetIndex, kernel, issues);
-  }
-
-  for (const [presetIndex, preset] of presets.entries()) {
-    if (preset.extends && !byId.has(preset.extends)) {
-      issues.push(issue("missing_parent_preset", `Preset ${preset.id} extends missing parent ${preset.extends}.`, `presets[${presetIndex}].extends`));
-    }
-  }
-
-  for (const [presetIndex, preset] of presets.entries()) {
-    const visited = new Set<string>();
-    let current: PresetManifest | undefined = preset;
-    while (current?.extends) {
-      if (visited.has(current.id)) {
-        issues.push(issue("preset_extends_cycle", `Preset extends cycle includes ${current.id}.`, `presets[${presetIndex}].extends`));
-        break;
-      }
-      visited.add(current.id);
-      current = byId.get(current.extends);
     }
   }
 
@@ -286,40 +229,6 @@ export function formatTemplateRef(id: string, version: string): string {
   return `template://${id}@${version}`;
 }
 
-function validateSinglePreset(
-  preset: PresetManifest,
-  presetIndex: number,
-  kernel: KernelVersionContext,
-  issues: ExtensionValidationIssue[]
-): void {
-  if (compareDottedVersion(kernel.kernelVersion, preset.kernelVersionRange.min) < 0) {
-    issues.push(issue("incompatible_kernel", `Preset ${preset.id} requires kernel >= ${preset.kernelVersionRange.min}.`, `presets[${presetIndex}].kernelVersionRange.min`));
-  }
-  if (preset.kernelVersionRange.maxExclusive && compareDottedVersion(kernel.kernelVersion, preset.kernelVersionRange.maxExclusive) >= 0) {
-    issues.push(issue("incompatible_kernel", `Preset ${preset.id} requires kernel < ${preset.kernelVersionRange.maxExclusive}.`, `presets[${presetIndex}].kernelVersionRange.maxExclusive`));
-  }
-
-  const profileIds = new Set<string>();
-  for (const [profileIndex, profile] of preset.profiles.entries()) {
-    if (profileIds.has(profile.id)) {
-      issues.push(issue("duplicate_profile", `Duplicate preset profile ${profile.id}.`, `presets[${presetIndex}].profiles[${profileIndex}].id`));
-    }
-    profileIds.add(profile.id);
-  }
-  if (!profileIds.has(preset.defaultProfile)) {
-    issues.push(issue("missing_default_profile", `Default profile ${preset.defaultProfile} is not declared.`, `presets[${presetIndex}].defaultProfile`));
-  }
-
-  const capabilityVersions = new Map<string, string>();
-  for (const [capabilityIndex, capability] of preset.capabilityImports.entries()) {
-    const existing = capabilityVersions.get(capability.id);
-    if (existing && existing !== `${capability.kind}@${capability.version}`) {
-      issues.push(issue("duplicate_capability", `Capability ${capability.id} has conflicting imports.`, `presets[${presetIndex}].capabilityImports[${capabilityIndex}]`));
-    }
-    capabilityVersions.set(capability.id, `${capability.kind}@${capability.version}`);
-  }
-}
-
 function parseTemplateRef(ref: string): { readonly id: string; readonly version: string } {
   const match = /^template:\/\/(.+)@([^@]+)$/u.exec(ref);
   return match ? { id: match[1] ?? ref, version: match[2] ?? "" } : { id: ref, version: "" };
@@ -327,18 +236,6 @@ function parseTemplateRef(ref: string): { readonly id: string; readonly version:
 
 function sameStringSet(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {
   return left.length === right.length && left.every((value) => right.includes(value));
-}
-
-function compareDottedVersion(left: string, right: string): number {
-  const leftParts = left.split(".").map((part) => Number.parseInt(part, 10) || 0);
-  const rightParts = right.split(".").map((part) => Number.parseInt(part, 10) || 0);
-  const length = Math.max(leftParts.length, rightParts.length);
-  for (let index = 0; index < length; index += 1) {
-    const leftValue = leftParts[index] ?? 0;
-    const rightValue = rightParts[index] ?? 0;
-    if (leftValue !== rightValue) return leftValue > rightValue ? 1 : -1;
-  }
-  return 0;
 }
 
 function issue(code: ExtensionValidationIssue["code"], message: string, path: string): ExtensionValidationIssue {
@@ -359,42 +256,6 @@ function validateTemplateCatalogShape(input: unknown, path: string, issues: Exte
         }
       }
     }
-  }
-}
-
-function validatePresetManifestShape(input: unknown, path: string, issues: ExtensionValidationIssue[]): void {
-  validateObjectKeys(input, path, ["schema", "id", "title", "vertical", "version", "kind", "extends", "policyPath", "kernelVersionRange", "capabilityImports", "entrypoints", "profiles", "defaultProfile"], issues);
-  if (!isExtensionRecord(input)) return;
-  validateObjectKeys(input.kernelVersionRange, `${path}.kernelVersionRange`, ["min", "maxExclusive"], issues);
-  validateCapabilityImportsShape(input.capabilityImports, `${path}.capabilityImports`, issues, ["id", "kind", "version", "required"]);
-  validatePresetEntrypointsShape(input.entrypoints, `${path}.entrypoints`, issues);
-  if (Array.isArray(input.profiles)) {
-    for (const [index, profile] of input.profiles.entries()) {
-      const profilePath = `${path}.profiles[${index}]`;
-      validateObjectKeys(profile, profilePath, ["id", "title", "checkerProfile", "completionGates", "templateSelections", "capabilityImports"], issues);
-      if (isExtensionRecord(profile)) {
-        validateTemplateSelectionsShape(profile.templateSelections, `${profilePath}.templateSelections`, issues);
-        validateCapabilityImportsShape(profile.capabilityImports, `${profilePath}.capabilityImports`, issues, ["id", "version"]);
-      }
-    }
-  }
-}
-
-function validatePresetEntrypointsShape(input: unknown, path: string, issues: ExtensionValidationIssue[]): void {
-  if (input === undefined) return;
-  if (!isExtensionRecord(input)) return;
-  for (const [entrypointName, entrypoint] of Object.entries(input)) {
-    const entrypointPath = `${path}.${entrypointName}`;
-    if (!isExtensionRecord(entrypoint)) continue;
-    if (entrypoint.type === "script") {
-      validateObjectKeys(entrypoint, entrypointPath, ["type", "command", "reads", "writes", "inputs"], issues);
-      continue;
-    }
-    if (entrypoint.type === "template") {
-      validateObjectKeys(entrypoint, entrypointPath, ["type", "writes", "templates"], issues);
-      continue;
-    }
-    validateObjectKeys(entrypoint, entrypointPath, ["type"], issues);
   }
 }
 
@@ -487,13 +348,6 @@ function validateTemplateSelectionsShape(input: unknown, path: string, issues: E
     if (isExtensionRecord(selection)) {
       validateObjectKeys(selection.localePolicy, `${selectionPath}.localePolicy`, ["prefer", "fallback"], issues);
     }
-  }
-}
-
-function validateCapabilityImportsShape(input: unknown, path: string, issues: ExtensionValidationIssue[], keys: ReadonlyArray<string>): void {
-  if (!Array.isArray(input)) return;
-  for (const [index, capability] of input.entries()) {
-    validateObjectKeys(capability, `${path}[${index}]`, keys, issues);
   }
 }
 

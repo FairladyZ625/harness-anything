@@ -23,7 +23,7 @@ export function bootstrapRepo(input: RepoBootstrapInput, auth: DaemonAuthenticat
   if (existsSync(configPath) !== existsSync(peoplePath)) throw coded("bootstrap_incomplete", "harness.yaml and people.yaml must either both exist or both be absent.");
   mkdirSync(rootDir, { recursive: true }); git(rootDir, ["init", "--quiet"]);
   if (!initialized) { mkdirSync(harnessDir, { recursive: true });
-    writeFileSync(configPath, `schema: harness-anything/v1\nname: ${input.repoId}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n`, "utf8");
+    writeFileSync(configPath, `schema: harness-anything/v1\nname: ${input.repoId}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings:\n  defaultVertical: software/coding\n  defaultPreset: standard-task\n  defaultProfile: baseline\n  locale: en-US\n`, "utf8");
     writeFileSync(peoplePath, `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: input.personId, displayName: input.displayName,
       roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${os.hostname()}`, subject: String(uid) }] }],
     roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }] }, null, 2)}\n`, "utf8"); }

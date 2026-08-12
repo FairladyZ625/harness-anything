@@ -1,0 +1,1 @@
+{ "schema": "preset-policy/v1", "requires": ["policy:artifact-contract/v1", "policy:template-override/task-plan/v1"] }

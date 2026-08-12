@@ -1,5 +1,5 @@
 import { readDaemonRegistry, registerDaemonRepo, unregisterDaemonRepo, type ActorIdentity, type WriteReceipt, type WriteSource } from "../../kernel/src/index.ts";
-import { canonicalRoot, workspaceId, type DaemonGuiReadMethod, type DaemonGuiReadResultMap } from "./protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, commandClassForAction, workspaceId, type DaemonGuiReadMethod, type DaemonGuiReadResultMap } from "./protocol/daemon-protocol.contract.ts";
 import { resolveRepoBootstrap, type RepoBootstrapRequest } from "./repo-bootstrap.ts";
 import { loadPeopleRoster } from "./identity/people-roster.ts";
 import { makeTransportDerivedIdentityProvider } from "./identity/transport-derived-provider.ts";
@@ -52,7 +52,7 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
       const spoof = ["actor", "root", "canonicalRoot", "source", "workspaceId", "expectedRevision", "eventId", "occurredAt", "gitCredential", "credential"]
         .find((field) => Object.hasOwn(action, field));
       if (spoof) return reject(action, "ingress_binding_forbidden", `Payload cannot report ${spoof}; daemon binds actor, root, source, revision, and time.`);
-      try { return await cell.run(action, await binding(cell.status().rootDir, auth, actionCapability(action.kind), action.kind === "doc-submit")); }
+      try { return await cell.run(action, await binding(cell.status().rootDir, auth, commandClassForAction(action.kind), action.kind === "doc-submit")); }
       catch (error) { return reject(action, code(error), consumeKnownError(error)); }
     },
     read: async (repoId, method, payload, auth) => { const cell = cells.get(repoId);
@@ -79,7 +79,6 @@ async function binding(rootDir: string, auth: DaemonAuthenticationContext, requi
     roles: [...resolved.actor.roles, ...(resolved.actor.roles.some((role) => roster.roleAllows(role, "arbiter")) ? ["$arbiter"] : []), ...(resolved.actor.roles.some((role) => roster.roleAllows(role, "admin")) ? ["$admin"] : [])],
     source: "local", docWriteAllowed: allowed };
 }
-const repoReadActions = new Set(["task-show", "receipt-show", "doc-status", "doc-show"]); function actionCapability(kind: string): DaemonCommandClass { if (repoReadActions.has(kind)) return "repo-read"; return kind === "task-review-execution" ? "arbiter" : "repo-write"; }
 function reject(action: RepoTaskAction, errorCode: string, nextAction: string): WriteReceipt { return { outcome: "rejected", opId: `rejected:${action.kind}`,
   code: errorCode, origin: "daemon", evidence: `rejection:${errorCode}`, nextAction }; }
 function hostCodedError(errorCode: string, text: string): Error { const error = new Error(text) as Error & { code: string }; error.code = errorCode; return error; }

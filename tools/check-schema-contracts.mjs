@@ -15,7 +15,6 @@ const expectedSchemaIds = [
   "task-snapshot",
   "publishable-projection",
   "template-catalog",
-  "preset-manifest",
   "vertical-definition",
   "legacy-index",
   "legacy-collision-report",

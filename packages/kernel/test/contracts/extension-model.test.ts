@@ -5,10 +5,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { Schema } from "effect";
 import {
-  PresetManifestSchema,
   TemplateCatalogSchema,
   VerticalDefinitionSchema,
-  type PresetManifest,
   type TemplateCatalog,
   type VerticalDefinition
 } from "../../src/schemas/registry.ts";
@@ -16,23 +14,19 @@ import { createEntityKindRegistry } from "../../src/domain/entity-kind-registry.
 import {
   planTemplateMaterialization,
   validateExtensionInputShape,
-  validatePresetManifests,
   validateTemplateCatalog,
   validateVerticalDefinition
 } from "../../src/domain/extension-model.ts";
 
 const templateCatalogUrl = new URL("../../fixtures/schemas/template-catalog/valid.json", import.meta.url);
 const templateCatalogRootUrl = new URL("../../fixtures/schemas/template-catalog/", import.meta.url);
-const presetManifestUrl = new URL("../../fixtures/schemas/preset-manifest/valid.json", import.meta.url);
 const verticalDefinitionUrl = new URL("../../fixtures/schemas/vertical-definition/valid.json", import.meta.url);
 
-test("vertical, preset, and template schemas decode clean-room extension fixtures", async () => {
+test("vertical and template schemas decode clean-room extension fixtures", async () => {
   const catalog = Schema.decodeUnknownSync(TemplateCatalogSchema)(await readFixture(templateCatalogUrl));
-  const preset = Schema.decodeUnknownSync(PresetManifestSchema)(await readFixture(presetManifestUrl));
   const vertical = Schema.decodeUnknownSync(VerticalDefinitionSchema)(await readFixture(verticalDefinitionUrl));
 
   assert.equal(validateTemplateCatalog(catalog, { resolveBody: resolveFixtureTemplateBody }).ok, true);
-  assert.equal(validatePresetManifests([preset], { kernelVersion: "1.0.0" }).ok, true);
   assert.equal(validateVerticalDefinition(vertical).ok, true);
 });
 
@@ -125,38 +119,6 @@ test("template materialization plans locale fallback without writing documents",
   assert.equal(result.documents[0].fallbackUsed, true);
   assert.equal(result.documents[0].locale, "en-US");
   assert.match(result.documents[0].body, /## Goal/);
-});
-
-test("preset validation fails closed on conflicts, cycles, and kernel version mismatch", async () => {
-  const base = Schema.decodeUnknownSync(PresetManifestSchema)(await readFixture(presetManifestUrl));
-  const conflicting: PresetManifest = {
-    ...base,
-    capabilityImports: [
-      ...base.capabilityImports,
-      {
-        id: "schema-contracts",
-        kind: "checker",
-        version: "2",
-        required: true
-      }
-    ]
-  };
-  const parent: PresetManifest = { ...base, id: "parent", extends: "child" };
-  const child: PresetManifest = { ...base, id: "child", extends: "parent" };
-  const incompatible: PresetManifest = {
-    ...base,
-    kernelVersionRange: {
-      min: "2.0.0",
-      maxExclusive: "3.0.0"
-    }
-  };
-
-  const result = validatePresetManifests([conflicting, parent, child, incompatible], { kernelVersion: "1.0.0" });
-
-  assert.equal(result.ok, false);
-  assert.equal(result.issues.some((issue) => issue.code === "duplicate_capability"), true);
-  assert.equal(result.issues.some((issue) => issue.code === "preset_extends_cycle"), true);
-  assert.equal(result.issues.some((issue) => issue.code === "incompatible_kernel"), true);
 });
 
 test("vertical validation rejects lifecycle status mapping ownership", async () => {

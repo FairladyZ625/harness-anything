@@ -96,7 +96,6 @@ export type {
 export {
   validateExtensionInputShape,
   validateTemplateCatalog,
-  validatePresetManifests,
   validateVerticalDefinition,
   planTemplateMaterialization,
   formatTemplateRef
@@ -104,7 +103,6 @@ export {
 export type {
   ExtensionValidationIssue,
   ExtensionValidationResult,
-  KernelVersionContext,
   MaterializationRequest,
   MaterializedTemplatePlan,
   MaterializationResult,

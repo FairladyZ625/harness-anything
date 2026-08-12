@@ -37,3 +37,8 @@ test("runtime Slice B fixture classifies dedicated and shared registry paths int
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/agent-runtime-slice-b-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
+
+test("preset Slice A fixture classifies canonical and shared paths into their ratcheted buckets", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/preset-slice-a-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});

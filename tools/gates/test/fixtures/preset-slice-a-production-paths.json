@@ -1,0 +1,8 @@
+[
+  { "path": "packages/preset/src/preset.contract.ts", "module": "preset" },
+  { "path": "packages/preset/src/preset-resolver.ts", "module": "preset" },
+  { "path": "packages/preset/src/preset-bootstrap.ts", "module": "preset" },
+  { "path": "packages/kernel/src/domain/task-bootstrap-event.ts", "module": "kernel" },
+  { "path": "packages/daemon/src/protocol/daemon-protocol.contract.ts", "module": "daemon" },
+  { "path": "packages/cli/src/cli/thin-command.ts", "module": "cli" }
+]

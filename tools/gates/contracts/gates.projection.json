@@ -34,6 +34,7 @@
     "G35"
   ],
   "guards": [],
+  "schemas": [],
   "phases": [
     "P2",
     "P4"

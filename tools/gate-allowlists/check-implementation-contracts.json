@@ -173,6 +173,11 @@
         "value": "packages/kernel/tsconfig.json",
         "ref": "ADR-0023#D6",
         "reason": "Workspace TypeScript references are a governed package boundary list."
+      },
+      {
+        "value": "packages/preset/tsconfig.json",
+        "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
+        "reason": "Preset v3 Slice A adds the governed canonical preset workspace."
       }
     ],
     "requiredCompilerOptions": [
@@ -654,11 +659,6 @@
         "reason": "Extension model must keep template catalog validation."
       },
       {
-        "value": "validatePresetManifests",
-        "ref": "ADR-0022#D6",
-        "reason": "Extension model must keep preset manifest validation."
-      },
-      {
         "value": "validateVerticalDefinition",
         "ref": "ADR-0022#D6",
         "reason": "Extension model must keep vertical definition validation."
@@ -667,11 +667,6 @@
         "value": "planTemplateMaterialization",
         "ref": "ADR-0022#D6",
         "reason": "Extension model must keep template materialization planning."
-      },
-      {
-        "value": "preset_extends_cycle",
-        "ref": "ADR-0022#D6",
-        "reason": "Extension model must keep preset cycle rejection."
       },
       {
         "value": "template_locale_structure_mismatch",
@@ -687,11 +682,6 @@
         "value": "unknown_extension_field",
         "ref": "ADR-0022#D6",
         "reason": "Extension model must keep unknown extension field rejection."
-      },
-      {
-        "value": "incompatible_kernel",
-        "ref": "ADR-0022#D6",
-        "reason": "Extension model must keep kernel compatibility rejection."
       }
     ],
     "extensionSchemaPaths": [
@@ -699,11 +689,6 @@
         "value": "packages/kernel/schemas/json/template-catalog.schema.json",
         "ref": "ADR-0022#D6",
         "reason": "Extension JSON schema must reject unknown template catalog fields."
-      },
-      {
-        "value": "packages/kernel/schemas/json/preset-manifest.schema.json",
-        "ref": "ADR-0022#D6",
-        "reason": "Extension JSON schema must reject unknown preset manifest fields."
       },
       {
         "value": "packages/kernel/schemas/json/vertical-definition.schema.json",
