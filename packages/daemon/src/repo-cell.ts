@@ -8,11 +8,11 @@ import { REPLAY_TASK_GRAPH, assertCurrentWriter, bindWriterGenerationToken, make
 import { type CanonicalRoot, type DaemonGuiReadMethod, type DaemonGuiReadResultMap, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
 import { bootstrapRepo, type RepoBootstrapInput } from "./repo-bootstrap.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
-import { isDocAction, readDocReceipt, runDocAction } from "./doc-sync-actions.ts";
-export type RepoTaskAction = Readonly<Record<string, unknown>> & { readonly kind: string }; export interface RepoCellBinding { readonly actor: ActorIdentity; readonly source: WriteSource; readonly roles?: readonly string[] }
+import { isDocAction, readDocReceipt, readProjectedDocument, runDocAction } from "./doc-sync-actions.ts";
+export type RepoTaskAction = Readonly<Record<string, unknown>> & { readonly kind: string }; export interface RepoCellAssignmentScope { readonly repoId: string; readonly taskId: string; readonly executionId: string; readonly paths: readonly string[] } export interface RepoCellBinding { readonly actor: ActorIdentity; readonly source: WriteSource; readonly roles?: readonly string[]; readonly docWriteAllowed?: boolean; readonly assignmentScope?: RepoCellAssignmentScope; readonly afterPublication?: (receipt: WriteReceipt) => Promise<WriteReceipt> }
 export interface RepoCellStatus { readonly repoId: string; readonly rootDir: string; readonly state: "attached" | "unavailable" | "closed"; readonly generation: number; readonly queueDepth: number; readonly lastError: string | null; readonly recoveryMs: number }
-export interface RepoCell { readonly run: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceipt>; readonly read: <M extends DaemonGuiReadMethod>(method: M) => Promise<DaemonGuiReadResultMap[M]>; readonly status: () => RepoCellStatus; readonly close: () => Promise<void> }
-type DaemonGuiReadHandlers = { readonly [M in DaemonGuiReadMethod]: () => DaemonGuiReadResultMap[M] };
+export interface RepoCell { readonly run: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceipt>; readonly read: <M extends DaemonGuiReadMethod>(method: M, payload?: Readonly<Record<string, unknown>>) => Promise<DaemonGuiReadResultMap[M]>; readonly status: () => RepoCellStatus; readonly close: () => Promise<void> }
+type DaemonGuiReadHandlers = { readonly [M in DaemonGuiReadMethod]: (payload: Readonly<Record<string, unknown>>) => DaemonGuiReadResultMap[M] };
 const leaseTtlMs = 30 * 60 * 1_000; type Snapshot = Awaited<ReturnType<ReturnType<typeof makeTaskLifecycleService>["read"]>>["snapshot"];
 export async function openRepoCell(input: { readonly repoId: WorkspaceId; readonly rootDir: CanonicalRoot; readonly ownerId: string;
   readonly bootstrap?: { readonly input: RepoBootstrapInput; readonly auth: DaemonAuthenticationContext };
@@ -29,14 +29,14 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
     if (state !== "attached") return Promise.resolve(rejected(operationId(action, binding, input.repoId, 0), "repo_unavailable", lastError ?? "RepoCell is unavailable."));
     queueDepth += 1;
     const pending = tail.then(async () => { queueDepth -= 1; assertCurrentWriter(activeWriter, writerToken, input.repoId); return executeAction(action, binding); });
-    tail = pending.then(() => undefined, () => undefined);
-    return pending.catch((error) => { if (fatalCellError(error)) { state = "unavailable"; lastError = cellErrorMessage(error); }
+    tail = pending.then(() => undefined, () => undefined); const result = pending.catch((error) => { if (fatalCellError(error)) { state = "unavailable"; lastError = cellErrorMessage(error); }
       return failed(operationId(action, binding, input.repoId, 0), error); });
+    return binding.afterPublication && typeof binding.source === "object" && action.kind === "doc-submit" ? result.then(binding.afterPublication) : result;
   };
   const readHandlers = { "repo.tasks.list": () => ({ ok: true, ...projection.list() }), "repo.triadic.relationGraph": () => ({ ok: true, ...readRelationGraphProjection({ rootDir }) }),
-    "repo.decisions.list": () => { const decisions = queryDecisionProjection({ rootDir, filters: {} }); return { ok: true, decisions: decisions.rows, warnings: decisions.warnings }; }
-  } satisfies Record<DaemonGuiReadMethod, () => DaemonGuiReadResultMap[DaemonGuiReadMethod]> & DaemonGuiReadHandlers;
-  const read: RepoCell["read"] = async (method) => { await tail; if (state !== "attached") throw cellCodedError("repo_unavailable", lastError ?? "RepoCell is unavailable."); return dispatchRead(readHandlers, method); };
+    "repo.decisions.list": () => { const decisions = queryDecisionProjection({ rootDir, filters: {} }); return { ok: true, decisions: decisions.rows, warnings: decisions.warnings }; }, "repo.tasks.document.read": (payload) => readProjectedDocument(projection, payload)
+  } satisfies DaemonGuiReadHandlers;
+  const read: RepoCell["read"] = async (method, payload = {}) => { await tail; if (state !== "attached") throw cellCodedError("repo_unavailable", lastError ?? "RepoCell is unavailable."); return dispatchRead(readHandlers, method, payload); };
   return { run, read,
     status: () => ({ repoId: input.repoId, rootDir, state, generation, queueDepth, lastError, recoveryMs: recovery.elapsedMs }),
     close: async () => { if (state === "closed") return; state = "closed"; await tail; await lock.close(); } };
@@ -67,7 +67,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
       ? { outcome: "applied", opId, revision: event.workspaceRevision, evidence: `event-object:${opId}`, visibility: "center", proof }
       : { outcome: "pending", opId, revision: event.workspaceRevision, evidence: `event-object:${opId}`, visibility: "center", proof, nextAction: "Retry receipt show after projection catch-up." };
   }
-} function dispatchRead<M extends DaemonGuiReadMethod>(handlers: DaemonGuiReadHandlers, method: M): DaemonGuiReadResultMap[M] { return handlers[method](); }
+} function dispatchRead<M extends DaemonGuiReadMethod>(handlers: DaemonGuiReadHandlers, method: M, payload: Readonly<Record<string, unknown>>): DaemonGuiReadResultMap[M] { return handlers[method](payload); }
 function buildCommand(action: RepoTaskAction, taskId: string, binding: RepoCellBinding, workspaceId: string, expectedRevision: number): Omit<TaskLifecycleCommand, "eventId" | "workspaceRevision" | "occurredAt"> {
   const bound = { workspaceId, actor: binding.actor, source: binding.source, expectedRevision };
   if (action.kind === "task-create") return normalizeTaskLifecycleCommand(bound, { type: "CreateReplayTask", taskId, title: requiredString(action.title, "title"), graph: REPLAY_TASK_GRAPH, completionGateIds: strings(action.completionGateIds) });

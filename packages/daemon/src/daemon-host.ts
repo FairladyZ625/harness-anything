@@ -8,7 +8,7 @@ import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { openRepoCell, type RepoCell, type RepoCellStatus, type RepoTaskAction } from "./repo-cell.ts";
 export interface DaemonHost {
   readonly run: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => Promise<WriteReceipt>;
-  readonly read: <M extends DaemonGuiReadMethod>(repoId: string, method: M, auth: DaemonAuthenticationContext) => Promise<DaemonGuiReadResultMap[M]>;
+  readonly read: <M extends DaemonGuiReadMethod>(repoId: string, method: M, payload: Readonly<Record<string, unknown>>, auth: DaemonAuthenticationContext) => Promise<DaemonGuiReadResultMap[M]>;
   readonly bootstrap: (request: RepoBootstrapRequest, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
   readonly admin: (request: { readonly kind: "register"; readonly rootDir: string; readonly repoId: string } | { readonly kind: "unregister"; readonly repoId: string }, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
   readonly status: () => { readonly daemonId: string; readonly pid: number; readonly repos: readonly RepoCellStatus[] };
@@ -46,35 +46,35 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
       const cell = cells.get(repoId);
       if (!cell) return reject(action, unavailable.has(repoId) ? "repo_unavailable" : "repo_namespace_unknown",
         unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`);
-      const spoof = ["actor", "root", "canonicalRoot", "source", "workspaceId", "expectedRevision", "eventId", "occurredAt"]
+      const spoof = ["actor", "root", "canonicalRoot", "source", "workspaceId", "expectedRevision", "eventId", "occurredAt", "gitCredential", "credential"]
         .find((field) => Object.hasOwn(action, field));
       if (spoof) return reject(action, "ingress_binding_forbidden", `Payload cannot report ${spoof}; daemon binds actor, root, source, revision, and time.`);
-      try { return await cell.run(action, await binding(cell.status().rootDir, auth, actionCapability(action.kind))); }
+      try { return await cell.run(action, await binding(cell.status().rootDir, auth, actionCapability(action.kind), action.kind === "doc-submit")); }
       catch (error) { return reject(action, code(error), consumeKnownError(error)); }
     },
-    read: async (repoId, method, auth) => { const cell = cells.get(repoId);
+    read: async (repoId, method, payload, auth) => { const cell = cells.get(repoId);
       if (!cell) throw hostCodedError(unavailable.has(repoId) ? "repo_unavailable" : "repo_namespace_unknown", unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`);
-      await binding(cell.status().rootDir, auth, "repo-read"); return cell.read(method); },
+      await binding(cell.status().rootDir, auth, "repo-read"); return cell.read(method, payload); },
     status: () => ({ daemonId: input.daemonId, pid: process.pid,
       repos: [...cells.values()].map((cell) => cell.status()).concat([...unavailable.values()]).sort((a, b) => a.repoId.localeCompare(b.repoId)) }),
     close: async () => { await Promise.all([...cells.values()].map((cell) => cell.close())); }
   };
 }
-async function binding(rootDir: string, auth: DaemonAuthenticationContext, required: DaemonCommandClass): Promise<{ readonly actor: ActorIdentity; readonly source: WriteSource; readonly roles?: readonly string[] }> {
+async function binding(rootDir: string, auth: DaemonAuthenticationContext, required: DaemonCommandClass, returnDeniedDocDetail = false): Promise<{ readonly actor: ActorIdentity; readonly source: WriteSource; readonly roles?: readonly string[]; readonly docWriteAllowed?: boolean; readonly assignmentScope?: { readonly repoId: string; readonly taskId: string; readonly executionId: string; readonly paths: readonly string[] } }> {
   if (auth.assignmentBinding) { if (required === "admin" || required === "arbiter") throw hostCodedError("rbac_forbidden", `Assignment ingress cannot perform ${required}.`); return { actor: auth.assignmentBinding.actor,
-    source: { kind: "assignment", nodeId: auth.assignmentBinding.nodeId, assignmentId: auth.assignmentBinding.assignmentId } }; }
+    source: { kind: "assignment", nodeId: auth.assignmentBinding.nodeId, assignmentId: auth.assignmentBinding.assignmentId }, docWriteAllowed: true, assignmentScope: { repoId: auth.assignmentBinding.repoId, taskId: auth.assignmentBinding.taskId, executionId: auth.assignmentBinding.executionId, paths: auth.assignmentBinding.paths } }; }
   const roster = loadPeopleRoster({ rootDir });
   const resolved = await makeTransportDerivedIdentityProvider(roster).resolveActor({ authContext: auth,
     command: required === "admin" ? { method: "daemon.repo.admin", namespace: "admin", requiresRepo: true } : { method: "repo.task.run", namespace: "repo", requiresRepo: true } });
   if (!resolved.ok) throw hostCodedError(resolved.code, resolved.message);
-  if (!resolved.actor.roles.some((role) => roster.roleAllows(role, required))) {
+  const allowed = resolved.actor.roles.some((role) => roster.roleAllows(role, required)); if (!allowed && !returnDeniedDocDetail) {
     throw hostCodedError("rbac_forbidden", `Principal ${resolved.actor.personId} lacks ${required}.`);
   }
   return { actor: { principal: { personId: resolved.actor.personId }, executor: null },
     roles: [...resolved.actor.roles, ...(resolved.actor.roles.some((role) => roster.roleAllows(role, "arbiter")) ? ["$arbiter"] : [])],
-    source: "local" };
+    source: "local", docWriteAllowed: allowed };
 }
-function actionCapability(kind: string): DaemonCommandClass { if (kind === "task-show" || kind === "receipt-show" || kind === "doc-status") return "repo-read"; return kind === "task-review-execution" ? "arbiter" : "repo-write"; }
+const repoReadActions = new Set(["task-show", "receipt-show", "doc-status", "doc-show"]); function actionCapability(kind: string): DaemonCommandClass { if (repoReadActions.has(kind)) return "repo-read"; return kind === "task-review-execution" ? "arbiter" : "repo-write"; }
 function reject(action: RepoTaskAction, errorCode: string, nextAction: string): WriteReceipt { return { outcome: "rejected", opId: `rejected:${action.kind}`,
   code: errorCode, origin: "daemon", evidence: `rejection:${errorCode}`, nextAction }; }
 function hostCodedError(errorCode: string, text: string): Error { const error = new Error(text) as Error & { code: string }; error.code = errorCode; return error; }

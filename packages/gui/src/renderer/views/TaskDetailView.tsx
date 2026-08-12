@@ -27,10 +27,6 @@ import { PhaseSteps } from "../components/taskDetail/PhaseSteps";
 import { RelationRow } from "../components/taskDetail/RelationRow";
 import { normalizeTaskId, spawningDecisionOf } from "../model/triadic";
 
-/**
- * Rebuild L2 has no authored-document projection. Real tasks therefore show
- * an explicit empty state; prototype rows may still render their local sample.
- */
 function DocBody({
   path,
   fallbackPresent,

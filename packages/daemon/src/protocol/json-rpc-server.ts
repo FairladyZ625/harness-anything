@@ -29,7 +29,7 @@ export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost
       catch (error) { return reply(daemonProtocolError(request.method, rpcServerErrorCode(error), error instanceof Error ? error.message : String(error)) as unknown as JsonObject); }
     }
     if (isDaemonGuiReadMethod(request.method)) { const repo = (params.repo as JsonObject).repoId as string;
-      try { return reply(parseDaemonGuiReadResult(request.method, await options.host.read(repo, request.method, options.authContext)) as unknown as JsonObject); }
+      try { return reply(parseDaemonGuiReadResult(request.method, await options.host.read(repo, request.method, params.payload as JsonObject | undefined ?? {}, options.authContext)) as unknown as JsonObject); }
       catch (error) { return reply(daemonProtocolError(request.method, rpcServerErrorCode(error), error instanceof Error ? error.message : String(error)) as unknown as JsonObject); } }
     const repo = (params.repo as JsonObject).repoId as string, action = (params.payload as JsonObject).action as JsonObject;
     const receipt = await options.host.run(repo, action as { readonly kind: string }, options.authContext);

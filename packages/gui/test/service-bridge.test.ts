@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import { daemonGuiReadMethods, jsonRpcMethodContracts, parseDaemonGuiReadRespons
 import { apiRouteContracts, createLocalGuiServiceBridge } from "../src/index.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 import { writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
+import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
 
 test("GUI client reaches every shipped read through a real resident daemon", async () => {
   const fixture = await startGuiResidentDaemonFixture({ task: { taskId: "task-gui", title: "Resident GUI task" } });
@@ -17,10 +18,20 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
   Object.assign(process.env, fixture.env);
   try {
     writeTriadicLedger(fixture.rootDir);
+    const started = await requestDaemonJsonRpcAt(fixture.endpoint, "repo.task.run", { repo: { repoId: fixture.repoId },
+      payload: { action: { kind: "task-start", taskId: "task-gui", executionId: "execution-gui" } } }, 1_000); assert.equal(started.ok, true);
+    const documentBody = "# Canonical GUI document\n", documentPath = "tasks/task-gui/INDEX.md", authored = path.join(fixture.rootDir, "harness", documentPath);
+    mkdirSync(path.dirname(authored), { recursive: true }); writeFileSync(authored, documentBody);
+    const status = await requestDaemonJsonRpcAt(fixture.endpoint, "repo.task.run", { repo: { repoId: fixture.repoId },
+      payload: { action: { kind: "doc-status", paths: [documentPath] } } }, 1_000);
+    const synced = await requestDaemonJsonRpcAt(fixture.endpoint, "repo.task.run", { repo: { repoId: fixture.repoId }, payload: { action: { kind: "doc-submit",
+      executionId: "execution-gui", baseLedgerSha: (status.detail as { baseLedgerSha: string }).baseLedgerSha, selections: [{ path: documentPath, baseBlobSha256: null }] } } }, 1_000);
+    assert.equal(synced.ok, true, JSON.stringify(synced)); writeFileSync(authored, "# Uncommitted filesystem edit\n");
     const bridge = createLocalGuiServiceBridge(fixture.rootDir);
     const results = new Map<DaemonGuiReadMethod, unknown>();
     for (const contract of daemonGuiReadMethods) {
-      const result = await bridge.invoke(contract.guiBridgeMethod, null);
+      const payload = contract.id === "tasks.document.read" ? { taskId: "task-gui", path: "INDEX.md" } : null;
+      const result = await bridge.invoke(contract.guiBridgeMethod, payload);
       assert.equal(parseDaemonGuiReadResponse(contract.method, result).ok, true, contract.method);
       results.set(contract.method, result);
     }
@@ -32,6 +43,8 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.equal(graph.edges.length, 3); assert.equal(graph.factAnchors.length, 1);
     const decisions = parseDaemonGuiReadResult("repo.decisions.list", results.get("repo.decisions.list"));
     assert.deepEqual(decisions.decisions.map(({ decisionId }) => decisionId), ["dec_gui_smoke"]);
+    const document = parseDaemonGuiReadResult("repo.tasks.document.read", results.get("repo.tasks.document.read"));
+    assert.equal(document.body, documentBody); assert.equal(document.path, "INDEX.md"); assert.equal(document.status, "ready");
   } finally {
     await fixture.stop();
     restoreEnv("HARNESS_DAEMON_USER_ROOT", previous.userRoot); restoreEnv("HARNESS_DAEMON_ID", previous.daemonId);

@@ -29,9 +29,12 @@ export interface ApiSchemaContract {
 export interface EmptyGuiPayload {
   readonly kind?: "empty";
 }
+export interface GuiTaskDocumentPayload {
+  readonly taskId: string; readonly path: string }
 
 export const apiSchemaContracts = [
   { id: "gui.empty/v1", owner: "gui", typeName: "EmptyGuiPayload" },
+  { id: "gui.task-document/v1", owner: "gui", typeName: "GuiTaskDocumentPayload" },
   ...daemonGuiReadSchemas.map(({ id }) => ({ id, owner: "daemon" as const, typeName: id })),
   { id: "terminal.attach-policy-result/v1", owner: "gui", typeName: "TerminalAttachPolicyResult" },
   { id: "terminal.create-session-payload/v1", owner: "gui", typeName: "CreateTerminalSessionPayload" },
