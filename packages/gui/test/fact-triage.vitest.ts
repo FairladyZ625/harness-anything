@@ -25,6 +25,7 @@ import {
 import { spawningDecisionOf } from "../src/renderer/model/triadic.ts";
 import { buildTriadicRendererData } from "../src/renderer/triadic-data.ts";
 import { FactInspector } from "../src/renderer/components/FactInspector.tsx";
+import { computeGraphLayout } from "../src/renderer/graph/graphLayout.ts";
 
 function baseFact(overrides: Partial<FactRef> = {}): FactRef {
   return {
@@ -356,6 +357,19 @@ describe("cross-entity navigation projection", () => {
 
     expect(rendered.factAnchors).toEqual([anchor(fact)]);
     expect(rendered.facts).toEqual([]);
+  });
+
+  it("renders relation-graph fact anchors without inventing fact bodies", async () => {
+    const result = await computeGraphLayout(
+      [baseTask()],
+      [edge("decision/dec_1", "task/task_a", "derives"), edge("task/task_a", "fact/task_a/F-001", "produces"),
+        edge("decision/dec_1/CH1", "fact/task_a/F-001", "evidenced-by")],
+      [baseDecision()], [], [anchor()], new Set(), new Set(), new Set()
+    );
+
+    expect(result.nodes.filter(({ type }) => type !== "moduleGroup")).toHaveLength(3);
+    expect(result.nodes.filter(({ type }) => type === "fact")).toHaveLength(1);
+    expect(result.edges).toHaveLength(3);
   });
 
   it("shows an indirectly covered decision in FactInspector", () => {

@@ -1,16 +1,11 @@
 import { graphlib, layout as dagreLayout } from "@dagrejs/dagre";
 import type { TaskRow, RelationEdge, DecisionRow, FactRef } from "../model/types";
+import type { FactAnchorRow } from "../../api/renderer-dto";
 import { parseEndpoint } from "./endpoint";
 import { STATUS_META } from "../components/badges";
 import { NODE_W, NODE_H } from "./constants";
-import type { Node, Edge } from "@xyflow/react";
-import { MarkerType as RFMarkerType } from "@xyflow/react";
-
-// Graph layout runs on @dagrejs/dagre (MIT). dagre is a directed layered layout
-// with compound-graph (cluster) support: modules are clusters, entities are their
-// children, and dagre computes both node positions and each cluster's bounding box.
-// Node/edge rendering (React Flow node types, colors, edge styles) is unchanged.
-
+import { MarkerType as RFMarkerType, type Node, type Edge } from "@xyflow/react";
+// Dagre computes entity and compound-module positions; React Flow owns rendering.
 interface CycleWarning {
   nodes: Set<string>;
   edges: Set<string>;
@@ -61,7 +56,6 @@ function findRelationCycles(edges: { from: string; to: string }[]): CycleWarning
   return { nodes: cycleNodes, edges: cycleEdges, cycles };
 }
 
-// Shared module resolver
 function getDecisionModule(decId: string, relations: RelationEdge[], tasks: TaskRow[]) {
   const rel = relations.find((r) => {
     const cleanFrom = r.from.split("/").slice(0, 2).join("/");
@@ -87,14 +81,14 @@ interface PlacedEntity {
   width: number;
   height: number;
   entity: "task" | "decision" | "fact";
-  data: TaskRow | DecisionRow | FactRef;
+  data: TaskRow | DecisionRow | FactRef | { anchor: string; taskId: string; category: "anchor"; text: string };
 }
 
 export async function computeGraphLayout(
   tasks: TaskRow[],
   relations: RelationEdge[],
   decisions: DecisionRow[],
-  facts: FactRef[],
+  facts: FactRef[], factAnchors: ReadonlyArray<FactAnchorRow>,
   focusNodes: Set<string>,
   inLoopNodes: Set<string>,
   inLoopEdges: Set<string>,
@@ -127,6 +121,12 @@ export async function computeGraphLayout(
     if (filters && filters.modules.size > 0 && !filters.modules.has(moduleName) && moduleName !== "unknown") continue;
     placed.push({ id, module: moduleName, width: 140, height: 40, entity: "fact", data: f });
   }
+  const fullFactIds = new Set(facts.map((fact) => `fact/${fact.anchor}`));
+  for (const anchor of factAnchors) { if (fullFactIds.has(anchor.factRef) || (filters && !filters.types.has("fact"))) continue;
+    const moduleName = getFactModule(anchor.factRef, tasks);
+    if (filters && filters.modules.size > 0 && !filters.modules.has(moduleName) && moduleName !== "unknown") continue;
+    placed.push({ id: anchor.factRef, module: moduleName, width: 140, height: 40, entity: "fact",
+      data: { anchor: `${anchor.taskId}/${anchor.factId}`, taskId: anchor.taskId, category: "anchor", text: anchor.factId } }); }
 
   const knownModules = new Set(["kernel", "store", "cli", "gui", "adapters", "ci", "unknown"]);
   const resolveModule = (m: string) => (knownModules.has(m) ? m : "unknown");

@@ -4,29 +4,17 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
 import { jsonRpcMethodContracts } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { startDaemon } from "../../daemon/src/runtime.ts";
 import { apiRouteContracts, createLocalGuiServiceBridge } from "../src/index.ts";
+import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 
 test("GUI client reaches every shipped read through a real resident daemon", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-resident-daemon-"));
-  const rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user"), daemonId = "gui-integration";
+  const fixture = await startGuiResidentDaemonFixture({ task: { taskId: "task-gui", title: "Resident GUI task" } });
   const previous = { userRoot: process.env.HARNESS_DAEMON_USER_ROOT, daemonId: process.env.HARNESS_DAEMON_ID,
     repoId: process.env.HARNESS_DAEMON_REPO_ID };
-  process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
-  process.env.HARNESS_DAEMON_ID = daemonId;
-  process.env.HARNESS_DAEMON_REPO_ID = "gui-test";
-  const daemon = await startDaemon({ daemonId, userRoot });
+  Object.assign(process.env, fixture.env);
   try {
-    const bootstrapped = await requestDaemonJsonRpcAt(daemon.endpoint, "daemon.repo.bootstrap",
-      { rootDir, repoId: "gui-test", personId: "person-gui", displayName: "GUI Test" }, 1_000);
-    assert.equal(bootstrapped.ok, true);
-    const created = await requestDaemonJsonRpcAt(daemon.endpoint, "repo.task.run", { repo: { repoId: "gui-test" },
-      payload: { action: { kind: "task-create", taskId: "task-gui", title: "Resident GUI task", completionGateIds: [] } } }, 1_000);
-    assert.equal(created.ok, true, JSON.stringify(created));
-
-    const bridge = createLocalGuiServiceBridge(rootDir);
+    const bridge = createLocalGuiServiceBridge(fixture.rootDir);
     const tasks = await bridge.invoke("getTasks", null) as { readonly ok: boolean; readonly rows: readonly { readonly taskId: string; readonly snapshot: { readonly task: { readonly title: string } } }[] };
     assert.equal(tasks.ok, true);
     assert.deepEqual(tasks.rows.map(({ taskId }) => taskId), ["task-gui"]);
@@ -36,9 +24,9 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     const decisions = await bridge.invoke("getDecisions", null) as { readonly ok: boolean; readonly decisions: readonly unknown[] };
     assert.equal(decisions.ok, true); assert.ok(Array.isArray(decisions.decisions));
   } finally {
-    await daemon.stop();
+    await fixture.stop();
     restoreEnv("HARNESS_DAEMON_USER_ROOT", previous.userRoot); restoreEnv("HARNESS_DAEMON_ID", previous.daemonId);
-    restoreEnv("HARNESS_DAEMON_REPO_ID", previous.repoId); rmSync(parent, { recursive: true, force: true });
+    restoreEnv("HARNESS_DAEMON_REPO_ID", previous.repoId);
   }
 });
 

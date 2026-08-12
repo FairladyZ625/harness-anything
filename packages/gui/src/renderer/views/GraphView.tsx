@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { ReactFlow, MiniMap, Controls, Background, BackgroundVariant, ReactFlowProvider, Panel, useReactFlow } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-
 import type { TaskRow, RelationEdge, DecisionRow, FactRef } from "../model/types";
+import type { FactAnchorRow } from "../../api/renderer-dto";
 import { collectClosure, endpointToNodeId } from "../graph/endpoint";
 import { GraphDrawer } from "../graph/GraphDrawer";
 import { computeGraphLayout } from "../graph/graphLayout";
@@ -29,14 +29,14 @@ function GraphViewInner({
   tasks,
   relations,
   decisions,
-  facts,
+  facts, factAnchors,
   onNavigateEntity,
   focusRef,
 }: {
   tasks: TaskRow[];
   relations: RelationEdge[];
   decisions?: DecisionRow[];
-  facts?: FactRef[];
+  facts?: FactRef[]; factAnchors?: ReadonlyArray<FactAnchorRow>;
   /** W2B 活链接:图→列表/详情侧互通 */
   onNavigateEntity?: (ref: string) => void;
   focusRef?: string | null;
@@ -143,7 +143,7 @@ function GraphViewInner({
 
   useEffect(() => {
     const focusNodes = chain ? chain.nodeSet : new Set<string>();
-    computeGraphLayout(tasks, relations, decisions ?? [], facts ?? [], focusNodes, loopData.loopNodes, loopData.loopEdges, filters)
+    computeGraphLayout(tasks, relations, decisions ?? [], facts ?? [], factAnchors ?? [], focusNodes, loopData.loopNodes, loopData.loopEdges, filters)
       .then(({ nodes: rfNodes, edges: rfEdges, cycleWarning: warning }) => {
         setError(null);
         setNodes(rfNodes);
@@ -154,7 +154,7 @@ function GraphViewInner({
         console.error("Failed to compute graph layout", err);
         setError(err instanceof Error ? err.stack || err.message : String(err));
       });
-  }, [tasks, relations, decisions, facts, chain, loopData, filters]);
+  }, [tasks, relations, decisions, facts, factAnchors, chain, loopData, filters]);
 
   useEffect(() => {
     if (nodes.length === 0) return;
