@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { eventFromProviderWitness, type ProviderWitnessV1 } from "../../src/agent-runtime/provider-witness.ts";
-import { markRuntimeSessionUnknown, reduceRuntimeSession, type AgentRuntimeEventV1 } from "../../src/domain/agent-runtime.ts";
+import { reduceRuntimeSession, type AgentRuntimeEventType, type AgentRuntimeEventV1 } from "../../src/domain/agent-runtime.ts";
 import { serializeCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
 import { CANONICAL_EVENT_REF, makeTaskEventStore } from "../../src/store/task-event-store.ts";
@@ -34,7 +34,7 @@ test("runtime events use the canonical envelope, head, store, and the shared pro
     for (const event of events) { const receipt = store.append(event); assert.deepEqual(projection.apply(event).metrics, { sqliteTransactions: 1, reducedItems: 1 }); assert.equal(receipt.revision, event.workspaceRevision); }
     assert.equal(store.readHead()?.revision, events.length); assert.deepEqual(store.readEvent(events.at(-1)!.opId), events.at(-1));
     assert.equal(git(rootDir, "show", `${CANONICAL_EVENT_REF}:harness/events/${events[0]!.opId}.json`), serializeCanonicalEvent(events[0]!).trimEnd());
-    assert.deepEqual(projection.readRuntimeInstallation("installation-claude"), { installationId: "installation-claude", kindId: "claude-compatible", protocolFamily: "claude-compatible", hostRef: "host:local", version: "1.1.0", discoverySource: "wrapper", effectiveCapabilities: ["structured_witness", "resume"], authState: "invalid", lastObservedAt: "2026-08-12T00:00:05.000Z" });
+    assert.deepEqual(projection.readRuntimeInstallation("installation-claude"), { installationId: "installation-claude", kindId: "claude-compatible", protocolFamily: "claude-compatible", hostRef: "host:local", version: "1.1.0", discoverySource: "wrapper", effectiveCapabilities: ["structured_witness", "resume"], authState: "invalid", lastObservedAt: "2026-08-12T00:00:09.000Z" });
     const session = projection.readRuntimeSession("runtime-session-claude"); assert.equal(session?.providerSessionId, "provider-session-claude");
     assert.deepEqual(session?.taskBindings.map(({ taskId, executionId, transcriptRef }) => ({ taskId, executionId, transcriptRef })), [{ taskId: "task-runtime", executionId: "execution-claude", transcriptRef: "file:runtime-transcripts/claude/session.jsonl" }]);
     assert.deepEqual(projection.readRuntimeSessionsForTask("task-runtime").map((value) => value.runtimeSessionId), ["runtime-session-claude"]);
@@ -51,7 +51,7 @@ test("raw heartbeat is operational only while a threshold liveness witness appen
 });
 
 test("witness provenance is envelope-bound and local or assignment provenance reduces identically", () => {
-  const startedWitness = claude.witnesses[1]!, local = eventFromProviderWitness(startedWitness, envelope(1, "local"))!, assignment = eventFromProviderWitness(startedWitness,
+  const startedWitness = witness("runtime_session_started"), local = eventFromProviderWitness(startedWitness, envelope(1, "local"))!, assignment = eventFromProviderWitness(startedWitness,
     envelope(1, { kind: "assignment", nodeId: "implementation", assignmentId: "assignment-1" }))!;
   assert.notDeepEqual(local.source, assignment.source); assert.deepEqual(local.payload, assignment.payload);
   assert.deepEqual(reduceRuntimeSession(null, local), reduceRuntimeSession(null, assignment));
@@ -67,19 +67,48 @@ test("agent runtime source has no per-session store or legacy JSONL ledger", () 
   assert.doesNotMatch(layout, /runtimeEventLedger|runtime-events/iu); assert.doesNotMatch(`${adapter}\n${domain}`, /DatabaseSync|writeFile|appendFile|sqlite|jsonl/iu);
 });
 
-test("restart projects nonterminal session liveness to unknown without changing task lifecycle or the canonical log", async () => {
+test("projection reopen and rebuild project nonterminal sessions unknown before reads without growing the canonical log", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir); const store = makeTaskEventStore({ repoId: "test-repo", rootDir }), original = makeTaskProjection({ rootDir, eventStore: store });
+    const started = eventFromProviderWitness(witness("runtime_session_started"), envelope(1))!;
+    const exitedStarted = { ...started, eventId: "event-runtime-2", opId: "op-runtime-2", workspaceRevision: 2, payload: { ...started.payload, runtimeSessionId: "runtime-session-exited" } } as AgentRuntimeEventV1;
+    const exited = eventFromProviderWitness({ ...witness("runtime_session_exited"), payload: { runtimeSessionId: "runtime-session-exited" } }, envelope(3))!;
+    for (const event of [started, exitedStarted, exited]) { store.append(event); original.apply(event); }
+    assert.equal(original.readRuntimeSession("runtime-session-claude")?.liveness, "live"); assert.equal(original.readRuntimeSession("runtime-session-exited")?.liveness, "exited"); const before = store.read().revision;
+    const reopened = makeTaskProjection({ rootDir, eventStore: store });
+    assert.deepEqual(runtimeState(reopened, "runtime-session-claude"), { liveness: "unknown", attachable: false }); assert.deepEqual(runtimeState(reopened, "runtime-session-exited"), { liveness: "exited", attachable: false }); assert.equal(store.read().revision, before);
+    const rebuilt = reopened.rebuild(); assert.equal(rebuilt.metrics.sqliteTransactions, 2); assert.deepEqual(runtimeState(reopened, "runtime-session-claude"), { liveness: "unknown", attachable: false }); assert.deepEqual(runtimeState(reopened, "runtime-session-exited"), { liveness: "exited", attachable: false }); assert.equal(store.read().revision, before);
+    assert.equal(reopened.read("task-runtime").snapshot.task, null);
+  });
+});
+
+test("dispatch requested and outcome unknown round-trip without retry or session fabrication", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir); const store = makeTaskEventStore({ repoId: "test-repo", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store });
-    const started = eventFromProviderWitness(claude.witnesses[1]!, envelope(1))!; store.append(started); projection.apply(started);
-    assert.equal(projection.readRuntimeSession("runtime-session-claude")?.liveness, "live"); const before = store.read().revision;
-    assert.equal(projection.markRuntimeSessionsUnknown(), 1); assert.equal(projection.readRuntimeSession("runtime-session-claude")?.liveness, "unknown"); assert.equal(store.read().revision, before);
-    assert.equal(markRuntimeSessionUnknown({ ...projection.readRuntimeSession("runtime-session-claude")!, liveness: "exited" }).liveness, "exited");
-    assert.equal(projection.read("task-runtime").snapshot.task, null);
+    const requested = eventFromProviderWitness(witness("runtime_dispatch_requested"), envelope(1))!, unknown = eventFromProviderWitness(witness("runtime_dispatch_outcome_unknown"), envelope(2))!;
+    for (const event of [requested, unknown]) { store.append(event); assert.deepEqual(projection.apply(event).metrics, { sqliteTransactions: 1, reducedItems: 1 }); assert.deepEqual(store.readEvent(event.opId), event); }
+    assert.equal(store.readHead()?.revision, 2); assert.deepEqual(store.read().events.map((event) => event.type), ["runtime_dispatch_requested", "runtime_dispatch_outcome_unknown"]); assert.equal(projection.readRuntimeSession("runtime-session-claude"), null);
+    projection.rebuild(); assert.equal(projection.readRuntimeSession("runtime-session-claude"), null); assert.equal(store.read().revision, 2);
+    assert.throws(() => eventFromProviderWitness({ ...witness("runtime_dispatch_requested"), payload: { ...witness("runtime_dispatch_requested").payload, definitionSnapshotRef: "https://unsafe.example/definition" } }, envelope(3)), /payload/iu);
+    assert.throws(() => eventFromProviderWitness({ ...witness("runtime_dispatch_outcome_unknown"), payload: { ...witness("runtime_dispatch_outcome_unknown").payload, retry: true } }, envelope(3)), /payload/iu);
+  });
+});
+
+test("session outcome and exit round-trip while exited remains terminal", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir); const store = makeTaskEventStore({ repoId: "test-repo", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store });
+    const events = [witness("runtime_session_started"), witness("runtime_session_outcome_observed"), witness("runtime_session_exited")].map((value, index) => eventFromProviderWitness(value, envelope(index + 1))!);
+    for (const event of events) { store.append(event); assert.deepEqual(projection.apply(event).metrics, { sqliteTransactions: 1, reducedItems: 1 }); assert.deepEqual(store.readEvent(event.opId), event); }
+    assert.equal(store.readHead()?.revision, 3); assert.deepEqual(projection.readRuntimeSession("runtime-session-claude"), { runtimeSessionId: "runtime-session-claude", installationId: "installation-claude", kindId: "claude-compatible", providerSessionId: null, transcriptRef: null, launchGeneration: 1, liveness: "exited", attachable: false, taskBindings: [], outcome: "succeeded", resultRef: "artifact:runtime-results/claude/succeeded", lastObservedAt: "2026-08-12T00:00:03.000Z" });
+    const liveness = eventFromProviderWitness({ ...witness("heartbeat"), type: "runtime_session_liveness_changed", payload: { runtimeSessionId: "runtime-session-claude", liveness: "live" } }, envelope(4))!;
+    assert.throws(() => projection.apply(liveness), /already exited/iu); assert.equal(projection.readRuntimeSession("runtime-session-claude")?.liveness, "exited"); assert.equal(store.read().revision, 3);
+    assert.throws(() => eventFromProviderWitness({ ...witness("runtime_session_outcome_observed"), payload: { ...witness("runtime_session_outcome_observed").payload, resultRef: "inline result" } }, envelope(4)), /payload/iu);
+    assert.throws(() => eventFromProviderWitness({ ...witness("runtime_session_exited"), payload: { ...witness("runtime_session_exited").payload, reason: "client supplied" } }, envelope(4)), /payload/iu);
   });
 });
 
 test("runtime schema rejects credential, transcript body, tool/cost stream, and non-reference transcript data", () => {
-  const bound = eventFromProviderWitness(claude.witnesses[3]!, envelope(1))!;
+  const bound = eventFromProviderWitness(witness("runtime_session_task_bound"), envelope(1))!;
   for (const forbidden of [
     { credential: "secret" }, { transcript: "full conversation" }, { tool: { name: "shell" } }, { cost: { amount: 1 } }
   ]) assert.throws(() => serializeCanonicalEvent({ ...bound, payload: { ...bound.payload, ...forbidden } } as AgentRuntimeEventV1), /payload/iu);
@@ -88,6 +117,8 @@ test("runtime schema rejects credential, transcript body, tool/cost stream, and 
 });
 
 function fixture(name: string): Fixture { return JSON.parse(readFileSync(new URL(`../fixtures/agent-runtime-witness/${name}`, import.meta.url), "utf8")) as Fixture; }
+function witness(type: AgentRuntimeEventType | "heartbeat"): ProviderWitnessV1 { const value = claude.witnesses.find((candidate) => candidate.type === type); if (value === undefined) throw new Error(`missing ${type} witness`); return value; }
+function runtimeState(projection: ReturnType<typeof makeTaskProjection>, runtimeSessionId: string): { readonly liveness: string; readonly attachable: boolean } | null { const session = projection.readRuntimeSession(runtimeSessionId); return session === null ? null : { liveness: session.liveness, attachable: session.attachable }; }
 function forbiddenKeys(value: unknown, found: string[] = []): string[] { if (Array.isArray(value)) { for (const item of value) forbiddenKeys(item, found); return found; } if (typeof value !== "object" || value === null) return found;
   for (const [key, nested] of Object.entries(value)) { if (["credential", "transcript", "transcriptBody", "tool", "cost", "stdout", "stderr"].includes(key)) found.push(key); forbiddenKeys(nested, found); } return found; }
 function initRepo(rootDir: string): void { git(rootDir, "init", "-q"); git(rootDir, "config", "user.name", "Runtime Test"); git(rootDir, "config", "user.email", "runtime@example.invalid"); git(rootDir, "commit", "--allow-empty", "-qm", "base"); }

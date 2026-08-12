@@ -42,7 +42,7 @@ export interface TaskProjection {
   readonly reserveLease: (lease: LeaseV1, now: string) => LeaseV1; readonly activateLease: (lease: LeaseV1) => LeaseV1;
   readonly renewLease: (lease: LeaseV1, expiresAt: string) => LeaseV1; readonly releaseLease: (lease: LeaseV1) => LeaseV1;
   readonly readRuntimeInstallation: (installationId: string) => RuntimeInstallation | null; readonly readRuntimeSession: (runtimeSessionId: string) => RuntimeSession | null;
-  readonly readRuntimeSessionsForTask: (taskId: string) => readonly RuntimeSession[]; readonly markRuntimeSessionsUnknown: () => number;
+  readonly readRuntimeSessionsForTask: (taskId: string) => readonly RuntimeSession[];
 }
 
 export function defaultLifecycleTaskProjectionPath(rootDir: string): string { return path.join(path.resolve(rootDir), ".harness/cache/task.sqlite"); }
@@ -52,6 +52,7 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
   const limit = options.catchUpLimit ?? 64, now = options.now ?? (() => new Date().toISOString());
   if (!Number.isInteger(limit) || limit < 1 || limit > 64) throw new Error("task projection catch-up limit must be between 1 and 64");
+  if (localRuntimeStateFileSystem.exists(projectionPath)) withDatabase(projectionPath, (db) => transaction(db, () => markRuntimeSessionsUnknown(db)));
   return {
     path: projectionPath,
     apply: ((event: CanonicalEventV1, plan?: FrozenWritePlan<"DocSyncSubmit">) => { if (isDocEvent(event)) assertDocSyncWritePlan(event, plan); return withDatabase(projectionPath, (db) => reduceBatch(db, [event], limit, options.eventStore.readContentBlob)); }) as TaskProjection["apply"],
@@ -67,7 +68,6 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
     readRuntimeInstallation: (installationId) => withDatabase(projectionPath, (db) => readRuntimeInstallation(db, installationId)),
     readRuntimeSession: (runtimeSessionIdValue) => withDatabase(projectionPath, (db) => readRuntimeSession(db, runtimeSessionIdValue)),
     readRuntimeSessionsForTask: (taskId) => withDatabase(projectionPath, (db) => queryRows(db, "SELECT value_json FROM runtime_session ORDER BY runtime_session_id").map((row) => JSON.parse(String(row.value_json)) as RuntimeSession).filter((session) => session.taskBindings.some((binding) => binding.taskId === taskId))),
-    markRuntimeSessionsUnknown: () => withDatabase(projectionPath, (db) => transaction(db, () => markRuntimeSessionsUnknown(db))),
     readLeaseIntervals: (taskId) => withDatabase(projectionPath, (db) => readIntervals(db, taskId)),
     currentLease: (taskId, at) => withDatabase(projectionPath, (db) => effectiveLease(db, taskId, at ?? now())),
     currentLeaseForExecution: (executionId, at) => withDatabase(projectionPath, (db) => { const row = db.prepare("SELECT task_id FROM lease_cas WHERE json_extract(lease_json, '$.executionId') = ?").get(executionId) as { readonly task_id: string } | undefined; return row ? effectiveLease(db, row.task_id, at ?? now()) : null; }),
@@ -120,7 +120,7 @@ function rebuildProjection(projectionPath: string, eventStore: EventStreamPort, 
     maxBatchElapsedMs = Math.max(maxBatchElapsedMs, elapsedMs);
     if (round.watermark === round.sourceRevision) break;
   }
-  const current = withDatabase(projectionPath, watermark);
+  const current = withDatabase(projectionPath, (db) => transaction(db, () => { markRuntimeSessionsUnknown(db); return watermark(db); })); transactions += 1;
   return { watermark: current, metrics: { sqliteTransactions: transactions, reducedItems, maxBatchItems, maxBatchElapsedMs } };
 }
 

@@ -19,6 +19,19 @@
       "schema": "agent-runtime-witness/v1",
       "protocolFamily": "claude-compatible",
       "channel": "wrapper",
+      "type": "runtime_dispatch_requested",
+      "payload": {
+        "dispatchId": "dispatch-claude",
+        "runtimeSessionId": "runtime-session-claude",
+        "kindId": "claude-compatible",
+        "idempotencyKey": "dispatch-claude-attempt-1",
+        "definitionSnapshotRef": "artifact:runtime-definitions/claude/v1"
+      }
+    },
+    {
+      "schema": "agent-runtime-witness/v1",
+      "protocolFamily": "claude-compatible",
+      "channel": "wrapper",
       "type": "runtime_session_started",
       "payload": {
         "runtimeSessionId": "runtime-session-claude",
@@ -50,6 +63,36 @@
         "executionId": "execution-claude",
         "providerSessionId": "provider-session-claude",
         "transcriptRef": "file:runtime-transcripts/claude/session.jsonl"
+      }
+    },
+    {
+      "schema": "agent-runtime-witness/v1",
+      "protocolFamily": "claude-compatible",
+      "channel": "wrapper",
+      "type": "runtime_session_outcome_observed",
+      "payload": {
+        "runtimeSessionId": "runtime-session-claude",
+        "outcome": "succeeded",
+        "resultRef": "artifact:runtime-results/claude/succeeded"
+      }
+    },
+    {
+      "schema": "agent-runtime-witness/v1",
+      "protocolFamily": "claude-compatible",
+      "channel": "wrapper",
+      "type": "runtime_session_exited",
+      "payload": {
+        "runtimeSessionId": "runtime-session-claude"
+      }
+    },
+    {
+      "schema": "agent-runtime-witness/v1",
+      "protocolFamily": "claude-compatible",
+      "channel": "wrapper",
+      "type": "runtime_dispatch_outcome_unknown",
+      "payload": {
+        "dispatchId": "dispatch-claude",
+        "runtimeSessionId": "runtime-session-claude"
       }
     },
     {
