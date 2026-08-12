@@ -1,0 +1,55 @@
+// harness-test-tier: contract
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  REPLAY_TASK_GRAPH,
+  parseCanonicalEvent,
+  serializeCanonicalEvent,
+  type TaskBootstrapEventV1
+} from "../../src/index.ts";
+
+const event: TaskBootstrapEventV1 = {
+  schema: "task-bootstrap-event/v1",
+  eventId: "event-bootstrap-1",
+  workspaceRevision: 1,
+  opId: "op-bootstrap-1",
+  taskId: "task-bootstrap-1",
+  type: "task_bootstrapped",
+  actor: { principal: { personId: "person-1" }, executor: null },
+  source: "local",
+  occurredAt: "2026-08-13T00:00:00.000Z",
+  payload: {
+    task: {
+      schema: "task/v1",
+      taskId: "task-bootstrap-1",
+      title: "Bootstrap",
+      taskClass: "milestone",
+      status: "planned",
+      graph: REPLAY_TASK_GRAPH,
+      currentNode: "implementation",
+      iteration: 0,
+      createdBy: { principal: { personId: "person-1" }, executor: null },
+      completionGateIds: ["ci"],
+      presetSnapshotDigest: `sha256:${"a".repeat(64)}`
+    },
+    presetSnapshotClaim: {
+      digest: `sha256:${"a".repeat(64)}`,
+      sha256: "b".repeat(64),
+      size: 2,
+      mediaType: "application/json"
+    },
+    initialDocumentClaims: [{
+      path: "tasks/task-bootstrap-1/task_plan.md",
+      sha256: "c".repeat(64),
+      size: 7,
+      mediaType: "text/markdown",
+      policyId: "markdown-additive/v1"
+    }]
+  }
+};
+
+test("TaskBootstrapEventV1 is a canonical closed-union member with an explicit taskClass", () => {
+  const body = serializeCanonicalEvent(event);
+  assert.deepEqual(parseCanonicalEvent(body), event);
+  assert.throws(() => serializeCanonicalEvent({ ...event, payload: { ...event.payload, task: { ...event.payload.task, taskClass: undefined } } } as unknown as TaskBootstrapEventV1), /invalid taskClass/u);
+});

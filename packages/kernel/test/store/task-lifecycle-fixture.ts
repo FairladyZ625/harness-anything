@@ -33,7 +33,7 @@ export function lifecycleFixture(): { readonly events: readonly TaskEventV1[]; r
     events.push(result.event);
   };
   run(command(implementer, 1, {
-    type: "CreateReplayTask", taskId: "task-1", title: "Replay task", graph: REPLAY_TASK_GRAPH, completionGateIds: []
+    type: "CreateReplayTask", taskId: "task-1", title: "Replay task", taskClass: "standard", graph: REPLAY_TASK_GRAPH, completionGateIds: [], presetSnapshotDigest: null
   }), { taskIdUnique: true, actorBinding: implementer });
   run(command(implementer, 2, {
     type: "StartExecution", taskId: "task-1", executionId: "execution-1"

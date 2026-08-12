@@ -16,8 +16,8 @@ import { withTempStoreAsync } from "./helpers.ts";
 
 const event: TaskCreatedEvent = { schema: "task-event/v1", eventId: "event-1", workspaceRevision: 1, opId: "op-1", taskId: "task-1", type: "task_created",
   actor: { principal: { personId: "person-1" }, executor: { kind: "agent", id: "codex" } }, source: "local", occurredAt: "2026-08-11T00:00:00.000Z",
-  payload: { task: { schema: "task/v1", taskId: "task-1", title: "Replay task", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0,
-    createdBy: { principal: { personId: "person-1" }, executor: { kind: "agent", id: "codex" } }, completionGateIds: [] } } };
+  payload: { task: { schema: "task/v1", taskId: "task-1", title: "Replay task", taskClass: "standard", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0,
+    createdBy: { principal: { personId: "person-1" }, executor: { kind: "agent", id: "codex" } }, completionGateIds: [], presetSnapshotDigest: null } } };
 
 test("canonical schema registry parses task/doc once and rejects unknown or non-canonical bytes", () => {
   assert.deepEqual(parseCanonicalEvent(serializeTaskEvent(event)), event);

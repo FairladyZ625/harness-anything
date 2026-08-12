@@ -80,7 +80,7 @@ export function lifecycleHarness() {
     create: (opId = "op-create") => {
       const next = revision() + 1;
       return service.execute(command(owner, next, {
-        type: "CreateReplayTask", taskId: "task-1", title: "Replay task", graph: replayGraph, completionGateIds: []
+        type: "CreateReplayTask", taskId: "task-1", title: "Replay task", taskClass: "standard", graph: replayGraph, completionGateIds: [], presetSnapshotDigest: null
       }, opId), { taskIdUnique: true, actorBinding: owner });
     },
     start: (executionId = `execution-${revision() + 1}`, opId = `op-start-${revision() + 1}`) => {

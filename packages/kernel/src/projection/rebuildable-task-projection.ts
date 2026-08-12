@@ -8,6 +8,7 @@ import { TASK_LEASE_BROKER_CONTRACT, validateLeaseV1, type LeaseHolder, type Lea
 import { canonicalizeContractValue } from "../domain/task.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { isAgentRuntimeEvent, markRuntimeSessionUnknown, reduceRuntimeInstallation, reduceRuntimeSession, runtimeSessionId, type AgentRuntimeEventV1, type RuntimeInstallation, type RuntimeSession } from "../domain/agent-runtime.ts";
+import { assertTaskBootstrapWritePlan, isTaskBootstrapEvent, type TaskBootstrapEventV1 } from "../domain/task-bootstrap-event.ts";
 
 interface EventStreamPort {
   readonly readHead: () => { readonly revision: number } | null;
@@ -34,10 +35,12 @@ export interface LeaseInterval {
   readonly acquiredRevision: number; readonly releasedRevision: number | null; readonly leaseExpiresAt: string; readonly reason: LeaseChangeReason;
 }
 export interface DocumentProjectionRead { readonly status: "ready" | "pending"; readonly document: DocumentState | null; readonly watermark: number; readonly sourceRevision: number }
+export interface PresetSnapshotProjectionRead { readonly status: "ready" | "pending"; readonly snapshot: unknown | null; readonly watermark: number; readonly sourceRevision: number }
 export interface TaskProjection {
-  readonly path: string; readonly apply: { (event: TaskEventV1 | AgentRuntimeEventV1): ProjectionApplyReceipt; (event: DocEventV1, plan: FrozenWritePlan<"DocSyncSubmit">): ProjectionApplyReceipt }; readonly rebuild: () => ProjectionRebuildReceipt;
+  readonly path: string; readonly apply: { (event: TaskEventV1 | AgentRuntimeEventV1): ProjectionApplyReceipt; (event: DocEventV1, plan: FrozenWritePlan<"DocSyncSubmit">): ProjectionApplyReceipt; (event: TaskBootstrapEventV1, plan: FrozenWritePlan<"TaskBootstrap">): ProjectionApplyReceipt }; readonly rebuild: () => ProjectionRebuildReceipt;
   readonly read: (taskId: string) => TaskProjectionRead; readonly list: () => TaskProjectionListRead; readonly readOperation: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
   readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null; readonly readDocument: (path: string) => DocumentProjectionRead;
+  readonly readPresetSnapshot: (digest: string) => PresetSnapshotProjectionRead;
   readonly readLeaseIntervals: (taskId: string) => readonly LeaseInterval[]; readonly currentLease: (taskId: string, now?: string) => LeaseV1 | null; readonly currentLeaseForExecution: (executionId: string, now?: string) => LeaseV1 | null;
   readonly reserveLease: (lease: LeaseV1, now: string) => LeaseV1; readonly activateLease: (lease: LeaseV1) => LeaseV1;
   readonly renewLease: (lease: LeaseV1, expiresAt: string) => LeaseV1; readonly releaseLease: (lease: LeaseV1) => LeaseV1;
@@ -55,7 +58,7 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
   if (localRuntimeStateFileSystem.exists(projectionPath)) withDatabase(projectionPath, (db) => transaction(db, () => markRuntimeSessionsUnknown(db)));
   return {
     path: projectionPath,
-    apply: ((event: CanonicalEventV1, plan?: FrozenWritePlan<"DocSyncSubmit">) => { if (isDocEvent(event)) assertDocSyncWritePlan(event, plan); return withDatabase(projectionPath, (db) => reduceBatch(db, [event], limit, options.eventStore.readContentBlob)); }) as TaskProjection["apply"],
+    apply: ((event: CanonicalEventV1, plan?: FrozenWritePlan<"DocSyncSubmit" | "TaskBootstrap">) => { if (isDocEvent(event)) assertDocSyncWritePlan(event, plan as FrozenWritePlan<"DocSyncSubmit">); if (isTaskBootstrapEvent(event)) assertTaskBootstrapWritePlan(event, plan as FrozenWritePlan<"TaskBootstrap">); return withDatabase(projectionPath, (db) => reduceBatch(db, [event], limit, options.eventStore.readContentBlob)); }) as TaskProjection["apply"],
     rebuild: () => rebuildProjection(projectionPath, options.eventStore, limit),
     read: (taskId) => readProjection(projectionPath, options.eventStore, taskId, limit, now),
     list: () => listProjection(projectionPath, options.eventStore, limit, now),
@@ -65,6 +68,7 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
     }),
     readTaskOperation: (opId) => withDatabase(projectionPath, (db) => { const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as { readonly event_json: string } | undefined; if (!row) return null; const event = parseEventJson(row.event_json); return isTaskEvent(event) ? { event, watermark: watermark(db) } : null; }),
     readDocument: (documentPath) => readDocument(projectionPath, options.eventStore, documentPath, limit),
+    readPresetSnapshot: (digest) => readPresetSnapshot(projectionPath, options.eventStore, digest, limit),
     readRuntimeInstallation: (installationId) => withDatabase(projectionPath, (db) => readRuntimeInstallation(db, installationId)), readRuntimeInstallations: () => withDatabase(projectionPath, readRuntimeInstallations),
     readRuntimeSession: (runtimeSessionIdValue) => withDatabase(projectionPath, (db) => readRuntimeSession(db, runtimeSessionIdValue)), readRuntimeSessions: () => withDatabase(projectionPath, readRuntimeSessions),
     readRuntimeSessionsForTask: (taskId) => withDatabase(projectionPath, (db) => readRuntimeSessions(db).filter((session) => session.taskBindings.some((binding) => binding.taskId === taskId))),
@@ -93,6 +97,7 @@ function readDocument(projectionPath: string, eventStore: EventStreamPort, docum
   return withDatabase(projectionPath, (db) => { const round = catchUpRound(db, eventStore, limit), current = watermark(db), row = db.prepare("SELECT value_json FROM document WHERE path = ?").get(documentPath) as { readonly value_json: string } | undefined;
     return { status: current === round.sourceRevision ? "ready" : "pending", document: row ? JSON.parse(row.value_json) as DocumentState : null, watermark: current, sourceRevision: round.sourceRevision }; });
 }
+function readPresetSnapshot(projectionPath: string, eventStore: EventStreamPort, digest: string, limit: number): PresetSnapshotProjectionRead { return withDatabase(projectionPath, (db) => { const round = catchUpRound(db, eventStore, limit), current = watermark(db), row = db.prepare("SELECT value_json FROM preset_snapshot WHERE digest = ?").get(digest) as { readonly value_json: string } | undefined; return { status: current === round.sourceRevision ? "ready" : "pending", snapshot: row ? JSON.parse(row.value_json) : null, watermark: current, sourceRevision: round.sourceRevision }; }); }
 
 function readProjection(projectionPath: string, eventStore: EventStreamPort, taskId: string, limit: number, now: () => string): TaskProjectionRead {
   const started = performance.now();
@@ -141,6 +146,7 @@ function createTables(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS event_source (workspace_revision INTEGER PRIMARY KEY, op_id TEXT NOT NULL UNIQUE, event_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS event_index (op_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL UNIQUE, task_id TEXT, event_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS preset_snapshot (digest TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS runtime_installation (installation_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS runtime_session (runtime_session_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL);
@@ -226,6 +232,9 @@ function applyEvent(db: DatabaseSync, event: CanonicalEventV1, eventJson: string
     const sessionId = runtimeSessionId(event); if (sessionId !== null) { const session = reduceRuntimeSession(readRuntimeSession(db, sessionId), event); if (session !== null) runSql(db, "INSERT INTO runtime_session(runtime_session_id, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(runtime_session_id) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json", session.runtimeSessionId, event.workspaceRevision, canonicalJson(session)); } return; }
   if (isDocEvent(event)) { runSql(db, "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)", event.opId, event.workspaceRevision, eventJson); for (const change of event.payload.changes) { const bytes = readBlob(change.candidate.sha256); if (!bytes || bytes.byteLength !== change.candidate.size) throw new Error(`document blob ${change.candidate.sha256} is unavailable`); let body: string; try { body = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { throw new Error(`document blob ${change.candidate.sha256} is not UTF-8`); } const previous = db.prepare("SELECT value_json FROM document WHERE path = ?").get(change.path) as { readonly value_json: string } | undefined, base = previous ? JSON.parse(previous.value_json) as DocumentState : null; if (change.baseBlobSha256 !== (base?.blobSha256 ?? null) || !verifyDocEventChange(change, base?.body ?? "", body)) throw new Error(`document proof mismatch for ${change.path}`);
       const document: DocumentState = { path: change.path, blobSha256: change.candidate.sha256, body, size: change.candidate.size, mediaType: change.candidate.mediaType, policyId: change.policyId, workspaceRevision: event.workspaceRevision }; runSql(db, "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json", change.path, event.workspaceRevision, canonicalJson(document)); } return; }
+  if (isTaskBootstrapEvent(event)) { const snapshotBytes = readBlob(event.payload.presetSnapshotClaim.sha256); if (!snapshotBytes || snapshotBytes.byteLength !== event.payload.presetSnapshotClaim.size) throw new Error(`preset snapshot blob ${event.payload.presetSnapshotClaim.sha256} is unavailable`); const snapshotBody = new TextDecoder("utf-8", { fatal: true }).decode(snapshotBytes), snapshot = JSON.parse(snapshotBody);
+    runSql(db, "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)", event.opId, event.workspaceRevision, event.taskId, eventJson); runSql(db, "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json) VALUES (?, ?, ?)", event.taskId, event.workspaceRevision, canonicalJson({ ...emptyTaskLifecycleSnapshot(event.workspaceRevision), task: event.payload.task })); runSql(db, "INSERT INTO preset_snapshot(digest, workspace_revision, value_json) VALUES (?, ?, ?)", event.payload.presetSnapshotClaim.digest, event.workspaceRevision, canonicalJson(snapshot));
+    for (const claim of event.payload.initialDocumentClaims) { const bytes = readBlob(claim.sha256); if (!bytes || bytes.byteLength !== claim.size) throw new Error(`document blob ${claim.sha256} is unavailable`); const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes), document: DocumentState = { path: claim.path as DocumentState["path"], blobSha256: claim.sha256, body, size: claim.size as DocumentState["size"], mediaType: claim.mediaType, policyId: claim.policyId, workspaceRevision: event.workspaceRevision }; runSql(db, "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?)", claim.path, event.workspaceRevision, canonicalJson(document)); } return; }
   const snapshot = reduceTaskEvent(readSnapshot(db, event.taskId), event);
   runSql(db, "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)", event.opId, event.workspaceRevision, event.taskId, eventJson);
   runSql(db, "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET workspace_revision=excluded.workspace_revision, snapshot_json=excluded.snapshot_json", event.taskId, event.workspaceRevision, canonicalJson(snapshot));

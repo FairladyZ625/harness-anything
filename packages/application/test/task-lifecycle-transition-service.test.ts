@@ -22,8 +22,8 @@ test("transition service freezes targets and makes create/start idempotent by op
     const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
     const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const service = makeTaskLifecycleService({ eventStore, projection });
-    const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: "task-1", title: "Replay task", graph: replayGraph,
-      completionGateIds: [] }, { eventId: "event-create", workspaceRevision: 1, occurredAt: "2026-08-11T00:00:00.000Z" });
+    const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: "task-1", title: "Replay task", taskClass: "standard" as const, graph: replayGraph,
+      completionGateIds: [], presetSnapshotDigest: null }, { eventId: "event-create", workspaceRevision: 1, occurredAt: "2026-08-11T00:00:00.000Z" });
     const createProof = { taskIdUnique: true as const, actorBinding: actor };
     const created = await service.execute(create, createProof);
 
@@ -58,7 +58,7 @@ test("second distinct task create uses aggregate revision zero in a non-empty wo
     const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const service = makeTaskLifecycleService({ eventStore, projection });
     const create = (taskId: string, title: string, revision: number) => command(rootDir, {
-      type: "CreateReplayTask" as const, taskId, title, graph: replayGraph, completionGateIds: []
+      type: "CreateReplayTask" as const, taskId, title, taskClass: "standard" as const, graph: replayGraph, completionGateIds: [], presetSnapshotDigest: null
     }, { eventId: `event-create-${revision}`, workspaceRevision: revision, occurredAt: `2026-08-11T00:0${revision}:00.000Z` }, 0);
     await service.execute(create("task-1", "First task", 1), { taskIdUnique: true, actorBinding: actor });
     const second = await service.execute(create("task-2", "Second task", 2), { taskIdUnique: true, actorBinding: actor });
@@ -135,8 +135,8 @@ test("10,000 old events do not block a new write", async (context) => {
         const phaseStarted = performance.now(); try { return projection.apply(candidate); } finally { phase.applyMs += performance.now() - phaseStarted; }
       } }
     });
-    const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: "task-new", title: "New independent task",
-      graph: replayGraph, completionGateIds: [] }, { eventId: "event-new", workspaceRevision: 10_001,
+    const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: "task-new", title: "New independent task", taskClass: "standard" as const,
+      graph: replayGraph, completionGateIds: [], presetSnapshotDigest: null }, { eventId: "event-new", workspaceRevision: 10_001,
       occurredAt: "2026-08-12T00:00:00.000Z" }, 0);
     const receipt = await service.execute(create, { taskIdUnique: true, actorBinding: actor });
     const elapsedMs = performance.now() - started;
@@ -210,8 +210,8 @@ test("SQLite/response killpoints reconstruct the exact applied receipt by opId w
       const interrupted = makeTaskLifecycleService({ eventStore, projection, killpoint: (candidate) => {
         if (armed && candidate === point) { armed = false; throw new Error(`killpoint:${point}`); }
       } });
-      const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: "task-1", title: "Replay task", graph: replayGraph,
-        completionGateIds: [] }, { eventId: "event-create", workspaceRevision: 1, occurredAt: "2026-08-11T00:00:00.000Z" });
+      const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: "task-1", title: "Replay task", taskClass: "standard" as const, graph: replayGraph,
+        completionGateIds: [], presetSnapshotDigest: null }, { eventId: "event-create", workspaceRevision: 1, occurredAt: "2026-08-11T00:00:00.000Z" });
       const proof = { taskIdUnique: true as const, actorBinding: actor };
       await assert.rejects(interrupted.execute(create, proof), new RegExp(`killpoint:${point}`, "u"));
       const commitCount = git(rootDir, "rev-list", "--count", "refs/ha/canonical").trim();
@@ -265,8 +265,8 @@ function oldTaskEvent(revision: number): Extract<TaskEventV1, { readonly type: "
   return {
     schema: "task-event/v1", eventId: `event-old-${suffix}`, workspaceRevision: revision, opId: `op-old-${suffix}`, taskId,
     type: "task_created", actor, source: "local", occurredAt: "2026-08-11T00:00:00.000Z",
-    payload: { task: { schema: "task/v1", taskId, title: `Old task ${suffix}`, status: "planned", graph: replayGraph,
-      currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [] } }
+    payload: { task: { schema: "task/v1", taskId, title: `Old task ${suffix}`, taskClass: "standard", status: "planned", graph: replayGraph,
+      currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [], presetSnapshotDigest: null } }
   };
 }
 function git(rootDir: string, ...args: readonly string[]): string {

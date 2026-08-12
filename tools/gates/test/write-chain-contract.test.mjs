@@ -135,7 +135,7 @@ test("G02/G03 task decision rejects stale writers, conflicting opIds, and unsafe
   const activeWriter = { workspaceId: "workspace-1", generation: 2, ownerId: "daemon-a" };
   const writerToken = issueWriterGenerationToken(activeWriter);
   const command = { ...normalizeTaskLifecycleCommand({ workspaceId: "workspace-1", actor, source: "local", expectedRevision: 0 }, {
-    type: "CreateReplayTask", taskId: "task-1", title: "Replay task", graph: REPLAY_TASK_GRAPH, completionGateIds: []
+    type: "CreateReplayTask", taskId: "task-1", title: "Replay task", taskClass: "standard", graph: REPLAY_TASK_GRAPH, completionGateIds: [], presetSnapshotDigest: null
   }), eventId: "event-1", workspaceRevision: 1, occurredAt: "2026-08-11T00:00:00.000Z" };
   const proof = { taskIdUnique: true, actorBinding: actor };
   const decide = (overrides = {}) => decideTaskLifecycleWrite({
@@ -159,7 +159,7 @@ test("G02/G03 task decision rejects stale writers, conflicting opIds, and unsafe
   assert.deepEqual([sourceDrift.accepted, sourceDrift.receipt.outcome, sourceDrift.receipt.code], [false, "rejected", "invalid_schema"]);
 
   const unsafe = { ...normalizeTaskLifecycleCommand({ workspaceId: "workspace-1", actor, source: "local", expectedRevision: 0 }, {
-    type: "CreateReplayTask", taskId: "../escape", title: "Unsafe", graph: REPLAY_TASK_GRAPH, completionGateIds: []
+    type: "CreateReplayTask", taskId: "../escape", title: "Unsafe", taskClass: "standard", graph: REPLAY_TASK_GRAPH, completionGateIds: [], presetSnapshotDigest: null
   }), eventId: "event-unsafe", workspaceRevision: 1, occurredAt: "2026-08-11T00:00:00.000Z" };
   const invalidTarget = decide({ command: unsafe });
   assert.deepEqual([invalidTarget.accepted, invalidTarget.receipt.outcome, invalidTarget.receipt.code], [false, "rejected", "invalid_write_plan"]);
@@ -168,7 +168,7 @@ test("G02/G03 task decision rejects stale writers, conflicting opIds, and unsafe
 test("G03 returns an immutable event with stable canonical bytes", () => {
   const activeWriter = { workspaceId: "workspace-1", generation: 2, ownerId: "daemon-a" };
   const command = { ...normalizeTaskLifecycleCommand({ workspaceId: "workspace-1", actor, source: "local", expectedRevision: 0 }, {
-    type: "CreateReplayTask", taskId: "task-1", title: "Replay task", graph: REPLAY_TASK_GRAPH, completionGateIds: []
+    type: "CreateReplayTask", taskId: "task-1", title: "Replay task", taskClass: "standard", graph: REPLAY_TASK_GRAPH, completionGateIds: [], presetSnapshotDigest: null
   }), eventId: "event-1", workspaceRevision: 1, occurredAt: "2026-08-11T00:00:00.000Z" };
   const decision = decideTaskLifecycleWrite({ snapshot: emptyTaskLifecycleSnapshot(), command,
     proof: { taskIdUnique: true, actorBinding: actor }, activeWriter, writerToken: issueWriterGenerationToken(activeWriter) });

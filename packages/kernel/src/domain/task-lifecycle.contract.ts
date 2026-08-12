@@ -3,7 +3,7 @@ import type { ExecutionV1, LeaseHolder, LeaseV1 } from "./execution.ts";
 import { REVIEW_V1_SCHEMA } from "./review.ts";
 import type { ReviewV1 } from "./review.ts";
 import { canonicalizeContractValue, TASK_V1_SCHEMA } from "./task.ts";
-import type { ActorAxes, ContractValidationIssue, TaskV1 } from "./task.ts";
+import { taskClasses, type ActorAxes, type ContractValidationIssue, type TaskClass, type TaskV1 } from "./task.ts";
 import { TASK_EDGE_TAKEN_SCHEMA, validateTaskGraph } from "./task-graph.ts";
 import type { TaskEdgeTaken, TaskGraphV1 } from "./task-graph.ts";
 import { isNonEmptyString, normalizeCommandEnvelope, validateNormalizedCommandEnvelope } from "./write-chain.contract.ts";
@@ -14,7 +14,7 @@ export { TaskLifecycleContractError, TASK_EVENT_V1_SCHEMA, TASK_LIFECYCLE_SCHEMA
 export type { ExecutionStartedEvent, ExecutionSubmittedEvent, LeaseChangeReason, LeaseRenewedEvent, ReviewRecordedEvent, TaskCompletedEvent, TaskCreatedEvent, TaskEventType, TaskEventV1, TaskLifecycleErrorCode } from "./task-lifecycle-event.ts";
 export interface TaskLifecycleSnapshot { readonly revision: number; readonly task: TaskV1 | null; readonly executions: readonly ExecutionV1[]; readonly reviews: readonly ReviewV1[]; readonly edgesTaken: readonly TaskEdgeTaken[]; readonly lease: LeaseV1 | null }
 interface CommandIntent<T extends string> { readonly type: T; readonly taskId: string }
-export interface CreateReplayTaskIntent extends CommandIntent<"CreateReplayTask"> { readonly title: string; readonly graph: TaskGraphV1; readonly completionGateIds: readonly string[] }
+export interface CreateReplayTaskIntent extends CommandIntent<"CreateReplayTask"> { readonly title: string; readonly taskClass: TaskClass; readonly graph: TaskGraphV1; readonly completionGateIds: readonly string[]; readonly presetSnapshotDigest: `sha256:${string}` | null }
 export interface StartExecutionIntent extends CommandIntent<"StartExecution"> { readonly executionId: string }
 export interface SubmitExecutionIntent extends CommandIntent<"SubmitExecution"> { readonly executionId: string; readonly submission: import("./execution.ts").SubmissionV1 }
 export interface RecordReviewIntent extends CommandIntent<"RecordReview"> { readonly executionId: string; readonly reviewId: string; readonly kind: import("./review.ts").ReviewKind; readonly verdict: import("./review.ts").ReviewVerdict; readonly actorRole: import("./review.ts").ReviewActorRole; readonly reason: string; readonly evidenceChecked: readonly string[]; readonly commitSha: string; readonly iteration: number; readonly archiveWarningsAcknowledged: boolean }
@@ -76,14 +76,14 @@ const createReplayTaskTransition: TransitionDefinition = {
     const issues: ContractValidationIssue[] = [];
     if (snapshot.task !== null) issues.push({ code: "invalid_transition", message: "CreateReplayTask requires a missing aggregate" });
     issues.push(...revisionIssues(snapshot, command));
-    if (!isNonEmptyString(command.taskId) || !isNonEmptyString(command.title) || !Array.isArray(command.completionGateIds)) issues.push({ code: "invalid_schema", message: "create command fields are invalid" });
+    if (!isNonEmptyString(command.taskId) || !isNonEmptyString(command.title) || !taskClasses.includes(command.taskClass) || !Array.isArray(command.completionGateIds) || command.presetSnapshotDigest !== null && !/^sha256:[0-9a-f]{64}$/u.test(command.presetSnapshotDigest)) issues.push({ code: "invalid_schema", message: "create command fields are invalid" });
     if (proof.taskIdUnique !== true || proof.actorBinding === undefined || !sameActor(command.actor, proof.actorBinding)) issues.push({ code: "invalid_proof", message: "task identity and actor binding proof are required" });
     issues.push(...validateTaskGraph(command.graph));
     return issues;
   },
   reduce: (snapshot, rawCommand) => {
     const command = rawCommand as CreateReplayTaskCommand;
-    const task: TaskV1 = { schema: "task/v1", taskId: command.taskId, title: command.title, status: "planned", graph: command.graph, currentNode: "implementation", iteration: 0, createdBy: command.actor, completionGateIds: command.completionGateIds };
+    const task: TaskV1 = { schema: "task/v1", taskId: command.taskId, title: command.title, taskClass: command.taskClass, status: "planned", graph: command.graph, currentNode: "implementation", iteration: 0, createdBy: command.actor, completionGateIds: command.completionGateIds, presetSnapshotDigest: command.presetSnapshotDigest };
     const event = envelope<CreateReplayTaskCommand, TaskCreatedEvent>(command, "task_created", { task });
     return { snapshot: { ...snapshot, revision: command.workspaceRevision, task }, event };
   }
