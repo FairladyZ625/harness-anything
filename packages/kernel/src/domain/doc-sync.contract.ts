@@ -119,3 +119,5 @@ function compareRegion(path: string, base: Region, candidate: Region): { readonl
     deleteBytes: deleted, replaceBytes: replaced, firstChange: { baseOffset: base.offset + (first < 0 ? prefix : first), candidateOffset: candidate.offset + prefix } } };
 }
 function proof(regionId: string, base: string, candidate: string): RegionProof { return { regionId, policyId: DOC_POLICY_ID, codecId: DOC_CODEC_ID, baseSha256: sha256Text(base), candidateSha256: sha256Text(candidate), insertBytes: Buffer.byteLength(candidate) - Buffer.byteLength(base) }; }
+
+export default Object.freeze({ id: "doc-sync", phases: Object.freeze(["P4"]), commands: Object.freeze([]), gates: Object.freeze([]), guards: Object.freeze([]), schemas: Object.freeze([]) });
