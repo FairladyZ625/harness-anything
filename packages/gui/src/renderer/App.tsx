@@ -99,7 +99,7 @@ function AppShell() {
   const tasksQuery = useTasksQuery();
   const triadicQuery = useTriadicProjectionQuery();
   const realTasks = useMemo(
-    () => adaptProjectionRows(tasksQuery.data?.tasks ?? []),
+    () => adaptProjectionRows(tasksQuery.data?.rows ?? [], tasksQuery.data?.status),
     [tasksQuery.data],
   );
   const [tasks, setTasks] = useState<import("./model/types.ts").TaskRow[]>([]);

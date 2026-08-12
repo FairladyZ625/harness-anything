@@ -1,57 +1,18 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  HARNESS_PRELOAD_API,
-  assertPreloadPayload,
-  deferredPreloadMethods,
-  getPreloadApiCapability,
-  isAllowedPreloadApiMethod,
-  preloadAllowlist,
-  shippedPreloadMethods
-} from "../src/index.ts";
+import { daemonGuiReadMethods } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { HARNESS_PRELOAD_API, assertPreloadPayload, getPreloadApiCapability, isAllowedPreloadApiMethod,
+  preloadAllowlist, shippedPreloadMethods } from "../src/index.ts";
 
 test("preload exposes only the approved API methods", () => {
+  const contracted = daemonGuiReadMethods.map(({ guiBridgeMethod }) => guiBridgeMethod);
   assert.equal(HARNESS_PRELOAD_API, "harness");
-  assert.deepEqual(preloadAllowlist, [
-    "getTasks",
-    "getTaskDetail",
-    "getTaskDocument",
-    "rebuildGovernance",
-    "getRelationGraph",
-    "getDecisions",
-    "getDecisionDetail",
-    "getTaskFacts",
-    "getTaskExecutions",
-    "getExecutionDetail",
-    "getReviewDetail",
-    "archiveTask",
-    "openShell"
-  ]);
+  assert.deepEqual(preloadAllowlist, contracted);
+  assert.deepEqual(shippedPreloadMethods, contracted);
   assert.equal(isAllowedPreloadApiMethod("getTasks"), true);
-  assert.equal(isAllowedPreloadApiMethod("readFile"), false);
-  assert.throws(() => assertPreloadPayload("readFile", {}), /not allowed/);
-  assert.throws(() => assertPreloadPayload("getTasks", []), /object or null/);
-});
-
-test("preload capabilities distinguish shipped methods from deferred placeholders", () => {
-  assert.deepEqual(shippedPreloadMethods, [
-    "getTasks",
-    "getTaskDetail",
-    "getTaskDocument",
-    "rebuildGovernance",
-    "getRelationGraph",
-    "getDecisions",
-    "getDecisionDetail",
-    "getTaskFacts",
-    "getTaskExecutions",
-    "getExecutionDetail",
-    "getReviewDetail"
-  ]);
-  assert.deepEqual(deferredPreloadMethods, ["archiveTask", "openShell"]);
+  assert.equal(isAllowedPreloadApiMethod("getTaskDetail"), false);
+  assert.throws(() => assertPreloadPayload("readFile", {}), /not allowed/u);
+  assert.throws(() => assertPreloadPayload("getTasks", []), /object or null/u);
   assert.equal(getPreloadApiCapability("getTasks").status, "shipped");
-  assert.equal(getPreloadApiCapability("archiveTask").status, "deferred");
-  assert.match(getPreloadApiCapability("archiveTask").reason ?? "", /placeholder/);
-  assert.equal(getPreloadApiCapability("openShell").status, "deferred");
-  assert.match(getPreloadApiCapability("openShell").reason ?? "", /display-only/);
 });

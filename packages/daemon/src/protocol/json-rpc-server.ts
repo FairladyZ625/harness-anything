@@ -1,6 +1,6 @@
 import type { DaemonHost } from "../daemon-host.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
-import { jsonRpcMethodContracts, parseDaemonRpcParams } from "./daemon-protocol.contract.ts";
+import { isDaemonGuiReadMethod, jsonRpcMethodContracts, parseDaemonRpcParams } from "./daemon-protocol.contract.ts";
 import { type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./version.ts";
 
@@ -29,6 +29,9 @@ export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost
       try { return reply(await options.host.admin(request.method.endsWith("unregister") ? { kind: "unregister", repoId: params.repoId as string } : { kind: "register", repoId: params.repoId as string, rootDir: params.rootDir as string }, options.authContext) as JsonObject); }
       catch (error) { return reply(failure(request.method, rpcServerErrorCode(error), error instanceof Error ? error.message : String(error))); }
     }
+    if (isDaemonGuiReadMethod(request.method)) { const repo = (params.repo as JsonObject).repoId as string;
+      try { return reply(await options.host.read(repo, request.method, options.authContext) as unknown as JsonObject); }
+      catch (error) { return reply(failure(request.method, rpcServerErrorCode(error), error instanceof Error ? error.message : String(error))); } }
     const repo = (params.repo as JsonObject).repoId as string, action = (params.payload as JsonObject).action as JsonObject;
     const receipt = await options.host.run(repo, action as { readonly kind: string }, options.authContext);
     const ok = receipt.outcome === "applied" || receipt.outcome === "pending";

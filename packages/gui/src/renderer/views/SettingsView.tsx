@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { ArrowsClockwise, CloudSlash } from "@phosphor-icons/react";
+import { CloudSlash } from "@phosphor-icons/react";
 import { useTheme, type ThemeMode, type UiScale } from "../theme";
 import { STATUS_META } from "../components/badges";
 import { BTN, Section, Row, Segmented, Toggle, Kbd } from "../components/ui/widgets";
-import { useRebuildGovernanceMutation } from "../task-data";
 
 const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
   { key: "dark", label: "暗色" },
@@ -49,8 +48,6 @@ export function SettingsView() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("appearance");
   const [language, setLanguage] = useState<"zh" | "en">("zh");
   const [notifyOnReady, setNotifyOnReady] = useState(true);
-  // 重建投影 = 重读本地投影缓存(路径A:hook 已就绪,底层只 queryTaskProjection 不写盘重算)。
-  const rebuildMutation = useRebuildGovernanceMutation();
 
   const renderActivePanel = () => {
     switch (activeTab) {
@@ -152,28 +149,8 @@ export function SettingsView() {
           <Section title="数据">
             <Row label="缓存目录" desc="本地投影缓存（SQLite）">
               <span className="max-w-full break-all font-mono text-[11px] text-text-muted">
-                ~/.harness/cache/projections.db
+                .harness/cache/task.sqlite
               </span>
-            </Row>
-            <Row label="重建投影" desc="重读本地投影缓存(不重算,不写盘)">
-              {rebuildMutation.isError && (
-                <span className="ui-meta text-danger">
-                  重读失败:{(rebuildMutation.error as Error)?.message ?? "桥未返回"}
-                </span>
-              )}
-              {rebuildMutation.isPending && (
-                <span className="ui-meta text-accent">重读中…</span>
-              )}
-              <button
-                onClick={() => rebuildMutation.mutate()}
-                disabled={rebuildMutation.isPending}
-                className={BTN}
-              >
-                <span className="inline-flex items-center gap-1">
-                  <ArrowsClockwise weight="bold" className="text-[12px]" />
-                  重读投影
-                </span>
-              </button>
             </Row>
             <Row label="导出诊断信息" desc="打包日志与投影快照用于排查">
               <button disabled title="原型暂不支持" className={BTN}>

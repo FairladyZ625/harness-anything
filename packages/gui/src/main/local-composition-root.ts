@@ -9,9 +9,8 @@ interface DaemonClient { readonly resolveLocalDaemonTarget: (input: { readonly r
 let client: Promise<DaemonClient> | undefined;
 export function createLocalGuiServiceBridge(rootDir: string, _layoutOverrides?: { readonly authoredRoot?: string }): GuiServiceBridge {
   const root = path.resolve(rootDir); validateProjectPath(root, "."); return createGuiServiceBridgeForDaemon((route, payload) => request(root, route, payload)); }
-async function request(rootDir: string, route: ApiRouteContract, payload: unknown): Promise<JsonObject> { try {
+async function request(rootDir: string, route: ApiRouteContract, _payload: unknown): Promise<JsonObject> { try {
   const daemon = await loadClient(), target = daemon.resolveLocalDaemonTarget({ rootDir, repoIdOverride: process.env.HARNESS_DAEMON_REPO_ID });
-  return await daemon.requestLocalDaemonJsonRpcForTarget(target, `repo.${route.id}`, { repo: { repoId: target.repoId }, ...(record(payload) ? { payload } : {}) }, 200);
+  return await daemon.requestLocalDaemonJsonRpcForTarget(target, route.rpcMethod ?? `repo.${route.id}`, { repo: { repoId: target.repoId } }, 200);
 } catch (error) { return { ok: false, error: { code: "daemon_unavailable", hint: `Start the explicit daemon and retry. Cause: ${error instanceof Error ? error.message : String(error)}` } }; } }
 async function loadClient(): Promise<DaemonClient> { client ??= import("../../../daemon/src/client/local-json-rpc-client.ts") as Promise<DaemonClient>; return client; }
-function record(value: unknown): value is JsonObject { return value !== null && typeof value === "object" && !Array.isArray(value); }

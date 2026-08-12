@@ -20,6 +20,8 @@ export interface TaskProjectionRead {
   readonly sourceRevision: number; readonly warnings: readonly TaskProjectionWarning[];
   readonly catchUp: { readonly deadlineMs: 100; readonly maxItems: 64; readonly elapsedMs: number; readonly reducedItems: number; readonly sqliteTransactions: 0 | 1 };
 }
+export interface TaskProjectionListRow { readonly taskId: string; readonly workspaceRevision: number; readonly updatedAt: string; readonly snapshot: TaskLifecycleSnapshot }
+export interface TaskProjectionListRead { readonly status: "ready" | "pending"; readonly rows: readonly TaskProjectionListRow[]; readonly watermark: number; readonly sourceRevision: number; readonly warnings: readonly TaskProjectionWarning[] }
 export interface ProjectionApplyReceipt { readonly metrics: { readonly sqliteTransactions: 1; readonly reducedItems: number } }
 export interface ProjectionRebuildReceipt {
   readonly watermark: number; readonly metrics: { readonly sqliteTransactions: number; readonly reducedItems: number; readonly maxBatchItems: number; readonly maxBatchElapsedMs: number };
@@ -30,7 +32,7 @@ export interface LeaseInterval {
 }
 export interface TaskProjection {
   readonly path: string; readonly apply: (event: TaskEventV1) => ProjectionApplyReceipt; readonly rebuild: () => ProjectionRebuildReceipt;
-  readonly read: (taskId: string) => TaskProjectionRead; readonly readOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null;
+  readonly read: (taskId: string) => TaskProjectionRead; readonly list: () => TaskProjectionListRead; readonly readOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null;
   readonly readLeaseIntervals: (taskId: string) => readonly LeaseInterval[]; readonly currentLease: (taskId: string, now?: string) => LeaseV1 | null;
   readonly reserveLease: (lease: LeaseV1, now: string) => LeaseV1; readonly activateLease: (lease: LeaseV1) => LeaseV1;
   readonly renewLease: (lease: LeaseV1, expiresAt: string) => LeaseV1; readonly releaseLease: (lease: LeaseV1) => LeaseV1;
@@ -48,6 +50,7 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
     apply: (event) => withDatabase(projectionPath, (db) => reduceBatch(db, [event], limit)),
     rebuild: () => rebuildProjection(projectionPath, options.eventStore, limit),
     read: (taskId) => readProjection(projectionPath, options.eventStore, taskId, limit, now),
+    list: () => listProjection(projectionPath, options.eventStore, limit, now),
     readOperation: (opId) => withDatabase(projectionPath, (db) => {
       const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as { readonly event_json: string } | undefined;
       return row === undefined ? null : { event: JSON.parse(row.event_json) as TaskEventV1, watermark: watermark(db) };
@@ -59,6 +62,17 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
     renewLease: (lease, expiresAt) => withDatabase(projectionPath, (db) => transaction(db, () => changeLease(db, lease, "active", expiresAt, now()))),
     releaseLease: (lease) => withDatabase(projectionPath, (db) => transaction(db, () => changeLease(db, lease, "released", lease.expiresAt, now())))
   };
+}
+
+function listProjection(projectionPath: string, eventStore: EventStreamPort, limit: number, now: () => string): TaskProjectionListRead {
+  const existed = localRuntimeStateFileSystem.exists(projectionPath);
+  return withDatabase(projectionPath, (db) => {
+    const round = catchUpRound(db, eventStore, limit), current = watermark(db), at = now();
+    const rows = db.prepare("SELECT task_snapshot.task_id AS task_id, task_snapshot.workspace_revision AS workspace_revision, event_index.event_json AS event_json FROM task_snapshot JOIN event_index USING(workspace_revision) ORDER BY task_snapshot.task_id").all() as unknown as readonly { readonly task_id: string; readonly workspace_revision: number; readonly event_json: string }[];
+    return { status: current === round.sourceRevision ? "ready" : "pending", rows: rows.map((row) => ({ taskId: row.task_id, workspaceRevision: row.workspace_revision,
+      updatedAt: (JSON.parse(row.event_json) as TaskEventV1).occurredAt, snapshot: readSnapshot(db, row.task_id, at) })), watermark: current, sourceRevision: round.sourceRevision,
+      warnings: !existed && round.sourceRevision > 0 ? ["projection_missing"] : [] };
+  });
 }
 
 function readProjection(projectionPath: string, eventStore: EventStreamPort, taskId: string, limit: number, now: () => string): TaskProjectionRead {

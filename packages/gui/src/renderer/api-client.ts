@@ -1,34 +1,14 @@
 import type {
-  TaskDetailResult,
-  TaskDocumentPayload,
-  TaskDocumentResult,
-  TaskIdPayload,
-  TaskListResult,
-  DecisionIdPayload,
-  DecisionListResult,
   DecisionProjectionRow,
-  DecisionDetailResult,
-  FactProjectionRow,
-  RelationGraphReadResult,
-  RelationGraphEdgeRow,
-  RelationCoverageRow,
   FactAnchorRow,
-  TaskFactListResult,
+  GuiBridgeMethod,
   ProjectionWarning,
-  TaskProjectionRow
+  RelationCoverageRow,
+  RelationGraphEdgeRow,
+  TaskSnapshotProjectionRow
 } from "../api/renderer-dto.ts";
 
-type HarnessBridgeMethod =
-  | "getTasks"
-  | "getTaskDetail"
-  | "getTaskDocument"
-  | "getRelationGraph"
-  | "getDecisions"
-  | "getDecisionDetail"
-  | "getTaskFacts"
-  | "rebuildGovernance";
-
-type HarnessBridge = Record<HarnessBridgeMethod, (payload?: object | null) => Promise<unknown>> & {
+type HarnessBridge = Record<GuiBridgeMethod, (payload?: object | null) => Promise<unknown>> & {
   readonly capabilities?: unknown;
 };
 
@@ -40,21 +20,11 @@ declare global {
 
 export interface TaskListSuccess {
   readonly ok: true;
-  readonly tasks: ReadonlyArray<TaskProjectionRow>;
-  readonly warnings: ReadonlyArray<ProjectionWarning>;
-}
-
-export interface TaskDetailSuccess {
-  readonly ok: true;
-  readonly task: TaskProjectionRow;
-  readonly documents: ReadonlyArray<{ readonly path: string }>;
-}
-
-export interface TaskDocumentSuccess {
-  readonly ok: true;
-  readonly taskId: string;
-  readonly path: string;
-  readonly body: string;
+  readonly status: "ready" | "pending";
+  readonly rows: ReadonlyArray<TaskSnapshotProjectionRow>;
+  readonly watermark: number;
+  readonly sourceRevision: number;
+  readonly warnings: ReadonlyArray<string>;
 }
 
 export interface RelationGraphSuccess {
@@ -71,108 +41,43 @@ export interface DecisionListSuccess {
   readonly warnings: ReadonlyArray<ProjectionWarning>;
 }
 
-export interface DecisionDetailSuccess {
-  readonly ok: true;
-  readonly decision: DecisionProjectionRow;
-  readonly warnings: ReadonlyArray<ProjectionWarning>;
-}
-
-export interface TaskFactListSuccess {
-  readonly ok: true;
-  readonly taskId: string;
-  readonly path: string;
-  readonly facts: ReadonlyArray<FactProjectionRow>;
-}
-
 export const harnessClient = {
   async getTasks(): Promise<TaskListSuccess> {
-    const result = await invokeBridge("getTasks", null);
-    return readTaskListResult(result);
-  },
-  async getTaskDetail(payload: TaskIdPayload): Promise<TaskDetailSuccess> {
-    const result = await invokeBridge("getTaskDetail", payload);
-    return readTaskDetailResult(result);
-  },
-  async getTaskDocument(payload: TaskDocumentPayload): Promise<TaskDocumentSuccess> {
-    const result = await invokeBridge("getTaskDocument", payload);
-    return readTaskDocumentResult(result);
+    return readTaskListResult(await invokeBridge("getTasks"));
   },
   async getRelationGraph(): Promise<RelationGraphSuccess> {
-    const result = await invokeBridge("getRelationGraph", null);
-    return readRelationGraphResult(result);
+    return readRelationGraphResult(await invokeBridge("getRelationGraph"));
   },
   async getDecisions(): Promise<DecisionListSuccess> {
-    const result = await invokeBridge("getDecisions", null);
-    return readDecisionListResult(result);
-  },
-  async getDecisionDetail(payload: DecisionIdPayload): Promise<DecisionDetailSuccess> {
-    const result = await invokeBridge("getDecisionDetail", payload);
-    return readDecisionDetailResult(result);
-  },
-  async getTaskFacts(payload: TaskIdPayload): Promise<TaskFactListSuccess> {
-    const result = await invokeBridge("getTaskFacts", payload);
-    return readTaskFactListResult(result);
-  },
-  async rebuildGovernance(): Promise<TaskListSuccess> {
-    const result = await invokeBridge("rebuildGovernance", null);
-    return readTaskListResult(result);
+    return readDecisionListResult(await invokeBridge("getDecisions"));
   }
 };
 
-async function invokeBridge(method: HarnessBridgeMethod, payload: object | null): Promise<unknown> {
+async function invokeBridge(method: GuiBridgeMethod): Promise<unknown> {
   const bridge = window.harness;
-  if (!bridge || typeof bridge[method] !== "function") {
-    throw new Error(`Harness preload bridge is unavailable for ${method}.`);
-  }
-  return bridge[method](payload);
+  if (!bridge || typeof bridge[method] !== "function") throw new Error(`Harness preload bridge is unavailable for ${method}.`);
+  return bridge[method](null);
 }
 
 function readTaskListResult(value: unknown): TaskListSuccess {
-  const result = value as TaskListResult;
-  if (!result || typeof result !== "object" || result.ok !== true || !Array.isArray(result.tasks)) {
+  const result = value as Partial<TaskListSuccess>;
+  if (!result || result.ok !== true || !Array.isArray(result.rows) || !result.rows.every(isTaskSnapshotProjectionRow)
+    || (result.status !== "ready" && result.status !== "pending") || !Number.isInteger(result.watermark) || !Number.isInteger(result.sourceRevision)) {
     throw new Error(localErrorHint(value, "Task list bridge returned an invalid result."));
   }
-  const tasks = result.tasks.filter(isTaskProjectionRow);
-  if (tasks.length !== result.tasks.length) {
-    throw new Error("Task list bridge returned rows outside sqlite-task-row/v1.");
-  }
   return {
     ok: true,
-    tasks,
-    warnings: Array.isArray(result.warnings) ? result.warnings : []
-  };
-}
-
-function readTaskDetailResult(value: unknown): TaskDetailSuccess {
-  const result = value as TaskDetailResult;
-  if (!result || typeof result !== "object" || result.ok !== true || !isTaskProjectionRow(result.task)) {
-    throw new Error(localErrorHint(value, "Task detail bridge returned an invalid result."));
-  }
-  return {
-    ok: true,
-    task: result.task,
-    documents: Array.isArray(result.documents)
-      ? result.documents.filter((entry): entry is { readonly path: string } => typeof entry?.path === "string")
-      : []
-  };
-}
-
-function readTaskDocumentResult(value: unknown): TaskDocumentSuccess {
-  const result = value as TaskDocumentResult;
-  if (!result || typeof result !== "object" || result.ok !== true) {
-    throw new Error(localErrorHint(value, "Task document bridge returned an invalid result."));
-  }
-  return {
-    ok: true,
-    taskId: typeof result.taskId === "string" ? result.taskId : "",
-    path: typeof result.path === "string" ? result.path : "",
-    body: typeof result.body === "string" ? result.body : ""
+    status: result.status as "ready" | "pending",
+    rows: result.rows,
+    watermark: result.watermark as number,
+    sourceRevision: result.sourceRevision as number,
+    warnings: Array.isArray(result.warnings) ? result.warnings.filter((warning): warning is string => typeof warning === "string") : []
   };
 }
 
 function readRelationGraphResult(value: unknown): RelationGraphSuccess {
-  const result = value as RelationGraphReadResult;
-  if (!result || typeof result !== "object" || result.ok !== true || !Array.isArray(result.edges) || !Array.isArray(result.coverageRows) || !Array.isArray(result.factAnchors)) {
+  const result = value as Partial<RelationGraphSuccess>;
+  if (!result || result.ok !== true || !Array.isArray(result.edges) || !Array.isArray(result.coverageRows) || !Array.isArray(result.factAnchors)) {
     throw new Error(localErrorHint(value, "Relation graph bridge returned an invalid result."));
   }
   return {
@@ -185,8 +90,8 @@ function readRelationGraphResult(value: unknown): RelationGraphSuccess {
 }
 
 function readDecisionListResult(value: unknown): DecisionListSuccess {
-  const result = value as DecisionListResult;
-  if (!result || typeof result !== "object" || result.ok !== true || !Array.isArray(result.decisions)) {
+  const result = value as Partial<DecisionListSuccess>;
+  if (!result || result.ok !== true || !Array.isArray(result.decisions)) {
     throw new Error(localErrorHint(value, "Decision list bridge returned an invalid result."));
   }
   return {
@@ -196,102 +101,37 @@ function readDecisionListResult(value: unknown): DecisionListSuccess {
   };
 }
 
-function readDecisionDetailResult(value: unknown): DecisionDetailSuccess {
-  const result = value as DecisionDetailResult;
-  if (!result || typeof result !== "object" || result.ok !== true || !isDecisionProjectionRow(result.decision)) {
-    throw new Error(localErrorHint(value, "Decision detail bridge returned an invalid result."));
-  }
-  return {
-    ok: true,
-    decision: result.decision,
-    warnings: Array.isArray(result.warnings) ? result.warnings : []
-  };
-}
-
-function readTaskFactListResult(value: unknown): TaskFactListSuccess {
-  const result = value as TaskFactListResult;
-  if (!result || typeof result !== "object" || result.ok !== true || typeof result.taskId !== "string" || !Array.isArray(result.facts)) {
-    throw new Error(localErrorHint(value, "Task facts bridge returned an invalid result."));
-  }
-  const facts = result.facts.filter(isFactProjectionRow);
-  if (facts.length !== result.facts.length) {
-    throw new Error("Task facts bridge returned rows outside task-fact-row/v1.");
-  }
-  return {
-    ok: true,
-    taskId: result.taskId,
-    path: typeof result.path === "string" ? result.path : "",
-    facts
-  };
-}
-
-function isTaskProjectionRow(value: unknown): value is TaskProjectionRow {
-  return Boolean(
-    value &&
-    typeof value === "object" &&
-    (value as TaskProjectionRow).schema === "sqlite-task-row/v1" &&
-    typeof (value as TaskProjectionRow).taskId === "string" &&
-    typeof (value as TaskProjectionRow).title === "string"
-  );
+function isTaskSnapshotProjectionRow(value: unknown): value is TaskSnapshotProjectionRow {
+  if (!record(value) || typeof value.taskId !== "string" || typeof value.updatedAt !== "string" || !record(value.snapshot)) return false;
+  const task = value.snapshot.task;
+  return record(task) && task.schema === "task/v1" && task.taskId === value.taskId && typeof task.title === "string";
 }
 
 function isDecisionProjectionRow(value: unknown): value is DecisionProjectionRow {
-  return Boolean(
-    value &&
-    typeof value === "object" &&
-    (value as DecisionProjectionRow).schema === "d4-decision-row/v1" &&
-    typeof (value as DecisionProjectionRow).decisionId === "string" &&
-    typeof (value as DecisionProjectionRow).title === "string" &&
-    typeof (value as DecisionProjectionRow).state === "string"
-  );
+  return record(value) && value.schema === "d4-decision-row/v1" && typeof value.decisionId === "string"
+    && typeof value.title === "string" && typeof value.state === "string";
 }
 
 function isRelationGraphEdgeRow(value: unknown): value is RelationGraphEdgeRow {
-  return Boolean(
-    value &&
-    typeof value === "object" &&
-    typeof (value as RelationGraphEdgeRow).sourceRef === "string" &&
-    typeof (value as RelationGraphEdgeRow).targetRef === "string" &&
-    typeof (value as RelationGraphEdgeRow).relationType === "string"
-  );
+  return record(value) && typeof value.sourceRef === "string" && typeof value.targetRef === "string"
+    && typeof value.relationType === "string";
 }
 
 function isRelationCoverageRow(value: unknown): value is RelationCoverageRow {
-  return Boolean(
-    value &&
-    typeof value === "object" &&
-    typeof (value as RelationCoverageRow).decisionRef === "string" &&
-    typeof (value as RelationCoverageRow).claimRef === "string" &&
-    typeof (value as RelationCoverageRow).status === "string"
-  );
+  return record(value) && typeof value.decisionRef === "string" && typeof value.claimRef === "string"
+    && typeof value.status === "string";
 }
 
 function isFactAnchorRow(value: unknown): value is FactAnchorRow {
-  return Boolean(
-    value &&
-    typeof value === "object" &&
-    typeof (value as FactAnchorRow).factRef === "string" &&
-    typeof (value as FactAnchorRow).taskId === "string" &&
-    typeof (value as FactAnchorRow).factId === "string"
-  );
-}
-
-function isFactProjectionRow(value: unknown): value is FactProjectionRow {
-  return Boolean(
-    value &&
-    typeof value === "object" &&
-    (value as FactProjectionRow).schema === "task-fact-row/v1" &&
-    typeof (value as FactProjectionRow).ref === "string" &&
-    typeof (value as FactProjectionRow).taskId === "string" &&
-    typeof (value as FactProjectionRow).factId === "string" &&
-    typeof (value as FactProjectionRow).statement === "string"
-  );
+  return record(value) && typeof value.factRef === "string" && typeof value.taskId === "string"
+    && typeof value.factId === "string";
 }
 
 function localErrorHint(value: unknown, fallback: string): string {
-  if (value && typeof value === "object" && "ok" in value && (value as { ok: unknown }).ok === false) {
-    const error = (value as { error?: { hint?: unknown } }).error;
-    if (typeof error?.hint === "string") return error.hint;
-  }
+  if (record(value) && value.ok === false && record(value.error) && typeof value.error.hint === "string") return value.error.hint;
   return fallback;
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

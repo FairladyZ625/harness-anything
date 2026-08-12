@@ -301,8 +301,7 @@ describe("cross-entity navigation projection", () => {
           productLineKeys: []
         }],
         warnings: []
-      },
-      factResults: []
+      }
     });
 
     expect(rendered.decisions[0]).toMatchObject({
@@ -327,7 +326,7 @@ describe("cross-entity navigation projection", () => {
     ).toBe("dec_parent");
   });
 
-  it("marks the source fact of invalidated-by as invalidated", () => {
+  it("keeps fact anchors without inventing fact bodies absent from L2", () => {
     const fact = baseFact();
     const rendered = buildTriadicRendererData({
       graph: {
@@ -352,31 +351,11 @@ describe("cross-entity navigation projection", () => {
         factAnchors: [anchor(fact)],
         warnings: [],
       },
-      decisions: { ok: true, decisions: [], warnings: [] },
-      factResults: [
-        {
-          ok: true,
-          taskId: fact.taskId,
-          path: "harness/tasks/task_a/facts.md",
-          facts: [
-            {
-              schema: "task-fact-row/v1",
-              ref: `fact/${fact.anchor}`,
-              taskId: fact.taskId,
-              factId: "F-001",
-              statement: fact.text,
-              source: "test",
-              observedAt: fact.at,
-              confidence: fact.confidence,
-              memoryClass: "semantic",
-              memoryTags: [],
-            },
-          ],
-        },
-      ],
+      decisions: { ok: true, decisions: [], warnings: [] }
     });
 
-    expect(rendered.facts[0].invalidated).toBe(true);
+    expect(rendered.factAnchors).toEqual([anchor(fact)]);
+    expect(rendered.facts).toEqual([]);
   });
 
   it("shows an indirectly covered decision in FactInspector", () => {
