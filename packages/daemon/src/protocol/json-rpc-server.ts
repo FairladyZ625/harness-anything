@@ -4,7 +4,7 @@ import { daemonGuiStreamFacets, daemonProtocolError, isDaemonGuiReadMethod, isDa
 import { type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./version.ts";
 export interface JsonRpcProtocolServer { readonly handle: (message: JsonRpcRequest | JsonRpcRequest[]) => Promise<JsonRpcResponse | JsonRpcResponse[] | undefined>; readonly close: () => void }
-export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost; readonly authContext: DaemonAuthenticationContext; readonly emit?: (method: string, params: JsonObject) => Promise<void> }): JsonRpcProtocolServer {
+export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost; readonly authContext: DaemonAuthenticationContext; readonly emit: (method: string, params: JsonObject) => Promise<void> }): JsonRpcProtocolServer {
   let handshaken = false;
   const subscriptions = new Set<Awaited<ReturnType<DaemonHost["attach"]>>>();
   const one = async (request: JsonRpcRequest): Promise<JsonRpcResponse | undefined> => {
@@ -43,7 +43,7 @@ export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost
   };
   return { handle: async (message) => Array.isArray(message)
     ? (await Promise.all(message.map(one))).filter((item): item is JsonRpcResponse => item !== undefined) : one(message), close: () => { for (const subscription of subscriptions) subscription.detach(); subscriptions.clear(); } };
-  async function pump(subscription: Awaited<ReturnType<DaemonHost["attach"]>>): Promise<void> { try { for (;;) { const event = await subscription.next(); if (!event) break; await options.emit?.(daemonGuiStreamFacets[0].eventMethod, event as unknown as JsonObject); } } finally { subscription.detach(); subscriptions.delete(subscription); } }
+  async function pump(subscription: Awaited<ReturnType<DaemonHost["attach"]>>): Promise<void> { try { for (;;) { const event = await subscription.next(); if (!event) break; await options.emit(daemonGuiStreamFacets[0].eventMethod, event as unknown as JsonObject); } } finally { subscription.detach(); subscriptions.delete(subscription); } }
 }
 function rpcError(id: JsonRpcId, errorCode: number, message: string): JsonRpcResponse { return { jsonrpc: "2.0", id, error: { code: errorCode, message } }; }
 function rpcServerErrorCode(error: unknown): string { return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "bootstrap_failed"; }

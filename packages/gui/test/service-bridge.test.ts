@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import net from "node:net";
+import { once } from "node:events";
 import test from "node:test";
 import { daemonGuiReadMethods, jsonRpcMethodContracts, parseDaemonGuiReadResponse, parseDaemonGuiReadResult,
   type DaemonGuiReadMethod } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
@@ -11,6 +13,7 @@ import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.m
 import { writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
 import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
 import { makeTaskEventStore, type AgentRuntimeEventV1 } from "../../kernel/src/index.ts";
+import { streamAgentRuntimeAt } from "../src/main/agent-runtime-stream-client.ts";
 
 test("GUI client reaches every shipped read through a real resident daemon", async () => {
   const fixture = await startGuiResidentDaemonFixture({ task: { taskId: "task-gui", title: "Resident GUI task" }, beforeStop: async (endpoint: string, repoId: string) => { const started = await requestDaemonJsonRpcAt(endpoint, "repo.task.run", { repo: { repoId }, payload: { action: { kind: "task-start", taskId: "task-gui", executionId: "execution-gui" } } }, 1_000); assert.equal(started.ok, true, JSON.stringify(started)); }, beforeRestart: seedRuntime });
@@ -56,6 +59,11 @@ test("GUI contract rejects any shipped bridge method missing from the daemon pro
   const missing = apiRouteContracts.filter(({ guiBridgeMethod }) => guiBridgeMethod !== undefined)
     .map(({ rpcMethod }) => rpcMethod).filter((method) => method === undefined || !daemonMethods.has(method));
   assert.deepEqual(missing, []);
+});
+
+test("GUI attach reconnects after transport loss from the last delivered cursor and accepts restart gap", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-runtime-reconnect-")), socketPath = path.join(parent, "daemon.sock"), attempts: string[] = [], values: unknown[] = []; let resolveGap!: () => void; const gapSeen = new Promise<void>((resolve) => { resolveGap = resolve; }), server = net.createServer((socket) => { let input = ""; socket.on("data", (chunk) => { input += chunk.toString(); for (;;) { const newline = input.indexOf("\n"); if (newline < 0) return; const line = input.slice(0, newline); input = input.slice(newline + 1); const request = JSON.parse(line) as { id: number; method: string; params: { payload?: { afterCursor?: string } } }; if (request.method === "protocol.hello") { socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true } })}\n`); continue; } attempts.push(request.params.payload?.afterCursor ?? "missing"); if (attempts.length === 1) { socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true, status: "attached", runtimeSessionId: "runtime-reconnect", cursor: "stream:0", events: [] } })}\n${JSON.stringify({ jsonrpc: "2.0", method: "repo.agentRuntime.attach.frame", params: { schema: "agent-runtime-attach-event/v1", type: "heartbeat", runtimeSessionId: "runtime-reconnect", cursor: "stream:1", occurredAt: "2026-08-13T00:00:00.000Z" } })}\n`, () => { socket.destroy(); server.close(() => setTimeout(() => server.listen(socketPath), 120)); }); } else { socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true, status: "gap", runtimeSessionId: "runtime-reconnect", cursor: "stream:0", events: [{ schema: "agent-runtime-attach-event/v1", type: "gap", runtimeSessionId: "runtime-reconnect", cursor: "stream:0", occurredAt: "2026-08-13T00:00:01.000Z", required: "snapshot" }] } })}\n`); } } }); });
+  try { server.listen(socketPath); await once(server, "listening"); const detach = await streamAgentRuntimeAt({ socketPath, repoId: "runtime-reconnect", payload: { runtimeSessionId: "runtime-reconnect", afterCursor: "stream:0" }, onValue: (value) => { values.push(value); if ("ok" in value && value.ok && value.status === "gap") resolveGap(); }, timeoutMs: 1_000 }); await gapSeen; assert.deepEqual(attempts, ["stream:0", "stream:1"]); assert.equal((values.at(-1) as { status?: string }).status, "gap"); detach(); } finally { server.close(); await once(server, "close"); rmSync(parent, { recursive: true, force: true }); }
 });
 
 test("local GUI bridge fails closed without explicit daemon registration and never autostarts", async () => {

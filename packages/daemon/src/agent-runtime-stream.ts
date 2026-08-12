@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ActorIdentity, RuntimeSession } from "../../kernel/src/index.ts";
+import type { ActorIdentity, RuntimeSession, WriteSource } from "../../kernel/src/index.ts";
 
 export type AgentRuntimeActivity = "thinking" | "tool" | "message";
 export type AgentRuntimeNativeSignal =
@@ -20,12 +20,12 @@ export type AgentRuntimeAttachResult =
   | { readonly ok: true; readonly status: "attached" | "gap"; readonly runtimeSessionId: string; readonly cursor: string; readonly events: readonly AgentRuntimeAttachEvent[] };
 export interface AgentRuntimeAttachSubscription { readonly initial: AgentRuntimeAttachResult; readonly next: () => Promise<AgentRuntimeAttachEvent | null>; readonly detach: () => void }
 export interface AgentRuntimeWitnessToken { readonly token: string; readonly runtimeSessionId: string; readonly expiresAt: string }
-export interface AgentRuntimeWitnessBinding { readonly runtimeSessionId: string; readonly actor: ActorIdentity; readonly source: "local" }
+export interface AgentRuntimeWitnessBinding { readonly runtimeSessionId: string; readonly actor: ActorIdentity; readonly source: WriteSource }
 export interface AgentRuntimeStreamHub {
   readonly attach: (runtimeSessionId: string, afterCursor: string) => AgentRuntimeAttachSubscription;
   readonly publish: (runtimeSessionId: string, signal: AgentRuntimeNativeSignal) => AgentRuntimeAttachEvent;
   readonly latestCursor: (runtimeSessionId: string) => string;
-  readonly issueWitnessToken: (runtimeSessionId: string, principalId: string) => AgentRuntimeWitnessToken;
+  readonly issueWitnessToken: (runtimeSessionId: string, binding: { readonly principalId: string; readonly source: WriteSource }) => AgentRuntimeWitnessToken;
   readonly bindWitness: (token: string) => AgentRuntimeWitnessBinding;
   readonly close: () => void;
 }
@@ -34,15 +34,15 @@ const BUFFER_LIMIT = 32, WITNESS_TTL_MS = 5 * 60_000;
 type StreamState = { sequence: number; events: AgentRuntimeAttachEvent[]; subscribers: Set<Subscriber> };
 type Subscriber = { runtimeSessionId: string; cursor: number; detached: boolean; wake: (() => void) | null };
 
-export function makeAgentRuntimeStreamHub(input: { readonly readSession: (runtimeSessionId: string) => RuntimeSession | null; readonly now?: () => Date }): AgentRuntimeStreamHub {
-  const streams = new Map<string, StreamState>(), tokens = new Map<string, { runtimeSessionId: string; principalId: string; expiresAt: number }>();
+export function makeAgentRuntimeStreamHub(input: { readonly readSession: (runtimeSessionId: string) => RuntimeSession | null; readonly canAttach: (session: RuntimeSession) => boolean; readonly now?: () => Date }): AgentRuntimeStreamHub {
+  const streams = new Map<string, StreamState>(), tokens = new Map<string, { runtimeSessionId: string; principalId: string; source: WriteSource; expiresAt: number }>();
   const now = input.now ?? (() => new Date());
   const stateFor = (runtimeSessionId: string): StreamState => { let state = streams.get(runtimeSessionId); if (!state) { state = { sequence: 0, events: [], subscribers: new Set() }; streams.set(runtimeSessionId, state); } return state; };
   const latestCursor = (runtimeSessionId: string) => cursor(stateFor(runtimeSessionId).sequence);
   return {
     attach: (runtimeSessionId, afterCursor) => {
       const session = input.readSession(runtimeSessionId);
-      if (session === null || !session.attachable) return unsupported(runtimeSessionId);
+      if (session === null || !input.canAttach(session)) return unsupported(runtimeSessionId);
       const state = stateFor(runtimeSessionId), after = parseCursor(afterCursor);
       const oldest = state.events[0] ? parseCursor(state.events[0].cursor) : state.sequence + 1, gap = after > state.sequence || after < oldest - 1;
       const initialEvents = gap ? [gapEvent(runtimeSessionId, state.sequence, now())] : state.events.filter((event) => parseCursor(event.cursor) > after);
@@ -52,19 +52,19 @@ export function makeAgentRuntimeStreamHub(input: { readonly readSession: (runtim
         next: () => nextEvent(state, subscriber, now), detach };
     },
     publish: (runtimeSessionId, signal) => {
-      const session = input.readSession(runtimeSessionId); if (session === null || !session.attachable) throw coded("unsupported", `Runtime session ${runtimeSessionId} has no live attach capability.`);
+      const session = input.readSession(runtimeSessionId); if (session === null || !input.canAttach(session)) throw coded("unsupported", `Runtime session ${runtimeSessionId} has no live attach capability.`);
       const state = stateFor(runtimeSessionId), event = signalEvent(runtimeSessionId, ++state.sequence, now(), signal); if (validateAgentRuntimeAttachEvent(event).length) { state.sequence -= 1; throw coded("invalid_provider_frame", "Provider frame is outside the safe attach contract."); } state.events.push(event);
       if (state.events.length > BUFFER_LIMIT) state.events.splice(0, state.events.length - BUFFER_LIMIT);
       for (const subscriber of state.subscribers) subscriber.wake?.(); return event;
     },
     latestCursor,
-    issueWitnessToken: (runtimeSessionId, principalId) => {
+    issueWitnessToken: (runtimeSessionId, binding) => {
       if (input.readSession(runtimeSessionId) === null) throw coded("runtime_session_not_found", `Runtime session ${runtimeSessionId} was not found.`);
-      const token = randomUUID(), expiresAt = now().getTime() + WITNESS_TTL_MS; tokens.set(token, { runtimeSessionId, principalId, expiresAt });
+      const token = randomUUID(), expiresAt = now().getTime() + WITNESS_TTL_MS; tokens.set(token, { runtimeSessionId, ...binding, expiresAt });
       return { token, runtimeSessionId, expiresAt: new Date(expiresAt).toISOString() };
     },
-    bindWitness: (token) => { const binding = tokens.get(token); tokens.delete(token); if (!binding || binding.expiresAt <= now().getTime()) throw coded("witness_binding_invalid", "Runtime witness binding is missing or expired.");
-      return { runtimeSessionId: binding.runtimeSessionId, actor: { principal: { personId: binding.principalId }, executor: { kind: "agent", id: `runtime-session:${binding.runtimeSessionId}` } }, source: "local" }; },
+    bindWitness: (token) => { const binding = tokens.get(token); if (!binding || binding.expiresAt <= now().getTime()) { tokens.delete(token); throw coded("witness_binding_invalid", "Runtime witness binding is missing or expired."); }
+      return { runtimeSessionId: binding.runtimeSessionId, actor: { principal: { personId: binding.principalId }, executor: { kind: "agent", id: `runtime-session:${binding.runtimeSessionId}` } }, source: binding.source }; },
     close: () => { for (const state of streams.values()) for (const subscriber of [...state.subscribers]) { subscriber.detached = true; subscriber.wake?.(); } streams.clear(); tokens.clear(); }
   };
 }

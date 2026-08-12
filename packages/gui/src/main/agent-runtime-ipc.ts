@@ -1,5 +1,5 @@
 import type { IpcMainEvent } from "electron";
-import { daemonGuiStreamFacets } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonGuiStreamFacets, type DaemonGuiStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import type { GuiServiceBridge } from "../api/service-bridge.ts";
 import { assertPreloadPayload } from "../preload/allowlist.ts";
 import { assertTrustedIpcSender } from "./ipc-handlers.ts";
@@ -14,6 +14,6 @@ export function registerAgentRuntimeIpc(registrar: AgentRuntimeIpcRegistrar, bri
   registrar.on(detachChannel, (event, value) => { assertTrustedIpcSender(event, trustPolicy); const subscriptionId = checkedSubscription(value); void detach(`${event.sender.id}:${subscriptionId}`); });
   async function detach(key: string): Promise<void> { const pending = active.get(key); if (!pending) return; active.delete(key); (await pending)(); }
 }
-function checkedEnvelope(value: unknown): { readonly subscriptionId: string; readonly payload: { readonly runtimeSessionId: string; readonly afterCursor: string } } { if (!record(value) || typeof value.subscriptionId !== "string" || !record(value.payload) || typeof value.payload.runtimeSessionId !== "string" || typeof value.payload.afterCursor !== "string") throw new Error("Agent runtime stream envelope is invalid."); return value as { subscriptionId: string; payload: { runtimeSessionId: string; afterCursor: string } }; }
+function checkedEnvelope(value: unknown): { readonly subscriptionId: string; readonly payload: DaemonGuiStreamPayloadMap["repo.agentRuntime.attach"] } { if (!record(value) || typeof value.subscriptionId !== "string" || !record(value.payload) || typeof value.payload.runtimeSessionId !== "string" || typeof value.payload.afterCursor !== "string") throw new Error("Agent runtime stream envelope is invalid."); return value as { subscriptionId: string; payload: DaemonGuiStreamPayloadMap["repo.agentRuntime.attach"] }; }
 function checkedSubscription(value: unknown): string { if (!record(value) || typeof value.subscriptionId !== "string") throw new Error("Agent runtime subscription id is required."); return value.subscriptionId; }
 function record(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }

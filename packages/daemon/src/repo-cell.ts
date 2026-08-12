@@ -23,7 +23,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
   try { if (input.bootstrap) bootstrapRepo(input.bootstrap.input, input.bootstrap.auth, activeWriter, writerToken); }
   catch (error) { await lock.close(); throw error; }
   const store = makeTaskEventStore({ repoId: input.repoId, rootDir, killpoint: input.killpoint }), recovery = store.recover(), projection = makeTaskProjection({ rootDir, eventStore: store, now });
-  const runtimeStream = makeAgentRuntimeStreamHub({ readSession: (runtimeSessionId) => { projection.list(); return projection.readRuntimeSession(runtimeSessionId); }, now: () => new Date(now()) }), runtimeReads = makeAgentRuntimeReadModel({ projection, store, stream: runtimeStream });
+  const runtimeStream = makeAgentRuntimeStreamHub({ readSession: (runtimeSessionId) => { projection.list(); return projection.readRuntimeSession(runtimeSessionId); }, canAttach: (session) => session.attachable && Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach")), now: () => new Date(now()) }), runtimeReads = makeAgentRuntimeReadModel({ projection, store, stream: runtimeStream });
   const service = makeTaskLifecycleService({ eventStore: store, projection, killpoint: input.killpoint }); let state: RepoCellStatus["state"] = recovery.status === "indeterminate" || recovery.elapsedMs > 250 ? "unavailable" : "attached";
   let lastError: string | null = state === "attached" ? null : `startup recovery ${recovery.status} after ${recovery.elapsedMs.toFixed(3)}ms`;
   let queueDepth = 0, tail = Promise.resolve();
