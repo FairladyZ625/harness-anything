@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { runTaskLifecycleEffect } from "../../application/src/index.ts";
-import { makeJournaledWriteCoordinator } from "../../kernel/src/index.ts";
+import { makeJournaledWriteCoordinator, makeTaskEventStore, REPLAY_TASK_GRAPH, type TaskEventV1 } from "../../kernel/src/index.ts";
 import type { CommandRunnerContext } from "../src/cli/runner-registry.ts";
 import type { ParsedCommand, TaskLifecycleCliAction } from "../src/cli/types.ts";
 import { makeLocalGateReceiptVerifier, verifySignedAntiEntropyReceipt } from "../src/cli/task-lifecycle-authority.ts";
@@ -18,6 +18,33 @@ const actor = {
   principal: { personId: "person_host" },
   executor: { kind: "agent" as const, id: "executor-host" }
 };
+
+test("startup recovers pending pair before receipt", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-host-recovery-"));
+  try {
+    initRepo(rootDir);
+    const pendingEvent: TaskEventV1 = {
+      schema: "task-event/v1", eventId: "event-recovery", workspaceRevision: 1, opId: "op-recovery", taskId: "task_RECOVERY",
+      type: "task_created", actor, source: "local", occurredAt: "2026-08-12T00:00:00.000Z",
+      payload: { task: { schema: "task/v1", taskId: "task_RECOVERY", title: "Recovered task", status: "planned",
+        graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [] } }
+    };
+    const interrupted = makeTaskEventStore({ rootDir, killpoint: (point) => {
+      if (point === "after_head_write") throw new Error(`killpoint:${point}`);
+    } });
+    assert.throws(() => interrupted.append(pendingEvent), /killpoint:after_head_write/u);
+    const before = Number(git(rootDir, "rev-list", "--count", "HEAD").trim());
+
+    const host = makeTaskLifecycleHost(runnerContext(rootDir, actor, {}));
+    const receipt = await host.show({ taskId: pendingEvent.taskId });
+
+    assert.equal(receipt.outcome, "applied");
+    assert.equal(Number(git(rootDir, "rev-list", "--count", "HEAD").trim()), before + 1);
+    assert.equal(JSON.parse(receipt.evidence ?? "{}").task?.taskId, pendingEvent.taskId);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
 
 test("host binds the lease to the authenticated actor, execution, and version", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-host-"));

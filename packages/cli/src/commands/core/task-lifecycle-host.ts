@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
-import { makeTaskLifecycleService } from "../../../../application/src/index.ts";
+import { makeTaskLifecycleService, type TaskLifecycleServiceProof } from "../../../../application/src/index.ts";
 import { makeTaskEventStore, makeTaskProjection, type CompleteTaskCommand, type ProofFor, type TaskLifecycleCommand } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
@@ -18,6 +18,8 @@ export const runTaskLifecycleFacadeCommand: CommandRunner = (context, command) =
 });
 export function makeTaskLifecycleHost(context: CommandRunnerContext): TaskLifecycleServicePort {
   const eventStore = makeTaskEventStore({ rootInput: context.layoutInput });
+  const recovery = eventStore.recover();
+  if (recovery.status === "indeterminate") throw hostError("publication_indeterminate", "The pending event/head pair could not be proven; inspect it before retrying the lifecycle command.");
   const projection = makeTaskProjection({ rootDir: context.rootDir, eventStore });
   const service = makeTaskLifecycleService({ eventStore, projection });
   return {
@@ -32,8 +34,7 @@ export function makeTaskLifecycleHost(context: CommandRunnerContext): TaskLifecy
       };
     },
     execute: async (input) => {
-      const before = eventStore.read(), existing = before.events.find((event) => event.opId === input.command.opId);
-      const command = withServerMeta(input.command, existing ?? null, before.revision), read = await service.read(command.taskId);
+      const existing = eventStore.readEvent(input.command.opId), command = withServerMeta(input.command, existing, eventStore.readHead()?.revision ?? 0), read = await service.read(command.taskId);
       const result = await service.execute(command, await proofFor(context, command, input, read.snapshot));
       return operationReceipt(command, result);
     }
@@ -46,11 +47,10 @@ function withServerMeta(command: TaskLifecycleServiceInput["command"], existing:
     workspaceRevision: existing?.workspaceRevision ?? revision + 1, occurredAt: existing?.occurredAt ?? new Date().toISOString() } as TaskLifecycleCommand;
 }
 async function proofFor(context: CommandRunnerContext, command: TaskLifecycleCommand, input: TaskLifecycleServiceInput,
-  snapshot: Snapshot): Promise<ProofFor<typeof command>> {
+  snapshot: Snapshot): Promise<TaskLifecycleServiceProof<typeof command>> {
   if (command.type === "CreateReplayTask") return { taskIdUnique: true, actorBinding: command.actor };
   if (command.type === "StartExecution") {
-    return { actorBinding: command.actor, reservation: { taskId: command.taskId, executionId: command.executionId,
-      expiresAt: new Date(Date.now() + leaseTtlMs).toISOString(), ttlMs: leaseTtlMs, previousHolder: null, reason: "initial_claim", version: 0 } };
+    return { actorBinding: command.actor, reservation: { taskId: command.taskId, executionId: command.executionId, expiresAt: new Date(Date.now() + leaseTtlMs).toISOString(), ttlMs: leaseTtlMs } };
   }
   if (command.type === "SubmitExecution") {
     const lease = snapshot.lease;

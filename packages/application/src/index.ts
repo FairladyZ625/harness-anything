@@ -12,6 +12,8 @@ export { makeDecisionWriteService } from "./decision-write-service.ts";
 export { makeTaskLifecycleService, runTaskLifecycleEffect, TaskLifecycleOperationConflict } from "./task-lifecycle-service.ts";
 export type {
   TaskLifecycleKillpoint,
+  TaskLeaseRenewInput,
+  TaskLifecycleServiceProof,
   TaskLifecycleService,
   TaskLifecycleServiceRead
 } from "./task-lifecycle-service.ts";

@@ -40,12 +40,17 @@ export function lifecycleHarness() {
   const projection = {
     read: realProjection.read,
     readOperation: realProjection.readOperation,
+    currentLease: realProjection.currentLease,
+    reserveLease: realProjection.reserveLease,
+    activateLease: realProjection.activateLease,
+    renewLease: realProjection.renewLease,
+    releaseLease: realProjection.releaseLease,
     apply: (event: Parameters<typeof realProjection.apply>[0]) => {
       if (failProjection) {
         failProjection = false;
         throw new Error("projection unavailable");
       }
-      realProjection.apply(event);
+      return realProjection.apply(event);
     }
   };
   const service = makeTaskLifecycleService({

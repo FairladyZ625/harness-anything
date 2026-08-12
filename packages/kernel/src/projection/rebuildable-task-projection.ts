@@ -1,75 +1,53 @@
 // @write-boundary-exemption rebuildable-projection
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import {
-  emptyTaskLifecycleSnapshot,
-  reduceTaskEvent,
-  serializeTaskEvent,
-  type LeaseChangeReason,
-  type TaskEventV1,
-  type TaskLifecycleSnapshot
-} from "../domain/task-lifecycle.contract.ts";
+import { emptyTaskLifecycleSnapshot, reduceTaskEvent, serializeTaskEvent, type LeaseChangeReason, type TaskEventV1,
+  type TaskLifecycleSnapshot } from "../domain/task-lifecycle.contract.ts";
 import { TASK_LEASE_BROKER_CONTRACT, validateLeaseV1, type LeaseHolder, type LeaseV1 } from "../domain/execution.ts";
 import { canonicalizeContractValue } from "../domain/task.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 
-interface EventStreamPort { readonly read: () => { readonly revision: number; readonly events: readonly TaskEventV1[] } }
+interface EventStreamPort {
+  readonly readHead: () => { readonly revision: number } | null;
+  readonly readBatch: (cursor: string | null, maxItems: number) => {
+    readonly sourceRevision: number; readonly events: readonly TaskEventV1[]; readonly cursor: string | null;
+    readonly done: boolean; readonly accessedItems: number;
+  };
+}
 export type TaskProjectionWarning = "projection_missing";
 export interface TaskProjectionRead {
-  readonly status: "ready" | "pending";
-  readonly snapshot: TaskLifecycleSnapshot;
-  readonly watermark: number;
-  readonly sourceRevision: number;
-  readonly warnings: readonly TaskProjectionWarning[];
+  readonly status: "ready" | "pending"; readonly snapshot: TaskLifecycleSnapshot; readonly watermark: number;
+  readonly sourceRevision: number; readonly warnings: readonly TaskProjectionWarning[];
   readonly catchUp: { readonly deadlineMs: 100; readonly maxItems: 64; readonly elapsedMs: number; readonly reducedItems: number; readonly sqliteTransactions: 0 | 1 };
 }
 export interface ProjectionApplyReceipt { readonly metrics: { readonly sqliteTransactions: 1; readonly reducedItems: number } }
 export interface ProjectionRebuildReceipt {
-  readonly watermark: number;
-  readonly metrics: { readonly sqliteTransactions: number; readonly reducedItems: number; readonly maxBatchItems: number; readonly maxBatchElapsedMs: number };
+  readonly watermark: number; readonly metrics: { readonly sqliteTransactions: number; readonly reducedItems: number; readonly maxBatchItems: number; readonly maxBatchElapsedMs: number };
 }
 export interface LeaseInterval {
-  readonly taskId: string;
-  readonly executionId: string;
-  readonly holder: LeaseHolder;
-  readonly previousHolder: LeaseHolder | null;
-  readonly acquiredRevision: number;
-  readonly releasedRevision: number | null;
-  readonly leaseExpiresAt: string;
-  readonly reason: LeaseChangeReason;
+  readonly taskId: string; readonly executionId: string; readonly holder: LeaseHolder; readonly previousHolder: LeaseHolder | null;
+  readonly acquiredRevision: number; readonly releasedRevision: number | null; readonly leaseExpiresAt: string; readonly reason: LeaseChangeReason;
 }
 export interface TaskProjection {
-  readonly path: string;
-  readonly apply: (event: TaskEventV1) => ProjectionApplyReceipt;
-  readonly rebuild: () => ProjectionRebuildReceipt;
-  readonly read: (taskId: string) => TaskProjectionRead;
-  readonly readOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null;
-  readonly readLeaseIntervals: (taskId: string) => readonly LeaseInterval[];
-  readonly currentLease: (taskId: string, now?: string) => LeaseV1 | null;
-  readonly reserveLease: (lease: LeaseV1, now: string) => LeaseV1;
-  readonly activateLease: (lease: LeaseV1) => LeaseV1;
-  readonly renewLease: (lease: LeaseV1, expiresAt: string) => LeaseV1;
-  readonly releaseLease: (lease: LeaseV1) => LeaseV1;
+  readonly path: string; readonly apply: (event: TaskEventV1) => ProjectionApplyReceipt; readonly rebuild: () => ProjectionRebuildReceipt;
+  readonly read: (taskId: string) => TaskProjectionRead; readonly readOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null;
+  readonly readLeaseIntervals: (taskId: string) => readonly LeaseInterval[]; readonly currentLease: (taskId: string, now?: string) => LeaseV1 | null;
+  readonly reserveLease: (lease: LeaseV1, now: string) => LeaseV1; readonly activateLease: (lease: LeaseV1) => LeaseV1;
+  readonly renewLease: (lease: LeaseV1, expiresAt: string) => LeaseV1; readonly releaseLease: (lease: LeaseV1) => LeaseV1;
 }
 
-export function defaultLifecycleTaskProjectionPath(rootDir: string): string {
-  return path.join(path.resolve(rootDir), ".harness/cache/task.sqlite");
-}
+export function defaultLifecycleTaskProjectionPath(rootDir: string): string { return path.join(path.resolve(rootDir), ".harness/cache/task.sqlite"); }
 
-export function makeTaskProjection(options: {
-  readonly rootDir: string;
-  readonly eventStore: EventStreamPort;
-  readonly projectionPath?: string;
-  readonly catchUpLimit?: number;
-}): TaskProjection {
+export function makeTaskProjection(options: { readonly rootDir: string; readonly eventStore: EventStreamPort;
+  readonly projectionPath?: string; readonly catchUpLimit?: number }): TaskProjection {
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
   const limit = options.catchUpLimit ?? 64;
   if (!Number.isInteger(limit) || limit < 1 || limit > 64) throw new Error("task projection catch-up limit must be between 1 and 64");
   return {
     path: projectionPath,
-    apply: (event) => withDatabase(projectionPath, (db) => reduceBatch(db, [event])),
-    rebuild: () => rebuildProjection(projectionPath, options.eventStore.read().events),
-    read: (taskId) => readProjection(projectionPath, options.eventStore.read(), taskId, limit),
+    apply: (event) => withDatabase(projectionPath, (db) => reduceBatch(db, [event], limit)),
+    rebuild: () => rebuildProjection(projectionPath, options.eventStore, limit),
+    read: (taskId) => readProjection(projectionPath, options.eventStore, taskId, limit),
     readOperation: (opId) => withDatabase(projectionPath, (db) => {
       const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as { readonly event_json: string } | undefined;
       return row === undefined ? null : { event: JSON.parse(row.event_json) as TaskEventV1, watermark: watermark(db) };
@@ -83,39 +61,34 @@ export function makeTaskProjection(options: {
   };
 }
 
-function readProjection(projectionPath: string, stream: ReturnType<EventStreamPort["read"]>, taskId: string, limit: number): TaskProjectionRead {
+function readProjection(projectionPath: string, eventStore: EventStreamPort, taskId: string, limit: number): TaskProjectionRead {
+  const started = performance.now();
   const existed = localRuntimeStateFileSystem.exists(projectionPath);
   return withDatabase(projectionPath, (db) => {
-    const started = performance.now();
-    const before = watermark(db);
-    const pending = stream.events.slice(before, before + limit);
-    if (pending.length > 0) reduceBatch(db, pending);
+    const round = catchUpRound(db, eventStore, limit);
     const current = watermark(db);
     const elapsedMs = performance.now() - started;
-    if (elapsedMs > 100) throw new Error(`projection catch-up exceeded 100ms deadline: ${elapsedMs}`);
-    return { status: current === stream.revision ? "ready" : "pending", snapshot: readSnapshot(db, taskId), watermark: current,
-      sourceRevision: stream.revision, warnings: !existed && stream.revision > 0 ? ["projection_missing"] : [],
-      catchUp: { deadlineMs: 100, maxItems: 64, elapsedMs, reducedItems: pending.length, sqliteTransactions: pending.length === 0 ? 0 : 1 } };
+    return { status: current === round.sourceRevision ? "ready" : "pending", snapshot: readSnapshot(db, taskId), watermark: current,
+      sourceRevision: round.sourceRevision, warnings: !existed && round.sourceRevision > 0 ? ["projection_missing"] : [],
+      catchUp: { deadlineMs: 100, maxItems: 64, elapsedMs, reducedItems: round.reducedItems, sqliteTransactions: round.sqliteTransactions } };
   });
 }
 
-function rebuildProjection(projectionPath: string, events: readonly TaskEventV1[]): ProjectionRebuildReceipt {
+function rebuildProjection(projectionPath: string, eventStore: EventStreamPort, limit: number): ProjectionRebuildReceipt {
   localRuntimeStateFileSystem.remove(projectionPath);
-  let transactions = 0;
-  let maxBatchItems = 0;
-  let maxBatchElapsedMs = 0;
-  for (let cursor = 0; cursor < events.length; cursor += 64) {
-    const batch = events.slice(cursor, cursor + 64);
+  let transactions = 0, reducedItems = 0, maxBatchItems = 0, maxBatchElapsedMs = 0;
+  for (;;) {
     const started = performance.now();
-    withDatabase(projectionPath, (db) => reduceBatch(db, batch));
+    const round = withDatabase(projectionPath, (db) => catchUpRound(db, eventStore, limit));
     const elapsedMs = performance.now() - started;
-    if (elapsedMs > 100) throw new Error(`projection rebuild batch exceeded 100ms deadline: ${elapsedMs}`);
-    transactions += 1;
-    maxBatchItems = Math.max(maxBatchItems, batch.length);
+    transactions += round.sqliteTransactions;
+    reducedItems += round.reducedItems;
+    maxBatchItems = Math.max(maxBatchItems, round.accessedItems);
     maxBatchElapsedMs = Math.max(maxBatchElapsedMs, elapsedMs);
+    if (round.watermark === round.sourceRevision) break;
   }
-  if (events.length === 0) withDatabase(projectionPath, () => undefined);
-  return { watermark: events.length, metrics: { sqliteTransactions: transactions, reducedItems: events.length, maxBatchItems, maxBatchElapsedMs } };
+  const current = withDatabase(projectionPath, watermark);
+  return { watermark: current, metrics: { sqliteTransactions: transactions, reducedItems, maxBatchItems, maxBatchElapsedMs } };
 }
 
 function withDatabase<A>(projectionPath: string, use: (db: DatabaseSync) => A): A {
@@ -130,8 +103,9 @@ function withDatabase<A>(projectionPath: string, use: (db: DatabaseSync) => A): 
 
 function createTables(db: DatabaseSync): void {
   db.exec(`
-    CREATE TABLE IF NOT EXISTS projection_meta (singleton INTEGER PRIMARY KEY CHECK(singleton=1), watermark INTEGER NOT NULL);
-    INSERT OR IGNORE INTO projection_meta(singleton, watermark) VALUES (1, 0);
+    CREATE TABLE IF NOT EXISTS projection_meta (singleton INTEGER PRIMARY KEY CHECK(singleton=1), watermark INTEGER NOT NULL, scan_cursor TEXT, scanned_revision INTEGER NOT NULL);
+    INSERT OR IGNORE INTO projection_meta(singleton, watermark, scan_cursor, scanned_revision) VALUES (1, 0, NULL, 0);
+    CREATE TABLE IF NOT EXISTS event_source (workspace_revision INTEGER PRIMARY KEY, op_id TEXT NOT NULL UNIQUE, event_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS event_index (op_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL UNIQUE, task_id TEXT NOT NULL, event_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS execution (execution_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
@@ -142,66 +116,116 @@ function createTables(db: DatabaseSync): void {
   `);
 }
 
-function reduceBatch(db: DatabaseSync, events: readonly TaskEventV1[]): ProjectionApplyReceipt {
+function reduceBatch(db: DatabaseSync, events: readonly TaskEventV1[], limit: number): ProjectionApplyReceipt {
   return transaction(db, () => {
-    let next = watermark(db);
-    for (const event of events) {
-      const eventJson = serializeTaskEvent(event).trimEnd();
-      const existing = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(event.opId) as { readonly event_json: string } | undefined;
-      if (existing !== undefined) {
-        if (existing.event_json !== eventJson) throw new Error(`projection opId ${event.opId} names different bytes`);
-        continue;
-      }
-      if (event.workspaceRevision !== next + 1) throw new Error(`projection revision ${event.workspaceRevision} must follow ${next}`);
-      applyEvent(db, event, eventJson);
-      next = event.workspaceRevision;
+    for (const event of events) stageEvent(db, event);
+    const reducedItems = drainDeferred(db, limit);
+    const state = db.prepare("SELECT scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1").get() as {
+      readonly scan_cursor: string | null; readonly scanned_revision: number;
+    };
+    const last = events.at(-1);
+    if (last !== undefined && state.scan_cursor === null && state.scanned_revision === last.workspaceRevision - events.length
+      && watermark(db) >= last.workspaceRevision) {
+      runSql(db, "UPDATE projection_meta SET scanned_revision = ? WHERE singleton = 1", last.workspaceRevision);
     }
-    db.prepare("UPDATE projection_meta SET watermark = ? WHERE singleton = 1").run(next);
-    return { metrics: { sqliteTransactions: 1, reducedItems: events.length } };
+    return { metrics: { sqliteTransactions: 1, reducedItems } };
   });
+}
+
+function catchUpRound(db: DatabaseSync, eventStore: EventStreamPort, limit: number): {
+  readonly sourceRevision: number; readonly watermark: number; readonly reducedItems: number;
+  readonly accessedItems: number; readonly sqliteTransactions: 0 | 1;
+} {
+  const sourceRevision = eventStore.readHead()?.revision ?? 0;
+  const state = db.prepare("SELECT scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1").get() as {
+    readonly scan_cursor: string | null; readonly scanned_revision: number;
+  };
+  const shouldScan = state.scan_cursor !== null || state.scanned_revision < sourceRevision;
+  const batch = shouldScan ? eventStore.readBatch(state.scan_cursor, limit) : null;
+  const hasDeferred = db.prepare("SELECT 1 AS present FROM event_source WHERE workspace_revision = ?").get(watermark(db) + 1) !== undefined;
+  if (batch === null && !hasDeferred) return { sourceRevision, watermark: watermark(db), reducedItems: 0, accessedItems: 0, sqliteTransactions: 0 };
+  const reducedItems = transaction(db, () => {
+    if (batch !== null) {
+      for (const event of batch.events) stageEvent(db, event);
+      runSql(db, "UPDATE projection_meta SET scan_cursor = ?, scanned_revision = ? WHERE singleton = 1", batch.done ? null : batch.cursor, batch.done ? batch.sourceRevision : state.scanned_revision);
+    }
+    return drainDeferred(db, limit);
+  });
+  return { sourceRevision, watermark: watermark(db), reducedItems, accessedItems: batch?.accessedItems ?? 0, sqliteTransactions: 1 };
+}
+
+function stageEvent(db: DatabaseSync, event: TaskEventV1): void {
+  const eventJson = serializeTaskEvent(event).trimEnd();
+  const applied = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(event.opId) as { readonly event_json: string } | undefined;
+  if (applied !== undefined) {
+    if (applied.event_json !== eventJson) throw new Error(`projection opId ${event.opId} names different bytes`);
+    return;
+  }
+  const staged = db.prepare("SELECT event_json FROM event_source WHERE op_id = ? OR workspace_revision = ?").get(event.opId, event.workspaceRevision) as { readonly event_json: string } | undefined;
+  if (staged !== undefined) {
+    if (staged.event_json !== eventJson) throw new Error(`projection revision or opId ${event.opId} names different bytes`);
+    return;
+  }
+  runSql(db, "INSERT INTO event_source(workspace_revision, op_id, event_json) VALUES (?, ?, ?)", event.workspaceRevision, event.opId, eventJson);
+}
+
+function drainDeferred(db: DatabaseSync, limit: number): number {
+  let next = watermark(db), reduced = 0;
+  while (reduced < limit) {
+    const row = db.prepare("SELECT event_json FROM event_source WHERE workspace_revision = ?").get(next + 1) as { readonly event_json: string } | undefined;
+    if (row === undefined) break;
+    const event = JSON.parse(row.event_json) as TaskEventV1;
+    applyEvent(db, event, row.event_json);
+    runSql(db, "DELETE FROM event_source WHERE workspace_revision = ?", event.workspaceRevision);
+    next = event.workspaceRevision;
+    reduced += 1;
+  }
+  runSql(db, "UPDATE projection_meta SET watermark = ? WHERE singleton = 1", next);
+  return reduced;
 }
 
 function applyEvent(db: DatabaseSync, event: TaskEventV1, eventJson: string): void {
   const snapshot = reduceTaskEvent(readSnapshot(db, event.taskId), event);
-  db.prepare("INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)")
-    .run(event.opId, event.workspaceRevision, event.taskId, eventJson);
-  db.prepare("INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET workspace_revision=excluded.workspace_revision, snapshot_json=excluded.snapshot_json")
-    .run(event.taskId, event.workspaceRevision, canonicalJson(snapshot));
-  if (event.type !== "task_created") db.prepare("INSERT OR REPLACE INTO execution(execution_id, task_id, workspace_revision, value_json) VALUES (?, ?, ?, ?)")
-    .run(event.payload.execution.executionId, event.taskId, event.workspaceRevision, canonicalJson(event.payload.execution));
-  if (event.type === "review_recorded") db.prepare("INSERT INTO review(review_id, task_id, execution_id, workspace_revision, value_json) VALUES (?, ?, ?, ?, ?)")
-    .run(event.payload.review.reviewId, event.taskId, event.payload.review.executionId, event.workspaceRevision, canonicalJson(event.payload.review));
+  runSql(db, "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)", event.opId, event.workspaceRevision, event.taskId, eventJson);
+  runSql(db, "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET workspace_revision=excluded.workspace_revision, snapshot_json=excluded.snapshot_json", event.taskId, event.workspaceRevision, canonicalJson(snapshot));
+  if (event.type !== "task_created") runSql(db, "INSERT OR REPLACE INTO execution(execution_id, task_id, workspace_revision, value_json) VALUES (?, ?, ?, ?)", event.payload.execution.executionId, event.taskId, event.workspaceRevision, canonicalJson(event.payload.execution));
+  if (event.type === "review_recorded") runSql(db, "INSERT INTO review(review_id, task_id, execution_id, workspace_revision, value_json) VALUES (?, ?, ?, ?, ?)", event.payload.review.reviewId, event.taskId, event.payload.review.executionId, event.workspaceRevision, canonicalJson(event.payload.review));
   const edge = event.type === "execution_submitted" ? event.payload.edge : event.type === "review_recorded" ? event.payload.edge : undefined;
-  if (edge !== undefined) db.prepare("INSERT INTO edge(task_id, edge_id, iteration, workspace_revision, value_json) VALUES (?, ?, ?, ?, ?)")
-    .run(event.taskId, edge.edgeId, edge.iteration, event.workspaceRevision, canonicalJson(edge));
+  if (edge !== undefined) runSql(db, "INSERT INTO edge(task_id, edge_id, iteration, workspace_revision, value_json) VALUES (?, ?, ?, ?, ?)", event.taskId, edge.edgeId, edge.iteration, event.workspaceRevision, canonicalJson(edge));
   if (event.type === "execution_started") replayClaim(db, event);
+  if (event.type === "lease_renewed") replayRenew(db, event);
   if (event.type === "execution_submitted") replayRelease(db, event.taskId, event.payload.execution.executionId, event.workspaceRevision);
 }
 
 function replayClaim(db: DatabaseSync, event: Extract<TaskEventV1, { readonly type: "execution_started" }>): void {
   const lease = checkedLease(event.payload.lease);
   const reserving = { ...lease, phase: "reserving" as const };
-  db.prepare("INSERT INTO lease_cas(task_id, lease_json) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET lease_json=excluded.lease_json")
-    .run(event.taskId, canonicalJson(reserving));
+  db.prepare("INSERT INTO lease_cas(task_id, lease_json) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET lease_json=excluded.lease_json").run(event.taskId, canonicalJson(reserving));
   db.prepare("UPDATE lease_cas SET lease_json = ? WHERE task_id = ?").run(canonicalJson({ ...lease, phase: "active" }), event.taskId);
-  db.prepare("INSERT INTO lease_interval(task_id, execution_id, acquired_revision, released_revision, holder_json, previous_holder_json, lease_expires_at, reason) VALUES (?, ?, ?, NULL, ?, ?, ?, ?)")
-    .run(event.taskId, lease.executionId, event.workspaceRevision, canonicalJson(holder(lease)), event.payload.previousHolder === null ? null : canonicalJson(event.payload.previousHolder), event.payload.leaseExpiresAt, event.payload.reason);
+  db.prepare("INSERT INTO lease_interval(task_id, execution_id, acquired_revision, released_revision, holder_json, previous_holder_json, lease_expires_at, reason) VALUES (?, ?, ?, NULL, ?, ?, ?, ?)").run(event.taskId, lease.executionId, event.workspaceRevision, canonicalJson(holder(lease)), event.payload.previousHolder === null ? null : canonicalJson(event.payload.previousHolder), event.payload.leaseExpiresAt, event.payload.reason);
+}
+
+function replayRenew(db: DatabaseSync, event: Extract<TaskEventV1, { readonly type: "lease_renewed" }>): void {
+  const current = storedLease(db, event.taskId), renewed = checkedLease(event.payload.lease);
+  const matchesPrevious = current !== null && current.phase === "active" && current.executionId === renewed.executionId
+    && canonicalJson(current.actor) === canonicalJson(renewed.actor) && canonicalJson(current.source) === canonicalJson(renewed.source)
+    && current.version + 1 === renewed.version;
+  if (!matchesPrevious && canonicalJson(current) !== canonicalJson(renewed)) throw new Error(`stale lease renewal event for task ${event.taskId}`);
+  db.prepare("INSERT INTO lease_cas(task_id, lease_json) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET lease_json=excluded.lease_json").run(event.taskId, canonicalJson(renewed));
+  db.prepare("UPDATE lease_interval SET lease_expires_at = ? WHERE task_id = ? AND execution_id = ? AND released_revision IS NULL").run(renewed.expiresAt, event.taskId, renewed.executionId);
 }
 
 function replayRelease(db: DatabaseSync, taskId: string, executionId: string, revision: number): void {
   const lease = storedLease(db, taskId);
-  if (lease !== null && lease.executionId === executionId) db.prepare("UPDATE lease_cas SET lease_json = ? WHERE task_id = ?")
-    .run(canonicalJson({ ...lease, phase: "released", version: lease.version + 1 }), taskId);
-  db.prepare("UPDATE lease_interval SET released_revision = ? WHERE task_id = ? AND execution_id = ? AND released_revision IS NULL")
-    .run(revision, taskId, executionId);
+  if (lease !== null && lease.executionId === executionId) db.prepare("UPDATE lease_cas SET lease_json = ? WHERE task_id = ?").run(canonicalJson({ ...lease, phase: "released", version: lease.version + 1 }), taskId);
+  db.prepare("UPDATE lease_interval SET released_revision = ? WHERE task_id = ? AND execution_id = ? AND released_revision IS NULL").run(revision, taskId, executionId);
 }
 
 function readSnapshot(db: DatabaseSync, taskId: string): TaskLifecycleSnapshot {
   const row = db.prepare("SELECT snapshot_json FROM task_snapshot WHERE task_id = ?").get(taskId) as { readonly snapshot_json: string } | undefined;
   if (row === undefined) return emptyTaskLifecycleSnapshot();
   let snapshot: TaskLifecycleSnapshot;
-  try { snapshot = JSON.parse(row.snapshot_json) as TaskLifecycleSnapshot; }
-  catch { throw new Error(`projection snapshot mismatch for task ${taskId}`); }
+  try { snapshot = JSON.parse(row.snapshot_json) as TaskLifecycleSnapshot; } catch { throw new Error(`projection snapshot mismatch for task ${taskId}`); }
   const lease = storedLease(db, taskId);
   return { ...snapshot, lease: lease?.phase === "active" || lease?.phase === "reserving" ? lease : null };
 }
@@ -222,8 +246,7 @@ function reserve(db: DatabaseSync, lease: LeaseV1, now: string): LeaseV1 {
   if (count.count >= TASK_LEASE_BROKER_CONTRACT.capacity) throw new Error(`lease capacity ${TASK_LEASE_BROKER_CONTRACT.capacity} exhausted; wait for a lease to be released or expire`);
   const expectedVersion = current === null ? 0 : current.version + 1;
   if (lease.phase !== "reserving" || lease.version !== expectedVersion) throw new Error(`stale lease reservation for task ${lease.taskId}`);
-  db.prepare("INSERT INTO lease_cas(task_id, lease_json) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET lease_json=excluded.lease_json")
-    .run(lease.taskId, canonicalJson(lease));
+  db.prepare("INSERT INTO lease_cas(task_id, lease_json) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET lease_json=excluded.lease_json").run(lease.taskId, canonicalJson(lease));
   return lease;
 }
 
@@ -235,7 +258,7 @@ function changeLease(db: DatabaseSync, expected: LeaseV1, phase: "active" | "rel
     throw new Error(`stale lease CAS for task ${expected.taskId}`);
   }
   const next = checkedLease({ ...current, phase, expiresAt, version: current.version + 1 });
-  db.prepare("UPDATE lease_cas SET lease_json = ? WHERE task_id = ?").run(canonicalJson(next), next.taskId);
+  runSql(db, "UPDATE lease_cas SET lease_json = ? WHERE task_id = ?", canonicalJson(next), next.taskId);
   return next;
 }
 
@@ -244,26 +267,19 @@ function effectiveLease(db: DatabaseSync, taskId: string, now: string): LeaseV1 
   if (current === null || current.phase === "released") return current;
   if (current.expiresAt <= now && current.phase !== "orphaned") {
     const orphaned = checkedLease({ ...current, phase: "orphaned" });
-    db.prepare("UPDATE lease_cas SET lease_json = ? WHERE task_id = ?").run(canonicalJson(orphaned), taskId);
+    runSql(db, "UPDATE lease_cas SET lease_json = ? WHERE task_id = ?", canonicalJson(orphaned), taskId);
     return orphaned;
   }
   return current;
 }
 
-function storedLease(db: DatabaseSync, taskId: string): LeaseV1 | null {
-  const row = db.prepare("SELECT lease_json FROM lease_cas WHERE task_id = ?").get(taskId) as { readonly lease_json: string } | undefined;
-  return row === undefined ? null : checkedLease(JSON.parse(row.lease_json) as LeaseV1);
-}
+function storedLease(db: DatabaseSync, taskId: string): LeaseV1 | null { const row = db.prepare("SELECT lease_json FROM lease_cas WHERE task_id = ?").get(taskId) as { readonly lease_json: string } | undefined; return row === undefined ? null : checkedLease(JSON.parse(row.lease_json) as LeaseV1); }
 function holder(lease: LeaseV1): LeaseHolder { return { taskId: lease.taskId, executionId: lease.executionId, actor: lease.actor, source: lease.source }; }
-function checkedLease(lease: LeaseV1): LeaseV1 {
-  const issues = validateLeaseV1(lease);
-  if (issues.length > 0) throw new Error(issues.map((issue) => issue.message).join("; "));
-  return lease;
-}
+function checkedLease(lease: LeaseV1): LeaseV1 { const issues = validateLeaseV1(lease); if (issues.length > 0) throw new Error(issues.map((issue) => issue.message).join("; ")); return lease; }
 function watermark(db: DatabaseSync): number { return Number((db.prepare("SELECT watermark FROM projection_meta WHERE singleton = 1").get() as { readonly watermark: number }).watermark); }
 function transaction<A>(db: DatabaseSync, run: () => A): A {
-  db.exec("BEGIN IMMEDIATE");
-  try { const value = run(); db.exec("COMMIT"); return value; }
+  db.exec("BEGIN IMMEDIATE"); try { const value = run(); db.exec("COMMIT"); return value; }
   catch (error) { db.exec("ROLLBACK"); throw error; }
 }
+type SqlValue = string | number | bigint | Uint8Array | null; function runSql(db: DatabaseSync, sql: string, ...values: readonly SqlValue[]): void { db.prepare(sql).run(...values); }
 function canonicalJson(value: unknown): string { return JSON.stringify(canonicalizeContractValue(value)); }

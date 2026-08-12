@@ -1,13 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { normalizeTaskLifecycleCommand } from "../../kernel/src/index.ts";
+import { normalizeTaskLifecycleCommand, type TaskEventV1 } from "../../kernel/src/index.ts";
 import { makeTaskEventStore, makeTaskProjection, serializeEventHead, serializeTaskEvent, TASK_LEASE_BROKER_CONTRACT } from "../../kernel/test/store/task-lifecycle-runtime.ts";
 import { makeTaskLifecycleService, TaskLifecycleOperationConflict } from "../src/task-lifecycle-service.ts";
 import { lifecycleHarness, replayGraph } from "./task-lifecycle-test-harness.ts";
@@ -72,6 +71,61 @@ test("second distinct task create uses aggregate revision zero in a non-empty wo
   }
 });
 
+test("10,000 old events do not block a new write", async (context) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-10k-"));
+  try {
+    initRepo(rootDir);
+    const eventsRoot = path.join(rootDir, "harness/events");
+    mkdirSync(eventsRoot, { recursive: true });
+    let last = oldTaskEvent(1);
+    for (let revision = 1; revision <= 10_000; revision += 1) {
+      last = oldTaskEvent(revision);
+      writeFileSync(path.join(eventsRoot, `${last.opId}.json`), serializeTaskEvent(last));
+    }
+    const lastBytes = serializeTaskEvent(last);
+    writeFileSync(path.join(eventsRoot, "head.json"), serializeEventHead({ revision: last.workspaceRevision, opId: last.opId,
+      eventDigest: `sha256:${createHash("sha256").update(lastBytes).digest("hex")}` }));
+    git(rootDir, "add", "--", "harness/events");
+    git(rootDir, "commit", "--quiet", "-m", "10k old event fixture");
+
+    const started = performance.now();
+    const checkpoints = new Map<string, number>();
+    const eventStore = makeTaskEventStore({ rootDir, killpoint: (point) => checkpoints.set(point, performance.now() - started) });
+    const storeReady = performance.now();
+    const phase = { readMs: 0, appendMs: 0, applyMs: 0, maxAccessedItems: 0 };
+    const boundedEventStore = { ...eventStore, readBatch: (cursor: string | null, maxItems: number) => {
+      const batch = eventStore.readBatch(cursor, maxItems);
+      phase.maxAccessedItems = Math.max(phase.maxAccessedItems, batch.accessedItems);
+      return batch;
+    } };
+    const projection = makeTaskProjection({ rootDir, eventStore: boundedEventStore });
+    const service = makeTaskLifecycleService({
+      eventStore: { ...boundedEventStore, append: (candidate) => {
+        const phaseStarted = performance.now(); try { return eventStore.append(candidate); } finally { phase.appendMs += performance.now() - phaseStarted; }
+      } },
+      projection: { ...projection, read: (taskId) => {
+        const phaseStarted = performance.now(); try { return projection.read(taskId); } finally { phase.readMs += performance.now() - phaseStarted; }
+      }, apply: (candidate) => {
+        const phaseStarted = performance.now(); try { return projection.apply(candidate); } finally { phase.applyMs += performance.now() - phaseStarted; }
+      } }
+    });
+    const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: "task-new", title: "New independent task",
+      graph: replayGraph, completionGateIds: [] }, { eventId: "event-new", workspaceRevision: 10_001,
+      occurredAt: "2026-08-12T00:00:00.000Z" }, 0);
+    const receipt = await service.execute(create, { taskIdUnique: true, actorBinding: actor });
+    const elapsedMs = performance.now() - started;
+
+    context.diagnostic(`first-store-access-through-receipt elapsedMs=${elapsedMs.toFixed(3)} storeInitMs=${(storeReady - started).toFixed(3)} readMs=${phase.readMs.toFixed(3)} appendMs=${phase.appendMs.toFixed(3)} applyMs=${phase.applyMs.toFixed(3)}`);
+    context.diagnostic(`publication checkpoints=${JSON.stringify(Object.fromEntries(checkpoints))}`);
+    assert.notEqual(eventStore.readEvent(create.opId), null, "the independent write must enter L1");
+    assert.equal(receipt.outcome, "pending", "L1 may lead the bounded L2 catch-up");
+    assert.equal(phase.maxAccessedItems <= 64, true, `catch-up accessed ${phase.maxAccessedItems} event files`);
+    assert.equal(elapsedMs < 250, true, `first store access through receipt took ${elapsedMs}ms`);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
 test("transition service replays reject through a new Execution before completion", async () => {
   const harness = lifecycleHarness();
   try {
@@ -89,6 +143,31 @@ test("transition service replays reject through a new Execution before completio
     assert.equal(completed.snapshot.task?.iteration, 1);
     assert.deepEqual(completed.snapshot.executions.map((execution) => execution.state), ["changes_requested", "accepted"]);
     assert.deepEqual(completed.snapshot.edgesTaken.map((edge) => edge.on), ["submitted", "changes_requested", "submitted", "approved"]);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("second lifecycle claim uses monotonic lease CAS", async () => {
+  const harness = lifecycleHarness();
+  try {
+    await harness.create();
+    await harness.start("execution-1");
+    await harness.submit("execution-1");
+    await harness.review("execution-1", "anti_entropy", "changes_requested");
+    await harness.start("execution-2");
+
+    const claims = harness.eventStore.read().events.filter((candidate) => candidate.type === "execution_started");
+    assert.equal(claims.length, 2);
+    const first = claims[0]!;
+    const second = claims[1]!;
+    if (first.type !== "execution_started" || second.type !== "execution_started") throw new Error("fixture requires claim events");
+    assert.equal(second.payload.lease.version > first.payload.lease.version, true);
+    assert.deepEqual(second.payload.previousHolder, {
+      taskId: first.taskId, executionId: first.payload.execution.executionId, actor: first.actor, source: first.source
+    });
+    assert.equal(second.payload.reason, "same_principal_reconnect");
+    assert.deepEqual(harness.projection.currentLease("task-1"), second.payload.lease);
   } finally {
     harness.cleanup();
   }
@@ -153,6 +232,17 @@ function initRepo(rootDir: string): void {
   git(rootDir, "config", "user.name", "Lifecycle Service Test");
   git(rootDir, "config", "user.email", "service-test@example.invalid");
   git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
+}
+
+function oldTaskEvent(revision: number): Extract<TaskEventV1, { readonly type: "task_created" }> {
+  const suffix = String(revision).padStart(5, "0");
+  const taskId = `task-old-${suffix}`;
+  return {
+    schema: "task-event/v1", eventId: `event-old-${suffix}`, workspaceRevision: revision, opId: `op-old-${suffix}`, taskId,
+    type: "task_created", actor, source: "local", occurredAt: "2026-08-11T00:00:00.000Z",
+    payload: { task: { schema: "task/v1", taskId, title: `Old task ${suffix}`, status: "planned", graph: replayGraph,
+      currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [] } }
+  };
 }
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });

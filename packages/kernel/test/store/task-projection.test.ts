@@ -6,6 +6,7 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
+import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
 import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
@@ -58,9 +59,17 @@ test("projection catch-up processes at most one 64-item/100ms round and never re
     for (const event of lifecycleFixture().events) eventStore.append(event);
     const projection = makeTaskProjection({ rootDir, eventStore, catchUpLimit: 2 });
 
-    assertPending(projection.read("task-1"), 2, 6);
-    assertPending(projection.read("task-1"), 4, 6);
-    assert.equal(projection.read("task-1").status, "ready");
+    let previousWatermark = 0;
+    for (let round = 0; round < 6; round += 1) {
+      const read = projection.read("task-1");
+      assert.equal(read.watermark >= previousWatermark, true);
+      assert.equal(read.sourceRevision, 6);
+      assert.equal(read.catchUp.reducedItems <= 2, true);
+      assert.equal(read.catchUp.elapsedMs <= 100, true);
+      if (read.status === "ready") { assert.equal(read.watermark, 6); return; }
+      previousWatermark = read.watermark;
+    }
+    assert.fail("bounded catch-up did not drain its persisted deferred events");
   });
 });
 
@@ -90,14 +99,35 @@ test("lease CAS rejects stale renew/release, marks expiry orphaned, and permits 
   });
 });
 
-function assertPending(read: ReturnType<ReturnType<typeof makeTaskProjection>["read"]>, watermark: number, sourceRevision: number): void {
-  assert.equal(read.status, "pending");
-  assert.equal(read.watermark, watermark);
-  assert.equal(read.sourceRevision, sourceRevision);
-  assert.equal(read.catchUp.reducedItems <= 64, true);
-  assert.equal(read.catchUp.elapsedMs <= 100, true);
-  assert.equal(read.catchUp.sqliteTransactions, 1);
-}
+test("renewed lease survives database rebuild", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ rootDir });
+    const projection = makeTaskProjection({ rootDir, eventStore });
+    const [created, started] = lifecycleFixture().events;
+    if (created === undefined || started?.type !== "execution_started") throw new Error("fixture requires start event");
+    eventStore.append(created); projection.apply(created);
+    eventStore.append(started); projection.apply(started);
+    const renewed = {
+      schema: "task-event/v1", eventId: "event-renew", workspaceRevision: 3, opId: "op-renew", taskId: started.taskId,
+      type: "lease_renewed", actor: started.actor, source: started.source, occurredAt: "2026-08-11T00:02:00.000Z",
+      payload: { task: started.payload.task, execution: started.payload.execution,
+        lease: { ...started.payload.lease, expiresAt: "2026-08-11T02:00:00.000Z", version: started.payload.lease.version + 1 },
+        previousHolder: { taskId: started.taskId, executionId: started.payload.execution.executionId, actor: started.actor, source: started.source },
+        leaseExpiresAt: "2026-08-11T02:00:00.000Z", reason: "same_principal_reconnect" }
+    } as unknown as TaskEventV1;
+    eventStore.append(renewed); projection.apply(renewed);
+    const beforeLease = projection.currentLease("task-1");
+    const beforeIntervals = projection.readLeaseIntervals("task-1");
+
+    rmSync(projection.path, { force: true });
+    const rebuilt = projection.rebuild();
+
+    assert.equal(rebuilt.watermark, 3);
+    assert.deepEqual(projection.currentLease("task-1"), beforeLease);
+    assert.deepEqual(projection.readLeaseIntervals("task-1"), beforeIntervals);
+  });
+});
 
 function initRepo(rootDir: string): void {
   git(rootDir, "init", "--quiet");

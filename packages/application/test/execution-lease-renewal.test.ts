@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, makeTaskProjection } from "../../kernel/test/store/task-lifecycle-runtime.ts";
+import { lifecycleHarness, owner } from "./task-lifecycle-test-harness.ts";
 
 const actor = { principal: { personId: "person-1" }, executor: { kind: "agent" as const, id: "codex" } };
 const otherActor = { principal: { personId: "person-2" }, executor: { kind: "agent" as const, id: "reviewer" } };
@@ -30,6 +31,24 @@ test("lease CAS permits only the current holder and version to renew and release
     assert.equal(projection.releaseLease(renewed).phase, "released");
     assert.equal(projection.currentLease("task-1")?.phase, "released");
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("renewed lease survives database rebuild", async () => {
+  const harness = lifecycleHarness();
+  try {
+    await harness.create();
+    await harness.start("execution-1");
+    const active = harness.projection.currentLease("task-1");
+    if (active === null) throw new Error("fixture requires active lease");
+
+    const renewed = await harness.service.renewLease({ taskId: "task-1", executionId: "execution-1", actor: owner,
+      source: "local", expectedVersion: active.version, expiresAt: "2026-08-11T02:00:00.000Z",
+      opId: "op-renew", eventId: "event-renew", workspaceRevision: 3, occurredAt: "2026-08-11T00:03:00.000Z" });
+
+    assert.equal(renewed.version, active.version + 1);
+    assert.equal(renewed.expiresAt, "2026-08-11T02:00:00.000Z");
+    assert.equal(harness.eventStore.readEvent("op-renew")?.type, "lease_renewed");
+  } finally { harness.cleanup(); }
 });
 
 function git(rootDir: string, ...args: readonly string[]): string {

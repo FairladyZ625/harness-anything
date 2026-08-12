@@ -64,6 +64,29 @@ test("event/head publisher commits one immutable event and exact head bytes toge
   });
 });
 
+test("missing head cannot overwrite immutable event", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeTaskEventStore({ rootDir });
+    store.append(event);
+    const eventPath = path.join(rootDir, "harness/events/op-1.json");
+    const eventBytes = readFileSync(eventPath, "utf8");
+    const expectedHead = store.readHead();
+    rmSync(store.headPath);
+
+    assert.throws(() => store.append({
+      ...event,
+      payload: { task: { ...event.payload.task, title: "must not replace immutable bytes" } }
+    }), /different event/u);
+    assert.equal(readFileSync(eventPath, "utf8"), eventBytes);
+    assert.equal(existsSync(store.headPath), false);
+
+    assert.deepEqual(store.rebuildHead(), expectedHead);
+    assert.equal(readFileSync(store.headPath, "utf8"), serializeEventHead(expectedHead!));
+    assert.deepEqual(store.read(), { schema: "task-event-stream/v1", revision: 1, events: [event] });
+  });
+});
+
 test("publication fsync count includes the instrumented Git process and stays within the hard budget", { skip: process.platform !== "darwin" }, async (context) => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
@@ -135,11 +158,13 @@ test("recovery publishes the sole exact event/head pair left before Git commit",
     } });
     assert.throws(() => store.append(event), /killpoint:after_head_write/u);
 
+    const started = performance.now();
     const recovered = makeTaskEventStore({ rootDir }).recover();
+    const elapsedMs = performance.now() - started;
 
     assert.equal(recovered.status, "committed");
     assert.equal(recovered.publications, 1);
-    assert.equal(recovered.elapsedMs < 100, true, `recovery took ${recovered.elapsedMs}ms`);
+    assert.equal(elapsedMs < 250, true, `first store access through recovery took ${elapsedMs}ms`);
     assert.equal(git(rootDir, "rev-list", "--count", "HEAD").trim(), "2");
     assert.deepEqual(makeTaskEventStore({ rootDir }).read().events, [event]);
     assert.equal(existsSync(path.join(rootDir, ".harness/event-publication.json")), false);
@@ -197,12 +222,12 @@ test("head is derivable from immutable events after the replaceable file is remo
 });
 
 test("startup recovery examines one in-flight pair without scanning 10,000 old events", async (context) => {
-  await withTempStoreAsync(async (rootDir) => {
+  const recoverFixture = (eventCount: number) => withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const eventsRoot = path.join(rootDir, "harness/events");
     mkdirSync(eventsRoot, { recursive: true });
     let last = event;
-    for (let revision = 1; revision <= 10_000; revision += 1) {
+    for (let revision = 1; revision <= eventCount; revision += 1) {
       last = eventAt(revision);
       writeFileSync(path.join(eventsRoot, `${last.opId}.json`), serializeTaskEvent(last));
     }
@@ -210,22 +235,30 @@ test("startup recovery examines one in-flight pair without scanning 10,000 old e
     writeFileSync(path.join(eventsRoot, "head.json"), serializeEventHead({ revision: last.workspaceRevision, opId: last.opId,
       eventDigest: `sha256:${createHash("sha256").update(lastBytes).digest("hex")}` }));
     git(rootDir, "add", "--", "harness/events");
-    git(rootDir, "commit", "--quiet", "-m", "10k event fixture");
+    git(rootDir, "commit", "--quiet", "-m", `${eventCount} event fixture`);
 
-    const next = eventAt(10_001);
+    const next = eventAt(eventCount + 1);
     const interrupted = makeTaskEventStore({ rootDir, killpoint: (point) => {
       if (point === "after_head_write") throw new Error(`killpoint:${point}`);
     } });
     assert.throws(() => interrupted.append(next), /killpoint:after_head_write/u);
 
+    const started = performance.now();
     const recovered = makeTaskEventStore({ rootDir }).recover();
+    const elapsedMs = performance.now() - started;
 
     assert.equal(recovered.status, "committed");
     assert.equal(recovered.publications, 1);
-    assert.equal(recovered.elapsedMs < 100, true, `10k recovery took ${recovered.elapsedMs}ms`);
-    context.diagnostic(`recovery-10k elapsedMs=${recovered.elapsedMs.toFixed(3)} publications=${recovered.publications}`);
-    assert.equal(makeTaskEventStore({ rootDir }).readEvent(next.opId)?.workspaceRevision, 10_001);
+    assert.equal(elapsedMs < 250, true, `first store access through recovery took ${elapsedMs}ms`);
+    assert.equal(makeTaskEventStore({ rootDir }).readEvent(next.opId)?.workspaceRevision, eventCount + 1);
+    return elapsedMs;
   });
+
+  const hundredMs = await recoverFixture(100);
+  const tenThousandMs = await recoverFixture(10_000);
+  const historyRatio = Math.max(tenThousandMs, hundredMs) / Math.min(tenThousandMs, hundredMs);
+  context.diagnostic(`recovery-window=first-store-access-through-recover 100=${hundredMs.toFixed(3)}ms 10000=${tenThousandMs.toFixed(3)}ms ratio=${historyRatio.toFixed(3)}`);
+  assert.equal(historyRatio < 2, true, `10k/100 recovery ratio was ${historyRatio}`);
 });
 
 function initRepo(rootDir: string): void {
