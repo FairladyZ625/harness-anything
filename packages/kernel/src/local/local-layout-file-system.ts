@@ -1,4 +1,5 @@
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
+import path from "node:path";
 import type { LayoutFileSystem } from "../layout/file-system.ts";
 
 export const localLayoutFileSystem: LayoutFileSystem = {
@@ -11,6 +12,19 @@ export const localEvidenceFileSystem = {
   exists: (inputPath: string) => existsSync(inputPath),
   readBytes: (inputPath: string): Uint8Array => readFileSync(inputPath),
   realpath: (inputPath: string) => realpathSync(inputPath)
+};
+
+export const localEventFileSystem = {
+  exists: (inputPath: string) => existsSync(inputPath), readText: (inputPath: string) => readFileSync(inputPath, "utf8"),
+  readNames: (inputPath: string) => readdirSync(inputPath), realpath: (inputPath: string) => realpathSync.native(inputPath),
+  remove: (inputPath: string) => rmSync(inputPath, { force: true }),
+  writeDurably: (inputPath: string, body: string): number => {
+    mkdirSync(path.dirname(inputPath), { recursive: true }); const tempPath = `${inputPath}.${process.pid}.tmp`; const fd = openSync(tempPath, "w");
+    try { writeSync(fd, body, null, "utf8"); fsyncSync(fd); } finally { closeSync(fd); }
+    renameSync(tempPath, inputPath); if (process.platform === "win32") return 1;
+    const dir = openSync(path.dirname(inputPath), "r"); try { fsyncSync(dir); } finally { closeSync(dir); }
+    return 2;
+  }
 };
 
 export const localRuntimeStateFileSystem = {

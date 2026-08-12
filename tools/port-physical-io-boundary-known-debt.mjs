@@ -50,11 +50,6 @@ export const portPhysicalIoBoundaryKnownDebt = [
     reason: "Existing sqlite projection store owns generated projection database writes; W3 freezes this storage implementation exception."
   },
   {
-    file: "packages/kernel/src/projection/sqlite-task-incremental-projection.ts",
-    decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
-    reason: "Existing incremental projection path reads filesystem metadata for freshness; W3 records this projection implementation exception."
-  },
-  {
     file: "packages/kernel/src/projection/sqlite-task-projection.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing task projection orchestration checks generated projection files; W3 freezes this projection implementation exception."

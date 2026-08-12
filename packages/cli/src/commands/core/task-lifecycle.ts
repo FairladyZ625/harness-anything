@@ -293,7 +293,7 @@ async function buildServiceInput(action: Exclude<TaskLifecycleCliAction, ShowAct
       gateReceipts: action.gateReceipts
     };
   }
-  throw Object.assign(new Error("Lifecycle input is incomplete; run the command with --help."), { code: "invalid_command" });
+  throw lifecycleError("Lifecycle input is incomplete; run the command with --help.", "invalid_command");
 }
 
 function operationId(action: TaskLifecycleCliAction, actor: ActorAxes, workspaceId: string, expectedRevision: number): string {
@@ -363,7 +363,7 @@ interface FrozenAntiEntropyReport {
 async function antiEntropyReviewInput(action: AntiEntropyReviewAction, dependencies: TaskLifecycleFacadeDependencies, expectedRevision: number): Promise<TaskLifecycleServiceInput> {
   const body = await (dependencies.readReport ?? readAntiEntropyReport)(action.antiEntropyReport);
   const report = parseAntiEntropyReport(body);
-  if (dependencies.verifyReceipt === undefined) throw Object.assign(new Error("Configure the receipt-verify adapter, then retry the signed frozen report."), { code: "receipt_verifier_unavailable", origin: "receipt-verify" });
+  if (dependencies.verifyReceipt === undefined) throw lifecycleError("Configure the receipt-verify adapter, then retry the signed frozen report.", "receipt_verifier_unavailable", "receipt-verify");
   const verification = await dependencies.verifyReceipt({
     token: action.antiEntropyToken,
     now: dependencies.now ?? new Date(),
@@ -373,10 +373,7 @@ async function antiEntropyReviewInput(action: AntiEntropyReviewAction, dependenc
     headSha: report.headSha
   });
   if (!verification.ok) {
-    throw Object.assign(new Error(`Run \`squad-sign <frozen-report> --verdict ${report.verdict} --head ${report.headSha} --scope ${report.scope}\` and retry with the token for the current HEAD. Verification failed: ${verification.errors.join("; ")}`), {
-      code: "invalid_anti_entropy_receipt",
-      origin: "receipt-verify"
-    });
+    throw lifecycleError(`Run \`squad-sign <frozen-report> --verdict ${report.verdict} --head ${report.headSha} --scope ${report.scope}\` and retry with the token for the current HEAD. Verification failed: ${verification.errors.join("; ")}`, "invalid_anti_entropy_receipt", "receipt-verify");
   }
   const reviewer: ActorAxes = {
     principal: dependencies.actor.principal,
@@ -444,8 +441,9 @@ function parseAntiEntropyReport(body: string): FrozenAntiEntropyReport {
 }
 
 function reportError(message: string): Error {
-  return Object.assign(new Error(`${message} Regenerate the immutable report with \`squad-run\`, then sign that exact report with \`squad-sign\`.`), {
-    code: "invalid_anti_entropy_report",
-    origin: "anti-entropy-report"
-  });
+  return lifecycleError(`${message} Regenerate the immutable report with \`squad-run\`, then sign that exact report with \`squad-sign\`.`, "invalid_anti_entropy_report", "anti-entropy-report");
+}
+
+function lifecycleError(message: string, code: string, origin?: string): Error {
+  const error = new Error(message) as Error & { code: string; origin?: string }; error.code = code; if (origin !== undefined) error.origin = origin; return error;
 }

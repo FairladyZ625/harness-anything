@@ -1,12 +1,12 @@
 {
   "version": 1,
   "ceilings": {
-    "kernel": 15696,
-    "task-lifecycle": 3044,
+    "kernel": 15389,
+    "task-lifecycle": 2960,
     "write-contract": 350,
     "doc-sync": 679,
     "preset": 6926,
-    "cli": 16717,
+    "cli": 16713,
     "gui": 15309,
     "daemon": 2333,
     "authority-write-path": 0,

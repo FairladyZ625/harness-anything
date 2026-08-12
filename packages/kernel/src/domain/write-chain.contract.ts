@@ -93,7 +93,8 @@ export interface EventHead {
 }
 
 export type WriteTarget =
-  | { readonly kind: "event_stream"; readonly stream: string; readonly operation: "append" }
+  | { readonly kind: "event_file"; readonly path: string; readonly operation: "create" }
+  | { readonly kind: "event_head"; readonly path: string; readonly operation: "replace" }
   | { readonly kind: "projection_invalidation"; readonly projection: string; readonly taskId: string }
   | { readonly kind: "lease_sqlite"; readonly table: "lease_cas"; readonly taskId: string; readonly operation: "reserve" | "activate" | "release" }
   | { readonly kind: "task_artifact"; readonly path: string; readonly operation: "create" | "replace" };
@@ -246,7 +247,7 @@ function safeIdentity(value: unknown): value is string {
 }
 
 function targetKey(target: WriteTarget): string {
-  return target.kind === "event_stream" ? `${target.kind}:${target.stream}`
+  return target.kind === "event_file" || target.kind === "event_head" ? `${target.kind}:${target.path}`
     : target.kind === "projection_invalidation" ? `${target.kind}:${target.projection}:${target.taskId}`
     : target.kind === "lease_sqlite" ? `${target.kind}:${target.table}:${target.taskId}:${target.operation}`
     : `${target.kind}:${target.path}`;
@@ -255,14 +256,17 @@ function targetKey(target: WriteTarget): string {
 export function validateDeclaredWritePlan(plan: WritePlan, commandTypes: readonly string[]): readonly string[] {
   const errors: string[] = [];
   if (!commandTypes.includes(plan.commandType)) errors.push("write plan command must come from its domain contract");
-  if (!Array.isArray(plan.targets) || !plan.targets.some((target) => target.kind === "event_stream")
+  if (!Array.isArray(plan.targets) || !plan.targets.some((target) => target.kind === "event_file")
+    || !plan.targets.some((target) => target.kind === "event_head")
     || !plan.targets.some((target) => target.kind === "projection_invalidation")) errors.push("write plan must declare event and projection targets");
   const keys = new Set<string>();
   for (const target of plan.targets) {
     const key = targetKey(target);
     if (keys.has(key)) errors.push(`duplicate write target: ${key}`);
     keys.add(key);
-    if (target.kind === "event_stream" && (!safeWorkspacePath(target.stream) || target.operation !== "append")) errors.push("event stream target is invalid");
+    if (target.kind === "event_file" && (!safeWorkspacePath(target.path) || !target.path.startsWith("harness/events/")
+      || !target.path.endsWith(".json") || target.path === "harness/events/head.json" || target.operation !== "create")) errors.push("event file target is invalid");
+    if (target.kind === "event_head" && (target.path !== "harness/events/head.json" || target.operation !== "replace")) errors.push("event head target is invalid");
     if (target.kind === "projection_invalidation" && (!isNonEmptyString(target.projection) || !safeIdentity(target.taskId))) errors.push("projection target is invalid");
     if (target.kind === "lease_sqlite" && (target.table !== "lease_cas" || !safeIdentity(target.taskId)
       || !["reserve", "activate", "release"].includes(target.operation))) errors.push("lease target is invalid");

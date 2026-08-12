@@ -1,10 +1,11 @@
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TaskLifecycleKillpoint } from "../src/task-lifecycle-service.ts";
-import { makeJournaledWriteCoordinator, normalizeTaskLifecycleCommand } from "../../kernel/src/index.ts";
-import { makeTaskEventStore, makeTaskLeaseStore, makeTaskProjection } from "../../kernel/test/store/task-lifecycle-runtime.ts";
-import { makeTaskLifecycleService, runTaskLifecycleEffect } from "../src/task-lifecycle-service.ts";
+import { normalizeTaskLifecycleCommand, type EventPublicationKillpoint } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, makeTaskProjection } from "../../kernel/test/store/task-lifecycle-runtime.ts";
+import { makeTaskLifecycleService } from "../src/task-lifecycle-service.ts";
 
 export const owner = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } };
 export const reviewer = { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "reviewer" } };
@@ -26,14 +27,19 @@ export const replayGraph = {
 
 export function lifecycleHarness() {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-"));
-  const coordinator = makeJournaledWriteCoordinator({ rootDir });
-  const eventStore = makeTaskEventStore({ rootDir, coordinator });
+  git(rootDir, "init", "--quiet");
+  git(rootDir, "config", "user.name", "Lifecycle Test");
+  git(rootDir, "config", "user.email", "lifecycle-test@example.invalid");
+  git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
+  let killAt: TaskLifecycleKillpoint | EventPublicationKillpoint | null = null;
+  const eventStore = makeTaskEventStore({ rootDir, killpoint: (point) => {
+    if (point === killAt) { killAt = null; throw new Error(`killpoint:${point}`); }
+  } });
   const realProjection = makeTaskProjection({ rootDir, eventStore });
-  const leases = makeTaskLeaseStore({ rootDir, coordinator, runEffect: runTaskLifecycleEffect, now: () => "2026-08-11T00:00:00.000Z" });
-  let killAt: TaskLifecycleKillpoint | null = null;
   let failProjection = false;
   const projection = {
     read: realProjection.read,
+    readOperation: realProjection.readOperation,
     apply: (event: Parameters<typeof realProjection.apply>[0]) => {
       if (failProjection) {
         failProjection = false;
@@ -45,7 +51,6 @@ export function lifecycleHarness() {
   const service = makeTaskLifecycleService({
     eventStore,
     projection,
-    leases,
     killpoint: (point) => {
       if (point === killAt) {
         killAt = null;
@@ -62,10 +67,9 @@ export function lifecycleHarness() {
     rootDir,
     eventStore,
     projection: realProjection,
-    leases,
     service,
     cleanup: () => rmSync(rootDir, { recursive: true, force: true }),
-    kill: (point: TaskLifecycleKillpoint) => { killAt = point; },
+    kill: (point: TaskLifecycleKillpoint | EventPublicationKillpoint) => { killAt = point; },
     failNextProjection: () => { failProjection = true; },
     create: (opId = "op-create") => {
       const next = revision() + 1;
@@ -111,4 +115,8 @@ export function lifecycleHarness() {
       });
     }
   };
+}
+
+function git(rootDir: string, ...args: readonly string[]): string {
+  return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }

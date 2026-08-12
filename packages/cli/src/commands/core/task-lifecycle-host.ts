@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
-import { makeTaskLifecycleService, runTaskLifecycleEffect } from "../../../../application/src/index.ts";
-import { makeTaskEventStore, makeTaskLeaseStore, makeTaskProjection, type CompleteTaskCommand, type ProofFor, type TaskLifecycleCommand } from "../../../../kernel/src/index.ts";
+import { makeTaskLifecycleService } from "../../../../application/src/index.ts";
+import { makeTaskEventStore, makeTaskProjection, type CompleteTaskCommand, type ProofFor, type TaskLifecycleCommand } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
 import type { CliResult, TaskLifecycleCliAction } from "../../cli/types.ts";
@@ -17,11 +17,9 @@ export const runTaskLifecycleFacadeCommand: CommandRunner = (context, command) =
   return cliResult(command.action, receipt);
 });
 export function makeTaskLifecycleHost(context: CommandRunnerContext): TaskLifecycleServicePort {
-  const coordinator = context.makeWriteCoordinator(context.actorAttribution().actor);
-  const eventStore = makeTaskEventStore({ rootInput: context.layoutInput, coordinator });
+  const eventStore = makeTaskEventStore({ rootInput: context.layoutInput });
   const projection = makeTaskProjection({ rootDir: context.rootDir, eventStore });
-  const leases = makeTaskLeaseStore({ rootDir: context.rootDir, coordinator, runEffect: runTaskLifecycleEffect });
-  const service = makeTaskLifecycleService({ eventStore, projection, leases });
+  const service = makeTaskLifecycleService({ eventStore, projection });
   return {
     show: async ({ taskId }) => {
       const read = await service.read(taskId);
@@ -144,4 +142,4 @@ function cliResult(action: TaskLifecycleCliAction, receipt: TaskLifecycleReceipt
     ok: false, ...common, error: cliError(CliErrorCode.WriteRejected, receipt.nextAction)
   };
 }
-function hostError(code: string, message: string): Error { return Object.assign(new Error(message), { code, origin: "task-lifecycle-host" }); }
+function hostError(code: string, message: string): Error { const error = new Error(message) as Error & { code: string; origin: string }; error.code = code; error.origin = "task-lifecycle-host"; return error; }

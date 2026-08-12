@@ -14,20 +14,16 @@ function lint(source, filename = "packages/example/src/bypass.ts") {
   }, { filename });
 }
 
-test("G01 rejects event fs writes and direct event/lease publication calls", () => {
+test("G01 rejects event fs writes and direct writer-token issuance", () => {
   const messages = lint([
     "import { appendFileSync } from 'node:fs';",
-    "import { applyLeaseCasWrite as mutateLease } from './task-lease-cas.ts';",
     "appendFileSync('harness/events/workspace.ndjson', '{}');",
-    "appendTaskEventAtPublicationBoundary(target, event);",
-    "applyLeaseCasWrite(root, op);",
     "issueWriterGenerationToken(writer);"
   ].join("\n"));
-  assert.equal(messages.length, 5);
-  assert.match(messages.map((entry) => entry.message).join("\n"), /writer owner.*event stream.*writer owner.*writer owner.*writer owner/su);
+  assert.equal(messages.length, 2);
+  assert.match(messages.map((entry) => entry.message).join("\n"), /event stream.*writer owner/su);
 });
 
-test("G01 accepts coordinator-owned publication and unrelated file writes", () => {
-  assert.deepEqual(lint("applyLeaseCasWrite(root, op);", "packages/kernel/src/store/write-journal-operations.ts"), []);
+test("G01 accepts unrelated file writes", () => {
   assert.deepEqual(lint("import { writeFileSync } from 'node:fs'; writeFileSync('report.json', '{}');"), []);
 });

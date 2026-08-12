@@ -2,7 +2,7 @@ import path from "node:path";
 
 const FILE_SYSTEM_MODULES = new Set(["fs", "fs/promises", "node:fs", "node:fs/promises"]);
 const FILE_MUTATORS = new Set(["appendFile", "appendFileSync", "writeFile", "writeFileSync"]);
-const WRITER_CALLS = new Set(["appendTaskEventAtPublicationBoundary", "applyLeaseCasWrite", "issueWriterGenerationToken"]);
+const WRITER_CALLS = new Set(["issueWriterGenerationToken"]);
 const WRITER_OWNER = /(?:^|\/)(?:write-chain\.contract|write-journal-operations)\.[^.]+$|\/eslint-rules\/no-writer-bypass\.js$|(?:^|\/)tools\/gates\/test\//u;
 
 function filenameOf(context) {

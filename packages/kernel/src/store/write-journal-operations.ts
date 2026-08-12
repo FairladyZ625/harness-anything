@@ -9,9 +9,7 @@ import { taskIdForWriteOp } from "./write-journal-entity.ts";
 import { appendJsonLineDurably, writeFileDurably } from "./write-journal-durable.ts";
 import { rejectTaskWrite, rejectWrite } from "./write-journal-rejection.ts";
 import { resolveContentAddressedBlobPath } from "./content-addressed-blob-store.ts";
-import { appendTaskEventAtPublicationBoundary } from "./task-event-store.ts";
 import { assertReservedCodeDocWrite } from "./write-journal-code-doc-policy.ts";
-import { applyLeaseCasWrite, taskLeaseDatabasePath, validateLeaseCasWrite } from "./task-lease-cas.ts";
 import { writeDocument } from "./markdown-artifact-store.ts";
 import {
   applyDocumentAppendRecord,
@@ -36,14 +34,6 @@ export interface WriteTransactionPlan {
   readonly validate: (rootInput: HarnessLayoutInput) => void;
 }
 export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
-  if (op.kind === "lease_cas") {
-    return {
-      touchedPaths: (rootInput) => [taskLeaseDatabasePath(rootInput)],
-      documentWrites: () => [],
-      apply: (rootInput) => { applyLeaseCasWrite(rootInput, op); return null; },
-      validate: () => { validateLeaseCasWrite(op); }
-    };
-  }
   if (op.kind === "doc_write" && hasDeclaredEntityDocument(op.payload)) {
     const companionWrites = declaredEntityCompanionWrites(op.payload);
     return {
@@ -140,8 +130,7 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
       documentWrites: () => [],
       apply: (rootInput) => {
         const artifact = machineArtifactJsonlAppend(rootInput, op);
-        if (artifact.boundary === "task-event-stream") appendTaskEventAtPublicationBoundary(artifact.targetPath, artifact.value);
-        else appendJsonLineDurably(artifact.targetPath, artifact.value);
+        appendJsonLineDurably(artifact.targetPath, artifact.value);
         return null;
       },
       validate: (rootInput) => {
@@ -338,7 +327,6 @@ function writeModuleScaffold(rootInput: HarnessLayoutInput, op: WriteOp): void {
 }
 export type MachineArtifactBoundary =
   | "runtime-event-ledger"
-  | "task-event-stream"
   | "provenance-session"
   | "docmap-derived"
   | "distill-candidate"

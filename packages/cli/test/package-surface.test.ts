@@ -176,8 +176,9 @@ test("architecture-rot-audit check action writes snapshot and non-blocking triag
       "void specs;",
       ""
     ].join("\n"));
-    writeFixture(rootDir, "packages/kernel/src/local/task-lease-store.ts", [
+    writeFixture(rootDir, "packages/kernel/src/projection/rebuildable-task-projection.ts", [
       "function transaction() {}",
+      "const begin = 'BEGIN IMMEDIATE';",
       "transaction();",
       "transaction();",
       ""

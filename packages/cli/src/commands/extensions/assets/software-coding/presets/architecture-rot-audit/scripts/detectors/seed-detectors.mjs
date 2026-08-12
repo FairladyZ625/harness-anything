@@ -98,8 +98,8 @@ function detectWriteOpInterpreters(rootDir) {
 }
 
 function detectTaskLeaseAtomicity(rootDir) {
-  const source = read(rootDir, "packages/kernel/src/local/task-lease-store.ts");
-  const helper = /function\s+transaction\b/u.test(source);
+  const source = read(rootDir, "packages/kernel/src/projection/rebuildable-task-projection.ts");
+  const helper = /function\s+transaction\b/u.test(source) && source.includes("BEGIN IMMEDIATE");
   const transactionCalls = count(source, /\btransaction\s*\(/gu) - (helper ? 1 : 0);
   return verdict(helper && transactionCalls >= 2, { atomicMutationHelper: helper, guardedMutationCallsites: transactionCalls });
 }

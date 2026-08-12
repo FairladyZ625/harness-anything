@@ -52,7 +52,8 @@ test("G03 rejects an unsafe target before freezing the write plan", () => {
   assert.throws(() => freezeDeclaredWritePlan({
     commandType: "CreateReplayTask",
     targets: [
-      { kind: "event_stream", stream: "../task-events.ndjson", operation: "append" },
+      { kind: "event_file", path: "../events/op-1.json", operation: "create" },
+      { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
       { kind: "projection_invalidation", projection: "task-lifecycle/v1", taskId: "task-1" }
     ]
   }, ["CreateReplayTask"]), (error) => error instanceof WriteChainContractError && error.code === "invalid_write_plan");

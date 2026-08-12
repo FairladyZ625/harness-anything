@@ -61,16 +61,6 @@ export interface LockTakeoverRecord {
   readonly reason: string;
 }
 
-// Durable mark that an op already mutated its target files. Replay skips the file
-// writes for marked ops but still commits and watermarks them, so a failure after
-// apply is self-healing instead of poisoning every later write (ADR-0016 D1/D2).
-export interface ApplyMarkerRecord {
-  readonly schema: "apply-marker/v1";
-  readonly opId: string;
-  readonly entityId: EntityId;
-  readonly at: string;
-}
-
 export interface WriteWatermark {
   readonly schema: "write-watermark/v1";
   readonly lastCommittedOpIds: ReadonlyArray<string>;

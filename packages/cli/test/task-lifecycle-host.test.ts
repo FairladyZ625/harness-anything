@@ -1,6 +1,7 @@
-// harness-test-tier: fast
+// harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,6 +22,7 @@ const actor = {
 test("host binds the lease to the authenticated actor, execution, and version", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-host-"));
   try {
+    initRepo(rootDir);
     const host = makeTaskLifecycleHost({
       rootDir,
       layoutInput: rootDir,
@@ -39,8 +41,9 @@ test("host binds the lease to the authenticated actor, execution, and version", 
     const first = await runTaskLifecycleFacade(start, { actor, workspaceId: rootDir, service: host });
     assert.equal(first.outcome, "applied");
 
-    const streamPath = path.join(rootDir, "harness/task-events.ndjson");
-    assert.equal(readFileSync(streamPath, "utf8").includes("credential"), false);
+    const eventBodies = readdirSync(path.join(rootDir, "harness/events")).filter((name) => name !== "head.json")
+      .map((name) => readFileSync(path.join(rootDir, "harness/events", name), "utf8")).join("\n");
+    assert.equal(eventBodies.includes("credential"), false);
     const projectionBytes = readFileSync(path.join(rootDir, ".harness/cache/task.sqlite")).toString("latin1");
     assert.equal(projectionBytes.includes("credential"), false);
 
@@ -68,6 +71,7 @@ test("real runner accepts a valid anti-entropy signature and rejects tampered, e
     for (const variant of ["valid", "tampered", "expired", "missing"] as const) {
       const rootDir = mkdtempSync(path.join(tmpdir(), `ha-task-g34-${variant}-`));
       try {
+        initRepo(rootDir);
         const context = runnerContext(rootDir, actor, variant === "missing" ? {} : { verifyAntiEntropyReceipt: verifySignedAntiEntropyReceipt });
         await submittedTask(context, `task_${variant}`, `execution_${variant}`);
         const headSha = "b".repeat(40);
@@ -95,6 +99,7 @@ test("real runner accepts a valid anti-entropy signature and rejects tampered, e
 
 test("host rejects unauthorized completion and forged gate receipt before accepting verified authority", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-g09-"));
+  initRepo(rootDir);
   const previousKey = process.env.ANTI_ENTROPY_HMAC_KEY;
   process.env.ANTI_ENTROPY_HMAC_KEY = "runner-receipt-key";
   const ownerContext = runnerContext(rootDir, actor, {
@@ -207,3 +212,13 @@ const testAuthorizer: NonNullable<CommandRunnerContext["authorizeTaskLifecycleAc
   }
   return { ok: false, nextAction: `Authorize ${candidate.principal.personId} before retrying.` };
 };
+
+function initRepo(rootDir: string): void {
+  git(rootDir, "init", "--quiet");
+  git(rootDir, "config", "user.name", "CLI Host Test");
+  git(rootDir, "config", "user.email", "cli-host-test@example.invalid");
+  git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
+}
+function git(rootDir: string, ...args: readonly string[]): string {
+  return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+}

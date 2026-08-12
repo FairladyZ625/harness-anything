@@ -34,11 +34,6 @@
         "reason": "P4 task lifecycle projection commits an atomic cache-only transaction."
       },
       {
-        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.exec@6",
-        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
-        "reason": "P4 task lifecycle projection rolls back an atomic cache-only transaction."
-      },
-      {
         "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@1",
         "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
         "reason": "P4 task lifecycle projection materializes a task event into the disposable cache."
@@ -84,6 +79,66 @@
         "reason": "P4 task lifecycle projection reads disposable entity rows for validation."
       },
       {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@10",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle reducer updates its disposable lease CAS view."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@11",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle reducer activates a disposable lease row."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@12",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle reducer records a rebuildable lease interval."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@13",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle reducer releases a disposable lease row."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@14",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle reducer closes a rebuildable lease interval."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@15",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle view reads a disposable task snapshot."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@16",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 task lifecycle view reads rebuildable lease intervals."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@17",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 lease CAS checks disposable active capacity."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@18",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 lease CAS reserves a disposable lease row."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@19",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 lease CAS updates a holder-version matched row."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@20",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 lease CAS projects an expired lease as orphaned."
+      },
+      {
+        "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@21",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 lease CAS reads its disposable current row."
+      },
+      {
         "value": "packages/kernel/src/projection/sqlite-projection-store.ts#mkdirSync@1",
         "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
         "reason": "The entity SQLite projection is a disposable cache rebuilt from canonical task and decision documents."
@@ -121,51 +176,6 @@
         "reason": "C0 coordinator transaction rollback removes a target created by a failed declared batch; it is not a caller-side bypass."
       },
       {
-        "value": "packages/kernel/src/store/task-lease-cas.ts#DatabaseSync@1",
-        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
-        "reason": "P4 sole Lease SQLite mutator is invoked only by the coordinator-held lease_cas write plan."
-      },
-      {
-        "value": "packages/kernel/src/store/task-lease-cas.ts#sqlite.exec@1",
-        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
-        "reason": "P4 coordinator-held Lease CAS initializes its sole runtime table."
-      },
-      {
-        "value": "packages/kernel/src/store/task-lease-cas.ts#sqlite.exec@2",
-        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
-        "reason": "P4 coordinator-held Lease CAS begins its atomic capacity/CAS transaction."
-      },
-      {
-        "value": "packages/kernel/src/store/task-lease-cas.ts#sqlite.exec@3",
-        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
-        "reason": "P4 coordinator-held Lease CAS commits its atomic capacity/CAS transaction."
-      },
-      {
-        "value": "packages/kernel/src/store/task-lease-cas.ts#sqlite.exec@4",
-        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
-        "reason": "P4 coordinator-held Lease CAS rolls back a rejected atomic capacity/CAS transaction."
-      },
-      {
-        "value": "packages/kernel/src/store/task-lease-cas.ts#sqlite.prepare@1",
-        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
-        "reason": "P4 coordinator-held Lease broker counts effective leases before reserve."
-      },
-      {
-        "value": "packages/kernel/src/store/task-lease-cas.ts#sqlite.prepare@2",
-        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
-        "reason": "P4 coordinator-held Lease broker publishes a capacity-checked reservation."
-      },
-      {
-        "value": "packages/kernel/src/store/task-lease-cas.ts#sqlite.prepare@3",
-        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
-        "reason": "P4 coordinator-held Lease broker applies versioned phase CAS."
-      },
-      {
-        "value": "packages/kernel/src/store/task-lease-cas.ts#sqlite.prepare@4",
-        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
-        "reason": "P4 Lease read side reads the coordinator-owned runtime row."
-      },
-      {
         "value": "packages/kernel/src/local/local-layout-file-system.ts#openSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Kernel local runtime filesystem port implements exclusive coordinator/lock creation."
@@ -199,6 +209,56 @@
         "value": "packages/kernel/src/local/local-layout-file-system.ts#writeFileSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Kernel local runtime filesystem port writes coordinator-owned runtime state."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#writeSync@1",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 event publication filesystem port writes an exact temporary event, head, or pending descriptor."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#fsyncSync@1",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 event publication filesystem port hardens exact file bytes before rename."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#openSync@2",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 event publication filesystem port opens its exact temporary target."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#fsyncSync@2",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 event publication filesystem port hardens the containing directory after rename."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#closeSync@2",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 event publication filesystem port closes its exact temporary target."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#openSync@3",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 event publication filesystem port opens the containing directory for durability."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#closeSync@3",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 event publication filesystem port closes the containing directory after durability."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#mkdirSync@2",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 event publication filesystem port creates only the exact event or local pending directory."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#renameSync@2",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 event publication filesystem port atomically publishes exact event or head bytes."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#rmSync@2",
+        "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
+        "reason": "P4 event publication filesystem port removes only its sole pending or prepared recovery artifact."
       },
       {
         "value": "packages/kernel/src/store/local-lock-registry.ts#mkdirSync@1",

@@ -19,7 +19,8 @@ export function taskLifecycleWritePlan(command: TaskLifecycleCommand): FrozenWri
   const leaseTargets: readonly WriteTarget[] = command.type === "StartExecution"
     ? [leaseTarget(command.taskId, "reserve"), leaseTarget(command.taskId, "activate"), leaseTarget(command.taskId, "release")]
     : command.type === "SubmitExecution" ? [leaseTarget(command.taskId, "release")] : [];
-  return freezeWritePlan({ commandType: command.type, targets: [{ kind: "event_stream", stream: "harness/task-events.ndjson", operation: "append" },
+  return freezeWritePlan({ commandType: command.type, targets: [{ kind: "event_file", path: `harness/events/${command.opId}.json`, operation: "create" },
+    { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
     { kind: "projection_invalidation", projection: "task-lifecycle/v1", taskId: command.taskId }, ...leaseTargets] });
 }
 function leaseTarget(taskId: string, operation: "reserve" | "activate" | "release"): WriteTarget { return { kind: "lease_sqlite", table: "lease_cas", taskId, operation }; }

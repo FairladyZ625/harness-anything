@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-control-system.ts";
@@ -185,6 +185,21 @@ function commandErrorSignal(error: unknown): string | undefined {
     if (typeof signal === "string" && signal.length > 0) return signal;
   }
   return undefined;
+}
+
+export function localGitText(repoRoot: string, ...args: readonly string[]): string { return runGit(repoRoot, ...args); }
+
+export function prepareLocalEventCommit(repoRoot: string, preparedRef: string, parentSha: string, files: readonly { readonly target: string; readonly body: string }[], opId: string): string {
+  const message = `harness event ${opId}`; const timestamp = Math.floor(Date.now() / 1_000);
+  let input = `commit ${preparedRef}\nmark :1\ncommitter Harness Event Store <harness-event-store@local.invalid> ${timestamp} +0000\ndata ${Buffer.byteLength(message)}\n${message}\nfrom ${parentSha}\n`; for (const file of files) input += `M 100644 inline ${file.target}\ndata ${Buffer.byteLength(file.body)}\n${file.body}\n`;
+  input += "\nget-mark :1\ndone\n"; const imported = spawnSync("git", ["-C", repoRoot, "-c", "core.fsync=committed,reference", "-c", "core.fsyncMethod=fsync", "fast-import", "--quiet", "--force"], { input, encoding: "utf8" });
+  if (imported.status !== 0) throw new Error(`Git event import failed: ${imported.stderr.trim()}`); const sha = imported.stdout.trim().split("\n").at(-1) ?? "";
+  if (!/^[0-9a-f]{40}$/u.test(sha)) throw new Error("Git event import did not return a commit identity");
+  return sha;
+}
+
+export function finalizeLocalEventCommit(repoRoot: string, branchRef: string, parentSha: string, preparedSha: string, changedPaths: readonly string[]): void {
+  runGit(repoRoot, "-c", "core.fsync=reference", "-c", "core.fsyncMethod=fsync", "update-ref", branchRef, preparedSha, parentSha); runGit(repoRoot, "update-index", "--add", "--", ...changedPaths);
 }
 
 function commandErrorSummary(error: unknown): string | undefined {
