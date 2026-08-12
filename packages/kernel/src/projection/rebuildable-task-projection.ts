@@ -41,8 +41,8 @@ export interface TaskProjection {
   readonly readLeaseIntervals: (taskId: string) => readonly LeaseInterval[]; readonly currentLease: (taskId: string, now?: string) => LeaseV1 | null; readonly currentLeaseForExecution: (executionId: string, now?: string) => LeaseV1 | null;
   readonly reserveLease: (lease: LeaseV1, now: string) => LeaseV1; readonly activateLease: (lease: LeaseV1) => LeaseV1;
   readonly renewLease: (lease: LeaseV1, expiresAt: string) => LeaseV1; readonly releaseLease: (lease: LeaseV1) => LeaseV1;
-  readonly readRuntimeInstallation: (installationId: string) => RuntimeInstallation | null; readonly readRuntimeSession: (runtimeSessionId: string) => RuntimeSession | null;
-  readonly readRuntimeSessionsForTask: (taskId: string) => readonly RuntimeSession[];
+  readonly readRuntimeInstallation: (installationId: string) => RuntimeInstallation | null; readonly readRuntimeInstallations: () => readonly RuntimeInstallation[]; readonly readRuntimeSession: (runtimeSessionId: string) => RuntimeSession | null;
+  readonly readRuntimeSessions: () => readonly RuntimeSession[]; readonly readRuntimeSessionsForTask: (taskId: string) => readonly RuntimeSession[];
 }
 
 export function defaultLifecycleTaskProjectionPath(rootDir: string): string { return path.join(path.resolve(rootDir), ".harness/cache/task.sqlite"); }
@@ -65,9 +65,9 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
     }),
     readTaskOperation: (opId) => withDatabase(projectionPath, (db) => { const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as { readonly event_json: string } | undefined; if (!row) return null; const event = parseEventJson(row.event_json); return isTaskEvent(event) ? { event, watermark: watermark(db) } : null; }),
     readDocument: (documentPath) => readDocument(projectionPath, options.eventStore, documentPath, limit),
-    readRuntimeInstallation: (installationId) => withDatabase(projectionPath, (db) => readRuntimeInstallation(db, installationId)),
-    readRuntimeSession: (runtimeSessionIdValue) => withDatabase(projectionPath, (db) => readRuntimeSession(db, runtimeSessionIdValue)),
-    readRuntimeSessionsForTask: (taskId) => withDatabase(projectionPath, (db) => queryRows(db, "SELECT value_json FROM runtime_session ORDER BY runtime_session_id").map((row) => JSON.parse(String(row.value_json)) as RuntimeSession).filter((session) => session.taskBindings.some((binding) => binding.taskId === taskId))),
+    readRuntimeInstallation: (installationId) => withDatabase(projectionPath, (db) => readRuntimeInstallation(db, installationId)), readRuntimeInstallations: () => withDatabase(projectionPath, readRuntimeInstallations),
+    readRuntimeSession: (runtimeSessionIdValue) => withDatabase(projectionPath, (db) => readRuntimeSession(db, runtimeSessionIdValue)), readRuntimeSessions: () => withDatabase(projectionPath, readRuntimeSessions),
+    readRuntimeSessionsForTask: (taskId) => withDatabase(projectionPath, (db) => readRuntimeSessions(db).filter((session) => session.taskBindings.some((binding) => binding.taskId === taskId))),
     readLeaseIntervals: (taskId) => withDatabase(projectionPath, (db) => readIntervals(db, taskId)),
     currentLease: (taskId, at) => withDatabase(projectionPath, (db) => effectiveLease(db, taskId, at ?? now())),
     currentLeaseForExecution: (executionId, at) => withDatabase(projectionPath, (db) => { const row = db.prepare("SELECT task_id FROM lease_cas WHERE json_extract(lease_json, '$.executionId') = ?").get(executionId) as { readonly task_id: string } | undefined; return row ? effectiveLease(db, row.task_id, at ?? now()) : null; }),
@@ -311,8 +311,8 @@ function effectiveLease(db: DatabaseSync, taskId: string, now: string): LeaseV1 
 }
 
 function storedLease(db: DatabaseSync, taskId: string): LeaseV1 | null { const row = queryRows(db, "SELECT lease_json FROM lease_cas WHERE task_id = ?", taskId)[0]; return row === undefined ? null : checkedLease(JSON.parse(String(row.lease_json)) as LeaseV1); }
-function readRuntimeInstallation(db: DatabaseSync, installationId: string): RuntimeInstallation | null { const row = queryRows(db, "SELECT value_json FROM runtime_installation WHERE installation_id = ?", installationId)[0]; return row ? JSON.parse(String(row.value_json)) as RuntimeInstallation : null; }
-function readRuntimeSession(db: DatabaseSync, sessionId: string): RuntimeSession | null { const row = queryRows(db, "SELECT value_json FROM runtime_session WHERE runtime_session_id = ?", sessionId)[0]; return row ? JSON.parse(String(row.value_json)) as RuntimeSession : null; }
+function readRuntimeInstallation(db: DatabaseSync, installationId: string): RuntimeInstallation | null { const row = queryRows(db, "SELECT value_json FROM runtime_installation WHERE installation_id = ?", installationId)[0]; return row ? JSON.parse(String(row.value_json)) as RuntimeInstallation : null; } function readRuntimeInstallations(db: DatabaseSync): RuntimeInstallation[] { return queryRows(db, "SELECT value_json FROM runtime_installation ORDER BY installation_id").map((row) => JSON.parse(String(row.value_json)) as RuntimeInstallation); }
+function readRuntimeSession(db: DatabaseSync, sessionId: string): RuntimeSession | null { const row = queryRows(db, "SELECT value_json FROM runtime_session WHERE runtime_session_id = ?", sessionId)[0]; return row ? JSON.parse(String(row.value_json)) as RuntimeSession : null; } function readRuntimeSessions(db: DatabaseSync): RuntimeSession[] { return queryRows(db, "SELECT value_json FROM runtime_session ORDER BY runtime_session_id").map((row) => JSON.parse(String(row.value_json)) as RuntimeSession); }
 function markRuntimeSessionsUnknown(db: DatabaseSync): number { const rows = queryRows(db, "SELECT runtime_session_id, value_json FROM runtime_session"); let changed = 0; for (const row of rows) { const current = JSON.parse(String(row.value_json)) as RuntimeSession, next = markRuntimeSessionUnknown(current); if (next !== current) { runSql(db, "UPDATE runtime_session SET value_json = ? WHERE runtime_session_id = ?", canonicalJson(next), String(row.runtime_session_id)); changed += 1; } } return changed; }
 function holder(lease: LeaseV1): LeaseHolder { return { taskId: lease.taskId, executionId: lease.executionId, actor: lease.actor, source: lease.source }; }
 function checkedLease(lease: LeaseV1): LeaseV1 { const issues = validateLeaseV1(lease); if (issues.length > 0) throw new Error(issues.map((issue) => issue.message).join("; ")); return lease; }

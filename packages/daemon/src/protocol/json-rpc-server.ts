@@ -1,11 +1,12 @@
 import type { DaemonHost } from "../daemon-host.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
-import { daemonProtocolError, isDaemonGuiReadMethod, jsonRpcMethodContracts, parseDaemonGuiReadResult, parseDaemonRpcParams } from "./daemon-protocol.contract.ts";
+import { daemonGuiStreamFacets, daemonProtocolError, isDaemonGuiReadMethod, isDaemonGuiStreamMethod, jsonRpcMethodContracts, parseDaemonGuiReadResult, parseDaemonGuiStreamResult, parseDaemonRpcParams } from "./daemon-protocol.contract.ts";
 import { type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./version.ts";
-export interface JsonRpcProtocolServer { readonly handle: (message: JsonRpcRequest | JsonRpcRequest[]) => Promise<JsonRpcResponse | JsonRpcResponse[] | undefined> }
-export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost; readonly authContext: DaemonAuthenticationContext }): JsonRpcProtocolServer {
+export interface JsonRpcProtocolServer { readonly handle: (message: JsonRpcRequest | JsonRpcRequest[]) => Promise<JsonRpcResponse | JsonRpcResponse[] | undefined>; readonly close: () => void }
+export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost; readonly authContext: DaemonAuthenticationContext; readonly emit: (method: string, params: JsonObject) => Promise<void> }): JsonRpcProtocolServer {
   let handshaken = false;
+  const subscriptions = new Set<Awaited<ReturnType<DaemonHost["attach"]>>>();
   const one = async (request: JsonRpcRequest): Promise<JsonRpcResponse | undefined> => {
     const id = request.id ?? null;
     if (request.jsonrpc !== "2.0" || typeof request.method !== "string") return rpcError(id, -32600, "Invalid Request");
@@ -28,6 +29,9 @@ export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost
       try { return reply(await options.host.admin(request.method.endsWith("unregister") ? { kind: "unregister", repoId: params.repoId as string } : { kind: "register", repoId: params.repoId as string, rootDir: params.rootDir as string }, options.authContext) as JsonObject); }
       catch (error) { return reply(daemonProtocolError(request.method, rpcServerErrorCode(error), error instanceof Error ? error.message : String(error)) as unknown as JsonObject); }
     }
+    if (isDaemonGuiStreamMethod(request.method)) { const repo = (params.repo as JsonObject).repoId as string, payload = params.payload as JsonObject;
+      try { const subscription = await options.host.attach(repo, payload.runtimeSessionId as string, payload.afterCursor as string, options.authContext), initial = parseDaemonGuiStreamResult(request.method, subscription.initial); if (initial.ok) { subscriptions.add(subscription); setImmediate(() => pump(subscription)); } return reply(initial as unknown as JsonObject); }
+      catch (error) { return reply(daemonProtocolError(request.method, rpcServerErrorCode(error), error instanceof Error ? error.message : String(error)) as unknown as JsonObject); } }
     if (isDaemonGuiReadMethod(request.method)) { const repo = (params.repo as JsonObject).repoId as string;
       try { return reply(parseDaemonGuiReadResult(request.method, await options.host.read(repo, request.method, params.payload as JsonObject | undefined ?? {}, options.authContext)) as unknown as JsonObject); }
       catch (error) { return reply(daemonProtocolError(request.method, rpcServerErrorCode(error), error instanceof Error ? error.message : String(error)) as unknown as JsonObject); } }
@@ -38,7 +42,8 @@ export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost
       ...(!ok ? { error: { code: receipt.code ?? "write_rejected", hint: receipt.nextAction ?? "Inspect the rejection." } } : {}) } as unknown as JsonObject);
   };
   return { handle: async (message) => Array.isArray(message)
-    ? (await Promise.all(message.map(one))).filter((item): item is JsonRpcResponse => item !== undefined) : one(message) };
+    ? (await Promise.all(message.map(one))).filter((item): item is JsonRpcResponse => item !== undefined) : one(message), close: () => { for (const subscription of subscriptions) subscription.detach(); subscriptions.clear(); } };
+  async function pump(subscription: Awaited<ReturnType<DaemonHost["attach"]>>): Promise<void> { try { for (;;) { const event = await subscription.next(); if (!event) break; await options.emit(daemonGuiStreamFacets[0].eventMethod, event as unknown as JsonObject); } } finally { subscription.detach(); subscriptions.delete(subscription); } }
 }
 function rpcError(id: JsonRpcId, errorCode: number, message: string): JsonRpcResponse { return { jsonrpc: "2.0", id, error: { code: errorCode, message } }; }
 function rpcServerErrorCode(error: unknown): string { return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "bootstrap_failed"; }

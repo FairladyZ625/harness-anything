@@ -9,7 +9,7 @@ export interface RunningDaemon { readonly endpoint: string; readonly stop: () =>
 export async function startDaemon(input: { readonly daemonId: string; readonly userRoot: string }): Promise<RunningDaemon> {
   const host = await openDaemonHost(input), endpoint = localUserDaemonEndpoint(input.userRoot, input.daemonId);
   const transport = createUnixSocketTransportServer({ daemonId: input.daemonId, socketPath: endpoint,
-    createProtocolServer: (authContext) => createJsonRpcProtocolServer({ host, authContext }) });
+    createProtocolServer: (authContext, emit) => createJsonRpcProtocolServer({ host, authContext, emit }) });
   try { await transport.start(); }
   catch (error) { await host.close(); throw error; }
   const pidPath = daemonPidPath(input.userRoot, input.daemonId);

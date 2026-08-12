@@ -7,7 +7,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, type AgentRuntimeEventV1 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
@@ -141,9 +141,9 @@ test("unrelated workspace lock collision does not block either workspace", async
 });
 
 test("JSON-RPC failure receipt carries formal operation identity and origin", async () => {
-  const host = { run: async () => { throw new Error("unused"); }, read: async () => { throw new Error("unused"); }, bootstrap: async () => ({}), admin: async () => ({}),
+  const host = { run: async () => { throw new Error("unused"); }, read: async () => { throw new Error("unused"); }, attach: async () => { throw new Error("unused"); }, issueRuntimeWitness: async () => { throw new Error("unused"); }, bindRuntimeWitness: () => { throw new Error("unused"); }, publishRuntimeWitness: () => { throw new Error("unused"); }, bootstrap: async () => ({}), admin: async () => ({}),
     status: () => ({ daemonId: "test", pid: process.pid, repos: [] }), close: async () => undefined };
-  const server = createJsonRpcProtocolServer({ host, authContext: { transportKind: "unix-socket" } });
+  const server = createJsonRpcProtocolServer({ host, authContext: { transportKind: "unix-socket" }, emit: async () => undefined });
   const response = await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: -1 } });
   assert.ok(response && !Array.isArray(response) && "result" in response); if (response && !Array.isArray(response) && "result" in response) {
     const receipt = response.result as Record<string, unknown>; assert.equal(receipt.outcome, "rejected"); assert.equal(receipt.opId, "N/A"); assert.equal(receipt.origin, "daemon"); }
@@ -181,6 +181,12 @@ test("read-only principal cannot write or admin while semantic capabilities pass
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
+test("runtime witness issuance uses the server principal and rejects admin or arbiter authority", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-witness-rbac-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), ids = { writer: 4201, admin: 4202, dualAdmin: 4203, dualArbiter: 4204 }; rbacRepo(root, ids); const auth = (ownerUid: number) => ({ transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" } } as const);
+  const runtimeActor = { principal: { personId: "fixture" }, executor: null } as const, store = makeTaskEventStore({ repoId: "runtime-witness", rootDir: root }), events = [{ schema: "agent-runtime-event/v1", eventId: "runtime-installation", workspaceRevision: 1, opId: "runtime-installation", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:00.000Z", type: "runtime_installation_observed", payload: { installationId: "installation-runtime", kindId: "codex", protocolFamily: "codex", hostRef: "host:local", version: "1.0.0", discoverySource: "wrapper", capabilities: ["structured_witness", "attach"], authState: "configured" } }, { schema: "agent-runtime-event/v1", eventId: "runtime-session", workspaceRevision: 2, opId: "runtime-session", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:01.000Z", type: "runtime_session_started", payload: { runtimeSessionId: "session-runtime", installationId: "installation-runtime", kindId: "codex", launchGeneration: 1, attachable: true } }] as const satisfies readonly AgentRuntimeEventV1[]; for (const event of events) store.append(event);
+  const host = await openDaemonHost({ daemonId: "runtime-witness", userRoot }); try { await host.admin({ kind: "register", rootDir: root, repoId: "runtime-witness" }, auth(ids.admin)); const issued = await host.issueRuntimeWitness("runtime-witness", "session-runtime", auth(ids.writer)), bound = host.bindRuntimeWitness("runtime-witness", issued.token); assert.equal(bound.actor.principal.personId, "writer"); assert.deepEqual(bound.actor.executor, { kind: "agent", id: "runtime-session:session-runtime" }); assert.equal(host.publishRuntimeWitness("runtime-witness", issued.token, { type: "activity", activity: "tool" }).type, "activity"); assert.throws(() => host.publishRuntimeWitness("runtime-witness", issued.token, { type: "heartbeat", actor: "provider-supplied" } as never), hasCode("invalid_provider_frame")); const assignment = { transportKind: "unix-socket", assignmentBinding: { nodeId: "node-runtime", repoId: "runtime-witness", taskId: "task-runtime", executionId: "execution-runtime", assignmentId: "assignment-runtime", paths: [], actor: { principal: { personId: "worker" }, executor: null } } } as const, assignmentToken = await host.issueRuntimeWitness("runtime-witness", "session-runtime", assignment), assignmentBound = host.bindRuntimeWitness("runtime-witness", assignmentToken.token); assert.deepEqual(assignmentBound.source, { kind: "assignment", nodeId: "node-runtime", assignmentId: "assignment-runtime" }); assert.deepEqual(assignmentBound.actor.executor, { kind: "agent", id: "runtime-session:session-runtime" }); await assert.rejects(host.issueRuntimeWitness("runtime-witness", "session-runtime", auth(ids.dualAdmin)), hasCode("rbac_forbidden")); await assert.rejects(host.issueRuntimeWitness("runtime-witness", "session-runtime", auth(ids.dualArbiter)), hasCode("rbac_forbidden")); } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+});
+
 function initRepo(rootDir: string): void {
   git(rootDir, "init", "--quiet");
   git(rootDir, "config", "user.name", "RepoCell Test");
@@ -189,14 +195,15 @@ function initRepo(rootDir: string): void {
   git(rootDir, "config", "maintenance.auto", "false");
   git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
 }
-function rbacRepo(rootDir: string, ids: Record<"reader" | "writer" | "arbiter" | "admin", number>): void { mkdirSync(rootDir, { recursive: true }); initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"));
+function rbacRepo(rootDir: string, ids: Readonly<Record<string, number>>): void { mkdirSync(rootDir, { recursive: true }); initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"));
   writeFileSync(path.join(rootDir, "harness/harness.yaml"), "schema: harness-anything/v1\nname: rbac\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n");
   const people = Object.entries(ids).map(([role, uid]) => ({ personId: role, displayName: role, roles: [role], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(uid) }] }));
-  const roles = [{ roleId: "reader", commandClasses: ["repo-read"] }, { roleId: "writer", commandClasses: ["repo-write"] }, { roleId: "arbiter", commandClasses: ["arbiter"] }, { roleId: "admin", commandClasses: ["admin"] }];
+  const commands: Readonly<Record<string, readonly string[]>> = { reader: ["repo-read"], writer: ["repo-write"], arbiter: ["arbiter"], admin: ["admin"], dualAdmin: ["repo-write", "admin"], dualArbiter: ["repo-write", "arbiter"] }, roles = Object.keys(ids).map((roleId) => ({ roleId, commandClasses: commands[roleId] }));
   writeFileSync(path.join(rootDir, "harness/people.yaml"), `${JSON.stringify({ schema: "harness-people/v1", people, roles }, null, 2)}\n`); git(rootDir, "add", "harness"); git(rootDir, "commit", "--quiet", "-m", "add RBAC fixture"); }
 async function rpc(host: Awaited<ReturnType<typeof openDaemonHost>>, auth: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2], method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const server = createJsonRpcProtocolServer({ host, authContext: auth }); await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } });
+  const server = createJsonRpcProtocolServer({ host, authContext: auth, emit: async () => undefined }); await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } });
   const response = await server.handle({ jsonrpc: "2.0", id: 2, method, params }); assert.ok(response && !Array.isArray(response) && "result" in response); return (response as { result: Record<string, unknown> }).result; }
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
+function hasCode(expected: string): (error: unknown) => boolean { return (error) => typeof error === "object" && error !== null && "code" in error && error.code === expected; }

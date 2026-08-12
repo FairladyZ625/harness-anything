@@ -1,0 +1,15 @@
+import type { AgentRuntimeEventsResult, AgentRuntimeOverviewResult, AgentRuntimeSessionResult } from "../../../daemon/src/agent-runtime-contract.ts";
+import type { AgentRuntimeAttachEvent, AgentRuntimeAttachResult } from "../../../daemon/src/agent-runtime-stream.ts";
+import type { DaemonGuiReadPayloadMap, DaemonGuiStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+
+type RuntimeBridge = { readonly getAgentRuntimeOverview: (payload: DaemonGuiReadPayloadMap["repo.agentRuntime.overview"]) => Promise<unknown>; readonly getAgentRuntimeSession: (payload: DaemonGuiReadPayloadMap["repo.agentRuntime.sessions.read"]) => Promise<unknown>; readonly getAgentRuntimeEvents: (payload: DaemonGuiReadPayloadMap["repo.agentRuntime.events.read"]) => Promise<unknown>; readonly attachAgentRuntime: (payload: DaemonGuiStreamPayloadMap["repo.agentRuntime.attach"], onValue: (value: unknown) => void) => () => void };
+const bridge = (): RuntimeBridge => { const value = window.harness as unknown as Partial<RuntimeBridge> | undefined; if (!value?.getAgentRuntimeOverview || !value.getAgentRuntimeSession || !value.getAgentRuntimeEvents || !value.attachAgentRuntime) throw new Error("Agent runtime contract bridge is unavailable."); return value as RuntimeBridge; };
+export const agentRuntimeClient = {
+  overview: async (taskId?: string): Promise<AgentRuntimeOverviewResult> => checked(await bridge().getAgentRuntimeOverview(taskId ? { taskId } : {}), "installations") as AgentRuntimeOverviewResult,
+  session: async (runtimeSessionId: string): Promise<AgentRuntimeSessionResult> => checked(await bridge().getAgentRuntimeSession({ runtimeSessionId }), "session") as AgentRuntimeSessionResult,
+  events: async (runtimeSessionId: string, afterCursor = "lifecycle:0"): Promise<AgentRuntimeEventsResult> => checked(await bridge().getAgentRuntimeEvents({ runtimeSessionId, afterCursor }), "events") as AgentRuntimeEventsResult,
+  attach: (runtimeSessionId: string, afterCursor: string, onValue: (value: AgentRuntimeAttachResult | AgentRuntimeAttachEvent) => void): (() => void) => bridge().attachAgentRuntime({ runtimeSessionId, afterCursor }, (value) => { if (!record(value)) throw new Error("Agent runtime stream returned an invalid value."); onValue(value as unknown as AgentRuntimeAttachResult | AgentRuntimeAttachEvent); })
+};
+export function openAgentRuntimePane(runtimeSessionId: string, afterCursor: string, onValue: (value: AgentRuntimeAttachResult | AgentRuntimeAttachEvent) => void): { readonly close: () => void } { return { close: agentRuntimeClient.attach(runtimeSessionId, afterCursor, onValue) }; }
+function checked(value: unknown, field: string): Record<string, unknown> { if (!record(value) || value.ok !== true || !Object.hasOwn(value, field)) throw new Error(record(value) && record(value.error) && typeof value.error.hint === "string" ? value.error.hint : "Agent runtime bridge returned an invalid result."); return value; }
+function record(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }
