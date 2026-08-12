@@ -1624,11 +1624,6 @@
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
       },
       {
-        "value": "VcsCommandError",
-        "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
-        "reason": "PLT-Bedrock W2 intentionally exposes the VersionControlSystem port contract as public kernel surface for composition roots and downstream port wiring."
-      },
-      {
         "value": "VcsCommitAuthor",
         "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
         "reason": "PLT-Bedrock W2 intentionally exposes the VersionControlSystem port contract as public kernel surface for composition roots and downstream port wiring."
