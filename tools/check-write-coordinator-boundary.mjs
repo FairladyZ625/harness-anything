@@ -1,121 +1,34 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
+import { fileURLToPath } from "node:url";
 
-const root = process.cwd();
-const coordinatorPath = "packages/kernel/src/store/write-journal-coordinator.ts";
-const coordinatorFile = path.join(root, coordinatorPath);
-const findings = [];
+const legacyProductionPath = /^(?:packages\/kernel\/src\/(?:ports\/(?:artifact-store-writer|current-session-probe|lifecycle-engine|lock-registry|write-coordinator)\.ts|store\/(?:content-addressed-blob-store|daemon-runtime(?:-queue)?|ledger-materializer|local-lock-registry|write-journal[^/]*)\.ts|write-coordination\/)|packages\/cli\/src\/daemon\/(?:command-service|doc-sync-service|queued-write-coordinator)\.ts|packages\/application\/src\/(?:current-session-probe|decision-write-service|doc-sync|fact-write-service|provenance-binding|provenance-session-exporter|runtime-event-ledger-service|runtime-session-logs|session-entity-reader|task-write-route-policy)\.ts)$/u;
 
-const allowlist = loadGateAllowlist("check-write-coordinator-boundary", {
-  requiredSections: ["knownMetabolicDecisionDebt"]
-});
-const allowedDebt = new Set(entryValues(allowlist.knownMetabolicDecisionDebt));
-
-const metabolicModules = new Map([
-  ["../entity/disposition.ts", new Set(["evaluateEntityDisposition"])],
-  ["../domain/index.ts", new Set(["isDomainStatus", "isPackageDisposition", "isTerminalStatus"])]
-]);
-
-const importedPolicyLocals = new Map();
-const text = readFileSync(coordinatorFile, "utf8");
-
-for (const statement of extractImportStatements(text)) {
-  const specifier = statement.specifier;
-  const bannedNames = metabolicModules.get(specifier);
-  if (!bannedNames) continue;
-
-  if (statement.dynamic) {
-    record(`dynamic-import:${specifier}`, `dynamic import of metabolic policy module ${specifier}`);
-    continue;
+export function findW3WriteAuthorityViolations(rootDir = process.cwd()) {
+  const violations = [], files = walk(path.join(rootDir, "packages"), rootDir);
+  for (const file of files.filter((candidate) => legacyProductionPath.test(candidate))) violations.push(`${file}: W3-retired production write path must not exist`);
+  const cellPath = "packages/daemon/src/repo-cell.ts", storePath = "packages/kernel/src/store/task-event-store.ts", servicePath = "packages/application/src/task-lifecycle-service.ts";
+  const cell = source(rootDir, cellPath, violations), store = source(rootDir, storePath, violations), service = source(rootDir, servicePath, violations);
+  for (const token of ["makeTaskEventStore", "makeTaskLifecycleService", "eventStore: store", "tail.then"]) if (!cell.includes(token)) violations.push(`${cellPath}: missing RepoCell authority token ${token}`);
+  for (const token of ["prepareLocalEventCommit", "finalizeLocalEventCommit"]) if (!store.includes(token)) violations.push(`${storePath}: missing Git publication token ${token}`);
+  if (!service.includes("eventStore.append")) violations.push(`${servicePath}: lifecycle service must publish only through its eventStore port`);
+  const consumers = files.filter((file) => file.endsWith(".ts") && !file.includes("/test/")).filter((file) => {
+    const body = readFileSync(path.join(rootDir, file), "utf8"); return /(?<!function\s)\bmakeTaskEventStore\s*\(/u.test(body);
+  });
+  if (consumers.length !== 1 || consumers[0] !== cellPath) violations.push(`makeTaskEventStore production consumers must be exactly ${cellPath}; found ${consumers.join(", ") || "none"}`);
+  for (const file of files.filter((candidate) => candidate.startsWith("packages/cli/src/") && candidate.endsWith(".ts"))) {
+    const body = readFileSync(path.join(rootDir, file), "utf8");
+    if (/from\s+["'][^"']*(?:kernel|application)\/src/u.test(body)) violations.push(`${file}: thin CLI must not import kernel/application domain modules`);
+    if (/\b(?:writeFile|writeFileSync|appendFile|appendFileSync|renameSync|mkdirSync)\s*\(/u.test(body)) violations.push(`${file}: thin CLI must not perform local writes`);
   }
-
-  for (const name of statement.named) {
-    if (!bannedNames.has(name.imported)) continue;
-    importedPolicyLocals.set(name.local, { specifier, imported: name.imported });
-    record(`named-import:${specifier}:${name.imported}:${name.local}`, `WriteCoordinator imports metabolic policy ${name.imported} from ${specifier}`);
-  }
+  return violations;
 }
 
-for (const [local, source] of importedPolicyLocals) {
-  for (const match of text.matchAll(new RegExp(`(?<![\\w$])${escapeRegExp(local)}\\s*\\(`, "gu"))) {
-    if (isImportDeclarationOffset(text, match.index ?? 0)) continue;
-    record(
-      `call-import:${source.specifier}:${source.imported}:${local}`,
-      `WriteCoordinator calls metabolic policy ${local} from ${source.specifier}`
-    );
-  }
-}
-
-if (/\bfunction\s+assertHardDeleteAllowed\s*\(/u.test(text)) {
-  record("local-function:assertHardDeleteAllowed", "WriteCoordinator owns hard-delete admissibility logic instead of delegating the policy decision");
-}
-
-const stale = [...allowedDebt].filter((entry) => !findings.some((finding) => finding.key === entry));
-if (stale.length > 0) {
-  findings.push(...stale.map((entry) => ({
-    key: entry,
-    message: `allowlist entry is stale and should be removed: ${entry}`,
-    allowed: false
-  })));
-}
-
-if (findings.some((finding) => !finding.allowed)) {
-  console.error("WriteCoordinator boundary check failed:");
-  for (const finding of findings.filter((item) => !item.allowed)) {
-    console.error(`- ${finding.key}: ${finding.message}`);
-  }
-  process.exitCode = 1;
-} else {
-  console.log(`WriteCoordinator boundary check passed (${findings.length} governed debt finding(s)).`);
-}
-
-function record(key, message) {
-  const allowed = allowedDebt.has(`${coordinatorPath}#${key}`);
-  findings.push({ key: `${coordinatorPath}#${key}`, message, allowed });
-}
-
-function extractImportStatements(source) {
-  const statements = [];
-  const staticPattern = /\bimport\s+(?:type\s+)?([\s\S]*?)\s+from\s+["']([^"']+)["']\s*;?/gu;
-  for (const match of source.matchAll(staticPattern)) {
-    statements.push({
-      dynamic: false,
-      specifier: match[2],
-      named: parseNamedImports(match[1] ?? "")
-    });
-  }
-
-  const dynamicPattern = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/gu;
-  for (const match of source.matchAll(dynamicPattern)) {
-    statements.push({
-      dynamic: true,
-      specifier: match[1],
-      named: []
-    });
-  }
-  return statements;
-}
-
-function parseNamedImports(importClause) {
-  const namedMatch = /\{([\s\S]*?)\}/u.exec(importClause);
-  if (!namedMatch) return [];
-  return namedMatch[1]
-    .split(",")
-    .map((raw) => raw.trim().replace(/^type\s+/u, ""))
-    .filter(Boolean)
-    .map((part) => {
-      const [imported, local] = part.split(/\s+as\s+/u).map((value) => value.trim()).filter(Boolean);
-      return { imported, local: local ?? imported };
-    });
-}
-
-function isImportDeclarationOffset(source, offset) {
-  const lineStart = source.lastIndexOf("\n", offset) + 1;
-  return /^\s*import\b/u.test(source.slice(lineStart, offset));
-}
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+function source(rootDir, relative, violations) { const file = path.join(rootDir, relative); if (!existsSync(file)) { violations.push(`${relative}: required W3 authority file is missing`); return ""; } return readFileSync(file, "utf8"); }
+function walk(directory, rootDir) { if (!existsSync(directory)) return []; const files = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) { const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...walk(absolute, rootDir)); else files.push(path.relative(rootDir, absolute).split(path.sep).join("/")); } return files; }
+function main() { const violations = findW3WriteAuthorityViolations(); if (violations.length > 0) { console.error("W3 write authority boundary check failed:"); for (const violation of violations) console.error(`- ${violation}`); process.exitCode = 1; }
+  else console.log("W3 write authority boundary check passed: RepoCell -> event store is the sole production write road."); }
+if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main();

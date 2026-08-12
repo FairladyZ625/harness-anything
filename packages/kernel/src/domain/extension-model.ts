@@ -347,13 +347,13 @@ function issue(code: ExtensionValidationIssue["code"], message: string, path: st
 
 function validateTemplateCatalogShape(input: unknown, path: string, issues: ExtensionValidationIssue[]): void {
   validateObjectKeys(input, path, ["schema", "package", "documents"], issues);
-  if (!isRecord(input)) return;
+  if (!isExtensionRecord(input)) return;
   validateObjectKeys(input.package, `${path}.package`, ["id", "title", "version", "owner", "locales"], issues);
   if (Array.isArray(input.documents)) {
     for (const [index, document] of input.documents.entries()) {
       const documentPath = `${path}.documents[${index}]`;
       validateObjectKeys(document, documentPath, ["id", "version", "documentKind", "slot", "materializeAs", "frontmatterSchema", "requiredAnchors", "fallbackLocale", "locales"], issues);
-      if (isRecord(document) && Array.isArray(document.locales)) {
+      if (isExtensionRecord(document) && Array.isArray(document.locales)) {
         for (const [localeIndex, locale] of document.locales.entries()) {
           validateObjectKeys(locale, `${documentPath}.locales[${localeIndex}]`, ["locale", "anchors", "bodyPath"], issues);
         }
@@ -364,7 +364,7 @@ function validateTemplateCatalogShape(input: unknown, path: string, issues: Exte
 
 function validatePresetManifestShape(input: unknown, path: string, issues: ExtensionValidationIssue[]): void {
   validateObjectKeys(input, path, ["schema", "id", "title", "vertical", "version", "kind", "extends", "policyPath", "kernelVersionRange", "capabilityImports", "entrypoints", "profiles", "defaultProfile"], issues);
-  if (!isRecord(input)) return;
+  if (!isExtensionRecord(input)) return;
   validateObjectKeys(input.kernelVersionRange, `${path}.kernelVersionRange`, ["min", "maxExclusive"], issues);
   validateCapabilityImportsShape(input.capabilityImports, `${path}.capabilityImports`, issues, ["id", "kind", "version", "required"]);
   validatePresetEntrypointsShape(input.entrypoints, `${path}.entrypoints`, issues);
@@ -372,7 +372,7 @@ function validatePresetManifestShape(input: unknown, path: string, issues: Exten
     for (const [index, profile] of input.profiles.entries()) {
       const profilePath = `${path}.profiles[${index}]`;
       validateObjectKeys(profile, profilePath, ["id", "title", "checkerProfile", "completionGates", "templateSelections", "capabilityImports"], issues);
-      if (isRecord(profile)) {
+      if (isExtensionRecord(profile)) {
         validateTemplateSelectionsShape(profile.templateSelections, `${profilePath}.templateSelections`, issues);
         validateCapabilityImportsShape(profile.capabilityImports, `${profilePath}.capabilityImports`, issues, ["id", "version"]);
       }
@@ -382,10 +382,10 @@ function validatePresetManifestShape(input: unknown, path: string, issues: Exten
 
 function validatePresetEntrypointsShape(input: unknown, path: string, issues: ExtensionValidationIssue[]): void {
   if (input === undefined) return;
-  if (!isRecord(input)) return;
+  if (!isExtensionRecord(input)) return;
   for (const [entrypointName, entrypoint] of Object.entries(input)) {
     const entrypointPath = `${path}.${entrypointName}`;
-    if (!isRecord(entrypoint)) continue;
+    if (!isExtensionRecord(entrypoint)) continue;
     if (entrypoint.type === "script") {
       validateObjectKeys(entrypoint, entrypointPath, ["type", "command", "reads", "writes", "inputs"], issues);
       continue;
@@ -400,7 +400,7 @@ function validatePresetEntrypointsShape(input: unknown, path: string, issues: Ex
 
 function validateVerticalDefinitionShape(input: unknown, path: string, issues: ExtensionValidationIssue[]): void {
   validateObjectKeys(input, path, ["schema", "id", "title", "version", "entityFieldExtensions", "entityKinds", "contractEntityKinds", "packageScaffolds", "repositoryScaffold", "scripts", "templateSelections", "checkerProfile", "projectionSchemas"], issues);
-  if (!isRecord(input)) return;
+  if (!isExtensionRecord(input)) return;
   validateEntityFieldExtensionsShape(input.entityFieldExtensions, `${path}.entityFieldExtensions`, issues);
   if (Array.isArray(input.entityKinds)) {
     for (const [index, entity] of input.entityKinds.entries()) {
@@ -411,7 +411,7 @@ function validateVerticalDefinitionShape(input: unknown, path: string, issues: E
     for (const [index, scaffold] of input.packageScaffolds.entries()) {
       const scaffoldPath = `${path}.packageScaffolds[${index}]`;
       validateObjectKeys(scaffold, scaffoldPath, ["entityKind", "templateSelections"], issues);
-      if (isRecord(scaffold)) {
+      if (isExtensionRecord(scaffold)) {
         validateTemplateSelectionsShape(scaffold.templateSelections, `${scaffoldPath}.templateSelections`, issues);
       }
     }
@@ -431,7 +431,7 @@ function validateEntityFieldExtensionsShape(input: unknown, path: string, issues
   for (const [index, extension] of input.entries()) {
     const extensionPath = `${path}[${index}]`;
     validateObjectKeys(extension, extensionPath, ["extends", "field", "kind", "values", "default", "mutability", "projection", "reason"], issues);
-    if (isRecord(extension)) {
+    if (isExtensionRecord(extension)) {
       validateObjectKeys(extension.projection, `${extensionPath}.projection`, ["column", "queryable"], issues);
     }
   }
@@ -439,7 +439,7 @@ function validateEntityFieldExtensionsShape(input: unknown, path: string, issues
 
 function validateRepositoryScaffoldShape(input: unknown, path: string, issues: ExtensionValidationIssue[]): void {
   validateObjectKeys(input, path, ["entityRoots", "dirs", "seededDocs", "agentsEntry"], issues);
-  if (!isRecord(input)) return;
+  if (!isExtensionRecord(input)) return;
   if (Array.isArray(input.entityRoots)) {
     for (const [index, root] of input.entityRoots.entries()) {
       validateObjectKeys(root, `${path}.entityRoots[${index}]`, ["entityKind", "path", "create"], issues);
@@ -454,7 +454,7 @@ function validateRepositoryScaffoldShape(input: unknown, path: string, issues: E
     for (const [index, document] of input.seededDocs.entries()) {
       const documentPath = `${path}.seededDocs[${index}]`;
       validateObjectKeys(document, documentPath, ["slot", "templateRef", "materializeAs", "localePolicy", "requiredWhen", "overwrite"], issues);
-      if (isRecord(document)) {
+      if (isExtensionRecord(document)) {
         validateObjectKeys(document.localePolicy, `${documentPath}.localePolicy`, ["prefer", "fallback"], issues);
       }
     }
@@ -462,7 +462,7 @@ function validateRepositoryScaffoldShape(input: unknown, path: string, issues: E
   if (input.agentsEntry !== undefined) {
     const agentsEntryPath = `${path}.agentsEntry`;
     validateObjectKeys(input.agentsEntry, agentsEntryPath, ["materializeAs", "localePolicy", "baseRef", "overlayRef", "repoSpecificsAnchor", "overwrite"], issues);
-    if (isRecord(input.agentsEntry)) {
+    if (isExtensionRecord(input.agentsEntry)) {
       validateObjectKeys(input.agentsEntry.localePolicy, `${agentsEntryPath}.localePolicy`, ["prefer", "fallback"], issues);
     }
   }
@@ -473,7 +473,7 @@ function validateVerticalScriptsShape(input: unknown, path: string, issues: Exte
   for (const [index, script] of input.entries()) {
     const scriptPath = `${path}[${index}]`;
     validateObjectKeys(script, scriptPath, ["id", "type", "command", "reads", "writes", "inputs", "metadata"], issues);
-    if (isRecord(script)) {
+    if (isExtensionRecord(script)) {
       validateObjectKeys(script.metadata, `${scriptPath}.metadata`, ["description", "purpose", "kind", "contractVersion", "produces"], issues);
     }
   }
@@ -484,7 +484,7 @@ function validateTemplateSelectionsShape(input: unknown, path: string, issues: E
   for (const [index, selection] of input.entries()) {
     const selectionPath = `${path}[${index}]`;
     validateObjectKeys(selection, selectionPath, ["slot", "templateRef", "materializeAs", "localePolicy", "requiredWhen"], issues);
-    if (isRecord(selection)) {
+    if (isExtensionRecord(selection)) {
       validateObjectKeys(selection.localePolicy, `${selectionPath}.localePolicy`, ["prefer", "fallback"], issues);
     }
   }
@@ -498,7 +498,7 @@ function validateCapabilityImportsShape(input: unknown, path: string, issues: Ex
 }
 
 function validateObjectKeys(input: unknown, path: string, allowedKeys: ReadonlyArray<string>, issues: ExtensionValidationIssue[]): void {
-  if (!isRecord(input)) return;
+  if (!isExtensionRecord(input)) return;
   const allowed = new Set(allowedKeys);
   for (const key of Object.keys(input)) {
     if (!allowed.has(key)) {
@@ -512,7 +512,7 @@ function scanForbiddenKeys(input: unknown, path: string, issues: ExtensionValida
     for (const [index, value] of input.entries()) scanForbiddenKeys(value, `${path}[${index}]`, issues);
     return;
   }
-  if (!isRecord(input)) return;
+  if (!isExtensionRecord(input)) return;
 
   const forbidden = new Set([
     `status${"Mapping"}`,
@@ -532,6 +532,6 @@ function scanForbiddenKeys(input: unknown, path: string, issues: ExtensionValida
   }
 }
 
-function isRecord(input: unknown): input is Record<string, unknown> {
+function isExtensionRecord(input: unknown): input is Record<string, unknown> {
   return typeof input === "object" && input !== null && !Array.isArray(input);
 }

@@ -1,12 +1,22 @@
 #!/usr/bin/env node
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { makeMarkdownArtifactStore, readDocmapManifest } from "../packages/kernel/src/index.ts";
-import { deriveDocmapManifest } from "../packages/cli/src/commands/core/docmap-generate.ts";
+import {
+  makeMarkdownArtifactStore,
+  normalizeRelativeDocumentPath,
+  readDocmapManifest,
+  readFrontmatter,
+  readScalar,
+  resolveHarnessLayout
+} from "../packages/kernel/src/index.ts";
 
 const freshnessWindowMs = 7 * 24 * 60 * 60 * 1000;
+const retiredCliGenerator = "packages/cli/src/commands/core/docmap-generate.ts";
 
 export function checkDocmapFresh(rootDir = process.cwd()) {
+  if (existsSync(path.join(rootDir, retiredCliGenerator))) {
+    return { ok: false, skipped: false, message: `${retiredCliGenerator} is a W3-retired CLI write path and must not return.` };
+  }
   const authoredRoot = path.join(rootDir, "harness");
   const manifestPath = path.join(authoredRoot, "docmap.json");
   if (!existsSync(authoredRoot) || !existsSync(manifestPath)) {
@@ -35,10 +45,63 @@ export function checkDocmapFresh(rootDir = process.cwd()) {
   return {
     ok: false,
     skipped: false,
-    message: "Docmap freshness check failed: harness/docmap.json is stale. Run `ha doc generate --write --json` and commit the updated private manifest.",
+    message: "Docmap freshness check failed: harness/docmap.json is stale. Update the private manifest through its owning harness authority.",
     diff: summarizeDiff(persisted.documents, derived.documents)
   };
 }
+
+function deriveDocmapManifest(rootDir) {
+  const layout = resolveHarnessLayout(rootDir);
+  const documents = [];
+  for (const candidate of [path.join(layout.authoredRoot, "AGENTS.md"), path.join(layout.authoredRoot, "governance", "standards"),
+    layout.adrRoot, layout.milestonesRoot]) collectMarkdownDocuments(layout.authoredRoot, candidate, documents);
+  const unique = new Map(documents.map((document) => [document.path, document]));
+  return { manifest: { schema: "docmap/v1", documents: [...unique.values()].sort(compareDocuments) } };
+}
+
+function collectMarkdownDocuments(authoredRoot, absolutePath, documents) {
+  if (!existsSync(absolutePath)) return;
+  const stat = statSync(absolutePath);
+  if (stat.isDirectory()) {
+    for (const entry of readdirSync(absolutePath).filter((name) => !name.startsWith("."))) {
+      collectMarkdownDocuments(authoredRoot, path.join(absolutePath, entry), documents);
+    }
+    return;
+  }
+  if (!absolutePath.endsWith(".md")) return;
+  const relativePath = normalizeRelativeDocumentPath(path.relative(authoredRoot, absolutePath).split(path.sep).join("/"));
+  const body = readFileSync(absolutePath, "utf8"), frontmatter = readFrontmatter(body), inferred = inferDocument(relativePath);
+  const modules = frontmatter ? readList(frontmatter, "modules", "docmap.modules") : [];
+  const productLines = frontmatter ? readList(frontmatter, "productLines", "docmap.productLines") : [];
+  const unused = frontmatter ? readBoolean(frontmatter, "unused", "docmap.unused") : false;
+  documents.push({ id: firstNonEmpty(frontmatter ? readScalar(frontmatter, "docmap.id") : "", frontmatter ? readScalar(frontmatter, "id") : "", inferred.id),
+    path: relativePath, kind: inferred.kind, scope: { modules: modules.length > 0 ? modules : inferred.modules,
+      productLines: productLines.length > 0 ? productLines : inferred.productLines }, updatedAt: stat.mtime.toISOString(), ...(unused ? { unused } : {}) });
+}
+
+function inferDocument(relativePath) {
+  const parts = relativePath.split("/");
+  if (relativePath === "AGENTS.md") return { id: "operating:AGENTS", kind: "standard", modules: [], productLines: [] };
+  if (parts[0] === "governance" && parts[1] === "standards") return { id: `standard:${basenameId(relativePath)}`, kind: "standard", modules: [], productLines: [] };
+  if (parts[0] === "adr") return { id: `adr:${basenameId(relativePath)}`, kind: "adr", modules: [], productLines: [] };
+  if (parts[0] === "milestones") { const productLine = parts.length > 2 ? parts[1] ?? "" : "root", moduleKey = parts.length > 3 ? parts[2] ?? "" : "";
+    return { id: `milestone:${[productLine, moduleKey, basenameId(relativePath)].filter(Boolean).join(":")}`, kind: "roadmap",
+      modules: moduleKey ? [moduleKey] : [], productLines: productLine === "root" ? [] : [productLine] }; }
+  const moduleKey = parts.find((part) => /^m\d[-\w]*$/iu.test(part));
+  return { id: `architecture:${basenameId(relativePath)}`, kind: "architecture", modules: moduleKey ? [moduleKey] : [], productLines: [] };
+}
+
+function readList(frontmatter, ...keys) {
+  for (const key of keys) { const scalar = readScalar(frontmatter, key); if (scalar) return scalar.split(",").map((item) => item.trim()).filter(Boolean);
+    const block = frontmatter.match(new RegExp(`^${escapeRegExp(key)}:\\n((?:[ \\t]+- .*\\n?)*)`, "mu"))?.[1];
+    if (block) return block.split(/\r?\n/u).map((line) => line.match(/^\s*-\s*(.*)$/u)?.[1]?.trim() ?? "").filter(Boolean); }
+  return [];
+}
+function readBoolean(frontmatter, ...keys) { return keys.some((key) => readScalar(frontmatter, key).trim().toLowerCase() === "true"); }
+function basenameId(relativePath) { return path.basename(relativePath, ".md").replace(/[^A-Za-z0-9_.:/@-]+/gu, "-"); }
+function firstNonEmpty(...values) { return values.find((value) => value.trim().length > 0)?.trim() ?? ""; }
+function compareDocuments(left, right) { return left.path.localeCompare(right.path, "en-US") || left.id.localeCompare(right.id, "en-US"); }
+function escapeRegExp(value) { return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"); }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const result = checkDocmapFresh(process.cwd());

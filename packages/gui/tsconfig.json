@@ -36,6 +36,9 @@
       "path": "../application"
     },
     {
+      "path": "../daemon"
+    },
+    {
       "path": "./tsconfig.renderer.json"
     }
   ]

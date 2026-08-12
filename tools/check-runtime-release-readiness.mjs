@@ -153,8 +153,7 @@ function executeSourceRunSmoke() {
   const executable = binary === "node" ? process.execPath : binary;
   try {
     const stdout = execFileSync(executable, args, { cwd: root, encoding: "utf8" });
-    const result = JSON.parse(stdout);
-    if (result.ok !== true || result.schema !== "command-receipt/v2" || result.command !== "doctor" || result.details?.data?.report?.readOnly !== true) {
+    if (!stdout.includes("Harness Anything thin CLI") || !stdout.includes("ha daemon start --service") || stdout.includes(" doctor")) {
       record(`source-run command returned unexpected output: ${stdout}`);
     }
   } catch (error) {

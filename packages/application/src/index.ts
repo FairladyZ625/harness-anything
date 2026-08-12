@@ -6,9 +6,6 @@ import type {
 import type { HarnessLayoutOverrides } from "../../kernel/src/index.ts";
 export { commandReceiptEnvelope } from "./command-receipt.ts";
 export type { CommandFailureReceipt, CommandReceipt, CommandReceiptEnvelope } from "./command-receipt.ts";
-export { currentSessionToProvenancePayload, defaultRuntimeSessionEnvCandidates, makeEnvironmentCurrentSessionProbe, makeHumanFallbackSessionProbe } from "./current-session-probe.ts";
-export { bindCreateProvenance } from "./provenance-binding.ts";
-export { makeDecisionWriteService } from "./decision-write-service.ts";
 export { makeTaskLifecycleService, runTaskLifecycleEffect, TaskLifecycleOperationConflict } from "./task-lifecycle-service.ts";
 export type {
   TaskLifecycleKillpoint,
@@ -17,97 +14,6 @@ export type {
   TaskLifecycleService,
   TaskLifecycleServiceRead
 } from "./task-lifecycle-service.ts";
-export { makeFactWriteService } from "./fact-write-service.ts";
-export {
-  evaluateDecisionReckonGate,
-  extractMarkdownSection,
-  isCloseoutPlaceholderMarkdown,
-  isReviewPlaceholderMarkdown,
-  isTaskDocumentPlaceholderMarkdown,
-  parseReviewMarkdown
-} from "./readiness-inspection.ts";
-export type {
-  DecisionReckonGateInput,
-  DecisionReckonGateResult,
-  ParsedReviewMarkdown,
-  ReviewFinding,
-  ReviewGateIssue,
-  TaskDocumentPlaceholderPolicy,
-  TaskDocumentPlaceholderSectionFingerprint
-} from "./readiness-inspection.ts";
-export {
-  taskWriteCliRoutePolicies,
-  taskWriteCliRoutePolicy
-} from "./task-write-route-policy.ts";
-export type {
-  TaskWriteCliRoutePolicy,
-  TaskWriteCommandClass
-} from "./task-write-route-policy.ts";
-export { makeProvenanceSessionExporter } from "./provenance-session-exporter.ts";
-export { readSessionEntity } from "./session-entity-reader.ts";
-export type { SessionEntityReadResult } from "./session-entity-reader.ts";
-export { classifyStaticZones, classifyTouchedZones, forbiddenTouchesForZones } from "./doc-sync.ts";
-export { makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "./runtime-event-ledger-service.ts";
-export { listDecisionDocuments, readDecisionDocument } from "./decision-document-reader.ts";
-export type { EnvironmentCurrentSessionProbeOptions, HumanFallbackSessionProbeOptions, RuntimeSessionEnvCandidate } from "./current-session-probe.ts";
-export type { ProvenanceBindingOptions } from "./provenance-binding.ts";
-export type {
-  DecisionDocumentListResult,
-  DecisionDocumentReadResult
-} from "./decision-document-reader.ts";
-export type {
-  DecisionCreateInput,
-  DecisionAmendRequest,
-  DecisionTransitionRequest,
-  DecisionWriteRejected,
-  DecisionWriteRequest,
-  DecisionWriteResult,
-  DecisionWriteService,
-  DecisionWriteServiceOptions
-} from "./decision-write-service.ts";
-export type {
-  FactInvalidateRequest,
-  FactInvalidateResult,
-  FactRecordRequest,
-  FactWriteRejected,
-  FactWriteResult,
-  FactWriteService,
-  FactWriteServiceOptions
-} from "./fact-write-service.ts";
-export type {
-  ProvenanceSessionBackfillOptions,
-  ProvenanceSessionBackfillResult,
-  ProvenanceSessionDocument,
-  ProvenanceSessionExporter,
-  ProvenanceSessionExportOptions,
-  ProvenanceSessionExporterOptions,
-  ProvenanceSessionExporterRejected,
-  ProvenanceSessionExportResult
-} from "./provenance-session-exporter.ts";
-export type {
-  DocSyncChangeV1,
-  DocSyncConflictV1,
-  DocSyncForbiddenTouchV1,
-  DocSyncSubmitRequestV1,
-  DocSyncSubmitResultV1,
-  DocSyncValidationResult
-} from "./doc-sync.ts";
-export type {
-  RuntimeEventAppendInput,
-  RuntimeEventExportPort,
-  RuntimeEventLedgerAppendResult,
-  RuntimeEventLedgerReadResult,
-  RuntimeEventLedgerRejected,
-  RuntimeEventLedgerService,
-  RuntimeEventLedgerServiceOptions
-} from "./runtime-event-ledger-service.ts";
-export { makeLocalControllerService } from "./local-controller-service.ts";
-export {
-  validateLocalControllerDecisionId,
-  readTaskDocumentPayload,
-  readTaskIdPayload
-} from "./local-controller-payloads.ts";
-
 export interface LocalControllerServiceOptions {
   readonly rootDir: string;
   readonly layoutOverrides?: HarnessLayoutOverrides;
@@ -371,5 +277,3 @@ export interface LocalControllerService {
   readonly archiveTask: () => LocalControllerResult;
   readonly openShell: () => OpenShellResult;
 }
-
-// check-implementation-contracts scans this entrypoint; document path normalization is delegated to local-controller-payloads.ts via normalizeRelativeDocumentPath.

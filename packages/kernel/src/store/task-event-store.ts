@@ -1,5 +1,6 @@
 import path from "node:path";
 import { serializeTaskEvent, validateTaskEvent, type TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
+import { serializePendingPublication, validatePendingPublication, type PendingPublication } from "../domain/event-publication.contract.ts";
 import { serializeEventHead, type EventHead } from "../domain/write-chain.contract.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
@@ -35,11 +36,6 @@ export interface EventFileBatch {
 
 export type EventPublicationKillpoint = "before_event_write" | "after_event_write" | "after_head_write" | "after_git_commit"
   | "after_sqlite_commit" | "before_response_write" | "after_response_write";
-
-interface PendingPublication {
-  readonly schema: "event-publication-pending/v1"; readonly event: TaskEventV1; readonly head: EventHead;
-  readonly previousHead: EventHead | null; readonly previousCommitSha: string;
-}
 
 export interface TaskEventStore {
   readonly path: string; readonly headPath: string; readonly read: () => TaskEventStreamV1; readonly readHead: () => EventHead | null;
@@ -97,7 +93,7 @@ export function makeTaskEventStore(options: { readonly rootInput?: HarnessLayout
       const head = { revision: event.workspaceRevision, opId: event.opId,
         eventDigest: `sha256:${sha256Text(eventBytes)}` as const } satisfies EventHead;
       const syncs = { count: 0 };
-      syncs.count += localEventFileSystem.writeDurably(pendingPath, `${JSON.stringify({ schema: "event-publication-pending/v1", event, head, previousHead, previousCommitSha: parentSha } satisfies PendingPublication)}\n`);
+      syncs.count += localEventFileSystem.writeDurably(pendingPath, serializePendingPublication({ schema: "event-publication-pending/v1", event, head, previousHead, previousCommitSha: parentSha }));
       options.killpoint?.("before_event_write");
       syncs.count += localEventFileSystem.writeDurably(targetPath, eventBytes);
       options.killpoint?.("after_event_write");
@@ -165,11 +161,15 @@ function existingReceipt(repoRoot: string, event: TaskEventV1, gitStarted: numbe
     metrics: { gitProcesses: localGitProcessCount() - gitStarted, nodeSyncs: 0, changedPaths: [] } };
 }
 
-function readPending(pendingPath: string): PendingPublication | null {
+function readPending(pendingPath: string): PendingPublication<TaskEventV1> | null {
   if (!localEventFileSystem.exists(pendingPath)) return null;
-  const value = JSON.parse(localEventFileSystem.readText(pendingPath)) as PendingPublication;
-  if (value.schema !== "event-publication-pending/v1" || !/^[0-9a-f]{40}$/u.test(value.previousCommitSha)) throw new TaskEventStoreError("publication_indeterminate", "pending publication descriptor is invalid");
-  return value;
+  const value: unknown = JSON.parse(localEventFileSystem.readText(pendingPath));
+  if (validatePendingPublication(value).length > 0) throw new TaskEventStoreError("publication_indeterminate", "pending publication descriptor is invalid");
+  const pending = value as PendingPublication<TaskEventV1>;
+  if (validateTaskEvent(pending.event).length > 0 || pending.head.eventDigest !== `sha256:${sha256Text(serializeTaskEvent(pending.event))}`) {
+    throw new TaskEventStoreError("publication_indeterminate", "pending publication event binding is invalid");
+  }
+  return pending;
 }
 
 function sameHead(left: EventHead | null, right: EventHead | null): boolean { return left === null || right === null ? left === right : serializeEventHead(left) === serializeEventHead(right); }

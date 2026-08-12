@@ -1,12 +1,8 @@
 import type { PreloadApiMethod } from "../preload/allowlist.ts";
 import { apiRouteContracts, deferredGuiBridgeContracts, type ApiRouteContract } from "./api-contract-registry.ts";
 
-// Contract anchor: document path normalization remains owned by the daemon-side
-// LocalControllerService via kernel normalizeRelativeDocumentPath. GUI main must
-// not import that kernel barrel because it would reintroduce the sqlite ABI path.
-export interface GuiServiceBridge {
-  readonly invoke: (method: string, payload: unknown) => Promise<unknown>;
-}
+// Contract anchor: validation stays daemon-owned; GUI main must not import the kernel barrel or recreate a local write path.
+export interface GuiServiceBridge { readonly invoke: (method: string, payload: unknown) => Promise<unknown>; }
 
 type JsonObject = { readonly [key: string]: JsonValue };
 type JsonValue = string | number | boolean | null | JsonObject | ReadonlyArray<JsonValue>;

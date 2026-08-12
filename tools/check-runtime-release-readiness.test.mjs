@@ -131,7 +131,7 @@ function writeValidRuntimeReleaseFixture(root, options = {}) {
   ].join("\n"));
   writeFile(root, "docs-release/release-posture.md", options.runtimeDocBody ?? validRuntimeDoc());
   writeFile(root, ".github/workflows/rewrite-ci.yml", options.workflowBody ?? validWorkflow());
-  writeFile(root, "packages/cli/src/index.ts", "console.log(JSON.stringify({ ok: true, schema: \"command-receipt/v2\", command: \"doctor\", action: \"doctor\", summary: \"completed doctor\", details: { data: { report: { readOnly: true } } }, meta: { generatedAt: \"2026-07-04T00:00:00.000Z\", compatibility: { legacyReceipt: \"CommandReceipt/v1\" } } }));\n");
+  writeFile(root, "packages/cli/src/index.ts", "console.log('Harness Anything thin CLI\\nha daemon start --service');\n");
 }
 
 function validRuntimeDoc() {
@@ -139,7 +139,7 @@ function validRuntimeDoc() {
     "# Runtime Release",
     "Status: source checkout and package smoke only.",
     "Node 24 and Node 26 are checked.",
-    "Run node packages/cli/src/index.ts --json doctor.",
+    "Run node packages/cli/src/index.ts --help.",
     "Run npm run check.",
     "Run npm run check:pr.",
     "Run npm run harness:smoke-cli-package.",

@@ -19,7 +19,7 @@ test("runtime release readiness policy covers source, check, package smoke and G
   assert.deepEqual(
     Object.fromEntries(harnessRuntimeReleaseReadiness.commands.map((command) => [command.surface, command.command])),
     {
-      "source-run": "node packages/cli/src/index.ts --json doctor",
+      "source-run": "node packages/cli/src/index.ts --help",
       "full-check": "npm run check",
       "pr-check": "npm run check:pr",
       "package-smoke": "npm run harness:smoke-cli-package",

@@ -6,7 +6,7 @@ import { repoRoot } from "./git.mjs";
 
 const CONTRACT_FILE = /\.contract\.(?:mjs|ts)$/u;
 const IGNORED_DIRECTORIES = new Set([".git", "coverage", "dist", "node_modules"]);
-const DOMAINS = Object.freeze(["commands", "gates", "guards"]);
+const DOMAINS = Object.freeze(["commands", "gates", "guards", "methods"]);
 
 function repoPath(rootDir, absolutePath) {
   return path.relative(rootDir, absolutePath).split(path.sep).join("/");

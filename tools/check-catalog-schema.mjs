@@ -1,69 +1,28 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = process.cwd();
-const catalogPath = "packages/cli/src/commands/extensions/assets/software-coding/template-catalog.json";
-const absoluteCatalogPath = path.join(root, catalogPath);
-const catalogRoot = path.dirname(absoluteCatalogPath);
-const failures = [];
+const legacyCatalog = "packages/cli/src/commands/extensions/assets/software-coding/template-catalog.json";
+const commandPath = "packages/daemon/src/protocol/daemon-protocol.contract.ts";
+const parserPath = "packages/cli/src/cli/thin-command.ts";
 
-function fail(message) {
-  failures.push(message);
-}
-
-const catalog = JSON.parse(readFileSync(absoluteCatalogPath, "utf8"));
-
-if (catalog.schema !== "template-catalog/v2") {
-  fail(`${catalogPath}: schema must be template-catalog/v2`);
-}
-
-if (!Array.isArray(catalog.documents)) {
-  fail(`${catalogPath}: documents must be an array`);
-} else {
-  for (const [documentIndex, document] of catalog.documents.entries()) {
-    if (!document || typeof document !== "object" || !Array.isArray(document.locales)) {
-      fail(`${catalogPath}: documents[${documentIndex}].locales must be an array`);
-      continue;
-    }
-    for (const [localeIndex, locale] of document.locales.entries()) {
-      const prefix = `${catalogPath}: documents[${documentIndex}].locales[${localeIndex}]`;
-      if (!locale || typeof locale !== "object") {
-        fail(`${prefix} must be an object`);
-        continue;
-      }
-      if (Object.hasOwn(locale, "body")) {
-        fail(`${prefix}.body must not be inline; use bodyPath`);
-      }
-      if (typeof locale.bodyPath !== "string") {
-        fail(`${prefix}.bodyPath must be a string`);
-        continue;
-      }
-      if (!isSafeBodyPath(locale.bodyPath)) {
-        fail(`${prefix}.bodyPath must be a safe relative .md path`);
-        continue;
-      }
-      const resolved = path.resolve(catalogRoot, locale.bodyPath);
-      if (!resolved.startsWith(`${catalogRoot}${path.sep}`)) {
-        fail(`${prefix}.bodyPath must stay inside ${path.relative(root, catalogRoot)}`);
-        continue;
-      }
-      if (!existsSync(resolved) || !statSync(resolved).isFile()) {
-        fail(`${prefix}.bodyPath target is missing: ${locale.bodyPath}`);
-      }
-    }
+export function checkCatalogSchema(options = {}) {
+  const rootDir = options.rootDir ?? process.cwd(), failures = [];
+  const source = options.commandSource ?? readFileSync(path.join(rootDir, commandPath), "utf8");
+  const parser = options.parserSource ?? readFileSync(path.join(rootDir, parserPath), "utf8");
+  const entries = [...source.matchAll(/\{[^{}]*\busage:\s*"([^"]+)"\s*,\s*summary:\s*"([^"]*)"[^{}]*\}/gu)].map((match) => ({ usage: match[1], summary: match[2] }));
+  if (existsSync(options.legacyCatalog ?? path.join(rootDir, legacyCatalog))) failures.push(`${legacyCatalog}: retired template catalog must not remain`);
+  if (entries.length < (options.minimumCommands ?? 13)) failures.push(`${commandPath}: command directory contains ${entries.length} entries`);
+  for (const [index, entry] of entries.entries()) {
+    if (!entry.usage.startsWith("ha ")) failures.push(`${commandPath}: entries[${index}].usage must start with ha`);
+    if (!entry.summary.trim()) failures.push(`${commandPath}: entries[${index}].summary must be non-empty`);
   }
+  if (!parser.includes("daemon-protocol.contract.ts") || !parser.includes("resolveThinCliCommand") || !parser.includes("thinCliCommands")) failures.push(`${parserPath}: parser must consume the daemon protocol command directory`);
+  if (/\bconst\s+thinCliCommands\s*=/u.test(parser)) failures.push(`${parserPath}: parser must not restore a local command directory`);
+  return { ok: failures.length === 0, failures };
 }
 
-if (failures.length > 0) {
-  console.error("Template catalog schema check failed:");
-  for (const failure of failures) console.error(`- ${failure}`);
-  process.exit(1);
-}
-
-console.log("Template catalog schema check passed.");
-
-function isSafeBodyPath(value) {
-  if (path.isAbsolute(value) || value.includes("\\") || !value.endsWith(".md")) return false;
-  return value.split("/").every((part) => part.length > 0 && part !== "." && part !== "..");
-}
+if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) { const result = checkCatalogSchema();
+  if (!result.ok) { console.error("Thin command directory schema check failed:"); for (const failure of result.failures) console.error(`- ${failure}`); process.exitCode = 1; }
+  else console.log("Thin command directory schema check passed."); }

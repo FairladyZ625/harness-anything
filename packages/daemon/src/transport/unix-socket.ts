@@ -5,7 +5,6 @@ import os from "node:os";
 import path from "node:path";
 import type { DaemonAuthenticationContext } from "./auth-context.ts";
 import { serveJsonRpcStream, type DaemonTransportConnection } from "./json-rpc-stream.ts";
-import { authenticateSshForcedCommandFrame } from "./ssh-forced-command.ts";
 import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
 
 export interface UnixSocketTransportOptions {
@@ -14,7 +13,6 @@ export interface UnixSocketTransportOptions {
   readonly createProtocolServer: (authContext: DaemonAuthenticationContext) => JsonRpcProtocolServer;
   readonly onConnection?: (connection: DaemonTransportConnection) => void;
   readonly onConnectionClosed?: (connection: DaemonTransportConnection) => void;
-  readonly acceptSshForcedCommand?: boolean;
 }
 
 export interface UnixSocketTransportServer {
@@ -47,7 +45,6 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
       output: socket,
       transportKind: "unix-socket",
       authContext,
-      ...(options.acceptSshForcedCommand ? { authenticateFirstFrame: authenticateSshForcedCommandFrame } : {}),
       createProtocolServer: options.createProtocolServer
     });
     options.onConnection?.(connection);

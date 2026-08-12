@@ -1,175 +1,31 @@
+#!/usr/bin/env node
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const registryPath = "packages/cli/src/cli/error-codes.ts";
 const sourceRoot = "packages/cli/src";
-const scannedExtensions = new Set([".ts"]);
-const excludedFiles = new Set([
-  registryPath,
-  "packages/cli/src/cli/types.ts"
-]);
+const contractPath = "packages/cli/src/cli/thin-command.ts";
 
 export function findCliErrorCodeViolations(rootDir = process.cwd()) {
-  const violations = [];
-  const registrySource = readFileSync(path.join(rootDir, registryPath), "utf8");
-  const codeEntries = cliErrorCodeEntries(registrySource);
-  const codeNames = new Set(codeEntries.map((entry) => entry.name));
-  const kernelMappedNames = cliErrorFamilyNames(registrySource, "cliKernelMappedErrorCodes");
-  const codeValues = new Map();
-  const duplicateValues = new Set();
-
-  for (const entry of codeEntries) {
-    if (codeValues.has(entry.value)) duplicateValues.add(entry.value);
-    codeValues.set(entry.value, entry.name);
-  }
-  for (const value of duplicateValues) {
-    violations.push(`CliErrorCode value ${value} is duplicated`);
-  }
-
-  const registryNames = cliErrorRegistryNames(registrySource);
-  for (const name of codeNames) {
-    if (!registryNames.has(name)) violations.push(`CliErrorCode.${name} is missing cliErrorCodeRegistry metadata`);
-  }
-  for (const name of registryNames) {
-    if (!codeNames.has(name)) violations.push(`cliErrorCodeRegistry has stale CliErrorCode.${name}`);
-  }
-  for (const exportedName of ["CliErrorCode", "cliErrorCodeRegistry", "cliError", "isCliErrorCode"]) {
-    if (!registrySource.includes(`export ${exportedName}`) && !registrySource.includes(`export function ${exportedName}`) && !registrySource.includes(`export const ${exportedName}`)) {
-      violations.push(`${registryPath} must export ${exportedName}`);
-    }
-  }
-  for (const exportedName of ["cliKernelMappedErrorCodes", "cliCommandLocalErrorCodes", "cliErrorFamily"]) {
-    if (!registrySource.includes(`export const ${exportedName}`) && !registrySource.includes(`export function ${exportedName}`)) {
-      violations.push(`${registryPath} must export ${exportedName}`);
-    }
-  }
-  for (const name of kernelMappedNames) {
-    if (!codeNames.has(name)) violations.push(`cliKernelMappedErrorCodes has stale CliErrorCode.${name}`);
-  }
-  for (const entry of codeEntries) {
-    if (/^[A-Z][A-Za-z0-9]+$/u.test(entry.value) && !kernelMappedNames.has(entry.name)) {
-      violations.push(`PascalCase kernel adapter code CliErrorCode.${entry.name} must be in cliKernelMappedErrorCodes`);
-    }
-  }
-  if (!/cliCommandLocalErrorCodes\s*=\s*new Set<\s*CliErrorCode\s*>\s*\(\s*Object\.values\(CliErrorCode\)\.filter/u.test(registrySource)) {
-    violations.push("cliCommandLocalErrorCodes must be derived from CliErrorCode minus cliKernelMappedErrorCodes");
-  }
-
-  for (const file of walkFiles(path.join(rootDir, sourceRoot))) {
-    const relative = path.relative(rootDir, file);
-    if (excludedFiles.has(relative) || !scannedExtensions.has(path.extname(file))) continue;
-    const source = readFileSync(file, "utf8");
-    violations.push(...inlineCliResultErrorViolations(relative, source));
-  }
-
+  const contract = readFileSync(path.join(rootDir, contractPath), "utf8");
+  const codes = extractCodes(contract), violations = [];
+  if (codes.length === 0) violations.push("thinCliLocalErrorCodes must declare the local parse/transport error vocabulary");
+  for (const duplicate of new Set(codes.filter((code, index) => codes.indexOf(code) !== index))) violations.push(`thin CLI error code ${duplicate} is duplicated`);
+  const known = new Set(codes), sources = walk(path.join(rootDir, sourceRoot)).map((file) => readFileSync(file, "utf8"));
+  const usageSources = sources.map((source) => source.replace(/thinCliLocalErrorCodes\s*=\s*Object\.freeze\(\[[^\]]*\]\)/u, ""));
+  for (const code of literalReceiptCodes(sources.join("\n"))) if (!known.has(code)) violations.push(`inline thin CLI receipt code ${code} is missing from thinCliLocalErrorCodes`);
+  for (const code of codes) if (!usageSources.some((source) => source.includes(`"${code}"`))) violations.push(`thinCliLocalErrorCodes contains unused code ${code}`);
+  if (sources.some((source) => /CliErrorCode|cliErrorCodeRegistry|cliKernelMappedErrorCodes/u.test(source))) violations.push("retired CliErrorCode registry must not return to the thin CLI");
   return violations;
 }
 
-function cliErrorCodeEntries(source) {
-  const objectSource = extractAssignedLiteral(source, "CliErrorCode");
-  return [...objectSource.matchAll(/^\s*([A-Za-z0-9]+):\s*"([A-Za-z0-9_:-]+)"/gmu)]
-    .map((match) => ({ name: match[1], value: match[2] }));
-}
-
-function cliErrorRegistryNames(source) {
-  const registrySource = extractAssignedLiteral(source, "cliErrorCodeRegistry");
-  return new Set([...registrySource.matchAll(/^\s*\[\s*CliErrorCode\.([A-Za-z0-9]+)\s*\]\s*:/gmu)].map((match) => match[1]));
-}
-
-function cliErrorFamilyNames(source, constName) {
-  const start = source.indexOf(`export const ${constName}`);
-  if (start < 0) return new Set();
-  const bodyStart = source.indexOf("[", start);
-  if (bodyStart < 0) return new Set();
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    const char = source[index];
-    if (char === "[") depth += 1;
-    if (char === "]") depth -= 1;
-    if (depth === 0) {
-      const body = source.slice(bodyStart, index + 1);
-      return new Set([...body.matchAll(/CliErrorCode\.([A-Za-z0-9]+)/gmu)].map((match) => match[1]));
-    }
-  }
-  return new Set();
-}
-
-function inlineCliResultErrorViolations(relativePath, source) {
-  const violations = [];
-  const lines = source.split("\n");
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (!/\bcode\s*:/u.test(line)) continue;
-    if (/\bfunction\b/u.test(line)) continue;
-    const windowText = lines.slice(Math.max(0, index - 3), Math.min(lines.length, index + 5)).join("\n");
-    if (!/\bhint\s*:/u.test(windowText)) continue;
-    if (/\breadonly\s+code\s*:/u.test(line)) continue;
-    const match = line.match(/\bcode\s*:\s*(["'`][^"'`]*["'`]|CliErrorCode\.[A-Za-z0-9]+|[A-Za-z0-9_$]+\()/u);
-    const value = match?.[1] ?? "dynamic code";
-    violations.push(`${relativePath}:${index + 1} uses inline CliResult error code ${value}; use cliError(CliErrorCode.*)`);
-  }
-  return violations;
-}
-
-function extractAssignedLiteral(source, constName) {
-  const declaration = new RegExp(`\\b(?:export\\s+)?const\\s+${constName}\\b[^=]*=`, "u").exec(source);
-  if (!declaration) throw new Error(`missing ${constName}`);
-  const start = declaration.index + declaration[0].length;
-  const objectStart = source.indexOf("{", start);
-  if (objectStart < 0) throw new Error(`missing ${constName} object literal`);
-  let depth = 0;
-  let quote = "";
-  let escaped = false;
-  for (let index = objectStart; index < source.length; index += 1) {
-    const char = source[index];
-    if (quote) {
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (char === "\\") {
-        escaped = true;
-        continue;
-      }
-      if (char === quote) quote = "";
-      continue;
-    }
-    if (char === "\"" || char === "'" || char === "`") {
-      quote = char;
-      continue;
-    }
-    if (char === "{") depth += 1;
-    if (char === "}") depth -= 1;
-    if (depth === 0) return source.slice(objectStart, index + 1);
-  }
-  throw new Error(`unterminated ${constName}`);
-}
-
-function walkFiles(dir) {
-  const files = [];
-  for (const entry of readdirSync(dir)) {
-    const file = path.join(dir, entry);
-    const stats = statSync(file);
-    if (stats.isDirectory()) {
-      files.push(...walkFiles(file));
-    } else {
-      files.push(file);
-    }
-  }
-  return files;
-}
-
-function main() {
-  const violations = findCliErrorCodeViolations();
-  if (violations.length === 0) return;
-
-  console.error("CLI error code gate failed:");
-  for (const violation of violations) console.error(`- ${violation}`);
-  process.exitCode = 1;
-}
-
-const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : "";
-if (invokedPath === fileURLToPath(import.meta.url)) {
-  main();
-}
+function extractCodes(source) { const match = /thinCliLocalErrorCodes\s*=\s*Object\.freeze\(\[([^\]]*)\]\)/u.exec(source); return match ? [...match[1].matchAll(/"([a-z][a-z0-9_]*)"/gu)].map((entry) => entry[1]) : []; }
+function literalReceiptCodes(source) { const codes = new Set();
+  for (const pattern of [/\brejected\(\s*"([a-z][a-z0-9_]*)"/gu, /\bfailure\([^,\n]+,\s*"([a-z][a-z0-9_]*)"/gu, /\bcode:\s*"([a-z][a-z0-9_]*)"/gu]) {
+    for (const match of source.matchAll(pattern)) codes.add(match[1]);
+  } return codes; }
+function walk(dir) { const files = []; for (const entry of readdirSync(dir)) { const file = path.join(dir, entry); const stats = statSync(file);
+  if (stats.isDirectory()) files.push(...walk(file)); else if (file.endsWith(".ts")) files.push(file); } return files; }
+function main() { const violations = findCliErrorCodeViolations(); if (violations.length === 0) return;
+  console.error("CLI error code gate failed:"); for (const violation of violations) console.error(`- ${violation}`); process.exitCode = 1; }
+if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main();

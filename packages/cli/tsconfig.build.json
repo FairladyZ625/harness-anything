@@ -17,7 +17,7 @@
   "include": [
     "src/**/*.ts",
     "../kernel/src/**/*.ts",
-    "../adapters/local/src/**/*.ts",
-    "../adapters/multica/src/**/*.ts"
+    "../application/src/task-lifecycle-service.ts",
+    "../daemon/src/**/*.ts"
   ]
 }

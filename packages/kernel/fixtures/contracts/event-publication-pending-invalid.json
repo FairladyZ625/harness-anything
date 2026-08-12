@@ -1,0 +1,7 @@
+{
+  "schema": "event-publication-pending/v1",
+  "event": {},
+  "head": {},
+  "previousHead": null,
+  "previousCommitSha": "truncated"
+}

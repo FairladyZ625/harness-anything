@@ -1480,7 +1480,7 @@
       "positiveControl": {
         "status": "covered",
         "evidence": [
-          "tools/check-cli-structure.test.mjs"
+          "tools/gates/test/cli-structure.test.mjs"
         ]
       }
     },
@@ -4026,11 +4026,11 @@
       "tier": "pr-required",
       "tierReason": null,
       "authoritySource": [
-        "packages/cli/src/commands/legacy",
+        "packages/cli/src/cli/thin-command.ts",
         "tools/smoke-legacy-intake.mjs"
       ],
       "consumerScope": [
-        "Legacy Intake CLI smoke workflow"
+        "W3 retired Legacy Intake command surface"
       ],
       "githubContext": {
         "requiredContexts": [
@@ -4049,7 +4049,7 @@
         "allowed": false,
         "location": null,
         "adrOrDecisionRequired": false,
-        "notes": "Smoke path is fixed by the smoke script."
+        "notes": "The smoke pins removal of the contractless Legacy Intake commands and their thin-CLI unsupported-command rejection."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,

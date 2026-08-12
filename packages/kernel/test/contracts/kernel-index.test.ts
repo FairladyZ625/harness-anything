@@ -22,8 +22,11 @@ test("kernel public source index is importable by the explicit TS test runner", 
     "deferred",
     "retired"
   ]);
-  assert.equal(typeof kernel.LifecycleEngine, "object");
-  assert.equal(typeof kernel.LockRegistry, "object");
+  assert.equal("LifecycleEngine" in kernel, false);
+  assert.equal("LockRegistry" in kernel, false);
   assert.equal(typeof kernel.VersionControlSystem, "object");
+  assert.equal(typeof kernel.makeTaskEventStore, "function");
+  assert.equal(typeof kernel.makeTaskProjection, "function");
+  assert.equal(typeof kernel.WRITE_RECEIPT_SCHEMA, "object");
   assert.equal(typeof kernel.schemaRegistry.length, "number");
 });

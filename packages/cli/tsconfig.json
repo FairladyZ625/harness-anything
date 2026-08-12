@@ -25,15 +25,6 @@
     },
     {
       "path": "../daemon"
-    },
-    {
-      "path": "../gui"
-    },
-    {
-      "path": "../adapters/local"
-    },
-    {
-      "path": "../adapters/multica"
     }
   ]
 }
