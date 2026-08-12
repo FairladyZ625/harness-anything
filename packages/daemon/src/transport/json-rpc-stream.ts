@@ -31,7 +31,7 @@ export interface JsonRpcStreamOptions {
   readonly output: Writable;
   readonly transportKind: DaemonTransportKind;
   readonly authContext: DaemonAuthenticationContext;
-  readonly createProtocolServer: (authContext: DaemonAuthenticationContext) => JsonRpcProtocolServer;
+  readonly createProtocolServer: (authContext: DaemonAuthenticationContext, emit: (method: string, params: Record<string, unknown>) => Promise<void>) => JsonRpcProtocolServer;
   readonly authenticateFirstFrame?: (
     frame: unknown,
     authContext: DaemonAuthenticationContext
@@ -44,7 +44,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
   const reader = createJsonLineFrameReader();
   const connectionId = options.connectionId ?? randomUUID();
   let authContext = options.authContext;
-  let server = options.authenticateFirstFrame ? undefined : options.createProtocolServer(authContext);
+  let server = options.authenticateFirstFrame ? undefined : options.createProtocolServer(authContext, emit);
   let waitingForAuthentication = options.authenticateFirstFrame !== undefined;
   let queue = Promise.resolve();
 
@@ -56,7 +56,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
   options.input.on("end", () => {
     const batch = reader.flush();
     enqueueFrames(batch.frames);
-    if (batch.error) failConnection(parseError(batch.error));
+    if (batch.error) failConnection(parseError(batch.error)); else queue = queue.finally(() => server?.close());
   });
   options.input.on("error", (error: Error) => failConnection(error));
   options.output.on("error", (error: Error) => options.onError?.(error));
@@ -69,7 +69,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     },
     close: async () => {
       await queue;
-      options.input.destroy();
+      server?.close(); options.input.destroy();
       options.output.end();
     }
   };
@@ -91,7 +91,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
         return;
       }
       authContext = result.authContext ?? authContext;
-      server = options.createProtocolServer(authContext);
+      server = options.createProtocolServer(authContext, emit);
       waitingForAuthentication = false;
       if (!result.forwardFrame) return;
     }
@@ -110,10 +110,10 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     options.output.end();
   }
 
-  function writeFrame(frame: unknown): void {
-    options.output.write(encodeJsonLineFrame(frame));
-  }
+  function writeFrame(frame: unknown): boolean { return options.output.write(encodeJsonLineFrame(frame)); }
+  async function emit(method: string, params: Record<string, unknown>): Promise<void> { if (writeFrame({ jsonrpc: "2.0", method, params })) return; await writableReady(options.output); }
 }
+function writableReady(output: Writable): Promise<void> { return new Promise((resolve) => { const done = () => { output.off("drain", done); output.off("close", done); resolve(); }; output.once("drain", done); output.once("close", done); }); }
 
 function parseError(error: Error): Error {
   return new Error(`Invalid JSON-RPC frame: ${error.message}`);

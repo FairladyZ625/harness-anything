@@ -45,6 +45,7 @@ import { useTasksQuery } from "./task-data.ts";
 import { useTriadicProjectionQuery } from "./triadic-data.ts";
 import { useFavorites } from "./model/favorites.ts";
 import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
+import { AgentRuntimeView } from "./views/agent-runtime-view.tsx";
 
 type ViewId =
   | "home"
@@ -56,6 +57,7 @@ type ViewId =
   | "graph"
   | "presets"
   | "adapters"
+  | "agents"
   | "settings";
 
 // 这些视图的数据仍为 mock:preset/adapter 管理面无真实后端。进入时顶部显式挂 MOCK 横幅。
@@ -78,6 +80,7 @@ const WORKSPACE_NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
 const MANAGE_NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
   { id: "presets", label: "Preset / Vertical", icon: <Stack weight="duotone" /> },
   { id: "adapters", label: "引擎 Adapter", icon: <PlugsConnected weight="duotone" /> },
+  { id: "agents", label: "Agent Sessions", icon: <PlugsConnected weight="duotone" /> },
   { id: "settings", label: "设置", icon: <GearSix weight="duotone" /> },
 ];
 
@@ -91,6 +94,7 @@ const VIEW_LABEL: Record<ViewId, string> = {
   graph: "关系图",
   presets: "Preset / Vertical",
   adapters: "引擎 Adapter",
+  agents: "Agent Sessions",
   settings: "设置",
 };
 
@@ -495,6 +499,8 @@ function AppShell() {
               <PresetsView presets={MOCK_PRESETS} project={project} />
             ) : view === "adapters" ? (
               <AdaptersView adapters={MOCK_ADAPTERS} tasks={projectTasks} />
+            ) : view === "agents" ? (
+              <AgentRuntimeView />
             ) : (
               <SettingsView />
             )}

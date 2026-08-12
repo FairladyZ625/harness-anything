@@ -6,9 +6,12 @@ import { makeTransportDerivedIdentityProvider } from "./identity/transport-deriv
 import type { DaemonCommandClass } from "./identity/types.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { openRepoCell, type RepoCell, type RepoCellStatus, type RepoTaskAction } from "./repo-cell.ts";
+import type { AgentRuntimeAttachSubscription, AgentRuntimeWitnessBinding, AgentRuntimeWitnessToken } from "./agent-runtime-stream.ts";
 export interface DaemonHost {
   readonly run: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => Promise<WriteReceipt>;
   readonly read: <M extends DaemonGuiReadMethod>(repoId: string, method: M, payload: Readonly<Record<string, unknown>>, auth: DaemonAuthenticationContext) => Promise<DaemonGuiReadResultMap[M]>;
+  readonly attach: (repoId: string, runtimeSessionId: string, afterCursor: string, auth: DaemonAuthenticationContext) => Promise<AgentRuntimeAttachSubscription>;
+  readonly issueRuntimeWitness: (repoId: string, runtimeSessionId: string, auth: DaemonAuthenticationContext) => Promise<AgentRuntimeWitnessToken>; readonly bindRuntimeWitness: (repoId: string, token: string) => AgentRuntimeWitnessBinding;
   readonly bootstrap: (request: RepoBootstrapRequest, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
   readonly admin: (request: { readonly kind: "register"; readonly rootDir: string; readonly repoId: string } | { readonly kind: "unregister"; readonly repoId: string }, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
   readonly status: () => { readonly daemonId: string; readonly pid: number; readonly repos: readonly RepoCellStatus[] };
@@ -55,6 +58,8 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
     read: async (repoId, method, payload, auth) => { const cell = cells.get(repoId);
       if (!cell) throw hostCodedError(unavailable.has(repoId) ? "repo_unavailable" : "repo_namespace_unknown", unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`);
       await binding(cell.status().rootDir, auth, "repo-read"); return cell.read(method, payload); },
+    attach: async (repoId, runtimeSessionId, afterCursor, auth) => { const cell = requiredCell(cells, unavailable, repoId); await binding(cell.status().rootDir, auth, "repo-read"); return cell.attach(runtimeSessionId, afterCursor); },
+    issueRuntimeWitness: async (repoId, runtimeSessionId, auth) => { const cell = requiredCell(cells, unavailable, repoId), serverBinding = await binding(cell.status().rootDir, auth, "repo-write"); if (serverBinding.roles?.some((role) => role === "$admin" || role === "$arbiter")) throw hostCodedError("rbac_forbidden", "Admin and arbiter identities cannot become runtime witnesses."); return cell.runtime.issueWitnessToken(runtimeSessionId, serverBinding.actor.principal.personId); }, bindRuntimeWitness: (repoId, token) => requiredCell(cells, unavailable, repoId).runtime.bindWitness(token),
     status: () => ({ daemonId: input.daemonId, pid: process.pid,
       repos: [...cells.values()].map((cell) => cell.status()).concat([...unavailable.values()]).sort((a, b) => a.repoId.localeCompare(b.repoId)) }),
     close: async () => { await Promise.all([...cells.values()].map((cell) => cell.close())); }
@@ -71,7 +76,7 @@ async function binding(rootDir: string, auth: DaemonAuthenticationContext, requi
     throw hostCodedError("rbac_forbidden", `Principal ${resolved.actor.personId} lacks ${required}.`);
   }
   return { actor: { principal: { personId: resolved.actor.personId }, executor: null },
-    roles: [...resolved.actor.roles, ...(resolved.actor.roles.some((role) => roster.roleAllows(role, "arbiter")) ? ["$arbiter"] : [])],
+    roles: [...resolved.actor.roles, ...(resolved.actor.roles.some((role) => roster.roleAllows(role, "arbiter")) ? ["$arbiter"] : []), ...(resolved.actor.roles.some((role) => roster.roleAllows(role, "admin")) ? ["$admin"] : [])],
     source: "local", docWriteAllowed: allowed };
 }
 const repoReadActions = new Set(["task-show", "receipt-show", "doc-status", "doc-show"]); function actionCapability(kind: string): DaemonCommandClass { if (repoReadActions.has(kind)) return "repo-read"; return kind === "task-review-execution" ? "arbiter" : "repo-write"; }
@@ -80,3 +85,4 @@ function reject(action: RepoTaskAction, errorCode: string, nextAction: string): 
 function hostCodedError(errorCode: string, text: string): Error { const error = new Error(text) as Error & { code: string }; error.code = errorCode; return error; }
 function code(error: unknown): string { return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "daemon_error"; }
 function consumeKnownError(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+function requiredCell(cells: Map<string, RepoCell>, unavailable: Map<string, RepoCellStatus>, repoId: string): RepoCell { const cell = cells.get(repoId); if (!cell) throw hostCodedError(unavailable.has(repoId) ? "repo_unavailable" : "repo_namespace_unknown", unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`); return cell; }

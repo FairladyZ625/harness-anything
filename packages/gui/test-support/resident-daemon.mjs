@@ -8,11 +8,13 @@ export async function startGuiResidentDaemonFixture({
   prefix = "ha-gui-resident-daemon-",
   daemonId = "gui-integration",
   repoId = "gui-test",
-  task
+  task,
+  beforeStop,
+  beforeRestart
 } = {}) {
   const parent = mkdtempSync(path.join(tmpdir(), prefix));
   const rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user");
-  const daemon = await startDaemon({ daemonId, userRoot });
+  let daemon = await startDaemon({ daemonId, userRoot });
   let stopped = false;
   const stop = async () => {
     if (stopped) return;
@@ -29,6 +31,7 @@ export async function startGuiResidentDaemonFixture({
         payload: { action: { kind: "task-create", taskId: task.taskId, title: task.title, completionGateIds: [] } } }, 1_000);
       if (created.ok !== true) throw new Error(`GUI daemon task fixture failed: ${JSON.stringify(created)}`);
     }
+    if (beforeRestart) { await beforeStop?.(daemon.endpoint, repoId); await daemon.stop(); await beforeRestart(rootDir, repoId); daemon = await startDaemon({ daemonId, userRoot }); }
     return { rootDir, userRoot, daemonId, repoId, endpoint: daemon.endpoint,
       env: { HARNESS_DAEMON_USER_ROOT: userRoot, HARNESS_DAEMON_ID: daemonId, HARNESS_DAEMON_REPO_ID: repoId }, stop };
   } catch (error) {

@@ -1,10 +1,10 @@
-import { daemonGuiReadMethods, daemonGuiReadSchemas, type DaemonGuiReadMethod } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonGuiReadMethods, daemonGuiReadSchemas, daemonGuiStreamFacets, type DaemonGuiReadMethod, type DaemonGuiStreamMethod } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import type { TerminalSessionService } from "../terminal/session-registry.ts";
 
-export type ApiRouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "WS";
+export type ApiRouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "WS" | "STREAM";
 export type ApiRouteAuth = "local-session-token" | "ssh-tunnel-local-token" | "none";
 export type ApiServiceName = "DaemonProjectionService" | "TerminalSessionService";
-export type ApiServiceMethod = (typeof daemonGuiReadMethods)[number]["serviceMethod"] | keyof TerminalSessionService;
+export type ApiServiceMethod = (typeof daemonGuiReadMethods)[number]["serviceMethod"] | (typeof daemonGuiStreamFacets)[number]["serviceMethod"] | keyof TerminalSessionService;
 
 export interface ApiRouteContract {
   readonly id: string;
@@ -16,7 +16,7 @@ export interface ApiRouteContract {
   readonly service: ApiServiceName;
   readonly serviceMethod: ApiServiceMethod;
   readonly auth: ApiRouteAuth;
-  readonly rpcMethod?: DaemonGuiReadMethod;
+  readonly rpcMethod?: DaemonGuiReadMethod | DaemonGuiStreamMethod;
   readonly guiBridgeMethod?: string;
 }
 
@@ -35,6 +35,7 @@ export interface GuiTaskDocumentPayload {
 export const apiSchemaContracts = [
   { id: "gui.empty/v1", owner: "gui", typeName: "EmptyGuiPayload" },
   { id: "gui.task-document/v1", owner: "gui", typeName: "GuiTaskDocumentPayload" },
+  { id: "gui.agent-runtime-overview/v1", owner: "gui", typeName: "AgentRuntimeOverviewPayload" }, { id: "gui.agent-runtime-session/v1", owner: "gui", typeName: "AgentRuntimeSessionPayload" }, { id: "gui.agent-runtime-events/v1", owner: "gui", typeName: "AgentRuntimeEventsPayload" }, { id: "gui.agent-runtime-attach/v1", owner: "gui", typeName: "AgentRuntimeAttachPayload" },
   ...daemonGuiReadSchemas.map(({ id }) => ({ id, owner: "daemon" as const, typeName: id })),
   { id: "terminal.attach-policy-result/v1", owner: "gui", typeName: "TerminalAttachPolicyResult" },
   { id: "terminal.create-session-payload/v1", owner: "gui", typeName: "CreateTerminalSessionPayload" },
@@ -58,6 +59,7 @@ const guiApiRouteContracts = daemonGuiReadMethods.map((contract) => ({
   rpcMethod: contract.method,
   guiBridgeMethod: contract.guiBridgeMethod
 }));
+const guiStreamApiRouteContracts = daemonGuiStreamFacets.map((contract) => ({ id: contract.id, method: contract.httpMethod, path: contract.path, inputSchemaId: contract.inputSchemaId, outputSchemaId: contract.outputSchemaId, errorSchemaId: contract.errorSchemaId, service: "DaemonProjectionService" as const, serviceMethod: contract.serviceMethod, auth: contract.auth, rpcMethod: contract.method, guiBridgeMethod: contract.guiBridgeMethod }));
 
 const terminalApiRouteContracts = [
   {
@@ -130,5 +132,6 @@ const terminalApiRouteContracts = [
 
 export const apiRouteContracts = Object.freeze([
   ...guiApiRouteContracts,
+  ...guiStreamApiRouteContracts,
   ...terminalApiRouteContracts
 ]) as ReadonlyArray<ApiRouteContract>;

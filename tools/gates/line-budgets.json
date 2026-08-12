@@ -8,10 +8,10 @@
     "preset": 0,
     "cli": 198,
     "gui": 14224,
-    "daemon": 831,
+    "daemon": 857,
     "authority-write-path": 0,
     "identity-rbac": 416,
-    "agent-runtime": 82,
+    "agent-runtime": 305,
     "test-infra": 0
   }
 }
