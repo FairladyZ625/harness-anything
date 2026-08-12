@@ -8,12 +8,6 @@ export const relationAuthoredSourceManifest = [
     content: "frontmatter"
   },
   {
-    kind: "task-facts",
-    scope: "task",
-    relativePath: "facts.md",
-    content: "document"
-  },
-  {
     kind: "decision-document",
     scope: "decision",
     relativePath: "decision.md",

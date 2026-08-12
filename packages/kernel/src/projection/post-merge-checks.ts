@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { findEntityRefs, parseFactFlowRecords } from "../domain/index.ts";
+import { findEntityRefs } from "../domain/index.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
@@ -218,18 +218,6 @@ function findDanglingEntityRefs(rootInput: HarnessLayoutInput, entries: Readonly
         ));
         return warnings;
       }
-      if (ref.kind === "fact") {
-        const key = `${ref.ownerTaskId}/${ref.id}`;
-        if (!ref.ownerTaskId || !knownRefs.taskIds.has(ref.ownerTaskId) || !knownRefs.factRefs.has(key)) {
-          warnings.push(hardFail(
-            "source-package",
-            "dangling_entity_ref",
-            `Dangling fact reference fact/${ref.ownerTaskId ?? "unknown"}/${ref.id} in ${sourcePath(rootDir, filePath)}.`,
-            "Restore the task-local F-id in facts.md or remove the stale relation."
-          ));
-          return warnings;
-        }
-      }
     }
   }
   return warnings;
@@ -254,24 +242,11 @@ interface EntityRefIndex {
   readonly taskIds: ReadonlySet<string>;
   readonly decisionIds: ReadonlySet<string>;
   readonly decisionAnchors: ReadonlySet<string>;
-  readonly factRefs: ReadonlySet<string>;
 }
 
 function buildEntityRefIndex(rootInput: HarnessLayoutInput, entries: ReadonlyArray<TaskSourceEntry>): EntityRefIndex {
   const layout = resolveHarnessLayout(rootInput);
   const taskIds = new Set(entries.map((entry) => readScalar(entry.frontmatter, "task_id") || entry.taskId));
-  const factRefs = new Set<string>();
-  for (const entry of entries) {
-    const taskId = readScalar(entry.frontmatter, "task_id") || entry.taskId;
-    const factsPath = path.join(path.dirname(entry.indexPath), layout.factDocumentName);
-    if (!existsSync(factsPath)) continue;
-    const factsBody = readTextFileIfPresent(factsPath);
-    if (factsBody === null) continue;
-    for (const record of parseFactFlowRecords(factsBody)) {
-      factRefs.add(`${taskId}/${record.fact_id}`);
-    }
-  }
-
   const decisionIds = new Set<string>();
   const decisionAnchors = new Set<string>();
   for (const filePath of listTextFiles(layout.decisionsRoot)) {
@@ -287,7 +262,7 @@ function buildEntityRefIndex(rootInput: HarnessLayoutInput, entries: ReadonlyArr
       decisionAnchors.add(`${decisionId}/${anchor}`);
     }
   }
-  return { taskIds, decisionIds, decisionAnchors, factRefs };
+  return { taskIds, decisionIds, decisionAnchors };
 }
 
 function findDecisionAnchors(frontmatter: string): ReadonlyArray<string> {

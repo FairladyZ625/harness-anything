@@ -43,16 +43,7 @@ export function resolveEntityRootForLayout(
       };
     }
     case "fact": {
-      const ownerTaskId = entityRef.ownerTaskId;
-      if (!ownerTaskId) throw new Error(`fact ref missing owner task id: ${entityRef.raw}`);
-      const factId = normalizeEntitySegment(entityRef.id, "fact id");
-      const rootPath = layout.taskPackagePath(ownerTaskId as TaskId);
-      return {
-        entityRef,
-        rootPath,
-        documentPath: layout.taskFactDocumentPath(ownerTaskId as TaskId),
-        anchor: factId
-      };
+      throw new Error(`event-backed fact refs have no authored document root: ${entityRef.raw}`);
     }
     case "relation":
       throw new Error(`hosted relation refs cannot be resolved without their source host: ${entityRef.raw}`);

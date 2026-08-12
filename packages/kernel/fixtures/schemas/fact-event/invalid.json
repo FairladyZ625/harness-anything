@@ -1,0 +1,13 @@
+{
+  "schema": "fact-event/v1",
+  "eventId": "event-fact-invalid",
+  "workspaceRevision": 1,
+  "opId": "op-fact-invalid",
+  "taskId": "task-fixture",
+  "factId": "invalid",
+  "type": "fact_recorded",
+  "actor": { "principal": { "personId": "person-fixture" }, "executor": null },
+  "source": "local",
+  "occurredAt": "2026-08-13T00:00:00.000Z",
+  "payload": {}
+}

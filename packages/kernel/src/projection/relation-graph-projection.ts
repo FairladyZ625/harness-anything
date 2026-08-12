@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { formatRelationFlowRecord, parseFactFlowRecords, parseEntityRef, validateRelationRecordsForHost } from "../domain/index.ts";
+import { formatRelationFlowRecord, parseEntityRef, validateRelationRecordsForHost } from "../domain/index.ts";
 import type { EntityRelationRecord, EntityRelationValidationIssue } from "../domain/index.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
@@ -89,9 +89,9 @@ export interface RelationRecordValidationIssue {
   };
 }
 
-export function buildRelationGraphProjection(rootInput: HarnessLayoutInput): RelationGraphProjection {
+export function buildRelationGraphProjection(rootInput: HarnessLayoutInput, factAnchors: ReadonlyArray<FactAnchorRow> = []): RelationGraphProjection {
   const decisions = readDecisionSources(rootInput);
-  const refIndex = buildGraphRefIndex(rootInput, decisions);
+  const refIndex = buildGraphRefIndex(rootInput, decisions, factAnchors);
   const entries = collectRelationRecordEntries(rootInput, decisions);
   const edges = relationEntriesToEdges(entries, refIndex);
   return {
@@ -101,11 +101,11 @@ export function buildRelationGraphProjection(rootInput: HarnessLayoutInput): Rel
   };
 }
 
-export function validateRelationGraphRecords(rootInput: HarnessLayoutInput): ReadonlyArray<RelationRecordValidationIssue> {
+export function validateRelationGraphRecords(rootInput: HarnessLayoutInput, factAnchors: ReadonlyArray<FactAnchorRow> = []): ReadonlyArray<RelationRecordValidationIssue> {
   const decisions = readDecisionSources(rootInput);
   return validateRelationRecordEntries(
     collectRelationRecordEntries(rootInput, decisions),
-    buildGraphRefIndex(rootInput, decisions)
+    buildGraphRefIndex(rootInput, decisions, factAnchors)
   );
 }
 
@@ -170,27 +170,10 @@ function collectRelationRecordEntries(
       if (!existsSync(source.filePath)) continue;
       const body = readTextFileIfPresent(source.filePath);
       if (body === null) continue;
-      if (source.content === "frontmatter") {
-        const frontmatter = readFrontmatter(body);
-        if (!frontmatter) continue;
-        entries.push(...recordsToEntries({
-          hostRef: `task/${taskId}`,
-          ownerRef: `task/${taskId}`,
-          sourceKind: source.kind,
-          records: parseRelationFlowRecords(frontmatter),
-          sourceFile: source.filePath,
-          rootDir
-        }));
-      } else {
-        entries.push(...recordsToEntries({
-          hostRefForRecord: (record) => factRelationHostRef(taskId, record),
-          ownerRef: `task/${taskId}`,
-          sourceKind: source.kind,
-          records: parseRelationFlowRecords(body),
-          sourceFile: source.filePath,
-          rootDir
-        }));
-      }
+      const frontmatter = readFrontmatter(body);
+      if (!frontmatter) continue;
+      entries.push(...recordsToEntries({ hostRef: `task/${taskId}`, ownerRef: `task/${taskId}`, sourceKind: source.kind,
+        records: parseRelationFlowRecords(frontmatter), sourceFile: source.filePath, rootDir }));
     }
   }
 
@@ -230,12 +213,6 @@ function recordsToEntries(input: {
     });
   }
   return entries;
-}
-
-function factRelationHostRef(taskId: string, record: EntityRelationRecord): string {
-  const source = parseEntityRef(record.source);
-  if (source?.kind === "fact") return `fact/${taskId}/${source.id}`;
-  return `task/${taskId}`;
 }
 
 function relationEntriesToEdges(
@@ -428,29 +405,13 @@ function readDecisionSources(rootInput: HarnessLayoutInput): ReadonlyArray<Decis
   })).sort((a, b) => a.decisionRef.localeCompare(b.decisionRef));
 }
 
-function buildGraphRefIndex(rootInput: HarnessLayoutInput, decisions: ReadonlyArray<DecisionSource>): GraphRefIndex {
+function buildGraphRefIndex(rootInput: HarnessLayoutInput, decisions: ReadonlyArray<DecisionSource>, factAnchors: ReadonlyArray<FactAnchorRow>): GraphRefIndex {
   const layout = resolveHarnessLayout(rootInput);
   const taskIds = new Set<string>();
-  const factRefs = new Set<string>();
-  const factAnchors: FactAnchorRow[] = [];
+  const factRefs = new Set(factAnchors.map((row) => `${row.taskId}/${row.factId}`));
   for (const taskDir of listTaskDirs(layout.tasksRoot)) {
     const taskId = readTaskPackageId(taskDir);
     taskIds.add(taskId);
-    const factsPath = deriveRelationTaskAuthoredSources(taskDir)
-      .find((source) => source.kind === "task-facts")?.filePath;
-    if (!factsPath || !existsSync(factsPath)) continue;
-    const factsBody = readTextFileIfPresent(factsPath);
-    if (factsBody === null) continue;
-    for (const record of parseFactFlowRecords(factsBody)) {
-      const factKey = `${taskId}/${record.fact_id}`;
-      factRefs.add(factKey);
-      factAnchors.push({
-        factRef: `fact/${factKey}`,
-        taskId,
-        factId: record.fact_id,
-        sourcePath: sourcePath(layout.rootDir, factsPath)
-      });
-    }
   }
 
   const decisionIds = new Set<string>();
@@ -462,7 +423,7 @@ function buildGraphRefIndex(rootInput: HarnessLayoutInput, decisions: ReadonlyAr
       decisionAnchors.add(`${decision.decisionId}/${anchor}`);
     }
   }
-  return { taskIds, decisionIds, decisionAnchors, factRefs, factAnchors: factAnchors.sort((a, b) => a.factRef.localeCompare(b.factRef)) };
+  return { taskIds, decisionIds, decisionAnchors, factRefs, factAnchors: [...factAnchors].sort((a, b) => a.factRef.localeCompare(b.factRef)) };
 }
 
 function isKnownLocalEndpoint(refText: string, refIndex: GraphRefIndex): boolean {

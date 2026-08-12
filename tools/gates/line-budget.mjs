@@ -51,7 +51,7 @@ export function measureProductionLines({ rootDir, revision = null }) {
   return { counts, unclassified };
 }
 
-const INITIAL_MODULE_CEILINGS = Object.freeze({ "write-contract": 350, "agent-runtime": 520 });
+const INITIAL_MODULE_CEILINGS = Object.freeze({ "write-contract": 350, "agent-runtime": 520, "decision-fact": 480 });
 
 export function parseBudgets(body, source = "line-budgets.json", historical = false) {
   let parsed;

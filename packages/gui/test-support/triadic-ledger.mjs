@@ -17,9 +17,6 @@ export function writeTriadicLedger(rootDir) {
     "  - {relation_id: rel_bfa32bfd7f399b66, source: task/task-gui-smoke, target: fact/task-gui-smoke/F-ABCDEFGH, type: produces, strength: strong, direction: directed, origin: declared, rationale: \"Task produced the renderer projection evidence\", state: active}",
     "---", ""
   ].join("\n"));
-  writeFileSync(path.join(taskDir, "facts.md"), [
-    "- {fact_id: F-ABCDEFGH, statement: \"The GUI renderer received real triadic rows through the public bridge.\", source: \"GUI E2E\", observedAt: \"2026-07-10T00:30:00.000Z\", confidence: low, memoryClass: semantic, memoryTags: [pattern], provenance: [{runtime: \"codex\", sessionId: \"fg-p1-07-e2e\", boundAt: \"2026-07-10T00:30:00.000Z\"}]}", ""
-  ].join("\n"));
   writeFileSync(path.join(decisionDir, "decision.md"), [
     "---", "schema: decision-package/v1", "decision_id: dec_gui_smoke", "_coordinatorWatermark: gui-smoke-watermark",
     "title: \"Expose the triadic projection to the GUI\"", "state: proposed", "riskTier: high", "urgency: high", "vertical: \"software/coding\"",

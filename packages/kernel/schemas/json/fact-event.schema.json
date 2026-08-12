@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-harness-schema-id": "fact-event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "eventId", "workspaceRevision", "opId", "taskId", "factId", "type", "actor", "source", "occurredAt", "payload"],
+  "properties": {
+    "schema": { "const": "fact-event/v1" },
+    "eventId": { "type": "string", "minLength": 1 },
+    "workspaceRevision": { "type": "integer", "minimum": 1 },
+    "opId": { "type": "string", "minLength": 1 },
+    "taskId": { "type": "string", "minLength": 1, "pattern": "^[^/\\\\]+$" },
+    "factId": { "type": "string", "pattern": "^F-[0-9A-HJKMNP-TV-Z]{8}$" },
+    "type": { "const": "fact_recorded" },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["principal", "executor"],
+      "properties": {
+        "principal": { "type": "object", "additionalProperties": false, "required": ["personId"], "properties": { "personId": { "type": "string", "minLength": 1 } } },
+        "executor": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["kind", "id"], "properties": { "kind": { "const": "agent" }, "id": { "type": "string", "minLength": 1 } } }] }
+      }
+    },
+    "source": { "oneOf": [{ "enum": ["local", "remote_direct"] }, { "type": "object", "additionalProperties": false, "required": ["kind", "nodeId", "assignmentId"], "properties": { "kind": { "const": "assignment" }, "nodeId": { "type": "string", "minLength": 1 }, "assignmentId": { "type": "string", "minLength": 1 } } }] },
+    "occurredAt": { "type": "string", "minLength": 1, "format": "date-time" },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statement", "evidenceSource", "observedAt", "confidence", "memoryClass", "memoryTags", "provenance"],
+      "properties": {
+        "statement": { "type": "string", "minLength": 1 },
+        "evidenceSource": { "type": "string", "minLength": 1 },
+        "observedAt": { "type": "string", "minLength": 1, "format": "date-time" },
+        "confidence": { "enum": ["low", "medium", "high"] },
+        "memoryClass": { "enum": ["semantic", "episodic", "procedural"] },
+        "memoryTags": { "type": "array", "uniqueItems": true, "items": { "enum": ["episode", "procedural", "tool_memory", "pattern", "task_skill", "abstract_rule", "other"] } },
+        "provenance": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["runtime", "sessionId", "boundAt"], "properties": { "runtime": { "enum": ["human", "claude-code", "codex", "zcode", "antigravity"] }, "sessionId": { "type": "string", "minLength": 1 }, "boundAt": { "type": "string", "minLength": 1, "format": "date-time" } } } },
+        "supersedes": { "type": "object", "additionalProperties": false, "required": ["factRef", "rationale"], "properties": { "factRef": { "type": "string", "pattern": "^fact/[^/]+/F-[0-9A-HJKMNP-TV-Z]{8}$" }, "rationale": { "type": "string", "minLength": 1, "maxLength": 199 } } }
+      }
+    }
+  }
+}

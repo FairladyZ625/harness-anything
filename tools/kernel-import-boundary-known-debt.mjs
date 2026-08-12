@@ -28,13 +28,6 @@ export const kernelImportBoundaryKnownDebt = [
     reason: "Decision write service calls write-coordination helpers directly; F6 owns the application/write seam cleanup."
   },
   {
-    file: "packages/application/src/fact-write-service.ts",
-    specifier: "../../kernel/src/write-coordination/write-helpers.ts",
-    target: "packages/kernel/src/write-coordination/write-helpers.ts",
-    decision: "dec_GATE_DEFENSE_ROOT_CAUSE",
-    reason: "Fact write service calls write-coordination helpers directly; F6 owns the application/write seam cleanup."
-  },
-  {
     file: "packages/cli/src/commands/anchor-backfill.ts",
     specifier: "../../../kernel/src/write-coordination/write-helpers.ts",
     target: "packages/kernel/src/write-coordination/write-helpers.ts",

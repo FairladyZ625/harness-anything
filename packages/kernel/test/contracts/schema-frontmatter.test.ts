@@ -3,18 +3,16 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { Schema } from "effect";
-import { DecisionPackageSchema, EntityRelationsSchema, FactRecordSchema, TaskFrontmatterSchema } from "../../src/schemas/registry.ts";
+import { DecisionPackageSchema, EntityRelationsSchema, TaskFrontmatterSchema } from "../../src/schemas/registry.ts";
 
 const validFixtureUrl = new URL("../../fixtures/schemas/task-frontmatter/valid.json", import.meta.url);
 const validDecisionFixtureUrl = new URL("../../fixtures/schemas/decision-package/valid.json", import.meta.url);
 const invalidDecisionFixtureUrl = new URL("../../fixtures/schemas/decision-package/invalid.json", import.meta.url);
 const validEntityRelationsFixtureUrl = new URL("../../fixtures/schemas/entity-relations/valid.json", import.meta.url);
 const invalidEntityRelationsFixtureUrl = new URL("../../fixtures/schemas/entity-relations/invalid.json", import.meta.url);
-const validFactRecordFixtureUrl = new URL("../../fixtures/schemas/fact-record/valid.json", import.meta.url);
-const invalidFactRecordFixtureUrl = new URL("../../fixtures/schemas/fact-record/invalid.json", import.meta.url);
-const factRecordJsonSchemaUrl = new URL("../../schemas/json/fact-record.schema.json", import.meta.url);
 const decisionJsonSchemaUrl = new URL("../../schemas/json/decision-package.schema.json", import.meta.url);
 const entityRelationsJsonSchemaUrl = new URL("../../schemas/json/entity-relations.schema.json", import.meta.url);
+const factEventJsonSchemaUrl = new URL("../../schemas/json/fact-event.schema.json", import.meta.url);
 
 test("task frontmatter schema decodes and encodes the valid fixture", async () => {
   const fixture = JSON.parse(await readFile(validFixtureUrl, "utf8")) as unknown;
@@ -63,16 +61,6 @@ test("entity relations schema decodes and encodes the valid fixture", async () =
   const encoded = Schema.encodeSync(EntityRelationsSchema)(decoded);
 
   assert.deepEqual(encoded, fixture);
-});
-
-test("fact record schema requires memory classification fields", async () => {
-  const validFixture = await readJson(validFactRecordFixtureUrl);
-  const missingMemoryClass = await readJson(invalidFactRecordFixtureUrl);
-  const decoded = Schema.decodeUnknownSync(FactRecordSchema)(validFixture);
-  const encoded = Schema.encodeSync(FactRecordSchema)(decoded);
-
-  assert.deepEqual(encoded, validFixture);
-  assert.throws(() => Schema.decodeUnknownSync(FactRecordSchema)(missingMemoryClass));
 });
 
 test("decision package schema rejects contract-critical invalid fixtures", async () => {
@@ -176,23 +164,27 @@ test("entity relations JSON schema is closed and keeps facts owner-qualified", a
   assert.doesNotMatch(jsonSchema.$defs?.entityRef.pattern ?? "", /fact\/\[A-Za-z0-9_-\]\+\?/u);
 });
 
-test("fact record JSON schema publishes memory classification fields", async () => {
-  const jsonSchema = await readJson(factRecordJsonSchemaUrl) as {
+test("Fact event JSON schema publishes a closed classified payload", async () => {
+  const jsonSchema = await readJson(factEventJsonSchemaUrl) as {
     readonly additionalProperties?: boolean;
-    readonly required?: ReadonlyArray<string>;
     readonly properties?: Record<string, {
+      readonly additionalProperties?: boolean;
+      readonly required?: ReadonlyArray<string>;
+      readonly properties?: Record<string, {
       readonly enum?: ReadonlyArray<string>;
       readonly type?: string;
       readonly items?: { readonly enum?: ReadonlyArray<string> };
+      }>;
     }>;
   };
 
   assert.equal(jsonSchema.additionalProperties, false);
-  assert.equal(jsonSchema.required?.includes("memoryClass"), true);
-  assert.equal(jsonSchema.required?.includes("memoryTags"), true);
-  assert.deepEqual(jsonSchema.properties?.memoryClass?.enum, ["semantic", "episodic", "procedural"]);
-  assert.equal(jsonSchema.properties?.memoryTags?.type, "array");
-  assert.deepEqual(jsonSchema.properties?.memoryTags?.items?.enum, [
+  assert.equal(jsonSchema.properties?.payload?.additionalProperties, false);
+  assert.equal(jsonSchema.properties?.payload?.required?.includes("memoryClass"), true);
+  assert.equal(jsonSchema.properties?.payload?.required?.includes("memoryTags"), true);
+  assert.deepEqual(jsonSchema.properties?.payload?.properties?.memoryClass?.enum, ["semantic", "episodic", "procedural"]);
+  assert.equal(jsonSchema.properties?.payload?.properties?.memoryTags?.type, "array");
+  assert.deepEqual(jsonSchema.properties?.payload?.properties?.memoryTags?.items?.enum, [
     "episode",
     "procedural",
     "tool_memory",

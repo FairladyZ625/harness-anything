@@ -1,7 +1,7 @@
 import type { TaskFrontmatter } from "../schemas/registry.ts";
 import type { DecisionPackage } from "../schemas/decision-package.ts";
 import type { EntityRelationRecord } from "../domain/entity-relation.ts";
-import type { FactRecordDocument } from "../schemas/fact-record.ts";
+import type { FactEventPayload } from "../domain/fact-event.ts";
 import { sessionFieldContracts } from "./session-declaration.ts";
 
 export type EntityKindWithFieldCoverage = "decision" | "task" | "fact" | "relation" | "session";
@@ -22,7 +22,7 @@ export interface EntityFieldContract {
 
 export type DecisionFieldKey = keyof DecisionPackage;
 export type TaskFieldKey = keyof TaskFrontmatter;
-export type FactFieldKey = keyof FactRecordDocument;
+export type FactFieldKey = keyof FactEventPayload | "factId";
 export type RelationFieldKey = keyof EntityRelationRecord;
 
 export const decisionFieldContracts = {
@@ -66,15 +66,15 @@ export const taskFieldContracts = {
 } satisfies Record<TaskFieldKey, EntityFieldContract>;
 
 export const factFieldContracts = {
-  schema: immutable("schema discriminator is fixed by the entity kind", show("fact.schema")),
-  fact_id: immutable("fact identity is append-only; record a new fact or invalidate the old one", show("fact.fact_id")),
-  statement: immutable("fact statements are append-only observations; changing reality requires a new fact or invalidate", show("fact.statement")),
-  source: immutable("fact source is provenance-bearing evidence and cannot be amended", show("fact.source")),
+  factId: immutable("fact identity is append-only; record a new fact with supersedes to correct it", show("fact.factId")),
+  statement: immutable("fact statements are append-only observations; changing reality requires a superseding fact", show("fact.statement")),
+  evidenceSource: immutable("fact evidence source is provenance-bearing and cannot be amended", show("fact.evidenceSource")),
   observedAt: immutable("observation time is provenance-bearing evidence and cannot be amended", show("fact.observedAt")),
   confidence: immutable("confidence is captured with the observation; later doubt is expressed by another fact or invalidation", show("fact.confidence")),
   memoryClass: immutable("memory class is create-time classification", show("fact.memoryClass")),
   memoryTags: immutable("memory tags are create-time classification", show("fact.memoryTags")),
-  provenance: immutable("provenance is bound by create/write services, not amended as content", show("fact.provenance"))
+  provenance: immutable("provenance is bound by create/write services, not amended as content", show("fact.provenance")),
+  supersedes: immutable("fact supersession is declared atomically at record time", show("fact.supersedes"))
 } satisfies Record<FactFieldKey, EntityFieldContract>;
 
 export const relationFieldContracts = {

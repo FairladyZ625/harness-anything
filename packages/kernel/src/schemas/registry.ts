@@ -7,7 +7,7 @@ import { LinkKindSchema, ProvenanceEntrySchema } from "./common.ts";
 import { DecisionPackageSchema } from "./decision-package.ts";
 import { DocmapManifestSchema } from "./docmap.ts";
 import { EntityRelationsSchema } from "./entity-relations.ts";
-import { FactRecordSchema } from "./fact-record.ts";
+import { FactEventSchema } from "./fact-event.ts";
 import { HarnessCheckReportSchema } from "./harness-check-report.ts";
 import { SubtaskPlanSchema } from "./subtask-plan.ts";
 import { VerticalDefinitionSchema } from "./vertical-definition.ts";
@@ -15,7 +15,7 @@ import { VerticalDefinitionSchema } from "./vertical-definition.ts";
 export { ActorKindSchema, ActorRefSchema, LinkKindSchema } from "./common.ts";
 export { DecisionPackageSchema, DecisionStateSchema } from "./decision-package.ts";
 export { DocmapDocumentSchema, DocmapManifestSchema } from "./docmap.ts";
-export { FactRecordSchema } from "./fact-record.ts";
+export { FactEventSchema } from "./fact-event.ts";
 export {
   HarnessCheckReportSchema,
   ProjectionWarningCodeSchema,
@@ -363,11 +363,11 @@ export const schemaRegistry = [
     invalidFixturePath: "packages/kernel/fixtures/schemas/entity-relations/invalid.json"
   },
   {
-    id: "fact-record",
-    schema: FactRecordSchema,
-    jsonSchemaPath: "packages/kernel/schemas/json/fact-record.schema.json",
-    validFixturePath: "packages/kernel/fixtures/schemas/fact-record/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/fact-record/invalid.json"
+    id: "fact-event",
+    schema: FactEventSchema,
+    jsonSchemaPath: "packages/kernel/schemas/json/fact-event.schema.json",
+    validFixturePath: "packages/kernel/fixtures/schemas/fact-event/valid.json",
+    invalidFixturePath: "packages/kernel/fixtures/schemas/fact-event/invalid.json"
   },
   {
     id: "docmap",

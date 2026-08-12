@@ -2,6 +2,7 @@ import path from "node:path";
 import { assertDocSyncWritePlan, isDocEvent, isTaskEvent, ledgerCommitSha, parseCanonicalEvent, serializeCanonicalEvent, type CanonicalEventV1, type DocContentBlob, type DocEventV1, type LedgerCommitSha } from "../domain/doc-sync.contract.ts";
 import type { TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
 import type { AgentRuntimeEventV1 } from "../domain/agent-runtime.ts";
+import type { FactEventV1 } from "../domain/fact-event.ts";
 import { assertTaskBootstrapWritePlan, isTaskBootstrapEvent, taskBootstrapClaims, type TaskBootstrapBlob, type TaskBootstrapEventV1 } from "../domain/task-bootstrap-event.ts";
 import { serializeEventHead, type EventHead, type FrozenWritePlan } from "../domain/write-chain.contract.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
@@ -21,7 +22,7 @@ export interface CanonicalEventStore {
   readonly canonicalRef: string; readonly read: () => CanonicalEventStreamV1; readonly readHead: () => EventHead | null; readonly currentCommit: () => LedgerCommitSha;
   readonly revisionAt: (commit: LedgerCommitSha) => number | null; readonly readEvent: (opId: string) => CanonicalEventV1 | null; readonly readTaskEvent: (opId: string) => TaskEventV1 | null;
   readonly readBatch: (cursor: string | null, maxItems: number) => EventFileBatch; readonly readContentBlob: (sha256: string) => Uint8Array | null;
-  readonly append: { (event: TaskEventV1 | AgentRuntimeEventV1): CanonicalEventAppendReceipt; (event: DocEventV1, plan: FrozenWritePlan<"DocSyncSubmit">, blobs: readonly DocContentBlob[]): CanonicalEventAppendReceipt; (event: TaskBootstrapEventV1, plan: FrozenWritePlan<"TaskBootstrap">, blobs: readonly TaskBootstrapBlob[]): CanonicalEventAppendReceipt }; readonly recover: () => EventRecoveryReceipt;
+  readonly append: { (event: TaskEventV1 | AgentRuntimeEventV1 | FactEventV1): CanonicalEventAppendReceipt; (event: DocEventV1, plan: FrozenWritePlan<"DocSyncSubmit">, blobs: readonly DocContentBlob[]): CanonicalEventAppendReceipt; (event: TaskBootstrapEventV1, plan: FrozenWritePlan<"TaskBootstrap">, blobs: readonly TaskBootstrapBlob[]): CanonicalEventAppendReceipt }; readonly recover: () => EventRecoveryReceipt;
 }
 export function makeTaskEventStore(options: { readonly repoId: string; readonly rootInput?: HarnessLayoutInput; readonly rootDir?: string; readonly killpoint?: (point: EventPublicationKillpoint) => void }): CanonicalEventStore {
   const input = options.rootInput ?? options.rootDir; if (input === undefined) throw new Error("canonical event store requires rootInput or rootDir");
