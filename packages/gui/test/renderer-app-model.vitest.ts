@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { TaskProjectionRow } from "../../kernel/src/index.ts";
+import type { DecisionRow } from "../src/renderer/model/types.ts";
 import {
   buildGuiViewModelFromTaskProjection,
   readGuiTaskDetailResult,
@@ -11,6 +12,7 @@ import {
 } from "../src/api/view-model.ts";
 import { rendererCapabilityModel, rendererNavigation } from "../src/renderer/app-model.ts";
 import { GraphView } from "../src/renderer/views/GraphView.tsx";
+import { DecisionPoolView } from "../src/renderer/views/DecisionPoolView.tsx";
 
 describe("renderer app model", () => {
   it("keeps the renderer capability model privilege-free", () => {
@@ -145,6 +147,30 @@ describe("renderer app model", () => {
 
     expect(markup).toContain("triadic-graph-empty-state");
     expect(markup).toContain("暂无三元语关系数据");
+  });
+
+  it("keeps the selected decision card visible and focused under all filters", () => {
+    const decision: DecisionRow = {
+      decisionId: "dec_gui_smoke",
+      title: "Ship the GUI read surface",
+      state: "proposed",
+      riskTier: "high",
+      urgency: "high",
+      proposedBy: { kind: "agent", id: "codex" },
+      question: "Should the GUI use daemon projections?",
+      chosen: [],
+      rejected: [],
+      claims: []
+    };
+    const markup = renderToStaticMarkup(createElement(DecisionPoolView, {
+      decisions: [decision],
+      facts: [],
+      relations: [],
+      focusedDecisionId: decision.decisionId
+    }));
+
+    expect(markup).toContain('id="decision-card-dec_gui_smoke"');
+    expect(markup).toContain('data-focused="true"');
   });
 });
 

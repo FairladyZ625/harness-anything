@@ -163,11 +163,11 @@ export function DecisionPoolView({
     return sortDecisionQueue(decisions)
       .filter((decision) => tabStates.has(decision.state))
       .filter((decision) => stateFilter === "all" || decision.state === stateFilter)
-      .filter((decision) => riskFilter === "all" || riskFilter === "unknown" ? !decision.riskTier : decision.riskTier === riskFilter)
-      .filter((decision) => urgencyFilter === "all" || urgencyFilter === "unknown" ? !decision.urgency : decision.urgency === urgencyFilter)
+      .filter((decision) => riskFilter === "all" || (riskFilter === "unknown" ? !decision.riskTier : decision.riskTier === riskFilter))
+      .filter((decision) => urgencyFilter === "all" || (urgencyFilter === "unknown" ? !decision.urgency : decision.urgency === urgencyFilter))
       .filter((decision) => verticalFilter === "all" || decision.vertical === verticalFilter)
       .filter((decision) => presetFilter === "all" || decision.preset === presetFilter)
-      .filter((decision) => proposedByFilter === "all" || proposedByFilter === "unknown" ? !decision.proposedBy : decision.proposedBy?.kind === proposedByFilter)
+      .filter((decision) => proposedByFilter === "all" || (proposedByFilter === "unknown" ? !decision.proposedBy : decision.proposedBy?.kind === proposedByFilter))
       .filter((decision) => withinRange(decision, timeRange));
   }, [decisions, presetFilter, proposedByFilter, riskFilter, stateFilter, tab, timeRange, urgencyFilter, verticalFilter]);
 
