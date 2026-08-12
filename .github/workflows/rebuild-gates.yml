@@ -11,7 +11,7 @@ on:
     types: [opened, reopened, synchronize, edited]
   push:
     branches:
-      - "rebuild/**"
+      - "rebuild/main"
 
 permissions:
   contents: read
