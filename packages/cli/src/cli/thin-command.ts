@@ -13,7 +13,7 @@ export function parseThinCommand(argv: readonly string[], cwd = process.cwd(), c
   return parseTask(route.id, args, rootDir, repoId, json, inputs);
 }
 function parseRouted(route: ProtocolCommand | undefined, args: readonly string[], rootDir: SafePath, repoId: string | undefined, json: boolean, inputs: ThinCliInputDirectory): ThinParseResult | undefined {
-  if (route?.id === "repo-bootstrap") { const f = readFlags(route.id, args.slice(1), inputs); if (!f.ok) return rejected(f.code, f.nextAction, json); return accepted(rootDir, undefined, json, { kind: "repo-bootstrap", repoId: f.one.get("--repo-id"), personId: f.one.get("--person-id"), displayName: f.one.get("--display-name") }); }
+  if (route?.id === "repo-bootstrap") { const f = readFlags(route.id, args.slice(1), inputs); if (!f.ok) return rejected(f.code, f.nextAction, json); const name = f.one.get("--name"); return accepted(rootDir, undefined, json, { kind: "repo-bootstrap", repoId: f.one.get("--repo-id"), personId: f.one.get("--person-id"), displayName: f.one.get("--display-name"), ...(name ? { name } : {}) }); }
   if (route?.id === "receipt-show" && nonEmpty(args[2]) && args.length === 3) return accepted(rootDir, repoId, json, { kind: "receipt-show", opId: args[2] });
   if (route?.id.startsWith("doc-")) return parseDoc(route.id, args, rootDir, repoId, json, inputs); if (route?.id.startsWith("fact-")) return parseFact(route.id, args, rootDir, repoId, json, inputs); if (route?.id.startsWith("decision-")) return parseDecision(route.id, args, rootDir, repoId, json, inputs);
   if (route?.phase.startsWith("Preset-")) return parsePreset(route, args, rootDir, repoId, json, inputs); return undefined;

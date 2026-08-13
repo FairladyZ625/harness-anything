@@ -1,0 +1,7 @@
+[
+  { "path": "packages/cli/src/cli/thin-command.ts", "module": "cli" },
+  { "path": "packages/cli/src/index.ts", "module": "cli" },
+  { "path": "packages/daemon/src/protocol/daemon-protocol.contract.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/protocol/json-rpc-server.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/repo-bootstrap.ts", "module": "daemon" }
+]
