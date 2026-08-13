@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore } from "../../kernel/src/index.ts";
-import { compileTaskBootstrap, createCanonicalPresetResolver, installPresetPackage, runPresetAction, uninstallPresetPackage } from "../src/index.ts";
+import { compileRepositoryScaffold, compileTaskBootstrap, createCanonicalPresetResolver, installPresetPackage, runPresetAction, uninstallPresetPackage } from "../src/index.ts";
 import { createRuntime, decodePresetPackageV3 } from "../src/preset-resolver.ts";
 
 test("canonical resolver decodes one complete bundled package into a content-addressed snapshot", async () => {
@@ -175,7 +175,7 @@ for (const sample of [
     git(rootDir, "init", "-q"); git(rootDir, "config", "user.name", "Preset Test"); git(rootDir, "config", "user.email", "preset@example.invalid"); git(rootDir, "commit", "--allow-empty", "-qm", "base");
     const preview = compileTaskBootstrap({ userRoot, verticalId: "software/coding", profileId: "baseline", locale: "en-US", actor: { principal: { personId: "person-1" }, executor: null }, source: "local", occurredAt: "2026-08-14T00:00:00.000Z", taskId: `task-${sample.presetId}`, title: sample.presetId, presetId: sample.presetId, workspaceRevision: 1, eventId: `event-${sample.presetId}`, opId: `op-${sample.presetId}` });
     const dryRunPaths = preview.documents.map(({ path: target }) => target), claimPaths = preview.event.payload.initialDocumentClaims.map(({ path: target }) => target); assert.deepEqual(claimPaths, dryRunPaths); assert.deepEqual(preview.snapshot.profile.completionGateIds, sample.gates); assert.equal(sample.addedPath === null ? preview.documents.length === 6 : preview.documents.some(({ relativePath }) => relativePath === sample.addedPath), true);
-    const store = makeTaskEventStore({ repoId: `preset-${sample.presetId}`, rootDir }); store.append(preview.event, preview.plan, preview.blobs); for (const document of preview.documents) assert.equal(readFileSync(path.join(rootDir, "harness", document.path), "utf8"), document.body); rmSync(path.join(rootDir, "harness", preview.packagePath), { recursive: true, force: true }); const restored = store.materialize(); assert.deepEqual(restored.changed, [...dryRunPaths].sort((left, right) => left.localeCompare(right))); for (const document of preview.documents) assert.equal(readFileSync(path.join(rootDir, "harness", document.path), "utf8"), document.body);
+    const store = makeTaskEventStore({ repoId: `preset-${sample.presetId}`, rootDir }); store.append({ event: preview.event, plan: preview.plan, blobs: preview.blobs }); for (const document of preview.documents) assert.equal(readFileSync(path.join(rootDir, "harness", document.path), "utf8"), document.body); rmSync(path.join(rootDir, "harness", preview.packagePath), { recursive: true, force: true }); const restored = store.materialize(); assert.deepEqual(restored.changed, [...dryRunPaths].sort((left, right) => left.localeCompare(right))); for (const document of preview.documents) assert.equal(readFileSync(path.join(rootDir, "harness", document.path), "utf8"), document.body);
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -189,6 +189,24 @@ test("project task scaffold replaces and adds prose while base ownership, anchor
     write(path.join(root, "templates/plan.md"), template); write(scaffold, JSON.stringify({ ...valid, addDocument: [{ ...valid.addDocument[0], path: "TASK_PLAN.md" }] })); rejected = await resolve(); assert.equal(rejected.ok, false); if (!rejected.ok) assert.equal(rejected.error.code, "reserved_path");
     write(scaffold, JSON.stringify({ ...valid, addDocument: [{ ...valid.addDocument[0], path: "notes.json" }] })); rejected = await resolve(); assert.equal(rejected.ok, false); if (!rejected.ok) assert.equal(rejected.error.code, "invalid_task_scaffold");
     write(scaffold, JSON.stringify({ ...valid, deleteDocument: ["task.plan"] })); rejected = await resolve(); assert.equal(rejected.ok, false); if (!rejected.ok) assert.equal(rejected.error.code, "invalid_task_scaffold");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("task and repository overlays share replace/add validation while keeping separate schemas and slots", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-repository-scaffold-")), authoredRoot = path.join(root, "harness"), scaffold = path.join(authoredRoot, "governance/repository-scaffold.json");
+  try {
+    write(path.join(authoredRoot, "templates/architecture.md"), "# Architecture\n\n## Purpose\n\nProject architecture entry.\n\n## Opt-in Boundary\n\nNo model is enabled by init.\n");
+    write(path.join(authoredRoot, "templates/project.md"), "# Project Context\n\n## Project Notes\n\nCustom.\n");
+    const valid = { schema: "repository-scaffold/v1", replaceTemplate: [{ slot: "repository.context.architecture", template: "templates/architecture.md" }], addDocument: [{ slot: "repository.context.project", path: "harness/context/project.md", template: "templates/project.md", requiredAnchors: ["## Project Notes"] }] };
+    write(scaffold, JSON.stringify(valid));
+    const compile = () => compileRepositoryScaffold({ rootDir: root, verticalId: "software/coding", locale: "en-US", projectScaffold: scaffold });
+    const applied = compile(); assert.equal(applied.documents.length, 6); assert.deepEqual(applied.documents.map(({ disposition }) => disposition), Array(6).fill("created")); assert.equal(applied.documents.find(({ slot }) => slot === "repository.context.architecture")?.templateRef, "project://templates/architecture.md"); assert.match(String(applied.projectOverlayDigest), /^sha256:/u); assert.match(applied.baseScaffoldDigest, /^sha256:/u);
+    write(scaffold, JSON.stringify({ ...valid, schema: "task-scaffold/v1" })); assert.throws(compile, (error: unknown) => (error as { code?: string }).code === "invalid_repository_scaffold");
+    write(scaffold, JSON.stringify({ ...valid, replaceTemplate: [{ ...valid.replaceTemplate[0], owner: "machine" }] })); assert.throws(compile, (error: unknown) => (error as { code?: string }).code === "invalid_repository_scaffold");
+    write(scaffold, JSON.stringify({ ...valid, addDocument: [{ ...valid.addDocument[0], path: "harness/context/architecture/README.md" }] })); assert.throws(compile, (error: unknown) => (error as { code?: string }).code === "reserved_path");
+    write(scaffold, JSON.stringify({ ...valid, addDocument: [{ ...valid.addDocument[0], path: "harness/standards/README.md" }] })); assert.throws(compile, (error: unknown) => (error as { code?: string }).code === "reserved_path");
+    write(path.join(root, "outside/architecture.md"), "# Architecture\n\n## Purpose\n\nOutside.\n\n## Opt-in Boundary\n\nNo model.\n"); symlinkSync(path.join(root, "outside"), path.join(authoredRoot, "linked")); write(scaffold, JSON.stringify({ ...valid, replaceTemplate: [{ slot: "repository.context.architecture", template: "linked/architecture.md" }] })); assert.throws(compile, (error: unknown) => (error as { code?: string }).code === "invalid_repository_scaffold");
+    write(path.join(authoredRoot, "templates/architecture.md"), "# Missing anchors\n"); write(scaffold, JSON.stringify(valid)); assert.throws(compile, (error: unknown) => (error as { code?: string }).code === "required_anchor");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

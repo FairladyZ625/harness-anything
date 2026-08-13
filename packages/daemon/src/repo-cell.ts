@@ -7,8 +7,7 @@ import { assertCurrentWriter, bindWriterGenerationToken, compileTaskProgress, is
   type TaskLifecycleCommand, type TaskProgressEvidence, type TaskProgressEventV1, VcsCommandError, type WriteReceipt, type WriteSource, type WriterGeneration } from "../../kernel/src/index.ts";
 import { compileRepoTaskBootstrap, createPresetProcessService, presetUserRoot, runPresetAction, type PresetRunReceiptV1 } from "../../preset/src/index.ts";
 import { commandClassForAction, type CanonicalRoot, type DaemonGuiReadMethod, type DaemonGuiReadResultMap, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
-import { bootstrapRepo, type RepoBootstrapInput } from "./repo-bootstrap.ts";
-import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
+import { bootstrapRepo, type RepoBootstrapInput, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { isDocAction, readDocReceipt, readProjectedDocument, runDocAction } from "./doc-sync-actions.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts"; import { makeAgentRuntimeStreamHub, type AgentRuntimeAttachSubscription, type AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { makeDecisionActions, makeFactActions } from "./fact-actions.ts";
@@ -17,17 +16,17 @@ export type RepoTaskAction = Readonly<Record<string, unknown>> & { readonly kind
 type TaskCreateReceipt = WriteReceipt & { readonly summary: string; readonly taskId: string; readonly status: "planned"; readonly packagePath: string; readonly generatedPaths: readonly string[]; readonly presetDigest: string; readonly scaffoldDigest: string; readonly completionGates: readonly string[]; readonly commitSha: string | null; readonly dryRun: boolean };
 type TaskProgressReceipt = WriteReceipt & { readonly summary: string; readonly taskId: string; readonly executionId: string; readonly progressPath: string; readonly eventId: string; readonly commitSha: string; readonly worktreeVisible: true };
 export interface RepoCellStatus { readonly repoId: string; readonly rootDir: string; readonly state: "attached" | "unavailable" | "closed"; readonly generation: number; readonly queueDepth: number; readonly lastError: string | null; readonly recoveryMs: number }
-export interface RepoCell { readonly run: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceipt>; readonly presetRun: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<PresetRunReceiptV1>; readonly read: <M extends DaemonGuiReadMethod>(method: M, payload?: Readonly<Record<string, unknown>>) => Promise<DaemonGuiReadResultMap[M]>; readonly attach: (runtimeSessionId: string, afterCursor: string) => Promise<AgentRuntimeAttachSubscription>; readonly runtime: Pick<AgentRuntimeStreamHub, "publish" | "issueWitnessToken" | "bindWitness">; readonly status: () => RepoCellStatus; readonly close: () => Promise<void> }
+export interface RepoCell { readonly bootstrapReceipt?: RepoBootstrapReceipt; readonly run: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceipt>; readonly presetRun: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<PresetRunReceiptV1>; readonly read: <M extends DaemonGuiReadMethod>(method: M, payload?: Readonly<Record<string, unknown>>) => Promise<DaemonGuiReadResultMap[M]>; readonly attach: (runtimeSessionId: string, afterCursor: string) => Promise<AgentRuntimeAttachSubscription>; readonly runtime: Pick<AgentRuntimeStreamHub, "publish" | "issueWitnessToken" | "bindWitness">; readonly status: () => RepoCellStatus; readonly close: () => Promise<void> }
 type DaemonGuiReadHandlers = { readonly [M in DaemonGuiReadMethod]: (payload: Readonly<Record<string, unknown>>) => DaemonGuiReadResultMap[M] };
 const leaseTtlMs = 30 * 60 * 1_000; type Snapshot = Awaited<ReturnType<ReturnType<typeof makeTaskLifecycleService>["read"]>>["snapshot"];
 export async function openRepoCell(input: { readonly repoId: WorkspaceId; readonly rootDir: CanonicalRoot; readonly ownerId: string;
   readonly authoredBranch?: string;
-  readonly bootstrap?: { readonly input: RepoBootstrapInput; readonly auth: DaemonAuthenticationContext };
+  readonly bootstrap?: RepoBootstrapInput;
   readonly now?: () => string; readonly killpoint?: (point: EventPublicationKillpoint) => void }): Promise<RepoCell> {
   const rootDir = input.rootDir, lock = await acquireWorkspaceLock(rootDir), generation = Date.now() * 1_000 + process.pid % 1_000;
   const activeWriter: WriterGeneration = { workspaceId: input.repoId, generation, ownerId: input.ownerId }, writerToken = bindWriterGenerationToken(activeWriter), now = input.now ?? (() => new Date().toISOString());
-  let authoredBranch = input.authoredBranch;
-  try { if (input.bootstrap) authoredBranch = bootstrapRepo(input.bootstrap.input, input.bootstrap.auth, activeWriter, writerToken, authoredBranch); }
+  let authoredBranch = input.authoredBranch, bootstrapReceipt: RepoBootstrapReceipt | undefined;
+  try { if (input.bootstrap) { bootstrapReceipt = bootstrapRepo(input.bootstrap, activeWriter, writerToken, authoredBranch); authoredBranch = bootstrapReceipt.authoredBranch; } }
   catch (error) { await lock.close(); throw error; }
   const store = makeTaskEventStore({ repoId: input.repoId, rootDir, authoredBranch, killpoint: input.killpoint }), recovery = store.recover(), projection = makeTaskProjection({ rootDir, eventStore: store, now }); let knownTaskIds: Set<string> | null = null;
   const factActions = makeFactActions({ store, projection, now, killpoint: input.killpoint }), decisionActions = makeDecisionActions({ store, projection, now, killpoint: input.killpoint });
@@ -48,7 +47,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
     "repo.decisions.list": () => { const read = projection.searchDecisions({}); return { ok: true, decisions: read.decisions, warnings: [] }; }, "repo.tasks.document.read": (payload) => readProjectedDocument(projection, payload), "repo.agentRuntime.overview": runtimeReads.overview, "repo.agentRuntime.sessions.read": runtimeReads.session, "repo.agentRuntime.events.read": runtimeReads.events
   } satisfies DaemonGuiReadHandlers;
   const read: RepoCell["read"] = async (method, payload = {}) => { await tail; if (state !== "attached") throw cellCodedError("repo_unavailable", lastError ?? "RepoCell is unavailable."); return dispatchRead(readHandlers, method, payload); };
-  return { run, presetRun, read, attach: async (runtimeSessionId, afterCursor) => { await tail; if (state !== "attached") throw cellCodedError("repo_unavailable", lastError ?? "RepoCell is unavailable."); return runtimeStream.attach(runtimeSessionId, afterCursor); }, runtime: runtimeStream,
+  return { bootstrapReceipt, run, presetRun, read, attach: async (runtimeSessionId, afterCursor) => { await tail; if (state !== "attached") throw cellCodedError("repo_unavailable", lastError ?? "RepoCell is unavailable."); return runtimeStream.attach(runtimeSessionId, afterCursor); }, runtime: runtimeStream,
     status: () => ({ repoId: input.repoId, rootDir, state, generation, queueDepth, lastError, recoveryMs: recovery.elapsedMs }),
     close: async () => { if (state === "closed") return; state = "closed"; runtimeStream.close(); await presetProcess.close(); await tail; await lock.close(); } };
   async function executeAction(action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> {

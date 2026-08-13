@@ -29,8 +29,8 @@ function cliFailure(command: string, code: string, nextAction: string): Record<s
 }
 function emit(receipt: Record<string, unknown>, json: boolean): void {
   if (json) console.log(JSON.stringify(receipt));
-  else if (receipt.ok === true) console.log(String(receipt.command === "doc-show" ? receipt.evidence : receipt.summary ?? `${receipt.command ?? "command"}: ${receipt.outcome ?? "applied"}`));
-  else console.error(`error code=${String((receipt.error as { code?: unknown } | undefined)?.code ?? "unknown")} hint=${String(receipt.nextAction ?? "Command failed.")}`);
+  else if (receipt.ok === true) console.log(String(receipt.command === "doc-show" ? receipt.evidence : receipt.command === "init" ? [`init: ${receipt.outcome ?? "applied"}`, ...["created", "preserved", "drifted"].map((key) => `${key}: ${JSON.stringify(receipt[key] ?? [])}`), `commit: ${String(receipt.commit ?? "none")}`, `next: ${String(receipt.next ?? "")}`].join("\n") : receipt.summary ?? `${receipt.command ?? "command"}: ${receipt.outcome ?? "applied"}`));
+  else console.error(`error code=${String((receipt.error as { code?: unknown } | undefined)?.code ?? "unknown")} hint=${String(receipt.nextAction ?? receipt.next ?? "Command failed.")}`);
 }
 function isCliEntrypoint(): boolean { const invoked = process.argv[1]; if (!invoked) return false;
   try { return realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url)); } catch { return invoked.endsWith("packages/cli/src/index.ts"); } }

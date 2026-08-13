@@ -34,12 +34,12 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
     return registered; };
   return {
     bootstrap: async (request, auth) => {
-      const prepared = resolveRepoBootstrap(request), cell = await openRepoCell({ repoId: prepared.repoId, rootDir: prepared.rootDir,
-        ownerId: input.daemonId, bootstrap: { input: prepared, auth } });
+      const prepared = resolveRepoBootstrap(request, auth); await watchers.get(prepared.repoId)?.close(); watchers.delete(prepared.repoId); watchFailures.delete(prepared.repoId); await cells.get(prepared.repoId)?.close(); cells.delete(prepared.repoId); unavailable.delete(prepared.repoId); const cell = await openRepoCell({ repoId: prepared.repoId, rootDir: prepared.rootDir,
+        ownerId: input.daemonId, bootstrap: prepared });
       let registered; try { registered = registerDaemonRepo({ canonicalRoot: prepared.rootDir, repoId: prepared.repoId, userRoot: input.userRoot, createConvenienceLinks: false }); cells.set(prepared.repoId, cell); await startWatch(prepared.repoId, cell); unavailable.delete(prepared.repoId); }
       catch (error) { await cell.close(); throw error; }
-      return { schema: "command-receipt/v2", ok: true, command: "init", outcome: "applied", repoId: registered.repo.repoId,
-        rootDir: prepared.rootDir, changed: registered.changed, nextAction: "Create a task through the resident daemon." };
+      const receipt = cell.bootstrapReceipt!; return { schema: "command-receipt/v2", ok: receipt.publication.ok, command: "init", repoId: registered.repo.repoId,
+        rootDir: prepared.rootDir, registryChanged: registered.changed, ...receipt };
     },
     admin: async (request, auth) => { const rootDir = request.kind === "register" ? request.rootDir : readDaemonRegistry({ userRoot: input.userRoot }).repos.find((repo) => repo.repoId === request.repoId)?.canonicalRoot;
       if (!rootDir) throw hostCodedError("repo_namespace_unknown", `Unknown repo namespace: ${request.repoId}.`); await binding(rootDir, auth, "admin");

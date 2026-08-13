@@ -3,11 +3,81 @@
   "package": {
     "id": "software-coding-core",
     "title": "Software Coding Core Templates",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "owner": "harness-anything",
     "locales": ["zh-CN", "en-US"]
   },
   "documents": [
+    {
+      "id": "repository/context-index",
+      "version": "1",
+      "documentKind": "repository-context-index",
+      "slot": "repository.context.index",
+      "materializeAs": "{{paths.contextRoot}}/README.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Architecture", "## Development", "## Integrations", "## Research"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Architecture", "## Development", "## Integrations", "## Research"], "bodyPath": "templates/repository.context.index/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Architecture", "## Development", "## Integrations", "## Research"], "bodyPath": "templates/repository.context.index/en-US.md" }
+      ]
+    },
+    {
+      "id": "repository/context-architecture",
+      "version": "1",
+      "documentKind": "repository-context-architecture",
+      "slot": "repository.context.architecture",
+      "materializeAs": "{{paths.contextRoot}}/architecture/README.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Purpose", "## Opt-in Boundary"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Purpose", "## Opt-in Boundary"], "bodyPath": "templates/repository.context.architecture/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Purpose", "## Opt-in Boundary"], "bodyPath": "templates/repository.context.architecture/en-US.md" }
+      ]
+    },
+    {
+      "id": "repository/context-development",
+      "version": "1",
+      "documentKind": "repository-context-development",
+      "slot": "repository.context.development",
+      "materializeAs": "{{paths.contextRoot}}/development/README.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Local Setup", "## Code Map", "## External Context"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Local Setup", "## Code Map", "## External Context"], "bodyPath": "templates/repository.context.development/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Local Setup", "## Code Map", "## External Context"], "bodyPath": "templates/repository.context.development/en-US.md" }
+      ]
+    },
+    {
+      "id": "repository/context-integrations",
+      "version": "1",
+      "documentKind": "repository-context-integrations",
+      "slot": "repository.context.integrations",
+      "materializeAs": "{{paths.contextRoot}}/integrations/README.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## APIs", "## Events", "## Webhooks", "## Vendors"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## APIs", "## Events", "## Webhooks", "## Vendors"], "bodyPath": "templates/repository.context.integrations/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## APIs", "## Events", "## Webhooks", "## Vendors"], "bodyPath": "templates/repository.context.integrations/en-US.md" }
+      ]
+    },
+    {
+      "id": "repository/context-research",
+      "version": "1",
+      "documentKind": "repository-context-research",
+      "slot": "repository.context.research",
+      "materializeAs": "{{paths.contextRoot}}/research/README.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Package Convention", "## Sources"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Package Convention", "## Sources"], "bodyPath": "templates/repository.context.research/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Package Convention", "## Sources"], "bodyPath": "templates/repository.context.research/en-US.md" }
+      ]
+    },
     {
       "id": "planning/task-plan",
       "version": "1",
