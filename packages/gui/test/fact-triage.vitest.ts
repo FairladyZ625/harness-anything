@@ -286,7 +286,7 @@ describe("fact-triage signal metadata", () => {
 describe("cross-entity navigation projection", () => {
   it("keeps absent decision DTO fields explicit instead of synthesizing placeholders", () => {
     const rendered = buildTriadicRendererData({
-      graph: { ok: true, edges: [], coverageRows: [], factAnchors: [], warnings: [] },
+      graph: { ok: true, edges: [], coverageRows: [], factAnchors: [], facts: [], warnings: [] },
       decisions: {
         ok: true,
         decisions: [{
@@ -349,7 +349,7 @@ describe("cross-entity navigation projection", () => {
           },
         ],
         coverageRows: [],
-        factAnchors: [anchor(fact)],
+        factAnchors: [anchor(fact)], facts: [],
         warnings: [],
       },
       decisions: { ok: true, decisions: [], warnings: [] }

@@ -25,6 +25,11 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     const alpha = run(fixture.alpha, fixture.userRoot, ["task", "create", "--task-id", "task-alpha", "--title", "Alpha"]);
     const beta = run(fixture.beta, fixture.userRoot, ["task", "create", "--task-id", "task-beta", "--title", "Beta"]);
     assert.equal(alpha.outcome, "applied", JSON.stringify(alpha)); assert.equal(beta.outcome, "applied", JSON.stringify(beta));
+    const factRecord = run(fixture.alpha, fixture.userRoot, ["fact", "record", "--task", "task-alpha", "--statement", "Canonical Fact from CLI", "--source", "integration"]);
+    assert.equal(factRecord.outcome, "applied", JSON.stringify(factRecord)); const fact = JSON.parse(String(factRecord.evidence)) as { factId: string; state: string };
+    assert.equal(fact.state, "live"); const factSearch = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["fact", "search", "Canonical", "--task", "task-alpha"]).evidence)) as { facts: readonly { factId: string }[] };
+    assert.deepEqual(factSearch.facts.map((row) => row.factId), [fact.factId]); const factShow = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["fact", "show", "--task", "task-alpha", "--id", fact.factId]).evidence)) as { fact: { statement: string } };
+    assert.equal(factShow.fact.statement, "Canonical Fact from CLI"); assert.equal(git(fixture.alpha, "grep", "-l", "fact-event/v1", "refs/ha/canonical", "--", "harness/events" ).includes("harness/events"), true);
     assert.match(String(run(fixture.alpha, fixture.userRoot, ["task", "show", "task-alpha"]).evidence), /Alpha/u);
     assert.equal(run(fixture.alpha, fixture.userRoot, ["task", "start", "task-alpha", "--execution-id", "exec-doc"]).outcome, "applied");
     const docPath = "tasks/task-alpha/INDEX.md", docBody = "# CLI canonical document\n", authored = path.join(fixture.alpha, "harness", docPath); mkdirSync(path.dirname(authored), { recursive: true }); writeFileSync(authored, docBody);
@@ -32,7 +37,7 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--execution-id", "exec-doc", "--base-ledger-sha", base, "--path", docPath]).outcome, "applied");
     assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", docPath]).evidence, docBody);
     for (const root of [fixture.alpha, fixture.beta]) {
-      assert.equal(git(root, "rev-list", "--count", "refs/ha/canonical"), root === fixture.alpha ? "4" : "2");
+      assert.equal(git(root, "rev-list", "--count", "refs/ha/canonical"), root === fixture.alpha ? "5" : "2");
       assert.equal(git(root, "ls-tree", "--name-only", "refs/ha/canonical", "harness/events").includes("harness/events"), true);
       assert.equal(existsSync(path.join(root, ".harness/cache/task.sqlite")), true);
       assert.equal(existsSync(path.join(root, ".harness/write-journal")), false);

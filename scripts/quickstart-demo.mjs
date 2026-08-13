@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -25,35 +25,36 @@ const workspace = options.rootDir
 mkdirSync(workspace, { recursive: true });
 ensureGitWorkspace(workspace);
 
-let step = "start";
+let step = "start", daemonStarted = false;
 try {
+  step = "daemon start";
+  runCli(["daemon", "start", "--service"]);
+  daemonStarted = true;
+
   step = "init";
-  const init = runCli(["init", "--name", "quickstart-demo", "--add-npm-scripts"]);
-  assertEqual(init.command, "init", "init command");
-  assertEqual(init.report?.configureVerify?.smokeTaskFound, true, "init smoke task query");
+  const init = runCli(["init", "--repo-id", "quickstart", "--person-id", "quickstart-owner", "--display-name", "Quickstart Owner"]);
+  assertEqual(init.ok, true, "init receipt");
 
   step = "task create";
   const task = runCli([
     "task",
     "create",
+    "--task-id",
+    "task-quickstart",
     "--title",
     "First harness value",
-    "--vertical",
-    "software/coding",
     "--preset",
     "standard-task"
   ]);
-  const taskId = assertString(task.taskId, "created task id");
+  const taskId = "task-quickstart";
+  assertEqual(task.outcome, "applied", "task create outcome");
 
   step = "fact record";
-  const factId = options.breakStep === "fact-record" ? "F-BAD" : "F-ABCDEF12";
   const fact = runCli([
     "fact",
     "record",
     "--task",
     taskId,
-    "--id",
-    factId,
     "--statement",
     "The quickstart created a task and recorded a queryable fact.",
     "--source",
@@ -61,34 +62,19 @@ try {
     "--confidence",
     "high",
     "--memory-class",
-    "episodic",
+    options.breakStep === "fact-record" ? "invalid" : "episodic",
     "--memory-tag",
     "task_skill"
   ]);
-  const factRef = assertString(fact.factRef, "created fact ref");
+  const factRow = JSON.parse(assertString(fact.evidence, "fact record evidence"));
+  const factRef = assertString(factRow.ref, "created fact ref");
 
-  step = "fact list";
-  const facts = runCli(["fact", "list", "--task", taskId]);
-  const factRows = Number(facts.rows);
-  if (!Number.isFinite(factRows) || factRows < 1) {
-    throw new Error(`expected at least one fact row, got ${String(facts.rows)}`);
-  }
-
-  step = "graph";
-  const graph = runCli([
-    "graph",
-    "--focus",
-    factRef,
-    "--out",
-    ".harness/generated/graph-panorama/quickstart.html"
-  ]);
-  assertEqual(graph.command, "graph", "graph command");
-  const graphPath = path.join(workspace, ".harness/generated/graph-panorama/quickstart.html");
-  if (!existsSync(graphPath)) throw new Error(`graph HTML missing: ${graphPath}`);
-  const graphHtml = readFileSync(graphPath, "utf8");
-  if (!graphHtml.includes("Relation Graph Panorama")) {
-    throw new Error("graph HTML did not contain the expected panorama marker");
-  }
+  step = "fact search";
+  const search = JSON.parse(assertString(runCli(["fact", "search", "queryable", "--task", taskId]).evidence, "fact search evidence"));
+  assertEqual(search.facts?.[0]?.ref, factRef, "Fact FTS result");
+  step = "fact show";
+  const shown = JSON.parse(assertString(runCli(["fact", "show", "--task", taskId, "--id", factRow.factId]).evidence, "fact show evidence"));
+  assertEqual(shown.fact?.ref, factRef, "Fact show result");
 
   console.log(JSON.stringify({
     ok: true,
@@ -96,8 +82,6 @@ try {
     workspace,
     taskId,
     factRef,
-    graphPath,
-    initSmokeTaskId: init.report.configureVerify.smokeTaskId,
     attribution: {
       actor: demoAttribution.actor,
       gitAuthorName: demoAttribution.gitAuthorName,
@@ -114,6 +98,10 @@ try {
     error: error instanceof Error ? error.message : String(error)
   }, null, 2));
   process.exitCode = 1;
+} finally {
+  if (daemonStarted) {
+    try { runCli(["daemon", "stop"]); } catch { /* best-effort local daemon cleanup */ }
+  }
 }
 
 function runCli(args) {
@@ -136,6 +124,7 @@ function runCliProcess(args) {
         HARNESS_ACTOR: demoAttribution.actor,
         HARNESS_GIT_AUTHOR_NAME: demoAttribution.gitAuthorName,
         HARNESS_GIT_AUTHOR_EMAIL: demoAttribution.gitAuthorEmail,
+        HARNESS_DAEMON_USER_ROOT: path.join(workspace, ".daemon-user"),
         ANTIGRAVITY_SESSION_ID: "",
         CLAUDE_CODE_SESSION_ID: "",
         CLAUDE_SESSION_ID: "",
@@ -174,6 +163,7 @@ function unwrapReceipt(value) {
   const data = value.details?.data && typeof value.details.data === "object" ? value.details.data : {};
   const paths = Object.fromEntries(Array.isArray(value.paths) ? value.paths.map((entry) => [entry.role, entry.path]) : []);
   return {
+    ...value,
     ...data,
     ok: value.ok,
     command: value.command?.replaceAll(" ", "-"),

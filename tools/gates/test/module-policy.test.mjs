@@ -7,7 +7,7 @@ import { classifyModule, classifyPath, isProductionPath, isTestPath, MODULES } f
 test("module-policy is the single ordered module catalog", () => {
   assert.deepEqual(MODULES, [
     "kernel", "task-lifecycle", "write-contract", "doc-sync", "preset", "cli", "gui",
-    "daemon", "authority-write-path", "identity-rbac", "agent-runtime", "test-infra"
+    "daemon", "authority-write-path", "identity-rbac", "agent-runtime", "decision-fact", "test-infra"
   ]);
   assert.equal(classifyModule("packages/kernel/src/domain/task.ts"), "kernel");
   assert.equal(classifyModule("packages/application/src/task-lifecycle-gates.ts"), "task-lifecycle");
@@ -45,5 +45,10 @@ test("preset Slice A fixture classifies canonical and shared paths into their ra
 
 test("preset Slice B fixture keeps the process service in preset and shared seams in frozen buckets", () => {
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/preset-slice-b-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});
+
+test("Decision/Fact Slice A fixture assigns the vertical cut and shared seams to their budgets", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/decision-fact-slice-a-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });

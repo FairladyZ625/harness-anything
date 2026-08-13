@@ -37,11 +37,9 @@ export interface HarnessLayout {
   readonly cacheRoot: string;
   readonly projectionPath: string;
   readonly claimsRoot: string;
-  readonly factDocumentName: "facts.md";
   readonly taskPackagePath: (taskId: TaskId) => string;
   readonly createTaskPackagePath: (taskId: TaskId, slug?: string) => string;
   readonly taskDocumentPath: (taskId: TaskId, documentPath: string) => string;
-  readonly taskFactDocumentPath: (taskId: TaskId) => string;
   readonly decisionPackagePath: (decisionId: string) => string;
   readonly decisionDocumentPath: (decisionId: string) => string;
   readonly sessionDocumentPath: (sessionId: string) => string;
@@ -147,7 +145,6 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
   const generatedRoot = generatedRootSetting
     ? resolveRootRelativePath(resolvedRoot, generatedRootSetting, "structure.generatedRoot")
     : path.join(localRoot, "generated");
-  const factDocumentName = "facts.md";
   return {
     rootDir: resolvedRoot,
     configPath: settings.configPath,
@@ -170,7 +167,6 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
     cacheRoot: path.join(localRoot, "cache"),
     projectionPath: path.join(localRoot, "cache", "projections.sqlite"),
     claimsRoot: path.join(localRoot, "adopt-claims"),
-    factDocumentName,
     taskPackagePath: (taskId) => {
       validateTaskIdSyntax(taskId);
       return findTaskPackagePathInTasksRoot(tasksRoot, taskId) ?? path.join(tasksRoot, taskId);
@@ -183,10 +179,6 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
     taskDocumentPath: (taskId, documentPath) => {
       const safePath = normalizeRelativeDocumentPath(documentPath);
       return path.join(findTaskPackagePathInTasksRoot(tasksRoot, taskId) ?? path.join(tasksRoot, taskId), safePath);
-    },
-    taskFactDocumentPath: (taskId) => {
-      validateTaskIdSyntax(taskId);
-      return path.join(findTaskPackagePathInTasksRoot(tasksRoot, taskId) ?? path.join(tasksRoot, taskId), factDocumentName);
     },
     decisionPackagePath: (decisionId) => {
       const safeDecisionId = normalizeEntityRootSegment(decisionId, "decision id");

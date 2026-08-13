@@ -41,14 +41,10 @@ test("entity root resolver maps decision refs to the decision document without c
   assert.equal(resolved.anchor, "C1");
 });
 
-test("entity root resolver maps fact refs to the owner task facts ledger", () => {
+test("entity root resolver rejects event-backed Fact refs as authored documents", () => {
   const rootDir = makeHarnessRoot();
 
-  const resolved = resolveEntityRoot(rootDir, "fact/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q/F-a3f2");
-
-  assert.equal(resolved.rootPath, path.join(rootDir, "harness", "tasks", "task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q-owner"));
-  assert.equal(resolved.documentPath, path.join(resolved.rootPath, "facts.md"));
-  assert.equal(resolved.anchor, "F-a3f2");
+  assert.throws(() => resolveEntityRoot(rootDir, "fact/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q/F-a3f2"), /event-backed fact refs/u);
 });
 
 test("entity root resolver rejects unknown, external, and traversal-like refs", () => {

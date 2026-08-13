@@ -10,7 +10,7 @@ const repoRoot = path.resolve(import.meta.dirname, "..");
 const demoScript = path.join(repoRoot, "scripts/quickstart-demo.mjs");
 const cliEntry = path.join(repoRoot, "packages/cli/src/index.ts");
 
-test("quickstart demo runs init to task to fact to graph with the source CLI", () => {
+test("quickstart demo runs daemon init to task to event-backed Fact search/show", () => {
   withTempRoot((rootDir) => {
     const stdout = execFileSync(process.execPath, [demoScript, "--cli", cliEntry, "--root", rootDir], {
       cwd: repoRoot,
@@ -21,9 +21,8 @@ test("quickstart demo runs init to task to fact to graph with the source CLI", (
 
     assert.equal(result.ok, true);
     assert.equal(result.schema, "quickstart-demo/v1");
-    assert.match(result.taskId, /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u);
-    assert.match(result.factRef, /^fact\/task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}\/F-ABCDEF12$/u);
-    assert.equal(result.graphPath.endsWith(".harness/generated/graph-panorama/quickstart.html"), true);
+    assert.equal(result.taskId, "task-quickstart");
+    assert.match(result.factRef, /^fact\/task-quickstart\/F-[0-9A-HJKMNP-TV-Z]{8}$/u);
   });
 });
 

@@ -27,8 +27,8 @@ export async function startGuiResidentDaemonFixture({
       { rootDir, repoId, personId: "person-gui", displayName: "GUI Test" }, 1_000);
     if (bootstrapped.ok !== true) throw new Error(`GUI daemon bootstrap failed: ${JSON.stringify(bootstrapped)}`);
     if (task) {
-      const created = await requestDaemonJsonRpcAt(daemon.endpoint, "repo.task.run", { repo: { repoId },
-        payload: { action: { kind: "task-create", taskId: task.taskId, title: task.title, completionGateIds: [] } } }, 1_000);
+      const created = await requestDaemonJsonRpcAt(daemon.endpoint, "repo.task.create", { repo: { repoId },
+        payload: { taskId: task.taskId, title: task.title } }, 1_000);
       if (created.ok !== true) throw new Error(`GUI daemon task fixture failed: ${JSON.stringify(created)}`);
     }
     if (beforeRestart) { await beforeStop?.(daemon.endpoint, repoId); await daemon.stop(); await beforeRestart(rootDir, repoId); daemon = await startDaemon({ daemonId, userRoot }); }

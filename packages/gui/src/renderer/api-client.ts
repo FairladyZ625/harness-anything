@@ -1,6 +1,6 @@
 import type {
   DecisionProjectionRow,
-  FactAnchorRow,
+  FactAnchorRow, FactProjectionRow,
   GuiBridgeMethod,
   ProjectionWarning,
   RelationCoverageRow,
@@ -31,7 +31,7 @@ export interface RelationGraphSuccess {
   readonly ok: true;
   readonly edges: ReadonlyArray<RelationGraphEdgeRow>;
   readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
-  readonly factAnchors: ReadonlyArray<FactAnchorRow>;
+  readonly factAnchors: ReadonlyArray<FactAnchorRow>; readonly facts: ReadonlyArray<FactProjectionRow>;
   readonly warnings: ReadonlyArray<ProjectionWarning>;
 }
 
@@ -73,14 +73,14 @@ function readTaskListResult(value: unknown): TaskListSuccess {
 
 function readRelationGraphResult(value: unknown): RelationGraphSuccess {
   const result = value as Partial<RelationGraphSuccess>;
-  if (!result || result.ok !== true || !Array.isArray(result.edges) || !Array.isArray(result.coverageRows) || !Array.isArray(result.factAnchors)) {
+  if (!result || result.ok !== true || !Array.isArray(result.edges) || !Array.isArray(result.coverageRows) || !Array.isArray(result.factAnchors) || !Array.isArray(result.facts)) {
     throw new Error(localErrorHint(value, "Relation graph bridge returned an invalid result."));
   }
   return {
     ok: true,
     edges: result.edges.filter(isRelationGraphEdgeRow),
     coverageRows: result.coverageRows.filter(isRelationCoverageRow),
-    factAnchors: result.factAnchors.filter(isFactAnchorRow),
+    factAnchors: result.factAnchors.filter(isFactAnchorRow), facts: result.facts,
     warnings: Array.isArray(result.warnings) ? result.warnings : []
   };
 }

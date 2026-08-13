@@ -3,7 +3,6 @@
   "documents": [
     { "ref": "template://planning/task-plan@1", "variants": [{ "locale": "zh-CN", "path": "templates/task.plan/zh-CN.md", "mediaType": "text/markdown" }, { "locale": "en-US", "path": "templates/task.plan/en-US.md", "mediaType": "text/markdown" }] },
     { "ref": "template://planning/milestone-task-plan@1", "variants": [{ "locale": "zh-CN", "path": "templates/task.milestone.plan/zh-CN.md", "mediaType": "text/markdown" }, { "locale": "en-US", "path": "templates/task.milestone.plan/en-US.md", "mediaType": "text/markdown" }] },
-    { "ref": "template://planning/facts@1", "variants": [{ "locale": "zh-CN", "path": "templates/task.facts/zh-CN.md", "mediaType": "text/markdown" }, { "locale": "en-US", "path": "templates/task.facts/en-US.md", "mediaType": "text/markdown" }] },
     { "ref": "template://planning/closeout@1", "variants": [{ "locale": "zh-CN", "path": "templates/task.closeout/zh-CN.md", "mediaType": "text/markdown" }, { "locale": "en-US", "path": "templates/task.closeout/en-US.md", "mediaType": "text/markdown" }] },
     { "ref": "template://planning/keep-file@1", "variants": [{ "locale": "zh-CN", "path": "templates/task.keep/zh-CN.md", "mediaType": "text/plain" }, { "locale": "en-US", "path": "templates/task.keep/en-US.md", "mediaType": "text/plain" }] }
   ]

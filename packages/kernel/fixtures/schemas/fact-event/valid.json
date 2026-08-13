@@ -1,0 +1,21 @@
+{
+  "schema": "fact-event/v1",
+  "eventId": "event-fact-fixture",
+  "workspaceRevision": 1,
+  "opId": "op-fact-fixture",
+  "taskId": "task-fixture",
+  "factId": "F-ABCDEFGH",
+  "type": "fact_recorded",
+  "actor": { "principal": { "personId": "person-fixture" }, "executor": null },
+  "source": "local",
+  "occurredAt": "2026-08-13T00:00:00.000Z",
+  "payload": {
+    "statement": "Fact event fixture",
+    "evidenceSource": "contract fixture",
+    "observedAt": "2026-08-13T00:00:00.000Z",
+    "confidence": "high",
+    "memoryClass": "semantic",
+    "memoryTags": ["pattern"],
+    "provenance": [{ "runtime": "human", "sessionId": "session-fixture", "boundAt": "2026-08-13T00:00:00.000Z" }]
+  }
+}

@@ -69,11 +69,6 @@
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
       },
       {
-        "value": "buildRelationGraphProjection",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
         "value": "CanonicalEventV1",
         "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
         "reason": "Preset v3 Slice A keeps the closed canonical event union public for downstream consumers and contract tests."
@@ -574,9 +569,9 @@
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
       },
       {
-        "value": "FactConfidence",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "value": "FactEventSchema",
+        "ref": "dec_01KZVM5NBQFV92QJQKMF1HF77R",
+        "reason": "Decision/Fact Slice A exposes the closed Fact event schema through the canonical kernel registry even though current product consumers use the typed event and registry parser."
       },
       {
         "value": "factConfidenceLevels",
@@ -594,32 +589,12 @@
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
       },
       {
-        "value": "FactMemoryClass",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
-      },
-      {
         "value": "factMemoryClasses",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
       },
       {
         "value": "FactMemoryTag",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
-      },
-      {
-        "value": "factMemoryTags",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "FactRecord",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
-      },
-      {
-        "value": "FactRecordSchema",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
       },
@@ -652,11 +627,6 @@
         "value": "findTaskPackagePath",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "formatFactFlowRecord",
-        "ref": "task_01KX19FXXB88E1VB34QQ82S26E",
-        "reason": "MC-A2 moved fact writes to delta payloads; the formatter remains part of the stable public kernel surface for fact-flow documents even when no production package consumes it directly."
       },
       {
         "value": "formatRelationFlowRecord",
@@ -790,16 +760,6 @@
       },
       {
         "value": "isFactId",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
-      },
-      {
-        "value": "isFactMemoryClass",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
-      },
-      {
-        "value": "isFactMemoryTag",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
       },
@@ -940,11 +900,6 @@
       },
       {
         "value": "parseEntityRef",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
-      },
-      {
-        "value": "parseFactFlowRecords",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
       },
@@ -1282,11 +1237,6 @@
         "value": "scanPrivateText",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
-      },
-      {
-        "value": "serializeCanonicalEvent",
-        "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
-        "reason": "Preset v3 Slice A keeps canonical event serialization public as the closed-union writer contract."
       },
       {
         "value": "Sha256Fingerprint",

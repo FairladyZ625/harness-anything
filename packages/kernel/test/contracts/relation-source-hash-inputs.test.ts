@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { deriveRelationId, formatFactFlowRecord, formatRelationFlowRecord } from "../../src/index.ts";
-import type { EntityRelationRecord, FactRecord } from "../../src/index.ts";
+import { deriveRelationId, formatRelationFlowRecord } from "../../src/index.ts";
+import type { EntityRelationRecord } from "../../src/index.ts";
 import { readRelationGraphAuthoredSourceKinds } from "../../src/projection/relation-graph-projection.ts";
 import {
   readMarkdownSource,
@@ -23,27 +23,6 @@ test("relation graph collection and freshness enumerate the same authored source
       })
     ]);
     writeIndex(rootDir, "task-target", "Task Target");
-    writeIndex(rootDir, "task-fact-owner", "Task Fact Owner");
-    writeFacts(rootDir, "task-fact-owner", [{
-      fact_id: "F-DEADBEEF",
-      statement: "The fact supports the decision.",
-      source: "fixture",
-      observedAt: "2026-07-06T00:00:00.000Z",
-      confidence: "high",
-      memoryClass: "semantic",
-      memoryTags: ["abstract_rule"],
-      provenance: [{
-        runtime: "codex",
-        sessionId: "fixture-session",
-        boundAt: "2026-07-06T00:00:00.000Z"
-      }]
-    }], [
-      relationRecord({
-        source: "fact/task-fact-owner/F-DEADBEEF",
-        target: "decision/dec_SOURCE/C1",
-        type: "supports"
-      })
-    ]);
     writeDecision(rootDir, "dec_SOURCE", [
       relationRecord({
         source: "decision/dec_SOURCE/C1",
@@ -55,8 +34,8 @@ test("relation graph collection and freshness enumerate the same authored source
     const authoredKinds = readRelationGraphAuthoredSourceKinds({ rootDir });
     const sourceHashKinds = readRelationGraphSourceHashInputKinds({ rootDir });
 
-    assert.deepEqual(authoredKinds, ["decision-document", "task-facts", "task-index"]);
-    assert.deepEqual(sourceHashKinds, ["decision-document", "task-facts", "task-index"]);
+    assert.deepEqual(authoredKinds, ["decision-document", "task-index"]);
+    assert.deepEqual(sourceHashKinds, ["decision-document", "task-index"]);
     assert.deepEqual(sourceHashKinds, authoredKinds);
   });
 });
@@ -117,23 +96,6 @@ function writeIndex(rootDir: string, taskId: string, title: string, relations: R
     "---",
     "",
     `# ${title}`,
-    ""
-  ].join("\n"));
-}
-
-function writeFacts(
-  rootDir: string,
-  taskId: string,
-  facts: ReadonlyArray<FactRecord>,
-  relations: ReadonlyArray<EntityRelationRecord> = []
-): void {
-  const taskRoot = path.join(rootDir, "harness/tasks", taskId);
-  mkdirSync(taskRoot, { recursive: true });
-  writeFileSync(path.join(taskRoot, "facts.md"), [
-    "# Facts",
-    "",
-    ...facts.map(formatFactFlowRecord),
-    ...(relations.length > 0 ? ["", "relations:", ...relations.map(formatRelationFlowRecord)] : []),
     ""
   ].join("\n"));
 }

@@ -347,6 +347,11 @@
         "value": "packages/kernel/test/store/sqlite-rebuild.test.ts",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "Task projection and lifecycle integration retain the rebuildable SQLite invariant after the legacy store test is retired."
+      },
+      {
+        "value": "packages/kernel/test/store/relation-graph-toctou.test.ts",
+        "ref": "task_01KZV5NZ3XYM4TZJ3MR8S6ZZ3J-w2-decision-fact",
+        "reason": "Fact eventification deletes the facts.md scanner; crash catch-up is covered at the canonical event and SQLite projection boundary."
       }
     ]
   }

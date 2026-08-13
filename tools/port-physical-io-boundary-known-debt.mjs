@@ -5,11 +5,6 @@ export const portPhysicalIoBoundaryKnownDebt = [
     reason: "Existing application read-side local document adapter uses filesystem reads; W3 freezes this file-level exception until the read port implementation is extracted."
   },
   {
-    file: "packages/application/src/fact-write-service.ts",
-    decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
-    reason: "Existing application fact write service still performs direct authored-file writes; W3 records the exception instead of migrating write semantics."
-  },
-  {
     file: "packages/application/src/runtime-event-ledger-service.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing runtime event ledger append implementation owns local ledger persistence; W3 freezes this file-level exception until a dedicated adapter boundary exists."

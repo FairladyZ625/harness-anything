@@ -12,7 +12,7 @@ import { apiRouteContracts, createLocalGuiServiceBridge } from "../src/index.ts"
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 import { writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
 import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
-import { makeTaskEventStore, type AgentRuntimeEventV1 } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, type AgentRuntimeEventV1, type FactEventV1 } from "../../kernel/src/index.ts";
 import { streamAgentRuntimeAt } from "../src/main/agent-runtime-stream-client.ts";
 
 test("GUI client reaches every shipped read through a real resident daemon", async () => {
@@ -42,7 +42,8 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.deepEqual(tasks.rows.map(({ taskId }) => taskId), ["task-gui"]);
     assert.equal(tasks.rows[0]?.snapshot.task?.title, "Resident GUI task");
     const graph = parseDaemonGuiReadResult("repo.triadic.relationGraph", results.get("repo.triadic.relationGraph"));
-    assert.equal(graph.edges.length, 3); assert.equal(graph.factAnchors.length, 1);
+    assert.equal(graph.edges.length, 3); assert.equal(graph.factAnchors.length, 1); assert.equal(graph.facts.length, 1);
+    assert.equal(graph.facts[0]?.statement, "The GUI renderer received event-backed triadic rows.");
     const decisions = parseDaemonGuiReadResult("repo.decisions.list", results.get("repo.decisions.list"));
     assert.deepEqual(decisions.decisions.map(({ decisionId }) => decisionId), ["dec_gui_smoke"]);
     const document = parseDaemonGuiReadResult("repo.tasks.document.read", results.get("repo.tasks.document.read"));
@@ -83,4 +84,5 @@ function seedRuntime(rootDir: string, repoId: string): void { const store = make
   ["runtime_installation_observed", { installationId: "installation-gui", kindId: "codex", protocolFamily: "codex", hostRef: "host:gui", version: "1.0.0", discoverySource: "wrapper", capabilities: ["structured_witness", "attach"], authState: "configured" }],
   ["runtime_session_started", { runtimeSessionId: "runtime-gui", installationId: "installation-gui", kindId: "codex", launchGeneration: 1, attachable: true }],
   ["runtime_session_task_bound", { runtimeSessionId: "runtime-gui", taskId: "task-gui", executionId: "execution-gui", providerSessionId: "provider-gui", transcriptRef: "file:runtime/gui.jsonl" }]
-  ] as const; for (const [index, [type, payload]] of values.entries()) { const revision = base + index + 1, event = { schema: "agent-runtime-event/v1", eventId: `event-runtime-gui-${revision}`, workspaceRevision: revision, opId: `op-runtime-gui-${revision}`, actor: { principal: { personId: "person-gui" }, executor: null }, source: "local", occurredAt: `2026-08-13T00:00:0${index}.000Z`, type, payload } as AgentRuntimeEventV1; store.append(event); } }
+  ] as const; for (const [index, [type, payload]] of values.entries()) { const revision = base + index + 1, event = { schema: "agent-runtime-event/v1", eventId: `event-runtime-gui-${revision}`, workspaceRevision: revision, opId: `op-runtime-gui-${revision}`, actor: { principal: { personId: "person-gui" }, executor: null }, source: "local", occurredAt: `2026-08-13T00:00:0${index}.000Z`, type, payload } as AgentRuntimeEventV1; store.append(event); }
+  const revision = base + values.length + 1, fact: FactEventV1 = { schema: "fact-event/v1", eventId: "event-fact-gui", workspaceRevision: revision, opId: "op-fact-gui", taskId: "task-gui-smoke", factId: "F-ABCDEFGH", type: "fact_recorded", actor: { principal: { personId: "person-gui" }, executor: null }, source: "local", occurredAt: "2026-08-13T00:00:04.000Z", payload: { statement: "The GUI renderer received event-backed triadic rows.", evidenceSource: "GUI integration", observedAt: "2026-08-13T00:00:04.000Z", confidence: "low", memoryClass: "semantic", memoryTags: ["pattern"], provenance: [{ runtime: "codex", sessionId: "fg-p1-07-e2e", boundAt: "2026-08-13T00:00:04.000Z" }] } }; store.append(fact); }

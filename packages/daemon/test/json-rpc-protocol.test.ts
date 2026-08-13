@@ -65,6 +65,17 @@ test("RepoCell serializes identical lifecycle intents into one Git publication a
   }
 });
 
+test("invalid Fact input stays a typed rejection without disabling the RepoCell", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-invalid-fact-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("invalid-fact"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" });
+    const receipt = await cell.run({ kind: "fact-record", taskId: "task-fact", statement: "Observed", evidenceSource: "test", confidence: "high", memoryClass: "semantic", memoryTags: [],
+      supersedes: { factRef: "fact/task-fact/F-ABCDEFGH", rationale: "x".repeat(200) } }, { actor, source: "local" });
+    assert.deepEqual({ outcome: receipt.outcome, code: receipt.code, state: cell.status().state }, { outcome: "rejected", code: "invalid_command", state: "attached" });
+    assert.equal(makeTaskEventStore({ repoId: "invalid-fact", rootDir }).readHead(), null);
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
 test("receipt lookup reports Git object-store failure as indeterminate and marks the RepoCell unavailable", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-corrupt-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("corrupt"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" });

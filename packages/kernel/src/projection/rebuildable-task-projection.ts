@@ -3,12 +3,14 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { emptyTaskLifecycleSnapshot, reduceTaskEvent, type LeaseChangeReason, type TaskEventV1,
   type TaskLifecycleSnapshot } from "../domain/task-lifecycle.contract.ts";
-import { assertDocSyncWritePlan, isDocEvent, isTaskEvent, parseCanonicalEvent, serializeCanonicalEvent, verifyDocEventChange, type CanonicalEventV1, type DocEventV1, type DocumentState } from "../domain/doc-sync.contract.ts"; import type { FrozenWritePlan } from "../domain/write-chain.contract.ts";
+import { assertDocSyncWritePlan, isDocEvent, isFactEvent, isTaskEvent, parseCanonicalEvent, serializeCanonicalEvent, verifyDocEventChange, type CanonicalEventV1, type DocEventV1, type DocumentState } from "../domain/doc-sync.contract.ts"; import type { FrozenWritePlan } from "../domain/write-chain.contract.ts";
 import { TASK_LEASE_BROKER_CONTRACT, validateLeaseV1, type LeaseHolder, type LeaseV1 } from "../domain/execution.ts";
 import { canonicalizeContractValue } from "../domain/task.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { isAgentRuntimeEvent, markRuntimeSessionUnknown, reduceRuntimeInstallation, reduceRuntimeSession, runtimeSessionId, type AgentRuntimeEventV1, type RuntimeInstallation, type RuntimeSession } from "../domain/agent-runtime.ts";
 import { assertTaskBootstrapWritePlan, isTaskBootstrapEvent, type TaskBootstrapEventV1 } from "../domain/task-bootstrap-event.ts";
+import type { FactEventV1 } from "../domain/fact-event.ts";
+import { assertFactAdmission, createFactProjectionTables, FactProjectionError, readFactAnchorRows, readFactGraphRows, readFactRow, reduceFactEvent, searchFactRows, type FactProjectionRow, type FactSearchFilters } from "./fact-event-projection.ts";
 
 interface EventStreamPort {
   readonly readHead: () => { readonly revision: number } | null;
@@ -36,11 +38,15 @@ export interface LeaseInterval {
 }
 export interface DocumentProjectionRead { readonly status: "ready" | "pending"; readonly document: DocumentState | null; readonly watermark: number; readonly sourceRevision: number }
 export interface PresetSnapshotProjectionRead { readonly status: "ready" | "pending"; readonly snapshot: unknown | null; readonly watermark: number; readonly sourceRevision: number }
+export interface FactProjectionRead { readonly status: "ready" | "pending"; readonly fact: FactProjectionRow | null; readonly watermark: number; readonly sourceRevision: number }
+export interface FactProjectionSearchRead { readonly status: "ready" | "pending"; readonly facts: readonly FactProjectionRow[]; readonly watermark: number; readonly sourceRevision: number }
+export interface FactGraphProjectionRead { readonly status: "ready" | "pending"; readonly edges: ReturnType<typeof readFactGraphRows>["edges"]; readonly factAnchors: ReturnType<typeof readFactGraphRows>["factAnchors"]; readonly facts: readonly FactProjectionRow[]; readonly watermark: number; readonly sourceRevision: number }
 export interface TaskProjection {
-  readonly path: string; readonly apply: { (event: TaskEventV1 | AgentRuntimeEventV1): ProjectionApplyReceipt; (event: DocEventV1, plan: FrozenWritePlan<"DocSyncSubmit">): ProjectionApplyReceipt; (event: TaskBootstrapEventV1, plan: FrozenWritePlan<"TaskBootstrap">): ProjectionApplyReceipt }; readonly rebuild: () => ProjectionRebuildReceipt;
+  readonly path: string; readonly apply: { (event: TaskEventV1 | AgentRuntimeEventV1 | FactEventV1): ProjectionApplyReceipt; (event: DocEventV1, plan: FrozenWritePlan<"DocSyncSubmit">): ProjectionApplyReceipt; (event: TaskBootstrapEventV1, plan: FrozenWritePlan<"TaskBootstrap">): ProjectionApplyReceipt }; readonly rebuild: () => ProjectionRebuildReceipt;
   readonly read: (taskId: string) => TaskProjectionRead; readonly list: () => TaskProjectionListRead; readonly readOperation: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
   readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null; readonly readDocument: (path: string) => DocumentProjectionRead;
   readonly readPresetSnapshot: (digest: string) => PresetSnapshotProjectionRead;
+  readonly admitFact: (event: FactEventV1) => void; readonly readFact: (taskId: string, factId: string) => FactProjectionRead; readonly searchFacts: (filters: FactSearchFilters) => FactProjectionSearchRead; readonly readFactGraph: () => FactGraphProjectionRead;
   readonly readLeaseIntervals: (taskId: string) => readonly LeaseInterval[]; readonly currentLease: (taskId: string, now?: string) => LeaseV1 | null; readonly currentLeaseForExecution: (executionId: string, now?: string) => LeaseV1 | null;
   readonly reserveLease: (lease: LeaseV1, now: string) => LeaseV1; readonly activateLease: (lease: LeaseV1) => LeaseV1;
   readonly renewLease: (lease: LeaseV1, expiresAt: string) => LeaseV1; readonly releaseLease: (lease: LeaseV1) => LeaseV1;
@@ -49,7 +55,7 @@ export interface TaskProjection {
 }
 
 export function defaultLifecycleTaskProjectionPath(rootDir: string): string { return path.join(path.resolve(rootDir), ".harness/cache/task.sqlite"); }
-
+export function readLifecycleFactAnchors(rootDir: string): ReturnType<typeof readFactAnchorRows> { const projectionPath = defaultLifecycleTaskProjectionPath(rootDir); if (!localRuntimeStateFileSystem.exists(projectionPath)) return []; const db = new DatabaseSync(projectionPath, { readOnly: true }); try { return readFactAnchorRows(db); } finally { db.close(); } }
 export function makeTaskProjection(options: { readonly rootDir: string; readonly eventStore: EventStreamPort;
   readonly projectionPath?: string; readonly catchUpLimit?: number; readonly now?: () => string }): TaskProjection {
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
@@ -69,6 +75,10 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
     readTaskOperation: (opId) => withDatabase(projectionPath, (db) => { const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as { readonly event_json: string } | undefined; if (!row) return null; const event = parseEventJson(row.event_json); return isTaskEvent(event) ? { event, watermark: watermark(db) } : null; }),
     readDocument: (documentPath) => readDocument(projectionPath, options.eventStore, documentPath, limit),
     readPresetSnapshot: (digest) => readPresetSnapshot(projectionPath, options.eventStore, digest, limit),
+    admitFact: (event) => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit); if (round.watermark !== round.sourceRevision) throw new FactProjectionError("content_not_ready", `Fact admission requires projection revision ${round.sourceRevision}; current watermark is ${round.watermark}.`); assertFactAdmission(db, event); }),
+    readFact: (taskId, factId) => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", fact: readFactRow(db, taskId, factId), watermark: current, sourceRevision: round.sourceRevision }; }),
+    searchFacts: (filters) => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", facts: searchFactRows(db, filters), watermark: current, sourceRevision: round.sourceRevision }; }),
+    readFactGraph: () => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", ...readFactGraphRows(db), watermark: current, sourceRevision: round.sourceRevision }; }),
     readRuntimeInstallation: (installationId) => withDatabase(projectionPath, (db) => readRuntimeInstallation(db, installationId)), readRuntimeInstallations: () => withDatabase(projectionPath, readRuntimeInstallations),
     readRuntimeSession: (runtimeSessionIdValue) => withDatabase(projectionPath, (db) => readRuntimeSession(db, runtimeSessionIdValue)), readRuntimeSessions: () => withDatabase(projectionPath, readRuntimeSessions),
     readRuntimeSessionsForTask: (taskId) => withDatabase(projectionPath, (db) => readRuntimeSessions(db).filter((session) => session.taskBindings.some((binding) => binding.taskId === taskId))),
@@ -156,6 +166,7 @@ function createTables(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS lease_cas (task_id TEXT PRIMARY KEY, lease_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS lease_interval (task_id TEXT NOT NULL, execution_id TEXT NOT NULL, acquired_revision INTEGER NOT NULL, released_revision INTEGER, holder_json TEXT NOT NULL, previous_holder_json TEXT, lease_expires_at TEXT NOT NULL, reason TEXT NOT NULL, PRIMARY KEY(task_id, execution_id, acquired_revision));
   `);
+  createFactProjectionTables(db);
 }
 
 function reduceBatch(db: DatabaseSync, events: readonly CanonicalEventV1[], limit: number, readBlob: EventStreamPort["readContentBlob"]): ProjectionApplyReceipt {
@@ -227,6 +238,7 @@ function drainDeferred(db: DatabaseSync, limit: number, readBlob: EventStreamPor
 }
 
 function applyEvent(db: DatabaseSync, event: CanonicalEventV1, eventJson: string, readBlob: EventStreamPort["readContentBlob"]): void {
+  if (isFactEvent(event)) { reduceFactEvent(db, event); runSql(db, "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)", event.opId, event.workspaceRevision, event.taskId, eventJson); return; }
   if (isAgentRuntimeEvent(event)) { const taskId = event.type === "runtime_session_task_bound" ? event.payload.taskId : null; runSql(db, "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)", event.opId, event.workspaceRevision, taskId, eventJson);
     const installation = reduceRuntimeInstallation(event.type === "runtime_installation_observed" ? readRuntimeInstallation(db, event.payload.installationId) : null, event); if (installation !== null) runSql(db, "INSERT INTO runtime_installation(installation_id, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(installation_id) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json", installation.installationId, event.workspaceRevision, canonicalJson(installation));
     const sessionId = runtimeSessionId(event); if (sessionId !== null) { const session = reduceRuntimeSession(readRuntimeSession(db, sessionId), event); if (session !== null) runSql(db, "INSERT INTO runtime_session(runtime_session_id, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(runtime_session_id) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json", session.runtimeSessionId, event.workspaceRevision, canonicalJson(session)); } return; }

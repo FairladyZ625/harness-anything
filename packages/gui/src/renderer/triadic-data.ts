@@ -64,7 +64,7 @@ export function buildTriadicRendererData(input: {
   const relationRows = input.graph.edges;
   return {
     decisions: adaptDecisionRows(input.decisions.decisions, relationRows, input.graph.coverageRows),
-    facts: [],
+    facts: input.graph.facts.map((row) => ({ anchor: `${row.taskId}/${row.factId}`, taskId: row.taskId, category: row.memoryClass === "semantic" ? "lesson" : row.memoryClass === "procedural" ? "progress" : "finding", text: row.statement, at: row.observedAt, confidence: row.confidence, source: row.evidenceSource, provenance: row.provenance, invalidated: row.state === "retired" })),
     relations: adaptRelationRows(relationRows),
     coverageRows: input.graph.coverageRows,
     factAnchors: input.graph.factAnchors,
@@ -76,7 +76,7 @@ const emptyRelationGraph: RelationGraphSuccess = {
   ok: true,
   edges: [],
   coverageRows: [],
-  factAnchors: [],
+  factAnchors: [], facts: [],
   warnings: []
 };
 

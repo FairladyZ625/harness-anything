@@ -19,7 +19,7 @@
     {
       "id": "fact",
       "entityType": "schema",
-      "schemaRef": "schema://fact-record",
+      "schemaRef": "schema://fact-event",
       "contractEntity": true
     }
   ],
@@ -98,8 +98,8 @@
       "schemaRef": "schema://decision-frontmatter"
     },
     {
-      "id": "fact-record",
-      "schemaRef": "schema://fact-record"
+      "id": "fact-event",
+      "schemaRef": "schema://fact-event"
     }
   ]
 }

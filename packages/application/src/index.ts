@@ -14,6 +14,8 @@ export type {
   TaskLifecycleService,
   TaskLifecycleServiceRead
 } from "./task-lifecycle-service.ts";
+export { FactServiceError, makeFactService } from "./fact-service.ts";
+export type { FactRecordResult } from "./fact-service.ts";
 export interface LocalControllerServiceOptions {
   readonly rootDir: string;
   readonly layoutOverrides?: HarnessLayoutOverrides;
@@ -92,10 +94,6 @@ export interface DecisionProjectionRow {
   readonly provenance?: ReadonlyArray<ProjectionProvenanceEntry>;
   readonly decidedAt?: string;
 }
-
-export type FactConfidence = "low" | "medium" | "high";
-export type FactMemoryClass = "semantic" | "episodic" | "procedural";
-export type FactMemoryTag = "episode" | "procedural" | "tool_memory" | "pattern" | "task_skill" | "abstract_rule" | "other";
 
 export interface TaskDocumentSuccess extends LocalControllerSuccess {
   readonly taskId?: string;
@@ -221,28 +219,6 @@ export interface ReviewDetailSuccess extends LocalControllerSuccess {
 
 export type ReviewDetailResult = ReviewDetailSuccess | LocalControllerFailure;
 
-export interface FactProjectionRow {
-  readonly schema: "task-fact-row/v1";
-  readonly ref: string;
-  readonly taskId: string;
-  readonly factId: string;
-  readonly statement: string;
-  readonly source: string;
-  readonly observedAt: string;
-  readonly confidence: FactConfidence;
-  readonly memoryClass: FactMemoryClass;
-  readonly memoryTags: ReadonlyArray<FactMemoryTag>;
-  readonly provenance: ReadonlyArray<ProjectionProvenanceEntry>;
-}
-
-export interface TaskFactListSuccess extends LocalControllerSuccess {
-  readonly taskId: string;
-  readonly path: string;
-  readonly facts: ReadonlyArray<FactProjectionRow>;
-}
-
-export type TaskFactListResult = TaskFactListSuccess | LocalControllerFailure;
-
 export interface TaskIdPayload {
   readonly taskId: string;
 }
@@ -272,7 +248,6 @@ export interface LocalControllerService {
   readonly getTaskExecutions: (payload: TaskIdPayload) => TaskExecutionListResult;
   readonly getExecutionDetail: (payload: ExecutionIdPayload) => ExecutionDetailResult;
   readonly getReviewDetail: (payload: ReviewIdPayload) => ReviewDetailResult;
-  readonly getTaskFacts: (payload: TaskIdPayload) => Promise<TaskFactListResult>;
   readonly rebuildGovernance: () => TaskListResult;
   readonly archiveTask: () => LocalControllerResult;
   readonly openShell: () => OpenShellResult;

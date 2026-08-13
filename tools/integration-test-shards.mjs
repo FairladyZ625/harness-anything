@@ -10,7 +10,6 @@ export const integrationTestFileWeightsMs = Object.freeze({
   "packages/kernel/test/store/entity-disposition.test.ts": 487.3,
   "packages/kernel/test/store/relation-cascade-direction.test.ts": 446.4,
   "packages/kernel/test/store/relation-graph-projection.test.ts": 850.9,
-  "packages/kernel/test/store/relation-graph-toctou.test.ts": 473.9,
   "tools/check-docs-release-map.test.mjs": 590.0,
   "tools/check-import-boundaries.test.mjs": 1230.7,
   "tools/check-kernel-dead-exports.test.mjs": 1909.3,

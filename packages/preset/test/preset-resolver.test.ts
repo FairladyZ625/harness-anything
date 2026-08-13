@@ -137,17 +137,17 @@ test("whole-package install publishes only the old or new active pointer", async
   } finally { fixture.cleanup(); }
 });
 
-test("bundled standard-task and create-milestone resolve four exact task documents without id branches", async () => {
+test("bundled standard-task and create-milestone resolve three exact task documents without id branches", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-preset-builtins-"));
   try {
     const resolver = createCanonicalPresetResolver({ userRoot: root }), common = { verticalId: "software/coding", profileId: "baseline", locale: "en-US", purpose: "task-create" } as const;
     const standard = await resolver.resolve({ ...common, presetId: "standard-task" }), milestone = await resolver.resolve({ ...common, presetId: "create-milestone" });
     assert.equal(standard.ok, true); assert.equal(milestone.ok, true); if (!standard.ok || !milestone.ok) return;
     assert.deepEqual(standard.snapshot.templates.map(({ slot, path: target, templateRef }) => ({ slot, target, templateRef })), [
-      { slot: "task.plan", target: "task_plan.md", templateRef: "template://planning/task-plan@1" }, { slot: "task.facts", target: "facts.md", templateRef: "template://planning/facts@1" }, { slot: "task.closeout", target: "closeout.md", templateRef: "template://planning/closeout@1" }, { slot: "task.artifacts.keep", target: "artifacts/.gitkeep", templateRef: "template://planning/keep-file@1" }
+      { slot: "task.plan", target: "task_plan.md", templateRef: "template://planning/task-plan@1" }, { slot: "task.closeout", target: "closeout.md", templateRef: "template://planning/closeout@1" }, { slot: "task.artifacts.keep", target: "artifacts/.gitkeep", templateRef: "template://planning/keep-file@1" }
     ]);
     assert.deepEqual(milestone.snapshot.templates.map(({ slot, path: target, templateRef }) => ({ slot, target, templateRef })), [
-      { slot: "task.plan", target: "task_plan.md", templateRef: "template://planning/milestone-task-plan@1" }, { slot: "task.facts", target: "facts.md", templateRef: "template://planning/facts@1" }, { slot: "task.closeout", target: "closeout.md", templateRef: "template://planning/closeout@1" }, { slot: "task.artifacts.keep", target: "artifacts/.gitkeep", templateRef: "template://planning/keep-file@1" }
+      { slot: "task.plan", target: "task_plan.md", templateRef: "template://planning/milestone-task-plan@1" }, { slot: "task.closeout", target: "closeout.md", templateRef: "template://planning/closeout@1" }, { slot: "task.artifacts.keep", target: "artifacts/.gitkeep", templateRef: "template://planning/keep-file@1" }
     ]);
     const noEntrypoint = await resolver.resolve({ presetId: "create-milestone", verticalId: "software/coding", locale: "en-US", purpose: "script-run", entrypoint: "run" }); assert.equal(noEntrypoint.ok, false); if (!noEntrypoint.ok) assert.equal(noEntrypoint.error.code, "entrypoint_not_found");
   } finally { rmSync(root, { recursive: true, force: true }); }

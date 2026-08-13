@@ -14,6 +14,7 @@ export const MODULES = Object.freeze([
   "authority-write-path",
   "identity-rbac",
   "agent-runtime",
+  "decision-fact",
   "test-infra"
 ]);
 
@@ -51,6 +52,14 @@ export function classifyModule(filePath) {
 
   if (normalized === "packages/kernel/src/domain/write-chain.contract.ts") return "write-contract";
   if (/agent-runtime/u.test(normalized)) return "agent-runtime";
+  if ([
+    "packages/kernel/src/domain/fact-event.ts",
+    "packages/kernel/src/schemas/fact-event.ts",
+    "packages/kernel/src/projection/fact-event-projection.ts",
+    "packages/application/src/fact-service.ts",
+    "packages/daemon/src/fact-actions.ts",
+    "packages/cli/src/cli/fact-command.ts"
+  ].includes(normalized)) return "decision-fact";
   if (/^packages\/gui\//u.test(normalized)) return "gui";
   if (/^packages\/daemon\/src\/identity\//u.test(normalized)) return "identity-rbac";
   if (/doc-sync/u.test(normalized)) return "doc-sync";

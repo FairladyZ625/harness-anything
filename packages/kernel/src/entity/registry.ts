@@ -1,4 +1,4 @@
-import { DecisionPackageSchema, EntityRelationRecordSchema, FactRecordSchema, TaskFrontmatterSchema } from "../schemas/registry.ts";
+import { DecisionPackageSchema, EntityRelationRecordSchema, FactEventSchema, TaskFrontmatterSchema } from "../schemas/registry.ts";
 import {
   decisionFieldContracts,
   factFieldContracts,
@@ -150,21 +150,21 @@ export const entityRegistry = {
   },
   fact: {
     kind: "fact",
-    schema: FactRecordSchema,
+    schema: FactEventSchema,
     mutabilityContract: factFieldContracts,
     anchors: {
       entityRef: "fact/{task_id}/{fact_id}",
       anchors: []
     },
     dispositionMatrix: dispositionMatrix([
-      supported("D1", "invalidate", ["fact_invalidate"], "fact is append-only; invalidation is represented by an active invalidating relation"),
+      supported("D1", "invalidate", ["fact_recorded"], "fact is append-only; invalidation is represented by a superseding Fact event"),
       unsupported("D1", "retire", "fact semantic exit is invalidate, not retire"),
       unsupported("D1", "supersede", "fact supersession uses a relation edge and remains an invalidation-class D1 action"),
       unsupported("D2", "archive", "fact follows its owner task archive and is not archived singly"),
       unsupported("D3", "tombstone", "fact is append-only and has no single-record tombstone semantics"),
       unsupported("D4", "hard-delete", "fact must never be physically deleted as a standalone entity")
     ]),
-    storageForm: "schema"
+    storageForm: "lifecycle"
   },
   relation: {
     kind: "relation",

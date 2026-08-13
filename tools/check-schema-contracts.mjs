@@ -10,7 +10,7 @@ const expectedSchemaIds = [
   "task-frontmatter",
   "decision-package",
   "entity-relations",
-  "fact-record",
+  "fact-event",
   "docmap",
   "task-snapshot",
   "publishable-projection",
