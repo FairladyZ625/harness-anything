@@ -43,7 +43,7 @@ const event: TaskBootstrapEventV1 = {
       sha256: "c".repeat(64),
       size: 7,
       mediaType: "text/markdown",
-      policyId: "markdown-additive/v1"
+      policyId: "markdown-body-replaceable/v1"
     }]
   }
 };

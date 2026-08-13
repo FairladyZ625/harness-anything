@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { entryPairs, entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
+import { missingEventStoreEvidence } from "./implementation-contract-evidence.mjs";
 
 const root = process.cwd();
 const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs|html)$/;
@@ -215,9 +216,7 @@ if (hasStoreImplementation) {
 
   const storeTest = readFileSync(path.join(root, "packages/kernel/test/store/task-event-store.test.ts"), "utf8");
   const daemonTest = readFileSync(path.join(root, "packages/daemon/test/json-rpc-protocol.test.ts"), "utf8");
-  for (const evidence of ["before_event_write", "after_event_write", "after_head_write", "after_git_commit", "preserves HEAD, index, prose, and every dirty path byte", "independent of 100 versus 10,000-event history"]) {
-    if (!storeTest.includes(evidence) && !daemonTest.includes(evidence)) record(`W3 event-store tests must prove ${evidence}`);
-  }
+  for (const evidence of missingEventStoreEvidence(storeTest, daemonTest)) record(`W3 event-store tests must prove ${evidence}`);
   const publisher = readFileSync(path.join(root, "packages/kernel/src/store/task-event-store.ts"), "utf8");
   for (const forbidden of ["update-index", "checkout", "reset", "restore"]) if (publisher.includes(forbidden)) record(`object/ref event publisher must not expose Git ${forbidden}`);
   if (!daemonTest.includes("without a duplicate publication")) record("RepoCell crash recovery must prove publish-once behavior");

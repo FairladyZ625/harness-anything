@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -36,38 +36,63 @@ test("Git object reads distinguish a missing commit path from repository failure
   });
 });
 
-test("object/ref-only publication preserves HEAD, index, prose, and every dirty path byte", async (context) => {
+test("unified publication advances canonical and authored refs to one SHA while preserving index, prose, and every unrelated dirty path byte", async (context) => {
   await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); mkdirSync(path.join(rootDir, "harness/context"), { recursive: true });
     writeFileSync(path.join(rootDir, "harness/context/user.md"), "draft\n"); writeFileSync(path.join(rootDir, "dirty.txt"), "dirty\n"); git(rootDir, "add", "harness/context/user.md"); git(rootDir, "commit", "-qm", "user prose"); writeFileSync(path.join(rootDir, "harness/context/user.md"), "draft plus local edit\n");
     const before = snapshot(rootDir), head = git(rootDir, "rev-parse", "HEAD"), store = makeTaskEventStore({ repoId: "test-repo", rootDir }), receipt = store.append(event), after = snapshot(rootDir);
-    assert.deepEqual(after, before); assert.equal(git(rootDir, "rev-parse", "HEAD"), head); assert.notEqual(store.currentCommit().sha, head); assert.equal(existsSync(path.join(rootDir, "harness/events")), false);
+    assert.deepEqual(after.bytes, before.bytes); assert.equal(after.status, before.status); assert.equal((after.index as string).includes(before.index as string), true); assert.notEqual(git(rootDir, "rev-parse", "HEAD"), head); assert.equal(store.currentCommit().sha, git(rootDir, "rev-parse", "HEAD")); assert.equal(existsSync(path.join(rootDir, "harness/events")), true);
     assert.equal(git(rootDir, "show", `${CANONICAL_EVENT_REF}:harness/events/op-1.json`), serializeCanonicalEvent(event).trimEnd()); assert.equal(store.readTaskEvent(event.opId)?.opId, event.opId);
     assert.deepEqual(store.append(event).metrics.changedPaths, []); assert.throws(() => store.append({ ...event, payload: { task: { ...event.payload.task, title: "different" } } }), (error: unknown) => { assert.equal((error as { code?: string }).code, "op_conflict"); return /different event/u.test(String(error)); });
-    assert.equal(receipt.metrics.nodeSyncs, 0); context.diagnostic(`object-ref-publisher-git-processes=${receipt.metrics.gitProcesses}`);
+    assert.equal(receipt.metrics.nodeSyncs > 0, true); context.diagnostic(`unified-publisher-git-processes=${receipt.metrics.gitProcesses}`);
   });
 });
 
-test("doc event, head, and immutable content blob are reachable from one canonical commit", async () => {
+test("doc event, content blob, and authored file publish in one default-branch canonical commit", async () => {
   await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const store = makeTaskEventStore({ repoId: "test-repo", rootDir }), base = store.currentCommit(), body = "# Notes\n\nMore prose.\n", hash = sha256Text(body);
     const doc: DocEventV1 = { schema: "doc-event/v1", eventId: "doc-event-1", workspaceRevision: 1, opId: "doc-op-1", type: "documents_written", actor: event.actor, source: "local", occurredAt: event.occurredAt,
       payload: { executionId: "execution-1", baseLedgerSha: base, changes: [{ path: "context/notes.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: { sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" }, regionProofs: [{ regionId: "heading/notes", policyId: DOC_POLICY_ID, codecId: DOC_CODEC_ID, baseSha256: sha256Text(""), candidateSha256: hash, insertBytes: Buffer.byteLength(body) }] }] } };
-    const plan = docSyncWritePlan(doc), extra = freezeDeclaredWritePlan({ commandType: "DocSyncSubmit", targets: [...plan.targets,
+    const plan = docSyncWritePlan(doc); assert.equal(plan.targets.some((target) => (target as { readonly kind: string; readonly path?: string }).kind === "authored_file" && (target as { readonly path?: string }).path === "context/notes.md"), true);
+    const extra = freezeDeclaredWritePlan({ commandType: "DocSyncSubmit", targets: [...plan.targets,
       { kind: "content_blob", sha256: "f".repeat(64), size: 1, mediaType: "text/plain" }] }, ["DocSyncSubmit"]), missing = freezeDeclaredWritePlan({ commandType: "DocSyncSubmit", targets: plan.targets.filter((target) => target.kind !== "content_blob") }, ["DocSyncSubmit"]), before = store.currentCommit();
     assert.throws(() => store.append(doc, extra, [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }]), /write plan/iu); assert.deepEqual(store.currentCommit(), before);
     assert.throws(() => store.append(doc, missing, [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }]), /write plan/iu); assert.deepEqual(store.currentCommit(), before);
     assert.throws(() => (plan.targets as unknown as unknown[]).push(extra.targets.at(-1))); assert.deepEqual(store.currentCommit(), before);
     const receipt = store.append(doc, plan, [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }]);
+    const branchRef = git(rootDir, "symbolic-ref", "HEAD"); assert.equal(git(rootDir, "rev-parse", branchRef), receipt.commitSha.sha); assert.equal(git(rootDir, "rev-parse", CANONICAL_EVENT_REF), receipt.commitSha.sha);
     assert.deepEqual(store.readEvent(doc.opId), doc); assert.equal(Buffer.from(store.readContentBlob(hash)!).toString("utf8"), body); assert.equal(git(rootDir, "show", `${receipt.commitSha.sha}:harness/objects/sha256/${hash}`), body.trimEnd());
-    assert.deepEqual(git(rootDir, "diff-tree", "--no-commit-id", "--name-only", "-r", receipt.commitSha.sha).split("\n").sort(), ["harness/events/doc-op-1.json", "harness/events/head.json", `harness/objects/sha256/${hash}`]);
+    assert.equal(git(rootDir, "show", `${receipt.commitSha.sha}:harness/context/notes.md`), body.trimEnd()); assert.equal(readFileSync(path.join(rootDir, "harness/context/notes.md"), "utf8"), body);
+    assert.deepEqual(git(rootDir, "diff-tree", "--no-commit-id", "--name-only", "-r", receipt.commitSha.sha).split("\n").sort(), ["harness/context/notes.md", "harness/events/doc-op-1.json", "harness/events/head.json", `harness/objects/sha256/${hash}`]);
+    assert.equal(git(rootDir, "status", "--porcelain", "-uall"), ""); assert.equal(git(rootDir, "ls-tree", "--name-only", `${receipt.commitSha.sha}^`, "harness/context/notes.md"), "");
+    const clone = path.join(rootDir, "fresh-clone"); execFileSync("git", ["clone", "-q", rootDir, clone]); const cloned = makeTaskEventStore({ repoId: "test-repo", rootDir: clone }); assert.equal(cloned.currentCommit().sha, git(clone, "rev-parse", "HEAD")); assert.deepEqual(cloned.readEvent(doc.opId), doc); assert.equal(readFileSync(path.join(clone, "harness/context/notes.md"), "utf8"), body); assert.equal(git(clone, "status", "--porcelain", "-uall"), "");
   });
 });
 
-for (const killpoint of ["before_event_write", "after_event_write", "after_head_write", "after_git_commit"] as const) {
-  test(`object/ref recovery handles ${killpoint} without duplicate publication`, async () => {
+test("authored branch advancement outside the daemon fails closed", async () => {
+  await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const store = makeTaskEventStore({ repoId: "test-repo", rootDir }), canonical = store.currentCommit().sha; git(rootDir, "commit", "--allow-empty", "-qm", "external advance");
+    assert.throws(() => store.append(event), (error: unknown) => { assert.equal((error as { code?: string }).code, "publication_indeterminate"); return /reconcile/iu.test(String(error)); }); assert.equal(git(rootDir, "rev-parse", CANONICAL_EVENT_REF), canonical); assert.equal(store.readHead(), null);
+  });
+});
+
+for (const killpoint of ["before_event_write", "after_event_write", "after_head_write", "after_git_commit", "before_worktree_rename", "after_worktree_rename"] as const) {
+  test(`unified recovery handles ${killpoint} without duplicate publication`, async () => {
     await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const interrupted = makeTaskEventStore({ repoId: "test-repo", rootDir, killpoint: (point) => { if (point === killpoint) throw new Error(`crash:${point}`); } });
       assert.throws(() => interrupted.append(event), new RegExp(`crash:${killpoint}`, "u")); const recovery = makeTaskEventStore({ repoId: "test-repo", rootDir }).recover();
-      if (killpoint === "after_head_write") assert.equal(recovery.status, "committed"); else assert.equal(recovery.status, "none");
+      if (killpoint === "after_head_write") assert.equal(recovery.status, "committed"); else if (["after_git_commit", "before_worktree_rename", "after_worktree_rename"].includes(killpoint)) assert.equal(recovery.status, "already_committed"); else assert.equal(recovery.status, "none");
       const resumed = makeTaskEventStore({ repoId: "test-repo", rootDir }); resumed.append(event); assert.equal(resumed.read().revision, 1); assert.equal(git(rootDir, "rev-list", "--count", CANONICAL_EVENT_REF), "2"); assert.equal(git(rootDir, "for-each-ref", "--format=%(refname)", "refs/ha-event-prepared/"), "");
+    });
+  });
+}
+
+for (const killpoint of ["before_event_write", "after_event_write", "after_head_write", "after_git_commit", "before_worktree_rename", "after_worktree_rename"] as const) {
+  test(`SIGKILL recovery handles ${killpoint} without duplicate publication`, async () => {
+    await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const moduleUrl = new URL("../../src/store/task-event-store.ts", import.meta.url).href, child = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", [
+        `import { makeTaskEventStore } from ${JSON.stringify(moduleUrl)};`,
+        "const event = JSON.parse(process.env.HA_KILL_EVENT);",
+        "makeTaskEventStore({ repoId: 'test-repo', rootDir: process.env.HA_KILL_ROOT, killpoint: (point) => { if (point === process.env.HA_KILL_POINT) process.kill(process.pid, 'SIGKILL'); } }).append(event);"
+      ].join("\n")], { encoding: "utf8", env: { ...process.env, HA_KILL_EVENT: JSON.stringify(event), HA_KILL_POINT: killpoint, HA_KILL_ROOT: rootDir } });
+      assert.equal(child.signal, "SIGKILL", child.stderr); const recovery = makeTaskEventStore({ repoId: "test-repo", rootDir }).recover();
+      if (killpoint === "after_head_write") assert.equal(recovery.status, "committed"); else if (["after_git_commit", "before_worktree_rename", "after_worktree_rename"].includes(killpoint)) assert.equal(recovery.status, "already_committed"); else assert.equal(recovery.status, "none");
+      const resumed = makeTaskEventStore({ repoId: "test-repo", rootDir }); resumed.append(event); assert.equal(resumed.read().revision, 1); assert.equal(git(rootDir, "for-each-ref", "--format=%(refname)", "refs/ha-event-prepared/"), ""); assert.equal(git(rootDir, "rev-parse", CANONICAL_EVENT_REF), git(rootDir, "rev-parse", "HEAD"));
     });
   });
 }
@@ -77,7 +102,7 @@ test("startup recovery is under 250ms and independent of 100 versus 10,000-event
     for (let revision = 1; revision <= count; revision += 1) { last = eventAt(revision); writeFileSync(path.join(eventsRoot, `${last.opId}.json`), serializeTaskEvent(last)); }
     const bytes = serializeTaskEvent(last); writeFileSync(path.join(eventsRoot, "head.json"), serializeEventHead({ revision: count, opId: last.opId, eventDigest: `sha256:${createHash("sha256").update(bytes).digest("hex")}` })); git(rootDir, "add", "harness/events"); git(rootDir, "commit", "-qm", `${count} events`);
     const next = eventAt(count + 1), interrupted = makeTaskEventStore({ repoId: "test-repo", rootDir, killpoint: (point) => { if (point === "after_head_write") throw new Error("crash"); } }); assert.throws(() => interrupted.append(next), /crash/u);
-    const started = performance.now(), recovered = makeTaskEventStore({ repoId: "test-repo", rootDir }).recover(), elapsed = performance.now() - started; assert.equal(recovered.status, "committed"); assert.equal(elapsed < 250, true, `recovery ${elapsed}ms`); return elapsed; });
+    const started = performance.now(), recovered = makeTaskEventStore({ repoId: "test-repo", rootDir }).recover(), elapsed = performance.now() - started; assert.equal(recovered.status, "committed"); context.diagnostic(`recovery-${count} constructor=${(elapsed - recovered.elapsedMs).toFixed(3)}ms recover=${recovered.elapsedMs.toFixed(3)}ms`); assert.equal(elapsed < 250, true, `recovery ${elapsed}ms`); return elapsed; });
   const hundred = await fixture(100), tenThousand = await fixture(10_000), ratio = tenThousand / hundred; context.diagnostic(`recovery 100=${hundred.toFixed(3)}ms 10000=${tenThousand.toFixed(3)}ms ratio=${ratio.toFixed(3)}`); assert.equal(ratio < 2, true, `10k/100 ratio ${ratio}`);
 });
 

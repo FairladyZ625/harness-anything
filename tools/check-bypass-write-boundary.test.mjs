@@ -32,6 +32,35 @@ test("bypass write boundary accepts explicitly governed fs write calls", () => {
   }
 });
 
+test("worktree settlement fixture requires every physical write call to be governed", () => {
+  const root = makeFixtureRoot();
+  const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-w8-policy-"));
+  const lines = [
+    "import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, writeFileSync } from 'node:fs';",
+    "export function settle() {",
+    "  mkdirSync('harness/context', { recursive: true });",
+    "  const descriptor = openSync('harness/context/.tmp', 'w');",
+    "  writeFileSync(descriptor, 'frozen');",
+    "  fsyncSync(descriptor);",
+    "  closeSync(descriptor);",
+    "  renameSync('harness/context/.tmp', 'harness/context/doc.md');",
+    "}"
+  ];
+  const allowed = ["mkdirSync", "openSync", "writeFileSync", "fsyncSync", "closeSync", "renameSync"]
+    .map((api) => `packages/kernel/src/store/fixture.ts#${api}@1`);
+  try {
+    writeStore(root, lines); writeAllowlist(policyRoot, allowed);
+    assert.equal(runChecker(root, policyRoot).status, 0);
+    writeStore(root, [...lines, "writeFileSync('harness/escape.md', 'escape');"]);
+    const rejected = runChecker(root, policyRoot);
+    assert.notEqual(rejected.status, 0);
+    assert.match(rejected.stderr, /fixture\.ts#writeFileSync@2/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(policyRoot, { recursive: true, force: true });
+  }
+});
+
 test("bypass write boundary stable anchors survive unrelated leading lines", () => {
   const root = makeFixtureRoot();
   const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-w8-policy-"));
@@ -145,11 +174,11 @@ function writeStore(root, lines) {
 }
 
 function writeAllowlist(policyRoot, allowedValue = "packages/kernel/src/store/unused.ts#writeFileSync@1:1") {
-  const entry = [{
-    value: allowedValue,
+  const entry = (Array.isArray(allowedValue) ? allowedValue : [allowedValue]).map((value) => ({
+    value,
     ref: "task_01KWW58383X74ZK28Y068CQ2TG",
     reason: "fixture placeholder"
-  }];
+  }));
   const entries = {
     coordinatedCore: entry,
     "rebuildable-projection": entry,

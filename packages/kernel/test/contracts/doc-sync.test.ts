@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import docSyncContract, { DOC_POLICY_ID, decideDocWrite, documentPath, ledgerCommitSha, parseDocWriteIntent, resolveDocRoute, serializeDocWriteIntent, validateDocWriteIntent, type DocWriteChange, type DocumentState } from "../../src/domain/doc-sync.contract.ts";
+import docSyncContract, { DOC_POLICY_ID, decideDocWrite, docRegionPolicyRegistry, documentPath, ledgerCommitSha, parseDocWriteIntent, resolveDocRoute, serializeDocEvent, serializeDocWriteIntent, validateDocWriteIntent, type DocWriteChange, type DocumentState } from "../../src/domain/doc-sync.contract.ts";
 import { validateWriteReceipt } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 
@@ -39,12 +39,38 @@ test("default prose route is open while typed internal routes are denied", () =>
   assert.throws(() => documentPath("../outside.md"));
 });
 
-test("equal/insert semantic policy accepts additive prose and freezes region proofs/content target", () => {
-  const base = "# Notes\nA\n", candidate = "# Notes\nA\nB\n", result = decide({ path: "context/notes.md", baseBlobSha256: sha256Text(base), policyId: DOC_POLICY_ID, candidate: claim(candidate) }, state(base), Buffer.from(candidate));
+test("prose policy accepts body replacement while freezing region proofs and content target", () => {
+  const base = "# Notes\nOriginal sentence.\n", candidate = "# Notes\nReplacement sentence.\n", result = decide({ path: "context/notes.md", baseBlobSha256: sha256Text(base), policyId: DOC_POLICY_ID, candidate: claim(candidate) }, state(base), Buffer.from(candidate));
   assert.equal(result.accepted, true); if (!result.accepted) return;
-  assert.equal(result.event.payload.changes[0]?.regionProofs[0]?.insertBytes, 2);
   assert.equal(result.plan.targets.some((target) => target.kind === "content_blob" && target.sha256 === sha256Text(candidate)), true);
   assert.equal(result.plan.targets.filter((target) => target.kind === "content_blob").length, 1);
+});
+
+test("body-replaceable policy accepts shorter prose and emits a valid canonical event", () => {
+  assert.equal(DOC_POLICY_ID, "markdown-body-replaceable/v1");
+  assert.equal(docRegionPolicyRegistry[0]?.writable, "body-replaceable");
+  const base = "# Notes\nA much longer original sentence.\n", candidate = "# Notes\nShort.\n", result = decide({ path: "context/notes.md", baseBlobSha256: sha256Text(base), policyId: DOC_POLICY_ID, candidate: claim(candidate) }, state(base), Buffer.from(candidate));
+  assert.equal(result.accepted, true); if (!result.accepted) return;
+  assert.doesNotThrow(() => serializeDocEvent(result.event));
+});
+
+test("mixed body-replaceable rejection produces a valid typed receipt", () => {
+  const shorterBase = "# Notes\nA much longer original sentence.\n", shorter = "# Notes\nShort.\n";
+  const protectedBase = "---\nowner: owner\n---\n# Protected\nBody\n", protectedEdit = "---\nowner: other\n---\n# Protected\nBody\n";
+  const changes = [
+    { path: "context/notes.md", baseBlobSha256: sha256Text(shorterBase), policyId: DOC_POLICY_ID, candidate: claim(shorter) },
+    { path: "context/protected.md", baseBlobSha256: sha256Text(protectedBase), policyId: DOC_POLICY_ID, candidate: claim(protectedEdit) }
+  ] as const;
+  const documents = [
+    { ...state(shorterBase), path: documentPath("context/notes.md") },
+    { ...state(protectedBase), path: documentPath("context/protected.md") }
+  ];
+  const result = decideDocWrite({ intent: { schema: "doc-write-intent/v1", executionId: "execution-1", baseLedgerSha, changes }, opId: "doc-op", eventId: "doc-event", workspaceRevision: 3,
+    actor, source: "local", occurredAt: "2026-08-12T11:00:00.000Z", currentLedgerSha, lease, documents, claims: [Buffer.from(shorter), Buffer.from(protectedEdit)] });
+  assert.equal(result.accepted, false); if (result.accepted) return; assert.equal(result.code, "unresolved_touch"); assert.equal("plan" in result, false);
+  for (const difference of result.detail.differences) for (const count of [difference.insertBytes, difference.deleteBytes, difference.replaceBytes]) assert.equal(Number.isSafeInteger(count) && count >= 0, true, JSON.stringify(difference));
+  const receipt = { outcome: "rejected", opId: "doc-op", code: result.code, origin: "doc-sync-contract", evidence: `contract-rejection:${result.code}`, nextAction: result.detail.nextAction, detail: result.detail };
+  assert.deepEqual(validateWriteReceipt(receipt), []);
 });
 
 test("stale ledger and stale blob reject the entire batch with current holder and typed conflict detail", () => {
@@ -55,11 +81,11 @@ test("stale ledger and stale blob reject the entire batch with current holder an
   const staleBlob = decide({ ...change, baseBlobSha256: "c".repeat(64) }, state(body), Buffer.from(`${body}B\n`)); assert.equal(staleBlob.accepted, false); if (!staleBlob.accepted) { assert.equal(staleBlob.code, "base_blob_changed"); assert.equal(staleBlob.detail.holder?.version, 3); }
 });
 
-test("claim mismatch, deletion, replacement, machine touch, and ambiguous headings fail closed", () => {
+test("claim mismatch, deletion, heading rename, machine touch, and ambiguous headings fail closed", () => {
   const base = "# Notes\nA\n", additive = `${base}B\n`, change = { path: "context/notes.md", baseBlobSha256: sha256Text(base), policyId: DOC_POLICY_ID, candidate: claim(additive) } as const;
   const mismatch = decide(change, state(base), Buffer.from("wrong")); assert.equal(mismatch.accepted, false); if (!mismatch.accepted) assert.equal(mismatch.code, "content_claim_mismatch");
   const deletion = decide({ ...change, candidate: null }, state(base), null); assert.equal(deletion.accepted, false); if (!deletion.accepted) { assert.equal(deletion.code, "deletion_forbidden"); assert.equal(deletion.detail.deletions[0]?.source, "intent"); }
-  for (const candidate of ["# Notes\nB\n", "---\nowner: other\n---\n# Notes\nA\n", "# Same\nA\n# Same\nB\n"]) {
+  for (const candidate of ["# Renamed\nA\n", "---\nowner: other\n---\n# Notes\nA\n", "# Same\nA\n# Same\nB\n"]) {
     const current = candidate.startsWith("---") ? "---\nowner: owner\n---\n# Notes\nA\n" : base, rejected = decide({ path: "context/notes.md", baseBlobSha256: sha256Text(current), policyId: DOC_POLICY_ID, candidate: claim(candidate) }, state(current), Buffer.from(candidate));
     assert.equal(rejected.accepted, false, candidate); if (!rejected.accepted) { assert.equal(rejected.code, "unresolved_touch"); assert.equal(rejected.detail.unresolvedTouches.length > 0, true); }
   }

@@ -7,7 +7,7 @@ import { parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 
 test("thin command directory renders every supported user command", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 37);
+  assert.equal(thinCliCommands.length, 39);
   for (const command of thinCliCommands) assert.match(help, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   assert.doesNotMatch(help, /daemon serve|fact list|fact invalidate|record fact|decision list|decision transition|decision verify|decision repin|decision amend|decision relation replace/u);
   assert.match(help, /ha fact record.*ha fact search.*ha fact show.*ha decision propose.*ha decision accept.*ha decision reckon.*ha decision search.*ha decision show/su);
@@ -67,17 +67,18 @@ test("thin parser converts the sole preset script target into closed typed start
 });
 
 test("thin doc commands derive descriptor-only actions from the protocol directory", () => {
-  const status = parseThinCommand(["doc", "status", "--path", "tasks/task-1/INDEX.md"]),
+  const status = parseThinCommand(["doc", "status"]), selectedStatus = parseThinCommand(["doc", "status", "--path", "context/a.md", "--path", "context/b.md"]), dryRun = parseThinCommand(["doc", "sync", "--dry-run", "--path", "context/a.md", "--path", "context/b.md"]), materialize = parseThinCommand(["doc", "materialize"]),
     show = parseThinCommand(["doc", "show", "--path", "tasks/task-1/INDEX.md"]),
-    submit = parseThinCommand(["doc", "sync", "--submit", "--execution-id", "exec-1", "--base-ledger-sha", "a".repeat(40),
-      "--path", "tasks/task-1/INDEX.md", "--base-blob-sha256", "b".repeat(64)]);
-  assert.equal(status.ok, true); assert.equal(show.ok, true); assert.equal(submit.ok, true);
-  if (status.ok) assert.deepEqual(status.command.action, { kind: "doc-status", paths: ["tasks/task-1/INDEX.md"] });
+    submit = parseThinCommand(["doc", "sync", "--submit", "--execution-id", "exec-1", "--path", "context/a.md", "--path", "context/b.md"]);
+  assert.equal(status.ok, true); assert.equal(selectedStatus.ok, true); assert.equal(dryRun.ok, true); assert.equal(materialize.ok, true); assert.equal(show.ok, true); assert.equal(submit.ok, true);
+  if (status.ok) assert.deepEqual(status.command.action, { kind: "doc-status", paths: [] });
+  if (selectedStatus.ok) assert.deepEqual(selectedStatus.command.action, { kind: "doc-status", paths: ["context/a.md", "context/b.md"] });
+  if (dryRun.ok) assert.deepEqual(dryRun.command.action, { kind: "doc-dry-run", paths: ["context/a.md", "context/b.md"] });
+  if (materialize.ok) assert.deepEqual(materialize.command.action, { kind: "doc-materialize" });
   if (show.ok) assert.deepEqual(show.command.action, { kind: "doc-show", path: "tasks/task-1/INDEX.md" });
   if (submit.ok) {
-    assert.deepEqual(submit.command.action, { kind: "doc-submit", executionId: "exec-1", baseLedgerSha: "a".repeat(40),
-      selections: [{ path: "tasks/task-1/INDEX.md", baseBlobSha256: "b".repeat(64) }] });
-    assert.deepEqual(Object.keys(submit.command.action).sort(), ["baseLedgerSha", "executionId", "kind", "selections"]);
+    assert.deepEqual(submit.command.action, { kind: "doc-submit", executionId: "exec-1", paths: ["context/a.md", "context/b.md"] });
+    assert.deepEqual(Object.keys(submit.command.action).sort(), ["executionId", "kind", "paths"]);
   }
   assert.equal(parseThinCommand(["doc", "show", "--path", "INDEX.md", "--body", "inline"]).ok, false);
 });

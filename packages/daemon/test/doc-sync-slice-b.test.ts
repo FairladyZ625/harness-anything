@@ -12,9 +12,22 @@ import { DOC_COMMAND_FRAME_MAX_BYTES } from "../src/doc-sync-actions.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell, type RepoCellBinding } from "../src/repo-cell.ts";
 
-const policyId = "markdown-additive/v1";
+const policyId = "markdown-body-replaceable/v1";
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 const assignmentSource = { kind: "assignment", nodeId: "node-one", assignmentId: "assignment-one" } as const;
+
+test("local doc submit rejects the retired selection assembler", async () => {
+  const fixture = await docCell("retired-selection");
+  try {
+    await startLease(fixture.cell, "local");
+    const relativePath = "tasks/task-doc/notes.md";
+    writeAuthored(fixture.rootDir, relativePath, "# Notes\n");
+    const result = await fixture.cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: canonicalSha(fixture.rootDir),
+      selections: [{ path: relativePath, baseBlobSha256: null }] }, { actor, source: "local" });
+    assert.equal(result.outcome, "rejected");
+    assert.equal(result.code, "invalid_command");
+  } finally { await fixture.close(); }
+});
 
 test("local selection and assignment claim normalize to the same doc event through RepoCell.run", async () => {
   const local = await docCell("local"), remote = await docCell("remote");
@@ -22,8 +35,7 @@ test("local selection and assignment claim normalize to the same doc event throu
     await startLease(local.cell, "local"); await startLease(remote.cell, assignmentSource);
     const body = "# Notes\n\nShared candidate.\n", hash = sha(body), relativePath = "tasks/task-doc/notes.md";
     writeAuthored(local.rootDir, relativePath, body); writeClaim(remote.rootDir, "remote", body);
-    const localResult = await local.cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: canonicalSha(local.rootDir),
-      selections: [{ path: relativePath, baseBlobSha256: null }] }, { actor, source: "local" });
+    const localResult = await local.cell.run({ kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] }, { actor, source: "local" });
     const remoteBinding = assignmentBinding("remote", [relativePath]);
     const remoteResult = await remote.cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: canonicalSha(remote.rootDir), changes: [{ path: relativePath,
       baseBlobSha256: null, policyId, candidate: { ref: "doc-sync-claims/remote", sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" } }] }, remoteBinding);
@@ -44,13 +56,13 @@ test("Decision body is an explicit idempotent doc-sync join with exact reachable
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed)); const decisionId = (JSON.parse(proposed.evidence) as { decisionId: string }).decisionId;
     const empty = JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence) as { decision: { body: unknown } }; assert.equal(empty.decision.body, null);
     const relativePath = `decisions/${decisionId}/decision-body.md`, firstBody = "# Decision body\n\nFirst paragraph.\n", firstHash = sha(firstBody); writeAuthored(fixture.rootDir, relativePath, firstBody);
-    const firstAction = { kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: canonicalSha(fixture.rootDir), selections: [{ path: relativePath, baseBlobSha256: null }] } as const;
+    const firstAction = { kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] } as const;
     const first = await fixture.cell.run(firstAction, binding), firstHead = canonicalSha(fixture.rootDir); assert.equal(first.outcome, "applied", JSON.stringify(first));
-    const retried = await fixture.cell.run(firstAction, binding); assert.equal(retried.opId, first.opId); assert.equal(retried.revision, first.revision); assert.equal(canonicalSha(fixture.rootDir), firstHead);
+    const retried = await fixture.cell.run(firstAction, binding); assert.equal(retried.outcome, "applied"); assert.match(retried.opId, /^noop:/u); assert.equal(retried.revision, first.revision); assert.equal(canonicalSha(fixture.rootDir), firstHead);
     const joined = JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence) as { decision: { body: { body: string; blobSha256: string; size: number; path: string } } };
     assert.deepEqual(joined.decision.body, { body: firstBody, blobSha256: firstHash, size: Buffer.byteLength(firstBody), path: relativePath, mediaType: "text/markdown", workspaceRevision: first.revision });
     const store = makeTaskEventStore({ repoId: "decision-body", rootDir: fixture.rootDir }), event = store.readEvent(first.opId); assert.equal(event?.schema, "doc-event/v1"); if (event?.schema === "doc-event/v1") { const claim = event.payload.changes[0]!.candidate, blob = store.readContentBlob(claim.sha256); assert.equal(blob?.byteLength, claim.size); assert.equal(sha(Buffer.from(blob!).toString("utf8")), claim.sha256); }
-    const secondBody = `${firstBody}Second paragraph.\n`; writeAuthored(fixture.rootDir, relativePath, secondBody); const second = await fixture.cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: canonicalSha(fixture.rootDir), selections: [{ path: relativePath, baseBlobSha256: firstHash }] }, binding); assert.equal(second.outcome, "applied", JSON.stringify(second));
+    const secondBody = `${firstBody}Second paragraph.\n`; writeAuthored(fixture.rootDir, relativePath, secondBody); const second = await fixture.cell.run({ kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] }, binding); assert.equal(second.outcome, "applied", JSON.stringify(second));
     const updated = JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence) as { decision: { body: { body: string; blobSha256: string } } }; assert.equal(updated.decision.body.body, secondBody); assert.equal(updated.decision.body.blobSha256, sha(secondBody));
     writeAuthored(fixture.rootDir, relativePath, `${secondBody}Unsynced.\n`); const redacted = JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: false }, binding)).evidence) as { decision: { body: unknown } }; assert.equal(redacted.decision.body, null); assert.equal((JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence) as { decision: { body: { body: string } } }).decision.body.body, secondBody);
   } finally { await fixture.close(); }
@@ -63,8 +75,7 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
     await host.admin({ kind: "register", rootDir: fixture.rootDir, repoId: "rbac" }, auth(fixture.ids.admin));
     assert.equal((await host.run("rbac", { kind: "task-create", taskId: "task-doc", title: "Docs" }, auth(fixture.ids.writer))).outcome, "applied");
     assert.equal((await host.run("rbac", { kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, auth(fixture.ids.writer))).outcome, "applied");
-    const relativePath = "tasks/task-doc/notes.md", body = "# Notes\n", action = { kind: "doc-submit", executionId: "execution-doc",
-      baseLedgerSha: canonicalSha(fixture.rootDir), selections: [{ path: relativePath, baseBlobSha256: null }] } as const;
+    const relativePath = "tasks/task-doc/notes.md", body = "# Notes\n", action = { kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] } as const;
     writeAuthored(fixture.rootDir, relativePath, body); const before = canonicalSha(fixture.rootDir);
     const denied = await host.run("rbac", action, auth(fixture.ids.reader));
     assert.equal(denied.code, "rbac_forbidden"); assert.equal(denied.detail?.holder?.personId, "writer");
@@ -78,8 +89,7 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
 
   let now = "2026-08-12T00:00:00.000Z"; const expired = await docCell("expired", () => now);
   try { await startLease(expired.cell, "local"); const relativePath = "tasks/task-doc/expired.md", body = "# Expired\n"; writeAuthored(expired.rootDir, relativePath, body);
-    now = "2026-08-12T01:00:00.000Z"; const before = canonicalSha(expired.rootDir), result = await expired.cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: before,
-      selections: [{ path: relativePath, baseBlobSha256: null }] }, { actor, source: "local" });
+    now = "2026-08-12T01:00:00.000Z"; const before = canonicalSha(expired.rootDir), result = await expired.cell.run({ kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] }, { actor, source: "local" });
     assert.equal(result.code, "lease_conflict"); assert.equal(result.detail?.holder?.executionId, "execution-doc"); assert.equal(result.detail?.holder?.expiresAt, "2026-08-12T00:30:00.000Z"); assert.equal(canonicalSha(expired.rootDir), before);
   } finally { await expired.close(); }
 
@@ -99,8 +109,7 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
 test("claim-check keeps large bodies out of commands and recycles missing, hash, size, and rejected claims", async () => {
   const local = await docCell("large");
   try { await startLease(local.cell, "local"); const relativePath = "tasks/task-doc/large.md", body = `# Large\n${"x".repeat(DOC_COMMAND_FRAME_MAX_BYTES + 1)}\n`;
-    writeAuthored(local.rootDir, relativePath, body); const action = { kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: canonicalSha(local.rootDir),
-      selections: [{ path: relativePath, baseBlobSha256: null }] } as const;
+    writeAuthored(local.rootDir, relativePath, body); const action = { kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] } as const;
     assert.equal(Buffer.byteLength(JSON.stringify(action)) < DOC_COMMAND_FRAME_MAX_BYTES, true); assert.equal(JSON.stringify(action).includes(body), false);
     const result = await local.cell.run(action, { actor, source: "local" }); assert.equal(result.outcome, "applied", JSON.stringify(result));
     const event = makeTaskEventStore({ repoId: "large", rootDir: local.rootDir }).readEvent(result.opId); assert.equal(JSON.stringify(event).includes(body), false);

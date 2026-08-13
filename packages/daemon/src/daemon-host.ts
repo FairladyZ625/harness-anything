@@ -22,13 +22,13 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
   const unavailable = new Map<string, RepoCellStatus>();
   const repos = readDaemonRegistry({ userRoot: input.userRoot }).repos.filter((repo) => repo.state === "enabled");
   await Promise.all(repos.map(async (repo) => {
-    try { cells.set(repo.repoId, await openRepoCell({ repoId: workspaceId(repo.repoId), rootDir: canonicalRoot(repo.canonicalRoot), ownerId: input.daemonId })); }
+    try { cells.set(repo.repoId, await openRepoCell({ repoId: workspaceId(repo.repoId), rootDir: canonicalRoot(repo.canonicalRoot), ownerId: input.daemonId, authoredBranch: repo.authoredBranch })); }
     catch (error) { unavailable.set(repo.repoId, { repoId: repo.repoId, rootDir: repo.canonicalRoot, state: "unavailable", generation: 0,
       queueDepth: 0, recoveryMs: 0, lastError: consumeKnownError(error) }); }
   }));
   const attach = async (rootDir: string, repoId: string) => { const root = canonicalRoot(rootDir), id = workspaceId(repoId);
     const registered = registerDaemonRepo({ canonicalRoot: root, repoId, userRoot: input.userRoot, createConvenienceLinks: false });
-    if (!cells.has(repoId)) try { cells.set(repoId, await openRepoCell({ repoId: id, rootDir: root, ownerId: input.daemonId })); unavailable.delete(repoId); }
+    if (!cells.has(repoId)) try { cells.set(repoId, await openRepoCell({ repoId: id, rootDir: root, ownerId: input.daemonId, authoredBranch: registered.repo.authoredBranch })); unavailable.delete(repoId); }
     catch (error) { unavailable.set(repoId, { repoId, rootDir: root, state: "unavailable", generation: 0, queueDepth: 0, recoveryMs: 0, lastError: consumeKnownError(error) }); }
     return registered; };
   return {

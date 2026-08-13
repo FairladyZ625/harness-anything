@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, realpathSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-control-system.ts";
 import { VcsCommandError } from "../ports/version-control-system.ts";
@@ -38,7 +39,8 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
       try {
         const name = runGit(repoRoot, "rev-parse", "--abbrev-ref", "HEAD").trim();
         return name.length > 0 && name !== "HEAD" ? name : null;
-      } catch {
+      } catch (error) {
+        consumeKnownError(error);
         return null;
       }
     },
@@ -48,7 +50,8 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
         if (ref.length === 0) return null;
         const slash = ref.indexOf("/");
         return slash >= 0 ? ref.slice(slash + 1) : ref;
-      } catch {
+      } catch (error) {
+        consumeKnownError(error);
         return null;
       }
     },
@@ -116,7 +119,8 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
 function gitTopLevel(inputPath: string): string | null {
   try {
     return normalizeLocalPath(runGit(inputPath, "rev-parse", "--show-toplevel").trim());
-  } catch {
+  } catch (error) {
+    consumeKnownError(error);
     return null;
   }
 }
@@ -196,15 +200,25 @@ function localGitBytes(repoRoot: string, args: readonly string[], input?: Uint8A
 }
 export const localGitObjectRefStore = Object.freeze({
   processCount: () => localGitProcesses, resolveCommit: (repoRoot: string, revision: string) => runGit(repoRoot, "rev-parse", revision).trim(),
+  currentBranch: (repoRoot: string): string | null => { try { const dotGit = path.join(repoRoot, ".git"), gitDir = statSync(dotGit).isDirectory() ? dotGit : path.resolve(repoRoot, /^gitdir: (.+)$/mu.exec(readFileSync(dotGit, "utf8"))?.[1] ?? ""), ref = /^ref: refs\/heads\/(.+)$/mu.exec(readFileSync(path.join(gitDir, "HEAD"), "utf8"))?.[1]; return ref ?? null; } catch (error) { consumeKnownError(error); return null; } },
   readPath: (repoRoot: string, commit: string, target: string): Buffer | null => { try { return localGitBytes(repoRoot, ["show", `${commit}:${target}`]); } catch (error) { try { if (localGitBytes(repoRoot, ["ls-tree", "--name-only", "-z", commit, "--", target]).length === 0) return null; } catch (classificationError) { consumeKnownError(classificationError); } throw error; } },
   isAncestor: (repoRoot: string, ancestor: string, current: string): boolean => { try { runGit(repoRoot, "merge-base", "--is-ancestor", ancestor, current); return true; } catch (error) { consumeKnownError(error); return false; } },
   batch: (repoRoot: string, input: string) => localGitBytes(repoRoot, ["cat-file", "--batch"], Buffer.from(input)),
   importCommit: (repoRoot: string, input: string) => localGitBytes(repoRoot, ["-c", "core.fsync=committed,reference", "-c", "core.fsyncMethod=fsync", "fast-import", "--quiet", "--force"], Buffer.from(input)),
-  listPrepared: (repoRoot: string) => runGit(repoRoot, "for-each-ref", "--format=%(refname) %(objectname)", "refs/ha-event-prepared/"),
+  listRefs: (repoRoot: string, refs: readonly string[]) => runGit(repoRoot, "for-each-ref", "--format=%(refname) %(objectname)", ...refs),
   updateRef: (repoRoot: string, ref: string, sha: string, previous?: string) => { runGit(repoRoot, "-c", "core.fsync=reference", "-c", "core.fsyncMethod=fsync", "update-ref", ref, sha, ...(previous ? [previous] : [])); },
   updateRefs: (repoRoot: string, input: string) => { localGitBytes(repoRoot, ["-c", "core.fsync=reference", "-c", "core.fsyncMethod=fsync", "update-ref", "--stdin"], Buffer.from(input)); },
   deleteRef: (repoRoot: string, ref: string) => { runGit(repoRoot, "update-ref", "-d", ref); }
 });
+export const localGitWorktreeSettlement = Object.freeze({
+  readText: (target: string): string | null => existsSync(target) ? readFileSync(target, "utf8") : null,
+  settle: (repoRoot: string, files: readonly { readonly target: string; readonly body: string }[], hooks: { readonly beforeRename?: () => void; readonly afterRename?: () => void } = {}): number => { let syncs = 0; const directories = new Set<string>(); for (const [index, file] of files.entries()) { const target = path.join(repoRoot, ...file.target.split("/")), directory = path.dirname(target), temporary = path.join(directory, `.ha-settle-${process.pid}-${index}`); mkdirSync(directory, { recursive: true }); directories.add(directory); const descriptor = openSync(temporary, "w", 0o644); try { writeFileSync(descriptor, file.body); fsyncSync(descriptor); syncs += 1; } finally { closeSync(descriptor); } hooks.beforeRename?.(); renameSync(temporary, target); hooks.afterRename?.(); } for (const directory of directories) { const parent = openSync(directory, "r"); try { fsyncSync(parent); syncs += 1; } finally { closeSync(parent); } } if (files.length) localGitBytes(repoRoot, ["update-index", "-z", "--index-info"], Buffer.from(files.map((file) => `100644 ${gitBlobOid(file.body)}\t${file.target}\0`).join(""))); return syncs; },
+  preserveConflict: (repoRoot: string, target: string, logical: string, commit: string): string => { const body = readFileSync(target), extension = path.extname(target), stem = target.slice(0, target.length - extension.length), id = hash("sha256", `${logical}\0${commit}\0${hash("sha256", body)}`).slice(0, 8), scratch = `${stem}.conflict-${id}${extension}`, relative = path.relative(repoRoot, scratch).split(path.sep).join("/"); ensureConflictExclude(repoRoot); if (!existsSync(scratch)) durableWrite(scratch, body); return relative; }
+});
+function gitBlobOid(body: string): string { const bytes = Buffer.from(body); return createHash("sha1").update(`blob ${bytes.byteLength}\0`).update(bytes).digest("hex"); }
+function hash(algorithm: "sha256", body: string | Uint8Array): string { return createHash(algorithm).update(body).digest("hex"); }
+function ensureConflictExclude(repoRoot: string): void { const raw = runGit(repoRoot, "rev-parse", "--git-path", "info/exclude").trim(), target = path.isAbsolute(raw) ? raw : path.join(repoRoot, raw), marker = "*.conflict-*\n"; mkdirSync(path.dirname(target), { recursive: true }); const current = existsSync(target) ? readFileSync(target, "utf8") : ""; if (!current.split(/\r?\n/u).includes("*.conflict-*")) writeFileSync(target, `${current}${current && !current.endsWith("\n") ? "\n" : ""}${marker}`); }
+function durableWrite(target: string, body: Uint8Array): void { const directory = path.dirname(target), temporary = `${target}.tmp-${process.pid}`; mkdirSync(directory, { recursive: true }); const descriptor = openSync(temporary, "w", 0o600); try { writeFileSync(descriptor, body); fsyncSync(descriptor); } finally { closeSync(descriptor); } renameSync(temporary, target); const parent = openSync(directory, "r"); try { fsyncSync(parent); } finally { closeSync(parent); } }
 
 function commandErrorSummary(error: unknown): string | undefined {
   if (typeof error === "object" && error && "stderr" in error) {

@@ -1,28 +1,34 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { DOC_POLICY_ID, decideDocWrite, docSyncWritePlan, documentPath, isDocEvent, normalizeCommandEnvelope, parseDocWriteIntent, resolveDocRoute, resolveHarnessLayout, sha256Bytes, stableStringify,
   type ActorIdentity, type DocClaimRef, type DocEventV1, type DocSyncReceiptDetail, type DocWriteIntent, type EventPublicationKillpoint, type LedgerCommitSha, type WriteReceipt, type WriteSource } from "../../kernel/src/index.ts";
 import type { CanonicalEventStore, TaskProjection } from "../../kernel/src/index.ts";
 import type { FleetAssignmentScope } from "./fleet/contract.ts";
+import { intentFromScan, publicScan, scanDocCandidates, type DocCandidateScan } from "./doc-sync-candidate-scanner.ts";
 
 export const DOC_COMMAND_FRAME_MAX_BYTES = 256 * 1024;
 type Action = Readonly<Record<string, unknown>> & { readonly kind: string };
 interface Binding { readonly actor: ActorIdentity; readonly source: WriteSource; readonly docWriteAllowed?: boolean; readonly assignmentScope?: FleetAssignmentScope }
 type Input = { readonly action: Action; readonly binding: Binding; readonly workspaceId: string; readonly rootDir: string; readonly store: CanonicalEventStore; readonly projection: TaskProjection; readonly now: () => string; readonly killpoint?: (point: EventPublicationKillpoint) => void };
 
-export function isDocAction(kind: string): boolean { return kind === "doc-status" || kind === "doc-submit" || kind === "doc-show"; }
+export function isDocAction(kind: string): boolean { return kind === "doc-status" || kind === "doc-dry-run" || kind === "doc-submit" || kind === "doc-materialize" || kind === "doc-show"; }
 export async function runDocAction(input: Input): Promise<WriteReceipt> {
   if (Buffer.byteLength(JSON.stringify(input.action)) > DOC_COMMAND_FRAME_MAX_BYTES) throw coded("invalid_command", "doc command frame exceeds the descriptor-only limit");
+  if (input.action.kind === "doc-materialize") { if (!exact(input.action, ["kind"])) throw coded("invalid_command", "doc materialize takes no options"); const result = input.store.materialize(), revision = input.store.readHead()?.revision ?? 0; return { outcome: "applied", opId: `materialize:${result.commitSha.sha}`, revision, evidence: `doc-materialize:${stableStringify({ changed: result.changed, conflicts: result.conflicts })}`, visibility: "center", proof: proof(revision, revision, true, true) }; }
   if (input.action.kind !== "doc-submit") return readAction(input);
-  const intent = intentFrom(input), baseRevision = input.store.revisionAt(intent.baseLedgerSha), envelope = normalizeCommandEnvelope({ workspaceId: input.workspaceId,
+  const scan = input.binding.source === "local" ? scannerSubmit(input) : null;
+  if (scan && input.binding.docWriteAllowed === false) { const rejected = scanDetail(input, scan, "rbac_forbidden"); return reject(`scan:${scan.baseLedgerSha.sha}`, "rbac_forbidden", { ...rejected, unresolvedTouches: scan.rows.map((row) => touch(row.path, "repo-write", "principal lacks repo-write")), nextAction: "use a repo-write principal holding the active execution lease" }, "use a repo-write principal holding the active execution lease"); }
+  if (scan && !scan.rows.some((row) => row.state === "eligible")) { const code = scan.rows.map((row) => row.rejectionCode).find((candidate) => candidate === "lease_conflict" || candidate === "deletion_forbidden"); return scan.rows.some((row) => row.state === "blocked" || row.state === "deletion") ? reject(`scan:${scan.baseLedgerSha.sha}`, code ?? "preview_blocked", scanDetail(input, scan, code ?? "preview_blocked"), "Doc sync preview is not ready; run 'ha doc status'.") : noOp(input, scan); }
+  const prepared = scan ? intentFromScan(scan, input.workspaceId) : null;
+  const intent = prepared?.intent ?? assignmentIntent(input), baseRevision = input.store.revisionAt(intent.baseLedgerSha), envelope = normalizeCommandEnvelope({ workspaceId: input.workspaceId,
     actor: input.binding.actor, source: input.binding.source, expectedRevision: baseRevision ?? 0, command: intent as unknown as Readonly<Record<string, unknown>> }), existing = input.store.readEvent(envelope.opId);
   if (existing !== null) { if (!isDocEvent(existing) || !matches(existing, intent, input.binding.actor, input.binding.source)) { recycleClaims(input.rootDir, intent); return reject(envelope.opId, "op_conflict", detail(intent, input.store.currentCommit(), "op_conflict", null), "query the existing operation before resubmitting"); }
     if (input.projection.readOperation(existing.opId) === null) input.projection.apply(existing, docSyncWritePlan(existing)); const receipt = readDocReceipt(input, existing); recycleClaims(input.rootDir, intent); return receipt; }
   const documents = intent.changes.map((change) => input.projection.readDocument(change.path));
   if (documents.some((read) => read.status !== "ready")) return { outcome: "indeterminate", opId: envelope.opId, code: "projection_pending", origin: "N/A", nextAction: "retry after the canonical projection catches up" };
-  const lease = input.projection.currentLeaseForExecution(intent.executionId, input.now()), admission = admissionRejection(input, intent, lease);
+  const lease = scan?.lease ?? (intent.executionId === null ? null : input.projection.currentLeaseForExecution(intent.executionId, input.now())), admission = admissionRejection(input, intent, lease);
   if (admission) { recycleClaims(input.rootDir, intent); return reject(envelope.opId, admission.code, admission.detail, admission.detail.nextAction); }
-  const claims = intent.changes.map((change) => change.candidate === null ? null : claimBytes(input.rootDir, change.candidate.ref));
+  const claims = prepared?.claims ?? intent.changes.map((change) => change.candidate === null ? null : claimBytes(input.rootDir, change.candidate.ref));
   const decision = decideDocWrite({ intent, opId: envelope.opId, eventId: `event-${sha256Bytes(Buffer.from(envelope.opId))}`, workspaceRevision: (input.store.readHead()?.revision ?? 0) + 1,
     actor: input.binding.actor, source: input.binding.source, occurredAt: input.now(), currentLedgerSha: input.store.currentCommit(), lease, documents: documents.map((read) => read.document), claims });
   if (!decision.accepted) { recycleClaims(input.rootDir, intent); return reject(envelope.opId, decision.code, decision.detail, decision.detail.nextAction); }
@@ -31,6 +37,7 @@ export async function runDocAction(input: Input): Promise<WriteReceipt> {
 }
 
 function readAction(input: Input): WriteReceipt {
+  if (input.action.kind !== "doc-show") { const scan = scannerRead(input); return scanReceipt(input, scan); }
   const rawPaths = input.action.kind === "doc-show" ? [input.action.path] : input.action.paths;
   if (!exact(input.action, input.action.kind === "doc-show" ? ["kind", "path"] : ["kind", "paths"]) || !Array.isArray(rawPaths) || !rawPaths.length || rawPaths.some((item) => typeof item !== "string")) throw coded("invalid_command", `${input.action.kind} requires valid doc-sync paths`);
   let paths; try { paths = rawPaths.map((item) => documentPath(String(item))); } catch { throw coded("invalid_command", `${input.action.kind} requires valid doc-sync paths`); }
@@ -46,7 +53,7 @@ function readAction(input: Input): WriteReceipt {
 }
 
 export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1): WriteReceipt {
-  const reads = event.payload.changes.map((change) => input.projection.readDocument(change.path)), canonicalVisible = reads.every((read, index) => read.status === "ready" && read.document?.blobSha256 === event.payload.changes[index]!.candidate.sha256 && read.watermark >= event.workspaceRevision), appliedCut = Math.min(...reads.map((read) => read.watermark)), current = input.store.currentCommit(), lease = input.projection.currentLeaseForExecution(event.payload.executionId, input.now());
+  const reads = event.payload.changes.map((change) => input.projection.readDocument(change.path)), canonicalVisible = reads.every((read, index) => read.status === "ready" && read.document?.blobSha256 === event.payload.changes[index]!.candidate.sha256 && read.watermark >= event.workspaceRevision), appliedCut = Math.min(...reads.map((read) => read.watermark)), current = input.store.currentCommit(), lease = event.payload.executionId === null ? null : input.projection.currentLeaseForExecution(event.payload.executionId, input.now());
   const receiptDetail: DocSyncReceiptDetail = { kind: "doc_sync", code: canonicalVisible ? "applied" : "projection_pending", baseLedgerSha: event.payload.baseLedgerSha.sha, currentLedgerSha: current.sha,
     paths: event.payload.changes.map((change, index) => ({ path: change.path, baseBlobSha256: change.baseBlobSha256, currentBlobSha256: reads[index]?.document?.blobSha256 ?? null, candidateBlobSha256: change.candidate.sha256 })), holder: holder(lease), differences: [], unresolvedTouches: [], deletions: [], nextAction: canonicalVisible ? "no action required" : "retry receipt show after projection catch-up" };
   const common = { opId: event.opId, revision: event.workspaceRevision, evidence: `event-object:${event.opId}`, visibility: "center" as const, proof: proof(event.workspaceRevision, appliedCut, canonicalVisible, observe(input.rootDir, input.binding.source, reads.map((read) => read.document))), detail: receiptDetail };
@@ -56,21 +63,18 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
 export function readProjectedDocument(projection: TaskProjection, payload: Readonly<Record<string, unknown>>) { const taskId = requiredString(payload.taskId, "taskId"), requested = requiredString(payload.path, "path"), read = projection.readDocument(documentPath(`tasks/${taskId}/${requested}`));
   return { ok: true as const, status: read.status, taskId, path: requested, body: read.document?.body ?? "", blobSha256: read.document?.blobSha256 ?? null, watermark: read.watermark, sourceRevision: read.sourceRevision }; }
 
-function intentFrom(input: Input): DocWriteIntent {
-  try { let changes: unknown = input.action.changes;
-    if (input.binding.source === "local") { if (!exact(input.action, ["kind", "executionId", "baseLedgerSha", "selections"]) || !Array.isArray(input.action.selections)) throw new Error("local doc submit requires descriptor-only selections");
-      changes = input.action.selections.map((selection) => localChange(input.rootDir, selection)); }
-    else if (!exact(input.action, ["kind", "executionId", "baseLedgerSha", "changes"])) throw new Error("assignment doc submit requires staged claim descriptors");
-    const intent = parseDocWriteIntent({ schema: "doc-write-intent/v1", executionId: input.action.executionId, baseLedgerSha: input.action.baseLedgerSha, changes }, input.workspaceId);
+function assignmentIntent(input: Input): DocWriteIntent {
+  try {
+    if (!exact(input.action, ["kind", "executionId", "baseLedgerSha", "changes"])) throw new Error("assignment doc submit requires staged claim descriptors");
+    const intent = parseDocWriteIntent({ schema: "doc-write-intent/v1", executionId: input.action.executionId, baseLedgerSha: input.action.baseLedgerSha, changes: input.action.changes }, input.workspaceId);
     if (!directPaths(input.rootDir, intent.changes.map((change) => change.path))) throw new Error("document path contains a symbolic link"); return intent;
   } catch (error) { throw coded("invalid_command", error instanceof Error ? error.message : String(error)); }
 }
-function localChange(rootDir: string, value: unknown): unknown { if (!value || typeof value !== "object" || !exact(value as Action, ["path", "baseBlobSha256"])) throw new Error("local selection requires path and baseBlobSha256");
-  const selection = value as { readonly path: string; readonly baseBlobSha256: string | null }, logical = documentPath(selection.path), target = path.join(resolveHarnessLayout(rootDir).authoredRoot, logical);
-  if (!directPaths(rootDir, [logical]) || !existsSync(target) || !lstatSync(target).isFile()) return { path: logical, baseBlobSha256: selection.baseBlobSha256, policyId: DOC_POLICY_ID, candidate: null };
-  const bytes = readFileSync(target), hash = sha256Bytes(bytes), ref = `doc-sync-claims/${hash}`; writeClaim(rootDir, ref, bytes);
-  return { path: logical, baseBlobSha256: selection.baseBlobSha256, policyId: DOC_POLICY_ID, candidate: { ref, sha256: hash, size: bytes.byteLength, mediaType: logical.endsWith(".md") ? "text/markdown" : "text/plain" } };
-}
+function scannerRead(input: Input): DocCandidateScan { if (!exact(input.action, ["kind", "paths"]) || !Array.isArray(input.action.paths) || input.action.paths.some((item) => typeof item !== "string")) throw coded("invalid_command", `${input.action.kind} requires authored-root-relative paths`); return scanDocCandidates({ rootDir: input.rootDir, workspaceId: input.workspaceId, store: input.store, projection: input.projection, actor: input.binding.actor, source: input.binding.source, now: input.now(), selection: input.action.paths as string[] }); }
+function scannerSubmit(input: Input): DocCandidateScan { const fields = Object.hasOwn(input.action, "executionId") ? ["kind", "executionId", "paths"] : ["kind", "paths"]; if (!exact(input.action, fields) || !Array.isArray(input.action.paths) || input.action.paths.some((item) => typeof item !== "string") || input.action.executionId !== undefined && typeof input.action.executionId !== "string") throw coded("invalid_command", "local doc submit requires scanner paths and an optional executionId"); return scanDocCandidates({ rootDir: input.rootDir, workspaceId: input.workspaceId, store: input.store, projection: input.projection, actor: input.binding.actor, source: input.binding.source, now: input.now(), selection: input.action.paths as string[], ...(typeof input.action.executionId === "string" ? { executionId: input.action.executionId } : {}) }); }
+function scanReceipt(input: Input, scan: DocCandidateScan): WriteReceipt { const revision = input.store.readHead()?.revision ?? 0, report = publicScan(scan); return { outcome: "applied", opId: `scan:${input.action.kind}:${scan.baseLedgerSha.sha}`, revision, evidence: `doc-scan:${stableStringify(report)}`, visibility: "center", proof: proof(revision, revision, true, scan.rows.every((row) => row.state === "clean")), detail: scanDetail(input, scan, input.action.kind) }; }
+function scanDetail(input: Input, scan: DocCandidateScan, code: string): DocSyncReceiptDetail { return { kind: "doc_sync", code, baseLedgerSha: scan.baseLedgerSha.sha, currentLedgerSha: input.store.currentCommit().sha, paths: scan.rows.map((row) => ({ path: row.path, baseBlobSha256: row.baseBlobSha256, currentBlobSha256: row.baseBlobSha256, candidateBlobSha256: row.candidateBlobSha256 })), holder: holder(scan.lease), differences: [], unresolvedTouches: scan.rows.filter((row) => row.state === "blocked").map((row) => touch(row.path, resolveDocRoute(documentPath(row.path)).requiredRoute, row.reason ?? "candidate is blocked")), deletions: scan.rows.filter((row) => row.state === "deletion" && row.baseBlobSha256).map((row) => ({ path: row.path, baseBlobSha256: row.baseBlobSha256!, source: "intent" as const })), nextAction: scan.rows.some((row) => row.state === "blocked" || row.state === "deletion") ? "resolve blocked candidates and run ha doc status" : "submit this selection against the reported automatic base" }; }
+function noOp(input: Input, scan: DocCandidateScan): WriteReceipt { const revision = input.store.readHead()?.revision ?? 0; return { outcome: "applied", opId: `noop:${scan.baseLedgerSha.sha}`, revision, evidence: "doc-sync:no-op", visibility: "center", proof: proof(revision, revision, true, true), detail: scanDetail(input, scan, "no_op") }; }
 function admissionRejection(input: Input, intent: DocWriteIntent, lease: ReturnType<TaskProjection["currentLeaseForExecution"]>): { readonly code: string; readonly detail: DocSyncReceiptDetail } | null {
   if (input.binding.docWriteAllowed === false) { const rejected = detail(intent, input.store.currentCommit(), "rbac_forbidden", lease, intent.changes.map((change) => touch(change.path, "repo-write", "principal lacks repo-write")));
     return { code: "rbac_forbidden", detail: { ...rejected, nextAction: "use a repo-write principal holding the active execution lease" } }; }
@@ -88,7 +92,6 @@ function detail(intent: DocWriteIntent, current: LedgerCommitSha, code: string, 
   baseLedgerSha: intent.baseLedgerSha.sha, currentLedgerSha: current.sha, paths: intent.changes.map((change) => ({ path: change.path, baseBlobSha256: change.baseBlobSha256, currentBlobSha256: null, candidateBlobSha256: change.candidate?.sha256 ?? null })), holder: holder(lease), differences: [], unresolvedTouches, deletions: [], nextAction: "refresh status and resubmit with a new opId" }; }
 function touch(pathValue: string, requiredRoute: string, reason: string): DocSyncReceiptDetail["unresolvedTouches"][number] { return { path: pathValue, regionId: null, anchor: null, reason, requiredRoute, policy: DOC_POLICY_ID }; }
 function holder(lease: ReturnType<TaskProjection["currentLeaseForExecution"]>): DocSyncReceiptDetail["holder"] { return lease && { taskId: lease.taskId, executionId: lease.executionId, personId: lease.actor.principal.personId, executorId: lease.actor.executor?.id ?? null, source: lease.source, expiresAt: lease.expiresAt, version: lease.version }; }
-function writeClaim(rootDir: string, ref: string, bytes: Uint8Array): void { const claims = path.join(resolveHarnessLayout(rootDir).localRoot, "doc-sync-claims"); if (existsSync(claims) && lstatSync(claims).isSymbolicLink()) throw new Error("claim root cannot be a symbolic link"); mkdirSync(claims, { recursive: true }); writeFileSync(path.join(resolveHarnessLayout(rootDir).localRoot, ref), bytes); }
 function claimBytes(rootDir: string, ref: DocClaimRef): Uint8Array | null { const target = claimFile(rootDir, ref); return target && lstatSync(target).isFile() ? readFileSync(target) : null; }
 function claimFile(rootDir: string, ref: string): string | null { let target = resolveHarnessLayout(rootDir).localRoot; if (existsSync(target) && lstatSync(target).isSymbolicLink()) return null;
   for (const segment of ref.split("/")) { target = path.join(target, segment); if (!existsSync(target) || lstatSync(target).isSymbolicLink()) return null; } return target; }
