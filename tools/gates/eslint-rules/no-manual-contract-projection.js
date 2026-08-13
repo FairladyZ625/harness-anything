@@ -33,9 +33,25 @@ function containsFlagLiteral(node) {
   return false;
 }
 
-function manualFlagSet(node) {
-  return node?.type === "NewExpression" && node.callee.type === "Identifier" && node.callee.name === "Set"
-    && containsFlagLiteral(node.arguments[0]);
+function isCliSource(filename) {
+  return /(?:^|\/)packages\/cli\/src\//u.test(filename.replaceAll("\\", "/"));
+}
+
+function contractSource(node) {
+  if (node?.type === "MemberExpression" && ["inputs", "flags"].includes(propertyName(node.property))) return true;
+  return node?.type === "CallExpression" && node.callee.type === "MemberExpression" && !node.callee.computed
+    && propertyName(node.callee.property) === "filter" && contractSource(node.callee.object);
+}
+
+function contractProjection(node) {
+  return node?.type === "CallExpression" && node.callee.type === "MemberExpression" && !node.callee.computed
+    && ["map", "flatMap"].includes(propertyName(node.callee.property)) && contractSource(node.callee.object);
+}
+
+function manualFlagSet(node, filename) {
+  if (node?.type !== "NewExpression" || node.callee.type !== "Identifier" || node.callee.name !== "Set") return false;
+  const source = node.arguments[0];
+  return containsFlagLiteral(source) || isCliSource(filename) && source !== undefined && !contractProjection(source);
 }
 
 export default {
@@ -57,7 +73,7 @@ export default {
         if (REGISTER_METHODS.has(name)) context.report({ node, messageId: "registration", data: { kind: name.slice("register".length) } });
       },
       NewExpression(node) {
-        if (manualFlagSet(node)) context.report({ node, messageId: "flagDirectory" });
+        if (manualFlagSet(node, context.filename)) context.report({ node, messageId: "flagDirectory" });
       },
       VariableDeclarator(node) {
         if (node.id.type !== "Identifier") return;

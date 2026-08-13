@@ -65,6 +65,16 @@ test("G11 accepts distinct schema ids and rejects a duplicate across contracts",
   assert.match(validateDerivedContracts("/not-a-repo", [...distinct, contract("three.contract.mjs", "three", "example/one")]).join("\n"), /duplicate schemas id example\/one; first declared in one\.contract\.mjs/u);
 });
 
+test("G11 closes every structured CLI input facet and its compatibility projection", () => {
+  const input = { name: "--mode", kind: "single", required: true, enum: ["safe"], regex: "^[a-z]+$", error: { code: "invalid_field", nextAction: "Use safe mode." } };
+  const declaration = { id: "cli", phases: ["P2"], commands: [{ id: "run", phase: "P2", path: ["run"], usage: "ha run --mode <safe>", inputs: [input], flags: [input] }], gates: [], guards: [] };
+  assert.deepEqual(validateDerivedContracts("/not-a-repo", [{ file: "cli.contract.mjs", declaration }]), []);
+  const { required: _required, ...withoutRequired } = input, mutated = { ...declaration, commands: [{ ...declaration.commands[0], inputs: [withoutRequired], flags: [withoutRequired] }] };
+  assert.match(validateDerivedContracts("/not-a-repo", [{ file: "cli.contract.mjs", declaration: mutated }]).join("\n"), /invalid input facet/u);
+  const divergent = { ...declaration, commands: [{ ...declaration.commands[0], flags: [{ ...input, enum: undefined }] }] };
+  assert.match(validateDerivedContracts("/not-a-repo", [{ file: "cli.contract.mjs", declaration: divergent }]).join("\n"), /flags projection differs/u);
+});
+
 test("G11 requires an exact command, gate, guard, schema, and phase catalog projection", () => {
   const declaration = {
     id: "one",

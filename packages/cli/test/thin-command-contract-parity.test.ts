@@ -2,36 +2,35 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { daemonProtocolCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { deriveThinCliInputs, type ThinCliInput } from "../src/cli/thin-command.ts";
+import { deriveThinCliInputs, parseThinCommand } from "../src/cli/thin-command.ts";
 
-type CommandDeclaration = { readonly id: string; readonly path: readonly string[]; readonly usage: string; readonly flags?: readonly { readonly name: string }[] };
+const frozenMutations = Object.freeze([
+  { commandId: "task-create", inputName: "--title", facet: "required", argv: ["task", "create"] },
+  { commandId: "task-submit", inputName: "--execution-id", facet: "kind", argv: ["task", "submit", "task-1"] },
+  { commandId: "task-create", inputName: "--title", facet: "name", argv: ["task", "create"] },
+  { commandId: "task-create", inputName: "--title", facet: "error", argv: ["task", "create"] },
+  { commandId: "fact-search", inputName: "--confidence", facet: "enum", argv: ["fact", "search", "--confidence", "impossible"] },
+  { commandId: "fact-show", inputName: "--id", facet: "regex", argv: ["fact", "show", "--task", "task-1", "--id", "bad"] },
+  { commandId: "task-submit", inputName: "--deliverable", facet: "repeated", argv: ["task", "submit", "task-1", "--execution-id", "exec-1", "--claim", "done", "--commit-sha", "a".repeat(40), "--deliverable", "a", "--deliverable", "b"] },
+  { commandId: "decision-show", inputName: "--include-body", facet: "boolean", argv: ["decision", "show", "dec_1", "--include-body"] }
+] as const);
 
-function inputsDeclaredByUsage(command: CommandDeclaration): readonly ThinCliInput[] {
-  return [...command.usage.matchAll(/(--[a-z][a-z0-9-]*)(?:\s+(<\S+))?/gu)].flatMap((match) => {
-    const name = match[1]; if (!name || command.path.includes(name)) return [];
-    const prefix = command.usage.slice(0, match.index), value = match[2];
-    return [{ name, kind: value ? value.endsWith("...") ? "repeated" : "single" : "boolean", required: prefix.lastIndexOf("[") <= prefix.lastIndexOf("]") } as const];
-  });
-}
-
-test("thin CLI input directory has parity with every protocol command declaration", () => {
+test("all 39 public commands expose the canonical structured input facet", () => {
   assert.equal(daemonProtocolCommands.length, 39);
   for (const command of daemonProtocolCommands) {
-    const derived = deriveThinCliInputs(command), declared = inputsDeclaredByUsage(command);
-    assert.deepEqual(derived, declared, command.id);
-    if ("flags" in command) assert.deepEqual([...derived.map(({ name }) => name)].sort(), [...command.flags.map(({ name }) => name)].sort(), `${command.id} structured flags`);
+    assert.equal(Object.hasOwn(command, "inputs"), true, `${command.id}: explicit inputs`);
+    assert.deepEqual(deriveThinCliInputs(command), command.inputs, command.id);
+    assert.equal(command.inputs.every((input) => input.name.startsWith("--") && Object.hasOwn(input, "required") && Object.hasOwn(input, "error")), true, command.id);
   }
+  for (const id of ["task-show", "receipt-show", "doc-materialize", "preset-uninstall", "daemon-start", "daemon-status", "daemon-stop"]) assert.deepEqual(daemonProtocolCommands.find((command) => command.id === id)?.inputs, [], id);
 });
 
-test("removing any declared input kills parity instead of moving the sample", () => {
-  let mutations = 0;
-  for (const command of daemonProtocolCommands) {
-    const expected = deriveThinCliInputs(command);
-    for (const input of expected) {
-      const mutated = { ...command, usage: command.usage.replace(input.name, "") };
-      assert.throws(() => assert.deepEqual(deriveThinCliInputs(mutated), expected), undefined, `${command.id}:${input.name}`);
-      mutations += 1;
-    }
+test("frozen public-parser mutations kill every canonical input facet", () => {
+  for (const mutation of frozenMutations) {
+    const command = daemonProtocolCommands.find((candidate) => candidate.id === mutation.commandId); assert.ok(command, mutation.commandId);
+    const input = command.inputs.find((candidate) => candidate.name === mutation.inputName); assert.ok(input, `${mutation.commandId}:${mutation.inputName}`);
+    if (["required", "kind", "name", "error", "enum", "regex"].includes(mutation.facet)) assert.equal(Object.hasOwn(input, mutation.facet), true, `${mutation.commandId}:${mutation.facet}`);
+    const removeInput = mutation.facet === "repeated" || mutation.facet === "boolean", inputs = removeInput ? command.inputs.filter((candidate) => candidate.name !== mutation.inputName) : command.inputs.map((candidate) => candidate.name === mutation.inputName ? Object.fromEntries(Object.entries(candidate).filter(([key]) => key !== mutation.facet)) : candidate), mutatedCommand = { ...command, inputs, flags: inputs }, catalog = daemonProtocolCommands.map((candidate) => candidate.id === command.id ? mutatedCommand : candidate) as unknown as typeof daemonProtocolCommands;
+    const baseline = parseThinCommand(mutation.argv); if (["required", "kind", "name", "error"].includes(mutation.facet)) assert.throws(() => parseThinCommand(mutation.argv, process.cwd(), catalog), undefined, `${mutation.commandId}:${mutation.facet}`); else { const mutant = parseThinCommand(mutation.argv, process.cwd(), catalog); assert.notDeepEqual(mutant, baseline, `${mutation.commandId}:${mutation.facet}`); assert.equal(removeInput ? baseline.ok && !mutant.ok : !baseline.ok && mutant.ok, true, `${mutation.commandId}:${mutation.facet}`); }
   }
-  assert.ok(mutations > daemonProtocolCommands.length, `${mutations} declaration-field mutations exercised`);
 });

@@ -42,6 +42,30 @@ function entryId(entry) {
   return typeof entry === "string" ? entry : entry?.id;
 }
 
+function validateCliCommandInputs(entry, source, errors) {
+  if (entry === null || typeof entry !== "object" || !Array.isArray(entry.path)) return;
+  const label = `${source}: commands ${entry.id ?? "<unnamed>"}`;
+  if (!Array.isArray(entry.inputs)) {
+    errors.push(`${label} must declare inputs (use [] when no flags exist)`);
+    return;
+  }
+  const names = new Set();
+  for (const input of entry.inputs) {
+    if (input === null || typeof input !== "object" || typeof input.name !== "string" || !input.name.startsWith("--") || names.has(input.name)
+      || !["single", "repeated", "boolean"].includes(input.kind) || !Object.hasOwn(input, "required") || typeof input.required !== "boolean"
+      || input.error === null || typeof input.error !== "object" || typeof input.error.code !== "string" || typeof input.error.nextAction !== "string" || input.error.nextAction.length === 0) {
+      errors.push(`${label} has an invalid input facet`);
+      continue;
+    }
+    names.add(input.name);
+    if (input.enum !== undefined && (!Array.isArray(input.enum) || input.enum.length === 0 || input.enum.some((value) => typeof value !== "string" || value.length === 0))) errors.push(`${label}:${input.name} enum is invalid`);
+    if (input.regex !== undefined) try { void new RegExp(input.regex, "u"); } catch (error) { consumeKnownError(error); errors.push(`${label}:${input.name} regex is invalid`); }
+  }
+  if (!Array.isArray(entry.flags) || JSON.stringify(entry.flags) !== JSON.stringify(entry.inputs)) errors.push(`${label} flags projection differs from inputs`);
+}
+
+function consumeKnownError(error) { void error; }
+
 export function assertPhaseAppendOnly(previous, current, source = "contract") {
   if (!Array.isArray(previous) || !Array.isArray(current)) return [`${source}: phases must be arrays`];
   if (current.length < previous.length || previous.some((phase, index) => current[index] !== phase)) {
@@ -166,6 +190,7 @@ export function validateDerivedContracts(rootDir, contracts) {
         if (domain !== "schemas" && typeof entry === "object" && entry !== null && !declaration.phases.includes(entry.phase)) {
           errors.push(`${contract.file}: ${domain} ${id} uses undeclared phase ${entry.phase}`);
         }
+        if (domain === "commands") validateCliCommandInputs(entry, contract.file, errors);
       }
     }
     validateWorkflowProjection(rootDir, contract, errors);
