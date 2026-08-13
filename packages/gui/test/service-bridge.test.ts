@@ -22,12 +22,12 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
   Object.assign(process.env, fixture.env);
   try {
     writeTriadicLedger(fixture.rootDir);
-    const documentBody = "# Canonical GUI document\n", documentPath = "tasks/task-gui-smoke/notes.md", authored = path.join(fixture.rootDir, "harness", documentPath);
+    const documentBody = "# Canonical GUI document\n", documentPath = "tasks/task-gui-smoke-resident-gui-task/notes.md", authored = path.join(fixture.rootDir, "harness", documentPath);
     mkdirSync(path.dirname(authored), { recursive: true }); writeFileSync(authored, documentBody);
     const status = await requestDaemonJsonRpcAt(fixture.endpoint, "repo.task.run", { repo: { repoId: fixture.repoId },
       payload: { action: { kind: "doc-status", paths: [documentPath] } } }, 1_000);
-    const synced = await requestDaemonJsonRpcAt(fixture.endpoint, "repo.task.run", { repo: { repoId: fixture.repoId }, payload: { action: { kind: "doc-submit",
-      executionId: "execution-gui", baseLedgerSha: (status.detail as { baseLedgerSha: string }).baseLedgerSha, selections: [{ path: documentPath, baseBlobSha256: null }] } } }, 1_000);
+    assert.equal(status.ok, true, JSON.stringify(status)); const synced = await requestDaemonJsonRpcAt(fixture.endpoint, "repo.task.run", { repo: { repoId: fixture.repoId }, payload: { action: { kind: "doc-submit",
+      executionId: "execution-gui", paths: [documentPath] } } }, 1_000);
     assert.equal(synced.ok, true, JSON.stringify(synced)); writeFileSync(authored, "# Uncommitted filesystem edit\n");
     const bridge = createLocalGuiServiceBridge(fixture.rootDir);
     const results = new Map<DaemonGuiReadMethod, unknown>();

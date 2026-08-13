@@ -119,7 +119,7 @@ test("entrypoint capability matching is exact and template catalog paths cannot 
   try {
     write(path.join(fixture.assetsRoot, "capabilities.json"), JSON.stringify({ schema: "preset-capabilities/v1", providers: [{ id: "cap:run/v1", kind: "checker", version: "1" }] })); writePackage(fixture.bundledRoot, "scripted", { kind: "process-action", entrypoints: { run: { type: "script", intent: "Run", inputs: [], requires: [{ id: "cap:run/v1", kind: "command", version: "1" }], produces: [], sideEffects: [], command: "run.mjs" } } }); write(path.join(fixture.bundledRoot, "scripted/run.mjs"), "export {};\n");
     const mismatched = await createCanonicalPresetResolver({ bundledRoot: fixture.bundledRoot, userRoot: fixture.userRoot, assetsRoot: fixture.assetsRoot }).resolve({ presetId: "scripted", verticalId: "software/coding", locale: "en-US", purpose: "script-run", entrypoint: "run" }); assert.equal(mismatched.ok, false); if (!mismatched.ok) assert.equal(mismatched.error.code, "missing_provider");
-    write(path.join(fixture.assetsRoot, "template-catalog.json"), JSON.stringify({ schema: "preset-template-catalog/v1", documents: [{ ref: "template://planning/task-plan@1", variants: [{ locale: "en-US", path: "../escaped.md", mediaType: "text/markdown" }] }] })); write(path.join(path.dirname(fixture.assetsRoot), "escaped.md"), "# Escaped\n");
+    write(path.join(fixture.assetsRoot, "template-catalog.json"), JSON.stringify({ schema: "preset-template-catalog/v1", documents: [{ ref: "template://planning/task-plan@1", requiredAnchors: [], variants: [{ locale: "en-US", path: "../escaped.md", mediaType: "text/markdown" }] }] })); write(path.join(path.dirname(fixture.assetsRoot), "escaped.md"), "# Escaped\n");
     const escaped = await createCanonicalPresetResolver({ bundledRoot: fixture.bundledRoot, userRoot: fixture.userRoot, assetsRoot: fixture.assetsRoot }).resolve({ presetId: "standard-task", verticalId: "software/coding", locale: "en-US", purpose: "inspect" }); assert.equal(escaped.ok, false); if (!escaped.ok) assert.equal(escaped.error.code, "missing_template");
   } finally { fixture.cleanup(); }
 });
@@ -153,6 +153,19 @@ test("bundled standard-task and create-milestone resolve three exact task docume
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("project task scaffold replaces and adds prose while base ownership, anchors, and portable paths fail closed", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-task-scaffold-")), scaffold = path.join(root, "governance/task-scaffold.json"), template = "# Project Plan\n\n## Brief\n\nB\n\n## Goal\n\nG\n\n## Context\n\nC\n\n## Constraints\n\nC\n\n## Checkpoint\n\nC\n\n## CI/Gate Authority Stop Condition\n\nS\n\n## Implementation Plan\n\nP\n\n## Verification\n\nV\n";
+  try {
+    write(path.join(root, "templates/plan.md"), template); write(path.join(root, "templates/notes.md"), "# Notes\n\n## Project Notes\n\nCustom.\n"); const valid = { schema: "task-scaffold/v1", replaceTemplate: [{ slot: "task.plan", template: "templates/plan.md" }], addDocument: [{ slot: "project.notes", path: "notes.md", template: "templates/notes.md", requiredAnchors: ["## Project Notes"] }] }; write(scaffold, JSON.stringify(valid));
+    const resolve = () => createCanonicalPresetResolver({ userRoot: path.join(root, "user"), projectRoot: root, projectScaffold: scaffold }).resolve({ presetId: "standard-task", verticalId: "software/coding", profileId: "baseline", locale: "en-US", purpose: "task-create" }); const applied = await resolve(); assert.equal(applied.ok, true); if (applied.ok) { assert.equal(applied.snapshot.templates.length, 4); assert.equal(applied.snapshot.templates[0]?.owner, "doc-sync"); assert.equal(applied.snapshot.templates[0]?.templateRef, "project://templates/plan.md"); assert.match(String(applied.snapshot.scaffold.overlayDigest), /^sha256:/u); }
+    write(scaffold, JSON.stringify({ ...valid, replaceTemplate: [{ ...valid.replaceTemplate[0], owner: "machine" }] })); let rejected = await resolve(); assert.equal(rejected.ok, false); if (!rejected.ok) assert.equal(rejected.error.code, "invalid_task_scaffold");
+    write(path.join(root, "templates/plan.md"), "# Missing anchors\n"); write(scaffold, JSON.stringify(valid)); rejected = await resolve(); assert.equal(rejected.ok, false); if (!rejected.ok) assert.equal(rejected.error.code, "required_anchor");
+    write(path.join(root, "templates/plan.md"), template); write(scaffold, JSON.stringify({ ...valid, addDocument: [{ ...valid.addDocument[0], path: "TASK_PLAN.md" }] })); rejected = await resolve(); assert.equal(rejected.ok, false); if (!rejected.ok) assert.equal(rejected.error.code, "reserved_path");
+    write(scaffold, JSON.stringify({ ...valid, addDocument: [{ ...valid.addDocument[0], path: "notes.json" }] })); rejected = await resolve(); assert.equal(rejected.ok, false); if (!rejected.ok) assert.equal(rejected.error.code, "invalid_task_scaffold");
+    write(scaffold, JSON.stringify({ ...valid, deleteDocument: ["task.plan"] })); rejected = await resolve(); assert.equal(rejected.ok, false); if (!rejected.ok) assert.equal(rejected.error.code, "invalid_task_scaffold");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("generic list, inspect, check, install, and uninstall actions share the canonical inventory", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-actions-")), sourceRoot = path.join(rootDir, "source");
   try {
@@ -168,8 +181,8 @@ function makeFixture() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-preset-resolver-")), bundledRoot = path.join(root, "bundled"), userRoot = path.join(root, "user"), assetsRoot = path.join(root, "assets"), presetRoot = path.join(bundledRoot, "standard-task");
   write(path.join(presetRoot, "preset.json"), JSON.stringify({ schema: "preset-manifest/v3", id: "standard-task", title: "Standard Task", vertical: "software/coding", version: "3.0.0", kind: "template-content", outputShape: "repository-diff", kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" }, capabilityImports: [], profiles: [{ id: "baseline", title: "Baseline", completionGates: ["ci", "code-doc-reconciliation"], templateSelections: [] }], defaultProfile: "baseline" }));
   write(path.join(presetRoot, "PRESET.md"), "---\nschema: preset-document/v1\ndescription: General task\nwhenToUse: Use for ordinary repository work.\n---\n# Standard Task\n");
-  write(path.join(assetsRoot, "vertical.json"), JSON.stringify({ schema: "preset-vertical/v1", id: "software/coding", version: "1", taskTemplates: [{ slot: "task.plan", templateRef: "template://planning/task-plan@1", materializeAs: "task_plan.md" }] }));
-  write(path.join(assetsRoot, "template-catalog.json"), JSON.stringify({ schema: "preset-template-catalog/v1", documents: [{ ref: "template://planning/task-plan@1", variants: [{ locale: "en-US", path: "templates/task-plan.en-US.md", mediaType: "text/markdown" }] }] }));
+  write(path.join(assetsRoot, "vertical.json"), JSON.stringify({ schema: "preset-vertical/v1", id: "software/coding", version: "1", taskTemplates: [{ slot: "task.plan", templateRef: "template://planning/task-plan@1", materializeAs: "task_plan.md", owner: "doc-sync" }] }));
+  write(path.join(assetsRoot, "template-catalog.json"), JSON.stringify({ schema: "preset-template-catalog/v1", documents: [{ ref: "template://planning/task-plan@1", requiredAnchors: [], variants: [{ locale: "en-US", path: "templates/task-plan.en-US.md", mediaType: "text/markdown" }] }] }));
   write(path.join(assetsRoot, "capabilities.json"), JSON.stringify({ schema: "preset-capabilities/v1", providers: [] })); write(path.join(assetsRoot, "templates/task-plan.en-US.md"), "# Plan\n"); mkdirSync(userRoot, { recursive: true });
   return { bundledRoot, userRoot, assetsRoot, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }

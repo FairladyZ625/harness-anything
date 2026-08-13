@@ -8,7 +8,7 @@ import { TASK_LEASE_BROKER_CONTRACT, validateLeaseV1, type LeaseHolder, type Lea
 import { canonicalizeContractValue } from "../domain/task.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { isAgentRuntimeEvent, markRuntimeSessionUnknown, reduceRuntimeInstallation, reduceRuntimeSession, runtimeSessionId, type AgentRuntimeEventV1, type RuntimeInstallation, type RuntimeSession } from "../domain/agent-runtime.ts";
-import { assertTaskBootstrapWritePlan, isTaskBootstrapEvent, type TaskBootstrapEventV1 } from "../domain/task-bootstrap-event.ts";
+import { assertTaskBootstrapWritePlan, isTaskBootstrapEvent, taskBootstrapPackagePath, type TaskBootstrapEventV1 } from "../domain/task-bootstrap-event.ts";
 import type { DecisionEventV1, FactEventV1 } from "../domain/fact-event.ts";
 import { assertDecisionAdmission, assertFactAdmission, createFactProjectionTables, FactProjectionError, readDecisionGraphRows, readDecisionRow, readFactAnchorRows, readFactGraphRows, readFactRow, reduceDecisionEvent, reduceFactEvent, refreshDecisionBody, searchDecisionRows, searchFactRows, type DecisionProjectionRow, type DecisionSearchFilters, type FactProjectionRow, type FactSearchFilters } from "./fact-event-projection.ts";
 import type { EventBackedRelationTruth } from "./relation-graph-projection.ts";
@@ -23,11 +23,11 @@ interface EventStreamPort {
 }
 export type TaskProjectionWarning = "projection_missing";
 export interface TaskProjectionRead {
-  readonly status: "ready" | "pending"; readonly snapshot: TaskLifecycleSnapshot; readonly watermark: number;
+  readonly status: "ready" | "pending"; readonly snapshot: TaskLifecycleSnapshot; readonly packagePath: string | null; readonly watermark: number;
   readonly sourceRevision: number; readonly warnings: readonly TaskProjectionWarning[];
   readonly catchUp: { readonly deadlineMs: 100; readonly maxItems: 64; readonly elapsedMs: number; readonly reducedItems: number; readonly sqliteTransactions: 0 | 1 };
 }
-export interface TaskProjectionListRow { readonly taskId: string; readonly workspaceRevision: number; readonly updatedAt: string; readonly snapshot: TaskLifecycleSnapshot }
+export interface TaskProjectionListRow { readonly taskId: string; readonly packagePath: string | null; readonly workspaceRevision: number; readonly updatedAt: string; readonly snapshot: TaskLifecycleSnapshot }
 export interface TaskProjectionListRead { readonly status: "ready" | "pending"; readonly rows: readonly TaskProjectionListRow[]; readonly watermark: number; readonly sourceRevision: number; readonly warnings: readonly TaskProjectionWarning[] }
 export interface ProjectionApplyReceipt { readonly metrics: { readonly sqliteTransactions: 1; readonly reducedItems: number } }
 export interface ProjectionRebuildReceipt {
@@ -48,7 +48,7 @@ export interface DecisionGraphProjectionRead { readonly status: "ready" | "pendi
 export interface TaskProjection {
   readonly path: string; readonly apply: { (event: TaskEventV1 | AgentRuntimeEventV1 | FactEventV1 | DecisionEventV1): ProjectionApplyReceipt; (event: DocEventV1, plan: FrozenWritePlan<"DocSyncSubmit">): ProjectionApplyReceipt; (event: TaskBootstrapEventV1, plan: FrozenWritePlan<"TaskBootstrap">): ProjectionApplyReceipt }; readonly rebuild: () => ProjectionRebuildReceipt;
   readonly read: (taskId: string) => TaskProjectionRead; readonly list: () => TaskProjectionListRead; readonly readOperation: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
-  readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null; readonly readDocument: (path: string) => DocumentProjectionRead;
+  readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null; readonly readDocument: (path: string) => DocumentProjectionRead; readonly taskIdForDocumentPath: (path: string) => string | null;
   readonly readPresetSnapshot: (digest: string) => PresetSnapshotProjectionRead;
   readonly admitFact: (event: FactEventV1) => void; readonly readFact: (taskId: string, factId: string) => FactProjectionRead; readonly searchFacts: (filters: FactSearchFilters) => FactProjectionSearchRead; readonly readFactGraph: () => FactGraphProjectionRead;
   readonly admitDecision: (event: DecisionEventV1) => void; readonly readDecision: (decisionId: string) => DecisionProjectionRead; readonly searchDecisions: (filters: DecisionSearchFilters) => DecisionProjectionSearchRead; readonly readDecisionGraph: () => DecisionGraphProjectionRead;
@@ -80,6 +80,7 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
     }),
     readTaskOperation: (opId) => withDatabase(projectionPath, (db) => { const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as { readonly event_json: string } | undefined; if (!row) return null; const event = parseEventJson(row.event_json); return isTaskEvent(event) ? { event, watermark: watermark(db) } : null; }),
     readDocument: (documentPath) => readDocument(projectionPath, options.eventStore, documentPath, limit),
+    taskIdForDocumentPath: (documentPath) => withDatabase(projectionPath, (db) => (db.prepare("SELECT task_id FROM task_package WHERE ? = package_path OR substr(?, 1, length(package_path) + 1) = package_path || '/' ORDER BY length(package_path) DESC LIMIT 1").get(documentPath, documentPath) as { readonly task_id: string } | undefined)?.task_id ?? null),
     readPresetSnapshot: (digest) => readPresetSnapshot(projectionPath, options.eventStore, digest, limit),
     admitFact: (event) => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit); if (round.watermark !== round.sourceRevision) throw new FactProjectionError("content_not_ready", `Fact admission requires projection revision ${round.sourceRevision}; current watermark is ${round.watermark}.`); assertFactAdmission(db, event); }),
     readFact: (taskId, factId) => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", fact: readFactRow(db, taskId, factId), watermark: current, sourceRevision: round.sourceRevision }; }),
@@ -106,8 +107,8 @@ function listProjection(projectionPath: string, eventStore: EventStreamPort, lim
   const existed = localRuntimeStateFileSystem.exists(projectionPath);
   return withDatabase(projectionPath, (db) => {
     const round = catchUpRound(db, eventStore, limit), current = watermark(db), at = now();
-    const rows = db.prepare("SELECT task_snapshot.task_id AS task_id, task_snapshot.workspace_revision AS workspace_revision, event_index.event_json AS event_json FROM task_snapshot JOIN event_index USING(workspace_revision) ORDER BY task_snapshot.task_id").all() as unknown as readonly { readonly task_id: string; readonly workspace_revision: number; readonly event_json: string }[];
-    return { status: current === round.sourceRevision ? "ready" : "pending", rows: rows.map((row) => ({ taskId: row.task_id, workspaceRevision: row.workspace_revision,
+    const rows = db.prepare("SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path, task_snapshot.workspace_revision AS workspace_revision, event_index.event_json AS event_json FROM task_snapshot LEFT JOIN task_package USING(task_id) JOIN event_index ON event_index.workspace_revision = task_snapshot.workspace_revision ORDER BY task_snapshot.task_id").all() as unknown as readonly { readonly task_id: string; readonly package_path: string | null; readonly workspace_revision: number; readonly event_json: string }[];
+    return { status: current === round.sourceRevision ? "ready" : "pending", rows: rows.map((row) => ({ taskId: row.task_id, packagePath: row.package_path, workspaceRevision: row.workspace_revision,
       updatedAt: parseEventJson(row.event_json).occurredAt, snapshot: readSnapshot(db, row.task_id, at) })), watermark: current, sourceRevision: round.sourceRevision,
       warnings: !existed && round.sourceRevision > 0 ? ["projection_missing"] : [] };
   });
@@ -126,7 +127,7 @@ function readProjection(projectionPath: string, eventStore: EventStreamPort, tas
     const round = catchUpRound(db, eventStore, limit);
     const current = watermark(db);
     const elapsedMs = performance.now() - started;
-    return { status: current === round.sourceRevision ? "ready" : "pending", snapshot: readSnapshot(db, taskId, now()), watermark: current,
+    return { status: current === round.sourceRevision ? "ready" : "pending", snapshot: readSnapshot(db, taskId, now()), packagePath: (db.prepare("SELECT package_path FROM task_package WHERE task_id = ?").get(taskId) as { readonly package_path: string } | undefined)?.package_path ?? null, watermark: current,
       sourceRevision: round.sourceRevision, warnings: !existed && round.sourceRevision > 0 ? ["projection_missing"] : [],
       catchUp: { deadlineMs: 100, maxItems: 64, elapsedMs, reducedItems: round.reducedItems, sqliteTransactions: round.sqliteTransactions } };
   });
@@ -170,6 +171,7 @@ function createTables(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS runtime_installation (installation_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS runtime_session (runtime_session_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);
     CREATE TABLE IF NOT EXISTS execution (execution_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS review (review_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, execution_id TEXT NOT NULL, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS edge (task_id TEXT NOT NULL, edge_id TEXT NOT NULL, iteration INTEGER NOT NULL, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL, PRIMARY KEY(task_id, edge_id, iteration));
@@ -256,7 +258,7 @@ function applyEvent(db: DatabaseSync, event: CanonicalEventV1, eventJson: string
   if (isDocEvent(event)) { runSql(db, "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)", event.opId, event.workspaceRevision, eventJson); for (const change of event.payload.changes) { const bytes = readBlob(change.candidate.sha256); if (!bytes || bytes.byteLength !== change.candidate.size) throw new Error(`document blob ${change.candidate.sha256} is unavailable`); let body: string; try { body = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { throw new Error(`document blob ${change.candidate.sha256} is not UTF-8`); } const previous = db.prepare("SELECT value_json FROM document WHERE path = ?").get(change.path) as { readonly value_json: string } | undefined, base = previous ? JSON.parse(previous.value_json) as DocumentState : null; if (change.baseBlobSha256 !== (base?.blobSha256 ?? null) || !verifyDocEventChange(change, base?.body ?? "", body)) throw new Error(`document proof mismatch for ${change.path}`);
       const document: DocumentState = { path: change.path, blobSha256: change.candidate.sha256, body, size: change.candidate.size, mediaType: change.candidate.mediaType, policyId: change.policyId, workspaceRevision: event.workspaceRevision }; runSql(db, "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json", change.path, event.workspaceRevision, canonicalJson(document)); refreshDecisionBody(db, document); } return; }
   if (isTaskBootstrapEvent(event)) { const snapshotBytes = readBlob(event.payload.presetSnapshotClaim.sha256); if (!snapshotBytes || snapshotBytes.byteLength !== event.payload.presetSnapshotClaim.size) throw new Error(`preset snapshot blob ${event.payload.presetSnapshotClaim.sha256} is unavailable`); const snapshotBody = new TextDecoder("utf-8", { fatal: true }).decode(snapshotBytes), snapshot = JSON.parse(snapshotBody);
-    runSql(db, "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)", event.opId, event.workspaceRevision, event.taskId, eventJson); runSql(db, "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json) VALUES (?, ?, ?)", event.taskId, event.workspaceRevision, canonicalJson({ ...emptyTaskLifecycleSnapshot(event.workspaceRevision), task: event.payload.task })); if (Number(runSql(db, "INSERT INTO preset_snapshot(digest, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(digest) DO UPDATE SET value_json=excluded.value_json WHERE preset_snapshot.value_json=excluded.value_json", event.payload.presetSnapshotClaim.digest, event.workspaceRevision, canonicalJson(snapshot))) === 0) throw new Error(`preset snapshot digest ${event.payload.presetSnapshotClaim.digest} names different bytes`);
+    runSql(db, "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)", event.opId, event.workspaceRevision, event.taskId, eventJson); runSql(db, "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json) VALUES (?, ?, ?)", event.taskId, event.workspaceRevision, canonicalJson({ ...emptyTaskLifecycleSnapshot(event.workspaceRevision), task: event.payload.task })); runSql(db, "INSERT INTO task_package(task_id, package_path) VALUES (?, ?)", event.taskId, taskBootstrapPackagePath(event)); if (Number(runSql(db, "INSERT INTO preset_snapshot(digest, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(digest) DO UPDATE SET value_json=excluded.value_json WHERE preset_snapshot.value_json=excluded.value_json", event.payload.presetSnapshotClaim.digest, event.workspaceRevision, canonicalJson(snapshot))) === 0) throw new Error(`preset snapshot digest ${event.payload.presetSnapshotClaim.digest} names different bytes`);
     for (const claim of event.payload.initialDocumentClaims) { const bytes = readBlob(claim.sha256); if (!bytes || bytes.byteLength !== claim.size) throw new Error(`document blob ${claim.sha256} is unavailable`); const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes), document: DocumentState = { path: claim.path as DocumentState["path"], blobSha256: claim.sha256, body, size: claim.size as DocumentState["size"], mediaType: claim.mediaType, policyId: claim.policyId, workspaceRevision: event.workspaceRevision }; runSql(db, "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?)", claim.path, event.workspaceRevision, canonicalJson(document)); } return; }
   const snapshot = reduceTaskEvent(readSnapshot(db, event.taskId), event);
   runSql(db, "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)", event.opId, event.workspaceRevision, event.taskId, eventJson);

@@ -43,7 +43,7 @@ test("unified publication advances canonical and authored refs to one SHA while 
     assert.deepEqual(after.bytes, before.bytes); assert.equal(after.status, before.status); assert.equal((after.index as string).includes(before.index as string), true); assert.notEqual(git(rootDir, "rev-parse", "HEAD"), head); assert.equal(store.currentCommit().sha, git(rootDir, "rev-parse", "HEAD")); assert.equal(existsSync(path.join(rootDir, "harness/events")), true);
     assert.equal(git(rootDir, "show", `${CANONICAL_EVENT_REF}:harness/events/op-1.json`), serializeCanonicalEvent(event).trimEnd()); assert.equal(store.readTaskEvent(event.opId)?.opId, event.opId);
     assert.deepEqual(store.append(event).metrics.changedPaths, []); assert.throws(() => store.append({ ...event, payload: { task: { ...event.payload.task, title: "different" } } }), (error: unknown) => { assert.equal((error as { code?: string }).code, "op_conflict"); return /different event/u.test(String(error)); });
-    assert.equal(receipt.metrics.nodeSyncs > 0, true); context.diagnostic(`unified-publisher-git-processes=${receipt.metrics.gitProcesses}`);
+    assert.equal(receipt.metrics.nodeSyncs, 3); context.diagnostic(`unified-publisher-git-processes=${receipt.metrics.gitProcesses}`);
   });
 });
 

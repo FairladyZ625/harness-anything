@@ -5,7 +5,8 @@ import { freezeDeclaredWritePlan, hasOnlyFields, isFrozenWritePlan, isNonEmptySt
   type ActorIdentity, type EventEnvelope, type FrozenWritePlan, type WriteTarget } from "./write-chain.contract.ts";
 
 export interface PresetSnapshotClaim { readonly digest: `sha256:${string}`; readonly sha256: string; readonly size: number; readonly mediaType: "application/json" }
-export interface InitialDocumentClaim { readonly path: string; readonly sha256: string; readonly size: number; readonly mediaType: "text/markdown" | "text/plain"; readonly policyId: "markdown-body-replaceable/v1" }
+export type TaskDocumentOwner = "machine" | "doc-sync";
+export interface InitialDocumentClaim { readonly path: string; readonly sha256: string; readonly size: number; readonly mediaType: "application/json" | "text/markdown" | "text/plain"; readonly owner: TaskDocumentOwner; readonly policyId: "markdown-body-replaceable/v1" | "typed-machine-writer/v1" }
 export interface TaskBootstrapBlob { readonly sha256: string; readonly size: number; readonly mediaType: string; readonly body: string }
 export type TaskBootstrapEventV1 = EventEnvelope<"task-bootstrap-event/v1", "task_bootstrapped", ActorIdentity, {
   readonly task: TaskV1; readonly presetSnapshotClaim: PresetSnapshotClaim; readonly initialDocumentClaims: readonly InitialDocumentClaim[]
@@ -17,6 +18,7 @@ export function validateTaskBootstrapEvent(value: unknown): readonly string[] {
   const taskIssues = validateTaskV1(value.payload.task), snapshot = value.payload.presetSnapshotClaim, documents = value.payload.initialDocumentClaims;
   if (taskIssues.length) return taskIssues.map((issue) => issue.message);
   if ((value.payload.task as TaskV1).taskId !== value.taskId || !validSnapshotClaim(snapshot) || (value.payload.task as TaskV1).presetSnapshotDigest !== (snapshot as PresetSnapshotClaim).digest || !Array.isArray(documents) || documents.length === 0 || !documents.every(validDocumentClaim) || new Set(documents.map((claim) => isRecord(claim) ? claim.path : null)).size !== documents.length) return ["task bootstrap claims are invalid"];
+  try { taskBootstrapPackagePath(value as unknown as TaskBootstrapEventV1); } catch { return ["task bootstrap package path is invalid"]; }
   try { serializeEventEnvelope(value as unknown as TaskBootstrapEventV1); } catch { return ["task bootstrap event identity is invalid"]; }
   return [];
 }
@@ -32,7 +34,8 @@ export function assertTaskBootstrapWritePlan(event: TaskBootstrapEventV1, plan: 
   if (plan === undefined || !isFrozenWritePlan(plan) || shape(plan) !== shape(taskBootstrapWritePlan(event))) throw new Error("task bootstrap write plan must exactly declare event, task, snapshot, documents, and blobs");
 }
 export function taskBootstrapClaims(event: TaskBootstrapEventV1): readonly (PresetSnapshotClaim | InitialDocumentClaim)[] { return uniqueClaims(event); }
+export function taskBootstrapPackagePath(event: TaskBootstrapEventV1): string { const roots = new Set(event.payload.initialDocumentClaims.map((claim) => claim.path.split("/").slice(0, 2).join("/"))), root = [...roots][0], prefix = `tasks/${event.taskId}-`, slug = root?.slice(prefix.length); if (roots.size !== 1 || !root?.startsWith(prefix) || !slug || !/^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$/u.test(slug) || event.payload.initialDocumentClaims.some((claim) => !claim.path.startsWith(`${root}/`))) throw new Error("task bootstrap claims must share one slugged task package"); return root; }
 function uniqueClaims(event: TaskBootstrapEventV1): readonly (PresetSnapshotClaim | InitialDocumentClaim)[] { return [...new Map([event.payload.presetSnapshotClaim, ...event.payload.initialDocumentClaims].map((claim) => [claim.sha256, claim])).values()]; }
 function validSnapshotClaim(value: unknown): value is PresetSnapshotClaim { return isRecord(value) && hasOnlyFields(value, ["digest", "sha256", "size", "mediaType"]) && /^sha256:[0-9a-f]{64}$/u.test(String(value.digest)) && validStoredClaim(value) && value.mediaType === "application/json"; }
-function validDocumentClaim(value: unknown): value is InitialDocumentClaim { if (!isRecord(value) || !hasOnlyFields(value, ["path", "sha256", "size", "mediaType", "policyId"]) || !validStoredClaim(value) || value.policyId !== "markdown-body-replaceable/v1" || value.mediaType !== "text/markdown" && value.mediaType !== "text/plain") return false; try { return normalizeRelativeDocumentPath(String(value.path)) === value.path; } catch { return false; } }
+function validDocumentClaim(value: unknown): value is InitialDocumentClaim { if (!isRecord(value) || !hasOnlyFields(value, ["path", "sha256", "size", "mediaType", "owner", "policyId"]) || !validStoredClaim(value) || value.owner !== "machine" && value.owner !== "doc-sync" || value.owner === "machine" && value.policyId !== "typed-machine-writer/v1" || value.owner === "doc-sync" && (value.policyId !== "markdown-body-replaceable/v1" || value.mediaType !== "text/markdown" && value.mediaType !== "text/plain") || !["application/json", "text/markdown", "text/plain"].includes(String(value.mediaType))) return false; try { return normalizeRelativeDocumentPath(String(value.path)) === value.path; } catch { return false; } }
 function validStoredClaim(value: Readonly<Record<string, unknown>>): boolean { return /^[0-9a-f]{64}$/u.test(String(value.sha256)) && Number.isSafeInteger(value.size) && (value.size as number) >= 0 && isNonEmptyString(value.mediaType); }
