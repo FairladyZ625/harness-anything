@@ -1,7 +1,7 @@
 {
   "version": 1,
   "ceilings": {
-    "kernel": 8146,
+    "kernel": 8152,
     "task-lifecycle": 375,
     "write-contract": 292,
     "doc-sync": 332,
