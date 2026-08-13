@@ -77,7 +77,7 @@ test("daemon-produced prepublish witnesses bind immutable publication history, c
   }
 });
 
-test("one multi-path publication proof scans first-parent history once", async () => {
+test("one multi-path publication proof reads attribution history in one raw pass", async () => {
   const fixture = witnessRepository();
   try {
     const traced = await withTracedGit(fixture.fixtureRoot, 0, () =>
@@ -92,7 +92,8 @@ test("one multi-path publication proof scans first-parent history once", async (
       event.event === "start" && event.args.includes("ls-tree")
     );
     assert.equal(historyCalls.length, 1, JSON.stringify(historyCalls));
-    assert.equal(treeCalls.length, 5, JSON.stringify(treeCalls));
+    assert.equal(historyCalls[0]!.args.includes("--raw"), true, JSON.stringify(historyCalls));
+    assert.equal(treeCalls.length, fixture.documents.length + 1, JSON.stringify(treeCalls));
   } finally {
     rmSync(fixture.fixtureRoot, { recursive: true, force: true });
   }

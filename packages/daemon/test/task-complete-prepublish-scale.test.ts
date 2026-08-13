@@ -9,10 +9,12 @@ import { produceDocumentPublicationWitness } from "../src/authority/production/t
 
 const taskId = "task_01KZ9JFNGPFBFDP3J9ZW0B99CN";
 
-test("full first-parent history scan count stays constant as publication path count grows", async (context) => {
+test("publication attribution subprocess overhead stays constant as path count grows", async (context) => {
   const observations: Array<{
     readonly pathCount: number;
     readonly scanCount: number;
+    readonly historyPathspecCount: number;
+    readonly treeCallOverhead: number;
   }> = [];
   for (const pathCount of [3, 30]) {
     const fixture = pathScaleWitnessRepository(pathCount);
@@ -21,16 +23,27 @@ test("full first-parent history scan count stays constant as publication path co
         Promise.resolve(produceDocumentPublicationWitness(fixture))
       );
       const calls = traced.commands.filter(isUnboundedFirstParentHistoryCall);
-      observations.push({ pathCount, scanCount: calls.length });
+      const historyPathspecCount = calls[0]
+        ? calls[0].slice(calls[0].indexOf("--") + 1).length
+        : 0;
+      const treeCallCount = traced.commands.filter((args) => args.includes("ls-tree")).length;
+      observations.push({
+        pathCount,
+        scanCount: calls.length,
+        historyPathspecCount,
+        treeCallOverhead: treeCallCount - pathCount
+      });
     } finally {
       rmSync(fixture.fixtureRoot, { recursive: true, force: true });
     }
   }
 
-  context.diagnostic(`unbounded first-parent history scans: ${observations
-    .map((entry) => `${entry.pathCount} paths=${entry.scanCount}`)
+  context.diagnostic(`publication attribution scans: ${observations
+    .map((entry) => `${entry.pathCount} paths: history=${entry.scanCount}, pathspecs=${entry.historyPathspecCount}, tree-overhead=${entry.treeCallOverhead}`)
     .join(", ")}`);
   assert.equal(observations[0]!.scanCount, observations[1]!.scanCount, JSON.stringify(observations));
+  assert.deepEqual(observations.map((entry) => entry.historyPathspecCount), [1, 1]);
+  assert.deepEqual(observations.map((entry) => entry.treeCallOverhead), [1, 1]);
 });
 
 test("history scan tracing recognizes unbounded first-parent log and rev-list calls", () => {

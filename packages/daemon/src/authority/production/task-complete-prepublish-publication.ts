@@ -42,7 +42,7 @@ export async function findAttributedMaterializedPublication(
       materializationMismatches(repositoryPaths, currentBlobs, expectedBlobs)
     );
   }
-  const historyPromise = firstParentHistory(rootDir, repositoryPaths, headRef);
+  const historyPromise = firstParentPublicationHistory(rootDir, repositoryPaths, headRef);
   reportCurrentRepoWriteTelemetry("authority-publication-proof", {
     stage: "history-start",
     pathCount: repositoryPaths.length
@@ -121,7 +121,10 @@ async function findPathMaterializedPublications(
   history: ReadonlyArray<{
     readonly commit: string;
     readonly parents: ReadonlyArray<string>;
-    readonly subject: string;
+    readonly changes: ReadonlyMap<string, {
+      readonly before: string;
+      readonly after: string;
+    }>;
   }>
 ): Promise<ReadonlyArray<{ readonly commit: string; readonly operationIds: ReadonlyArray<string> } | null>> {
   const attributions: Array<{ readonly commit: string; readonly operationIds: ReadonlyArray<string> } | null> =
@@ -129,14 +132,16 @@ async function findPathMaterializedPublications(
   let remaining = repositoryPaths.length;
   for (const entry of history) {
     if (entry.parents.length !== 2) continue;
-    const actualBlobs = await gitBlobIds(rootDir, entry.commit, repositoryPaths);
-    const candidates = repositoryPaths.flatMap((_repositoryPath, index) =>
-      attributions[index] === null && actualBlobs[index] === expectedBlobs[index] ? [index] : []
-    );
+    const candidates = repositoryPaths.flatMap((repositoryPath, index) => {
+      const change = entry.changes.get(repositoryPath);
+      return attributions[index] === null
+        && change?.after === expectedBlobs[index]
+        && change.before !== change.after
+        ? [index]
+        : [];
+    });
     if (candidates.length === 0) continue;
-    const firstParentBlobs = await gitBlobIds(rootDir, entry.parents[0]!, repositoryPaths);
     for (const index of candidates) {
-      if (firstParentBlobs[index] === actualBlobs[index]) continue;
       const operationIds = await attributedPathOperationIds(
         rootDir,
         entry.parents[0]!,
@@ -197,32 +202,70 @@ function materializationMismatches(
   });
 }
 
-async function firstParentHistory(rootDir: string, repositoryPaths: ReadonlyArray<string>, headRef = "HEAD"): Promise<ReadonlyArray<{
+async function firstParentPublicationHistory(
+  rootDir: string,
+  repositoryPaths: ReadonlyArray<string>,
+  headRef = "HEAD"
+): Promise<ReadonlyArray<{
   readonly commit: string;
   readonly parents: ReadonlyArray<string>;
-  readonly subject: string;
+  readonly changes: ReadonlyMap<string, { readonly before: string; readonly after: string }>;
 }>> {
+  if (repositoryPaths.length === 0) return [];
   const output = await taskCompletePublicationGitText(rootDir, [
     "log",
     "--first-parent",
     "--full-history",
-    "--format=%H%x00%P%x00%s%x00",
+    "--diff-merges=first-parent",
+    "--raw",
+    "--no-renames",
+    "--no-abbrev",
+    "-z",
+    "--format=%x1e%H%x00%P",
     headRef,
     "--",
-    ...repositoryPaths.map((repositoryPath) => `:(literal)${repositoryPath}`)
+    ...attributionHistoryPathspecs(repositoryPaths).map((repositoryPath) => `:(literal)${repositoryPath}`)
   ]);
-  const fields = output.split("\0");
-  const rows: Array<{ commit: string; parents: ReadonlyArray<string>; subject: string }> = [];
-  for (let index = 0; index + 2 < fields.length; index += 3) {
-    const commit = fields[index]!.trim();
+  const rows: Array<{
+    commit: string;
+    parents: ReadonlyArray<string>;
+    changes: ReadonlyMap<string, { readonly before: string; readonly after: string }>;
+  }> = [];
+  for (const record of output.split("\x1e")) {
+    const fields = record.split("\0");
+    const commit = fields[0]?.trim();
     if (!commit) continue;
+    const changes = new Map<string, { readonly before: string; readonly after: string }>();
+    for (let index = 2; index < fields.length;) {
+      const header = fields[index++]!.replace(/^\r?\n/u, "");
+      if (!header.startsWith(":")) continue;
+      const [, , before, after] = header.slice(1).split(" ");
+      const repositoryPath = fields[index++];
+      if (before && after && repositoryPath !== undefined) {
+        changes.set(repositoryPath, { before, after });
+      }
+    }
     rows.push({
       commit,
-      parents: fields[index + 1]!.trim().split(" ").filter(Boolean),
-      subject: fields[index + 2]!.trim()
+      parents: fields[1]!.trim().split(" ").filter(Boolean),
+      changes
     });
   }
   return rows;
+}
+
+function attributionHistoryPathspecs(repositoryPaths: ReadonlyArray<string>): ReadonlyArray<string> {
+  if (repositoryPaths.length < 2) return repositoryPaths;
+  const first = repositoryPaths[0]!.split("/");
+  let sharedSegments = first.length - 1;
+  for (const repositoryPath of repositoryPaths.slice(1)) {
+    const segments = repositoryPath.split("/");
+    sharedSegments = Math.min(sharedSegments, segments.length - 1);
+    let index = 0;
+    while (index < sharedSegments && segments[index] === first[index]) index += 1;
+    sharedSegments = index;
+  }
+  return sharedSegments > 0 ? [first.slice(0, sharedSegments).join("/")] : repositoryPaths;
 }
 
 function publicationOperationIds(subject: string): ReadonlyArray<string> {
