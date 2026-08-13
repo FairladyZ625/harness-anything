@@ -6,14 +6,56 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { normalizeTaskLifecycleCommand, type TaskEventV1 } from "../../kernel/src/index.ts";
-import { makeTaskEventStore, makeTaskProjection, serializeEventHead, serializeTaskEvent, TASK_LEASE_BROKER_CONTRACT } from "../../kernel/test/store/task-lifecycle-runtime.ts";
+import { applyTransition, compileCompletionGateWitness, completionBlockers, normalizeTaskLifecycleCommand, type TaskEventV1 } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, makeTaskProjection, reduceTaskEvent, serializeEventHead, serializeTaskEvent, TASK_LEASE_BROKER_CONTRACT } from "../../kernel/test/store/task-lifecycle-runtime.ts";
 import { makeTaskLifecycleService, TaskLifecycleOperationConflict } from "../src/task-lifecycle-service.ts";
 import { lifecycleHarness, replayGraph } from "./task-lifecycle-test-harness.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } };
 const command = <C extends Parameters<typeof normalizeTaskLifecycleCommand>[1]>(rootDir: string, intent: C, meta: { readonly eventId: string; readonly workspaceRevision: number; readonly occurredAt: string }, expectedRevision = meta.workspaceRevision - 1) =>
   ({ ...normalizeTaskLifecycleCommand({ workspaceId: rootDir, actor, source: "local", expectedRevision }, intent), ...meta });
+
+test("completion blocker matrix returns one canonical next for every substantive gate", async () => {
+  const harness = lifecycleHarness();
+  try {
+    const created = await harness.create(), started = await harness.start("execution-1"), submitted = await harness.submit("execution-1"), reviewed = await harness.review("execution-1", "acceptance", "approved"), consented = await harness.consent("execution-1");
+    const ready = { closeout: "ready" as const, closeoutPath: "tasks/task-1/closeout.md", eligibleDirtyPaths: [] as string[] };
+    const withGates = (gateIds: readonly string[]) => ({ ...consented.snapshot, task: { ...consented.snapshot.task!, completionGateIds: gateIds } });
+    const cases = [
+      ["not_in_review", started.snapshot, ready],
+      ["closeout_placeholder", consented.snapshot, { ...ready, closeout: "placeholder" as const }],
+      ["review_missing", submitted.snapshot, ready],
+      ["consent_missing", reviewed.snapshot, ready],
+      ["ci_missing", withGates(["ci"]), ready],
+      ["code_doc_missing", withGates(["code-doc-reconciliation"]), ready],
+      ["lease_held", { ...consented.snapshot, lease: started.snapshot.lease }, ready],
+      ["doc_sync_required", consented.snapshot, { ...ready, closeout: "dirty_eligible" as const, eligibleDirtyPaths: ["tasks/task-1/closeout.md"] }]
+    ] as const;
+    assert.equal(created.snapshot.task?.status, "planned");
+    for (const [code, snapshot, context] of cases) {
+      const blockers = completionBlockers(snapshot, "execution-1", context);
+      assert.deepEqual(blockers.map((blocker) => blocker.code), [code], code);
+      assert.equal((blockers[0]?.next.command.length ?? 0) > 0, true, code);
+      assert.equal((blockers[0]?.next.reason.length ?? 0) > 0, true, code);
+    }
+    assert.deepEqual(completionBlockers(consented.snapshot, "execution-1", ready), []);
+  } finally { harness.cleanup(); }
+});
+
+test("canonical checker receipt becomes a content-cut gate witness before CompleteTask", async () => {
+  const harness = lifecycleHarness();
+  try {
+    await harness.create(); await harness.start("execution-1"); await harness.submit("execution-1"); await harness.review("execution-1", "acceptance", "approved"); const consented = await harness.consent("execution-1");
+    const snapshot = { ...consented.snapshot, task: { ...consented.snapshot.task!, completionGateIds: ["ci"] } };
+    const input = { snapshot, taskId: "task-1", executionId: "execution-1", gateId: "ci", result: "pass" as const, receiptId: "op-ci", checkerId: "standard", commitSha: "a".repeat(40), iteration: 0, actor, source: "local" as const, opId: "op-ci", eventId: "event-ci", workspaceRevision: snapshot.revision + 1, occurredAt: "2026-08-11T00:10:00.000Z", packagePath: null, currentDocuments: [] };
+    const compiled = compileCompletionGateWitness(input);
+    assert.deepEqual(compiled.event.payload.witness, { schema: "completion-gate-witness/v1", witnessId: "gate-op-ci", receiptId: "op-ci", checkerId: "standard", gateId: "ci", result: "pass", taskId: "task-1", executionId: "execution-1", commitSha: "a".repeat(40), iteration: 0, actor, source: "local", verifiedAt: "2026-08-11T00:10:00.000Z" });
+    const verified = reduceTaskEvent(snapshot, compiled.event), complete = command(harness.rootDir, { type: "CompleteTask" as const, taskId: "task-1", executionId: "execution-1" }, { eventId: "event-complete", workspaceRevision: verified.revision + 1, occurredAt: "2026-08-11T00:11:00.000Z" }, verified.revision), proof = { capability: "task-complete@v1" as const, capabilityRef: "cap-complete", actorRole: "owner" as const, noActiveLease: true as const, gateReceipts: [{ gateId: "ci", receiptRef: "event:op-ci", result: "pass" as const, executionId: "execution-1", commitSha: "a".repeat(40), iteration: 0 as const }] };
+    assert.deepEqual(verified.gateWitnesses, [compiled.event.payload.witness]); assert.doesNotThrow(() => applyTransition(verified, complete, proof)); assert.throws(() => applyTransition(verified, complete, { ...proof, gateReceipts: [{ ...proof.gateReceipts[0]!, receiptRef: "event:forged" }] }), /L2-verified/u);
+    assert.throws(() => reduceTaskEvent(snapshot, { ...compiled.event, opId: "op-tampered" }), /canonical event receipt/u);
+    assert.throws(() => compileCompletionGateWitness({ ...input, commitSha: "b".repeat(40) }), /execution cut/u);
+  } finally { harness.cleanup(); }
+});
 
 test("transition service freezes targets and makes create/start idempotent by opId payload", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-service-"));

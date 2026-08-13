@@ -5,8 +5,9 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, serializeCanonicalEvent } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, makeTaskProjection, serializeCanonicalEvent } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { readDocReceipt } from "../src/doc-sync-actions.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
@@ -20,6 +21,12 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
     assert.deepEqual(git(rootDir, "status", "--porcelain", "-uall").split("\n").filter((line) => line.includes(" harness/")).sort(), ["?? harness/context/b.md", "?? harness/context/ignored.json", "?? harness/tasks/task-one/progress.md"]);
     write(rootDir, "context/a.md", "# Renamed\n\nfirst\n"); const acceptedCut = git(rootDir, "rev-parse", "HEAD"), blocked = await cell.run({ kind: "doc-dry-run", paths: ["context/a.md"] }, binding); assert.equal(rows(blocked.evidence)[0]?.state, "blocked"); const rejected = await cell.run({ kind: "doc-submit", paths: ["context/a.md"] }, binding); assert.equal(rejected.outcome, "rejected"); assert.equal(rejected.code, "preview_blocked"); assert.equal(git(rootDir, "rev-parse", "HEAD"), acceptedCut);
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("a committed DocEvent reports pending with its stable receipt id until L2 reaches the event cut", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-pending-")), repoId = workspaceId("doc-pending"), binding = { actor, source: "local" as const }; initRepo(rootDir); const cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "doc-pending" });
+  try { await cell.run({ kind: "task-create", taskId: "task-pending", title: "Pending" }, binding); write(rootDir, "context/pending.md", "# Pending\n"); const applied = await cell.run({ kind: "doc-submit", paths: ["context/pending.md"] }, binding); assert.equal(applied.outcome, "applied"); await cell.close(); const store = makeTaskEventStore({ repoId, rootDir }), event = store.readEvent(applied.opId); if (event?.schema !== "doc-event/v1") throw new Error("DocEvent missing"); const projection = makeTaskProjection({ rootDir, eventStore: store, projectionPath: path.join(rootDir, ".harness/pending.sqlite"), catchUpLimit: 1 }), pending = readDocReceipt({ binding, workspaceId: repoId, rootDir, store, projection, now: () => "2026-08-14T00:00:00.000Z" }, event); assert.equal(pending.outcome, "pending"); assert.equal(pending.opId, event.opId); assert.equal(pending.proof?.committedRevision, event.workspaceRevision); assert.equal(pending.proof?.canonicalVisible, false); assert.match(pending.nextAction ?? "", new RegExp(`receipt show ${event.opId}`, "u")); }
+  finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
 test("materialize restores task-bootstrap and doc-event files and is idempotent", async () => {
