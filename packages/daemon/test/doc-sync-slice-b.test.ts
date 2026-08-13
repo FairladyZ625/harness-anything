@@ -20,7 +20,7 @@ test("local doc submit rejects the retired selection assembler", async () => {
   const fixture = await docCell("retired-selection");
   try {
     await startLease(fixture.cell, "local");
-    const relativePath = "tasks/task-doc/notes.md";
+    const relativePath = "tasks/task-doc-docs/notes.md";
     writeAuthored(fixture.rootDir, relativePath, "# Notes\n");
     const result = await fixture.cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: canonicalSha(fixture.rootDir),
       selections: [{ path: relativePath, baseBlobSha256: null }] }, { actor, source: "local" });
@@ -33,7 +33,7 @@ test("local selection and assignment claim normalize to the same doc event throu
   const local = await docCell("local"), remote = await docCell("remote");
   try {
     await startLease(local.cell, "local"); await startLease(remote.cell, assignmentSource);
-    const body = "# Notes\n\nShared candidate.\n", hash = sha(body), relativePath = "tasks/task-doc/notes.md";
+    const body = "# Notes\n\nShared candidate.\n", hash = sha(body), relativePath = "tasks/task-doc-docs/notes.md";
     writeAuthored(local.rootDir, relativePath, body); writeClaim(remote.rootDir, "remote", body);
     const localResult = await local.cell.run({ kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] }, { actor, source: "local" });
     const remoteBinding = assignmentBinding("remote", [relativePath]);
@@ -75,7 +75,7 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
     await host.admin({ kind: "register", rootDir: fixture.rootDir, repoId: "rbac" }, auth(fixture.ids.admin));
     assert.equal((await host.run("rbac", { kind: "task-create", taskId: "task-doc", title: "Docs" }, auth(fixture.ids.writer))).outcome, "applied");
     assert.equal((await host.run("rbac", { kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, auth(fixture.ids.writer))).outcome, "applied");
-    const relativePath = "tasks/task-doc/notes.md", body = "# Notes\n", action = { kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] } as const;
+    const relativePath = "tasks/task-doc-docs/notes.md", body = "# Notes\n", action = { kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] } as const;
     writeAuthored(fixture.rootDir, relativePath, body); const before = canonicalSha(fixture.rootDir);
     const denied = await host.run("rbac", action, auth(fixture.ids.reader));
     assert.equal(denied.code, "rbac_forbidden"); assert.equal(denied.detail?.holder?.personId, "writer");
@@ -88,14 +88,14 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
   } finally { await host.close(); fixture.close(); }
 
   let now = "2026-08-12T00:00:00.000Z"; const expired = await docCell("expired", () => now);
-  try { await startLease(expired.cell, "local"); const relativePath = "tasks/task-doc/expired.md", body = "# Expired\n"; writeAuthored(expired.rootDir, relativePath, body);
+  try { await startLease(expired.cell, "local"); const relativePath = "tasks/task-doc-docs/expired.md", body = "# Expired\n"; writeAuthored(expired.rootDir, relativePath, body);
     now = "2026-08-12T01:00:00.000Z"; const before = canonicalSha(expired.rootDir), result = await expired.cell.run({ kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] }, { actor, source: "local" });
     assert.equal(result.code, "lease_conflict"); assert.equal(result.detail?.holder?.executionId, "execution-doc"); assert.equal(result.detail?.holder?.expiresAt, "2026-08-12T00:30:00.000Z"); assert.equal(canonicalSha(expired.rootDir), before);
   } finally { await expired.close(); }
 
   const scoped = await docCell("scoped");
-  try { await startLease(scoped.cell, assignmentSource); const body = "# Scoped\n", relativePath = "tasks/task-doc/outside.md"; writeClaim(scoped.rootDir, "scoped", body);
-    const before = canonicalSha(scoped.rootDir), result = await scoped.cell.run(remoteAction(scoped.rootDir, relativePath, "scoped", body), assignmentBinding("scoped", ["tasks/task-doc/inside.md"]));
+  try { await startLease(scoped.cell, assignmentSource); const body = "# Scoped\n", relativePath = "tasks/task-doc-docs/outside.md"; writeClaim(scoped.rootDir, "scoped", body);
+    const before = canonicalSha(scoped.rootDir), result = await scoped.cell.run(remoteAction(scoped.rootDir, relativePath, "scoped", body), assignmentBinding("scoped", ["tasks/task-doc-docs/inside.md"]));
     assert.equal(result.code, "assignment_scope_mismatch"); assert.equal(result.detail?.holder?.personId, "person-owner");
     assert.match(result.detail?.unresolvedTouches[0]?.requiredRoute ?? "", /assignment-one.*inside\.md/u); assert.equal(canonicalSha(scoped.rootDir), before);
     assert.equal(existsSync(path.join(scoped.rootDir, ".harness/doc-sync-claims/scoped")), false);
@@ -108,7 +108,7 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
 
 test("claim-check keeps large bodies out of commands and recycles missing, hash, size, and rejected claims", async () => {
   const local = await docCell("large");
-  try { await startLease(local.cell, "local"); const relativePath = "tasks/task-doc/large.md", body = `# Large\n${"x".repeat(DOC_COMMAND_FRAME_MAX_BYTES + 1)}\n`;
+  try { await startLease(local.cell, "local"); const relativePath = "tasks/task-doc-docs/large.md", body = `# Large\n${"x".repeat(DOC_COMMAND_FRAME_MAX_BYTES + 1)}\n`;
     writeAuthored(local.rootDir, relativePath, body); const action = { kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] } as const;
     assert.equal(Buffer.byteLength(JSON.stringify(action)) < DOC_COMMAND_FRAME_MAX_BYTES, true); assert.equal(JSON.stringify(action).includes(body), false);
     const result = await local.cell.run(action, { actor, source: "local" }); assert.equal(result.outcome, "applied", JSON.stringify(result));
@@ -118,7 +118,7 @@ test("claim-check keeps large bodies out of commands and recycles missing, hash,
   } finally { await local.close(); }
 
   const remote = await docCell("claims");
-  try { await startLease(remote.cell, assignmentSource); const relativePath = "tasks/task-doc/claim.md", body = "# Claim\n", before = canonicalSha(remote.rootDir);
+  try { await startLease(remote.cell, assignmentSource); const relativePath = "tasks/task-doc-docs/claim.md", body = "# Claim\n", before = canonicalSha(remote.rootDir);
     const missing = await remote.cell.run(remoteAction(remote.rootDir, relativePath, "missing", body), assignmentBinding("claims", [relativePath]));
     assert.equal(missing.code, "content_claim_mismatch"); assert.equal(canonicalSha(remote.rootDir), before);
     writeClaim(remote.rootDir, "bad-hash", body); const badHash = remoteAction(remote.rootDir, relativePath, "bad-hash", body);

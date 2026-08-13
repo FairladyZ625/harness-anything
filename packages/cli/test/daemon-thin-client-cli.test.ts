@@ -26,7 +26,7 @@ test("daemon-missing write rejects without autostart or local fallback", () => {
 test("daemon-missing doc submit is explicitly rejected without a local Git or scan fallback", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-no-doc-daemon-"));
   try { const result = spawnSync(process.execPath, [path.resolve("packages/cli/src/index.ts"), "--root", root, "--json", "doc", "sync", "--submit",
-    "--execution-id", "exec-1", "--base-ledger-sha", "a".repeat(40), "--path", "tasks/task-1/INDEX.md"],
+    "--execution-id", "exec-1", "--path", "tasks/task-1-one/notes.md"],
   { encoding: "utf8", env: { ...process.env, HOME: path.join(root, ".home"), HARNESS_DAEMON_USER_ROOT: path.join(root, "user") } });
     const receipt = JSON.parse(result.stdout) as { ok: boolean; error: { code: string } }; assert.notEqual(result.status, 0);
     assert.equal(receipt.ok, false); assert.equal(receipt.error.code, "daemon_unavailable");

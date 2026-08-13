@@ -30,7 +30,8 @@ export async function runDocAction(input: Input): Promise<WriteReceipt> {
   if (admission) { recycleClaims(input.rootDir, intent); return reject(envelope.opId, admission.code, admission.detail, admission.detail.nextAction); }
   const claims = prepared?.claims ?? intent.changes.map((change) => change.candidate === null ? null : claimBytes(input.rootDir, change.candidate.ref));
   const decision = decideDocWrite({ intent, opId: envelope.opId, eventId: `event-${sha256Bytes(Buffer.from(envelope.opId))}`, workspaceRevision: (input.store.readHead()?.revision ?? 0) + 1,
-    actor: input.binding.actor, source: input.binding.source, occurredAt: input.now(), currentLedgerSha: input.store.currentCommit(), lease, documents: documents.map((read) => read.document), claims });
+    actor: input.binding.actor, source: input.binding.source, occurredAt: input.now(), currentLedgerSha: input.store.currentCommit(), lease, documents: documents.map((read) => read.document), claims,
+    resolvedTaskIds: intent.changes.map((change) => input.projection.taskIdForDocumentPath(change.path)) });
   if (!decision.accepted) { recycleClaims(input.rootDir, intent); return reject(envelope.opId, decision.code, decision.detail, decision.detail.nextAction); }
   input.store.append(decision.event, decision.plan, decision.blobs); input.projection.apply(decision.event, decision.plan); input.killpoint?.("after_sqlite_commit"); input.killpoint?.("before_response_write");
   const applied = readDocReceipt(input, decision.event); input.killpoint?.("after_response_write"); recycleClaims(input.rootDir, intent); return applied;
@@ -60,7 +61,7 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
   return canonicalVisible ? { outcome: "applied", ...common } : { outcome: "pending", ...common, nextAction: receiptDetail.nextAction };
 }
 
-export function readProjectedDocument(projection: TaskProjection, payload: Readonly<Record<string, unknown>>) { const taskId = requiredString(payload.taskId, "taskId"), requested = requiredString(payload.path, "path"), read = projection.readDocument(documentPath(`tasks/${taskId}/${requested}`));
+export function readProjectedDocument(projection: TaskProjection, payload: Readonly<Record<string, unknown>>) { const taskId = requiredString(payload.taskId, "taskId"), requested = requiredString(payload.path, "path"), task = projection.read(taskId); if (!task.packagePath) throw coded("task_not_found", `Task ${taskId} has no projected package path.`); const read = projection.readDocument(documentPath(`${task.packagePath}/${requested}`));
   return { ok: true as const, status: read.status, taskId, path: requested, body: read.document?.body ?? "", blobSha256: read.document?.blobSha256 ?? null, watermark: read.watermark, sourceRevision: read.sourceRevision }; }
 
 function assignmentIntent(input: Input): DocWriteIntent {

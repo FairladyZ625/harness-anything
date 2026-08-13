@@ -36,6 +36,8 @@
       { "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@25", "ref": "task_01KZRMKPA7XGF0NGBE961MCGET", "reason": "Resolves a disposable lease row by execution for doc writer authorization." },
       { "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@26", "ref": "task_01KZRMKPA7XGF0NGBE961MCGET", "reason": "Reads the prior disposable document row while reducing a canonical doc event." },
       { "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@27", "ref": "task_01KZRMKYNK3MPVNE7EVYKS5KTM", "reason": "Reads a disposable task bootstrap operation row while reducing its canonical event." },
+      { "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@28", "ref": "task_01KZXGJWVCKCA6B0MKB220PKFB", "reason": "Resolves the projected L2 package owner for document routing." },
+      { "value": "packages/kernel/src/projection/rebuildable-task-projection.ts#sqlite.prepare@29", "ref": "task_01KZXGJWVCKCA6B0MKB220PKFB", "reason": "Reads the projected L2 package path for task delivery surfaces." },
       { "value": "packages/kernel/src/projection/sqlite-projection-store.ts#mkdirSync@1", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Creates only a disposable entity projection directory." },
       { "value": "packages/kernel/src/projection/sqlite-projection-store.ts#rmSync@1", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Removes only a disposable temporary projection." },
       { "value": "packages/kernel/src/projection/sqlite-projection-store.ts#renameSync@1", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Atomically publishes a rebuildable projection." }

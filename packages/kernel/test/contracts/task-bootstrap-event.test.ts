@@ -39,10 +39,11 @@ const event: TaskBootstrapEventV1 = {
       mediaType: "application/json"
     },
     initialDocumentClaims: [{
-      path: "tasks/task-bootstrap-1/task_plan.md",
+      path: "tasks/task-bootstrap-1-bootstrap/task_plan.md",
       sha256: "c".repeat(64),
       size: 7,
       mediaType: "text/markdown",
+      owner: "doc-sync",
       policyId: "markdown-body-replaceable/v1"
     }]
   }
@@ -52,4 +53,6 @@ test("TaskBootstrapEventV1 is a canonical closed-union member with an explicit t
   const body = serializeCanonicalEvent(event);
   assert.deepEqual(parseCanonicalEvent(body), event);
   assert.throws(() => serializeCanonicalEvent({ ...event, payload: { ...event.payload, task: { ...event.payload.task, taskClass: undefined } } } as unknown as TaskBootstrapEventV1), /invalid taskClass/u);
+  assert.throws(() => serializeCanonicalEvent({ ...event, payload: { ...event.payload, initialDocumentClaims: [{ ...event.payload.initialDocumentClaims[0]!, path: "tasks/task-bootstrap-1-/task_plan.md" }] } }), /package path/u);
+  assert.throws(() => serializeCanonicalEvent({ ...event, payload: { ...event.payload, initialDocumentClaims: [{ ...event.payload.initialDocumentClaims[0]!, mediaType: "application/json" }] } } as unknown as TaskBootstrapEventV1), /claims are invalid/u);
 });
