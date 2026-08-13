@@ -2,8 +2,8 @@ import type { TaskRow, DecisionRow, FactRef, RelationEdge, RelationKind } from "
 import type { FactAnchorRow, RelationCoverageRow } from "../../api/renderer-dto";
 import { MarkerType as RFMarkerType, type Node, type Edge } from "@xyflow/react";
 import { parseEndpoint, endpointToNodeId } from "./endpoint";
-import { KIND_AXIS, type SemanticAxis } from "./constants";
-import { visualForKind } from "./relationVisual";
+import { type SemanticAxis } from "./constants";
+import { visualForKind, type FlowAnimMode } from "./relationVisual";
 import {
   resolveDecisionModule,
   resolveFactModule,
@@ -41,10 +41,36 @@ export interface LaneSpec {
 
 /** 三泳道规格(由上至下:谱系/主张/派生)。 */
 export const THREE_LANES: LaneSpec[] = [
-  { key: "authority", label: "谱系", sublabel: "refines · narrows · supersedes · derives", axis: "authority" },
+  { key: "authority", label: "谱系", sublabel: "refines · narrows · supersedes · supports", axis: "authority" },
   { key: "evidence", label: "主张 · 证据", sublabel: "claims + 覆盖 · evidenced-by", axis: "evidence" },
-  { key: "execution", label: "派生 · 执行", sublabel: "derives → task · depends-on", axis: "execution" },
+  { key: "execution", label: "派生 · 执行", sublabel: "derives → task · depends-on · blocks", axis: "execution" },
 ];
+
+/**
+ * 关系类型 → 泳道映射(与 KIND_AXIS 不同:derives 归 execution 而非 authority)。
+ * PRD REQ-GUI-04:「谱系 = refines/narrows/supersedes」「派生 = derives→task」。
+ */
+const KIND_LANE: Record<RelationKind, LaneKey> = {
+  refines: "authority",
+  narrows: "authority",
+  supersedes: "authority",
+  supports: "authority",
+  "evidenced-by": "evidence",
+  evidences: "evidence",
+  "supersedes-fact": "evidence",
+  "invalidated-by": "evidence",
+  "refuted-by": "evidence",
+  derives: "execution",
+  "depends-on": "execution",
+  blocks: "execution",
+  produces: "execution",
+  relates: "execution",
+  implements: "execution",
+};
+
+export function laneForKind(kind: RelationKind): LaneKey {
+  return KIND_LANE[kind] ?? "execution";
+}
 
 interface Neighbor {
   id: string;
@@ -52,7 +78,7 @@ interface Neighbor {
   label: string;
   sub?: string;
   moduleId: string;
-  axis: SemanticAxis;
+  lane: LaneKey;
   kind: RelationKind;
   raw: TaskRow | DecisionRow | FactRef | { anchor: string; taskId: string; category: string; text: string };
 }
@@ -69,18 +95,18 @@ interface SpotlightFilter {
   axes: Record<SemanticAxis, boolean>;
   kinds: ReadonlySet<RelationKind>;
   modules: ReadonlySet<string>;
-}
-
-function laneOf(axis: SemanticAxis): LaneKey {
-  if (axis === "authority") return "authority";
-  if (axis === "evidence") return "evidence";
-  return "execution";
+  /** 实体类型筛选(从 GraphFilterPanel.types)。 */
+  types: ReadonlySet<string>;
+  /** 边方向流动动画模式。 */
+  flowMode: FlowAnimMode;
 }
 
 /**
  * 计算聚光灯布局。
  * - focusRef 形如 decision/<id>、task/<id>、fact/<task>/<anchor>。
- * - 邻居按 relation 的语义轴分泳道;assoc 轴(relates/implements)默认不进泳道(降噪)。
+ * - 邻居按 KIND_LANE 分泳道(derives→execution,不用 KIND_AXIS)。
+ * - axis 筛选控制对应轴的边是否进泳道;types 筛选控制实体类型。
+ * - coverageRows:聚焦 decision 时,把其 claim 覆盖的 fact 补进 evidence 泳道。
  */
 export function computeSpotlightLayout(
   focusRef: string | null,
@@ -89,6 +115,7 @@ export function computeSpotlightLayout(
   facts: ReadonlyArray<FactRef>,
   factAnchors: ReadonlyArray<FactAnchorRow>,
   relations: ReadonlyArray<RelationEdge>,
+  coverageRows: ReadonlyArray<RelationCoverageRow>,
   filters: SpotlightFilter,
 ): SpotlightLayout {
   if (!focusRef) return emptyLayout();
@@ -117,27 +144,57 @@ export function computeSpotlightLayout(
   for (const edge of relations) {
     const fromId = endpointToNodeId(edge.from);
     const toId = endpointToNodeId(edge.to);
-    const axis = KIND_AXIS[edge.kind] ?? "assoc";
-    // axis 筛选:关掉的轴不进泳道。
-    if (!filters.axes[axis]) continue;
+    const lane = laneForKind(edge.kind);
+    // axis 筛选:按泳道对应的轴开关过滤(derives→execution lane→execution axis)。
+    if (!filters.axes[lane]) continue;
     // kind 筛选。
     if (!filters.kinds.has(edge.kind)) continue;
 
     if (fromId === focusId) {
-      // 出边:focus → to(用原始 ref 以保留实体前缀)
-      addNeighbor(edge.to, edge.kind, axis, true, neighborMap, tasks, decisions, facts, factAnchors, relations, filters);
+      addNeighbor(edge.to, edge.kind, lane, true, neighborMap, tasks, decisions, facts, factAnchors, relations);
     } else if (toId === focusId) {
-      // 入边:from → focus
-      addNeighbor(edge.from, edge.kind, axis, false, neighborMap, tasks, decisions, facts, factAnchors, relations, filters);
+      addNeighbor(edge.from, edge.kind, lane, false, neighborMap, tasks, decisions, facts, factAnchors, relations);
     }
   }
 
-  // 按泳道分组。
+  // 聚焦 decision:从 coverageRows 把 claim 覆盖的 fact 补进 evidence 泳道。
+  if (focusEntity === "decision" && filters.axes.evidence && filters.types.has("fact")) {
+    const decRef = focusId;
+    for (const row of coverageRows) {
+      // claimRef 形如 decision/<id>/<claimId>;只认本 decision 的 claim。
+      if (!row.claimRef.startsWith(`${decRef}/`)) continue;
+      if (!row.coveringFactRef) continue;
+      const factRef = row.coveringFactRef;
+      const factNodeId = endpointToNodeId(factRef);
+      if (neighborMap.has(factNodeId)) continue;
+      // 手动添加覆盖 fact 作为 evidence 泳道邻居。
+      const parsed = parseEndpoint(factRef);
+      if (!parsed) continue;
+      const taskByIdLocal = new Map(tasks.map((t) => [t.taskId, t]));
+      const data = resolveEntityData(factNodeId, "fact", taskByIdLocal, decisionById, factById, factAnchors, relations, tasks);
+      if (!data) continue;
+      neighborMap.set(factNodeId, {
+        id: factNodeId,
+        entity: "fact",
+        label: data.label,
+        sub: `覆盖·${row.status}`,
+        moduleId: data.moduleId,
+        lane: "evidence",
+        kind: "evidenced-by",
+        raw: data.raw,
+        edgeFromFocus: false,
+      });
+    }
+  }
+
+  // 按泳道分组(应用 types + module 筛选)。
   const lanes: Record<LaneKey, Neighbor[]> = { authority: [], evidence: [], execution: [] };
   for (const nb of neighborMap.values()) {
-    // module 筛选。
+    // types 筛选。
+    if (!filters.types.has(nb.entity)) continue;
+    // module 筛选(未投影豁免)。
     if (filters.modules.size > 0 && !filters.modules.has(nb.moduleId) && nb.moduleId !== UNPROJECTED_MODULE) continue;
-    lanes[laneOf(nb.axis)].push(nb);
+    lanes[nb.lane].push(nb);
   }
 
   // 排序 + 限流(密度上限:每泳道最多 8 chip,防大图糊)。
@@ -279,7 +336,7 @@ function resolveEntityData(
 function addNeighbor(
   ref: string,
   kind: RelationKind,
-  axis: SemanticAxis,
+  lane: LaneKey,
   edgeFromFocus: boolean,
   neighborMap: Map<string, Neighbor & { edgeFromFocus: boolean }>,
   tasks: ReadonlyArray<TaskRow>,
@@ -287,7 +344,6 @@ function addNeighbor(
   facts: ReadonlyArray<FactRef>,
   factAnchors: ReadonlyArray<FactAnchorRow>,
   relations: ReadonlyArray<RelationEdge>,
-  filters: SpotlightFilter,
 ): void {
   const parsed = parseEndpoint(ref);
   if (!parsed) return;
@@ -298,15 +354,13 @@ function addNeighbor(
   const factById = new Map(facts.map((f) => [`fact/${f.taskId}/${f.anchor.split("/").pop() ?? f.anchor}`, f]));
   const data = resolveEntityData(id, parsed.entity, taskById, decisionById, factById, factAnchors, relations, tasks);
   if (!data) return;
-  // module 筛选(未投影豁免:始终可见,以便用户看到缺字段)。
-  if (filters.modules.size > 0 && !filters.modules.has(data.moduleId) && data.moduleId !== UNPROJECTED_MODULE) return;
   neighborMap.set(id, {
     id,
     entity: parsed.entity,
     label: data.label,
     sub: data.sub,
     moduleId: data.moduleId,
-    axis,
+    lane,
     kind,
     raw: data.raw,
     edgeFromFocus,
@@ -323,7 +377,8 @@ function buildEdges(
   const seen = new Set<string>();
   for (const edge of relations) {
     if (!filters.kinds.has(edge.kind)) continue;
-    if (!filters.axes[KIND_AXIS[edge.kind] ?? "assoc"]) continue;
+    const edgeLane = laneForKind(edge.kind);
+    if (!filters.axes[edgeLane]) continue;
     const from = endpointToNodeId(edge.from);
     const to = endpointToNodeId(edge.to);
     if (!visibleIds.has(from) || !visibleIds.has(to)) continue;
@@ -333,14 +388,16 @@ function buildEdges(
     if (seen.has(key)) continue;
     seen.add(key);
     const visual = visualForKind(edge.kind);
-    const color = `var(--color-axis-${KIND_AXIS[edge.kind]})`;
+    const lane = laneForKind(edge.kind);
+    const color = `var(--color-axis-${lane === "authority" ? "authority" : lane === "evidence" ? "evidence" : "execution"})`;
+    const animate = filters.flowMode === "all" || (filters.flowMode === "focus" && (from === focusId || to === focusId));
     edges.push({
       id: `e_${key}`,
       source: from,
       target: to,
       type: "interactive",
       data: { ...edge },
-      animated: false,
+      animated: animate,
       style: {
         stroke: color,
         strokeWidth: visual.strokeWidth,

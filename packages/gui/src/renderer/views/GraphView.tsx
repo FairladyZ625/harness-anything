@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import {
   ReactFlow,
   MiniMap,
@@ -10,7 +10,7 @@ import {
   useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import type { TaskRow, RelationEdge, DecisionRow, FactRef, RelationKind } from "../model/types";
+import type { TaskRow, RelationEdge, DecisionRow, FactRef } from "../model/types";
 import type { FactAnchorRow, RelationCoverageRow } from "../../api/renderer-dto";
 import { parseEndpoint } from "../graph/endpoint";
 import { GraphDrawer } from "../graph/GraphDrawer";
@@ -20,6 +20,7 @@ import { FactNode } from "../graph/nodes/FactNode";
 import { ModuleGroupNode } from "../graph/nodes/ModuleGroupNode";
 import { LaneBackgroundNode } from "../graph/nodes/LaneBackgroundNode";
 import { TerritoryZoneNode, TerritoryLandingNode } from "../graph/nodes/TerritoryNode";
+import { InteractiveEdge } from "../graph/edges/InteractiveEdge";
 import { GraphFilterPanel, type GraphFilters } from "../components/GraphFilterPanel";
 import { FocusHistoryBar } from "../components/FocusHistoryBar";
 import { TerritorySkelToggle, type TerritorySkel } from "../components/TerritoryModeBar";
@@ -37,7 +38,12 @@ import {
   nodePassesEntityStatusFilter,
   type EntityStatusFilterState,
 } from "../graph/entityStatusFilter";
-import { KIND_AXIS } from "../graph/constants";
+import {
+  focusHistoryReducer,
+  EMPTY_HISTORY,
+  canBack,
+  canForward,
+} from "../navigation/focusHistory";
 
 export type ViewMode = "territory" | "spotlight";
 
@@ -52,21 +58,7 @@ const nodeTypes = {
 };
 
 const edgeTypes = {
-  interactive: (props: any) => {
-    const { data } = props;
-    const kind = (data?.kind ?? "relates") as RelationKind;
-    const color = `var(--color-axis-${KIND_AXIS[kind]})`;
-    return (
-      <path
-        id={props.id}
-        d={props.path}
-        stroke={color}
-        strokeWidth={1.5}
-        fill="none"
-        markerEnd={props.markerEnd}
-      />
-    );
-  },
+  interactive: InteractiveEdge,
 };
 
 function GraphViewInner({
@@ -74,7 +66,7 @@ function GraphViewInner({
   relations,
   decisions,
   facts,
-  coverageRows: _coverageRows,
+  coverageRows,
   factAnchors,
   onNavigateEntity,
   onFocusEntityChange,
@@ -124,26 +116,16 @@ function GraphViewInner({
     });
   }, [availableModules]);
 
-  // ---- 焦点历史(back/forward/clear) ----
-  const [history, setHistory] = useState<string[]>([]);
-  const [histIdx, setHistIdx] = useState(-1);
-  const internalNav = useRef(false);
+  // ---- 焦点历史(stable reducer,无自触发循环) ----
+  const [histState, histDispatch] = useReducer(focusHistoryReducer, EMPTY_HISTORY);
 
+  // 外部 focusRef 变更 → push(去重当前位,截断 forward)。
+  // 只在 focusRef 真正变化时 push(useEffect 依赖 [focusRef])。
   useEffect(() => {
-    if (!focusRef) return;
-    if (internalNav.current) {
-      internalNav.current = false;
-      return;
+    if (focusRef) {
+      histDispatch({ type: "push", ref: focusRef });
     }
-    // 外部焦点变更(命令面板/跨视图跳转)→ 推栈。
-    setHistory((prev) => {
-      if (prev[histIdx] === focusRef) return prev;
-      const next = prev.slice(0, histIdx + 1);
-      next.push(focusRef);
-      return next.slice(-50);
-    });
-    setHistIdx((i) => Math.min(i + 1, 49));
-  }, [focusRef, histIdx]);
+  }, [focusRef]);
 
   const openFocus = useCallback(
     (ref: string | null) => {
@@ -151,33 +133,25 @@ function GraphViewInner({
         onFocusEntityChange?.(null);
         return;
       }
-      internalNav.current = false;
       onFocusEntityChange?.(ref);
     },
     [onFocusEntityChange],
   );
 
   const goBack = useCallback(() => {
-    setHistIdx((i) => {
-      if (i <= 0) return i;
-      const newIdx = i - 1;
-      internalNav.current = true;
-      onFocusEntityChange?.(history[newIdx] ?? null);
-      return newIdx;
-    });
-  }, [history, onFocusEntityChange]);
+    histDispatch({ type: "back" });
+    const prev = histState.stack[histState.index - 1];
+    if (prev) onFocusEntityChange?.(prev);
+  }, [histState, onFocusEntityChange]);
 
   const goForward = useCallback(() => {
-    setHistIdx((i) => {
-      if (i >= history.length - 1) return i;
-      const newIdx = i + 1;
-      internalNav.current = true;
-      onFocusEntityChange?.(history[newIdx] ?? null);
-      return newIdx;
-    });
-  }, [history, onFocusEntityChange]);
+    histDispatch({ type: "forward" });
+    const next = histState.stack[histState.index + 1];
+    if (next) onFocusEntityChange?.(next);
+  }, [histState, onFocusEntityChange]);
 
   const clearFocus = useCallback(() => {
+    histDispatch({ type: "clear" });
     onFocusEntityChange?.(null);
     setSelectedId(null);
     setFocusEdgeId(null);
@@ -202,13 +176,22 @@ function GraphViewInner({
       facts,
       factAnchors ?? [],
       relations,
+      coverageRows ?? [],
     );
-  }, [viewMode, skel, tasks, decisions, facts, factAnchors, relations]);
+  }, [viewMode, skel, tasks, decisions, facts, factAnchors, relations, coverageRows]);
+
+  const toggleZone = useCallback((zoneId: string) => {
+    setCollapsedZones((prev) => {
+      const next = new Set(prev);
+      if (next.has(zoneId)) next.delete(zoneId);
+      else next.add(zoneId);
+      return next;
+    });
+  }, []);
 
   const territoryNodes = useMemo(() => {
     if (!territory) return [];
     const nodes: any[] = [];
-    let yCursor = 0;
     const colW = 260;
     const colGap = 32;
     const maxPerCol = 3;
@@ -219,10 +202,9 @@ function GraphViewInner({
         id: zone.zoneId,
         type: "territoryZone",
         position: { x: col * (colW + colGap), y: row * 220 },
-        data: { zone, collapsed: collapsedZones.has(zone.zoneId), onOpen: enterSpotlight },
+        data: { zone, collapsed: collapsedZones.has(zone.zoneId), onOpen: enterSpotlight, onFold: toggleZone },
         draggable: false,
       });
-      yCursor = Math.max(yCursor, row * 220 + 200);
     });
     // landing chips(孤立 decision)。
     if (territory.landing.length > 0) {
@@ -237,7 +219,7 @@ function GraphViewInner({
       });
     }
     return nodes;
-  }, [territory, collapsedZones, enterSpotlight]);
+  }, [territory, collapsedZones, enterSpotlight, toggleZone]);
 
   // ---- 聚光灯布局 ----
   const spotlight = useMemo(() => {
@@ -249,13 +231,16 @@ function GraphViewInner({
       facts,
       factAnchors ?? [],
       relations,
+      coverageRows ?? [],
       {
         axes: filters.axes,
         kinds: filters.kinds,
         modules: filters.modules,
+        types: filters.types,
+        flowMode,
       },
     );
-  }, [viewMode, focusRef, tasks, decisions, facts, factAnchors, relations, filters]);
+  }, [viewMode, focusRef, tasks, decisions, facts, factAnchors, relations, coverageRows, filters, flowMode]);
 
   // ---- 实体状态筛选(聚光灯) ----
   const statusVisibleIds = useMemo(() => {
@@ -476,8 +461,8 @@ function GraphViewInner({
 
       {viewMode === "spotlight" && (
         <FocusHistoryBar
-          canBack={histIdx > 0}
-          canForward={histIdx < history.length - 1}
+          canBack={canBack(histState)}
+          canForward={canForward(histState)}
           breadcrumb={breadcrumb}
           onBack={goBack}
           onForward={goForward}

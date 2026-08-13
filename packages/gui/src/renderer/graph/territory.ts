@@ -1,5 +1,5 @@
 import type { TaskRow, DecisionRow, FactRef, RelationEdge } from "../model/types";
-import type { FactAnchorRow } from "../../api/renderer-dto";
+import type { FactAnchorRow, RelationCoverageRow } from "../../api/renderer-dto";
 import {
   resolveTaskModule,
   resolveFactModule,
@@ -151,6 +151,51 @@ export function partitionDecisions(
   return { zones, landing };
 }
 
+/** Fact 异常分类(REQ-GUI-03 fact territory + REQ-GUI-07 信号同源)。 */
+export type FactAnomaly =
+  | "contradictory"
+  | "orphan"
+  | "low-confidence"
+  | "superseded"
+  | "normal";
+
+export const ANOMALY_LABEL: Record<FactAnomaly, string> = {
+  contradictory: "矛盾 / 已失效",
+  orphan: "悬空(无 decision 引用)",
+  "low-confidence": "低置信",
+  superseded: "被取代",
+  normal: "正常",
+};
+
+/**
+ * 判定单条 fact 的异常类型(与 fact-triage 信号同源,纯前端派生)。
+ * 返回第一个命中的异常(按严重度优先);全正常 → "normal"。
+ */
+export function classifyFactAnomaly(
+  factRef: string,
+  fact: FactRef | undefined,
+  relations: ReadonlyArray<RelationEdge>,
+  coveredRefs: ReadonlySet<string>,
+): FactAnomaly {
+  // contradictory:被 invalidated-by 指向 或 fact.invalidated 标记。
+  if (fact?.invalidated) return "contradictory";
+  for (const e of relations) {
+    if (e.kind === "invalidated-by" && e.from === factRef) return "contradictory";
+  }
+  // superseded:被 supersedes-fact 指向(是 target)。
+  for (const e of relations) {
+    if (e.kind === "supersedes-fact" && e.to === factRef) return "superseded";
+  }
+  // low-confidence。
+  if (fact?.confidence === "low") return "low-confidence";
+  // orphan:无 decision 引用(不在 coveredRefs 且无 evidenced-by 边指向它)。
+  const hasEvidence = relations.some(
+    (e) => e.kind === "evidenced-by" && e.to === factRef,
+  );
+  if (!coveredRefs.has(factRef) && !hasEvidence) return "orphan";
+  return "normal";
+}
+
 /**
  * fact 分区:按宿主 task 的 module 归 zone;异常(orphan/invalidated)单独标。
  * 宿主 task 不在投影 → 未投影 zone。
@@ -213,6 +258,94 @@ export function partitionFacts(
     }));
 }
 
+/**
+ * fact 按**异常类型**分区(fact skeleton 专用):contradictory / orphan /
+ * low-confidence / superseded / 正常。异常优先,正常按 module 子分。
+ */
+export function partitionFactsByAnomaly(
+  facts: ReadonlyArray<FactRef>,
+  factAnchors: ReadonlyArray<FactAnchorRow>,
+  tasks: ReadonlyArray<TaskRow>,
+  relations: ReadonlyArray<RelationEdge>,
+  coverageRows: ReadonlyArray<RelationCoverageRow>,
+): TerritoryZone[] {
+  // 构建 fact 查找表 + coveredRefs。
+  const factByRef = new Map<string, FactRef>();
+  for (const f of facts) {
+    const anchor = f.anchor.split("/").pop() ?? f.anchor;
+    factByRef.set(`fact/${f.taskId}/${anchor}`, f);
+  }
+  const coveredRefs = new Set<string>();
+  for (const row of coverageRows) {
+    if (row.coveringFactRef) coveredRefs.add(row.coveringFactRef);
+  }
+
+  // 合并所有 fact refs。
+  const allRefs = new Set<string>([...factByRef.keys()]);
+  for (const a of factAnchors) allRefs.add(a.factRef);
+
+  const byAnomaly = new Map<FactAnomaly, { ref: string; fact?: FactRef; taskId: string; label: string }[]>();
+  for (const ref of allRefs) {
+    const fact = factByRef.get(ref);
+    const taskId = ref.split("/")[1] ?? fact?.taskId ?? "";
+    const anomaly = classifyFactAnomaly(ref, fact, relations, coveredRefs);
+    const arr = byAnomaly.get(anomaly) ?? [];
+    arr.push({ ref, fact, taskId, label: fact?.text ?? ref.split("/").pop() ?? ref });
+    byAnomaly.set(anomaly, arr);
+  }
+
+  const order: FactAnomaly[] = ["contradictory", "orphan", "low-confidence", "superseded", "normal"];
+  const zones: TerritoryZone[] = [];
+  for (const anomaly of order) {
+    const group = byAnomaly.get(anomaly);
+    if (!group || group.length === 0) continue;
+    // 正常类按 module 子分;异常类整体一个 zone。
+    if (anomaly === "normal") {
+      const byMod = new Map<string, typeof group>();
+      for (const item of group) {
+        const mod = resolveFactModule(item.ref, tasks);
+        const arr = byMod.get(mod) ?? [];
+        arr.push(item);
+        byMod.set(mod, arr);
+      }
+      for (const [mod, items] of [...byMod.entries()].sort(([a], [b]) => {
+        if (a === UNPROJECTED_MODULE) return 1;
+        if (b === UNPROJECTED_MODULE) return -1;
+        return a.localeCompare(b);
+      })) {
+        zones.push({
+          zoneId: `fact:normal:${mod}`,
+          title: `正常 · ${mod === UNPROJECTED_MODULE ? "未投影" : mod}`,
+          entity: "fact",
+          moduleId: mod,
+          chips: items.map((f) => ({
+            navRef: f.ref,
+            label: f.label,
+            sub: f.fact?.category,
+            entity: "fact" as const,
+            moduleId: mod,
+          })),
+        });
+      }
+    } else {
+      zones.push({
+        zoneId: `fact:anomaly:${anomaly}`,
+        title: ANOMALY_LABEL[anomaly],
+        entity: "fact",
+        moduleId: `anomaly:${anomaly}`,
+        chips: group.map((f) => ({
+          navRef: f.ref,
+          label: f.label,
+          sub: anomaly,
+          entity: "fact" as const,
+          moduleId: `anomaly:${anomaly}`,
+        })),
+      });
+    }
+  }
+  return zones;
+}
+
 /** 全域 partition:task + decision + fact 三实体合图。 */
 export function partitionAll(
   tasks: ReadonlyArray<TaskRow>,
@@ -240,6 +373,7 @@ export function partitionForSkel(
   facts: ReadonlyArray<FactRef>,
   factAnchors: ReadonlyArray<FactAnchorRow>,
   relations: ReadonlyArray<RelationEdge>,
+  coverageRows: ReadonlyArray<RelationCoverageRow> = [],
 ): TerritoryPartition {
   if (skel === "task") {
     const zones = partitionTasks(tasks);
@@ -250,7 +384,7 @@ export function partitionForSkel(
     return { zones, landing, unprojectedCount: 0 };
   }
   if (skel === "fact") {
-    const zones = partitionFacts(facts, factAnchors, tasks);
+    const zones = partitionFactsByAnomaly(facts, factAnchors, tasks, relations, coverageRows);
     return { zones, landing: [], unprojectedCount: zones.filter((z) => z.moduleId === UNPROJECTED_MODULE).reduce((s, z) => s + z.chips.length, 0) };
   }
   return partitionAll(tasks, decisions, facts, factAnchors, relations);

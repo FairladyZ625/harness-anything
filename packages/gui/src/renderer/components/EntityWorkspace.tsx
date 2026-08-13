@@ -57,18 +57,14 @@ export function EntityWorkspace({
     if (focusedEntityRef) setViewMode("spotlight");
   }, [focusedEntityRef]);
 
-  // 非 decision 焦点或无焦点 → 不能停在 lineage,退回画布。
-  useEffect(() => {
-    if (lineageActive && !canShowLineage) {
-      setLineageActive(false);
-    }
-  }, [lineageActive, canShowLineage]);
+  // 非 decision 焦点仍可停在 lineage —— GenealogyTimelineView 显示规定引导空态,
+  // 让用户知道「先在聚光灯里选 decision」。不强制退回画布。
 
   const mode: WorkspaceMode = lineageActive ? "lineage" : viewMode;
 
   const handleModeChange = (next: WorkspaceMode) => {
     if (next === "lineage") {
-      if (!canShowLineage) return;
+      // 允许非 decision 焦点进入 lineage —— GenealogyTimelineView 会显示规定引导空态。
       setLineageActive(true);
       return;
     }

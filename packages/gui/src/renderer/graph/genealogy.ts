@@ -125,6 +125,17 @@ interface RawLineageNode {
 
 /**
  * 焦点上溯/下溯谱系,返回每个 decision 的 depth(焦点=0,祖先<0,后代>0)。
+ *
+ * Canonical 契约(kernel entity-relation):`source <verb> target`。
+ *   refines: source=refiner=后代(更细/更新),target=refined=祖先(更粗/更早)。
+ *   narrows/supersedes 同理:source 是后代(收窄/推翻者),target 是祖先。
+ *   supports: source 支撑 target —— 方向上 source 是 target 的支撑,谱系上
+ *   仍按 source=后代(后出的支撑决策)处理,与 refines 族一致。
+ *
+ * 因此:edge.from(source)=后代,edge.to(target)=祖先。
+ *   - 后代(depth+1)= 沿 inByTo 反向:指向 current 的边的 source 就是 current 的后代。
+ *   - 祖先(depth-1)= 沿 outByFrom 正向:current 作为 source 的边的 target 就是 current 的祖先。
+ *
  * 双向 BFS;已访问不再更新 depth(首达即定层)。
  */
 export function collectLineage(
@@ -140,31 +151,27 @@ export function collectLineage(
 
   const depth = new Map<string, number>([[focusId, 0]]);
 
-  // 上溯:沿 out 边(from→to)向后代扩展(depth 递增)……
-  // 注意语义:edge.from --refines--> edge.to 表示 from 细化出 to。
-  // 约定:from 是祖先(更早/更粗),to 是后代(更细/更新)。
-  // 上溯(祖先)= 沿 to→from 反向;下溯(后代)= 沿 from→to 正向。
-  // 这里 outByFrom[from] 给出 from 的所有出边(to 是其后代)。
-  const downQueue: string[] = [focusId];
-  while (downQueue.length > 0) {
-    const current = downQueue.shift()!;
-    const currentDepth = depth.get(current)!;
-    for (const edge of outByFrom.get(current) ?? []) {
-      if (!depth.has(edge.to)) {
-        depth.set(edge.to, currentDepth + 1);
-        downQueue.push(edge.to);
-      }
-    }
-  }
-  // 上溯(祖先):inByTo[current] 给出指向 current 的边(from 是其祖先)
+  // 祖先(depth-1):current 作为 source 的边 → edge.to(target)是祖先。
   const upQueue: string[] = [focusId];
   while (upQueue.length > 0) {
     const current = upQueue.shift()!;
     const currentDepth = depth.get(current)!;
+    for (const edge of outByFrom.get(current) ?? []) {
+      if (!depth.has(edge.to)) {
+        depth.set(edge.to, currentDepth - 1);
+        upQueue.push(edge.to);
+      }
+    }
+  }
+  // 后代(depth+1):指向 current 的边 → edge.from(source)是后代。
+  const downQueue: string[] = [focusId];
+  while (downQueue.length > 0) {
+    const current = downQueue.shift()!;
+    const currentDepth = depth.get(current)!;
     for (const edge of inByTo.get(current) ?? []) {
       if (!depth.has(edge.from)) {
-        depth.set(edge.from, currentDepth - 1);
-        upQueue.push(edge.from);
+        depth.set(edge.from, currentDepth + 1);
+        downQueue.push(edge.from);
       }
     }
   }

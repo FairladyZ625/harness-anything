@@ -31,97 +31,16 @@ import {
 } from "../model/triadic";
 import { CopyContextButton } from "../components/CopyContextButton";
 import { buildEntityJumpContext } from "../model/copy-context";
+import {
+  computeReadinessSignals,
+  worstColor,
+  type SignalColor,
+  type ReadinessSignal,
+} from "../model/readiness-signals";
+
+export { computeReadinessSignals, type SignalColor, type ReadinessSignal };
 
 const dateLabel = (iso?: string) => (iso ? iso.slice(0, 16).replace("T", " ") : "—");
-
-// ============ 决策就绪信号灯(41 §3.1a)============
-
-export type SignalColor = "green" | "yellow" | "red";
-
-export interface ReadinessSignal {
-  id: "evidence-liveness" | "applies-to-drift" | "coverage" | "conflict-marker";
-  label: string;
-  color: SignalColor;
-  /** 判定摘要:命中时给"为什么黄/红",hover/展开时看 */
-  summary: string;
-}
-
-/**
- * 计算四盏决策就绪信号灯(41 §3.1a 表)。
- * ⚠ mock 捷径:evidence 活性 + 覆盖度由 relation/fact 推导(真实为 TP-M3-06 图查询);
- * applies_to 漂移 + 冲突标记从 decision.readinessSignals 显式 mock 字段取(真实为
- * provenance.boundAt × git log / findConflictMarkers)。
- */
-function computeReadinessSignals(
-  d: DecisionRow,
-  facts: FactRef[],
-): ReadinessSignal[] {
-  const signals: ReadinessSignal[] = [];
-
-  // ① evidence 活性(黄):引用的 fact 被 invalidated-by/supersedes-fact 边指向(原型用 fact.invalidated)
-  const deadEvidence: string[] = [];
-  for (const c of [...d.chosen, ...d.rejected]) {
-    for (const ref of c.evidence) {
-      const anchor = ref.replace(/^fact\//, "");
-      const f = facts.find((x) => x.anchor === anchor);
-      if (f?.invalidated) deadEvidence.push(anchor);
-    }
-  }
-  signals.push({
-    id: "evidence-liveness",
-    label: "evidence 活性",
-    color: deadEvidence.length > 0 ? "yellow" : "green",
-    summary:
-      deadEvidence.length > 0
-        ? `${deadEvidence.length} 条 evidence 引用了已失效 fact:${deadEvidence.join(", ")}(被 invalidated-by/supersedes-fact 边标记)`
-        : "所有引用的 fact 均为活,未被失效边指向",
-  });
-
-  // ② applies_to 漂移(黄):propose 后 applies_to 文档有 commit(mock 显式字段)
-  const drift = d.readinessSignals?.appliesToDrift;
-  signals.push({
-    id: "applies-to-drift",
-    label: "applies_to 漂移",
-    color: drift ? "yellow" : "green",
-    summary: drift
-      ? `propose 后 applies_to 文档被触碰:${drift.docs.join(", ")} · 最近 commit ${dateLabel(drift.lastCommitAt)}(基于 boundAt × git log)`
-      : "propose 后 applies_to 文档无 commit 触碰",
-  });
-
-  // ③ 覆盖度(红):承重论点 → 活 fact 不可达
-  const cov = coverageOf(d, facts);
-  signals.push({
-    id: "coverage",
-    label: "覆盖度",
-    color: cov.total > 0 && cov.covered < cov.total ? "red" : "green",
-    summary:
-      cov.total === 0
-        ? "无承重论点"
-        : cov.covered < cov.total
-          ? `承重论点 ${cov.gaps.join(", ")} 无可达活 fact(${cov.covered}/${cov.total})`
-          : `${cov.covered}/${cov.total} 论点有可达活 fact`,
-  });
-
-  // ④ 冲突标记(红):findConflictMarkers 命中(mock 显式字段)
-  const conflict = d.readinessSignals?.conflictMarker;
-  signals.push({
-    id: "conflict-marker",
-    label: "冲突标记",
-    color: conflict ? "red" : "green",
-    summary: conflict
-      ? `findConflictMarkers 命中:${conflict.summary}(冲突实体 ${conflict.conflictingEntity},coordinator 写入时亦拒)`
-      : "findConflictMarkers 未命中",
-  });
-
-  return signals;
-}
-
-/** 取四盏灯里最严重的色(红 > 黄 > 绿) */
-function worstColor(signals: ReadinessSignal[]): SignalColor {
-  if (signals.some((s) => s.color === "red")) return "red";
-  if (signals.some((s) => s.color === "yellow")) return "yellow";
-  return "green";
-}
 
 /** 单盏灯 */
 function SignalLamp({ signal }: { signal: ReadinessSignal }) {
@@ -130,13 +49,17 @@ function SignalLamp({ signal }: { signal: ReadinessSignal }) {
       ? "text-danger"
       : signal.color === "yellow"
         ? "text-stale"
-        : "text-success";
+        : signal.color === "unknown"
+          ? "text-text-faint"
+          : "text-success";
   const dotCls =
     signal.color === "red"
       ? "bg-danger"
       : signal.color === "yellow"
         ? "bg-stale"
-        : "bg-success";
+        : signal.color === "unknown"
+          ? "bg-text-faint"
+          : "bg-success";
   return (
     <span
       className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] ${colorCls}`}

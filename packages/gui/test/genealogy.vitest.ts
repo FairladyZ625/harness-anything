@@ -67,15 +67,18 @@ describe("genealogy edge building", () => {
 });
 
 describe("genealogy lineage traversal", () => {
-  it("assigns depth 0 to focus, +1 to descendants, -1 to ancestors", () => {
+  it("assigns depth 0 to focus, +1 to descendants, -1 to ancestors (canonical direction)", () => {
+    // Canonical: source <verb> target. source=refiner=descendant, target=refined=ancestor.
+    // dec_focus refines dec_root → dec_root is ancestor (depth -1).
+    // dec_child supersedes dec_focus → dec_child is descendant (depth +1).
     const byId = new Map([
       ["dec_root", dec({ decisionId: "dec_root" })],
       ["dec_focus", dec({ decisionId: "dec_focus" })],
       ["dec_child", dec({ decisionId: "dec_child" })],
     ]);
     const relations = [
-      edge("decision/dec_root", "decision/dec_focus", "refines"),
-      edge("decision/dec_focus", "decision/dec_child", "supersedes"),
+      edge("decision/dec_focus", "decision/dec_root", "refines"),
+      edge("decision/dec_child", "decision/dec_focus", "supersedes"),
     ];
     const geo = buildGenealogyEdges(relations, byId);
     const depth = collectLineage("dec_focus", geo);
@@ -128,14 +131,15 @@ describe("genealogy layout", () => {
   });
 
   it("arranges a 3-generation lineage into 3 rank columns", () => {
+    // Canonical: focus refines root (root=ancestor); child supersedes focus (child=descendant).
     const byId = new Map([
       ["dec_root", dec({ decisionId: "dec_root", title: "Root" })],
       ["dec_focus", dec({ decisionId: "dec_focus", title: "Focus" })],
       ["dec_child", dec({ decisionId: "dec_child", title: "Child" })],
     ]);
     const relations = [
-      edge("decision/dec_root", "decision/dec_focus", "refines"),
-      edge("decision/dec_focus", "decision/dec_child", "supersedes"),
+      edge("decision/dec_focus", "decision/dec_root", "refines"),
+      edge("decision/dec_child", "decision/dec_focus", "supersedes"),
     ];
     const geo = buildGenealogyEdges(relations, byId);
     const layout = computeLayout(byId.get("dec_focus")!, geo, byId, 900);
@@ -150,6 +154,7 @@ describe("genealogy layout", () => {
       ["dec_c1", dec({ decisionId: "dec_c1", proposedAt: day })],
       ["dec_c2", dec({ decisionId: "dec_c2", proposedAt: day })],
     ]);
+    // c1/c2 both refine focus → both are ancestors of focus (same rank).
     const relations = [
       edge("decision/dec_focus", "decision/dec_c1", "refines"),
       edge("decision/dec_focus", "decision/dec_c2", "refines"),

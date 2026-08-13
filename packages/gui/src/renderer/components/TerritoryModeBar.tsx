@@ -32,9 +32,8 @@ export function TerritoryModeBar({
         </ModeBtn>
         <ModeBtn
           active={mode === "lineage"}
-          disabled={!canShowLineage}
-          onClick={canShowLineage ? () => onModeChange("lineage") : undefined}
-          title={canShowLineage ? undefined : "演化史仅对 decision 焦点可用"}
+          onClick={() => onModeChange("lineage")}
+          title={canShowLineage ? undefined : "演化史需要 decision 焦点 — 点击查看引导空态"}
         >
           演化史
         </ModeBtn>
