@@ -19,7 +19,7 @@ import {
 import { cliError, CliErrorCode } from "./error-codes.ts";
 import { actionTaskId } from "./parse-args.ts";
 import { appendOrDeferCommandRuntimeEvent } from "./command-runtime-events.ts";
-import { commandFailureResult } from "./runner-failure-result.ts";
+import { commandFailureResultWithDispositionGuidance } from "./runner-failure-result.ts";
 import type { CliResult, CommandRegistryEntry, MaterializerCommandReport, ParsedCommand } from "./types.ts";
 import type { CliActorAttribution } from "../composition/actor-attribution.ts";
 
@@ -220,9 +220,9 @@ export function runRegisteredCommand(
   return runner(context, command).pipe(
     Effect.catchAll((error) => isIndeterminateFlushControlOutcome(error)
       ? Effect.fail(error)
-      : Effect.succeed(commandFailureResult(command, error))),
+      : commandFailureResultWithDispositionGuidance(command, error, context.artifactStore)),
     Effect.flatMap((result) => appendOrDeferCommandRuntimeEvent(context, command, result, execution)),
-    Effect.catchAll((error) => Effect.succeed(commandFailureResult(command, error)))
+    Effect.catchAll((error) => commandFailureResultWithDispositionGuidance(command, error, context.artifactStore))
   );
 }
 

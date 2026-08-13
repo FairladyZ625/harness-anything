@@ -41,7 +41,7 @@ export function failureReceipt(
   details: JsonObject = {},
   errorContext?: JsonObject
 ): CommandFailureReceipt {
-  const next = failureReceiptNextActions(code, details);
+  const next = failureReceiptNextActions(code, details, errorContext);
   return {
     ok: false,
     schema: commandReceiptEnvelope,

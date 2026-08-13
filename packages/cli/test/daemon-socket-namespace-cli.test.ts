@@ -1,18 +1,73 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { localUserDaemonEndpoint } from "../../daemon/src/index.ts";
 import { readDaemonRegistry } from "../../kernel/src/index.ts";
-import { defaultDaemonUserRoot } from "./helpers/daemon-cli.ts";
+import { defaultDaemonUserRoot, runRawJson, stopDaemon, withTempRootAsync } from "./helpers/daemon-cli.ts";
 import { cliTestEnv } from "./helpers/cli-test-env.ts";
+import {
+  connectSocket,
+  connectSocketWhenReady,
+  runDaemonCliProcess,
+  spawnDaemonCli,
+  stopSpawnedDaemon
+} from "./helpers/daemon-transport.ts";
 import { createFixture } from "./production-authority-canonical-ingress/fixture.ts";
 
 const execFileAsync = promisify(execFile);
+
+test("daemon serve help is side-effect free and socket conflicts return command receipts", async () => {
+  await withTempRootAsync(async (rootDir) => {
+    const userRoot = defaultDaemonUserRoot(rootDir);
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
+    const endpoint = path.join(rootDir, "serve-help-owned.sock");
+    const daemon = spawnDaemonCli(rootDir, ["daemon", "serve", "--socket", endpoint, "--user-root", userRoot]);
+    try {
+      const ready = await connectSocketWhenReady(endpoint);
+      ready.destroy();
+      const ownerPath = `${endpoint}.owner`;
+      const ownerBeforeHelp = readFileSync(ownerPath, "utf8");
+
+      const helpInvocations = [
+        ["daemon", "serve", "--help", "--from-file", path.join(rootDir, "missing-help-input.json")],
+        ["daemon", "serve", "-h", "--socket", endpoint, "--user-root", userRoot],
+        ["help", "daemon", "serve"]
+      ];
+      for (const args of helpInvocations) {
+        const help = await runDaemonCliProcess(rootDir, [...args, "--json"]);
+        assert.equal(help.code, 0, help.stderr);
+        assert.equal(help.stderr, "");
+        const helpReceipt = JSON.parse(help.stdout) as Record<string, unknown>;
+        assert.equal(helpReceipt.ok, true);
+        assert.equal(helpReceipt.schema, "command-receipt/v2");
+        assert.equal(helpReceipt.command, "help");
+        assert.equal(readFileSync(ownerPath, "utf8"), ownerBeforeHelp);
+        assert.equal(daemon.exitCode, null);
+        const afterHelp = await connectSocket(endpoint);
+        afterHelp.destroy();
+      }
+
+      const conflict = await runDaemonCliProcess(rootDir, ["daemon", "serve", "--socket", endpoint, "--user-root", userRoot, "--json"]);
+      assert.equal(conflict.code, 1);
+      assert.equal(conflict.stderr, "");
+      const failureReceipt = JSON.parse(conflict.stdout) as Record<string, unknown>;
+      assert.equal(failureReceipt.ok, false);
+      assert.equal(failureReceipt.schema, "command-receipt/v2");
+      assert.equal(failureReceipt.command, "daemon serve");
+      assert.doesNotMatch(conflict.stdout, /DaemonSocketAlreadyOwnedError|packages\/cli\/src\/main\.ts/iu);
+      assert.equal(readFileSync(ownerPath, "utf8"), ownerBeforeHelp);
+      assert.equal(daemon.exitCode, null);
+    } finally {
+      await stopSpawnedDaemon(daemon, endpoint);
+      await stopDaemon(rootDir, userRoot);
+    }
+  });
+});
 
 test("occupied daemon socket does not persist a new authority manifest registry pointer", { timeout: 30_000 }, async () => {
   const fixture = createFixture();

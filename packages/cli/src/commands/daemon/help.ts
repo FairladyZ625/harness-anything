@@ -1,4 +1,5 @@
 import { commandGroups, globalCommandOptions } from "../../cli/command-spec/command-groups.ts";
+import type { CliResult, CommandRegistryEntry } from "../../cli/types.ts";
 
 const daemonGroup = commandGroups.find((group) => group.name === "daemon")!;
 
@@ -104,6 +105,32 @@ export function renderDaemonHelp(): string {
     "  See docs-release/operations-server-daemon.md#daemon-repository-ownership-invariants."
   ].join("\n");
 }
+
+export function daemonServeHelpResult(): CliResult {
+  return {
+    ok: true,
+    command: "help",
+    commands: [daemonServeHelpEntry],
+    report: { schema: "cli-help-report/v1", kind: "command", commandKind: "daemon-serve" }
+  };
+}
+
+const daemonServeHelpEntry: CommandRegistryEntry = {
+  kind: "daemon-serve",
+  primary: "harness-anything daemon serve [--check] [--socket PATH] [--user-root PATH]",
+  aliases: ["ha daemon serve [--check] [--socket PATH] [--user-root PATH]"],
+  commandPath: ["daemon", "serve"],
+  summary: "Run the daemon in the foreground for a selected local endpoint.",
+  options: [
+    { flag: "--check", description: "Validate daemon startup configuration without taking socket ownership." },
+    { flag: "--socket PATH", description: "Use an explicit local daemon endpoint." },
+    { flag: "--user-root PATH", description: "Isolate daemon registry and launch state under this directory." },
+    { flag: "--authority-manifest PATH", description: "Load the complete enabled repository set from this manifest." },
+    { flag: "--idle-ms MS", description: "Exit after this many idle milliseconds; zero disables idle exit." }
+  ],
+  examples: ["ha daemon serve --socket /tmp/ha.sock --user-root /tmp/ha-user"],
+  resultEnvelope: "command-receipt/v2"
+};
 
 function daemonCapabilityOperation(action: string, command: string, description: string) {
   return {

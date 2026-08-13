@@ -43,6 +43,8 @@ test("daemon restart fails closed for mixed or conflicting authority registry po
 
 test("daemon serve check reuses mixed-registry startup validation without taking endpoint ownership", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-daemon-preflight-"));
+  const output: string[] = [];
+  const originalLog = console.log;
   try {
     const userRoot = path.join(fixtureRoot, "user-root");
     const protectedRoot = path.join(fixtureRoot, "protected");
@@ -62,13 +64,28 @@ test("daemon serve check reuses mixed-registry startup validation without taking
     registerDaemonRepo({ userRoot, repoId: "classic", canonicalRoot: classicRoot });
     const endpoint = localUserDaemonEndpoint(userRoot);
 
-    await assert.rejects(
-      main(["--root", protectedRoot, "daemon", "serve", "--repo", "protected", "--user-root", userRoot, "--check"]),
-      /AUTHORITY_MANIFEST_REGISTRY_INCOMPLETE/u
-    );
+    console.log = (message?: unknown) => output.push(String(message));
+    const exitCode = await main([
+      "--root", protectedRoot,
+      "daemon", "serve",
+      "--repo", "protected",
+      "--user-root", userRoot,
+      "--check", "--json"
+    ]);
+    assert.equal(exitCode, 1);
+    assert.equal(output.length, 1);
+    const receipt = JSON.parse(output[0]!) as {
+      readonly schema?: string;
+      readonly ok?: boolean;
+      readonly error?: { readonly hint?: string };
+    };
+    assert.equal(receipt.schema, "command-receipt/v2");
+    assert.equal(receipt.ok, false);
+    assert.match(receipt.error?.hint ?? "", /AUTHORITY_MANIFEST_REGISTRY_INCOMPLETE/u);
     assert.equal(existsSync(endpoint), false);
     assert.equal(existsSync(`${endpoint}.owner`), false);
   } finally {
+    console.log = originalLog;
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
 });
