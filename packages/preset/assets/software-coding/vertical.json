@@ -2,7 +2,7 @@
   "schema": "vertical-definition/v1",
   "id": "software/coding",
   "title": "Software Coding",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "entityKinds": [
     {
       "id": "task",
@@ -42,7 +42,13 @@
       { "entityKind": "task", "path": "{{paths.tasksRoot}}", "create": "init" }
     ],
     "dirs": [],
-    "seededDocs": []
+    "seededDocs": [
+      { "slot": "repository.context.index", "templateRef": "template://repository/context-index@1", "materializeAs": "{{paths.contextRoot}}/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "repository.context.architecture", "templateRef": "template://repository/context-architecture@1", "materializeAs": "{{paths.contextRoot}}/architecture/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "repository.context.development", "templateRef": "template://repository/context-development@1", "materializeAs": "{{paths.contextRoot}}/development/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "repository.context.integrations", "templateRef": "template://repository/context-integrations@1", "materializeAs": "{{paths.contextRoot}}/integrations/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "repository.context.research", "templateRef": "template://repository/context-research@1", "materializeAs": "{{paths.contextRoot}}/research/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
+    ]
   },
   "scripts": [],
   "templateSelections": [],
