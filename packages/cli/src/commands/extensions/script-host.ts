@@ -10,10 +10,15 @@ import type { CliResult } from "../../cli/types.ts";
 import { resolveScriptPolicy } from "./preset-policy.ts";
 import { buildPresetContextProjections } from "./preset-script-context.ts";
 import { scriptChildEnvironment } from "./script-environment.ts";
-import { executeScript } from "./script-executor.ts";
+import { executeScript, writeScriptOutputIfPresent } from "./script-executor.ts";
 import { trustedScriptRepositoryContext } from "./script-repository-context.ts";
 import { cachedScriptSyntaxCheck } from "./script-syntax-check.ts";
-import { invalidScriptOrPolicy, scriptFailure, validateResolvedScript } from "./script-host-validation.ts";
+import {
+  invalidScriptOrPolicy,
+  reportsNoOverwriteLeafConflicts,
+  scriptFailure,
+  validateResolvedScript
+} from "./script-host-validation.ts";
 import type { ResolvedPreset } from "./state.ts";
 import {
   materializeSemanticPresetExecution,
@@ -24,6 +29,7 @@ import {
 } from "./preset-capability-runtime.ts";
 import {
   isPathInside,
+  isolateValidationSmokeReadScope,
   permissionPathsForScope,
   resolvedScopeSetIsSafe,
   resolveDeclaredReadScopes,
@@ -144,7 +150,10 @@ export function runScriptHost(options: {
     ? { ok: true as const, ...preparedSemantic.stageEnvelope }
     : resolveDeclaredWriteScopes(options.script.entry.writes, layout, outputRoot, scopeOptions);
   if (!readScope.ok) return scriptFailure(options.commandName, CliErrorCode.ScriptScopeInvalidRead, "Script reads must declare supported project-local scopes.");
-  if (!options.dryRun && !resolvedScopeSetIsSafe(readScope, layout.rootDir, "read")) {
+  const executionSourceReadScope = options.script.context?.validationSmoke === true && !preparedSemantic
+    ? isolateValidationSmokeReadScope(readScope, layout.tasksRoot, outputRoot)
+    : readScope;
+  if (!options.dryRun && !resolvedScopeSetIsSafe(executionSourceReadScope, layout.rootDir, "read")) {
     return scriptFailure(options.commandName, CliErrorCode.ScriptScopeInvalidRead, "Script read scopes must have safe filesystem boundaries.");
   }
   if (!writeScope.ok) return scriptFailure(options.commandName, CliErrorCode.ScriptScopeInvalidWrite, "Script writes must declare approved authored content scopes.");
@@ -191,7 +200,7 @@ export function runScriptHost(options: {
     stage = !options.dryRun && writeScope.roots.length > 0
       ? createCanonicalScriptStage(options.rootInput, runDir, outputRoot, {
         protectedScopes: [
-          { mode: "read", scope: readScope },
+          { mode: "read", scope: executionSourceReadScope },
           { mode: "write", scope: writeScope }
         ]
       })
@@ -207,8 +216,8 @@ export function runScriptHost(options: {
   const executionLayout = stage ? scriptExecutionLayout(stage, writeScope) : layout;
   const executionOutputRoot = stage?.outputRoot ?? outputRoot;
   const executionReadScope = stage
-    ? remapScope(stage, readScope)
-    : readScope;
+    ? remapScope(stage, executionSourceReadScope)
+    : executionSourceReadScope;
   const executionWriteScope = stage
     ? remapScope(stage, writeScope, { retainOriginalPermissions: false })
     : writeScope;
@@ -250,7 +259,7 @@ export function runScriptHost(options: {
       ? buildPresetContextProjections({
         layout: executionLayout,
         outputRoot: executionOutputRoot,
-        readRoots: executionReadScope.roots
+        readRoots: options.script.context?.validationSmoke === true ? [] : executionReadScope.roots
       })
       : {};
     writeFileSync(contextPath, JSON.stringify({
@@ -437,16 +446,6 @@ export function runScriptHost(options: {
     ...(preparedSemantic ? { capabilityReceipt: preparedSemantic.receipt } : {}),
     ...(ingestOp ? { ingestOp } : {})
   };
-}
-
-function writeScriptOutputIfPresent(filePath: string, body: string): void {
-  if (body.length > 0) writeFileSync(filePath, body, "utf8");
-}
-
-function reportsNoOverwriteLeafConflicts(entry: ScriptEntry): boolean {
-  return entry.metadata.purpose === "scaffold" &&
-    entry.writes.length > 0 &&
-    entry.writes.every((scope) => scope.endsWith("/**") && entry.reads.includes(scope));
 }
 
 function readScriptResult(

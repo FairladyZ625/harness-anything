@@ -2,7 +2,7 @@ import path from "node:path";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { PresetPolicyResolution } from "./preset-policy.ts";
-import type { ResolvedScriptEntry } from "./script-host.ts";
+import type { ResolvedScriptEntry, ScriptEntry } from "./script-host.ts";
 
 export function validateResolvedScript(script: ResolvedScriptEntry): { readonly ok: true } | { readonly ok: false; readonly hint: string } {
   const entry = script.entry;
@@ -17,6 +17,12 @@ export function validateResolvedScript(script: ResolvedScriptEntry): { readonly 
     return { ok: false, hint: "Script metadata kind must be action or check." };
   }
   return { ok: true };
+}
+
+export function reportsNoOverwriteLeafConflicts(entry: ScriptEntry): boolean {
+  return entry.metadata.purpose === "scaffold" &&
+    entry.writes.length > 0 &&
+    entry.writes.every((scope) => scope.endsWith("/**") && entry.reads.includes(scope));
 }
 
 export function invalidScriptOrPolicy(
