@@ -8,7 +8,7 @@
     "preset": 293,
     "cli": 144,
     "gui": 17446,
-    "daemon": 899,
+    "daemon": 904,
     "fleet": 165,
     "authority-write-path": 0,
     "identity-rbac": 416,
