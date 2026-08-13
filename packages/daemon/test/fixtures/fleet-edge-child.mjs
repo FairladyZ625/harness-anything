@@ -9,7 +9,7 @@ if (config.startDelayMs) await delay(config.startDelayMs);
 const body = readFileSync(config.bodyFile), startedAt = Date.now(); let attempts = 0;
 for (;;) {
   try {
-    const result = await runFleetEdgeClient({ ...config, ca: readFileSync(config.caFile), body, onFrame: (frame) => {
+    const result = await runFleetEdgeClient({ ...config, ca: readFileSync(config.caFile), changes: [{ path: config.path, body, baseBlobSha256: config.baseBlobSha256 }], onFrame: (frame) => {
       if (config.killOnSchema === frame.schema) { if (config.markerFile) writeFileSync(config.markerFile, frame.schema); process.exit(73); }
       if (config.killAfterPartialUpload && frame.schema === "fleet.upload.ready/v1" && frame.resumeOffset > 0 && frame.resumeOffset < body.byteLength) { if (config.markerFile) writeFileSync(config.markerFile, String(frame.resumeOffset)); process.exit(74); }
     }, edgeKillpoint: (point) => { if (config.edgeKillpoint === point) { if (config.markerFile) writeFileSync(config.markerFile, point); process.exit(75); } } });

@@ -1,3 +1,4 @@
+import { TextDecoder } from "node:util";
 import { sha256Text, stableStringify } from "../../../kernel/src/index.ts";
 
 export const FLEET_FRAME_BYTES = 96 * 1024, FLEET_CHUNK_BYTES = 64 * 1024, FLEET_PAGE_ROWS = 128;
@@ -37,6 +38,9 @@ export type FleetDeltaChange = Readonly<{ op: "put"; path: string; blob: FleetBl
 export function fleetManifestDigest(entries: readonly FleetEntry[]): string { return sha256Text(stableStringify(entries.map(({ path, blob }) => ({ path, blob })).sort((a, b) => a.path.localeCompare(b.path)))); }
 
 export class FleetContractError extends Error { constructor(message: string) { super(message); this.name = "FleetContractError"; } }
+export class FleetUtf8LineDecoder { readonly #decoder = new TextDecoder("utf-8", { fatal: true }); #buffer = "";
+  push(chunk: Uint8Array): readonly string[] { this.#buffer += this.#decoder.decode(chunk, { stream: true }); const lines: string[] = []; for (;;) { const end = this.#buffer.indexOf("\n"); if (end < 0) break; lines.push(this.#buffer.slice(0, end)); this.#buffer = this.#buffer.slice(end + 1); } if (Buffer.byteLength(this.#buffer) > FLEET_FRAME_BYTES) throw new FleetContractError("Fleet frame exceeds 98304 bytes"); return lines; }
+  finish(): readonly string[] { this.#buffer += this.#decoder.decode(); if (this.#buffer.length) throw new FleetContractError("Fleet stream ended mid-frame"); return []; } }
 type RecordValue = Readonly<Record<string, unknown>>; type Check = (value: unknown) => boolean;
 const id: Check = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,96}$/u.test(value), text: Check = (value) => typeof value === "string" && value.length > 0 && value.length <= 512;
 const uint: Check = (value) => Number.isSafeInteger(value) && Number(value) >= 0, sha40: Check = (value) => typeof value === "string" && /^[0-9a-f]{40}$/u.test(value), sha64: Check = (value) => typeof value === "string" && /^[0-9a-f]{64}$/u.test(value);

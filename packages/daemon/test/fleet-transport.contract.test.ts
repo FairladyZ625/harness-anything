@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FLEET_CHUNK_BYTES, FLEET_FRAME_BYTES, FleetContractError, parseFleetFrame, serializeFleetFrame } from "../src/fleet/contract.ts";
+import { FLEET_CHUNK_BYTES, FLEET_FRAME_BYTES, FleetContractError, FleetUtf8LineDecoder, parseFleetFrame, serializeFleetFrame } from "../src/fleet/contract.ts";
 
 const cut = { revision: 7, commitSha: "a".repeat(40), headDigest: `sha256:${"b".repeat(64)}` } as const;
 const blob = { sha256: "c".repeat(64), size: 3, mediaType: "text/markdown" } as const;
@@ -44,4 +44,5 @@ test("Fleet codec rejects unknown provenance, nested fields, malformed values, a
     { ...frames[0], schema: "fleet.unknown/v1" }
   ]) assert.throws(() => parseFleetFrame(invalid), FleetContractError);
   assert.throws(() => parseFleetFrame(`{"schema":"fleet.session.hello/v1","messageId":"m","protocolVersion":1,"nodeId":"n","credential":"${"x".repeat(FLEET_FRAME_BYTES)}"}`), /frame exceeds/u);
+  assert.throws(() => new FleetUtf8LineDecoder().push(Buffer.from([0xc3, 0x28])), /encoded data/u);
 });

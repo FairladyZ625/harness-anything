@@ -9,7 +9,7 @@
     "cli": 147,
     "gui": 14224,
     "daemon": 881,
-    "fleet": 157,
+    "fleet": 165,
     "authority-write-path": 0,
     "identity-rbac": 416,
     "agent-runtime": 301,
