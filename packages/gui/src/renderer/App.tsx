@@ -28,13 +28,14 @@ import { BoardView } from "./views/BoardView.tsx";
 import { DecisionsView } from "./views/DecisionsView.tsx";
 import { DecisionPoolView } from "./views/DecisionPoolView.tsx";
 import { FactTriageView } from "./views/FactTriageView.tsx";
-import { GraphView } from "./views/GraphView.tsx";
+import { EntityWorkspace } from "./components/EntityWorkspace.tsx";
 import { PresetsView } from "./views/PresetsView.tsx";
 import { AdaptersView } from "./views/AdaptersView.tsx";
 import { SettingsView } from "./views/SettingsView.tsx";
 import { TaskDetailView } from "./views/TaskDetailView.tsx";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
 import { ThemeToggle, NavButton, ProjectSummary, MockViewBanner } from "./components/shell-chrome.tsx";
+import { CommandPalette, buildPaletteIndex } from "./components/CommandPalette.tsx";
 import {
   DEFAULT_TASK_FILTERS,
   applyTaskFilters,
@@ -133,6 +134,7 @@ function AppShell() {
     status: SnapshotStatus;
     groupBy: LaneGroupBy;
   } | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const projectTasks = useMemo(
     () => tasks.filter((t) => t.projectId === projectId),
@@ -230,6 +232,27 @@ function AppShell() {
   };
 
   const showMockBanner = !selected && MOCK_BACKED_VIEWS.has(view);
+
+  // ⌘K 命令面板(REQ-GUI-01):跨实体搜索 + 快速跳转。纯前端派生,不消费写 IPC。
+  const paletteEntries = useMemo(
+    () => buildPaletteIndex(projectTasks, decisions, facts),
+    [projectTasks, decisions, facts],
+  );
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const handlePaletteSelect = (ref: string) => {
+    navigateToEntity(ref);
+  };
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden md:flex-row">
@@ -443,13 +466,16 @@ function AppShell() {
                 onToggleFavorite={toggleFavorite}
               />
             ) : view === "graph" ? (
-              <GraphView
+              <EntityWorkspace
+                focusedEntityRef={focusedEntityRef}
                 tasks={projectTasks}
                 relations={relations}
                 decisions={decisions}
-                facts={facts} factAnchors={factAnchors}
+                facts={facts}
+                coverageRows={coverageRows}
+                factAnchors={factAnchors}
                 onNavigateEntity={navigateToEntity}
-                focusRef={focusedEntityRef}
+                onFocusEntityChange={setFocusedEntityRef}
               />
             ) : view === "factTriage" ? (
               <FactTriageView
@@ -515,6 +541,12 @@ function AppShell() {
         onClose={() => setPreviewId(null)}
         onOpenDetail={openTaskDetail}
         onPreviewTask={openTaskPreview}
+      />
+      <CommandPalette
+        open={paletteOpen}
+        entries={paletteEntries}
+        onSelect={handlePaletteSelect}
+        onClose={() => setPaletteOpen(false)}
       />
     </div>
   );
