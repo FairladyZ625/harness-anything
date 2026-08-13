@@ -76,7 +76,7 @@ test("pending without an event uses an honest receipt", async () => {
   const snapshot = { revision: 0, task: null, executions: [], reviews: [], edgesTaken: [], lease: null } as const;
   const read = { status: "pending" as const, snapshot, watermark: 0, sourceRevision: 1, warnings: [] };
   const service = makeTaskLifecycleService({
-    eventStore: { readTaskEvent: () => null, append: (candidate) => { appendCalls += 1; return { status: "applied" as const, event: candidate, revision: candidate.workspaceRevision }; } },
+    eventStore: { readTaskEvent: () => null, append: (candidate) => { appendCalls += 1; return { status: "applied" as const, event: candidate.event, revision: candidate.event.workspaceRevision }; } },
     projection: { read: () => read, readTaskOperation: () => null, currentLease: () => null,
       reserveLease: (lease) => lease, activateLease: (lease) => lease, renewLease: (lease) => lease, releaseLease: (lease) => lease,
       apply: () => ({ metrics: { reducedItems: 0 } }) }

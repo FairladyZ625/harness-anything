@@ -5,7 +5,7 @@ import { rmSync } from "node:fs";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
-import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
+import { canonicalEventWritePlan, makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
 import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
@@ -17,7 +17,7 @@ test("task/doc reducers share one SQLite transaction and L2 rebuild restores exa
     const event: DocEventV1 = { schema: "doc-event/v1", eventId: "doc-event", workspaceRevision: 1, opId: "doc-op", type: "documents_written", actor: { principal: { personId: "person-1" }, executor: null }, source: "local", occurredAt: "2026-08-11T00:00:00.000Z",
       payload: { executionId: "execution-1", baseLedgerSha: base, changes: [{ path: "context/notes.md", baseBlobSha256: null, candidate: { sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" }, policyId: DOC_POLICY_ID,
         regionProofs: [{ regionId: "heading/notes", policyId: DOC_POLICY_ID, codecId: DOC_CODEC_ID, baseSha256: sha256Text(""), candidateSha256: hash, insertBytes: Buffer.byteLength(body) }] }] } };
-    const plan = docSyncWritePlan(event); eventStore.append(event, plan, [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }]); assert.throws(() => projection.apply(event), /write plan/iu);
+    const plan = docSyncWritePlan(event); eventStore.append({ event, plan, blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }] }); assert.throws(() => projection.apply(event), /write plan/iu);
     assert.deepEqual(projection.apply(event, plan).metrics, { sqliteTransactions: 1, reducedItems: 1 });
     const first = projection.readDocument("context/notes.md"); assert.equal(first.status, "ready"); assert.equal(first.document?.body, body); assert.equal(first.document?.blobSha256, hash); assert.equal(projection.readOperation(event.opId)?.event.schema, "doc-event/v1");
     rmSync(projection.path, { force: true }); const rebuilt = projection.rebuild(); assert.equal(rebuilt.watermark, 1); assert.deepEqual(projection.readDocument("context/notes.md").document, first.document);
@@ -30,7 +30,7 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
     const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
     const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     for (const event of lifecycleFixture().events) {
-      eventStore.append(event);
+      eventStore.append(taskBundle(event));
       assert.deepEqual(projection.apply(event).metrics, { sqliteTransactions: 1, reducedItems: 1 });
     }
 
@@ -70,7 +70,7 @@ test("projection catch-up processes at most one 64-item/100ms round and never re
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
-    for (const event of lifecycleFixture().events) eventStore.append(event);
+    for (const event of lifecycleFixture().events) eventStore.append(taskBundle(event));
     const projection = makeTaskProjection({ rootDir, eventStore, catchUpLimit: 2, now: () => "2026-08-11T00:30:00.000Z" });
 
     let previousWatermark = 0;
@@ -93,7 +93,7 @@ test("lease CAS rejects stale renew/release, marks expiry orphaned, and permits 
     const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
     const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const fixture = lifecycleFixture();
-    eventStore.append(fixture.events[0]!);
+    eventStore.append(taskBundle(fixture.events[0]!));
     projection.apply(fixture.events[0]!);
     const started = fixture.events[1]!;
     if (started.type !== "execution_started") throw new Error("fixture requires execution_started");
@@ -120,8 +120,8 @@ test("renewed lease survives database rebuild", async () => {
     const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const [created, started] = lifecycleFixture().events;
     if (created === undefined || started?.type !== "execution_started") throw new Error("fixture requires start event");
-    eventStore.append(created); projection.apply(created);
-    eventStore.append(started); projection.apply(started);
+    eventStore.append(taskBundle(created)); projection.apply(created);
+    eventStore.append(taskBundle(started)); projection.apply(started);
     const renewed = {
       schema: "task-event/v1", eventId: "event-renew", workspaceRevision: 3, opId: "op-renew", taskId: started.taskId,
       type: "lease_renewed", actor: started.actor, source: started.source, occurredAt: "2026-08-11T00:02:00.000Z",
@@ -130,7 +130,7 @@ test("renewed lease survives database rebuild", async () => {
         previousHolder: { taskId: started.taskId, executionId: started.payload.execution.executionId, actor: started.actor, source: started.source },
         leaseExpiresAt: "2026-08-11T02:00:00.000Z", reason: "same_principal_reconnect" }
     } as unknown as TaskEventV1;
-    eventStore.append(renewed); projection.apply(renewed);
+    eventStore.append(taskBundle(renewed)); projection.apply(renewed);
     const beforeLease = projection.currentLease("task-1");
     const beforeIntervals = projection.readLeaseIntervals("task-1");
 
@@ -142,6 +142,7 @@ test("renewed lease survives database rebuild", async () => {
     assert.deepEqual(projection.readLeaseIntervals("task-1"), beforeIntervals);
   });
 });
+function taskBundle(event: TaskEventV1): CanonicalWriteBundle { return { event, plan: canonicalEventWritePlan(event, "task-lifecycle/v1", event.taskId), blobs: [] }; }
 
 function initRepo(rootDir: string): void {
   git(rootDir, "init", "--quiet");

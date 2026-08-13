@@ -6,6 +6,8 @@ export { canonicalizeContractValue, taskClasses } from "./domain/task.ts";
 export type { TaskClass, TaskV1 } from "./domain/task.ts";
 export { assertTaskBootstrapWritePlan, isTaskBootstrapEvent, taskBootstrapClaims, taskBootstrapWritePlan, validateTaskBootstrapEvent } from "./domain/task-bootstrap-event.ts";
 export type { InitialDocumentClaim, PresetSnapshotClaim, TaskBootstrapBlob, TaskBootstrapEventV1, TaskDocumentOwner } from "./domain/task-bootstrap-event.ts";
+export { compileTaskProgress, isTaskProgressEvent } from "./domain/task-progress-event.ts";
+export type { TaskProgressEvidence, TaskProgressEventV1 } from "./domain/task-progress-event.ts";
 export { assertCurrentWriter, bindWriterGenerationToken, createWriteReceipt, normalizeCommandEnvelope, WRITE_RECEIPT_SCHEMA } from "./domain/write-chain.contract.ts";
 export type { ActorIdentity, DocSyncReceiptDetail, FrozenWritePlan, WriteOperationReceipt, WriteReceipt, WriteSource, WriteTarget, WriterGeneration, WriterGenerationToken } from "./domain/write-chain.contract.ts";
 export { DOC_POLICY_ID, decideDocWrite, docSyncWritePlan, documentPath, isDocEvent, parseDocWriteIntent, resolveDocRoute } from "./domain/doc-sync.contract.ts";
@@ -55,6 +57,7 @@ export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export * from "./schemas/docmap.ts";
 export {
+  canonicalEventWritePlan,
   makeTaskEventStore,
   makeTaskProjection,
   makeMarkdownArtifactStore
