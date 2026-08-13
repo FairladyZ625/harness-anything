@@ -82,18 +82,24 @@ export function buildPresetContextProjections(options: {
   readonly env?: NodeJS.ProcessEnv;
 }): Record<string, unknown> {
   const milestoneLimits = resolvePresetContextMilestoneLimits(options);
+  const markdownFiles = collectMarkdownFiles(options.readRoots);
+  const readableRoots = new Set(options.readRoots.map((root) => path.resolve(root)));
   return {
-    taskIndex: readTaskIndexContext(options.layout, options.readRoots),
-    taskEvidence: readTaskEvidenceContext(options.layout, options.outputRoot, options.readRoots),
-    milestoneCriteria: readMilestoneCriteriaContext(options.layout, options.readRoots),
-    milestoneNotes: readMilestoneNotesContext(options.layout, options.readRoots, milestoneLimits),
-    decisions: readDecisionContext(options.layout, options.readRoots),
-    factRefs: readFactRefsContext(options.layout, options.readRoots)
+    taskIndex: readTaskIndexContext(options.layout, markdownFiles, readableRoots),
+    taskEvidence: readTaskEvidenceContext(options.layout, options.outputRoot, markdownFiles, readableRoots),
+    milestoneCriteria: readMilestoneCriteriaContext(options.layout, markdownFiles),
+    milestoneNotes: readMilestoneNotesContext(options.layout, markdownFiles, milestoneLimits),
+    decisions: readDecisionContext(options.layout, markdownFiles),
+    factRefs: readFactRefsContext(options.layout, markdownFiles)
   };
 }
 
-function readTaskIndexContext(layout: ResolvedLayout, readRoots: ReadonlyArray<string>): ReadonlyArray<PresetContextTask> {
-  return collectMarkdownFiles(readRoots)
+function readTaskIndexContext(
+  layout: ResolvedLayout,
+  markdownFiles: ReadonlyArray<string>,
+  readableRoots: ReadonlySet<string>
+): ReadonlyArray<PresetContextTask> {
+  return markdownFiles
     .filter((filePath) => path.basename(filePath) === "INDEX.md" && isPathInside(layout.tasksRoot, filePath))
     .flatMap((indexPath) => {
       const body = readOptionalFile(indexPath);
@@ -110,7 +116,7 @@ function readTaskIndexContext(layout: ResolvedLayout, readRoots: ReadonlyArray<s
         preset: scalar(frontmatter, "preset"),
         indexPath: relativeContextPath(layout.rootDir, indexPath),
         packagePath: relativeContextPath(layout.rootDir, path.dirname(indexPath)),
-        taskPlanSummary: isReadablePath(taskPlanPath, readRoots) ? summarizeMarkdown(readOptionalFile(taskPlanPath)) : ""
+        taskPlanSummary: isReadablePath(taskPlanPath, readableRoots) ? summarizeMarkdown(readOptionalFile(taskPlanPath)) : ""
       }];
     })
     .sort((left, right) => left.taskId.localeCompare(right.taskId));
@@ -119,10 +125,12 @@ function readTaskIndexContext(layout: ResolvedLayout, readRoots: ReadonlyArray<s
 function readTaskEvidenceContext(
   layout: ResolvedLayout,
   outputRoot: string,
-  readRoots: ReadonlyArray<string>
+  markdownFiles: ReadonlyArray<string>,
+  readableRoots: ReadonlySet<string>
 ): ReadonlyArray<{ readonly sourcePath: string; readonly body: string }> {
-  if (!isReadablePath(outputRoot, readRoots)) return [];
-  return collectMarkdownFiles([outputRoot])
+  if (!isReadablePath(outputRoot, readableRoots)) return [];
+  return markdownFiles
+    .filter((filePath) => isPathInside(outputRoot, filePath))
     .filter((filePath) => !toSlash(path.relative(outputRoot, filePath)).startsWith("artifacts/"))
     .map((filePath) => ({
       sourcePath: relativeContextPath(layout.rootDir, filePath),
@@ -132,9 +140,9 @@ function readTaskEvidenceContext(
 
 function readMilestoneCriteriaContext(
   layout: ResolvedLayout,
-  readRoots: ReadonlyArray<string>
+  markdownFiles: ReadonlyArray<string>
 ): ReadonlyArray<{ readonly status: "red"; readonly reason: "unclassified"; readonly sourcePath: string; readonly line: number; readonly checked: boolean; readonly text: string }> {
-  return collectMarkdownFiles(readRoots)
+  return markdownFiles
     .filter((filePath) => isPathInside(layout.milestonesRoot, filePath))
     .filter((filePath) => /(?:^|\/)(?:feature-breakdown|milestone-closeout|exit-criteria)\.md$/u.test(toSlash(filePath)))
     .flatMap((filePath) => {
@@ -156,11 +164,11 @@ function readMilestoneCriteriaContext(
 
 function readMilestoneNotesContext(
   layout: ResolvedLayout,
-  readRoots: ReadonlyArray<string>,
+  markdownFiles: ReadonlyArray<string>,
   limits: { readonly maxFiles: number; readonly maxNotes: number }
 ): ReadonlyArray<string> {
   const notes: string[] = [];
-  for (const filename of collectMarkdownFiles(readRoots).filter((filePath) => isPathInside(layout.milestonesRoot, filePath)).slice(0, limits.maxFiles)) {
+  for (const filename of markdownFiles.filter((filePath) => isPathInside(layout.milestonesRoot, filePath)).slice(0, limits.maxFiles)) {
     for (const line of readOptionalFile(filename).split(/\r?\n/u)) {
       const trimmed = line.trim();
       if (/acceptance|验收|criteria/iu.test(trimmed)) notes.push(trimmed.replace(/^[-*#\s]+/u, ""));
@@ -190,8 +198,8 @@ function contextLimit(name: string, explicit: number | undefined, raw: string | 
   return value;
 }
 
-function readDecisionContext(layout: ResolvedLayout, readRoots: ReadonlyArray<string>): ReadonlyArray<PresetContextDecision> {
-  return collectMarkdownFiles(readRoots)
+function readDecisionContext(layout: ResolvedLayout, markdownFiles: ReadonlyArray<string>): ReadonlyArray<PresetContextDecision> {
+  return markdownFiles
     .filter((filePath) => path.basename(filePath) === "decision.md" && isPathInside(layout.decisionsRoot, filePath))
     .flatMap((filePath) => {
       const body = readOptionalFile(filePath);
@@ -207,9 +215,9 @@ function readDecisionContext(layout: ResolvedLayout, readRoots: ReadonlyArray<st
     });
 }
 
-function readFactRefsContext(layout: ResolvedLayout, readRoots: ReadonlyArray<string>): ReadonlyArray<string> {
+function readFactRefsContext(layout: ResolvedLayout, markdownFiles: ReadonlyArray<string>): ReadonlyArray<string> {
   const refs = new Set<string>();
-  for (const factsPath of collectMarkdownFiles(readRoots).filter((filePath) => path.basename(filePath) === "facts.md" && isPathInside(layout.tasksRoot, filePath))) {
+  for (const factsPath of markdownFiles.filter((filePath) => path.basename(filePath) === "facts.md" && isPathInside(layout.tasksRoot, filePath))) {
     const taskDir = path.dirname(factsPath);
     const taskId = readTaskId(taskDir) || path.basename(taskDir);
     for (const match of readOptionalFile(factsPath).matchAll(/\bfact_id:\s*"?([A-Za-z0-9_-]+)"?/gu)) {
@@ -318,8 +326,14 @@ function walkMarkdown(root: string): ReadonlyArray<string> {
   });
 }
 
-function isReadablePath(candidate: string, readRoots: ReadonlyArray<string>): boolean {
-  return readRoots.some((readRoot) => isPathInside(readRoot, candidate));
+function isReadablePath(candidate: string, readableRoots: ReadonlySet<string>): boolean {
+  let current = path.resolve(candidate);
+  while (true) {
+    if (readableRoots.has(current)) return true;
+    const parent = path.dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
 }
 
 function summarizeMarkdown(markdown: string): string {

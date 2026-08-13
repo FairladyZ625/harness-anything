@@ -137,6 +137,40 @@ test("preset check treats a well-formed script-result ok false as runnable", () 
   });
 });
 
+test("preset check validation smoke does not hydrate project ledger context", () => {
+  withTempRoot((rootDir) => {
+    writePreset(rootDir, "isolated-smoke-context", {
+      check: {
+        type: "script",
+        command: "scripts/check.mjs",
+        reads: ["{{paths.tasksRoot}}/*/**"],
+        writes: ["{{outputRoot}}/**"]
+      }
+    });
+    write(rootDir, "harness/tasks/task_fixture/INDEX.md", [
+      "---",
+      "task_id: task_fixture",
+      "title: Fixture task",
+      "status:",
+      "  status: active",
+      "preset: standard-task",
+      "---",
+      ""
+    ].join("\n"));
+    write(rootDir, ".harness/presets/isolated-smoke-context/scripts/check.mjs", [
+      "import { readFileSync, writeFileSync } from 'node:fs';",
+      "const context = JSON.parse(readFileSync(process.env.HARNESS_PRESET_CONTEXT, 'utf8'));",
+      "if (context.validationSmoke !== true || context.taskIndex.length !== 0 || context.readScopes.length !== 0) throw new Error('validation smoke hydrated project ledger context');",
+      "writeFileSync(process.env.HARNESS_SCRIPT_RESULT, JSON.stringify({ schema: 'script-result/v1', ok: true, report: {}, produced: [] }));",
+      ""
+    ].join("\n"));
+
+    const result = runJson(rootDir, ["preset", "check", "isolated-smoke-context"]);
+
+    assert.equal(result.report.preflight.runtimeSmoke.ok, true);
+  });
+});
+
 test("preset check rejects scripts that finish without a script-result/v1", () => {
   withTempRoot((rootDir) => {
     writePreset(rootDir, "missing-result", {

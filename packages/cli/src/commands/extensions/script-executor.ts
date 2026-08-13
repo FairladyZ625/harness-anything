@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { writeMachineEvidenceRegistry } from "./machine-evidence-registry.ts";
 import { isPathInside, listGeneratedFiles, uniquePermissionPaths } from "./script-scope.ts";
@@ -91,6 +91,10 @@ export function executeScript(options: ScriptExecutorOptions): ScriptExecutionRe
   }
   writeMachineEvidenceRegistry(options.outputRoot, generated);
   return { ok: true, generated, stdout, stderr };
+}
+
+export function writeScriptOutputIfPresent(filePath: string, body: string): void {
+  if (body.length > 0) writeFileSync(filePath, body, "utf8");
 }
 
 function listArtifactFiles(roots: ReadonlyArray<string>): ReadonlyArray<string> {

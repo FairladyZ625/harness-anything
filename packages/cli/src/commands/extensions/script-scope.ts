@@ -15,6 +15,8 @@ interface ScopeResolutionOptions {
   readonly reportLeafConflicts?: boolean;
 }
 
+type PortableSiblingIndex = Map<string, ReadonlyMap<string, ReadonlyArray<string>>>;
+
 export function listGeneratedFiles(rootDir: string): ReadonlyArray<string> {
   if (!existsSync(rootDir)) return [];
   let rootStat;
@@ -63,6 +65,7 @@ function resolveDeclaredScopes(
   const roots: string[] = [];
   const permissions: string[] = [];
   const reportedLeafConflicts: string[] = [];
+  const portableSiblingIndex: PortableSiblingIndex = new Map();
   for (const scope of scopes) {
     const recursive = scope.endsWith("/**");
     const root = recursive ? scope.slice(0, -3) : scope;
@@ -86,8 +89,14 @@ function resolveDeclaredScopes(
       if (recursive && absolute === path.resolve(layout.rootDir)) return { ok: false };
       if (mode === "write" && !isAllowedWriteScope(absolute, layout, outputRoot)) return { ok: false };
       if (!scopeRootRealpathIsContainedOrMissing(absolute, layout.rootDir)) return { ok: false };
-      if (scopePathContainsUnsafeComponent(absolute, layout.rootDir, options)) return { ok: false };
-      const leafConflicts = reportableLeafConflicts(absolute, layout.rootDir, recursive, options.reportLeafConflicts === true);
+      if (scopePathContainsUnsafeComponentWithIndex(absolute, layout.rootDir, options, portableSiblingIndex)) return { ok: false };
+      const leafConflicts = reportableLeafConflicts(
+        absolute,
+        layout.rootDir,
+        recursive,
+        options.reportLeafConflicts === true,
+        portableSiblingIndex
+      );
       if (leafConflicts === null) return { ok: false };
       if (
         mode === "write" &&
@@ -141,14 +150,30 @@ export function scopePathContainsUnsafeComponent(
   projectRoot: string,
   options: ScopeResolutionOptions = {}
 ): boolean {
-  return scopePathComponentsAreUnsafe(root, projectRoot, true, options.reportLeafConflicts === true);
+  return scopePathContainsUnsafeComponentWithIndex(root, projectRoot, options, new Map());
+}
+
+function scopePathContainsUnsafeComponentWithIndex(
+  root: string,
+  projectRoot: string,
+  options: ScopeResolutionOptions,
+  portableSiblingIndex: PortableSiblingIndex
+): boolean {
+  return scopePathComponentsAreUnsafe(
+    root,
+    projectRoot,
+    true,
+    options.reportLeafConflicts === true,
+    portableSiblingIndex
+  );
 }
 
 function scopePathComponentsAreUnsafe(
   root: string,
   projectRoot: string,
   rejectPortableAliases: boolean,
-  allowPortableLeafAliases = false
+  allowPortableLeafAliases = false,
+  portableSiblingIndex: PortableSiblingIndex = new Map()
 ): boolean {
   const boundary = path.resolve(projectRoot);
   const target = path.resolve(root);
@@ -162,7 +187,7 @@ function scopePathComponentsAreUnsafe(
   let current = boundary;
   const segments = relative.split(path.sep).filter(Boolean);
   for (const [index, segment] of segments.entries()) {
-    const aliases = rejectPortableAliases ? portableSiblingAliases(current, segment) : [];
+    const aliases = rejectPortableAliases ? portableSiblingAliases(current, segment, portableSiblingIndex) : [];
     const reportableLeaf = allowPortableLeafAliases && index === segments.length - 1;
     if (aliases.length > 0 && !reportableLeaf) return true;
     if (aliases.some((alias) => pathIsSymlink(path.join(current, alias)))) return true;
@@ -181,14 +206,15 @@ function reportableLeafConflicts(
   root: string,
   projectRoot: string,
   recursive: boolean,
-  enabled: boolean
+  enabled: boolean,
+  portableSiblingIndex: PortableSiblingIndex = new Map()
 ): ReadonlyArray<string> | null {
   if (!enabled) return [];
   if (!recursive) return null;
   const target = path.resolve(root);
   const boundary = path.resolve(projectRoot);
   if (!sameOrInside(boundary, target)) return null;
-  const aliases = portableSiblingAliases(path.dirname(target), path.basename(target))
+  const aliases = portableSiblingAliases(path.dirname(target), path.basename(target), portableSiblingIndex)
     .map((entry) => path.join(path.dirname(target), entry));
   if (aliases.some(pathIsSymlink)) return null;
   const targetKind = filesystemKind(target);
@@ -211,13 +237,31 @@ function filesystemKind(candidate: string): "missing" | "file" | "directory" | "
   }
 }
 
-function portableSiblingAliases(parent: string, canonicalName: string): ReadonlyArray<string> {
+function portableSiblingAliases(
+  parent: string,
+  canonicalName: string,
+  portableSiblingIndex: PortableSiblingIndex
+): ReadonlyArray<string> {
   const key = portablePathKey(canonicalName);
-  try {
-    return readdirSync(parent).filter((entry) => entry !== canonicalName && portablePathKey(entry) === key);
-  } catch {
-    return [];
+  const resolvedParent = path.resolve(parent);
+  let entriesByKey = portableSiblingIndex.get(resolvedParent);
+  if (!entriesByKey) {
+    const mutableEntriesByKey = new Map<string, string[]>();
+    try {
+      for (const entry of readdirSync(resolvedParent)) {
+        const entryKey = portablePathKey(entry);
+        const entries = mutableEntriesByKey.get(entryKey) ?? [];
+        entries.push(entry);
+        mutableEntriesByKey.set(entryKey, entries);
+      }
+    } catch {
+      // A missing or unreadable parent has no observable aliases here; the
+      // component lstat below remains responsible for rejecting unsafe paths.
+    }
+    entriesByKey = mutableEntriesByKey;
+    portableSiblingIndex.set(resolvedParent, entriesByKey);
   }
+  return (entriesByKey.get(key) ?? []).filter((entry) => entry !== canonicalName);
 }
 
 function pathIsSymlink(candidate: string): boolean {
@@ -282,17 +326,24 @@ export function resolvedScopeSetIsSafe(
   mode: "read" | "write"
 ): boolean {
   const boundaries = (Array.isArray(projectRoots) ? projectRoots : [projectRoots]).map((root) => path.resolve(root));
+  const portableSiblingIndex: PortableSiblingIndex = new Map();
   return scope.roots.every((root) => {
     const boundary = boundaries.find((candidate) => sameOrInside(candidate, root));
     if (!boundary) return false;
     const recursive = scopeRootIsRecursive(scope, root);
     const options = { reportLeafConflicts: scope.reportedLeafConflicts !== undefined };
-    const currentConflicts = reportableLeafConflicts(root, boundary, recursive, options.reportLeafConflicts);
+    const currentConflicts = reportableLeafConflicts(
+      root,
+      boundary,
+      recursive,
+      options.reportLeafConflicts,
+      portableSiblingIndex
+    );
     const conflictsRemainDeclared = currentConflicts !== null && currentConflicts.every((candidate) =>
       scope.reportedLeafConflicts?.some((declared) => path.resolve(declared) === path.resolve(candidate))
     );
     return scopeRootRealpathIsContainedOrMissing(root, boundary) &&
-      !scopePathContainsUnsafeComponent(root, boundary, options) &&
+      !scopePathContainsUnsafeComponentWithIndex(root, boundary, options, portableSiblingIndex) &&
       conflictsRemainDeclared &&
       (!recursive || filesystemKind(root) !== "directory" || !recursiveScopeContainsSymlink(root)) &&
       (validScopeTarget(root, recursive, mode) || (currentConflicts?.length ?? 0) > 0);
@@ -300,11 +351,32 @@ export function resolvedScopeSetIsSafe(
 }
 
 export function scopeRootIsRecursive(scope: ResolvedScopeSet, root: string): boolean {
-  const recursiveSuffix = `${path.sep}**`;
-  return scope.permissions.some((permission) => (
-    (permission.endsWith("/**") || permission.endsWith(recursiveSuffix)) &&
-    path.resolve(permission.slice(0, -3)) === path.resolve(root)
+  const resolvedRoot = path.resolve(root);
+  return scope.permissions.includes(`${resolvedRoot}${path.sep}**`)
+    || scope.permissions.includes(`${resolvedRoot}/**`);
+}
+
+export function isolateValidationSmokeReadScope(
+  scope: ResolvedScopeSet,
+  tasksRoot: string,
+  outputRoot: string
+): { readonly ok: true } & ResolvedScopeSet {
+  const resolvedOutputRoot = path.resolve(outputRoot);
+  const roots = scope.roots.filter((root) => (
+    path.resolve(root) === resolvedOutputRoot || !sameOrInside(tasksRoot, root)
   ));
+  const permissions = [...new Set(roots.flatMap((root) => (
+    permissionPathsForScope(root, scopeRootIsRecursive(scope, root))
+  )))];
+  const reportedLeafConflicts = scope.reportedLeafConflicts?.filter((conflict) => (
+    roots.some((root) => sameOrInside(root, conflict))
+  ));
+  return {
+    ok: true,
+    roots,
+    permissions,
+    ...(reportedLeafConflicts ? { reportedLeafConflicts } : {})
+  };
 }
 
 function isAllowedWriteScope(root: string, layout: ReturnType<typeof resolveHarnessLayout>, outputRoot: string): boolean {
