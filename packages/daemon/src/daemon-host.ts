@@ -6,6 +6,7 @@ import { makeTransportDerivedIdentityProvider } from "./identity/transport-deriv
 import type { DaemonCommandClass } from "./identity/types.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { openRepoCell, type RepoCell, type RepoCellBinding, type RepoCellStatus, type RepoTaskAction } from "./repo-cell.ts";
+import { openDocSyncWatcher, type DocSyncWatcher } from "./doc-sync-watcher.ts";
 import type { AgentRuntimeAttachEvent, AgentRuntimeAttachSubscription, AgentRuntimeNativeSignal, AgentRuntimeWitnessBinding, AgentRuntimeWitnessToken } from "./agent-runtime-stream.ts";
 export interface DaemonHost {
   readonly run: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => Promise<WriteReceipt>; readonly presetRun: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => ReturnType<RepoCell["presetRun"]>;
@@ -17,25 +18,25 @@ export interface DaemonHost {
   readonly status: () => { readonly daemonId: string; readonly pid: number; readonly repos: readonly RepoCellStatus[] };
   readonly close: () => Promise<void>;
 }
-export async function openDaemonHost(input: { readonly daemonId: string; readonly userRoot: string }): Promise<DaemonHost> {
-  const cells = new Map<string, RepoCell>();
+export async function openDaemonHost(input: { readonly daemonId: string; readonly userRoot: string; readonly watchOwnerUid?: number; readonly watchDebounceMs?: number }): Promise<DaemonHost> {
+  const cells = new Map<string, RepoCell>(), watchers = new Map<string, DocSyncWatcher>(), watchFailures = new Map<string, string>(), ownerUid = input.watchOwnerUid ?? process.getuid?.() ?? 0;
   const unavailable = new Map<string, RepoCellStatus>();
   const repos = readDaemonRegistry({ userRoot: input.userRoot }).repos.filter((repo) => repo.state === "enabled");
   await Promise.all(repos.map(async (repo) => {
-    try { cells.set(repo.repoId, await openRepoCell({ repoId: workspaceId(repo.repoId), rootDir: canonicalRoot(repo.canonicalRoot), ownerId: input.daemonId, authoredBranch: repo.authoredBranch })); }
+    try { const cell = await openRepoCell({ repoId: workspaceId(repo.repoId), rootDir: canonicalRoot(repo.canonicalRoot), ownerId: input.daemonId, authoredBranch: repo.authoredBranch }); cells.set(repo.repoId, cell); await startWatch(repo.repoId, cell); }
     catch (error) { unavailable.set(repo.repoId, { repoId: repo.repoId, rootDir: repo.canonicalRoot, state: "unavailable", generation: 0,
       queueDepth: 0, recoveryMs: 0, lastError: consumeKnownError(error) }); }
   }));
   const attach = async (rootDir: string, repoId: string) => { const root = canonicalRoot(rootDir), id = workspaceId(repoId);
     const registered = registerDaemonRepo({ canonicalRoot: root, repoId, userRoot: input.userRoot, createConvenienceLinks: false });
-    if (!cells.has(repoId)) try { cells.set(repoId, await openRepoCell({ repoId: id, rootDir: root, ownerId: input.daemonId, authoredBranch: registered.repo.authoredBranch })); unavailable.delete(repoId); }
+    if (!cells.has(repoId)) try { const cell = await openRepoCell({ repoId: id, rootDir: root, ownerId: input.daemonId, authoredBranch: registered.repo.authoredBranch }); cells.set(repoId, cell); await startWatch(repoId, cell); unavailable.delete(repoId); }
     catch (error) { unavailable.set(repoId, { repoId, rootDir: root, state: "unavailable", generation: 0, queueDepth: 0, recoveryMs: 0, lastError: consumeKnownError(error) }); }
     return registered; };
   return {
     bootstrap: async (request, auth) => {
       const prepared = resolveRepoBootstrap(request), cell = await openRepoCell({ repoId: prepared.repoId, rootDir: prepared.rootDir,
         ownerId: input.daemonId, bootstrap: { input: prepared, auth } });
-      let registered; try { registered = registerDaemonRepo({ canonicalRoot: prepared.rootDir, repoId: prepared.repoId, userRoot: input.userRoot, createConvenienceLinks: false }); cells.set(prepared.repoId, cell); unavailable.delete(prepared.repoId); }
+      let registered; try { registered = registerDaemonRepo({ canonicalRoot: prepared.rootDir, repoId: prepared.repoId, userRoot: input.userRoot, createConvenienceLinks: false }); cells.set(prepared.repoId, cell); await startWatch(prepared.repoId, cell); unavailable.delete(prepared.repoId); }
       catch (error) { await cell.close(); throw error; }
       return { schema: "command-receipt/v2", ok: true, command: "init", outcome: "applied", repoId: registered.repo.repoId,
         rootDir: prepared.rootDir, changed: registered.changed, nextAction: "Create a task through the resident daemon." };
@@ -43,7 +44,7 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
     admin: async (request, auth) => { const rootDir = request.kind === "register" ? request.rootDir : readDaemonRegistry({ userRoot: input.userRoot }).repos.find((repo) => repo.repoId === request.repoId)?.canonicalRoot;
       if (!rootDir) throw hostCodedError("repo_namespace_unknown", `Unknown repo namespace: ${request.repoId}.`); await binding(rootDir, auth, "admin");
       if (request.kind === "register") { const result = await attach(request.rootDir, request.repoId); return { schema: "command-receipt/v2", ok: true, command: "daemon-repo-register", outcome: "applied", repo: result.repo, changed: result.changed }; }
-      const result = unregisterDaemonRepo(request.repoId, { userRoot: input.userRoot, createConvenienceLinks: false }); await cells.get(request.repoId)?.close(); cells.delete(request.repoId); unavailable.delete(request.repoId);
+      const result = unregisterDaemonRepo(request.repoId, { userRoot: input.userRoot, createConvenienceLinks: false }); await watchers.get(request.repoId)?.close(); watchers.delete(request.repoId); watchFailures.delete(request.repoId); await cells.get(request.repoId)?.close(); cells.delete(request.repoId); unavailable.delete(request.repoId);
       return { schema: "command-receipt/v2", ok: true, command: "daemon-repo-unregister", outcome: "applied", repo: result.repo, changed: result.changed }; },
     run: async (repoId, action, auth) => {
       const cell = cells.get(repoId);
@@ -62,9 +63,10 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
     attach: async (repoId, runtimeSessionId, afterCursor, auth) => { const cell = requiredCell(cells, unavailable, repoId); await binding(cell.status().rootDir, auth, "repo-read"); return cell.attach(runtimeSessionId, afterCursor); },
     issueRuntimeWitness: async (repoId, runtimeSessionId, auth) => { const cell = requiredCell(cells, unavailable, repoId), serverBinding = await binding(cell.status().rootDir, auth, "repo-write"); if (serverBinding.roles?.some((role) => role === "$admin" || role === "$arbiter")) throw hostCodedError("rbac_forbidden", "Admin and arbiter identities cannot become runtime witnesses."); return cell.runtime.issueWitnessToken(runtimeSessionId, { principalId: serverBinding.actor.principal.personId, source: serverBinding.source }); }, bindRuntimeWitness: (repoId, token) => requiredCell(cells, unavailable, repoId).runtime.bindWitness(token), publishRuntimeWitness: (repoId, token, signal) => { const cell = requiredCell(cells, unavailable, repoId), witness = cell.runtime.bindWitness(token); return cell.runtime.publish(witness.runtimeSessionId, signal); },
     status: () => ({ daemonId: input.daemonId, pid: process.pid,
-      repos: [...cells.values()].map((cell) => cell.status()).concat([...unavailable.values()]).sort((a, b) => a.repoId.localeCompare(b.repoId)) }),
-    close: async () => { await Promise.all([...cells.values()].map((cell) => cell.close())); }
+      repos: [...[...cells.entries()].map(([repoId, cell]) => ({ ...cell.status(), docSync: watchers.get(repoId)?.status() ?? { state: "blocked", nextAction: watchFailures.get(repoId) ?? "register the Unix socket owner in the repository prose writer role" } })), ...unavailable.values()].sort((a, b) => a.repoId.localeCompare(b.repoId)) }),
+    close: async () => { await Promise.all([...watchers.values()].map((watcher) => watcher.close())); await Promise.all([...cells.values()].map((cell) => cell.close())); }
   };
+  async function startWatch(repoId: string, cell: RepoCell): Promise<void> { try { const base = await binding(cell.status().rootDir, { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" } }, "repo-write", true); watchers.set(repoId, openDocSyncWatcher({ rootDir: cell.status().rootDir, personId: base.actor.principal.personId, debounceMs: input.watchDebounceMs, run: (action, attribution) => cell.run(action, attribution ? { ...base, source: { kind: "watch_session", sessionId: attribution.sessionId, path: attribution.path, fingerprint: attribution.fingerprint } } : base) })); watchFailures.delete(repoId); } catch (error) { consumeKnownError(error); watchFailures.set(repoId, error instanceof Error ? error.message : String(error)); } }
 }
 async function binding(rootDir: string, auth: DaemonAuthenticationContext, required: DaemonCommandClass, returnDeniedDocDetail = false): Promise<RepoCellBinding> {
   if (auth.assignmentBinding) { if (required === "admin" || required === "arbiter") throw hostCodedError("rbac_forbidden", `Assignment ingress cannot perform ${required}.`); return { actor: auth.assignmentBinding.actor,
