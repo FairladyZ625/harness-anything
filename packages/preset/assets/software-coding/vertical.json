@@ -1,10 +1,51 @@
 {
-  "schema": "preset-vertical/v1",
+  "schema": "vertical-definition/v1",
   "id": "software/coding",
-  "version": "1",
-  "taskTemplates": [
-    { "slot": "task.plan", "templateRef": "template://planning/task-plan@1", "materializeAs": "task_plan.md", "owner": "doc-sync", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-    { "slot": "task.closeout", "templateRef": "template://planning/closeout@1", "materializeAs": "closeout.md", "owner": "doc-sync", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-    { "slot": "task.artifacts.keep", "templateRef": "template://planning/keep-file@1", "materializeAs": "artifacts/.gitkeep", "owner": "doc-sync", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
-  ]
+  "title": "Software Coding",
+  "version": "1.0.0",
+  "entityKinds": [
+    {
+      "id": "task",
+      "entityType": "lifecycle",
+      "packageKind": "task-package/v2",
+      "contractEntity": true
+    }
+  ],
+  "contractEntityKinds": ["task"],
+  "packageScaffolds": [
+    {
+      "entityKind": "task",
+      "templateSelections": [
+        {
+          "slot": "task.plan",
+          "templateRef": "template://planning/task-plan@1",
+          "materializeAs": "task_plan.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        },
+        {
+          "slot": "task.closeout",
+          "templateRef": "template://planning/closeout@1",
+          "materializeAs": "closeout.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        },
+        {
+          "slot": "task.artifacts.keep",
+          "templateRef": "template://planning/keep-file@1",
+          "materializeAs": "artifacts/.gitkeep",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        }
+      ]
+    }
+  ],
+  "repositoryScaffold": {
+    "entityRoots": [
+      { "entityKind": "task", "path": "{{paths.tasksRoot}}", "create": "init" }
+    ],
+    "dirs": [],
+    "seededDocs": []
+  },
+  "scripts": [],
+  "templateSelections": [],
+  "checkerProfile": "software-coding-standard",
+  "projectionSchemas": []
 }

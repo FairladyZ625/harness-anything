@@ -1,0 +1,6 @@
+[
+  {
+    "path": "packages/preset/src/preset-resolver.ts",
+    "module": "preset"
+  }
+]

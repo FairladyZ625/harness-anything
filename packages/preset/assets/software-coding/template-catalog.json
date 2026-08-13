@@ -1,9 +1,96 @@
 {
-  "schema": "preset-template-catalog/v1",
+  "schema": "template-catalog/v2",
+  "package": {
+    "id": "software-coding-core",
+    "title": "Software Coding Core Templates",
+    "version": "1.0.0",
+    "owner": "harness-anything",
+    "locales": ["zh-CN", "en-US"]
+  },
   "documents": [
-    { "ref": "template://planning/task-plan@1", "requiredAnchors": ["## Brief", "## Goal", "## Context", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Verification"], "variants": [{ "locale": "zh-CN", "path": "templates/task.plan/zh-CN.md", "mediaType": "text/markdown" }, { "locale": "en-US", "path": "templates/task.plan/en-US.md", "mediaType": "text/markdown" }] },
-    { "ref": "template://planning/milestone-task-plan@1", "requiredAnchors": ["## Mission", "## Usage Questions", "## Wave Decomposition", "## Exit Criteria", "## Context", "## PR/merge Operations", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Verification"], "variants": [{ "locale": "zh-CN", "path": "templates/task.milestone.plan/zh-CN.md", "mediaType": "text/markdown" }, { "locale": "en-US", "path": "templates/task.milestone.plan/en-US.md", "mediaType": "text/markdown" }] },
-    { "ref": "template://planning/closeout@1", "requiredAnchors": ["## Summary", "## Verification", "## Residual Risk"], "variants": [{ "locale": "zh-CN", "path": "templates/task.closeout/zh-CN.md", "mediaType": "text/markdown" }, { "locale": "en-US", "path": "templates/task.closeout/en-US.md", "mediaType": "text/markdown" }] },
-    { "ref": "template://planning/keep-file@1", "requiredAnchors": [], "variants": [{ "locale": "zh-CN", "path": "templates/task.keep/zh-CN.md", "mediaType": "text/plain" }, { "locale": "en-US", "path": "templates/task.keep/en-US.md", "mediaType": "text/plain" }] }
+    {
+      "id": "planning/task-plan",
+      "version": "1",
+      "documentKind": "task-plan",
+      "slot": "task.plan",
+      "materializeAs": "task_plan.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Brief", "## Goal", "## Context", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Verification"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Brief", "## Goal", "## Context", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Verification"], "bodyPath": "templates/task.plan/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Brief", "## Goal", "## Context", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Verification"], "bodyPath": "templates/task.plan/en-US.md" }
+      ]
+    },
+    {
+      "id": "planning/milestone-task-plan",
+      "version": "1",
+      "documentKind": "milestone-task-plan",
+      "slot": "task.plan",
+      "materializeAs": "task_plan.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Mission", "## Usage Questions", "## Wave Decomposition", "## Exit Criteria", "## Context", "## PR/merge Operations", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Verification"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Mission", "## Usage Questions", "## Wave Decomposition", "## Exit Criteria", "## Context", "## PR/merge Operations", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Verification"], "bodyPath": "templates/task.milestone.plan/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Mission", "## Usage Questions", "## Wave Decomposition", "## Exit Criteria", "## Context", "## PR/merge Operations", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Verification"], "bodyPath": "templates/task.milestone.plan/en-US.md" }
+      ]
+    },
+    {
+      "id": "planning/closeout",
+      "version": "1",
+      "documentKind": "task-closeout",
+      "slot": "task.closeout",
+      "materializeAs": "closeout.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Summary", "## Verification", "## Residual Risk"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Summary", "## Verification", "## Residual Risk"], "bodyPath": "templates/task.closeout/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Summary", "## Verification", "## Residual Risk"], "bodyPath": "templates/task.closeout/en-US.md" }
+      ]
+    },
+    {
+      "id": "planning/keep-file",
+      "version": "1",
+      "documentKind": "keep-file",
+      "slot": "task.artifacts.keep",
+      "materializeAs": "artifacts/.gitkeep",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": [], "bodyPath": "templates/task.keep/zh-CN.md" },
+        { "locale": "en-US", "anchors": [], "bodyPath": "templates/task.keep/en-US.md" }
+      ]
+    },
+    {
+      "id": "analysis/code-impact",
+      "version": "1",
+      "documentKind": "code-impact-analysis",
+      "slot": "task.code.impact.analysis",
+      "materializeAs": "code-impact-analysis.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Change Intent", "## Affected Surfaces", "## Dependency Paths", "## Architecture Context", "## Compatibility and Data", "## Test and Verification Impact", "## Risks and Unknowns", "## Evidence"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Change Intent", "## Affected Surfaces", "## Dependency Paths", "## Architecture Context", "## Compatibility and Data", "## Test and Verification Impact", "## Risks and Unknowns", "## Evidence"], "bodyPath": "templates/task.code.impact.analysis/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Change Intent", "## Affected Surfaces", "## Dependency Paths", "## Architecture Context", "## Compatibility and Data", "## Test and Verification Impact", "## Risks and Unknowns", "## Evidence"], "bodyPath": "templates/task.code.impact.analysis/en-US.md" }
+      ]
+    },
+    {
+      "id": "planning/worker-flow",
+      "version": "1",
+      "documentKind": "worker-flow",
+      "slot": "task.worker.flow",
+      "materializeAs": "worker-flow.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Dispatch Goal", "## Scope Boundaries", "## Inputs and Dependencies", "## Acceptance Criteria", "## Stop Conditions", "## Commit and Handoff"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Dispatch Goal", "## Scope Boundaries", "## Inputs and Dependencies", "## Acceptance Criteria", "## Stop Conditions", "## Commit and Handoff"], "bodyPath": "templates/task.worker.flow/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Dispatch Goal", "## Scope Boundaries", "## Inputs and Dependencies", "## Acceptance Criteria", "## Stop Conditions", "## Commit and Handoff"], "bodyPath": "templates/task.worker.flow/en-US.md" }
+      ]
+    }
   ]
 }

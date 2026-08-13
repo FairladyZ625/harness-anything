@@ -48,6 +48,11 @@ test("preset Slice B fixture keeps the process service in preset and shared seam
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
 
+test("W3 Slice 1 fixture keeps the canonical catalog resolver in the preset budget", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/w3-s1-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});
+
 test("Decision/Fact Slice A fixture assigns the vertical cut and shared seams to their budgets", () => {
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/decision-fact-slice-a-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);

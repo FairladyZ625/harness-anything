@@ -1,0 +1,23 @@
+{
+  "schema": "preset-manifest/v3",
+  "id": "docs-task",
+  "title": "Documentation / Design Task",
+  "vertical": "software/coding",
+  "version": "3.0.0",
+  "kind": "template-content",
+  "outputShape": "task-package-artifact",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [
+    { "id": "standard-task-check", "kind": "checker", "version": "1", "required": false }
+  ],
+  "profiles": [
+    {
+      "id": "baseline",
+      "title": "Baseline",
+      "checkerProfile": "standard",
+      "completionGates": [],
+      "templateSelections": []
+    }
+  ],
+  "defaultProfile": "baseline"
+}

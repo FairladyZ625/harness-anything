@@ -1,0 +1,28 @@
+{
+  "schema": "preset-manifest/v3",
+  "id": "worker-dispatch",
+  "title": "Worker Dispatch",
+  "vertical": "software/coding",
+  "version": "3.0.0",
+  "kind": "template-content",
+  "outputShape": "repository-diff",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [],
+  "profiles": [
+    {
+      "id": "baseline",
+      "title": "Baseline",
+      "checkerProfile": "standard",
+      "completionGates": ["ci", "code-doc-reconciliation"],
+      "templateSelections": [
+        {
+          "slot": "task.worker.flow",
+          "templateRef": "template://planning/worker-flow@1",
+          "materializeAs": "worker-flow.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        }
+      ]
+    }
+  ],
+  "defaultProfile": "baseline"
+}
