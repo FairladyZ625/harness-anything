@@ -19,7 +19,7 @@ export function findCliHelpContractViolations(rootDir = process.cwd(), options =
   for (const command of commands) {
     if (!command.usage.startsWith("ha ")) violations.push(`usage must start with ha: ${command.usage}`);
     if (!command.summary.trim()) violations.push(`command ${command.usage} is missing summary`);
-    for (const flag of flags(command.usage)) if (!render.includes(`"${flag}"`) && !readControl(rootDir).includes(`"${flag}"`)) {
+    for (const flag of flags(command.usage)) if (!command.path.includes(flag) && !render.includes(`"${flag}"`) && !readControl(rootDir).includes(`"${flag}"`)) {
       violations.push(`command ${command.usage} documents unsupported option ${flag}`);
     }
   }
@@ -31,8 +31,8 @@ export function findCliHelpContractViolations(rootDir = process.cwd(), options =
   return violations;
 }
 
-function extractCommands(source) { return [...source.matchAll(/\busage:\s*"([^"]+)"\s*,\s*summary:\s*"([^"]*)"/gu)]
-  .map((match) => ({ usage: match[1], summary: match[2] })); }
+function extractCommands(source) { return [...source.matchAll(/\bpath:\s*\[([^\]]*)\][^{}]*?\busage:\s*"([^"]+)"\s*,\s*summary:\s*"([^"]*)"/gu)]
+  .map((match) => ({ path: [...match[1].matchAll(/"([^"]+)"/gu)].map((token) => token[1]), usage: match[2], summary: match[3] })); }
 function flags(source) { return [...new Set([...source.matchAll(/--[a-z0-9-]+/gu)].map((match) => match[0]))]; }
 function readControl(rootDir) { return readFileSync(path.join(rootDir, "packages/cli/src/daemon/control.ts"), "utf8"); }
 function main() { const violations = findCliHelpContractViolations(); if (violations.length === 0) return;

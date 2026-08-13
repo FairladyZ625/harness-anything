@@ -23,4 +23,6 @@ test("G12 rejects manual registries and registration calls outside contracts", (
   assert.match(lint("registry.registerCommand({ id: 'run' });")[0].message, /Register Command/u);
   assert.match(lint("const aliases = [{ usage: 'ha run', summary: 'Run' }];")[0].message, /Do not handwrite aliases/u);
   assert.match(lint("const aliases = [{ method: 'repo.run', requiresRepo: true }];")[0].message, /Do not handwrite aliases/u);
+  assert.match(lint('const flags = new Set(["--manual"]);')[0].message, /Do not handwrite a CLI flag directory/u);
+  assert.match(lint('const flags = new Set(write ? ["--one"] : ["--many"]);')[0].message, /Do not handwrite a CLI flag directory/u);
 });

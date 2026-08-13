@@ -26,6 +26,18 @@ function projectionArray(node) {
   });
 }
 
+function containsFlagLiteral(node) {
+  if (node?.type === "Literal") return typeof node.value === "string" && node.value.startsWith("--");
+  if (node?.type === "ArrayExpression") return node.elements.some(containsFlagLiteral);
+  if (node?.type === "ConditionalExpression") return containsFlagLiteral(node.consequent) || containsFlagLiteral(node.alternate);
+  return false;
+}
+
+function manualFlagSet(node) {
+  return node?.type === "NewExpression" && node.callee.type === "Identifier" && node.callee.name === "Set"
+    && containsFlagLiteral(node.arguments[0]);
+}
+
 export default {
   meta: {
     type: "problem",
@@ -33,7 +45,8 @@ export default {
     schema: [],
     messages: {
       registration: "Register {{kind}} in a *.contract.ts|mjs declaration and derive its projection.",
-      registry: "Do not handwrite {{name}} outside a *.contract.ts|mjs declaration."
+      registry: "Do not handwrite {{name}} outside a *.contract.ts|mjs declaration.",
+      flagDirectory: "Do not handwrite a CLI flag directory; derive it from a *.contract.ts|mjs declaration."
     }
   },
   create(context) {
@@ -42,6 +55,9 @@ export default {
       CallExpression(node) {
         const name = calleeName(node.callee);
         if (REGISTER_METHODS.has(name)) context.report({ node, messageId: "registration", data: { kind: name.slice("register".length) } });
+      },
+      NewExpression(node) {
+        if (manualFlagSet(node)) context.report({ node, messageId: "flagDirectory" });
       },
       VariableDeclarator(node) {
         if (node.id.type !== "Identifier") return;
