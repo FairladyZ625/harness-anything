@@ -11,6 +11,7 @@ export const MODULES = Object.freeze([
   "cli",
   "gui",
   "daemon",
+  "fleet",
   "authority-write-path",
   "identity-rbac",
   "agent-runtime",
@@ -51,6 +52,7 @@ export function classifyModule(filePath) {
   if (isTestPath(normalized) || /^(?:\.github|scripts|tools)\//u.test(normalized)) return "test-infra";
 
   if (normalized === "packages/kernel/src/domain/write-chain.contract.ts") return "write-contract";
+  if (/^packages\/daemon\/src\/fleet\//u.test(normalized)) return "fleet";
   if (/agent-runtime/u.test(normalized)) return "agent-runtime";
   if ([
     "packages/kernel/src/domain/fact-event.ts",

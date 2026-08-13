@@ -84,3 +84,14 @@ test("G32 introduces the Decision/Fact bucket with the 480-line design ceiling",
   assert.equal(result.ok, true, result.errors.join("\n"));
   assert.equal(result.actual["decision-fact"], 1);
 });
+
+test("G32 introduces the Fleet bucket with the 350-line design ceiling", () => {
+  const legacyModules = MODULES.filter((name) => name !== "fleet");
+  const legacyBudget = `${JSON.stringify({ version: 1, ceilings: Object.fromEntries(legacyModules.map((name) => [name, name === "kernel" ? 2 : 0])) }, null, 2)}\n`;
+  const { rootDir, base } = makeRepo({ "packages/kernel/src/index.ts": "one\ntwo\n", "tools/gates/line-budgets.json": legacyBudget });
+  writeRepoFile(rootDir, "packages/daemon/src/fleet/contract.ts", "contract\n");
+  writeRepoFile(rootDir, "tools/gates/line-budgets.json", budgetBody(2).replace('"fleet": 0', '"fleet": 350'));
+  const result = evaluateLineBudget({ rootDir, base });
+  assert.equal(result.ok, true, result.errors.join("\n"));
+  assert.equal(result.actual.fleet, 1);
+});

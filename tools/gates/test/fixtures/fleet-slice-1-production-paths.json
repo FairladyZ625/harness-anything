@@ -1,0 +1,7 @@
+[
+  { "path": "packages/daemon/src/fleet/contract.ts", "module": "fleet" },
+  { "path": "packages/daemon/src/fleet/center.ts", "module": "fleet" },
+  { "path": "packages/daemon/src/fleet/edge.ts", "module": "fleet" },
+  { "path": "packages/daemon/src/daemon-host.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/doc-sync-actions.ts", "module": "doc-sync" }
+]

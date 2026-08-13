@@ -3,11 +3,11 @@ import path from "node:path";
 import { DOC_POLICY_ID, decideDocWrite, docSyncWritePlan, documentPath, isDocEvent, normalizeCommandEnvelope, parseDocWriteIntent, resolveDocRoute, resolveHarnessLayout, sha256Bytes, stableStringify,
   type ActorIdentity, type DocClaimRef, type DocEventV1, type DocSyncReceiptDetail, type DocWriteIntent, type EventPublicationKillpoint, type LedgerCommitSha, type WriteReceipt, type WriteSource } from "../../kernel/src/index.ts";
 import type { CanonicalEventStore, TaskProjection } from "../../kernel/src/index.ts";
+import type { FleetAssignmentScope } from "./fleet/contract.ts";
 
 export const DOC_COMMAND_FRAME_MAX_BYTES = 256 * 1024;
 type Action = Readonly<Record<string, unknown>> & { readonly kind: string };
-interface Binding { readonly actor: ActorIdentity; readonly source: WriteSource; readonly docWriteAllowed?: boolean; readonly assignmentScope?: AssignmentScope }
-interface AssignmentScope { readonly repoId: string; readonly taskId: string; readonly executionId: string; readonly paths: readonly string[] }
+interface Binding { readonly actor: ActorIdentity; readonly source: WriteSource; readonly docWriteAllowed?: boolean; readonly assignmentScope?: FleetAssignmentScope }
 type Input = { readonly action: Action; readonly binding: Binding; readonly workspaceId: string; readonly rootDir: string; readonly store: CanonicalEventStore; readonly projection: TaskProjection; readonly now: () => string; readonly killpoint?: (point: EventPublicationKillpoint) => void };
 
 export function isDocAction(kind: string): boolean { return kind === "doc-status" || kind === "doc-submit" || kind === "doc-show"; }
@@ -53,12 +53,6 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
   return canonicalVisible ? { outcome: "applied", ...common } : { outcome: "pending", ...common, nextAction: receiptDetail.nextAction };
 }
 
-export function applyDocReplicaAck(receipt: WriteReceipt, viewId: string, ackCut: number): WriteReceipt {
-  if (!receipt.proof || receipt.revision === undefined || receipt.visibility !== "center") throw coded("invalid_ack", "replica ACK requires a center visibility receipt");
-  const exactAck = receipt.outcome === "applied" && receipt.proof.durable && receipt.proof.canonicalVisible && ackCut === receipt.revision;
-  const common = { ...receipt, visibility: { kind: "replica" as const, viewId }, proof: { ...receipt.proof, ackCut, worktreeVisible: exactAck } };
-  return exactAck ? common : { ...common, outcome: "pending", nextAction: `wait for replica ${viewId} ACK at revision ${receipt.revision}` };
-}
 export function readProjectedDocument(projection: TaskProjection, payload: Readonly<Record<string, unknown>>) { const taskId = requiredString(payload.taskId, "taskId"), requested = requiredString(payload.path, "path"), read = projection.readDocument(documentPath(`tasks/${taskId}/${requested}`));
   return { ok: true as const, status: read.status, taskId, path: requested, body: read.document?.body ?? "", blobSha256: read.document?.blobSha256 ?? null, watermark: read.watermark, sourceRevision: read.sourceRevision }; }
 

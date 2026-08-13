@@ -1,4 +1,7 @@
-export type DaemonTransportKind = "unix-socket";
+import type { FleetAssignmentBinding } from "../fleet/contract.ts";
+
+export type DaemonTransportKind = "unix-socket" | "fleet-tls";
+export interface DaemonFleetAssignmentBinding extends FleetAssignmentBinding { readonly nodeId: FleetAssignmentBinding["nodeId"]; readonly assignmentId: FleetAssignmentBinding["assignmentId"] }
 
 export interface UnixSocketOwnerBoundary {
   readonly ownerUid: number;
@@ -9,13 +12,5 @@ export interface DaemonAuthenticationContext {
   readonly transportKind: DaemonTransportKind;
   readonly endpoint?: string;
   readonly unixSocketOwnerBoundary?: UnixSocketOwnerBoundary;
-  /** Future Fleet ingress supplies this only after assignment lookup/authentication. */
-  readonly assignmentBinding?: {
-    readonly nodeId: string; readonly repoId: string; readonly taskId: string; readonly executionId: string;
-    readonly assignmentId: string; readonly paths: readonly string[];
-    readonly actor: {
-      readonly principal: { readonly personId: string };
-      readonly executor: { readonly kind: "agent"; readonly id: string } | null;
-    };
-  };
+  readonly assignmentBinding?: DaemonFleetAssignmentBinding;
 }
