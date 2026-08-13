@@ -36,7 +36,7 @@ Task Contract: harness-task v1
 - 结构化表：`harness/milestones/dossier-data.md`
 - Charter decision：`dec_*`，由 CEO 裁决后填写；本 preset 只校验存在，不代创建。
 
-## PR/merge 运维
+## PR/merge Operations
 
 - 全局 merge-health 运维台账：`task_01KWYKCPG5FZA3AFVX9R8XX3B7`（Authority: `decision/dec_mrat6152`）。
 - 治理文档：`harness/governance/standards/merge-queue-troubleshooting-standard.md`。
