@@ -3,7 +3,7 @@
   "package": {
     "id": "software-coding-core",
     "title": "Software Coding Core Templates",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "owner": "harness-anything",
     "locales": ["zh-CN", "en-US"]
   },
@@ -76,6 +76,132 @@
       "locales": [
         { "locale": "zh-CN", "anchors": ["## Package Convention", "## Sources"], "bodyPath": "templates/repository.context.research/zh-CN.md" },
         { "locale": "en-US", "anchors": ["## Package Convention", "## Sources"], "bodyPath": "templates/repository.context.research/en-US.md" }
+      ]
+    },
+    {
+      "id": "repository/standards-index",
+      "version": "1",
+      "documentKind": "repository-standards-index",
+      "slot": "repository.standard.index",
+      "materializeAs": "{{paths.standardsRoot}}/README.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Purpose", "## Active Rules"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Purpose", "## Active Rules"], "bodyPath": "templates/repository.standard.index/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Purpose", "## Active Rules"], "bodyPath": "templates/repository.standard.index/en-US.md" }
+      ]
+    },
+    {
+      "id": "repository/repository-governance",
+      "version": "1",
+      "documentKind": "repository-standard",
+      "slot": "repository.standard.governance",
+      "materializeAs": "{{paths.standardsRoot}}/repository-governance.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Change Flow", "## Preservation"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Change Flow", "## Preservation"], "bodyPath": "templates/repository.standard.governance/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Change Flow", "## Preservation"], "bodyPath": "templates/repository.standard.governance/en-US.md" }
+      ]
+    },
+    {
+      "id": "repository/decision-writing",
+      "version": "1",
+      "documentKind": "repository-standard",
+      "slot": "repository.standard.decision-writing",
+      "materializeAs": "{{paths.standardsRoot}}/decision-writing.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Decision Boundary", "## Evidence"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Decision Boundary", "## Evidence"], "bodyPath": "templates/repository.standard.decision-writing/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Decision Boundary", "## Evidence"], "bodyPath": "templates/repository.standard.decision-writing/en-US.md" }
+      ]
+    },
+    {
+      "id": "repository/adr-index",
+      "version": "1",
+      "documentKind": "repository-adr-index",
+      "slot": "repository.adr.index",
+      "materializeAs": "{{paths.adrRoot}}/README.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Decision Projection Boundary", "## Navigation"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Decision Projection Boundary", "## Navigation"], "bodyPath": "templates/repository.adr.index/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Decision Projection Boundary", "## Navigation"], "bodyPath": "templates/repository.adr.index/en-US.md" }
+      ]
+    },
+    {
+      "id": "repository/milestones-index",
+      "version": "1",
+      "documentKind": "repository-milestones-index",
+      "slot": "repository.milestones.index",
+      "materializeAs": "{{paths.milestonesRoot}}/README.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Navigation", "## State Boundary"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Navigation", "## State Boundary"], "bodyPath": "templates/repository.milestones.index/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Navigation", "## State Boundary"], "bodyPath": "templates/repository.milestones.index/en-US.md" }
+      ]
+    },
+    {
+      "id": "repository/walls-manifest",
+      "version": "1",
+      "documentKind": "repository-machine-file",
+      "slot": "repository.walls.manifest",
+      "materializeAs": "{{paths.governanceRoot}}/walls/walls.json",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["\"schema\": \"walls/v1\""],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["\"schema\": \"walls/v1\""], "bodyPath": "templates/repository.walls.manifest/zh-CN.txt" },
+        { "locale": "en-US", "anchors": ["\"schema\": \"walls/v1\""], "bodyPath": "templates/repository.walls.manifest/en-US.txt" }
+      ]
+    },
+    {
+      "id": "repository/walls-runner",
+      "version": "1",
+      "documentKind": "repository-machine-file",
+      "slot": "repository.walls.runner",
+      "materializeAs": "{{paths.governanceRoot}}/walls/run-walls.mjs",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["const manifest", "const needsReport"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["const manifest", "const needsReport"], "bodyPath": "templates/repository.walls.runner/zh-CN.txt" },
+        { "locale": "en-US", "anchors": ["const manifest", "const needsReport"], "bodyPath": "templates/repository.walls.runner/en-US.txt" }
+      ]
+    },
+    {
+      "id": "repository/agent-entry",
+      "version": "1",
+      "documentKind": "repository-agent-entry",
+      "slot": "repository.agent.entry",
+      "materializeAs": "{{paths.rootDir}}/AGENTS.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Read First", "## Standards Routing"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Read First", "## Standards Routing"], "bodyPath": "templates/repository.agent.entry/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Read First", "## Standards Routing"], "bodyPath": "templates/repository.agent.entry/en-US.md" }
+      ]
+    },
+    {
+      "id": "repository/claude-entry",
+      "version": "1",
+      "documentKind": "repository-agent-entry",
+      "slot": "repository.claude.entry",
+      "materializeAs": "{{paths.rootDir}}/CLAUDE.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Read First", "## Standards Routing"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Read First", "## Standards Routing"], "bodyPath": "templates/repository.claude.entry/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Read First", "## Standards Routing"], "bodyPath": "templates/repository.claude.entry/en-US.md" }
       ]
     },
     {

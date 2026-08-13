@@ -53,7 +53,7 @@
       { "entityKind": "decision", "path": "{{paths.decisionsRoot}}", "create": "lazy" }
     ],
     "dirs": [
-      { "path": "{{paths.authoredRoot}}/standards", "create": "init" },
+      { "path": "{{paths.standardsRoot}}", "create": "init" },
       { "path": "{{paths.authoredRoot}}/context", "create": "init" },
       { "path": "{{paths.adrRoot}}", "create": "init" },
       { "path": "{{paths.sessionsRoot}}", "create": "lazy" }
@@ -62,7 +62,7 @@
       {
         "slot": "repository.governance",
         "templateRef": "template://planning/task-flow@1",
-        "materializeAs": "{{paths.authoredRoot}}/standards/repo-governance.md",
+        "materializeAs": "{{paths.standardsRoot}}/repo-governance.md",
         "localePolicy": {
           "prefer": "project",
           "fallback": "en-US"

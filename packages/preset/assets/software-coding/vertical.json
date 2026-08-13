@@ -2,7 +2,7 @@
   "schema": "vertical-definition/v1",
   "id": "software/coding",
   "title": "Software Coding",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "entityKinds": [
     {
       "id": "task",
@@ -47,7 +47,16 @@
       { "slot": "repository.context.architecture", "templateRef": "template://repository/context-architecture@1", "materializeAs": "{{paths.contextRoot}}/architecture/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.context.development", "templateRef": "template://repository/context-development@1", "materializeAs": "{{paths.contextRoot}}/development/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.context.integrations", "templateRef": "template://repository/context-integrations@1", "materializeAs": "{{paths.contextRoot}}/integrations/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.context.research", "templateRef": "template://repository/context-research@1", "materializeAs": "{{paths.contextRoot}}/research/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
+      { "slot": "repository.context.research", "templateRef": "template://repository/context-research@1", "materializeAs": "{{paths.contextRoot}}/research/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "repository.standard.index", "templateRef": "template://repository/standards-index@1", "materializeAs": "{{paths.standardsRoot}}/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "repository.standard.governance", "templateRef": "template://repository/repository-governance@1", "materializeAs": "{{paths.standardsRoot}}/repository-governance.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "repository.standard.decision-writing", "templateRef": "template://repository/decision-writing@1", "materializeAs": "{{paths.standardsRoot}}/decision-writing.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "repository.adr.index", "templateRef": "template://repository/adr-index@1", "materializeAs": "{{paths.adrRoot}}/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "repository.milestones.index", "templateRef": "template://repository/milestones-index@1", "materializeAs": "{{paths.milestonesRoot}}/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "repository.walls.manifest", "templateRef": "template://repository/walls-manifest@1", "materializeAs": "{{paths.governanceRoot}}/walls/walls.json", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "repository.walls.runner", "templateRef": "template://repository/walls-runner@1", "materializeAs": "{{paths.governanceRoot}}/walls/run-walls.mjs", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "repository.agent.entry", "templateRef": "template://repository/agent-entry@1", "materializeAs": "{{paths.rootDir}}/AGENTS.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "repository.claude.entry", "templateRef": "template://repository/claude-entry@1", "materializeAs": "{{paths.rootDir}}/CLAUDE.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
     ]
   },
   "scripts": [],
