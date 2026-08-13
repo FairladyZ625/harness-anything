@@ -8,7 +8,7 @@ import { assertCurrentWriter, bindWriterGenerationToken, compileTaskProgress, is
 import { compileRepoTaskBootstrap, createPresetProcessService, presetUserRoot, runPresetAction, type PresetRunReceiptV1 } from "../../preset/src/index.ts";
 import { commandClassForAction, type CanonicalRoot, type DaemonGuiReadMethod, type DaemonGuiReadResultMap, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
 import { bootstrapRepo, type RepoBootstrapInput, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
-import { isDocAction, readDocReceipt, readProjectedDocument, runDocAction } from "./doc-sync-actions.ts";
+import { isDocAction, readDocReceipt, readProjectedDocument, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts"; import { makeAgentRuntimeStreamHub, type AgentRuntimeAttachSubscription, type AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { makeDecisionActions, makeFactActions } from "./fact-actions.ts";
 import type { FleetAssignmentScope } from "./fleet/contract.ts";
@@ -40,7 +40,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
     queueDepth += 1;
     const pending = tail.then(async () => { queueDepth -= 1; assertCurrentWriter(activeWriter, writerToken, input.repoId); return executeAction(action, binding); });
     tail = pending.then(() => undefined, () => undefined); const result = pending.catch((error) => { if (fatalCellError(error)) { state = "unavailable"; lastError = cellErrorMessage(error); }
-      return failed(operationId(action, binding, input.repoId, 0), error); });
+      return failed(errorOperationId(error) ?? operationId(action, binding, input.repoId, 0), error); });
     return result;
   };
   const presetRun: RepoCell["presetRun"] = async (action, binding) => action.kind === "preset-run-status" ? presetProcess.status(requiredString(action.runId, "runId")) : action.kind === "preset-run-start" ? presetProcess.start({ presetId: requiredString(action.presetId, "presetId"), entrypoint: requiredString(action.entrypoint, "entrypoint"), ...(typeof action.taskId === "string" ? { taskId: action.taskId } : {}), ...(action.inputs && typeof action.inputs === "object" && !Array.isArray(action.inputs) ? { inputs: action.inputs as Readonly<Record<string, unknown>> } : {}), idempotencyKey: requiredString(action.idempotencyKey, "idempotencyKey") }, { admitProduce: (kind) => { try { return commandClassForAction(kind) === "repo-write"; } catch { return false; } }, publish: (produced) => run(produced, binding) }) : { schema: "preset-run-receipt/v1", runId: "run_invalid", outcome: "rejected", phase: "rejected", phases: ["rejected"], code: "unsupported_command", nextAction: "Use repo.preset.run.start or repo.preset.run.status." };
@@ -54,11 +54,11 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
   async function executeAction(action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> {
     if (action.kind === "receipt-show") return receiptForOperation(String(action.opId ?? ""), binding);
     if (action.kind === "task-show") return showTask(String(action.taskId ?? ""));
-    if (action.kind.startsWith("fact-")) return factActions.run(action, binding, operationId(action, binding, input.repoId, store.readHead()?.revision ?? 0));
+    if (action.kind.startsWith("fact-")) return factActions.run(action, binding, operationId(action, binding, input.repoId, action.kind === "fact-record" && typeof action.taskId === "string" ? projection.read(action.taskId).snapshot.revision : store.readHead()?.revision ?? 0));
     if (action.kind.startsWith("decision-")) return decisionActions.run(action, binding, operationId(action, binding, input.repoId, store.readHead()?.revision ?? 0));
     if (action.kind.startsWith("preset-")) { const result = await runPresetAction({ rootDir, action }); return { outcome: "applied", opId: operationId(action, binding, input.repoId, store.readHead()?.revision ?? 0), revision: store.readHead()?.revision ?? 0, evidence: JSON.stringify(result), visibility: "center", proof: { committedRevision: store.readHead()?.revision ?? 0, appliedCut: projection.list().watermark, durable: true, canonicalVisible: true, worktreeVisible: action.kind === "preset-install" || action.kind === "preset-uninstall" } }; }
     if (action.kind === "task-create") return createTask(action, binding);
-    if (isDocAction(action.kind)) return runDocAction({ action, binding, workspaceId: input.repoId, rootDir, store, projection, now, killpoint: input.killpoint });
+    if (isDocAction(action.kind)) return runDocAction({ action, binding, workspaceId: input.repoId, rootDir, store, projection, now, killpoint: input.killpoint }); if (action.kind === "task-artifact-add") return runArtifactAdd({ action, binding, workspaceId: input.repoId, rootDir, store, projection, now, killpoint: input.killpoint });
     if (action.kind === "task-progress-append") return appendProgress(action, binding);
     if (!taskWriteKind(action.kind)) return rejected(operationId(action, binding, input.repoId, 0), "unsupported_command", "No domain contract exists for this write command.");
     const taskId = requiredString(action.taskId, "taskId"), current = await service.read(taskId), expectedRevision = current.snapshot.revision;
@@ -152,6 +152,7 @@ function gateReceipts(value: unknown, declared: readonly string[], executionId: 
   return receipts;
 }
 function cellCodedError(code: string, text: string): Error { const error = new Error(text) as Error & { code: string }; error.code = code; return error; }
+function errorOperationId(error: unknown): string | null { return typeof error === "object" && error !== null && "opId" in error && typeof error.opId === "string" ? error.opId : null; }
 function cellErrorCode(error: unknown): string { return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "service_rejected"; }
 function cellErrorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function fatalCellError(error: unknown): boolean { if (error instanceof VcsCommandError) return true; if (!(error instanceof Error) || !("code" in error)) return true; return ["invalid_store", "legacy_shape", "op_conflict", "revision_conflict", "publication_indeterminate", "writer_rejected"].includes(String(error.code)); }

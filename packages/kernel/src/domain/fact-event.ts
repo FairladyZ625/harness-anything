@@ -1,4 +1,6 @@
-import { hasOnlyFields, isNonEmptyString, isRecord, serializeEventEnvelope, type ActorIdentity, type EventEnvelope } from "./write-chain.contract.ts";
+import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
+import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
+import { freezeDeclaredWritePlan, hasOnlyFields, isFrozenWritePlan, isNonEmptyString, isRecord, serializeEventEnvelope, type ActorIdentity, type EventEnvelope, type FrozenWritePlan, type WriteTarget } from "./write-chain.contract.ts";
 import { relationDirections, relationOrigins, relationStates, relationStrengths, relationTypes, type EntityRelationRecord } from "./entity-relation.ts";
 
 export const factConfidenceLevels = ["low", "medium", "high"] as const;
@@ -9,6 +11,10 @@ export type FactConfidence = typeof factConfidenceLevels[number];
 export type FactMemoryClass = typeof factMemoryClasses[number];
 export type FactMemoryTag = typeof factMemoryTags[number];
 export type FactProvenanceRuntime = typeof factProvenanceRuntimes[number];
+export const FACT_DOCUMENT_POLICY_ID = "typed-machine-writer/v1" as const;
+export interface FactsDocumentClaim { readonly path: string; readonly sha256: string; readonly size: number; readonly mediaType: "text/markdown"; readonly policyId: typeof FACT_DOCUMENT_POLICY_ID }
+export interface FactDocumentRecord { readonly factId: string; readonly statement: string; readonly evidenceSource: string; readonly observedAt: string; readonly confidence: FactConfidence; readonly state: "live" | "retired"; readonly workspaceRevision: number }
+export interface FactContentBlob { readonly sha256: string; readonly size: number; readonly mediaType: "text/markdown"; readonly body: string }
 
 export interface FactEventPayload {
   readonly statement: string;
@@ -19,12 +25,25 @@ export interface FactEventPayload {
   readonly memoryTags: readonly FactMemoryTag[];
   readonly provenance: readonly { readonly runtime: FactProvenanceRuntime; readonly sessionId: string; readonly boundAt: string }[];
   readonly supersedes?: { readonly factRef: string; readonly rationale: string };
+  readonly factsDocumentClaim: FactsDocumentClaim;
 }
 
 export type FactEventV1 = EventEnvelope<"fact-event/v1", "fact_recorded", ActorIdentity, FactEventPayload> & {
   readonly taskId: string;
   readonly factId: string;
 };
+export type FactEventDraftV1 = Omit<FactEventV1, "payload"> & { readonly payload: Omit<FactEventPayload, "factsDocumentClaim"> };
+export interface CompiledFactWrite { readonly event: FactEventV1; readonly plan: FrozenWritePlan<"FactRecord">; readonly blobs: readonly [FactContentBlob]; readonly path: string; readonly body: string }
+
+export function compileFactWrite(input: { readonly event: FactEventDraftV1; readonly packagePath: string; readonly currentFacts: readonly FactDocumentRecord[] }): CompiledFactWrite {
+  const path = `${input.packagePath}/facts.md`; try { if (normalizeRelativeDocumentPath(path) !== path || !input.packagePath.startsWith(`tasks/${input.event.taskId}-`)) throw new Error(); } catch { throw new Error("facts package path is invalid"); }
+  const next: FactDocumentRecord = { factId: input.event.factId, statement: input.event.payload.statement, evidenceSource: input.event.payload.evidenceSource, observedAt: input.event.payload.observedAt, confidence: input.event.payload.confidence, state: "live", workspaceRevision: input.event.workspaceRevision }, target = input.event.payload.supersedes?.factRef;
+  const records = [...input.currentFacts.map((fact) => target?.endsWith(`/${fact.factId}`) ? { ...fact, state: "retired" as const } : fact), next].sort((left, right) => left.workspaceRevision - right.workspaceRevision || left.factId.localeCompare(right.factId)), body = renderFactsDocument(records), claim: FactsDocumentClaim = { path, sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/markdown", policyId: FACT_DOCUMENT_POLICY_ID }, event: FactEventV1 = { ...input.event, payload: { ...input.event.payload, factsDocumentClaim: claim } };
+  return { event, plan: factWritePlan(event), blobs: [{ sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType, body }], path, body };
+}
+export function renderFactsDocument(records: readonly FactDocumentRecord[]): string { return `# Facts\n\nManaged by \`ha fact record\`; hand edits are rejected.\n\n## Records\n\n${[...records].sort((left, right) => left.workspaceRevision - right.workspaceRevision || left.factId.localeCompare(right.factId)).map((fact) => `### ${fact.factId}\n\n- Statement: ${scalar(fact.statement)}\n- Evidence source: ${scalar(fact.evidenceSource)}\n- Observed at: ${fact.observedAt}\n- Confidence: ${fact.confidence}\n- State: ${fact.state}\n\n`).join("")}`; }
+export function factWritePlan(event: FactEventV1): FrozenWritePlan<"FactRecord"> { const claim = event.payload.factsDocumentClaim, targets: WriteTarget[] = [{ kind: "event_file", path: `harness/events/${event.opId}.json`, operation: "create" }, { kind: "event_head", path: "harness/events/head.json", operation: "replace" }, { kind: "authored_file", path: claim.path, operation: "replace", sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType }, { kind: "content_blob", sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType }, { kind: "projection_invalidation", projection: "fact/v1", key: event.taskId }, { kind: "projection_invalidation", projection: "document/v1", key: claim.path }]; return freezeDeclaredWritePlan({ commandType: "FactRecord", targets }, ["FactRecord"]); }
+export function assertFactWritePlan(event: FactEventV1, plan: FrozenWritePlan | undefined): void { const shape = (value: FrozenWritePlan) => stableStringify({ commandType: value.commandType, targets: value.targets.map(stableStringify).sort() }); if (!plan || !isFrozenWritePlan(plan) || shape(plan) !== shape(factWritePlan(event))) throw new Error("fact write plan must exactly declare event, document, blob, and projections"); }
 
 export const decisionEventTypes = ["decision_proposed", "decision_accepted", "decision_rejected", "decision_deferred", "decision_retired", "decision_claim_declared", "decision_claim_fulfillment_declared", "decision_related", "decision_relation_retired"] as const;
 export const decisionStates = ["proposed", "accepted", "rejected", "deferred", "retired"] as const;
@@ -65,14 +84,16 @@ export function validateFactEvent(value: unknown): readonly string[] {
     || !includes(factConfidenceLevels, payload.confidence) || !includes(factMemoryClasses, payload.memoryClass)
     || !Array.isArray(payload.memoryTags) || new Set(payload.memoryTags).size !== payload.memoryTags.length || payload.memoryTags.some((tag) => !includes(factMemoryTags, tag))
     || !Array.isArray(payload.provenance) || payload.provenance.length === 0 || payload.provenance.some((entry) => !provenance(entry)) || !uniqueProvenance(payload.provenance)
-    || payload.supersedes !== undefined && !supersedes(payload.supersedes)) return ["fact event payload is invalid"];
+    || payload.supersedes !== undefined && !supersedes(payload.supersedes) || !validFactsClaim(payload.factsDocumentClaim, value.taskId)) return ["fact event payload is invalid"];
   return [];
 }
 
 function payloadFields(value: Readonly<Record<string, unknown>>): boolean {
-  const required = ["statement", "evidenceSource", "observedAt", "confidence", "memoryClass", "memoryTags", "provenance"];
+  const required = ["statement", "evidenceSource", "observedAt", "confidence", "memoryClass", "memoryTags", "provenance", "factsDocumentClaim"];
   return required.every((field) => Object.hasOwn(value, field)) && Object.keys(value).every((field) => required.includes(field) || field === "supersedes");
 }
+function validFactsClaim(value: unknown, taskId: unknown): value is FactsDocumentClaim { if (!isRecord(value) || !hasOnlyFields(value, ["path", "sha256", "size", "mediaType", "policyId"]) || !/^[0-9a-f]{64}$/u.test(String(value.sha256)) || !Number.isSafeInteger(value.size) || (value.size as number) < 0 || value.mediaType !== "text/markdown" || value.policyId !== FACT_DOCUMENT_POLICY_ID || typeof taskId !== "string" || !String(value.path).startsWith(`tasks/${taskId}-`) || !String(value.path).endsWith("/facts.md")) return false; try { return normalizeRelativeDocumentPath(String(value.path)) === value.path; } catch { return false; } }
+function scalar(value: string): string { return JSON.stringify(value).slice(1, -1); }
 function provenance(value: unknown): boolean { return isRecord(value) && hasOnlyFields(value, ["runtime", "sessionId", "boundAt"])
   && includes(factProvenanceRuntimes, value.runtime) && isNonEmptyString(value.sessionId) && timestamp(value.boundAt); }
 function uniqueProvenance(values: readonly unknown[]): boolean { const keys = values.map((value) => isRecord(value) ? `${String(value.runtime)}\0${String(value.sessionId)}` : ""); return new Set(keys).size === keys.length; }

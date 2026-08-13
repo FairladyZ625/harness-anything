@@ -2,13 +2,13 @@
 import assert from "node:assert/strict";
 import { Schema } from "effect";
 import test from "node:test";
-import { FactEventSchema, parseCanonicalEvent, serializeCanonicalEvent, type FactEventV1 } from "../../src/index.ts";
+import { compileFactWrite, FactEventSchema, parseCanonicalEvent, serializeCanonicalEvent, type FactEventDraftV1 } from "../../src/index.ts";
 import { validateFactEvent } from "../../src/domain/fact-event.ts";
 
-const event: FactEventV1 = { schema: "fact-event/v1", eventId: "event-fact-contract", workspaceRevision: 1, opId: "op-fact-contract",
+const draft: FactEventDraftV1 = { schema: "fact-event/v1", eventId: "event-fact-contract", workspaceRevision: 1, opId: "op-fact-contract",
   taskId: "task-contract", factId: "F-ABCDEFGH", type: "fact_recorded", actor: { principal: { personId: "person-contract" }, executor: null }, source: "local",
   occurredAt: "2026-08-13T00:00:00.000Z", payload: { statement: "Closed Fact payload", evidenceSource: "contract fixture", observedAt: "2026-08-13T00:00:00.000Z",
-    confidence: "high", memoryClass: "semantic", memoryTags: ["pattern"], provenance: [{ runtime: "human", sessionId: "session-contract", boundAt: "2026-08-13T00:00:00.000Z" }] } };
+    confidence: "high", memoryClass: "semantic", memoryTags: ["pattern"], provenance: [{ runtime: "human", sessionId: "session-contract", boundAt: "2026-08-13T00:00:00.000Z" }] } }, event = compileFactWrite({ event: draft, packagePath: "tasks/task-contract-contract", currentFacts: [] }).event;
 
 test("Fact event schema accepts canonical bytes and rejects invalid or unknown fields", () => {
   assert.deepEqual(validateFactEvent(event), []);
@@ -32,3 +32,5 @@ test("Fact event schema accepts canonical bytes and rejects invalid or unknown f
   }
   assert.throws(() => parseCanonicalEvent(`${JSON.stringify({ ...event, schema: "unknown-event/v1" })}\n`), /unknown/u);
 });
+
+test("Fact compiler renders the exact machine-owned file and retires superseded history", () => { const first = compileFactWrite({ event: draft, packagePath: "tasks/task-contract-contract", currentFacts: [] }); assert.equal(first.body, "# Facts\n\nManaged by `ha fact record`; hand edits are rejected.\n\n## Records\n\n### F-ABCDEFGH\n\n- Statement: Closed Fact payload\n- Evidence source: contract fixture\n- Observed at: 2026-08-13T00:00:00.000Z\n- Confidence: high\n- State: live\n\n"); const secondDraft: FactEventDraftV1 = { ...draft, eventId: "event-fact-correction", opId: "op-fact-correction", workspaceRevision: 2, factId: "F-BCDEFGHJ", payload: { ...draft.payload, statement: "Corrected payload", supersedes: { factRef: "fact/task-contract/F-ABCDEFGH", rationale: "New evidence" } } }, second = compileFactWrite({ event: secondDraft, packagePath: "tasks/task-contract-contract", currentFacts: [{ factId: draft.factId, statement: draft.payload.statement, evidenceSource: draft.payload.evidenceSource, observedAt: draft.payload.observedAt, confidence: draft.payload.confidence, state: "live", workspaceRevision: draft.workspaceRevision }] }); assert.match(second.body, /### F-ABCDEFGH[\s\S]*State: retired[\s\S]*### F-BCDEFGHJ[\s\S]*State: live/u); });
