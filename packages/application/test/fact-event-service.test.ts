@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeDecisionService, makeFactService } from "../src/index.ts";
-import { canonicalEventWritePlan, deriveRelationId, makeTaskEventStore, makeTaskProjection, type CanonicalEventStore, type CanonicalEventV1, type CanonicalWriteBundle, type DecisionEventV1, type FactEventV1 } from "../../kernel/src/index.ts";
+import { canonicalEventWritePlan, compileFactWrite, deriveRelationId, makeTaskEventStore, makeTaskProjection, type CanonicalEventStore, type CanonicalEventV1, type CanonicalWriteBundle, type DecisionEventV1, type FactEventDraftV1, type FactEventV1, type TaskProjection } from "../../kernel/src/index.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 
 const actor = { principal: { personId: "person-fact" }, executor: { kind: "agent", id: "codex" } } as const;
@@ -21,7 +21,7 @@ test("recorded Fact is durable and immediately searchable through the canonical 
     const store = makeTaskEventStore({ repoId: "fact-test", rootDir });
     const projection = makeTaskProjection({ rootDir, eventStore: store });
     const service = makeFactService({ eventStore: store, projection });
-    const event: FactEventV1 = {
+    const draft: FactEventDraftV1 = {
       schema: "fact-event/v1", eventId: "event-fact-1", workspaceRevision: 1, opId: "op-fact-1",
       taskId: "task-fact", factId: "F-ABCDEFGH", type: "fact_recorded", actor, source: "local",
       occurredAt: "2026-08-13T00:00:00.000Z", payload: { statement: "SQLite FTS is the Fact read path.", evidenceSource: "integration test",
@@ -30,11 +30,11 @@ test("recorded Fact is durable and immediately searchable through the canonical 
           { runtime: "human", sessionId: "session-review", boundAt: "2026-08-13T00:00:01.000Z" }] }
     };
 
-    const recorded = service.record(event);
+    const event = compile(projection, draft), recorded = service.record(event);
     assert.equal(recorded.fact.factId, "F-ABCDEFGH");
-    assert.deepEqual(recorded.fact.memoryTags, event.payload.memoryTags);
-    assert.deepEqual(recorded.fact.provenance, event.payload.provenance);
-    assert.equal(store.readEvent(event.opId)?.schema, "fact-event/v1");
+    assert.deepEqual(recorded.fact.memoryTags, event.event.payload.memoryTags);
+    assert.deepEqual(recorded.fact.provenance, event.event.payload.provenance);
+    assert.equal(store.readEvent(event.event.opId)?.schema, "fact-event/v1");
     assert.deepEqual(service.search({ query: "SQLite", taskId: "task-fact" }).facts, [recorded.fact]);
     assert.deepEqual(service.show("task-fact", "F-ABCDEFGH").fact, recorded.fact);
   } finally {
@@ -43,30 +43,30 @@ test("recorded Fact is durable and immediately searchable through the canonical 
 });
 
 test("Fact opId replay is byte-idempotent and conflicts on different bytes", () => {
-  withFixture(({ service }) => {
-    const event = factEvent(1, "task-fact", "F-ABCDEFGH");
-    assert.deepEqual(service.record(event), service.record(event));
-    assert.throws(() => service.record({ ...event, payload: { ...event.payload, statement: "Different bytes" } }), (error: unknown) => code(error) === "op_conflict");
+  withFixture(({ service, projection }) => {
+    const bundle = compile(projection, factEvent(1, "task-fact", "F-ABCDEFGH"));
+    assert.deepEqual(service.record(bundle), service.record(bundle));
+    assert.throws(() => service.record(compile(projection, { ...bundle.event, payload: { ...bundle.event.payload, statement: "Different bytes" } })), (error: unknown) => code(error) === "op_conflict");
   });
 });
 
 test("Fact identity is task-local and supersedes only a known live Fact", () => {
-  withFixture(({ service }) => {
-    service.record(factEvent(1, "task-a", "F-ABCDEFGH"));
-    service.record(factEvent(2, "task-b", "F-ABCDEFGH"));
-    const correction = service.record(factEvent(3, "task-a", "F-BCDEFGHJ", { factRef: "fact/task-a/F-ABCDEFGH", rationale: "Corrects the original observation." }));
+  withFixture(({ service, projection }) => {
+    recordFact(service, projection, factEvent(1, "task-a", "F-ABCDEFGH"));
+    recordFact(service, projection, factEvent(2, "task-b", "F-ABCDEFGH"));
+    const correction = recordFact(service, projection, factEvent(3, "task-a", "F-BCDEFGHJ", { factRef: "fact/task-a/F-ABCDEFGH", rationale: "Corrects the original observation." }));
     assert.equal(service.show("task-a", "F-ABCDEFGH").fact.state, "retired");
     assert.equal(correction.fact.state, "live");
-    assert.throws(() => service.record(factEvent(4, "task-a", "F-CDEFGHJK", { factRef: "fact/task-a/F-ABCDEFGH", rationale: "Cannot retire twice." })), (error: unknown) => code(error) === "relation_invalid");
-    assert.throws(() => service.record(factEvent(4, "task-a", "F-DEFGHJKM", { factRef: "fact/task-a/F-12345678", rationale: "Missing target." })), (error: unknown) => code(error) === "entity_not_found");
-    assert.throws(() => service.record(factEvent(4, "task-a", "F-BCDEFGHJ")), (error: unknown) => code(error) === "invalid_transition");
+    assert.throws(() => recordFact(service, projection, factEvent(4, "task-a", "F-CDEFGHJK", { factRef: "fact/task-a/F-ABCDEFGH", rationale: "Cannot retire twice." })), (error: unknown) => code(error) === "relation_invalid");
+    assert.throws(() => recordFact(service, projection, factEvent(4, "task-a", "F-DEFGHJKM", { factRef: "fact/task-a/F-12345678", rationale: "Missing target." })), (error: unknown) => code(error) === "entity_not_found");
+    assert.throws(() => recordFact(service, projection, factEvent(4, "task-a", "F-BCDEFGHJ")), (error: unknown) => code(error) === "invalid_transition");
+    const factsPath = "tasks/task-a-fixture/facts.md", before = { facts: service.search({ taskId: "task-a" }).facts, document: projection.readDocument(factsPath).document }; rmSync(projection.path, { force: true }); projection.rebuild(); assert.deepEqual({ facts: service.search({ taskId: "task-a" }).facts, document: projection.readDocument(factsPath).document }, before);
   });
 });
 
 test("search catches up a Fact committed to L1 before the projection transaction", () => {
   withFixture(({ store, projection, service }) => {
-    const original = factEvent(1, "task-fact", "F-ABCDEFGH"), correction = factEvent(2, "task-fact", "F-BCDEFGHJ", { factRef: "fact/task-fact/F-ABCDEFGH", rationale: "New observation." });
-    store.append(bundle(original)); projection.apply(original); store.append(bundle(correction));
+    const original = compile(projection, factEvent(1, "task-fact", "F-ABCDEFGH")); store.append(original); projection.apply(original.event, original.plan); const correction = compile(projection, factEvent(2, "task-fact", "F-BCDEFGHJ", { factRef: "fact/task-fact/F-ABCDEFGH", rationale: "New observation." })); store.append(correction);
     const search = service.search({ query: "Fact", taskId: "task-fact" });
     assert.equal(search.status, "ready"); assert.equal(search.watermark, 2); assert.equal(service.show("task-fact", "F-ABCDEFGH").fact.state, "retired");
     assert.deepEqual(projection.readFactGraph().edges.map((edge) => [edge.sourceRef, edge.targetRef, edge.state]), [["fact/task-fact/F-BCDEFGHJ", "fact/task-fact/F-ABCDEFGH", "active"]]);
@@ -76,13 +76,13 @@ test("search catches up a Fact committed to L1 before the projection transaction
 test("Fact admission never appends against a projection more than one catch-up round behind", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-backlog-"));
   try {
-    const backlog = Array.from({ length: 65 }, (_, index) => factEvent(index + 1, "task-backlog", `F-${String(index + 1).padStart(8, "0")}`));
+    const backlog = factBacklog(65, "task-backlog");
     const store = memoryFactStore(backlog), projection = makeTaskProjection({ rootDir, eventStore: store }), service = makeFactService({ eventStore: store, projection });
-    const collision = factEvent(66, "task-backlog", "F-00000065");
-    assert.throws(() => service.record(collision), (error: unknown) => code(error) === "content_not_ready");
+    const collision = factEvent(66, "task-backlog", "F-00000065"), first = projection.searchFacts({ taskId: "task-backlog" });
+    assert.equal(first.status, "pending");
     assert.equal(store.readHead()?.revision, 65, "pending admission must not append");
     assert.equal(service.show("task-backlog", "F-00000065").fact.factId, "F-00000065");
-    assert.throws(() => service.record(collision), (error: unknown) => code(error) === "invalid_transition");
+    assert.throws(() => service.record(compile(projection, collision)), (error: unknown) => code(error) === "invalid_transition");
     assert.equal(store.readHead()?.revision, 65, "collision must be found before append");
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
@@ -114,7 +114,7 @@ test("Decision coverage replays all fulfillment modes, refutation, and exact tas
     const store = makeTaskEventStore({ repoId: "coverage-test", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store });
     for (const event of lifecycleFixture().events) { store.append(bundle(event)); projection.apply(event); }
     const factService = makeFactService({ eventStore: store, projection }), decisionService = makeDecisionService({ eventStore: store, projection });
-    factService.record(factEvent(7, "task-1", "F-ABCDEFGH")); factService.record(factEvent(8, "task-1", "F-BCDEFGHJ"));
+    recordFact(factService, projection, factEvent(7, "task-1", "F-ABCDEFGH")); recordFact(factService, projection, factEvent(8, "task-1", "F-BCDEFGHJ"));
     let revision = 9;
     const record = (decisionId: string, type: DecisionEventV1["type"], payload: unknown, eventActor = type === "decision_proposed" ? actor : { principal: { personId: "person-arbiter" }, executor: null } as const) => decisionService.record(decisionAt(revision++, decisionId, type, payload, eventActor));
     const propose = (decisionId: string, decisionClass: "ordinary" | "standing_policy" = "ordinary") => record(decisionId, "decision_proposed", { title: decisionId, question: `Should ${decisionId} hold?`, riskTier: "medium", urgency: "medium", vertical: "default", preset: "default", appliesTo: { modules: ["kernel"], productLines: [] }, decisionClass, chosen: [{ id: "CH1", text: "Proceed" }], rejected: [{ id: "RJ1", text: "Stop", whyNot: "Evidence supports proceeding" }] });
@@ -142,22 +142,25 @@ function withDecisionFixture(run: (fixture: { readonly store: ReturnType<typeof 
 function decisionEvent(revision: number, type: DecisionEventV1["type"], eventActor = { principal: { personId: "person-arbiter" }, executor: null } as const, extra?: unknown): DecisionEventV1 { const base = { schema: "decision-event/v1" as const, eventId: `event-decision-${revision}`, workspaceRevision: revision, opId: `op-decision-${revision}`, decisionId: "dec_FIXTURE", actor: type === "decision_proposed" ? actor : eventActor, source: "local" as const, occurredAt: new Date(Date.UTC(2026, 7, 13, 1, 0, revision)).toISOString() }; if (type === "decision_proposed") return { ...base, type, payload: { title: "Canonical Decision", question: "Should this Decision be event-backed?", riskTier: "medium", urgency: "medium", vertical: "default", preset: "default", appliesTo: { modules: ["kernel"], productLines: [] }, decisionClass: "ordinary", chosen: [{ id: "CH1", text: "Use events", rationale: "Replayable" }], rejected: [{ id: "RJ1", text: "Use markdown", whyNot: "Not canonical" }] } }; if (type === "decision_accepted") return { ...base, type, payload: { rationale: "Independent approval." } }; if (type === "decision_rejected" || type === "decision_deferred" || type === "decision_retired") return { ...base, type, payload: { reason: "Recorded outcome." } }; if (type === "decision_claim_declared") return { ...base, type, payload: { claimId: "C1", text: "The event is deterministic.", loadBearing: true } }; if (type === "decision_claim_fulfillment_declared") return { ...base, type, payload: { claimId: "C1", mode: "evidenced" } }; if (type === "decision_related") return { ...base, type, payload: { relation: extra as never } }; return { ...base, type, payload: { relationId: String(extra), reason: "The edge is no longer current." } }; }
 function decisionAt(revision: number, decisionId: string, type: DecisionEventV1["type"], payload: unknown, eventActor: DecisionEventV1["actor"]): DecisionEventV1 { return { schema: "decision-event/v1", eventId: `event-${decisionId}-${revision}`, workspaceRevision: revision, opId: `op-${decisionId}-${revision}`, decisionId, type, actor: eventActor, source: "local", occurredAt: new Date(Date.UTC(2026, 7, 13, 2, 0, revision)).toISOString(), payload } as DecisionEventV1; }
 function relationRecord(source: string, target: string, type: "supports" | "produces" | "evidenced-by") { const identity = { source, target, type, direction: "directed" as const }; return { relation_id: deriveRelationId(identity), ...identity, strength: "strong" as const, origin: "declared" as const, rationale: "Canonical Decision relation.", state: "active" as const }; }
-function factEvent(revision: number, taskId: string, factId: string, supersedes?: { readonly factRef: string; readonly rationale: string }): FactEventV1 { return {
+function factEvent(revision: number, taskId: string, factId: string, supersedes?: { readonly factRef: string; readonly rationale: string }): FactEventDraftV1 { return {
   schema: "fact-event/v1", eventId: `event-fact-${revision}`, workspaceRevision: revision, opId: `op-fact-${revision}`, taskId, factId, type: "fact_recorded", actor, source: "local",
   occurredAt: new Date(Date.UTC(2026, 7, 13, 0, 0, revision)).toISOString(), payload: { statement: `Fact observation ${revision}`, evidenceSource: "integration test", observedAt: new Date(Date.UTC(2026, 7, 13, 0, 0, revision)).toISOString(),
     confidence: "high", memoryClass: "semantic", memoryTags: ["pattern"], provenance: [{ runtime: "codex", sessionId: "session-fact", boundAt: "2026-08-13T00:00:00.000Z" }], ...(supersedes ? { supersedes } : {}) }
 }; }
+function compile(projection: Pick<TaskProjection, "searchFacts">, draft: FactEventDraftV1) { return compileFactWrite({ event: draft, packagePath: `tasks/${draft.taskId}-fixture`, currentFacts: projection.searchFacts({ taskId: draft.taskId }).facts }); }
+function recordFact(service: ReturnType<typeof makeFactService>, projection: Pick<TaskProjection, "searchFacts">, draft: FactEventDraftV1) { return service.record(compile(projection, draft)); }
+function factBacklog(count: number, taskId: string) { const events: FactEventV1[] = [], records: Parameters<typeof compileFactWrite>[0]["currentFacts"][number][] = [], contents = new Map<string, Uint8Array>(); for (let index = 0; index < count; index += 1) { const compiled = compileFactWrite({ event: factEvent(index + 1, taskId, `F-${String(index + 1).padStart(8, "0")}`), packagePath: `tasks/${taskId}-fixture`, currentFacts: records }); events.push(compiled.event); contents.set(compiled.event.payload.factsDocumentClaim.sha256, Buffer.from(compiled.body)); records.push({ factId: compiled.event.factId, statement: compiled.event.payload.statement, evidenceSource: compiled.event.payload.evidenceSource, observedAt: compiled.event.payload.observedAt, confidence: compiled.event.payload.confidence, state: "live", workspaceRevision: compiled.event.workspaceRevision }); } return { events, contents }; }
 function code(error: unknown): string | undefined { return typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined; }
 function bundle(event: CanonicalEventV1): CanonicalWriteBundle { return { event, plan: canonicalEventWritePlan(event, "test/v1", event.opId), blobs: [] }; }
 
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
 }
-function memoryFactStore(initial: readonly FactEventV1[]): CanonicalEventStore {
-  const events = [...initial];
+function memoryFactStore(initial: ReturnType<typeof factBacklog>): CanonicalEventStore {
+  const events = [...initial.events], contents = new Map(initial.contents);
   return { readHead: () => events.length ? { revision: events.length } : null, readBatch: (cursor: string | null, maxItems: number) => {
     const start = cursor === null ? 0 : Number(cursor), batch = events.slice(start, start + maxItems), next = start + batch.length;
     return { sourceRevision: events.length, events: batch, cursor: String(next), done: next === events.length, accessedItems: batch.length };
-  }, readContentBlob: () => null, readEvent: (opId: string) => events.find((event) => event.opId === opId) ?? null,
-  append: (({ event }: CanonicalWriteBundle) => { events.push(event as FactEventV1); return { revision: event.workspaceRevision }; }) } as unknown as CanonicalEventStore;
+  }, readContentBlob: (sha256: string) => contents.get(sha256) ?? null, readEvent: (opId: string) => events.find((event) => event.opId === opId) ?? null,
+  append: ((bundleValue: CanonicalWriteBundle) => { const event = bundleValue.event as FactEventV1; events.push(event); for (const blob of bundleValue.blobs) contents.set(blob.sha256, Buffer.from(blob.body)); return { revision: event.workspaceRevision, commitSha: { sha: "0".repeat(40) } }; }) } as unknown as CanonicalEventStore;
 }

@@ -62,7 +62,7 @@ export {
   makeTaskProjection,
   makeMarkdownArtifactStore
 } from "./composition/index.ts";
-export type { CanonicalEventStore, EventPublicationKillpoint, TaskProjection } from "./composition/index.ts";
+export type { CanonicalEventStore, CanonicalWriteBundle, EventPublicationKillpoint, TaskProjection } from "./composition/index.ts";
 export {
   readDaemonRegistry,
   resolveDaemonRepoByRoot,

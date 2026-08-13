@@ -1,0 +1,18 @@
+[
+  { "path": "packages/application/src/fact-service.ts", "module": "decision-fact" },
+  { "path": "packages/application/src/index.ts", "module": "task-lifecycle" },
+  { "path": "packages/cli/src/cli/thin-command.ts", "module": "cli" },
+  { "path": "packages/daemon/src/doc-sync-actions.ts", "module": "doc-sync" },
+  { "path": "packages/daemon/src/fact-actions.ts", "module": "decision-fact" },
+  { "path": "packages/daemon/src/protocol/daemon-protocol.contract.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/repo-cell.ts", "module": "daemon" },
+  { "path": "packages/kernel/src/composition/index.ts", "module": "kernel" },
+  { "path": "packages/kernel/src/domain/doc-sync.contract.ts", "module": "doc-sync" },
+  { "path": "packages/kernel/src/domain/fact-event.ts", "module": "decision-fact" },
+  { "path": "packages/kernel/src/domain/index.ts", "module": "kernel" },
+  { "path": "packages/kernel/src/entity/field-contracts.ts", "module": "kernel" },
+  { "path": "packages/kernel/src/index.ts", "module": "kernel" },
+  { "path": "packages/kernel/src/projection/rebuildable-task-projection.ts", "module": "kernel" },
+  { "path": "packages/kernel/src/store/task-event-store.ts", "module": "kernel" },
+  { "path": "packages/preset/src/preset-bootstrap.ts", "module": "preset" }
+]

@@ -21,7 +21,7 @@ export interface EntityFieldContract {
 
 export type DecisionFieldKey = keyof DecisionProposalPayload | "schema" | "decisionId" | "state" | "proposer" | "arbiter" | "claims" | "relations" | "body";
 export type TaskFieldKey = keyof TaskFrontmatter;
-export type FactFieldKey = keyof FactEventPayload | "factId";
+export type FactFieldKey = Exclude<keyof FactEventPayload, "factsDocumentClaim"> | "factId";
 export type RelationFieldKey = keyof EntityRelationRecord;
 
 export const decisionFieldContracts = {
