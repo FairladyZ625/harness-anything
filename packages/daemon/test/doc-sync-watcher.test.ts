@@ -22,6 +22,14 @@ test("watch notifications are hints and two stable fingerprints admit one RepoCe
   } finally { await watcher.close(); }
 });
 
+test("temporary and unnormalizable filesystem hints fall back to a full scan", async () => {
+  const actions: Array<{ kind: string; paths: readonly string[] }> = [], canonical = "context/notes.md", fingerprint = "d".repeat(64);
+  const watcher = openDocSyncWatcher({ rootDir: process.cwd(), personId: "person-owner", watchFilesystem: false, startupScan: false, debounceMs: 1,
+    run: async (action) => { actions.push(action); return action.kind === "doc-submit" ? applied("atomic-save") : scan("e".repeat(40), [{ path: canonical, state: "eligible", candidateBlobSha256: fingerprint }]); } });
+  try { watcher.wake(`${canonical}.vim-tmp`); await watcher.flush(); assert.deepEqual(actions, [{ kind: "doc-dry-run", paths: [] }, { kind: "doc-dry-run", paths: [canonical] }, { kind: "doc-submit", paths: [canonical] }]); }
+  finally { await watcher.close(); }
+});
+
 test("vim save is harvested without a doc command and restart collects offline edits", async () => {
   const fixture = repoFixture("offline"); let host = await openDaemonHost({ daemonId: "watch-offline-one", userRoot: fixture.userRoot, watchOwnerUid: fixture.uid, watchDebounceMs: 2 });
   try {

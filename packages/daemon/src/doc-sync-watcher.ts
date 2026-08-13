@@ -14,7 +14,7 @@ export function openDocSyncWatcher(input: { readonly rootDir: string; readonly p
   const sessionId = `watch-${randomUUID()}`, debounceMs = input.debounceMs ?? 75, pending = new Set<string>(), observations = new Map<string, { fingerprint: string; count: number }>(), submitted = new Map<string, string>();
   const metrics = { scans: 0, intents: 0, commits: 0, writes: 0 }; let state: DocSyncWatchStatus["state"] = "active", lastReceipt: DocSyncWatchStatus["lastReceipt"] = null, timer: NodeJS.Timeout | null = null, filesystem: FSWatcher | null = null, tail = Promise.resolve();
   const schedule = () => { if (timer || state === "closed") return; timer = setTimeout(() => { timer = null; enqueue(false); }, debounceMs); };
-  const wake = (logicalPath?: string) => { if (state === "closed") return; const normalized = logicalPath && normalize(logicalPath); if (logicalPath && !normalized) return; pending.add(normalized ?? fullScan); schedule(); };
+  const wake = (logicalPath?: string) => { if (state === "closed") return; const normalized = logicalPath && normalize(logicalPath); pending.add(normalized ?? fullScan); schedule(); };
   const enqueue = (drain: boolean) => { tail = tail.then(async () => { do { await scanOnce(); } while (drain && pending.size > 0); }, () => undefined); };
   const scanOnce = async () => {
     if (!pending.size || state === "closed") return; const selected = pending.has(fullScan) ? [] : [...pending].sort(); pending.clear();
