@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -79,6 +79,20 @@ for (const killpoint of ["before_event_write", "after_event_write", "after_head_
       assert.throws(() => interrupted.append(event), new RegExp(`crash:${killpoint}`, "u")); const recovery = makeTaskEventStore({ repoId: "test-repo", rootDir }).recover();
       if (killpoint === "after_head_write") assert.equal(recovery.status, "committed"); else if (["after_git_commit", "before_worktree_rename", "after_worktree_rename"].includes(killpoint)) assert.equal(recovery.status, "already_committed"); else assert.equal(recovery.status, "none");
       const resumed = makeTaskEventStore({ repoId: "test-repo", rootDir }); resumed.append(event); assert.equal(resumed.read().revision, 1); assert.equal(git(rootDir, "rev-list", "--count", CANONICAL_EVENT_REF), "2"); assert.equal(git(rootDir, "for-each-ref", "--format=%(refname)", "refs/ha-event-prepared/"), "");
+    });
+  });
+}
+
+for (const killpoint of ["before_event_write", "after_event_write", "after_head_write", "after_git_commit", "before_worktree_rename", "after_worktree_rename"] as const) {
+  test(`SIGKILL recovery handles ${killpoint} without duplicate publication`, async () => {
+    await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const moduleUrl = new URL("../../src/store/task-event-store.ts", import.meta.url).href, child = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", [
+        `import { makeTaskEventStore } from ${JSON.stringify(moduleUrl)};`,
+        "const event = JSON.parse(process.env.HA_KILL_EVENT);",
+        "makeTaskEventStore({ repoId: 'test-repo', rootDir: process.env.HA_KILL_ROOT, killpoint: (point) => { if (point === process.env.HA_KILL_POINT) process.kill(process.pid, 'SIGKILL'); } }).append(event);"
+      ].join("\n")], { encoding: "utf8", env: { ...process.env, HA_KILL_EVENT: JSON.stringify(event), HA_KILL_POINT: killpoint, HA_KILL_ROOT: rootDir } });
+      assert.equal(child.signal, "SIGKILL", child.stderr); const recovery = makeTaskEventStore({ repoId: "test-repo", rootDir }).recover();
+      if (killpoint === "after_head_write") assert.equal(recovery.status, "committed"); else if (["after_git_commit", "before_worktree_rename", "after_worktree_rename"].includes(killpoint)) assert.equal(recovery.status, "already_committed"); else assert.equal(recovery.status, "none");
+      const resumed = makeTaskEventStore({ repoId: "test-repo", rootDir }); resumed.append(event); assert.equal(resumed.read().revision, 1); assert.equal(git(rootDir, "for-each-ref", "--format=%(refname)", "refs/ha-event-prepared/"), ""); assert.equal(git(rootDir, "rev-parse", CANONICAL_EVENT_REF), git(rootDir, "rev-parse", "HEAD"));
     });
   });
 }
