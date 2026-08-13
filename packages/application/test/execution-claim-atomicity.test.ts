@@ -15,7 +15,7 @@ test("claim releases its CAS reservation before publication and converges from a
 
     harness.kill("after_git_commit");
     await assert.rejects(harness.start("execution-1", "op-start-1"), /killpoint:after_git_commit/u);
-    assert.equal(harness.eventStore.recover().status, "none");
+    assert.equal(harness.eventStore.recover().status, "already_committed");
     const converged = await harness.service.read("task-1");
     assert.equal(converged.status, "ready");
     assert.equal(converged.snapshot.executions[0]?.state, "active");

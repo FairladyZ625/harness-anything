@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeDecisionService, makeFactService } from "../src/index.ts";
-import { canonicalEventWritePlan, compileFactWrite, deriveRelationId, makeTaskEventStore, makeTaskProjection, type CanonicalEventStore, type CanonicalEventV1, type CanonicalWriteBundle, type DecisionEventV1, type FactEventDraftV1, type FactEventV1, type TaskProjection } from "../../kernel/src/index.ts";
+import { canonicalEventWritePlan, compileFactWrite, deriveRelationId, isTaskEvent, makeTaskEventStore, makeTaskProjection, taskLifecycleWritePlan, type CanonicalEventStore, type CanonicalEventV1, type CanonicalWriteBundle, type DecisionEventV1, type FactEventDraftV1, type FactEventV1, type TaskProjection } from "../../kernel/src/index.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 
 const actor = { principal: { personId: "person-fact" }, executor: { kind: "agent", id: "codex" } } as const;
@@ -112,7 +112,7 @@ test("Decision coverage replays all fulfillment modes, refutation, and exact tas
   try {
     git(rootDir, "init", "--quiet"); git(rootDir, "config", "user.name", "Coverage Test"); git(rootDir, "config", "user.email", "coverage@example.invalid"); git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "base");
     const store = makeTaskEventStore({ repoId: "coverage-test", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store });
-    for (const event of lifecycleFixture().events) { store.append(bundle(event)); projection.apply(event); }
+    for (const event of lifecycleFixture().events) { const compiled = bundle(event); store.append(compiled); projection.apply(event, compiled.plan); }
     const factService = makeFactService({ eventStore: store, projection }), decisionService = makeDecisionService({ eventStore: store, projection });
     recordFact(factService, projection, factEvent(7, "task-1", "F-ABCDEFGH")); recordFact(factService, projection, factEvent(8, "task-1", "F-BCDEFGHJ"));
     let revision = 9;
@@ -151,7 +151,7 @@ function compile(projection: Pick<TaskProjection, "searchFacts">, draft: FactEve
 function recordFact(service: ReturnType<typeof makeFactService>, projection: Pick<TaskProjection, "searchFacts">, draft: FactEventDraftV1) { return service.record(compile(projection, draft)); }
 function factBacklog(count: number, taskId: string) { const events: FactEventV1[] = [], records: Parameters<typeof compileFactWrite>[0]["currentFacts"][number][] = [], contents = new Map<string, Uint8Array>(); for (let index = 0; index < count; index += 1) { const compiled = compileFactWrite({ event: factEvent(index + 1, taskId, `F-${String(index + 1).padStart(8, "0")}`), packagePath: `tasks/${taskId}-fixture`, currentFacts: records }); events.push(compiled.event); contents.set(compiled.event.payload.factsDocumentClaim.sha256, Buffer.from(compiled.body)); records.push({ factId: compiled.event.factId, statement: compiled.event.payload.statement, evidenceSource: compiled.event.payload.evidenceSource, observedAt: compiled.event.payload.observedAt, confidence: compiled.event.payload.confidence, state: "live", workspaceRevision: compiled.event.workspaceRevision }); } return { events, contents }; }
 function code(error: unknown): string | undefined { return typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined; }
-function bundle(event: CanonicalEventV1): CanonicalWriteBundle { return { event, plan: canonicalEventWritePlan(event, "test/v1", event.opId), blobs: [] }; }
+function bundle(event: CanonicalEventV1): CanonicalWriteBundle { return { event, plan: isTaskEvent(event) ? taskLifecycleWritePlan(event) : canonicalEventWritePlan(event, "test/v1", event.opId), blobs: [] }; }
 
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();

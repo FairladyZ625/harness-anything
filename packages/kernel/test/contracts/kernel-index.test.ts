@@ -10,9 +10,8 @@ test("kernel public source index is importable by the explicit TS test runner", 
     "StartExecution",
     "SubmitExecution",
     "RecordReview",
-    "RecordReview",
-    "RecordReview",
-    "RecordReview",
+    "RecordReviewConsent",
+    "ReconcileCodeDoc",
     "CompleteTask"
   ]);
   assert.deepEqual([...kernel.decisionStates], [

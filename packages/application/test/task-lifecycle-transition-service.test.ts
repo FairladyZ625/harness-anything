@@ -162,13 +162,13 @@ test("transition service replays reject through a new Execution before completio
     await harness.start("execution-2");
     await harness.submit("execution-2");
     await harness.review("execution-2", "anti_entropy", "approved");
-    await harness.review("execution-2", "acceptance", "approved");
+    await harness.consent("execution-2");
     const completed = await harness.complete("execution-2");
 
     assert.equal(completed.snapshot.task?.status, "done");
     assert.equal(completed.snapshot.task?.iteration, 1);
     assert.deepEqual(completed.snapshot.executions.map((execution) => execution.state), ["changes_requested", "accepted"]);
-    assert.deepEqual(completed.snapshot.edgesTaken.map((edge) => edge.on), ["submitted", "changes_requested", "submitted", "approved"]);
+    assert.deepEqual(completed.snapshot.edgesTaken.map((edge) => edge.on), ["submitted", "changes_requested", "submitted"]);
   } finally {
     harness.cleanup();
   }
@@ -266,7 +266,7 @@ function oldTaskEvent(revision: number): Extract<TaskEventV1, { readonly type: "
     schema: "task-event/v1", eventId: `event-old-${suffix}`, workspaceRevision: revision, opId: `op-old-${suffix}`, taskId,
     type: "task_created", actor, source: "local", occurredAt: "2026-08-11T00:00:00.000Z",
     payload: { task: { schema: "task/v1", taskId, title: `Old task ${suffix}`, taskClass: "standard", status: "planned", graph: replayGraph,
-      currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [], presetSnapshotDigest: null } }
+      currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [], presetSnapshotDigest: null }, documentClaims: [] }
   };
 }
 function git(rootDir: string, ...args: readonly string[]): string {

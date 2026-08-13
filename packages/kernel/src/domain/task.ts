@@ -53,4 +53,4 @@ export function validateTaskV1(value: unknown): readonly ContractValidationIssue
   return issues;
 }
 
-const taskNodeIdsForValidation = ["implementation", "anti_entropy", "review"] as const;
+const taskNodeIdsForValidation = ["implementation", "review"] as const;

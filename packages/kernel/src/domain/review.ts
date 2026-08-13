@@ -1,26 +1,15 @@
 import { isNativeCommitSha } from "./execution.ts";
 import { hasOnlyFields, isNonEmptyString, isRecord, validateActorAxes } from "./task.ts";
 import type { ActorAxes, ContractValidationIssue } from "./task.ts";
-
+import type { WriteSource } from "./write-chain.contract.ts";
+import { validateWriteSource } from "./write-chain.contract.ts";
 export const reviewVerdicts = ["approved", "changes_requested", "dismissed"] as const;
 export type ReviewVerdict = (typeof reviewVerdicts)[number];
-
-export const reviewKinds = ["anti_entropy", "acceptance"] as const;
-export type ReviewKind = (typeof reviewKinds)[number];
-export const reviewActorRoles = ["anti_entropy", "acceptance"] as const;
-export type ReviewActorRole = (typeof reviewActorRoles)[number];
-export interface ReviewV1 { readonly schema: "review/v1"; readonly reviewId: string; readonly taskId: string; readonly executionId: string; readonly kind: ReviewKind; readonly verdict: ReviewVerdict; readonly actor: ActorAxes; readonly actorRole: ReviewActorRole; readonly capabilityRef: string; readonly reason: string; readonly evidenceChecked: readonly string[]; readonly commitSha: string; readonly iteration: 0 | 1; readonly archiveWarningsAcknowledged: boolean; readonly reviewedAt: string }
-export const REVIEW_V1_SCHEMA = Object.freeze({ id: "Review/v1", required: Object.freeze(["schema", "reviewId", "taskId", "executionId", "kind", "verdict", "actor", "actorRole", "capabilityRef", "reason", "evidenceChecked", "commitSha", "iteration", "archiveWarningsAcknowledged", "reviewedAt"]), kinds: reviewKinds, verdicts: reviewVerdicts });
-export function validateReviewV1(value: unknown): readonly ContractValidationIssue[] {
-  if (!isRecord(value) || !hasOnlyFields(value, REVIEW_V1_SCHEMA.required)) return [{ code: "invalid_review", message: "Review/v1 fields are incomplete or unknown" }];
-  const issues: ContractValidationIssue[] = [];
-  if (value.schema !== "review/v1") issues.push({ code: "invalid_schema", message: "Review must use review/v1" });
-  if (!isNonEmptyString(value.reviewId) || !isNonEmptyString(value.taskId) || !isNonEmptyString(value.executionId)
-    || !isNonEmptyString(value.capabilityRef) || !isNonEmptyString(value.reason) || !isNonEmptyString(value.reviewedAt)) issues.push({ code: "invalid_review", message: "review identity and reason are required" });
-  if (!(reviewKinds as readonly unknown[]).includes(value.kind) || !(reviewVerdicts as readonly unknown[]).includes(value.verdict)
-    || !(reviewActorRoles as readonly unknown[]).includes(value.actorRole) || value.actorRole !== value.kind) issues.push({ code: "invalid_review", message: "review kind, verdict, or actor role is invalid" });
-  if (!Array.isArray(value.evidenceChecked) || value.evidenceChecked.some((item) => !isNonEmptyString(item)) || !isNativeCommitSha(value.commitSha)
-    || (value.iteration !== 0 && value.iteration !== 1) || typeof value.archiveWarningsAcknowledged !== "boolean") issues.push({ code: "invalid_review", message: "review evidence, commit, iteration, or acknowledgement is invalid" });
-  issues.push(...validateActorAxes(value.actor));
-  return issues;
-}
+export interface ReviewV1 { readonly schema: "review/v1"; readonly reviewId: string; readonly taskId: string; readonly executionId: string; readonly verdict: ReviewVerdict; readonly actor: ActorAxes; readonly capabilityRef: string; readonly reason: string; readonly evidenceChecked: readonly string[]; readonly commitSha: string; readonly iteration: 0 | 1; readonly contentDigest: `sha256:${string}`; readonly reviewedAt: string }
+export interface ReviewConsentV1 { readonly schema: "review-consent/v1"; readonly consentId: string; readonly taskId: string; readonly executionId: string; readonly reviewId: string; readonly reviewDigest: `sha256:${string}`; readonly contentDigest: `sha256:${string}`; readonly actor: ActorAxes; readonly source: WriteSource; readonly consentedAt: string }
+export const REVIEW_V1_SCHEMA = Object.freeze({ id: "Review/v1", required: Object.freeze(["schema", "reviewId", "taskId", "executionId", "verdict", "actor", "capabilityRef", "reason", "evidenceChecked", "commitSha", "iteration", "contentDigest", "reviewedAt"]), verdicts: reviewVerdicts });
+export const REVIEW_CONSENT_V1_SCHEMA = Object.freeze({ id: "ReviewConsent/v1", required: Object.freeze(["schema", "consentId", "taskId", "executionId", "reviewId", "reviewDigest", "contentDigest", "actor", "source", "consentedAt"]) });
+export function validateReviewV1(value: unknown): readonly ContractValidationIssue[] { if (!isRecord(value) || !hasOnlyFields(value, REVIEW_V1_SCHEMA.required)) return [bad("Review/v1 fields are incomplete or unknown")]; const issues: ContractValidationIssue[] = []; if (value.schema !== "review/v1" || !isNonEmptyString(value.reviewId) || !isNonEmptyString(value.taskId) || !isNonEmptyString(value.executionId) || !isNonEmptyString(value.capabilityRef) || !isNonEmptyString(value.reason) || !isNonEmptyString(value.reviewedAt) || !reviewVerdicts.includes(value.verdict as ReviewVerdict)) issues.push(bad("review identity, verdict, and reason are required")); if (!Array.isArray(value.evidenceChecked) || value.evidenceChecked.some((item) => !isNonEmptyString(item)) || !isNativeCommitSha(value.commitSha) || value.iteration !== 0 && value.iteration !== 1 || !digest(value.contentDigest)) issues.push(bad("review content cut, evidence, commit, or iteration is invalid")); issues.push(...validateActorAxes(value.actor)); return issues; }
+export function validateReviewConsentV1(value: unknown): readonly ContractValidationIssue[] { if (!isRecord(value) || !hasOnlyFields(value, REVIEW_CONSENT_V1_SCHEMA.required)) return [bad("ReviewConsent/v1 fields are incomplete or unknown")]; const valid = value.schema === "review-consent/v1" && [value.consentId, value.taskId, value.executionId, value.reviewId, value.consentedAt].every(isNonEmptyString) && digest(value.reviewDigest) && digest(value.contentDigest) && validateActorAxes(value.actor).length === 0 && validateWriteSource(value.source).length === 0; return valid ? [] : [bad("consent must bind review/content digests, execution, actor, and source")]; }
+function digest(value: unknown): value is `sha256:${string}` { return typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value); }
+function bad(message: string): ContractValidationIssue { return { code: "invalid_review", message }; }

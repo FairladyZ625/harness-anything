@@ -3,6 +3,7 @@ import {
   applyTransition,
   emptyTaskLifecycleSnapshot,
   normalizeTaskLifecycleCommand,
+  reviewDigest,
   type CompleteTaskProof,
   type CreateReplayTaskProof,
   type RecordReviewCommand,
@@ -33,7 +34,7 @@ export function lifecycleFixture(): { readonly events: readonly TaskEventV1[]; r
     events.push(result.event);
   };
   run(command(implementer, 1, {
-    type: "CreateReplayTask", taskId: "task-1", title: "Replay task", taskClass: "standard", graph: REPLAY_TASK_GRAPH, completionGateIds: [], presetSnapshotDigest: null
+    type: "CreateReplayTask", taskId: "task-1", title: "Fixture", taskClass: "standard", graph: REPLAY_TASK_GRAPH, completionGateIds: [], presetSnapshotDigest: null
   }), { taskIdUnique: true, actorBinding: implementer });
   run(command(implementer, 2, {
     type: "StartExecution", taskId: "task-1", executionId: "execution-1"
@@ -44,23 +45,22 @@ export function lifecycleFixture(): { readonly events: readonly TaskEventV1[]; r
   });
   run(command(implementer, 3, {
     type: "SubmitExecution", taskId: "task-1", executionId: "execution-1",
-    submission: { claim: "implemented", deliverables: [], evidenceRefs: [], verification: ["tests"], knownGaps: [], residualRisks: [], commitSha }
+    submission: { completionClaim: "implemented", deliverables: [], outputs: [], verificationNotes: ["tests"], knownGaps: [], residualRisks: [], commitSha }
   }), { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" });
-  run(reviewCommand(4, "anti_entropy", "approved", "review-ae"), {
-    actorBinding: reviewer, capability: "anti-entropy@v1", capabilityRef: "cap-ae", archiveWarningsPresent: false
+  run(reviewCommand(4, "approved", "review-execution"), {
+    actorBinding: reviewer, capability: "execution-review@v1", capabilityRef: "cap-review"
   });
-  run(reviewCommand(5, "acceptance", "approved", "review-acceptance"), {
-    actorBinding: reviewer, capability: "acceptance-review@v1", capabilityRef: "cap-acceptance", archiveWarningsPresent: false
-  });
+  const review = snapshot.reviews[0]!;
+  run(command(implementer, 5, { type: "RecordReviewConsent", taskId: "task-1", executionId: "execution-1", reviewId: review.reviewId, consentId: "consent-1", reviewDigest: reviewDigest(review), contentDigest: review.contentDigest }), { actorBinding: implementer, capability: "execution-consent@v1", capabilityRef: "cap-consent" } as never);
   run(command(implementer, 6, { type: "CompleteTask", taskId: "task-1", executionId: "execution-1" }),
     { capability: "task-complete@v1", capabilityRef: "cap-complete", actorRole: "owner", noActiveLease: true, gateReceipts: [] });
   return { events, snapshot };
 }
 
-function reviewCommand(revision: number, kind: "anti_entropy" | "acceptance", verdict: "approved", reviewId: string): RecordReviewCommand {
+function reviewCommand(revision: number, verdict: "approved", reviewId: string): RecordReviewCommand {
   return command(reviewer, revision, {
-    type: "RecordReview", taskId: "task-1", executionId: "execution-1", reviewId, kind, verdict,
-    actorRole: kind, reason: `${kind} approved`, evidenceChecked: [], commitSha, iteration: 0,
-    archiveWarningsAcknowledged: false
+    type: "RecordReview", taskId: "task-1", executionId: "execution-1", reviewId, verdict,
+    reason: "execution approved", evidenceChecked: [], commitSha, iteration: 0,
+    contentDigest: `sha256:${"b".repeat(64)}`
   });
 }

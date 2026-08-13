@@ -58,19 +58,18 @@ test("Review/v1 rejects invalid verdicts and old review entity shapes", () => {
     reviewId: "review-1",
     taskId: "task-1",
     executionId: "execution-1",
-    kind: "anti_entropy",
     verdict: "approved",
     actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent", id: "reviewer" } },
-    actorRole: "anti_entropy",
     capabilityRef: "capability-1",
     reason: "approved",
     evidenceChecked: [],
     commitSha: "a".repeat(40),
     iteration: 0,
-    archiveWarningsAcknowledged: false,
+    contentDigest: `sha256:${"b".repeat(64)}`,
     reviewedAt: "2026-08-11T00:00:00.000Z"
   };
   assert.deepEqual(validateReviewV1(current), []);
   assert.notDeepEqual(validateReviewV1({ ...current, verdict: "direction_changed" }), []);
+  assert.notDeepEqual(validateReviewV1({ ...current, kind: "anti_entropy" }), []);
   assert.notDeepEqual(validateReviewV1(review("approved")), []);
 });

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TaskLifecycleKillpoint } from "../src/task-lifecycle-service.ts";
 import { normalizeTaskLifecycleCommand, type EventPublicationKillpoint } from "../../kernel/src/index.ts";
+import { reviewDigest } from "../../kernel/src/index.ts";
 import { makeTaskEventStore, makeTaskProjection } from "../../kernel/test/store/task-lifecycle-runtime.ts";
 import { makeTaskLifecycleService } from "../src/task-lifecycle-service.ts";
 
@@ -14,13 +15,11 @@ export const replayGraph = {
   template: "replay/v1" as const,
   nodes: [
     { id: "implementation", kind: "work" },
-    { id: "anti_entropy", kind: "adversarial" },
     { id: "review", kind: "review" }
   ] as const,
   edges: [
-    { id: "implementation-submitted", from: "implementation", to: "anti_entropy", on: "submitted", actorRole: "executor", kind: "forward" },
-    { id: "anti-entropy-approved", from: "anti_entropy", to: "review", on: "approved", actorRole: "anti_entropy", kind: "forward" },
-    { id: "anti-entropy-changes-requested", from: "anti_entropy", to: "implementation", on: "changes_requested", actorRole: "anti_entropy", kind: "return" }
+    { id: "implementation-submitted", from: "implementation", to: "review", on: "submitted", actorRole: "executor", kind: "forward" },
+    { id: "review-changes-requested", from: "review", to: "implementation", on: "changes_requested", actorRole: "reviewer", kind: "return" }
   ] as const,
   maxIterations: 1 as const
 };
@@ -41,17 +40,18 @@ export function lifecycleHarness() {
     read: realProjection.read,
     readOperation: realProjection.readOperation,
     readTaskOperation: realProjection.readTaskOperation,
+    readDocument: realProjection.readDocument,
     currentLease: realProjection.currentLease,
     reserveLease: realProjection.reserveLease,
     activateLease: realProjection.activateLease,
     renewLease: realProjection.renewLease,
     releaseLease: realProjection.releaseLease,
-    apply: (event: Parameters<typeof realProjection.apply>[0]) => {
+    apply: (event: Parameters<typeof realProjection.apply>[0], plan?: Parameters<typeof realProjection.apply>[1]) => {
       if (failProjection) {
         failProjection = false;
         throw new Error("projection unavailable");
       }
-      return realProjection.apply(event);
+      return realProjection.apply(event, plan);
     }
   };
   const service = makeTaskLifecycleService({
@@ -97,22 +97,22 @@ export function lifecycleHarness() {
       if (leaseVersion === undefined) throw new Error(`execution ${executionId} has no active lease`);
       return service.execute(command(owner, next, {
         type: "SubmitExecution", taskId: "task-1", executionId,
-        submission: { claim, deliverables: [], evidenceRefs: [], verification: ["tests"], knownGaps: [], residualRisks: [], commitSha }
+        submission: { completionClaim: claim, deliverables: [], outputs: [], verificationNotes: ["tests"], knownGaps: [], residualRisks: [], commitSha }
       }, opId), { actorBinding: owner, leaseVersion, sessionDisposition: "complete" });
     },
     review: async (executionId: string, kind: "anti_entropy" | "acceptance", verdict: "approved" | "changes_requested" | "dismissed", opId = `op-review-${revision() + 1}`) => {
       const next = revision() + 1;
       const snapshot = (await service.read("task-1")).snapshot;
       return service.execute(command(reviewer, next, {
-        type: "RecordReview", taskId: "task-1", executionId, reviewId: `review-${opId}`, kind, verdict,
-        actorRole: kind, reason: `${kind} ${verdict}`, evidenceChecked: [], commitSha,
-        iteration: snapshot.task?.iteration ?? 0, archiveWarningsAcknowledged: false
+        type: "RecordReview", taskId: "task-1", executionId, reviewId: `review-${opId}`, verdict,
+        reason: `${kind} ${verdict}`, evidenceChecked: [], commitSha,
+        iteration: snapshot.task?.iteration ?? 0, contentDigest: `sha256:${"b".repeat(64)}`
       }, opId), {
         actorBinding: reviewer,
-        capability: kind === "anti_entropy" ? "anti-entropy@v1" : "acceptance-review@v1",
-        capabilityRef: `cap-${opId}`, archiveWarningsPresent: false
+        capability: "execution-review@v1", capabilityRef: `cap-${opId}`
       });
     },
+    consent: async (executionId: string, opId = `op-consent-${revision() + 1}`) => { const next = revision() + 1, snapshot = (await service.read("task-1")).snapshot, review = snapshot.reviews.find((value) => value.executionId === executionId); if (!review) throw new Error("review missing"); return service.execute(command(owner, next, { type: "RecordReviewConsent", taskId: "task-1", executionId, reviewId: review.reviewId, consentId: `consent-${opId}`, reviewDigest: reviewDigest(review), contentDigest: review.contentDigest }, opId), { actorBinding: owner, capability: "execution-consent@v1", capabilityRef: `cap-${opId}` }); },
     complete: (executionId: string, opId = `op-complete-${revision() + 1}`) => {
       const next = revision() + 1;
       return service.execute(command(owner, next, { type: "CompleteTask", taskId: "task-1", executionId }, opId), {
