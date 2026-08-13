@@ -1,0 +1,6 @@
+[
+  { "path": "packages/daemon/src/repo-bootstrap.ts", "module": "daemon" },
+  { "path": "packages/kernel/src/layout/index.ts", "module": "kernel" },
+  { "path": "packages/preset/src/preset-resolver.ts", "module": "preset" },
+  { "path": "packages/preset/src/scaffold-overlay.ts", "module": "preset" }
+]

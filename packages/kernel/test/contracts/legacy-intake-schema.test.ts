@@ -24,6 +24,9 @@ test("legacy storage layout is inside authored harness root", () => {
   assert.equal(layout.tasksRoot, path.join(rootDir, "harness", "tasks"));
   assert.equal(layout.decisionsRoot, path.join(rootDir, "harness", "decisions"));
   assert.equal(layout.sessionsRoot, path.join(rootDir, "harness", "sessions"));
+  assert.equal(layout.governanceRoot, path.join(rootDir, "harness", "governance"));
+  assert.equal(layout.standardsRoot, path.join(rootDir, "harness", "governance", "standards"));
+  assert.equal(layout.contextRoot, path.join(rootDir, "harness", "context"));
   assert.equal(layout.adrRoot, path.join(rootDir, "harness", "adr"));
   assert.equal(layout.milestonesRoot, path.join(rootDir, "harness", "milestones"));
   assert.equal(layout.legacyRoot, path.join(rootDir, "harness", "legacy"));
@@ -46,6 +49,10 @@ test("layout resolver honors harness.yaml layout roots and upward discovery", ()
       "layout:",
       "  authoredRoot: .harness-private/coding-agent-harness",
       "  localRoot: .harness-local",
+      "  contextRoot: docs/context",
+      "  governanceRoot: policy",
+      "  adrRoot: docs/adr",
+      "  milestonesRoot: planning/milestones",
       "tasks:",
       "  root: .harness-private/coding-agent-harness/tasks",
       ""
@@ -58,6 +65,11 @@ test("layout resolver honors harness.yaml layout roots and upward discovery", ()
     assert.equal(layout.rootDir, rootDir);
     assert.equal(layout.authoredRoot, path.join(rootDir, ".harness-private/coding-agent-harness"));
     assert.equal(layout.localRoot, path.join(rootDir, ".harness-local"));
+    assert.equal(layout.contextRoot, path.join(rootDir, "docs/context"));
+    assert.equal(layout.governanceRoot, path.join(rootDir, "policy"));
+    assert.equal(layout.standardsRoot, path.join(rootDir, "policy/standards"));
+    assert.equal(layout.adrRoot, path.join(rootDir, "docs/adr"));
+    assert.equal(layout.milestonesRoot, path.join(rootDir, "planning/milestones"));
     assert.equal(layout.tasksRoot, path.join(rootDir, ".harness-private/coding-agent-harness/tasks"));
     assert.equal(layout.legacyRoot, path.join(layout.authoredRoot, "legacy"));
   });
