@@ -49,6 +49,8 @@ import { isDeclaredLocalMigrationCommand } from "./composition/local-write-scope
 import { startCliTimingPhase } from "./cli/timing.ts";
 import { readProjectHarnessSettings } from "./commands/settings.ts";
 import { validateCommandOptions } from "./cli/option-claims.ts";
+import { cliError, CliErrorCode, errorCodeFromThrown } from "./cli/error-codes.ts";
+import { daemonServeHelpResult } from "./commands/daemon/help.ts";
 
 const runRegisteredCommand = runRegisteredCommandWithCliComposition;
 type ParsedCommandRunner = (command: Parameters<typeof runRegisteredCommand>[0]) => Promise<CommandReceipt | CommandFailureReceipt>;
@@ -62,6 +64,8 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
     await runRepoWriteChildEntrypoint(argv[1]);
     return 0;
   }
+  const daemonServeHelpExit = maybeRunDaemonServeHelp(argv);
+  if (daemonServeHelpExit !== undefined) return daemonServeHelpExit;
   const optionValidation = validateCommandOptions(argv);
   if (!optionValidation.ok) {
     await appendParseFailureRuntimeEvent(argv, optionValidation.error);
@@ -214,20 +218,26 @@ async function maybeRunDaemonCommand(argv: ReadonlyArray<string>): Promise<numbe
     try {
       launchOptions = parseDaemonLaunchArgv(argv);
     } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      return 2;
+      return emitDaemonServeFailure(error, stripped.json, 2);
     }
     const serveLayoutOverrides = daemonRuntimeLayoutOverrides(launchOptions.rootDir, launchOptions.authoredRoot);
     if (daemonArgs.includes("--stdio")) {
-      console.error("daemon serve --stdio is disabled because it creates a competing runtime; start the persistent daemon and use 'ha daemon connect --stdio'.");
-      return 2;
+      return emitDaemonServeFailure(
+        new Error("daemon serve --stdio is disabled because it creates a competing runtime; start the persistent daemon and use 'ha daemon connect --stdio'."),
+        stripped.json,
+        2
+      );
     }
-    if (daemonArgs.includes("--check")) {
-      checkDaemonServeConfiguration(launchOptions.rootDir, serveLayoutOverrides, daemonArgs.filter((arg) => arg !== "--check"), launchOptions);
+    try {
+      if (daemonArgs.includes("--check")) {
+        checkDaemonServeConfiguration(launchOptions.rootDir, serveLayoutOverrides, daemonArgs.filter((arg) => arg !== "--check"), launchOptions);
+        return 0;
+      }
+      await runDaemonServe(launchOptions.rootDir, serveLayoutOverrides, daemonArgs, {}, launchOptions);
       return 0;
+    } catch (error) {
+      return emitDaemonServeFailure(error, stripped.json, 1);
     }
-    await runDaemonServe(launchOptions.rootDir, serveLayoutOverrides, daemonArgs, {}, launchOptions);
-    return 0;
   }
   return runDaemonCommand({
     rootDir: stripped.rootDir,
@@ -237,6 +247,30 @@ async function maybeRunDaemonCommand(argv: ReadonlyArray<string>): Promise<numbe
     rawArgs: argv,
     runServe: runDaemonServe
   });
+}
+
+function maybeRunDaemonServeHelp(argv: ReadonlyArray<string>): number | undefined {
+  const stripped = stripGlobalOptions(argv);
+  const args = stripped.args;
+  const helpFlag = args.includes("--help") || args.includes("-h");
+  const explicitHelp = args[0] === "help" && args[1] === "daemon" && args[2] === "serve";
+  const flaggedServe = helpFlag && (
+    (args[0] === "daemon" && args[1] === "serve")
+    || args.filter((arg) => arg !== "--help" && arg !== "-h").slice(0, 2).join(" ") === "daemon serve"
+  );
+  if (!explicitHelp && !flaggedServe) return undefined;
+  emit(toCommandReceipt(daemonServeHelpResult()), stripped.json);
+  return 0;
+}
+
+function emitDaemonServeFailure(error: unknown, json: boolean, exitCode: 1 | 2): number {
+  const code = errorCodeFromThrown(error) ?? CliErrorCode.UnclassifiedCommandFailure;
+  emit(toCommandReceipt({
+    ok: false,
+    command: "daemon-serve",
+    error: cliError(code, error instanceof Error ? error.message : String(error))
+  }), json);
+  return exitCode;
 }
 
 function checkDaemonServeConfiguration(
