@@ -1,11 +1,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { deriveRelationId, makeTaskEventStore } from "../../kernel/src/index.ts";
 
 export function writeTriadicLedger(rootDir) {
   const taskDir = path.join(rootDir, "harness/tasks/task-gui-smoke");
-  const decisionDir = path.join(rootDir, "harness/decisions/decision-dec_gui_smoke");
   mkdirSync(taskDir, { recursive: true });
-  mkdirSync(decisionDir, { recursive: true });
   writeFileSync(path.join(rootDir, "harness/harness.yaml"), [
     "schema: harness-anything/v1", "name: gui-triadic-smoke", "layout:", "  authoredRoot: harness", "  localRoot: .harness", ""
   ].join("\n"));
@@ -17,16 +16,17 @@ export function writeTriadicLedger(rootDir) {
     "  - {relation_id: rel_bfa32bfd7f399b66, source: task/task-gui-smoke, target: fact/task-gui-smoke/F-ABCDEFGH, type: produces, strength: strong, direction: directed, origin: declared, rationale: \"Task produced the renderer projection evidence\", state: active}",
     "---", ""
   ].join("\n"));
-  writeFileSync(path.join(decisionDir, "decision.md"), [
-    "---", "schema: decision-package/v1", "decision_id: dec_gui_smoke", "_coordinatorWatermark: gui-smoke-watermark",
-    "title: \"Expose the triadic projection to the GUI\"", "state: proposed", "riskTier: high", "urgency: high", "vertical: \"software/coding\"",
-    "preset: \"architecture-decision\"", "applies_to:", "  modules: [\"gui\"]", "  productLines: []",
-    "proposedBy: {kind: \"agent\", id: \"codex\"}", "proposedAt: \"2026-07-10T00:00:00.000Z\"", "arbiter: {kind: \"human\", id: \"ZeyuLi\"}",
-    "provenance:", "  - {runtime: \"codex\", sessionId: \"fg-p1-07-e2e\", boundAt: \"2026-07-10T00:00:00.000Z\"}",
-    "question: \"Should the GUI consume the public relation graph?\"", "chosen:", "  - {id: \"CH1\", text: \"Use the existing daemon/service bridge\"}",
-    "rejected: []", "claims:", "  - {id: \"CH1\", text: \"The public path preserves kernel relation names\", load_bearing: true}", "relations:",
-    "  - {relation_id: rel_5287143733cccbd9, source: decision/dec_gui_smoke, target: task/task-gui-smoke, type: derives, strength: strong, direction: directed, origin: declared, rationale: \"Decision derived the GUI task\", state: active}",
-    "  - {relation_id: rel_f0e4909f80e86478, source: decision/dec_gui_smoke/CH1, target: fact/task-gui-smoke/F-ABCDEFGH, type: evidenced-by, strength: strong, direction: directed, origin: declared, rationale: \"Fact evidences the public projection\", state: active}",
-    "---", ""
-  ].join("\n"));
+}
+
+export function seedTriadicEvents(rootDir, repoId) {
+  const store = makeTaskEventStore({ rootDir, repoId }), actor = { principal: { personId: "person-gui" }, executor: null };
+  const append = (type, decisionId, payload) => { const revision = (store.readHead()?.revision ?? 0) + 1; store.append({ schema: "decision-event/v1", eventId: `event-${type}-${revision}`, workspaceRevision: revision, opId: `op-${type}-${revision}`, decisionId, type, actor, source: "local", occurredAt: `2026-08-13T00:00:${String(revision).padStart(2, "0")}.000Z`, payload }); };
+  let revision = (store.readHead()?.revision ?? 0) + 1;
+  store.append({ schema: "fact-event/v1", eventId: `event-fact-gui-${revision}`, workspaceRevision: revision, opId: `op-fact-gui-${revision}`, taskId: "task-gui-smoke", factId: "F-ABCDEFGH", type: "fact_recorded", actor, source: "local", occurredAt: "2026-08-13T00:00:20.000Z", payload: { statement: "The GUI renderer received event-backed triadic rows.", evidenceSource: "GUI integration", observedAt: "2026-08-13T00:00:20.000Z", confidence: "low", memoryClass: "semantic", memoryTags: ["pattern"], provenance: [{ runtime: "codex", sessionId: "fg-p1-07-e2e", boundAt: "2026-08-13T00:00:20.000Z" }] } });
+  append("decision_proposed", "dec_gui_smoke", { title: "Expose the triadic projection to the GUI", question: "Should the GUI consume the public relation graph?", riskTier: "high", urgency: "high", vertical: "software/coding", preset: "architecture-decision", appliesTo: { modules: ["gui"], productLines: [] }, decisionClass: "ordinary", chosen: [{ id: "CH1", text: "Use the existing daemon/service bridge" }], rejected: [{ id: "RJ1", text: "Read Markdown directly", whyNot: "It bypasses canonical projection truth" }] });
+  append("decision_claim_declared", "dec_gui_smoke", { claimId: "C1", text: "The public path preserves kernel relation names", loadBearing: true });
+  for (const relation of [{ source: "decision/dec_gui_smoke", target: "task/task-gui-smoke", type: "derives", rationale: "Decision derived the GUI task" }, { source: "decision/dec_gui_smoke/C1", target: "fact/task-gui-smoke/F-ABCDEFGH", type: "evidenced-by", rationale: "Fact evidences the public projection" }]) {
+    const identity = { ...relation, direction: "directed" };
+    append("decision_related", "dec_gui_smoke", { relation: { relation_id: deriveRelationId(identity), ...identity, strength: "strong", origin: "declared", state: "active" } });
+  }
 }

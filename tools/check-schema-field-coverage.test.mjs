@@ -22,11 +22,11 @@ test("schema field coverage fails closed when an amendable field has no amend su
     ...entityFieldContracts,
     decision: {
       ...entityFieldContracts.decision,
-      rejected: {
-        ...entityFieldContracts.decision.rejected,
+      claims: {
+        ...entityFieldContracts.decision.claims,
         write: []
       }
     }
   });
-  assert.match(violations.join("\n"), /decision\.rejected: amendable field must declare an amend write surface/u);
+  assert.match(violations.join("\n"), /decision\.claims: amendable field must declare an amend write surface/u);
 });

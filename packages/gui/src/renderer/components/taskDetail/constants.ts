@@ -24,6 +24,7 @@ export const OUT_LABEL: Record<RelationKind, string> = {
   produces: "产出",
   evidences: "证明",
   "evidenced-by": "证据",
+  "refuted-by": "反驳",
   "invalidated-by": "失效于",
   "supersedes-fact": "取代事实",
 };
@@ -41,6 +42,7 @@ export const IN_LABEL: Record<RelationKind, string> = {
   produces: "由…产出",
   evidences: "被证明",
   "evidenced-by": "证据来自",
+  "refuted-by": "反驳来自",
   "invalidated-by": "令…失效",
   "supersedes-fact": "事实被取代",
 };

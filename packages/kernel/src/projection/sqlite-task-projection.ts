@@ -10,8 +10,8 @@ import { discoverDeclaredEntityRows, projectDeclaredEntities, readDeclaredProjec
 import { buildCheckReport, hardFail, runPostMergeChecks, warning } from "./post-merge-checks.ts";
 import type { FactAnchorRow, RelationCoverageRow, RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import { buildRelationGraphProjection } from "./relation-graph-projection.ts";
-import { projectionVersion, queryDecisionProjectionRows, queryTaskChildrenRows, readRelationGraphRows, writeProjectionDatabase, tryReadProjectionDatabase } from "./sqlite-projection-store.ts";
-import { compareDecisionRows, hashDecisionProjectionRows, readDecisionProjectionRows } from "./sqlite-decision-source.ts";
+import { readLifecycleRelationTruth } from "./rebuildable-task-projection.ts";
+import { projectionVersion, queryTaskChildrenRows, writeProjectionDatabase, tryReadProjectionDatabase } from "./sqlite-projection-store.ts";
 import { compareRows, hashExactRows, readMarkdownSource, taskEntryToRow } from "./sqlite-task-source.ts";
 export { hashTaskProjectionRows } from "./sqlite-task-source.ts";
 export type {
@@ -27,16 +27,12 @@ export type {
   ProjectionWarningCode,
   ProjectionWarningSeverity,
   ProjectionWarningSource,
-  DecisionProjectionQueryFilters,
-  DecisionProjectionRow,
   TaskFieldExtensionProjection,
   TaskProjectionQueryFilters,
   TaskProjectionOptions,
   TaskProjectionRow
 } from "./types.ts";
 import type {
-  DecisionProjectionQueryFilters,
-  DecisionProjectionRow,
   ProjectionCheckResult,
   ProjectionReadResult,
   TaskProjectionOptions
@@ -52,19 +48,11 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
   const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
   const source = readMarkdownSource(runtimeContext);
   const rows = source.entries.map((entry) => taskEntryToRow(runtimeContext, entry, options.taskFieldExtensions)).sort(compareRows);
-  const decisionRows = readDecisionProjectionRows(runtimeContext);
   const rowsHash = hashExactRows(rows);
-  const decisionRowsHash = hashDecisionProjectionRows(decisionRows);
   const sourceHash = projectionSourceHash(source.hash, runtimeContext);
-  const relationGraph = buildRelationGraphProjection(runtimeContext);
-  writeProjectionDatabase(projectionPath, rows, decisionRows, {
+  writeProjectionDatabase(projectionPath, rows, {
     sourceHash,
-    rowsHash,
-    decisionRowsHash
-  }, {
-    relationEdges: relationGraph.edges,
-    coverageRows: relationGraph.coverageRows,
-    factAnchors: relationGraph.factAnchors
+    rowsHash
   }, options.taskFieldExtensions);
   projectDeclaredEntities(runtimeContext, sessionEntityDeclaration, projectionPath);
   projectDeclaredEntities(runtimeContext, executionDeclaration, projectionPath);
@@ -139,25 +127,12 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
   }
 
   const actualRowsHash = hashExactRows(existing.rows);
-  const actualDecisionRowsHash = hashDecisionProjectionRows(existing.decisionRows);
-  if (existing.meta.rowsHash !== actualRowsHash || existing.meta.decisionRowsHash !== actualDecisionRowsHash) {
+  if (existing.meta.rowsHash !== actualRowsHash) {
     warnings.push(hardFail(
       "generated-cache",
       "projection_tampered",
       "Projection rows no longer match their recorded hash.",
       "Discard the generated cache and rebuild it from authored markdown; do not merge generated projection edits."
-    ));
-    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-    return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
-  }
-
-  const currentDecisionRowsHash = hashDecisionProjectionRows(readDecisionProjectionRows(runtimeContext));
-  if ((existing.meta.decisionRowsHash ?? "") !== currentDecisionRowsHash) {
-    warnings.push(warning(
-      "generated-cache",
-      "projection_stale",
-      "Projection decision cache was stale and has been rebuilt from markdown.",
-      "Run harness-anything governance rebuild after authored decision changes or merges."
     ));
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
@@ -207,28 +182,6 @@ export function queryTaskChildren(options: TaskProjectionOptions & { readonly pa
   }
 }
 
-export function queryDecisionProjection(options: TaskProjectionOptions & { readonly filters: DecisionProjectionQueryFilters }): {
-  readonly rows: ReadonlyArray<DecisionProjectionRow>;
-  readonly warnings: ProjectionReadResult["warnings"];
-} {
-  const rootDir = path.resolve(options.rootDir);
-  const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
-  const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
-  const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-  try {
-    return {
-      rows: [...queryDecisionProjectionRows(projectionPath, options.filters)].sort(compareDecisionRows),
-      warnings: projection.warnings
-    };
-  } catch {
-    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-    return {
-      rows: [...queryDecisionProjectionRows(projectionPath, options.filters)].sort(compareDecisionRows),
-      warnings: [...projection.warnings, ...rebuilt.warnings]
-    };
-  }
-}
-
 export function readRelationGraphProjection(options: TaskProjectionOptions): {
   readonly edges: ReadonlyArray<RelationGraphEdgeRow>;
   readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
@@ -239,36 +192,8 @@ export function readRelationGraphProjection(options: TaskProjectionOptions): {
   const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
   const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
   const taskProjection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-  try {
-    const graphRows = readRelationGraphRows(projectionPath);
-    return {
-      edges: graphRows.relationEdges,
-      coverageRows: graphRows.coverageRows,
-      factAnchors: graphRows.factAnchors,
-      warnings: taskProjection.warnings
-    };
-  } catch {
-    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-    const graphRows = readRelationGraphRows(projectionPath);
-    return {
-      edges: graphRows.relationEdges,
-      coverageRows: graphRows.coverageRows,
-      factAnchors: graphRows.factAnchors,
-      warnings: [...taskProjection.warnings, ...rebuilt.warnings]
-    };
-  }
-}
-
-export function readDecisionFactCoverage(options: TaskProjectionOptions & { readonly decisionId: string }): {
-  readonly rows: ReadonlyArray<RelationCoverageRow>;
-  readonly warnings: ProjectionReadResult["warnings"];
-} {
-  const projection = readRelationGraphProjection(options);
-  const decisionRef = `decision/${options.decisionId}`;
-  return {
-    rows: projection.coverageRows.filter((row) => row.decisionRef === decisionRef),
-    warnings: projection.warnings
-  };
+  const graph = buildRelationGraphProjection(runtimeContext, readLifecycleRelationTruth(rootDir));
+  return { ...graph, warnings: taskProjection.warnings };
 }
 
 export function checkTaskProjection(options: TaskProjectionOptions): ProjectionCheckResult {

@@ -10,11 +10,10 @@ import { resolveHarnessLayout } from "../layout/index.ts";
 import { readFrontmatter, readNestedScalar, readScalar } from "../markdown/frontmatter.ts";
 import {
   deriveRelationTaskAuthoredSources,
-  relationDecisionAuthoredSourceKind,
   type RelationAuthoredSourceKind
 } from "./relation-source-manifest.ts";
 import type { ProjectionCanonicalStatus, CoordinationStatus, ProjectionWarning, TaskFieldExtensionProjection, TaskProjectionRow } from "./types.ts";
-import { readDirIfPresent, readDirNamesIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
+import { readDirNamesIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 
 export function readMarkdownSource(rootInput: HarnessLayoutInput): {
   readonly entries: ReadonlyArray<TaskSourceEntry>;
@@ -62,6 +61,7 @@ function readTaskProjectionSource(rootInput: HarnessLayoutInput): {
         frontmatter: parseFrontmatter(body)
       });
     } catch (error) {
+      consumeKnownError(error);
       warnings.push({
         code: "source_malformed",
         source: "source-package",
@@ -72,7 +72,7 @@ function readTaskProjectionSource(rootInput: HarnessLayoutInput): {
     }
   }
 
-  const relationSourceInputs = readRelationGraphSourceInputs(rootDir, layout, entries);
+  const relationSourceInputs = readRelationGraphSourceInputs(rootDir, entries);
   const supplementalSourceInputs = readTaskSupplementalSourceInputs(rootDir, entries);
   const taskIndexInputs = entries.flatMap((entry) => relationSourceInputs.filter((input) =>
     input.kind === "task-index" && input.taskId === entry.taskId
@@ -88,6 +88,8 @@ function readTaskProjectionSource(rootInput: HarnessLayoutInput): {
     warnings
   };
 }
+
+function consumeKnownError(error: unknown): void { void error; }
 
 export interface TaskSourceEntry {
   readonly taskId: string;
@@ -215,7 +217,6 @@ function readModuleMetadata(taskDir: string): { readonly moduleKey?: string; rea
 
 function readRelationGraphSourceInputs(
   rootDir: string,
-  layout: ReturnType<typeof resolveHarnessLayout>,
   entries: ReadonlyArray<TaskSourceEntry>
 ): ReadonlyArray<RelationSourceHashInput> {
   const taskDocumentInputs = entries
@@ -237,20 +238,7 @@ function readRelationGraphSourceInputs(
           body
         }];
     });
-  const decisionInputs = listDecisionDocuments(layout.decisionsRoot)
-    .flatMap((decisionPath) => {
-      const kind = relationDecisionAuthoredSourceKind(decisionPath);
-      if (kind === null) return [];
-      const body = readTextFileIfPresent(decisionPath);
-      return body === null
-        ? []
-        : [{
-          kind,
-          sourcePath: sourcePath(rootDir, decisionPath),
-          body
-        }];
-    });
-  return [...taskDocumentInputs, ...decisionInputs];
+  return taskDocumentInputs;
 }
 
 function readTaskSupplementalSourceInputs(
@@ -274,20 +262,6 @@ function readTaskSupplementalSourceInputs(
           body
         }];
     });
-}
-
-function listDecisionDocuments(decisionsRoot: string): ReadonlyArray<string> {
-  if (!existsSync(decisionsRoot)) return [];
-  const stat = statPathIfPresent(decisionsRoot);
-  if (stat === null) return [];
-  if (stat.isFile()) return relationDecisionAuthoredSourceKind(decisionsRoot) === null ? [] : [decisionsRoot];
-  if (!stat.isDirectory()) return [];
-  const entries = readDirIfPresent(decisionsRoot);
-  if (entries === null) return [];
-  return entries
-    .filter((entry) => entry.name !== ".git" && entry.name !== "node_modules")
-    .flatMap((entry) => listDecisionDocuments(path.join(decisionsRoot, entry.name)))
-    .sort();
 }
 
 function coordinationStatus(status: ProjectionCanonicalStatus): CoordinationStatus {

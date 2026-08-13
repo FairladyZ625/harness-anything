@@ -36,6 +36,26 @@ test("local selection and assignment claim normalize to the same doc event throu
   } finally { await local.close(); await remote.close(); }
 });
 
+test("Decision body is an explicit idempotent doc-sync join with exact reachable bytes", async () => {
+  const fixture = await docCell("decision-body");
+  try {
+    await startLease(fixture.cell, "local"); const binding = { actor, source: "local" as const };
+    const proposed = await fixture.cell.run({ kind: "decision-propose", title: "Body join", question: "Should the body remain doc-sync owned?", riskTier: "medium", urgency: "medium", vertical: "default", preset: "default", decisionClass: "ordinary", appliesTo: { modules: ["daemon"], productLines: [] }, chosen: [{ id: "CH1", text: "Use doc-sync" }], rejected: [{ id: "RJ1", text: "Inline body", whyNot: "It duplicates content storage" }] }, binding);
+    assert.equal(proposed.outcome, "applied", JSON.stringify(proposed)); const decisionId = (JSON.parse(proposed.evidence) as { decisionId: string }).decisionId;
+    const empty = JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence) as { decision: { body: unknown } }; assert.equal(empty.decision.body, null);
+    const relativePath = `decisions/${decisionId}/decision-body.md`, firstBody = "# Decision body\n\nFirst paragraph.\n", firstHash = sha(firstBody); writeAuthored(fixture.rootDir, relativePath, firstBody);
+    const firstAction = { kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: canonicalSha(fixture.rootDir), selections: [{ path: relativePath, baseBlobSha256: null }] } as const;
+    const first = await fixture.cell.run(firstAction, binding), firstHead = canonicalSha(fixture.rootDir); assert.equal(first.outcome, "applied", JSON.stringify(first));
+    const retried = await fixture.cell.run(firstAction, binding); assert.equal(retried.opId, first.opId); assert.equal(retried.revision, first.revision); assert.equal(canonicalSha(fixture.rootDir), firstHead);
+    const joined = JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence) as { decision: { body: { body: string; blobSha256: string; size: number; path: string } } };
+    assert.deepEqual(joined.decision.body, { body: firstBody, blobSha256: firstHash, size: Buffer.byteLength(firstBody), path: relativePath, mediaType: "text/markdown", workspaceRevision: first.revision });
+    const store = makeTaskEventStore({ repoId: "decision-body", rootDir: fixture.rootDir }), event = store.readEvent(first.opId); assert.equal(event?.schema, "doc-event/v1"); if (event?.schema === "doc-event/v1") { const claim = event.payload.changes[0]!.candidate, blob = store.readContentBlob(claim.sha256); assert.equal(blob?.byteLength, claim.size); assert.equal(sha(Buffer.from(blob!).toString("utf8")), claim.sha256); }
+    const secondBody = `${firstBody}Second paragraph.\n`; writeAuthored(fixture.rootDir, relativePath, secondBody); const second = await fixture.cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: canonicalSha(fixture.rootDir), selections: [{ path: relativePath, baseBlobSha256: firstHash }] }, binding); assert.equal(second.outcome, "applied", JSON.stringify(second));
+    const updated = JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence) as { decision: { body: { body: string; blobSha256: string } } }; assert.equal(updated.decision.body.body, secondBody); assert.equal(updated.decision.body.blobSha256, sha(secondBody));
+    writeAuthored(fixture.rootDir, relativePath, `${secondBody}Unsynced.\n`); const redacted = JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: false }, binding)).evidence) as { decision: { body: unknown } }; assert.equal(redacted.decision.body, null); assert.equal((JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence) as { decision: { body: { body: string } } }).decision.body.body, secondBody);
+  } finally { await fixture.close(); }
+});
+
 test("doc submit returns holder and scope detail for wrong role, another holder, expiry, and assignment scope", async () => {
   const fixture = rbacFixture(); const host = await openDaemonHost({ daemonId: "doc-rbac", userRoot: fixture.userRoot });
   const auth = (ownerUid: number) => ({ transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" } } as const);

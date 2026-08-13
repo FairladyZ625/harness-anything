@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { Schema } from "effect";
-import { DecisionPackageSchema, EntityRelationsSchema, TaskFrontmatterSchema } from "../../src/schemas/registry.ts";
+import { EntityRelationsSchema, TaskFrontmatterSchema } from "../../src/schemas/registry.ts";
+import { DecisionEventSchema } from "../../src/schemas/fact-event.ts";
 
 const validFixtureUrl = new URL("../../fixtures/schemas/task-frontmatter/valid.json", import.meta.url);
 const validDecisionFixtureUrl = new URL("../../fixtures/schemas/decision-package/valid.json", import.meta.url);
@@ -47,10 +48,10 @@ test("task frontmatter schema accepts optional metadata and rejects invalid valu
   assert.throws(() => Schema.decodeUnknownSync(TaskFrontmatterSchema)({ ...fixture, urgency: "soon" }));
 });
 
-test("decision package schema decodes and encodes the valid fixture", async () => {
+test("Decision event schema decodes and encodes the valid fixture", async () => {
   const fixture = await readJson(validDecisionFixtureUrl);
-  const decoded = Schema.decodeUnknownSync(DecisionPackageSchema)(fixture);
-  const encoded = Schema.encodeSync(DecisionPackageSchema)(decoded);
+  const decoded = Schema.decodeUnknownSync(DecisionEventSchema)(fixture);
+  const encoded = Schema.encodeSync(DecisionEventSchema)(decoded);
 
   assert.deepEqual(encoded, fixture);
 });
@@ -63,28 +64,16 @@ test("entity relations schema decodes and encodes the valid fixture", async () =
   assert.deepEqual(encoded, fixture);
 });
 
-test("decision package schema rejects contract-critical invalid fixtures", async () => {
-  const emptyRejected = await readJson(invalidDecisionFixtureUrl);
+test("Decision event schema rejects unknown fields and canonical-invalid values", async () => {
+  const unknownField = await readJson(invalidDecisionFixtureUrl);
   const base = await readJson(validDecisionFixtureUrl) as Record<string, any>;
 
-  assert.throws(() => Schema.decodeUnknownSync(DecisionPackageSchema)(emptyRejected));
-  assert.throws(() => Schema.decodeUnknownSync(DecisionPackageSchema)({ ...base, state: "accepted" }));
-  assert.throws(() => Schema.decodeUnknownSync(DecisionPackageSchema)({
-    ...base,
-    arbiter: base.proposedBy
-  }));
-  assert.throws(() => Schema.decodeUnknownSync(DecisionPackageSchema)({
-    ...base,
-    rejected: [{ id: "RJ3", text: "A rejected alternative without a rationale.", why_not: "   " }]
-  }));
-  assert.throws(() => Schema.decodeUnknownSync(DecisionPackageSchema)({
-    ...base,
-    provenance: [{ runtime: "claude-code", sessionId: "session-without-bound-at" }]
-  }));
-  assert.throws(() => Schema.decodeUnknownSync(DecisionPackageSchema)({
-    ...base,
-    provenance: [{ runtime: "shell", sessionId: "session", boundAt: "2026-07-03T00:00:00.000Z" }]
-  }));
+  assert.throws(() => Schema.decodeUnknownSync(DecisionEventSchema)(unknownField));
+  assert.throws(() => Schema.decodeUnknownSync(DecisionEventSchema)({ ...base, payload: { ...base.payload, question: "q".repeat(500) } }));
+  assert.throws(() => Schema.decodeUnknownSync(DecisionEventSchema)({ ...base, payload: { ...base.payload, rejected: [] } }));
+  assert.throws(() => Schema.decodeUnknownSync(DecisionEventSchema)({ ...base, payload: { ...base.payload,
+    rejected: [{ id: "CH1", text: "Duplicate id", whyNot: "Ambiguous anchor" }] } }));
+  assert.throws(() => Schema.decodeUnknownSync(DecisionEventSchema)({ ...base, actor: { principal: { personId: "" }, executor: null } }));
 });
 
 test("entity relations schema rejects contract-critical invalid fixtures", async () => {
@@ -119,32 +108,17 @@ test("entity relations schema rejects contract-critical invalid fixtures", async
   }));
 });
 
-test("decision package JSON schema is closed against evidence_refs drift", async () => {
+test("Decision event JSON schema publishes a closed canonical envelope", async () => {
   const jsonSchema = await readJson(decisionJsonSchemaUrl) as {
     readonly additionalProperties?: boolean;
-    readonly properties?: Record<string, unknown>;
-    readonly $defs?: Record<string, { readonly additionalProperties?: boolean }>;
+    readonly required?: readonly string[];
+    readonly properties?: Record<string, { readonly const?: string; readonly enum?: readonly string[] }>;
   };
 
   assert.equal(jsonSchema.additionalProperties, false);
-  assert.equal(Object.prototype.hasOwnProperty.call(jsonSchema.properties, "evidence_refs"), false);
-  assert.equal(jsonSchema.$defs?.relationRecord.additionalProperties, false);
-  assert.deepEqual((jsonSchema.$defs?.relationRecord as any).properties.type.enum, [
-    "supports",
-    "supersedes",
-    "refines",
-    "narrows",
-    "derives",
-    "blocks",
-    "relates",
-    "implements",
-    "depends-on",
-    "produces",
-    "evidences",
-    "evidenced-by",
-    "invalidated-by",
-    "supersedes-fact"
-  ]);
+  assert.equal(jsonSchema.properties?.schema?.const, "decision-event/v1");
+  assert.equal(jsonSchema.required?.includes("payload"), true);
+  assert.equal(jsonSchema.properties?.type?.enum?.includes("decision_retired"), true);
 });
 
 test("entity relations JSON schema is closed and keeps facts owner-qualified", async () => {

@@ -104,8 +104,7 @@ function isTaskSnapshotProjectionRow(value: unknown): value is TaskSnapshotProje
 }
 
 function isDecisionProjectionRow(value: unknown): value is DecisionProjectionRow {
-  return record(value) && value.schema === "d4-decision-row/v1" && typeof value.decisionId === "string"
-    && typeof value.title === "string" && typeof value.state === "string";
+  return record(value) && value.schema === "decision-row/v1" && typeof value.decisionId === "string" && typeof value.title === "string" && typeof value.state === "string" && Number.isInteger(value.workspaceRevision) && Array.isArray(value.claims);
 }
 
 function isRelationGraphEdgeRow(value: unknown): value is RelationGraphEdgeRow {
@@ -114,8 +113,7 @@ function isRelationGraphEdgeRow(value: unknown): value is RelationGraphEdgeRow {
 }
 
 function isRelationCoverageRow(value: unknown): value is RelationCoverageRow {
-  return record(value) && typeof value.decisionRef === "string" && typeof value.claimRef === "string"
-    && typeof value.status === "string";
+  return record(value) && typeof value.decisionRef === "string" && typeof value.claimRef === "string" && typeof value.status === "string" && (value.fulfillment === null || ["evidenced", "delivered", "standing_policy"].includes(String(value.fulfillment))) && Array.isArray(value.refutingFactRefs) && Array.isArray(value.relationPath) && Number.isInteger(value.basisRevision);
 }
 
 function isFactAnchorRow(value: unknown): value is FactAnchorRow {

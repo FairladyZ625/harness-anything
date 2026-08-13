@@ -18,8 +18,6 @@ export type ProjectionWarningCode =
   | "generated_tracked"
   | "binding_tampered"
   | "conflict_marker_present"
-  | "decision_watermark_missing"
-  | "decision_watermark_duplicate"
   | "dangling_entity_ref"
   | "invalid_relation_endpoint"
   | "relation_host_source_mismatch"
@@ -96,41 +94,6 @@ export interface TaskProjectionQueryFilters {
   readonly fieldExtensions?: ReadonlyArray<TaskFieldExtensionFilter>;
 }
 
-export interface DecisionProjectionRow {
-  readonly schema: "d4-decision-row/v1";
-  readonly decisionId: string;
-  readonly legacyId?: string;
-  readonly state: string;
-  readonly title: string;
-  readonly question: string;
-  readonly chosen: ReadonlyArray<string>;
-  readonly rejected: ReadonlyArray<{ readonly text: string; readonly whyNot: string }>;
-  readonly path: string;
-  readonly moduleKeys: ReadonlyArray<string>;
-  readonly productLineKeys: ReadonlyArray<string>;
-  readonly riskTier?: "low" | "medium" | "high";
-  readonly urgency?: "low" | "medium" | "high";
-  readonly vertical?: string;
-  readonly preset?: string;
-  readonly proposedBy?: { readonly kind: "agent" | "human" | "system"; readonly id: string };
-  readonly proposedAt?: string;
-  readonly arbiter?: { readonly kind: "agent" | "human" | "system"; readonly id: string };
-  readonly provenance?: ReadonlyArray<{ readonly runtime: string; readonly sessionId: string; readonly boundAt: string }>;
-  readonly decidedAt?: string;
-}
-
-export interface DecisionProjectionQueryFilters {
-  readonly search?: string;
-  readonly legacyId?: string;
-  readonly legacyRange?: {
-    readonly start: number;
-    readonly end: number;
-  };
-  readonly state?: string;
-  readonly moduleKey?: string;
-  readonly productLine?: string;
-}
-
 export interface ProjectionWarning {
   readonly code: ProjectionWarningCode;
   readonly source: ProjectionWarningSource;
@@ -181,5 +144,4 @@ export interface ProjectionMeta {
   readonly version?: string;
   readonly sourceHash: string;
   readonly rowsHash: string;
-  readonly decisionRowsHash?: string;
 }

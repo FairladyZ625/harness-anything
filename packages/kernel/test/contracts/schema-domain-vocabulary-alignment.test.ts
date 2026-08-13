@@ -7,7 +7,7 @@ import {
 } from "../../src/domain/lifecycle-status.ts";
 import {
   decisionStates
-} from "../../src/domain/decision-lifecycle-status.ts";
+} from "../../src/domain/fact-event.ts";
 import {
   packageDispositions
 } from "../../src/domain/package-disposition.ts";
@@ -15,11 +15,7 @@ import {
   priorityTiers,
   taskWorkKinds
 } from "../../src/domain/task-metadata.ts";
-import {
-  DecisionStateSchema,
-  DomainStatusSchema,
-  TaskFrontmatterSchema
-} from "../../src/schemas/registry.ts";
+import { DomainStatusSchema, TaskFrontmatterSchema } from "../../src/schemas/registry.ts";
 
 test("domain status constants are accepted by the schema registry", () => {
   for (const status of domainStatuses) {
@@ -27,12 +23,9 @@ test("domain status constants are accepted by the schema registry", () => {
   }
 });
 
-test("decision state constants are accepted by the schema registry", () => {
-  for (const state of decisionStates) {
-    assert.equal(Schema.decodeUnknownSync(DecisionStateSchema)(state), state);
-  }
-
-  assert.throws(() => Schema.decodeUnknownSync(DecisionStateSchema)("accepted"));
+test("Decision event state vocabulary excludes the retired markdown active alias", () => {
+  assert.deepEqual(decisionStates, ["proposed", "accepted", "rejected", "deferred", "retired"]);
+  assert.equal(decisionStates.includes("active" as never), false);
 });
 
 test("task frontmatter schema accepts every domain package disposition", () => {

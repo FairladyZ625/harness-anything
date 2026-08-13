@@ -13,7 +13,7 @@
     {
       "id": "decision",
       "entityType": "lifecycle",
-      "packageKind": "decision-package/v1",
+      "packageKind": "decision-event/v1",
       "contractEntity": true
     },
     {

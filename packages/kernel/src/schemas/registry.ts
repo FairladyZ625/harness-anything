@@ -4,16 +4,14 @@ import { packageDispositions } from "../domain/package-disposition.ts";
 import { priorityTiers, taskWorkKinds } from "../domain/task-metadata.ts";
 import type { LifecycleBinding } from "../domain/lifecycle-binding.ts";
 import { LinkKindSchema, ProvenanceEntrySchema } from "./common.ts";
-import { DecisionPackageSchema } from "./decision-package.ts";
 import { DocmapManifestSchema } from "./docmap.ts";
 import { EntityRelationsSchema } from "./entity-relations.ts";
-import { FactEventSchema } from "./fact-event.ts";
+import { DecisionEventSchema, FactEventSchema } from "./fact-event.ts";
 import { HarnessCheckReportSchema } from "./harness-check-report.ts";
 import { SubtaskPlanSchema } from "./subtask-plan.ts";
 import { VerticalDefinitionSchema } from "./vertical-definition.ts";
 
 export { ActorKindSchema, ActorRefSchema, LinkKindSchema } from "./common.ts";
-export { DecisionPackageSchema, DecisionStateSchema } from "./decision-package.ts";
 export { DocmapDocumentSchema, DocmapManifestSchema } from "./docmap.ts";
 export { FactEventSchema } from "./fact-event.ts";
 export {
@@ -316,7 +314,6 @@ export const DocsReleasePromotionBundleSchema = Schema.Struct({
 
 export type HarnessConfig = Schema.Schema.Type<typeof HarnessConfigSchema>;
 export type TaskFrontmatter = Schema.Schema.Type<typeof TaskFrontmatterSchema>;
-export type DecisionPackage = Schema.Schema.Type<typeof DecisionPackageSchema>;
 export type DocmapManifestContract = Schema.Schema.Type<typeof DocmapManifestSchema>;
 export type EntityRelations = Schema.Schema.Type<typeof EntityRelationsSchema>;
 export type TaskSnapshot = Schema.Schema.Type<typeof TaskSnapshotSchema>;
@@ -350,7 +347,7 @@ export const schemaRegistry = [
   },
   {
     id: "decision-package",
-    schema: DecisionPackageSchema,
+    schema: DecisionEventSchema,
     jsonSchemaPath: "packages/kernel/schemas/json/decision-package.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/decision-package/valid.json",
     invalidFixturePath: "packages/kernel/fixtures/schemas/decision-package/invalid.json"

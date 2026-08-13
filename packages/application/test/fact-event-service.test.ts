@@ -5,8 +5,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeFactService } from "../src/index.ts";
-import { makeTaskEventStore, makeTaskProjection, type CanonicalEventStore, type FactEventV1 } from "../../kernel/src/index.ts";
+import { makeDecisionService, makeFactService } from "../src/index.ts";
+import { deriveRelationId, makeTaskEventStore, makeTaskProjection, type CanonicalEventStore, type DecisionEventV1, type FactEventV1 } from "../../kernel/src/index.ts";
+import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 
 const actor = { principal: { personId: "person-fact" }, executor: { kind: "agent", id: "codex" } } as const;
 
@@ -86,12 +87,61 @@ test("Fact admission never appends against a projection more than one catch-up r
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+test("Decision transition matrix, independent arbiter, claims, relation retirement, and replay are canonical", () => {
+  withDecisionFixture(({ service, projection }) => { const proposed = decisionEvent(1, "decision_proposed"); assert.deepEqual(service.record(proposed), service.record(proposed));
+    const rejectsRelation = (relation: ReturnType<typeof relationRecord>, expected: string) => assert.throws(() => service.record(decisionEvent(2, "decision_related", undefined, relation)), (error: unknown) => code(error) === expected);
+    rejectsRelation(relationRecord("decision/dec_OTHER/CH1", "decision/dec_FIXTURE/CH1", "supports"), "relation_invalid");
+    rejectsRelation(relationRecord("decision/dec_FIXTURE/C404", "decision/dec_FIXTURE/CH1", "supports"), "anchor_not_found");
+    rejectsRelation(relationRecord("decision/dec_FIXTURE/CH1", "fact/task-fact/F-12345678", "evidenced-by"), "entity_not_found");
+    rejectsRelation(relationRecord("decision/dec_FIXTURE/CH1", "decision/dec_FIXTURE/RJ1", "produces"), "relation_invalid");
+    rejectsRelation({ ...relationRecord("decision/dec_FIXTURE/CH1", "decision/dec_FIXTURE/RJ1", "supports"), relation_id: "rel_0000000000000000" }, "relation_invalid");
+    assert.throws(() => service.record(decisionEvent(2, "decision_accepted", actor)), (error: unknown) => code(error) === "invalid_transition"); const accepted = service.record(decisionEvent(2, "decision_accepted")); assert.equal(accepted.decision.state, "accepted");
+    service.record(decisionEvent(3, "decision_claim_declared")); service.record(decisionEvent(4, "decision_claim_fulfillment_declared")); assert.deepEqual(projection.readDecisionGraph().decisionAnchors[0]?.anchorRefs, ["decision/dec_FIXTURE", "decision/dec_FIXTURE/C1", "decision/dec_FIXTURE/CH1", "decision/dec_FIXTURE/RJ1"]); const relation = relationRecord("decision/dec_FIXTURE/C1", "decision/dec_FIXTURE/CH1", "supports"), relationId = relation.relation_id; service.record(decisionEvent(5, "decision_related", undefined, relation)); service.record(decisionEvent(6, "decision_relation_retired", undefined, relationId));
+    const edge = projection.readDecisionGraph().edges[0]!; assert.equal(edge.state, "retired"); assert.equal(edge.retiredRevision, 6); assert.equal(service.record(decisionEvent(7, "decision_retired")).decision.state, "retired"); assert.throws(() => service.record(decisionEvent(8, "decision_deferred")), (error: unknown) => code(error) === "invalid_transition");
+    const before = { decision: service.show("dec_FIXTURE").decision, graph: projection.readDecisionGraph() }; rmSync(projection.path, { force: true }); projection.rebuild(); assert.deepEqual({ decision: service.show("dec_FIXTURE").decision, graph: projection.readDecisionGraph() }, before);
+  });
+  for (const terminal of ["decision_rejected", "decision_deferred"] as const) withDecisionFixture(({ service }) => { service.record(decisionEvent(1, "decision_proposed")); assert.equal(service.record(decisionEvent(2, terminal)).decision.state, terminal.slice(9)); });
+});
+
+test("Decision read catches up an L1-only proposal and exposes the explicit body-null crash window", () => {
+  withDecisionFixture(({ store, service }) => { const proposed = decisionEvent(1, "decision_proposed"); store.append(proposed); const searched = service.search({ query: "Canonical" }); assert.equal(searched.status, "ready"); assert.equal(searched.watermark, 1); assert.equal(searched.decisions[0]?.body, null); assert.equal(service.show("dec_FIXTURE").decision.body, null); });
+});
+
+test("Decision coverage replays all fulfillment modes, refutation, and exact task_completed basis", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-coverage-"));
+  try {
+    git(rootDir, "init", "--quiet"); git(rootDir, "config", "user.name", "Coverage Test"); git(rootDir, "config", "user.email", "coverage@example.invalid"); git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "base");
+    const store = makeTaskEventStore({ repoId: "coverage-test", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store });
+    for (const event of lifecycleFixture().events) { store.append(event); projection.apply(event); }
+    const factService = makeFactService({ eventStore: store, projection }), decisionService = makeDecisionService({ eventStore: store, projection });
+    factService.record(factEvent(7, "task-1", "F-ABCDEFGH")); factService.record(factEvent(8, "task-1", "F-BCDEFGHJ"));
+    let revision = 9;
+    const record = (decisionId: string, type: DecisionEventV1["type"], payload: unknown, eventActor = type === "decision_proposed" ? actor : { principal: { personId: "person-arbiter" }, executor: null } as const) => decisionService.record(decisionAt(revision++, decisionId, type, payload, eventActor));
+    const propose = (decisionId: string, decisionClass: "ordinary" | "standing_policy" = "ordinary") => record(decisionId, "decision_proposed", { title: decisionId, question: `Should ${decisionId} hold?`, riskTier: "medium", urgency: "medium", vertical: "default", preset: "default", appliesTo: { modules: ["kernel"], productLines: [] }, decisionClass, chosen: [{ id: "CH1", text: "Proceed" }], rejected: [{ id: "RJ1", text: "Stop", whyNot: "Evidence supports proceeding" }] });
+    const claim = (decisionId: string, mode: "evidenced" | "delivered" | "standing_policy") => { record(decisionId, "decision_claim_declared", { claimId: "C1", text: `${decisionId} is fulfilled`, loadBearing: true }); record(decisionId, "decision_claim_fulfillment_declared", { claimId: "C1", mode }); };
+    const relate = (decisionId: string, source: string, target: string, type: "derives" | "evidenced-by" | "refuted-by") => { const identity = { source, target, type, direction: "directed" as const }; record(decisionId, "decision_related", { relation: { relation_id: deriveRelationId(identity), ...identity, strength: "strong", origin: "declared", rationale: "Canonical coverage evidence", state: "active" } }); };
+    propose("dec_STANDING", "standing_policy"); record("dec_STANDING", "decision_accepted", { rationale: "Independent acceptance" }); claim("dec_STANDING", "standing_policy");
+    propose("dec_DELIVERED"); record("dec_DELIVERED", "decision_accepted", { rationale: "Independent acceptance" }); claim("dec_DELIVERED", "delivered"); relate("dec_DELIVERED", "decision/dec_DELIVERED/C1", "task/task-1", "derives");
+    propose("dec_EVIDENCED"); record("dec_EVIDENCED", "decision_accepted", { rationale: "Independent acceptance" }); claim("dec_EVIDENCED", "evidenced"); relate("dec_EVIDENCED", "decision/dec_EVIDENCED/C1", "fact/task-1/F-ABCDEFGH", "evidenced-by"); relate("dec_EVIDENCED", "decision/dec_EVIDENCED/C1", "fact/task-1/F-BCDEFGHJ", "refuted-by");
+    const graph = decisionService.graph(); assert.equal(graph.status, "ready"); assert.equal(graph.watermark, revision - 1);
+    const byDecision = new Map(graph.coverageRows.map((row) => [row.decisionRef, row]));
+    assert.equal(byDecision.get("decision/dec_STANDING")?.status, "covered"); assert.equal(byDecision.get("decision/dec_STANDING")?.fulfillment, "standing_policy");
+    assert.equal(byDecision.get("decision/dec_DELIVERED")?.status, "covered", "task_completed is the delivered truth source"); assert.equal(byDecision.get("decision/dec_DELIVERED")?.fulfillment, "delivered");
+    assert.equal(byDecision.get("decision/dec_EVIDENCED")?.status, "uncovered"); assert.deepEqual(byDecision.get("decision/dec_EVIDENCED")?.refutingFactRefs, ["fact/task-1/F-BCDEFGHJ"]);
+    assert.equal(graph.coverageRows.every((row) => row.basisRevision === graph.watermark), true);
+  } finally { rmSync(rootDir, { recursive: true, force: true }); }
+});
+
 function withFixture(run: (fixture: { readonly store: ReturnType<typeof makeTaskEventStore>; readonly projection: ReturnType<typeof makeTaskProjection>; readonly service: ReturnType<typeof makeFactService> }) => void): void {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-service-"));
   try { git(rootDir, "init", "--quiet"); git(rootDir, "config", "user.name", "Fact Test"); git(rootDir, "config", "user.email", "fact@example.invalid"); git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "base");
     const store = makeTaskEventStore({ repoId: "fact-test", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store }); run({ store, projection, service: makeFactService({ eventStore: store, projection }) });
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 }
+function withDecisionFixture(run: (fixture: { readonly store: ReturnType<typeof makeTaskEventStore>; readonly projection: ReturnType<typeof makeTaskProjection>; readonly service: ReturnType<typeof makeDecisionService> }) => void): void { const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-service-")); try { git(rootDir, "init", "--quiet"); git(rootDir, "config", "user.name", "Decision Test"); git(rootDir, "config", "user.email", "decision@example.invalid"); git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "base"); const store = makeTaskEventStore({ repoId: "decision-test", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store }); run({ store, projection, service: makeDecisionService({ eventStore: store, projection }) }); } finally { rmSync(rootDir, { recursive: true, force: true }); } }
+function decisionEvent(revision: number, type: DecisionEventV1["type"], eventActor = { principal: { personId: "person-arbiter" }, executor: null } as const, extra?: unknown): DecisionEventV1 { const base = { schema: "decision-event/v1" as const, eventId: `event-decision-${revision}`, workspaceRevision: revision, opId: `op-decision-${revision}`, decisionId: "dec_FIXTURE", actor: type === "decision_proposed" ? actor : eventActor, source: "local" as const, occurredAt: new Date(Date.UTC(2026, 7, 13, 1, 0, revision)).toISOString() }; if (type === "decision_proposed") return { ...base, type, payload: { title: "Canonical Decision", question: "Should this Decision be event-backed?", riskTier: "medium", urgency: "medium", vertical: "default", preset: "default", appliesTo: { modules: ["kernel"], productLines: [] }, decisionClass: "ordinary", chosen: [{ id: "CH1", text: "Use events", rationale: "Replayable" }], rejected: [{ id: "RJ1", text: "Use markdown", whyNot: "Not canonical" }] } }; if (type === "decision_accepted") return { ...base, type, payload: { rationale: "Independent approval." } }; if (type === "decision_rejected" || type === "decision_deferred" || type === "decision_retired") return { ...base, type, payload: { reason: "Recorded outcome." } }; if (type === "decision_claim_declared") return { ...base, type, payload: { claimId: "C1", text: "The event is deterministic.", loadBearing: true } }; if (type === "decision_claim_fulfillment_declared") return { ...base, type, payload: { claimId: "C1", mode: "evidenced" } }; if (type === "decision_related") return { ...base, type, payload: { relation: extra as never } }; return { ...base, type, payload: { relationId: String(extra), reason: "The edge is no longer current." } }; }
+function decisionAt(revision: number, decisionId: string, type: DecisionEventV1["type"], payload: unknown, eventActor: DecisionEventV1["actor"]): DecisionEventV1 { return { schema: "decision-event/v1", eventId: `event-${decisionId}-${revision}`, workspaceRevision: revision, opId: `op-${decisionId}-${revision}`, decisionId, type, actor: eventActor, source: "local", occurredAt: new Date(Date.UTC(2026, 7, 13, 2, 0, revision)).toISOString(), payload } as DecisionEventV1; }
+function relationRecord(source: string, target: string, type: "supports" | "produces" | "evidenced-by") { const identity = { source, target, type, direction: "directed" as const }; return { relation_id: deriveRelationId(identity), ...identity, strength: "strong" as const, origin: "declared" as const, rationale: "Canonical Decision relation.", state: "active" as const }; }
 function factEvent(revision: number, taskId: string, factId: string, supersedes?: { readonly factRef: string; readonly rationale: string }): FactEventV1 { return {
   schema: "fact-event/v1", eventId: `event-fact-${revision}`, workspaceRevision: revision, opId: `op-fact-${revision}`, taskId, factId, type: "fact_recorded", actor, source: "local",
   occurredAt: new Date(Date.UTC(2026, 7, 13, 0, 0, revision)).toISOString(), payload: { statement: `Fact observation ${revision}`, evidenceSource: "integration test", observedAt: new Date(Date.UTC(2026, 7, 13, 0, 0, revision)).toISOString(),

@@ -1,155 +1,45 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://harness-anything.dev/schemas/decision-package.schema.json",
   "x-harness-schema-id": "decision-package",
-  "title": "Decision Package",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "schema",
-    "decision_id",
-    "title",
-    "state",
-    "riskTier",
-    "urgency",
-    "vertical",
-    "preset",
-    "applies_to",
-    "proposedBy",
-    "proposedAt",
-    "arbiter",
-    "provenance",
-    "question",
-    "chosen",
-    "rejected",
-    "claims",
-    "relations"
-  ],
+  "required": ["schema", "eventId", "workspaceRevision", "opId", "decisionId", "type", "actor", "source", "occurredAt", "payload"],
   "properties": {
-    "schema": { "const": "decision-package/v1" },
-    "decision_id": { "type": "string", "pattern": "^dec_[A-Za-z0-9_-]+$" },
-    "title": { "$ref": "#/$defs/nonBlankString" },
-    "state": { "enum": ["proposed", "active", "rejected", "deferred", "retired"] },
-    "riskTier": { "enum": ["low", "medium", "high"] },
-    "urgency": { "enum": ["low", "medium", "high"] },
-    "vertical": { "$ref": "#/$defs/nonBlankString" },
-    "preset": { "$ref": "#/$defs/nonBlankString" },
-    "applies_to": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["modules", "productLines"],
-      "properties": {
-        "modules": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "productLines": {
-          "type": "array",
-          "items": { "type": "string" }
-        }
-      }
-    },
-    "proposedBy": { "$ref": "#/$defs/actorRef" },
-    "proposedAt": { "$ref": "#/$defs/nonBlankString" },
-    "arbiter": { "$ref": "#/$defs/actorRef" },
-    "decidedAt": { "type": "string" },
-    "provenance": {
-      "type": "array",
-      "minItems": 1,
-      "items": { "$ref": "#/$defs/provenanceEntry" }
-    },
-    "question": { "$ref": "#/$defs/nonBlankString" },
-    "chosen": {
-      "type": "array",
-      "minItems": 1,
-      "items": { "$ref": "#/$defs/decisionAnchor" }
-    },
-    "rejected": {
-      "type": "array",
-      "minItems": 1,
-      "items": { "$ref": "#/$defs/rejectedDecisionAnchor" }
-    },
-    "claims": {
-      "type": "array",
-      "minItems": 1,
-      "items": { "$ref": "#/$defs/decisionAnchor" }
-    },
-    "relations": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/relationRecord" }
-    }
+    "schema": { "const": "decision-event/v1" },
+    "eventId": { "$ref": "#/$defs/nonBlank" },
+    "workspaceRevision": { "type": "integer", "minimum": 1 },
+    "opId": { "$ref": "#/$defs/nonBlank" },
+    "decisionId": { "type": "string", "pattern": "^dec_[A-Za-z0-9_-]+$" },
+    "type": { "enum": ["decision_proposed", "decision_accepted", "decision_rejected", "decision_deferred", "decision_retired", "decision_claim_declared", "decision_claim_fulfillment_declared", "decision_related", "decision_relation_retired"] },
+    "actor": { "$ref": "#/$defs/actor" },
+    "source": { "$ref": "#/$defs/source" },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "payload": { "type": "object" }
   },
+  "allOf": [
+    { "if": { "properties": { "type": { "const": "decision_proposed" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/proposal" } } } },
+    { "if": { "properties": { "type": { "const": "decision_accepted" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/accept" } } } },
+    { "if": { "properties": { "type": { "enum": ["decision_rejected", "decision_deferred", "decision_retired"] } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/reason" } } } },
+    { "if": { "properties": { "type": { "const": "decision_claim_declared" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/claim" } } } },
+    { "if": { "properties": { "type": { "const": "decision_claim_fulfillment_declared" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/fulfillment" } } } },
+    { "if": { "properties": { "type": { "const": "decision_related" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/related" } } } },
+    { "if": { "properties": { "type": { "const": "decision_relation_retired" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/relationRetired" } } } }
+  ],
   "$defs": {
-    "nonBlankString": {
-      "type": "string",
-      "pattern": "\\S"
-    },
-    "actorRef": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["kind", "id"],
-      "properties": {
-        "kind": { "enum": ["agent", "human", "system"] },
-        "id": { "type": "string" }
-      }
-    },
-    "provenanceEntry": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["runtime", "sessionId", "boundAt"],
-      "properties": {
-        "runtime": {
-          "enum": [
-            "human",
-            "claude-code",
-            "codex",
-            "zcode",
-            "antigravity"
-          ]
-        },
-        "sessionId": { "$ref": "#/$defs/nonBlankString" },
-        "boundAt": { "$ref": "#/$defs/nonBlankString" }
-      }
-    },
-    "decisionAnchor": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "text"],
-      "properties": {
-        "id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$" },
-        "text": { "$ref": "#/$defs/nonBlankString" },
-        "load_bearing": { "type": "boolean" }
-      }
-    },
-    "rejectedDecisionAnchor": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "text", "why_not"],
-      "properties": {
-        "id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$" },
-        "text": { "$ref": "#/$defs/nonBlankString" },
-        "why_not": { "$ref": "#/$defs/nonBlankString" }
-      }
-    },
-    "entityRef": {
-      "type": "string",
-      "pattern": "^(?:(?:task|decision)/[A-Za-z0-9_-]+(?:/[A-Za-z][A-Za-z0-9_-]*)?|fact/[A-Za-z0-9_-]+/F-[A-Za-z0-9_-]+)$"
-    },
-    "relationRecord": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["relation_id", "source", "target", "type", "strength", "direction", "origin", "rationale", "state"],
-      "properties": {
-        "relation_id": { "type": "string", "pattern": "^rel_[a-f0-9]{16}$" },
-        "source": { "$ref": "#/$defs/entityRef" },
-        "target": { "$ref": "#/$defs/entityRef" },
-        "type": { "enum": ["supports", "supersedes", "refines", "narrows", "derives", "blocks", "relates", "implements", "depends-on", "produces", "evidences", "evidenced-by", "invalidated-by", "supersedes-fact"] },
-        "strength": { "enum": ["strong", "weak"] },
-        "direction": { "enum": ["directed", "undirected"] },
-        "origin": { "enum": ["declared", "imported_snapshot", "generated", "inferred"] },
-        "rationale": { "$ref": "#/$defs/nonBlankString" },
-        "state": { "enum": ["active", "retired", "deleted"] }
-      }
-    }
+    "nonBlank": { "type": "string", "pattern": "\\S" },
+    "short": { "type": "string", "minLength": 1, "maxLength": 199, "pattern": "\\S" },
+    "actor": { "type": "object", "additionalProperties": false, "required": ["principal", "executor"], "properties": { "principal": { "type": "object", "additionalProperties": false, "required": ["personId"], "properties": { "personId": { "$ref": "#/$defs/nonBlank" } } }, "executor": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["kind", "id"], "properties": { "kind": { "const": "agent" }, "id": { "$ref": "#/$defs/nonBlank" } } }] } } },
+    "source": { "oneOf": [{ "enum": ["local", "remote_direct"] }, { "type": "object", "additionalProperties": false, "required": ["kind", "nodeId", "assignmentId"], "properties": { "kind": { "const": "assignment" }, "nodeId": { "$ref": "#/$defs/nonBlank" }, "assignmentId": { "$ref": "#/$defs/nonBlank" } } }] },
+    "applies": { "type": "object", "additionalProperties": false, "required": ["modules", "productLines"], "properties": { "modules": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/nonBlank" } }, "productLines": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/nonBlank" } } } },
+    "chosen": { "type": "object", "additionalProperties": false, "required": ["id", "text"], "properties": { "id": { "type": "string", "pattern": "^CH[A-Za-z0-9_-]+$" }, "text": { "$ref": "#/$defs/nonBlank" }, "rationale": { "$ref": "#/$defs/short" } } },
+    "rejected": { "type": "object", "additionalProperties": false, "required": ["id", "text", "whyNot"], "properties": { "id": { "type": "string", "pattern": "^RJ[A-Za-z0-9_-]+$" }, "text": { "$ref": "#/$defs/nonBlank" }, "whyNot": { "$ref": "#/$defs/short" } } },
+    "proposal": { "type": "object", "additionalProperties": false, "required": ["title", "question", "riskTier", "urgency", "vertical", "preset", "appliesTo", "decisionClass", "chosen", "rejected"], "properties": { "title": { "$ref": "#/$defs/nonBlank" }, "question": { "type": "string", "minLength": 1, "maxLength": 499 }, "riskTier": { "enum": ["low", "medium", "high"] }, "urgency": { "enum": ["low", "medium", "high"] }, "vertical": { "$ref": "#/$defs/nonBlank" }, "preset": { "$ref": "#/$defs/nonBlank" }, "appliesTo": { "$ref": "#/$defs/applies" }, "decisionClass": { "enum": ["ordinary", "standing_policy"] }, "chosen": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/chosen" } }, "rejected": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/rejected" } } } },
+    "accept": { "type": "object", "additionalProperties": false, "required": ["rationale"], "properties": { "rationale": { "$ref": "#/$defs/short" } } },
+    "reason": { "type": "object", "additionalProperties": false, "required": ["reason"], "properties": { "reason": { "$ref": "#/$defs/short" } } },
+    "claim": { "type": "object", "additionalProperties": false, "required": ["claimId", "text", "loadBearing"], "properties": { "claimId": { "type": "string", "pattern": "^C[A-Za-z0-9_-]+$" }, "text": { "$ref": "#/$defs/nonBlank" }, "loadBearing": { "type": "boolean" } } },
+    "fulfillment": { "type": "object", "additionalProperties": false, "required": ["claimId", "mode"], "properties": { "claimId": { "type": "string", "pattern": "^C[A-Za-z0-9_-]+$" }, "mode": { "enum": ["evidenced", "delivered", "standing_policy"] } } },
+    "relation": { "type": "object", "additionalProperties": false, "required": ["relation_id", "source", "target", "type", "strength", "direction", "origin", "rationale", "state"], "properties": { "relation_id": { "type": "string", "pattern": "^rel_[0-9a-f]{16}$" }, "source": { "$ref": "#/$defs/nonBlank" }, "target": { "$ref": "#/$defs/nonBlank" }, "type": { "enum": ["supports", "supersedes", "refines", "narrows", "derives", "blocks", "relates", "implements", "depends-on", "produces", "evidences", "evidenced-by", "refuted-by", "invalidated-by", "supersedes-fact"] }, "strength": { "enum": ["strong", "weak"] }, "direction": { "enum": ["directed", "undirected"] }, "origin": { "enum": ["declared", "imported_snapshot", "generated", "inferred"] }, "rationale": { "$ref": "#/$defs/nonBlank" }, "state": { "const": "active" } } },
+    "related": { "type": "object", "additionalProperties": false, "required": ["relation"], "properties": { "relation": { "$ref": "#/$defs/relation" } } },
+    "relationRetired": { "type": "object", "additionalProperties": false, "required": ["relationId", "reason"], "properties": { "relationId": { "type": "string", "pattern": "^rel_[0-9a-f]{16}$" }, "reason": { "$ref": "#/$defs/short" } } }
   }
 }

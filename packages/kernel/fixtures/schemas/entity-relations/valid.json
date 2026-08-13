@@ -3,10 +3,10 @@
   "host": "decision/dec_01K7ZTRIADIC",
   "relations": [
     {
-      "relation_id": "rel_b75516c583945a52",
+      "relation_id": "rel_472c68c5d5dff1ed",
       "source": "decision/dec_01K7ZTRIADIC/C1",
       "target": "fact/task_01KV5TBASE/F-a3f2",
-      "type": "supersedes-fact",
+      "type": "evidenced-by",
       "strength": "strong",
       "direction": "directed",
       "origin": "declared",
