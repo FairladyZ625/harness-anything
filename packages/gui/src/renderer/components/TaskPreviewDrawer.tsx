@@ -117,7 +117,7 @@ export function TaskPreviewDrawer({
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[14px]">
               <div>
                 <dt className="font-mono text-[12px] text-text-faint">module</dt>
-                <dd className="font-mono text-text">{task.module}</dd>
+                <dd className="font-mono text-text">{task.module === "unassigned" || !task.module ? "未投影" : task.module}</dd>
               </div>
               <div>
                 <dt className="font-mono text-[12px] text-text-faint">raw status</dt>

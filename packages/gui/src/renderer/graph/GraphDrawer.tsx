@@ -8,6 +8,7 @@ import {
 } from "../components/badges";
 import { isExternal } from "../model/types";
 import { KIND_LABEL, KIND_LABEL_IN } from "./constants";
+import { resolveTaskModule, moduleDisplayLabel } from "./moduleAssignment";
 import type { NodePos } from "./endpoint";
 import { endpointToNodeId } from "./endpoint";
 import type { DecisionRow, FactRef } from "../model/types";
@@ -145,7 +146,7 @@ export function GraphDrawer({
             </div>
             <FreshnessTag freshness={focusTask.freshness} lastKnownAt={focusTask.lastKnownAt} />
             <div className="flex gap-3 font-mono text-[11px] text-text-muted">
-              <span>module: {focusTask.module}</span>
+              <span>module: {moduleDisplayLabel(resolveTaskModule(focusTask.module))}</span>
               <span>raw: {focusTask.rawStatus}</span>
             </div>
           </>

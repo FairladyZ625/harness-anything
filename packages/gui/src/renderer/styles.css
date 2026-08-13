@@ -39,6 +39,14 @@
   /* freshness 通道 */
   --color-stale: oklch(0.75 0.12 75);
   --color-danger: oklch(0.65 0.18 25);
+
+  /* 语义轴四色(REQ-GUI-04 三泳道/筛选):等亮度,两主题可辨 */
+  --color-axis-authority: oklch(0.72 0.13 305);
+  --color-axis-evidence: oklch(0.74 0.12 150);
+  --color-axis-execution: oklch(0.72 0.13 250);
+  --color-axis-assoc: oklch(0.62 0.01 285);
+
+  --color-success: oklch(0.74 0.14 150);
 }
 
 /*
@@ -68,6 +76,13 @@ html[data-theme="light"] {
 
   --color-stale: oklch(0.57 0.12 75);
   --color-danger: oklch(0.54 0.19 25);
+
+  --color-axis-authority: oklch(0.54 0.16 305);
+  --color-axis-evidence: oklch(0.56 0.14 150);
+  --color-axis-execution: oklch(0.54 0.16 250);
+  --color-axis-assoc: oklch(0.55 0.01 285);
+
+  --color-success: oklch(0.56 0.14 150);
 }
 
 html,

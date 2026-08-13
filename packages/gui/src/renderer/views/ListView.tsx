@@ -83,7 +83,7 @@ function AuditRow({
           {task.title}
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-[12px] text-text-faint">
-          <span>{task.module}</span>
+          <span>{task.module === "unassigned" || !task.module ? "未投影" : task.module}</span>
           <span>{task.rawStatus}</span>
           {spawningDecision && <DecisionSourceBadge decisionId={spawningDecision} compact />}
           {isExternal(task) && (
