@@ -13,6 +13,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { resolveHarnessLayout } from "../layout/index.ts";
+import { makeLocalVersionControlSystem } from "../store/local-version-control-system.ts";
 
 export const daemonRegistrySchema = "harness-daemon-registry/v1";
 
@@ -22,6 +23,7 @@ export interface DaemonRegistryRepo {
   readonly repoId: string;
   readonly canonicalRoot: string;
   readonly displayName: string;
+  readonly authoredBranch: string;
   readonly state: DaemonRepoState;
   readonly registeredAt: string;
 }
@@ -109,6 +111,7 @@ export function registerDaemonRepo(input: DaemonRegistryRegisterInput): DaemonRe
     repoId,
     canonicalRoot,
     displayName,
+    authoredBranch: defaultAuthoredBranch(canonicalRoot),
     state: "enabled",
     registeredAt: (input.now ?? (() => new Date()))().toISOString()
   };
@@ -156,12 +159,13 @@ function decodeDaemonRegistryRepo(value: unknown, source: string): DaemonRegistr
   const repoId = typeof value.repoId === "string" ? normalizeExplicitRepoId(value.repoId) : undefined;
   const canonicalRoot = typeof value.canonicalRoot === "string" ? path.resolve(value.canonicalRoot) : undefined;
   const displayName = typeof value.displayName === "string" && value.displayName.length > 0 ? value.displayName : undefined;
+  const authoredBranch = typeof value.authoredBranch === "string" && validBranch(value.authoredBranch) ? value.authoredBranch : undefined;
   const state = value.state === "enabled" || value.state === "disabled" ? value.state : undefined;
   const registeredAt = typeof value.registeredAt === "string" && value.registeredAt.length > 0 ? value.registeredAt : undefined;
-  if (!repoId || !canonicalRoot || !displayName || !state || !registeredAt) {
+  if (!repoId || !canonicalRoot || !displayName || !authoredBranch || !state || !registeredAt) {
     throw new Error(`invalid daemon registry repo entry at ${source}`);
   }
-  return { repoId, canonicalRoot, displayName, state, registeredAt };
+  return { repoId, canonicalRoot, displayName, authoredBranch, state, registeredAt };
 }
 
 function writeDaemonRegistry(registry: DaemonRegistry, options: DaemonRegistryOptions): void {
@@ -260,9 +264,13 @@ function daemonRepoEquals(left: DaemonRegistryRepo, right: DaemonRegistryRepo): 
   return left.repoId === right.repoId
     && left.canonicalRoot === right.canonicalRoot
     && left.displayName === right.displayName
+    && left.authoredBranch === right.authoredBranch
     && left.state === right.state
     && left.registeredAt === right.registeredAt;
 }
+
+function defaultAuthoredBranch(repoRoot: string): string { const vcs = makeLocalVersionControlSystem(), branch = vcs.originHeadBranch(repoRoot) ?? vcs.currentBranch(repoRoot); if (!branch || !validBranch(branch)) throw new Error(`canonicalRoot must have an attached default Git branch: ${repoRoot}`); return branch; }
+function validBranch(value: string): boolean { return value.length > 0 && !value.startsWith("-") && !value.includes("..") && !/[~^:?*[\\\s]/u.test(value) && !value.endsWith("/") && !value.endsWith(".lock"); }
 
 function isDaemonRegistryRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);

@@ -15,7 +15,7 @@ const frames = [
   { schema: "fleet.upload.chunk/v1", messageId: "m7", uploadId: "u1", offset: 0, dataBase64: "YWJj" },
   { schema: "fleet.upload.finish/v1", messageId: "m8", uploadId: "u1" },
   { schema: "fleet.upload.result/v1", messageId: "m9", inReplyTo: "m8", status: "staged", descriptor: { ref: "doc-sync-claims/u1", ...blob } },
-  { schema: "fleet.doc.submit/v1", messageId: "m10", assignmentId: "a1", baseLedgerSha: "a".repeat(40), changes: [{ path: "tasks/task/a.md", baseBlobSha256: null, policyId: "markdown-additive/v1", candidate: { ref: "doc-sync-claims/u1", ...blob } }] },
+  { schema: "fleet.doc.submit/v1", messageId: "m10", assignmentId: "a1", baseLedgerSha: "a".repeat(40), changes: [{ path: "tasks/task/a.md", baseBlobSha256: null, policyId: "markdown-body-replaceable/v1", candidate: { ref: "doc-sync-claims/u1", ...blob } }] },
   { schema: "fleet.doc.result/v1", messageId: "m11", inReplyTo: "m10", outcome: "applied", opId: "op1", revision: 7, code: null, transferId: "t1" },
   { schema: "fleet.snapshot.begin/v1", messageId: "m12", transferId: "t1", repoId: "repo", viewId: "v1", cut, manifest: { digest: "d".repeat(64), entryCount: 1, totalBytes: 3 } },
   { schema: "fleet.snapshot.page/v1", messageId: "m13", transferId: "t1", pageIndex: 0, entries: [{ path: "tasks/task/a.md", blob }] },

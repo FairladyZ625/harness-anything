@@ -84,7 +84,7 @@ export interface EventHead {
 
 export type WriteTarget =
   | { readonly kind: "event_file"; readonly path: string; readonly operation: "create" }
-  | { readonly kind: "event_head"; readonly path: string; readonly operation: "replace" }
+  | { readonly kind: "event_head"; readonly path: string; readonly operation: "replace" } | { readonly kind: "authored_file"; readonly path: string; readonly operation: "replace"; readonly sha256: string; readonly size: number; readonly mediaType: string }
   | { readonly kind: "projection_invalidation"; readonly projection: string; readonly key: string }
   | { readonly kind: "lease_sqlite"; readonly table: "lease_cas"; readonly taskId: string; readonly operation: "reserve" | "activate" | "release" }
   | { readonly kind: "content_blob"; readonly sha256: string; readonly size: number; readonly mediaType: string };

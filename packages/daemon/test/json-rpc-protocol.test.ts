@@ -12,12 +12,12 @@ import { actionForDaemonMethod, canonicalRoot, commandClassForAction, parseDaemo
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
-const DOC_POLICY_ID = "markdown-additive/v1";
+const DOC_POLICY_ID = "markdown-body-replaceable/v1";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 
 test("descriptor-derived RBAC preserves every preset, runtime, doc-sync, Fact, and Decision action class", () => {
-  const expected = { "task-create": "repo-write", "preset-list": "repo-read", "preset-inspect": "repo-read", "preset-check": "repo-read", "preset-install": "repo-write", "preset-uninstall": "repo-write", "preset-run-start": "repo-write", "preset-run-status": "repo-read", "task-start": "repo-write", "task-submit": "repo-write", "task-review-execution": "arbiter", "task-complete": "repo-write", "task-show": "repo-read", "receipt-show": "repo-read", "doc-status": "repo-read", "doc-submit": "repo-write", "doc-show": "repo-read", "fact-record": "repo-write", "fact-search": "repo-read", "fact-show": "repo-read", "decision-propose": "repo-write", "decision-accept": "arbiter", "decision-reject": "arbiter", "decision-defer": "arbiter", "decision-retire": "repo-write", "decision-claim-add": "repo-write", "decision-claim-fulfill": "repo-write", "decision-relate": "repo-write", "decision-relation-retire": "repo-write", "decision-reckon": "repo-write", "decision-search": "repo-read", "decision-show": "repo-read" } as const;
+  const expected = { "task-create": "repo-write", "preset-list": "repo-read", "preset-inspect": "repo-read", "preset-check": "repo-read", "preset-install": "repo-write", "preset-uninstall": "repo-write", "preset-run-start": "repo-write", "preset-run-status": "repo-read", "task-start": "repo-write", "task-submit": "repo-write", "task-review-execution": "arbiter", "task-complete": "repo-write", "task-show": "repo-read", "receipt-show": "repo-read", "doc-status": "repo-read", "doc-dry-run": "repo-read", "doc-submit": "repo-write", "doc-materialize": "repo-write", "doc-show": "repo-read", "fact-record": "repo-write", "fact-search": "repo-read", "fact-show": "repo-read", "decision-propose": "repo-write", "decision-accept": "arbiter", "decision-reject": "arbiter", "decision-defer": "arbiter", "decision-retire": "repo-write", "decision-claim-add": "repo-write", "decision-claim-fulfill": "repo-write", "decision-relate": "repo-write", "decision-relation-retire": "repo-write", "decision-reckon": "repo-write", "decision-search": "repo-read", "decision-show": "repo-read" } as const;
   assert.deepEqual(Object.fromEntries(Object.keys(expected).map((kind) => [kind, commandClassForAction(kind)])), expected);
 });
 
@@ -104,7 +104,7 @@ test("receipt lookup reports Git object-store failure as indeterminate and marks
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
-for (const killpoint of ["before_event_write", "after_event_write", "after_head_write", "after_git_commit",
+for (const killpoint of ["before_event_write", "after_event_write", "after_head_write", "after_git_commit", "before_worktree_rename", "after_worktree_rename",
   "after_sqlite_commit", "before_response_write", "after_response_write"] as const) {
   test(`RepoCell new generation recovers ${killpoint} without a duplicate publication`, async () => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-crash-"));
@@ -132,10 +132,10 @@ test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion r
     assert.equal((await cell.run({ kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, { actor, source: "local" })).outcome, "applied");
     const claims = path.join(rootDir, ".harness/doc-sync-claims"), authored = path.join(rootDir, "harness/context/notes.md"); mkdirSync(claims, { recursive: true }); mkdirSync(path.dirname(authored), { recursive: true });
     let body = "# Notes\nA\n", hash = createHash("sha256").update(body).digest("hex"), base = git(rootDir, "rev-parse", "refs/ha/canonical"); writeFileSync(authored, body);
-    const statusBefore = await cell.run({ kind: "doc-status", paths: ["context/notes.md"] }, { actor, source: "local" }); assert.equal(statusBefore.outcome, "applied"); assert.equal(statusBefore.proof?.worktreeVisible, null);
+    const statusBefore = await cell.run({ kind: "doc-status", paths: ["context/notes.md"] }, { actor, source: "local" }); assert.equal(statusBefore.outcome, "applied"); assert.equal(statusBefore.proof?.worktreeVisible, false);
     const action = { kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: base, selections: [{ path: "context/notes.md", baseBlobSha256: null }] } as const;
-    const before = { head: git(rootDir, "rev-parse", "HEAD"), status: git(rootDir, "status", "--porcelain", "-uall"), bytes: readFileSync(authored).toString("hex") }, applied = await cell.run(action, { actor, source: "local" });
-    assert.equal(applied.outcome, "applied", JSON.stringify(applied)); assert.equal(applied.detail?.kind, "doc_sync"); assert.equal(applied.proof?.worktreeVisible, true); assert.deepEqual({ head: git(rootDir, "rev-parse", "HEAD"), status: git(rootDir, "status", "--porcelain", "-uall"), bytes: readFileSync(authored).toString("hex") }, before);
+    const before = { head: git(rootDir, "rev-parse", "HEAD"), bytes: readFileSync(authored).toString("hex") }, applied = await cell.run(action, { actor, source: "local" });
+    assert.equal(applied.outcome, "applied", JSON.stringify(applied)); assert.equal(applied.detail?.kind, "doc_sync"); assert.equal(applied.proof?.worktreeVisible, true); assert.notEqual(git(rootDir, "rev-parse", "HEAD"), before.head); assert.equal(git(rootDir, "rev-parse", "HEAD"), git(rootDir, "rev-parse", "refs/ha/canonical")); assert.equal(readFileSync(authored).toString("hex"), before.bytes); assert.equal(git(rootDir, "status", "--porcelain", "-uall").includes("harness/context/notes.md"), false);
     const shown = await cell.run({ kind: "receipt-show", opId: applied.opId }, { actor, source: "local" }); assert.equal(shown.outcome, "applied"); assert.equal(shown.detail?.kind, "doc_sync"); assert.equal(shown.proof?.canonicalVisible, true);
     const commits = git(rootDir, "rev-list", "--count", "refs/ha/canonical"); assert.deepEqual(await cell.run(action, { actor, source: "local" }), applied); assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical"), commits);
     const next = `${body}B\n`; writeFileSync(authored, next);

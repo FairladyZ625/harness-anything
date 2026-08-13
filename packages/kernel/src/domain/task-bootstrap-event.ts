@@ -5,7 +5,7 @@ import { freezeDeclaredWritePlan, hasOnlyFields, isFrozenWritePlan, isNonEmptySt
   type ActorIdentity, type EventEnvelope, type FrozenWritePlan, type WriteTarget } from "./write-chain.contract.ts";
 
 export interface PresetSnapshotClaim { readonly digest: `sha256:${string}`; readonly sha256: string; readonly size: number; readonly mediaType: "application/json" }
-export interface InitialDocumentClaim { readonly path: string; readonly sha256: string; readonly size: number; readonly mediaType: "text/markdown" | "text/plain"; readonly policyId: "markdown-additive/v1" }
+export interface InitialDocumentClaim { readonly path: string; readonly sha256: string; readonly size: number; readonly mediaType: "text/markdown" | "text/plain"; readonly policyId: "markdown-body-replaceable/v1" }
 export interface TaskBootstrapBlob { readonly sha256: string; readonly size: number; readonly mediaType: string; readonly body: string }
 export type TaskBootstrapEventV1 = EventEnvelope<"task-bootstrap-event/v1", "task_bootstrapped", ActorIdentity, {
   readonly task: TaskV1; readonly presetSnapshotClaim: PresetSnapshotClaim; readonly initialDocumentClaims: readonly InitialDocumentClaim[]
@@ -23,7 +23,7 @@ export function validateTaskBootstrapEvent(value: unknown): readonly string[] {
 export function isTaskBootstrapEvent(event: { readonly schema: string }): event is TaskBootstrapEventV1 { return event.schema === "task-bootstrap-event/v1"; }
 export function taskBootstrapWritePlan(event: TaskBootstrapEventV1): FrozenWritePlan<"TaskBootstrap"> {
   const targets: WriteTarget[] = [{ kind: "event_file", path: `harness/events/${event.opId}.json`, operation: "create" }, { kind: "event_head", path: "harness/events/head.json", operation: "replace" }, { kind: "projection_invalidation", projection: "task-lifecycle/v1", key: event.taskId }, { kind: "projection_invalidation", projection: "preset-snapshot/v1", key: event.payload.presetSnapshotClaim.digest }];
-  for (const claim of event.payload.initialDocumentClaims) targets.push({ kind: "projection_invalidation", projection: "document/v1", key: claim.path });
+  for (const claim of event.payload.initialDocumentClaims) targets.push({ kind: "authored_file", path: claim.path, operation: "replace", sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType }, { kind: "projection_invalidation", projection: "document/v1", key: claim.path });
   for (const claim of uniqueClaims(event)) targets.push({ kind: "content_blob", sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType });
   return freezeDeclaredWritePlan({ commandType: "TaskBootstrap", targets }, ["TaskBootstrap"]);
 }
@@ -34,5 +34,5 @@ export function assertTaskBootstrapWritePlan(event: TaskBootstrapEventV1, plan: 
 export function taskBootstrapClaims(event: TaskBootstrapEventV1): readonly (PresetSnapshotClaim | InitialDocumentClaim)[] { return uniqueClaims(event); }
 function uniqueClaims(event: TaskBootstrapEventV1): readonly (PresetSnapshotClaim | InitialDocumentClaim)[] { return [...new Map([event.payload.presetSnapshotClaim, ...event.payload.initialDocumentClaims].map((claim) => [claim.sha256, claim])).values()]; }
 function validSnapshotClaim(value: unknown): value is PresetSnapshotClaim { return isRecord(value) && hasOnlyFields(value, ["digest", "sha256", "size", "mediaType"]) && /^sha256:[0-9a-f]{64}$/u.test(String(value.digest)) && validStoredClaim(value) && value.mediaType === "application/json"; }
-function validDocumentClaim(value: unknown): value is InitialDocumentClaim { if (!isRecord(value) || !hasOnlyFields(value, ["path", "sha256", "size", "mediaType", "policyId"]) || !validStoredClaim(value) || value.policyId !== "markdown-additive/v1" || value.mediaType !== "text/markdown" && value.mediaType !== "text/plain") return false; try { return normalizeRelativeDocumentPath(String(value.path)) === value.path; } catch { return false; } }
+function validDocumentClaim(value: unknown): value is InitialDocumentClaim { if (!isRecord(value) || !hasOnlyFields(value, ["path", "sha256", "size", "mediaType", "policyId"]) || !validStoredClaim(value) || value.policyId !== "markdown-body-replaceable/v1" || value.mediaType !== "text/markdown" && value.mediaType !== "text/plain") return false; try { return normalizeRelativeDocumentPath(String(value.path)) === value.path; } catch { return false; } }
 function validStoredClaim(value: Readonly<Record<string, unknown>>): boolean { return /^[0-9a-f]{64}$/u.test(String(value.sha256)) && Number.isSafeInteger(value.size) && (value.size as number) >= 0 && isNonEmptyString(value.mediaType); }

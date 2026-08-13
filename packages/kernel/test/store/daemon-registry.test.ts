@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -42,6 +43,7 @@ test("daemon registry register realpaths canonical roots and writes registry-onl
     assert.equal(result.changed, true);
     assert.equal(result.repo.repoId, "brain");
     assert.equal(result.repo.canonicalRoot, canonicalRoot);
+    assert.equal(result.repo.authoredBranch, "ledger-main");
     assert.equal(result.repo.state, "enabled");
     assert.equal(result.repo.registeredAt, "2026-07-07T00:00:00.000Z");
     assert.equal(existsSync(daemonRegistryPaths({ userRoot }).registryPath), true);
@@ -157,5 +159,6 @@ function withTempDir<T>(fn: (root: string) => T): T {
 function createHarnessRepo(rootDir: string): string {
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });
   writeFileSync(path.join(rootDir, "harness", "harness.yaml"), "schema: harness-anything/v1\n", "utf8");
+  execFileSync("git", ["-C", rootDir, "init", "-q", "-b", "ledger-main"]); execFileSync("git", ["-C", rootDir, "config", "user.name", "Registry Test"]); execFileSync("git", ["-C", rootDir, "config", "user.email", "registry@example.invalid"]); execFileSync("git", ["-C", rootDir, "add", "harness/harness.yaml"]); execFileSync("git", ["-C", rootDir, "commit", "-qm", "init"]);
   return realpathSync.native(path.resolve(rootDir));
 }

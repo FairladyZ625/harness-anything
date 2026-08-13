@@ -78,7 +78,7 @@ test("G29 doc publication rejects extra, missing, and late targets before Git or
     const blob = { sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }, plan = docSyncWritePlan(event), extra = freezeDeclaredWritePlan({ commandType: "DocSyncSubmit", targets: [...plan.targets, { kind: "content_blob", sha256: "f".repeat(64), size: 1, mediaType: "text/plain" }] }, ["DocSyncSubmit"]), missing = freezeDeclaredWritePlan({ commandType: "DocSyncSubmit", targets: plan.targets.filter((target) => target.kind !== "content_blob") }, ["DocSyncSubmit"]);
     for (const invalid of [extra, missing]) { assert.throws(() => store.append(event, invalid, [blob]), /write plan/iu); assert.deepEqual(store.currentCommit(), base); }
     assert.throws(() => plan.targets.push(extra.targets.at(-1))); assert.deepEqual(store.currentCommit(), base); const receipt = store.append(event, plan, [blob]); assert.deepEqual(projection.apply(event, plan).metrics, { sqliteTransactions: 1, reducedItems: 1 });
-    assert.deepEqual(receipt.metrics.changedPaths, ["harness/events/doc-op.json", "harness/events/head.json", `harness/objects/sha256/${hash}`]); assert.equal(projection.readDocument("context/notes.md").document?.blobSha256, hash);
+    assert.deepEqual(receipt.metrics.changedPaths, ["harness/context/notes.md", "harness/events/doc-op.json", "harness/events/head.json", `harness/objects/sha256/${hash}`]); assert.equal(projection.readDocument("context/notes.md").document?.blobSha256, hash);
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -107,6 +107,7 @@ function assertChangedPathsDeclared(before, after, plan) {
 function declaredMatchers(plan) {
   return plan.targets.flatMap((target) => {
     if (target.kind === "event_file" || target.kind === "event_head") return [exact(target.path)];
+    if (target.kind === "authored_file") return [exact(`harness/${target.path}`)];
     if (target.kind === "projection_invalidation" || target.kind === "lease_sqlite") return [exact(".harness/cache/task.sqlite")];
     return target.kind === "content_blob" ? [exact(`harness/objects/sha256/${target.sha256}`)] : [];
   });
