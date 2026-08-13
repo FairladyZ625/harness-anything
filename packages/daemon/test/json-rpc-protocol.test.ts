@@ -2,12 +2,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { makeTaskEventStore, type AgentRuntimeEventV1 } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, readDaemonRegistry, type AgentRuntimeEventV1 } from "../../kernel/src/index.ts";
 import { actionForDaemonMethod, canonicalRoot, commandClassForAction, parseDaemonRpcParams, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
@@ -131,20 +131,17 @@ test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion r
     assert.equal((await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, { actor, source: "local" })).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, { actor, source: "local" })).outcome, "applied");
     const claims = path.join(rootDir, ".harness/doc-sync-claims"), authored = path.join(rootDir, "harness/context/notes.md"); mkdirSync(claims, { recursive: true }); mkdirSync(path.dirname(authored), { recursive: true });
-    let body = "# Notes\nA\n", hash = createHash("sha256").update(body).digest("hex"), base = git(rootDir, "rev-parse", "refs/ha/canonical"); writeFileSync(authored, body);
+    let body = "# Notes\nA\n"; writeFileSync(authored, body);
     const statusBefore = await cell.run({ kind: "doc-status", paths: ["context/notes.md"] }, { actor, source: "local" }); assert.equal(statusBefore.outcome, "applied"); assert.equal(statusBefore.proof?.worktreeVisible, false);
-    const action = { kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: base, selections: [{ path: "context/notes.md", baseBlobSha256: null }] } as const;
+    const action = { kind: "doc-submit", executionId: "execution-doc", paths: ["context/notes.md"] } as const;
     const before = { head: git(rootDir, "rev-parse", "HEAD"), bytes: readFileSync(authored).toString("hex") }, applied = await cell.run(action, { actor, source: "local" });
     assert.equal(applied.outcome, "applied", JSON.stringify(applied)); assert.equal(applied.detail?.kind, "doc_sync"); assert.equal(applied.proof?.worktreeVisible, true); assert.notEqual(git(rootDir, "rev-parse", "HEAD"), before.head); assert.equal(git(rootDir, "rev-parse", "HEAD"), git(rootDir, "rev-parse", "refs/ha/canonical")); assert.equal(readFileSync(authored).toString("hex"), before.bytes); assert.equal(git(rootDir, "status", "--porcelain", "-uall").includes("harness/context/notes.md"), false);
     const shown = await cell.run({ kind: "receipt-show", opId: applied.opId }, { actor, source: "local" }); assert.equal(shown.outcome, "applied"); assert.equal(shown.detail?.kind, "doc_sync"); assert.equal(shown.proof?.canonicalVisible, true);
-    const commits = git(rootDir, "rev-list", "--count", "refs/ha/canonical"); assert.deepEqual(await cell.run(action, { actor, source: "local" }), applied); assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical"), commits);
+    const commits = git(rootDir, "rev-list", "--count", "refs/ha/canonical"), retried = await cell.run(action, { actor, source: "local" }); assert.equal(retried.outcome, "applied"); assert.match(retried.opId, /^noop:/u); assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical"), commits);
     const next = `${body}B\n`; writeFileSync(authored, next);
-    const staleLedger = await cell.run({ ...action, baseLedgerSha: base, selections: [{ path: "context/notes.md", baseBlobSha256: hash }] }, { actor, source: "local" });
-    assert.equal(staleLedger.code, "base_ledger_changed"); assert.equal(staleLedger.detail?.holder?.executionId, "execution-doc");
-    base = git(rootDir, "rev-parse", "refs/ha/canonical"); const staleBlob = await cell.run({ ...action, baseLedgerSha: base, selections: [{ path: "context/notes.md", baseBlobSha256: "f".repeat(64) }] }, { actor, source: "local" });
-    assert.equal(staleBlob.code, "base_blob_changed"); assert.equal(staleBlob.detail?.holder?.personId, "person-owner");
-    rmSync(authored); const deletion = await cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: base, selections: [{ path: "context/notes.md", baseBlobSha256: hash }] }, { actor, source: "local" }); assert.equal(deletion.code, "deletion_forbidden"); writeFileSync(authored, body);
-    const samples: number[] = []; for (let index = 0; index < 7; index += 1) { const candidate = `${body}${Array.from({ length: index + 1 }, (_, n) => `line-${n}\n`).join("")}`, candidateHash = createHash("sha256").update(candidate).digest("hex"); writeFileSync(authored, candidate); const started = performance.now(), result = await cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: git(rootDir, "rev-parse", "refs/ha/canonical"), selections: [{ path: "context/notes.md", baseBlobSha256: hash }] }, { actor, source: "local" }); samples.push(performance.now() - started); assert.equal(result.outcome, "applied", JSON.stringify(result)); body = candidate; hash = candidateHash; }
+    const updated = await cell.run(action, { actor, source: "local" }); assert.equal(updated.outcome, "applied", JSON.stringify(updated)); body = next;
+    rmSync(authored); const deletion = await cell.run(action, { actor, source: "local" }); assert.equal(deletion.code, "deletion_forbidden"); writeFileSync(authored, body);
+    const samples: number[] = []; for (let index = 0; index < 7; index += 1) { const candidate = `${body}${Array.from({ length: index + 1 }, (_, n) => `line-${n}\n`).join("")}`; writeFileSync(authored, candidate); const started = performance.now(), result = await cell.run(action, { actor, source: "local" }); samples.push(performance.now() - started); assert.equal(result.outcome, "applied", JSON.stringify(result)); body = candidate; }
     samples.sort((a, b) => a - b); const p50 = samples[Math.floor(samples.length / 2)]!; context.diagnostic(`doc-single-write-p50=${p50.toFixed(3)}ms samples=${samples.map((sample) => sample.toFixed(3)).join(",")}`); assert.equal(p50 < 500, true, `doc write p50 ${p50}ms`);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
@@ -171,6 +168,29 @@ test("bootstrap concurrent writer admission commits one complete workspace", asy
     assert.equal(results.filter(({ status }) => status === "fulfilled").length, 1); assert.equal(results.filter(({ status }) => status === "rejected").length, 1);
     assert.equal(git(rootDir, "rev-list", "--count", "HEAD"), "1"); assert.equal(git(rootDir, "status", "--porcelain"), ""); }
   finally { await Promise.all(hosts.map((host) => host.close())); rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("bootstrap binds registered default authored branch", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-bootstrap-branch-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user");
+  const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: process.getuid?.() ?? 0,
+    source: "unix-socket-filesystem-owner-boundary" } } as const;
+  mkdirSync(rootDir, { recursive: true }); initRepo(rootDir); git(rootDir, "branch", "-M", "main"); git(rootDir, "branch", "feature"); git(rootDir, "checkout", "--quiet", "feature");
+  git(rootDir, "update-ref", "refs/remotes/origin/main", "refs/heads/main"); git(rootDir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+  let host = await openDaemonHost({ daemonId: "bootstrap-one", userRoot });
+  try {
+    const initialized = await host.bootstrap({ rootDir, repoId: "branch-bound", personId: "owner", displayName: "Owner" }, auth); assert.equal(initialized.outcome, "applied");
+    const registered = readDaemonRegistry({ userRoot }).repos.find((repo) => repo.repoId === "branch-bound"); assert.equal(registered?.authoredBranch, "main");
+    assert.equal(git(rootDir, "rev-parse", "refs/ha/canonical"), git(rootDir, "rev-parse", "refs/heads/main")); assert.equal(git(rootDir, "branch", "--show-current"), "main");
+    await host.close(); host = await openDaemonHost({ daemonId: "bootstrap-two", userRoot });
+    const afterRestart = await host.run("branch-bound", { kind: "task-create", taskId: "task-after-restart", title: "After restart" }, auth); assert.equal(afterRestart.outcome, "applied", JSON.stringify(afterRestart));
+    assert.equal(git(rootDir, "rev-parse", "refs/ha/canonical"), git(rootDir, "rev-parse", "refs/heads/main")); assert.notEqual(git(rootDir, "rev-parse", "refs/heads/feature"), git(rootDir, "rev-parse", "refs/heads/main"));
+  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("bootstrap validates local identity before repository initialization", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-bootstrap-identity-")), rootDir = path.join(parent, "repo"), host = await openDaemonHost({ daemonId: "bootstrap-identity", userRoot: path.join(parent, "user") });
+  try { await assert.rejects(host.bootstrap({ rootDir, repoId: "identity", personId: "owner", displayName: "Owner" }, { transportKind: "unix-socket" }), hasCode("bootstrap_identity_unavailable")); assert.equal(existsSync(path.join(rootDir, ".git")), false); }
+  finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
 test("unrelated workspace lock collision does not block either workspace", async () => {
@@ -211,7 +231,7 @@ test("read-only principal cannot write or admin while semantic capabilities pass
     const deniedPresetRun = await host.presetRun("rbac", { kind: "preset-run-start", presetId: "missing", entrypoint: "run", idempotencyKey: "denied" }, auth(ids.reader)), readableStatus = await host.presetRun("rbac", { kind: "preset-run-status", runId: "run_missing" }, auth(ids.reader)); assert.equal(deniedPresetRun.code, "rbac_forbidden"); assert.equal(readableStatus.code, "run_not_found");
     assert.equal((await host.run("rbac", { kind: "doc-status", paths: ["context/notes.md"] }, auth(ids.reader))).outcome, "applied");
     mkdirSync(path.join(root, "harness/context"), { recursive: true }); writeFileSync(path.join(root, "harness/context/notes.md"), "# Reader denied\n");
-    const readerDoc = await host.run("rbac", { kind: "doc-submit", executionId, baseLedgerSha: git(root, "rev-parse", "refs/ha/canonical"), selections: [{ path: "context/notes.md", baseBlobSha256: null }] }, auth(ids.reader));
+    const readerDoc = await host.run("rbac", { kind: "doc-submit", executionId, paths: ["context/notes.md"] }, auth(ids.reader));
     assert.equal(readerDoc.code, "rbac_forbidden"); assert.equal(readerDoc.detail?.holder?.personId, "writer");
     const deniedReview = await host.run("rbac", { kind: "task-review-execution", taskId: "task-rbac" }, auth(ids.reader));
     assert.equal(deniedReview.outcome, "rejected"); assert.equal(deniedReview.code, "rbac_forbidden");

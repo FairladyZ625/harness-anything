@@ -54,6 +54,25 @@ test("body-replaceable policy accepts shorter prose and emits a valid canonical 
   assert.doesNotThrow(() => serializeDocEvent(result.event));
 });
 
+test("mixed body-replaceable rejection produces a valid typed receipt", () => {
+  const shorterBase = "# Notes\nA much longer original sentence.\n", shorter = "# Notes\nShort.\n";
+  const protectedBase = "---\nowner: owner\n---\n# Protected\nBody\n", protectedEdit = "---\nowner: other\n---\n# Protected\nBody\n";
+  const changes = [
+    { path: "context/notes.md", baseBlobSha256: sha256Text(shorterBase), policyId: DOC_POLICY_ID, candidate: claim(shorter) },
+    { path: "context/protected.md", baseBlobSha256: sha256Text(protectedBase), policyId: DOC_POLICY_ID, candidate: claim(protectedEdit) }
+  ] as const;
+  const documents = [
+    { ...state(shorterBase), path: documentPath("context/notes.md") },
+    { ...state(protectedBase), path: documentPath("context/protected.md") }
+  ];
+  const result = decideDocWrite({ intent: { schema: "doc-write-intent/v1", executionId: "execution-1", baseLedgerSha, changes }, opId: "doc-op", eventId: "doc-event", workspaceRevision: 3,
+    actor, source: "local", occurredAt: "2026-08-12T11:00:00.000Z", currentLedgerSha, lease, documents, claims: [Buffer.from(shorter), Buffer.from(protectedEdit)] });
+  assert.equal(result.accepted, false); if (result.accepted) return; assert.equal(result.code, "unresolved_touch"); assert.equal("plan" in result, false);
+  for (const difference of result.detail.differences) for (const count of [difference.insertBytes, difference.deleteBytes, difference.replaceBytes]) assert.equal(Number.isSafeInteger(count) && count >= 0, true, JSON.stringify(difference));
+  const receipt = { outcome: "rejected", opId: "doc-op", code: result.code, origin: "doc-sync-contract", evidence: `contract-rejection:${result.code}`, nextAction: result.detail.nextAction, detail: result.detail };
+  assert.deepEqual(validateWriteReceipt(receipt), []);
+});
+
 test("stale ledger and stale blob reject the entire batch with current holder and typed conflict detail", () => {
   const body = "# Notes\nA\n", change = { path: "context/notes.md", baseBlobSha256: sha256Text(body), policyId: DOC_POLICY_ID, candidate: claim(`${body}B\n`) } as const;
   const staleLedger = decide(change, state(body), Buffer.from(`${body}B\n`), { currentLedgerSha: ledgerCommitSha("docs", "b".repeat(40)) }); assert.equal(staleLedger.accepted, false); if (staleLedger.accepted) return;

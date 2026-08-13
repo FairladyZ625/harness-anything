@@ -122,12 +122,12 @@ function regions(body: string, mediaType: string): { readonly regions: readonly 
     matches.forEach((match, index) => { const start = match.index ?? 0, end = matches[index + 1]?.index ?? prose.length; result.push({ id: ids[index]!, mode: "additive", body: prose.slice(start, end), offset: offset + start }); }); }
   return { regions: result, error: null };
 }
-function compareRegion(path: PortableDocumentPath, base: Region, candidate: Region): { readonly allowed: boolean; readonly proof: RegionProof; readonly difference: DocSyncDifference | null } { const left = Buffer.from(base.body), right = Buffer.from(candidate.body); let cursor = 0, first = -1;
-  for (const byte of right) { if (byte === left[cursor]) cursor += 1; else if (first < 0) first = cursor; } const allowed = base.mode === "equal" ? left.equals(right) : true;
+function compareRegion(path: PortableDocumentPath, base: Region, candidate: Region): { readonly allowed: boolean; readonly proof: RegionProof; readonly difference: DocSyncDifference | null } { const left = Buffer.from(base.body), right = Buffer.from(candidate.body), allowed = base.mode === "equal" ? left.equals(right) : true;
   if (left.equals(right)) return { allowed, proof: proof(base.id, base.body, candidate.body), difference: null }; let prefix = 0; while (prefix < left.length && prefix < right.length && left[prefix] === right[prefix]) prefix += 1;
-  const replaced = allowed ? 0 : Math.min(left.length - prefix, right.length - prefix), deleted = allowed ? 0 : left.length - prefix - replaced;
-  return { allowed, proof: proof(base.id, base.body, candidate.body), difference: { path, regionId: base.id, insertBytes: allowed ? right.length - left.length : right.length - prefix - replaced,
-    deleteBytes: deleted, replaceBytes: replaced, firstChange: { baseOffset: base.offset + (first < 0 ? prefix : first), candidateOffset: candidate.offset + prefix } } };
+  let suffix = 0; while (suffix < left.length - prefix && suffix < right.length - prefix && left[left.length - suffix - 1] === right[right.length - suffix - 1]) suffix += 1;
+  const leftChanged = left.length - prefix - suffix, rightChanged = right.length - prefix - suffix, replaced = Math.min(leftChanged, rightChanged);
+  return { allowed, proof: proof(base.id, base.body, candidate.body), difference: { path, regionId: base.id, insertBytes: rightChanged - replaced,
+    deleteBytes: leftChanged - replaced, replaceBytes: replaced, firstChange: { baseOffset: base.offset + prefix, candidateOffset: candidate.offset + prefix } } };
 }
 function proof(regionId: string, base: string, candidate: string): RegionProof { return { regionId, policyId: DOC_POLICY_ID, codecId: DOC_CODEC_ID, baseSha256: sha256Text(base), candidateSha256: sha256Text(candidate), insertBytes: Math.max(0, Buffer.byteLength(candidate) - Buffer.byteLength(base)) }; }
 

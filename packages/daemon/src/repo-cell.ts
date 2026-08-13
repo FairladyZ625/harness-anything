@@ -24,9 +24,10 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
   readonly now?: () => string; readonly killpoint?: (point: EventPublicationKillpoint) => void }): Promise<RepoCell> {
   const rootDir = input.rootDir, lock = await acquireWorkspaceLock(rootDir), generation = Date.now() * 1_000 + process.pid % 1_000;
   const activeWriter: WriterGeneration = { workspaceId: input.repoId, generation, ownerId: input.ownerId }, writerToken = bindWriterGenerationToken(activeWriter), now = input.now ?? (() => new Date().toISOString());
-  try { if (input.bootstrap) bootstrapRepo(input.bootstrap.input, input.bootstrap.auth, activeWriter, writerToken); }
+  let authoredBranch = input.authoredBranch;
+  try { if (input.bootstrap) authoredBranch = bootstrapRepo(input.bootstrap.input, input.bootstrap.auth, activeWriter, writerToken, authoredBranch); }
   catch (error) { await lock.close(); throw error; }
-  const store = makeTaskEventStore({ repoId: input.repoId, rootDir, authoredBranch: input.authoredBranch, killpoint: input.killpoint }), recovery = store.recover(), projection = makeTaskProjection({ rootDir, eventStore: store, now });
+  const store = makeTaskEventStore({ repoId: input.repoId, rootDir, authoredBranch, killpoint: input.killpoint }), recovery = store.recover(), projection = makeTaskProjection({ rootDir, eventStore: store, now });
   const factActions = makeFactActions({ store, projection, now, killpoint: input.killpoint }), decisionActions = makeDecisionActions({ store, projection, now, killpoint: input.killpoint });
   const runtimeStream = makeAgentRuntimeStreamHub({ readSession: (runtimeSessionId) => { projection.list(); return projection.readRuntimeSession(runtimeSessionId); }, canAttach: (session) => session.attachable && Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach")), now: () => new Date(now()) }), runtimeReads = makeAgentRuntimeReadModel({ projection, store, stream: runtimeStream });
   const service = makeTaskLifecycleService({ eventStore: store, projection, killpoint: input.killpoint }); let state: RepoCellStatus["state"] = recovery.status === "indeterminate" || recovery.elapsedMs > 250 ? "unavailable" : "attached";
