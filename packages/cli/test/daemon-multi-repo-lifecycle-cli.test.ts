@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -41,12 +41,13 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     assert.match(reckonFact.evidenceSource, new RegExp(`^decision/${decision.decisionId}@\\d+$`, "u")); assert.match(reckonFact.statement, /no load-bearing claims/u); const canonicalEvents = makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).read().events; assert.equal(canonicalEvents.some((event) => event.schema === "decision-event/v1" && event.decisionId === decision.decisionId), true); assert.equal(canonicalEvents.some((event) => event.schema === "fact-event/v1" && event.payload.evidenceSource === reckonFact.evidenceSource), true);
     assert.match(String(run(fixture.alpha, fixture.userRoot, ["task", "show", "task-alpha"]).evidence), /Alpha/u);
     assert.equal(run(fixture.alpha, fixture.userRoot, ["task", "start", "task-alpha", "--execution-id", "exec-doc"]).outcome, "applied");
+    const progress = run(fixture.alpha, fixture.userRoot, ["task", "progress", "append", "task-alpha", "--text", "CLI progress is canonical.", "--evidence", "test:reports/cli.txt:passed"]); assert.equal(progress.progressPath, "tasks/task-alpha-alpha/progress.md"); assert.match(String(progress.commitSha), /^[0-9a-f]{40}$/u); assert.equal(progress.worktreeVisible, true); assert.match(String(progress.evidence), /file:tasks\/task-alpha-alpha\/progress\.md/u); assert.match(readFileSync(path.join(fixture.alpha, "harness/tasks/task-alpha-alpha/progress.md"), "utf8"), /CLI progress is canonical\..*Evidence: test:reports\/cli\.txt:passed/su);
     const docPath = "tasks/task-alpha-alpha/notes.md", docBody = "# CLI canonical document\n", authored = path.join(fixture.alpha, "harness", docPath); mkdirSync(path.dirname(authored), { recursive: true }); writeFileSync(authored, docBody);
     assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "status", "--path", docPath]).outcome, "applied");
     assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--execution-id", "exec-doc", "--path", docPath]).outcome, "applied");
     assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", docPath]).evidence, docBody);
     for (const root of [fixture.alpha, fixture.beta]) {
-      assert.equal(git(root, "rev-list", "--count", "refs/ha/canonical"), root === fixture.alpha ? "7" : "2");
+      assert.equal(git(root, "rev-list", "--count", "refs/ha/canonical"), root === fixture.alpha ? "8" : "2");
       assert.equal(git(root, "ls-tree", "--name-only", "refs/ha/canonical", "harness/events").includes("harness/events"), true);
       assert.equal(existsSync(path.join(root, ".harness/cache/task.sqlite")), true);
       assert.equal(existsSync(path.join(root, ".harness/write-journal")), false);

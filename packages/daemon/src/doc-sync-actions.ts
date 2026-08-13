@@ -33,7 +33,7 @@ export async function runDocAction(input: Input): Promise<WriteReceipt> {
     actor: input.binding.actor, source: input.binding.source, occurredAt: input.now(), currentLedgerSha: input.store.currentCommit(), lease, documents: documents.map((read) => read.document), claims,
     resolvedTaskIds: intent.changes.map((change) => input.projection.taskIdForDocumentPath(change.path)) });
   if (!decision.accepted) { recycleClaims(input.rootDir, intent); return reject(envelope.opId, decision.code, decision.detail, decision.detail.nextAction); }
-  input.store.append(decision.event, decision.plan, decision.blobs); input.projection.apply(decision.event, decision.plan); input.killpoint?.("after_sqlite_commit"); input.killpoint?.("before_response_write");
+  input.store.append({ event: decision.event, plan: decision.plan, blobs: decision.blobs }); input.projection.apply(decision.event, decision.plan); input.killpoint?.("after_sqlite_commit"); input.killpoint?.("before_response_write");
   const applied = readDocReceipt(input, decision.event); input.killpoint?.("after_response_write"); recycleClaims(input.rootDir, intent); return applied;
 }
 

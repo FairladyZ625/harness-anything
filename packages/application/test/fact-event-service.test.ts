@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeDecisionService, makeFactService } from "../src/index.ts";
-import { deriveRelationId, makeTaskEventStore, makeTaskProjection, type CanonicalEventStore, type DecisionEventV1, type FactEventV1 } from "../../kernel/src/index.ts";
+import { canonicalEventWritePlan, deriveRelationId, makeTaskEventStore, makeTaskProjection, type CanonicalEventStore, type CanonicalEventV1, type CanonicalWriteBundle, type DecisionEventV1, type FactEventV1 } from "../../kernel/src/index.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 
 const actor = { principal: { personId: "person-fact" }, executor: { kind: "agent", id: "codex" } } as const;
@@ -66,7 +66,7 @@ test("Fact identity is task-local and supersedes only a known live Fact", () => 
 test("search catches up a Fact committed to L1 before the projection transaction", () => {
   withFixture(({ store, projection, service }) => {
     const original = factEvent(1, "task-fact", "F-ABCDEFGH"), correction = factEvent(2, "task-fact", "F-BCDEFGHJ", { factRef: "fact/task-fact/F-ABCDEFGH", rationale: "New observation." });
-    store.append(original); projection.apply(original); store.append(correction);
+    store.append(bundle(original)); projection.apply(original); store.append(bundle(correction));
     const search = service.search({ query: "Fact", taskId: "task-fact" });
     assert.equal(search.status, "ready"); assert.equal(search.watermark, 2); assert.equal(service.show("task-fact", "F-ABCDEFGH").fact.state, "retired");
     assert.deepEqual(projection.readFactGraph().edges.map((edge) => [edge.sourceRef, edge.targetRef, edge.state]), [["fact/task-fact/F-BCDEFGHJ", "fact/task-fact/F-ABCDEFGH", "active"]]);
@@ -104,7 +104,7 @@ test("Decision transition matrix, independent arbiter, claims, relation retireme
 });
 
 test("Decision read catches up an L1-only proposal and exposes the explicit body-null crash window", () => {
-  withDecisionFixture(({ store, service }) => { const proposed = decisionEvent(1, "decision_proposed"); store.append(proposed); const searched = service.search({ query: "Canonical" }); assert.equal(searched.status, "ready"); assert.equal(searched.watermark, 1); assert.equal(searched.decisions[0]?.body, null); assert.equal(service.show("dec_FIXTURE").decision.body, null); });
+  withDecisionFixture(({ store, service }) => { const proposed = decisionEvent(1, "decision_proposed"); store.append(bundle(proposed)); const searched = service.search({ query: "Canonical" }); assert.equal(searched.status, "ready"); assert.equal(searched.watermark, 1); assert.equal(searched.decisions[0]?.body, null); assert.equal(service.show("dec_FIXTURE").decision.body, null); });
 });
 
 test("Decision coverage replays all fulfillment modes, refutation, and exact task_completed basis", () => {
@@ -112,7 +112,7 @@ test("Decision coverage replays all fulfillment modes, refutation, and exact tas
   try {
     git(rootDir, "init", "--quiet"); git(rootDir, "config", "user.name", "Coverage Test"); git(rootDir, "config", "user.email", "coverage@example.invalid"); git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "base");
     const store = makeTaskEventStore({ repoId: "coverage-test", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store });
-    for (const event of lifecycleFixture().events) { store.append(event); projection.apply(event); }
+    for (const event of lifecycleFixture().events) { store.append(bundle(event)); projection.apply(event); }
     const factService = makeFactService({ eventStore: store, projection }), decisionService = makeDecisionService({ eventStore: store, projection });
     factService.record(factEvent(7, "task-1", "F-ABCDEFGH")); factService.record(factEvent(8, "task-1", "F-BCDEFGHJ"));
     let revision = 9;
@@ -148,6 +148,7 @@ function factEvent(revision: number, taskId: string, factId: string, supersedes?
     confidence: "high", memoryClass: "semantic", memoryTags: ["pattern"], provenance: [{ runtime: "codex", sessionId: "session-fact", boundAt: "2026-08-13T00:00:00.000Z" }], ...(supersedes ? { supersedes } : {}) }
 }; }
 function code(error: unknown): string | undefined { return typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined; }
+function bundle(event: CanonicalEventV1): CanonicalWriteBundle { return { event, plan: canonicalEventWritePlan(event, "test/v1", event.opId), blobs: [] }; }
 
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
@@ -158,5 +159,5 @@ function memoryFactStore(initial: readonly FactEventV1[]): CanonicalEventStore {
     const start = cursor === null ? 0 : Number(cursor), batch = events.slice(start, start + maxItems), next = start + batch.length;
     return { sourceRevision: events.length, events: batch, cursor: String(next), done: next === events.length, accessedItems: batch.length };
   }, readContentBlob: () => null, readEvent: (opId: string) => events.find((event) => event.opId === opId) ?? null,
-  append: ((event: FactEventV1) => { events.push(event); return { revision: event.workspaceRevision }; }) } as unknown as CanonicalEventStore;
+  append: (({ event }: CanonicalWriteBundle) => { events.push(event as FactEventV1); return { revision: event.workspaceRevision }; }) } as unknown as CanonicalEventStore;
 }

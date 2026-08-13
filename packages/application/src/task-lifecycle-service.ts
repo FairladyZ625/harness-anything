@@ -1,6 +1,6 @@
 // @slice-activation P4 W2 is composed by tests; W3 owns daemon and production publication cutover.
 import { Effect } from "effect";
-import { applyTransition, canonicalizeContractValue, taskLifecycleWritePlan, validateTaskLifecycleCommandEnvelope,
+import { applyTransition, canonicalEventWritePlan, canonicalizeContractValue, taskLifecycleWritePlan, validateTaskLifecycleCommandEnvelope,
   type FrozenWritePlan, type ProofFor, type TaskEventV1, type TaskLifecycleCommand, type TaskLifecycleSnapshot,
   type WriteError, type WriteOperationReceipt, type WriteTarget } from "../../kernel/src/index.ts";
 
@@ -11,7 +11,7 @@ export class TaskLifecycleOperationConflict extends Error {
 }
 export type TaskLifecycleKillpoint = "after_sqlite_commit" | "before_response_write" | "after_response_write";
 export interface TaskLifecycleServiceRead { readonly status: "ready" | "pending"; readonly snapshot: TaskLifecycleSnapshot; readonly watermark: number; readonly sourceRevision: number; readonly warnings: readonly string[] }
-interface EventStorePort { readonly readTaskEvent: (opId: string) => TaskEventV1 | null; readonly append: (event: TaskEventV1) => { readonly status: "applied"; readonly revision: number } }
+interface EventStorePort { readonly readTaskEvent: (opId: string) => TaskEventV1 | null; readonly append: (bundle: { readonly event: TaskEventV1; readonly plan: FrozenWritePlan; readonly blobs: readonly [] }) => { readonly status: "applied"; readonly revision: number } }
 type Lease = NonNullable<TaskLifecycleSnapshot["lease"]>;
 interface ProjectionPort {
   readonly apply: (event: TaskEventV1) => { readonly metrics: { readonly reducedItems: number } }; readonly read: (taskId: string) => TaskLifecycleServiceRead;
@@ -42,7 +42,7 @@ export function makeTaskLifecycleService(options: { readonly eventStore: EventSt
     if (current.status !== "ready" && (command.type !== "CreateReplayTask" || current.snapshot.task !== null)) return { outcome: "indeterminate", opId: command.opId, code: "operation_not_published", origin: "N/A", snapshot: current.snapshot, frozenPlan: plan, nextAction: "retry task lifecycle read: projection catch-up is pending" };
     const claim = command.type === "StartExecution" ? reserveClaim(options.projection, command, proof as TaskLifecycleServiceProof<StartCommand>) : null;
     const event = applyTransition(current.snapshot, command, (claim?.proof ?? proof) as ProofFor<C>).event;
-    try { plannedPublication(plan, event, () => options.eventStore.append(event)); }
+    try { plannedPublication(plan, event, () => options.eventStore.append({ event, plan, blobs: [] })); }
     catch (error) { if (claim !== null) releaseReservation(options.projection, claim.reserving); throw error; }
     if (claim !== null) try {
       const active = options.projection.activateLease(claim.reserving);
@@ -73,7 +73,7 @@ async function renewTaskLease(options: { readonly eventStore: EventStorePort; re
   const event: Extract<TaskEventV1, { readonly type: "lease_renewed" }> = { schema: "task-event/v1", eventId: input.eventId, workspaceRevision: input.workspaceRevision,
     opId: input.opId, taskId: input.taskId, type: "lease_renewed", actor: input.actor, source: input.source, occurredAt: input.occurredAt,
     payload: { task, execution, lease: renewed, previousHolder: holder(current), leaseExpiresAt: renewed.expiresAt, reason: "same_principal_reconnect" } };
-  options.eventStore.append(event); const changed = options.projection.renewLease(current, input.expiresAt);
+  options.eventStore.append({ event, plan: canonicalEventWritePlan(event, "task-lifecycle/v1", event.taskId), blobs: [] }); const changed = options.projection.renewLease(current, input.expiresAt);
   if (json(changed) !== json(renewed)) throw new TaskLifecycleOperationConflict("lease renewal CAS did not match the L1 event");
   options.projection.apply(event); return changed;
 }
