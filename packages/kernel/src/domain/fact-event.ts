@@ -33,13 +33,13 @@ export function serializeFactEvent(event: FactEventV1): string { const errors = 
 export function validateFactEvent(value: unknown): readonly string[] {
   if (!isRecord(value) || !hasOnlyFields(value, ["schema", "eventId", "workspaceRevision", "opId", "taskId", "factId", "type", "actor", "source", "occurredAt", "payload"])
     || value.schema !== "fact-event/v1" || value.type !== "fact_recorded" || !safeId(value.taskId) || typeof value.factId !== "string" || !isFactId(value.factId)
-    || !isRecord(value.payload) || !payloadFields(value.payload)) return ["fact event envelope or payload is invalid"];
+    || !timestamp(value.occurredAt) || !isRecord(value.payload) || !payloadFields(value.payload)) return ["fact event envelope or payload is invalid"];
   try { serializeEventEnvelope(value as unknown as FactEventV1); } catch { return ["fact event envelope identity is invalid"]; }
   const payload = value.payload;
   if (!isNonEmptyString(payload.statement) || !isNonEmptyString(payload.evidenceSource) || !timestamp(payload.observedAt)
     || !includes(factConfidenceLevels, payload.confidence) || !includes(factMemoryClasses, payload.memoryClass)
     || !Array.isArray(payload.memoryTags) || new Set(payload.memoryTags).size !== payload.memoryTags.length || payload.memoryTags.some((tag) => !includes(factMemoryTags, tag))
-    || !Array.isArray(payload.provenance) || payload.provenance.length === 0 || payload.provenance.some((entry) => !provenance(entry))
+    || !Array.isArray(payload.provenance) || payload.provenance.length === 0 || payload.provenance.some((entry) => !provenance(entry)) || !uniqueProvenance(payload.provenance)
     || payload.supersedes !== undefined && !supersedes(payload.supersedes)) return ["fact event payload is invalid"];
   return [];
 }
@@ -50,6 +50,7 @@ function payloadFields(value: Readonly<Record<string, unknown>>): boolean {
 }
 function provenance(value: unknown): boolean { return isRecord(value) && hasOnlyFields(value, ["runtime", "sessionId", "boundAt"])
   && includes(factProvenanceRuntimes, value.runtime) && isNonEmptyString(value.sessionId) && timestamp(value.boundAt); }
+function uniqueProvenance(values: readonly unknown[]): boolean { const keys = values.map((value) => isRecord(value) ? `${String(value.runtime)}\0${String(value.sessionId)}` : ""); return new Set(keys).size === keys.length; }
 function supersedes(value: unknown): boolean { return isRecord(value) && hasOnlyFields(value, ["factRef", "rationale"])
   && typeof value.factRef === "string" && /^fact\/[^/]+\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(value.factRef) && codePoints(value.rationale, 1, 199); }
 function timestamp(value: unknown): boolean { return typeof value === "string" && Number.isFinite(Date.parse(value)); }

@@ -1,7 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { Schema } from "effect";
 import test from "node:test";
-import { parseCanonicalEvent, serializeCanonicalEvent, type FactEventV1 } from "../../src/index.ts";
+import { FactEventSchema, parseCanonicalEvent, serializeCanonicalEvent, type FactEventV1 } from "../../src/index.ts";
 import { validateFactEvent } from "../../src/domain/fact-event.ts";
 
 const event: FactEventV1 = { schema: "fact-event/v1", eventId: "event-fact-contract", workspaceRevision: 1, opId: "op-fact-contract",
@@ -11,14 +12,23 @@ const event: FactEventV1 = { schema: "fact-event/v1", eventId: "event-fact-contr
 
 test("Fact event schema accepts canonical bytes and rejects invalid or unknown fields", () => {
   assert.deepEqual(validateFactEvent(event), []);
+  assert.deepEqual(Schema.decodeUnknownSync(FactEventSchema)(event), event);
   assert.deepEqual(parseCanonicalEvent(serializeCanonicalEvent(event)), event);
   for (const invalid of [
     { ...event, unexpected: true },
     { ...event, factId: "F-bad" },
+    { ...event, taskId: "task/unsafe" },
+    { ...event, occurredAt: "not-a-timestamp" },
     { ...event, payload: { ...event.payload, unexpected: true } },
+    { ...event, payload: { ...event.payload, statement: "   " } },
+    { ...event, payload: { ...event.payload, observedAt: "not-a-timestamp" } },
     { ...event, payload: { ...event.payload, memoryTags: ["pattern", "pattern"] } },
     { ...event, payload: { ...event.payload, provenance: [{ ...event.payload.provenance[0]!, token: "not allowed" }] } },
+    { ...event, payload: { ...event.payload, provenance: [event.payload.provenance[0]!, { ...event.payload.provenance[0]!, boundAt: "2026-08-13T00:00:01.000Z" }] } },
     { ...event, payload: { ...event.payload, supersedes: { factRef: "fact/task-contract/F-12345678", rationale: "x".repeat(200) } } }
-  ]) assert.notDeepEqual(validateFactEvent(invalid), [], JSON.stringify(invalid));
+  ]) {
+    assert.notDeepEqual(validateFactEvent(invalid), [], JSON.stringify(invalid));
+    assert.throws(() => Schema.decodeUnknownSync(FactEventSchema)(invalid), JSON.stringify(invalid));
+  }
   assert.throws(() => parseCanonicalEvent(`${JSON.stringify({ ...event, schema: "unknown-event/v1" })}\n`), /unknown/u);
 });

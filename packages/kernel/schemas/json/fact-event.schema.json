@@ -34,7 +34,7 @@
         "confidence": { "enum": ["low", "medium", "high"] },
         "memoryClass": { "enum": ["semantic", "episodic", "procedural"] },
         "memoryTags": { "type": "array", "uniqueItems": true, "items": { "enum": ["episode", "procedural", "tool_memory", "pattern", "task_skill", "abstract_rule", "other"] } },
-        "provenance": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["runtime", "sessionId", "boundAt"], "properties": { "runtime": { "enum": ["human", "claude-code", "codex", "zcode", "antigravity"] }, "sessionId": { "type": "string", "minLength": 1 }, "boundAt": { "type": "string", "minLength": 1, "format": "date-time" } } } },
+        "provenance": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "object", "additionalProperties": false, "required": ["runtime", "sessionId", "boundAt"], "properties": { "runtime": { "enum": ["human", "claude-code", "codex", "zcode", "antigravity"] }, "sessionId": { "type": "string", "minLength": 1 }, "boundAt": { "type": "string", "minLength": 1, "format": "date-time" } } } },
         "supersedes": { "type": "object", "additionalProperties": false, "required": ["factRef", "rationale"], "properties": { "factRef": { "type": "string", "pattern": "^fact/[^/]+/F-[0-9A-HJKMNP-TV-Z]{8}$" }, "rationale": { "type": "string", "minLength": 1, "maxLength": 199 } } }
       }
     }

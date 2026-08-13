@@ -1,8 +1,7 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import type { ThinParseResult } from "./thin-command.ts";
 
-export function parseFactThinCommand(id: string, args: readonly string[], rootDir: SafePath, repoId: string | undefined, json: boolean, syntax: ReadonlySet<string>): ThinParseResult { const unsupported = args.find((token) => token.startsWith("--") && !syntax.has(token)); if (unsupported) return reject("unknown_field", `Unknown option ${unsupported}.`, json);
-  if (id === "fact-record") return record(args, rootDir, repoId, json);
+export function parseFactThinCommand(id: string, args: readonly string[], rootDir: SafePath, repoId: string | undefined, json: boolean): ThinParseResult { if (id === "fact-record") return record(args, rootDir, repoId, json);
   if (id === "fact-search") return search(args, rootDir, repoId, json);
   if (id === "fact-show") return show(args, rootDir, repoId, json);
   return reject("unsupported_command", "Use fact record, search, or show.", json);
@@ -14,7 +13,7 @@ function record(args: readonly string[], rootDir: SafePath, repoId: string | und
     confidence = flags.one.get("--confidence") ?? "medium", memoryClass = flags.one.get("--memory-class") ?? "episodic", supersedes = flags.one.get("--supersedes"), rationale = flags.one.get("--rationale");
   if (!text(taskId) || !text(statement) || !text(evidenceSource)) return reject("missing_field", "Fact record requires --task, --statement, and --source.", json);
   if (!(["low", "medium", "high"] as const).includes(confidence as never) || !(["semantic", "episodic", "procedural"] as const).includes(memoryClass as never)
-    || observedAt !== undefined && !Number.isFinite(Date.parse(observedAt)) || Boolean(supersedes) !== Boolean(rationale)) return reject("invalid_field", "Use valid confidence/memory values and pair --supersedes with --rationale.", json);
+    || observedAt !== undefined && !Number.isFinite(Date.parse(observedAt)) || Boolean(supersedes) !== Boolean(rationale) || rationale !== undefined && [...rationale].length > 199) return reject("invalid_field", "Use valid confidence/memory values and pair --supersedes with a rationale of at most 199 characters.", json);
   return accept(rootDir, repoId, json, { kind: "fact-record", taskId, statement, evidenceSource, ...(observedAt ? { observedAt } : {}), confidence, memoryClass,
     memoryTags: flags.many.get("--memory-tag") ?? [], ...(supersedes && rationale ? { supersedes: { factRef: supersedes, rationale } } : {}) });
 }

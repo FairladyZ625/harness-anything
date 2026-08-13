@@ -10,7 +10,7 @@ import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.t
 import { isAgentRuntimeEvent, markRuntimeSessionUnknown, reduceRuntimeInstallation, reduceRuntimeSession, runtimeSessionId, type AgentRuntimeEventV1, type RuntimeInstallation, type RuntimeSession } from "../domain/agent-runtime.ts";
 import { assertTaskBootstrapWritePlan, isTaskBootstrapEvent, type TaskBootstrapEventV1 } from "../domain/task-bootstrap-event.ts";
 import type { FactEventV1 } from "../domain/fact-event.ts";
-import { assertFactAdmission, createFactProjectionTables, readFactGraphRows, readFactRow, reduceFactEvent, searchFactRows, type FactProjectionRow, type FactSearchFilters } from "./fact-event-projection.ts";
+import { assertFactAdmission, createFactProjectionTables, FactProjectionError, readFactGraphRows, readFactRow, reduceFactEvent, searchFactRows, type FactProjectionRow, type FactSearchFilters } from "./fact-event-projection.ts";
 
 interface EventStreamPort {
   readonly readHead: () => { readonly revision: number } | null;
@@ -75,7 +75,7 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
     readTaskOperation: (opId) => withDatabase(projectionPath, (db) => { const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as { readonly event_json: string } | undefined; if (!row) return null; const event = parseEventJson(row.event_json); return isTaskEvent(event) ? { event, watermark: watermark(db) } : null; }),
     readDocument: (documentPath) => readDocument(projectionPath, options.eventStore, documentPath, limit),
     readPresetSnapshot: (digest) => readPresetSnapshot(projectionPath, options.eventStore, digest, limit),
-    admitFact: (event) => withDatabase(projectionPath, (db) => { catchUpRound(db, options.eventStore, limit); assertFactAdmission(db, event); }),
+    admitFact: (event) => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit); if (round.watermark !== round.sourceRevision) throw new FactProjectionError("content_not_ready", `Fact admission requires projection revision ${round.sourceRevision}; current watermark is ${round.watermark}.`); assertFactAdmission(db, event); }),
     readFact: (taskId, factId) => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", fact: readFactRow(db, taskId, factId), watermark: current, sourceRevision: round.sourceRevision }; }),
     searchFacts: (filters) => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", facts: searchFactRows(db, filters), watermark: current, sourceRevision: round.sourceRevision }; }),
     readFactGraph: () => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", ...readFactGraphRows(db), watermark: current, sourceRevision: round.sourceRevision }; }),

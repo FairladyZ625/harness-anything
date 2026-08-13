@@ -28,7 +28,7 @@ export interface FactRelationEdgeRow {
   readonly rationale: string; readonly ownerRef: string; readonly sourcePath: string; readonly recordIndex: 0;
 }
 export interface FactSearchFilters { readonly query?: string; readonly taskId?: string; readonly confidence?: FactConfidence; readonly memoryClass?: FactMemoryClass }
-export class FactProjectionError extends Error { readonly code: "invalid_transition" | "entity_not_found" | "relation_invalid";
+export class FactProjectionError extends Error { readonly code: "content_not_ready" | "invalid_transition" | "entity_not_found" | "relation_invalid";
   constructor(code: FactProjectionError["code"], message: string) { super(message); this.name = "FactProjectionError"; this.code = code; } }
 
 export function createFactProjectionTables(db: DatabaseSync): void {
@@ -36,9 +36,6 @@ export function createFactProjectionTables(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS fact (task_id TEXT NOT NULL, fact_id TEXT NOT NULL, ref TEXT NOT NULL UNIQUE, statement TEXT NOT NULL, evidence_source TEXT NOT NULL,
       observed_at TEXT NOT NULL, confidence TEXT NOT NULL, memory_class TEXT NOT NULL, op_id TEXT NOT NULL UNIQUE, workspace_revision INTEGER NOT NULL, row_json TEXT NOT NULL,
       PRIMARY KEY(task_id, fact_id));
-    CREATE TABLE IF NOT EXISTS fact_memory_tag (task_id TEXT NOT NULL, fact_id TEXT NOT NULL, tag TEXT NOT NULL, PRIMARY KEY(task_id, fact_id, tag));
-    CREATE TABLE IF NOT EXISTS fact_provenance (task_id TEXT NOT NULL, fact_id TEXT NOT NULL, runtime TEXT NOT NULL, session_id TEXT NOT NULL, bound_at TEXT NOT NULL,
-      PRIMARY KEY(task_id, fact_id, runtime, session_id));
     CREATE TABLE IF NOT EXISTS relation_edge (relation_id TEXT PRIMARY KEY, source_ref TEXT NOT NULL, target_ref TEXT NOT NULL, relation_type TEXT NOT NULL,
       state TEXT NOT NULL, owner_ref TEXT NOT NULL, workspace_revision INTEGER NOT NULL, row_json TEXT NOT NULL);
     CREATE VIRTUAL TABLE IF NOT EXISTS fact_fts USING fts5(task_id UNINDEXED, fact_id UNINDEXED, statement, evidence_source,
@@ -71,9 +68,6 @@ export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
     workspaceRevision: event.workspaceRevision };
   db.prepare("INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .run(event.taskId, event.factId, ref, row.statement, row.evidenceSource, row.observedAt, row.confidence, row.memoryClass, event.opId, event.workspaceRevision, JSON.stringify(row));
-  for (const tag of row.memoryTags) db.prepare("INSERT INTO fact_memory_tag(task_id, fact_id, tag) VALUES (?, ?, ?)").run(event.taskId, event.factId, tag);
-  for (const provenance of row.provenance) db.prepare("INSERT INTO fact_provenance(task_id, fact_id, runtime, session_id, bound_at) VALUES (?, ?, ?, ?, ?)")
-    .run(event.taskId, event.factId, provenance.runtime, provenance.sessionId, provenance.boundAt);
   db.prepare("INSERT INTO fact_fts(task_id, fact_id, statement, evidence_source) VALUES (?, ?, ?, ?)").run(event.taskId, event.factId, row.statement, row.evidenceSource);
   if (event.payload.supersedes) {
     const identity = { source: ref, target: event.payload.supersedes.factRef, type: "supersedes-fact" as const, direction: "directed" as const };

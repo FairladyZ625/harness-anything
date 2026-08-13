@@ -33,6 +33,9 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
     parseThinCommand(["fact", "list"])
   ];
   assert.deepEqual(failures.map((result) => result.ok ? "ok" : result.code), ["duplicate_field", "invalid_field", "missing_field", "unknown_field", "unsupported_command"]);
+  const excessiveRationale = parseThinCommand(["fact", "record", "--task", "task-1", "--statement", "Observed", "--source", "test",
+    "--supersedes", "fact/task-1/F-ABCDEFGH", "--rationale", "x".repeat(200)]);
+  assert.equal(excessiveRationale.ok ? "ok" : excessiveRationale.code, "invalid_field");
 });
 
 test("thin parser converts the sole preset script target into closed typed start params", () => {

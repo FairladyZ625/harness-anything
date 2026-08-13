@@ -1,12 +1,12 @@
 import { serializeCanonicalEvent, type CanonicalEventStore, type FactEventV1, type FactProjectionRow, type FactSearchFilters, type TaskProjection } from "../../kernel/src/index.ts";
 
-export class FactServiceError extends Error { readonly code: "content_not_ready" | "entity_not_found";
+export class FactServiceError extends Error { readonly code: "content_not_ready" | "entity_not_found" | "invalid_command";
   constructor(code: FactServiceError["code"], message: string) { super(message); this.name = "FactServiceError"; this.code = code; } }
 export interface FactRecordResult { readonly status: "ready"; readonly fact: FactProjectionRow; readonly revision: number; readonly watermark: number }
 
 export function makeFactService(options: { readonly eventStore: Pick<CanonicalEventStore, "append" | "readEvent">; readonly projection: Pick<TaskProjection, "admitFact" | "apply" | "readFact" | "searchFacts"> }) {
   const record = (event: FactEventV1): FactRecordResult => {
-    serializeCanonicalEvent(event);
+    try { serializeCanonicalEvent(event); } catch (error) { throw new FactServiceError("invalid_command", error instanceof Error ? error.message : String(error)); }
     const existing = options.eventStore.readEvent(event.opId);
     if (existing === null) options.projection.admitFact(event);
     const appended = options.eventStore.append(event);
