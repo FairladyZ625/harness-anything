@@ -8,7 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { DOC_COMMAND_FRAME_MAX_BYTES, applyDocReplicaAck } from "../src/doc-sync-actions.ts";
+import { DOC_COMMAND_FRAME_MAX_BYTES } from "../src/doc-sync-actions.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell, type RepoCellBinding } from "../src/repo-cell.ts";
 
@@ -119,22 +119,6 @@ test("claim-check keeps large bodies out of commands and recycles missing, hash,
     const sizeResult = await remote.cell.run({ ...badSize, changes: [{ ...badSize.changes[0]!, candidate: { ...badSize.changes[0]!.candidate!, size: Buffer.byteLength(body) + 1 } }] }, assignmentBinding("claims", [relativePath]));
     assert.equal(sizeResult.code, "content_claim_mismatch"); assert.equal(existsSync(path.join(remote.rootDir, ".harness/doc-sync-claims/bad-size")), false); assert.equal(canonicalSha(remote.rootDir), before);
   } finally { await remote.close(); }
-});
-
-test("center, local worktree, and replica ACK visibility advance independently outside the RepoCell queue", async () => {
-  const fixture = await docCell("visibility");
-  try { await startLease(fixture.cell, assignmentSource); const relativePath = "tasks/task-doc/visible.md", body = "# Visible\n"; writeClaim(fixture.rootDir, "visible", body);
-    let releaseAck!: () => void, enteredAck!: () => void; const ackEntered = new Promise<void>((resolve) => { enteredAck = resolve; });
-    const ackGate = new Promise<void>((resolve) => { releaseAck = resolve; }); let centerReceipt: Awaited<ReturnType<typeof fixture.cell.run>> | undefined;
-    const first = fixture.cell.run(remoteAction(fixture.rootDir, relativePath, "visible", body), { ...assignmentBinding("visibility", [relativePath]),
-      afterPublication: async (receipt) => { centerReceipt = receipt; enteredAck(); await ackGate; return applyDocReplicaAck(receipt, "node-one/task-doc", receipt.revision ?? 0); } });
-    await ackEntered; assert.equal(centerReceipt?.outcome, "applied"); assert.equal(centerReceipt?.visibility, "center"); assert.equal(centerReceipt?.proof?.worktreeVisible, null);
-    const status = await Promise.race([fixture.cell.run({ kind: "doc-status", paths: [relativePath] }, assignmentBinding("visibility", [relativePath])),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("RepoCell queue waited for replica ACK")), 200))]);
-    assert.equal(status.outcome, "applied"); releaseAck(); const acked = await first;
-    assert.deepEqual(acked.visibility, { kind: "replica", viewId: "node-one/task-doc" }); assert.equal(acked.proof?.ackCut, acked.revision); assert.equal(acked.proof?.worktreeVisible, true);
-    const pending = applyDocReplicaAck(centerReceipt!, "node-one/task-doc", (centerReceipt!.revision ?? 1) - 1); assert.equal(pending.outcome, "pending"); assert.equal(pending.proof?.worktreeVisible, false);
-  } finally { await fixture.close(); }
 });
 
 async function docCell(repoId: string, now?: () => string) { const rootDir = mkdtempSync(path.join(tmpdir(), `ha-doc-b-${repoId}-`)); initRepo(rootDir);

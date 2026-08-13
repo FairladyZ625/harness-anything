@@ -1,11 +1,11 @@
-import { readDaemonRegistry, registerDaemonRepo, unregisterDaemonRepo, type ActorIdentity, type WriteReceipt, type WriteSource } from "../../kernel/src/index.ts";
+import { readDaemonRegistry, registerDaemonRepo, unregisterDaemonRepo, type WriteReceipt } from "../../kernel/src/index.ts";
 import { canonicalRoot, commandClassForAction, workspaceId, type DaemonGuiReadMethod, type DaemonGuiReadResultMap } from "./protocol/daemon-protocol.contract.ts"; import { presetUserRoot, recoverPresetRunStatus } from "../../preset/src/index.ts";
 import { resolveRepoBootstrap, type RepoBootstrapRequest } from "./repo-bootstrap.ts";
 import { loadPeopleRoster } from "./identity/people-roster.ts";
 import { makeTransportDerivedIdentityProvider } from "./identity/transport-derived-provider.ts";
 import type { DaemonCommandClass } from "./identity/types.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
-import { openRepoCell, type RepoCell, type RepoCellStatus, type RepoTaskAction } from "./repo-cell.ts";
+import { openRepoCell, type RepoCell, type RepoCellBinding, type RepoCellStatus, type RepoTaskAction } from "./repo-cell.ts";
 import type { AgentRuntimeAttachEvent, AgentRuntimeAttachSubscription, AgentRuntimeNativeSignal, AgentRuntimeWitnessBinding, AgentRuntimeWitnessToken } from "./agent-runtime-stream.ts";
 export interface DaemonHost {
   readonly run: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => Promise<WriteReceipt>; readonly presetRun: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => ReturnType<RepoCell["presetRun"]>;
@@ -66,7 +66,7 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
     close: async () => { await Promise.all([...cells.values()].map((cell) => cell.close())); }
   };
 }
-async function binding(rootDir: string, auth: DaemonAuthenticationContext, required: DaemonCommandClass, returnDeniedDocDetail = false): Promise<{ readonly actor: ActorIdentity; readonly source: WriteSource; readonly roles?: readonly string[]; readonly docWriteAllowed?: boolean; readonly assignmentScope?: { readonly repoId: string; readonly taskId: string; readonly executionId: string; readonly paths: readonly string[] } }> {
+async function binding(rootDir: string, auth: DaemonAuthenticationContext, required: DaemonCommandClass, returnDeniedDocDetail = false): Promise<RepoCellBinding> {
   if (auth.assignmentBinding) { if (required === "admin" || required === "arbiter") throw hostCodedError("rbac_forbidden", `Assignment ingress cannot perform ${required}.`); return { actor: auth.assignmentBinding.actor,
     source: { kind: "assignment", nodeId: auth.assignmentBinding.nodeId, assignmentId: auth.assignmentBinding.assignmentId }, docWriteAllowed: true, assignmentScope: { repoId: auth.assignmentBinding.repoId, taskId: auth.assignmentBinding.taskId, executionId: auth.assignmentBinding.executionId, paths: auth.assignmentBinding.paths } }; }
   const roster = loadPeopleRoster({ rootDir });

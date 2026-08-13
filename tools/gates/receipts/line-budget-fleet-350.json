@@ -1,0 +1,8 @@
+{
+  "decisionId": "dec_01KZQ92VEPTDRS2HS8CKDBKW2Q",
+  "scope": "module:fleet",
+  "kind": "line-budget",
+  "limit": 350,
+  "expiry": "2026-09-14T00:00:00Z",
+  "signature": "2ff10cb5c55449d211f195065bd908501b9d6283f198d536e2c479b9c69abab6"
+}

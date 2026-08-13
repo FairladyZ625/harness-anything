@@ -4,6 +4,7 @@ export {
   type LocalDaemonJsonRpcOptions, type LocalDaemonTarget
 } from "./client/local-json-rpc-client.ts";
 export { openDaemonHost, type DaemonHost } from "./daemon-host.ts";
+export { listenFleetTls, type FleetAssignmentRecord, type FleetCenterOptions, type FleetTlsCenter } from "./fleet/center.ts"; export { FleetRemoteError, openFleetEdgeView, runFleetEdgeClient, type FleetEdgeClientOptions, type FleetEdgeClientResult, type FleetEdgeView } from "./fleet/edge.ts"; export { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "./fleet/contract.ts";
 export { loadPeopleRoster, peopleRosterFromDocument } from "./identity/people-roster.ts";
 export { makeTransportDerivedIdentityProvider, type TransportDerivedIdentityProviderOptions } from "./identity/transport-derived-provider.ts";
 export type { AuthenticatedActor, CredentialRef, IdentityProvider, PeopleRoster, PersonProfile, RolePolicy } from "./identity/types.ts";
