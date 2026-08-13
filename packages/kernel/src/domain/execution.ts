@@ -14,7 +14,7 @@ export type ExecutionState = (typeof executionStates)[number];
 
 export const executionV1States = ["active", "submitted", "changes_requested", "accepted"] as const;
 export type ExecutionV1State = (typeof executionV1States)[number];
-export interface SubmissionV1 { readonly claim: string; readonly deliverables: readonly string[]; readonly evidenceRefs: readonly string[]; readonly verification: readonly string[]; readonly knownGaps: readonly string[]; readonly residualRisks: readonly string[]; readonly commitSha: string }
+export interface SubmissionV1 { readonly completionClaim: string; readonly deliverables: readonly string[]; readonly outputs: readonly string[]; readonly verificationNotes: readonly string[]; readonly knownGaps: readonly string[]; readonly residualRisks: readonly string[]; readonly commitSha: string }
 export interface ExecutionV1 { readonly schema: "execution/v1"; readonly executionId: string; readonly taskId: string; readonly nodeId: TaskNodeId; readonly iteration: 0 | 1; readonly state: ExecutionV1State; readonly actor: ActorAxes; readonly claimedAt: string; readonly submittedAt: string | null; readonly closedAt: string | null; readonly submission: SubmissionV1 | null }
 export interface LeaseHolder { readonly taskId: string; readonly executionId: string; readonly actor: ActorAxes; readonly source: WriteSource }
 export interface LeaseV1 extends LeaseHolder { readonly schema: "lease/v1"; readonly phase: "reserving" | "active" | "orphaned" | "released"; readonly expiresAt: string; readonly ttlMs: number; readonly version: number }
@@ -30,9 +30,9 @@ function stringArray(value: unknown): boolean {
   return Array.isArray(value) && value.every(isNonEmptyString);
 }
 export function validateSubmissionV1(value: unknown): readonly ContractValidationIssue[] {
-  const fields = ["claim", "deliverables", "evidenceRefs", "verification", "knownGaps", "residualRisks", "commitSha"];
-  if (!isRecord(value) || !hasOnlyFields(value, fields) || !isNonEmptyString(value.claim)
-    || !stringArray(value.deliverables) || !stringArray(value.evidenceRefs) || !stringArray(value.verification)
+  const fields = ["completionClaim", "deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks", "commitSha"];
+  if (!isRecord(value) || !hasOnlyFields(value, fields) || !isNonEmptyString(value.completionClaim)
+    || !stringArray(value.deliverables) || !stringArray(value.outputs) || !stringArray(value.verificationNotes)
     || !stringArray(value.knownGaps) || !stringArray(value.residualRisks) || !isNativeCommitSha(value.commitSha)) {
     return [{ code: "invalid_submission", message: "Submission must be complete and use a native 40-character commit SHA" }];
   }

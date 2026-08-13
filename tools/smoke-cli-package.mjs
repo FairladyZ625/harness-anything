@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,7 +32,8 @@ export function runCliPackageSmoke(root = process.cwd()) {
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "task", "show", "task-smoke"], projectDir, env(userRoot, home)), "task show");
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "receipt", "show", String(created.opId)], projectDir, env(userRoot, home)), "receipt show");
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "task", "start", "task-smoke", "--execution-id", "execution-smoke"], projectDir, env(userRoot, home)), "task start");
-    expectOk(runJson(binPath, ["--root", projectDir, "--json", "task", "submit", "task-smoke", "--execution-id", "execution-smoke", "--claim", "packaged smoke", "--commit-sha", "a".repeat(40)], projectDir, env(userRoot, home)), "task submit");
+    writeFileSync(path.join(projectDir, "submission.json"), JSON.stringify({ completionClaim: "packaged smoke", deliverables: ["packaged CLI"], outputs: ["lifecycle receipt"], verificationNotes: ["package smoke"], knownGaps: [], residualRisks: [], commitSha: "a".repeat(40) }));
+    expectOk(runJson(binPath, ["--root", projectDir, "--json", "task", "submit", "task-smoke", "--execution-id", "execution-smoke", "--from-file", "submission.json"], projectDir, env(userRoot, home)), "task submit");
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "daemon", "status"], projectDir, env(userRoot, home)), "daemon status");
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "daemon", "stop"], projectDir, env(userRoot, home)), "daemon stop"); started = false;
     console.log(`CLI package smoke passed: npm-pack consumer bootstrap + lifecycle; missing-daemon p50=${rejectP50.toFixed(3)}ms.`);

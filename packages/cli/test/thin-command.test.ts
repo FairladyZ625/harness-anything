@@ -7,7 +7,7 @@ import { parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 
 test("thin command directory renders every supported user command", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 41);
+  assert.equal(thinCliCommands.length, 43);
   for (const command of thinCliCommands) assert.match(help, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   assert.doesNotMatch(help, /daemon serve|fact list|fact invalidate|record fact|decision list|decision transition|decision verify|decision repin|decision amend|decision relation replace/u);
   assert.match(help, /ha task artifact add.*ha fact record.*ha fact search.*ha fact show.*ha decision propose.*ha decision accept.*ha decision reckon.*ha decision search.*ha decision show/su);
@@ -97,9 +97,19 @@ test("thin parser exposes daemon-backed workspace bootstrap", () => {
   assert.equal(parseThinCommand(["init", "--repo-id", "alpha", "--person-id", "owner"]).ok, false);
 });
 
-test("thin parser rejects malformed completion receipts instead of throwing", () => {
+test("thin parser rejects retired caller-supplied gate receipts", () => {
   const parsed = parseThinCommand(["task", "complete", "task-1", "--execution-id", "exec-1", "--gate-receipt", "missing-separator"]);
-  assert.deepEqual(parsed, { ok: false, code: "invalid_field", nextAction: "Use --gate-receipt <gate-id>:<receipt-ref>.", json: false });
+  assert.deepEqual(parsed, { ok: false, code: "unknown_field", nextAction: "Unknown option --gate-receipt.", json: false });
+});
+
+test("lifecycle CLI maps submit, Review, consent, and code-doc through closed typed inputs", () => {
+  const submit = parseThinCommand(["task", "submit", "task-1", "--execution-id", "execution-1", "--from-file", "submission.json"]), review = parseThinCommand(["task", "review-execution", "task-1", "--execution-id", "execution-1", "--review-id", "review-1", "--from-file", "review.json"]), consent = parseThinCommand(["task", "review-consent", "task-1", "--execution-id", "execution-1", "--review-id", "review-1", "--consent-id", "consent-1", "--from-file", "consent.json"]), reconcile = parseThinCommand(["task", "code-doc", "reconcile", "task-1", "--execution-id", "execution-1", "--commit-sha", "a".repeat(40), "--iteration", "0", "--path", "packages/kernel/src/domain/task.ts"]);
+  for (const parsed of [submit, review, consent, reconcile]) assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (submit.ok) assert.deepEqual(submit.command.action, { kind: "task-submit", verb: "submit", commandType: "SubmitExecution", taskId: "task-1", executionId: "execution-1", fromFile: "submission.json" });
+  if (review.ok) assert.deepEqual(review.command.action, { kind: "task-review-execution", taskId: "task-1", executionId: "execution-1", reviewId: "review-1", commandType: "RecordReview", fromFile: "review.json" });
+  if (consent.ok) assert.deepEqual(consent.command.action, { kind: "task-review-consent", taskId: "task-1", executionId: "execution-1", reviewId: "review-1", commandType: "RecordReviewConsent", consentId: "consent-1", fromFile: "consent.json" });
+  if (reconcile.ok) assert.deepEqual(reconcile.command.action, { kind: "task-code-doc-reconcile", taskId: "task-1", executionId: "execution-1", commitSha: "a".repeat(40), iteration: 0, paths: ["packages/kernel/src/domain/task.ts"] });
+  assert.equal(parseThinCommand(["task", "submit", "task-1", "--execution-id", "execution-1"]).ok, false); assert.equal(parseThinCommand(["task", "review-execution", "task-1", "--execution-id", "execution-1", "--review-id", "review-1"]).ok, false); assert.equal(parseThinCommand(["task", "review-consent", "task-1", "--execution-id", "execution-1", "--review-id", "review-1", "--consent-id", "consent-1"]).ok, false); assert.equal(parseThinCommand(["task", "code-doc", "reconcile", "task-1", "--execution-id", "execution-1", "--commit-sha", "short", "--iteration", "2", "--path", "a.ts"]).ok, false);
 });
 
 test("progress append preserves ordered duplicate evidence in its closed daemon action", () => { const parsed = parseThinCommand(["task", "progress", "append", "task-1", "--text", "Exact progress", "--evidence", "test:reports/result.txt:same", "--evidence", "test:reports/result.txt:same"]); assert.equal(parsed.ok, true); if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "task-progress-append", taskId: "task-1", text: "Exact progress", evidence: [{ type: "test", path: "reports/result.txt", summary: "same" }, { type: "test", path: "reports/result.txt", summary: "same" }] }); assert.equal(parseThinCommand(["task", "progress", "append", "task-1", "--text", "x", "--evidence", "bad"]).ok, false); assert.equal(parseThinCommand(["task", "progress", "append", "task-1"]).ok, false); });

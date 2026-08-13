@@ -1,6 +1,6 @@
 export * from "./domain/index.ts"; export { isAgentRuntimeEvent, runtimeSessionId } from "./domain/agent-runtime.ts"; export type { AgentRuntimeEventV1, RuntimeInstallation, RuntimeSession } from "./domain/agent-runtime.ts";
-export { applyTransition, normalizeTaskLifecycleCommand, validateTaskLifecycleCommandEnvelope } from "./domain/task-lifecycle.contract.ts";
-export { taskLifecycleWritePlan } from "./domain/task-write-decision.ts";
+export { applyTransition, normalizeTaskLifecycleCommand, reviewDigest, validateTaskLifecycleCommandEnvelope } from "./domain/task-lifecycle.contract.ts";
+export { compileTaskLifecycleWrite, lifecycleDocumentPaths, taskLifecycleWritePlan } from "./domain/task-lifecycle-publication.ts";
 export type { CompleteTaskProof, ProofFor, TaskEventV1, TaskLifecycleCommand, TaskLifecycleSnapshot } from "./domain/task-lifecycle.contract.ts";
 export { canonicalizeContractValue, taskClasses } from "./domain/task.ts";
 export type { TaskClass, TaskV1 } from "./domain/task.ts";
@@ -10,7 +10,7 @@ export { compileTaskProgress, isTaskProgressEvent } from "./domain/task-progress
 export type { TaskProgressEvidence, TaskProgressEventV1 } from "./domain/task-progress-event.ts";
 export { assertCurrentWriter, bindWriterGenerationToken, createWriteReceipt, normalizeCommandEnvelope, WRITE_RECEIPT_SCHEMA } from "./domain/write-chain.contract.ts";
 export type { ActorIdentity, DocSyncReceiptDetail, FrozenWritePlan, WriteOperationReceipt, WriteReceipt, WriteSource, WriteTarget, WriterGeneration, WriterGenerationToken } from "./domain/write-chain.contract.ts";
-export { DOC_POLICY_ID, decideDocWrite, docSyncWritePlan, documentPath, isDocEvent, parseDocWriteIntent, resolveDocRoute } from "./domain/doc-sync.contract.ts";
+export { DOC_POLICY_ID, decideDocWrite, docSyncWritePlan, documentPath, isDocEvent, isTaskEvent, parseDocWriteIntent, resolveDocRoute } from "./domain/doc-sync.contract.ts";
 export { parseCanonicalEvent, serializeCanonicalEvent } from "./domain/doc-sync.contract.ts";
 export type { CanonicalEventV1, DocClaimRef, DocEventV1, DocWriteIntent, LedgerCommitSha } from "./domain/doc-sync.contract.ts";
 export * from "./docmap/index.ts";

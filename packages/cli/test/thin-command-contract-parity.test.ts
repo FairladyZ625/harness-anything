@@ -11,12 +11,12 @@ const frozenMutations = Object.freeze([
   { commandId: "task-create", inputName: "--title", facet: "error", argv: ["task", "create"] },
   { commandId: "fact-search", inputName: "--confidence", facet: "enum", argv: ["fact", "search", "--confidence", "impossible"] },
   { commandId: "fact-show", inputName: "--id", facet: "regex", argv: ["fact", "show", "--task", "task-1", "--id", "bad"] },
-  { commandId: "task-submit", inputName: "--deliverable", facet: "repeated", argv: ["task", "submit", "task-1", "--execution-id", "exec-1", "--claim", "done", "--commit-sha", "a".repeat(40), "--deliverable", "a", "--deliverable", "b"] },
+  { commandId: "fact-record", inputName: "--memory-tag", facet: "repeated", argv: ["fact", "record", "--task", "task-1", "--statement", "s", "--source", "src", "--memory-tag", "a"] },
   { commandId: "decision-show", inputName: "--include-body", facet: "boolean", argv: ["decision", "show", "dec_1", "--include-body"] }
 ] as const);
 
-test("all 41 public commands expose the canonical structured input facet", () => {
-  assert.equal(daemonProtocolCommands.length, 41);
+test("all 43 public commands expose the canonical structured input facet", () => {
+  assert.equal(daemonProtocolCommands.length, 43);
   for (const command of daemonProtocolCommands) {
     assert.equal(Object.hasOwn(command, "inputs"), true, `${command.id}: explicit inputs`);
     assert.deepEqual(deriveThinCliInputs(command), command.inputs, command.id);

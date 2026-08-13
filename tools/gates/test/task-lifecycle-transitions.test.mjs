@@ -3,456 +3,163 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   applyTransition,
-  assertAntiEntropyGraph,
   emptyTaskLifecycleSnapshot,
   normalizeTaskLifecycleCommand,
   reduceTaskEvent,
+  reviewDigest,
   serializeTaskEvent,
-  TaskLifecycleContractError,
-  validateTaskEvent
+  TaskLifecycleContractError
 } from "../../../packages/kernel/src/domain/task-lifecycle.contract.ts";
 import { REPLAY_TASK_GRAPH } from "../../../packages/kernel/src/domain/task-graph.ts";
 import { TASK_LEASE_BROKER_CONTRACT } from "../../../packages/kernel/src/domain/execution.ts";
 
 const owner = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "owner-agent" } };
 const executor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "worker-agent" } };
-const antiEntropy = { principal: { personId: "person-reviewer" }, executor: { kind: "agent", id: "anti-entropy-agent" } };
-const acceptance = { principal: { personId: "person-acceptance" }, executor: null };
+const reviewer = { principal: { personId: "person-reviewer" }, executor: { kind: "agent", id: "review-agent" } };
+const outsider = { principal: { personId: "person-outsider" }, executor: null };
 const commit0 = "0123456789abcdef0123456789abcdef01234567";
-
-test("G10 Lease broker contract declares one positive capacity ceiling", () => {
-  assert.deepEqual(TASK_LEASE_BROKER_CONTRACT, { capacity: 32 });
-  assert.equal(Object.isFrozen(TASK_LEASE_BROKER_CONTRACT), true);
-});
+const commit1 = "1123456789abcdef0123456789abcdef01234567";
+const content0 = `sha256:${"a".repeat(64)}`;
 
 function command(actor, revision, intent, suffix = intent.type) {
   return {
     ...normalizeTaskLifecycleCommand({ workspaceId: "workspace-1", actor, source: "local", expectedRevision: revision - 1 }, intent),
-    eventId: `evt-${suffix}`,
+    eventId: `evt-${suffix}-${revision}`,
     workspaceRevision: revision,
-    occurredAt: `2026-08-11T00:00:0${revision}.000Z`
+    occurredAt: `2026-08-11T00:00:${String(revision).padStart(2, "0")}.000Z`
   };
 }
 
-function createCommand() {
-  return command(owner, 1, {
-    type: "CreateReplayTask",
-    taskId: "task-1",
-    title: "Replay task",
-    taskClass: "standard",
-    graph: REPLAY_TASK_GRAPH,
-    completionGateIds: [],
-    presetSnapshotDigest: null
-  }, "create");
+function create(revision = 1) { return command(owner, revision, { type: "CreateReplayTask", taskId: "task-1", title: "Replay task", taskClass: "standard", graph: REPLAY_TASK_GRAPH, completionGateIds: [], presetSnapshotDigest: null }, "create"); }
+function createProof() { return { taskIdUnique: true, actorBinding: owner }; }
+function start(revision, executionId = "execution-0") { return command(executor, revision, { type: "StartExecution", taskId: "task-1", executionId }, `start-${executionId}`); }
+function startProof(executionId = "execution-0") { return { actorBinding: executor, reservation: { taskId: "task-1", executionId, expiresAt: "2026-08-11T01:00:00.000Z", ttlMs: 1_800_000, previousHolder: null, reason: "initial_claim", version: 1 } }; }
+function submission(commitSha = commit0) { return { completionClaim: "Implementation is ready for review.", deliverables: ["kernel lifecycle"], outputs: ["typed event"], verificationNotes: ["contract tests"], knownGaps: [], residualRisks: [], commitSha }; }
+function submit(revision, executionId = "execution-0", commitSha = commit0) { return command(executor, revision, { type: "SubmitExecution", taskId: "task-1", executionId, submission: submission(commitSha) }, `submit-${executionId}`); }
+function submitProof() { return { actorBinding: executor, leaseVersion: 1, sessionDisposition: "complete" }; }
+function review(revision, { verdict = "approved", executionId = "execution-0", commitSha = commit0, iteration = 0, actor = reviewer, reviewId = `review-${executionId}`, contentDigest = content0 } = {}) { return command(actor, revision, { type: "RecordReview", taskId: "task-1", executionId, reviewId, verdict, reason: verdict === "changes_requested" ? "A concrete correction is required." : "The submitted content cut is approved.", evidenceChecked: ["tests"], commitSha, iteration, contentDigest }, `${reviewId}-${verdict}`); }
+function reviewProof(actor = reviewer) { return { actorBinding: actor, capability: "execution-review@v1", capabilityRef: "capability:review" }; }
+function consent(revision, recorded, actor = owner) { return command(actor, revision, { type: "RecordReviewConsent", taskId: "task-1", executionId: recorded.executionId, reviewId: recorded.reviewId, consentId: `consent-${recorded.reviewId}`, reviewDigest: reviewDigest(recorded), contentDigest: recorded.contentDigest }, `consent-${recorded.reviewId}`); }
+function consentProof(actor = owner) { return { actorBinding: actor, capability: "execution-consent@v1", capabilityRef: "capability:owner-consent" }; }
+function reconcile(revision, executionId = "execution-0", commitSha = commit0, iteration = 0, paths = ["packages/kernel/src/domain/task.ts"]) { return command(executor, revision, { type: "ReconcileCodeDoc", taskId: "task-1", executionId, witnessId: `witness-${revision}`, commitSha, iteration, paths }, `reconcile-${revision}`); }
+function reconcileProof() { return { actorBinding: executor, capability: "code-doc-reconcile@v1", capabilityRef: "capability:code-doc" }; }
+function complete(revision, executionId = "execution-0") { return command(owner, revision, { type: "CompleteTask", taskId: "task-1", executionId }, `complete-${executionId}`); }
+function completeProof() { return { capability: "task-complete@v1", capabilityRef: "capability:complete", actorRole: "owner", noActiveLease: true, gateReceipts: [] }; }
+
+function firstRound() {
+  const created = applyTransition(emptyTaskLifecycleSnapshot(), create(), createProof());
+  const started = applyTransition(created.snapshot, start(2), startProof());
+  const submitted = applyTransition(started.snapshot, submit(3), submitProof());
+  const approved = applyTransition(submitted.snapshot, review(4), reviewProof());
+  const recorded = approved.snapshot.reviews[0];
+  const consented = applyTransition(approved.snapshot, consent(5, recorded), consentProof());
+  return { created, started, submitted, approved, recorded, consented };
 }
 
-function createProof() {
-  return { taskIdUnique: true, actorBinding: owner };
-}
-
-function createdSnapshot() {
-  return applyTransition(emptyTaskLifecycleSnapshot(), createCommand(), createProof()).snapshot;
-}
-
-function startCommand(revision = 2, executionId = "execution-0") {
-  return command(executor, revision, { type: "StartExecution", taskId: "task-1", executionId }, `start-${executionId}`);
-}
-
-function startProof(executionId = "execution-0") {
-  return {
-    actorBinding: executor,
-    reservation: {
-      taskId: "task-1",
-      executionId,
-      expiresAt: "2026-08-11T01:00:00.000Z",
-      ttlMs: 1_800_000,
-      previousHolder: null,
-      reason: "initial_claim",
-      version: 1
-    }
-  };
-}
-
-function startedSnapshot() {
-  return applyTransition(createdSnapshot(), startCommand(), startProof()).snapshot;
-}
-
-function submission(commitSha = commit0) {
-  return {
-    claim: "Implementation is ready for adversarial review.",
-    deliverables: ["packages/kernel/src/domain"],
-    evidenceRefs: [],
-    verification: ["contract tests"],
-    knownGaps: [],
-    residualRisks: [],
-    commitSha
-  };
-}
-
-function submitCommand(revision = 3, commitSha = commit0) {
-  return submitRoundCommand(revision, "execution-0", commitSha);
-}
-
-function submitProof(leaseVersion = 1) {
-  return submitRoundProof(leaseVersion);
-}
-
-function submitRoundCommand(revision, executionId, commitSha) {
-  return command(executor, revision, { type: "SubmitExecution", taskId: "task-1", executionId, submission: submission(commitSha) }, `submit-${executionId}`);
-}
-
-function submitRoundProof(leaseVersion = 1) {
-  return { actorBinding: executor, leaseVersion, sessionDisposition: "complete" };
-}
-
-function submittedSnapshot() {
-  return applyTransition(startedSnapshot(), submitCommand(), submitProof()).snapshot;
-}
-
-function reviewCommand({ kind = "anti_entropy", verdict = "approved", actor = antiEntropy, actorRole = kind, revision = 4, iteration = 0, executionId = `execution-${iteration}`, commitSha = commit0, suffix = `${kind}-${verdict}-${iteration}` } = {}) {
-  return command(actor, revision, {
-    type: "RecordReview",
-    taskId: "task-1",
-    executionId,
-    reviewId: `review-${suffix}`,
-    kind,
-    verdict,
-    actorRole,
-    reason: verdict === "changes_requested" ? "A concrete correction is required." : "The submitted implementation matches the contract.",
-    evidenceChecked: [],
-    commitSha,
-    iteration,
-    archiveWarningsAcknowledged: false
-  }, suffix);
-}
-
-function reviewProof({ kind = "anti_entropy", actor = antiEntropy, archiveWarningsPresent = false } = {}) {
-  return {
-    actorBinding: actor,
-    capability: kind === "anti_entropy" ? "anti-entropy@v1" : "acceptance-review@v1",
-    capabilityRef: `capability:${kind}`,
-    archiveWarningsPresent
-  };
-}
-
-function antiEntropyApprovedSnapshot() {
-  return applyTransition(submittedSnapshot(), reviewCommand(), reviewProof()).snapshot;
-}
-
-function acceptanceApprovedSnapshot() {
-  return applyTransition(
-    antiEntropyApprovedSnapshot(),
-    reviewCommand({ kind: "acceptance", actor: acceptance, actorRole: "acceptance", revision: 5, suffix: "acceptance-approved" }),
-    reviewProof({ kind: "acceptance", actor: acceptance })
-  ).snapshot;
-}
-
-function completeCommand(revision = 6, executionId = "execution-0") {
-  return command(owner, revision, { type: "CompleteTask", taskId: "task-1", executionId }, "complete");
-}
-
-function completeProof() {
-  return {
-    capability: "task-complete@v1",
-    capabilityRef: "capability:task-complete",
-    actorRole: "owner",
-    noActiveLease: true,
-    gateReceipts: []
-  };
-}
-
-test("G10 CreateReplayTask moves only a missing aggregate to planned/implementation/0", () => {
-  const created = applyTransition(emptyTaskLifecycleSnapshot(), createCommand(), createProof());
-  assert.equal(created.event.type, "task_created");
-  assert.deepEqual(
-    { status: created.snapshot.task.status, node: created.snapshot.task.currentNode, iteration: created.snapshot.task.iteration },
-    { status: "planned", node: "implementation", iteration: 0 }
-  );
-  assert.throws(
-    () => applyTransition(created.snapshot, createCommand(), createProof()),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition"
-  );
+test("G10 lease broker keeps one positive capacity ceiling", () => {
+  assert.deepEqual(TASK_LEASE_BROKER_CONTRACT, { capacity: 32 });
+  assert.equal(Object.isFrozen(TASK_LEASE_BROKER_CONTRACT), true);
 });
 
-test("G10 StartExecution atomically activates one execution and its lease", () => {
-  const started = applyTransition(createdSnapshot(), startCommand(), startProof());
-  assert.equal(started.event.type, "execution_started");
-  assert.equal(started.snapshot.task.status, "active");
-  assert.equal(started.snapshot.executions[0].state, "active");
-  assert.equal(started.snapshot.lease.phase, "active");
-  assert.deepEqual(started.event.payload.lease, started.snapshot.lease);
-  assert.deepEqual({ previousHolder: started.event.payload.previousHolder,
-    leaseExpiresAt: started.event.payload.leaseExpiresAt, reason: started.event.payload.reason }, {
-    previousHolder: null, leaseExpiresAt: "2026-08-11T01:00:00.000Z", reason: "initial_claim"
-  });
-  const { previousHolder: _previousHolder, ...missingHistory } = started.event.payload;
-  assert.match(validateTaskEvent({ ...started.event, payload: missingHistory }).map((issue) => issue.code).join(","), /invalid_event_payload/u);
-  assert.throws(
-    () => applyTransition(started.snapshot, startCommand(3, "execution-other"), startProof("execution-other")),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition"
-  );
+test("G10 submit atomically finalizes Execution, releases lease, and enters in_review", () => {
+  const { started } = firstRound();
+  const result = applyTransition(started.snapshot, submit(3), submitProof());
+  assert.deepEqual({ execution: result.snapshot.executions[0].state, packet: result.snapshot.executions[0].submission, lease: result.snapshot.lease, status: result.snapshot.task.status, node: result.snapshot.task.currentNode, edge: result.snapshot.edgesTaken[0].edgeId }, { execution: "submitted", packet: submission(), lease: null, status: "in_review", node: "review", edge: "implementation-submitted" });
+  assert.deepEqual(result.event.payload.execution, result.snapshot.executions[0]);
+
+  for (const field of ["completionClaim", "deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks", "commitSha"]) {
+    const packet = submission(); delete packet[field];
+    const before = structuredClone(started.snapshot);
+    assert.throws(() => applyTransition(started.snapshot, command(executor, 3, { type: "SubmitExecution", taskId: "task-1", executionId: "execution-0", submission: packet }, `missing-${field}`), submitProof()), TaskLifecycleContractError, field);
+    assert.deepEqual(started.snapshot, before, `${field} must be zero-write`);
+  }
+  assert.throws(() => applyTransition(started.snapshot, submit(3), { ...submitProof(), leaseVersion: 2 }), (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof");
 });
 
-test("G10 rejects cross-source lease submit before release", () => {
-  const crossSource = {
-    ...normalizeTaskLifecycleCommand({ workspaceId: "workspace-1", actor: executor, source: "remote_direct", expectedRevision: 2 }, {
-      type: "SubmitExecution", taskId: "task-1", executionId: "execution-0", submission: submission()
-    }),
-    eventId: "evt-submit-cross-source",
-    workspaceRevision: 3,
-    occurredAt: "2026-08-11T00:00:03.000Z"
-  };
-  assert.throws(
-    () => applyTransition(startedSnapshot(), crossSource, submitProof()),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof"
-  );
+test("G10 one immutable Review and independent content-pinned consent authorize completion", () => {
+  const { submitted, approved, recorded, consented } = firstRound();
+  assert.equal(approved.snapshot.reviews.length, 1);
+  assert.equal(approved.snapshot.consents.length, 0);
+  assert.deepEqual({ executionId: recorded.executionId, commitSha: recorded.commitSha, iteration: recorded.iteration, contentDigest: recorded.contentDigest, actor: recorded.actor }, { executionId: "execution-0", commitSha: commit0, iteration: 0, contentDigest: content0, actor: reviewer });
+  assert.throws(() => applyTransition(submitted.snapshot, review(4, { actor: executor }), reviewProof(executor)), (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof");
+  assert.throws(() => applyTransition(approved.snapshot, review(5, { reviewId: "review-second" }), reviewProof()), (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition");
+  assert.throws(() => applyTransition(approved.snapshot, complete(5), completeProof()), (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition");
+  assert.throws(() => applyTransition({ ...approved.snapshot, legacyReviewPath: "tasks/task-1/review.md" }, complete(5), completeProof()), (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition");
+
+  const pinned = consented.snapshot.consents[0];
+  assert.deepEqual({ executionId: pinned.executionId, reviewId: pinned.reviewId, reviewDigest: pinned.reviewDigest, contentDigest: pinned.contentDigest, actor: pinned.actor, source: pinned.source }, { executionId: recorded.executionId, reviewId: recorded.reviewId, reviewDigest: reviewDigest(recorded), contentDigest: recorded.contentDigest, actor: owner, source: "local" });
+  for (const mutation of [
+    { reviewDigest: `sha256:${"b".repeat(64)}` },
+    { contentDigest: `sha256:${"c".repeat(64)}` },
+    { executionId: "execution-other" },
+    { reviewId: "review-other" }
+  ]) {
+    const bad = { ...consent(5, recorded), ...mutation };
+    assert.throws(() => applyTransition(approved.snapshot, bad, consentProof()), TaskLifecycleContractError);
+  }
+  assert.throws(() => applyTransition(approved.snapshot, consent(5, recorded, outsider), consentProof(outsider)), (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof");
+  assert.equal(applyTransition(consented.snapshot, complete(6), completeProof()).snapshot.task.status, "done");
 });
 
-test("G10 SubmitExecution submits the execution, releases its exact lease, and advances one edge", () => {
-  const submitted = applyTransition(startedSnapshot(), submitCommand(), submitProof());
-  assert.equal(submitted.event.type, "execution_submitted");
-  assert.equal(submitted.snapshot.executions[0].state, "submitted");
-  assert.equal(submitted.snapshot.lease, null);
-  assert.equal(submitted.snapshot.task.currentNode, "anti_entropy");
-  assert.equal(submitted.snapshot.edgesTaken[0].edgeId, "implementation-submitted");
-  assert.throws(
-    () => applyTransition(startedSnapshot(), submitCommand(), submitProof(2)),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof"
-  );
+test("G10 code-doc witness binds canonical paths, execution, full commit, and iteration", () => {
+  const { submitted } = firstRound();
+  const result = applyTransition(submitted.snapshot, reconcile(4), reconcileProof());
+  assert.deepEqual(result.snapshot.codeDocWitnesses, [{ schema: "code-doc-witness/v1", witnessId: "witness-4", taskId: "task-1", executionId: "execution-0", commitSha: commit0, iteration: 0, paths: ["packages/kernel/src/domain/task.ts"], actor: executor, source: "local", reconciledAt: "2026-08-11T00:00:04.000Z" }]);
+  for (const invalid of [
+    reconcile(4, "execution-0", commit1),
+    reconcile(4, "execution-0", commit0, 1),
+    reconcile(4, "execution-0", commit0, 0, ["../escape.md"]),
+    reconcile(4, "execution-0", commit0, 0, ["same.md", "same.md"])
+  ]) assert.throws(() => applyTransition(submitted.snapshot, invalid, reconcileProof()), TaskLifecycleContractError);
 });
 
-test("G10 anti-entropy approval advances only to in_review/review", () => {
-  const reviewed = applyTransition(submittedSnapshot(), reviewCommand(), reviewProof());
-  assert.equal(reviewed.event.type, "review_recorded");
-  assert.deepEqual(
-    { status: reviewed.snapshot.task.status, node: reviewed.snapshot.task.currentNode, execution: reviewed.snapshot.executions[0].state },
-    { status: "in_review", node: "review", execution: "submitted" }
-  );
-  assert.equal(reviewed.snapshot.edgesTaken[1].edgeId, "anti-entropy-approved");
-  assert.throws(
-    () => applyTransition(startedSnapshot(), reviewCommand({ revision: 3 }), reviewProof()),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition"
-  );
-});
-
-test("G10 anti-entropy changes_requested consumes the sole return budget", () => {
-  const rejected = applyTransition(
-    submittedSnapshot(),
-    reviewCommand({ verdict: "changes_requested", suffix: "reject-0" }),
-    reviewProof()
-  );
-  assert.deepEqual(
-    { status: rejected.snapshot.task.status, node: rejected.snapshot.task.currentNode, iteration: rejected.snapshot.task.iteration },
-    { status: "active", node: "implementation", iteration: 1 }
-  );
-  assert.equal(rejected.snapshot.executions[0].state, "changes_requested");
-  assert.equal(rejected.snapshot.lease, null);
-  assert.equal(rejected.snapshot.edgesTaken[1].edgeId, "anti-entropy-changes-requested");
-
-  const startedAgain = applyTransition(rejected.snapshot, startCommand(5, "execution-1"), startProof("execution-1"));
-  const submittedAgain = applyTransition(
-    startedAgain.snapshot,
-    submitRoundCommand(6, "execution-1", "1123456789abcdef0123456789abcdef01234567"),
-    submitRoundProof()
-  );
-  assert.throws(
-    () => applyTransition(
-      submittedAgain.snapshot,
-      reviewCommand({ verdict: "changes_requested", revision: 7, iteration: 1, commitSha: "1123456789abcdef0123456789abcdef01234567", suffix: "reject-1" }),
-      reviewProof()
-    ),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "manual_intervention_required"
-  );
-});
-
-test("G10 dismissed review is immutable but does not advance its node", () => {
-  const dismissed = applyTransition(
-    submittedSnapshot(),
-    reviewCommand({ verdict: "dismissed", suffix: "dismiss-anti" }),
-    reviewProof()
-  );
-  assert.equal(dismissed.snapshot.task.currentNode, "anti_entropy");
-  assert.equal(dismissed.snapshot.task.status, "active");
-  assert.equal(dismissed.snapshot.reviews[0].verdict, "dismissed");
-  assert.equal(dismissed.snapshot.edgesTaken.length, 1);
-  assert.throws(
-    () => applyTransition(
-      submittedSnapshot(),
-      reviewCommand({ kind: "acceptance", verdict: "dismissed", actor: acceptance, actorRole: "acceptance", suffix: "dismiss-wrong-node" }),
-      reviewProof({ kind: "acceptance", actor: acceptance })
-    ),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition"
-  );
-});
-
-test("G10 acceptance approval marks the same round ready without completing it", () => {
-  const command = reviewCommand({ kind: "acceptance", actor: acceptance, actorRole: "acceptance", revision: 5, suffix: "acceptance-approved" });
-  const proof = reviewProof({ kind: "acceptance", actor: acceptance });
-  const acceptedReview = applyTransition(antiEntropyApprovedSnapshot(), command, proof);
-  assert.equal(acceptedReview.snapshot.task.status, "in_review");
-  assert.equal(acceptedReview.snapshot.executions[0].state, "submitted");
-  assert.equal(acceptedReview.snapshot.reviews.at(-1).kind, "acceptance");
-  assert.equal(acceptedReview.snapshot.edgesTaken.length, 2);
-  assert.throws(
-    () => applyTransition(
-      antiEntropyApprovedSnapshot(),
-      command,
-      { ...proof, archiveWarningsPresent: true }
-    ),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof"
-  );
-});
-
-test("G10 CompleteTask consumes both same-round approvals and alone marks done", () => {
-  const completed = applyTransition(acceptanceApprovedSnapshot(), completeCommand(), completeProof());
-  assert.equal(completed.event.type, "task_completed");
-  assert.equal(completed.snapshot.task.status, "done");
-  assert.equal(completed.snapshot.executions[0].state, "accepted");
-  assert.throws(
-    () => applyTransition(antiEntropyApprovedSnapshot(), completeCommand(5), completeProof()),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition"
-  );
-  assert.throws(
-    () => applyTransition(completed.snapshot, startCommand(7, "execution-terminal"), startProof("execution-terminal")),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition"
-  );
-  const ready = acceptanceApprovedSnapshot();
-  const gated = { ...ready, task: { ...ready.task, completionGateIds: ["G-test"] } };
-  assert.throws(
-    () => applyTransition(gated, completeCommand(), completeProof()),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof"
-  );
-  assert.equal(applyTransition(gated, completeCommand(), {
-    ...completeProof(),
-    gateReceipts: [{ gateId: "G-test", receiptRef: "artifacts/g-test.json", result: "pass", executionId: "execution-0", commitSha: commit0, iteration: 0 }]
-  }).snapshot.task.status, "done");
-});
-
-test("G34 rejects an ordinary role attempting the anti-entropy return edge", () => {
-  assert.throws(
-    () => assertAntiEntropyGraph(
-      submittedSnapshot(),
-      reviewCommand({ verdict: "changes_requested", actorRole: "acceptance", suffix: "ordinary-reject" }),
-      reviewProof()
-    ),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof"
-  );
-});
-
-test("G34 rejects return-edge commands missing reason, commitSha, or iteration", () => {
-  const valid = reviewCommand({ verdict: "changes_requested", suffix: "missing-field" });
-  for (const field of ["reason", "commitSha", "iteration"]) {
-    const incomplete = { ...valid };
-    delete incomplete[field];
-    assert.throws(
-      () => assertAntiEntropyGraph(submittedSnapshot(), incomplete, reviewProof()),
-      (error) => error instanceof TaskLifecycleContractError,
-      field
-    );
+test("G10 exhaustive phase table rejects every command outside its canonical predecessor", () => {
+  const round = firstRound();
+  const returned = applyTransition(round.submitted.snapshot, review(4, { verdict: "changes_requested", reviewId: "review-reject" }), reviewProof());
+  const completed = applyTransition(round.consented.snapshot, complete(6), completeProof());
+  const states = [
+    ["missing", emptyTaskLifecycleSnapshot(), new Set(["CreateReplayTask"])],
+    ["planned", round.created.snapshot, new Set(["StartExecution"])],
+    ["active", round.started.snapshot, new Set(["SubmitExecution"])],
+    ["submitted", round.submitted.snapshot, new Set(["RecordReview", "ReconcileCodeDoc"])],
+    ["approved", round.approved.snapshot, new Set(["RecordReviewConsent", "ReconcileCodeDoc"])],
+    ["consented", round.consented.snapshot, new Set(["ReconcileCodeDoc", "CompleteTask"])],
+    ["returned", returned.snapshot, new Set(["StartExecution"])],
+    ["done", completed.snapshot, new Set()]
+  ];
+  const types = ["CreateReplayTask", "StartExecution", "SubmitExecution", "RecordReview", "RecordReviewConsent", "ReconcileCodeDoc", "CompleteTask"];
+  for (const [label, snapshot, allowed] of states) for (const type of types) {
+    if (allowed.has(type)) continue;
+    const revision = snapshot.revision + 1;
+    const recorded = snapshot.reviews.find((value) => value.verdict === "approved") ?? round.recorded;
+    const entries = {
+      CreateReplayTask: [create(), createProof()],
+      StartExecution: [start(revision, `execution-${label}`), startProof(`execution-${label}`)],
+      SubmitExecution: [submit(revision), submitProof()],
+      RecordReview: [review(revision), reviewProof()],
+      RecordReviewConsent: [consent(revision, recorded), consentProof()],
+      ReconcileCodeDoc: [reconcile(revision), reconcileProof()],
+      CompleteTask: [complete(revision), completeProof()]
+    };
+    assert.throws(() => applyTransition(snapshot, ...entries[type]), TaskLifecycleContractError, `${label} -> ${type}`);
   }
 });
 
-test("G34 rejects review evidence bound to a stale commit SHA", () => {
-  assert.throws(
-    () => assertAntiEntropyGraph(
-      submittedSnapshot(),
-      reviewCommand({ verdict: "changes_requested", commitSha: "2123456789abcdef0123456789abcdef01234567", suffix: "stale-sha" }),
-      reviewProof()
-    ),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof"
-  );
-});
-
-test("G34 rejects self-review by the implementation executor", () => {
-  assert.throws(
-    () => assertAntiEntropyGraph(
-      submittedSnapshot(),
-      reviewCommand({ verdict: "changes_requested", actor: executor, suffix: "self-review" }),
-      reviewProof({ actor: executor })
-    ),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof"
-  );
-});
-
-test("G34 rejects iteration=2 rather than silently extending the budget", () => {
-  assert.throws(
-    () => assertAntiEntropyGraph(
-      submittedSnapshot(),
-      reviewCommand({ verdict: "changes_requested", iteration: 2, executionId: "execution-0", suffix: "iteration-2" }),
-      reviewProof()
-    ),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof"
-  );
-});
-
-test("G34 rejects metadata-shaped attempts to create a return edge", () => {
-  assert.throws(
-    () => assertAntiEntropyGraph(
-      submittedSnapshot(),
-      command(antiEntropy, 4, { type: "UpdateTaskMetadata", taskId: "task-1", status: "active", currentNode: "implementation", iteration: 1 }, "metadata-return"),
-      reviewProof()
-    ),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition"
-  );
-});
-
-test("G34 anti-entropy approve cannot mark Task done or Execution accepted", () => {
-  assert.doesNotThrow(() => assertAntiEntropyGraph(submittedSnapshot(), reviewCommand(), reviewProof()));
-  const reviewed = applyTransition(submittedSnapshot(), reviewCommand(), reviewProof());
-  assert.notEqual(reviewed.snapshot.task.status, "done");
-  assert.notEqual(reviewed.snapshot.executions[0].state, "accepted");
-});
-
-test("G34 replays reject to new execution to both approvals to complete", () => {
-  const commit1 = "1123456789abcdef0123456789abcdef01234567";
-  const rejected = applyTransition(submittedSnapshot(), reviewCommand({ verdict: "changes_requested", suffix: "chain-reject" }), reviewProof());
-  const started = applyTransition(rejected.snapshot, startCommand(5, "execution-1"), startProof("execution-1"));
-  const submitted = applyTransition(started.snapshot, submitRoundCommand(6, "execution-1", commit1), submitRoundProof());
-  const antiApproved = applyTransition(
-    submitted.snapshot,
-    reviewCommand({ revision: 7, iteration: 1, commitSha: commit1, suffix: "chain-anti-approved" }),
-    reviewProof()
-  );
-  const acceptanceApproved = applyTransition(
-    antiApproved.snapshot,
-    reviewCommand({ kind: "acceptance", actor: acceptance, actorRole: "acceptance", revision: 8, iteration: 1, commitSha: commit1, suffix: "chain-acceptance-approved" }),
-    reviewProof({ kind: "acceptance", actor: acceptance })
-  );
-  const completed = applyTransition(
-    acceptanceApproved.snapshot,
-    completeCommand(9, "execution-1"),
-    completeProof()
-  );
-  assert.equal(completed.snapshot.task.status, "done");
-  assert.deepEqual(completed.snapshot.executions.map((execution) => execution.state), ["changes_requested", "accepted"]);
-  assert.equal(completed.snapshot.edgesTaken.length, 4);
-});
-
-test("G09 projection reducer replays all five task-event/v1 envelope types", () => {
-  const created = applyTransition(emptyTaskLifecycleSnapshot(), createCommand(), createProof());
-  const started = applyTransition(created.snapshot, startCommand(), startProof());
-  const submitted = applyTransition(started.snapshot, submitCommand(), submitProof());
-  const antiApproved = applyTransition(submitted.snapshot, reviewCommand(), reviewProof());
-  const acceptanceApproved = applyTransition(
-    antiApproved.snapshot,
-    reviewCommand({ kind: "acceptance", actor: acceptance, actorRole: "acceptance", revision: 5, suffix: "replay-acceptance" }),
-    reviewProof({ kind: "acceptance", actor: acceptance })
-  );
-  const completed = applyTransition(acceptanceApproved.snapshot, completeCommand(), completeProof());
-  const events = [created.event, started.event, submitted.event, antiApproved.event, acceptanceApproved.event, completed.event];
+test("G34 replay preserves reject to new execution to approved consent to complete", () => {
+  const round = firstRound();
+  const rejected = applyTransition(round.submitted.snapshot, review(4, { verdict: "changes_requested", reviewId: "review-reject" }), reviewProof());
+  assert.deepEqual({ status: rejected.snapshot.task.status, node: rejected.snapshot.task.currentNode, iteration: rejected.snapshot.task.iteration, execution: rejected.snapshot.executions[0].state, lease: rejected.snapshot.lease }, { status: "active", node: "implementation", iteration: 1, execution: "changes_requested", lease: null });
+  const startedAgain = applyTransition(rejected.snapshot, start(5, "execution-1"), startProof("execution-1"));
+  const submittedAgain = applyTransition(startedAgain.snapshot, submit(6, "execution-1", commit1), submitProof());
+  const approvedAgain = applyTransition(submittedAgain.snapshot, review(7, { executionId: "execution-1", commitSha: commit1, iteration: 1, reviewId: "review-execution-1" }), reviewProof());
+  const recorded = approvedAgain.snapshot.reviews.at(-1);
+  const consentedAgain = applyTransition(approvedAgain.snapshot, consent(8, recorded), consentProof());
+  const completed = applyTransition(consentedAgain.snapshot, complete(9, "execution-1"), completeProof());
+  const events = [round.created.event, round.started.event, round.submitted.event, rejected.event, startedAgain.event, submittedAgain.event, approvedAgain.event, consentedAgain.event, completed.event];
   let replayed = emptyTaskLifecycleSnapshot();
-  for (const event of events) {
-    assert.doesNotThrow(() => serializeTaskEvent(event));
-    replayed = reduceTaskEvent(replayed, event);
-  }
-  assert.deepEqual([...new Set(events.map((event) => event.type))], [
-    "task_created",
-    "execution_started",
-    "execution_submitted",
-    "review_recorded",
-    "task_completed"
-  ]);
+  for (const event of events) { assert.doesNotThrow(() => serializeTaskEvent(event)); replayed = reduceTaskEvent(replayed, event); }
+  assert.deepEqual(replayed, completed.snapshot);
   assert.equal(replayed.task.status, "done");
+  assert.equal(replayed.executions[1].state, "accepted");
+  assert.throws(() => applyTransition(submittedAgain.snapshot, review(7, { verdict: "changes_requested", executionId: "execution-1", commitSha: commit1, iteration: 1, reviewId: "review-second-reject" }), reviewProof()), (error) => error instanceof TaskLifecycleContractError && error.code === "manual_intervention_required");
 });
-
-export { acceptance, antiEntropy, commit0, command, createCommand, createProof, executor, owner, reviewCommand, reviewProof, startCommand, startProof, submitCommand, submitProof };
