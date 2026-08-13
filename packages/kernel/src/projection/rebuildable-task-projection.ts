@@ -10,7 +10,7 @@ import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.t
 import { isAgentRuntimeEvent, markRuntimeSessionUnknown, reduceRuntimeInstallation, reduceRuntimeSession, runtimeSessionId, type AgentRuntimeEventV1, type RuntimeInstallation, type RuntimeSession } from "../domain/agent-runtime.ts";
 import { assertTaskBootstrapWritePlan, isTaskBootstrapEvent, type TaskBootstrapEventV1 } from "../domain/task-bootstrap-event.ts";
 import type { FactEventV1 } from "../domain/fact-event.ts";
-import { assertFactAdmission, createFactProjectionTables, FactProjectionError, readFactGraphRows, readFactRow, reduceFactEvent, searchFactRows, type FactProjectionRow, type FactSearchFilters } from "./fact-event-projection.ts";
+import { assertFactAdmission, createFactProjectionTables, FactProjectionError, readFactAnchorRows, readFactGraphRows, readFactRow, reduceFactEvent, searchFactRows, type FactProjectionRow, type FactSearchFilters } from "./fact-event-projection.ts";
 
 interface EventStreamPort {
   readonly readHead: () => { readonly revision: number } | null;
@@ -55,7 +55,7 @@ export interface TaskProjection {
 }
 
 export function defaultLifecycleTaskProjectionPath(rootDir: string): string { return path.join(path.resolve(rootDir), ".harness/cache/task.sqlite"); }
-
+export function readLifecycleFactAnchors(rootDir: string): ReturnType<typeof readFactAnchorRows> { const projectionPath = defaultLifecycleTaskProjectionPath(rootDir); if (!localRuntimeStateFileSystem.exists(projectionPath)) return []; const db = new DatabaseSync(projectionPath, { readOnly: true }); try { return readFactAnchorRows(db); } finally { db.close(); } }
 export function makeTaskProjection(options: { readonly rootDir: string; readonly eventStore: EventStreamPort;
   readonly projectionPath?: string; readonly catchUpLimit?: number; readonly now?: () => string }): TaskProjection {
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);

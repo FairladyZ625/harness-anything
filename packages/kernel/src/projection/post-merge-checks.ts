@@ -6,14 +6,14 @@ import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
-import { buildRelationGraphProjection, detectRelationGraphCycles, validateRelationGraphRecords } from "./relation-graph-projection.ts";
+import { buildRelationGraphProjection, detectRelationGraphCycles, validateRelationGraphRecords, type FactAnchorRow } from "./relation-graph-projection.ts"; import { readLifecycleFactAnchors } from "./rebuildable-task-projection.ts";
 import type { ProjectionCheckAxisReport, ProjectionCheckReport, ProjectionWarning, ProjectionWarningCode, ProjectionWarningSource } from "./types.ts";
 import { readMarkdownSource, sourcePath, type TaskSourceEntry } from "./sqlite-task-source.ts";
 import { readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 
 export function runPostMergeChecks(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
-  const source = readMarkdownSource(rootInput);
+  const source = readMarkdownSource(rootInput), factAnchors = readLifecycleFactAnchors(rootDir);
   const warnings: ProjectionWarning[] = [];
   warnings.push(...findDuplicateTaskIds(rootDir, source.entries));
   warnings.push(...findDuplicateExternalBindings(source.entries));
@@ -22,9 +22,9 @@ export function runPostMergeChecks(rootInput: HarnessLayoutInput): ReadonlyArray
   warnings.push(...findConflictMarkerWarnings(rootInput));
   warnings.push(...findDecisionWatermarkIssues(rootInput));
   warnings.push(...findDanglingEntityRefs(rootInput, source.entries));
-  warnings.push(...findRelationRecordIssues(rootInput));
+  warnings.push(...findRelationRecordIssues(rootInput, factAnchors));
   warnings.push(...findParentCycles(rootDir, source.entries));
-  warnings.push(...findRelationCycles(rootInput));
+  warnings.push(...findRelationCycles(rootInput, factAnchors));
   return warnings;
 }
 
@@ -271,8 +271,8 @@ function findDecisionAnchors(frontmatter: string): ReadonlyArray<string> {
     .filter((anchor): anchor is string => Boolean(anchor));
 }
 
-function findRelationCycles(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
-  const cycle = detectRelationGraphCycles(buildRelationGraphProjection(rootInput).edges)[0];
+function findRelationCycles(rootInput: HarnessLayoutInput, factAnchors: ReadonlyArray<FactAnchorRow>): ReadonlyArray<ProjectionWarning> {
+  const cycle = detectRelationGraphCycles(buildRelationGraphProjection(rootInput, factAnchors).edges)[0];
   if (!cycle) return [];
   return [hardFail(
     "source-package",
@@ -323,8 +323,8 @@ function findParentCycles(rootDir: string, entries: ReadonlyArray<TaskSourceEntr
   return [];
 }
 
-function findRelationRecordIssues(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
-  return validateRelationGraphRecords(rootInput).map(({ entry, issue }) => hardFail(
+function findRelationRecordIssues(rootInput: HarnessLayoutInput, factAnchors: ReadonlyArray<FactAnchorRow>): ReadonlyArray<ProjectionWarning> {
+  return validateRelationGraphRecords(rootInput, factAnchors).map(({ entry, issue }) => hardFail(
     "source-package",
     issue.code,
     `${issue.message} (${entry.sourcePath}:${entry.recordIndex + 1}).`,

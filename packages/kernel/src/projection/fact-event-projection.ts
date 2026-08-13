@@ -99,11 +99,11 @@ export function searchFactRows(db: DatabaseSync, filters: FactSearchFilters): re
 export function readFactGraphRows(db: DatabaseSync): { readonly edges: readonly FactRelationEdgeRow[]; readonly factAnchors: readonly FactAnchorRow[]; readonly facts: readonly FactProjectionRow[] } {
   const edges = (db.prepare("SELECT row_json FROM relation_edge WHERE owner_ref LIKE 'fact/%' ORDER BY relation_id").all() as unknown as readonly { readonly row_json: string }[])
     .map((row) => JSON.parse(row.row_json) as FactRelationEdgeRow);
-  const factAnchors = (db.prepare("SELECT ref, task_id, fact_id, op_id FROM fact ORDER BY ref").all() as unknown as readonly { readonly ref: string; readonly task_id: string; readonly fact_id: string; readonly op_id: string }[])
-    .map((row) => ({ factRef: row.ref, taskId: row.task_id, factId: row.fact_id, sourcePath: `event:${row.op_id}` }));
+  const factAnchors = readFactAnchorRows(db);
   const facts = (db.prepare("SELECT task_id, fact_id FROM fact ORDER BY observed_at DESC, task_id, fact_id").all() as unknown as readonly { readonly task_id: string; readonly fact_id: string }[])
     .map((row) => readFactRow(db, row.task_id, row.fact_id)!);
   return { edges, factAnchors, facts };
 }
 
+export function readFactAnchorRows(db: DatabaseSync): readonly FactAnchorRow[] { return (db.prepare("SELECT ref, task_id, fact_id, op_id FROM fact ORDER BY ref").all() as unknown as readonly { readonly ref: string; readonly task_id: string; readonly fact_id: string; readonly op_id: string }[]).map((row) => ({ factRef: row.ref, taskId: row.task_id, factId: row.fact_id, sourcePath: `event:${row.op_id}` })); }
 function ftsQuery(value: string): string { return `"${value.trim().replaceAll('"', '""')}"`; }

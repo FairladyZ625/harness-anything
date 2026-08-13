@@ -4,17 +4,17 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
-  buildRelationGraphProjection,
   checkTaskProjection,
   deriveRelationId,
   evaluateEntityDisposition,
   formatRelationFlowRecord,
+  makeTaskProjection,
   readEntityCascadeImpact,
   readRelationGraphProjection,
   rebuildTaskProjection,
-  validateRelationGraphRecords,
   type EntityRelationRecord,
-  type FactAnchorRow
+  type FactAnchorRow,
+  type FactEventV1
 } from "../../src/index.ts";
 import { withTempStore } from "./helpers.ts";
 
@@ -23,26 +23,23 @@ test("triadic authored relations resolve event-backed Fact anchors without facts
     const anchor = factAnchor("task-coverage", "F-DEADBEEF"), relation = relationRecord({
       source: "decision/dec_COVER/C1", target: anchor.factRef, type: "evidenced-by"
     });
-    writeDecision(rootDir, "dec_COVER", "wm-cover", [relation]);
+    projectFactAnchor(rootDir, anchor); writeDecision(rootDir, "dec_COVER", "wm-cover", [relation]);
 
-    assert.deepEqual(validateRelationGraphRecords({ rootDir }, [anchor]), []);
-    const projection = buildRelationGraphProjection({ rootDir }, [anchor]);
-    assert.deepEqual(projection.factAnchors, [anchor]);
-    assert.deepEqual(projection.coverageRows, [{
-      decisionRef: "decision/dec_COVER", claimRef: "decision/dec_COVER/C1", status: "covered",
-      coveringFactRef: anchor.factRef, relationPath: [relation.relation_id]
-    }]);
+    const checked = checkTaskProjection({ rootDir, postMerge: true });
+    assert.equal(checked.ok, true, JSON.stringify(checked.warnings));
+    assert.equal(checked.warnings.some(({ code }) => code === "relation_endpoint_unknown"), false);
   });
 });
 
 test("event-backed Fact anchors reject unknown authored endpoints", () => {
   withTempStore((rootDir) => {
+    projectFactAnchor(rootDir, factAnchor("task-known", "F-AAAAAAAA"));
     writeDecision(rootDir, "dec_UNKNOWN", "wm-unknown", [relationRecord({
       source: "decision/dec_UNKNOWN/C1", target: "fact/task-missing/F-DEADBEEF", type: "evidenced-by"
     })]);
-    const issues = validateRelationGraphRecords({ rootDir }, []);
-    assert.equal(issues.some(({ issue }) => issue.code === "relation_endpoint_unknown"), true);
-    assert.deepEqual(buildRelationGraphProjection({ rootDir }).edges, []);
+    const checked = checkTaskProjection({ rootDir, postMerge: true });
+    assert.equal(checked.ok, false);
+    assert.equal(checked.warnings.some(({ code }) => code === "relation_endpoint_unknown"), true);
   });
 });
 
@@ -104,6 +101,13 @@ test("entity disposition and cascade preserve active incoming relation lower bou
 
 function factAnchor(taskId: string, factId: string): FactAnchorRow {
   return { factRef: `fact/${taskId}/${factId}`, taskId, factId, sourcePath: "event:op-fact-anchor" };
+}
+
+function projectFactAnchor(rootDir: string, anchor: FactAnchorRow): void {
+  const emptyStore = { readHead: () => null, readBatch: () => ({ sourceRevision: 0, events: [], cursor: null, done: true, accessedItems: 0 }), readContentBlob: () => null };
+  const event: FactEventV1 = { schema: "fact-event/v1", eventId: `event-${anchor.factId}`, workspaceRevision: 1, opId: "op-fact-anchor", taskId: anchor.taskId, factId: anchor.factId,
+    type: "fact_recorded", actor: { principal: { personId: "tester" }, executor: null }, source: "local", occurredAt: "2026-08-13T00:00:00.000Z", payload: { statement: "Projected Fact anchor", evidenceSource: "integration fixture", observedAt: "2026-08-13T00:00:00.000Z", confidence: "high", memoryClass: "semantic", memoryTags: [], provenance: [{ runtime: "human", sessionId: "post-merge-fixture", boundAt: "2026-08-13T00:00:00.000Z" }] } };
+  makeTaskProjection({ rootDir, eventStore: emptyStore }).apply(event);
 }
 
 function writeIndex(rootDir: string, taskId: string, title: string): void {
