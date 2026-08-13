@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import docSyncContract, { DOC_POLICY_ID, decideDocWrite, docRegionPolicyRegistry, documentPath, ledgerCommitSha, parseDocWriteIntent, resolveDocRoute, serializeDocEvent, serializeDocWriteIntent, validateDocWriteIntent, type DocWriteChange, type DocumentState } from "../../src/domain/doc-sync.contract.ts";
-import { validateWriteReceipt } from "../../src/domain/write-chain.contract.ts";
+import { validateWriteReceipt, validateWriteSource } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
@@ -19,6 +19,7 @@ test("derived doc-sync contract closes intent and event schemas", () => {
   assert.equal(docSyncContract.schemas.every((schema) => schema.negativeFixtures.length > 0), true);
   const parsed = parseDocWriteIntent({ schema: "doc-write-intent/v1", executionId: "execution-1", baseLedgerSha: baseLedgerSha.sha, changes: [{ path: "context/notes.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: claim("body\n") }] }, "docs");
   assert.equal(JSON.parse(serializeDocWriteIntent(parsed)).baseLedgerSha, baseLedgerSha.sha);
+  assert.deepEqual(validateWriteSource({ kind: "watch_session", sessionId: "watch-one", path: "context/notes.md", fingerprint: "a".repeat(64) }), []); assert.match(validateWriteSource({ kind: "watch_session", sessionId: "watch-one", path: "context/notes.md", fingerprint: "bad" }).join("\n"), /watch session/u);
 });
 
 test("doc ingress rejects non-portable paths and same-batch Unicode collisions", () => {

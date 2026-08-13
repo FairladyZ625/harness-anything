@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, openSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { makeTaskLifecycleService, type TaskLifecycleServiceProof } from "../../application/src/task-lifecycle-service.ts";
 import { assertCurrentWriter, bindWriterGenerationToken, makeTaskEventStore, makeTaskProjection, normalizeCommandEnvelope,
@@ -145,6 +145,7 @@ function cellErrorMessage(error: unknown): string { return error instanceof Erro
 function fatalCellError(error: unknown): boolean { if (error instanceof VcsCommandError) return true; if (!(error instanceof Error) || !("code" in error)) return true; return ["invalid_store", "legacy_shape", "op_conflict", "revision_conflict", "publication_indeterminate", "writer_rejected"].includes(String(error.code)); }
 async function acquireWorkspaceLock(rootDir: CanonicalRoot): Promise<{ readonly close: () => Promise<void> }> { const lockPath = `${rootDir}.harness-anything-writer.lock`; let descriptor: number;
   try { descriptor = openSync(lockPath, "wx", 0o600); writeFileSync(descriptor, `${process.pid}\n`, "utf8"); }
-  catch (error) { throw cellCodedError("writer_rejected", `Workspace writer lock is held for ${rootDir}: ${cellErrorMessage(error)}`); }
+  catch (error) { if (!staleWriterLock(lockPath)) throw cellCodedError("writer_rejected", `Workspace writer lock is held for ${rootDir}: ${cellErrorMessage(error)}`); consumeKnownError(error); unlinkSync(lockPath); try { descriptor = openSync(lockPath, "wx", 0o600); writeFileSync(descriptor, `${process.pid}\n`, "utf8"); } catch (retry) { throw cellCodedError("writer_rejected", `Workspace writer lock recovery raced for ${rootDir}: ${cellErrorMessage(retry)}`); } }
   let closed = false; return { close: async () => { if (closed) return; closed = true; closeSync(descriptor); try { unlinkSync(lockPath); } catch (error) { if (cellErrorCode(error) === "ENOENT") { consumeKnownError(error); return; } throw error; } } }; }
 const consumeKnownError = (error: unknown): void => { void error; };
+function staleWriterLock(target: string): boolean { let pid: number; try { pid = Number(readFileSync(target, "utf8").trim()); if (!Number.isSafeInteger(pid) || pid < 1) return false; process.kill(pid, 0); return false; } catch (error) { return typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH"; } }
