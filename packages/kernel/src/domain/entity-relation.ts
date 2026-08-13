@@ -15,6 +15,7 @@ export const relationTypes = [
   "produces",
   "evidences",
   "evidenced-by",
+  "refuted-by",
   "invalidated-by",
   "supersedes-fact"
 ] as const;
@@ -162,7 +163,7 @@ export function isAllowedRelationKindTriple(
   // The transitional "supports" alias was removed after the 2026-07-05 ledger migration
   // moved every evidence edge to evidenced-by (dec_mr74sbka).
   if (sourceKind === "decision" && targetKind === "fact") {
-    return type === "supersedes-fact" || type === "evidenced-by";
+    return type === "evidenced-by" || type === "refuted-by";
   }
   if (sourceKind === "task" && targetKind === "decision") return type === "implements";
   if (sourceKind === "task" && targetKind === "task") return type === "blocks" || type === "relates" || type === "depends-on";
@@ -176,6 +177,7 @@ function requiresRationale(record: EntityRelationRecord): boolean {
   return record.strength === "strong" ||
     record.type === "supports" ||
     record.type === "evidenced-by" ||
+    record.type === "refuted-by" ||
     record.type === "blocks" ||
     record.type === "depends-on" ||
     record.type === "supersedes" ||

@@ -1,4 +1,5 @@
-import { DecisionPackageSchema, EntityRelationRecordSchema, FactEventSchema, TaskFrontmatterSchema } from "../schemas/registry.ts";
+import { EntityRelationRecordSchema, FactEventSchema, TaskFrontmatterSchema } from "../schemas/registry.ts";
+import { DecisionEventSchema } from "../schemas/fact-event.ts";
 import {
   decisionFieldContracts,
   factFieldContracts,
@@ -110,19 +111,19 @@ export type EntityRegistryShape = {
 export const entityRegistry = {
   decision: {
     kind: "decision",
-    schema: DecisionPackageSchema,
+    schema: DecisionEventSchema,
     mutabilityContract: decisionFieldContracts,
     anchors: {
-      entityRef: "decision/{decision_id}",
+      entityRef: "decision/{decisionId}",
       anchors: [
-        { field: "claims", idField: "id", ref: "decision/{decision_id}/{id}" },
-        { field: "chosen", idField: "id", ref: "decision/{decision_id}/{id}" },
-        { field: "rejected", idField: "id", ref: "decision/{decision_id}/{id}" }
+        { field: "claims", idField: "claimId", ref: "decision/{decisionId}/{claimId}" },
+        { field: "chosen", idField: "id", ref: "decision/{decisionId}/{id}" },
+        { field: "rejected", idField: "id", ref: "decision/{decisionId}/{id}" }
       ]
     },
     dispositionMatrix: dispositionMatrix([
-      supported("D1", "retire", ["decision_retire"], "decision semantic retirement preserves organizational memory"),
-      supported("D1", "supersede", ["decision_supersede"], "decision correction is expressed as supersession"),
+      supported("D1", "retire", ["decision_retired"], "decision semantic retirement preserves organizational memory"),
+      supported("D1", "supersede", ["decision_related"], "decision correction is expressed as a supersedes relation"),
       unsupported("D1", "invalidate", "decision invalidation is modeled as retire or supersede"),
       unsupported("D2", "archive", "decision archive/version-rollup is declared but not writable in M5 F5"),
       unsupported("D3", "tombstone", "bad proposed decisions are rejected, not tombstoned"),

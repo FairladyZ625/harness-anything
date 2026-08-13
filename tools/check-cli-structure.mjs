@@ -17,7 +17,8 @@ const allowedStaticGraph = new Set([
   "packages/cli/src/daemon/client.ts",
   "packages/daemon/src/client/local-daemon-target.ts",
   "packages/daemon/src/protocol/daemon-protocol.contract.ts",
-  "packages/daemon/src/protocol/json-rpc-types.ts"
+  "packages/daemon/src/protocol/json-rpc-types.ts",
+  "packages/preset/src/preset-command-contract.ts"
 ]);
 
 checkFileLines(cliFiles, 250, "CLI source file");

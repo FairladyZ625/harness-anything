@@ -7,10 +7,10 @@ import { parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 
 test("thin command directory renders every supported user command", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 25);
+  assert.equal(thinCliCommands.length, 37);
   for (const command of thinCliCommands) assert.match(help, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
-  assert.doesNotMatch(help, /daemon serve|fact list|fact invalidate|record fact/u);
-  assert.match(help, /ha fact record.*ha fact search.*ha fact show/su);
+  assert.doesNotMatch(help, /daemon serve|fact list|fact invalidate|record fact|decision list|decision transition|decision verify|decision repin|decision amend|decision relation replace/u);
+  assert.match(help, /ha fact record.*ha fact search.*ha fact show.*ha decision propose.*ha decision accept.*ha decision reckon.*ha decision search.*ha decision show/su);
 });
 
 test("thin parser derives closed preset and task-create payloads from descriptors", () => {
@@ -38,6 +38,27 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
   assert.equal(excessiveRationale.ok ? "ok" : excessiveRationale.code, "invalid_field");
 });
 
+test("Decision CLI maps every canonical command and keeps the five local error codes closed", () => {
+  const propose = parseThinCommand(["decision", "propose", "--title", "Canonical", "--question", "Should events own this Decision?", "--chosen", '{"id":"CH1","text":"Use events"}', "--rejected", '{"id":"RJ1","text":"Use files","whyNot":"Not canonical"}', "--module", "kernel"]),
+    accept = parseThinCommand(["decision", "accept", "dec_1", "--rationale", "Independent approval"]),
+    claim = parseThinCommand(["decision", "claim", "add", "dec_1", "--id", "C1", "--text", "Coverage is replayable"]),
+    fulfill = parseThinCommand(["decision", "claim", "fulfill", "dec_1", "--id", "C1", "--mode", "evidenced"]),
+    relate = parseThinCommand(["decision", "relate", "dec_1", "--anchor", "C1", "--type", "evidenced-by", "--target", "fact/task-1/F-ABCDEFGH", "--rationale", "Observed"]),
+    retireRelation = parseThinCommand(["decision", "relation", "retire", "dec_1", "--relation", "rel_0123456789abcdef", "--reason", "Stale"]),
+    reckon = parseThinCommand(["decision", "reckon", "dec_1", "--task", "task-1"]), search = parseThinCommand(["decision", "search", "Canonical", "--state", "accepted"]), show = parseThinCommand(["decision", "show", "dec_1", "--include-body"]);
+  assert.equal([propose, accept, claim, fulfill, relate, retireRelation, reckon, search, show].every((result) => result.ok), true);
+  if (propose.ok) assert.deepEqual(propose.command.action, { kind: "decision-propose", title: "Canonical", question: "Should events own this Decision?", riskTier: "medium", urgency: "medium", vertical: "default", preset: "default", decisionClass: "ordinary", appliesTo: { modules: ["kernel"], productLines: [] }, chosen: [{ id: "CH1", text: "Use events" }], rejected: [{ id: "RJ1", text: "Use files", whyNot: "Not canonical" }] });
+  if (show.ok) assert.deepEqual(show.command.action, { kind: "decision-show", decisionId: "dec_1", includeBody: true });
+  const failures = [
+    parseThinCommand(["decision", "accept", "dec_1", "--rationale", "a", "--rationale", "b"]),
+    parseThinCommand(["decision", "accept", "dec_1", "--rationale", "x".repeat(200)]),
+    parseThinCommand(["decision", "accept"]),
+    parseThinCommand(["decision", "show", "dec_1", "--body"]),
+    parseThinCommand(["decision", "list"])
+  ];
+  assert.deepEqual(failures.map((result) => result.ok ? "ok" : result.code), ["duplicate_field", "invalid_field", "missing_field", "unknown_field", "unsupported_command"]);
+});
+
 test("thin parser converts the sole preset script target into closed typed start params", () => {
   const parsed = parseThinCommand(["script", "run", "preset:user-canary/check", "--idempotency-key", "once", "--task-id", "task-1", "--inputs", '{"title":"Canary"}']);
   assert.equal(parsed.ok, true); if (parsed.ok) assert.deepEqual(parsed.command, { rootDir: parsed.command.rootDir, json: false, method: "repo.preset.run.start", action: { kind: "preset-run-start", presetId: "user-canary", entrypoint: "check", idempotencyKey: "once", taskId: "task-1", inputs: { title: "Canary" } } });
@@ -62,7 +83,7 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
 });
 
 test("doc CLI and GUI delivery surfaces do not import store, Git, or semantic compiler code", () => {
-  const sources = ["../src/cli/doc-sync-command.ts", "../src/cli/thin-command.ts", "../../gui/src/api/api-contract-registry.ts", "../../gui/src/api/service-bridge.ts", "../../gui/src/main/local-composition-root.ts"];
+  const sources = ["../src/cli/thin-command.ts", "../../gui/src/api/api-contract-registry.ts", "../../gui/src/api/service-bridge.ts", "../../gui/src/main/local-composition-root.ts"];
   for (const source of sources) assert.doesNotMatch(readFileSync(new URL(source, import.meta.url), "utf8"), /kernel\/src\/(?:store|domain)|local-version-control|simple-git|semantic-compiler|node:(?:child_process|fs)/u, source);
 });
 

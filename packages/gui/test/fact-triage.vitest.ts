@@ -100,7 +100,7 @@ function anchor(fact = baseFact()): FactAnchorRow {
     factRef: `fact/${fact.anchor}`,
     taskId: fact.taskId,
     factId: fact.anchor.split("/").at(-1) ?? "F-001",
-    sourcePath: `harness/tasks/${fact.taskId}/facts.md`,
+    sourcePath: `event:fact/${fact.anchor}`,
   };
 }
 
@@ -112,8 +112,11 @@ function coverage(
     decisionRef: `decision/${decisionId}`,
     claimRef: `decision/${decisionId}/CH1`,
     status: "covered",
+    fulfillment: "evidenced",
     coveringFactRef: `fact/${fact.anchor}`,
+    refutingFactRefs: [],
     relationPath: ["rel_1"],
+    basisRevision: 1,
   };
 }
 
@@ -284,22 +287,32 @@ describe("fact-triage signal metadata", () => {
 });
 
 describe("cross-entity navigation projection", () => {
-  it("keeps absent decision DTO fields explicit instead of synthesizing placeholders", () => {
+  it("maps the complete event-backed Decision row without legacy DTO placeholders", () => {
     const rendered = buildTriadicRendererData({
       graph: { ok: true, edges: [], coverageRows: [], factAnchors: [], facts: [], warnings: [] },
       decisions: {
         ok: true,
         decisions: [{
-          schema: "d4-decision-row/v1",
+          schema: "decision-row/v1",
           decisionId: "dec_missing",
           state: "proposed",
           title: "Missing fields stay unknown",
           question: "Q?",
+          riskTier: "medium",
+          urgency: "medium",
+          vertical: "software/coding",
+          preset: "p",
+          decisionClass: "ordinary",
+          appliesTo: { modules: [], productLines: [] },
+          proposer: { principal: { personId: "x" }, executor: null },
+          arbiter: null,
+          proposedAt: "2026-07-01T00:00:00.000Z",
+          decidedAt: null,
+          workspaceRevision: 1,
           chosen: [],
           rejected: [],
-          path: "harness/decisions/decision-dec_missing/decision.md",
-          moduleKeys: [],
-          productLineKeys: []
+          claims: [],
+          body: null
         }],
         warnings: []
       }
@@ -307,10 +320,10 @@ describe("cross-entity navigation projection", () => {
 
     expect(rendered.decisions[0]).toMatchObject({
       decisionId: "dec_missing",
-      riskTier: undefined,
-      urgency: undefined,
-      proposedBy: undefined,
-      provenance: undefined
+      riskTier: "medium",
+      urgency: "medium",
+      proposedBy: { kind: "human", id: "x" },
+      chosen: []
     });
   });
 
@@ -344,7 +357,7 @@ describe("cross-entity navigation projection", () => {
             state: "active",
             rationale: "new observation contradicts the decision",
             ownerRef: `fact/${fact.anchor}`,
-            sourcePath: "harness/tasks/task_a/facts.md",
+            sourcePath: "event:fact/task_a/F-ABCDEFGH",
             recordIndex: 0,
           },
         ],

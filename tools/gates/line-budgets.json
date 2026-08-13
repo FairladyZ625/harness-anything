@@ -1,18 +1,18 @@
 {
   "version": 1,
   "ceilings": {
-    "kernel": 9542,
-    "task-lifecycle": 434,
+    "kernel": 8101,
+    "task-lifecycle": 375,
     "write-contract": 294,
-    "doc-sync": 270,
+    "doc-sync": 245,
     "preset": 198,
-    "cli": 193,
+    "cli": 147,
     "gui": 14224,
-    "daemon": 873,
+    "daemon": 884,
     "authority-write-path": 0,
     "identity-rbac": 416,
     "agent-runtime": 301,
-    "decision-fact": 273,
+    "decision-fact": 354,
     "test-infra": 0
   }
 }

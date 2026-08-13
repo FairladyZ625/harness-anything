@@ -1,6 +1,7 @@
 import type { DaemonHost } from "../daemon-host.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
-import { actionForDaemonMethod, daemonGuiStreamFacets, daemonProtocolError, isDaemonGuiReadMethod, isDaemonGuiStreamMethod, jsonRpcMethodContracts, parseDaemonGuiReadResult, parseDaemonGuiStreamResult, parseDaemonRpcParams } from "./daemon-protocol.contract.ts";
+import { actionForDaemonMethod, daemonGuiStreamFacets, daemonProtocolError, isDaemonGuiReadMethod, isDaemonGuiStreamMethod, jsonRpcMethodContracts, parseDaemonRpcParams } from "./daemon-protocol.contract.ts";
+import { parseDaemonGuiReadResult, parseDaemonGuiStreamResult } from "./gui-result-validation.ts";
 import { type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./version.ts";
 export interface JsonRpcProtocolServer { readonly handle: (message: JsonRpcRequest | JsonRpcRequest[]) => Promise<JsonRpcResponse | JsonRpcResponse[] | undefined>; readonly close: () => void }

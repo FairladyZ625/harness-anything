@@ -56,6 +56,19 @@ test("thin CLI structure retains CLI function complexity limits", async () => {
   assert.match(result.stderr, /thin-command\.ts:1: function genericMonolith has 12[1-9] lines; max 120/u);
 });
 
+test("thin CLI permits only the zero-dependency preset command contract", async () => {
+  const root = await fixture();
+  write(root, "packages/preset/src/preset-command-contract.ts", [
+    "import { runtime } from './preset.contract.ts';",
+    "export const presetCommands = runtime;",
+    ""
+  ].join("\n"));
+  write(root, "packages/preset/src/preset.contract.ts", "export const runtime = [];\n");
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /module is outside entry\/parser\/transport\/render whitelist.*preset\.contract\.ts/u);
+});
+
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "harness-thin-cli-structure-"));
   write(root, "packages/cli/package.json", JSON.stringify({
@@ -69,7 +82,11 @@ async function fixture() {
     "void parseThinCommand; void runCommandThroughDaemon; void emit;",
     ""
   ].join("\n"));
-  write(root, "packages/cli/src/cli/thin-command.ts", "export function parseThinCommand(): void {}\n");
+  write(root, "packages/cli/src/cli/thin-command.ts", [
+    "import { resolveThinCliCommand } from '../../../daemon/src/protocol/daemon-protocol.contract.ts';",
+    "export function parseThinCommand(): void { void resolveThinCliCommand; }",
+    ""
+  ].join("\n"));
   write(root, "packages/cli/src/daemon/client.ts", [
     "import { resolveLocalDaemonTarget } from '../../../daemon/src/client/local-daemon-target.ts';",
     "export function runCommandThroughDaemon(): void { void resolveLocalDaemonTarget; }",
@@ -81,6 +98,12 @@ async function fixture() {
     "export function resolveLocalDaemonTarget(): void { void path; }",
     ""
   ].join("\n"));
+  write(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts", [
+    "import { presetCommands } from '../../../preset/src/preset-command-contract.ts';",
+    "export function resolveThinCliCommand(): void { void presetCommands; }",
+    ""
+  ].join("\n"));
+  write(root, "packages/preset/src/preset-command-contract.ts", "export const presetCommands = [];\n");
   return root;
 }
 

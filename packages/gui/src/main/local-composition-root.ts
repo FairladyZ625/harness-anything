@@ -1,5 +1,5 @@
 import path from "node:path";
-import { daemonProtocolError, parseDaemonGuiReadResponse, type DaemonGuiStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonProtocolError, type DaemonGuiStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts"; import { parseDaemonGuiReadResponse } from "../../../daemon/src/protocol/gui-result-validation.ts";
 import { validateProjectPath } from "../api/local-api.ts";
 import { createGuiServiceBridgeForDaemon, type GuiServiceBridge, type ShippedGuiRoute } from "../api/service-bridge.ts";
 import { streamAgentRuntimeAt } from "./agent-runtime-stream-client.ts";

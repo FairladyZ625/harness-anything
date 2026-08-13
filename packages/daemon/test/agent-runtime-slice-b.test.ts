@@ -8,7 +8,8 @@ import test from "node:test";
 import { makeTaskEventStore, makeTaskProjection, type AgentRuntimeEventV1, type RuntimeSession } from "../../kernel/src/index.ts";
 import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts"; import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
 import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
-import { daemonGuiReadMethods, daemonGuiStreamFacets, jsonRpcMethodContracts, parseDaemonGuiReadResult } from "../src/protocol/daemon-protocol.contract.ts";
+import { daemonGuiReadMethods, daemonGuiStreamFacets, jsonRpcMethodContracts } from "../src/protocol/daemon-protocol.contract.ts";
+import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts"; import { openRepoCell } from "../src/repo-cell.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"; import { currentDaemonProtocolVersion } from "../src/protocol/version.ts"; import type { DaemonHost } from "../src/daemon-host.ts";
 

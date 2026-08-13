@@ -17,7 +17,7 @@ test("kernel public source index is importable by the explicit TS test runner", 
   ]);
   assert.deepEqual([...kernel.decisionStates], [
     "proposed",
-    "active",
+    "accepted",
     "rejected",
     "deferred",
     "retired"

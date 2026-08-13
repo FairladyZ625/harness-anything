@@ -5,26 +5,25 @@ import { findEntityRefs } from "../domain/index.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
-import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
-import { buildRelationGraphProjection, detectRelationGraphCycles, validateRelationGraphRecords, type FactAnchorRow } from "./relation-graph-projection.ts"; import { readLifecycleFactAnchors } from "./rebuildable-task-projection.ts";
+import { readScalar } from "../markdown/frontmatter.ts";
+import { buildRelationGraphProjection, detectRelationGraphCycles, validateRelationGraphRecords, type EventBackedRelationTruth } from "./relation-graph-projection.ts"; import { readLifecycleRelationTruth } from "./rebuildable-task-projection.ts";
 import type { ProjectionCheckAxisReport, ProjectionCheckReport, ProjectionWarning, ProjectionWarningCode, ProjectionWarningSource } from "./types.ts";
 import { readMarkdownSource, sourcePath, type TaskSourceEntry } from "./sqlite-task-source.ts";
 import { readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 
 export function runPostMergeChecks(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
-  const source = readMarkdownSource(rootInput), factAnchors = readLifecycleFactAnchors(rootDir);
+  const source = readMarkdownSource(rootInput), relationTruth = readLifecycleRelationTruth(rootDir);
   const warnings: ProjectionWarning[] = [];
   warnings.push(...findDuplicateTaskIds(rootDir, source.entries));
   warnings.push(...findDuplicateExternalBindings(source.entries));
   warnings.push(...findTrackedGeneratedFiles(rootDir));
   warnings.push(...findTamperedBindings(source.entries));
   warnings.push(...findConflictMarkerWarnings(rootInput));
-  warnings.push(...findDecisionWatermarkIssues(rootInput));
-  warnings.push(...findDanglingEntityRefs(rootInput, source.entries));
-  warnings.push(...findRelationRecordIssues(rootInput, factAnchors));
+  warnings.push(...findDanglingEntityRefs(rootInput, source.entries, relationTruth));
+  warnings.push(...findRelationRecordIssues(rootInput, relationTruth));
   warnings.push(...findParentCycles(rootDir, source.entries));
-  warnings.push(...findRelationCycles(rootInput, factAnchors));
+  warnings.push(...findRelationCycles(rootInput, relationTruth));
   return warnings;
 }
 
@@ -149,47 +148,10 @@ export function findConflictMarkerWarnings(rootInput: HarnessLayoutInput): Reado
   return [];
 }
 
-function findDecisionWatermarkIssues(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
-  const layout = resolveHarnessLayout(rootInput);
-  const seen = new Map<string, string>();
-  const warnings: ProjectionWarning[] = [];
-  for (const filePath of listTextFiles(layout.decisionsRoot)) {
-    if (path.basename(filePath) !== "decision.md") continue;
-    const body = readTextFileIfPresent(filePath);
-    if (body === null) continue;
-    const frontmatter = readFrontmatter(body);
-    if (!frontmatter || readScalar(frontmatter, "schema") !== "decision-package/v1") continue;
-    const source = sourcePath(layout.rootDir, filePath);
-    const decisionId = readScalar(frontmatter, "decision_id") || path.basename(path.dirname(filePath));
-    const watermark = readScalar(frontmatter, "_coordinatorWatermark");
-    if (watermark.length === 0) {
-      warnings.push(hardFail(
-        "source-package",
-        "decision_watermark_missing",
-        `Decision ${decisionId} in ${source} is missing _coordinatorWatermark.`,
-        "Rewrite the decision through the decision write coordinator path; do not hand-author machine-readable decision frontmatter."
-      ));
-      continue;
-    }
-    const previous = seen.get(watermark);
-    if (previous) {
-      warnings.push(hardFail(
-        "source-package",
-        "decision_watermark_duplicate",
-        `Decision ${decisionId} in ${source} reuses _coordinatorWatermark from ${previous}.`,
-        "Regenerate one of the copied decision files through the decision write coordinator path so each authored decision has a unique watermark."
-      ));
-      continue;
-    }
-    seen.set(watermark, source);
-  }
-  return warnings;
-}
-
-function findDanglingEntityRefs(rootInput: HarnessLayoutInput, entries: ReadonlyArray<TaskSourceEntry>): ReadonlyArray<ProjectionWarning> {
+function findDanglingEntityRefs(rootInput: HarnessLayoutInput, entries: ReadonlyArray<TaskSourceEntry>, truth: EventBackedRelationTruth): ReadonlyArray<ProjectionWarning> {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
-  const knownRefs = buildEntityRefIndex(rootInput, entries);
+  const knownRefs = buildEntityRefIndex(entries, truth);
   const warnings: ProjectionWarning[] = [];
   const files = listTextFiles(layout.authoredRoot)
     .filter((filePath) => !isInsideRoot(layout.sessionsRoot, filePath))
@@ -244,35 +206,15 @@ interface EntityRefIndex {
   readonly decisionAnchors: ReadonlySet<string>;
 }
 
-function buildEntityRefIndex(rootInput: HarnessLayoutInput, entries: ReadonlyArray<TaskSourceEntry>): EntityRefIndex {
-  const layout = resolveHarnessLayout(rootInput);
+function buildEntityRefIndex(entries: ReadonlyArray<TaskSourceEntry>, truth: EventBackedRelationTruth): EntityRefIndex {
   const taskIds = new Set(entries.map((entry) => readScalar(entry.frontmatter, "task_id") || entry.taskId));
-  const decisionIds = new Set<string>();
-  const decisionAnchors = new Set<string>();
-  for (const filePath of listTextFiles(layout.decisionsRoot)) {
-    if (path.basename(filePath) !== "decision.md") continue;
-    const body = readTextFileIfPresent(filePath);
-    if (body === null) continue;
-    const frontmatter = readFrontmatter(body);
-    if (!frontmatter || readScalar(frontmatter, "schema") !== "decision-package/v1") continue;
-    const decisionId = readScalar(frontmatter, "decision_id");
-    if (!decisionId) continue;
-    decisionIds.add(decisionId);
-    for (const anchor of findDecisionAnchors(frontmatter)) {
-      decisionAnchors.add(`${decisionId}/${anchor}`);
-    }
-  }
+  const decisionIds = new Set(truth.decisionAnchors.map((row) => row.decisionId));
+  const decisionAnchors = new Set(truth.decisionAnchors.flatMap((row) => row.anchorRefs.slice(1).map((ref) => ref.slice("decision/".length))));
   return { taskIds, decisionIds, decisionAnchors };
 }
 
-function findDecisionAnchors(frontmatter: string): ReadonlyArray<string> {
-  return [...frontmatter.matchAll(/^\s*-\s*\{\s*id:\s*"?([A-Za-z][A-Za-z0-9_-]*)"?/gmu)]
-    .map((match) => match[1])
-    .filter((anchor): anchor is string => Boolean(anchor));
-}
-
-function findRelationCycles(rootInput: HarnessLayoutInput, factAnchors: ReadonlyArray<FactAnchorRow>): ReadonlyArray<ProjectionWarning> {
-  const cycle = detectRelationGraphCycles(buildRelationGraphProjection(rootInput, factAnchors).edges)[0];
+function findRelationCycles(rootInput: HarnessLayoutInput, truth: EventBackedRelationTruth): ReadonlyArray<ProjectionWarning> {
+  const cycle = detectRelationGraphCycles(buildRelationGraphProjection(rootInput, truth).edges)[0];
   if (!cycle) return [];
   return [hardFail(
     "source-package",
@@ -323,8 +265,8 @@ function findParentCycles(rootDir: string, entries: ReadonlyArray<TaskSourceEntr
   return [];
 }
 
-function findRelationRecordIssues(rootInput: HarnessLayoutInput, factAnchors: ReadonlyArray<FactAnchorRow>): ReadonlyArray<ProjectionWarning> {
-  return validateRelationGraphRecords(rootInput, factAnchors).map(({ entry, issue }) => hardFail(
+function findRelationRecordIssues(rootInput: HarnessLayoutInput, truth: EventBackedRelationTruth): ReadonlyArray<ProjectionWarning> {
+  return validateRelationGraphRecords(rootInput, truth).map(({ entry, issue }) => hardFail(
     "source-package",
     issue.code,
     `${issue.message} (${entry.sourcePath}:${entry.recordIndex + 1}).`,

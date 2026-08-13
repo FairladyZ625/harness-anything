@@ -88,7 +88,7 @@ test("relation ids are deterministic and ignore mutable relation attributes", ()
     state: "retired"
   } satisfies EntityRelationRecord;
 
-  assert.equal(deriveRelationId(base), "rel_b75516c583945a52");
+  assert.equal(deriveRelationId(base), "rel_472c68c5d5dff1ed");
   assert.equal(deriveRelationId(base), deriveRelationId(variant));
 });
 
@@ -128,7 +128,8 @@ test("relation whitelist implements the ratified physical-direction matrix", () 
   // supports alias is gone now the ledger migration completed.
   assert.equal(isAllowedRelationKindTriple("decision", "evidenced-by", "fact"), true);
   assert.equal(isAllowedRelationKindTriple("decision", "supports", "fact"), false);
-  assert.equal(isAllowedRelationKindTriple("decision", "supersedes-fact", "fact"), true);
+  assert.equal(isAllowedRelationKindTriple("decision", "refuted-by", "fact"), true);
+  assert.equal(isAllowedRelationKindTriple("decision", "supersedes-fact", "fact"), false);
   // decision->task: derives (spawned by the decision) or relates (later-found link).
   assert.equal(isAllowedRelationKindTriple("decision", "derives", "task"), true);
   assert.equal(isAllowedRelationKindTriple("decision", "relates", "task"), true);
@@ -178,17 +179,17 @@ test("relation flow formatter emits one flow-style line per record", () => {
   const line = formatRelationFlowRecord(relationRecord());
 
   assert.equal(line.includes("\n"), false);
-  assert.equal(line.startsWith("- {relation_id: rel_b75516c583945a52,"), true);
+  assert.equal(line.startsWith("- {relation_id: rel_472c68c5d5dff1ed,"), true);
   assert.equal(line.endsWith("state: active}"), true);
   assert.match(line, /rationale: "C1 is supported by the measured finding F-a3f2\."/u);
 });
 
 function relationRecord(): EntityRelationRecord {
   return {
-    relation_id: "rel_b75516c583945a52",
+    relation_id: "rel_472c68c5d5dff1ed",
     source: "decision/dec_01K7ZTRIADIC/C1",
     target: "fact/task_01KV5TBASE/F-a3f2",
-    type: "supersedes-fact",
+    type: "evidenced-by",
     strength: "strong",
     direction: "directed",
     origin: "declared",

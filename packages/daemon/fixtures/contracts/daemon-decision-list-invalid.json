@@ -1,1 +1,1 @@
-{"ok":true,"decisions":[{"decisionId":7}],"warnings":[]}
+{"ok":true,"decisions":[{"schema":"decision-row/v1","decisionId":"dec_bad","state":"proposed","title":"Bad","question":"Bad?","riskTier":"low","urgency":"low","vertical":"default","preset":"default","decisionClass":"ordinary","appliesTo":{"modules":[],"productLines":[]},"proposer":{"principal":{"personId":"person"},"executor":null},"arbiter":null,"proposedAt":"2026-08-13T00:00:00.000Z","decidedAt":null,"workspaceRevision":1,"chosen":[],"rejected":[],"claims":[],"body":null,"unknown":true}],"warnings":[]}

@@ -5,13 +5,13 @@ import test from "node:test";
 import electronPath from "electron";
 import { _electron as electron } from "playwright-core";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
-import { writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
+import { seedTriadicEvents, writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
 const guiRoot = resolve(repoRoot, "packages/gui");
 test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async (t) => {
   const daemonFixture = await startGuiResidentDaemonFixture({ prefix: "ha-gui-e2e-", daemonId: "gui-e2e", repoId: "gui-e2e",
-    task: { taskId: "task-gui-smoke", title: "Render the real triadic projection" } });
+    task: { taskId: "task-gui-smoke", title: "Render the real triadic projection" }, beforeRestart: seedTriadicEvents });
   const ledgerRoot = daemonFixture.rootDir;
   let electronApp;
   t.after(async () => {

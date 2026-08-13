@@ -23,19 +23,11 @@ test("relation graph collection and freshness enumerate the same authored source
       })
     ]);
     writeIndex(rootDir, "task-target", "Task Target");
-    writeDecision(rootDir, "dec_SOURCE", [
-      relationRecord({
-        source: "decision/dec_SOURCE/C1",
-        target: "task/task-target",
-        type: "derives"
-      })
-    ]);
-
     const authoredKinds = readRelationGraphAuthoredSourceKinds({ rootDir });
     const sourceHashKinds = readRelationGraphSourceHashInputKinds({ rootDir });
 
-    assert.deepEqual(authoredKinds, ["decision-document", "task-index"]);
-    assert.deepEqual(sourceHashKinds, ["decision-document", "task-index"]);
+    assert.deepEqual(authoredKinds, ["task-index"]);
+    assert.deepEqual(sourceHashKinds, ["task-index"]);
     assert.deepEqual(sourceHashKinds, authoredKinds);
   });
 });
@@ -56,27 +48,13 @@ test("freshness preserves task index hash input order", () => {
   });
 });
 
-test("decision-only relation changes invalidate freshness", () => {
+test("event-backed Decision relations are absent from Markdown freshness inputs", () => {
   withTempStore((rootDir) => {
-    writeDecision(rootDir, "dec_SOURCE", [
-      relationRecord({
-        source: "decision/dec_SOURCE/C1",
-        target: "task/task-before",
-        type: "derives"
-      })
-    ]);
     const before = readMarkdownSource({ rootDir }).hash;
-
-    writeDecision(rootDir, "dec_SOURCE", [
-      relationRecord({
-        source: "decision/dec_SOURCE/C1",
-        target: "task/task-after",
-        type: "derives"
-      })
-    ]);
-
-    assert.notEqual(readMarkdownSource({ rootDir }).hash, before);
-    assert.deepEqual(readRelationGraphSourceHashInputKinds({ rootDir }), ["decision-document"]);
+    mkdirSync(path.join(rootDir, "harness/decisions/decision-dec_SOURCE"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/decisions/decision-dec_SOURCE/decision-body.md"), "body only\n");
+    assert.equal(readMarkdownSource({ rootDir }).hash, before);
+    assert.deepEqual(readRelationGraphSourceHashInputKinds({ rootDir }), []);
   });
 });
 
@@ -96,44 +74,6 @@ function writeIndex(rootDir: string, taskId: string, title: string, relations: R
     "---",
     "",
     `# ${title}`,
-    ""
-  ].join("\n"));
-}
-
-function writeDecision(rootDir: string, decisionId: string, relations: ReadonlyArray<EntityRelationRecord>): void {
-  const decisionRoot = path.join(rootDir, "harness/decisions", `decision-${decisionId}`);
-  mkdirSync(decisionRoot, { recursive: true });
-  writeFileSync(path.join(decisionRoot, "decision.md"), [
-    "---",
-    "schema: decision-package/v1",
-    `decision_id: ${decisionId}`,
-    "_coordinatorWatermark: wm-source-contract",
-    `title: ${decisionId}`,
-    "state: active",
-    "riskTier: low",
-    "urgency: medium",
-    "vertical: test",
-    "preset: default",
-    "applies_to:",
-    "  modules: [\"test\"]",
-    "  productLines: []",
-    "proposedBy: { kind: \"human\", id: \"tester\" }",
-    "proposedAt: \"2026-07-06T00:00:00.000Z\"",
-    "arbiter: { kind: \"human\", id: \"arbiter\" }",
-    "provenance:",
-    "  - { runtime: \"cli\", actor: { kind: \"human\", id: \"tester\" }, capturedAt: \"2026-07-06T00:00:00.000Z\" }",
-    `question: ${JSON.stringify(decisionId)}`,
-    "chosen:",
-    "  - { id: \"O1\", title: \"Chosen\", rationale: \"Fixture\" }",
-    "rejected:",
-    "  - { id: \"O2\", title: \"Rejected\", rationale: \"Fixture\" }",
-    "claims:",
-    "  - { id: \"C1\", statement: \"Fixture claim\", required: true }",
-    "relations:",
-    ...relations.map(formatRelationFlowRecord),
-    "---",
-    "",
-    `# ${decisionId}`,
     ""
   ].join("\n"));
 }

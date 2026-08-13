@@ -125,9 +125,9 @@ function adaptDecisionRows(
   }
 
   return rows.map((row) => {
-    const chosen = row.chosen.map((text, index) => decisionClaim(row.decisionId, "CH", index, text, relationsBySource));
-    const rejected = row.rejected.map((entry, index) => ({
-      ...decisionClaim(row.decisionId, "RJ", index, entry.text, relationsBySource),
+    const chosen = row.chosen.map((entry) => decisionClaim(row.decisionId, entry.id, entry.text, relationsBySource));
+    const rejected = row.rejected.map((entry) => ({
+      ...decisionClaim(row.decisionId, entry.id, entry.text, relationsBySource),
       whyNot: entry.whyNot
     }));
     return {
@@ -138,28 +138,25 @@ function adaptDecisionRows(
       urgency: row.urgency,
       vertical: row.vertical,
       preset: row.preset,
-      proposedBy: row.proposedBy,
+      proposedBy: actorRef(row.proposer),
       proposedAt: row.proposedAt,
-      arbiter: row.arbiter,
-      decidedAt: row.decidedAt,
+      ...(row.arbiter ? { arbiter: actorRef(row.arbiter) } : {}),
+      ...(row.decidedAt ? { decidedAt: row.decidedAt } : {}),
       question: row.question,
       chosen,
       rejected,
-      claims: [...chosen, ...rejected].map((claim) => ({ id: claim.id, text: claim.text })),
-      provenance: row.provenance,
-      lastChangedAt: row.decidedAt
+      claims: row.claims.map((claim) => ({ id: claim.id, text: claim.text })),
+      lastChangedAt: row.decidedAt ?? row.proposedAt
     };
   });
 }
 
 function decisionClaim(
   decisionId: string,
-  prefix: "CH" | "RJ",
-  index: number,
+  id: string,
   text: string,
   relationsBySource: ReadonlyMap<string, ReadonlyArray<string>>
 ): DecisionClaim {
-  const id = `${prefix}${index + 1}`;
   const ref = `decision/${decisionId}/${id}`;
   return {
     id,
@@ -169,6 +166,7 @@ function decisionClaim(
 }
 
 function decisionState(value: string): DecisionState {
-  if (value === "proposed" || value === "rejected" || value === "deferred" || value === "active" || value === "retired") return value;
+  if (value === "accepted") return "active"; if (value === "proposed" || value === "rejected" || value === "deferred" || value === "active" || value === "retired") return value;
   return "proposed";
 }
+function actorRef(value: DecisionProjectionRow["proposer"]): { readonly kind: "agent" | "human"; readonly id: string } { return value.executor ? { kind: "agent", id: value.executor.id } : { kind: "human", id: value.principal.personId }; }

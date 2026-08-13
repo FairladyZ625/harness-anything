@@ -46,8 +46,8 @@ export type {
 export * from "./markdown/frontmatter.ts";
 export * from "./ports/index.ts";
 export * from "./projection/post-merge-checks.ts";
-export * from "./projection/relation-graph-projection.ts";
-export type { FactProjectionRow, FactSearchFilters } from "./projection/fact-event-projection.ts";
+export { detectRelationGraphCycles, readRelationGraphAuthoredSourceKinds, validateRelationGraphRecords } from "./projection/relation-graph-projection.ts"; export type { FactAnchorRow, RelationCoverageRow, RelationGraphEdgeRow, RelationGraphProjection, RelationRecordEntry, RelationRecordValidationIssue } from "./projection/relation-graph-projection.ts";
+export type { DecisionProjectionRow, DecisionSearchFilters, FactProjectionRow, FactSearchFilters } from "./projection/fact-event-projection.ts";
 export * from "./publish/index.ts";
 export * from "./projection/sqlite-task-projection.ts";
 export * from "./schemas/registry.ts";

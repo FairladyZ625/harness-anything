@@ -16,8 +16,8 @@ const DOC_POLICY_ID = "markdown-additive/v1";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 
-test("descriptor-derived RBAC preserves every preset, runtime, and doc-sync action class", () => {
-  const expected = { "task-create": "repo-write", "preset-list": "repo-read", "preset-inspect": "repo-read", "preset-check": "repo-read", "preset-install": "repo-write", "preset-uninstall": "repo-write", "preset-run-start": "repo-write", "preset-run-status": "repo-read", "task-start": "repo-write", "task-submit": "repo-write", "task-review-execution": "arbiter", "task-complete": "repo-write", "task-show": "repo-read", "receipt-show": "repo-read", "doc-status": "repo-read", "doc-submit": "repo-write", "doc-show": "repo-read" } as const;
+test("descriptor-derived RBAC preserves every preset, runtime, doc-sync, Fact, and Decision action class", () => {
+  const expected = { "task-create": "repo-write", "preset-list": "repo-read", "preset-inspect": "repo-read", "preset-check": "repo-read", "preset-install": "repo-write", "preset-uninstall": "repo-write", "preset-run-start": "repo-write", "preset-run-status": "repo-read", "task-start": "repo-write", "task-submit": "repo-write", "task-review-execution": "arbiter", "task-complete": "repo-write", "task-show": "repo-read", "receipt-show": "repo-read", "doc-status": "repo-read", "doc-submit": "repo-write", "doc-show": "repo-read", "fact-record": "repo-write", "fact-search": "repo-read", "fact-show": "repo-read", "decision-propose": "repo-write", "decision-accept": "arbiter", "decision-reject": "arbiter", "decision-defer": "arbiter", "decision-retire": "repo-write", "decision-claim-add": "repo-write", "decision-claim-fulfill": "repo-write", "decision-relate": "repo-write", "decision-relation-retire": "repo-write", "decision-reckon": "repo-write", "decision-search": "repo-read", "decision-show": "repo-read" } as const;
   assert.deepEqual(Object.fromEntries(Object.keys(expected).map((kind) => [kind, commandClassForAction(kind)])), expected);
 });
 
@@ -73,6 +73,21 @@ test("invalid Fact input stays a typed rejection without disabling the RepoCell"
       supersedes: { factRef: "fact/task-fact/F-ABCDEFGH", rationale: "x".repeat(200) } }, { actor, source: "local" });
     assert.deepEqual({ outcome: receipt.outcome, code: receipt.code, state: cell.status().state }, { outcome: "rejected", code: "invalid_command", state: "attached" });
     assert.equal(makeTaskEventStore({ repoId: "invalid-fact", rootDir }).readHead(), null);
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("invalid Decision payload stays invalid_command and reckon records exact projected basis", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-decision-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("decision-cell"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" }); const binding = { actor, source: "local" as const };
+    assert.equal((await cell.run({ kind: "task-create", taskId: "task-decision", title: "Decision evidence" }, binding)).outcome, "applied");
+    const proposed = await cell.run({ kind: "decision-propose", title: "Canonical", question: "Should reckon use the exact basis?", riskTier: "medium", urgency: "medium", vertical: "default", preset: "default", decisionClass: "ordinary", appliesTo: { modules: ["daemon"], productLines: [] }, chosen: [{ id: "CH1", text: "Use events" }], rejected: [{ id: "RJ1", text: "Use files", whyNot: "They are not canonical" }] }, binding);
+    assert.equal(proposed.outcome, "applied", JSON.stringify(proposed)); const decisionId = (JSON.parse(proposed.evidence) as { decisionId: string }).decisionId, beforeInvalid = makeTaskEventStore({ repoId: "decision-cell", rootDir }).readHead()!.revision;
+    const invalid = await cell.run({ kind: "decision-accept", decisionId, rationale: "x".repeat(200) }, { actor: { principal: { personId: "person-arbiter" }, executor: null }, source: "local", roles: ["$arbiter"] });
+    assert.deepEqual({ outcome: invalid.outcome, code: invalid.code, state: cell.status().state }, { outcome: "rejected", code: "invalid_command", state: "attached" }); assert.equal(makeTaskEventStore({ repoId: "decision-cell", rootDir }).readHead()?.revision, beforeInvalid);
+    const reckon = await cell.run({ kind: "decision-reckon", decisionId, taskId: "task-decision" }, binding); assert.equal(reckon.outcome, "applied", JSON.stringify(reckon)); const fact = JSON.parse(reckon.evidence) as { evidenceSource: string; statement: string; workspaceRevision: number };
+    assert.equal(fact.evidenceSource, `decision/${decisionId}@${beforeInvalid}`); assert.match(fact.statement, new RegExp(`basisRevision ${beforeInvalid}`, "u")); assert.equal(fact.workspaceRevision, beforeInvalid + 1);
+    const event = makeTaskEventStore({ repoId: "decision-cell", rootDir }).readEvent(reckon.opId); assert.equal(event?.schema, "fact-event/v1"); if (event?.schema === "fact-event/v1") assert.equal(event.payload.evidenceSource, fact.evidenceSource);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 

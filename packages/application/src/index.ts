@@ -14,7 +14,7 @@ export type {
   TaskLifecycleService,
   TaskLifecycleServiceRead
 } from "./task-lifecycle-service.ts";
-export { FactServiceError, makeFactService } from "./fact-service.ts";
+export { FactServiceError, makeDecisionService, makeFactService } from "./fact-service.ts";
 export type { FactRecordResult } from "./fact-service.ts";
 export interface LocalControllerServiceOptions {
   readonly rootDir: string;
@@ -55,45 +55,6 @@ export interface TaskDetailSuccess extends LocalControllerSuccess {
 }
 
 export type TaskDetailResult = TaskDetailSuccess | LocalControllerFailure;
-
-export interface DecisionProjectionRejected {
-  readonly text: string;
-  readonly whyNot: string;
-}
-
-export interface DecisionProjectionActor {
-  readonly kind: "agent" | "human" | "system";
-  readonly id: string;
-}
-
-export interface ProjectionProvenanceEntry {
-  readonly runtime: string;
-  readonly sessionId: string;
-  readonly boundAt: string;
-}
-
-export interface DecisionProjectionRow {
-  readonly schema: "d4-decision-row/v1";
-  readonly decisionId: string;
-  readonly legacyId?: string;
-  readonly state: string;
-  readonly title: string;
-  readonly question: string;
-  readonly chosen: ReadonlyArray<string>;
-  readonly rejected: ReadonlyArray<DecisionProjectionRejected>;
-  readonly path: string;
-  readonly moduleKeys: ReadonlyArray<string>;
-  readonly productLineKeys: ReadonlyArray<string>;
-  readonly riskTier?: "low" | "medium" | "high";
-  readonly urgency?: "low" | "medium" | "high";
-  readonly vertical?: string;
-  readonly preset?: string;
-  readonly proposedBy?: DecisionProjectionActor;
-  readonly proposedAt?: string;
-  readonly arbiter?: DecisionProjectionActor;
-  readonly provenance?: ReadonlyArray<ProjectionProvenanceEntry>;
-  readonly decidedAt?: string;
-}
 
 export interface TaskDocumentSuccess extends LocalControllerSuccess {
   readonly taskId?: string;
@@ -141,24 +102,6 @@ export interface RelationGraphReadSuccess extends LocalControllerSuccess {
 }
 
 export type RelationGraphReadResult = RelationGraphReadSuccess | LocalControllerFailure;
-
-export interface DecisionListSuccess extends LocalControllerSuccess {
-  readonly decisions: ReadonlyArray<DecisionProjectionRow>;
-  readonly warnings: ReadonlyArray<ProjectionWarning>;
-}
-
-export type DecisionListResult = DecisionListSuccess | LocalControllerFailure;
-
-export interface DecisionDetailSuccess extends LocalControllerSuccess {
-  readonly decision: DecisionProjectionRow;
-  readonly warnings: ReadonlyArray<ProjectionWarning>;
-}
-
-export type DecisionDetailResult = DecisionDetailSuccess | LocalControllerFailure;
-
-export interface DecisionIdPayload {
-  readonly decisionId: string;
-}
 
 export interface ExecutionIdPayload {
   readonly executionId: string;
@@ -243,8 +186,6 @@ export interface LocalControllerService {
   readonly getTaskDetail: (payload: TaskIdPayload) => Promise<TaskDetailResult>;
   readonly getTaskDocument: (payload: TaskDocumentPayload) => Promise<TaskDocumentResult>;
   readonly getRelationGraph: () => RelationGraphReadResult;
-  readonly getDecisions: () => DecisionListResult;
-  readonly getDecisionDetail: (payload: DecisionIdPayload) => DecisionDetailResult;
   readonly getTaskExecutions: (payload: TaskIdPayload) => TaskExecutionListResult;
   readonly getExecutionDetail: (payload: ExecutionIdPayload) => ExecutionDetailResult;
   readonly getReviewDetail: (payload: ReviewIdPayload) => ReviewDetailResult;

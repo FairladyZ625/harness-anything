@@ -1,7 +1,6 @@
 import type { TaskFrontmatter } from "../schemas/registry.ts";
-import type { DecisionPackage } from "../schemas/decision-package.ts";
 import type { EntityRelationRecord } from "../domain/entity-relation.ts";
-import type { FactEventPayload } from "../domain/fact-event.ts";
+import type { DecisionProposalPayload, FactEventPayload } from "../domain/fact-event.ts";
 import { sessionFieldContracts } from "./session-declaration.ts";
 
 export type EntityKindWithFieldCoverage = "decision" | "task" | "fact" | "relation" | "session";
@@ -20,32 +19,30 @@ export interface EntityFieldContract {
   readonly reason?: string;
 }
 
-export type DecisionFieldKey = keyof DecisionPackage;
+export type DecisionFieldKey = keyof DecisionProposalPayload | "schema" | "decisionId" | "state" | "proposer" | "arbiter" | "claims" | "relations" | "body";
 export type TaskFieldKey = keyof TaskFrontmatter;
 export type FactFieldKey = keyof FactEventPayload | "factId";
 export type RelationFieldKey = keyof EntityRelationRecord;
 
 export const decisionFieldContracts = {
   schema: immutable("schema discriminator is fixed by the entity kind", show("decision.schema")),
-  decision_id: immutable("decision identity is create-only; use supersede for identity changes", projection("decisionId", true), show("decision.decision_id")),
-  _coordinatorWatermark: derived("coordinator computes the committed write watermark", show("decision._coordinatorWatermark")),
-  title: amendable([amendWrite("replace")], projection("title", true), show("decision.title")),
-  state: lifecycle("decision lifecycle transitions own state", [lifecycleWrite("decision-accept/reject/defer/supersede/retire")], projection("state", true), show("decision.state")),
+  decisionId: immutable("decision identity is create-only", projection("decisionId", true), show("decision.decisionId")),
+  title: immutable("proposal fields are immutable", projection("title", true), show("decision.title")),
+  state: lifecycle("Decision events own state", [lifecycleWrite("decision-accept/reject/defer/retire")], projection("state", true), show("decision.state")),
   riskTier: immutable("risk tier is creation-time governance metadata", show("decision.riskTier")),
   urgency: immutable("urgency is creation-time governance metadata", show("decision.urgency")),
   vertical: immutable("vertical routing is creation-time governance metadata", show("decision.vertical")),
   preset: immutable("preset routing is creation-time governance metadata", show("decision.preset")),
-  applies_to: immutable("module/product-line scope changes require a superseding decision", projection("moduleKeys/productLineKeys", true), show("decision.applies_to")),
-  proposedBy: immutable("proposal actor is provenance and cannot be amended", show("decision.proposedBy")),
-  proposedAt: immutable("proposal timestamp is provenance and cannot be amended", show("decision.proposedAt")),
-  arbiter: lifecycle("decision lifecycle transitions own arbiter", [lifecycleWrite("decision-accept/reject/defer/supersede/retire")], show("decision.arbiter")),
-  decidedAt: lifecycle("decision lifecycle transitions own decidedAt", [lifecycleWrite("decision-accept/reject/defer/supersede/retire")], projection("decidedAt", true), show("decision.decidedAt")),
-  provenance: immutable("provenance is bound by create/write services, not amended as content", show("decision.provenance")),
+  appliesTo: immutable("scope changes require a new Decision", projection("appliesTo", false), show("decision.appliesTo")),
+  decisionClass: immutable("classification never grants consent", show("decision.decisionClass")),
+  proposer: immutable("proposal actor is canonical event provenance", show("decision.proposer")),
+  arbiter: lifecycle("outcome events bind an independent arbiter", [lifecycleWrite("decision-accept/reject/defer")], show("decision.arbiter")),
   question: immutable("changing the core question changes the decision identity; use supersede", projection("question", true), show("decision.question")),
-  chosen: amendable([amendWrite("append")], projection("chosen", false), show("decision.chosen")),
-  rejected: amendable([amendWrite("append")], projection("rejected", false), show("decision.rejected")),
+  chosen: immutable("proposal choices do not change", projection("chosen", false), show("decision.chosen")),
+  rejected: immutable("proposal rejections do not change", projection("rejected", false), show("decision.rejected")),
   claims: amendable([amendWrite("append"), amendWrite("metadata")], show("decision.claims")),
-  relations: immutable("relation changes require relation/evidence-specific write surfaces", show("decision.relations"))
+  relations: amendable([amendWrite("append"), amendWrite("metadata")], show("decision.relations")),
+  body: amendable([amendWrite("append")], show("decision.body"))
 } satisfies Record<DecisionFieldKey, EntityFieldContract>;
 
 export const taskFieldContracts = {
@@ -97,17 +94,7 @@ export const entityFieldContracts = {
   session: sessionFieldContracts
 } as const;
 
-export const decisionAmendableFields = ["title", "chosen", "rejected", "claims"] as const satisfies ReadonlyArray<DecisionFieldKey>;
-export type DecisionAmendField = (typeof decisionAmendableFields)[number];
-export type DecisionAmendOperation = Extract<EntityFieldWriteSurface, { readonly kind: "amend" }>["operation"];
-
-export function isDecisionAmendField(value: string): value is DecisionAmendField {
-  return value in decisionFieldContracts && decisionFieldContracts[value as keyof typeof decisionFieldContracts].mutability === "amendable";
-}
-
-export function decisionAmendFieldSupportsOperation(field: DecisionAmendField, operation: DecisionAmendOperation): boolean {
-  return decisionFieldContracts[field].write.some((surface: EntityFieldWriteSurface) => surface.kind === "amend" && surface.operation === operation);
-}
+export const decisionAmendableFields = ["claims", "relations", "body"] as const satisfies ReadonlyArray<DecisionFieldKey>;
 
 function immutable(reason: string, ...read: ReadonlyArray<EntityFieldReadSurface>): EntityFieldContract {
   return { mutability: "immutable", read, write: [], reason };

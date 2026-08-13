@@ -1,7 +1,7 @@
 import net from "node:net";
 import { createInterface } from "node:readline";
 import { currentDaemonProtocolVersion } from "../../../daemon/src/protocol/version.ts";
-import { daemonGuiStreamFacets, parseDaemonGuiStreamEvent, parseDaemonGuiStreamResult, type DaemonGuiStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonGuiStreamFacets, type DaemonGuiStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts"; import { parseDaemonGuiStreamEvent, parseDaemonGuiStreamResult } from "../../../daemon/src/protocol/gui-result-validation.ts";
 import type { AgentRuntimeAttachEvent, AgentRuntimeAttachResult } from "../../../daemon/src/agent-runtime-stream.ts";
 
 export type AgentRuntimeStreamValue = AgentRuntimeAttachResult | AgentRuntimeAttachEvent;
