@@ -1,0 +1,12 @@
+[
+  { "path": "packages/cli/src/cli/thin-command.ts", "module": "cli" },
+  { "path": "packages/cli/src/index.ts", "module": "cli" },
+  { "path": "packages/daemon/src/daemon-host.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/protocol/daemon-protocol.contract.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/protocol/json-rpc-server.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/repo-bootstrap.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/repo-cell.ts", "module": "daemon" },
+  { "path": "packages/preset/src/index.ts", "module": "preset" },
+  { "path": "packages/preset/src/preset-bootstrap.ts", "module": "preset" },
+  { "path": "packages/preset/src/preset-system.ts", "module": "preset" }
+]

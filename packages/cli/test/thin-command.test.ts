@@ -89,10 +89,10 @@ test("doc CLI and GUI delivery surfaces do not import store, Git, or semantic co
 });
 
 test("thin parser exposes daemon-backed workspace bootstrap", () => {
-  const parsed = parseThinCommand(["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner", "--name", "Alpha Project"]);
+  const parsed = parseThinCommand(["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner", "--name", "Alpha Project", "--add-npm-scripts"]);
   assert.equal(parsed.ok, true);
   if (parsed.ok) assert.deepEqual(parsed.command.action, {
-    kind: "repo-bootstrap", repoId: "alpha", personId: "owner", displayName: "Owner", name: "Alpha Project"
+    kind: "repo-bootstrap", repoId: "alpha", personId: "owner", displayName: "Owner", name: "Alpha Project", addNpmScripts: true
   });
   assert.equal(parseThinCommand(["init", "--repo-id", "alpha", "--person-id", "owner"]).ok, false);
 });
