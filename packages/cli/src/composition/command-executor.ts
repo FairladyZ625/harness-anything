@@ -427,6 +427,9 @@ function taskLeaseWriteError(error: unknown): WriteError {
       taskId: error.taskId,
       reason: error.message,
       code: error.code,
+      ...(error.code === "task_lease_required" ? {
+        context: { taskLeaseHolder: error.holder ? "present" : "none" }
+      } : {}),
       retryable: false
     };
   }

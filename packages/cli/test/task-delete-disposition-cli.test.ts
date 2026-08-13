@@ -9,6 +9,7 @@ import { deriveRelationId } from "../../kernel/src/index.ts";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
@@ -130,6 +131,37 @@ test("CLI task delete soft path tombstones without invoking hard deletion", () =
   });
 });
 
+test("planned unheld task disposition points to audited cancellation", () => {
+  withTempRoot((rootDir) => {
+    const leaseEnv = { HARNESS_TASK_LEASE_ENFORCEMENT: "1" };
+    const created = runJson(rootDir, [
+      "task", "create", "--title", "Planned Disposal",
+      "--vertical", "software/coding", "--preset", "standard-task"
+    ]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+    const disposalCommand = `ha task transition ${taskId} cancelled --force --reason '<reason>'`;
+
+    const deleted = runJson(rootDir, ["task", "delete", "--soft", taskId, "--reason", "discard scaffold"], false, leaseEnv);
+    assert.equal(deleted.error?.code, "task_lease_required");
+    assert.match(deleted.error?.hint ?? "", new RegExp(`ha task transition ${taskId} cancelled --force --reason`, "u"));
+    assert.deepEqual(deleted.next, [{
+      command: disposalCommand,
+      description: "Dispose of this planned task without starting it; replace <reason> with the audit rationale."
+    }]);
+
+    const archived = runJson(rootDir, ["task", "archive", taskId, "--reason", "discard scaffold"], false, leaseEnv);
+    assert.equal(archived.error?.code, "task_lease_required");
+    assert.deepEqual(archived.next, deleted.next);
+    assert.equal(runJson(rootDir, ["task", "show", taskId]).report.task.status, "planned");
+
+    const cancelled = runJson(rootDir, [
+      "task", "transition", taskId, "cancelled", "--force", "--reason", "retire empty scaffold"
+    ], true, leaseEnv);
+    assert.equal(cancelled.status, "cancelled");
+    assert.equal(cancelled.forceAudit.marker, "FORCE_STATUS_SET_AUDIT");
+  });
+});
+
 function writeDecisionRelation(rootDir: string, decisionId: string, targetRef: string, state: "active" | "retired"): void {
   const source = `decision/${decisionId}/C1`;
   const relation = {
@@ -193,9 +225,17 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   }
 }
 
-function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
+function runJson(
+  rootDir: string,
+  args: ReadonlyArray<string>,
+  expectSuccess = true,
+  env: Readonly<Record<string, string>> = {}
+): Record<string, any> {
   try {
-    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], { encoding: "utf8" });
+    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
+      encoding: "utf8",
+      env: cliTestEnv({ HARNESS_TASK_LEASE_ENFORCEMENT: "", ...env })
+    });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {
     if (expectSuccess) throw error;

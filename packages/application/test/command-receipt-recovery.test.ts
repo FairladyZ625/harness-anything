@@ -13,6 +13,19 @@ test("task lease recovery uses only the structured task id", () => {
   assert.equal(failureReceiptNextActions("task_lease_required", {}), undefined);
 });
 
+test("planned unheld task lease recovery points to audited cancellation", () => {
+  assert.deepEqual(failureReceiptNextActions("task_lease_required", {
+    taskId: "task_01KXN3G16TKNHCV29Z4ZWM4VY2"
+  }, {
+    taskStatus: "planned",
+    taskLeaseHolder: "none",
+    taskLeaseRecovery: "dispose"
+  }), [{
+    command: "ha task transition task_01KXN3G16TKNHCV29Z4ZWM4VY2 cancelled --force --reason '<reason>'",
+    description: "Dispose of this planned task without starting it; replace <reason> with the audit rationale."
+  }]);
+});
+
 test("daemon build drift points to a service restart", () => {
   for (const code of ["daemon_build_stale", "daemon_build_identity_unavailable"]) {
     assert.deepEqual(failureReceiptNextActions(code), [{

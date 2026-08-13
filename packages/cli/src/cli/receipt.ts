@@ -292,7 +292,7 @@ function failureToReceipt(result: CliFailureResult): CommandFailureReceipt {
   const data = Object.fromEntries(Object.entries(raw).filter(([key, value]) =>
     !["ok", "command", "error", "warnings"].includes(key) && value !== undefined
   ));
-  const next = failureReceiptNextActions(result.error?.code, data);
+  const next = failureReceiptNextActions(result.error?.code, data, result.error?.context);
   return {
     ok: false,
     schema: commandReceiptEnvelope,

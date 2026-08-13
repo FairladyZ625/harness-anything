@@ -46,6 +46,8 @@ const cliErrorMappers = {
         code,
         code === CliErrorCode.ModuleNotFound
           ? authorityModuleNotFoundPresentation(error.reason)
+          : code === CliErrorCode.TaskLeaseRequired
+            ? taskLeaseRequiredPresentation(error)
           : authorityIngressPresentation(error.reason),
         error.context
       )
@@ -66,6 +68,15 @@ const cliErrorMappers = {
     );
   }
 } satisfies CliErrorMapperByTag;
+
+function taskLeaseRequiredPresentation(error: Extract<WriteError, { readonly _tag: "WriteRejected" }>): string {
+  if (error.context?.taskStatus !== "planned"
+    || error.context.taskLeaseHolder !== "none"
+    || error.context.taskLeaseRecovery !== "dispose"
+    || !error.taskId) return error.reason;
+  const disposeCommand = `ha task transition ${error.taskId} cancelled --force --reason '<reason>'`;
+  return `Task ${error.taskId} is planned and has no active lease. To dispose of it without starting, run \`${disposeCommand}\`.`;
+}
 
 export function toCliError(error: CliReachableKernelError): CliResult["error"] {
   const mapper = cliErrorMappers[error._tag] as (input: typeof error) => CliResult["error"];

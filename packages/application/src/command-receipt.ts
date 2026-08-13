@@ -112,15 +112,25 @@ export type CommandReceiptEnvelope<Command extends string = string> =
 
 export function failureReceiptNextActions(
   code: string | undefined,
-  details: Readonly<Record<string, unknown>> = {}
+  details: Readonly<Record<string, unknown>> = {},
+  errorContext: Readonly<Record<string, unknown>> = {}
 ): ReadonlyArray<CommandReceiptNextAction> | undefined {
   const data = receiptRecord(details.data);
   if (code === "task_lease_required") {
     const taskId = receiptString(details.taskId) ?? receiptString(data?.taskId);
-    return taskId ? [{
+    if (!taskId) return undefined;
+    if (receiptString(errorContext.taskStatus) === "planned"
+      && receiptString(errorContext.taskLeaseHolder) === "none"
+      && receiptString(errorContext.taskLeaseRecovery) === "dispose") {
+      return [{
+        command: `ha task transition ${shellArgument(taskId)} cancelled --force --reason '<reason>'`,
+        description: "Dispose of this planned task without starting it; replace <reason> with the audit rationale."
+      }];
+    }
+    return [{
       command: `ha task start ${shellArgument(taskId)}`,
       description: "Start the task and acquire its lease, then retry the original command."
-    }] : undefined;
+    }];
   }
   if (code === "daemon_build_stale" || code === "daemon_build_identity_unavailable") {
     return [{
