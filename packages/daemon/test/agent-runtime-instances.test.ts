@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -28,12 +28,14 @@ test("machine runtime instance CRUD binds a witnessed installation and enforces 
 });
 
 test("runtime installation discovery witnesses the exact executable realpath and version", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-discovery-")), bin = path.join(root, "bin"), executable = "/bin/echo";
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-discovery-")), bin = path.join(root, "bin"), real = path.join(root, "real"), executable = path.join(real, "codex-real");
   try {
-    requireDirectory(bin); symlinkSync(executable, path.join(bin, "codex"));
+    requireDirectory(bin); requireDirectory(real);
+    writeFileSync(executable, "#!/bin/sh\necho stub-runtime-1.0.0\n", { mode: 0o755 });
+    symlinkSync(executable, path.join(bin, "codex"));
     const installations = discoverRuntimeInstallations({ env: { PATH: bin }, now: () => "2026-08-15T01:00:00.000Z" });
     assert.equal(installations.length, 1);
-    assert.deepEqual({ kindId: installations[0]!.kindId, executablePath: installations[0]!.executablePath, version: installations[0]!.version, observedAt: installations[0]!.observedAt }, { kindId: "codex", executablePath: realpathSync(executable), version: "--version", observedAt: "2026-08-15T01:00:00.000Z" });
+    assert.deepEqual({ kindId: installations[0]!.kindId, executablePath: installations[0]!.executablePath, version: installations[0]!.version, observedAt: installations[0]!.observedAt }, { kindId: "codex", executablePath: realpathSync(executable), version: "stub-runtime-1.0.0", observedAt: "2026-08-15T01:00:00.000Z" });
     assert.match(installations[0]!.installationId, /^codex_[0-9a-f]{24}$/u);
     assert.deepEqual(discoverRuntimeInstallations({ env: { PATH: bin }, now: () => "later" })[0]!.installationId, installations[0]!.installationId);
   } finally { rmSync(root, { recursive: true, force: true }); }
