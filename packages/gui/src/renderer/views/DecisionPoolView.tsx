@@ -11,6 +11,7 @@ import type { DecisionRow, DecisionState, FactRef, RelationEdge } from "../model
 import { sortDecisionQueue, supersedeChain } from "../model/triadic.ts";
 import { DecisionStateBadge, RiskTierBadge, UrgencyBadge } from "../components/badges.tsx";
 import { triadicQueryKeys } from "../triadic-data.ts";
+import { groupDecisions, type PoolGroupBy } from "../model/decision-pool-grouping.ts";
 
 type PoolTab = "proposed" | "active" | "retired";
 type TimeRange = "all" | "14d" | "30d";
@@ -55,6 +56,7 @@ export function DecisionPoolView({ repoId, decisions, facts, relations, coverage
   const [riskFilter, setRiskFilter] = useState<NonNullable<DecisionRow["riskTier"]> | "unknown" | "all">("all"), [urgencyFilter, setUrgencyFilter] = useState<NonNullable<DecisionRow["urgency"]> | "unknown" | "all">("all");
   const [verticalFilter, setVerticalFilter] = useState("all"), [presetFilter, setPresetFilter] = useState("all"), [proposedByFilter, setProposedByFilter] = useState<NonNullable<DecisionRow["proposedBy"]>["kind"] | "unknown" | "all">("all"), [timeRange, setTimeRange] = useState<TimeRange>("all");
   const [search, setSearch] = useState(""), [moduleFilter, setModuleFilter] = useState("all"), [productLineFilter, setProductLineFilter] = useState("all"), [proposalOpen, setProposalOpen] = useState(false);
+  const [groupBy, setGroupBy] = useState<PoolGroupBy>("none");
   const handledFocusRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -104,10 +106,13 @@ export function DecisionPoolView({ repoId, decisions, facts, relations, coverage
       <Filter value={riskFilter} set={setRiskFilter as (value: string) => void} label="risk" values={["high", "medium", "low", "unknown"]} /><Filter value={urgencyFilter} set={setUrgencyFilter as (value: string) => void} label="urgency" values={["high", "medium", "low", "unknown"]} />
       <Filter value={verticalFilter} set={setVerticalFilter} label="vertical" values={verticals} /><Filter value={presetFilter} set={setPresetFilter} label="preset" values={presets} /><Filter value={proposedByFilter} set={setProposedByFilter as (value: string) => void} label="proposedBy" values={["human", "agent", "system", "unknown"]} />
       <select className={selectClass} value={timeRange} onChange={(e) => setTimeRange(e.target.value as TimeRange)}><option value="all">time: all</option><option value="14d">time: last 14d</option><option value="30d">time: last 30d</option></select>
+      <select aria-label="group by" className={selectClass} value={groupBy} onChange={(e) => setGroupBy(e.target.value as PoolGroupBy)} title="分组视图(纯前端派生;productLine=PLT 分组)"><option value="none">group: none</option><option value="productLine">group: PLT</option><option value="vertical">group: vertical</option></select>
     </div>
     {remoteEnabled && (remote.isPending || remote.isError || remote.data?.status !== "ready") && <div className="border-b border-border bg-stale/10 px-4 py-2 font-mono text-[11px] text-stale">decision-list projection unknown · {remote.error instanceof Error ? remote.error.message : remote.data?.hint ?? remote.data?.opId ?? "loading"} · 未就绪不当作空结果</div>}
     <div className="min-h-0 flex-1 overflow-auto p-4"><div className="space-y-2">
-      {rows.map((decision) => <article key={decision.decisionId} id={`decision-card-${decision.decisionId}`} data-focused={decision.decisionId === focusedDecisionId || undefined} className={`rounded-lg border bg-surface px-3.5 py-3 transition-colors duration-100 ${decision.decisionId === focusedDecisionId ? "border-accent ring-1 ring-accent/30" : "border-border hover:border-border-strong"}`}>
+      {groupDecisions(rows, groupBy).map((group) => <section key={group.key} aria-label={group.title || "all"} className="space-y-2">
+      {groupBy !== "none" && <div className="sticky top-0 z-10 flex items-center gap-2 rounded-md border border-border bg-surface/95 px-2.5 py-1.5 font-mono text-[12px] text-text-muted backdrop-blur" data-testid={`decision-pool-group-${group.key}`}><span className="font-semibold text-text">{group.title}</span><span className="text-text-faint">· {group.rows.length} 条</span></div>}
+      {group.rows.map((decision) => <article key={decision.decisionId} id={`decision-card-${decision.decisionId}`} data-focused={decision.decisionId === focusedDecisionId || undefined} className={`rounded-lg border bg-surface px-3.5 py-3 transition-colors duration-100 ${decision.decisionId === focusedDecisionId ? "border-accent ring-1 ring-accent/30" : "border-border hover:border-border-strong"}`}>
         <div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-1.5"><span className="font-mono text-[12px] text-text-faint">{decision.decisionId}{decision.legacyId ? ` · ${decision.legacyId}` : ""}</span><DecisionStateBadge state={decision.state} /><RiskTierBadge tier={decision.riskTier} /><UrgencyBadge urgency={decision.urgency} /><ReadinessBadge decision={decision} facts={facts} rows={coverageRows} graphState={relationState} /></div>
           <h2 className="mt-1 text-[15px] font-semibold leading-snug text-text">{decision.title}</h2><p className="mt-0.5 text-[12px] text-text-muted">Q: {decision.question}</p>
           <div className="mt-2 flex flex-wrap gap-x-3 font-mono text-[11px] text-text-faint"><span>{decision.vertical ?? "未知/—"}</span><span>{decision.preset ?? "未知/—"}</span><span>{decision.decisionClass ?? "unknown class"}</span><span>modules:{decision.appliesTo?.modules.join(",") || "—"}</span><span>PLT:{decision.appliesTo?.productLines.join(",") || "—"}</span><span>revision:{decision.workspaceRevision ?? "unknown"}</span></div>
@@ -116,6 +121,7 @@ export function DecisionPoolView({ repoId, decisions, facts, relations, coverage
         {(decision.body || decision.judgmentConsents.length > 0) && <details className="mt-2 text-[11px] text-text-muted"><summary className="cursor-pointer select-none text-text-faint hover:text-text-muted">canonical body / judgment consents</summary>{decision.body && <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-surface-raised p-2">{decision.body.body}</pre>}{decision.judgmentConsents.map((consent) => <div key={consent.consentId} className="mt-1 font-mono">{consent.action} · {consent.consentId} · {consent.consentedAt}</div>)}</details>}
         {decision.state === "proposed" && onJudge && <DecisionJudgmentPanel decision={decision} relations={relations} feedback={mutationFeedback?.(decision.decisionId)} onSubmit={onJudge} onCheckReceipt={() => onCheckReceipt?.(decision.decisionId)} />}
       </article>)}
+      </section>)}
       {rows.length === 0 && (!remoteEnabled || remote.data?.status === "ready") && <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-[14px] text-text-faint">当前过滤条件下没有 decision。</div>}
     </div></div>
   </div>;

@@ -20,6 +20,10 @@
     "module": "gui"
   },
   {
+    "path": "packages/gui/src/renderer/model/decision-pool-grouping.ts",
+    "module": "gui"
+  },
+  {
     "path": "packages/gui/src/renderer/navigation/historyStack.ts",
     "module": "gui"
   },
@@ -37,6 +41,10 @@
   },
   {
     "path": "packages/gui/src/renderer/views/BoardView.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/views/DecisionPoolView.tsx",
     "module": "gui"
   },
   {
