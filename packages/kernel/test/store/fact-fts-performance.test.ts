@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { createFactProjectionTables, readFactGraphRows, searchDecisionRows, searchFactRows, type FactProjectionRow } from "../../src/projection/fact-event-projection.ts";
+import { createFactProjectionTables, listDecisionRows, readFactGraphRows, searchFactRows, type FactProjectionRow } from "../../src/projection/fact-event-projection.ts";
 
 test("100k Fact FTS exact searches stay indexed with p95 below 10ms", (context) => {
   const db = new DatabaseSync(":memory:");
@@ -55,9 +55,9 @@ test("10k Decision FTS searches stay indexed after refresh with p95 below 10ms",
     const plan = db.prepare("EXPLAIN QUERY PLAN SELECT decision_id FROM decision_fts WHERE decision_fts MATCH ?").all('"token9999"') as unknown as readonly { readonly detail: string }[];
     assert.equal(plan.some(({ detail }) => /VIRTUAL TABLE INDEX/u.test(detail)), true, JSON.stringify(plan));
     db.prepare("DELETE FROM decision_fts WHERE decision_id='dec_PERF_00000'").run(); db.prepare("INSERT INTO decision_fts VALUES ('dec_PERF_00000','Refreshed token0','Should token0 ship?','','','')").run();
-    assert.equal(searchDecisionRows(db, { query: "token0", riskTier: "high", vertical: "performance" })[0]?.decisionId, "dec_PERF_00000");
+    assert.equal(listDecisionRows(db, { search: "token0" })[0]?.decisionId, "dec_PERF_00000");
     const samples: number[] = [];
-    for (let index = 0; index < 200; index += 1) { const target = 9_800 + index, startedAt = performance.now(), rows = searchDecisionRows(db, { query: `token${target}`, riskTier: "high", vertical: "performance" }); samples.push(performance.now() - startedAt); assert.equal(rows[0]?.decisionId, `dec_PERF_${String(target).padStart(5, "0")}`); }
+    for (let index = 0; index < 200; index += 1) { const target = 9_800 + index, startedAt = performance.now(), rows = listDecisionRows(db, { search: `token${target}` }); samples.push(performance.now() - startedAt); assert.equal(rows[0]?.decisionId, `dec_PERF_${String(target).padStart(5, "0")}`); }
     samples.sort((left, right) => left - right); const p95 = samples[Math.ceil(samples.length * 0.95) - 1]!;
     context.diagnostic(`decision-fts rows=10000 samples=200 p95=${p95.toFixed(3)}ms`);
     assert.ok(p95 < 10, `10k Decision FTS p95 ${p95.toFixed(3)}ms exceeded 10ms`);

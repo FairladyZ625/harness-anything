@@ -74,6 +74,13 @@ test("mixed body-replaceable rejection produces a valid typed receipt", () => {
   assert.deepEqual(validateWriteReceipt(receipt), []);
 });
 
+test("Decision documents admit body-only sync and route new or frontmatter edits to typed commands", () => {
+  const path = documentPath("decisions/decision-dec_IMPORTED_E12_ALPHA/decision.md"), base = "---\ndecision_id: dec_IMPORTED_E12_ALPHA\nstate: proposed\n---\n# Decision\n\nCanonical prose.\n", bodyOnly = base.replace("Canonical prose.", "Updated prose."), frontmatter = base.replace("state: proposed", "state: active"), mixed = frontmatter.replace("Canonical prose.", "Updated prose."), document = { ...state(base), path };
+  const run = (candidate: string, current: DocumentState | null) => decide({ path, baseBlobSha256: current?.blobSha256 ?? null, policyId: DOC_POLICY_ID, candidate: claim(candidate) }, current, Buffer.from(candidate));
+  const accepted = run(bodyOnly, document); assert.equal(accepted.accepted, true);
+  for (const [name, result] of [["new", run("# Unregistered\n", null)], ["frontmatter", run(frontmatter, document)], ["mixed", run(mixed, document)]] as const) { assert.equal(result.accepted, false, name); if (!result.accepted) { assert.equal(result.code, "unresolved_touch"); assert.equal(result.detail.unresolvedTouches[0]?.requiredRoute, "ha decision --help"); } }
+});
+
 test("stale ledger and stale blob reject the entire batch with current holder and typed conflict detail", () => {
   const body = "# Notes\nA\n", change = { path: "context/notes.md", baseBlobSha256: sha256Text(body), policyId: DOC_POLICY_ID, candidate: claim(`${body}B\n`) } as const;
   const staleLedger = decide(change, state(body), Buffer.from(`${body}B\n`), { currentLedgerSha: ledgerCommitSha("docs", "b".repeat(40)) }); assert.equal(staleLedger.accepted, false); if (staleLedger.accepted) return;
