@@ -425,9 +425,7 @@ function GraphViewInner({
             ? `领地 · ${territory?.zones.length ?? 0} 块`
             : `聚光灯 · ${displayNodes.length} 节点 · ${displayEdges.length} 边`}
         </span>
-        {viewMode === "spotlight" && (
-          <GraphLegend showFulfillment={(coverageRows?.length ?? 0) > 0} />
-        )}
+        <GraphLegend showFulfillment={(coverageRows?.length ?? 0) > 0} />
         {territory && territory.unprojectedCount > 0 && (
           <span
             className="inline-flex items-center gap-1 rounded bg-stale/10 px-1.5 py-0.5 font-mono text-stale"

@@ -45,9 +45,11 @@ const catalogs: Record<Locale, Record<MessageKey, string>> = {
 export const LOCALE_STORAGE_KEY = "harness-locale";
 
 function systemLocale(): Locale {
-  // Node test hosts may expose a navigator polyfill; only trust browser window.
-  if (typeof window === "undefined" || typeof navigator === "undefined") return "en-US";
-  return navigator.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
+  // rebuild 线产品文案以中文为一等公民(历史视图均为中文),默认 zh-CN;
+  // en-US 为显式 opt-in(设置页切换)。已保存的偏好始终优先。
+  if (typeof window !== "undefined" && typeof navigator !== "undefined"
+    && navigator.language.toLowerCase().startsWith("en")) return "en-US";
+  return "zh-CN";
 }
 
 export function initialLocale(): Locale {

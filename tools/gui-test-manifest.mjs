@@ -17,5 +17,8 @@ export const guiVitestManifest = [
   "packages/gui/test/execution-evidence.vitest.ts",
   "packages/gui/test/entity-workspace.vitest.ts",
   "packages/gui/test/navigation-history.vitest.ts",
-  "packages/gui/test/secure-credential-broker.vitest.ts"
+  "packages/gui/test/secure-credential-broker.vitest.ts",
+  "packages/gui/test/decision-pool-grouping.vitest.ts",
+  "packages/gui/test/i18n-locale-parity.vitest.ts",
+  "packages/gui/test/overview-plt-dimension.vitest.ts"
 ];
