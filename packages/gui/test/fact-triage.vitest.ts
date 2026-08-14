@@ -72,7 +72,8 @@ function baseDecision(overrides: Partial<DecisionRow> = {}): DecisionRow {
     question: "Q?",
     chosen: [{ id: "CH1", text: "chosen", evidence: [] }],
     rejected: [],
-    claims: [{ id: "CH1", text: "chosen" }],
+    claims: [{ id: "CH1", text: "chosen", loadBearing: true, fulfillment: "evidenced" }],
+    judgmentConsents: [],
     provenance: [],
     lastChangedAt: "2026-07-01T00:00:00.000Z",
     ...overrides,
@@ -290,12 +291,47 @@ describe("fact-triage signal metadata", () => {
 describe("cross-entity navigation projection", () => {
   it("maps the complete event-backed Decision row without legacy DTO placeholders", () => {
     const rendered = buildTriadicRendererData({
-      graph: { ok: true, edges: [], coverageRows: [], factAnchors: [], facts: [], warnings: [] },
+      graph: {
+        ok: true,
+        edges: [
+          {
+            relationId: "rel_active",
+            sourceRef: "decision/dec_missing/CH1",
+            targetRef: "fact/task_a/F-live",
+            relationType: "evidenced-by",
+            direction: "directed",
+            strength: "strong",
+            origin: "declared",
+            state: "active",
+            rationale: "live evidence",
+            ownerRef: "decision/dec_missing",
+            sourcePath: "event:decision/dec_missing",
+            recordIndex: 0,
+          },
+          {
+            relationId: "rel_retired",
+            sourceRef: "decision/dec_missing/CH1",
+            targetRef: "fact/task_a/F-retired",
+            relationType: "evidenced-by",
+            direction: "directed",
+            strength: "strong",
+            origin: "declared",
+            state: "retired",
+            rationale: "must not be consumed",
+            ownerRef: "decision/dec_missing",
+            sourcePath: "event:decision/dec_missing",
+            recordIndex: 1,
+          },
+        ],
+        coverageRows: [], factAnchors: [], facts: [], warnings: [],
+      },
       decisions: {
         ok: true,
         decisions: [{
           schema: "decision-row/v1",
           decisionId: "dec_missing",
+          legacyId: "42",
+          path: "decisions/decision-dec_missing/decision.md",
           state: "proposed",
           title: "Missing fields stay unknown",
           question: "Q?",
@@ -309,11 +345,29 @@ describe("cross-entity navigation projection", () => {
           arbiter: null,
           proposedAt: "2026-07-01T00:00:00.000Z",
           decidedAt: null,
-          workspaceRevision: 1,
-          chosen: [],
+          workspaceRevision: 7,
+          chosen: [{ id: "CH1", text: "Ship it", rationale: "best tradeoff" }],
           rejected: [],
-          claims: [],
-          body: null
+          claims: [{ id: "CH1", text: "Claim", loadBearing: true, fulfillment: "evidenced" }],
+          judgmentConsents: [{
+            schema: "decision-judgment-consent/v1",
+            consentId: "djc_0123456789abcdef0123456789",
+            decisionId: "dec_missing",
+            action: "accept",
+            targetState: "active",
+            machineDigest: `sha256:${"0".repeat(64)}`,
+            actor: { principal: { personId: "arbiter" }, executor: null },
+            source: "local",
+            consentedAt: "2026-07-02T00:00:00.000Z",
+          }],
+          body: {
+            path: "decisions/decision-dec_missing/decision.md",
+            blobSha256: "0".repeat(64),
+            size: 14,
+            mediaType: "text/markdown",
+            body: "## 背景\ntruth",
+            workspaceRevision: 7,
+          }
         }],
         warnings: []
       }
@@ -324,8 +378,16 @@ describe("cross-entity navigation projection", () => {
       riskTier: "medium",
       urgency: "medium",
       proposedBy: { kind: "human", id: "x" },
-      chosen: []
+      legacyId: "42",
+      path: "decisions/decision-dec_missing/decision.md",
+      decisionClass: "ordinary",
+      workspaceRevision: 7,
+      chosen: [{ id: "CH1", text: "Ship it", rationale: "best tradeoff", evidence: ["fact/task_a/F-live"] }],
+      claims: [{ id: "CH1", text: "Claim", loadBearing: true, fulfillment: "evidenced" }],
+      judgmentConsents: [{ consentId: "djc_0123456789abcdef0123456789" }],
+      body: { body: "## 背景\ntruth" },
     });
+    expect(rendered.relations.map((relation) => relation.relationId)).toEqual(["rel_active"]);
   });
 
   it("derives the TaskDetail decision source from the real relation graph", () => {

@@ -6,6 +6,7 @@ import type {
   ProjectionWarning,
   RelationCoverageRow,
   RelationGraphEdgeRow,
+  RelationType,
   TaskDocumentProjectionRead, TaskSnapshotProjectionRow
 } from "../api/renderer-dto.ts";
 
@@ -42,11 +43,41 @@ export interface DecisionListSuccess {
   readonly warnings: ReadonlyArray<ProjectionWarning>;
 }
 
+export interface DecisionControlListSuccess {
+  readonly status: "ready" | "pending";
+  readonly decisionIds: ReadonlyArray<string>;
+  readonly opId: string;
+  readonly hint?: string;
+}
+
+export interface DecisionProposalInput {
+  readonly title: string;
+  readonly question: string;
+  readonly riskTier: "low" | "medium" | "high";
+  readonly urgency: "low" | "medium" | "high";
+  readonly vertical: string;
+  readonly preset: string;
+  readonly decisionClass: "ordinary" | "standing_policy";
+  readonly appliesTo: { readonly modules: readonly string[]; readonly productLines: readonly string[] };
+  readonly chosen: ReadonlyArray<{ readonly id: string; readonly text: string; readonly rationale?: string }>;
+  readonly rejected: ReadonlyArray<{ readonly id: string; readonly text: string; readonly whyNot: string }>;
+  readonly body: string;
+  readonly claims: ReadonlyArray<{ readonly id: string; readonly text: string; readonly loadBearing: boolean }>;
+  readonly fulfillments: ReadonlyArray<{ readonly claimId: string; readonly mode: "evidenced" | "delivered" | "standing_policy" }>;
+  readonly relations: ReadonlyArray<{ readonly anchor: string; readonly type: RelationType; readonly target: string; readonly rationale: string }>;
+}
+
 export const harnessClient = {
   async getTasks(): Promise<TaskListSuccess> { return readTaskListResult(await invokeBridge("getTasks")); },
   async getTaskDocument(payload: { readonly taskId: string; readonly path: string }): Promise<TaskDocumentProjectionRead> { return readTaskDocumentResult(await invokeBridge("getTaskDocument", payload)); },
   async getRelationGraph(): Promise<RelationGraphSuccess> { return readRelationGraphResult(await invokeBridge("getRelationGraph")); },
   async getDecisions(): Promise<DecisionListSuccess> { return readDecisionListResult(await invokeBridge("getDecisions")); },
+  async listDecisionControls(payload: { readonly search?: string; readonly state?: string; readonly module?: string; readonly productLine?: string }): Promise<DecisionControlListSuccess> { return readDecisionControlList(await invokeBridge("listDecisions", payload)); },
+  async showDecision(payload: { readonly decisionId: string; readonly includeBody?: boolean }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("showDecision", payload)); },
+  async proposeDecision(payload: DecisionProposalInput): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("proposeDecision", payload)); },
+  async acceptDecision(payload: { readonly decisionId: string; readonly rationale: string; readonly judgmentOnlyRationale?: string }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("acceptDecision", payload)); },
+  async rejectDecision(payload: { readonly decisionId: string; readonly reason: string }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("rejectDecision", payload)); },
+  async deferDecision(payload: { readonly decisionId: string; readonly reason: string }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("deferDecision", payload)); },
   async startTask(payload: { readonly taskId: string; readonly executionId: string }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("startTask", payload)); },
   async appendTaskProgress(payload: { readonly taskId: string; readonly executionId?: string; readonly text: string; readonly evidence?: ReadonlyArray<{ readonly type: string; readonly path: string; readonly summary: string }>; readonly baseDocumentSha256?: string | null }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("appendTaskProgress", payload)); },
   async submitTask(payload: { readonly taskId: string; readonly executionId: string; readonly submission: GuiSubmissionV1 }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("submitTask", payload)); },
@@ -109,6 +140,17 @@ function readGuiActionResult(value: unknown): GuiActionResult {
     throw new Error(localErrorHint(value, "GUI action bridge returned an invalid receipt."));
   }
   return result as GuiActionResult;
+}
+
+function readDecisionControlList(value: unknown): DecisionControlListSuccess {
+  const receipt = readGuiActionResult(value) as GuiActionResult & { readonly evidence?: string; readonly nextAction?: string; readonly error?: { readonly code?: string; readonly hint?: string } };
+  if (receipt.outcome === "rejected" || receipt.outcome === "indeterminate") throw new Error(`${receipt.error?.code ?? receipt.outcome}: ${receipt.error?.hint ?? receipt.nextAction ?? "Decision list failed."}`);
+  try {
+    const evidence = JSON.parse(receipt.evidence ?? "") as { readonly status?: unknown; readonly decisions?: unknown };
+    if ((evidence.status !== "ready" && evidence.status !== "pending") || !Array.isArray(evidence.decisions)) throw new Error();
+    const decisionIds = evidence.decisions.flatMap((item) => record(item) && typeof item.decisionId === "string" ? [item.decisionId] : []);
+    return { status: evidence.status, decisionIds, opId: receipt.opId, ...(receipt.nextAction ? { hint: receipt.nextAction } : {}) };
+  } catch { throw new Error("Decision list receipt evidence is invalid."); }
 }
 
 function isTaskSnapshotProjectionRow(value: unknown): value is TaskSnapshotProjectionRow {

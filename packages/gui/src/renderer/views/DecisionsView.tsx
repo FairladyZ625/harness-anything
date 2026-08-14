@@ -1,312 +1,61 @@
-import { useMemo, useState, useCallback } from "react";
-import {
-  ChatCircleDots,
-  SealCheck,
-  ArrowsClockwise,
-  CaretLeft,
-  CaretRight,
-  SkipForward,
-  PencilSimpleLine,
-} from "@phosphor-icons/react";
-import type {
-  DecisionRow,
-  TaskRow,
-  RelationEdge,
-  FactRef,
-} from "../model/types";
-import { FactInspector } from "../components/FactInspector";
-import { VerdictCard, sortKey } from "./decisions-verdict";
-import type { RelationCoverageRow } from "../../api/renderer-dto";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowsClockwise, CaretLeft, CaretRight, ChatCircleDots, SealCheck, SkipForward } from "@phosphor-icons/react";
+import type { RelationCoverageRow } from "../../api/renderer-dto.ts";
+import { FactInspector } from "../components/FactInspector.tsx";
+import type { JudgmentOpenRequest } from "../components/DecisionJudgmentPanel.tsx";
+import type { DecisionAction, DecisionMutationFeedback } from "../decision-actions.ts";
+import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../model/types.ts";
+import { VerdictCard, sortKey } from "./decisions-verdict.tsx";
 
-export type DecideAction = "accept" | "reject" | "defer";
+export type DecideAction = DecisionAction;
 
-export function DecisionsView({
-  decisions,
-  tasks,
-  relations,
-  facts,
-  onTraceSession,
-  onCallAgent,
-  onDecide,
-  readOnly = false,
-  onNavigateDecision,
-  onNavigateTask,
-  onFocusGraph,
-  coverageRows = [],
-}: {
-  decisions: DecisionRow[];
-  tasks: TaskRow[];
-  relations: RelationEdge[];
-  facts: FactRef[];
-  onTraceSession: (sessionId: string) => void;
+export function DecisionsView({ decisions, tasks, relations, facts, onCallAgent, onJudge, mutationFeedback, onCheckReceipt, relationState = "ready", onNavigateDecision, onNavigateTask, onFocusGraph, coverageRows = [] }: {
+  decisions: DecisionRow[]; tasks: TaskRow[]; relations: RelationEdge[]; facts: FactRef[];
   onCallAgent?: (cmd: string) => void;
-  onDecide: (id: string, action: DecideAction) => void;
-  readOnly?: boolean;
-  onNavigateDecision?: (decisionId: string) => void;
-  onNavigateTask?: (taskId: string) => void;
-  onFocusGraph?: (ref: string) => void;
+  onJudge: (decision: DecisionRow, action: DecisionAction, input: { readonly rationale: string; readonly judgmentOnlyRationale?: string }) => Promise<DecisionMutationFeedback>;
+  mutationFeedback?: (decisionId: string) => DecisionMutationFeedback | undefined;
+  onCheckReceipt?: (decisionId: string) => void;
+  relationState?: "ready" | "loading" | "error";
+  onNavigateDecision?: (decisionId: string) => void; onNavigateTask?: (taskId: string) => void; onFocusGraph?: (ref: string) => void;
   coverageRows?: ReadonlyArray<RelationCoverageRow>;
 }) {
-  const [trace, setTrace] = useState<string | null>(null);
-  // 本会话跳过的 id 集合(不改状态,仅本会话后移)
-  const [skipped, setSkipped] = useState<Set<string>>(new Set());
-  // 当前聚焦的队列索引
-  const [cursor, setCursor] = useState(0);
-  const [inspectedFactRef, setInspectedFactRef] = useState<string | null>(null);
-  // 已处理流(本会话 accept/reject/defer 的历史,用于回看);writeback 标记该 accept 需派生回写 task(§3.1a)
-  const [processed, setProcessed] = useState<{ id: string; title: string; action: DecideAction; at: string; writeback?: { target: string; kind: string } }[]>([]);
-
-  /**
-   * 队列:proposed 决策,按 riskTier × urgency 两轴正交排序(元组比较,不合并成单分)。
-   * 跳过的在本会话内排到队尾(仍可见、可回退,只是不抢焦点)。
-   */
+  const [skipped, setSkipped] = useState<Set<string>>(new Set()), [cursor, setCursor] = useState(0), [inspectedFactRef, setInspectedFactRef] = useState<string | null>(null), [help, setHelp] = useState(false);
+  const [openRequest, setOpenRequest] = useState<(JudgmentOpenRequest & { readonly decisionId: string }) | undefined>();
   const queue = useMemo(() => {
-    const proposed = decisions.filter((d) => d.state === "proposed");
-    const active = proposed.filter((d) => !skipped.has(d.decisionId));
-    const skippedOnes = proposed.filter((d) => skipped.has(d.decisionId));
-    const sorted = (xs: DecisionRow[]) => [...xs].sort((a, b) => {
-      const [ra, ua] = sortKey(a);
-      const [rb, ub] = sortKey(b);
-      if (ra !== rb) return ra - rb;
-      if (ua !== ub) return ua - ub;
-      return (a.proposedAt ?? "").localeCompare(b.proposedAt ?? "");
-    });
-    return [...sorted(active), ...sorted(skippedOnes)];
+    const proposed = decisions.filter((decision) => decision.state === "proposed"), active = proposed.filter((decision) => !skipped.has(decision.decisionId)), skippedRows = proposed.filter((decision) => skipped.has(decision.decisionId));
+    const sorted = (rows: DecisionRow[]) => [...rows].sort((a, b) => { const [ra, ua] = sortKey(a), [rb, ub] = sortKey(b); return ra - rb || ua - ub || (a.proposedAt ?? "").localeCompare(b.proposedAt ?? ""); });
+    return [...sorted(active), ...sorted(skippedRows)];
   }, [decisions, skipped]);
+  const idx = Math.min(cursor, Math.max(0, queue.length - 1)), current = queue[idx] ?? null;
+  const history = useMemo(() => decisions.flatMap((decision) => decision.judgmentConsents.map((consent) => ({ decision, consent }))).sort((a, b) => b.consent.consentedAt.localeCompare(a.consent.consentedAt)), [decisions]);
+  const skip = useCallback(() => { if (current) setSkipped((previous) => new Set(previous).add(current.decisionId)); }, [current]);
 
-  // cursor 越界保护(队列缩短时回退)
-  const idx = Math.min(cursor, Math.max(0, queue.length - 1));
-  const current = queue.length > 0 ? queue[idx] : null;
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      const key = event.key.toLowerCase();
+      if (key === "j") setCursor((value) => Math.min(queue.length - 1, value + 1));
+      else if (key === "k") setCursor((value) => Math.max(0, value - 1));
+      else if (key === "s") skip();
+      else if (key === "?") setHelp((value) => !value);
+      else if (current && (key === "a" || key === "r" || key === "d")) setOpenRequest({ decisionId: current.decisionId, action: key === "a" ? "accept" : key === "r" ? "reject" : "defer", nonce: Date.now() });
+      else return;
+      event.preventDefault();
+    };
+    window.addEventListener("keydown", keydown); return () => window.removeEventListener("keydown", keydown);
+  }, [current, queue.length, skip]);
 
-  const handleDecide = useCallback(
-    (id: string, action: DecideAction) => {
-      if (readOnly) return;
-      const d = decisions.find((x) => x.decisionId === id);
-      if (d) {
-        // accept 成功 + 声明需回写 → 记入处理历史(§3.1a:accept 只记意志,回写派生为 task)
-        const wb = action === "accept" ? d.readinessSignals?.needsWriteback : undefined;
-        setProcessed((p) => [{ id, title: d.title, action, at: new Date().toISOString(), writeback: wb }, ...p].slice(0, 12));
-      }
-      onDecide(id, action);
-      // 处理一条 → 自动落到下一条(保持 cursor,因为该条已从 proposed 出队)
-    },
-    [decisions, onDecide, readOnly],
-  );
-
-  const handleSkip = () => {
-    if (!current) return;
-    setSkipped((prev) => new Set(prev).add(current.decisionId));
-    // 跳过仅本会话后移,不改状态;自动落到下一条未跳过项
-  };
-
-  const handlePrev = () => setCursor((c) => Math.max(0, c - 1));
-  const handleNext = () => setCursor((c) => Math.min(queue.length - 1, c + 1));
-  const handleResetSkipped = () => {
-    setSkipped(new Set());
-    setCursor(0);
-  };
-
-  const handleTrace = (sid: string) => {
-    setTrace(sid);
-    onTraceSession(sid);
-  };
-
-  const processedTone: Record<DecideAction, string> = {
-    accept: "text-success",
-    reject: "text-danger",
-    defer: "text-stale",
-  };
-  const processedLabel: Record<DecideAction, string> = {
-    accept: "accepted",
-    reject: "rejected",
-    defer: "deferred",
-  };
-
-  return (
-    <div className="flex h-full flex-col">
-      {/* 队列指示条:当前位置 + 两轴排序说明 + 跳过/导航 */}
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <ChatCircleDots weight="bold" className="text-[14px] text-accent" />
-        <span className="text-[13px] font-semibold text-text">决策批准</span>
-        <span className="rounded bg-surface-raised px-1.5 py-px font-mono text-[11px] text-text-muted">
-          {queue.length > 0 ? `${idx + 1} / ${queue.length}` : "0 / 0"}
-        </span>
-        <span className="text-[11px] text-text-faint">
-          按 riskTier × urgency 排序(两轴正交)
-        </span>
-        <div className="ml-auto flex items-center gap-1">
-          <button
-            onClick={handlePrev}
-            disabled={idx === 0}
-            className="grid size-6 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text disabled:opacity-30"
-            title="上一条"
-          >
-            <CaretLeft weight="bold" />
-          </button>
-          <button
-            onClick={handleNext}
-            disabled={idx >= queue.length - 1}
-            className="grid size-6 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text disabled:opacity-30"
-            title="下一条"
-          >
-            <CaretRight weight="bold" />
-          </button>
-          <button
-            onClick={handleSkip}
-            disabled={!current}
-            className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text disabled:opacity-30"
-            title="跳过:不改状态,仅本会话后移"
-          >
-            <SkipForward weight="bold" className="text-[12px]" />
-            跳过
-          </button>
-          {skipped.size > 0 && (
-            <button
-              onClick={handleResetSkipped}
-              className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-accent hover:bg-surface-raised"
-              title="恢复本会话跳过的条目"
-            >
-              <ArrowsClockwise weight="bold" className="text-[12px]" />
-              恢复{skipped.size}
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
-          {/* 主区:单卡聚焦(类邮件 inbox 节奏) */}
-          <div className="flex-1 overflow-auto p-3">
-            {current ? (
-              <>
-                <div className="mb-2 rounded-md bg-stale/10 px-3 py-1.5 text-[11px] text-stale">
-                  这是唯一面向人的队列。低 risk 决策确定性 check 自动过、不进此队列;只承重的进。处理一条自动落到下一条。
-                </div>
-                {/* accept 成功 + 需回写的确认条(42 §4:accept 只记意志,回写派生为 task) */}
-                {processed[0]?.writeback && (
-                  <div className="mb-2 rounded-md border border-accent/30 bg-accent/5 px-3 py-2 text-[11px] text-text-muted">
-                    <div className="flex items-center gap-1 font-semibold text-accent">
-                      <PencilSimpleLine weight="bold" className="text-[12px]" />
-                      {processed[0].id} 已 accept · 需派生回写 task
-                    </div>
-                    <div className="mt-0.5">
-                      回写
-                      <span className="mx-1 rounded bg-surface px-1 font-mono">{processed[0].writeback.target}</span>
-                      ({processed[0].writeback.kind}):accept 只记录意志不执行回写,将派生一个 task(本 decision 作 parent ref),
-                      由 agent 在该 task 里面对最新文档状态处理冲突。
-                    </div>
-                  </div>
-                )}
-                <VerdictCard
-                  d={current}
-                  decisions={decisions}
-                  facts={facts}
-                  tasks={tasks}
-                  relations={relations}
-                  onTrace={handleTrace}
-                  onCallAgent={onCallAgent}
-                  onDecide={handleDecide}
-                  onInspectFact={setInspectedFactRef}
-                  readOnly={readOnly}
-                />
-              </>
-            ) : (
-              // 空队列态:正常态且值得呈现,不用占位图表填充(P6)
-              <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-                <div className="grid size-14 place-items-center rounded-full bg-surface-raised">
-                  <SealCheck weight="duotone" className="text-[28px] text-success" />
-                </div>
-                <div>
-                  <div className="text-[15px] font-semibold text-text">今日无待决策批准</div>
-                  <div className="mt-1 text-[12px] text-text-faint">
-                    队列清空是正常态。承重决策由内核产出时再进队。
-                  </div>
-                </div>
-                {processed.length > 0 && (
-                  <div className="mt-2 w-full max-w-md text-left">
-                    <div className="mb-1 text-[11px] font-semibold text-text-faint">本会话已处理</div>
-                    <ul className="space-y-1">
-                      {processed.map((p) => (
-                        <li key={`${p.id}-${p.at}`} className="flex items-center gap-2 text-[11px]">
-                          <span className={`font-mono ${processedTone[p.action]}`}>{processedLabel[p.action]}</span>
-                          <span className="font-mono text-text-faint">{p.id}</span>
-                          <span className="truncate text-text-muted">{p.title}</span>
-                          {p.writeback && (
-                            <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-accent/10 px-1 font-mono text-[10px] text-accent" title={`accept 只记意志,回写 ${p.writeback.target} 派生为 task(42 §4)`}>
-                              <PencilSimpleLine weight="bold" className="text-[10px]" />
-                              需回写
-                            </span>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* 队列缩略导航:点击跳转,看见全队节奏 */}
-          {queue.length > 0 && (
-            <div className="border-t border-border bg-surface-raised/50 px-3 py-2">
-              <div className="flex items-center gap-1.5 overflow-x-auto">
-                {queue.map((d, i) => {
-                  const isSkip = skipped.has(d.decisionId);
-                  return (
-                    <button
-                      key={d.decisionId}
-                      onClick={() => setCursor(i)}
-                      title={`${d.decisionId} · ${d.riskTier ?? "未知"}/${d.urgency ?? "未知"}`}
-                      className={`flex shrink-0 items-center gap-1 rounded px-2 py-1 font-mono text-[10px] ${
-                        i === idx
-                          ? "bg-accent text-accent-fg"
-                          : isSkip
-                            ? "bg-surface text-text-faint line-through opacity-60"
-                            : "bg-surface text-text-muted hover:bg-surface-raised"
-                      }`}
-                    >
-                      <span
-                        className={`size-1.5 rounded-full ${
-                          d.riskTier === "high"
-                            ? "bg-danger"
-                            : d.riskTier === "medium"
-                              ? "bg-stale"
-                              : "bg-text-faint"
-                        }`}
-                      />
-                      {d.decisionId}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {trace && (
-            <div className="border-t border-border bg-surface-raised px-3 py-2 text-[11px] text-text-muted">
-              <span className="font-mono">trace → {trace.slice(0, 16)}…</span>
-              <span className="ml-2 text-text-faint">
-                (原型:点击调用 conversation-mining 导出该 session 原文;真实由 coordinator 内置,E47)
-              </span>
-              <button onClick={() => setTrace(null)} className="ml-2 text-accent">关闭</button>
-            </div>
-          )}
-        </div>
-        {inspectedFactRef && (
-          <FactInspector
-            factRef={inspectedFactRef}
-            facts={facts}
-            tasks={tasks}
-            decisions={decisions}
-            relations={relations}
-            onClose={() => setInspectedFactRef(null)}
-            onNavigateDecision={onNavigateDecision}
-            onNavigateTask={onNavigateTask}
-            onFocusGraph={onFocusGraph}
-            coverageRows={coverageRows}
-          />
-        )}
-      </div>
+  return <div className="flex h-full flex-col">
+    <div className="flex items-center gap-2 border-b border-border px-3 py-2"><ChatCircleDots weight="bold" className="text-accent" /><span className="text-[13px] font-semibold text-text">决策批准</span><span className="rounded bg-surface-raised px-1.5 font-mono text-[11px] text-text-muted">{queue.length ? `${idx + 1} / ${queue.length}` : "0 / 0"}</span><span className="text-[11px] text-text-faint">riskTier × urgency · canonical reread</span>
+      <div className="ml-auto flex items-center gap-1"><button onClick={() => setCursor((value) => Math.max(0, value - 1))} disabled={idx === 0} title="上一条 · K" className="grid size-6 place-items-center disabled:opacity-30"><CaretLeft /></button><button onClick={() => setCursor((value) => Math.min(queue.length - 1, value + 1))} disabled={idx >= queue.length - 1} title="下一条 · J" className="grid size-6 place-items-center disabled:opacity-30"><CaretRight /></button><button onClick={skip} disabled={!current} title="跳过 · S（不改 canonical 状态）" className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-text-faint disabled:opacity-30"><SkipForward />跳过</button>{skipped.size > 0 && <button onClick={() => { setSkipped(new Set()); setCursor(0); }} className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-accent"><ArrowsClockwise />恢复{skipped.size}</button>}<button onClick={() => setHelp((value) => !value)} className="rounded px-2 py-1 font-mono text-[11px] text-text-faint">?</button></div>
     </div>
-  );
+    {help && <div className="border-b border-border bg-surface-raised px-3 py-2 font-mono text-[11px] text-text-muted">J/K 下一条/上一条 · S 跳过 · A/R/D 打开 Accept/Reject/Defer rationale · ? 帮助；编辑字段内快捷键停用。</div>}
+    <div className="flex min-h-0 flex-1"><div className="flex min-w-0 flex-1 flex-col"><div className="flex-1 overflow-auto p-3">
+      {current ? <><div className="mb-2 rounded-md bg-stale/10 px-3 py-1.5 text-[11px] text-stale">只处理 canonical proposed。mutation pending 只锁当前卡；不要重放，用 opId 查询 receipt。</div><VerdictCard key={current.decisionId} d={current} decisions={decisions} facts={facts} tasks={tasks} relations={relations} onCallAgent={onCallAgent} onJudge={onJudge} mutationFeedback={mutationFeedback?.(current.decisionId)} onCheckReceipt={() => onCheckReceipt?.(current.decisionId)} openRequest={openRequest?.decisionId === current.decisionId ? openRequest : undefined} onInspectFact={setInspectedFactRef} coverageRows={coverageRows} relationState={relationState} /></> : <div className="flex h-full flex-col items-center justify-center gap-3 text-center"><div className="grid size-14 place-items-center rounded-full bg-surface-raised"><SealCheck weight="duotone" className="text-[28px] text-success" /></div><div><div className="text-[15px] font-semibold text-text">当前无待决策批准</div><div className="mt-1 text-[12px] text-text-faint">终态只来自 canonical decision + judgment consent。</div></div></div>}
+      {history.length > 0 && <section className="mt-3 rounded-lg border border-border bg-surface p-3"><h2 className="text-[11px] font-semibold text-text-faint">Canonical judgment history</h2><ul className="mt-1 space-y-1">{history.slice(0, 12).map(({ decision, consent }) => { const receipt = mutationFeedback?.(decision.decisionId)?.receipt; return <li key={consent.consentId} className="text-[11px]"><span className="font-mono text-text-muted">{consent.action} · {decision.decisionId} · {consent.consentId}</span><span className="ml-2 text-text-faint">{receipt?.path ?? decision.path ?? "path unknown"} · commit {receipt?.commitSha?.slice(0, 10) ?? "not in current session"}</span></li>; })}</ul></section>}
+    </div>
+      {queue.length > 0 && <div className="border-t border-border bg-surface-raised/50 px-3 py-2"><div className="flex gap-1.5 overflow-x-auto">{queue.map((decision, index) => <button key={decision.decisionId} onClick={() => setCursor(index)} className={`shrink-0 rounded px-2 py-1 font-mono text-[10px] ${index === idx ? "bg-accent text-accent-fg" : skipped.has(decision.decisionId) ? "bg-surface text-text-faint line-through" : "bg-surface text-text-muted"}`}>{decision.decisionId}</button>)}</div></div>}
+    </div>{inspectedFactRef && <FactInspector factRef={inspectedFactRef} facts={facts} tasks={tasks} decisions={decisions} relations={relations} onClose={() => setInspectedFactRef(null)} onNavigateDecision={onNavigateDecision} onNavigateTask={onNavigateTask} onFocusGraph={onFocusGraph} coverageRows={coverageRows} />}</div>
+  </div>;
 }
