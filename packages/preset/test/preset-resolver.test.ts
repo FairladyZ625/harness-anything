@@ -32,7 +32,7 @@ test("an invalid user package shadows the bundled package without fallback", asy
     write(path.join(objectRoot, "preset.json"), JSON.stringify({ schema: "preset-manifest/v3" }));
     write(path.join(fixture.userRoot, "active/standard-task.json"), JSON.stringify({ schema: "preset-active-pointer/v1", presetId: "standard-task", verticalId: "software/coding", digest }));
     const resolver = createCanonicalPresetResolver({ bundledRoot: fixture.bundledRoot, userRoot: fixture.userRoot, assetsRoot: fixture.assetsRoot }), listed = await resolver.list({ verticalId: "software/coding" }), result = await resolver.resolve({ presetId: "standard-task", verticalId: "software/coding", locale: "en-US", purpose: "inspect" });
-    assert.deepEqual(listed.map(({ id, layer, validity, errorCode }) => ({ id, layer, validity, errorCode })), [{ id: "standard-task", layer: "user", validity: "blocked", errorCode: "shadow_invalid" }]);
+    assert.deepEqual(listed.map(({ id, layer, validity, errorCode, missingProviderIds }) => ({ id, layer, validity, errorCode, missingProviderIds })), [{ id: "standard-task", layer: "user", validity: "blocked", errorCode: "shadow_invalid", missingProviderIds: [] }]); assert.match(listed[0]?.nextAction ?? "", /repair.*shadow_invalid.*ha preset list/iu);
     assert.equal(result.ok, false); if (!result.ok) assert.equal(result.error.code, "shadow_invalid");
   } finally { fixture.cleanup(); }
 });
@@ -107,12 +107,12 @@ test("resolver rejects a package outside the kernel version range", async () => 
   try { writePackage(fixture.bundledRoot, "future", { kernelVersionRange: { min: "2.0.0" } }); const result = await createCanonicalPresetResolver({ bundledRoot: fixture.bundledRoot, userRoot: fixture.userRoot, assetsRoot: fixture.assetsRoot, kernelVersion: "1.0.0" }).resolve({ presetId: "future", verticalId: "software/coding", locale: "en-US", purpose: "inspect" }); assert.equal(result.ok, false); if (!result.ok) assert.equal(result.error.code, "incompatible_kernel"); } finally { fixture.cleanup(); }
 });
 
-test("resolver rejects a required capability without an exact provider", async () => {
+test("resolver reports every missing required capability with catalog recovery fields", async () => {
   const fixture = makeFixture();
   try {
-    writePackage(fixture.bundledRoot, "needs-provider", { capabilityImports: [{ id: "policy:missing/v1", kind: "command", version: "1", required: true }] });
-    const result = await createCanonicalPresetResolver({ bundledRoot: fixture.bundledRoot, userRoot: fixture.userRoot, assetsRoot: fixture.assetsRoot }).resolve({ presetId: "needs-provider", verticalId: "software/coding", locale: "en-US", purpose: "inspect" });
-    assert.equal(result.ok, false); if (!result.ok) assert.equal(result.error.code, "missing_provider");
+    writePackage(fixture.bundledRoot, "needs-provider", { capabilityImports: [{ id: "policy:missing-b/v1", kind: "command", version: "1", required: true }, { id: "policy:missing-a/v1", kind: "command", version: "1", required: true }] });
+    const resolver = createCanonicalPresetResolver({ bundledRoot: fixture.bundledRoot, userRoot: fixture.userRoot, assetsRoot: fixture.assetsRoot }), result = await resolver.resolve({ presetId: "needs-provider", verticalId: "software/coding", locale: "en-US", purpose: "inspect" }), listed = (await resolver.list({ verticalId: "software/coding" })).find(({ id }) => id === "needs-provider");
+    assert.equal(result.ok, false); if (!result.ok) assert.equal(result.error.code, "missing_provider"); assert.deepEqual(listed?.missingProviderIds, ["policy:missing-a/v1", "policy:missing-b/v1"]); assert.match(listed?.nextAction ?? "", /provides policy:missing-a\/v1, policy:missing-b\/v1.*ha preset list/iu);
   } finally { fixture.cleanup(); }
 });
 
@@ -139,7 +139,7 @@ test("whole-package install publishes only the old or new active pointer", async
   } finally { fixture.cleanup(); }
 });
 
-test("twelve bundled packages list through one catalog while missing workflow prerequisites stay unavailable", async () => {
+test("all twelve bundled packages resolve through one valid catalog", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-preset-builtins-"));
   try {
     const resolver = createCanonicalPresetResolver({ userRoot: root }), common = { verticalId: "software/coding", profileId: "baseline", locale: "en-US", purpose: "task-create" } as const, listed = await resolver.list({ verticalId: "software/coding" });
@@ -152,9 +152,9 @@ test("twelve bundled packages list through one catalog while missing workflow pr
       { id: "github-issue-repair", validity: "valid", errorCode: undefined },
       { id: "legacy-migration", validity: "valid", errorCode: undefined },
       { id: "milestone-closeout", validity: "valid", errorCode: undefined },
-      { id: "module", validity: "unavailable", errorCode: "missing_provider" },
+      { id: "module", validity: "valid", errorCode: undefined },
       { id: "standard-task", validity: "valid", errorCode: undefined },
-      { id: "subtask-expansion", validity: "unavailable", errorCode: "missing_provider" },
+      { id: "subtask-expansion", validity: "valid", errorCode: undefined },
       { id: "worker-dispatch", validity: "valid", errorCode: undefined }
     ]);
     const standard = await resolver.resolve({ ...common, presetId: "standard-task" }), milestone = await resolver.resolve({ ...common, presetId: "create-milestone" });
@@ -175,10 +175,12 @@ test("twelve bundled packages list through one catalog while missing workflow pr
       ["legacy-migration", "repository-diff", ["ci", "code-doc-reconciliation"], ["task.plan", "task.closeout", "task.artifacts.keep"]],
       ["create-milestone", "repository-diff", ["ci", "code-doc-reconciliation"], ["task.plan", "task.closeout", "task.artifacts.keep"]],
       ["milestone-closeout", "repository-diff", ["ci", "code-doc-reconciliation"], ["task.plan", "task.closeout", "task.artifacts.keep"]],
-      ["decision-conformance", "repository-diff", ["ci", "code-doc-reconciliation"], ["task.plan", "task.closeout", "task.artifacts.keep"]]
+      ["decision-conformance", "repository-diff", ["ci", "code-doc-reconciliation"], ["task.plan", "task.closeout", "task.artifacts.keep"]],
+      ["module", "repository-diff", ["ci", "code-doc-reconciliation"], ["task.plan", "task.closeout", "task.artifacts.keep", "module.plan", "module.brief", "module.session.prompt"]],
+      ["subtask-expansion", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]]
     ] as const;
     for (const [presetId, outputShape, completionGateIds, slots] of matrix) { const result = await resolver.resolve({ ...common, presetId }); assert.equal(result.ok, true, presetId); if (result.ok) assert.deepEqual({ outputShape: result.snapshot.profile.outputShape, completionGateIds: result.snapshot.profile.completionGateIds, slots: result.snapshot.templates.map(({ slot }) => slot), entrypoints: Object.keys(result.snapshot.entrypoints) }, { outputShape, completionGateIds, slots, entrypoints: [] }); }
-    for (const presetId of ["module", "subtask-expansion"]) { const result = await resolver.resolve({ ...common, presetId }); assert.equal(result.ok, false); if (!result.ok) assert.equal(result.error.code, "missing_provider"); }
+    for (const presetId of ["module", "subtask-expansion"]) { const result = await resolver.resolve({ ...common, presetId }); assert.equal(result.ok, true, presetId); }
     assert.equal(existsSync(new URL("../assets/software-coding/presets/reference-task/", import.meta.url)), false); assert.equal(existsSync(new URL("../assets/software-coding/presets/long-running-task/", import.meta.url)), false);
     const noEntrypoint = await resolver.resolve({ presetId: "create-milestone", verticalId: "software/coding", locale: "en-US", purpose: "script-run", entrypoint: "run" }); assert.equal(noEntrypoint.ok, false); if (!noEntrypoint.ok) assert.equal(noEntrypoint.error.code, "entrypoint_not_found");
     const auditEntrypoint = await resolver.resolve({ presetId: "architecture-rot-audit", verticalId: "software/coding", locale: "en-US", purpose: "script-run", entrypoint: "run" }); assert.equal(auditEntrypoint.ok, false); if (!auditEntrypoint.ok) assert.equal(auditEntrypoint.error.code, "entrypoint_not_found");
@@ -206,10 +208,10 @@ for (const sample of [
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 
-test("module locale, required anchors, and body digests close through the canonical catalog when its owner capability is present", () => {
+test("module locale, required anchors, and body digests close through the canonical catalog", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-module-catalog-")), assetsRoot = path.join(root, "assets");
   try {
-    cpSync(new URL("../assets/software-coding/", import.meta.url), assetsRoot, { recursive: true }); const capabilities = JSON.parse(readFileSync(path.join(assetsRoot, "capabilities.json"), "utf8")) as { providers: Array<Record<string, unknown>> }; capabilities.providers.push({ id: "task-create-module-context", kind: "command", version: "1" }); write(path.join(assetsRoot, "capabilities.json"), JSON.stringify(capabilities));
+    cpSync(new URL("../assets/software-coding/", import.meta.url), assetsRoot, { recursive: true });
     const runtime = createRuntime({ bundledRoot: path.join(assetsRoot, "presets"), assetsRoot, userRoot: path.join(root, "user") });
     for (const locale of ["en-US", "zh-CN"] as const) { const resolved = runtime.resolveInternal({ presetId: "module", verticalId: "software/coding", profileId: "baseline", locale, purpose: "task-create" }), increments = resolved.snapshot.templates.filter(({ slot }) => slot.startsWith("module.")); assert.equal(increments.length, 3); for (const template of increments) { const document = resolved.documents.find(({ slot }) => slot === template.slot); assert.equal(template.locale, locale); assert.ok(template.requiredAnchors.length >= 2); assert.equal(template.content.sha256, sha256Text(document?.body ?? "")); for (const anchor of template.requiredAnchors) assert.match(document?.body ?? "", new RegExp(anchor.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u")); } }
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -397,7 +399,7 @@ test("the same self-contained package has identical bundled and user snapshot co
 test("seed and audit dry-runs report the two-layer inventory without mutation", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-seed-audit-")), userRoot = path.join(rootDir, ".harness/presets");
   try {
-    const audit = await runPresetAction({ rootDir, action: { kind: "preset-audit" } }) as { schema: string; total: number; valid: number; unavailable: number; blocked: number; issues: Array<{ presetId: string; code: string }> }; assert.deepEqual({ schema: audit.schema, total: audit.total, valid: audit.valid, unavailable: audit.unavailable, blocked: audit.blocked, issues: audit.issues.map(({ presetId, code }) => ({ presetId, code })) }, { schema: "preset-audit-report/v1", total: 12, valid: 10, unavailable: 2, blocked: 0, issues: [{ presetId: "module", code: "missing_provider" }, { presetId: "subtask-expansion", code: "missing_provider" }] });
+    const audit = await runPresetAction({ rootDir, action: { kind: "preset-audit" } }) as { schema: string; total: number; valid: number; unavailable: number; blocked: number; issues: Array<{ presetId: string; code: string }> }; assert.deepEqual({ schema: audit.schema, total: audit.total, valid: audit.valid, unavailable: audit.unavailable, blocked: audit.blocked, issues: audit.issues.map(({ presetId, code }) => ({ presetId, code })) }, { schema: "preset-audit-report/v1", total: 12, valid: 12, unavailable: 0, blocked: 0, issues: [] });
     const drySeed = await runPresetAction({ rootDir, action: { kind: "preset-seed", dryRun: true } }) as { schema: string; mode: string; packageCount: number; packages: Array<{ presetId: string }> }; assert.equal(drySeed.schema, "preset-seed-report/v1"); assert.equal(drySeed.mode, "dry-run"); assert.equal(drySeed.packageCount, 12); assert.deepEqual(drySeed.packages.map(({ presetId }) => presetId), ["architecture-rot-audit", "code-impact-analysis", "create-milestone", "decision-conformance", "docs-task", "github-issue-repair", "legacy-migration", "milestone-closeout", "module", "standard-task", "subtask-expansion", "worker-dispatch"]); assert.equal(existsSync(userRoot), false);
     const seeded = await runPresetAction({ rootDir, action: { kind: "preset-seed" } }) as { mode: string; packageCount: number }; assert.deepEqual({ mode: seeded.mode, packageCount: seeded.packageCount }, { mode: "apply", packageCount: 12 }); assert.equal(readdirSync(path.join(userRoot, "active")).length, 12);
   } finally { rmSync(rootDir, { recursive: true, force: true }); }

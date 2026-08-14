@@ -59,6 +59,17 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
   } finally { stop(fixture.alpha, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
 });
 
+test("real CLI creates module and subtask-expansion packages through their declared providers", () => {
+  const fixture = setup();
+  try {
+    assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true); register(fixture.alpha, fixture.userRoot, "alpha");
+    const catalog = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["preset", "list"]).evidence)) as Array<{ id: string; validity: string }>; assert.deepEqual(catalog.filter(({ id }) => ["module", "subtask-expansion"].includes(id)).map(({ id, validity }) => ({ id, validity })), [{ id: "module", validity: "valid" }, { id: "subtask-expansion", validity: "valid" }]);
+    assert.equal(run(fixture.alpha, fixture.userRoot, ["task", "create", "--task-id", "task-parent", "--title", "Parent"]).outcome, "applied");
+    const moduleTask = run(fixture.alpha, fixture.userRoot, ["task", "create", "--task-id", "task-module", "--title", "Module task", "--preset", "module", "--module", "kernel", "--register-module", "kernel", "--module-title", "Kernel", "--module-prefix", "KER", "--module-scope", "packages/kernel/**"]); assert.equal(moduleTask.outcome, "applied", JSON.stringify(moduleTask)); assert.deepEqual((moduleTask.generatedPaths as string[]).filter((target) => /(?:module\.md|module_(?:plan|brief|session_prompt)\.md)$/u.test(target)).map((target) => path.basename(target)).sort(), ["module.md", "module_brief.md", "module_plan.md", "module_session_prompt.md"]); assert.match(readFileSync(path.join(fixture.alpha, "harness/tasks/task-module-module-task/module.md"), "utf8"), /Module key: kernel[\s\S]*Module title: Kernel[\s\S]*Module prefix: KER[\s\S]*Module scope: packages\/kernel\/\*\*/u);
+    const child = run(fixture.alpha, fixture.userRoot, ["task", "create", "--task-id", "task-child", "--title", "Child", "--preset", "subtask-expansion", "--parent", "task-parent"]); assert.equal(child.outcome, "applied", JSON.stringify(child)); const childEvent = makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).read().events.find((event) => event.schema === "task-bootstrap-event/v1" && event.taskId === "task-child"); assert.equal(childEvent?.schema === "task-bootstrap-event/v1" ? childEvent.payload.task.metadata.parentTaskId : null, "task-parent"); const children = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["task", "list", "--parent", "task-parent"]).evidence)) as { rows: Array<{ taskId: string }> }; assert.deepEqual(children.rows.map(({ taskId }) => taskId), ["task-child"]);
+  } finally { stop(fixture.alpha, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
+});
+
 test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority parity, fixed receipt, and phantom-free Configure-Verify", () => {
   const fixture = setupEmpty();
   try {

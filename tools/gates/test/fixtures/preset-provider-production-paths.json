@@ -1,0 +1,4 @@
+[
+  { "path": "packages/preset/src/preset-resolver.ts", "module": "preset" },
+  { "path": "packages/preset/src/preset.contract.ts", "module": "preset" }
+]

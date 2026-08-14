@@ -122,3 +122,8 @@ test("GUI gap-fix fixture bills the legend, navigation, and terminal fidelity pa
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/gui-gap-fix-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
+
+test("preset provider fixture keeps catalog resolution and its public contract in the preset budget", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/preset-provider-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});

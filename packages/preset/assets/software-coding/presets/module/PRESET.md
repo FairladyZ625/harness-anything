@@ -6,4 +6,4 @@ whenToUse: Use when ownership, scope, and progress must be tracked against one r
 
 # Module
 
-Adds a module plan, brief, and session prompt while preserving the standard software-coding task contract. Catalog discovery reports this package unavailable until task create can resolve a registered module and materialize its module context.
+Adds a module plan, brief, and session prompt while preserving the standard software-coding task contract. Create against an existing module with `ha task create --preset module --module <key>`; to register a new module context, also provide the complete `--register-module`, `--module-title`, `--module-prefix`, and `--module-scope` field group. The task package records the binding in `module.md`.

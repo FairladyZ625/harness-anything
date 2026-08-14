@@ -6,4 +6,4 @@ whenToUse: Use when a bounded parent task is ready to be decomposed into indepen
 
 # Subtask Expansion
 
-Decompose a parent task into independently executable outcomes with bounded scope, acceptance evidence, and justified dependency ordering. Catalog discovery reports this package unavailable until task create can bind a parent and the relation commands are reachable; no child workflow is published before then.
+Decompose a parent task into independently executable outcomes with bounded scope, acceptance evidence, and justified dependency ordering. Create each child with `ha task create --preset subtask-expansion --parent <task-id>`; task create rejects a missing parent before publication and preserves the accepted parent binding in the task package and projection.
