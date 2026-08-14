@@ -157,6 +157,14 @@ test("invalid Decision payload stays invalid_command and reckon records exact pr
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+test("Decision judgment keeps the transport arbiter gate and returns the embedded consent identity", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-decision-consent-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("decision-consent"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" }); const human = { principal: { personId: "person-ceo" }, executor: null } as const, binding = { actor: human, source: "local" as const }, proposed = await cell.run({ kind: "decision-propose", title: "Consent", question: "May the CEO judge this proposal?", riskTier: "medium", urgency: "medium", vertical: "default", preset: "default", decisionClass: "ordinary", appliesTo: { modules: ["daemon"], productLines: [] }, chosen: [{ id: "CH1", text: "Use consent" }], rejected: [{ id: "RJ1", text: "Use a fake pin", whyNot: "It is not verifiable" }] }, binding), decisionId = (JSON.parse(proposed.evidence) as { decisionId: string }).decisionId, before = makeTaskEventStore({ repoId: "decision-consent", rootDir }).readHead()!.revision;
+    const denied = await cell.run({ kind: "decision-accept", decisionId, rationale: "CEO approval", judgmentOnlyRationale: "Explicit CEO judgment." }, binding); assert.deepEqual({ outcome: denied.outcome, code: denied.code }, { outcome: "rejected", code: "actor_unauthorized" }); assert.equal(makeTaskEventStore({ repoId: "decision-consent", rootDir }).readHead()?.revision, before);
+    const accepted = await cell.run({ kind: "decision-accept", decisionId, rationale: "CEO approval", judgmentOnlyRationale: "Explicit CEO judgment." }, { ...binding, roles: ["$arbiter"] }); assert.equal(accepted.outcome, "applied", JSON.stringify(accepted)); assert.match(String((accepted as Record<string, unknown>).consentId), /^djc_[0-9a-f]{26}$/u); const event = makeTaskEventStore({ repoId: "decision-consent", rootDir }).readEvent(accepted.opId); assert.equal(event?.schema, "decision-event/v1"); if (event?.schema === "decision-event/v1" && event.type === "decision_accepted") assert.equal(event.payload.judgmentConsent.consentId, (accepted as Record<string, unknown>).consentId);
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
 test("receipt lookup reports Git object-store failure as indeterminate and marks the RepoCell unavailable", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-corrupt-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("corrupt"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" });
