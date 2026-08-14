@@ -74,7 +74,7 @@ function isAppLocation(value: unknown): value is AppLocation {
     isRecord(drill)
     && typeof drill.lane === "string"
     && typeof drill.status === "string"
-    && (drill.groupBy === "root" || drill.groupBy === "module" || drill.groupBy === "engine")
+    && (drill.groupBy === "root" || drill.groupBy === "module" || drill.groupBy === "engine" || drill.groupBy === "productLine")
   );
 }
 

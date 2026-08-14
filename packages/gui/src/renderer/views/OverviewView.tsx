@@ -34,14 +34,20 @@ function QuestionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-type DrillDimension = "root" | "module";
+type DrillDimension = "root" | "module" | "plt";
 
-function dimensionKey(task: TaskRow, dimension: DrillDimension): string {
-  if (dimension === "root") return task.rootTaskId ?? task.taskId;
-  return task.module;
+import { UNASSIGNED_PLT_LANE as UNASSIGNED_PLT } from "./SwimlaneBoard.tsx";
+
+export function dimensionKeysOf(task: TaskRow, dimension: DrillDimension): string[] {
+  if (dimension === "root") return [task.rootTaskId ?? task.taskId];
+  if (dimension === "module") return [task.module];
+  // PLT 从现有投影字段前端派生:productLines 缺失的任务归入「未投影 PLT」,
+  // 不伪装成某个具体产品线。
+  const lines = task.productLines ?? [];
+  return lines.length > 0 ? [...lines] : [UNASSIGNED_PLT];
 }
 
-function dimensionLabel(
+export function dimensionLabel(
   key: string,
   dimension: DrillDimension,
   tasks: ReadonlyArray<TaskRow>,
@@ -50,6 +56,7 @@ function dimensionLabel(
     const representative = tasks.find((t) => (t.rootTaskId ?? t.taskId) === key);
     return representative?.rootTitle ?? representative?.title ?? key;
   }
+  if (dimension === "plt" && key === UNASSIGNED_PLT) return "未投影 PLT";
   return key;
 }
 
@@ -97,12 +104,12 @@ export function OverviewView({
   const proposedTop = sortDecisionQueue(decisions.filter((decision) => decision.state === "proposed")).slice(0, 5);
 
   const dimensionKeys = useMemo(
-    () => [...new Set(tasks.map((task) => dimensionKey(task, dimension)))],
+    () => [...new Set(tasks.flatMap((task) => dimensionKeysOf(task, dimension)))],
     [tasks, dimension],
   );
   const cellCount = (key: string, status: SnapshotStatus) =>
     tasks.filter(
-      (task) => dimensionKey(task, dimension) === key && task.coordinationStatus === status,
+      (task) => dimensionKeysOf(task, dimension).includes(key) && task.coordinationStatus === status,
     ).length;
 
   const blockers = [...blocked, ...inReview.filter((task) => task.closeoutReadiness === "ready")]
@@ -258,18 +265,20 @@ export function OverviewView({
           </div>
         </Card>
 
-        <Card title={`${dimension === "root" ? "根任务" : "模块"} × 状态下钻`} bodyClassName="p-3">
+        <Card title={`${dimension === "root" ? "根任务" : dimension === "module" ? "模块" : "PLT"} × 状态下钻`} bodyClassName="p-3">
           <div className="mb-2 flex items-center gap-2">
             <QuestionLabel>② 点击进入可操作任务集合</QuestionLabel>
             <div className="ml-auto flex items-center gap-0.5 rounded-md border border-border p-0.5">
-              {(["root", "module"] as const).map((d) => (
+              {(["root", "module", "plt"] as const).map((d) => (
                 <button
                   key={d}
                   onClick={() => setDimension(d)}
                   title={
                     d === "root"
                       ? "按任务树根分组(milestone)"
-                      : "按 module 分组(传统)"
+                      : d === "module"
+                        ? "按 module 分组(传统)"
+                        : "按 productLine(PLT)分组 · 前端从 productLines 派生"
                   }
                   className={seg(dimension === d)}
                 >

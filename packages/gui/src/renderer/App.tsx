@@ -168,10 +168,11 @@ function AppShell() {
   const drillToBoard = (
     lane: string,
     status: SnapshotStatus,
-    dimension: "root" | "module",
+    dimension: "root" | "module" | "plt",
   ) => {
     // 特殊占位 __all__ 表示不锁定 lane(只 drill 到状态维度)
-    const groupBy: LaneGroupBy = dimension === "root" ? "root" : "module";
+    const groupBy: LaneGroupBy =
+      dimension === "root" ? "root" : dimension === "module" ? "module" : "productLine";
     navigate({ drill: { lane, status, groupBy }, view: "board", selectedId: null, previewId: null });
   };
 

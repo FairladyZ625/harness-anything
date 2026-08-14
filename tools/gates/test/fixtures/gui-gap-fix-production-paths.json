@@ -36,7 +36,19 @@
     "module": "gui"
   },
   {
+    "path": "packages/gui/src/renderer/views/BoardView.tsx",
+    "module": "gui"
+  },
+  {
     "path": "packages/gui/src/renderer/views/GraphView.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/views/OverviewView.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/views/SwimlaneBoard.tsx",
     "module": "gui"
   }
 ]

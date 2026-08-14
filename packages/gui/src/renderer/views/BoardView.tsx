@@ -322,7 +322,7 @@ export function BoardView({
               分组维度
             </span>
             <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
-              {(["root", "module", "engine"] as const).map((d) => (
+              {(["root", "module", "engine", "productLine"] as const).map((d) => (
                 <button
                   key={d}
                   onClick={() => setGroupBy(d)}
@@ -331,7 +331,9 @@ export function BoardView({
                       ? "按任务树根分组(milestone)"
                       : d === "module"
                         ? "按 module 维度(传统)"
-                        : "按引擎分组"
+                        : d === "engine"
+                          ? "按引擎分组"
+                          : "按 productLine(PLT)分组"
                   }
                   className={`font-mono ${seg(groupBy === d)}`}
                 >
