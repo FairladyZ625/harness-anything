@@ -1,4 +1,4 @@
-import { isJsonObject, type JsonObject } from "./protocol/json-rpc-types.ts";
+import { isJsonObject, rejectSecretKeys, type JsonObject } from "./protocol/json-rpc-types.ts";
 
 export interface DaemonControlReceipt extends JsonObject { readonly schema: "daemon-control-receipt/v1"; readonly ok: boolean; readonly outcome: "pending" | "rejected" | "applied"; readonly kind: "refresh" | "restart"; readonly operationId: string; readonly phase: "queued" | "draining" | "starting" | "settled" | "failed"; readonly requestedAt: string; readonly completedAt: string | null; readonly before: JsonObject | null; readonly after: JsonObject | null; readonly error: JsonObject | null; readonly nextAction: string | null }
 export interface CatalogRereadReceipt extends JsonObject { readonly schema: "catalog-reread-receipt/v1"; readonly ok: boolean; readonly outcome: "applied" | "rejected"; readonly operationId: string; readonly repoId: string; readonly beforeDigest: string; readonly afterDigest: string; readonly observedAt: string; readonly error: JsonObject | null }
@@ -11,15 +11,10 @@ export class GuiS3ContractError extends Error { readonly code = "invalid_result"
 
 type Rule = "string" | "any-string" | "number" | "boolean" | "null-string" | "null-number" | "array" | "object" | "nullable-object";
 const record = (value: unknown): value is JsonObject => isJsonObject(value);
-const hasSensitiveKey = (value: unknown): boolean => {
-  if (Array.isArray(value)) return value.some(hasSensitiveKey);
-  if (!record(value)) return false;
-  return Object.entries(value).some(([key, nested]) => /(?:secret|token|password|passphrase)/iu.test(key) || /^(?:api[-_]?key|credentialvalue)$/iu.test(key) || hasSensitiveKey(nested));
-};
 function closed(value: unknown, fields: Readonly<Record<string, Rule>>, label: string): string[] {
   if (!record(value)) return [`${label} must be an object`];
   const errors: string[] = [];
-  if (hasSensitiveKey(value)) errors.push(`${label} contains a forbidden secret-like key`);
+  if (rejectSecretKeys(value).length) errors.push(`${label} contains a forbidden secret-like key`);
   for (const key of Object.keys(value)) if (!Object.hasOwn(fields, key)) errors.push(`${label}.${key} is not allowed`);
   for (const [key, rule] of Object.entries(fields)) {
     const item = value[key];
@@ -70,4 +65,3 @@ function write<T>(value: T, validate: ResultValidator): T { const errors = valid
 export const writeSystemStatus = <T>(value: T): T => write(value, validateSystemStatus), writeDaemonControlReceipt = <T>(value: T): T => write(value, validateDaemonControlReceipt), writeCatalogSnapshot = <T>(value: T): T => write(value, validateCatalogSnapshot), writeCatalogPreset = <T>(value: T): T => write(value, validateCatalogPreset);
 export const writeCatalogRereadReceipt = <T>(value: T): T => write(value, validateCatalogRereadReceipt), writeRuntimeCredentialReceipt = <T>(value: T): T => write(value, validateRuntimeCredentialReceipt), writeTerminalSessionList = <T>(value: T): T => write(value, validateTerminalSessionList), writeTerminalControlReceipt = <T>(value: T): T => write(value, validateTerminalControlReceipt);
 export const writeTerminalInputAck = <T>(value: T): T => write(value, validateTerminalInputAck), writeTerminalDetachAck = <T>(value: T): T => write(value, validateTerminalDetachAck), writeTerminalAttach = <T>(value: T): T => write(value, validateTerminalAttach), writeTerminalAttachEvent = <T>(value: T): T => write(value, validateTerminalAttachEvent);
-export function rejectSecretKeys(value: unknown): readonly string[] { return hasSensitiveKey(value) ? ["payload contains a forbidden secret-like key"] : []; }

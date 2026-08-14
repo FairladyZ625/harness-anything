@@ -210,7 +210,7 @@ function readCatalogRereadReceipt(value: unknown): CatalogRereadReceipt {
 }
 
 function isTaskSnapshotProjectionRow(value: unknown): value is TaskSnapshotProjectionRow {
-  if (!record(value) || typeof value.taskId !== "string" || typeof value.updatedAt !== "string" || !record(value.snapshot)) return false;
+  if (!record(value) || typeof value.taskId !== "string" || typeof value.updatedAt !== "string" || value.generation !== "v0" && value.generation !== "v1" || !record(value.snapshot)) return false;
   const task = value.snapshot.task;
   return record(task) && task.schema === "task/v1" && task.taskId === value.taskId && typeof task.title === "string";
 }

@@ -21,6 +21,7 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
 import { openTerminalHost, type TerminalHost } from "./terminal-host.ts";
+import { runMigrationImport } from "./migration-import.ts";
 export type RepoTaskAction = Readonly<Record<string, unknown>> & { readonly kind: string }; export interface RepoCellBinding { readonly actor: ActorIdentity; readonly source: WriteSource; readonly roles?: readonly string[]; readonly docWriteAllowed?: boolean; readonly assignmentScope?: FleetAssignmentScope }
 type TaskCreateReceipt = WriteReceipt & { readonly summary: string; readonly taskId: string; readonly status: "planned"; readonly packagePath: string; readonly generatedPaths: readonly string[]; readonly presetDigest: string; readonly scaffoldDigest: string; readonly completionGates: readonly string[]; readonly commitSha: string | null; readonly dryRun: boolean };
 type TaskProgressReceipt = WriteReceipt & { readonly summary: string; readonly taskId: string; readonly executionId: string; readonly progressPath: string; readonly eventId: string; readonly commitSha: string; readonly worktreeVisible: true };
@@ -70,6 +71,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
     status: () => ({ repoId: input.repoId, rootDir, state, generation, queueDepth, lastError, recoveryMs: recovery.elapsedMs }),
     close: async () => { if (state === "closed") return; state = "closed"; runtimeSpawner.close(); await terminal.close(); runtimeStream.close(); await presetProcess.close(); await tail; replica.close(); await lock.close(); } };
   async function executeAction(action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> {
+    if (action.kind === "migrate-import") return runMigrationImport({ action, binding, rootDir, store, projection, now });
     if (action.kind === "receipt-show") return receiptForOperation(String(action.opId ?? ""), binding);
     if (action.kind === "task-show") return showTask(String(action.taskId ?? ""));
     if (action.kind.startsWith("fact-")) return factActions.run(action, binding, operationId(action, binding, input.repoId, action.kind === "fact-record" && typeof action.taskId === "string" ? projection.read(action.taskId).snapshot.revision : store.readHead()?.revision ?? 0));

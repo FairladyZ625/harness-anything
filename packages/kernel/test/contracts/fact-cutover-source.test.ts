@@ -13,6 +13,7 @@ test("Fact product code limits facts.md to machine bootstrap, typed compilation/
     .filter((file) => readFileSync(file, "utf8").includes("facts.md"))
     .map((file) => path.relative(repoRoot, file)).sort();
   assert.deepEqual(mentions, [
+    "packages/daemon/src/migration-import.ts",
     "packages/kernel/src/domain/doc-sync.contract.ts",
     "packages/kernel/src/domain/fact-event.ts",
     "packages/kernel/src/projection/cold-rebuild-source.ts",

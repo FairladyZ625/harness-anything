@@ -102,3 +102,8 @@ test("GUI S3 R2 fixture bills runtime truth, secure control, and direct PTY path
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/gui-s3-r2-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
+
+test("migration import fixture bills the native CLI, daemon, GUI, and kernel seams to their ratcheted buckets", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/migration-import-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});
