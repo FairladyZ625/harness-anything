@@ -60,7 +60,6 @@ export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export * from "./schemas/docmap.ts";
 export {
-  canonicalEventWritePlan,
   makeTaskEventStore,
   makeTaskProjection,
   makeMarkdownArtifactStore

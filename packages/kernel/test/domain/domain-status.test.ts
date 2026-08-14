@@ -80,7 +80,7 @@ test("domain owns canonical lifecycle status transition semantics", () => {
 test("Decision event vocabulary exposes only canonical projection states", () => {
   assert.deepEqual([...decisionStates], [
     "proposed",
-    "accepted",
+    "active",
     "rejected",
     "deferred",
     "retired"

@@ -2,8 +2,6 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { createHarnessRuntimeContext } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
-import { executionDeclaration } from "../entity/execution-declaration.ts";
-import { reviewDeclaration } from "../entity/review-declaration.ts";
 import { sessionEntityDeclaration } from "../entity/session.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { discoverDeclaredEntityRows, projectDeclaredEntities, readDeclaredProjectionRows } from "./entity-declaration-projection.ts";
@@ -55,8 +53,6 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
     rowsHash
   }, options.taskFieldExtensions);
   projectDeclaredEntities(runtimeContext, sessionEntityDeclaration, projectionPath);
-  projectDeclaredEntities(runtimeContext, executionDeclaration, projectionPath);
-  projectDeclaredEntities(runtimeContext, reviewDeclaration, projectionPath);
   return {
     rows,
     warnings: source.warnings
@@ -145,7 +141,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
 }
 
 function projectionSourceHash(taskSourceHash: string, rootInput: ReturnType<typeof createHarnessRuntimeContext>): string {
-  const entityRows = [sessionEntityDeclaration, executionDeclaration, reviewDeclaration].map((declaration) => ({
+  const entityRows = [sessionEntityDeclaration].map((declaration) => ({
     table: declaration.projection.table,
     rows: discoverDeclaredEntityRows(rootInput, declaration)
   }));
@@ -154,7 +150,7 @@ function projectionSourceHash(taskSourceHash: string, rootInput: ReturnType<type
 
 function declaredProjectionMatches(rootInput: ReturnType<typeof createHarnessRuntimeContext>, projectionPath: string): boolean {
   try {
-    return [sessionEntityDeclaration, executionDeclaration, reviewDeclaration].every((declaration) =>
+    return [sessionEntityDeclaration].every((declaration) =>
       JSON.stringify(readDeclaredProjectionRows(projectionPath, declaration)) ===
       JSON.stringify(discoverDeclaredEntityRows(rootInput, declaration))
     );
