@@ -113,24 +113,20 @@ export function ExecutionEvidenceView({
 }
 
 function StatsStrip({ stats }: { readonly stats: ExecutionEvidenceStats }) {
-  const values = [
-    ["executions", stats.executions],
-    ["有 execution 的 tasks", stats.tasksWithExecutions],
-    ["outputs", stats.outputs],
-    ["origin=archival", stats.archivalExecutions],
-    ["origin=native", stats.nativeExecutions],
-    ["passing receipt outputs", stats.passingReceiptOutputs],
-  ] as const;
+  const values: [label: string, value: number, tone?: string][] = [
+    ["executions", stats.executions], ["有 execution 的 tasks", stats.tasksWithExecutions],
+    ["outputs", stats.outputs], ["origin=archival", stats.archivalExecutions],
+    ["origin=native", stats.nativeExecutions], ["passing receipt outputs", stats.passingReceiptOutputs],
+    ...(stats.unknownOriginExecutions > 0 ? [["unknown origin", stats.unknownOriginExecutions, "text-status-unknown"] as [string, number, string]] : []),
+  ];
   return (
-    <div className="flex flex-wrap gap-x-4 gap-y-1 border-b border-border bg-surface px-4 py-2 font-mono text-[11px]">
-      {values.map(([label, value]) => (
-        <span key={label} className="inline-flex items-baseline gap-1 text-text-faint">
-          <strong className="text-[13px] text-text">{value}</strong>{label}
-        </span>
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(7.5rem,1fr))] gap-px border-b border-border bg-border">
+      {values.map(([label, value, tone]) => (
+        <div key={label} className="bg-surface px-3 py-2">
+          <div className={`font-mono text-[18px] font-semibold leading-tight tabular-nums ${tone ?? "text-text"}`}>{value}</div>
+          <div className={`mt-0.5 truncate font-mono text-[11px] ${tone ?? "text-text-faint"}`} title={label}>{label}</div>
+        </div>
       ))}
-      {stats.unknownOriginExecutions > 0 && (
-        <span className="text-status-unknown">unknown origin {stats.unknownOriginExecutions}</span>
-      )}
     </div>
   );
 }
@@ -146,11 +142,11 @@ function FilterBar({ receipt, origin, visible, fetching, onReceipt, onOrigin }: 
   return (
     <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-surface/50 px-4 py-2">
       <Funnel weight="bold" className="text-[12px] text-text-faint" />
-      <span className="mr-1 font-mono text-[10px] uppercase text-text-faint">receipt</span>
+      <span className="mr-1 font-mono text-[11px] uppercase text-text-faint">receipt</span>
       <FilterChip label="全部" active={receipt === "all"} onClick={() => onReceipt("all")} />
       <FilterChip label="有通过 receipt" active={receipt === "passing"} tone="good" onClick={() => onReceipt("passing")} />
       <FilterChip label="无 receipt" active={receipt === "no-receipt"} tone="warn" onClick={() => onReceipt("no-receipt")} />
-      <span className="ml-2 mr-1 font-mono text-[10px] uppercase text-text-faint">origin</span>
+      <span className="ml-2 mr-1 font-mono text-[11px] uppercase text-text-faint">origin</span>
       <FilterChip label="全部" active={origin === "all"} onClick={() => onOrigin("all")} />
       <FilterChip label="归档" active={origin === "archival"} tone="warn" onClick={() => onOrigin("archival")} />
       <FilterChip label="原生" active={origin === "native"} tone="good" onClick={() => onOrigin("native")} />
@@ -169,7 +165,7 @@ function FilterChip({ label, active, tone = "neutral", onClick }: {
     : tone === "warn" ? "border-stale/40 bg-stale/10 text-stale" : "border-border-strong bg-surface-raised text-text";
   return (
     <button type="button" aria-pressed={active} onClick={onClick}
-      className={`rounded-md border px-2 py-1 font-mono text-[11px] ${active ? activeTone : "border-border text-text-faint opacity-65 hover:opacity-100"}`}>
+      className={`rounded-md border px-2 py-1 font-mono text-[11px] transition-colors duration-100 ${active ? activeTone : "border-border text-text-faint opacity-70 hover:border-border-strong hover:opacity-100"}`}>
       {label}
     </button>
   );
@@ -196,7 +192,7 @@ function TaskEvidenceGroup({ group }: { readonly group: TaskEvidenceGroupModel }
         <span className="font-mono text-[11px] text-text-muted">{group.executions.length} executions · {outputCount} outputs</span>
       </button>
       {expanded && (
-        <div className="space-y-2 border-t border-border p-2">
+        <div className="space-y-2 border-t border-border bg-bg/25 px-3 py-2.5">
           {group.executions.map((execution) => <ExecutionBlock key={execution.executionId} execution={execution} />)}
         </div>
       )}
@@ -213,14 +209,14 @@ function ExecutionBlock({ execution }: { readonly execution: ExecutionEvidenceRo
         className="flex w-full flex-wrap items-center gap-2 px-3 py-2 text-left hover:bg-surface-raised/45">
         <CaretDown weight="bold" className={`text-text-faint transition-transform ${expanded ? "" : "-rotate-90"}`} />
         <OriginBadge origin={execution.origin} />
-        <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-text-muted">{field(execution.state)}</span>
+        <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[11px] text-text-muted">{field(execution.state)}</span>
         <strong className="font-mono text-[12px] text-text">{execution.executionId}</strong>
         <span className="font-mono text-[11px] text-text-faint">iteration {field(execution.iteration)} · commit {short(execution.commitSha)}</span>
         <span className="ml-auto font-mono text-[11px] text-text-muted">{execution.outputs.length} outputs · {passing} passing</span>
       </button>
 
       <div className="border-t border-border/70 px-3 py-2">
-        <div className="mb-1.5 flex flex-wrap gap-3 font-mono text-[10px] text-text-faint">
+        <div className="mb-1.5 flex flex-wrap gap-3 font-mono text-[11px] text-text-faint">
           <span>output 摘要（展开查看全量原文）</span>
           <span>execution-level witnesses: review {execution.reviews.length} · consent {execution.consents.length} · gate {execution.gateWitnesses.length}</span>
           <span className="text-status-unknown">不等同 output receipt</span>
@@ -232,7 +228,7 @@ function ExecutionBlock({ execution }: { readonly execution: ExecutionEvidenceRo
             {execution.outputs.slice(0, 3).map((output, index) => (
               <OutputSummary key={`${output.evidenceId ?? "unknown"}-${index}`} output={output} />
             ))}
-            {execution.outputs.length > 3 && <div className="font-mono text-[10px] text-text-faint">+ {execution.outputs.length - 3} outputs，展开查看</div>}
+            {execution.outputs.length > 3 && <div className="font-mono text-[11px] text-text-faint">+ {execution.outputs.length - 3} outputs，展开查看</div>}
           </div>
         )}
       </div>
@@ -250,14 +246,14 @@ function ExecutionBlock({ execution }: { readonly execution: ExecutionEvidenceRo
 }
 
 function OriginBadge({ origin }: { readonly origin: ExecutionEvidenceRow["origin"] }) {
-  if (origin === "native") return <span className="inline-flex items-center gap-1 rounded border border-success/30 bg-success/10 px-1.5 py-0.5 font-mono text-[10px] text-success"><Lightning weight="bold" />原生</span>;
-  if (origin === "archival") return <span className="inline-flex items-center gap-1 rounded border border-stale/30 bg-stale/10 px-1.5 py-0.5 font-mono text-[10px] text-stale"><Package weight="bold" />归档</span>;
-  return <span className="inline-flex items-center gap-1 rounded border border-status-unknown/30 px-1.5 py-0.5 font-mono text-[10px] text-status-unknown"><WarningCircle weight="bold" />{field(origin)}</span>;
+  if (origin === "native") return <span className="inline-flex items-center gap-1 rounded border border-success/30 bg-success/10 px-1.5 py-0.5 font-mono text-[11px] text-success"><Lightning weight="bold" />原生</span>;
+  if (origin === "archival") return <span className="inline-flex items-center gap-1 rounded border border-stale/30 bg-stale/10 px-1.5 py-0.5 font-mono text-[11px] text-stale"><Package weight="bold" />归档</span>;
+  return <span className="inline-flex items-center gap-1 rounded border border-status-unknown/30 px-1.5 py-0.5 font-mono text-[11px] text-status-unknown"><WarningCircle weight="bold" />{field(origin)}</span>;
 }
 
 function OutputSummary({ output }: { readonly output: ExecutionEvidenceOutput }) {
   return (
-    <div className="grid gap-x-3 gap-y-0.5 rounded border border-border/70 bg-surface-raised/35 px-2 py-1.5 font-mono text-[10px] md:grid-cols-[minmax(11rem,0.8fr)_minmax(14rem,1.4fr)_minmax(10rem,0.8fr)]">
+    <div className="grid gap-x-3 gap-y-0.5 rounded border border-border/70 bg-surface-raised/35 px-2 py-1.5 font-mono text-[11px] md:grid-cols-[minmax(11rem,0.8fr)_minmax(14rem,1.4fr)_minmax(10rem,0.8fr)]">
       <span className="truncate text-text">{field(output.evidenceId)}</span>
       <span className="truncate text-text-muted">{field(output.substrate)} · {field(output.locator)}</span>
       <span className={output.isPassingReceipt ? "text-success" : output.checkerReceiptRef === null ? "text-stale" : "text-status-unknown"}>
@@ -291,7 +287,7 @@ function WitnessPanel({ execution }: { readonly execution: ExecutionEvidenceRow 
         <WarningCircle weight="bold" />
         <strong>execution-level witnesses · 不等同 output receipt</strong>
       </div>
-      <div className="mt-2 grid gap-2 font-mono text-[10px] text-text-muted md:grid-cols-3">
+      <div className="mt-2 grid gap-2 font-mono text-[11px] text-text-muted md:grid-cols-3">
         <WitnessList label="reviews · snapshot-validated" values={execution.reviews.map((item) => `${item.reviewId} · ${item.verdict}`)} />
         <WitnessList label={`consents · ${execution.witnessAvailability.consents}`} values={execution.consents.map((item) => `${item.consentId} → ${item.reviewId}`)} />
         <WitnessList label={`gate · ${execution.witnessAvailability.gateWitnesses}`} values={execution.gateWitnesses.map((item) => `${item.gateId} · ${item.receiptId} · ${item.result}`)} />
@@ -312,12 +308,13 @@ function PageControls({ pageNumber, totalPages, hasPrevious, hasNext, disabled, 
   readonly pageNumber: number; readonly totalPages: number; readonly hasPrevious: boolean; readonly hasNext: boolean; readonly disabled: boolean;
   readonly onPrevious: () => void; readonly onNext: () => void; readonly onReload: () => void; readonly onReloadFromFirst: () => void;
 }) {
-  const button = "rounded border border-border px-2.5 py-1 font-mono text-[11px] text-text-muted disabled:cursor-not-allowed disabled:opacity-40";
+  const button = "rounded-md border border-border bg-surface px-2.5 py-1 font-mono text-[11px] text-text-muted transition-colors duration-100 hover:border-border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:text-text-muted";
   return (
     <nav aria-label="execution evidence 分页" className="flex flex-wrap items-center justify-center gap-2 border-t border-border bg-surface px-4 py-2">
       <button type="button" className={button} disabled={disabled || !hasPrevious} onClick={onPrevious}>上一页</button>
-      <span className="min-w-20 text-center font-mono text-[11px] text-text-faint">第 {pageNumber} / {totalPages} 页</span>
+      <span className="min-w-20 text-center font-mono text-[11px] tabular-nums text-text-faint">第 {pageNumber} / {totalPages} 页</span>
       <button type="button" className={button} disabled={disabled || !hasNext} onClick={onNext}>下一页</button>
+      <span className="mx-1 hidden h-4 w-px bg-border sm:block" aria-hidden="true" />
       <button type="button" className={button} disabled={disabled} onClick={onReload}>reload 当前 query</button>
       <button type="button" className={button} disabled={disabled} onClick={onReloadFromFirst}>从第一页重新加载</button>
     </nav>
@@ -325,20 +322,21 @@ function PageControls({ pageNumber, totalPages, hasPrevious, hasNext, disabled, 
 }
 
 function ErrorState({ error, onReload, onReloadFromFirst }: { readonly error: unknown; readonly onReload: () => void; readonly onReloadFromFirst: () => void }) {
+  const button = "rounded-md border border-danger/40 px-3 py-1.5 font-mono text-[11px] text-danger transition-colors duration-100 hover:bg-danger/10";
   return (
-    <div className="rounded-lg border border-danger/40 bg-danger/5 px-4 py-8 text-center text-[13px] text-danger">
-      <WarningCircle weight="duotone" className="mx-auto mb-2 text-xl" />
+    <div className="rounded-lg border border-danger/40 bg-danger/5 px-4 py-10 text-center text-[13px] text-danger">
+      <WarningCircle weight="duotone" className="mx-auto mb-2 text-[26px]" />
       <div>读取 execution evidence 失败：{error instanceof Error ? error.message : String(error ?? "unknown")}</div>
       <div className="mt-3 flex justify-center gap-2">
-        <button type="button" className="rounded border border-danger/40 px-3 py-1.5 font-mono text-[11px]" onClick={onReload}>重试当前查询</button>
-        <button type="button" className="rounded border border-danger/40 px-3 py-1.5 font-mono text-[11px]" onClick={onReloadFromFirst}>从第一页重新加载</button>
+        <button type="button" className={button} onClick={onReload}>重试当前查询</button>
+        <button type="button" className={button} onClick={onReloadFromFirst}>从第一页重新加载</button>
       </div>
     </div>
   );
 }
 
 function EmptyState({ children }: { readonly children: string }) {
-  return <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-[13px] text-text-faint">{children}</div>;
+  return <div className="rounded-lg border border-dashed border-border px-4 py-10 text-center text-[13px] leading-relaxed text-text-faint">{children}</div>;
 }
 
 function groupExecutions(executions: readonly ExecutionEvidenceRow[]): TaskEvidenceGroupModel[] {

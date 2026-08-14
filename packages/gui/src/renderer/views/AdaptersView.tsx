@@ -22,7 +22,7 @@ export function AdaptersView({
     <div className="flex flex-1 flex-col overflow-y-auto">
       <header className="border-b border-border px-4 py-3">
         <h1 className="ui-title font-mono font-semibold">引擎 / Adapter</h1>
-        <p className="mt-0.5 text-[11px] text-text-faint">
+        <p className="mt-0.5 text-[12px] leading-relaxed text-text-faint">
           GUI 不直接调外部引擎 API；刷新 = 触发 check 等价调用落缓存。
         </p>
       </header>

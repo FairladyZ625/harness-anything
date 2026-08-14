@@ -30,25 +30,25 @@ export function TaskControlPanel({ task, feedback, onProgress, onSubmit }: {
             : task.canonicalStatus === "active" && !task.activeExecutionId ? "Active task 没有可见 lease，不能追加 progress 或提交 review。" : null;
 
   return <section className="rounded-md border border-border bg-bg/50 p-2.5" data-testid="task-control-panel">
-    <div className="font-mono text-[10px] uppercase tracking-wide text-text-faint">Task control</div>
+    <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">Task control</div>
     {task.blocking && <p className={`mt-1 text-[11px] ${task.blocking === "unknown" ? "text-stale" : task.blocking === "blocked" ? "text-status-blocked" : "text-text-faint"}`}>
       {task.blockingLabel}{task.blockers?.length ? ` · ${task.blockers.length} blocker(s)` : ""}
     </p>}
     {task.blockingWarnings?.map((warning) => <p key={warning} className="mt-1 text-[11px] text-stale">warning: {warning}</p>)}
-    {task.blockers?.map((blocker) => <div key={blocker.relationId} className="mt-1 rounded border border-status-blocked/20 px-2 py-1 font-mono text-[10px] text-text-muted">
+    {task.blockers?.map((blocker) => <div key={blocker.relationId} className="mt-1 rounded border border-status-blocked/20 px-2 py-1 font-mono text-[11px] text-text-muted">
       {blocker.relationId} · {blocker.sourceTaskId} --{blocker.kind}→ {blocker.targetTaskId}
       {blocker.rationale && <p className="mt-0.5 font-sans text-[11px]">{blocker.rationale}</p>}
     </div>)}
     {reason && <p className="mt-2 text-[11px] leading-relaxed text-text-muted">{reason}</p>}
     {task.canonicalStatus === "active" && task.activeExecutionId && task.origin === "native" && task.packageDisposition === "active" && <div className="mt-2 space-y-2">
-      <p className="font-mono text-[10px] text-text-faint">lease · {task.activeExecutionId}</p>
+      <p className="font-mono text-[11px] text-text-faint">lease · {task.activeExecutionId}</p>
       <details className="rounded border border-border bg-surface p-2">
         <summary className="cursor-pointer text-[12px] font-medium text-text">追加 progress</summary>
         <form className="mt-2 space-y-2" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget), evidence = readEvidence(form.get("evidence"));
           if (!evidence) { setLocalError("evidence 每行必须是 type:path:summary"); return; } setLocalError(null); void onProgress?.({ text: String(form.get("text") ?? ""), evidence }); }}>
           <textarea name="text" required placeholder="进展原文" className="min-h-20 w-full rounded border border-border bg-bg px-2 py-1.5 text-[12px] text-text" />
           <textarea name="evidence" placeholder="可选，每行 type:path:summary" className="min-h-16 w-full rounded border border-border bg-bg px-2 py-1.5 font-mono text-[11px] text-text" />
-          <button disabled={pending} className="rounded bg-accent px-2.5 py-1.5 text-[12px] font-semibold text-accent-fg disabled:opacity-50">写入 progress</button>
+          <button disabled={pending} className="rounded-md bg-accent px-2.5 py-1.5 text-[12px] font-semibold text-accent-fg transition-colors duration-100 hover:bg-accent/85 disabled:opacity-50">写入 progress</button>
         </form>
       </details>
       <details className="rounded border border-border bg-surface p-2">
@@ -60,7 +60,7 @@ export function TaskControlPanel({ task, feedback, onProgress, onSubmit }: {
           <input name="completionClaim" required placeholder="Completion claim" className="w-full rounded border border-border bg-bg px-2 py-1.5 text-[12px] text-text" />
           {(["deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks"] as const).map((name) => <textarea key={name} name={name} required placeholder={`${name} · 每行一项`} className="min-h-14 w-full rounded border border-border bg-bg px-2 py-1.5 text-[11px] text-text" />)}
           <input name="commitSha" required pattern="[0-9a-f]{40}" placeholder="40-char commit SHA" className="w-full rounded border border-border bg-bg px-2 py-1.5 font-mono text-[11px] text-text" />
-          <button disabled={pending} className="rounded bg-accent px-2.5 py-1.5 text-[12px] font-semibold text-accent-fg disabled:opacity-50">原子提交并进入 review</button>
+          <button disabled={pending} className="rounded-md bg-accent px-2.5 py-1.5 text-[12px] font-semibold text-accent-fg transition-colors duration-100 hover:bg-accent/85 disabled:opacity-50">原子提交并进入 review</button>
         </form>
       </details>
     </div>}

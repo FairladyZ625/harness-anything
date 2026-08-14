@@ -73,7 +73,7 @@ export function FactInspector({
       <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
         <GitBranch weight="duotone" className="shrink-0 text-text-muted" />
         <span className="min-w-0 truncate font-mono text-xs text-text-muted">{anchor}</span>
-        <span className="rounded bg-surface-raised px-1.5 py-0.5 text-[10px] text-text-faint">
+        <span className="rounded bg-surface-raised px-1.5 py-0.5 text-[11px] text-text-faint">
           Fact Inspector
         </span>
         {fact && (
@@ -125,11 +125,11 @@ export function FactInspector({
           <>
             <div className="rounded-md border border-stale/30 bg-stale/5 px-2.5 py-3">
               <div className="flex items-center gap-2">
-                <span className="rounded bg-stale px-1.5 py-0.5 font-mono text-[10px] text-stale-fg">
+                <span className="rounded bg-stale px-1.5 py-0.5 font-mono text-[11px] text-stale-fg">
                   {fact.category}
                 </span>
                 <span className="font-mono text-[11px] text-text-faint">{fact.at}</span>
-                <span className="font-mono text-[10px] text-text-faint">confidence {fact.confidence}</span>
+                <span className="font-mono text-[11px] text-text-faint">confidence {fact.confidence}</span>
                 {fact.invalidated && (
                   <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-stale">
                     <WarningCircle weight="bold" />
@@ -142,7 +142,7 @@ export function FactInspector({
             </div>
 
             <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
-              <div className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+              <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
                 所在 task 包
               </div>
               <div className="mt-1 flex items-center gap-2">
@@ -169,7 +169,7 @@ export function FactInspector({
             </div>
 
             <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
-              <div className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+              <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
                 provenance
               </div>
               {fact.provenance?.length ? (
@@ -190,7 +190,7 @@ export function FactInspector({
         )}
 
         <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
-          <div className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+          <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
             入边 relation
           </div>
           {inbound.length === 0 ? (
@@ -201,7 +201,7 @@ export function FactInspector({
                 <div key={`${relation.from}-${relation.kind}-${index}`} className="rounded border border-border bg-surface px-2 py-1.5">
                   <div className="flex items-center gap-1.5 font-mono text-[11px]">
                     <span className="text-text-faint">{shortEndpoint(relation.from)}</span>
-                    <ArrowSquareOut weight="bold" className="text-[10px] text-text-faint" />
+                    <ArrowSquareOut weight="bold" className="text-[11px] text-text-faint" />
                     <span className={
                       relation.kind === "invalidated-by" || relation.kind === "supersedes-fact"
                         ? "text-stale"
@@ -223,7 +223,7 @@ export function FactInspector({
 
         {supportedDecisionIds.length > 0 && (
           <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
-            <div className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+            <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
               支撑的 decision
             </div>
             <div className="mt-1 space-y-1">

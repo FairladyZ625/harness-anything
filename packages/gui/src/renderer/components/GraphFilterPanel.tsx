@@ -196,14 +196,14 @@ export function GraphFilterPanel({
           }`}
         >
           {open ? (
-            <CaretDown weight="bold" className="text-[10px] text-text-faint" />
+            <CaretDown weight="bold" className="text-[11px] text-text-faint" />
           ) : (
-            <CaretRight weight="bold" className="text-[10px] text-text-faint" />
+            <CaretRight weight="bold" className="text-[11px] text-text-faint" />
           )}
           <Funnel weight="duotone" className="text-text-muted" />
           <span className="font-mono text-xs font-semibold text-text">筛选</span>
           {!open && narrowed > 0 && (
-            <span className="rounded-full bg-accent px-1.5 py-0.5 font-mono text-[10px] text-accent-fg">
+            <span className="rounded-full bg-accent px-1.5 py-0.5 font-mono text-[11px] text-accent-fg">
               {narrowed}
             </span>
           )}
@@ -212,7 +212,7 @@ export function GraphFilterPanel({
           type="button"
           onClick={cycleFlow}
           title="边方向流动动画"
-          className={`flex items-center gap-1 border-l border-border px-2.5 py-2 text-[10px] font-mono text-text-muted hover:bg-surface-raised hover:text-text ${
+          className={`flex items-center gap-1 border-l border-border px-2.5 py-2 text-[11px] font-mono text-text-muted hover:bg-surface-raised hover:text-text ${
             open ? "rounded-tr-lg" : "rounded-r-lg"
           }`}
         >
@@ -248,7 +248,7 @@ export function GraphFilterPanel({
                     style={{ backgroundColor: color, opacity: active ? 1 : 0.4 }}
                   />
                   <span className="font-medium">{AXIS_LABEL[axis]}</span>
-                  <span className="ml-auto truncate font-mono text-[9px] text-text-faint">
+                  <span className="ml-auto truncate font-mono text-[11px] text-text-faint">
                     {AXIS_SUBLABEL[axis]}
                   </span>
                 </button>
@@ -266,8 +266,8 @@ export function GraphFilterPanel({
             <GitBranch weight="bold" />
             <span>关系类型</span>
             <span className="ml-auto flex gap-1 normal-case tracking-normal">
-              <button onClick={() => setAllKinds(true)} className="rounded px-1 py-0.5 text-[9px] text-text-faint hover:bg-surface-raised hover:text-text">全</button>
-              <button onClick={() => setAllKinds(false)} className="rounded px-1 py-0.5 text-[9px] text-text-faint hover:bg-surface-raised hover:text-text">无</button>
+              <button onClick={() => setAllKinds(true)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">全</button>
+              <button onClick={() => setAllKinds(false)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">无</button>
             </span>
           </div>
           <div className="flex flex-col gap-2">
@@ -278,7 +278,7 @@ export function GraphFilterPanel({
                 <div key={axis} className="flex flex-col gap-1">
                   <div className="flex items-center gap-1.5">
                     <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: AXIS_COLOR_VAR[axis] }} />
-                    <span className="font-mono text-[9px] uppercase text-text-faint">{AXIS_LABEL[axis]}</span>
+                    <span className="font-mono text-[11px] uppercase text-text-faint">{AXIS_LABEL[axis]}</span>
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {kinds.map((kind) => {
@@ -288,7 +288,7 @@ export function GraphFilterPanel({
                           key={kind}
                           onClick={() => toggleKind(kind)}
                           title={kind}
-                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                          className={`rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ${
                             active
                               ? "border border-border bg-surface-raised text-text"
                               : "border border-border/40 bg-surface text-text-faint opacity-50"
@@ -318,7 +318,7 @@ export function GraphFilterPanel({
                 <button
                   key={mod}
                   onClick={() => toggleModule(mod)}
-                  className={`rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${
+                  className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
                     active
                       ? "border border-accent/30 bg-accent/10 text-accent"
                       : "border border-border bg-surface-raised text-text-muted hover:bg-border/50"
@@ -329,7 +329,7 @@ export function GraphFilterPanel({
               );
             })}
             {availableModules.length === 0 && (
-              <span className="text-[10px] text-text-faint">无模块数据(task.module 未投影)</span>
+              <span className="text-[11px] text-text-faint">无模块数据(task.module 未投影)</span>
             )}
           </div>
         </div>
@@ -347,7 +347,7 @@ export function GraphFilterPanel({
                 <button
                   key={entityType}
                   onClick={() => toggleType(entityType)}
-                  className={`rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${
+                  className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
                     active
                       ? "border border-stale/30 bg-stale/10 text-stale"
                       : "border border-border bg-surface-raised text-text-muted hover:bg-border/50"
@@ -370,7 +370,7 @@ export function GraphFilterPanel({
                 onClick={() =>
                   setFilters((prev) => ({ ...prev, entityStatus: defaultEntityStatusFilter() }))
                 }
-                className="ml-auto rounded px-1 py-0.5 text-[9px] normal-case tracking-normal text-text-faint hover:bg-surface-raised hover:text-text"
+                className="ml-auto rounded px-1 py-0.5 text-[11px] normal-case tracking-normal text-text-faint hover:bg-surface-raised hover:text-text"
               >
                 重置
               </button>
@@ -378,10 +378,10 @@ export function GraphFilterPanel({
           </div>
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-1.5">
-              <span className="font-mono text-[9px] uppercase text-text-faint">task 状态</span>
+              <span className="font-mono text-[11px] uppercase text-text-faint">task 状态</span>
               <span className="ml-auto flex gap-1 normal-case tracking-normal">
-                <button onClick={() => setAllTaskStatuses(true)} className="rounded px-1 py-0.5 text-[9px] text-text-faint hover:bg-surface-raised hover:text-text">全</button>
-                <button onClick={() => setAllTaskStatuses(false)} className="rounded px-1 py-0.5 text-[9px] text-text-faint hover:bg-surface-raised hover:text-text">无</button>
+                <button onClick={() => setAllTaskStatuses(true)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">全</button>
+                <button onClick={() => setAllTaskStatuses(false)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">无</button>
               </span>
             </div>
             <div className="flex flex-wrap gap-1">
@@ -392,7 +392,7 @@ export function GraphFilterPanel({
                     key={status}
                     onClick={() => toggleTaskStatus(status)}
                     title={status}
-                    className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                    className={`rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ${
                       active
                         ? "border border-border bg-surface-raised text-text"
                         : "border border-border/40 bg-surface text-text-faint opacity-50"
@@ -406,7 +406,7 @@ export function GraphFilterPanel({
               <button
                 onClick={() => toggleTaskStatus(OTHER_STATUS_BUCKET)}
                 title="未知状态归此桶"
-                className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                className={`rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ${
                   entityStatus.taskStatuses.has(OTHER_STATUS_BUCKET)
                     ? "border border-border bg-surface-raised text-text"
                     : "border border-border/40 bg-surface text-text-faint opacity-50"
@@ -418,10 +418,10 @@ export function GraphFilterPanel({
           </div>
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-1.5">
-              <span className="font-mono text-[9px] uppercase text-text-faint">decision 状态</span>
+              <span className="font-mono text-[11px] uppercase text-text-faint">decision 状态</span>
               <span className="ml-auto flex gap-1 normal-case tracking-normal">
-                <button onClick={() => setAllDecisionStates(true)} className="rounded px-1 py-0.5 text-[9px] text-text-faint hover:bg-surface-raised hover:text-text">全</button>
-                <button onClick={() => setAllDecisionStates(false)} className="rounded px-1 py-0.5 text-[9px] text-text-faint hover:bg-surface-raised hover:text-text">无</button>
+                <button onClick={() => setAllDecisionStates(true)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">全</button>
+                <button onClick={() => setAllDecisionStates(false)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">无</button>
               </span>
             </div>
             <div className="flex flex-wrap gap-1">
@@ -432,7 +432,7 @@ export function GraphFilterPanel({
                     key={state}
                     onClick={() => toggleDecisionState(state)}
                     title={state}
-                    className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                    className={`rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ${
                       active
                         ? "border border-border bg-surface-raised text-text"
                         : "border border-border/40 bg-surface text-text-faint opacity-50"
@@ -445,7 +445,7 @@ export function GraphFilterPanel({
               <button
                 onClick={() => toggleDecisionState(OTHER_STATUS_BUCKET)}
                 title="未知状态归此桶"
-                className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                className={`rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ${
                   entityStatus.decisionStates.has(OTHER_STATUS_BUCKET)
                     ? "border border-border bg-surface-raised text-text"
                     : "border border-border/40 bg-surface text-text-faint opacity-50"

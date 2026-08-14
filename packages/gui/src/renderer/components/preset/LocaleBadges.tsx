@@ -15,7 +15,7 @@ export function LocaleBadges({
         </span>
       ))}
       {warnMissingZh && !locales.includes("zh-CN") && (
-        <span className="rounded border border-stale/60 px-1.5 py-px text-[10px] text-stale">
+        <span className="rounded border border-stale/60 px-1.5 py-px text-[11px] text-stale">
           缺中文 variant
         </span>
       )}

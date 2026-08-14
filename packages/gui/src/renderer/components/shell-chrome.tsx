@@ -49,17 +49,17 @@ export function NavButton({
 }) {
   return (
     <button
-      onClick={onClick}
-      className={`flex min-w-fit items-center gap-2 rounded-md px-2.5 py-1.5 text-[15px] ${
+      onClick={onClick} title={label}
+      className={`flex min-w-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[15px] leading-snug transition-colors duration-100 ${
         active
-          ? "bg-surface-raised text-text"
+          ? "bg-surface-raised font-medium text-text"
           : "text-text-muted hover:bg-surface-raised/60 hover:text-text"
       }`}
     >
-      <span className="text-base">{icon}</span>
-      {label}
+      <span className="shrink-0 text-base">{icon}</span>
+      <span className="min-w-0 truncate">{label}</span>
       {badge !== undefined && badge > 0 && (
-        <span className="ml-auto rounded bg-accent px-1.5 font-mono text-[11px] font-semibold text-accent-fg">
+        <span className="ml-auto shrink-0 rounded bg-accent px-1.5 font-mono text-[11px] font-semibold tabular-nums text-accent-fg">
           {badge}
         </span>
       )}
@@ -86,7 +86,7 @@ export function ProjectSummary({
   return (
     <button
       onClick={onOpen}
-      className={`flex w-full items-start gap-2 rounded-md border px-2.5 py-2 text-left ${
+      className={`flex w-full items-start gap-2 rounded-md border px-2.5 py-2 text-left transition-colors duration-100 ${
         active
           ? "border-accent/70 bg-accent/10"
           : "border-border bg-surface hover:border-border-strong hover:bg-surface-raised"
@@ -102,7 +102,7 @@ export function ProjectSummary({
         <span className="block truncate font-mono text-[13px] text-text-faint">
           {project.preset} · {projectTasks.length} tasks
         </span>
-        <span className="mt-1 flex flex-wrap gap-1.5 font-mono text-[12px]">
+        <span className="mt-1 flex flex-wrap gap-1.5 font-mono text-[12px] tabular-nums">
           <span className="text-accent">{review} review</span>
           <span className={blocked > 0 ? "text-status-blocked" : "text-text-faint"}>
             {blocked} blocked

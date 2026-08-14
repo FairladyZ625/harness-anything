@@ -122,7 +122,7 @@ export function SettingsView() {
                   {s.keys.map((k, i) => (
                     <span key={k} className="inline-flex items-center gap-1">
                       {i > 0 && (
-                        <span className="text-[10px] text-text-faint">–</span>
+                        <span className="text-[11px] text-text-faint">–</span>
                       )}
                       <Kbd>{k}</Kbd>
                     </span>

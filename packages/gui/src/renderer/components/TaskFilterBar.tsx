@@ -49,7 +49,7 @@ function Select<T extends string>({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value as T)}
-        className="rounded-md border border-border bg-surface-raised px-2 py-1.5 text-[13px] text-text outline-none focus:border-border-strong"
+        className="rounded-md border border-border bg-surface-raised px-2 py-1.5 text-[13px] text-text outline-none transition-colors duration-100 hover:border-border-strong focus:border-border-strong"
       >
         {values.map((item) => (
           <option key={item} value={item}>
@@ -215,7 +215,7 @@ export function TaskFilterBar({
           role="switch"
           aria-checked={filters.includeArchived}
           onClick={() => patch({ includeArchived: !filters.includeArchived })}
-          className={`rounded-md border px-3 py-1.5 text-[13px] ${
+          className={`rounded-md border px-3 py-1.5 text-[13px] transition-colors duration-100 ${
             filters.includeArchived
               ? "border-border-strong bg-surface-raised text-text"
               : "border-border text-text-muted hover:bg-surface-raised"
@@ -230,7 +230,7 @@ export function TaskFilterBar({
             role="switch"
             aria-checked={filters.favoritesOnly}
             onClick={() => patch({ favoritesOnly: !filters.favoritesOnly })}
-            className={`inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-[13px] ${
+            className={`inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-[13px] transition-colors duration-100 ${
               filters.favoritesOnly
                 ? "border-accent bg-accent/10 text-accent"
                 : "border-border text-text-muted hover:bg-surface-raised"
@@ -245,7 +245,7 @@ export function TaskFilterBar({
         {active && (
           <button
             onClick={() => onChange(DEFAULT_TASK_FILTERS)}
-            className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-[13px] text-text-muted hover:bg-surface-raised hover:text-text"
+            className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-[13px] text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text"
           >
             <X weight="bold" />
             清除

@@ -31,7 +31,7 @@ export function ParticipantsSidebar({
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <ListChecks weight="duotone" className="text-text-muted" />
         <span className="font-mono text-[11px] font-semibold text-text">参与者</span>
-        <span className="ml-auto font-mono text-[10px] text-text-faint">
+        <span className="ml-auto font-mono text-[11px] text-text-faint">
           {participants.length}
         </span>
       </div>
@@ -61,9 +61,9 @@ export function ParticipantsSidebar({
               <span className="line-clamp-2 text-[11px] font-medium text-text">{d.title}</span>
               <div className="flex items-center gap-1.5">
                 <DecisionStateBadge state={d.state} />
-                <span className="font-mono text-[9px] text-text-faint">{dayKeyOf(d)}</span>
+                <span className="font-mono text-[11px] text-text-faint">{dayKeyOf(d)}</span>
                 {size > 0 && (
-                  <span className="ml-auto rounded bg-surface px-1 font-mono text-[9px] text-text-faint">
+                  <span className="ml-auto rounded bg-surface px-1 font-mono text-[11px] text-text-faint">
                     ±{size}
                   </span>
                 )}

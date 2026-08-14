@@ -29,14 +29,14 @@ export function AdapterContextRail({
       </div>
 
       <div className="mt-3 border-b border-border pb-3">
-        <div className="text-[10px] text-text-faint">刷新语义</div>
+        <div className="text-[11px] text-text-faint">刷新语义</div>
         <div className="mt-1 text-[11px] text-text-muted">
           GUI 只触发 check 等价调用并读取缓存；外部状态仍由原引擎管理。
         </div>
       </div>
 
       <div className="border-b border-border py-3">
-        <div className="text-[10px] text-text-faint">当前焦点</div>
+        <div className="text-[11px] text-text-faint">当前焦点</div>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <span className="text-[13px] font-semibold text-text">{focusedAdapter.displayName}</span>
           <span className={CHIP}>{focusedAdapter.engine}</span>
@@ -59,11 +59,11 @@ export function AdapterContextRail({
         <div className="grid grid-cols-2 gap-2">
           <div>
             <div className="font-mono text-[17px] font-semibold text-text">{focusedAdapter.boundCount}</div>
-            <div className="text-[10px] text-text-faint">绑定任务</div>
+            <div className="text-[11px] text-text-faint">绑定任务</div>
           </div>
           <div>
             <div className="font-mono text-[17px] font-semibold text-text">{projectedCount}</div>
-            <div className="text-[10px] text-text-faint">投影内</div>
+            <div className="text-[11px] text-text-faint">投影内</div>
           </div>
         </div>
         <div className="mt-2 text-[11px] text-text-muted">
@@ -75,41 +75,41 @@ export function AdapterContextRail({
         <div className="grid grid-cols-3 gap-2">
           <div>
             <div className="font-mono text-[16px] font-semibold text-text">{connectedCount}/{adapters.length}</div>
-            <div className="text-[10px] text-text-faint">connected</div>
+            <div className="text-[11px] text-text-faint">connected</div>
           </div>
           <div>
             <div className="font-mono text-[16px] font-semibold text-stale">{staleCount}</div>
-            <div className="text-[10px] text-text-faint">stale</div>
+            <div className="text-[11px] text-text-faint">stale</div>
           </div>
           <div>
             <div className="font-mono text-[16px] font-semibold text-danger">{unmappedTotal}</div>
-            <div className="text-[10px] text-text-faint">unmapped</div>
+            <div className="text-[11px] text-text-faint">unmapped</div>
           </div>
         </div>
       </div>
 
       <div className="border-b border-border py-3">
-        <div className="text-[10px] text-text-faint">映射覆盖</div>
+        <div className="text-[11px] text-text-faint">映射覆盖</div>
         <div className="mt-1.5 flex flex-col gap-1.5">
           {focusedAdapter.mapping.length > 0 ? (
             focusedAdapter.mapping.slice(0, 4).map((m) => (
               <div key={m.raw} className="flex min-w-0 items-center gap-1.5">
-                <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-text-muted">{m.raw}</span>
-                <span className="text-[10px] text-text-faint">→</span>
-                <span className="font-mono text-[10px] text-text">{m.canonical}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-muted">{m.raw}</span>
+                <span className="text-[11px] text-text-faint">→</span>
+                <span className="font-mono text-[11px] text-text">{m.canonical}</span>
               </div>
             ))
           ) : (
             <span className="text-[11px] text-text-faint">本地引擎无需映射</span>
           )}
           {focusedAdapter.mapping.length > 4 && (
-            <div className="text-[10px] text-text-faint">+{focusedAdapter.mapping.length - 4} more mappings</div>
+            <div className="text-[11px] text-text-faint">+{focusedAdapter.mapping.length - 4} more mappings</div>
           )}
         </div>
       </div>
 
       <div className="pt-3">
-        <div className="text-[10px] text-text-faint">外部引擎</div>
+        <div className="text-[11px] text-text-faint">外部引擎</div>
         <div className="mt-1.5 flex flex-col gap-1">
           {externalAdapters.map((a) => (
             <div key={a.engine} className="flex items-center gap-2 text-[11px]">

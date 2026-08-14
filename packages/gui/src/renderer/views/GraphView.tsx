@@ -516,7 +516,7 @@ function GraphViewInner({
                     const all = new Set(territory?.zones.map((z) => z.zoneId) ?? []);
                     setCollapsedZones((cur) => (cur.size === all.size ? new Set() : all));
                   }}
-                  className="rounded px-1 font-mono text-[10px] hover:bg-surface"
+                  className="rounded px-1 font-mono text-[11px] hover:bg-surface"
                 >
                   {territory && collapsedZones.size === territory.zones.length ? "全部展开" : "全部折叠"}
                 </button>

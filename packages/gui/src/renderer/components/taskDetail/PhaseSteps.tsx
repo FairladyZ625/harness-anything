@@ -21,7 +21,7 @@ export function PhaseSteps({ status }: { status: SnapshotStatus }) {
             <span className={`h-px min-w-1 flex-1 ${i <= idx ? "bg-accent" : "bg-border"}`} />
           )}
           <span
-            className={`rounded px-1 py-0.5 font-mono text-[9px] ${
+            className={`rounded px-1 py-0.5 font-mono text-[11px] ${
               i === idx
                 ? "bg-accent font-semibold text-accent-fg"
                 : i < idx

@@ -41,7 +41,7 @@ export function RelationRow({
 
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-[11px]">
-      <span className="shrink-0 rounded bg-surface-raised px-1 py-px text-[10px] text-text-muted">
+      <span className="shrink-0 rounded bg-surface-raised px-1 py-px text-[11px] text-text-muted">
         {label}
       </span>
       {clickable ? (

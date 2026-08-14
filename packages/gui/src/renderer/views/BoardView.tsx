@@ -73,7 +73,7 @@ function Card({
       <div className="flex items-center gap-2">
         <EngineBadge engine={task.engine} locked={external} />
         {archived && (
-          <span className="ml-auto inline-flex items-center gap-1 font-mono text-[10px] text-text-faint">
+          <span className="ml-auto inline-flex items-center gap-1 font-mono text-[11px] text-text-faint">
             <Archive weight="bold" />
             {task.packageDisposition}
           </span>
@@ -98,8 +98,8 @@ function Card({
       </div>
       <p className="mt-1.5 text-[15px] leading-snug text-text">{task.title}</p>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {task.coordinationStatus === "blocked" && task.canonicalStatus && <span className="rounded border border-status-blocked/30 px-1 font-mono text-[10px] text-status-blocked">canonical {task.canonicalStatus}</span>}
-        {task.blocking === "unknown" && <span className="rounded border border-stale/30 px-1 text-[10px] text-stale">阻塞关系未能确定</span>}
+        {task.coordinationStatus === "blocked" && task.canonicalStatus && <span className="rounded border border-status-blocked/30 px-1 font-mono text-[11px] text-status-blocked">canonical {task.canonicalStatus}</span>}
+        {task.blocking === "unknown" && <span className="rounded border border-stale/30 px-1 text-[11px] text-stale">阻塞关系未能确定</span>}
         {spawningDecision && <DecisionSourceBadge decisionId={spawningDecision} compact />}
         <CloseoutBadge value={task.closeoutReadiness} />
         <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
@@ -318,7 +318,7 @@ export function BoardView({
         </span>
         {layout !== "list" && (
           <div className="ml-auto flex items-center gap-1.5">
-            <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+            <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
               分组维度
             </span>
             <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
