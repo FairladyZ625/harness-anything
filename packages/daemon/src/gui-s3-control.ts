@@ -7,7 +7,9 @@ export interface TerminalControlReceipt extends JsonObject { readonly schema: "t
 export interface TerminalSessionRow extends JsonObject { readonly sessionId: string; readonly repoId: string; readonly name: string; readonly cwd: string; readonly shellProfile: string; readonly status: "running" | "exited"; readonly createdAt: string; readonly lastActivityAt: string; readonly exitCode: number | null; readonly outputSeq: number; readonly durability: "daemon-process" }
 export interface TerminalAttachSubscription { readonly initial: JsonObject; readonly next: () => Promise<JsonObject | null>; readonly detach: () => void }
 
-type Rule = "string" | "number" | "boolean" | "null-string" | "null-number" | "array" | "object" | "nullable-object";
+export class GuiS3ContractError extends Error { readonly code = "invalid_result"; constructor(message: string) { super(message); this.name = "GuiS3ContractError"; } }
+
+type Rule = "string" | "any-string" | "number" | "boolean" | "null-string" | "null-number" | "array" | "object" | "nullable-object";
 const record = (value: unknown): value is JsonObject => isJsonObject(value);
 const hasSensitiveKey = (value: unknown): boolean => {
   if (Array.isArray(value)) return value.some(hasSensitiveKey);
@@ -22,7 +24,7 @@ function closed(value: unknown, fields: Readonly<Record<string, Rule>>, label: s
   for (const [key, rule] of Object.entries(fields)) {
     const item = value[key];
     if (rule === "null-string" && (item === null || typeof item === "string") || rule === "null-number" && (item === null || typeof item === "number") || rule === "nullable-object" && (item === null || record(item))) continue;
-    const expected = rule === "array" ? Array.isArray(item) : rule === "object" ? record(item) : typeof item === rule;
+    const expected = rule === "array" ? Array.isArray(item) : rule === "object" ? record(item) : rule === "any-string" ? typeof item === "string" : typeof item === rule;
     if (!expected || rule === "string" && item === "") errors.push(`${label}.${key} must be ${rule}`);
   }
   return errors;
@@ -62,5 +64,10 @@ export function validateTerminalControlReceipt(value: unknown): readonly string[
 export function validateTerminalInputAck(value: unknown): readonly string[] { const errors = closed(value, { schema: "string", ok: "boolean", sessionId: "string", acceptedThrough: "number" }, "terminal input ack"); if (record(value) && (value.schema !== "terminal-input-ack/v1" || !integer(value.acceptedThrough))) errors.push("terminal input ack schema is invalid"); return errors; }
 export function validateTerminalDetachAck(value: unknown): readonly string[] { const errors = closed(value, { schema: "string", ok: "boolean", sessionId: "string", attachmentId: "string", state: "string" }, "terminal detach ack"); if (record(value) && (value.schema !== "terminal-detach-ack/v1" || value.state !== "detached")) errors.push("terminal detach ack schema is invalid"); return errors; }
 export function validateTerminalAttach(value: unknown): readonly string[] { const errors = closed(value, { schema: "string", ok: "boolean", sessionId: "string", attachmentId: "string", daemonGeneration: "number", status: "string", replayFromSeq: "number", outputSeq: "number" }, "terminal attach"); if (record(value) && (value.schema !== "terminal-attach/v1" || !['attached', 'gap'].includes(String(value.status)) || !integer(value.daemonGeneration) || !integer(value.replayFromSeq) || !integer(value.outputSeq))) errors.push("terminal attach schema is invalid"); return errors; }
-export function validateTerminalAttachEvent(value: unknown): readonly string[] { const errors = closed(value, { schema: "string", sessionId: "string", seq: "number", kind: "string", utf8: "string", droppedThrough: "null-number", occurredAt: "string" }, "terminal attach event"); if (record(value) && (value.schema !== "terminal-attach-event/v1" || !["output", "gap", "exit"].includes(String(value.kind)) || !integer(value.seq) || value.droppedThrough !== null && !integer(value.droppedThrough))) errors.push("terminal attach event identity is invalid"); return errors; }
+export function validateTerminalAttachEvent(value: unknown): readonly string[] { const errors = closed(value, { schema: "string", sessionId: "string", seq: "number", kind: "string", utf8: "any-string", droppedThrough: "null-number", occurredAt: "string" }, "terminal attach event"); if (record(value) && (value.schema !== "terminal-attach-event/v1" || !["output", "gap", "exit"].includes(String(value.kind)) || !integer(value.seq) || value.droppedThrough !== null && !integer(value.droppedThrough))) errors.push("terminal attach event identity is invalid"); return errors; }
+type ResultValidator = (value: unknown) => readonly string[];
+function write<T>(value: T, validate: ResultValidator): T { const errors = validate(value); if (errors.length) throw new GuiS3ContractError(errors.join("; ")); return value; }
+export const writeSystemStatus = <T>(value: T): T => write(value, validateSystemStatus), writeDaemonControlReceipt = <T>(value: T): T => write(value, validateDaemonControlReceipt), writeCatalogSnapshot = <T>(value: T): T => write(value, validateCatalogSnapshot), writeCatalogPreset = <T>(value: T): T => write(value, validateCatalogPreset);
+export const writeCatalogRereadReceipt = <T>(value: T): T => write(value, validateCatalogRereadReceipt), writeRuntimeCredentialReceipt = <T>(value: T): T => write(value, validateRuntimeCredentialReceipt), writeTerminalSessionList = <T>(value: T): T => write(value, validateTerminalSessionList), writeTerminalControlReceipt = <T>(value: T): T => write(value, validateTerminalControlReceipt);
+export const writeTerminalInputAck = <T>(value: T): T => write(value, validateTerminalInputAck), writeTerminalDetachAck = <T>(value: T): T => write(value, validateTerminalDetachAck), writeTerminalAttach = <T>(value: T): T => write(value, validateTerminalAttach), writeTerminalAttachEvent = <T>(value: T): T => write(value, validateTerminalAttachEvent);
 export function rejectSecretKeys(value: unknown): readonly string[] { return hasSensitiveKey(value) ? ["payload contains a forbidden secret-like key"] : []; }
