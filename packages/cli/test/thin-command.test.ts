@@ -8,7 +8,7 @@ import { deriveCliCapabilities, parseThinCommand, renderThinHelp } from "../src/
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 76);
+  assert.equal(thinCliCommands.length, 80);
   for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))].filter((value): value is string => value !== undefined).sort()) assert.match(help, new RegExp(`^  ${domain} \\(`, "mu"));
   assert.doesNotMatch(help, /ha task start <task-id>/u);
   const taskHelp = renderThinHelp([], "task");
@@ -33,6 +33,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     preset: ["preset-audit", "preset-check", "preset-inspect", "preset-install", "preset-list", "preset-seed", "preset-uninstall", "preset-upgrade", "preset-validate"],
     receipt: ["receipt-show"],
     relation: ["relation-list"],
+    runtime: ["runtime-instance-create", "runtime-instance-delete", "runtime-instance-list", "runtime-instance-show"],
     script: ["preset-run-start", "script-inspect", "script-list", "script-run"],
     task: ["task-amend", "task-archive", "task-artifact-add", "task-code-doc-reconcile", "task-complete", "task-contract-migrate", "task-create", "task-delete", "task-list", "task-progress-append", "task-relate", "task-release", "task-reopen", "task-review", "task-review-consent", "task-review-execution", "task-show", "task-start", "task-submit", "task-supersede", "task-transition"],
     template: ["template-list", "template-render"],

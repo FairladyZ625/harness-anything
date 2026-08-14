@@ -38,6 +38,11 @@ test("runtime Slice B fixture classifies dedicated and shared registry paths int
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
 
+test("runtime instances Slice 1 fixture bills the instance store and shared seams to their production buckets", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/runtime-instances-s1-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});
+
 test("preset Slice A fixture classifies canonical and shared paths into their ratcheted buckets", () => {
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/preset-slice-a-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);

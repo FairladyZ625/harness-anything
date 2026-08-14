@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { secureRuntimeBaseUrl } from "./agent-runtime-instances.ts";
 import { writeRuntimeCredentialReceipt, type RuntimeCredentialReceipt } from "./gui-s3-control.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 
@@ -15,6 +16,6 @@ export function openRuntimeCredentialBindings(input: { readonly userRoot: string
   function persist(bindings: readonly RuntimeCredentialBinding[]): void { mkdirSync(input.userRoot, { recursive: true }); const temp = `${target}.${process.pid}.tmp`; writeFileSync(temp, `${JSON.stringify({ schema: "runtime-credential-bindings/v1", bindings: [...bindings].sort((a, b) => a.kindId.localeCompare(b.kindId)) }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 }); renameSync(temp, target); }
 }
 function runtimeKind(value: unknown): "claude" | "codex" { if (value === "claude" || value === "codex") return value; throw coded("invalid_credential_binding", "kindId must be claude or codex."); }
-function secureUrl(value: unknown): string { const text = required(value, "baseUrl"); let parsed: URL; try { parsed = new URL(text); } catch { throw coded("invalid_base_url", "baseUrl must be an absolute HTTPS URL."); } if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && ["127.0.0.1", "localhost"].includes(parsed.hostname))) throw coded("invalid_base_url", "baseUrl must use HTTPS, except loopback development endpoints."); return parsed.toString(); }
+const secureUrl = secureRuntimeBaseUrl;
 function required(value: unknown, field: string): string { if (typeof value === "string" && value.length) return value; throw coded("invalid_credential_binding", `${field} is required.`); }
 function coded(code: string, message: string): Error { return Object.assign(new Error(message), { code }); }

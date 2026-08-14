@@ -1,5 +1,4 @@
-import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
-import { canonicalRoot, workspaceId } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts"; import { canonicalRoot, workspaceId } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 
@@ -10,6 +9,7 @@ export async function runCommandThroughDaemon(command: ThinCommand, onPhase: (re
   const { requestLocalDaemonJsonRpcForTarget } = await import("../../../daemon/src/client/local-json-rpc-client.ts");
   if (command.action.kind === "repo-bootstrap") { const userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), { kind: _kind, ...params } = command.action; return requestLocalDaemonJsonRpcForTarget({ repoId: workspaceId("bootstrap"),
     canonicalRoot: canonicalRoot(command.rootDir, true), userRoot, daemonId, socketPath: localUserDaemonEndpoint(userRoot, daemonId) }, "daemon.repo.bootstrap", { rootDir: command.rootDir, ...params }, 75); }
+  if (command.method.startsWith("daemon.runtimeInstance.")) { const userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), { kind: _kind, ...payload } = command.action; return requestLocalDaemonJsonRpcForTarget({ userRoot, daemonId, socketPath: localUserDaemonEndpoint(userRoot, daemonId) }, command.method, { payload: payload as JsonObject }, 75); }
   const target = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId });
   const { kind: _kind, ...actionPayload } = command.action, payload = command.method === "repo.script.run" ? Object.fromEntries(Object.entries(actionPayload).filter(([field, value]) => field !== "schema" && (field !== "taskId" || value !== null))) : actionPayload;
   let result = await requestLocalDaemonJsonRpcForTarget(target, command.method, { repo: { repoId: target.repoId }, payload: command.method === "repo.task.run" ? { action: command.action as JsonObject } : payload as JsonObject }, 75);

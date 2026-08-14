@@ -17,6 +17,7 @@ import type { FleetAssignmentScope } from "./fleet/contract.ts";
 import { openReplicaCutSource, type ReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import { runVerticalScriptAction } from "./vertical-script-actions.ts";
 import { makeRuntimeSpawner, type RuntimeLauncher } from "./runtime-spawn.ts";
+import type { RuntimeInstallationWitness } from "./agent-runtime-instances.ts";
 import type { RuntimeCredentialBinding } from "./runtime-credentials.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
@@ -34,6 +35,7 @@ const leaseTtlMs = 30 * 60 * 1_000; type Snapshot = Awaited<ReturnType<ReturnTyp
 export async function openRepoCell(input: { readonly repoId: WorkspaceId; readonly rootDir: CanonicalRoot; readonly ownerId: string;
   readonly authoredBranch?: string;
   readonly runtimeLaunch?: RuntimeLauncher;
+  readonly runtimeInstallation?: (installationId: string) => RuntimeInstallationWitness | null;
   readonly runtimeCredential?: (kindId: "claude" | "codex") => RuntimeCredentialBinding | null;
   readonly bootstrap?: RepoBootstrapInput; readonly onBootstrap?: (receipt: RepoBootstrapReceipt) => void;
   readonly now?: () => string; readonly killpoint?: (point: EventPublicationKillpoint) => void }): Promise<RepoCell> {
@@ -50,7 +52,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
   let lastError: string | null = state === "attached" ? null : `startup recovery ${recovery.status} after ${recovery.elapsedMs.toFixed(3)}ms`;
   let queueDepth = 0, tail = Promise.resolve();
   const schedule = (work: () => void): void => { queueDepth += 1; const pending = tail.then(() => { queueDepth -= 1; if (state === "attached") work(); }); tail = pending.then(() => undefined, () => undefined); void pending.then(() => replica.kick(), () => replica.kick()); };
-  const runtimeSpawner = makeRuntimeSpawner({ repoId: input.repoId, rootDir, daemonGeneration: generation, store, projection, now, schedule, ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}), ...(input.runtimeCredential ? { credential: input.runtimeCredential } : {}) });
+  const runtimeSpawner = makeRuntimeSpawner({ repoId: input.repoId, rootDir, daemonGeneration: generation, store, projection, now, schedule, ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}), ...(input.runtimeInstallation ? { installation: input.runtimeInstallation } : {}), ...(input.runtimeCredential ? { credential: input.runtimeCredential } : {}) });
   const catalog = openGuiCatalog({ repoId: input.repoId, rootDir, now }), terminal = openTerminalHost({ repoId: input.repoId, rootDir, daemonGeneration: generation, now });
   const run = (action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> => {
     if (state !== "attached") return Promise.resolve(rejected(operationId(action, binding, input.repoId, 0), "repo_unavailable", lastError ?? "RepoCell is unavailable."));
