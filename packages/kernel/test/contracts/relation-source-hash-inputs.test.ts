@@ -52,7 +52,7 @@ test("event-backed Decision relations are absent from Markdown freshness inputs"
   withTempStore((rootDir) => {
     const before = readMarkdownSource({ rootDir }).hash;
     mkdirSync(path.join(rootDir, "harness/decisions/decision-dec_SOURCE"), { recursive: true });
-    writeFileSync(path.join(rootDir, "harness/decisions/decision-dec_SOURCE/decision-body.md"), "body only\n");
+    writeFileSync(path.join(rootDir, "harness/decisions/decision-dec_SOURCE/decision.md"), "canonical authored Decision\n");
     assert.equal(readMarkdownSource({ rootDir }).hash, before);
     assert.deepEqual(readRelationGraphSourceHashInputKinds({ rootDir }), []);
   });

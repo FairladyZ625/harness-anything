@@ -45,7 +45,7 @@ test("Decision CLI maps every canonical command and keeps the five local error c
     fulfill = parseThinCommand(["decision", "claim", "fulfill", "dec_1", "--id", "C1", "--mode", "evidenced"]),
     relate = parseThinCommand(["decision", "relate", "dec_1", "--anchor", "C1", "--type", "evidenced-by", "--target", "fact/task-1/F-ABCDEFGH", "--rationale", "Observed"]),
     retireRelation = parseThinCommand(["decision", "relation", "retire", "dec_1", "--relation", "rel_0123456789abcdef", "--reason", "Stale"]),
-    reckon = parseThinCommand(["decision", "reckon", "dec_1", "--task", "task-1"]), search = parseThinCommand(["decision", "search", "Canonical", "--state", "accepted"]), show = parseThinCommand(["decision", "show", "dec_1", "--include-body"]);
+    reckon = parseThinCommand(["decision", "reckon", "dec_1", "--task", "task-1"]), search = parseThinCommand(["decision", "search", "Canonical", "--state", "active"]), show = parseThinCommand(["decision", "show", "dec_1", "--include-body"]);
   assert.equal([propose, accept, claim, fulfill, relate, retireRelation, reckon, search, show].every((result) => result.ok), true);
   if (propose.ok) assert.deepEqual(propose.command.action, { kind: "decision-propose", title: "Canonical", question: "Should events own this Decision?", riskTier: "medium", urgency: "medium", vertical: "default", preset: "default", decisionClass: "ordinary", appliesTo: { modules: ["kernel"], productLines: [] }, chosen: [{ id: "CH1", text: "Use events" }], rejected: [{ id: "RJ1", text: "Use files", whyNot: "Not canonical" }] });
   if (show.ok) assert.deepEqual(show.command.action, { kind: "decision-show", decisionId: "dec_1", includeBody: true });

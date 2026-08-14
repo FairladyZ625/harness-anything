@@ -166,7 +166,7 @@ function decisionClaim(
 }
 
 function decisionState(value: string): DecisionState {
-  if (value === "accepted") return "active"; if (value === "proposed" || value === "rejected" || value === "deferred" || value === "active" || value === "retired") return value;
+  if (value === "proposed" || value === "rejected" || value === "deferred" || value === "active" || value === "retired") return value;
   return "proposed";
 }
 function actorRef(value: DecisionProjectionRow["proposer"]): { readonly kind: "agent" | "human"; readonly id: string } { return value.executor ? { kind: "agent", id: value.executor.id } : { kind: "human", id: value.principal.personId }; }

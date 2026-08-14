@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -48,23 +48,23 @@ test("local selection and assignment claim normalize to the same doc event throu
   } finally { await local.close(); await remote.close(); }
 });
 
-test("Decision body is an explicit idempotent doc-sync join with exact reachable bytes", async () => {
+test("Decision prose is an explicit idempotent doc-sync region in the canonical authored document", async () => {
   const fixture = await docCell("decision-body");
   try {
     await startLease(fixture.cell, "local"); const binding = { actor, source: "local" as const };
     const proposed = await fixture.cell.run({ kind: "decision-propose", title: "Body join", question: "Should the body remain doc-sync owned?", riskTier: "medium", urgency: "medium", vertical: "default", preset: "default", decisionClass: "ordinary", appliesTo: { modules: ["daemon"], productLines: [] }, chosen: [{ id: "CH1", text: "Use doc-sync" }], rejected: [{ id: "RJ1", text: "Inline body", whyNot: "It duplicates content storage" }] }, binding);
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed)); const decisionId = (JSON.parse(proposed.evidence) as { decisionId: string }).decisionId;
-    const empty = JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence) as { decision: { body: unknown } }; assert.equal(empty.decision.body, null);
-    const relativePath = `decisions/${decisionId}/decision-body.md`, firstBody = "# Decision body\n\nFirst paragraph.\n", firstHash = sha(firstBody); writeAuthored(fixture.rootDir, relativePath, firstBody);
+    const relativePath = `decisions/decision-${decisionId}/decision.md`, initial = JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence) as { decision: { body: { body: string } } }; assert.equal(initial.decision.body.body, "\n# Body join\n");
+    const machine = readFileSync(path.join(fixture.rootDir, "harness", relativePath), "utf8").replace(/\n# Body join\n$/u, ""), firstProse = "\n# Body join\n\nFirst paragraph.\n", firstBody = `${machine}${firstProse}`, firstHash = sha(firstBody); writeAuthored(fixture.rootDir, relativePath, firstBody);
     const firstAction = { kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] } as const;
     const first = await fixture.cell.run(firstAction, binding), firstHead = canonicalSha(fixture.rootDir); assert.equal(first.outcome, "applied", JSON.stringify(first));
     const retried = await fixture.cell.run(firstAction, binding); assert.equal(retried.outcome, "applied"); assert.match(retried.opId, /^noop:/u); assert.equal(retried.revision, first.revision); assert.equal(canonicalSha(fixture.rootDir), firstHead);
     const joined = JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence) as { decision: { body: { body: string; blobSha256: string; size: number; path: string } } };
-    assert.deepEqual(joined.decision.body, { body: firstBody, blobSha256: firstHash, size: Buffer.byteLength(firstBody), path: relativePath, mediaType: "text/markdown", workspaceRevision: first.revision });
+    assert.deepEqual(joined.decision.body, { body: firstProse, blobSha256: firstHash, size: Buffer.byteLength(firstBody), path: relativePath, mediaType: "text/markdown", workspaceRevision: first.revision });
     const store = makeTaskEventStore({ repoId: "decision-body", rootDir: fixture.rootDir }), event = store.readEvent(first.opId); assert.equal(event?.schema, "doc-event/v1"); if (event?.schema === "doc-event/v1") { const claim = event.payload.changes[0]!.candidate, blob = store.readContentBlob(claim.sha256); assert.equal(blob?.byteLength, claim.size); assert.equal(sha(Buffer.from(blob!).toString("utf8")), claim.sha256); }
-    const secondBody = `${firstBody}Second paragraph.\n`; writeAuthored(fixture.rootDir, relativePath, secondBody); const second = await fixture.cell.run({ kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] }, binding); assert.equal(second.outcome, "applied", JSON.stringify(second));
-    const updated = JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence) as { decision: { body: { body: string; blobSha256: string } } }; assert.equal(updated.decision.body.body, secondBody); assert.equal(updated.decision.body.blobSha256, sha(secondBody));
-    writeAuthored(fixture.rootDir, relativePath, `${secondBody}Unsynced.\n`); const redacted = JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: false }, binding)).evidence) as { decision: { body: unknown } }; assert.equal(redacted.decision.body, null); assert.equal((JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence) as { decision: { body: { body: string } } }).decision.body.body, secondBody);
+    const secondProse = `${firstProse}Second paragraph.\n`, secondBody = `${machine}${secondProse}`; writeAuthored(fixture.rootDir, relativePath, secondBody); const second = await fixture.cell.run({ kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] }, binding); assert.equal(second.outcome, "applied", JSON.stringify(second));
+    const updated = JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence) as { decision: { body: { body: string; blobSha256: string } } }; assert.equal(updated.decision.body.body, secondProse); assert.equal(updated.decision.body.blobSha256, sha(secondBody));
+    writeAuthored(fixture.rootDir, relativePath, `${secondBody}Unsynced.\n`); const redacted = JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: false }, binding)).evidence) as { decision: { body: unknown } }; assert.equal(redacted.decision.body, null); assert.equal((JSON.parse((await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence) as { decision: { body: { body: string } } }).decision.body.body, secondProse);
   } finally { await fixture.close(); }
 });
 

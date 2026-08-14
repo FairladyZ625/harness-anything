@@ -31,8 +31,8 @@ export type { EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";
 export { decisionEntityId, decisionIdFromEntityId, moduleEntityId, moduleKeyFromEntityId, parseWriteEntityId, taskEntityId, taskIdFromEntityId } from "./entity-id.ts";
 export type { EntityId, ParsedWriteEntityId } from "./entity-id.ts";
 
-export { compileFactWrite, decisionStates, factConfidenceLevels, factMemoryClasses, factMemoryTags, factWritePlan, isFactId } from "./fact-event.ts";
-export type { DecisionEventV1, DecisionState, FactConfidence, FactEventDraftV1, FactEventV1, FactMemoryClass, FactMemoryTag } from "./fact-event.ts";
+export { compileDecisionWrite, compileFactWrite, decisionStates, decisionWritePlan, factConfidenceLevels, factMemoryClasses, factMemoryTags, factWritePlan, isFactId } from "./fact-event.ts";
+export type { DecisionEventDraftV1, DecisionEventV1, DecisionState, FactConfidence, FactEventDraftV1, FactEventV1, FactMemoryClass, FactMemoryTag } from "./fact-event.ts";
 
 export { docmapDocumentKinds } from "./docmap.ts";
 export type { DocmapDocument, DocmapDocumentKind, DocmapManifest, DocmapReadSet, DocmapScope } from "./docmap.ts";

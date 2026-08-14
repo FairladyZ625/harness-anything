@@ -31,13 +31,13 @@ test("entity root resolver maps task refs to the task package index", () => {
   assert.equal(resolved.documentPath, path.join(resolved.rootPath, "INDEX.md"));
 });
 
-test("entity root resolver maps decision refs to the optional body document without creating it", () => {
+test("entity root resolver maps decision refs to the canonical authored package", () => {
   const rootDir = makeHarnessRoot();
 
   const resolved = resolveEntityRoot(rootDir, "decision/dec_01K7Z/C1", "write");
 
-  assert.equal(resolved.rootPath, path.join(rootDir, "harness", "decisions", "dec_01K7Z"));
-  assert.equal(resolved.documentPath, path.join(resolved.rootPath, "decision-body.md"));
+  assert.equal(resolved.rootPath, path.join(rootDir, "harness", "decisions", "decision-dec_01K7Z"));
+  assert.equal(resolved.documentPath, path.join(resolved.rootPath, "decision.md"));
   assert.equal(resolved.anchor, "C1");
 });
 

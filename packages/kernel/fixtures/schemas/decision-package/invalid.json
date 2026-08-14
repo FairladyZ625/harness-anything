@@ -1,4 +1,4 @@
 {
   "schema": "decision-event/v1", "eventId": "event-decision-invalid", "workspaceRevision": 1, "opId": "op-decision-invalid", "decisionId": "dec_FIXTURE", "type": "decision_accepted",
-  "actor": { "principal": { "personId": "person-arbiter" }, "executor": null }, "source": "local", "occurredAt": "2026-08-13T00:00:00.000Z", "payload": { "rationale": "Valid-looking payload", "unknown": true }
+  "actor": { "principal": { "personId": "person-arbiter" }, "executor": null }, "source": "local", "occurredAt": "2026-08-13T00:00:00.000Z", "payload": { "rationale": "Valid-looking payload", "baseDocumentSha256": "0000000000000000000000000000000000000000000000000000000000000000", "decisionDocumentClaim": { "path": "decisions/decision-dec_FIXTURE/decision.md", "sha256": "1111111111111111111111111111111111111111111111111111111111111111", "size": 1, "mediaType": "text/markdown", "policyId": "markdown-body-replaceable/v1" }, "unknown": true }
 }

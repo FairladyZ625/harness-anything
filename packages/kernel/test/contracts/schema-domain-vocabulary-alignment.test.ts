@@ -23,9 +23,9 @@ test("domain status constants are accepted by the schema registry", () => {
   }
 });
 
-test("Decision event state vocabulary excludes the retired markdown active alias", () => {
-  assert.deepEqual(decisionStates, ["proposed", "accepted", "rejected", "deferred", "retired"]);
-  assert.equal(decisionStates.includes("active" as never), false);
+test("Decision event state vocabulary uses the canonical authored active state", () => {
+  assert.deepEqual(decisionStates, ["proposed", "active", "rejected", "deferred", "retired"]);
+  assert.equal(decisionStates.includes("accepted" as never), false);
 });
 
 test("task frontmatter schema accepts every domain package disposition", () => {

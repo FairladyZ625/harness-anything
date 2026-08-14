@@ -12,7 +12,7 @@ import { apiRouteContracts, createLocalGuiServiceBridge } from "../src/index.ts"
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 import { seedTriadicEvents, writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
 import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
-import { canonicalEventWritePlan, makeTaskEventStore, type AgentRuntimeEventV1 } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, type AgentRuntimeEventV1, type FrozenWritePlan } from "../../kernel/src/index.ts";
 import { streamAgentRuntimeAt } from "../src/main/agent-runtime-stream-client.ts";
 
 test("GUI client reaches every shipped read through a real resident daemon", async () => {
@@ -84,5 +84,6 @@ function seedRuntime(rootDir: string, repoId: string): void { const store = make
   ["runtime_installation_observed", { installationId: "installation-gui", kindId: "codex", protocolFamily: "codex", hostRef: "host:gui", version: "1.0.0", discoverySource: "wrapper", capabilities: ["structured_witness", "attach"], authState: "configured" }],
   ["runtime_session_started", { runtimeSessionId: "runtime-gui", installationId: "installation-gui", kindId: "codex", launchGeneration: 1, attachable: true }],
   ["runtime_session_task_bound", { runtimeSessionId: "runtime-gui", taskId: "task-gui", executionId: "execution-gui", providerSessionId: "provider-gui", transcriptRef: "file:runtime/gui.jsonl" }]
-  ] as const; for (const [index, [type, payload]] of values.entries()) { const revision = base + index + 1, event = { schema: "agent-runtime-event/v1", eventId: `event-runtime-gui-${revision}`, workspaceRevision: revision, opId: `op-runtime-gui-${revision}`, actor: { principal: { personId: "person-gui" }, executor: null }, source: "local", occurredAt: `2026-08-13T00:00:0${index}.000Z`, type, payload } as AgentRuntimeEventV1; store.append({ event, plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId), blobs: [] }); }
+  ] as const; for (const [index, [type, payload]] of values.entries()) { const revision = base + index + 1, event = { schema: "agent-runtime-event/v1", eventId: `event-runtime-gui-${revision}`, workspaceRevision: revision, opId: `op-runtime-gui-${revision}`, actor: { principal: { personId: "person-gui" }, executor: null }, source: "local", occurredAt: `2026-08-13T00:00:0${index}.000Z`, type, payload } as AgentRuntimeEventV1; store.append({ event, plan: runtimeWritePlan(event), blobs: [] }); }
   seedTriadicEvents(rootDir, repoId); }
+function runtimeWritePlan(event: AgentRuntimeEventV1): FrozenWritePlan { return Object.freeze({ commandType: event.type, targets: Object.freeze([{ kind: "event_file", path: `harness/events/${event.opId}.json`, operation: "create" }, { kind: "event_head", path: "harness/events/head.json", operation: "replace" }, { kind: "projection_invalidation", projection: "agent-runtime/v1", key: event.opId }].map((target) => Object.freeze(target))) }) as FrozenWritePlan; }

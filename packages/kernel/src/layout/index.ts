@@ -198,11 +198,11 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
     },
     decisionPackagePath: (decisionId) => {
       const safeDecisionId = normalizeEntityRootSegment(decisionId, "decision id");
-      return path.join(decisionsRoot, safeDecisionId);
+      return path.join(decisionsRoot, `decision-${safeDecisionId}`);
     },
     decisionDocumentPath: (decisionId) => {
       const safeDecisionId = normalizeEntityRootSegment(decisionId, "decision id");
-      return path.join(decisionsRoot, safeDecisionId, "decision-body.md");
+      return path.join(decisionsRoot, `decision-${safeDecisionId}`, "decision.md");
     },
     sessionDocumentPath: (sessionId) => {
       const safeSessionId = normalizeEntityRootSegment(sessionId, "session id");
