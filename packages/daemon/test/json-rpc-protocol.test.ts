@@ -52,17 +52,25 @@ test("descriptor-derived RBAC preserves every preset, runtime, doc-sync, Fact, a
     "fact-search": "repo-read",
     "fact-show": "repo-read",
     "decision-propose": "repo-write",
+    "decision-validate": "repo-read",
+    "decision-repin": "repo-write",
+    "decision-transition": "repo-write",
     "decision-accept": "arbiter",
     "decision-reject": "arbiter",
     "decision-defer": "arbiter",
     "decision-retire": "repo-write",
+    "decision-supersede": "repo-write",
+    "decision-amend": "repo-write",
     "decision-claim-add": "repo-write",
     "decision-claim-fulfill": "repo-write",
     "decision-relate": "repo-write",
     "decision-relation-retire": "repo-write",
+    "decision-relation-replace": "repo-write",
     "decision-reckon": "repo-write",
     "decision-list": "repo-read",
-    "decision-show": "repo-read"
+    "decision-show": "repo-read",
+    "distill-candidate": "repo-write",
+    "distill-promote": "repo-write"
   } as const;
   assert.deepEqual(Object.fromEntries(Object.keys(expected).map((kind) => [kind, commandClassForAction(kind)])), expected);
 });
@@ -87,9 +95,28 @@ test("preset process RPC enforces object inputs and keeps status closed", () => 
 
 test("GUI action facets are exact, typed, and exclude the generic runner", () => {
   const submission = { completionClaim: "Ready.", deliverables: ["code"], outputs: ["packages/daemon/src/repo-cell.ts"], verificationNotes: ["tests"], knownGaps: [], residualRisks: [], commitSha: "a".repeat(40) }, proposal = { title: "Typed actions", question: "Ship?", riskTier: "medium", urgency: "high", vertical: "software/coding", preset: "standard-task", appliesTo: { modules: ["daemon"], productLines: ["gui"] }, decisionClass: "ordinary", chosen: [{ id: "CH1", text: "Ship" }], rejected: [{ id: "RJ1", text: "Wait", whyNot: "No need" }], body: "# Typed actions\n", claims: [], fulfillments: [], relations: [] };
-  const cases = new Map<string, Record<string, unknown>>([["repo.task.start", { taskId: "task-a", executionId: "execution-a" }], ["repo.task.progress.append", { taskId: "task-a", executionId: "execution-a", text: "Progress", evidence: [{ type: "test", path: "report.txt", summary: "Passed" }] }], ["repo.task.submit", { taskId: "task-a", executionId: "execution-a", submission }], ["repo.decision.list", { state: "proposed", legacyRange: { start: 1, end: 4 } }], ["repo.decision.show", { decisionId: "dec_A", includeBody: true }], ["repo.decision.propose", proposal], ["repo.decision.accept", { decisionId: "dec_A", rationale: "Approved", judgmentOnlyRationale: "Judgment" }], ["repo.decision.reject", { decisionId: "dec_A", reason: "Rejected" }], ["repo.decision.defer", { decisionId: "dec_A", reason: "Deferred" }], ["repo.receipt.show", { opId: "op_A" }]]);
+  const cases = new Map<string, Record<string, unknown>>([
+    ["daemon.gui.control.request", { kind: "refresh", authorityRepoId: "alpha", reason: "Refresh catalog" }],
+    ["repo.task.start", { taskId: "task-a", executionId: "execution-a" }],
+    ["repo.task.progress.append", { taskId: "task-a", executionId: "execution-a", text: "Progress", evidence: [{ type: "test", path: "report.txt", summary: "Passed" }] }],
+    ["repo.task.submit", { taskId: "task-a", executionId: "execution-a", submission }],
+    ["repo.decision.list", { state: "proposed", legacyRange: { start: 1, end: 4 } }],
+    ["repo.decision.show", { decisionId: "dec_A", includeBody: true }],
+    ["repo.decision.propose", proposal],
+    ["repo.decision.accept", { decisionId: "dec_A", rationale: "Approved", judgmentOnlyRationale: "Judgment" }],
+    ["repo.decision.reject", { decisionId: "dec_A", reason: "Rejected" }],
+    ["repo.decision.defer", { decisionId: "dec_A", reason: "Deferred" }],
+    ["repo.receipt.show", { opId: "op_A" }],
+    ["repo.gui.catalog.reread", {}],
+    ["repo.agentRuntime.spawn", { kindId: "codex", installationId: "installation-codex", profileId: "default", cwd: { scope: "repo-root" }, prompt: "Inspect", taskId: null, idempotencyKey: "runtime-once" }],
+    ["repo.terminal.spawn", { idempotencyKey: "terminal-once", name: "Shell", cwd: { scope: "repo-root" }, shellProfileId: "default" }],
+    ["repo.terminal.input", { sessionId: "terminal-a", clientSeq: 1, utf8: "pwd\n" }],
+    ["repo.terminal.resize", { sessionId: "terminal-a", cols: 100, rows: 30 }],
+    ["repo.terminal.detach", { sessionId: "terminal-a", attachmentId: "attachment-a" }],
+    ["repo.terminal.terminate", { sessionId: "terminal-a", confirmed: true }]
+  ]);
   assert.deepEqual(daemonGuiActionMethods.map(({ method }) => method), [...cases.keys()]); assert.equal(daemonGuiActionMethods.some(({ method }) => method === "repo.task.run"), false);
-  for (const [method, payload] of cases) { const params = { repo: { repoId: "alpha" }, payload }; assert.equal(parseDaemonRpcParams(method, params).ok, true, method); assert.equal(parseDaemonRpcParams(method, { ...params, payload: { ...payload, unexpected: true } }).ok, false, `${method}: unknown`); }
+  for (const [method, payload] of cases) { const params = method.startsWith("daemon.") ? { payload } : { repo: { repoId: "alpha" }, payload }; assert.equal(parseDaemonRpcParams(method, params).ok, true, method); assert.equal(parseDaemonRpcParams(method, { ...params, payload: { ...payload, unexpected: true } }).ok, false, `${method}: unknown`); }
   assert.equal(parseDaemonRpcParams("repo.task.submit", { repo: { repoId: "alpha" }, payload: { taskId: "task-a", executionId: "execution-a", submission: { ...submission, outputs: "wrong" } } }).ok, false);
   assert.equal(parseDaemonRpcParams("repo.decision.propose", { repo: { repoId: "alpha" }, payload: { ...proposal, appliesTo: { ...proposal.appliesTo, extra: [] } } }).ok, false);
   assert.deepEqual(actionForDaemonMethod("repo.task.submit", cases.get("repo.task.submit")!), { kind: "task-submit", ...cases.get("repo.task.submit")! });

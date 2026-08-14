@@ -83,6 +83,7 @@ test("Decision event vocabulary exposes only canonical projection states", () =>
     "active",
     "rejected",
     "deferred",
+    "superseded",
     "retired"
   ]);
 });

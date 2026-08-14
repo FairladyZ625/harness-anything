@@ -8,19 +8,24 @@ import { deriveCliCapabilities, parseThinCommand, renderThinHelp } from "../src/
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 66);
+  assert.equal(thinCliCommands.length, 76);
   for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))].filter((value): value is string => value !== undefined).sort()) assert.match(help, new RegExp(`^  ${domain} \\(`, "mu"));
   assert.doesNotMatch(help, /ha task start <task-id>/u);
   const taskHelp = renderThinHelp([], "task");
   for (const command of thinCliCommands.filter(({ usage }) => usage.split(" ")[1] === "task")) assert.match(taskHelp, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   assert.doesNotMatch(taskHelp, /ha decision propose|ha preset list/u);
+  for (const domain of ["decision", "distill"]) {
+    const domainHelp = renderThinHelp([], domain);
+    for (const command of thinCliCommands.filter(({ usage }) => usage.split(" ")[1] === domain)) assert.match(domainHelp, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  }
   assert.match(help, /capabilities \[--json\].*--version.*ha daemon start --service/su);
 });
 
 test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(deriveCliCapabilities(), {
     daemon: ["daemon-repo-register", "daemon-repo-unregister", "daemon-start", "daemon-status", "daemon-stop"],
-    decision: ["decision-accept", "decision-claim-add", "decision-claim-fulfill", "decision-defer", "decision-list", "decision-propose", "decision-reckon", "decision-reject", "decision-relate", "decision-relation-retire", "decision-retire", "decision-show"],
+    decision: ["decision-accept", "decision-amend", "decision-claim-add", "decision-claim-fulfill", "decision-defer", "decision-list", "decision-propose", "decision-reckon", "decision-reject", "decision-relate", "decision-relation-replace", "decision-relation-retire", "decision-repin", "decision-retire", "decision-show", "decision-supersede", "decision-transition", "decision-validate", "decision-verify"],
+    distill: ["distill-candidate", "distill-commit", "distill-promote"],
     doc: ["doc-materialize", "doc-show", "doc-status", "doc-sync-dry-run", "doc-sync-submit"],
     fact: ["fact-record", "fact-search", "fact-show"],
     init: ["repo-bootstrap"],
@@ -143,6 +148,24 @@ test("Decision CLI maps every canonical command and keeps the five local error c
   assert.equal(parseThinCommand(["decision", "propose", "--title", "retired flags-only proposal"]).ok, false);
   assert.equal(parseThinCommand(["decision", "relate", "dec_1", "--type", "relates", "--target", "task/task-1", "--rationale", "Missing anchor"]).ok, false);
   assert.equal(parseThinCommand(["decision", "list", "--legacy-range", "E20-E1"]).ok, false);
+});
+
+test("Decision F06 and distill leaf commands preserve their complete structured payloads", () => {
+  const validate = parseThinCommand(["decision", "validate", "dec_1"]), verifyAll = parseThinCommand(["decision", "verify", "--all"]), repin = parseThinCommand(["decision", "repin", "--all", "--migration-evidence", "task/task-1/audit-2026"]), active = parseThinCommand(["decision", "transition", "active", "dec_1", "--decided-at", "2026-08-15T00:00:00.000Z", "--judgment-only", "Reviewed independently", "--fulfillment", "C1:delivered"]), superseded = parseThinCommand(["decision", "transition", "superseded", "dec_1"]), alias = parseThinCommand(["decision", "supersede", "dec_1", "--reason", "Replaced by a newer Decision"]), amend = parseThinCommand(["decision", "amend", "dec_1", "--title", "Corrected", "--non-load-bearing", "C1", "--append", 'claims:{"id":"C2","text":"Stable","loadBearing":false}', "--body-file", "body.md"]), replace = parseThinCommand(["decision", "relation", "replace", "dec_1", "--relation", "rel_0123456789abcdef", "--anchor", "C1", "--type", "relates", "--target", "task/task-1", "--rationale", "Corrected edge"]), candidate = parseThinCommand(["distill", "candidate", "--task", "task-1", "--input", "notes.md"]), promote = parseThinCommand(["distill", "promote", "--task", "task-1", "--candidate", ".harness/distill/task-1/candidate.json", "--claim", "Stable fact", "--id", "F-ABCDEFGH", "--memory-tag", "pattern"]), commit = parseThinCommand(["distill", "commit", "--task", "task-1", "--candidate", ".harness/distill/task-1/candidate.json", "--claim", "Stable fact"]);
+  assert.equal([validate, verifyAll, repin, active, superseded, alias, amend, replace, candidate, promote, commit].every((result) => result.ok), true);
+  if (validate.ok) assert.deepEqual(validate.command.action, { kind: "decision-validate", decisionId: "dec_1" });
+  if (verifyAll.ok) assert.deepEqual(verifyAll.command.action, { kind: "decision-validate", all: true });
+  if (repin.ok) assert.deepEqual(repin.command.action, { kind: "decision-repin", all: true, migrationEvidence: "task/task-1/audit-2026" });
+  if (active.ok) assert.deepEqual(active.command.action, { kind: "decision-transition", decisionId: "dec_1", targetState: "active", decidedAt: "2026-08-15T00:00:00.000Z", judgmentOnlyRationale: "Reviewed independently", standingPolicy: false, fulfillments: [{ claimId: "C1", mode: "delivered" }], dryRun: false });
+  if (amend.ok) assert.deepEqual(amend.command.action, { kind: "decision-amend", decisionId: "dec_1", title: "Corrected", standingPolicy: false, fulfillments: [], loadBearing: { claimId: "C1", value: false }, sets: [], appends: ['claims:{"id":"C2","text":"Stable","loadBearing":false}'], bodyFile: "body.md", dryRun: false });
+  if (replace.ok) assert.deepEqual(replace.command.action, { kind: "decision-relation-replace", decisionId: "dec_1", relationId: "rel_0123456789abcdef", body: null, dryRun: false, anchor: "C1", relationType: "relates", target: "task/task-1", rationale: "Corrected edge" });
+  const preview = parseThinCommand(["decision", "amend", "dec_1", "--title", "Preview", "--dry-run"]); assert.equal(preview.ok, true); if (preview.ok) assert.equal(preview.command.action.dryRun, true);
+  if (candidate.ok) assert.deepEqual(candidate.command.action, { kind: "distill-candidate", taskId: "task-1", inputPath: "notes.md" });
+  if (promote.ok) assert.deepEqual(promote.command.action, { kind: "distill-promote", taskId: "task-1", candidatePath: ".harness/distill/task-1/candidate.json", statement: "Stable fact", factId: "F-ABCDEFGH", confidence: "medium", memoryClass: "semantic", memoryTags: ["pattern"] });
+  if (commit.ok) assert.equal(commit.command.action.kind, "distill-promote");
+  assert.equal(parseThinCommand(["decision", "validate", "dec_1", "--all"]).ok, false);
+  assert.equal(parseThinCommand(["decision", "transition", "retired", "dec_1", "--standing-policy"]).ok, false);
+  assert.equal(parseThinCommand(["decision", "amend", "dec_1"]).ok, false);
 });
 
 test("thin parser converts the sole preset script target into closed typed start params", () => {
