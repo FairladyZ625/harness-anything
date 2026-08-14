@@ -1,0 +1,162 @@
+# Ledger Migration: Genesis Replay
+
+Status: required path for every repository whose ledger predates the current
+generation of the Harness Anything record format. There is no in-place upgrade.
+
+## What changed
+
+The ledger format has changed by a generation. Records written by the previous
+generation do not satisfy the current schema, and this project does not keep
+backward compatibility: no compatibility layer, no runtime fallback, no dual
+read. An old repository therefore cannot be upgraded in place.
+
+The only supported path is **genesis replay**: archive the old repository as a
+read-only reference, create a new empty repository, and replay the old corpus
+into it as canonical migration events, in original `occurredAt` order.
+
+The entry point is a single command:
+
+```
+ha migrate import --source <source> [--dry-run]
+    Import a legacy Harness repository through canonical migration events.
+```
+
+For anything beyond what this page states, run `ha migrate --help`.
+
+## Why no in-place upgrade
+
+An in-place upgrade would have to carry every historical record shape forward
+forever, or silently rewrite history. Neither is acceptable for a ledger whose
+value is being a trustworthy record. Genesis replay instead treats the old
+repository as forensic material — frozen, read-only, permanently preserved — and
+builds the new line from events that already satisfy the current schema.
+
+This also has a failure property worth stating plainly: at every step of the
+migration, the old repository is only ever read. If anything goes wrong, the old
+repository is untouched and the recovery action is to discard the new repository
+and start over. There is no point at which the migration can damage your source
+data.
+
+## The five steps
+
+The order matters. Do not run the real import before the dry-run reports
+`skipped=0` across all five entity classes.
+
+### 1. Back up the old repository
+
+This step is destructive-adjacent and must not be skipped. Make two independent
+copies:
+
+- a `git bundle` of the full history, and
+- a complete directory clone.
+
+Keep at least one copy off this machine. The old repository stays read-only for
+the entire migration; it is never modified.
+
+### 2. Create a new empty repository
+
+```bash
+ha init --repo-id <id> --person-id <id> --display-name <name>
+```
+
+This generates `harness/harness.yaml`, `harness/people.yaml`, and the
+context/governance/adr/milestones skeletons, and registers the repository with
+the daemon automatically.
+
+### 3. Run the dry-run first
+
+```bash
+ha migrate import --source <path-to-old-repo> --dry-run
+```
+
+The dry-run writes nothing. It prints a reconciliation table for five entity
+classes — task / decision / fact / relation / coverage — each with four counts:
+old / skipped / expected / new, plus a `Format validation: N skipped` line.
+
+### 4. Resolve the skips
+
+A non-zero `skipped` count means some corpus entries do not satisfy the current
+schema. For each entry, read the stated reason and fix the source data **on a
+copy of the old repository**. Then re-run the dry-run until `skipped=0` for all
+five classes.
+
+Do not add a general-purpose mapping inside the product importer to absorb these
+cases. A one-time historical artifact should not be hardened into product logic.
+The fix belongs in the archived source data, applied on a copy.
+
+### 5. Run the real import
+
+```bash
+ha migrate import --source <path-to-old-repo>
+```
+
+Acceptance: the five entity classes report old == new and skipped=0. If any
+class does not, do not proceed on the new repository as-is — investigate, and if
+needed discard the new repository and restart from step 2.
+
+## What the migrated data is
+
+This is the part most easily misunderstood, so it is worth being explicit.
+
+**The replayed entities are native entities of the new line.** They can be
+created against, modified, transitioned, and related exactly like anything else
+in the new repository. Migration does not produce a read-only "historical data"
+zone inside the new ledger.
+
+**What stays read-only is the old repository**, in its role as the archived
+forensic reference. It is retained permanently and no longer participates in
+day-to-day reads or writes.
+
+Each migrated entity carries three provenance markers:
+
+- event `source` is `migration-import/v1`;
+- `migratedFrom` points back to the original repository;
+- `generation: v0` marks it as coming from the previous generation.
+
+These markers survive subsequent writes. They answer the question "was this
+record migrated, or was it natively produced on the new line?" for as long as
+the record exists.
+
+Events are replayed in the order of their original `occurredAt` timestamps.
+History is not flattened onto the day of the migration; the timeline in the new
+repository is the timeline the work actually happened on.
+
+## If something fails
+
+The failure model is simple because the old repository is read-only throughout:
+
+- Any error at any step leaves the old repository exactly as it was.
+- The rollback action is to discard the new repository and redo the migration.
+  Nothing else needs to be undone.
+
+This is the main advantage of genesis replay over an in-place upgrade: there is
+no half-migrated state that can corrupt source data.
+
+## FAQ
+
+**Is my old repository deleted or rewritten?**
+No. It is archived as a read-only forensic reference and kept permanently. The
+migration only reads from it.
+
+**Can I keep using the old repository after migrating?**
+The old repository is the reference copy. Day-to-day work moves to the new
+repository; the old one no longer participates in reads or writes.
+
+**Can I skip the dry-run?**
+No. The dry-run is how you find entries that will be skipped before the real
+import runs, and the acceptance condition for the real import is skipped=0.
+Fix the source data on a copy of the old repository and re-run the dry-run until
+it is clean.
+
+**Are migrated records second-class?**
+No. They are native entities of the new line, fully writable. The only
+distinction is provenance: they carry `migration-import/v1`, `migratedFrom`, and
+`generation: v0` markers, which persist across later writes.
+
+**Will history show the migration date?**
+No. Events replay under their original `occurredAt` timestamps, so the new
+repository's timeline reflects when the work actually happened.
+
+**A command or flag I need isn't on this page.**
+This page only documents the migration surface described above. Run
+`ha migrate --help` for the authoritative command description.

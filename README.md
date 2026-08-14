@@ -108,6 +108,15 @@ shows the records that remain after the agent work is over.
 Ready to use it on a project? Continue with the
 [Start guide](./docs-release/start/en/00-what-is-this.md).
 
+## Breaking change: existing repositories must migrate
+
+The ledger format has changed by a generation and this project keeps no
+backward compatibility, so existing repositories cannot be upgraded in place.
+If you have a repository with an older-format ledger, follow the
+[migration guide](./docs-release/migration-genesis-replay.md) — the old
+repository is archived read-only and replayed into a new one; it is never at
+risk.
+
 ## How It Works
 
 Harness Anything gives agent work three durable primitives:
