@@ -1,21 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  Kanban,
-  FolderSimple,
-  SquaresFour,
-  Graph,
-  Scales,
-  Stack,
-  PlugsConnected,
-  GearSix,
-  CaretUpDown,
-  CloudSlash,
-  WarningCircle,
-  GitBranch,
-  FirstAidKit,
-  Package,
-} from "@phosphor-icons/react";
+import { Kanban, FolderSimple, SquaresFour, Graph, Scales, Stack, PlugsConnected, GearSix, CaretUpDown, CloudSlash, WarningCircle, GitBranch, FirstAidKit, Package } from "@phosphor-icons/react";
 import type { SnapshotStatus } from "./model/types.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
@@ -44,12 +29,13 @@ import { taskQueryKeys, useTasksQuery } from "./task-data.ts";
 import { useTriadicProjectionQuery } from "./triadic-data.ts";
 import { useFavorites } from "./model/favorites.ts";
 import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
-import { AgentRuntimeView } from "./views/agent-runtime-view.tsx";
+import { RuntimeWorkspace } from "./views/RuntimeWorkspace.tsx";
 import { useTaskActions } from "./task-actions.ts";
 import { useDecisionActions } from "./decision-actions.ts";
 import { selectActiveRepoId, useSystemStatusQuery } from "./system-data.ts";
 import { useCatalogSnapshot } from "./catalog-data.ts";
 import { adaptRepoProject } from "./model/project-adapter.ts";
+import { TerminalDock, type TerminalDockHandle } from "./components/TerminalDock.tsx";
 
 type ViewId =
   | "home"
@@ -148,6 +134,8 @@ function AppShell() {
     groupBy: LaneGroupBy;
   } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const terminalDock = useRef<TerminalDockHandle>(null);
 
   const projectTasks = useMemo(
     () => tasks.filter((t) => t.projectId === projectId),
@@ -183,6 +171,7 @@ function AppShell() {
 
   const openProject = async (repoId: string) => {
     if (repoId !== activeRepoId) {
+      await terminalDock.current?.detachAll();
       if (activeRepoId) await queryClient.cancelQueries({ predicate: (query) => query.queryKey[1] === activeRepoId });
       setActiveRepoId(repoId);
     }
@@ -262,6 +251,9 @@ function AppShell() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteOpen((open) => !open);
+      } else if (e.ctrlKey && e.key === "`") {
+        e.preventDefault();
+        setTerminalOpen((open) => !open);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -561,7 +553,7 @@ function AppShell() {
             ) : view === "adapters" ? (
               <AdaptersView repoId={projectId} />
             ) : view === "agents" ? (
-              <AgentRuntimeView repoId={projectId} />
+              <RuntimeWorkspace repoId={projectId} tasks={projectTasks.map(({ taskId, title }) => ({ taskId, title }))} />
             ) : view === "system" ? (
               <SystemView activeRepoId={activeRepoId} />
             ) : (
@@ -583,6 +575,14 @@ function AppShell() {
         entries={paletteEntries}
         onSelect={handlePaletteSelect}
         onClose={() => setPaletteOpen(false)}
+      />
+      <TerminalDock
+        ref={terminalDock}
+        repoId={projectId}
+        daemonGeneration={activeRepo?.generation ?? null}
+        tasks={projectTasks.map(({ taskId, title }) => ({ taskId, title }))}
+        open={terminalOpen}
+        onToggle={() => setTerminalOpen((open) => !open)}
       />
     </div>
   );

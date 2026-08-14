@@ -1,0 +1,1 @@
+{"ok":true,"status":"ready","installations":[{"installationId":"installation-a","kindId":"claude","protocolFamily":"claude-compatible","version":"1.0.0","profiles":[],"credentialState":"not_configured","baseUrlConfigured":false,"attachCapability":"supported","lastObservedAt":"2026-08-14T00:00:00.000Z"}],"sessions":[],"watermark":0,"sourceRevision":0}

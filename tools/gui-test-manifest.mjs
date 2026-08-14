@@ -5,6 +5,7 @@ export const guiVitestManifest = [
   "packages/gui/test/fact-triage.vitest.ts",
   "packages/gui/test/taskFilters.vitest.ts",
   "packages/gui/test/task-adapter.vitest.ts",
+  "packages/gui/test/terminal-renderer.vitest.ts",
   "packages/gui/test/genealogy.vitest.ts",
   "packages/gui/test/territory.vitest.ts",
   "packages/gui/test/ego-canvas.vitest.ts",

@@ -1,6 +1,11 @@
 /** @slice-activation Slice 7.5 GUI remote daemon - Remote terminal transport consumes this when daemon attach wiring lands. */
 import type { ApiRouteAuth, ApiRouteContract } from "../api/api-contract-registry.ts";
-import type { TerminalSessionInfo } from "../terminal/session-registry.ts";
+import type { TerminalBackendWarning } from "../terminal/backend-policy.ts";
+
+export type RemoteTerminalSessionStatus = "active" | "idle" | "exited" | "unknown";
+export interface RemoteTerminalSessionInfo {
+  readonly sessionId: string; readonly name: string; readonly backend: "direct-pty" | "tmux" | "remote"; readonly backendWarnings?: readonly TerminalBackendWarning[]; readonly status: RemoteTerminalSessionStatus; readonly envProfileId?: string; readonly hostProfileId?: string; readonly hostLabel: string; readonly projectId?: string; readonly taskId?: string; readonly cwd?: string; readonly shell?: string; readonly createdAt: string; readonly lastActivityAt?: string; readonly exitCode?: number;
+}
 
 export type DaemonTransport =
   | { readonly kind: "local-ipc"; readonly endpoint: string }
@@ -130,7 +135,7 @@ export interface BoundApiRouteForTransport {
 
 export interface RemoteTerminalSurfaceState {
   readonly sessionId: string;
-  readonly terminalStatus: TerminalSessionInfo["status"];
+  readonly terminalStatus: RemoteTerminalSessionInfo["status"];
   readonly surfaceStatus: "attached" | "detached" | "degraded" | "closed";
   readonly reason?: string;
 }
@@ -413,7 +418,7 @@ export function createRemoteDaemonTunnelController(options: RemoteDaemonTunnelCo
 }
 
 export function deriveRemoteTerminalSurfaceState(
-  session: TerminalSessionInfo,
+  session: RemoteTerminalSessionInfo,
   tunnel: TunnelConnectionInfo
 ): RemoteTerminalSurfaceState {
   if (session.status === "exited") {

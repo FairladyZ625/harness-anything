@@ -10,49 +10,26 @@ import {
   serializeWorkspaceLayout
 } from "../src/index.ts";
 
-test("default workspace layout covers task doc terminal and logs across tab split and dock placements", () => {
+test("default workspace layout covers task doc and logs across tab split and dock placements", () => {
   const layout = createDefaultWorkspaceLayout("operate");
 
-  assert.deepEqual(layout.panes.map((pane) => pane.kind), ["task", "doc", "terminal", "logs"]);
+  assert.deepEqual(layout.panes.map((pane) => pane.kind), ["task", "doc", "logs"]);
   assert.deepEqual(new Set(layout.panes.map((pane) => pane.placement)), new Set(["tab", "split", "dock"]));
   assert.equal(layout.activePaneId, "task-task-001");
 });
 
 test("triage and review defaults reflect their architecture perspectives", () => {
   const triage = createDefaultWorkspaceLayout("triage");
-  assert.deepEqual(triage.panes.map((pane) => pane.kind), ["board", "list", "taskContext", "task", "terminal", "logs"]);
+  assert.deepEqual(triage.panes.map((pane) => pane.kind), ["board", "list", "taskContext", "task", "logs"]);
   assert.equal(triage.panes.find((pane) => pane.kind === "taskContext")?.state?.role, "filters");
-  assert.equal(triage.panes.find((pane) => pane.kind === "terminal")?.placement, "dock");
 
   const review = createDefaultWorkspaceLayout("review");
-  assert.deepEqual(review.panes.map((pane) => pane.kind), ["review", "doc", "task", "logs", "checker", "terminal"]);
+  assert.deepEqual(review.panes.map((pane) => pane.kind), ["review", "doc", "task", "logs", "checker"]);
   assert.equal(review.panes.find((pane) => pane.kind === "review")?.state?.role, "queue");
   assert.equal(review.panes.find((pane) => pane.kind === "checker")?.state?.role, "checklist");
 });
 
 test("open target router creates deterministic pane descriptors", () => {
-  assert.deepEqual(
-    routeOpenIntent({
-      source: "palette",
-      target: { kind: "terminal", projectId: "project-a", taskId: "TASK-9", sessionId: "term-9", cwd: "/workspace" }
-    }),
-    {
-      id: "terminal-term-9",
-      kind: "terminal",
-      title: "Terminal term-9",
-      placement: "dock",
-      viewState: "visible",
-      projectId: "project-a",
-      taskId: "TASK-9",
-      terminalSessionId: "term-9",
-      source: {
-        source: "palette",
-        target: { kind: "terminal", projectId: "project-a", taskId: "TASK-9", sessionId: "term-9", cwd: "/workspace" }
-      },
-      state: { cwd: "/workspace" }
-    }
-  );
-
   assert.deepEqual(
     routeOpenIntent({
       source: "doc",
@@ -129,16 +106,13 @@ test("layout persistence restores valid layouts and fails closed on malformed or
   );
 });
 
-test("reset default restores perspective layout without mutating terminal session lifecycle", () => {
+test("reset default restores perspective layout and supports detaching a real pane", () => {
   const layout = createDefaultWorkspaceLayout("operate");
-  const terminalPane = layout.panes.find((pane) => pane.kind === "terminal");
-  assert.ok(terminalPane);
+  const logsPane = layout.panes.find((pane) => pane.kind === "logs");
+  assert.ok(logsPane);
 
-  const detached = detachPaneView(layout, terminalPane.id);
-  const detachedTerminal = detached.panes.find((pane) => pane.id === terminalPane.id);
-  assert.equal(detachedTerminal?.viewState, "detached");
-  assert.equal(detachedTerminal?.terminalSessionId, "term-local-task");
-  assert.equal("status" in (detachedTerminal?.state ?? {}), false);
+  const detached = detachPaneView(layout, logsPane.id);
+  assert.equal(detached.panes.find((pane) => pane.id === logsPane.id)?.viewState, "detached");
 
   assert.deepEqual(resetWorkspaceLayout("operate"), createDefaultWorkspaceLayout("operate"));
 });

@@ -10,8 +10,6 @@ export type WorkspacePaneKind =
   | "doc"
   | "file"
   | "browser"
-  | "terminal"
-  | "sessionList"
   | "logs"
   | "adapterInspector"
   | "checker";
@@ -24,12 +22,10 @@ export type OpenTarget =
   | { readonly kind: "taskContext"; readonly taskId: string; readonly projectId: string; readonly perspective?: WorkspacePerspective }
   | { readonly kind: "doc"; readonly path: string; readonly anchor?: string; readonly projectId?: string; readonly taskId?: string }
   | { readonly kind: "file"; readonly path: string; readonly line?: number; readonly col?: number; readonly projectId?: string }
-  | { readonly kind: "terminal"; readonly sessionId?: string; readonly hostProfileId?: string; readonly cwd?: string; readonly taskId?: string; readonly projectId?: string }
-  | { readonly kind: "sessionList"; readonly hostProfileId?: string; readonly projectId?: string }
   | { readonly kind: "logs"; readonly projectId?: string; readonly taskId?: string; readonly stream?: string }
   | { readonly kind: "url"; readonly url: string; readonly projectId?: string };
 
-export type OpenIntentSource = "terminal" | "doc" | "graph" | "list" | "board" | "review" | "palette" | "sessionList";
+export type OpenIntentSource = "doc" | "graph" | "list" | "board" | "review" | "palette";
 
 export interface OpenIntent {
   readonly target: OpenTarget;
@@ -45,8 +41,6 @@ export interface WorkspacePaneDescriptor {
   readonly viewState: WorkspacePaneViewState;
   readonly projectId?: string;
   readonly taskId?: string;
-  readonly hostProfileId?: string;
-  readonly terminalSessionId?: string;
   readonly source?: OpenIntent;
   readonly state?: Readonly<Record<string, string | number | boolean>>;
 }
@@ -117,29 +111,6 @@ export function routeOpenIntent(intent: OpenIntent): WorkspacePaneDescriptor {
         source: intent,
         state: compactState({ line: target.line, col: target.col })
       });
-    case "terminal":
-      return pane({
-        id: `terminal-${stableSegment(target.sessionId ?? target.taskId ?? target.cwd ?? "new")}`,
-        kind: "terminal",
-        title: target.sessionId ? `Terminal ${target.sessionId}` : "New terminal",
-        placement,
-        projectId: target.projectId,
-        taskId: target.taskId,
-        hostProfileId: target.hostProfileId,
-        terminalSessionId: target.sessionId,
-        source: intent,
-        state: compactState({ cwd: target.cwd })
-      });
-    case "sessionList":
-      return pane({
-        id: `session-list-${stableSegment(target.hostProfileId ?? target.projectId ?? "all")}`,
-        kind: "sessionList",
-        title: "Terminal sessions",
-        placement,
-        projectId: target.projectId,
-        hostProfileId: target.hostProfileId,
-        source: intent
-      });
     case "logs":
       return pane({
         id: `logs-${stableSegment(target.taskId ?? target.projectId ?? target.stream ?? "project")}`,
@@ -205,17 +176,6 @@ function defaultPanesForPerspective(perspective: WorkspacePerspective): Readonly
     target: { kind: "doc", projectId: "project-local", taskId: "TASK-001", path: "task_plan.md" },
     disposition: "split"
   });
-  const terminalPane = routeOpenIntent({
-    source: "palette",
-    target: {
-      kind: "terminal",
-      projectId: "project-local",
-      taskId: "TASK-001",
-      sessionId: "term-local-task",
-      cwd: "."
-    },
-    disposition: "dock"
-  });
   const logsPane = routeOpenIntent({
     source: "review",
     target: { kind: "logs", projectId: "project-local", taskId: "TASK-001", stream: "checks" },
@@ -246,8 +206,7 @@ function defaultPanesForPerspective(perspective: WorkspacePerspective): Readonly
         placement: "dock",
         projectId: "project-local",
         state: { role: "checklist" }
-      }),
-      terminalPane
+      })
     ];
   }
   if (perspective === "triage") {
@@ -278,15 +237,14 @@ function defaultPanesForPerspective(perspective: WorkspacePerspective): Readonly
         state: { perspective, role: "filters" }
       }),
       taskPane,
-      terminalPane,
       logsPane
     ];
   }
-  return [taskPane, docPane, terminalPane, logsPane];
+  return [taskPane, docPane, logsPane];
 }
 
 function defaultPlacementForTarget(target: OpenTarget): WorkspacePanePlacement {
-  if (target.kind === "terminal" || target.kind === "logs") return "dock";
+  if (target.kind === "logs") return "dock";
   if (target.kind === "url") return "external";
   if (target.kind === "doc" || target.kind === "file") return "split";
   return "tab";
@@ -336,8 +294,6 @@ function isWorkspacePaneDescriptor(value: unknown): value is WorkspacePaneDescri
   if (!isPaneViewState(value.viewState)) return false;
   if (value.projectId !== undefined && typeof value.projectId !== "string") return false;
   if (value.taskId !== undefined && typeof value.taskId !== "string") return false;
-  if (value.hostProfileId !== undefined && typeof value.hostProfileId !== "string") return false;
-  if (value.terminalSessionId !== undefined && typeof value.terminalSessionId !== "string") return false;
   if (value.source !== undefined && !isOpenIntent(value.source)) return false;
   if (value.state !== undefined && !isPaneState(value.state)) return false;
   if (value.kind === "browser" && !isP06BrowserPlaceholder(value)) return false;
@@ -374,8 +330,6 @@ function isPaneKind(value: unknown): value is WorkspacePaneKind {
     value === "doc" ||
     value === "file" ||
     value === "browser" ||
-    value === "terminal" ||
-    value === "sessionList" ||
     value === "logs" ||
     value === "adapterInspector" ||
     value === "checker"
@@ -400,14 +354,12 @@ function isOpenIntent(value: unknown): value is OpenIntent {
 
 function isOpenIntentSource(value: unknown): value is OpenIntentSource {
   return (
-    value === "terminal" ||
     value === "doc" ||
     value === "graph" ||
     value === "list" ||
     value === "board" ||
     value === "review" ||
-    value === "palette" ||
-    value === "sessionList"
+    value === "palette"
   );
 }
 
@@ -431,16 +383,6 @@ function isOpenTarget(value: unknown): value is OpenTarget {
       );
     case "file":
       return typeof value.path === "string" && optionalNumber(value.line) && optionalNumber(value.col) && optionalString(value.projectId);
-    case "terminal":
-      return (
-        optionalString(value.sessionId) &&
-        optionalString(value.hostProfileId) &&
-        optionalString(value.cwd) &&
-        optionalString(value.taskId) &&
-        optionalString(value.projectId)
-      );
-    case "sessionList":
-      return optionalString(value.hostProfileId) && optionalString(value.projectId);
     case "logs":
       return optionalString(value.projectId) && optionalString(value.taskId) && optionalString(value.stream);
     case "url":
