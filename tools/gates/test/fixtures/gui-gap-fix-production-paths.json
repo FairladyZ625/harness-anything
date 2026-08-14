@@ -32,6 +32,14 @@
     "module": "gui"
   },
   {
+    "path": "packages/gui/src/renderer/i18n/core.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/i18n/index.tsx",
+    "module": "gui"
+  },
+  {
     "path": "packages/gui/src/renderer/model/decision-pool-grouping.ts",
     "module": "gui"
   },

@@ -33,44 +33,48 @@ import { useCatalogSnapshot } from "./catalog-data.ts";
 import { adaptRepoProject } from "./model/project-adapter.ts";
 import { TerminalDock, type TerminalDockHandle } from "./components/TerminalDock.tsx";
 import { NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
+import { t, type MessageKey } from "./i18n/index.tsx";
 import { useViewHistory } from "./navigation/useViewHistory.ts";
 import { initialLocation, resetViewHistory } from "./navigation/viewHistoryStorage.ts";
 import type { ViewId } from "./navigation/viewHistory.ts";
 
 // W2C:列表并入看板(第三种 layout),独立「列表」入口删除。
-const WORKSPACE_NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
-  { id: "overview", label: "总览", icon: <SquaresFour weight="duotone" /> },
-  { id: "board", label: "看板", icon: <Kanban weight="duotone" /> },
-  { id: "decisions", label: "决策批准", icon: <Scales weight="duotone" /> },
-  { id: "decisionPool", label: "决策池", icon: <GitBranch weight="duotone" /> },
-  { id: "factTriage", label: "事实分诊", icon: <FirstAidKit weight="duotone" /> },
-  { id: "executionEvidence", label: "执行证据", icon: <Package weight="duotone" /> },
-  { id: "graph", label: "关系图", icon: <Graph weight="duotone" /> },
-];
-
-const MANAGE_NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
-  { id: "presets", label: "Preset / Vertical", icon: <Stack weight="duotone" /> },
-  { id: "adapters", label: "引擎 Adapter", icon: <PlugsConnected weight="duotone" /> },
-  { id: "agents", label: "Agent Sessions", icon: <PlugsConnected weight="duotone" /> },
-  { id: "system", label: "System", icon: <GearSix weight="duotone" /> },
-  { id: "settings", label: "设置", icon: <GearSix weight="duotone" /> },
-];
-
-const VIEW_LABEL: Record<ViewId, string> = {
-  home: "项目",
-  overview: "总览",
-  board: "看板",
-  decisions: "决策批准",
-  decisionPool: "决策池",
-  factTriage: "事实分诊",
-  executionEvidence: "执行证据",
-  graph: "关系图",
-  presets: "Preset / Vertical",
-  adapters: "引擎 Adapter",
-  agents: "Agent Sessions",
-  system: "System",
-  settings: "设置",
+// 侧栏文案走 i18n 字典(shell.nav.*);未接字典的视图保持中文(见完成度报告)。
+const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
+  home: "shell.nav.home",
+  overview: "shell.nav.overview",
+  board: "shell.nav.board",
+  decisions: "shell.nav.decisions",
+  decisionPool: "shell.nav.decisionPool",
+  factTriage: "shell.nav.factTriage",
+  executionEvidence: "shell.nav.executionEvidence",
+  graph: "shell.nav.graph",
+  presets: "shell.nav.presets",
+  adapters: "shell.nav.adapters",
+  agents: "shell.nav.agents",
+  system: "shell.nav.system",
+  settings: "shell.nav.settings",
 };
+
+const navLabel = (id: ViewId): string => t(NAV_LABEL_KEY[id]);
+
+const WORKSPACE_NAV: { id: ViewId; icon: React.ReactNode }[] = [
+  { id: "overview", icon: <SquaresFour weight="duotone" /> },
+  { id: "board", icon: <Kanban weight="duotone" /> },
+  { id: "decisions", icon: <Scales weight="duotone" /> },
+  { id: "decisionPool", icon: <GitBranch weight="duotone" /> },
+  { id: "factTriage", icon: <FirstAidKit weight="duotone" /> },
+  { id: "executionEvidence", icon: <Package weight="duotone" /> },
+  { id: "graph", icon: <Graph weight="duotone" /> },
+];
+
+const MANAGE_NAV: { id: ViewId; icon: React.ReactNode }[] = [
+  { id: "presets", icon: <Stack weight="duotone" /> },
+  { id: "adapters", icon: <PlugsConnected weight="duotone" /> },
+  { id: "agents", icon: <PlugsConnected weight="duotone" /> },
+  { id: "system", icon: <GearSix weight="duotone" /> },
+  { id: "settings", icon: <GearSix weight="duotone" /> },
+];
 
 function AppShell() {
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
@@ -363,7 +367,7 @@ function AppShell() {
         </div>
 
         <div className="px-3 pt-1 pb-1 font-mono text-[12px] uppercase tracking-wide text-text-faint">
-          工作区
+          {t("shell.nav.workspace")}
         </div>
         <nav className="flex gap-1 overflow-x-auto px-2 pb-1 md:flex-col md:gap-0.5 md:overflow-visible md:pb-0">
           {WORKSPACE_NAV.map((item) => (
@@ -372,14 +376,14 @@ function AppShell() {
               active={view === item.id && !selected}
               onClick={() => goto(item.id)}
               icon={item.icon}
-              label={item.label}
+              label={navLabel(item.id)}
               badge={item.id === "decisions" ? inboxCount : undefined}
             />
           ))}
         </nav>
 
         <div className="px-3 pt-3 pb-1 font-mono text-[12px] uppercase tracking-wide text-text-faint">
-          管理
+          {t("shell.nav.manage")}
         </div>
         <nav className="flex gap-1 overflow-x-auto px-2 pb-2 md:flex-col md:gap-0.5 md:overflow-visible md:pb-0">
           {MANAGE_NAV.map((item) => (
@@ -388,7 +392,7 @@ function AppShell() {
               active={view === item.id && !selected}
               onClick={() => goto(item.id)}
               icon={item.icon}
-              label={item.label}
+              label={navLabel(item.id)}
             />
           ))}
         </nav>
@@ -430,7 +434,7 @@ function AppShell() {
                 onBack={() => updateLocation({ selectedId: null })}
                 onSelect={(id) => updateLocation({ selectedId: id })}
                 projectName={project.name}
-                fromViewLabel={VIEW_LABEL[view]}
+                fromViewLabel={navLabel(view)}
                 onNavigateDecision={navigateToDecision}
                 onNavigateEntity={navigateToEntity}
                 mutationFeedback={taskActions.feedback.get(selected.taskId)}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CloudSlash } from "@phosphor-icons/react";
 import { useTheme, type ThemeMode, type UiScale } from "../theme";
+import { t, useI18n } from "../i18n/index.tsx";
 import { STATUS_META } from "../components/badges";
 import { BTN, Section, Row, Segmented, Toggle, Kbd } from "../components/ui/widgets";
 
@@ -45,8 +46,8 @@ const SETTINGS_TABS: { id: SettingsTab; label: string; desc: string }[] = [
 
 export function SettingsView() {
   const { mode, setMode, uiScale, setUiScale } = useTheme();
+  const { locale, setLocale } = useI18n();
   const [activeTab, setActiveTab] = useState<SettingsTab>("appearance");
-  const [language, setLanguage] = useState<"zh" | "en">("zh");
   const [notifyOnReady, setNotifyOnReady] = useState(true);
 
   const renderActivePanel = () => {
@@ -89,16 +90,15 @@ export function SettingsView() {
         );
       case "language":
         return (
-          <Section title="语言">
-            <Row label="界面语言" desc="多语言切换将在 V2 提供(coming soon)">
+          <Section title={t("settings.language")}>
+            <Row label={t("settings.language")} desc={t("settings.languageDesc")}>
               <Segmented
-                value={language}
+                value={locale}
                 options={[
-                  { key: "zh", label: "中文" },
-                  { key: "en", label: "English" },
+                  { key: "zh-CN", label: "中文" },
+                  { key: "en-US", label: "English" },
                 ]}
-                onChange={setLanguage}
-                disabled
+                onChange={setLocale}
               />
             </Row>
           </Section>
@@ -217,7 +217,7 @@ export function SettingsView() {
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
       <header className="border-b border-border px-4 py-3">
-        <h1 className="ui-title font-mono font-semibold">设置</h1>
+        <h1 className="ui-title font-mono font-semibold">{t("settings.title")}</h1>
         <p className="ui-meta mt-0.5 text-text-faint">
           应用偏好 · 原型内除主题外多数项为本地模拟，不会写入磁盘。
         </p>
