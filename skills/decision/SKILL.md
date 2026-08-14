@@ -32,20 +32,13 @@ Use this skill for one decision at a time:
 For source checkouts, prefer `npx ha`:
 
 ```bash
-npx ha decision propose \
-  --title "Adopt decision loop" \
-  --question "Should this work be recorded as a decision?" \
-  --chosen "Record it" \
-  --rejected "Leave it in chat only" \
-  --why-not "Chat-only reasoning is not durable or queryable" \
-  --claim "The decision is consequential enough to preserve" \
-  --json
+npx ha decision propose --from-file proposal.json --body-file decision-body.md --json
 ```
 
 For installed package use, the equivalent command is:
 
 ```bash
-harness-anything decision propose --title "..." --question "..." --chosen "..." --rejected "..." --why-not "..." --json
+harness-anything decision propose --from-file proposal.json --body-file decision-body.md --json
 ```
 
 ## State Commands

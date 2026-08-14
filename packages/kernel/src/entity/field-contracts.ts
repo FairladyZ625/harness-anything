@@ -19,7 +19,7 @@ export interface EntityFieldContract {
   readonly reason?: string;
 }
 
-export type DecisionFieldKey = keyof DecisionProposalPayload | "schema" | "decisionId" | "state" | "proposer" | "arbiter" | "claims" | "relations" | "judgmentConsents" | "body";
+export type DecisionFieldKey = Exclude<keyof DecisionProposalPayload, "body" | "claims" | "fulfillments" | "relations"> | "schema" | "decisionId" | "state" | "proposer" | "arbiter" | "claims" | "relations" | "judgmentConsents" | "body";
 export type TaskFieldKey = keyof TaskFrontmatter;
 export type FactFieldKey = Exclude<keyof FactEventPayload, "factsDocumentClaim"> | "factId";
 export type RelationFieldKey = keyof EntityRelationRecord;

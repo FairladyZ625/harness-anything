@@ -6,14 +6,14 @@
     "write-contract": 292,
     "doc-sync": 347,
     "preset": 299,
-    "cli": 143,
+    "cli": 142,
     "gui": 17446,
-    "daemon": 930,
+    "daemon": 934,
     "fleet": 165,
     "authority-write-path": 0,
     "identity-rbac": 416,
     "agent-runtime": 301,
-    "decision-fact": 412,
+    "decision-fact": 414,
     "test-infra": 0
   }
 }

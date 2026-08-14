@@ -39,7 +39,8 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
 });
 
 test("Decision CLI maps every canonical command and keeps the five local error codes closed", () => {
-  const propose = parseThinCommand(["decision", "propose", "--title", "Canonical", "--question", "Should events own this Decision?", "--chosen", '{"id":"CH1","text":"Use events"}', "--rejected", '{"id":"RJ1","text":"Use files","whyNot":"Not canonical"}', "--module", "kernel"]),
+  const packet = JSON.stringify({ title: "Canonical", question: "Should events own this Decision?", riskTier: "medium", urgency: "medium", vertical: "default", preset: "default", decisionClass: "ordinary", appliesTo: { modules: ["kernel"], productLines: [] }, chosen: [{ id: "CH1", text: "Use events" }], rejected: [{ id: "RJ1", text: "Use files", whyNot: "Not canonical" }], claims: [], fulfillments: [], relations: [] }),
+    propose = parseThinCommand(["decision", "propose", "--json-input", packet, "--body", "# Canonical\n\nInitial prose.\n"]),
     accept = parseThinCommand(["decision", "accept", "dec_1", "--rationale", "Independent approval", "--judgment-only", "CEO judgment without evidence"]),
     claim = parseThinCommand(["decision", "claim", "add", "dec_1", "--id", "C1", "--text", "Coverage is replayable"]),
     fulfill = parseThinCommand(["decision", "claim", "fulfill", "dec_1", "--id", "C1", "--mode", "evidenced"]),
@@ -47,7 +48,7 @@ test("Decision CLI maps every canonical command and keeps the five local error c
     retireRelation = parseThinCommand(["decision", "relation", "retire", "dec_1", "--relation", "rel_0123456789abcdef", "--reason", "Stale"]),
     reckon = parseThinCommand(["decision", "reckon", "dec_1", "--task", "task-1"]), search = parseThinCommand(["decision", "search", "Canonical", "--state", "active"]), show = parseThinCommand(["decision", "show", "dec_1", "--include-body"]);
   assert.equal([propose, accept, claim, fulfill, relate, retireRelation, reckon, search, show].every((result) => result.ok), true);
-  if (propose.ok) assert.deepEqual(propose.command.action, { kind: "decision-propose", title: "Canonical", question: "Should events own this Decision?", riskTier: "medium", urgency: "medium", vertical: "default", preset: "default", decisionClass: "ordinary", appliesTo: { modules: ["kernel"], productLines: [] }, chosen: [{ id: "CH1", text: "Use events" }], rejected: [{ id: "RJ1", text: "Use files", whyNot: "Not canonical" }] });
+  if (propose.ok) assert.deepEqual(propose.command.action, { kind: "decision-propose", jsonInput: packet, body: "# Canonical\n\nInitial prose.\n" });
   if (accept.ok) assert.deepEqual(accept.command.action, { kind: "decision-accept", decisionId: "dec_1", rationale: "Independent approval", judgmentOnlyRationale: "CEO judgment without evidence" });
   if (show.ok) assert.deepEqual(show.command.action, { kind: "decision-show", decisionId: "dec_1", includeBody: true });
   const failures = [
@@ -58,6 +59,10 @@ test("Decision CLI maps every canonical command and keeps the five local error c
     parseThinCommand(["decision", "list"])
   ];
   assert.deepEqual(failures.map((result) => result.ok ? "ok" : result.code), ["duplicate_field", "invalid_field", "missing_field", "unknown_field", "unsupported_command"]);
+  assert.equal(parseThinCommand(["decision", "propose", "--from-file", "proposal.json", "--json-input", packet]).ok, false);
+  assert.equal(parseThinCommand(["decision", "propose", "--json-input", packet, "--body", "inline", "--body-file", "body.md"]).ok, false);
+  assert.equal(parseThinCommand(["decision", "propose", "--title", "retired flags-only proposal"]).ok, false);
+  assert.equal(parseThinCommand(["decision", "relate", "dec_1", "--type", "relates", "--target", "task/task-1", "--rationale", "Missing anchor"]).ok, false);
 });
 
 test("thin parser converts the sole preset script target into closed typed start params", () => {
