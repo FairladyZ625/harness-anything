@@ -16,5 +16,6 @@ test("runtime credential bindings persist only an opaque native-store reference 
       assert.doesNotMatch(JSON.stringify(receipt), /credentialRef/u);
       assert.doesNotMatch(readFileSync(path.join(root, "runtime-credential-bindings.json"), "utf8"), /apiKey/u);
       assert.equal(bindings.read("codex")?.credentialRef, "keychain:harness/codex");
+      for (const baseUrl of ["https://user:pass@example.test", "https://example.test/v1?token=secret", "https://example.test/v1#secret"]) assert.throws(() => bindings.bind({ authorityRepoId: "repo-a", kindId: "codex", baseUrl, credentialRef: "keychain:harness/codex" }), (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_base_url");
     } finally { rmSync(root, { recursive: true, force: true }); }
 });

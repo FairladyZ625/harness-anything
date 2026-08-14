@@ -8,11 +8,11 @@
     "preset": 373,
     "cli": 140,
     "gui": 17807,
-    "daemon": 1500,
+    "daemon": 1515,
     "fleet": 222,
     "authority-write-path": 0,
     "identity-rbac": 416,
-    "agent-runtime": 305,
+    "agent-runtime": 350,
     "decision-fact": 452,
     "test-infra": 0
   }

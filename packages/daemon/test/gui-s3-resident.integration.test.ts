@@ -19,7 +19,7 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
     const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-s3-resident-")), userRoot = path.join(parent, "user"), alpha = path.join(parent, "alpha"), beta = path.join(parent, "beta"), endpoint = path.join(parent, "daemon.sock"), uid = process.getuid?.() ?? 0;
     initRepo(alpha, "alpha", uid); initRepo(beta, "beta", uid); registerDaemonRepo({ canonicalRoot: alpha, repoId: "alpha", userRoot, createConvenienceLinks: false }); registerDaemonRepo({ canonicalRoot: beta, repoId: "beta", userRoot, createConvenienceLinks: false }); seedRuntime(alpha);
     const locked = await openRepoCell({ repoId: workspaceId("beta"), rootDir: canonicalRoot(beta), ownerId: "other-daemon" });
-    const host = await openDaemonHost({ daemonId: "gui-s3", userRoot, endpoint, runtimeLaunch: () => ({ pid: 4242, onExit: () => undefined, terminate: () => undefined }) });
+    const host = await openDaemonHost({ daemonId: "gui-s3", userRoot, endpoint, runtimeDiscover: () => [{ installationId: "installation-codex", kindId: "codex", executablePath: "/opt/witnessed/codex", version: "1.0.0", observedAt: "2026-08-14T00:00:00.000Z" }], runtimeLaunch: () => ({ pid: 4242, onExit: () => undefined, terminate: () => undefined }) });
     const transport = createUnixSocketTransportServer({ daemonId: "gui-s3", socketPath: endpoint, createProtocolServer: (authContext, emit) => createJsonRpcProtocolServer({ host, authContext, emit }) }); await transport.start();
     const rpc = (method: string, params: Record<string, unknown>) => requestDaemonJsonRpcAt(endpoint, method, params, 2_000);
     try {
