@@ -1,0 +1,13 @@
+{
+  "schema": "preset-manifest/v3",
+  "id": "legacy-migration",
+  "title": "Legacy Migration",
+  "vertical": "software/coding",
+  "version": "3.0.0",
+  "kind": "process-action",
+  "outputShape": "repository-diff",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [],
+  "profiles": [{ "id": "baseline", "title": "Baseline", "checkerProfile": "standard", "completionGates": ["ci", "code-doc-reconciliation"], "templateSelections": [] }],
+  "defaultProfile": "baseline"
+}

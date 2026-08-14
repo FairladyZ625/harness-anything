@@ -6,7 +6,7 @@ import { parseThinCommand, renderThinHelp } from "./cli/thin-command.ts";
 import { runCommandThroughDaemon } from "./daemon/client.ts";
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
-  if (argv.length === 0 || argv.includes("--help")) { console.log(renderThinHelp()); return 0; }
+  if (argv.length === 0 || argv.includes("--help")) { const rows = await taskCreateHelpCatalog(argv); console.log(rows.length === 0 ? renderThinHelp() : renderThinHelp(rows)); return 0; }
   if (argv.includes("daemon")) {
     const { runDaemonControl } = await import("./daemon/control.ts");
     return runDaemonControl(argv);
@@ -23,10 +23,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   }
 }
 
-function cliFailure(command: string, code: string, nextAction: string): Record<string, unknown> {
-  return { schema: "command-receipt/v2", ok: false, command, outcome: "rejected", opId: "N/A", origin: "cli", code,
-    evidence: `rejection:${code}`, error: { code, hint: nextAction }, nextAction };
-}
+async function taskCreateHelpCatalog(argv: readonly string[]): Promise<Array<{ id: string; title: string; description: string; validity: string; errorCode?: string }>> { if (argv[0] !== "task" || argv[1] !== "create") return []; const globals = argv.flatMap((value, index) => value === "--json" ? [value] : value === "--root" || value === "--repo" ? [value, argv[index + 1] ?? ""] : []), parsed = parseThinCommand(["preset", "list", ...globals]); if (!parsed.ok) return []; try { const receipt = await runCommandThroughDaemon(parsed.command), rows = typeof receipt.evidence === "string" ? JSON.parse(receipt.evidence) as unknown : null; return Array.isArray(rows) ? rows.filter((row): row is { id: string; title: string; description: string; validity: string; errorCode?: string } => !!row && typeof row === "object" && ["id", "title", "description", "validity"].every((key) => typeof (row as Record<string, unknown>)[key] === "string")) : []; } catch { return []; } }
+function cliFailure(command: string, code: string, nextAction: string): Record<string, unknown> { return { schema: "command-receipt/v2", ok: false, command, outcome: "rejected", opId: "N/A", origin: "cli", code, evidence: `rejection:${code}`, error: { code, hint: nextAction }, nextAction }; }
 function emit(receipt: Record<string, unknown>, json: boolean): void {
   if (json) console.log(JSON.stringify(receipt));
   else if (receipt.ok === true) console.log(String(receipt.command === "doc-show" ? receipt.evidence : receipt.command === "init" ? [String(receipt.summary), `outcome: ${receipt.outcome ?? "applied"}`, ...["created", "updated", "preserved", "drifted"].map((key) => `${key}: ${JSON.stringify(receipt[key] ?? [])}`), `commit: ${String(receipt.commit ?? "none")}`, `next: ${String(receipt.next ?? "")}`].join("\n") : receipt.summary ?? `${receipt.command ?? "command"}: ${receipt.outcome ?? "applied"}`));

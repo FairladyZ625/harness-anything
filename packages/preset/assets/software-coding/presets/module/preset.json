@@ -1,0 +1,25 @@
+{
+  "schema": "preset-manifest/v3",
+  "id": "module",
+  "title": "Module",
+  "vertical": "software/coding",
+  "version": "3.0.0",
+  "kind": "template-content",
+  "outputShape": "repository-diff",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [
+    { "id": "task-create-module-context", "kind": "command", "version": "1", "required": true }
+  ],
+  "profiles": [{
+    "id": "baseline",
+    "title": "Baseline",
+    "checkerProfile": "standard",
+    "completionGates": ["ci", "code-doc-reconciliation"],
+    "templateSelections": [
+      { "slot": "module.plan", "templateRef": "template://planning/module-plan@1", "materializeAs": "module_plan.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "module.brief", "templateRef": "template://planning/module-brief@1", "materializeAs": "module_brief.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "module.session.prompt", "templateRef": "template://planning/module-session-prompt@1", "materializeAs": "module_session_prompt.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
+    ]
+  }],
+  "defaultProfile": "baseline"
+}

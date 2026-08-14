@@ -9,6 +9,8 @@ export { canonicalizeContractValue, taskClasses } from "./domain/task.ts";
 export type { TaskClass, TaskV1 } from "./domain/task.ts";
 export { assertTaskBootstrapWritePlan, isTaskBootstrapEvent, taskBootstrapClaims, taskBootstrapWritePlan, validateTaskBootstrapEvent } from "./domain/task-bootstrap-event.ts";
 export type { InitialDocumentClaim, PresetSnapshotClaim, TaskBootstrapBlob, TaskBootstrapEventV1, TaskDocumentOwner } from "./domain/task-bootstrap-event.ts";
+export { presetSnapshotUpgradeWritePlan, validatePresetSnapshotUpgradeEvent } from "./domain/preset-snapshot-upgrade-event.ts";
+export type { PresetSnapshotUpgradeBundle, PresetSnapshotUpgradeEventV1 } from "./domain/preset-snapshot-upgrade-event.ts";
 export { compileTaskProgress, isTaskProgressEvent } from "./domain/task-progress-event.ts";
 export type { TaskProgressEvidence, TaskProgressEventV1 } from "./domain/task-progress-event.ts";
 export { assertCurrentWriter, bindWriterGenerationToken, createWriteReceipt, normalizeCommandEnvelope, WRITE_RECEIPT_SCHEMA } from "./domain/write-chain.contract.ts";

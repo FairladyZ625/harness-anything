@@ -261,6 +261,48 @@
       ]
     },
     {
+      "id": "planning/module-plan",
+      "version": "1",
+      "documentKind": "module-plan",
+      "slot": "module.plan",
+      "materializeAs": "module_plan.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Module", "## Steps"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Module", "## Steps"], "bodyPath": "templates/module.plan/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Module", "## Steps"], "bodyPath": "templates/module.plan/en-US.md" }
+      ]
+    },
+    {
+      "id": "planning/module-brief",
+      "version": "1",
+      "documentKind": "module-brief",
+      "slot": "module.brief",
+      "materializeAs": "module_brief.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Module Objective", "## Interfaces"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Module Objective", "## Interfaces"], "bodyPath": "templates/module.brief/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Module Objective", "## Interfaces"], "bodyPath": "templates/module.brief/en-US.md" }
+      ]
+    },
+    {
+      "id": "planning/module-session-prompt",
+      "version": "1",
+      "documentKind": "module-session-prompt",
+      "slot": "module.session.prompt",
+      "materializeAs": "module_session_prompt.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Session Prompt", "## Required Context"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Session Prompt", "## Required Context"], "bodyPath": "templates/module.session.prompt/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Session Prompt", "## Required Context"], "bodyPath": "templates/module.session.prompt/en-US.md" }
+      ]
+    },
+    {
       "id": "analysis/code-impact",
       "version": "1",
       "documentKind": "code-impact-analysis",

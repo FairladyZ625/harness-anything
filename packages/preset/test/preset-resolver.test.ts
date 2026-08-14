@@ -5,8 +5,8 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symli
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
-import { compileRepositoryScaffold, compileTaskBootstrap, createCanonicalPresetResolver, installPresetPackage, runPresetAction, uninstallPresetPackage } from "../src/index.ts";
+import { makeTaskEventStore, makeTaskProjection, sha256Text } from "../../kernel/src/index.ts";
+import { compilePresetSnapshotUpgrade, compileRepoTaskPackage, compileRepositoryScaffold, compileTaskBootstrap, createCanonicalPresetResolver, installPresetPackage, runPresetAction, uninstallPresetPackage } from "../src/index.ts";
 import { createRuntime, decodePresetPackageV3 } from "../src/preset-resolver.ts";
 
 test("canonical resolver decodes one complete bundled package into a content-addressed snapshot", async () => {
@@ -139,11 +139,24 @@ test("whole-package install publishes only the old or new active pointer", async
   } finally { fixture.cleanup(); }
 });
 
-test("six bundled packages list and inspect through one canonical catalog without id branches", async () => {
+test("twelve bundled packages list through one catalog while missing workflow prerequisites stay unavailable", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-preset-builtins-"));
   try {
     const resolver = createCanonicalPresetResolver({ userRoot: root }), common = { verticalId: "software/coding", profileId: "baseline", locale: "en-US", purpose: "task-create" } as const, listed = await resolver.list({ verticalId: "software/coding" });
-    assert.deepEqual(listed.map(({ id, validity }) => ({ id, validity })), ["architecture-rot-audit", "code-impact-analysis", "create-milestone", "docs-task", "standard-task", "worker-dispatch"].map((id) => ({ id, validity: "valid" })));
+    assert.deepEqual(listed.map(({ id, validity, errorCode }) => ({ id, validity, errorCode })), [
+      { id: "architecture-rot-audit", validity: "valid", errorCode: undefined },
+      { id: "code-impact-analysis", validity: "valid", errorCode: undefined },
+      { id: "create-milestone", validity: "valid", errorCode: undefined },
+      { id: "decision-conformance", validity: "valid", errorCode: undefined },
+      { id: "docs-task", validity: "valid", errorCode: undefined },
+      { id: "github-issue-repair", validity: "valid", errorCode: undefined },
+      { id: "legacy-migration", validity: "valid", errorCode: undefined },
+      { id: "milestone-closeout", validity: "valid", errorCode: undefined },
+      { id: "module", validity: "unavailable", errorCode: "missing_provider" },
+      { id: "standard-task", validity: "valid", errorCode: undefined },
+      { id: "subtask-expansion", validity: "unavailable", errorCode: "missing_provider" },
+      { id: "worker-dispatch", validity: "valid", errorCode: undefined }
+    ]);
     const standard = await resolver.resolve({ ...common, presetId: "standard-task" }), milestone = await resolver.resolve({ ...common, presetId: "create-milestone" });
     assert.equal(standard.ok, true); assert.equal(milestone.ok, true); if (!standard.ok || !milestone.ok) return;
     assert.deepEqual(standard.snapshot.templates.map(({ slot, path: target, templateRef }) => ({ slot, target, templateRef })), [
@@ -153,30 +166,53 @@ test("six bundled packages list and inspect through one canonical catalog withou
       { slot: "task.plan", target: "task_plan.md", templateRef: "template://planning/milestone-task-plan@1" }, { slot: "task.closeout", target: "closeout.md", templateRef: "template://planning/closeout@1" }, { slot: "task.artifacts.keep", target: "artifacts/.gitkeep", templateRef: "template://planning/keep-file@1" }
     ]);
     const matrix = [
+      ["standard-task", "repository-diff", ["ci", "code-doc-reconciliation"], ["task.plan", "task.closeout", "task.artifacts.keep"]],
       ["docs-task", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
       ["code-impact-analysis", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep", "task.code.impact.analysis"]],
       ["worker-dispatch", "repository-diff", ["ci", "code-doc-reconciliation"], ["task.plan", "task.closeout", "task.artifacts.keep", "task.worker.flow"]],
-      ["architecture-rot-audit", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]]
+      ["architecture-rot-audit", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
+      ["github-issue-repair", "repository-diff", ["ci", "code-doc-reconciliation"], ["task.plan", "task.closeout", "task.artifacts.keep"]],
+      ["legacy-migration", "repository-diff", ["ci", "code-doc-reconciliation"], ["task.plan", "task.closeout", "task.artifacts.keep"]],
+      ["create-milestone", "repository-diff", ["ci", "code-doc-reconciliation"], ["task.plan", "task.closeout", "task.artifacts.keep"]],
+      ["milestone-closeout", "repository-diff", ["ci", "code-doc-reconciliation"], ["task.plan", "task.closeout", "task.artifacts.keep"]],
+      ["decision-conformance", "repository-diff", ["ci", "code-doc-reconciliation"], ["task.plan", "task.closeout", "task.artifacts.keep"]]
     ] as const;
-    for (const [presetId, outputShape, completionGateIds, slots] of matrix) { const result = await resolver.resolve({ ...common, presetId }); assert.equal(result.ok, true, presetId); if (result.ok) assert.deepEqual({ outputShape: result.snapshot.profile.outputShape, completionGateIds: result.snapshot.profile.completionGateIds, slots: result.snapshot.templates.map(({ slot }) => slot) }, { outputShape, completionGateIds, slots }); }
+    for (const [presetId, outputShape, completionGateIds, slots] of matrix) { const result = await resolver.resolve({ ...common, presetId }); assert.equal(result.ok, true, presetId); if (result.ok) assert.deepEqual({ outputShape: result.snapshot.profile.outputShape, completionGateIds: result.snapshot.profile.completionGateIds, slots: result.snapshot.templates.map(({ slot }) => slot), entrypoints: Object.keys(result.snapshot.entrypoints) }, { outputShape, completionGateIds, slots, entrypoints: [] }); }
+    for (const presetId of ["module", "subtask-expansion"]) { const result = await resolver.resolve({ ...common, presetId }); assert.equal(result.ok, false); if (!result.ok) assert.equal(result.error.code, "missing_provider"); }
+    assert.equal(existsSync(new URL("../assets/software-coding/presets/reference-task/", import.meta.url)), false); assert.equal(existsSync(new URL("../assets/software-coding/presets/long-running-task/", import.meta.url)), false);
     const noEntrypoint = await resolver.resolve({ presetId: "create-milestone", verticalId: "software/coding", locale: "en-US", purpose: "script-run", entrypoint: "run" }); assert.equal(noEntrypoint.ok, false); if (!noEntrypoint.ok) assert.equal(noEntrypoint.error.code, "entrypoint_not_found");
     const auditEntrypoint = await resolver.resolve({ presetId: "architecture-rot-audit", verticalId: "software/coding", locale: "en-US", purpose: "script-run", entrypoint: "run" }); assert.equal(auditEntrypoint.ok, false); if (!auditEntrypoint.ok) assert.equal(auditEntrypoint.error.code, "entrypoint_not_found");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 for (const sample of [
+  { presetId: "standard-task", gates: ["ci", "code-doc-reconciliation"], addedPath: null, taskClass: undefined },
   { presetId: "docs-task", gates: [], addedPath: null },
   { presetId: "code-impact-analysis", gates: [], addedPath: "code-impact-analysis.md" },
   { presetId: "worker-dispatch", gates: ["ci", "code-doc-reconciliation"], addedPath: "worker-flow.md" },
-  { presetId: "architecture-rot-audit", gates: [], addedPath: null }
+  { presetId: "architecture-rot-audit", gates: [], addedPath: null },
+  { presetId: "github-issue-repair", gates: ["ci", "code-doc-reconciliation"], addedPath: null },
+  { presetId: "legacy-migration", gates: ["ci", "code-doc-reconciliation"], addedPath: null },
+  { presetId: "create-milestone", gates: ["ci", "code-doc-reconciliation"], addedPath: null, taskClass: "milestone" },
+  { presetId: "milestone-closeout", gates: ["ci", "code-doc-reconciliation"], addedPath: null },
+  { presetId: "decision-conformance", gates: ["ci", "code-doc-reconciliation"], addedPath: null }
 ] as const) test(`${sample.presetId} dry-run claims equal canonical materialization`, () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), `ha-preset-${sample.presetId}-`)), userRoot = path.join(rootDir, ".harness/presets");
   try {
     git(rootDir, "init", "-q"); git(rootDir, "config", "user.name", "Preset Test"); git(rootDir, "config", "user.email", "preset@example.invalid"); git(rootDir, "commit", "--allow-empty", "-qm", "base");
-    const preview = compileTaskBootstrap({ userRoot, verticalId: "software/coding", profileId: "baseline", locale: "en-US", actor: { principal: { personId: "person-1" }, executor: null }, source: "local", occurredAt: "2026-08-14T00:00:00.000Z", taskId: `task-${sample.presetId}`, title: sample.presetId, presetId: sample.presetId, workspaceRevision: 1, eventId: `event-${sample.presetId}`, opId: `op-${sample.presetId}` });
+    const preview = compileTaskBootstrap({ userRoot, verticalId: "software/coding", profileId: "baseline", locale: "en-US", actor: { principal: { personId: "person-1" }, executor: null }, source: "local", occurredAt: "2026-08-14T00:00:00.000Z", taskId: `task-${sample.presetId}`, title: sample.presetId, presetId: sample.presetId, ...(sample.taskClass ? { taskClass: sample.taskClass } : {}), workspaceRevision: 1, eventId: `event-${sample.presetId}`, opId: `op-${sample.presetId}` });
     const dryRunPaths = preview.documents.map(({ path: target }) => target), claimPaths = preview.event.payload.initialDocumentClaims.map(({ path: target }) => target); assert.deepEqual(claimPaths, dryRunPaths); assert.deepEqual(preview.snapshot.profile.completionGateIds, sample.gates); assert.equal(sample.addedPath === null ? preview.documents.length === 6 : preview.documents.some(({ relativePath }) => relativePath === sample.addedPath), true);
     const store = makeTaskEventStore({ repoId: `preset-${sample.presetId}`, rootDir }); store.append({ event: preview.event, plan: preview.plan, blobs: preview.blobs }); for (const document of preview.documents) assert.equal(readFileSync(path.join(rootDir, "harness", document.path), "utf8"), document.body); rmSync(path.join(rootDir, "harness", preview.packagePath), { recursive: true, force: true }); const restored = store.materialize(); assert.deepEqual(restored.changed, [...dryRunPaths].sort((left, right) => left.localeCompare(right))); for (const document of preview.documents) assert.equal(readFileSync(path.join(rootDir, "harness", document.path), "utf8"), document.body);
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("module locale, required anchors, and body digests close through the canonical catalog when its owner capability is present", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-module-catalog-")), assetsRoot = path.join(root, "assets");
+  try {
+    cpSync(new URL("../assets/software-coding/", import.meta.url), assetsRoot, { recursive: true }); const capabilities = JSON.parse(readFileSync(path.join(assetsRoot, "capabilities.json"), "utf8")) as { providers: Array<Record<string, unknown>> }; capabilities.providers.push({ id: "task-create-module-context", kind: "command", version: "1" }); write(path.join(assetsRoot, "capabilities.json"), JSON.stringify(capabilities));
+    const runtime = createRuntime({ bundledRoot: path.join(assetsRoot, "presets"), assetsRoot, userRoot: path.join(root, "user") });
+    for (const locale of ["en-US", "zh-CN"] as const) { const resolved = runtime.resolveInternal({ presetId: "module", verticalId: "software/coding", profileId: "baseline", locale, purpose: "task-create" }), increments = resolved.snapshot.templates.filter(({ slot }) => slot.startsWith("module.")); assert.equal(increments.length, 3); for (const template of increments) { const document = resolved.documents.find(({ slot }) => slot === template.slot); assert.equal(template.locale, locale); assert.ok(template.requiredAnchors.length >= 2); assert.equal(template.content.sha256, sha256Text(document?.body ?? "")); for (const anchor of template.requiredAnchors) assert.match(document?.body ?? "", new RegExp(anchor.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u")); } }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("project task scaffold replaces and adds prose while base ownership, anchors, and portable paths fail closed", async () => {
@@ -215,11 +251,32 @@ test("task and repository overlays share replace/add validation while keeping se
 test("generic list, inspect, check, install, and uninstall actions share the canonical inventory", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-actions-")), sourceRoot = path.join(rootDir, "source");
   try {
-    const listed = await runPresetAction({ rootDir, action: { kind: "preset-list" } }) as Array<{ id: string }>; assert.deepEqual(listed.map(({ id }) => id), ["architecture-rot-audit", "code-impact-analysis", "create-milestone", "docs-task", "standard-task", "worker-dispatch"]);
-    const inspected = await runPresetAction({ rootDir, action: { kind: "preset-inspect", presetId: "standard-task" } }) as { digest: string }; assert.match(inspected.digest, /^sha256:/u);
-    assert.deepEqual(await runPresetAction({ rootDir, action: { kind: "preset-check", presetId: "standard-task" } }), { valid: true, digest: inspected.digest });
-    writePackage(sourceRoot, "user-task", { version: "3.4.0" }); assert.deepEqual(Object.keys(await runPresetAction({ rootDir, action: { kind: "preset-install", packageSource: path.join(sourceRoot, "user-task") } }) as object).sort(), ["digest", "presetId"]); assert.equal((await runPresetAction({ rootDir, action: { kind: "preset-inspect", presetId: "user-task" } }) as { identity: { layer: string } }).identity.layer, "user"); assert.deepEqual(await runPresetAction({ rootDir, action: { kind: "preset-uninstall", presetId: "user-task" } }), { presetId: "user-task", removed: true });
+    const listed = await runPresetAction({ rootDir, action: { kind: "preset-list" } }) as Array<{ id: string; version?: string; kind?: string; defaultProfile?: string; entrypoints?: string[]; issueCount?: number }>; assert.equal(listed.length, 12); assert.deepEqual(listed.find(({ id }) => id === "standard-task"), { id: "standard-task", title: "Standard Task", description: "Create the standard planning, facts, and closeout scaffold for general software work.", verticalId: "software/coding", layer: "bundled", validity: "valid", version: "3.0.0", kind: "template-content", defaultProfile: "baseline", entrypoints: [], issueCount: 0 });
+    const inspected = await runPresetAction({ rootDir, action: { kind: "preset-inspect", presetId: "standard-task" } }) as { manifest: { id: string }; snapshot: { digest: string }; entrypoints: string[] }; assert.equal(inspected.manifest.id, "standard-task"); assert.deepEqual(inspected.entrypoints, []); assert.match(inspected.snapshot.digest, /^sha256:/u);
+    assert.deepEqual(await runPresetAction({ rootDir, action: { kind: "preset-check", presetId: "standard-task" } }), { valid: true, digest: inspected.snapshot.digest });
+    const stale = `sha256:${"0".repeat(64)}`; assert.deepEqual(await runPresetAction({ rootDir, action: { kind: "preset-check", presetId: "standard-task", snapshotDigest: stale } }), { valid: false, code: "snapshot_mismatch", actualDigest: stale, expectedDigest: inspected.snapshot.digest, nextAction: "Run ha preset upgrade <task-id>." }); assert.deepEqual(await runPresetAction({ rootDir, action: { kind: "preset-check", presetId: "standard-task", snapshotDigest: inspected.snapshot.digest } }), { valid: true, digest: inspected.snapshot.digest });
+    writePackage(sourceRoot, "user-task", { version: "3.4.0" }); assert.deepEqual(Object.keys(await runPresetAction({ rootDir, action: { kind: "preset-install", packageSource: path.join(sourceRoot, "user-task") } }) as object).sort(), ["digest", "presetId"]); assert.equal((await runPresetAction({ rootDir, action: { kind: "preset-inspect", presetId: "user-task" } }) as { snapshot: { identity: { layer: string } } }).snapshot.identity.layer, "user"); assert.deepEqual(await runPresetAction({ rootDir, action: { kind: "preset-uninstall", presetId: "user-task" } }), { presetId: "user-task", removed: true });
     await assert.rejects(runPresetAction({ rootDir, action: { kind: "preset-unknown", presetId: "standard-task" } }), (error: unknown) => (error as { code?: string }).code === "unsupported_command");
+  } finally { rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("profile precedence is explicit action, then settings, then manifest default", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-profile-")), sourceRoot = path.join(rootDir, "source"), profiles = [{ id: "baseline", title: "Baseline", completionGates: ["ci"], templateSelections: [] }, { id: "relaxed", title: "Relaxed", completionGates: [], templateSelections: [] }];
+  try {
+    writePackage(sourceRoot, "profile-task", { profiles, defaultProfile: "relaxed" }); installPresetPackage({ source: path.join(sourceRoot, "profile-task"), userRoot: path.join(rootDir, ".harness/presets") });
+    const compile = (profileId?: string) => compileRepoTaskPackage({ rootDir, taskId: "task-profile", action: { kind: "task-create", title: "Profile", presetId: "profile-task", ...(profileId ? { profileId } : {}) } }).snapshot.profile.id;
+    assert.equal(compile(), "relaxed"); write(path.join(rootDir, "harness/harness.yaml"), "settings:\n  defaultProfile: baseline\n"); assert.equal(compile(), "baseline"); assert.equal(compile("relaxed"), "relaxed");
+  } finally { rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("snapshot upgrade atomically replaces the complete snapshot and typed task contract without touching task prose", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-upgrade-")), sourceRoot = path.join(rootDir, "source"), userRoot = path.join(rootDir, ".harness/presets"), taskId = "task-upgrade";
+  try {
+    git(rootDir, "init", "-q"); git(rootDir, "config", "user.name", "Preset Test"); git(rootDir, "config", "user.email", "preset@example.invalid"); git(rootDir, "commit", "--allow-empty", "-qm", "base"); writePackage(sourceRoot, "upgrade-task", { version: "3.1.0" }); installPresetPackage({ source: path.join(sourceRoot, "upgrade-task"), userRoot });
+    const bootstrap = compileTaskBootstrap({ userRoot, verticalId: "software/coding", profileId: "baseline", locale: "en-US", actor: { principal: { personId: "person-1" }, executor: null }, source: "local", occurredAt: "2026-08-14T00:00:00.000Z", taskId, title: "Upgrade", presetId: "upgrade-task", workspaceRevision: 1, eventId: "event-upgrade-create", opId: "op-upgrade-create" }), store = makeTaskEventStore({ repoId: "preset-upgrade", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store }); store.append({ event: bootstrap.event, plan: bootstrap.plan, blobs: bootstrap.blobs }); projection.apply(bootstrap.event, bootstrap.plan);
+    const planPath = path.join(rootDir, "harness", bootstrap.packagePath, "task_plan.md"), editedPlan = "# User plan\n\nKeep this prose.\n"; writeFileSync(planPath, editedPlan); writePackage(sourceRoot, "upgrade-task", { version: "3.2.0" }); installPresetPackage({ source: path.join(sourceRoot, "upgrade-task"), userRoot }); const task = projection.read(taskId).snapshot.task!, contractPath = `${bootstrap.packagePath}/task-contract.json`, contract = projection.readDocument(contractPath).document!;
+    const upgraded = compilePresetSnapshotUpgrade({ userRoot, task, taskContractBody: contract.body, actor: { principal: { personId: "person-1" }, executor: null }, source: "local", workspaceRevision: 2, eventId: "event-upgrade", opId: "op-upgrade", occurredAt: "2026-08-14T00:01:00.000Z" }); assert.notEqual(upgraded.snapshot.digest, task.presetSnapshotDigest); assert.equal(upgraded.snapshot.identity.version, "3.2.0"); store.append(upgraded); projection.apply(upgraded.event, upgraded.plan);
+    assert.equal(projection.read(taskId).snapshot.task?.presetSnapshotDigest, upgraded.snapshot.digest); assert.deepEqual(projection.readPresetSnapshot(upgraded.snapshot.digest).snapshot, upgraded.snapshot); assert.equal(JSON.parse(projection.readDocument(contractPath).document!.body).presetSnapshotDigest, upgraded.snapshot.digest); assert.equal(readFileSync(planPath, "utf8"), editedPlan); assert.throws(() => compilePresetSnapshotUpgrade({ userRoot, task: projection.read(taskId).snapshot.task!, taskContractBody: projection.readDocument(contractPath).document!.body, actor: { principal: { personId: "person-1" }, executor: null }, source: "local", workspaceRevision: 3, eventId: "event-current", opId: "op-current", occurredAt: "2026-08-14T00:02:00.000Z" }), (error: unknown) => (error as { code?: string }).code === "snapshot_current");
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 
