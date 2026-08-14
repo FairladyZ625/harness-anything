@@ -4,9 +4,10 @@ export { applyTransition, canonicalGateReceipts, normalizeTaskLifecycleCommand, 
 export { compileTaskLifecycleWrite, lifecycleDocumentPaths, taskLifecycleWritePlan } from "./domain/task-lifecycle-publication.ts";
 export { completionBlockers, type CompletionReadinessContext } from "./domain/completion-readiness.ts";
 export { compileCompletionGateWitness } from "./domain/completion-gate-publication.ts";
+export { reduceTaskEvent } from "./domain/task-lifecycle.contract.ts";
 export type { CompleteTaskProof, ProofFor, TaskEventV1, TaskLifecycleCommand, TaskLifecycleSnapshot } from "./domain/task-lifecycle.contract.ts";
-export { canonicalizeContractValue, taskClasses } from "./domain/task.ts";
-export type { TaskClass, TaskV1 } from "./domain/task.ts";
+export { canonicalizeContractValue, taskClasses, validateTaskV1 } from "./domain/task.ts";
+export type { TaskClass, TaskMetadataV1, TaskV1 } from "./domain/task.ts";
 export { assertTaskBootstrapWritePlan, isTaskBootstrapEvent, taskBootstrapClaims, taskBootstrapWritePlan, validateTaskBootstrapEvent } from "./domain/task-bootstrap-event.ts";
 export type { InitialDocumentClaim, PresetSnapshotClaim, TaskBootstrapBlob, TaskBootstrapEventV1, TaskDocumentOwner } from "./domain/task-bootstrap-event.ts";
 export { presetSnapshotUpgradeWritePlan, validatePresetSnapshotUpgradeEvent } from "./domain/preset-snapshot-upgrade-event.ts";

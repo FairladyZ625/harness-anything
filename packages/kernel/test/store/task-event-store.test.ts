@@ -9,10 +9,11 @@ import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, parseCanonicalEvent, ser
 import { compileDecisionWrite, decisionWritePlan, type DecisionDocumentState, type DecisionEventDraftV1 } from "../../src/domain/fact-event.ts";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import { serializeTaskEvent, type TaskCreatedEvent } from "../../src/domain/task-lifecycle.contract.ts";
+import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import { freezeDeclaredWritePlan, serializeEventHead } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
-import { CANONICAL_EVENT_REF, canonicalEventWritePlan, makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
+import { CANONICAL_EVENT_REF, makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
 const event: TaskCreatedEvent = { schema: "task-event/v1", eventId: "event-1", workspaceRevision: 1, opId: "op-1", taskId: "task-1", type: "task_created",
@@ -96,9 +97,10 @@ for (const killpoint of ["before_event_write", "after_event_write", "after_head_
 for (const killpoint of ["before_event_write", "after_event_write", "after_head_write", "after_git_commit", "before_worktree_rename", "after_worktree_rename"] as const) {
   test(`SIGKILL recovery handles ${killpoint} without duplicate publication`, async () => {
     await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const moduleUrl = new URL("../../src/store/task-event-store.ts", import.meta.url).href, child = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", [
-        `import { canonicalEventWritePlan, makeTaskEventStore } from ${JSON.stringify(moduleUrl)};`,
+        `import { makeTaskEventStore } from ${JSON.stringify(moduleUrl)};`,
+        `import { taskLifecycleWritePlan } from ${JSON.stringify(new URL("../../src/domain/task-lifecycle-publication.ts", import.meta.url).href)};`,
         "const event = JSON.parse(process.env.HA_KILL_EVENT);",
-        "makeTaskEventStore({ repoId: 'test-repo', rootDir: process.env.HA_KILL_ROOT, killpoint: (point) => { if (point === process.env.HA_KILL_POINT) process.kill(process.pid, 'SIGKILL'); } }).append({ event, plan: canonicalEventWritePlan(event, 'test/v1', event.opId), blobs: [] });"
+        "makeTaskEventStore({ repoId: 'test-repo', rootDir: process.env.HA_KILL_ROOT, killpoint: (point) => { if (point === process.env.HA_KILL_POINT) process.kill(process.pid, 'SIGKILL'); } }).append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });"
       ].join("\n")], { encoding: "utf8", env: { ...process.env, HA_KILL_EVENT: JSON.stringify(event), HA_KILL_POINT: killpoint, HA_KILL_ROOT: rootDir } });
       assert.equal(child.signal, "SIGKILL", child.stderr); const recovery = makeTaskEventStore({ repoId: "test-repo", rootDir }).recover();
       if (killpoint === "after_head_write") assert.equal(recovery.status, "committed"); else if (["after_git_commit", "before_worktree_rename", "after_worktree_rename"].includes(killpoint)) assert.equal(recovery.status, "already_committed"); else assert.equal(recovery.status, "none");
@@ -119,6 +121,6 @@ test("startup recovery is under 250ms and independent of 100 versus 10,000-event
 function initRepo(rootDir: string): void { git(rootDir, "init", "-q"); git(rootDir, "config", "user.name", "Store Test"); git(rootDir, "config", "user.email", "store@example.invalid"); git(rootDir, "config", "gc.auto", "0"); git(rootDir, "config", "maintenance.auto", "false"); git(rootDir, "commit", "--allow-empty", "-qm", "base"); }
 function eventAt(revision: number): TaskCreatedEvent { const suffix = String(revision).padStart(5, "0"); return { ...event, eventId: `event-${suffix}`, workspaceRevision: revision, opId: `op-${suffix}`, taskId: `task-${suffix}`, payload: { task: { ...event.payload.task, taskId: `task-${suffix}`, title: `Task ${suffix}` } } }; }
 function decisionProposal(): Extract<DecisionEventDraftV1, { readonly type: "decision_proposed" }> { return { schema: "decision-event/v1", eventId: "event-decision-store-1", workspaceRevision: 1, opId: "op-decision-store-1", decisionId: "dec_STORE", type: "decision_proposed", actor: { principal: { personId: "person-proposer" }, executor: null }, source: "local", occurredAt: "2026-08-14T00:00:00.000Z", payload: { title: "Store Decision", question: "Does one bundle own every write?", riskTier: "medium", urgency: "medium", vertical: "software/coding", preset: "standard-task", appliesTo: { modules: ["kernel"], productLines: [] }, decisionClass: "ordinary", chosen: [{ id: "CH1", text: "Use one bundle" }], rejected: [{ id: "RJ1", text: "Split writes", whyNot: "They can diverge." }], body: "\n# Store Decision\n", claims: [], fulfillments: [], relations: [] } }; }
-function bundle(value: TaskCreatedEvent): CanonicalWriteBundle { return { event: value, plan: canonicalEventWritePlan(value, "test/v1", value.taskId), blobs: [] }; }
+function bundle(value: TaskCreatedEvent): CanonicalWriteBundle { return { event: value, plan: taskLifecycleWritePlan(value), blobs: [] }; }
 function snapshot(rootDir: string): unknown { const files = ["harness/context/user.md", "dirty.txt"]; return { status: git(rootDir, "status", "--porcelain", "-uall"), index: git(rootDir, "ls-files", "-s"), bytes: files.map((file) => readFileSync(path.join(rootDir, file)).toString("hex")) }; }
 function git(rootDir: string, ...args: readonly string[]): string { return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); }
