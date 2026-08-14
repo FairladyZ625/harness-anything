@@ -546,7 +546,7 @@ function AppShell() {
             ) : view === "presets" ? (
               <PresetsView repoId={projectId} />
             ) : view === "adapters" ? (
-              <AdaptersView repoId={projectId} />
+              <AdaptersView repoId={projectId} tasks={projectTasks} />
             ) : view === "agents" ? (
               <RuntimeWorkspace repoId={projectId} tasks={projectTasks.map(({ taskId, title }) => ({ taskId, title }))} />
             ) : view === "system" ? (
