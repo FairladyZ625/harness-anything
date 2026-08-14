@@ -1,15 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  renameSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync
-} from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { resolveHarnessLayout } from "../layout/index.ts";
@@ -19,19 +9,9 @@ export const daemonRegistrySchema = "harness-daemon-registry/v1";
 
 export type DaemonRepoState = "enabled" | "disabled";
 
-export interface DaemonRegistryRepo {
-  readonly repoId: string;
-  readonly canonicalRoot: string;
-  readonly displayName: string;
-  readonly authoredBranch: string;
-  readonly state: DaemonRepoState;
-  readonly registeredAt: string;
-}
-
-export interface DaemonRegistry {
-  readonly schema: typeof daemonRegistrySchema;
-  readonly repos: ReadonlyArray<DaemonRegistryRepo>;
-}
+export interface DaemonRegistryRepo { readonly repoId: string; readonly canonicalRoot: string; readonly displayName: string; readonly authoredBranch: string; readonly state: DaemonRepoState; readonly registeredAt: string }
+export interface InvalidDaemonRegistryRepo { readonly entryIndex: number; readonly repoId?: string; readonly canonicalRoot?: string; readonly displayName?: string; readonly authoredBranch?: string; readonly state?: DaemonRepoState; readonly registeredAt?: string; readonly error: string; readonly raw: unknown }
+export interface DaemonRegistry { readonly schema: typeof daemonRegistrySchema; readonly repos: ReadonlyArray<DaemonRegistryRepo>; readonly invalidRepos: ReadonlyArray<InvalidDaemonRegistryRepo> }
 
 export interface DaemonRegistryPaths {
   readonly userRoot: string;
@@ -52,13 +32,7 @@ export interface DaemonRegistryRegisterInput extends DaemonRegistryOptions {
   readonly displayName?: string;
 }
 
-export interface DaemonRegistryMutationResult {
-  readonly registry: DaemonRegistry;
-  readonly repo: DaemonRegistryRepo;
-  readonly registryPath: string;
-  readonly changed: boolean;
-  readonly warnings: ReadonlyArray<string>;
-}
+export interface DaemonRegistryMutationResult<TRepo = DaemonRegistryRepo> { readonly registry: DaemonRegistry; readonly repo: TRepo; readonly registryPath: string; readonly changed: boolean; readonly warnings: ReadonlyArray<string> }
 
 export function daemonRegistryPaths(options: DaemonRegistryOptions = {}): DaemonRegistryPaths {
   const userRoot = path.resolve(options.userRoot ?? path.join(os.homedir(), ".harness"));
@@ -76,14 +50,17 @@ export function readDaemonRegistry(options: DaemonRegistryOptions = {}): DaemonR
   return decodeDaemonRegistry(decoded, registryPath);
 }
 
-export function registerDaemonRepo(input: DaemonRegistryRegisterInput): DaemonRegistryMutationResult {
+export function registerDaemonRepo(input: DaemonRegistryRegisterInput): DaemonRegistryMutationResult<DaemonRegistryRepo> {
   const paths = daemonRegistryPaths(input);
   const registry = readDaemonRegistry(input);
   const canonicalRoot = canonicalHarnessRoot(input.canonicalRoot);
   const displayName = input.displayName ?? path.basename(canonicalRoot);
   const explicitRepoId = input.repoId ? normalizeExplicitRepoId(input.repoId) : undefined;
   const existingByRoot = registry.repos.find((repo) => repo.canonicalRoot === canonicalRoot);
+  const invalidByRoot = registry.invalidRepos.find((repo) => repo.canonicalRoot === canonicalRoot);
   const warnings: Array<string> = [];
+
+  if (invalidByRoot) throw new Error(`canonical root has an invalid daemon registry entry${invalidByRoot.repoId ? ` for repoId "${invalidByRoot.repoId}"` : ""}; unregister it before registering the root again`);
 
   if (existingByRoot) {
     if (explicitRepoId && existingByRoot.repoId !== explicitRepoId) {
@@ -101,11 +78,13 @@ export function registerDaemonRepo(input: DaemonRegistryRegisterInput): DaemonRe
     return { registry: next, repo, registryPath: paths.registryPath, changed, warnings };
   }
 
-  const repoId = explicitRepoId ?? generateRepoId(displayName, canonicalRoot, registry.repos);
+  const reservedRepoIds = [...registry.repos.map(({ repoId }) => repoId), ...registry.invalidRepos.flatMap(({ repoId }) => repoId ? [repoId] : [])];
+  const repoId = explicitRepoId ?? generateRepoId(displayName, canonicalRoot, reservedRepoIds);
   const conflictingRepo = registry.repos.find((repo) => repo.repoId === repoId);
   if (conflictingRepo) {
     throw new Error(`repoId "${repoId}" is already registered for ${conflictingRepo.canonicalRoot}`);
   }
+  if (registry.invalidRepos.some((repo) => repo.repoId === repoId)) throw new Error(`repoId "${repoId}" has an invalid daemon registry entry; unregister it before reusing the id`);
 
   const repo: DaemonRegistryRepo = {
     repoId,
@@ -115,21 +94,29 @@ export function registerDaemonRepo(input: DaemonRegistryRegisterInput): DaemonRe
     state: "enabled",
     registeredAt: (input.now ?? (() => new Date()))().toISOString()
   };
-  const next = sortDaemonRegistry({ schema: daemonRegistrySchema, repos: [...registry.repos, repo] });
+  const next = sortDaemonRegistry({ ...registry, repos: [...registry.repos, repo] });
   writeDaemonRegistry(next, input);
   warnings.push(...syncConvenienceLink(repo, input));
   return { registry: next, repo, registryPath: paths.registryPath, changed: true, warnings };
 }
 
-export function unregisterDaemonRepo(repoId: string, options: DaemonRegistryOptions = {}): DaemonRegistryMutationResult {
+export function unregisterDaemonRepo(repoId: string, options: DaemonRegistryOptions = {}): DaemonRegistryMutationResult<DaemonRegistryRepo | InvalidDaemonRegistryRepo> {
   const paths = daemonRegistryPaths(options);
   const registry = readDaemonRegistry(options);
   const normalizedRepoId = normalizeExplicitRepoId(repoId);
   const existing = registry.repos.find((repo) => repo.repoId === normalizedRepoId);
-  if (!existing) throw new Error(`repoId "${normalizedRepoId}" is not registered`);
-  const repo = { ...existing, state: "disabled" as const };
+  const invalid = registry.invalidRepos.find((repo) => repo.repoId === normalizedRepoId);
+  if (!existing && !invalid) throw new Error(`repoId "${normalizedRepoId}" is not registered`);
+  if (invalid) {
+    const raw = isDaemonRegistryRecord(invalid.raw) ? { ...invalid.raw, state: "disabled" } : invalid.raw, repo = { ...invalid, state: "disabled" as const, raw }, next = replaceInvalidRepo(registry, repo), changed = invalid.state !== "disabled";
+    if (changed) writeDaemonRegistry(next, options);
+    const warnings = invalid.canonicalRoot ? removeConvenienceLink({ repoId: normalizedRepoId, canonicalRoot: invalid.canonicalRoot }, options) : [];
+    return { registry: next, repo, registryPath: paths.registryPath, changed, warnings };
+  }
+  const valid = existing!;
+  const repo = { ...valid, state: "disabled" as const };
   const next = replaceRepo(registry, repo);
-  const changed = !daemonRepoEquals(existing, repo);
+  const changed = !daemonRepoEquals(valid, repo);
   if (changed) writeDaemonRegistry(next, options);
   const warnings = removeConvenienceLink(repo, options);
   return { registry: next, repo, registryPath: paths.registryPath, changed, warnings };
@@ -141,17 +128,15 @@ export function resolveDaemonRepoByRoot(rootDir: string, options: DaemonRegistry
 }
 
 function emptyDaemonRegistry(): DaemonRegistry {
-  return { schema: daemonRegistrySchema, repos: [] };
+  return { schema: daemonRegistrySchema, repos: [], invalidRepos: [] };
 }
 
 function decodeDaemonRegistry(value: unknown, source: string): DaemonRegistry {
   if (!isDaemonRegistryRecord(value) || value.schema !== daemonRegistrySchema || !Array.isArray(value.repos)) {
     throw new Error(`invalid daemon registry at ${source}`);
   }
-  return sortDaemonRegistry({
-    schema: daemonRegistrySchema,
-    repos: value.repos.map((entry) => decodeDaemonRegistryRepo(entry, source))
-  });
+  const repos: DaemonRegistryRepo[] = [], invalidRepos: InvalidDaemonRegistryRepo[] = []; value.repos.forEach((entry, entryIndex) => { try { repos.push(decodeDaemonRegistryRepo(entry, source)); } catch (error) { consumeKnownError(error); invalidRepos.push(invalidDaemonRegistryRepo(entry, entryIndex, error instanceof Error ? error.message : String(error))); } });
+  return sortDaemonRegistry({ schema: daemonRegistrySchema, repos, invalidRepos });
 }
 
 function decodeDaemonRegistryRepo(value: unknown, source: string): DaemonRegistryRepo {
@@ -162,17 +147,24 @@ function decodeDaemonRegistryRepo(value: unknown, source: string): DaemonRegistr
   const authoredBranch = typeof value.authoredBranch === "string" && validBranch(value.authoredBranch) ? value.authoredBranch : undefined;
   const state = value.state === "enabled" || value.state === "disabled" ? value.state : undefined;
   const registeredAt = typeof value.registeredAt === "string" && value.registeredAt.length > 0 ? value.registeredAt : undefined;
-  if (!repoId || !canonicalRoot || !displayName || !authoredBranch || !state || !registeredAt) {
-    throw new Error(`invalid daemon registry repo entry at ${source}`);
-  }
-  return { repoId, canonicalRoot, displayName, authoredBranch, state, registeredAt };
+  const invalid = [["repoId", repoId], ["canonicalRoot", canonicalRoot], ["displayName", displayName], ["authoredBranch", authoredBranch], ["state", state], ["registeredAt", registeredAt]].filter(([, item]) => !item).map(([field]) => field);
+  if (invalid.length) throw new Error(`invalid daemon registry repo entry at ${source}: missing or invalid ${invalid.join(", ")}`);
+  return { repoId: repoId!, canonicalRoot: canonicalRoot!, displayName: displayName!, authoredBranch: authoredBranch!, state: state!, registeredAt: registeredAt! };
+}
+
+function invalidDaemonRegistryRepo(value: unknown, entryIndex: number, error: string): InvalidDaemonRegistryRepo {
+  if (!isDaemonRegistryRecord(value)) return { entryIndex, error, raw: value };
+  let repoId: string | undefined; if (typeof value.repoId === "string") try { repoId = normalizeExplicitRepoId(value.repoId); } catch (cause) { consumeKnownError(cause); repoId = undefined; }
+  const canonicalRoot = typeof value.canonicalRoot === "string" ? path.resolve(value.canonicalRoot) : undefined, displayName = typeof value.displayName === "string" && value.displayName.length > 0 ? value.displayName : undefined, authoredBranch = typeof value.authoredBranch === "string" && validBranch(value.authoredBranch) ? value.authoredBranch : undefined, state = value.state === "enabled" || value.state === "disabled" ? value.state : undefined, registeredAt = typeof value.registeredAt === "string" && value.registeredAt.length > 0 ? value.registeredAt : undefined;
+  return { entryIndex, ...(repoId ? { repoId } : {}), ...(canonicalRoot ? { canonicalRoot } : {}), ...(displayName ? { displayName } : {}), ...(authoredBranch ? { authoredBranch } : {}), ...(state ? { state } : {}), ...(registeredAt ? { registeredAt } : {}), error, raw: value };
 }
 
 function writeDaemonRegistry(registry: DaemonRegistry, options: DaemonRegistryOptions): void {
   const { userRoot, registryPath } = daemonRegistryPaths(options);
   mkdirSync(userRoot, { recursive: true });
   const tempPath = `${registryPath}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tempPath, `${JSON.stringify(sortDaemonRegistry(registry), null, 2)}\n`, "utf8");
+  const sorted = sortDaemonRegistry(registry), persisted = { schema: sorted.schema, repos: [...sorted.repos, ...sorted.invalidRepos.map(({ raw }) => raw)].sort(compareRegistryEntries) };
+  writeFileSync(tempPath, `${JSON.stringify(persisted, null, 2)}\n`, "utf8");
   renameSync(tempPath, registryPath);
 }
 
@@ -185,9 +177,9 @@ function canonicalHarnessRoot(rootDir: string): string {
   return realpathSync.native(layout.rootDir);
 }
 
-function generateRepoId(displayName: string, canonicalRoot: string, repos: ReadonlyArray<DaemonRegistryRepo>): string {
+function generateRepoId(displayName: string, canonicalRoot: string, repoIds: ReadonlyArray<string>): string {
   const base = safeRepoId(displayName);
-  if (!repos.some((repo) => repo.repoId === base)) return base;
+  if (!repoIds.includes(base)) return base;
   const suffix = createHash("sha256").update(canonicalRoot).digest("hex").slice(0, 8);
   const truncated = base.slice(0, Math.max(1, 63 - suffix.length - 1)).replace(/-+$/gu, "") || "repo";
   return `${truncated}-${suffix}`;
@@ -214,15 +206,25 @@ function sortDaemonRegistry(registry: DaemonRegistry): DaemonRegistry {
   return {
     schema: daemonRegistrySchema,
     repos: [...registry.repos].sort((left, right) =>
-      left.repoId.localeCompare(right.repoId) || left.canonicalRoot.localeCompare(right.canonicalRoot))
+      left.repoId.localeCompare(right.repoId) || left.canonicalRoot.localeCompare(right.canonicalRoot)),
+    invalidRepos: [...registry.invalidRepos].sort((left, right) => left.entryIndex - right.entryIndex)
   };
+}
+
+function compareRegistryEntries(left: unknown, right: unknown): number {
+  const key = (entry: unknown) => isDaemonRegistryRecord(entry) && typeof entry.repoId === "string" ? entry.repoId : "~";
+  return key(left).localeCompare(key(right));
 }
 
 function replaceRepo(registry: DaemonRegistry, replacement: DaemonRegistryRepo): DaemonRegistry {
   return sortDaemonRegistry({
-    schema: daemonRegistrySchema,
+    ...registry,
     repos: registry.repos.map((repo) => repo.repoId === replacement.repoId ? replacement : repo)
   });
+}
+
+function replaceInvalidRepo(registry: DaemonRegistry, replacement: InvalidDaemonRegistryRepo): DaemonRegistry {
+  return sortDaemonRegistry({ ...registry, invalidRepos: registry.invalidRepos.map((repo) => repo.entryIndex === replacement.entryIndex ? replacement : repo) });
 }
 
 function syncConvenienceLink(repo: DaemonRegistryRepo, options: DaemonRegistryOptions): ReadonlyArray<string> {
@@ -242,7 +244,7 @@ function syncConvenienceLink(repo: DaemonRegistryRepo, options: DaemonRegistryOp
   }
 }
 
-function removeConvenienceLink(repo: DaemonRegistryRepo, options: DaemonRegistryOptions): ReadonlyArray<string> {
+function removeConvenienceLink(repo: Pick<DaemonRegistryRepo, "repoId" | "canonicalRoot">, options: DaemonRegistryOptions): ReadonlyArray<string> {
   if (options.createConvenienceLinks === false) return [];
   const { reposRoot } = daemonRegistryPaths(options);
   const linkPath = path.join(reposRoot, repo.repoId);
@@ -276,6 +278,4 @@ function isDaemonRegistryRecord(value: unknown): value is Record<string, unknown
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function invalidCanonicalRoot(rootDir: string): never {
-  throw new Error(`canonicalRoot must be an initialized harness repository: ${rootDir}`);
-}
+function invalidCanonicalRoot(rootDir: string): never { throw new Error(`canonicalRoot must be an initialized harness repository: ${rootDir}`); } function consumeKnownError(error: unknown): void { void error; }

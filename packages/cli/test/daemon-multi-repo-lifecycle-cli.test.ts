@@ -193,6 +193,21 @@ test("one RepoCell lock failure closes only that repo admission", async () => {
   } finally { stop(fixture.beta, fixture.userRoot); await held?.close(); rmSync(fixture.root, { recursive: true, force: true }); }
 });
 
+test("one invalid registry entry stays visible and removable without blocking healthy repos", async () => {
+  const fixture = setup();
+  try {
+    run(fixture.beta, fixture.userRoot, ["daemon", "start", "--service"]); register(fixture.alpha, fixture.userRoot, "alpha"); register(fixture.beta, fixture.userRoot, "beta");
+    run(fixture.beta, fixture.userRoot, ["daemon", "stop"]); await new Promise((resolve) => setTimeout(resolve, 50));
+    const registryPath = path.join(fixture.userRoot, "registry.json"), registry = JSON.parse(readFileSync(registryPath, "utf8")) as { repos: Array<Record<string, unknown>> }, bad = registry.repos.find((repo) => repo.repoId === "alpha"); assert.ok(bad); delete bad.authoredBranch; writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+    assert.equal(run(fixture.beta, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
+    const status = run(fixture.beta, fixture.userRoot, ["daemon", "status"]), rows = status.repos as Array<{ repoId: string; state: string; lastError: string | null }>, invalid = rows.find((repo) => repo.repoId === "alpha"); assert.equal(invalid?.state, "unavailable"); assert.match(invalid?.lastError ?? "", /authoredBranch/u); assert.equal(rows.find((repo) => repo.repoId === "beta")?.state, "attached");
+    assert.equal(run(fixture.beta, fixture.userRoot, ["task", "list"]).outcome, "applied");
+    const system = await requestLocalDaemonJsonRpc(fixture.beta, "daemon.gui.system.read", {}, 1_000, { userRoot: fixture.userRoot }), guiInvalid = (system.repos as Array<{ repoId: string; cellState: string; unavailableReason: string | null }>).find((repo) => repo.repoId === "alpha"); assert.equal(guiInvalid?.cellState, "unavailable"); assert.match(guiInvalid?.unavailableReason ?? "", /authoredBranch/u);
+    const unregistered = run(fixture.beta, fixture.userRoot, ["daemon", "repo", "unregister", "--repo-id", "alpha"]); assert.equal(unregistered.ok, true); assert.equal((unregistered.repo as { state: string }).state, "disabled");
+    const persisted = JSON.parse(readFileSync(registryPath, "utf8")) as { repos: Array<Record<string, unknown>> }, disabled = persisted.repos.find((repo) => repo.repoId === "alpha"); assert.equal(disabled?.state, "disabled"); assert.equal(Object.hasOwn(disabled ?? {}, "authoredBranch"), false);
+  } finally { stop(fixture.beta, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
+});
+
 test("resident daemon CLI write p50 includes process startup through parsed receipt", async (context) => {
   const fixture = setup();
   try {

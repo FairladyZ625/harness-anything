@@ -84,4 +84,4 @@ export {
   registerDaemonRepo,
   unregisterDaemonRepo
 } from "./daemon/registry.ts";
-export type { DaemonRegistry, DaemonRegistryRepo } from "./daemon/registry.ts";
+export type { DaemonRegistry, DaemonRegistryRepo, InvalidDaemonRegistryRepo } from "./daemon/registry.ts";

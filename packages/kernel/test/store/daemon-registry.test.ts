@@ -19,7 +19,8 @@ test("daemon registry reads missing registry as an empty v1 registry", () => {
     const userRoot = path.join(root, "user-harness");
     assert.deepEqual(readDaemonRegistry({ userRoot }), {
       schema: daemonRegistrySchema,
-      repos: []
+      repos: [],
+      invalidRepos: []
     });
   });
 });
