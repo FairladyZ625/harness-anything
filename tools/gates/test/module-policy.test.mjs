@@ -92,3 +92,8 @@ test("GUI S3 R1 fixture bills repo isolation and truthful catalog/system paths t
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/gui-s3-r1-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
+
+test("GUI S3 R2 fixture bills runtime truth, secure control, and direct PTY paths to their ratcheted buckets", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/gui-s3-r2-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});

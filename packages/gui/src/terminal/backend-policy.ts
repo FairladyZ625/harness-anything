@@ -1,4 +1,4 @@
-import type { TerminalBackend } from "./session-registry.ts";
+export type TerminalBackend = "direct-pty" | "tmux" | "remote";
 
 export type TerminalBackendDurability = "none" | "daemon-restart" | "remote-owned";
 export type TerminalBackendEvidence = "always-available" | "probe" | "not-installed" | "remote-owned" | "disabled";

@@ -242,3 +242,18 @@ html[data-theme="light"] ::selection {
   accent-color: var(--color-accent);
   margin-right: 0.4rem;
 }
+
+.control {
+  min-height: 1.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.25rem;
+  background: var(--color-surface-raised);
+  padding: 0.25rem 0.5rem;
+  color: var(--color-text);
+  font-size: var(--ui-font-meta);
+}
+.control:focus-visible {
+  border-color: var(--color-border-strong);
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
+}

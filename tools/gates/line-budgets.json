@@ -7,12 +7,12 @@
     "doc-sync": 349,
     "preset": 366,
     "cli": 140,
-    "gui": 16462,
-    "daemon": 1301,
+    "gui": 16742,
+    "daemon": 1320,
     "fleet": 222,
     "authority-write-path": 0,
     "identity-rbac": 416,
-    "agent-runtime": 301,
+    "agent-runtime": 305,
     "decision-fact": 418,
     "test-infra": 0
   }

@@ -1,0 +1,20 @@
+[
+  { "path": "packages/daemon/src/agent-runtime-contract.ts", "module": "agent-runtime" },
+  { "path": "packages/daemon/src/agent-runtime-read.ts", "module": "agent-runtime" },
+  { "path": "packages/daemon/src/protocol/daemon-protocol.contract.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/repo-cell.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/runtime-inventory.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/runtime-spawn.ts", "module": "daemon" },
+  { "path": "packages/gui/src/daemon/remote-tunnel.ts", "module": "gui" },
+  { "path": "packages/gui/src/index.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/App.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/components/RuntimeControlPanel.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/components/TerminalDock.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/runtime-command-client.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/runtime-control.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/terminal-client.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/terminal-model.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/views/RuntimeWorkspace.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/workspace-shell.ts", "module": "gui" },
+  { "path": "packages/gui/src/terminal/backend-policy.ts", "module": "gui" }
+]
