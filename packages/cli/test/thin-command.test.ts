@@ -7,7 +7,7 @@ import { parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 
 test("thin command directory renders every supported user command", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 53);
+  assert.equal(thinCliCommands.length, 54);
   for (const command of thinCliCommands) assert.match(help, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   assert.doesNotMatch(help, /daemon serve|fact list|fact invalidate|record fact|decision search|decision transition|decision verify|decision repin|decision amend|decision relation replace/u);
   assert.match(help, /ha task artifact add.*ha fact record.*ha fact search.*ha fact show.*ha decision propose.*ha decision accept.*ha decision reckon.*ha decision list.*ha decision show/su);
@@ -118,6 +118,13 @@ test("thin parser exposes daemon-backed workspace bootstrap", () => {
     kind: "repo-bootstrap", repoId: "alpha", personId: "owner", displayName: "Owner", name: "Alpha Project", addNpmScripts: true
   });
   assert.equal(parseThinCommand(["init", "--repo-id", "alpha", "--person-id", "owner"]).ok, false);
+});
+
+test("migration import parser exposes only source and dry-run", () => {
+  const parsed = parseThinCommand(["migrate", "import", "--source", "../legacy", "--dry-run", "--json"]);
+  assert.equal(parsed.ok, true); if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "migrate-import", sourceRoot: "../legacy", dryRun: true });
+  assert.equal(parseThinCommand(["migrate", "import"]).ok, false);
+  assert.equal(parseThinCommand(["migrate", "import", "--source", "a", "--force"]).ok, false);
 });
 
 test("thin parser rejects retired caller-supplied gate receipts", () => {

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseThinCommand, renderThinHelp } from "./cli/thin-command.ts";
@@ -16,7 +15,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   try {
     const receipt = await runCommandThroughDaemon(parsed.command, (phase) => emit(phase, parsed.command.json));
     emit(receipt, parsed.command.json);
-    return receipt.ok === true ? 0 : 1;
+    return Number.isInteger(receipt.exitCode) ? Number(receipt.exitCode) : receipt.ok === true ? 0 : 1;
   } catch (error) {
     emit(cliFailure(parsed.command.action.kind, "daemon_unavailable", `Start the explicit daemon and retry. Cause: ${error instanceof Error ? error.message : String(error)}`), parsed.command.json);
     return 1;
@@ -27,7 +26,7 @@ async function taskCreateHelpCatalog(argv: readonly string[]): Promise<Array<{ i
 function cliFailure(command: string, code: string, nextAction: string): Record<string, unknown> { return { schema: "command-receipt/v2", ok: false, command, outcome: "rejected", opId: "N/A", origin: "cli", code, evidence: `rejection:${code}`, error: { code, hint: nextAction }, nextAction }; }
 function emit(receipt: Record<string, unknown>, json: boolean): void {
   if (json) console.log(JSON.stringify(receipt));
-  else if (receipt.ok === true) console.log(String(receipt.command === "doc-show" ? receipt.evidence : receipt.command === "init" ? [String(receipt.summary), `outcome: ${receipt.outcome ?? "applied"}`, ...["created", "updated", "preserved", "drifted"].map((key) => `${key}: ${JSON.stringify(receipt[key] ?? [])}`), `commit: ${String(receipt.commit ?? "none")}`, `next: ${String(receipt.next ?? "")}`].join("\n") : receipt.summary ?? `${receipt.command ?? "command"}: ${receipt.outcome ?? "applied"}`));
+  else if (receipt.ok === true || receipt.command === "migrate-import" && typeof receipt.summary === "string") console.log(String(receipt.command === "doc-show" ? receipt.evidence : receipt.command === "init" ? [String(receipt.summary), `outcome: ${receipt.outcome ?? "applied"}`, ...["created", "updated", "preserved", "drifted"].map((key) => `${key}: ${JSON.stringify(receipt[key] ?? [])}`), `commit: ${String(receipt.commit ?? "none")}`, `next: ${String(receipt.next ?? "")}`].join("\n") : receipt.summary ?? `${receipt.command ?? "command"}: ${receipt.outcome ?? "applied"}`));
   else console.error(`error code=${String((receipt.error as { code?: unknown } | undefined)?.code ?? "unknown")} hint=${String(receipt.nextAction ?? receipt.next ?? "Command failed.")}`);
 }
 function isCliEntrypoint(): boolean { const invoked = process.argv[1]; if (!invoked) return false;

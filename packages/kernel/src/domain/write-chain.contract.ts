@@ -8,7 +8,7 @@ export interface ActorIdentity {
   readonly executor: { readonly kind: "agent"; readonly id: string } | null;
 }
 
-export type WriteSource = "local" | "remote_direct"
+export type WriteSource = "local" | "remote_direct" | "migration-import/v1"
   | { readonly kind: "assignment"; readonly nodeId: string; readonly assignmentId: string }
   | { readonly kind: "watch_session"; readonly sessionId: string; readonly path: string; readonly fingerprint: string };
 
@@ -129,9 +129,9 @@ export function validateActorIdentity(value: unknown): readonly string[] {
 }
 
 export function validateWriteSource(value: unknown): readonly string[] {
-  if (value === "local" || value === "remote_direct") return [];
+  if (value === "local" || value === "remote_direct" || value === "migration-import/v1") return [];
   if (isRecord(value) && hasOnlyFields(value, ["kind", "nodeId", "assignmentId"]) && value.kind === "assignment" && isNonEmptyString(value.nodeId) && isNonEmptyString(value.assignmentId)) return [];
-  return isRecord(value) && hasOnlyFields(value, ["kind", "sessionId", "path", "fingerprint"]) && value.kind === "watch_session" && isNonEmptyString(value.sessionId) && safeWorkspacePath(value.path) && /^[0-9a-f]{64}$/u.test(String(value.fingerprint)) ? [] : ["source must be local, remote_direct, an assignment identity, or a watch session"];
+  return isRecord(value) && hasOnlyFields(value, ["kind", "sessionId", "path", "fingerprint"]) && value.kind === "watch_session" && isNonEmptyString(value.sessionId) && safeWorkspacePath(value.path) && /^[0-9a-f]{64}$/u.test(String(value.fingerprint)) ? [] : ["source must be local, remote_direct, migration-import/v1, an assignment identity, or a watch session"];
 }
 
 export function createWriteReceipt<R extends WriteReceipt>(receipt: R): Readonly<R> {
