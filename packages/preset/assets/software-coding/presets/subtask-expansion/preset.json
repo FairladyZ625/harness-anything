@@ -1,0 +1,15 @@
+{
+  "schema": "preset-manifest/v3",
+  "id": "subtask-expansion",
+  "title": "Subtask Expansion",
+  "vertical": "software/coding",
+  "version": "3.0.0",
+  "kind": "process-action",
+  "outputShape": "task-package-artifact",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [
+    { "id": "task-parent-relation", "kind": "command", "version": "1", "required": true }
+  ],
+  "profiles": [{ "id": "baseline", "title": "Baseline", "checkerProfile": "software-coding-standard", "completionGates": [], "templateSelections": [] }],
+  "defaultProfile": "baseline"
+}

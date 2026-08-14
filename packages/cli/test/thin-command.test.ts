@@ -7,17 +7,23 @@ import { parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 
 test("thin command directory renders every supported user command", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 43);
+  assert.equal(thinCliCommands.length, 44);
   for (const command of thinCliCommands) assert.match(help, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   assert.doesNotMatch(help, /daemon serve|fact list|fact invalidate|record fact|decision list|decision transition|decision verify|decision repin|decision amend|decision relation replace/u);
   assert.match(help, /ha task artifact add.*ha fact record.*ha fact search.*ha fact show.*ha decision propose.*ha decision accept.*ha decision reckon.*ha decision search.*ha decision show/su);
 });
 
+test("task-create help renders recommended presets only from effective catalog rows", () => {
+  const help = renderThinHelp([{ id: "standard-task", title: "Standard Task", description: "General work.", validity: "valid" }, { id: "module", title: "Module", description: "Registered module work.", validity: "unavailable", errorCode: "missing_provider" }]);
+  assert.match(help, /Recommended presets:.*standard-task — Standard Task — General work\..*module — Module — unavailable \(missing_provider\)/su);
+  assert.doesNotMatch(help, /reference-task|long-running-task/u);
+});
+
 test("thin parser derives closed preset and task-create payloads from descriptors", () => {
   assert.equal(parseThinCommand(["doc", "sync"]).ok, false);
   assert.equal(parseThinCommand(["task", "create", "--title", "Bound", "--completion-gate", "G32"]).ok, false);
-  const create = parseThinCommand(["task", "create", "--title", "Bound", "--preset", "create-milestone", "--task-class", "milestone", "--dry-run"]), inspect = parseThinCommand(["preset", "inspect", "standard-task", "--locale", "en-US"]);
-  assert.equal(create.ok, true); assert.equal(inspect.ok, true); if (create.ok) { assert.equal(create.command.method, "repo.task.create"); assert.deepEqual(create.command.action, { kind: "task-create", title: "Bound", presetId: "create-milestone", taskClass: "milestone", dryRun: true }); } if (inspect.ok) { assert.equal(inspect.command.method, "repo.preset.inspect"); assert.deepEqual(inspect.command.action, { kind: "preset-inspect", presetId: "standard-task", locale: "en-US" }); }
+  const create = parseThinCommand(["task", "create", "--title", "Bound", "--preset", "create-milestone", "--task-class", "milestone", "--dry-run"]), inspect = parseThinCommand(["preset", "inspect", "standard-task", "--locale", "en-US"]), check = parseThinCommand(["preset", "check", "standard-task", "--snapshot-digest", `sha256:${"a".repeat(64)}`]), upgrade = parseThinCommand(["preset", "upgrade", "task-1"]);
+  assert.equal([create, inspect, check, upgrade].every((result) => result.ok), true); if (create.ok) { assert.equal(create.command.method, "repo.task.create"); assert.deepEqual(create.command.action, { kind: "task-create", title: "Bound", presetId: "create-milestone", taskClass: "milestone", dryRun: true }); } if (inspect.ok) { assert.equal(inspect.command.method, "repo.preset.inspect"); assert.deepEqual(inspect.command.action, { kind: "preset-inspect", presetId: "standard-task", locale: "en-US" }); } if (check.ok) assert.equal(check.command.action.snapshotDigest, `sha256:${"a".repeat(64)}`); if (upgrade.ok) assert.deepEqual(upgrade.command.action, { kind: "preset-upgrade", taskId: "task-1" });
 });
 
 test("Fact CLI exposes only record/search/show and covers all five local parse errors", () => {
