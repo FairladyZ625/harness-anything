@@ -113,7 +113,7 @@ function AppShell() {
   const triadicQuery = useTriadicProjectionQuery();
   const taskActions = useTaskActions();
   const decisionActions = useDecisionActions();
-  const realTasks = useMemo(
+  const tasks = useMemo(
     () => adaptProjectionRows(tasksQuery.data?.rows ?? [], tasksQuery.data?.status, {
       relationState: triadicQuery.relationState,
       relations: triadicQuery.relations,
@@ -122,11 +122,7 @@ function AppShell() {
     }),
     [tasksQuery.data, triadicQuery.relationState, triadicQuery.relations, triadicQuery.decisions, triadicQuery.relationWarnings],
   );
-  const [tasks, setTasks] = useState<import("./model/types.ts").TaskRow[]>([]);
-  // 台账投影是唯一任务真值；mutation 不做 optimistic status，reread 后才更新。
-  useEffect(() => {
-    setTasks(realTasks);
-  }, [realTasks]);
+  const realTasks = tasks;
 
   const project = useMemo(() => buildRealProject(realTasks), [realTasks]);
   const projectId = project.id;

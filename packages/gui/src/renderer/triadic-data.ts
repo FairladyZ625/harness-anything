@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type {
   DecisionProjectionRow,
@@ -29,20 +30,20 @@ export function useTriadicProjectionQuery() {
     queryFn: () => harnessClient.getDecisions(),
     staleTime: 10_000
   });
-  const rendererData = buildTriadicRendererData({
+  const rendererData = useMemo(() => buildTriadicRendererData({
     graph: graph.data ?? emptyRelationGraph,
     decisions: decisions.data ?? emptyDecisionList
-  });
+  }), [graph.data, decisions.data]);
   const isLoading = graph.isLoading || decisions.isLoading;
   const isError = graph.isError || decisions.isError;
 
-  return {
+  return useMemo(() => ({
     isLoading,
     isError,
     relationState: graph.isError ? "error" as const : graph.isLoading ? "loading" as const : "ready" as const,
     relationWarnings: graph.data?.warnings ?? [],
     ...rendererData
-  };
+  }), [isLoading, isError, graph.isError, graph.isLoading, graph.data?.warnings, rendererData]);
 }
 
 export interface TriadicRendererData {

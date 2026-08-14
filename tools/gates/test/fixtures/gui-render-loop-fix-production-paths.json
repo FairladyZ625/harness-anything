@@ -1,0 +1,4 @@
+[
+  { "path": "packages/gui/src/renderer/App.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/triadic-data.ts", "module": "gui" }
+]
