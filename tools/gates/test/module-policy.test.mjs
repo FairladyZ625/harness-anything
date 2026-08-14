@@ -107,3 +107,8 @@ test("migration import fixture bills the native CLI, daemon, GUI, and kernel sea
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/migration-import-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
+
+test("task surface fixture bills CLI, daemon, GUI, kernel, and preset seams to their ratcheted buckets", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/task-surface-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});
