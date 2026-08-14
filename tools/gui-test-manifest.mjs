@@ -10,6 +10,7 @@ export const guiVitestManifest = [
   "packages/gui/test/graph-colormode.vitest.ts",
   "packages/gui/test/graph-view.vitest.ts",
   "packages/gui/test/decisions-verdict.vitest.ts",
+  "packages/gui/test/execution-evidence.vitest.ts",
   "packages/gui/test/entity-workspace.vitest.ts",
   "packages/gui/test/navigation-history.vitest.ts"
 ];

@@ -12,7 +12,7 @@ export const rendererCapabilityModel: RendererCapabilityModel = {
 };
 
 export interface RendererNavigationItem {
-  readonly id: "workspace" | "board" | "list" | "detail" | "doc-viewer" | "review-queue" | "graph";
+  readonly id: "workspace" | "board" | "list" | "detail" | "doc-viewer" | "review-queue" | "execution-evidence" | "graph";
   readonly label: string;
 }
 
@@ -23,5 +23,6 @@ export const rendererNavigation: readonly RendererNavigationItem[] = [
   { id: "detail", label: "Detail" },
   { id: "doc-viewer", label: "Docs" },
   { id: "review-queue", label: "Review" },
+  { id: "execution-evidence", label: "Execution evidence" },
   { id: "graph", label: "Graph" }
 ];

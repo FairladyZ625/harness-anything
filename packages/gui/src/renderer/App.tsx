@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Kanban,
   FolderSimple,
@@ -13,6 +14,7 @@ import {
   WarningCircle,
   GitBranch,
   FirstAidKit,
+  Package,
 } from "@phosphor-icons/react";
 import type { SnapshotStatus } from "./model/types.ts";
 import {
@@ -27,6 +29,7 @@ import { BoardView } from "./views/BoardView.tsx";
 import { DecisionsView } from "./views/DecisionsView.tsx";
 import { DecisionPoolView } from "./views/DecisionPoolView.tsx";
 import { FactTriageView } from "./views/FactTriageView.tsx";
+import { ExecutionEvidenceView } from "./views/ExecutionEvidenceView.tsx";
 import { EntityWorkspace } from "./components/EntityWorkspace.tsx";
 import { PresetsView } from "./views/PresetsView.tsx";
 import { AdaptersView } from "./views/AdaptersView.tsx";
@@ -41,7 +44,7 @@ import {
   type TaskFilters,
 } from "./model/taskFilters.ts";
 import { adaptProjectionRows, buildRealProject } from "./task-adapter.ts";
-import { useTasksQuery } from "./task-data.ts";
+import { taskQueryKeys, useTasksQuery } from "./task-data.ts";
 import { useTriadicProjectionQuery } from "./triadic-data.ts";
 import { useFavorites } from "./model/favorites.ts";
 import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
@@ -56,6 +59,7 @@ type ViewId =
   | "decisions"
   | "decisionPool"
   | "factTriage"
+  | "executionEvidence"
   | "graph"
   | "presets"
   | "adapters"
@@ -76,6 +80,7 @@ const WORKSPACE_NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
   { id: "decisions", label: "决策批准", icon: <Scales weight="duotone" /> },
   { id: "decisionPool", label: "决策池", icon: <GitBranch weight="duotone" /> },
   { id: "factTriage", label: "事实分诊", icon: <FirstAidKit weight="duotone" /> },
+  { id: "executionEvidence", label: "执行证据", icon: <Package weight="duotone" /> },
   { id: "graph", label: "关系图", icon: <Graph weight="duotone" /> },
 ];
 
@@ -93,6 +98,7 @@ const VIEW_LABEL: Record<ViewId, string> = {
   decisions: "决策批准",
   decisionPool: "决策池",
   factTriage: "事实分诊",
+  executionEvidence: "执行证据",
   graph: "关系图",
   presets: "Preset / Vertical",
   adapters: "引擎 Adapter",
@@ -102,6 +108,7 @@ const VIEW_LABEL: Record<ViewId, string> = {
 
 function AppShell() {
   const [view, setView] = useState<ViewId>("overview");
+  const queryClient = useQueryClient();
   const tasksQuery = useTasksQuery();
   const triadicQuery = useTriadicProjectionQuery();
   const taskActions = useTaskActions();
@@ -499,6 +506,16 @@ function AppShell() {
                   focusedEntityRef?.startsWith("fact/") ? focusedEntityRef : null
                 }
                 onFocusGraph={focusEntityInGraph}
+              />
+            ) : view === "executionEvidence" ? (
+              <ExecutionEvidenceView
+                rows={tasksQuery.data?.rows ?? []}
+                queryStatus={tasksQuery.isError ? "error" : tasksQuery.isLoading ? "loading" : "ready"}
+                projectionStatus={tasksQuery.data?.status}
+                isFetching={tasksQuery.isFetching}
+                error={tasksQuery.error}
+                onReload={() => { void tasksQuery.refetch(); }}
+                onReloadFromFirst={() => { void queryClient.invalidateQueries({ queryKey: taskQueryKeys.list() }); }}
               />
             ) : view === "decisions" ? (
               <DecisionsView

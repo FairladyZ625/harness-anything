@@ -78,6 +78,11 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.equal(submitted.ok, true, JSON.stringify(submitted)); assert.equal(submitted.outcome, "applied");
     const afterSubmit = parseDaemonGuiReadResult("repo.tasks.list", await bridge.invoke("getTasks", null));
     assert.equal(afterSubmit.rows[0]?.snapshot.task?.status, "in_review"); assert.equal(afterSubmit.rows[0]?.snapshot.lease, null);
+    const evidence = afterSubmit.rows[0]?.executionEvidence.find((item) => item.executionId === executionId), output = evidence?.outputs[0];
+    assert.equal(evidence?.origin, "native"); assert.match(output?.evidenceId ?? "", /^evidence_[0-9a-f]{24}$/u);
+    assert.deepEqual(output && { locator: output.locator, substrate: output.substrate, checkerReceiptRef: output.checkerReceiptRef, checkerResult: output.checkerResult }, {
+      locator: "packages/gui/test/service-bridge.test.ts", substrate: "repository-path", checkerReceiptRef: null, checkerResult: "unknown"
+    });
   } finally {
     await fixture.stop();
     restoreEnv("HARNESS_DAEMON_USER_ROOT", previous.userRoot); restoreEnv("HARNESS_DAEMON_ID", previous.daemonId);
