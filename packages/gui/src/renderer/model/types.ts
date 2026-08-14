@@ -202,10 +202,10 @@ export interface DecisionRow {
    * 投影推导；其余可选信号由后续专用投影提供。
    */
   readinessSignals?: {
-    /** 黄:propose 后(boundAt 起)applies_to 文档有 commit 触碰。命中给摘要(哪些文档、何时)。 */
-    appliesToDrift?: { docs: string[]; lastCommitAt: string };
-    /** 红:findConflictMarkers 命中该 decision 包。命中给摘要(coordinator 写入时亦拒,E52 R3)。 */
-    conflictMarker?: { summary: string; conflictingEntity: string };
+    /** canonical commit cut 相对 proposedAt 的 applies_to 变化；无法解析 scope 时保持 unknown。 */
+    appliesToDrift?: { state: "clear" | "drift" | "unknown"; paths: string[]; lastCommitAt: string | null; summary: string };
+    /** 只扫描 canonical commit blobs,不读取未提交工作树。 */
+    conflictMarker?: { state: "clear" | "conflict" | "unknown"; paths: string[]; summary: string };
     /** accept 成功后需正文回写(supersede/修订 canonical)→ 收件箱提示派生回写 task(42 §4)。 */
     needsWriteback?: { target: string; kind: "supersede" | "amend" | "new-doc" };
   };

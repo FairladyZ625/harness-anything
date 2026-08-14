@@ -5,6 +5,7 @@ export const ProjectionWarningCodeSchema = Schema.Literal(
   "projection_missing",
   "projection_stale",
   "projection_tampered",
+  "relation_truth_unavailable",
   "source_malformed",
   "duplicate_task_id",
   "duplicate_external_binding",

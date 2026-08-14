@@ -82,3 +82,8 @@ test("GUI graph rework fixture bills the ego canvas + territory progress paths t
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/gui-graph-rework-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
+
+test("backend truth fixture bills the read path, contract, and readiness projection to their ratcheted buckets", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/backend-truth-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});

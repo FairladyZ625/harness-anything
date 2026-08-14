@@ -51,17 +51,21 @@ const signal = (
 ) => computeReadinessSignals(decision, facts, rows, graphState).find((item) => item.id === id)!;
 
 describe("decision readiness uses canonical coverage and explicit unknowns", () => {
-  it("keeps drift and conflict unknown even when legacy local hints claim green or red", () => {
+  it("renders canonical commit-bound drift and conflict projections", () => {
     const decision = dec({
       readinessSignals: {
-        appliesToDrift: { docs: ["doc.md"], lastCommitAt: "2026-08-10" },
-        conflictMarker: { summary: "local guess", conflictingEntity: "dec_2" },
+        appliesToDrift: { state: "drift", paths: ["packages/kernel/index.ts"], lastCommitAt: "2026-08-10T00:00:00.000Z", summary: "Canonical scope changed." },
+        conflictMarker: { state: "conflict", paths: ["packages/kernel/index.ts"], summary: "Committed conflict marker." },
       },
     });
 
-    expect(signal(decision, [], [], "applies-to-drift").color).toBe("unknown");
-    expect(signal(decision, [], [], "conflict-marker").color).toBe("unknown");
+    expect(signal(decision, [], [], "applies-to-drift").color).toBe("yellow");
+    expect(signal(decision, [], [], "applies-to-drift").summary).toContain("packages/kernel/index.ts");
+    expect(signal(decision, [], [], "conflict-marker").color).toBe("red");
+    expect(signal(decision, [], [], "conflict-marker").summary).toContain("Committed conflict marker");
   });
+
+  it("keeps explicitly unavailable canonical readiness unknown", () => { const decision = dec({ readinessSignals: { appliesToDrift: { state: "unknown", paths: [], lastCommitAt: null, summary: "Scope unresolved." }, conflictMarker: { state: "unknown", paths: [], summary: "Scope unresolved." } } }); expect(signal(decision, [], [], "applies-to-drift").color).toBe("unknown"); expect(signal(decision, [], [], "conflict-marker").color).toBe("unknown"); });
 
   it("renders no load-bearing claims as gray N/A instead of green", () => {
     const decision = dec({ claims: [{ id: "CH1", text: "c", loadBearing: false, fulfillment: null }] });

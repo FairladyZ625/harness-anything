@@ -4,6 +4,8 @@ import path from "node:path";
 import { SqlClient } from "@effect/sql";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import { Effect } from "effect";
+import { decodeRebuildableRelationRecords, rebuildableRelationRequiredColumns, type CoverageRecord, type EdgeRecord, type FactAnchorRecord, type FactRecord, type RebuildableRelationRead, type RebuildableRelationUnavailable, type TaskRecord as RelationTaskRecord } from "./rebuildable-relation-read.ts";
+import type { FactAnchorRow, RelationCoverageRow, RelationFactRow, RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import type {
   ProjectionMeta,
   TaskFieldExtensionProjection,
@@ -41,7 +43,8 @@ export function writeProjectionDatabase(
   projectionPath: string,
   rows: ReadonlyArray<TaskProjectionRow>,
   meta: ProjectionMeta,
-  taskFieldExtensions: ReadonlyArray<TaskFieldExtensionProjection> = []
+  taskFieldExtensions: ReadonlyArray<TaskFieldExtensionProjection>,
+  relationProjection: { readonly edges: readonly RelationGraphEdgeRow[]; readonly coverageRows: readonly RelationCoverageRow[]; readonly factAnchors: readonly FactAnchorRow[]; readonly facts: readonly RelationFactRow[] }
 ): void {
   mkdirSync(path.dirname(projectionPath), { recursive: true });
   const tempPath = `${projectionPath}.${process.pid}.${Date.now()}.tmp`;
@@ -88,6 +91,7 @@ export function writeProjectionDatabase(
     yield* sql`CREATE INDEX task_projection_status ON task_projection (canonical_status, coordination_status)`;
     yield* sql`CREATE INDEX task_projection_parent_task_id ON task_projection (parent_task_id)`;
     yield* sql`CREATE INDEX task_projection_module_key ON task_projection (module_key)`;
+    yield* writeRelationProjection(sql, relationProjection);
   }));
   renameSync(tempPath, projectionPath);
 }
@@ -140,6 +144,11 @@ function readProjectionDatabase(
 export function runSqlite<A>(filename: string, effect: Effect.Effect<A, unknown, SqlClient.SqlClient>): A {
   return Effect.runSync(Effect.provide(effect, SqliteClient.layer({ filename })));
 }
+
+function runReadonlySqlite<A>(filename: string, effect: Effect.Effect<A, unknown, SqlClient.SqlClient>): A { return Effect.runSync(Effect.provide(effect, SqliteClient.layer({ filename, readonly: true, disableWAL: true }))); }
+export function readRebuildableRelationProjection(projectionPath: string): RebuildableRelationRead | RebuildableRelationUnavailable { try { return runReadonlySqlite(projectionPath, Effect.gen(function* () { const sql = yield* SqlClient.SqlClient; for (const [table, columns] of Object.entries(rebuildableRelationRequiredColumns)) { const actual = new Set((yield* sql.unsafe<{ readonly name: string }>(`PRAGMA table_info(${table})`)).map(({ name }) => name)), missing = columns.filter((column) => !actual.has(column)); if (missing.length) throw new Error(`Relation truth table ${table} is unavailable or missing columns: ${missing.join(", ")}`); } return decodeRebuildableRelationRecords({ edges: yield* sql.unsafe<EdgeRecord>("SELECT * FROM relation_edges ORDER BY relation_id"), coverageRows: yield* sql.unsafe<CoverageRecord>("SELECT * FROM relation_coverage ORDER BY claim_ref"), factAnchors: yield* sql.unsafe<FactAnchorRecord>("SELECT * FROM task_fact_anchors ORDER BY fact_ref"), facts: yield* sql.unsafe<FactRecord>("SELECT * FROM task_fact_projection ORDER BY fact_ref"), taskRows: yield* sql.unsafe<RelationTaskRecord>("SELECT * FROM task_projection ORDER BY task_id") }); })); } catch (error) { consumeKnownError(error); return { ok: false, reason: error instanceof Error ? error.message : String(error) }; } }
+function writeRelationProjection(sql: SqlClient.SqlClient, input: { readonly edges: readonly RelationGraphEdgeRow[]; readonly coverageRows: readonly RelationCoverageRow[]; readonly factAnchors: readonly FactAnchorRow[]; readonly facts: readonly RelationFactRow[] }): Effect.Effect<void, unknown> { return Effect.gen(function* () { yield* sql`CREATE TABLE relation_edges (relation_id TEXT PRIMARY KEY, source_ref TEXT NOT NULL, target_ref TEXT NOT NULL, relation_type TEXT NOT NULL, direction TEXT NOT NULL, strength TEXT NOT NULL, origin TEXT NOT NULL, state TEXT NOT NULL, rationale TEXT NOT NULL, owner_ref TEXT NOT NULL, source_path TEXT NOT NULL, record_index INTEGER NOT NULL)`; yield* sql`CREATE TABLE relation_coverage (claim_ref TEXT PRIMARY KEY, decision_ref TEXT NOT NULL, status TEXT NOT NULL, fulfillment TEXT, covering_fact_ref TEXT, refuting_fact_refs_json TEXT, relation_path_json TEXT NOT NULL)`; yield* sql`CREATE TABLE task_fact_anchors (fact_ref TEXT PRIMARY KEY, task_id TEXT NOT NULL, fact_id TEXT NOT NULL, source_path TEXT NOT NULL)`; yield* sql`CREATE TABLE task_fact_projection (fact_ref TEXT PRIMARY KEY, task_id TEXT NOT NULL, fact_id TEXT NOT NULL, schema_name TEXT NOT NULL, statement TEXT NOT NULL, source TEXT NOT NULL, observed_at TEXT NOT NULL, confidence TEXT NOT NULL, memory_class TEXT NOT NULL, memory_tags_json TEXT NOT NULL, provenance_json TEXT NOT NULL)`; for (const row of input.edges) yield* sql`INSERT INTO relation_edges VALUES (${row.relationId}, ${row.sourceRef}, ${row.targetRef}, ${row.relationType}, ${row.direction}, ${row.strength}, ${row.origin}, ${row.state}, ${row.rationale}, ${row.ownerRef}, ${row.sourcePath}, ${row.recordIndex})`; for (const row of input.coverageRows) yield* sql`INSERT INTO relation_coverage VALUES (${row.claimRef}, ${row.decisionRef}, ${row.status}, ${row.fulfillment}, ${row.coveringFactRef ?? null}, ${JSON.stringify(row.refutingFactRefs ?? [])}, ${JSON.stringify(row.relationPath)})`; for (const row of input.factAnchors) yield* sql`INSERT INTO task_fact_anchors VALUES (${row.factRef}, ${row.taskId}, ${row.factId}, ${row.sourcePath})`; for (const row of input.facts) yield* sql`INSERT INTO task_fact_projection VALUES (${row.ref}, ${row.taskId}, ${row.factId}, ${row.schema}, ${row.statement}, ${row.source}, ${row.observedAt}, ${row.confidence}, ${row.memoryClass}, ${JSON.stringify(row.memoryTags)}, ${JSON.stringify(row.provenance)})`; yield* sql`CREATE INDEX relation_edges_source_ref ON relation_edges(source_ref)`; yield* sql`CREATE INDEX relation_edges_target_ref ON relation_edges(target_ref)`; yield* sql`CREATE INDEX relation_coverage_decision_ref ON relation_coverage(decision_ref)`; yield* sql`CREATE INDEX task_fact_anchors_task_id ON task_fact_anchors(task_id)`; yield* sql`CREATE INDEX task_fact_projection_task_id ON task_fact_projection(task_id)`; }); }
+function consumeKnownError(error: unknown): void { void error; }
 
 function insertMeta(sql: SqlClient.SqlClient, key: string, value: string): Effect.Effect<unknown, unknown> {
   return sql`INSERT INTO projection_meta (key, value) VALUES (${key}, ${value})`;
