@@ -25,6 +25,12 @@
     },
     {
       "path": "../preset"
+    },
+    {
+      "path": "../adapters/local"
+    },
+    {
+      "path": "../adapters/multica"
     }
   ]
 }

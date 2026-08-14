@@ -7,7 +7,7 @@ import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
 
 export interface RunningDaemon { readonly endpoint: string; readonly stop: () => Promise<void> }
 export async function startDaemon(input: { readonly daemonId: string; readonly userRoot: string }): Promise<RunningDaemon> {
-  const host = await openDaemonHost(input), endpoint = localUserDaemonEndpoint(input.userRoot, input.daemonId);
+  const endpoint = localUserDaemonEndpoint(input.userRoot, input.daemonId), host = await openDaemonHost({ ...input, endpoint });
   const transport = createUnixSocketTransportServer({ daemonId: input.daemonId, socketPath: endpoint,
     createProtocolServer: (authContext, emit) => createJsonRpcProtocolServer({ host, authContext, emit }) });
   try { await transport.start(); }

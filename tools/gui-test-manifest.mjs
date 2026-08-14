@@ -1,5 +1,6 @@
 export const guiVitestManifest = [
   "packages/gui/test/agent-runtime-renderer.vitest.ts",
+  "packages/gui/test/daemon-supervisor.vitest.ts",
   "packages/gui/test/renderer-app-model.vitest.ts",
   "packages/gui/test/fact-triage.vitest.ts",
   "packages/gui/test/taskFilters.vitest.ts",
@@ -13,5 +14,6 @@ export const guiVitestManifest = [
   "packages/gui/test/decisions-verdict.vitest.ts",
   "packages/gui/test/execution-evidence.vitest.ts",
   "packages/gui/test/entity-workspace.vitest.ts",
-  "packages/gui/test/navigation-history.vitest.ts"
+  "packages/gui/test/navigation-history.vitest.ts",
+  "packages/gui/test/secure-credential-broker.vitest.ts"
 ];

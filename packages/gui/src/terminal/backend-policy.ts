@@ -1,4 +1,4 @@
-import type { TerminalBackend, TerminalSessionInfo } from "./session-registry.ts";
+import type { TerminalBackend } from "./session-registry.ts";
 
 export type TerminalBackendDurability = "none" | "daemon-restart" | "remote-owned";
 export type TerminalBackendEvidence = "always-available" | "probe" | "not-installed" | "remote-owned" | "disabled";
@@ -46,53 +46,6 @@ export interface SelectTerminalBackendInput {
   readonly defaultBackend?: TerminalBackend;
   readonly capabilities: ReadonlyArray<TerminalBackendCapability>;
   readonly allowDirectPtyFallback?: boolean;
-}
-
-export interface TerminalBackendNamespaceInput {
-  readonly sessionId: string;
-  readonly hostProfileId?: string;
-  readonly projectId?: string;
-  readonly taskId?: string;
-  readonly cwd?: string;
-}
-
-export interface TerminalBackendNamespace {
-  readonly namespace: string;
-  readonly material: string;
-}
-
-export type TerminalBackendResourceStatus = "attached" | "detached" | "closed";
-
-export interface TerminalBackendResource {
-  readonly resourceId: string;
-  readonly sessionId: string;
-  readonly backend: TerminalBackend;
-  readonly namespace: string;
-  readonly durability: TerminalBackendDurability;
-  readonly status: TerminalBackendResourceStatus;
-  readonly closeReason?: string;
-}
-
-export interface TerminalBackendResourceInput {
-  readonly session: TerminalSessionInfo;
-  readonly selection: TerminalBackendSelectionSuccess;
-  readonly namespace: TerminalBackendNamespace;
-}
-
-export interface TerminalBackendResourceSuccess {
-  readonly ok: true;
-  readonly resource: TerminalBackendResource;
-}
-
-export type TerminalBackendResourceResult = TerminalBackendResourceSuccess | TerminalBackendFailure;
-
-export interface InMemoryTerminalBackendController {
-  readonly createResource: (input: TerminalBackendResourceInput) => TerminalBackendResourceResult;
-  readonly detachResourceView: (sessionId: string) => TerminalBackendResourceResult;
-  readonly resumeResource: (sessionId: string) => TerminalBackendResourceResult;
-  readonly closeResource: (sessionId: string) => TerminalBackendResourceResult;
-  readonly simulateDaemonRestart: () => void;
-  readonly listResources: () => ReadonlyArray<TerminalBackendResource>;
 }
 
 export function directPtyCapability(): TerminalBackendCapability {
@@ -147,84 +100,6 @@ export function selectTerminalBackend(input: SelectTerminalBackendInput): Termin
   return backendFailure("terminal_backend_unavailable", target.reason ?? `Terminal backend is unavailable: ${targetBackend}`);
 }
 
-export function createTerminalBackendNamespace(input: TerminalBackendNamespaceInput): TerminalBackendNamespace {
-  const material = [
-    `host=${input.hostProfileId ?? "local"}`,
-    `project=${input.projectId ?? "none"}`,
-    `task=${input.taskId ?? "none"}`,
-    `cwd=${input.cwd ?? "none"}`,
-    `session=${input.sessionId}`
-  ].join("|");
-  return {
-    namespace: `ha-${stableHash(material)}-${sanitizeNamespacePart(input.sessionId)}`,
-    material
-  };
-}
-
-export function createInMemoryTerminalBackendController(): InMemoryTerminalBackendController {
-  const resources = new Map<string, TerminalBackendResource>();
-
-  function save(resource: TerminalBackendResource): TerminalBackendResource {
-    resources.set(resource.sessionId, resource);
-    return resource;
-  }
-
-  function existing(sessionId: string): TerminalBackendResourceResult {
-    const resource = resources.get(sessionId);
-    if (!resource) return backendFailure("terminal_backend_unavailable", `No backend resource exists for terminal session: ${sessionId}`);
-    if (resource.status === "closed") {
-      return backendFailure("terminal_backend_resource_closed", resource.closeReason ?? "Terminal backend resource is closed.");
-    }
-    return { ok: true, resource };
-  }
-
-  return {
-    createResource: (input) => {
-      if (input.session.backend !== input.selection.backend) {
-        return backendFailure(
-          "terminal_backend_mismatch",
-          `Terminal session backend ${input.session.backend} does not match selected backend ${input.selection.backend}.`
-        );
-      }
-      const resource: TerminalBackendResource = {
-        resourceId: `${input.namespace.namespace}:${input.session.sessionId}`,
-        sessionId: input.session.sessionId,
-        backend: input.selection.backend,
-        namespace: input.namespace.namespace,
-        durability: input.selection.capability.durability,
-        status: "attached"
-      };
-      return { ok: true, resource: save(resource) };
-    },
-    detachResourceView: (sessionId) => {
-      const resource = existing(sessionId);
-      if (!resource.ok) return resource;
-      return { ok: true, resource: save({ ...resource.resource, status: "detached" }) };
-    },
-    resumeResource: (sessionId) => {
-      const resource = existing(sessionId);
-      if (!resource.ok) return resource;
-      return { ok: true, resource: save({ ...resource.resource, status: "attached" }) };
-    },
-    closeResource: (sessionId) => {
-      const resource = resources.get(sessionId);
-      if (!resource) return backendFailure("terminal_backend_unavailable", `No backend resource exists for terminal session: ${sessionId}`);
-      return { ok: true, resource: save({ ...resource, status: "closed", closeReason: "explicit-close" }) };
-    },
-    simulateDaemonRestart: () => {
-      for (const resource of resources.values()) {
-        if (resource.status === "closed") continue;
-        if (resource.durability === "none") {
-          save({ ...resource, status: "closed", closeReason: "daemon-restart-non-durable-backend" });
-        } else {
-          save({ ...resource, status: "detached" });
-        }
-      }
-    },
-    listResources: () => [...resources.values()].sort((left, right) => left.resourceId.localeCompare(right.resourceId))
-  };
-}
-
 function backendSelection(capability: TerminalBackendCapability, warnings: ReadonlyArray<TerminalBackendWarning>): TerminalBackendSelectionSuccess {
   return {
     ok: true,
@@ -241,18 +116,4 @@ function backendFailure(code: TerminalBackendFailure["error"]["code"], hint: str
 
 function findCapability(capabilities: ReadonlyArray<TerminalBackendCapability>, backend: TerminalBackend): TerminalBackendCapability | undefined {
   return capabilities.find((capability) => capability.backend === backend);
-}
-
-function sanitizeNamespacePart(value: string): string {
-  const sanitized = value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  return sanitized || "terminal";
-}
-
-function stableHash(value: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
 }

@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createInMemoryTerminalSessionService, findEnvProfileSecretViolations, validateEnvProfile, type EnvProfile } from "../src/index.ts";
+import { findEnvProfileSecretViolations, validateEnvProfile, type EnvProfile } from "../src/index.ts";
 
 test("EnvProfile validates terminal launch context without resolving secrets", () => {
   const profile: EnvProfile = {
@@ -70,40 +70,3 @@ test("EnvProfile rejects obvious inline secrets while allowing secret references
     }
   });
 });
-
-test("terminal sessions carry envProfileId as reference metadata only", () => {
-  const service = createInMemoryTerminalSessionService({
-    createId: sequence("term"),
-    now: sequenceTime("2026-06-14T00:00:00.000Z")
-  });
-
-  const created = service.createSession({
-    name: "Env profile shell",
-    envProfileId: "env-local-project",
-    projectId: "project-a"
-  });
-  assert.equal(created.ok, true);
-  if (!created.ok) return;
-  assert.equal(created.session.envProfileId, "env-local-project");
-
-  const closed = service.closeSession({ sessionId: created.session.sessionId });
-  assert.equal(closed.ok, true);
-  const reopened = service.createSession({ reopenOfSessionId: created.session.sessionId });
-  assert.equal(reopened.ok, true);
-  if (!reopened.ok) return;
-  assert.equal(reopened.session.envProfileId, "env-local-project");
-});
-
-function sequence(prefix: string): () => string {
-  let value = 0;
-  return () => `${prefix}-${++value}`;
-}
-
-function sequenceTime(start: string): () => string {
-  let value = Date.parse(start);
-  return () => {
-    const current = new Date(value).toISOString();
-    value += 1000;
-    return current;
-  };
-}
