@@ -1,6 +1,42 @@
 [
-  { "path": "packages/gui/src/renderer/components/GraphLegend.tsx", "module": "gui" },
-  { "path": "packages/gui/src/renderer/graph/constants.ts", "module": "gui" },
-  { "path": "packages/gui/src/renderer/graph/relationVisual.ts", "module": "gui" },
-  { "path": "packages/gui/src/renderer/views/GraphView.tsx", "module": "gui" }
+  {
+    "path": "packages/gui/src/renderer/App.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/components/GraphLegend.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/components/NavigationHistoryBar.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/graph/constants.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/graph/relationVisual.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/navigation/historyStack.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/navigation/useViewHistory.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/navigation/viewHistory.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/navigation/viewHistoryStorage.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/views/GraphView.tsx",
+    "module": "gui"
+  }
 ]
