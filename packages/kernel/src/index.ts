@@ -22,6 +22,7 @@ export { parseCanonicalEvent, serializeCanonicalEvent } from "./domain/doc-sync.
 export type { CanonicalEventV1, DocClaimRef, DocEventV1, DocWriteIntent, LedgerCommitSha } from "./domain/doc-sync.contract.ts";
 export { MIGRATION_DOCUMENT_POLICY_ID, MIGRATION_IMPORT_SOURCE, migrationImportWritePlan, validateMigrationImportEvent } from "./domain/migration-import-event.ts";
 export type { MigrationDocumentClaim, MigrationImportEventV1 } from "./domain/migration-import-event.ts";
+export type { ArchivedExecutionV0, ExecutionV1, ProjectedExecution } from "./domain/execution.ts";
 export * from "./docmap/index.ts";
 export * from "./docmap/docmap-unique.ts";
 export * from "./entity/disposition.ts";

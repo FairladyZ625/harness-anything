@@ -1,7 +1,7 @@
 // @slice-activation P4 W2 is composed by tests; W3 owns daemon and production publication cutover.
 import { Effect } from "effect";
 import { applyTransition, canonicalizeContractValue, compileTaskLifecycleWrite, lifecycleDocumentPaths, taskLifecycleWritePlan, validateTaskLifecycleCommandEnvelope,
-  type FrozenWritePlan, type ProofFor, type TaskEventV1, type TaskLifecycleCommand, type TaskLifecycleSnapshot,
+  type ExecutionV1, type FrozenWritePlan, type ProofFor, type TaskEventV1, type TaskLifecycleCommand, type TaskLifecycleSnapshot,
   type WriteError, type WriteOperationReceipt, type WriteTarget } from "../../kernel/src/index.ts";
 
 export async function runTaskLifecycleEffect<A>(effect: Effect.Effect<A, WriteError>): Promise<A> { const result = await Effect.runPromise(Effect.either(effect)); if (result._tag === "Left") throw result.left; return result.right; }
@@ -66,7 +66,7 @@ async function renewTaskLease(options: { readonly eventStore: EventStorePort; re
   const current = options.projection.currentLease(input.taskId);
   if (current === null || current.phase !== "active" || current.executionId !== input.executionId || !sameActor(current.actor, input.actor)
     || json(current.source) !== json(input.source) || current.version !== input.expectedVersion) throw new TaskLifecycleOperationConflict(`stale lease CAS for task ${input.taskId}`);
-  const state = await read(input.taskId), task = state.snapshot.task, execution = state.snapshot.executions.find((candidate) => candidate.executionId === input.executionId);
+  const state = await read(input.taskId), task = state.snapshot.task, execution = state.snapshot.executions.find((candidate): candidate is ExecutionV1 => candidate.schema === "execution/v1" && candidate.executionId === input.executionId);
   if (state.status !== "ready" || task === null || execution === undefined) throw new TaskLifecycleOperationConflict("lease renewal requires a ready active execution");
   const renewed = { ...current, expiresAt: input.expiresAt, version: current.version + 1 };
   const event: Extract<TaskEventV1, { readonly type: "lease_renewed" }> = { schema: "task-event/v1", eventId: input.eventId, workspaceRevision: input.workspaceRevision,
