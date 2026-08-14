@@ -3,12 +3,10 @@ import type { RelationType } from "../../api/renderer-dto.ts";
 export type CanonicalStatus =
   | "planned"
   | "active"
-  | "blocked"
   | "in_review"
-  | "done"
-  | "cancelled";
+  | "done";
 
-export type SnapshotStatus = CanonicalStatus | "unknown";
+export type SnapshotStatus = CanonicalStatus | "blocked" | "cancelled" | "unknown";
 
 export type Freshness = "fresh" | "stale-but-usable" | "unavailable-no-cache";
 
@@ -22,7 +20,7 @@ export type CloseoutReadiness =
   | "passed"
   | "failed";
 
-export type EngineId = "local" | "multica" | "github" | "linear";
+export type EngineId = string;
 
 export type DocGroup = "必读" | "计划" | "设计" | "进度" | "收口" | "证据";
 
@@ -33,13 +31,25 @@ export interface DocEntry {
   required: boolean;
   /** 文档完成度：true=已存在，false=缺失（required+missing 即收口阻塞项） */
   present: boolean;
+  /** 未完成文档 read 时不能把 absent 当 missing。 */
+  presence?: "present" | "missing" | "unknown";
 }
 
 /** materialization gate / check 结果——任务详情收口区的"原因"维度 */
 export interface GateResult {
   name: string;
-  ok: boolean;
+  ok: boolean | null;
   detail?: string;
+}
+
+export type BlockingState = "blocked" | "clear" | "unknown";
+
+export interface BlockingContributor {
+  relationId: string;
+  kind: "blocks" | "depends-on";
+  sourceTaskId: string;
+  targetTaskId: string;
+  rationale?: string;
 }
 
 export interface TaskRow {
@@ -47,13 +57,30 @@ export interface TaskRow {
   title: string;
   projectId: string;
   coordinationStatus: SnapshotStatus;
+  /** Task/v1 真状态；relation overlay 永不覆写此字段。 */
+  canonicalStatus?: CanonicalStatus;
+  blocking?: BlockingState;
+  blockingLabel?: string;
+  blockers?: BlockingContributor[];
+  blockingWarnings?: string[];
   rawStatus: string;
   freshness: Freshness;
   packageDisposition: PackageDisposition;
   closeoutReadiness: CloseoutReadiness;
   engine: EngineId;
+  origin?: "native" | "archival" | "external";
   source: "local-document" | "external-engine" | "snapshot-cache";
   module: string;
+  moduleKeys?: string[];
+  productLines?: string[];
+  placementWarning?: string;
+  placementProvenance?: ReadonlyArray<{ kind: "l2" | "decision-relation" | "canonical-event"; ref: string }>;
+  packagePath?: string | null;
+  currentNode?: "implementation" | "review";
+  iteration?: 0 | 1;
+  activeExecutionId?: string;
+  leaseExpiresAt?: string;
+  events?: EventEntry[];
   lastKnownAt: string;
   /** closeoutReadiness=ready 的起始时间，用于等待时长统计 */
   waitingSince?: string;
@@ -84,6 +111,7 @@ export interface TaskRow {
 export type RelationKind = RelationType;
 
 export interface RelationEdge {
+  relationId?: string;
   /**
    * from/to 形如 <entity>/<id>[/anchor]，实体 ∈ task|decision|fact。
    * 例：task/task_x、decision/dec_y、fact/task_x/F-a3f2、decision/dec_y/C1（锚到 claim）。
@@ -92,6 +120,8 @@ export interface RelationEdge {
   from: string;
   to: string;
   kind: RelationKind;
+  direction?: "directed" | "undirected";
+  state?: "active" | "retired" | "deleted";
   /** ⚠️ 同名陷阱消歧：这是「边的来源」标量；entity 顶层的 provenance 是 session 原文溯源数组（见 DecisionRow/TaskRow），同名不同义 */
   provenance: "local-document" | "external-engine";
   /** 强 relation 的 rationale 必填非空（INV-5）；evidenced-by/derives/supersedes 承重边在此给决策卡证据栏展示 */
@@ -145,6 +175,7 @@ export interface DecisionRow {
   chosen: DecisionClaim[]; // 决定了什么策略
   rejected: DecisionClaim[]; // ⚠️ 必填非空，每条带 evidence + why_not（否决比选择更重要）
   claims: { id: string; text: string }[]; // 承重论点（覆盖度查询的锚点）
+  appliesTo?: { modules: string[]; productLines: string[] };
   /** entity 原文溯源（⚠️ 与 RelationEdge.provenance 同名不同义） */
   provenance?: ReadonlyArray<ProvenanceEntry>;
   lastChangedAt?: string;
@@ -287,7 +318,7 @@ export interface EventEntry {
   summary: string;
 }
 
-export const isExternal = (t: TaskRow) => t.engine !== "local";
+export const isExternal = (t: TaskRow) => t.origin === "external" || (t.origin === undefined && t.engine !== "local");
 export const isTerminal = (s: SnapshotStatus) => s === "done" || s === "cancelled";
 
 export const BOARD_COLUMNS: SnapshotStatus[] = [

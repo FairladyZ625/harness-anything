@@ -16,7 +16,6 @@ import {
 } from "@phosphor-icons/react";
 import type { SnapshotStatus } from "./model/types.ts";
 import {
-  MOCK_TASK_RELATIONS,
   MOCK_PRESETS,
   MOCK_ADAPTERS,
   MOCK_EVENTS,
@@ -47,6 +46,7 @@ import { useTriadicProjectionQuery } from "./triadic-data.ts";
 import { useFavorites } from "./model/favorites.ts";
 import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
 import { AgentRuntimeView } from "./views/agent-runtime-view.tsx";
+import { useTaskActions } from "./task-actions.ts";
 
 type ViewId =
   | "home"
@@ -103,12 +103,18 @@ function AppShell() {
   const [view, setView] = useState<ViewId>("overview");
   const tasksQuery = useTasksQuery();
   const triadicQuery = useTriadicProjectionQuery();
+  const taskActions = useTaskActions();
   const realTasks = useMemo(
-    () => adaptProjectionRows(tasksQuery.data?.rows ?? [], tasksQuery.data?.status),
-    [tasksQuery.data],
+    () => adaptProjectionRows(tasksQuery.data?.rows ?? [], tasksQuery.data?.status, {
+      relationState: triadicQuery.relationState,
+      relations: triadicQuery.relations,
+      decisions: triadicQuery.decisions,
+      relationWarnings: triadicQuery.relationWarnings
+    }),
+    [tasksQuery.data, triadicQuery.relationState, triadicQuery.relations, triadicQuery.decisions, triadicQuery.relationWarnings],
   );
   const [tasks, setTasks] = useState<import("./model/types.ts").TaskRow[]>([]);
-  // 台账投影是权威真数据源;查询刷新时重播到本地态(拖拽等乐观更新为原型内交互)。
+  // 台账投影是唯一任务真值；mutation 不做 optimistic status，reread 后才更新。
   useEffect(() => {
     setTasks(realTasks);
   }, [realTasks]);
@@ -140,11 +146,6 @@ function AppShell() {
     () => tasks.filter((t) => t.projectId === projectId),
     [tasks, projectId],
   );
-  const projectEvents = useMemo(
-    () => MOCK_EVENTS.filter((e) => e.projectId === projectId),
-    [projectId],
-  );
-
   const activeCount = projectTasks.filter(
     (t) => t.coordinationStatus === "active" || t.coordinationStatus === "blocked" || t.coordinationStatus === "in_review",
   ).length;
@@ -432,6 +433,9 @@ function AppShell() {
                 fromViewLabel={VIEW_LABEL[view]}
                 onNavigateDecision={navigateToDecision}
                 onNavigateEntity={navigateToEntity}
+                mutationFeedback={taskActions.feedback.get(selected.taskId)}
+                onProgress={(input) => taskActions.appendProgress(selected, input)}
+                onSubmit={(submission) => taskActions.submitTask(selected, submission)}
               />
             ) : view === "home" ? (
               <HomeView
@@ -461,9 +465,11 @@ function AppShell() {
                 onFiltersChange={setTaskFilters}
                 onSelect={openTaskPreview}
                 drill={drill}
-                relations={MOCK_TASK_RELATIONS}
+                relations={relations}
                 favorites={favorites}
                 onToggleFavorite={toggleFavorite}
+                onStartTask={taskActions.startTask}
+                mutationFeedback={(taskId) => taskActions.feedback.get(taskId)}
               />
             ) : view === "graph" ? (
               <EntityWorkspace
@@ -536,8 +542,7 @@ function AppShell() {
       <TaskPreviewDrawer
         task={previewTask}
         tasks={projectTasks}
-        relations={MOCK_TASK_RELATIONS}
-        events={projectEvents}
+        relations={relations}
         onClose={() => setPreviewId(null)}
         onOpenDetail={openTaskDetail}
         onPreviewTask={openTaskPreview}

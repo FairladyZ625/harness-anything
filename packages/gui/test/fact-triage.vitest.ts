@@ -89,6 +89,8 @@ function edge(
     from,
     to,
     kind,
+    direction: "directed",
+    state: "active",
     provenance: "local-document",
     ...extra,
   };

@@ -39,6 +39,8 @@ export function useTriadicProjectionQuery() {
   return {
     isLoading,
     isError,
+    relationState: graph.isError ? "error" as const : graph.isLoading ? "loading" as const : "ready" as const,
+    relationWarnings: graph.data?.warnings ?? [],
     ...rendererData
   };
 }
@@ -91,9 +93,12 @@ function adaptRelationRows(rows: ReadonlyArray<RelationGraphEdgeRow>): RelationE
   for (const row of rows) {
     if (!isKernelRelationKind(row.relationType)) continue;
     edges.push({
+      relationId: row.relationId,
       from: row.sourceRef,
       to: row.targetRef,
       kind: row.relationType,
+      direction: row.direction,
+      state: row.state,
       provenance: row.origin === "imported_snapshot" ? "external-engine" : "local-document",
       rationale: row.rationale
     });
@@ -146,6 +151,7 @@ function adaptDecisionRows(
       chosen,
       rejected,
       claims: row.claims.map((claim) => ({ id: claim.id, text: claim.text })),
+      appliesTo: { modules: [...row.appliesTo.modules], productLines: [...row.appliesTo.productLines] },
       lastChangedAt: row.decidedAt ?? row.proposedAt
     };
   });

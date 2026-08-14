@@ -120,7 +120,7 @@ export function CloseoutBadge({ value }: { value: CloseoutReadiness }) {
   );
 }
 
-const ENGINE_LABEL: Record<EngineId, string> = {
+const ENGINE_LABEL: Record<string, string> = {
   local: "local",
   multica: "multica",
   github: "github",
@@ -131,7 +131,7 @@ export function EngineBadge({ engine, locked }: { engine: EngineId; locked: bool
   return (
     <span className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-px font-mono text-[12px] text-text-muted">
       {locked && <Lock weight="bold" className="text-[12px]" />}
-      {ENGINE_LABEL[engine]}
+      {ENGINE_LABEL[engine] ?? engine}
     </span>
   );
 }
