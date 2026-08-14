@@ -1,0 +1,7 @@
+[
+  { "path": "packages/kernel/src/projection/cold-rebuild-source.ts", "module": "kernel" },
+  { "path": "packages/kernel/src/projection/post-merge-checks.ts", "module": "kernel" },
+  { "path": "packages/kernel/src/projection/rebuildable-task-projection.ts", "module": "kernel" },
+  { "path": "packages/kernel/src/projection/sqlite-projection-store.ts", "module": "kernel" },
+  { "path": "packages/kernel/src/projection/sqlite-task-projection.ts", "module": "kernel" }
+]

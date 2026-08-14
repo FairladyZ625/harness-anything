@@ -6,9 +6,9 @@ import { sessionEntityDeclaration } from "../entity/session.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { discoverDeclaredEntityRows, projectDeclaredEntities, readDeclaredProjectionRows } from "./entity-declaration-projection.ts";
 import { buildCheckReport, hardFail, runPostMergeChecks, warning } from "./post-merge-checks.ts";
+import { buildColdCoverage, readColdRebuildSource } from "./cold-rebuild-source.ts";
 import type { FactAnchorRow, RelationCoverageRow, RelationFactRow, RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import { buildRelationGraphProjection } from "./relation-graph-projection.ts";
-import { readLifecycleRelationFacts, readLifecycleRelationTruth } from "./rebuildable-task-projection.ts";
 import { projectionVersion, queryTaskChildrenRows, readRebuildableRelationProjection, writeProjectionDatabase, tryReadProjectionDatabase } from "./sqlite-projection-store.ts";
 import { compareRows, hashExactRows, readMarkdownSource, taskEntryToRow } from "./sqlite-task-source.ts";
 export { hashTaskProjectionRows } from "./sqlite-task-source.ts";
@@ -48,11 +48,11 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
   const rows = source.entries.map((entry) => taskEntryToRow(runtimeContext, entry, options.taskFieldExtensions)).sort(compareRows);
   const rowsHash = hashExactRows(rows);
   const sourceHash = projectionSourceHash(source.hash, runtimeContext);
-  const graph = buildRelationGraphProjection(runtimeContext, readLifecycleRelationTruth(rootDir)), facts: readonly RelationFactRow[] = readLifecycleRelationFacts(rootDir).map((row) => ({ schema: "task-fact-row/v1", ref: row.ref, taskId: row.taskId, factId: row.factId, statement: row.statement, source: row.evidenceSource, observedAt: row.observedAt, confidence: row.confidence, memoryClass: row.memoryClass, memoryTags: row.memoryTags, provenance: row.provenance }));
+  const cold = readColdRebuildSource(runtimeContext), graphBase = buildRelationGraphProjection(runtimeContext, cold.truth), graph = { ...graphBase, coverageRows: buildColdCoverage(cold, graphBase.edges) };
   writeProjectionDatabase(projectionPath, rows, {
     sourceHash,
     rowsHash
-  }, options.taskFieldExtensions ?? [], { ...graph, facts });
+  }, options.taskFieldExtensions ?? [], { ...graph, facts: cold.facts, decisions: cold.decisions, truthComplete: cold.complete });
   projectDeclaredEntities(runtimeContext, sessionEntityDeclaration, projectionPath);
   return {
     rows,
