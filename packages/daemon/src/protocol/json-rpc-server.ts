@@ -1,7 +1,7 @@
 import type { DaemonHost } from "../daemon-host.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
-import { actionForDaemonMethod, daemonGuiStreamFacets, daemonProtocolError, isDaemonGuiReadMethod, isDaemonGuiStreamMethod, jsonRpcMethodContracts, parseDaemonRpcParams } from "./daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult, parseDaemonGuiStreamResult } from "./gui-result-validation.ts";
+import { actionForDaemonMethod, daemonGuiStreamFacets, daemonProtocolError, isDaemonGuiActionMethod, isDaemonGuiReadMethod, isDaemonGuiStreamMethod, jsonRpcMethodContracts, parseDaemonRpcParams } from "./daemon-protocol.contract.ts";
+import { parseDaemonGuiActionResult, parseDaemonGuiReadResult, parseDaemonGuiStreamResult } from "./gui-result-validation.ts";
 import { type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./version.ts";
 export interface JsonRpcProtocolServer { readonly handle: (message: JsonRpcRequest | JsonRpcRequest[]) => Promise<JsonRpcResponse | JsonRpcResponse[] | undefined>; readonly close: () => void }
@@ -40,8 +40,8 @@ export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost
     if (action.kind === "preset-run-start" || action.kind === "preset-run-status") return reply(await options.host.presetRun(repo, action, options.authContext) as unknown as JsonObject);
     const receipt = await options.host.run(repo, action, options.authContext);
     const ok = receipt.outcome === "applied" || receipt.outcome === "pending";
-    return reply({ schema: "command-receipt/v2", ok, command: action.kind, ...receipt,
-      ...(!ok ? { error: { code: receipt.code ?? "write_rejected", hint: receipt.nextAction ?? "Inspect the rejection." } } : {}) } as unknown as JsonObject);
+    const result = { schema: "command-receipt/v2", ok, command: action.kind, ...receipt, ...(!ok ? { error: { code: receipt.code ?? "write_rejected", hint: receipt.nextAction ?? "Inspect the rejection." } } : {}) } as unknown as JsonObject;
+    return reply(isDaemonGuiActionMethod(request.method) ? parseDaemonGuiActionResult(request.method, result) as unknown as JsonObject : result);
   };
   return { handle: async (message) => Array.isArray(message)
     ? (await Promise.all(message.map(one))).filter((item): item is JsonRpcResponse => item !== undefined) : one(message), close: () => { for (const subscription of subscriptions) subscription.detach(); subscriptions.clear(); } };

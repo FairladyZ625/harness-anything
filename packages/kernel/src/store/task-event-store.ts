@@ -25,7 +25,7 @@ export interface MaterializationReceipt { readonly status: "visible"; readonly c
 export type EventPublicationKillpoint = "before_event_write" | "after_event_write" | "after_head_write" | "after_git_commit" | "before_worktree_rename" | "after_worktree_rename" | "after_sqlite_commit" | "before_response_write" | "after_response_write";
 export interface CanonicalEventStore {
   readonly canonicalRef: string; readonly read: () => CanonicalEventStreamV1; readonly readHead: () => EventHead | null; readonly currentCommit: () => LedgerCommitSha;
-  readonly revisionAt: (commit: LedgerCommitSha) => number | null; readonly readEvent: (opId: string) => CanonicalEventV1 | null; readonly readTaskEvent: (opId: string) => TaskEventV1 | null;
+  readonly revisionAt: (commit: LedgerCommitSha) => number | null; readonly commitForOperation: (opId: string) => LedgerCommitSha | null; readonly readEvent: (opId: string) => CanonicalEventV1 | null; readonly readTaskEvent: (opId: string) => TaskEventV1 | null;
   readonly readBatch: (cursor: string | null, maxItems: number) => EventFileBatch; readonly readContentBlob: (sha256: string) => Uint8Array | null;
   readonly append: (bundle: CanonicalWriteBundle) => CanonicalEventAppendReceipt; readonly recover: () => EventRecoveryReceipt; readonly materialize: () => MaterializationReceipt;
 }
@@ -38,7 +38,7 @@ export function makeTaskEventStore(options: { readonly repoId: string; readonly 
   const currentCommit = () => ledgerCommitSha(repoId, canonicalCommit), readHead = () => { if (canonicalHead === undefined) canonicalHead = readHeadAt(repoRoot, canonicalCommit); return canonicalHead; };
   const readEvent = (opId: string) => (safeOpId(opId), knownOps.has(opId) ? readEventAt(repoRoot, canonicalCommit, opId) : null), readTaskEvent = (opId: string) => { const event = readEvent(opId); return event !== null && isTaskEvent(event) ? event : null; };
   const readContentBlob = (sha256: string) => recentContent.get(sha256) ?? readBlobAt(repoRoot, canonicalCommit, sha256);
-  return { canonicalRef: CANONICAL_EVENT_REF, currentCommit, readHead, readEvent, readTaskEvent, readContentBlob,
+  return { canonicalRef: CANONICAL_EVENT_REF, currentCommit, readHead, readEvent, readTaskEvent, readContentBlob, commitForOperation: (opId) => { safeOpId(opId); if (!knownOps.has(opId)) return null; const sha = localGitText(repoRoot, "log", "--format=%H", "--reverse", canonicalCommit, "--", eventObjectPath(opId)).trim().split(/\r?\n/u)[0]; return sha && /^[0-9a-f]{40}$/u.test(sha) ? ledgerCommitSha(repoId, sha) : null; },
     revisionAt: (commit) => { if (commit.repoId !== repoId) throw new TaskEventStoreError("repo_mismatch", `ledger commit belongs to repo ${commit.repoId}, not ${repoId}`); return canonicalRevisionAt(repoRoot, canonicalCommit, commit.sha); },
     read: () => readStream(repoRoot, canonicalCommit, readHead()), readBatch: (cursor, maxItems) => readBatch(repoRoot, canonicalCommit, readHead(), cursor, maxItems), materialize: () => materialize(repoRoot, repoId, canonicalCommit, readHead(), authoredPrefix, authoredRef),
     append: (bundle) => { const { event, blobs } = bundle; assertBundle(bundle);

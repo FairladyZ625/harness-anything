@@ -7,7 +7,7 @@ import net from "node:net";
 import { once } from "node:events";
 import test from "node:test";
 import { daemonGuiReadMethods, jsonRpcMethodContracts, type DaemonGuiReadMethod } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResponse, parseDaemonGuiReadResult } from "../../daemon/src/protocol/gui-result-validation.ts";
+import { parseDaemonGuiActionResponse, parseDaemonGuiReadResponse, parseDaemonGuiReadResult } from "../../daemon/src/protocol/gui-result-validation.ts";
 import { apiRouteContracts, createLocalGuiServiceBridge } from "../src/index.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 import { seedTriadicEvents, writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
@@ -16,7 +16,7 @@ import { makeTaskEventStore, type AgentRuntimeEventV1, type FrozenWritePlan } fr
 import { streamAgentRuntimeAt } from "../src/main/agent-runtime-stream-client.ts";
 
 test("GUI client reaches every shipped read through a real resident daemon", async () => {
-  const fixture = await startGuiResidentDaemonFixture({ task: { taskId: "task-gui-smoke", title: "Resident GUI task" }, beforeStop: async (endpoint: string, repoId: string) => { const started = await requestDaemonJsonRpcAt(endpoint, "repo.task.run", { repo: { repoId }, payload: { action: { kind: "task-start", taskId: "task-gui-smoke", executionId: "execution-gui" } } }, 1_000); assert.equal(started.ok, true, JSON.stringify(started)); }, beforeRestart: seedRuntime });
+  const fixture = await startGuiResidentDaemonFixture({ task: { taskId: "task-gui-smoke", title: "Resident GUI task" }, beforeStop: async (endpoint: string, repoId: string) => { const started = await requestDaemonJsonRpcAt(endpoint, "repo.task.start", { repo: { repoId }, payload: { taskId: "task-gui-smoke", executionId: "execution-gui" } }, 1_000); assert.equal(started.ok, true, JSON.stringify(started)); }, beforeRestart: seedRuntime });
   const previous = { userRoot: process.env.HARNESS_DAEMON_USER_ROOT, daemonId: process.env.HARNESS_DAEMON_ID,
     repoId: process.env.HARNESS_DAEMON_REPO_ID };
   Object.assign(process.env, fixture.env);
@@ -46,6 +46,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.equal(graph.facts[0]?.statement, "The GUI renderer received event-backed triadic rows.");
     const decisions = parseDaemonGuiReadResult("repo.decisions.list", results.get("repo.decisions.list"));
     assert.deepEqual(decisions.decisions.map(({ decisionId }) => decisionId), ["dec_gui_smoke"]);
+    const controlled = parseDaemonGuiActionResponse("repo.decision.list", await bridge.invoke("listDecisions", {})); assert.equal(controlled.ok, true); assert.match(String(controlled.evidence), /dec_gui_smoke/u);
     const document = parseDaemonGuiReadResult("repo.tasks.document.read", results.get("repo.tasks.document.read"));
     assert.equal(document.body, documentBody); assert.equal(document.path, "notes.md"); assert.equal(document.status, "ready");
   } finally {
