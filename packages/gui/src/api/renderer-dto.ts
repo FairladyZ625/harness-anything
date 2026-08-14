@@ -3,7 +3,7 @@ export type {
   DecisionProjectionRow,
   ProjectionWarning,
   RelationType,
-  FactProjectionRow, FactAnchorRow,
+  FactProjectionRow, FactAnchorRow, RelationFactRow,
   RelationCoverageRow,
   RelationGraphEdgeRow
 } from "../../../kernel/src/index.ts";

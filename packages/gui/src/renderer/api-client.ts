@@ -1,6 +1,6 @@
 import type {
   DecisionProjectionRow,
-  FactAnchorRow, FactProjectionRow,
+  FactAnchorRow, RelationFactRow,
   GuiActionResult, GuiSubmissionV1,
   GuiBridgeMethod,
   ProjectionWarning,
@@ -33,7 +33,7 @@ export interface RelationGraphSuccess {
   readonly ok: true;
   readonly edges: ReadonlyArray<RelationGraphEdgeRow>;
   readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
-  readonly factAnchors: ReadonlyArray<FactAnchorRow>; readonly facts: ReadonlyArray<FactProjectionRow>;
+  readonly factAnchors: ReadonlyArray<FactAnchorRow>; readonly facts: ReadonlyArray<RelationFactRow>;
   readonly warnings: ReadonlyArray<ProjectionWarning>;
 }
 
@@ -169,7 +169,7 @@ function isRelationGraphEdgeRow(value: unknown): value is RelationGraphEdgeRow {
 }
 
 function isRelationCoverageRow(value: unknown): value is RelationCoverageRow {
-  return record(value) && typeof value.decisionRef === "string" && typeof value.claimRef === "string" && typeof value.status === "string" && (value.fulfillment === null || ["evidenced", "delivered", "standing_policy"].includes(String(value.fulfillment))) && Array.isArray(value.refutingFactRefs) && Array.isArray(value.relationPath) && Number.isInteger(value.basisRevision);
+  return record(value) && typeof value.decisionRef === "string" && typeof value.claimRef === "string" && typeof value.status === "string" && (value.fulfillment === null || ["evidenced", "delivered", "standing-policy"].includes(String(value.fulfillment))) && (value.refutingFactRefs === undefined || Array.isArray(value.refutingFactRefs)) && Array.isArray(value.relationPath) && (value.basisRevision === undefined || Number.isInteger(value.basisRevision));
 }
 
 function isFactAnchorRow(value: unknown): value is FactAnchorRow {

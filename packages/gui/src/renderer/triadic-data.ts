@@ -67,7 +67,7 @@ export function buildTriadicRendererData(input: {
   const relationRows = input.graph.edges;
   return {
     decisions: adaptDecisionRows(input.decisions.decisions, relationRows, input.graph.coverageRows),
-    facts: input.graph.facts.map((row) => ({ anchor: `${row.taskId}/${row.factId}`, taskId: row.taskId, category: row.memoryClass === "semantic" ? "lesson" : row.memoryClass === "procedural" ? "progress" : "finding", text: row.statement, at: row.observedAt, confidence: row.confidence, source: row.evidenceSource, provenance: row.provenance, invalidated: row.state === "retired" })),
+    facts: input.graph.facts.map((row) => ({ anchor: `${row.taskId}/${row.factId}`, taskId: row.taskId, category: row.memoryClass === "semantic" ? "lesson" : row.memoryClass === "procedural" ? "progress" : "finding", text: row.statement, at: row.observedAt, confidence: row.confidence, source: row.source, provenance: row.provenance, invalidated: relationRows.some((edge) => edge.state === "active" && edge.relationType === "supersedes-fact" && edge.targetRef === row.ref) })),
     relations: adaptRelationRows(relationRows),
     coverageRows: input.graph.coverageRows,
     factAnchors: input.graph.factAnchors,
@@ -164,6 +164,7 @@ function adaptDecisionRows(
       judgmentConsents: row.judgmentConsents.map((consent) => ({ ...consent })),
       body: row.body ? { ...row.body } : null,
       appliesTo: { modules: [...row.appliesTo.modules], productLines: [...row.appliesTo.productLines] },
+      ...(row.readiness ? { readinessSignals: { appliesToDrift: { ...row.readiness.appliesToDrift, paths: [...row.readiness.appliesToDrift.paths] }, conflictMarker: { ...row.readiness.conflictMarker, paths: [...row.readiness.conflictMarker.paths] } } } : {}),
       lastChangedAt: row.decidedAt ?? row.proposedAt
     };
   });

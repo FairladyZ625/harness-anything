@@ -1,7 +1,6 @@
 import type { RelationCoverageRow } from "../../api/renderer-dto.ts";
 import type { DecisionRow, FactRef } from "./types.ts";
 
-/** U-13:drift/conflict remain unknown until a canonical projection exists. */
 export type SignalColor = "green" | "yellow" | "red" | "unknown" | "na";
 
 export interface ReadinessSignal {
@@ -32,21 +31,15 @@ export function computeReadinessSignals(
 
   return [
     evidence,
-    {
-      id: "applies-to-drift",
-      label: "applies_to 漂移",
-      color: "unknown",
-      summary: "未投影:drift/conflict 的 canonical GUI facet 尚未裁定(U-13 defer),不得用本地猜测落绿。",
-    },
+    driftSignal(decision),
     coverage,
-    {
-      id: "conflict-marker",
-      label: "冲突标记",
-      color: "unknown",
-      summary: "未投影:drift/conflict 的 canonical GUI facet 尚未裁定(U-13 defer),不得用本地猜测落绿。",
-    },
+    conflictSignal(decision),
   ];
 }
+
+function driftSignal(decision: DecisionRow): ReadinessSignal { const projected = decision.readinessSignals?.appliesToDrift; if (!projected) return { id: "applies-to-drift", label: "applies_to 漂移", color: "unknown", summary: "canonical applies_to drift projection unavailable." }; return { id: "applies-to-drift", label: "applies_to 漂移", color: projected.state === "drift" ? "yellow" : projected.state === "clear" ? "green" : "unknown", summary: signalSummary(projected.summary, projected.state === "drift" ? projected.paths : []) }; }
+function conflictSignal(decision: DecisionRow): ReadinessSignal { const projected = decision.readinessSignals?.conflictMarker; if (!projected) return { id: "conflict-marker", label: "冲突标记", color: "unknown", summary: "canonical conflict-marker projection unavailable." }; return { id: "conflict-marker", label: "冲突标记", color: projected.state === "conflict" ? "red" : projected.state === "clear" ? "green" : "unknown", summary: signalSummary(projected.summary, projected.state === "conflict" ? projected.paths : []) }; }
+function signalSummary(summary: string, paths: readonly string[]): string { const shown = paths.slice(0, 5), remainder = paths.length - shown.length; return `${summary}${shown.length ? ` ${shown.join(", ")}${remainder ? ` (+${remainder})` : ""}` : ""}`; }
 
 function evidenceLiveness(
   loadBearingCount: number,
@@ -58,16 +51,16 @@ function evidenceLiveness(
   if (loadBearingCount === 0) return { id: "evidence-liveness", label: "evidence 活性", color: "na", summary: "N/A · 无 load-bearing claim。" };
   if (graphState !== "ready") return { id: "evidence-liveness", label: "evidence 活性", color: "unknown", summary: `relation graph ${graphState};缺字段不作绿灯。` };
   if (missingRowCount > 0) return { id: "evidence-liveness", label: "evidence 活性", color: "unknown", summary: `${missingRowCount} 个 load-bearing claim 缺 coverageRows;不猜 evidence。` };
-  const refs = [...new Set(rows.flatMap((row) => [row.coveringFactRef, ...row.refutingFactRefs]).filter((ref): ref is string => Boolean(ref)))];
-  const basis = [...new Set(rows.map((row) => row.basisRevision))].sort((a, b) => a - b).join(",");
-  if (refs.length === 0) return { id: "evidence-liveness", label: "evidence 活性", color: "na", summary: `N/A · coverageRows 无 covering/refuting fact · basisRevision ${basis}。` };
+  const refs = [...new Set(rows.flatMap((row) => [row.coveringFactRef, ...(row.refutingFactRefs ?? [])]).filter((ref): ref is string => Boolean(ref)))];
+  const basis = basisSummary(rows);
+  if (refs.length === 0) return { id: "evidence-liveness", label: "evidence 活性", color: "na", summary: `N/A · coverageRows 无 covering/refuting fact · ${basis}。` };
   const resolved = refs.map((ref) => ({ ref, fact: facts.find((item) => item.anchor === factAnchor(ref)) }));
   const missing = resolved.filter((item) => !item.fact).map((item) => item.ref);
-  if (missing.length) return { id: "evidence-liveness", label: "evidence 活性", color: "unknown", summary: `coverageRows 引用的 fact 尚未投影:${missing.join(", ")} · basisRevision ${basis}。` };
+  if (missing.length) return { id: "evidence-liveness", label: "evidence 活性", color: "unknown", summary: `coverageRows 引用的 fact 尚未投影:${missing.join(", ")} · ${basis}。` };
   const invalidated = resolved.filter((item) => item.fact?.invalidated).map((item) => item.ref);
   return invalidated.length
-    ? { id: "evidence-liveness", label: "evidence 活性", color: "yellow", summary: `${invalidated.length} 条 covering/refuting fact 已 invalidated:${invalidated.join(", ")} · basisRevision ${basis}。` }
-    : { id: "evidence-liveness", label: "evidence 活性", color: "green", summary: `${refs.length} 条 covering/refuting fact 均 active · basisRevision ${basis}。` };
+    ? { id: "evidence-liveness", label: "evidence 活性", color: "yellow", summary: `${invalidated.length} 条 covering/refuting fact 已 invalidated:${invalidated.join(", ")} · ${basis}。` }
+    : { id: "evidence-liveness", label: "evidence 活性", color: "green", summary: `${refs.length} 条 covering/refuting fact 均 active · ${basis}。` };
 }
 
 function coverageSignal(
@@ -80,11 +73,13 @@ function coverageSignal(
   if (graphState !== "ready") return { id: "coverage", label: "覆盖度", color: "unknown", summary: `relation graph ${graphState};缺字段不作绿灯。` };
   if (missingRows.length) return { id: "coverage", label: "覆盖度", color: "unknown", summary: `coverageRows 缺 claim:${missingRows.map((claim) => claim.id).join(", ")};不从 option evidence 猜。` };
   const uncovered = rows.filter((row) => row.status === "uncovered");
-  const revisions = [...new Set(rows.map((row) => row.basisRevision))].sort((a, b) => a - b).join(",");
+  const revisions = basisSummary(rows);
   return uncovered.length
-    ? { id: "coverage", label: "覆盖度", color: "red", summary: `canonical coverageRows:${loadBearingCount - uncovered.length}/${loadBearingCount};未覆盖 ${uncovered.map((row) => row.claimRef.split("/").at(-1)).join(", ")} · basisRevision ${revisions}。` }
-    : { id: "coverage", label: "覆盖度", color: "green", summary: `canonical coverageRows:${loadBearingCount}/${loadBearingCount} · basisRevision ${revisions}。` };
+    ? { id: "coverage", label: "覆盖度", color: "red", summary: `canonical coverageRows:${loadBearingCount - uncovered.length}/${loadBearingCount};未覆盖 ${uncovered.map((row) => row.claimRef.split("/").at(-1)).join(", ")} · ${revisions}。` }
+    : { id: "coverage", label: "覆盖度", color: "green", summary: `canonical coverageRows:${loadBearingCount}/${loadBearingCount} · ${revisions}。` };
 }
+
+function basisSummary(rows: ReadonlyArray<RelationCoverageRow>): string { const revisions = rows.flatMap((row) => row.basisRevision === undefined ? [] : [row.basisRevision]); return revisions.length === rows.length ? `basisRevision ${[...new Set(revisions)].sort((a, b) => a - b).join(",")}` : "basisRevision unavailable"; }
 
 /** 红 > 黄 > unknown > 绿；N/A 不会把 unknown 覆成“全绿”。 */
 export function worstColor(signals: ReadinessSignal[]): SignalColor {

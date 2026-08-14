@@ -1,1 +1,1 @@
-{"ok":true,"edges":{},"coverageRows":[],"factAnchors":[],"warnings":[]}
+{"ok":true,"edges":[],"coverageRows":[{"decisionRef":"decision/dec_INVALID","claimRef":"decision/dec_INVALID/C1","status":"covered","fulfillment":"standing_policy","relationPath":[]}],"factAnchors":[],"facts":[],"warnings":[]}
