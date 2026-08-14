@@ -97,6 +97,10 @@ Demo 会构建 CLI、创建一个临时项目、跑通一条真实任务循环�
 
 准备在自己的项目里使用？继续阅读[上手指南](./docs-release/start/zh/00-what-is-this.md)。
 
+## 破坏性变更：已有仓库需要迁移
+
+台账格式发生了代差变更，本项目不保留向后兼容，因此已有仓库无法原地升级。如果你本地有老格式的台账仓，请阅读[迁移指南](./docs-release/migration-genesis-replay.zh-CN.md)——老仓会被归档为只读底稿并重放进新仓，全程不受损害。
+
 ## 它如何工作
 
 Harness Anything 用三个长期存在的原语承载 agent 工作：
