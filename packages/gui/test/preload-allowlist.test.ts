@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { daemonGuiActionMethods, daemonGuiReadMethods, daemonGuiStreamFacets } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { HARNESS_PRELOAD_API, assertPreloadPayload, getPreloadApiCapability, isAllowedPreloadApiMethod,
-  preloadAllowlist, shippedPreloadMethods } from "../src/index.ts";
+  localMainPreloadMethods, preloadAllowlist, shippedPreloadMethods } from "../src/index.ts";
 
 test("preload exposes only the approved API methods", () => {
-  const approved = [...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonGuiStreamFacets].map(({ guiBridgeMethod }) => guiBridgeMethod);
+  const approved = [...[...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonGuiStreamFacets].map(({ guiBridgeMethod }) => guiBridgeMethod), ...localMainPreloadMethods];
   assert.equal(HARNESS_PRELOAD_API, "harness");
   assert.deepEqual(preloadAllowlist, approved);
   assert.deepEqual(shippedPreloadMethods, approved);

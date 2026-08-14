@@ -48,6 +48,11 @@ test("runtime instances Slice 2 fixture bills spawn, provenance, GUI, and preset
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
 
+test("runtime instances Slice 3 fixture bills GUI management, auth terminal, and safe DTO seams to their production buckets", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/runtime-instances-s3-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});
+
 test("preset Slice A fixture classifies canonical and shared paths into their ratcheted buckets", () => {
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/preset-slice-a-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);

@@ -12,7 +12,7 @@
     "fleet": 222,
     "authority-write-path": 0,
     "identity-rbac": 416,
-    "agent-runtime": 350,
+    "agent-runtime": 359,
     "decision-fact": 452,
     "test-infra": 0
   }

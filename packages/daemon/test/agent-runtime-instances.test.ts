@@ -105,7 +105,7 @@ test("runtime instance command receipts expose readiness metadata without creden
   try {
     const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed] });
     const created = store.command({ kind: "runtime-instance-create", instanceId: "codex-safe", name: "Codex Safe", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", authMode: "api-key", credentialRef: "keychain:harness/codex-safe" });
-    assert.deepEqual(created.instance, { schemaVersion: 1, instanceId: "codex-safe", name: "Codex Safe", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", reasoningEffort: null, baseUrl: null, authMode: "api-key", authState: "configured", baseUrlConfigured: false, isolationState: "enforced" });
+    assert.deepEqual(created.instance, { schemaVersion: 1, instanceId: "codex-safe", name: "Codex Safe", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", reasoningEffort: null, baseUrl: null, authMode: "api-key", authState: "configured", authReadiness: { status: "not-ready", code: "runtime_auth_not_checked", hint: "Authentication has not been verified in this daemon generation." }, baseUrlConfigured: false, isolationState: "enforced" });
     const listed = store.command({ kind: "runtime-instance-list" }), shown = store.command({ kind: "runtime-instance-show", instanceId: "codex-safe" });
     assert.deepEqual(listed.installations, [{ installationId: observed.installationId, kindId: "codex", version: observed.version, observedAt: observed.observedAt }]);
     assert.deepEqual(shown.instance, created.instance);
@@ -118,6 +118,39 @@ test("runtime instance command adapter rejects ambiguous or unknown auth modes",
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-instance-auth-command-")), store = openRuntimeInstanceStore({ userRoot, discover: () => [observed] }), base = { kind: "runtime-instance-create", instanceId: "codex-auth", name: "Codex Auth", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol" };
   try { assert.throws(() => store.command({ ...base, authMode: "oauth", credentialRef: "keychain:harness/codex-auth" }), (error: unknown) => codedAs(error, "invalid_runtime_auth")); assert.throws(() => store.command({ ...base, authMode: "subscription", credentialRef: "keychain:harness/codex-auth" }), (error: unknown) => codedAs(error, "invalid_runtime_auth")); }
   finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+test("runtime auth readiness is explicit, safe, and never falls back across modes", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-auth-readiness-"));
+  try {
+    let subscriptionReady = false, credentialCalls = 0, subscriptionCalls = 0;
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed], resolveCredential: () => { credentialCalls += 1; throw new Error("missing"); }, subscriptionReady: () => { subscriptionCalls += 1; return subscriptionReady; } });
+    store.create({ schemaVersion: 1, instanceId: "codex-sub", name: "Codex Subscription", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "subscription" } });
+    assert.deepEqual(store.authStatus("codex-sub"), { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in this instance state root." });
+    assert.equal(credentialCalls, 0); assert.equal(subscriptionCalls, 1);
+    subscriptionReady = true;
+    assert.deepEqual(store.authStatus("codex-sub"), { status: "ready", code: null, hint: null });
+    assert.equal(credentialCalls, 0); assert.equal(subscriptionCalls, 2);
+    store.create({ schemaVersion: 1, instanceId: "codex-api", name: "Codex API", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "api-key", credentialRef: "keychain:harness/missing" } });
+    assert.deepEqual(store.authStatus("codex-api"), { status: "not-ready", code: "runtime_credential_unavailable", hint: "The configured runtime API credential is unavailable." });
+    assert.equal(subscriptionCalls, 2);
+    const receipt = store.command({ kind: "runtime-instance-status", instanceId: "codex-api" });
+    assert.doesNotMatch(JSON.stringify(receipt), /credentialRef|keychain:|executablePath|\/opt\/runtime-test/u);
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+test("subscription auth commands use the witnessed executable and instance-only state root", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-auth-command-"));
+  try {
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed], env: { PATH: "/runtime/tools", HOME: "/host/home", TMPDIR: "/host/tmp", OPENAI_API_KEY: "host-secret", HTTPS_PROXY: "host-proxy" } });
+    store.create({ schemaVersion: 1, instanceId: "codex-sub", name: "Codex Subscription", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "subscription" } });
+    const command = store.prepareAuthCommand("codex-sub", "login"), stateRoot = path.join(userRoot, "runtime-instances", "codex-sub");
+    assert.equal(command.executablePath, observed.executablePath); assert.deepEqual(command.args, ["login"]); assert.equal(command.cwd, stateRoot);
+    assert.deepEqual(command.env, { PATH: "/runtime/tools", HOME: path.join(stateRoot, "home"), TMPDIR: path.join(stateRoot, "tmp"), XDG_RUNTIME_DIR: path.join(stateRoot, "run"), CODEX_HOME: path.join(stateRoot, "home", ".codex") });
+    assert.deepEqual(store.prepareAuthCommand("codex-sub", "reauth").args, ["login"]); assert.deepEqual(store.prepareAuthCommand("codex-sub", "logout").args, ["logout"]);
+    store.create({ schemaVersion: 1, instanceId: "codex-api", name: "Codex API", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "api-key", credentialRef: "keychain:harness/codex-api" } });
+    assert.throws(() => store.prepareAuthCommand("codex-api", "login"), (error: unknown) => codedAs(error, "runtime_auth_mode_mismatch"));
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
 
 function requireDirectory(directory: string): void { mkdirSync(directory); }

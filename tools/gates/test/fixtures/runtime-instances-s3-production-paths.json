@@ -1,0 +1,20 @@
+[
+  { "path": "packages/daemon/src/agent-runtime-contract.ts", "module": "agent-runtime" },
+  { "path": "packages/daemon/src/agent-runtime-instances.ts", "module": "agent-runtime" },
+  { "path": "packages/daemon/src/daemon-host.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/gui-catalog.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/gui-s3-control.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/protocol/daemon-protocol.contract.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/protocol/json-rpc-server.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/terminal-host.ts", "module": "daemon" },
+  { "path": "packages/gui/src/api/renderer-dto.ts", "module": "gui" },
+  { "path": "packages/gui/src/main/local-main-controls.ts", "module": "gui" },
+  { "path": "packages/gui/src/main/secure-credential-broker.ts", "module": "gui" },
+  { "path": "packages/gui/src/preload/allowlist.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/api-client.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/components/RuntimeInstanceManager.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/components/RuntimeInstanceManagerPanel.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/runtime-instance-client.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/views/PresetsView.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/views/RuntimeWorkspace.tsx", "module": "gui" }
+]

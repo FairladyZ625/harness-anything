@@ -5,11 +5,20 @@ import { startDetachedProcess, terminateProcess } from "../../../daemon/src/proc
 import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts";
 import type { GuiServiceBridge } from "../api/service-bridge.ts";
 import { createDaemonSupervisor } from "./daemon-supervisor.ts";
+import { createRuntimeInstanceCredentialController, type NativeCredentialBroker } from "./secure-credential-broker.ts";
 
 type Target = { readonly repoId: string; readonly socketPath: string; readonly userRoot: string; readonly daemonId: string };
-export function addLocalMainControls(input: { readonly bridge: GuiServiceBridge; readonly target: (repoId?: string) => Promise<Target>; readonly packaged?: { readonly resourcesPath: string } }): GuiServiceBridge {
+export function addLocalMainControls(input: { readonly bridge: GuiServiceBridge; readonly target: (repoId?: string) => Promise<Target>; readonly packaged?: { readonly resourcesPath: string }; readonly credentialBroker?: NativeCredentialBroker }): GuiServiceBridge {
   const supervisor = createDaemonSupervisor({ authorize: async (payload) => asRecord(await input.bridge.invoke("requestDaemonControl", payload)), restart: async (repoId) => restartResidentDaemon(await input.target(repoId), input.packaged) });
+  const runtimeRpc = async (operation: string, payload: Record<string, unknown>) => requestDaemonJsonRpcAt((await input.target()).socketPath, `daemon.runtimeInstance.${operation}`, { payload } as never, ["create", "list", "status"].includes(operation) ? 12_000 : 2_000), credentialController = createRuntimeInstanceCredentialController({ ...(input.credentialBroker ? { broker: input.credentialBroker } : {}), create: (payload) => runtimeRpc("create", payload) });
   return { stream: input.bridge.stream, invoke: async (method, payload) => {
+    if (method === "listRuntimeInstances") { const listed = asRecord(await runtimeRpc("list", {})), rows = Array.isArray(listed.instances) ? listed.instances.map(asRecord) : []; if (listed.ok !== true) return listed; const checked = await Promise.all(rows.map(async (instance) => asRecord(await runtimeRpc("status", { instanceId: instance.instanceId })))); return { ...listed, instances: rows.map((instance, index) => ({ ...instance, ...(asRecord(checked[index]).authReadiness ? { authReadiness: asRecord(checked[index]).authReadiness } : {}) })) }; }
+    if (method === "showRuntimeInstance") return runtimeRpc("show", asRecord(payload));
+    if (method === "createRuntimeInstance") return credentialController.create(asRecord(payload) as never);
+    if (method === "deleteRuntimeInstance") return runtimeRpc("delete", asRecord(payload));
+    if (method === "validateRuntimeInstanceAuth") return runtimeRpc("status", asRecord(payload));
+    const authAction = method === "signInRuntimeInstance" ? "login" : method === "reauthRuntimeInstance" ? "reauth" : method === "signOutRuntimeInstance" ? "logout" : null;
+    if (authAction) { const request = asRecord(payload), repoId = String(request.repoId), target = await input.target(repoId); return requestDaemonJsonRpcAt(target.socketPath, `repo.runtimeInstance.auth.${authAction}`, { repo: { repoId }, payload: { instanceId: String(request.instanceId), idempotencyKey: String(request.idempotencyKey) } }, 1_000); }
     if (method === "requestDaemonControl" && asRecord(payload).kind === "restart") return supervisor.request(asRecord(payload));
     if (method === "getDaemonControlReceipt") { const local = supervisor.receipt(String(asRecord(payload).operationId)); if (local) return local; }
     const result = asRecord(await input.bridge.invoke(method, payload)); return method === "getSystemStatus" ? supervisor.overlaySystem(result) : result;
