@@ -6,14 +6,16 @@ import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readScalar } from "../markdown/frontmatter.ts";
-import { buildRelationGraphProjection, detectRelationGraphCycles, validateRelationGraphRecords, type EventBackedRelationTruth } from "./relation-graph-projection.ts"; import { readLifecycleRelationTruth } from "./rebuildable-task-projection.ts";
+import { readColdRebuildSource } from "./cold-rebuild-source.ts";
+import { buildRelationGraphProjection, detectRelationGraphCycles, validateRelationGraphRecords, type EventBackedRelationTruth } from "./relation-graph-projection.ts";
+import { readLiveEventRelationTruth } from "./rebuildable-task-projection.ts";
 import type { ProjectionCheckAxisReport, ProjectionCheckReport, ProjectionWarning, ProjectionWarningCode, ProjectionWarningSource } from "./types.ts";
 import { readMarkdownSource, sourcePath, type TaskSourceEntry } from "./sqlite-task-source.ts";
 import { readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 
 export function runPostMergeChecks(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
-  const source = readMarkdownSource(rootInput), relationTruth = readLifecycleRelationTruth(rootDir);
+  const source = readMarkdownSource(rootInput), relationTruth = convergeTruth(readColdRebuildSource(rootInput).truth, readLiveEventRelationTruth(rootDir));
   const warnings: ProjectionWarning[] = [];
   warnings.push(...findDuplicateTaskIds(rootDir, source.entries));
   warnings.push(...findDuplicateExternalBindings(source.entries));
@@ -26,6 +28,8 @@ export function runPostMergeChecks(rootInput: HarnessLayoutInput): ReadonlyArray
   warnings.push(...findRelationCycles(rootInput, relationTruth));
   return warnings;
 }
+
+function convergeTruth(authored: EventBackedRelationTruth, event: EventBackedRelationTruth): EventBackedRelationTruth { const unique = <T>(rows: readonly T[], key: (row: T) => string): readonly T[] => [...new Map(rows.map((row) => [key(row), row])).values()]; return { factAnchors: unique([...authored.factAnchors, ...event.factAnchors], (row) => row.factRef), decisionAnchors: unique([...authored.decisionAnchors, ...event.decisionAnchors], (row) => row.decisionRef), edges: unique([...authored.edges, ...event.edges], (row) => row.relationId), coverageRows: unique([...authored.coverageRows, ...event.coverageRows], (row) => row.claimRef) }; }
 
 export function warning(source: ProjectionWarningSource, code: ProjectionWarningCode, message: string, repairHint: string): ProjectionWarning {
   return {
