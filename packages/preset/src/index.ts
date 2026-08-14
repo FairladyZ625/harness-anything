@@ -1,5 +1,5 @@
 export * from "./preset.contract.ts";
-export { assertRepositoryScaffoldPlanCurrent, compileRepositoryScaffold, createCanonicalPresetResolver, installPresetPackage, uninstallPresetPackage } from "./preset-resolver.ts";
+export { assertRepositoryScaffoldPlanCurrent, compileRepositoryScaffold, createCanonicalPresetResolver, installPresetPackage, seedPresetPackages, uninstallPresetPackage, validatePresetPackage } from "./preset-resolver.ts";
 export type { RepositoryScaffoldDocument, RepositoryScaffoldPlan } from "./preset-resolver.ts";
 export { compilePresetSnapshotUpgrade, compileTaskBootstrap, compileTaskPackage } from "./preset-bootstrap.ts";
 export type { CompilePresetSnapshotUpgradeInput, CompileTaskBootstrapInput, CompileTaskPackageInput, CompiledPresetSnapshotUpgrade, CompiledTaskBootstrap, CompiledTaskPackage } from "./preset-bootstrap.ts";

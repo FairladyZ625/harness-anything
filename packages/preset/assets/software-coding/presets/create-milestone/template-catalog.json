@@ -1,0 +1,73 @@
+{
+  "schema": "template-catalog/v2",
+  "package": {
+    "id": "preset-create-milestone",
+    "title": "create-milestone",
+    "version": "3.0.0",
+    "owner": "preset",
+    "locales": [
+      "zh-CN",
+      "en-US"
+    ]
+  },
+  "documents": [
+    {
+      "id": "planning/milestone-task-plan",
+      "version": "1",
+      "documentKind": "milestone-task-plan",
+      "slot": "task.plan",
+      "materializeAs": "task_plan.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": [
+        "## Mission",
+        "## Usage Questions",
+        "## Wave Decomposition",
+        "## Exit Criteria",
+        "## Context",
+        "## PR/merge Operations",
+        "## Constraints",
+        "## Checkpoint",
+        "## CI/Gate Authority Stop Condition",
+        "## Implementation Plan",
+        "## Verification"
+      ],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "## Mission",
+            "## Usage Questions",
+            "## Wave Decomposition",
+            "## Exit Criteria",
+            "## Context",
+            "## PR/merge Operations",
+            "## Constraints",
+            "## Checkpoint",
+            "## CI/Gate Authority Stop Condition",
+            "## Implementation Plan",
+            "## Verification"
+          ],
+          "bodyPath": "templates/task.milestone.plan/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "## Mission",
+            "## Usage Questions",
+            "## Wave Decomposition",
+            "## Exit Criteria",
+            "## Context",
+            "## PR/merge Operations",
+            "## Constraints",
+            "## Checkpoint",
+            "## CI/Gate Authority Stop Condition",
+            "## Implementation Plan",
+            "## Verification"
+          ],
+          "bodyPath": "templates/task.milestone.plan/en-US.md"
+        }
+      ]
+    }
+  ]
+}

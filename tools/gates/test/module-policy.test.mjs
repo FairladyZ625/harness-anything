@@ -58,6 +58,11 @@ test("W3 Slice 2 fixture keeps inventory and dynamic help in their production bu
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
 
+test("W3 Slice 3 fixture keeps user shadow lifecycle paths in their production budgets", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/w3-s3-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});
+
 test("Decision/Fact Slice A fixture assigns the vertical cut and shared seams to their budgets", () => {
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/decision-fact-slice-a-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
