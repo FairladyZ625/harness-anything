@@ -7,7 +7,7 @@ import { parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 
 test("thin command directory renders every supported user command", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 52);
+  assert.equal(thinCliCommands.length, 53);
   for (const command of thinCliCommands) assert.match(help, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   assert.doesNotMatch(help, /daemon serve|fact list|fact invalidate|record fact|decision search|decision transition|decision verify|decision repin|decision amend|decision relation replace/u);
   assert.match(help, /ha task artifact add.*ha fact record.*ha fact search.*ha fact show.*ha decision propose.*ha decision accept.*ha decision reckon.*ha decision list.*ha decision show/su);
@@ -29,7 +29,10 @@ test("thin parser derives closed preset and task-create payloads from descriptor
 test("thin parser derives builtin vertical, template, and script discovery actions", () => {
   const vertical = parseThinCommand(["vertical", "validate", "--source", "software/coding"]), templates = parseThinCommand(["template", "list"]), render = parseThinCommand(["template", "render", "template://repository/adr-template@1", "--locale", "zh-CN"]), scripts = parseThinCommand(["script", "list"]), inspect = parseThinCommand(["script", "inspect", "vertical:software-coding:architecture-check"]);
   assert.equal([vertical, templates, render, scripts, inspect].every((result) => result.ok), true); if (vertical.ok) assert.deepEqual(vertical.command.action, { kind: "vertical-validate", verticalSource: "software/coding" }); if (templates.ok) assert.deepEqual(templates.command.action, { kind: "template-list" }); if (render.ok) assert.deepEqual(render.command.action, { kind: "template-render", templateRef: "template://repository/adr-template@1", locale: "zh-CN" }); if (scripts.ok) assert.deepEqual(scripts.command.action, { kind: "script-list" }); if (inspect.ok) assert.deepEqual(inspect.command.action, { kind: "script-inspect", scriptId: "vertical:software-coding:architecture-check" });
-  assert.equal(parseThinCommand(["script", "run", "vertical:software-coding:architecture-check"]).ok, false);
+  const run = parseThinCommand(["script", "run", "vertical:software-coding:architecture-check", "--task-id", "task-1", "--inputs", '{"locale":"en-US"}', "--dry-run"]); assert.equal(run.ok, true); if (run.ok) assert.deepEqual(run.command, { rootDir: run.command.rootDir, json: false, method: "repo.script.run", action: { schema: "vertical-script-action/v1", kind: "script-run", scriptId: "vertical:software-coding:architecture-check", taskId: "task-1", inputs: { locale: "en-US" }, dryRun: true } });
+  assert.equal(parseThinCommand(["script", "run", "user-canary/check"]).ok, false);
+  assert.equal(parseThinCommand(["preset", "run", "standard-task"]).ok, false);
+  assert.equal(parseThinCommand(["preset", "action", "standard-task"]).ok, false);
 });
 
 test("Fact CLI exposes only record/search/show and covers all five local parse errors", () => {

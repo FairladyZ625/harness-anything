@@ -6,3 +6,5 @@ export type { CompilePresetSnapshotUpgradeInput, CompileTaskBootstrapInput, Comp
 export { compileRepoPresetSnapshotUpgrade, compileRepoRepositoryScaffold, compileRepoTaskBootstrap, compileRepoTaskPackage, presetUserRoot, runPresetAction } from "./preset-system.ts";
 export { createPresetProcessService, recoverPresetRunStatus } from "./preset-process-service.ts";
 export type { PresetProcessService, PresetProcessServiceOptions, PresetRunStartInput } from "./preset-process-service.ts";
+export { acceptBuiltinVerticalScriptPlan, prepareBuiltinVerticalScriptExecution } from "./vertical-script.ts";
+export type { PreparedBuiltinVerticalScript } from "./vertical-script.ts";

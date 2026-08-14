@@ -29,6 +29,7 @@ test("descriptor-derived RBAC preserves every preset, runtime, doc-sync, Fact, a
     "preset-audit": "repo-read",
     "preset-uninstall": "repo-write",
     "preset-upgrade": "repo-write",
+    "script-run": "repo-write",
     "preset-run-start": "repo-write",
     "preset-run-status": "repo-read",
     "task-start": "repo-write",
@@ -183,12 +184,12 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
-test("completion facade records CI, auto-syncs eligible closeout artifacts, and completes exactly once", async () => {
+test("milestone-closeout uses the normal completion facade, review, and gates exactly once", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-completion-facade-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   const taskId = "task-complete", executionId = "execution-complete", packagePath = "tasks/task-complete-completion-facade", binding = { actor, source: "local" as const };
   try {
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("completion-facade"), rootDir: canonicalRoot(rootDir), ownerId: "completion-daemon" }); const store = () => makeTaskEventStore({ repoId: "completion-facade", rootDir });
-    await cell.run({ kind: "task-create", taskId, title: "Completion facade" }, binding); await cell.run({ kind: "task-start", taskId, executionId }, binding);
+    await cell.run({ kind: "task-create", taskId, title: "Completion facade", presetId: "milestone-closeout" }, binding); await cell.run({ kind: "task-start", taskId, executionId }, binding);
     const activeRevision = store().read().revision, active = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: active.outcome, code: active.code, stoppedAt: active.stoppedAt, next: active.next }, { outcome: "rejected", code: "not_in_review", stoppedAt: "not_in_review", next: [{ command: `ha task submit ${taskId} --execution-id ${executionId} --from-file <submission.json>`, reason: "Complete never submits or starts an execution; reach in_review first." }] }); assert.equal(store().read().revision, activeRevision);
     await cell.run({ kind: "task-progress-append", taskId, text: "implementation complete", evidence: [] }, binding); await cell.run({ kind: "fact-record", taskId, statement: "Completion uses canonical witnesses.", evidenceSource: "test:completion", confidence: "high", memoryClass: "semantic", memoryTags: ["completion"] }, binding);
     const closeoutPath = `${packagePath}/closeout.md`, artifactPath = `${packagePath}/artifacts/evidence.md`; writeFileSync(path.join(rootDir, "harness", closeoutPath), "# Closeout\n\n## Summary\n\nComplete.\n\n## Verification\n\nAll checks passed.\n\n## Residual Risk\n\nNone.\n"); writeFileSync(path.join(rootDir, "harness", artifactPath), "# Evidence\n\nCanonical flow.\n");
