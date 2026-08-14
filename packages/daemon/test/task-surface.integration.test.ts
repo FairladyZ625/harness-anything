@@ -1,0 +1,93 @@
+// harness-test-tier: integration
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { makeTaskEventStore, readRelationGraphProjection, readTaskProjection, rebuildTaskProjection, REPLAY_TASK_GRAPH, taskLifecycleWritePlan, type TaskEventV1 } from "../../kernel/src/index.ts";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { openRepoCell } from "../src/repo-cell.ts";
+
+const actor = { principal: { personId: "person-surface" }, executor: null } as const;
+
+test("task create publishes complete metadata and initial relations that survive cold rebuild", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-surface-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("task-surface"), rootDir: canonicalRoot(rootDir), ownerId: "task-surface-create", now: () => "2026-08-15T00:00:00.000Z" }); const binding = { actor, source: "local" as const };
+    assert.equal((await cell.run({ kind: "task-create", taskId: "task_dependency", title: "Dependency" }, binding)).outcome, "applied");
+    const created = await cell.run({ kind: "task-create", taskId: "task_surface", title: "Surface", idempotencyKey: "surface-once", parentTaskId: "task_dependency", workKind: "feat", riskTier: "high", urgency: "medium", verticalId: "software/coding", presetId: "standard-task", profileId: "baseline", moduleKey: "kernel", registerModule: { key: "kernel", title: "Kernel", prefix: "KER", scope: "packages/kernel/**" }, slug: "surface", surfaces: ["ha task create", "packages/kernel"], relations: [{ type: "depends-on", target: "task/task_dependency", rationale: "Dependency must land first" }], locale: "zh-CN" }, binding) as Record<string, unknown>;
+    assert.equal(created.outcome, "applied", JSON.stringify(created)); assert.equal(created.packagePath, "tasks/task_surface-surface");
+    const event = makeTaskEventStore({ repoId: "task-surface", rootDir }).read().events.find((candidate) => candidate.schema === "task-bootstrap-event/v1" && candidate.taskId === "task_surface"); assert.ok(event && event.schema === "task-bootstrap-event/v1");
+    assert.deepEqual(event.payload.task.metadata, { idempotencyKey: "surface-once", parentTaskId: "task_dependency", workKind: "feat", riskTier: "high", urgency: "medium", verticalId: "software/coding", presetId: "standard-task", profileId: "baseline", moduleKey: "kernel", slug: "surface", surfaces: ["ha task create", "packages/kernel"], longRunning: false, fromLegacyId: null });
+    assert.equal(event.payload.task.relations?.[0]?.type, "depends-on");
+    const index = readFileSync(path.join(rootDir, "harness/tasks/task_surface-surface/INDEX.md"), "utf8"), contract = JSON.parse(readFileSync(path.join(rootDir, "harness/tasks/task_surface-surface/task-contract.json"), "utf8")) as Record<string, unknown>;
+    assert.match(index, /schema: task-package\/v2[\s\S]*task_id: task_surface[\s\S]*parent: task_dependency[\s\S]*packageDisposition: active[\s\S]*relations:[\s\S]*depends-on/u); assert.equal((contract.metadata as { moduleKey: string }).moduleKey, "kernel");
+    rebuildTaskProjection({ rootDir }); const row = readTaskProjection({ rootDir }).rows.find((candidate) => candidate.taskId === "task_surface"), edge = readRelationGraphProjection({ rootDir }).edges.find((candidate) => candidate.sourceRef === "task/task_surface");
+    assert.equal(row?.parentTaskId, "task_dependency"); assert.equal(row?.moduleKey, "kernel"); assert.equal(row?.riskTier, "high"); assert.equal(edge?.targetRef, "task/task_dependency");
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("task lifecycle mutations publish L1 events, exact documents, and replayable dispositions", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-lifecycle-surface-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("task-lifecycle-surface"), rootDir: canonicalRoot(rootDir), ownerId: "task-lifecycle-surface", now: () => "2026-08-15T01:00:00.000Z" }); const binding = { actor, source: "local" as const };
+    for (const [taskId, title] of [["task_lifecycle", "Lifecycle"], ["task_replacement", "Replacement"]] as const) assert.equal((await cell.run({ kind: "task-create", taskId, title, profileId: "baseline" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-start", taskId: "task_lifecycle", executionId: "exe_surface", ttlMs: 60_000 }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-release", taskId: "task_lifecycle", reason: "Pause before changing scope" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-transition", taskId: "task_lifecycle", status: "blocked", reason: "Waiting on scope" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-transition", taskId: "task_lifecycle", status: "done", reason: "bypass" }, binding)).outcome, "rejected");
+    assert.equal((await cell.run({ kind: "task-amend", taskId: "task_lifecycle", patches: [{ field: "title", value: "Lifecycle amended" }, { field: "riskTier", value: "high" }, { field: "moduleKey", value: "daemon" }] }, binding)).outcome, "applied");
+    const related = await cell.run({ kind: "task-relate", taskId: "task_lifecycle", target: "task/task_replacement", relationType: "depends-on", rationale: "Replacement establishes the new contract" }, binding); assert.equal(related.outcome, "applied", JSON.stringify(related));
+    assert.equal((await cell.run({ kind: "task-archive", taskId: "task_lifecycle", reason: "Scope retired", archivedBy: "person-surface" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-reopen", taskId: "task_lifecycle", reason: "Scope restored" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-supersede", oldTaskId: "task_lifecycle", byTaskId: "task_replacement", confirm: "task_lifecycle" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-delete", taskId: "task_replacement", mode: "hard", confirm: "task_replacement", reason: "destructive" }, binding)).outcome, "rejected");
+    assert.equal((await cell.run({ kind: "task-delete", taskId: "task_replacement", mode: "soft", reason: "Duplicate" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-reopen", taskId: "task_replacement", reason: "Not a duplicate" }, binding)).outcome, "applied");
+    const taskRead = (await cell.run({ kind: "task-show", taskId: "task_lifecycle" }, binding)) as Record<string, unknown>, replacementRead = (await cell.run({ kind: "task-show", taskId: "task_replacement" }, binding)) as Record<string, unknown>;
+    assert.match(String(taskRead.evidence), /"packageDisposition":"archived"/u); assert.match(String(taskRead.evidence), /"supersededBy":"task_replacement"/u); assert.match(String(replacementRead.evidence), /"packageDisposition":"active"/u);
+    const events = makeTaskEventStore({ repoId: "task-lifecycle-surface", rootDir }).read().events.filter((event) => event.schema === "task-event/v1").map((event) => event.type);
+    for (const type of ["lease_released", "task_transitioned", "task_amended", "task_relation_added", "task_archived", "task_reopened", "task_superseded", "task_deleted"]) assert.ok(events.includes(type as never), `${type} missing from ${events.join(",")}`);
+    rebuildTaskProjection({ rootDir }); const rows = readTaskProjection({ rootDir }).rows, lifecycle = rows.find((row) => row.taskId === "task_lifecycle"), replacement = rows.find((row) => row.taskId === "task_replacement"), edge = readRelationGraphProjection({ rootDir }).edges.find((row) => row.sourceRef === "task/task_lifecycle" && row.targetRef === "task/task_replacement");
+    assert.equal(lifecycle?.title, "Lifecycle amended"); assert.equal(lifecycle?.riskTier, "high"); assert.equal(lifecycle?.moduleKey, "daemon"); assert.equal(lifecycle?.packageDisposition, "archived"); assert.equal(replacement?.packageDisposition, "active"); assert.equal(edge?.relationType, "depends-on");
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("forced cancellation is audited and terminal tasks require supersede instead of reopen", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-terminal-surface-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("task-terminal-surface"), rootDir: canonicalRoot(rootDir), ownerId: "task-terminal-surface", now: () => "2026-08-15T02:00:00.000Z" }); const binding = { actor, source: "local" as const }; await cell.run({ kind: "task-create", taskId: "task_terminal", title: "Terminal", profileId: "baseline" }, binding);
+    assert.equal((await cell.run({ kind: "task-transition", taskId: "task_terminal", status: "cancelled" }, binding)).outcome, "rejected"); assert.equal((await cell.run({ kind: "task-transition", taskId: "task_terminal", status: "cancelled", force: true, reason: "Audited cancellation after invalid scope" }, binding)).outcome, "applied"); await cell.run({ kind: "task-archive", taskId: "task_terminal", reason: "Retain cancellation audit" }, binding); const reopen = await cell.run({ kind: "task-reopen", taskId: "task_terminal", reason: "More work" }, binding); assert.equal(reopen.outcome, "rejected"); assert.match(String(reopen.nextAction), /supersede/u);
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("batch archive preflights every selected task before publishing any event", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-archive-preflight-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("task-archive-preflight"), rootDir: canonicalRoot(rootDir), ownerId: "task-archive-preflight", now: () => "2026-08-15T02:30:00.000Z" }); const binding = { actor, source: "local" as const }; await cell.run({ kind: "task-create", taskId: "task_archive_valid", title: "Archive valid" }, binding); const before = makeTaskEventStore({ repoId: "task-archive-preflight", rootDir }).read().events.length;
+    const receipt = await cell.run({ kind: "task-archive", taskIds: ["task_archive_valid", "task_archive_missing"], reason: "Batch retirement" }, binding); assert.equal(receipt.outcome, "rejected"); assert.equal(makeTaskEventStore({ repoId: "task-archive-preflight", rootDir }).read().events.length, before); assert.match(String((await cell.run({ kind: "task-show", taskId: "task_archive_valid" }, binding)).evidence), /"packageDisposition":"active"/u);
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("contract migration keeps incomplete legacy L1 tasks in the manual queue", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-contract-manual-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try { initRepo(rootDir); const event: TaskEventV1 = { schema: "task-event/v1", eventId: "event-legacy", workspaceRevision: 1, opId: "op-legacy", taskId: "task_legacy_l1", type: "task_created", actor, source: "local", occurredAt: "2026-08-15T02:45:00.000Z", payload: { task: { schema: "task/v1", taskId: "task_legacy_l1", title: "Legacy L1", taskClass: "standard", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [], presetSnapshotDigest: null } } }; makeTaskEventStore({ repoId: "task-contract-manual", rootDir }).append({ event, plan: taskLifecycleWritePlan(event), blobs: [] }); cell = await openRepoCell({ repoId: workspaceId("task-contract-manual"), rootDir: canonicalRoot(rootDir), ownerId: "task-contract-manual", now: () => "2026-08-15T02:45:00.000Z" }); const receipt = await cell.run({ kind: "task-contract-migrate", mode: "dry-run", taskId: "task_legacy_l1" }, { actor, source: "local" }); assert.equal(receipt.outcome, "applied"); assert.match(String(receipt.evidence), /"status":"manual"[\s\S]*"reason":"contract_metadata_incomplete"/u);
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("task read surfaces, dry-runs, idempotency, structured input, and supersede facade stay closed", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-read-surface-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("task-read-surface"), rootDir: canonicalRoot(rootDir), ownerId: "task-read-surface", now: () => "2026-08-15T03:00:00.000Z" }); const binding = { actor, source: "local" as const };
+    await cell.run({ kind: "task-create", taskId: "task_target", title: "Target", moduleKey: "kernel" }, binding); writeFileSync(path.join(rootDir, "task-input.json"), JSON.stringify({ title: "Searchable Surface", workKind: "fix", riskTier: "high", urgency: "medium", moduleKey: "daemon", surfaces: ["ha task list"] }));
+    const created = await cell.run({ kind: "task-create", taskId: "task_source", idempotencyKey: "stable-create", fromFile: "task-input.json" }, binding) as Record<string, unknown>; assert.equal(created.outcome, "applied"); mkdirSync(path.join(rootDir, "harness/legacy/source"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/legacy/source/old.md"), "# Legacy\n"); writeFileSync(path.join(rootDir, "harness/legacy/index.json"), JSON.stringify({ entries: [{ id: "legacy-1", title: "Legacy Rebuilt", storedPath: "harness/legacy/source/old.md" }] })); const legacy = await cell.run({ kind: "task-create", fromLegacyId: "legacy-1" }, binding) as Record<string, unknown>; assert.equal(legacy.outcome, "applied", JSON.stringify(legacy)); const eventCount = makeTaskEventStore({ repoId: "task-read-surface", rootDir }).read().events.length;
+    const reused = await cell.run({ kind: "task-create", title: "Different retry title", idempotencyKey: "stable-create" }, binding) as Record<string, unknown>; assert.equal(reused.taskId, "task_source"); assert.match(String(reused.evidence), /"reused":true/u);
+    const startPreview = await cell.run({ kind: "task-start", taskId: "task_source", ttlMs: 60_000, dryRun: true }, binding), relationPreview = await cell.run({ kind: "task-relate", taskId: "task_source", target: "task/task_target", relationType: "depends-on", rationale: "Preview only", dryRun: true }, binding); assert.equal(startPreview.outcome, "applied"); assert.equal(relationPreview.outcome, "applied"); assert.equal(makeTaskEventStore({ repoId: "task-read-surface", rootDir }).read().events.length, eventCount);
+    await cell.run({ kind: "task-relate", taskId: "task_source", target: "task/task_target", relationType: "depends-on", rationale: "Required target" }, binding); assert.equal((await cell.run({ kind: "task-relate", taskId: "task_target", target: "task/task_source", relationType: "depends-on", rationale: "Would cycle" }, binding)).outcome, "rejected");
+    const listed = evidence(await cell.run({ kind: "task-list", status: "planned", module: "daemon", search: "searchable" }, binding)), relations = evidence(await cell.run({ kind: "relation-list", entity: "task/task_source", relationType: "depends-on", state: "active" }, binding)), review = evidence(await cell.run({ kind: "task-review", taskId: "task_source", reviewerId: "reviewer" }, binding)), migration = evidence(await cell.run({ kind: "task-contract-migrate", mode: "dry-run", taskId: "task_source" }, binding)); assert.deepEqual((listed.rows as { taskId: string }[]).map((row) => row.taskId), ["task_source"]); assert.equal((relations.rows as unknown[]).length, 1); assert.equal(review.completionAuthority, false); assert.match(JSON.stringify(migration), /"status":"current"/u);
+    const superseded = await cell.run({ kind: "task-supersede", oldTaskId: "task_source", title: "Replacement Surface", slug: "replacement-surface", reason: "Reframed scope" }, binding) as Record<string, unknown>; assert.equal(superseded.outcome, "applied", JSON.stringify(superseded)); assert.equal(typeof superseded.replacementTaskId, "string"); rebuildTaskProjection({ rootDir }); assert.equal(readTaskProjection({ rootDir }).rows.find((row) => row.taskId === "task_source")?.packageDisposition, "archived");
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+function evidence(receipt: Awaited<ReturnType<Awaited<ReturnType<typeof openRepoCell>>["run"]>>): Record<string, unknown> { return JSON.parse(String(receipt.evidence)) as Record<string, unknown>; }
+
+function initRepo(rootDir: string): void { git(rootDir, "init", "-q"); git(rootDir, "config", "user.name", "Task Surface Test"); git(rootDir, "config", "user.email", "task-surface@example.invalid"); git(rootDir, "commit", "--allow-empty", "-qm", "base"); }
+function git(rootDir: string, ...args: readonly string[]): string { return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim(); }

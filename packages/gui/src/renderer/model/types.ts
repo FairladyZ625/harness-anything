@@ -1,12 +1,8 @@
 import type { DecisionProjectionRow, RelationType } from "../../api/renderer-dto.ts";
 
-export type CanonicalStatus =
-  | "planned"
-  | "active"
-  | "in_review"
-  | "done";
+export type CanonicalStatus = "planned" | "active" | "blocked" | "in_review" | "done" | "cancelled";
 
-export type SnapshotStatus = CanonicalStatus | "blocked" | "cancelled" | "unknown";
+export type SnapshotStatus = CanonicalStatus | "unknown";
 
 export type Freshness = "fresh" | "stale-but-usable" | "unavailable-no-cache";
 

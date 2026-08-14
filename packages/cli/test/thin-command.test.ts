@@ -8,7 +8,7 @@ import { deriveCliCapabilities, parseThinCommand, renderThinHelp } from "../src/
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 54);
+  assert.equal(thinCliCommands.length, 66);
   for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))].filter((value): value is string => value !== undefined).sort()) assert.match(help, new RegExp(`^  ${domain} \\(`, "mu"));
   assert.doesNotMatch(help, /ha task start <task-id>/u);
   const taskHelp = renderThinHelp([], "task");
@@ -27,8 +27,9 @@ test("capabilities is an exact-set projection of the command contract", () => {
     migrate: ["migrate-import"],
     preset: ["preset-audit", "preset-check", "preset-inspect", "preset-install", "preset-list", "preset-seed", "preset-uninstall", "preset-upgrade", "preset-validate"],
     receipt: ["receipt-show"],
+    relation: ["relation-list"],
     script: ["preset-run-start", "script-inspect", "script-list", "script-run"],
-    task: ["task-artifact-add", "task-code-doc-reconcile", "task-complete", "task-create", "task-progress-append", "task-review-consent", "task-review-execution", "task-show", "task-start", "task-submit"],
+    task: ["task-amend", "task-archive", "task-artifact-add", "task-code-doc-reconcile", "task-complete", "task-contract-migrate", "task-create", "task-delete", "task-list", "task-progress-append", "task-relate", "task-release", "task-reopen", "task-review", "task-review-consent", "task-review-execution", "task-show", "task-start", "task-submit", "task-supersede", "task-transition"],
     template: ["template-list", "template-render"],
     vertical: ["vertical-validate"]
   });
@@ -50,6 +51,42 @@ test("thin parser derives closed preset and task-create payloads from descriptor
   assert.equal(parseThinCommand(["task", "create", "--title", "Bound", "--completion-gate", "G32"]).ok, false);
   const create = parseThinCommand(["task", "create", "--title", "Bound", "--preset", "create-milestone", "--task-class", "milestone", "--dry-run"]), inspect = parseThinCommand(["preset", "inspect", "standard-task", "--locale", "en-US"]), check = parseThinCommand(["preset", "check", "standard-task", "--snapshot-digest", `sha256:${"a".repeat(64)}`]), validate = parseThinCommand(["preset", "validate", "--source", "package"]), install = parseThinCommand(["preset", "install", "--source", "package", "--dry-run"]), seed = parseThinCommand(["preset", "seed", "--dry-run"]), audit = parseThinCommand(["preset", "audit", "--vertical", "software/coding"]), uninstall = parseThinCommand(["preset", "uninstall", "standard-task", "--dry-run"]), upgrade = parseThinCommand(["preset", "upgrade", "task-1"]);
   assert.equal([create, inspect, check, validate, install, seed, audit, uninstall, upgrade].every((result) => result.ok), true); if (create.ok) { assert.equal(create.command.method, "repo.task.create"); assert.deepEqual(create.command.action, { kind: "task-create", title: "Bound", presetId: "create-milestone", taskClass: "milestone", dryRun: true }); } if (inspect.ok) { assert.equal(inspect.command.method, "repo.preset.inspect"); assert.deepEqual(inspect.command.action, { kind: "preset-inspect", presetId: "standard-task", locale: "en-US" }); } if (check.ok) assert.equal(check.command.action.snapshotDigest, `sha256:${"a".repeat(64)}`); if (validate.ok) assert.deepEqual(validate.command.action, { kind: "preset-validate", packageSource: "package" }); if (install.ok) assert.deepEqual(install.command.action, { kind: "preset-install", packageSource: "package", dryRun: true }); if (seed.ok) assert.deepEqual(seed.command.action, { kind: "preset-seed", dryRun: true }); if (audit.ok) assert.deepEqual(audit.command.action, { kind: "preset-audit", verticalId: "software/coding" }); if (uninstall.ok) assert.deepEqual(uninstall.command.action, { kind: "preset-uninstall", presetId: "standard-task", dryRun: true }); if (upgrade.ok) assert.deepEqual(upgrade.command.action, { kind: "preset-upgrade", taskId: "task-1" });
+});
+
+test("task create preserves the complete contract and initial relations in one closed action", () => {
+  const parsed = parseThinCommand(["task", "create", "--title", "Surface", "--id", "task_surface", "--migration", "--idempotency-key", "surface-once", "--parent", "task_parent", "--kind", "feat", "--risk-tier", "high", "--urgency", "medium", "--vertical", "software/coding", "--preset", "standard-task", "--profile", "default", "--module", "kernel", "--slug", "surface", "--surface", "ha task create", "--surface", "packages/kernel", "--relation", "depends-on:task/task_dependency:Dependency must land first", "--locale", "zh-CN", "--dry-run"]);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "task-create", title: "Surface", taskId: "task_surface", createMode: "migration", idempotencyKey: "surface-once", parentTaskId: "task_parent", workKind: "feat", riskTier: "high", urgency: "medium", verticalId: "software/coding", presetId: "standard-task", profileId: "default", moduleKey: "kernel", slug: "surface", surfaces: ["ha task create", "packages/kernel"], relations: [{ type: "depends-on", target: "task/task_dependency", rationale: "Dependency must land first" }], locale: "zh-CN", dryRun: true });
+  assert.equal(parseThinCommand(["task", "create", "--title", "Bad id", "--id", "task_bad"]).ok, false);
+  assert.equal(parseThinCommand(["task", "create", "--title", "Bad input", "--from-file", "task.json", "--json-input", "{}"]).ok, false);
+  assert.equal(parseThinCommand(["task", "create", "--title", "Bad module", "--register-module", "kernel", "--module-title", "Kernel"]).ok, false);
+  assert.equal(parseThinCommand(["task", "create", "--json-input", '{"title":"Structured"}']).ok, true);
+  assert.equal(parseThinCommand(["task", "create", "--from-legacy", "legacy-1"]).ok, true);
+  assert.equal(parseThinCommand(["task", "create"]).ok, false);
+});
+
+test("task lifecycle and read surfaces parse every F03 F04 F05 leaf into closed actions", () => {
+  const cases = [
+    [["task", "start", "task-1", "--execution-id", "exe-1", "--ttl-ms", "60000", "--dry-run"], { kind: "task-start", verb: "start", commandType: "StartExecution", taskId: "task-1", executionId: "exe-1", ttlMs: 60000, dryRun: true }],
+    [["task", "release", "task-1"], { kind: "task-release", taskId: "task-1" }],
+    [["task", "transition", "task-1", "cancelled", "--force", "--reason", "Invalid scope"], { kind: "task-transition", taskId: "task-1", status: "cancelled", force: true, reason: "Invalid scope" }],
+    [["task", "amend", "task-1", "--set", "title:New title", "--set", "riskTier:high"], { kind: "task-amend", taskId: "task-1", patches: [{ field: "title", value: "New title" }, { field: "riskTier", value: "high" }] }],
+    [["task", "archive", "task-1", "--reason", "Delivered", "--archived-by", "owner"], { kind: "task-archive", taskId: "task-1", reason: "Delivered", archivedBy: "owner" }],
+    [["task", "supersede", "task-1", "--by", "task-2", "--confirm", "task-1", "--reason", "Scope changed"], { kind: "task-supersede", oldTaskId: "task-1", byTaskId: "task-2", confirm: "task-1", reason: "Scope changed", allowOpenFindings: false }],
+    [["task", "delete", "--soft", "task-1", "--reason", "Duplicate"], { kind: "task-delete", taskId: "task-1", mode: "soft", reason: "Duplicate" }],
+    [["task", "reopen", "task-1", "--reason", "Needed again"], { kind: "task-reopen", taskId: "task-1", reason: "Needed again" }],
+    [["task", "contract", "migrate", "--dry-run", "--task", "task-1"], { kind: "task-contract-migrate", mode: "dry-run", taskId: "task-1" }],
+    [["task", "review", "task-1", "--reviewer", "reviewer-1"], { kind: "task-review", taskId: "task-1", reviewerId: "reviewer-1" }],
+    [["task", "list", "--status", "blocked", "--module", "kernel", "--search", "surface"], { kind: "task-list", status: "blocked", module: "kernel", search: "surface" }],
+    [["relation", "list", "--entity", "task/task-1", "--type", "depends-on", "--state", "active"], { kind: "relation-list", entity: "task/task-1", relationType: "depends-on", state: "active" }],
+    [["task", "relate", "task-1", "depends-on", "task-2", "--rationale", "Must land first", "--dry-run"], { kind: "task-relate", taskId: "task-1", target: "task/task-2", relationType: "depends-on", rationale: "Must land first", dryRun: true }]
+  ] as const;
+  for (const [argv, expected] of cases) { const parsed = parseThinCommand(argv); assert.equal(parsed.ok, true, `${argv.join(" ")}: ${JSON.stringify(parsed)}`); if (parsed.ok) assert.deepEqual(parsed.command.action, expected); }
+  assert.equal(parseThinCommand(["task", "transition", "task-1", "done"]).ok, false);
+  assert.equal(parseThinCommand(["task", "delete", "--hard", "task-1", "--confirm", "task-1"]).ok, true);
+  assert.equal(parseThinCommand(["task", "contract", "migrate", "--apply", "--dry-run"]).ok, false);
+  assert.equal(parseThinCommand(["task", "supersede", "task-1", "--by", "task-2"]).ok, false);
+  assert.equal(parseThinCommand(["task", "supersede", "task-1", "--by", "task-2", "--confirm", "task-1"]).ok, true);
 });
 
 test("thin parser derives builtin vertical, template, and script discovery actions", () => {

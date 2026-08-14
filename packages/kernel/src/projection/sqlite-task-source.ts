@@ -125,7 +125,7 @@ export function taskEntryToRow(
   return {
     schema: "sqlite-task-row/v1",
     taskId: readScalar(entry.frontmatter, "task_id") || entry.taskId,
-    title: readScalar(entry.frontmatter, "title") || entry.taskId,
+    title: readTaskTitle(entry.frontmatter) || entry.taskId,
     ...readParent(entry.frontmatter),
     canonicalStatus,
     coordinationStatus: coordinationStatus(canonicalStatus),
@@ -145,6 +145,8 @@ export function taskEntryToRow(
     ...readCreatedBy(entry.frontmatter)
   };
 }
+
+function readTaskTitle(frontmatter: string): string { const value = readScalar(frontmatter, "title"); if (!value.startsWith('"')) return value; try { const decoded = JSON.parse(value) as unknown; return typeof decoded === "string" ? decoded : value; } catch { return value; } }
 
 function parseFrontmatter(body: string): string {
   const frontmatter = readFrontmatter(body);
