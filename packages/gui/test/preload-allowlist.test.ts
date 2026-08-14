@@ -6,7 +6,7 @@ import { HARNESS_PRELOAD_API, assertPreloadPayload, getPreloadApiCapability, isA
   preloadAllowlist, shippedPreloadMethods } from "../src/index.ts";
 
 test("preload exposes only the approved API methods", () => {
-  const contracted = [...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonGuiStreamFacets].map(({ guiBridgeMethod }) => guiBridgeMethod), approved = [...contracted, "configureRuntimeCredential"];
+  const approved = [...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonGuiStreamFacets].map(({ guiBridgeMethod }) => guiBridgeMethod);
   assert.equal(HARNESS_PRELOAD_API, "harness");
   assert.deepEqual(preloadAllowlist, approved);
   assert.deepEqual(shippedPreloadMethods, approved);

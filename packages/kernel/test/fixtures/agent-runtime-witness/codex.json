@@ -11,8 +11,7 @@
         "installationId": "installation-codex",
         "kindId": "codex",
         "version": "1.0.0",
-        "capabilities": ["structured_witness", "resume"],
-        "authState": "configured"
+        "capabilities": ["structured_witness", "resume"]
       }
     },
     {
@@ -23,9 +22,23 @@
       "payload": {
         "dispatchId": "dispatch-codex",
         "runtimeSessionId": "runtime-session-codex",
+        "instanceId": "codex-fixture",
+        "installationId": "installation-codex",
         "kindId": "codex",
         "idempotencyKey": "dispatch-codex-attempt-1",
-        "definitionSnapshotRef": "artifact:runtime-definitions/codex/v1"
+        "definitionSnapshotRef": "artifact:runtime-definitions/codex/v1",
+        "definitionSnapshot": {
+          "schema": "agent-definition-snapshot/v1",
+          "configVersion": 1,
+          "instanceId": "codex-fixture",
+          "installationId": "installation-codex",
+          "kindId": "codex",
+          "providerId": "openai",
+          "model": "gpt-fixture",
+          "reasoningEffort": null,
+          "baseUrl": null,
+          "authMode": "subscription"
+        }
       }
     },
     {
@@ -35,8 +48,10 @@
       "type": "runtime_session_started",
       "payload": {
         "runtimeSessionId": "runtime-session-codex",
+        "instanceId": "codex-fixture",
         "installationId": "installation-codex",
         "kindId": "codex",
+        "definitionSnapshotRef": "artifact:runtime-definitions/codex/v1",
         "launchGeneration": 1,
         "attachable": false
       }

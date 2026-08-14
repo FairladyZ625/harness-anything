@@ -5,13 +5,11 @@ import { startDetachedProcess, terminateProcess } from "../../../daemon/src/proc
 import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts";
 import type { GuiServiceBridge } from "../api/service-bridge.ts";
 import { createDaemonSupervisor } from "./daemon-supervisor.ts";
-import { createRuntimeCredentialController } from "./secure-credential-broker.ts";
 
 type Target = { readonly repoId: string; readonly socketPath: string; readonly userRoot: string; readonly daemonId: string };
 export function addLocalMainControls(input: { readonly bridge: GuiServiceBridge; readonly target: (repoId?: string) => Promise<Target>; readonly packaged?: { readonly resourcesPath: string } }): GuiServiceBridge {
   const supervisor = createDaemonSupervisor({ authorize: async (payload) => asRecord(await input.bridge.invoke("requestDaemonControl", payload)), restart: async (repoId) => restartResidentDaemon(await input.target(repoId), input.packaged) });
   return { stream: input.bridge.stream, invoke: async (method, payload) => {
-    if (method === "configureRuntimeCredential") { const target = await input.target(), controller = createRuntimeCredentialController({ authorityRepoId: target.repoId, bind: (bound) => requestDaemonJsonRpcAt(target.socketPath, "daemon.agentRuntime.credentials.bind", bound as never, 500) }); return controller.configure(asRecord(payload) as { kindId: "claude" | "codex"; baseUrl?: string }); }
     if (method === "requestDaemonControl" && asRecord(payload).kind === "restart") return supervisor.request(asRecord(payload));
     if (method === "getDaemonControlReceipt") { const local = supervisor.receipt(String(asRecord(payload).operationId)); if (local) return local; }
     const result = asRecord(await input.bridge.invoke(method, payload)); return method === "getSystemStatus" ? supervisor.overlaySystem(result) : result;

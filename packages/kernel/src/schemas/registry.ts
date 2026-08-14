@@ -46,7 +46,7 @@ const LegacyRootSchema = Schema.Literal("harness/legacy");
 const LegacyPathSchema = Schema.String.pipe(Schema.pattern(/^harness\/legacy\/(?!.*(?:^|\/)\.\.(?:\/|$))(?!.*\/\/)(?!.*\\).+$/u));
 const LegacyConfidenceSchema = Schema.Literal("high", "medium", "low");
 const StrictSha256Schema = Schema.String.pipe(Schema.pattern(/^sha256:[a-f0-9]{64}$/u));
-const ConfigIdentifierSchema = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9/_@.-]*$/u));
+const ConfigIdentifierSchema = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9/_@.-]*$/u)), RuntimeInstanceIdentifierSchema = Schema.String.pipe(Schema.pattern(/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u));
 
 export const HarnessConfigSchema = Schema.Struct({
   schema: Schema.Literal("harness/v2"),
@@ -76,7 +76,7 @@ export const HarnessConfigSchema = Schema.Struct({
     locale: Schema.optional(LocaleSchema),
     defaultVertical: Schema.optional(ConfigIdentifierSchema),
     defaultPreset: Schema.optional(ConfigIdentifierSchema),
-    defaultProfile: Schema.optional(ConfigIdentifierSchema),
+    defaultProfile: Schema.optional(ConfigIdentifierSchema), defaultRuntimeInstanceId: Schema.optional(RuntimeInstanceIdentifierSchema),
     identity: Schema.optional(Schema.Struct({
       personId: ConfigIdentifierSchema,
       displayName: Schema.optional(Schema.String)

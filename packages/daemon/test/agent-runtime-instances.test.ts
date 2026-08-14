@@ -50,6 +50,7 @@ test("API-key launch preparation uses the witnessed executable and an instance-o
     const stateRoot = path.join(userRoot, "runtime-instances", "codex-api"); chmodSync(path.join(userRoot, "runtime-instances.json"), 0o644); for (const directory of [stateRoot, ...["home", "tmp", "run"].map((name) => path.join(stateRoot, name))]) chmodSync(directory, 0o755);
     const launch = store.prepareLaunch("codex-api", { cwd: "/workspace/repo", prompt: "Inspect" });
     assert.equal(resolvedReference, "keychain:harness/codex-api");
+    assert.deepEqual(launch.installation, observed);
     assert.equal(launch.executablePath, observed.executablePath);
     assert.deepEqual(launch.args, ["exec", "--model", "gpt-5.6-sol", "-c", "model_provider=\"openai\"", "-c", "model_reasoning_effort=\"xhigh\"", "-"]);
     assert.deepEqual(launch.env, { PATH: "/runtime/tools", HOME: path.join(stateRoot, "home"), TMPDIR: path.join(stateRoot, "tmp"), XDG_RUNTIME_DIR: path.join(stateRoot, "run"), CODEX_HOME: path.join(stateRoot, "home", ".codex"), OPENAI_API_KEY: "instance-secret", OPENAI_BASE_URL: "https://gateway.example.test/v1" });
