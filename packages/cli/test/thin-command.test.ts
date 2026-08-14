@@ -2,15 +2,41 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { thinCliCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
+import { daemonProtocolCommands, thinCliCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { resolveCliVersion } from "../src/index.ts";
+import { deriveCliCapabilities, parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 
-test("thin command directory renders every supported user command", () => {
+test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
   assert.equal(thinCliCommands.length, 54);
-  for (const command of thinCliCommands) assert.match(help, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
-  assert.doesNotMatch(help, /daemon serve|fact list|fact invalidate|record fact|decision search|decision transition|decision verify|decision repin|decision amend|decision relation replace/u);
-  assert.match(help, /ha task artifact add.*ha fact record.*ha fact search.*ha fact show.*ha decision propose.*ha decision accept.*ha decision reckon.*ha decision list.*ha decision show/su);
+  for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))].filter((value): value is string => value !== undefined).sort()) assert.match(help, new RegExp(`^  ${domain} \\(`, "mu"));
+  assert.doesNotMatch(help, /ha task start <task-id>/u);
+  const taskHelp = renderThinHelp([], "task");
+  for (const command of thinCliCommands.filter(({ usage }) => usage.split(" ")[1] === "task")) assert.match(taskHelp, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  assert.doesNotMatch(taskHelp, /ha decision propose|ha preset list/u);
+  assert.match(help, /capabilities \[--json\].*--version.*ha daemon start --service/su);
+});
+
+test("capabilities is an exact-set projection of the command contract", () => {
+  assert.deepEqual(deriveCliCapabilities(), {
+    daemon: ["daemon-repo-register", "daemon-repo-unregister", "daemon-start", "daemon-status", "daemon-stop"],
+    decision: ["decision-accept", "decision-claim-add", "decision-claim-fulfill", "decision-defer", "decision-list", "decision-propose", "decision-reckon", "decision-reject", "decision-relate", "decision-relation-retire", "decision-retire", "decision-show"],
+    doc: ["doc-materialize", "doc-show", "doc-status", "doc-sync-dry-run", "doc-sync-submit"],
+    fact: ["fact-record", "fact-search", "fact-show"],
+    init: ["repo-bootstrap"],
+    migrate: ["migrate-import"],
+    preset: ["preset-audit", "preset-check", "preset-inspect", "preset-install", "preset-list", "preset-seed", "preset-uninstall", "preset-upgrade", "preset-validate"],
+    receipt: ["receipt-show"],
+    script: ["preset-run-start", "script-inspect", "script-list", "script-run"],
+    task: ["task-artifact-add", "task-code-doc-reconcile", "task-complete", "task-create", "task-progress-append", "task-review-consent", "task-review-execution", "task-show", "task-start", "task-submit"],
+    template: ["template-list", "template-render"],
+    vertical: ["vertical-validate"]
+  });
+});
+
+test("CLI version is read from the CLI package metadata", () => {
+  const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(resolveCliVersion(), packageJson.version);
 });
 
 test("task-create help renders recommended presets only from effective catalog rows", () => {
