@@ -2,9 +2,7 @@ import type { AgentRuntimeOverviewResult } from "../../../daemon/src/agent-runti
 import type { GuiActionResult } from "../api/renderer-dto.ts";
 
 export interface RuntimeSpawnInput {
-  readonly kindId: "claude" | "codex";
-  readonly installationId: string;
-  readonly profileId: string;
+  readonly runtimeInstanceId: string;
   readonly cwd: { readonly scope: "repo-root" } | { readonly scope: "repo-relative"; readonly path: string };
   readonly prompt: string;
   readonly taskId: string | null;

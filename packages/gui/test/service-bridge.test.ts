@@ -115,7 +115,7 @@ test("GUI renderer bridge drives a resident PTY through spawn attach IO resize d
   try {
     const bridge = createLocalGuiServiceBridge(fixture.rootDir), scope = { repoId: fixture.repoId };
     const spawned = await bridge.invoke("spawnTerminal", { ...scope, idempotencyKey: "terminal-renderer-chain", name: "Renderer chain", cwd: { scope: "repo-root" }, shellProfileId: "default", taskId: "task-terminal" }) as Record<string, unknown>;
-    assert.equal(spawned.schema, "terminal-control-receipt/v1"); assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
+    assert.equal(spawned.schema, "terminal-control-receipt/v1", JSON.stringify(spawned)); assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
     const sessionId = String(spawned.sessionId), values: Array<Record<string, unknown>> = [];
     let resolveEcho!: () => void; const echoSeen = new Promise<void>((resolve) => { resolveEcho = resolve; });
     const stop = await bridge.stream("attachTerminal", { ...scope, sessionId, afterSeq: 0 }, (value) => {
@@ -197,8 +197,9 @@ test("local GUI bridge fails closed without explicit daemon registration and nev
 function restoreEnv(name: string, value: string | undefined): void { if (value === undefined) delete process.env[name]; else process.env[name] = value; }
 interface Failure { readonly ok: boolean; readonly error?: { readonly code: string; readonly hint: string } }
 function seedRuntime(rootDir: string, repoId: string): void { const store = makeTaskEventStore({ rootDir, repoId }), base = store.read().revision, values = [
-  ["runtime_installation_observed", { installationId: "installation-gui", kindId: "codex", protocolFamily: "codex", hostRef: "host:gui", version: "1.0.0", discoverySource: "wrapper", capabilities: ["structured_witness", "attach"], authState: "configured" }],
-  ["runtime_session_started", { runtimeSessionId: "runtime-gui", installationId: "installation-gui", kindId: "codex", launchGeneration: 1, attachable: true }],
+  ["runtime_installation_observed", { installationId: "installation-gui", kindId: "codex", protocolFamily: "codex", hostRef: "host:gui", version: "1.0.0", discoverySource: "wrapper", capabilities: ["structured_witness", "attach"] }],
+  ["runtime_dispatch_requested", { dispatchId: "dispatch-gui", runtimeSessionId: "runtime-gui", instanceId: "codex-gui", installationId: "installation-gui", kindId: "codex", idempotencyKey: "gui", definitionSnapshotRef: "artifact:runtime-definition/gui", definitionSnapshot: { schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: "codex-gui", installationId: "installation-gui", kindId: "codex", providerId: "openai", model: "gpt-gui", reasoningEffort: null, baseUrl: null, authMode: "subscription" } }],
+  ["runtime_session_started", { runtimeSessionId: "runtime-gui", instanceId: "codex-gui", installationId: "installation-gui", kindId: "codex", definitionSnapshotRef: "artifact:runtime-definition/gui", launchGeneration: 1, attachable: true }],
   ["runtime_session_task_bound", { runtimeSessionId: "runtime-gui", taskId: "task-gui", executionId: "execution-gui", providerSessionId: "provider-gui", transcriptRef: "file:runtime/gui.jsonl" }]
   ] as const; for (const [index, [type, payload]] of values.entries()) { const revision = base + index + 1, event = { schema: "agent-runtime-event/v1", eventId: `event-runtime-gui-${revision}`, workspaceRevision: revision, opId: `op-runtime-gui-${revision}`, actor: { principal: { personId: "person-gui" }, executor: null }, source: "local", occurredAt: `2026-08-13T00:00:0${index}.000Z`, type, payload } as AgentRuntimeEventV1; store.append({ event, plan: runtimeWritePlan(event), blobs: [] }); }
   seedTriadicEvents(rootDir, repoId); }

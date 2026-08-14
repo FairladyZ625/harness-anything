@@ -11,8 +11,7 @@
         "installationId": "installation-claude",
         "kindId": "claude-compatible",
         "version": "1.0.0",
-        "capabilities": ["structured_witness", "resume"],
-        "authState": "configured"
+        "capabilities": ["structured_witness", "resume"]
       }
     },
     {
@@ -23,9 +22,23 @@
       "payload": {
         "dispatchId": "dispatch-claude",
         "runtimeSessionId": "runtime-session-claude",
-        "kindId": "claude-compatible",
+        "instanceId": "claude-fixture",
+        "installationId": "installation-claude",
+        "kindId": "claude",
         "idempotencyKey": "dispatch-claude-attempt-1",
-        "definitionSnapshotRef": "artifact:runtime-definitions/claude/v1"
+        "definitionSnapshotRef": "artifact:runtime-definitions/claude/v1",
+        "definitionSnapshot": {
+          "schema": "agent-definition-snapshot/v1",
+          "configVersion": 1,
+          "instanceId": "claude-fixture",
+          "installationId": "installation-claude",
+          "kindId": "claude",
+          "providerId": "anthropic",
+          "model": "claude-fixture",
+          "reasoningEffort": null,
+          "baseUrl": null,
+          "authMode": "subscription"
+        }
       }
     },
     {
@@ -35,8 +48,10 @@
       "type": "runtime_session_started",
       "payload": {
         "runtimeSessionId": "runtime-session-claude",
+        "instanceId": "claude-fixture",
         "installationId": "installation-claude",
-        "kindId": "claude-compatible",
+        "kindId": "claude",
+        "definitionSnapshotRef": "artifact:runtime-definitions/claude/v1",
         "launchGeneration": 1,
         "attachable": false
       }

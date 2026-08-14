@@ -1,6 +1,6 @@
 import { daemonGuiActionMethods, daemonGuiReadMethods, daemonGuiStreamFacets } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 export const HARNESS_PRELOAD_API = "harness";
-export type PreloadApiMethod = (typeof daemonGuiReadMethods)[number]["guiBridgeMethod"] | (typeof daemonGuiActionMethods)[number]["guiBridgeMethod"] | (typeof daemonGuiStreamFacets)[number]["guiBridgeMethod"] | "configureRuntimeCredential";
+export type PreloadApiMethod = (typeof daemonGuiReadMethods)[number]["guiBridgeMethod"] | (typeof daemonGuiActionMethods)[number]["guiBridgeMethod"] | (typeof daemonGuiStreamFacets)[number]["guiBridgeMethod"];
 const daemonGuiFacets: ReadonlyArray<{ readonly guiBridgeMethod: PreloadApiMethod }> = [...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonGuiStreamFacets];
 const repoScopedMethods: ReadonlySet<string> = new Set(
   [...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonGuiStreamFacets]
@@ -12,16 +12,15 @@ const emptyRepoMethods: ReadonlySet<string> = new Set(
     .filter(({ requiresRepo, inputSchemaId }) => requiresRepo && inputSchemaId === "gui.empty/v1")
     .map(({ guiBridgeMethod }) => guiBridgeMethod),
 );
-const localMainFacets: ReadonlyArray<{ readonly guiBridgeMethod: PreloadApiMethod }> = [{ guiBridgeMethod: "configureRuntimeCredential" }];
 export interface PreloadApiCapability {
   readonly method: PreloadApiMethod;
   readonly status: "shipped";
 }
 export const allowedPreloadApi = Object.freeze(Object.fromEntries(
-  [...daemonGuiFacets, ...localMainFacets].map(({ guiBridgeMethod }) => [guiBridgeMethod, guiBridgeMethod])
+  daemonGuiFacets.map(({ guiBridgeMethod }) => [guiBridgeMethod, guiBridgeMethod])
 )) as { readonly [Method in PreloadApiMethod]: Method };
 export const preloadApiCapabilities = Object.freeze(Object.fromEntries(
-  [...daemonGuiFacets, ...localMainFacets].map(({ guiBridgeMethod }) => [guiBridgeMethod, { method: guiBridgeMethod, status: "shipped" as const }])
+  daemonGuiFacets.map(({ guiBridgeMethod }) => [guiBridgeMethod, { method: guiBridgeMethod, status: "shipped" as const }])
 )) as Record<PreloadApiMethod, PreloadApiCapability>;
 export const preloadAllowlist = Object.freeze(Object.values(allowedPreloadApi)) as ReadonlyArray<PreloadApiMethod>;
 export const shippedPreloadMethods = preloadAllowlist;
@@ -46,7 +45,6 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
     throw new Error(`Preload ${method} payload: repoId is not allowed.`);
   }
   if (method === "getSystemStatus" && record(payload) && Object.keys(payload).length > 0) throw new Error("Preload getSystemStatus fields are not allowed.");
-  if (method === "configureRuntimeCredential" && (!record(payload) || Object.keys(payload).some((key) => !["kindId", "baseUrl"].includes(key)) || !["claude", "codex"].includes(String(payload.kindId)) || payload.baseUrl !== undefined && typeof payload.baseUrl !== "string")) throw new Error("Runtime credential request is invalid.");
   return true;
 }
 function containsSecretLikeKey(value: unknown): boolean { if (Array.isArray(value)) return value.some(containsSecretLikeKey); if (!record(value)) return false; return Object.entries(value).some(([key, nested]) => /(?:secret|token|password|passphrase)/iu.test(key) || /^(?:api[-_]?key|credentialvalue)$/iu.test(key) || containsSecretLikeKey(nested)); }

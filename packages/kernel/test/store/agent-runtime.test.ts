@@ -30,11 +30,11 @@ test("runtime events use the canonical envelope, head, store, and the shared pro
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir); const store = makeTaskEventStore({ repoId: "test-repo", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store });
     const events = claude.witnesses.map((witness, index) => eventFromProviderWitness(witness, envelope(index + 1))).filter((event): event is AgentRuntimeEventV1 => event !== null);
-    events.push(eventFromProviderWitness({ ...claude.witnesses[0]!, payload: { ...claude.witnesses[0]!.payload, version: "1.1.0", authState: "invalid" } }, envelope(events.length + 1))!);
+    events.push(eventFromProviderWitness({ ...claude.witnesses[0]!, payload: { ...claude.witnesses[0]!.payload, version: "1.1.0" } }, envelope(events.length + 1))!);
     for (const event of events) { const receipt = store.append(bundle(event)); assert.deepEqual(projection.apply(event).metrics, { sqliteTransactions: 1, reducedItems: 1 }); assert.equal(receipt.revision, event.workspaceRevision); }
     assert.equal(store.readHead()?.revision, events.length); assert.deepEqual(store.readEvent(events.at(-1)!.opId), events.at(-1));
     assert.equal(git(rootDir, "show", `${CANONICAL_EVENT_REF}:harness/events/${events[0]!.opId}.json`), serializeCanonicalEvent(events[0]!).trimEnd());
-    assert.deepEqual(projection.readRuntimeInstallation("installation-claude"), { installationId: "installation-claude", kindId: "claude-compatible", protocolFamily: "claude-compatible", hostRef: "host:local", version: "1.1.0", discoverySource: "wrapper", effectiveCapabilities: ["structured_witness", "resume"], authState: "invalid", lastObservedAt: "2026-08-12T00:00:09.000Z" });
+    assert.deepEqual(projection.readRuntimeInstallation("installation-claude"), { installationId: "installation-claude", kindId: "claude-compatible", protocolFamily: "claude-compatible", hostRef: "host:local", version: "1.1.0", discoverySource: "wrapper", effectiveCapabilities: ["structured_witness", "resume"], lastObservedAt: "2026-08-12T00:00:09.000Z" });
     const session = projection.readRuntimeSession("runtime-session-claude"); assert.equal(session?.providerSessionId, "provider-session-claude");
     assert.deepEqual(session?.taskBindings.map(({ taskId, executionId, transcriptRef }) => ({ taskId, executionId, transcriptRef })), [{ taskId: "task-runtime", executionId: "execution-claude", transcriptRef: "file:runtime-transcripts/claude/session.jsonl" }]);
     assert.deepEqual(projection.readRuntimeSessionsForTask("task-runtime").map((value) => value.runtimeSessionId), ["runtime-session-claude"]);
@@ -99,7 +99,7 @@ test("session outcome and exit round-trip while exited remains terminal", async 
     initRepo(rootDir); const store = makeTaskEventStore({ repoId: "test-repo", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store });
     const events = [witness("runtime_session_started"), witness("runtime_session_outcome_observed"), witness("runtime_session_exited")].map((value, index) => eventFromProviderWitness(value, envelope(index + 1))!);
     for (const event of events) { store.append(bundle(event)); assert.deepEqual(projection.apply(event).metrics, { sqliteTransactions: 1, reducedItems: 1 }); assert.deepEqual(store.readEvent(event.opId), event); }
-    assert.equal(store.readHead()?.revision, 3); assert.deepEqual(projection.readRuntimeSession("runtime-session-claude"), { runtimeSessionId: "runtime-session-claude", installationId: "installation-claude", kindId: "claude-compatible", providerSessionId: null, transcriptRef: null, launchGeneration: 1, liveness: "exited", attachable: false, taskBindings: [], outcome: "succeeded", resultRef: "artifact:runtime-results/claude/succeeded", lastObservedAt: "2026-08-12T00:00:03.000Z" });
+    assert.equal(store.readHead()?.revision, 3); assert.deepEqual(projection.readRuntimeSession("runtime-session-claude"), { runtimeSessionId: "runtime-session-claude", instanceId: "claude-fixture", installationId: "installation-claude", kindId: "claude", definitionSnapshotRef: "artifact:runtime-definitions/claude/v1", providerSessionId: null, transcriptRef: null, launchGeneration: 1, liveness: "exited", attachable: false, taskBindings: [], outcome: "succeeded", resultRef: "artifact:runtime-results/claude/succeeded", lastObservedAt: "2026-08-12T00:00:03.000Z" });
     const liveness = eventFromProviderWitness({ ...witness("heartbeat"), type: "runtime_session_liveness_changed", payload: { runtimeSessionId: "runtime-session-claude", liveness: "live" } }, envelope(4))!;
     assert.throws(() => projection.apply(liveness), /already exited/iu); assert.equal(projection.readRuntimeSession("runtime-session-claude")?.liveness, "exited"); assert.equal(store.read().revision, 3);
     assert.throws(() => eventFromProviderWitness({ ...witness("runtime_session_outcome_observed"), payload: { ...witness("runtime_session_outcome_observed").payload, resultRef: "inline result" } }, envelope(4)), /payload/iu);
@@ -113,6 +113,7 @@ test("runtime schema rejects credential, transcript body, tool/cost stream, and 
     { credential: "secret" }, { transcript: "full conversation" }, { tool: { name: "shell" } }, { cost: { amount: 1 } }
   ]) assert.throws(() => serializeCanonicalEvent({ ...bound, payload: { ...bound.payload, ...forbidden } } as AgentRuntimeEventV1), /payload/iu);
   assert.throws(() => serializeCanonicalEvent({ ...bound, payload: { ...bound.payload, transcriptRef: "full\nconversation" } } as AgentRuntimeEventV1), /transcript ref|payload/iu);
+  const dispatch = witness("runtime_dispatch_requested"); assert.throws(() => eventFromProviderWitness({ ...dispatch, payload: { ...dispatch.payload, definitionSnapshot: { ...(dispatch.payload.definitionSnapshot as Record<string, unknown>), credentialRef: "keychain:forbidden" } } }, envelope(2)), /payload/iu);
   assert.deepEqual(forbiddenKeys(bound), []);
 });
 
