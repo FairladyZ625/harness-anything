@@ -4,7 +4,7 @@
     "kernel": 7602,
     "task-lifecycle": 375,
     "write-contract": 292,
-    "doc-sync": 347,
+    "doc-sync": 349,
     "preset": 310,
     "cli": 140,
     "gui": 17446,
@@ -13,7 +13,7 @@
     "authority-write-path": 0,
     "identity-rbac": 416,
     "agent-runtime": 301,
-    "decision-fact": 414,
+    "decision-fact": 417,
     "test-infra": 0
   }
 }

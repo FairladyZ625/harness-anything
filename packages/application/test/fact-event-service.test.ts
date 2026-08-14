@@ -112,8 +112,17 @@ test("Decision accept requires explicit evidence or judgment-only, while human C
   withDecisionFixture(({ service, projection }) => { const human = { principal: { personId: "person-ceo" }, executor: null } as const, proposal = decisionEvent(1, "decision_proposed") as Extract<DecisionEventDraftV1, { readonly type: "decision_proposed" }>; recordDecision(service, projection, decisionAt(1, "dec_FIXTURE", "decision_proposed", proposal.payload, human)); const accepted = decisionEvent(2, "decision_accepted", human) as Extract<DecisionEventDraftV1, { readonly type: "decision_accepted" }>; assert.equal(recordDecision(service, projection, accepted).decision.arbiter?.principal.personId, "person-ceo"); });
 });
 
+test("Decision list derives E selectors, orders them numerically, filters ranges, and rejects ambiguity", () => {
+  withDecisionFixture(({ service, projection }) => { const proposed = decisionEvent(1, "decision_proposed"); if (proposed.type !== "decision_proposed") throw new Error("proposal fixture missing"); const ids = ["dec_NO_LEGACY", "dec_IMPORTED_E10_ALPHA", "dec_IMPORTED_E2_BETA", "dec_IMPORTED_E2_ALPHA"];
+    ids.forEach((decisionId, index) => recordDecision(service, projection, decisionAt(index + 1, decisionId, "decision_proposed", { ...proposed.payload, title: decisionId, appliesTo: { modules: [index % 2 ? "daemon" : "kernel"], productLines: [index === 1 ? "platform" : "core"] } }, actor)));
+    const listed = service.list({}); assert.deepEqual(listed.decisions.map(({ decisionId, legacyId }) => [decisionId, legacyId]), [["dec_IMPORTED_E2_ALPHA", "E2"], ["dec_IMPORTED_E2_BETA", "E2"], ["dec_IMPORTED_E10_ALPHA", "E10"], ["dec_NO_LEGACY", undefined]]); assert.equal(listed.decisions.every(({ body }) => body === null), true);
+    assert.deepEqual(service.list({ legacyRange: { start: 3, end: 10 } }).decisions.map(({ decisionId }) => decisionId), ["dec_IMPORTED_E10_ALPHA"]); assert.deepEqual(service.list({ module: "daemon", productLine: "platform" }).decisions.map(({ decisionId }) => decisionId), ["dec_IMPORTED_E10_ALPHA"]);
+    assert.equal(service.show("E10").decision.decisionId, "dec_IMPORTED_E10_ALPHA"); assert.throws(() => service.show("E2"), (error: unknown) => code(error) === "ambiguous_selector"); assert.throws(() => service.show("E404"), (error: unknown) => code(error) === "entity_not_found");
+  });
+});
+
 test("Decision read catches up an L1-only authored proposal without a body-null crash window", () => {
-  withDecisionFixture(({ store, projection, service }) => { const proposed = compileDecision(projection, decisionEvent(1, "decision_proposed")); store.append(proposed); const searched = service.search({ query: "Canonical" }); assert.equal(searched.status, "ready"); assert.equal(searched.watermark, 1); assert.equal(searched.decisions[0]?.body, null); assert.equal(service.show("dec_FIXTURE").decision.body?.body, "\n# Canonical Decision\n"); });
+  withDecisionFixture(({ store, projection, service }) => { const proposed = compileDecision(projection, decisionEvent(1, "decision_proposed")); store.append(proposed); const listed = service.list({ search: "Canonical" }); assert.equal(listed.status, "ready"); assert.equal(listed.watermark, 1); assert.equal(listed.decisions[0]?.body, null); assert.equal(service.show("dec_FIXTURE").decision.body?.body, "\n# Canonical Decision\n"); });
 });
 
 test("Decision coverage replays all fulfillment modes, refutation, and exact task_completed basis", () => {

@@ -9,8 +9,8 @@ test("thin command directory renders every supported user command", () => {
   const help = renderThinHelp();
   assert.equal(thinCliCommands.length, 44);
   for (const command of thinCliCommands) assert.match(help, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
-  assert.doesNotMatch(help, /daemon serve|fact list|fact invalidate|record fact|decision list|decision transition|decision verify|decision repin|decision amend|decision relation replace/u);
-  assert.match(help, /ha task artifact add.*ha fact record.*ha fact search.*ha fact show.*ha decision propose.*ha decision accept.*ha decision reckon.*ha decision search.*ha decision show/su);
+  assert.doesNotMatch(help, /daemon serve|fact list|fact invalidate|record fact|decision search|decision transition|decision verify|decision repin|decision amend|decision relation replace/u);
+  assert.match(help, /ha task artifact add.*ha fact record.*ha fact search.*ha fact show.*ha decision propose.*ha decision accept.*ha decision reckon.*ha decision list.*ha decision show/su);
 });
 
 test("task-create help renders recommended presets only from effective catalog rows", () => {
@@ -52,23 +52,25 @@ test("Decision CLI maps every canonical command and keeps the five local error c
     fulfill = parseThinCommand(["decision", "claim", "fulfill", "dec_1", "--id", "C1", "--mode", "evidenced"]),
     relate = parseThinCommand(["decision", "relate", "dec_1", "--anchor", "C1", "--type", "evidenced-by", "--target", "fact/task-1/F-ABCDEFGH", "--rationale", "Observed"]),
     retireRelation = parseThinCommand(["decision", "relation", "retire", "dec_1", "--relation", "rel_0123456789abcdef", "--reason", "Stale"]),
-    reckon = parseThinCommand(["decision", "reckon", "dec_1", "--task", "task-1"]), search = parseThinCommand(["decision", "search", "Canonical", "--state", "active"]), show = parseThinCommand(["decision", "show", "dec_1", "--include-body"]);
-  assert.equal([propose, accept, claim, fulfill, relate, retireRelation, reckon, search, show].every((result) => result.ok), true);
+    reckon = parseThinCommand(["decision", "reckon", "dec_1", "--task", "task-1"]), list = parseThinCommand(["decision", "list", "--search", "Canonical", "--state", "active", "--legacy-id", "E12", "--legacy-range", "E1-E20", "--module", "kernel", "--product-line", "platform"]), show = parseThinCommand(["decision", "show", "E12", "--include-body"]);
+  assert.equal([propose, accept, claim, fulfill, relate, retireRelation, reckon, list, show].every((result) => result.ok), true);
   if (propose.ok) assert.deepEqual(propose.command.action, { kind: "decision-propose", jsonInput: packet, body: "# Canonical\n\nInitial prose.\n" });
   if (accept.ok) assert.deepEqual(accept.command.action, { kind: "decision-accept", decisionId: "dec_1", rationale: "Independent approval", judgmentOnlyRationale: "CEO judgment without evidence" });
-  if (show.ok) assert.deepEqual(show.command.action, { kind: "decision-show", decisionId: "dec_1", includeBody: true });
+  if (list.ok) assert.deepEqual(list.command.action, { kind: "decision-list", search: "Canonical", state: "active", legacyId: "E12", legacyRange: { start: 1, end: 20 }, module: "kernel", productLine: "platform" });
+  if (show.ok) assert.deepEqual(show.command.action, { kind: "decision-show", decisionId: "E12", includeBody: true });
   const failures = [
     parseThinCommand(["decision", "accept", "dec_1", "--rationale", "a", "--rationale", "b"]),
     parseThinCommand(["decision", "accept", "dec_1", "--rationale", "valid", "--judgment-only", "x".repeat(200)]),
     parseThinCommand(["decision", "accept"]),
     parseThinCommand(["decision", "show", "dec_1", "--body"]),
-    parseThinCommand(["decision", "list"])
+    parseThinCommand(["decision", "search"])
   ];
   assert.deepEqual(failures.map((result) => result.ok ? "ok" : result.code), ["duplicate_field", "invalid_field", "missing_field", "unknown_field", "unsupported_command"]);
   assert.equal(parseThinCommand(["decision", "propose", "--from-file", "proposal.json", "--json-input", packet]).ok, false);
   assert.equal(parseThinCommand(["decision", "propose", "--json-input", packet, "--body", "inline", "--body-file", "body.md"]).ok, false);
   assert.equal(parseThinCommand(["decision", "propose", "--title", "retired flags-only proposal"]).ok, false);
   assert.equal(parseThinCommand(["decision", "relate", "dec_1", "--type", "relates", "--target", "task/task-1", "--rationale", "Missing anchor"]).ok, false);
+  assert.equal(parseThinCommand(["decision", "list", "--legacy-range", "E20-E1"]).ok, false);
 });
 
 test("thin parser converts the sole preset script target into closed typed start params", () => {
