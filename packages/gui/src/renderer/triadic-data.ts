@@ -14,20 +14,22 @@ import { KIND_LABEL } from "./graph/constants.ts";
 import type { DecisionClaim, DecisionRow, DecisionState, FactRef, RelationEdge } from "./model/types.ts";
 
 export const triadicQueryKeys = {
-  all: ["harness", "triadic"] as const,
-  graph: () => [...triadicQueryKeys.all, "relation-graph"] as const,
-  decisions: () => [...triadicQueryKeys.all, "decisions"] as const
+  all: (repoId: string) => ["triadic", repoId] as const,
+  graph: (repoId: string) => ["triadic", repoId, "relation-graph"] as const,
+  decisions: (repoId: string) => ["triadic", repoId, "decisions"] as const
 };
 
-export function useTriadicProjectionQuery() {
+export function useTriadicProjectionQuery(repoId: string | null) {
   const graph = useQuery({
-    queryKey: triadicQueryKeys.graph(),
-    queryFn: () => harnessClient.getRelationGraph(),
+    queryKey: triadicQueryKeys.graph(repoId ?? "unselected"),
+    queryFn: () => harnessClient.getRelationGraph({ repoId: repoId! }),
+    enabled: repoId !== null,
     staleTime: 10_000
   });
   const decisions = useQuery({
-    queryKey: triadicQueryKeys.decisions(),
-    queryFn: () => harnessClient.getDecisions(),
+    queryKey: triadicQueryKeys.decisions(repoId ?? "unselected"),
+    queryFn: () => harnessClient.getDecisions({ repoId: repoId! }),
+    enabled: repoId !== null,
     staleTime: 10_000
   });
   const rendererData = useMemo(() => buildTriadicRendererData({

@@ -28,7 +28,7 @@ describe("computeRootTaskId", () => {
 
 describe("adaptProjectionRows", () => {
   it("derives renderer state from the canonical lifecycle snapshot", () => {
-    const [task] = adaptProjectionRows([row()]);
+    const [task] = adaptProjectionRows([row()], "repo-test");
     expect(task).toMatchObject({ taskId: "task-x", title: "X", coordinationStatus: "planned", rawStatus: "planned/implementation",
       canonicalStatus: "planned", blocking: "clear", blockingLabel: "当前投影无 active blocking relation",
       freshness: "fresh", rootTaskId: "task-x", rootTitle: "X", module: "gui", moduleKeys: ["gui"], productLines: ["harness"],
@@ -36,7 +36,7 @@ describe("adaptProjectionRows", () => {
   });
 
   it("marks a pending projection stale but usable", () => {
-    expect(adaptProjectionRows([row()], "pending")[0]?.freshness).toBe("stale-but-usable");
+    expect(adaptProjectionRows([row()], "repo-test", "pending")[0]?.freshness).toBe("stale-but-usable");
   });
 
   it("keeps canonical status separate while blocks and depends-on derive the blocked display lane", () => {
@@ -47,7 +47,7 @@ describe("adaptProjectionRows", () => {
       relation({ from: "task/task-a", to: "task/task-b", kind: "blocks" }),
       relation({ relationId: "rel_0000000000000002", from: "task/task-b", to: "task/task-c", kind: "depends-on" })
     ];
-    const tasks = adaptProjectionRows(rows, "ready", { relationState: "ready", relations });
+    const tasks = adaptProjectionRows(rows, "repo-test", "ready", { relationState: "ready", relations });
 
     expect(tasks.find((task) => task.taskId === "task-b")).toMatchObject({
       canonicalStatus: "planned", coordinationStatus: "blocked", blocking: "blocked",
@@ -57,11 +57,11 @@ describe("adaptProjectionRows", () => {
   });
 
   it("fails closed to unknown for unavailable relation truth, malformed blocking edges, and missing endpoints", () => {
-    const unavailable = adaptProjectionRows([row()], "ready", { relationState: "loading", relations: [] })[0]!;
+    const unavailable = adaptProjectionRows([row()], "repo-test", "ready", { relationState: "loading", relations: [] })[0]!;
     expect(unavailable).toMatchObject({ blocking: "unknown", coordinationStatus: "planned", blockingLabel: "阻塞关系未能确定",
       module: "unassigned", moduleKeys: [], productLines: [], placementWarning: "relation projection 未就绪，无法判定 derived placement" });
 
-    const tasks = adaptProjectionRows([row({ taskId: "task-a" }), row({ taskId: "task-b" })], "ready", {
+    const tasks = adaptProjectionRows([row({ taskId: "task-a" }), row({ taskId: "task-b" })], "repo-test", "ready", {
       relationState: "ready",
       relations: [
         relation({ direction: "undirected" }),
@@ -73,7 +73,7 @@ describe("adaptProjectionRows", () => {
   });
 
   it("recomputes active dependency cycles and shows every node as blocked with a cycle warning", () => {
-    const tasks = adaptProjectionRows([row({ taskId: "task-a" }), row({ taskId: "task-b" })], "ready", {
+    const tasks = adaptProjectionRows([row({ taskId: "task-a" }), row({ taskId: "task-b" })], "repo-test", "ready", {
       relationState: "ready",
       relations: [
         relation({ kind: "depends-on" }),
@@ -89,7 +89,7 @@ describe("adaptProjectionRows", () => {
     const child = row({ taskId: "task-child", placement: { ...row().placement, moduleKeys: ["stale-supplement"], productLines: ["stale"], parentTaskId: "task-parent" } });
     const decision = { decisionId: "dec-scope", title: "Scope", state: "active", question: "Where?", chosen: [], rejected: [], claims: [],
       appliesTo: { modules: ["gui"], productLines: ["desktop"] } } satisfies DecisionRow;
-    const tasks = adaptProjectionRows([parent, child], "ready", { relationState: "ready", decisions: [decision], relations: [relation({
+    const tasks = adaptProjectionRows([parent, child], "repo-test", "ready", { relationState: "ready", decisions: [decision], relations: [relation({
       relationId: "rel_0000000000000004", from: "decision/dec-scope", to: "task/task-child", kind: "derives"
     })] });
 

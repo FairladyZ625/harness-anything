@@ -4,14 +4,14 @@ import type { AgentRuntimeAttachEvent } from "../../../../daemon/src/agent-runti
 import { agentRuntimeClient, openAgentRuntimePane } from "../agent-runtime-client.ts";
 
 const tone = { live: "text-status-done", stale: "text-stale", unknown: "text-status-unknown", exited: "text-text-faint" } as const;
-export function AgentRuntimeView() {
+export function AgentRuntimeView({ repoId }: { readonly repoId: string }) {
   const [overview, setOverview] = useState<AgentRuntimeOverviewResult | null>(null), [selectedId, setSelectedId] = useState<string | null>(null), [detail, setDetail] = useState<AgentRuntimeSessionDto | null>(null), [frames, setFrames] = useState<AgentRuntimeAttachEvent[]>([]), [attachStatus, setAttachStatus] = useState("detached"), [error, setError] = useState<string | null>(null);
-  useEffect(() => { let active = true; void agentRuntimeClient.overview().then((value) => { if (active) setOverview(value); }, (cause) => { if (active) setError(String(cause)); }); return () => { active = false; }; }, []);
+  useEffect(() => { let active = true; setOverview(null); setSelectedId(null); setError(null); void agentRuntimeClient.overview(repoId).then((value) => { if (active) setOverview(value); }, (cause) => { if (active) setError(String(cause)); }); return () => { active = false; }; }, [repoId]);
   useEffect(() => { if (!selectedId) { setDetail(null); setFrames([]); setAttachStatus("detached"); return; } let active = true, detach: (() => void) | undefined;
-    void Promise.all([agentRuntimeClient.session(selectedId), agentRuntimeClient.events(selectedId)]).then(([snapshot, lifecycle]) => { if (!active) return; setDetail(snapshot.session); setFrames([]); setAttachStatus(snapshot.session.attachCapability === "supported" ? "attaching" : "unsupported"); if (snapshot.session.attachCapability !== "supported") return;
-      detach = openAgentRuntimePane(selectedId, snapshot.session.streamCursor, (value) => { if (!active) return; if ("ok" in value) { setAttachStatus(value.ok ? value.status : value.code); if (value.ok) { const caughtUp = value.events.filter((event) => event.type !== "gap"); if (caughtUp.length) setFrames((current) => [...current, ...caughtUp].slice(-32)); if (value.status === "gap") void refresh(selectedId, active, setDetail); } return; } if (value.type === "gap") void refresh(selectedId, active, setDetail); else setFrames((current) => [...current.slice(-31), value]); }).close; if (!lifecycle.done) setAttachStatus("lifecycle-catch-up"); }, (cause) => { if (active) setError(String(cause)); });
+    void Promise.all([agentRuntimeClient.session(repoId, selectedId), agentRuntimeClient.events(repoId, selectedId)]).then(([snapshot, lifecycle]) => { if (!active) return; setDetail(snapshot.session); setFrames([]); setAttachStatus(snapshot.session.attachCapability === "supported" ? "attaching" : "unsupported"); if (snapshot.session.attachCapability !== "supported") return;
+      detach = openAgentRuntimePane(repoId, selectedId, snapshot.session.streamCursor, (value) => { if (!active) return; if ("ok" in value) { setAttachStatus(value.ok ? value.status : value.code); if (value.ok) { const caughtUp = value.events.filter((event) => event.type !== "gap"); if (caughtUp.length) setFrames((current) => [...current, ...caughtUp].slice(-32)); if (value.status === "gap") void refresh(repoId, selectedId, active, setDetail); } return; } if (value.type === "gap") void refresh(repoId, selectedId, active, setDetail); else setFrames((current) => [...current.slice(-31), value]); }).close; if (!lifecycle.done) setAttachStatus("lifecycle-catch-up"); }, (cause) => { if (active) setError(String(cause)); });
     return () => { active = false; detach?.(); };
-  }, [selectedId]);
+  }, [repoId, selectedId]);
   if (error) return <section data-testid="agent-runtime-error" className="p-6 text-status-blocked">Runtime read failed: {error}</section>;
   if (!overview) return <section className="p-6 text-text-faint">Loading runtime projection…</section>;
   return <AgentRuntimeProjection overview={overview} selectedId={selectedId} detail={detail} frames={frames} attachStatus={attachStatus} onSelect={setSelectedId} onClose={() => setSelectedId(null)}/>;
@@ -27,4 +27,4 @@ export function AgentRuntimeProjection({ overview, selectedId, detail, frames, a
   </section>;
 }
 function Field({ name, value }: { readonly name: string; readonly value: string }) { return <div><dt className="font-mono text-xs uppercase text-text-faint">{name}</dt><dd className="break-all text-text">{value}</dd></div>; }
-async function refresh(runtimeSessionId: string, active: boolean, update: (session: AgentRuntimeSessionDto) => void): Promise<void> { const snapshot = await agentRuntimeClient.session(runtimeSessionId); if (active) update(snapshot.session); }
+async function refresh(repoId: string, runtimeSessionId: string, active: boolean, update: (session: AgentRuntimeSessionDto) => void): Promise<void> { const snapshot = await agentRuntimeClient.session(repoId, runtimeSessionId); if (active) update(snapshot.session); }

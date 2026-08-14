@@ -239,15 +239,15 @@ describe("renderer app model", () => {
     vi.stubGlobal("window", { harness: { getTaskDocument } });
     const queryClient = new QueryClient();
     try {
-      await queryClient.fetchQuery(taskDocumentQuery("task-1", "task-contract.json"));
-      await queryClient.fetchQuery(taskDocumentQuery("task-1", "INDEX.md"));
+      await queryClient.fetchQuery(taskDocumentQuery("project-1", "task-1", "task-contract.json"));
+      await queryClient.fetchQuery(taskDocumentQuery("project-1", "task-1", "INDEX.md"));
       const task: TaskRow = { taskId: "task-1", title: "One", projectId: "project-1", coordinationStatus: "active", rawStatus: "active",
         freshness: "fresh", packageDisposition: "active", closeoutReadiness: "not_required", engine: "local", source: "snapshot-cache",
         module: "gui", packagePath: "tasks/task-1-one", lastKnownAt: "2026-08-13T00:00:00.000Z", gates: [], docs: [] };
       const markup = renderToStaticMarkup(createElement(QueryClientProvider, { client: queryClient }, createElement(TaskDetailView,
         { task, onBack: () => undefined, projectName: "Harness" })));
-      expect(getTaskDocument).toHaveBeenCalledWith({ taskId: "task-1", path: "task-contract.json" });
-      expect(getTaskDocument).toHaveBeenCalledWith({ taskId: "task-1", path: "INDEX.md" });
+      expect(getTaskDocument).toHaveBeenCalledWith({ repoId: "project-1", taskId: "task-1", path: "task-contract.json" });
+      expect(getTaskDocument).toHaveBeenCalledWith({ repoId: "project-1", taskId: "task-1", path: "INDEX.md" });
       expect(markup).toContain("Canonical renderer document");
       expect(markup).toContain("L2 · ready");
     } finally {

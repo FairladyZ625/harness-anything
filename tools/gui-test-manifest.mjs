@@ -11,6 +11,7 @@ export const guiVitestManifest = [
   "packages/gui/test/territory-progress.vitest.ts",
   "packages/gui/test/graph-colormode.vitest.ts",
   "packages/gui/test/graph-view.vitest.ts",
+  "packages/gui/test/gui-s3-r1-repo-isolation.vitest.ts",
   "packages/gui/test/decisions-verdict.vitest.ts",
   "packages/gui/test/execution-evidence.vitest.ts",
   "packages/gui/test/entity-workspace.vitest.ts",
