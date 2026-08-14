@@ -1,0 +1,82 @@
+[
+  {
+    "path": "packages/gui/src/renderer/App.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/components/GraphLegend.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/components/NavigationHistoryBar.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/components/TerminalDock.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/components/terminal/TerminalPane.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/components/terminal/dock-resize.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/graph/constants.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/graph/relationVisual.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/i18n/core.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/i18n/index.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/model/decision-pool-grouping.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/navigation/historyStack.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/navigation/useViewHistory.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/navigation/viewHistory.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/navigation/viewHistoryStorage.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/views/BoardView.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/views/DecisionPoolView.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/views/GraphView.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/views/OverviewView.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/views/SwimlaneBoard.tsx",
+    "module": "gui"
+  }
+]

@@ -94,3 +94,79 @@ describe("navigation history reducer (HISTORY-001)", () => {
     expect(state.index).toBe(0);
   });
 });
+
+// ---- 视图级后退/前进历史(REQ-GUI-01;移植老 main 线 navigationHistory) ----
+
+import {
+  createViewHistory,
+  currentLocation,
+  canGoBack as viewCanBack,
+  canGoForward as viewCanForward,
+  goBack as viewGoBack,
+  goForward as viewGoForward,
+  patchCurrent,
+  pushLocation,
+  type AppLocation,
+} from "../src/renderer/navigation/viewHistory.ts";
+import {
+  initialLocation,
+  readViewHistory,
+  writeViewHistory,
+  resetViewHistory,
+} from "../src/renderer/navigation/viewHistoryStorage.ts";
+
+function loc(patch: Partial<AppLocation>): AppLocation {
+  return { ...initialLocation(), ...patch };
+}
+
+describe("view navigation history (HISTORY-002)", () => {
+  it("pushes locations, truncates forward, and restores via back/forward", () => {
+    let state = createViewHistory(loc({ view: "overview" }));
+    state = pushLocation(state, loc({ view: "board", drill: { lane: "root-1", status: "active", groupBy: "root" } }));
+    state = pushLocation(state, loc({ view: "graph", focusedEntityRef: "decision/dec_1" }));
+    expect(viewCanBack(state)).toBe(true);
+    state = viewGoBack(state);
+    expect(currentLocation(state).view).toBe("board");
+    expect(currentLocation(state).drill?.lane).toBe("root-1");
+    // 从中间推新位置:forward 栈作废。
+    state = pushLocation(state, loc({ view: "decisions" }));
+    expect(viewCanForward(state)).toBe(false);
+    state = viewGoBack(state);
+    state = viewGoBack(state);
+    expect(currentLocation(state).view).toBe("overview");
+    expect(viewCanBack(state)).toBe(false);
+    state = viewGoForward(state);
+    expect(currentLocation(state).view).toBe("board");
+  });
+
+  it("patchCurrent updates in place without pushing a stack entry", () => {
+    let state = createViewHistory(loc({ view: "board" }));
+    state = patchCurrent(state, { taskFilters: { ...currentLocation(state).taskFilters, query: "x" } });
+    expect(state.entries).toHaveLength(1);
+    expect(currentLocation(state).taskFilters.query).toBe("x");
+  });
+
+  it("persists per project and rejects corrupted storage", () => {
+    const storage = new Map<string, string>();
+    const shim = {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => void storage.set(key, value),
+    };
+    let state = createViewHistory(loc({ view: "board" }));
+    state = pushLocation(state, loc({ view: "graph" }));
+    writeViewHistory(shim, "proj-a", state);
+    const restored = readViewHistory(shim, "proj-a");
+    expect(currentLocation(restored).view).toBe("graph");
+    expect(viewCanBack(restored)).toBe(true);
+    // 其他项目互不污染。
+    expect(currentLocation(readViewHistory(shim, "proj-b")).view).toBe("overview");
+    // 坏存储回退干净初始栈。
+    storage.set("harness-view-history:proj-c", "{not json");
+    expect(viewCanBack(readViewHistory(shim, "proj-c"))).toBe(false);
+    // 篡改后的栈(schema 头伪造)同样回退。
+    storage.set("harness-view-history:proj-d", JSON.stringify({ schema: "gui-view-history/v1", history: { entries: [{ view: "rm -rf", selectedId: null, previewId: null, focusedEntityRef: null, taskFilters: initialLocation().taskFilters, drill: null }], index: 0 } }));
+    expect(currentLocation(readViewHistory(shim, "proj-d")).view).toBe("overview");
+    resetViewHistory(shim, "proj-a");
+    expect(currentLocation(readViewHistory(shim, "proj-a")).view).toBe("overview");
+  });
+});

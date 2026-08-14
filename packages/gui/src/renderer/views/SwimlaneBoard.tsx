@@ -12,7 +12,7 @@ import {
 import { spawningDecisionOf } from "../model/triadic";
 import { sortByFavoritesFirst } from "../model/taskFilters";
 
-export type LaneGroupBy = "module" | "engine" | "root";
+export type LaneGroupBy = "module" | "engine" | "root" | "productLine";
 
 const PAGE_SIZE = 5;
 const GRID_COLS = "grid-cols-[180px_repeat(7,230px)]";
@@ -22,9 +22,12 @@ const cellKey = (lane: string, status: SnapshotStatus) => `${lane}::${status}`;
 type ActiveCell = { lane: string; status: SnapshotStatus };
 
 /** 把 groupBy 解析成每个 task 的分组 key 字符串。 */
+export const UNASSIGNED_PLT_LANE = "__unassigned_plt__";
+
 function groupKeyOf(task: TaskRow, groupBy: LaneGroupBy): string {
   if (groupBy === "module") return task.module;
   if (groupBy === "engine") return task.engine;
+  if (groupBy === "productLine") return task.productLines?.[0] ?? UNASSIGNED_PLT_LANE;
   // root:用 rootTaskId(若缺失则退回自身,显示为顶层独立 task)
   return task.rootTaskId ?? task.taskId;
 }
@@ -39,6 +42,7 @@ function groupLabelOf(
     const representative = tasks.find((t) => (t.rootTaskId ?? t.taskId) === key);
     return representative?.rootTitle ?? representative?.title ?? key;
   }
+  if (groupBy === "productLine" && key === UNASSIGNED_PLT_LANE) return "未投影 PLT";
   return key;
 }
 

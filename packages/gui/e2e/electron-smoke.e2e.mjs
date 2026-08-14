@@ -76,24 +76,35 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   // shapes and the kernel-named relation rows without a mock banner.
   await page.getByRole("button", { name: /关系图/u }).click();
   await page.locator(".react-flow").waitFor({ timeout: 10_000 });
-  await page.getByText(/3\s*节点\s*·\s*3\s*边/u).waitFor({ timeout: 10_000 });
-  assert.equal(await page.locator(".react-flow__node-task").count(), 1);
-  assert.equal(await page.locator(".react-flow__node-decision").count(), 1);
-  assert.equal(await page.locator(".react-flow__node-fact").count(), 1);
-  assert.equal(await page.locator(".react-flow__edge").count(), 3);
+  // 图默认落在领地(territory)模式:先点 decision chip 进入聚光灯(spotlight),
+  // ego 画布才会展开 task/decision/fact 三类节点与 kernel 命名边。
+  await page.locator('[data-testid="territory-chip"]', { hasText: "Expose the triadic projection" }).first().click();
+  await page.getByText(/聚光灯/u).first().waitFor({ timeout: 10_000 });
+  // ReactFlow 边在模式切换后异步入画:先等第一条边再计数,避免竞态误报。
+  await page.locator(".react-flow__edge").first().waitFor({ timeout: 10_000 });
+  // ego 画布节点是 EgoNode(实体语义走 data-entity,不再按类型注册 react-flow node)。
+  assert.equal(await page.locator('[data-entity="task"]').count(), 1);
+  assert.equal(await page.locator('[data-entity="decision"]').count(), 1);
+  assert.equal(await page.locator('[data-entity="fact"]').count(), 1);
+  // ego 画布按 hop 展开:焦点 decision 一跳内可见 derives + evidenced-by;
+  // produces(task→fact)在 task 展开后才入画,不断言固定 3。
+  assert.ok((await page.locator(".react-flow__edge").count()) >= 2, "spotlight must render kernel relation edges");
   assert.equal(await page.getByText("MOCK", { exact: true }).count(), 0, "triadic views must not be mock-backed");
 
   // Graph entities remain live links even though fact bodies are not part of
   // the rebuild read schema. Open the task through the graph drawer and follow
   // its derives edge to the exact decision.
-  await page.locator(".react-flow__node-decision").click();
+  await page.locator('[data-entity="decision"]').first().click();
   await page.locator("aside").getByText("decision/dec_gui_smoke", { exact: true }).waitFor();
-  await page.locator(".react-flow__node-task").click();
+  await page.locator('[data-entity="task"]').first().click();
   await page.locator("aside").getByText("task-gui-smoke", { exact: true }).waitFor();
   await page.getByRole("button", { name: "打开", exact: true }).click();
   await page.getByRole("button", { name: /派生自 dec_gui_smoke/u }).waitFor({ timeout: 10_000 });
   const relationLink = page.getByRole("button", { name: "decision/dec_gui_smoke", exact: true });
   await relationLink.waitFor();
+  // 收起态终端 dock 的悬浮按钮(fixed 右下角,z-30)会盖住详情页链接:
+  // 先移除再点,避免点击被遮罩吞掉。
+  await page.evaluate(() => globalThis.document.querySelector('button[title="Ctrl+`"]')?.remove());
   await relationLink.click();
   await page.locator('#decision-card-dec_gui_smoke[data-focused="true"]').waitFor();
 

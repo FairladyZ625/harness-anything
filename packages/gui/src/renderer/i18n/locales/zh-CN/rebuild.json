@@ -1,0 +1,22 @@
+{
+  "shell.nav.home": "项目",
+  "shell.nav.overview": "总览",
+  "shell.nav.board": "看板",
+  "shell.nav.decisions": "决策批准",
+  "shell.nav.decisionPool": "决策池",
+  "shell.nav.factTriage": "事实分诊",
+  "shell.nav.executionEvidence": "执行证据",
+  "shell.nav.graph": "关系图",
+  "shell.nav.presets": "Preset / Vertical",
+  "shell.nav.adapters": "引擎 Adapter",
+  "shell.nav.agents": "Agent Sessions",
+  "shell.nav.system": "System",
+  "shell.nav.settings": "设置",
+  "shell.nav.workspace": "工作区",
+  "shell.nav.manage": "管理",
+  "navHistory.back": "后退 (Cmd+[ / 鼠标侧键)",
+  "navHistory.forward": "前进 (Cmd+] / 鼠标侧键)",
+  "settings.language": "界面语言",
+  "settings.languageDesc": "zh-CN / en-US;部分视图已双语,其余视图暂为中文",
+  "settings.title": "设置"
+}

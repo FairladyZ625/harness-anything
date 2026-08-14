@@ -19,11 +19,7 @@ import { TaskDetailView } from "./views/TaskDetailView.tsx";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
 import { ThemeToggle, NavButton, ProjectSummary } from "./components/shell-chrome.tsx";
 import { CommandPalette, buildPaletteIndex } from "./components/CommandPalette.tsx";
-import {
-  DEFAULT_TASK_FILTERS,
-  applyTaskFilters,
-  type TaskFilters,
-} from "./model/taskFilters.ts";
+import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
 import { taskQueryKeys, useTasksQuery } from "./task-data.ts";
 import { useTriadicProjectionQuery } from "./triadic-data.ts";
@@ -36,59 +32,51 @@ import { selectActiveRepoId, useSystemStatusQuery } from "./system-data.ts";
 import { useCatalogSnapshot } from "./catalog-data.ts";
 import { adaptRepoProject } from "./model/project-adapter.ts";
 import { TerminalDock, type TerminalDockHandle } from "./components/TerminalDock.tsx";
-
-type ViewId =
-  | "home"
-  | "overview"
-  | "board"
-  | "decisions"
-  | "decisionPool"
-  | "factTriage"
-  | "executionEvidence"
-  | "graph"
-  | "presets"
-  | "adapters"
-  | "agents"
-  | "system"
-  | "settings";
+import { NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
+import { t, type MessageKey } from "./i18n/index.tsx";
+import { useViewHistory } from "./navigation/useViewHistory.ts";
+import { initialLocation, resetViewHistory } from "./navigation/viewHistoryStorage.ts";
+import type { ViewId } from "./navigation/viewHistory.ts";
 
 // W2C:列表并入看板(第三种 layout),独立「列表」入口删除。
-const WORKSPACE_NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
-  { id: "overview", label: "总览", icon: <SquaresFour weight="duotone" /> },
-  { id: "board", label: "看板", icon: <Kanban weight="duotone" /> },
-  { id: "decisions", label: "决策批准", icon: <Scales weight="duotone" /> },
-  { id: "decisionPool", label: "决策池", icon: <GitBranch weight="duotone" /> },
-  { id: "factTriage", label: "事实分诊", icon: <FirstAidKit weight="duotone" /> },
-  { id: "executionEvidence", label: "执行证据", icon: <Package weight="duotone" /> },
-  { id: "graph", label: "关系图", icon: <Graph weight="duotone" /> },
-];
-
-const MANAGE_NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
-  { id: "presets", label: "Preset / Vertical", icon: <Stack weight="duotone" /> },
-  { id: "adapters", label: "引擎 Adapter", icon: <PlugsConnected weight="duotone" /> },
-  { id: "agents", label: "Agent Sessions", icon: <PlugsConnected weight="duotone" /> },
-  { id: "system", label: "System", icon: <GearSix weight="duotone" /> },
-  { id: "settings", label: "设置", icon: <GearSix weight="duotone" /> },
-];
-
-const VIEW_LABEL: Record<ViewId, string> = {
-  home: "项目",
-  overview: "总览",
-  board: "看板",
-  decisions: "决策批准",
-  decisionPool: "决策池",
-  factTriage: "事实分诊",
-  executionEvidence: "执行证据",
-  graph: "关系图",
-  presets: "Preset / Vertical",
-  adapters: "引擎 Adapter",
-  agents: "Agent Sessions",
-  system: "System",
-  settings: "设置",
+// 侧栏文案走 i18n 字典(shell.nav.*);未接字典的视图保持中文(见完成度报告)。
+const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
+  home: "shell.nav.home",
+  overview: "shell.nav.overview",
+  board: "shell.nav.board",
+  decisions: "shell.nav.decisions",
+  decisionPool: "shell.nav.decisionPool",
+  factTriage: "shell.nav.factTriage",
+  executionEvidence: "shell.nav.executionEvidence",
+  graph: "shell.nav.graph",
+  presets: "shell.nav.presets",
+  adapters: "shell.nav.adapters",
+  agents: "shell.nav.agents",
+  system: "shell.nav.system",
+  settings: "shell.nav.settings",
 };
 
+const navLabel = (id: ViewId): string => t(NAV_LABEL_KEY[id]);
+
+const WORKSPACE_NAV: { id: ViewId; icon: React.ReactNode }[] = [
+  { id: "overview", icon: <SquaresFour weight="duotone" /> },
+  { id: "board", icon: <Kanban weight="duotone" /> },
+  { id: "decisions", icon: <Scales weight="duotone" /> },
+  { id: "decisionPool", icon: <GitBranch weight="duotone" /> },
+  { id: "factTriage", icon: <FirstAidKit weight="duotone" /> },
+  { id: "executionEvidence", icon: <Package weight="duotone" /> },
+  { id: "graph", icon: <Graph weight="duotone" /> },
+];
+
+const MANAGE_NAV: { id: ViewId; icon: React.ReactNode }[] = [
+  { id: "presets", icon: <Stack weight="duotone" /> },
+  { id: "adapters", icon: <PlugsConnected weight="duotone" /> },
+  { id: "agents", icon: <PlugsConnected weight="duotone" /> },
+  { id: "system", icon: <GearSix weight="duotone" /> },
+  { id: "settings", icon: <GearSix weight="duotone" /> },
+];
+
 function AppShell() {
-  const [view, setView] = useState<ViewId>("overview");
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const systemQuery = useSystemStatusQuery();
@@ -122,17 +110,15 @@ function AppShell() {
   const relations = triadicQuery.relations;
   const coverageRows = triadicQuery.coverageRows;
   const factAnchors = triadicQuery.factAnchors;
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [previewId, setPreviewId] = useState<string | null>(null);
-  const [focusedEntityRef, setFocusedEntityRef] = useState<string | null>(null);
-  const [taskFilters, setTaskFilters] =
-    useState<TaskFilters>(DEFAULT_TASK_FILTERS);
+  // 应用位置由视图导航历史栈持有(REQ-GUI-01):view/selectedId/previewId/
+  // focusedEntityRef/taskFilters/drill 全部从 location 派生,变更走 navigate()
+  // (推栈)或 updateLocation()(原地改)。与图内 FocusHistoryBar 并存:那是
+  // 聚光灯的实体焦点微历史,这是跨视图的应用位置历史。
+  const { location, navigate, updateLocation, back, forward, canBack, canForward } =
+    useViewHistory(projectId, initialLocation());
+  const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
+  const setTaskFilters = (next: TaskFilters) => updateLocation({ taskFilters: next });
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
-  const [drill, setDrill] = useState<{
-    lane: string;
-    status: SnapshotStatus;
-    groupBy: LaneGroupBy;
-  } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const terminalDock = useRef<TerminalDockHandle>(null);
@@ -162,20 +148,23 @@ function AppShell() {
   const inboxCount = decisions.filter((d) => d.state === "proposed").length;
 
   const goto = (v: ViewId) => {
-    setView(v);
-    setFocusedEntityRef(null);
-    setSelectedId(null);
-    setPreviewId(null);
-    if (v !== "board") setDrill(null);
+    navigate({
+      view: v,
+      focusedEntityRef: null,
+      selectedId: null,
+      previewId: null,
+      ...(v !== "board" ? { drill: null } : {}),
+    });
   };
 
   const openProject = async (repoId: string) => {
     if (repoId !== activeRepoId) {
       await terminalDock.current?.detachAll();
       if (activeRepoId) await queryClient.cancelQueries({ predicate: (query) => query.queryKey[1] === activeRepoId });
+      // 新仓以干净初始栈打开(overview + 默认筛选);仓内 back/forward 仍持久化。
+      resetViewHistory(window.sessionStorage, repoId);
       setActiveRepoId(repoId);
     }
-    setTaskFilters(DEFAULT_TASK_FILTERS);
     setProjectSwitcherOpen(false);
     goto("overview");
   };
@@ -183,25 +172,20 @@ function AppShell() {
   const drillToBoard = (
     lane: string,
     status: SnapshotStatus,
-    dimension: "root" | "module",
+    dimension: "root" | "module" | "plt",
   ) => {
     // 特殊占位 __all__ 表示不锁定 lane(只 drill 到状态维度)
-    const groupBy: LaneGroupBy = dimension === "root" ? "root" : "module";
-    setDrill({ lane, status, groupBy });
-    setView("board");
-    setSelectedId(null);
-    setPreviewId(null);
+    const groupBy: LaneGroupBy =
+      dimension === "root" ? "root" : dimension === "module" ? "module" : "productLine";
+    navigate({ drill: { lane, status, groupBy }, view: "board", selectedId: null, previewId: null });
   };
 
   const openTaskPreview = (id: string) => {
-    setSelectedId(null);
-    setPreviewId(id);
+    updateLocation({ selectedId: null, previewId: id });
   };
 
   const openTaskDetail = (id: string) => {
-    setFocusedEntityRef(`task/${id}`);
-    setPreviewId(null);
-    setSelectedId(id);
+    navigate({ focusedEntityRef: `task/${id}`, previewId: null, selectedId: id });
   };
 
   // 带 repo/<repoId>/ 前缀的实体引用先显式切仓，再在该仓导航。
@@ -211,21 +195,15 @@ function AppShell() {
       openTaskDetail(id);
     } else if (ref.startsWith("decision/")) {
       const decisionId = ref.split("/")[1];
-      setFocusedEntityRef(`decision/${decisionId}`);
-      setView("decisionPool");
-      setSelectedId(null);
-      setPreviewId(null);
+      navigate({ focusedEntityRef: `decision/${decisionId}`, view: "decisionPool", selectedId: null, previewId: null });
     } else if (ref.startsWith("fact/")) {
-      setFocusedEntityRef(ref);
-      setView("factTriage");
-      setSelectedId(null);
-      setPreviewId(null);
+      navigate({ focusedEntityRef: ref, view: "factTriage", selectedId: null, previewId: null });
     }
   };
   const navigateToEntity = (rawRef: string) => {
     const scoped = /^repo\/([^/]+)\/(.+)$/u.exec(rawRef), targetRepoId = scoped?.[1] ?? activeRepoId, ref = scoped?.[2] ?? rawRef;
     if (targetRepoId && targetRepoId !== activeRepoId) {
-      if (!enabledRepos.some((repo) => repo.repoId === targetRepoId)) { setView("home"); setProjectSwitcherOpen(true); return; }
+      if (!enabledRepos.some((repo) => repo.repoId === targetRepoId)) { navigate({ view: "home" }); setProjectSwitcherOpen(true); return; }
       void openProject(targetRepoId).then(() => navigateLocalEntity(ref)); return;
     }
     navigateLocalEntity(ref);
@@ -234,10 +212,7 @@ function AppShell() {
     navigateToEntity(`decision/${decisionId}`);
   const navigateToTask = (taskId: string) => openTaskDetail(taskId);
   const focusEntityInGraph = (ref: string) => {
-    setFocusedEntityRef(ref);
-    setView("graph");
-    setSelectedId(null);
-    setPreviewId(null);
+    navigate({ focusedEntityRef: ref, view: "graph", selectedId: null, previewId: null });
   };
 
   // ⌘K 命令面板(REQ-GUI-01):跨实体搜索 + 快速跳转。纯前端派生,不消费写 IPC。
@@ -254,11 +229,27 @@ function AppShell() {
       } else if (e.ctrlKey && e.key === "`") {
         e.preventDefault();
         setTerminalOpen((open) => !open);
+      } else if ((e.metaKey || e.ctrlKey) && e.key === "[") {
+        e.preventDefault();
+        back();
+      } else if ((e.metaKey || e.ctrlKey) && e.key === "]") {
+        e.preventDefault();
+        forward();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [back, forward]);
+
+  // 鼠标侧键:button 3 = 后退,button 4 = 前进(浏览器/Electron 惯例)。
+  useEffect(() => {
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button === 3) back();
+      else if (e.button === 4) forward();
+    };
+    window.addEventListener("mousedown", onMouseDown);
+    return () => window.removeEventListener("mousedown", onMouseDown);
+  }, [back, forward]);
 
   const handlePaletteSelect = (ref: string) => {
     navigateToEntity(ref);
@@ -376,7 +367,7 @@ function AppShell() {
         </div>
 
         <div className="px-3 pt-1 pb-1 font-mono text-[12px] uppercase tracking-wide text-text-faint">
-          工作区
+          {t("shell.nav.workspace")}
         </div>
         <nav className="flex gap-1 overflow-x-auto px-2 pb-1 md:flex-col md:gap-0.5 md:overflow-visible md:pb-0">
           {WORKSPACE_NAV.map((item) => (
@@ -385,14 +376,14 @@ function AppShell() {
               active={view === item.id && !selected}
               onClick={() => goto(item.id)}
               icon={item.icon}
-              label={item.label}
+              label={navLabel(item.id)}
               badge={item.id === "decisions" ? inboxCount : undefined}
             />
           ))}
         </nav>
 
         <div className="px-3 pt-3 pb-1 font-mono text-[12px] uppercase tracking-wide text-text-faint">
-          管理
+          {t("shell.nav.manage")}
         </div>
         <nav className="flex gap-1 overflow-x-auto px-2 pb-2 md:flex-col md:gap-0.5 md:overflow-visible md:pb-0">
           {MANAGE_NAV.map((item) => (
@@ -401,7 +392,7 @@ function AppShell() {
               active={view === item.id && !selected}
               onClick={() => goto(item.id)}
               icon={item.icon}
-              label={item.label}
+              label={navLabel(item.id)}
             />
           ))}
         </nav>
@@ -426,6 +417,12 @@ function AppShell() {
       </aside>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <NavigationHistoryBar
+          canBack={canBack}
+          canForward={canForward}
+          onBack={back}
+          onForward={forward}
+        />
         <div key={projectId} className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {selected ? (
@@ -434,10 +431,10 @@ function AppShell() {
                 tasks={tasks}
                 relations={relations}
                 decisions={decisions}
-                onBack={() => setSelectedId(null)}
-                onSelect={setSelectedId}
+                onBack={() => updateLocation({ selectedId: null })}
+                onSelect={(id) => updateLocation({ selectedId: id })}
                 projectName={project.name}
-                fromViewLabel={VIEW_LABEL[view]}
+                fromViewLabel={navLabel(view)}
                 onNavigateDecision={navigateToDecision}
                 onNavigateEntity={navigateToEntity}
                 mutationFeedback={taskActions.feedback.get(selected.taskId)}
@@ -486,7 +483,9 @@ function AppShell() {
                 coverageRows={coverageRows}
                 factAnchors={factAnchors}
                 onNavigateEntity={navigateToEntity}
-                onFocusEntityChange={setFocusedEntityRef}
+                onFocusEntityChange={(ref) =>
+                  ref === null ? updateLocation({ focusedEntityRef: null }) : navigate({ focusedEntityRef: ref })
+                }
               />
             ) : view === "factTriage" ? (
               <FactTriageView
@@ -551,7 +550,7 @@ function AppShell() {
             ) : view === "presets" ? (
               <PresetsView repoId={projectId} />
             ) : view === "adapters" ? (
-              <AdaptersView repoId={projectId} />
+              <AdaptersView repoId={projectId} tasks={projectTasks} />
             ) : view === "agents" ? (
               <RuntimeWorkspace repoId={projectId} tasks={projectTasks.map(({ taskId, title }) => ({ taskId, title }))} />
             ) : view === "system" ? (
@@ -566,7 +565,7 @@ function AppShell() {
         task={previewTask}
         tasks={projectTasks}
         relations={relations}
-        onClose={() => setPreviewId(null)}
+        onClose={() => updateLocation({ previewId: null })}
         onOpenDetail={openTaskDetail}
         onPreviewTask={openTaskPreview}
       />

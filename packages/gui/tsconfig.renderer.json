@@ -23,6 +23,7 @@
   "include": [
     "src/renderer/**/*.ts",
     "src/renderer/**/*.tsx",
+    "src/renderer/**/*.json",
     "src/api/renderer-dto.ts"
   ],
   "exclude": [

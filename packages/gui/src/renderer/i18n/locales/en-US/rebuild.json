@@ -1,0 +1,22 @@
+{
+  "shell.nav.home": "Projects",
+  "shell.nav.overview": "Overview",
+  "shell.nav.board": "Board",
+  "shell.nav.decisions": "Decisions",
+  "shell.nav.decisionPool": "Decision Pool",
+  "shell.nav.factTriage": "Fact Triage",
+  "shell.nav.executionEvidence": "Execution Evidence",
+  "shell.nav.graph": "Relation Graph",
+  "shell.nav.presets": "Preset / Vertical",
+  "shell.nav.adapters": "Engine Adapters",
+  "shell.nav.agents": "Agent Sessions",
+  "shell.nav.system": "System",
+  "shell.nav.settings": "Settings",
+  "shell.nav.workspace": "Workspace",
+  "shell.nav.manage": "Manage",
+  "navHistory.back": "Back (Cmd+[ / mouse side button)",
+  "navHistory.forward": "Forward (Cmd+] / mouse side button)",
+  "settings.language": "Interface language",
+  "settings.languageDesc": "zh-CN / en-US; some views are bilingual, the rest stay in Chinese for now",
+  "settings.title": "Settings"
+}
