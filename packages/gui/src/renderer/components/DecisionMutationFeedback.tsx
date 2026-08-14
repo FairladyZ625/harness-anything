@@ -8,9 +8,9 @@ export function DecisionMutationFeedback({ feedback, onCheckReceipt }: { feedbac
       <div>{feedback.state} · {feedback.kind} · opId: {feedback.opId}</div>
       {(feedback.code || feedback.origin) && <div>code: {feedback.code ?? "—"} · origin: {feedback.origin ?? "—"}</div>}
       <div className="font-sans">{feedback.hint}</div>
-      {feedback.state === "pending" && feedback.opId !== "awaiting-receipt" && onCheckReceipt && <button onClick={onCheckReceipt} className="mt-1 rounded border border-current px-2 py-1 font-sans text-[10px]">receipt-show（不重放 mutation）</button>}
+      {feedback.state === "pending" && feedback.opId !== "awaiting-receipt" && onCheckReceipt && <button onClick={onCheckReceipt} className="mt-1 rounded-md border border-current px-2 py-1 font-sans text-[11px] transition-colors duration-100 hover:bg-surface-raised/60">receipt-show（不重放 mutation）</button>}
       {feedback.receipt && (
-        <div className="mt-1 break-all text-[10px] opacity-80">
+        <div className="mt-1 break-all text-[11px] opacity-80">
           consentId: {feedback.receipt.consentId ?? "proposal/N/A"} · path: {feedback.receipt.path ?? "—"}<br />
           commitSha: {feedback.receipt.commitSha ?? "—"} · documentSha256: {feedback.receipt.documentSha256 ?? "—"} · worktreeVisible: {String(feedback.receipt.worktreeVisible ?? false)}
         </div>

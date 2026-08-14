@@ -95,7 +95,7 @@ export function CommandPalette({
   return (
     <div
       data-testid="command-palette"
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-[12vh]"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[12vh] backdrop-blur-[2px]"
       onClick={onClose}
     >
       <div
@@ -112,7 +112,7 @@ export function CommandPalette({
             placeholder="搜索 task / decision / fact,回车跳转…"
             className="flex-1 bg-transparent text-sm text-text outline-none placeholder:text-text-faint"
           />
-          <kbd className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-text-faint">
+          <kbd className="rounded border border-border px-1.5 py-0.5 font-mono text-[11px] text-text-faint">
             ESC
           </kbd>
         </div>
@@ -135,7 +135,7 @@ export function CommandPalette({
                 }`}
               >
                 <span
-                  className="rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase"
+                  className="rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold uppercase"
                   style={{
                     color:
                       entry.entity === "task"
@@ -157,7 +157,7 @@ export function CommandPalette({
                   {entry.label}
                 </span>
                 {entry.sub && (
-                  <span className="shrink-0 font-mono text-[10px] text-text-faint">
+                  <span className="shrink-0 font-mono text-[11px] text-text-faint">
                     {entry.sub}
                   </span>
                 )}

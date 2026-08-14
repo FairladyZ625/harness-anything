@@ -88,8 +88,8 @@ function LaneCard({
         {task.title}
       </p>
       <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
-        {task.coordinationStatus === "blocked" && task.canonicalStatus && <span className="font-mono text-[10px] text-status-blocked">canonical {task.canonicalStatus}</span>}
-        {task.blocking === "unknown" && <span className="text-[10px] text-stale">阻塞关系未能确定</span>}
+        {task.coordinationStatus === "blocked" && task.canonicalStatus && <span className="font-mono text-[11px] text-status-blocked">canonical {task.canonicalStatus}</span>}
+        {task.blocking === "unknown" && <span className="text-[11px] text-stale">阻塞关系未能确定</span>}
         {spawningDecision && <DecisionSourceBadge decisionId={spawningDecision} compact />}
         <CloseoutBadge value={task.closeoutReadiness} />
         <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />

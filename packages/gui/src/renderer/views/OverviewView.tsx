@@ -211,7 +211,7 @@ export function OverviewView({
                   <span style={{ color: STATUS_META[status].color }}>{STATUS_META[status].icon}</span>
                   <span className="text-[13px] font-semibold text-text">{STATUS_META[status].label}</span>
                 </div>
-                <div className="mt-1 font-mono text-[22px] font-semibold">{countStatus(status)}</div>
+                <div className="mt-1 font-mono text-[22px] font-semibold tabular-nums" style={{ color: STATUS_META[status].color }}>{countStatus(status)}</div>
               </button>
             ))}
           </div>
@@ -312,7 +312,7 @@ export function OverviewView({
                             <button
                               onClick={() => onDrill(key, status, dimension)}
                               title={`${label} · ${STATUS_META[status].label} · ${count}`}
-                              className="w-full rounded px-1 py-1 font-mono text-[12px] hover:bg-surface-raised"
+                              className="w-full rounded px-1 py-1 font-mono text-[12px] tabular-nums transition-colors duration-100 hover:bg-surface-raised hover:text-text"
                             >
                               {count}
                             </button>

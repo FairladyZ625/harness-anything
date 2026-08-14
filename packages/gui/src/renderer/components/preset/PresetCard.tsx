@@ -44,7 +44,7 @@ export function PresetCard({
           {entry.name}
         </span>
         <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-          <span className="shrink-0 rounded border border-accent/60 px-1.5 py-px font-mono text-[10px] text-accent">
+          <span className="shrink-0 rounded border border-accent/60 px-1.5 py-px font-mono text-[11px] text-accent">
             {entry.vertical}
           </span>
           <span className="shrink-0 font-mono text-[11px] text-text-faint">
@@ -52,12 +52,12 @@ export function PresetCard({
           </span>
           {entry.profile && <span className={`shrink-0 ${CHIP}`}>profile: {entry.profile}</span>}
           {active && (
-            <span className="shrink-0 rounded bg-accent px-1.5 py-px text-[10px] text-accent-fg">
+            <span className="shrink-0 rounded bg-accent px-1.5 py-px text-[11px] text-accent-fg">
               激活中
             </span>
           )}
           {entry.overriddenBy && (
-            <span className="shrink-0 rounded border border-stale/60 px-1.5 py-px font-mono text-[10px] text-stale">
+            <span className="shrink-0 rounded border border-stale/60 px-1.5 py-px font-mono text-[11px] text-stale">
               被 {entry.overriddenBy} 覆盖
             </span>
           )}
@@ -82,7 +82,7 @@ export function PresetCard({
                   {i > 0 && <ArrowRight className="text-[11px] text-text-faint" />}
                   <button
                     onClick={() => onJump(p.id)}
-                    className={`rounded border px-1.5 py-px font-mono text-[10px] ${
+                    className={`rounded border px-1.5 py-px font-mono text-[11px] ${
                       p.id === entry.id
                         ? "border-accent bg-accent/10 text-accent"
                         : "border-border text-text-muted hover:bg-surface-raised hover:text-text"
@@ -92,7 +92,7 @@ export function PresetCard({
                   </button>
                 </span>
               ))}
-              <span className="ml-1 text-[10px] text-text-faint">单父链 · 冲突 fail closed</span>
+              <span className="ml-1 text-[11px] text-text-faint">单父链 · 冲突 fail closed</span>
             </div>
           </div>
 
@@ -115,7 +115,7 @@ export function PresetCard({
               <div className="mt-1.5 overflow-x-auto">
                 <table className="min-w-[620px] text-left text-[11px]">
                   <thead>
-                    <tr className="text-[10px] text-text-faint">
+                    <tr className="text-[11px] text-text-faint">
                       <th className="py-0.5 pr-2 font-normal">slot</th>
                       <th className="py-0.5 pr-2 font-normal">template</th>
                       <th className="py-0.5 pr-2 font-normal">物化为</th>

@@ -136,14 +136,14 @@ export function FactTriageView({
               <button
                 key={kind}
                 onClick={() => toggleSignal(kind)}
-                className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 font-mono text-[11px] transition-opacity ${
-                  active ? visual.cls : "border-border bg-surface text-text-faint opacity-50"
+                className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 font-mono text-[11px] transition-[opacity,border-color,color] duration-100 ${
+                  active ? visual.cls : "border-border bg-surface text-text-faint opacity-50 hover:opacity-80"
                 }`}
                 title={active ? "点击隐藏此类信号" : "点击显示此类信号"}
               >
                 <Icon weight="bold" className="text-[11px]" />
                 {SIGNAL_LABEL[kind]}
-                <span className="ml-0.5 rounded bg-surface px-1 text-[10px]">{count}</span>
+                <span className="ml-0.5 rounded bg-surface px-1 text-[11px]">{count}</span>
               </button>
             );
           })}
@@ -264,7 +264,7 @@ function FactTriageCard({
                 </span>
               );
             })}
-            <span className="font-mono text-[10px] text-text-faint">
+            <span className="font-mono text-[11px] text-text-faint">
               severity {severity}
             </span>
           </div>

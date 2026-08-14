@@ -151,11 +151,11 @@ export function TaskDetailView({
             <button onClick={onBack} className="truncate hover:text-text-muted">
               {projectName}
             </button>
-            <CaretRight weight="bold" className="shrink-0 text-[10px]" />
+            <CaretRight weight="bold" className="shrink-0 text-[11px]" />
             <button onClick={onBack} className="truncate hover:text-text-muted">
               {fromViewLabel}
             </button>
-            <CaretRight weight="bold" className="shrink-0 text-[10px]" />
+            <CaretRight weight="bold" className="shrink-0 text-[11px]" />
             <span className="shrink-0 text-text-muted">{task.taskId}</span>
           </div>
           <h1 className="ui-title truncate font-semibold leading-6 text-text">
@@ -181,10 +181,10 @@ export function TaskDetailView({
               return (
                 <div key={g} className="mb-3">
                   <div className="flex items-center justify-between px-1 pb-1">
-                    <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+                    <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
                       {g}
                     </span>
-                    <span className="font-mono text-[10px] text-text-faint">
+                    <span className="font-mono text-[11px] text-text-faint">
                       {presentCount}/{groupDocs.length}
                     </span>
                   </div>
@@ -201,13 +201,13 @@ export function TaskDetailView({
                       <DocPresence doc={d} />
                       <span className="min-w-0 truncate">{d.title}</span>
                       {d.required && (
-                        <span className="shrink-0 rounded border border-border px-1 text-[9px] text-text-faint">
+                        <span className="shrink-0 rounded border border-border px-1 text-[11px] leading-[1.5] text-text-faint">
                           必需
                         </span>
                       )}
                       {d.presence === "missing" && d.required && (
                         <span
-                          className="shrink-0 text-[10px]"
+                          className="shrink-0 text-[11px]"
                           style={{ color: "var(--color-danger)" }}
                         >
                           缺失
@@ -230,16 +230,16 @@ export function TaskDetailView({
               </span>
               <CaretRight
                 weight="bold"
-                className="self-center text-[9px] text-text-faint"
+                className="self-center text-[11px] text-text-faint"
               />
               <span className="text-[12px] text-text-muted">{doc?.group ?? "—"}</span>
               <CaretRight
                 weight="bold"
-                className="self-center text-[9px] text-text-faint"
+                className="self-center text-[11px] text-text-faint"
               />
               <span className="text-[13px] font-semibold text-text">{doc?.title ?? "无文档"}</span>
               {doc && (
-                <span className="ml-2 font-mono text-[10px] text-text-faint">
+                <span className="ml-2 font-mono text-[11px] text-text-faint">
                   {doc.path}
                 </span>
               )}
@@ -278,11 +278,11 @@ export function TaskDetailView({
               <span className="w-full font-mono text-[11px] text-text-muted">parent/root: {task.parentTaskId ?? "root"} / {task.rootTaskId ?? task.taskId}</span>
               <span className="w-full font-mono text-[11px] text-text-muted">origin/engine: {task.origin ?? "unknown"} / {task.engine}</span>
               {task.placementWarning && <span className="w-full text-[11px] text-stale">{task.placementWarning}</span>}
-              {task.placementProvenance?.map((entry) => <span key={`${entry.kind}:${entry.ref}`} className="w-full truncate font-mono text-[10px] text-text-faint">{entry.kind}: {entry.ref}</span>)}
+              {task.placementProvenance?.map((entry) => <span key={`${entry.kind}:${entry.ref}`} className="w-full truncate font-mono text-[11px] text-text-faint">{entry.kind}: {entry.ref}</span>)}
             </AxisRow>
 
             <div className="flex flex-col gap-1.5">
-              <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+              <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
                 阶段
               </span>
               <PhaseSteps status={task.canonicalStatus ?? "unknown"} />
@@ -292,7 +292,7 @@ export function TaskDetailView({
 
             {spawningDecision && (
               <div className="flex flex-col gap-1.5 rounded-md border border-accent/20 bg-accent/5 px-2.5 py-2">
-                <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+                <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
                   Decision 上游
                 </span>
                 <DecisionSourceBadge
@@ -311,7 +311,7 @@ export function TaskDetailView({
             <hr className="border-border" />
 
             <div className="flex flex-col gap-1.5">
-              <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+              <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
                 Gates
               </span>
               {task.gates.length === 0 ? (
@@ -342,17 +342,17 @@ export function TaskDetailView({
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+              <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
                 关系
               </span>
-              <span className="text-[10px] text-text-faint">只读 · 请在 canonical relation 来源处理</span>
+              <span className="text-[11px] text-text-faint">只读 · 请在 canonical relation 来源处理</span>
               {outEdges.length === 0 && inEdges.length === 0 ? (
                 <span className="text-[11px] text-text-faint">无关联任务</span>
               ) : (
                 <>
                   {outEdges.length > 0 && (
                     <div className="flex flex-col gap-1">
-                      <span className="text-[10px] text-text-faint">出边</span>
+                      <span className="text-[11px] text-text-faint">出边</span>
                       {outEdges.map((r, i) => (
                         <RelationRow
                           key={`out-${r.kind}-${r.to}-${i}`}
@@ -368,7 +368,7 @@ export function TaskDetailView({
                   )}
                   {inEdges.length > 0 && (
                     <div className="flex flex-col gap-1">
-                      <span className="text-[10px] text-text-faint">入边</span>
+                      <span className="text-[11px] text-text-faint">入边</span>
                       {inEdges.map((r, i) => (
                         <RelationRow
                           key={`in-${r.kind}-${r.from}-${i}`}

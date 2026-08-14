@@ -54,7 +54,7 @@ function ProjectCard({
   return (
     <button
       onClick={() => onOpen(project.id)}
-      className={`flex flex-col gap-2 rounded-lg border bg-surface p-3 text-left hover:bg-surface-raised/40 ${
+      className={`flex flex-col gap-2 rounded-lg border bg-surface p-3 text-left transition-colors duration-100 hover:bg-surface-raised/40 ${
         current ? "border-border-strong" : "border-border hover:border-border-strong"
       }`}
     >
@@ -63,7 +63,7 @@ function ProjectCard({
           {project.name}
         </span>
         {current && (
-          <span className="shrink-0 rounded border border-border px-1 font-mono text-[10px] text-text-faint">
+          <span className="shrink-0 rounded border border-border px-1 font-mono text-[11px] text-text-faint">
             当前
           </span>
         )}
@@ -108,7 +108,7 @@ function ProjectCard({
           {tasks.length} 任务
         </span>
       </div>
-      <div className="flex items-center justify-between font-mono text-[10px] text-text-faint">
+      <div className="flex items-center justify-between font-mono text-[11px] text-text-faint">
         <span>活动 {lastActivity ? dateTime(lastActivity) : "—"}</span>
         <span>投影 {dateTime(project.watermarkAt)}</span>
       </div>
@@ -138,7 +138,7 @@ export function HomeView({
             {projects.length}
           </span>
         </div>
-        <p className="mt-0.5 text-[11px] text-text-faint">
+        <p className="mt-0.5 text-[12px] text-text-faint">
           各项目独立统计、并排展示，不做合并完成率。
         </p>
       </header>
@@ -165,7 +165,7 @@ export function HomeView({
       </div>
 
       <div className="px-4 pb-4">
-        <div className="pb-1.5 font-mono text-[10px] uppercase tracking-wide text-text-faint">
+        <div className="pb-1.5 font-mono text-[11px] uppercase tracking-wide text-text-faint">
           远程项目
         </div>
         <div className="flex items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3">

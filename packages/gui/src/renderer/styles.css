@@ -20,25 +20,25 @@
   --color-border: oklch(0.35 0.01 285);
   --color-border-strong: oklch(0.45 0.012 285);
   --color-text: oklch(0.94 0.004 285);
-  --color-text-muted: oklch(0.74 0.01 285);
-  --color-text-faint: oklch(0.62 0.012 285);
+  --color-text-muted: oklch(0.80 0.01 285);
+  --color-text-faint: oklch(0.72 0.01 285);
 
-  /* coordinationStatus 六色 + unknown，等亮度 OKLch */
-  --color-status-planned: oklch(0.72 0.03 285);
-  --color-status-active: oklch(0.72 0.14 250);
-  --color-status-blocked: oklch(0.75 0.14 75);
-  --color-status-in-review: oklch(0.72 0.14 305);
-  --color-status-done: oklch(0.74 0.14 150);
-  --color-status-cancelled: oklch(0.55 0.01 285);
-  --color-status-unknown: oklch(0.70 0.12 25);
+  /* coordinationStatus 六色 + unknown，等亮度 OKLch（L≈0.78；cancelled 中性） */
+  --color-status-planned: oklch(0.78 0.03 285);
+  --color-status-active: oklch(0.78 0.14 250);
+  --color-status-blocked: oklch(0.78 0.14 75);
+  --color-status-in-review: oklch(0.78 0.14 305);
+  --color-status-done: oklch(0.78 0.14 150);
+  --color-status-cancelled: oklch(0.68 0.02 285);
+  --color-status-unknown: oklch(0.78 0.12 25);
 
   /* 唯一行动强调色：closeoutReadiness=ready 与主操作 */
   --color-accent: oklch(0.80 0.13 195);
   --color-accent-fg: oklch(0.18 0.02 195);
 
   /* freshness 通道 */
-  --color-stale: oklch(0.75 0.12 75);
-  --color-danger: oklch(0.65 0.18 25);
+  --color-stale: oklch(0.78 0.12 75);
+  --color-danger: oklch(0.72 0.17 25);
 
   /* 语义轴四色(REQ-GUI-04 三泳道/筛选):等亮度,两主题可辨 */
   --color-axis-authority: oklch(0.72 0.13 305);
@@ -46,7 +46,7 @@
   --color-axis-execution: oklch(0.72 0.13 250);
   --color-axis-assoc: oklch(0.62 0.01 285);
 
-  --color-success: oklch(0.74 0.14 150);
+  --color-success: oklch(0.78 0.13 150);
 }
 
 /*
@@ -61,7 +61,7 @@ html[data-theme="light"] {
   --color-border-strong: oklch(0.81 0.006 285);
   --color-text: oklch(0.23 0.006 285);
   --color-text-muted: oklch(0.46 0.008 285);
-  --color-text-faint: oklch(0.61 0.008 285);
+  --color-text-faint: oklch(0.52 0.008 285);
 
   --color-status-planned: oklch(0.52 0.03 285);
   --color-status-active: oklch(0.54 0.16 250);
@@ -91,44 +91,66 @@ body {
   color: var(--color-text);
   font-family: var(--font-sans);
   font-size: var(--ui-font-body);
+  color-scheme: dark;
 }
 
+html[data-theme="light"] {
+  color-scheme: light;
+}
+
+/*
+ * 字阶 token（CJK 底线：中文 ≥12px；micro 仅 mono id）
+ * micro:11 / meta:12 / body:14 / title:16 / heading:20 / prose:15
+ */
 html {
-  --ui-font-meta: 13px;
-  --ui-font-body: 15px;
-  --ui-font-title: 18px;
+  --ui-font-micro: 11px;
+  --ui-font-meta: 12px;
+  --ui-font-body: 14px;
+  --ui-font-title: 16px;
   --ui-font-heading: 20px;
+  --ui-font-prose: 15px;
 }
 
 html[data-ui-scale="compact"] {
+  --ui-font-micro: 11px;
   --ui-font-meta: 12px;
-  --ui-font-body: 14px;
-  --ui-font-title: 17px;
+  --ui-font-body: 13px;
+  --ui-font-title: 15px;
   --ui-font-heading: 18px;
+  --ui-font-prose: 14px;
 }
 
 html[data-ui-scale="comfortable"] {
-  --ui-font-meta: 14px;
-  --ui-font-body: 16px;
-  --ui-font-title: 20px;
+  --ui-font-micro: 12px;
+  --ui-font-meta: 13px;
+  --ui-font-body: 15px;
+  --ui-font-title: 18px;
   --ui-font-heading: 22px;
+  --ui-font-prose: 16px;
 }
 
-.ui-meta {
-  font-size: var(--ui-font-meta);
-}
+.ui-micro { font-size: var(--ui-font-micro); }
+.ui-meta { font-size: var(--ui-font-meta); }
+.ui-body { font-size: var(--ui-font-body); }
+.ui-title { font-size: var(--ui-font-title); }
+.ui-heading { font-size: var(--ui-font-heading); }
+.ui-prose { font-size: var(--ui-font-prose); }
 
-.ui-body {
-  font-size: var(--ui-font-body);
+/* 全局交互反馈：键盘焦点 ring（accent），不占鼠标点击路径 */
+:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--color-accent) 70%, transparent);
+  outline-offset: 1px;
+  border-radius: 4px;
 }
+button:not(:disabled), [role="button"]:not(:disabled), summary { cursor: pointer; }
+button:disabled, [role="button"]:disabled { cursor: not-allowed; }
 
-.ui-title {
-  font-size: var(--ui-font-title);
-}
-
-.ui-heading {
-  font-size: var(--ui-font-heading);
-}
+/* 细滚动条：暗/亮主题各自贴合，避免 Windows 粗滚动条打断密度 */
+* { scrollbar-width: thin; scrollbar-color: var(--color-border-strong) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: 4px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--color-text-faint); }
+*::-webkit-scrollbar-track, *::-webkit-scrollbar-corner { background: transparent; }
 
 ::selection {
   background: oklch(0.45 0.08 250);
@@ -140,9 +162,10 @@ html[data-theme="light"] ::selection {
 
 /* 文档阅读区排版（react-markdown 输出） */
 .prose-harness {
-  font-size: var(--ui-font-body);
-  line-height: 1.7;
+  font-size: var(--ui-font-prose);
+  line-height: 1.75;
   color: var(--color-text);
+  max-width: 42rem;
 }
 .prose-harness h1 {
   font-size: var(--ui-font-heading);
@@ -157,12 +180,12 @@ html[data-theme="light"] ::selection {
 }
 .prose-harness p {
   margin: 0.6rem 0;
-  color: var(--color-text-muted);
+  color: var(--color-text);
 }
 .prose-harness ul {
   padding-left: 1.25rem;
   list-style: disc;
-  color: var(--color-text-muted);
+  color: var(--color-text);
 }
 .prose-harness li {
   margin: 0.25rem 0;

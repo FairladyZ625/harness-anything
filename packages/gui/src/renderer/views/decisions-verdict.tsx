@@ -60,7 +60,7 @@ function SignalLamp({ signal }: { signal: ReadinessSignal }) {
           : "bg-success";
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] ${colorCls}`}
+      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] ${colorCls}`}
       title={signal.summary}
     >
       <span className={`size-1.5 rounded-full ${dotCls} ${signal.color !== "green" ? "animate-pulse" : ""}`} />
@@ -116,7 +116,7 @@ function FactChip({
     >
       <span className="font-sans text-text-faint">⟶</span>
       {f.anchor}
-      {f.invalidated && <WarningCircle weight="bold" className="text-[10px]" />}
+      {f.invalidated && <WarningCircle weight="bold" className="text-[11px]" />}
       {rationale && (
         <span className="font-sans normal-case text-text-faint not-italic">({rationale})</span>
       )}
@@ -277,12 +277,12 @@ export function VerdictCard({
 
       {/* 决策就绪信号灯(41 §3.1a):四盏机械信号灯必显,灯名 + 判定摘要 hover */}
       <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-md border border-border bg-surface-raised/40 px-2.5 py-1.5">
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-text-faint">决策就绪</span>
+        <span className="font-mono text-[11px] font-semibold uppercase tracking-wide text-text-faint">决策就绪</span>
         {signals.map((s) => (
           <SignalLamp key={s.id} signal={s} />
         ))}
         {worst === "green" && (
-          <span className="ml-auto text-[10px] text-success">全绿 · 直接决策批准正当</span>
+          <span className="ml-auto text-[11px] text-success">全绿 · 直接决策批准正当</span>
         )}
       </div>
 
@@ -303,7 +303,7 @@ export function VerdictCard({
             {signals.filter((s) => s.color !== "green" && s.color !== "na").map((s) => (
               <li key={s.id} className="flex gap-1">
                 <span className={`shrink-0 ${s.color === "red" ? "text-danger" : "text-stale"}`}>●</span>
-                <span className="font-mono text-[10px]">{s.label}:</span>
+                <span className="font-mono text-[11px]">{s.label}:</span>
                 <span>{s.summary}</span>
               </li>
             ))}
@@ -406,7 +406,7 @@ export function VerdictCard({
           >
             <Robot weight="bold" className="text-[13px]" />
             呼叫 Agent 核查(推荐)
-            <span className="ml-1 text-[10px] font-normal opacity-70">agent 核查漂移/失效,经 CLI 代录决策</span>
+            <span className="ml-1 text-[11px] font-normal opacity-70">agent 核查漂移/失效,经 CLI 代录决策</span>
           </button>
         ) : (
           <button

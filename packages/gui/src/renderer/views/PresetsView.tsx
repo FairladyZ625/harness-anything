@@ -47,7 +47,7 @@ export function PresetsView({
             当前项目激活：{project.preset}
           </span>
         </div>
-        <p className="mt-0.5 text-[11px] text-text-faint">
+        <p className="mt-0.5 text-[12px] leading-relaxed text-text-faint">
           Vertical 声明场景槽位，Preset 声明式覆盖并从侧挂模板库选模板；激活的 preset
           决定 materialization 物化的文档骨架。
         </p>
@@ -91,10 +91,10 @@ export function PresetsView({
                 return (
                   <section key={source} className="flex flex-col gap-1.5">
                     <div className="flex items-baseline gap-2 px-0.5">
-                      <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+                      <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
                         {label}
                       </span>
-                      <span className="text-[10px] text-text-faint">{hint}</span>
+                      <span className="text-[11px] text-text-faint">{hint}</span>
                     </div>
                     {rows.map((p) => (
                       <PresetCard

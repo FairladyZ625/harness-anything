@@ -38,7 +38,7 @@ export function DecisionJudgmentPanel({ decision, relations, feedback, openReque
       <div className="flex gap-2">
         {(["accept", "reject", "defer"] as DecisionAction[]).map((item) => (
           <button key={item} onClick={() => { setAction(item); setError(null); }} disabled={pending}
-            className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-semibold disabled:opacity-50 ${item === "accept" ? "bg-accent text-accent-fg" : "border border-border text-text hover:bg-surface-raised"}`}>
+            className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-semibold transition-colors duration-100 disabled:opacity-50 ${item === "accept" ? "bg-accent text-accent-fg hover:bg-accent/85" : "border border-border text-text hover:border-border-strong hover:bg-surface-raised"}`}>
             {item === "accept" ? <CheckCircle weight="bold" /> : item === "reject" ? <ProhibitInset weight="bold" /> : <ClockClockwise weight="bold" />}
             {actionLabel[item]}
           </button>
@@ -48,18 +48,18 @@ export function DecisionJudgmentPanel({ decision, relations, feedback, openReque
         <div className="mt-2 rounded-md border border-border bg-surface-raised/50 p-2.5">
           <label className="block text-[11px] font-semibold text-text-muted">{actionLabel[action]} rationale · 1..199</label>
           <textarea value={rationale} onChange={(event) => setRationale(event.target.value)} rows={2} maxLength={199} disabled={pending}
-            className="mt-1 w-full rounded border border-border bg-surface p-2 text-[12px] text-text outline-none focus:border-accent" />
+            className="mt-1 w-full rounded-md border border-border bg-surface p-2 text-[12px] leading-relaxed text-text outline-none transition-colors duration-100 focus:border-accent" />
           {action === "accept" && !evidenceReachable && (
             <label className="mt-2 block text-[11px] font-semibold text-stale">
               judgment-only rationale · 1..199（当前无可达 active claim evidence）
               <textarea value={judgmentOnly} onChange={(event) => setJudgmentOnly(event.target.value)} rows={2} maxLength={199} disabled={pending}
-                className="mt-1 w-full rounded border border-stale/50 bg-surface p-2 text-[12px] text-text outline-none focus:border-stale" />
+                className="mt-1 w-full rounded-md border border-stale/50 bg-surface p-2 text-[12px] leading-relaxed text-text outline-none transition-colors duration-100 focus:border-stale" />
             </label>
           )}
           {error && <div className="mt-1 text-[11px] text-danger">{error}</div>}
           <div className="mt-2 flex justify-end gap-2">
-            <button onClick={() => setAction(null)} disabled={pending} className="rounded px-2 py-1 text-[11px] text-text-faint">取消</button>
-            <button onClick={submit} disabled={pending} className="rounded bg-accent px-3 py-1 text-[11px] font-semibold text-accent-fg disabled:opacity-50">确认 {actionLabel[action]}</button>
+            <button onClick={() => setAction(null)} disabled={pending} className="rounded-md px-2 py-1 text-[11px] text-text-faint transition-colors duration-100 hover:bg-surface-raised hover:text-text">取消</button>
+            <button onClick={submit} disabled={pending} className="rounded-md bg-accent px-3 py-1 text-[11px] font-semibold text-accent-fg transition-colors duration-100 hover:bg-accent/85 disabled:opacity-50">确认 {actionLabel[action]}</button>
           </div>
         </div>
       )}

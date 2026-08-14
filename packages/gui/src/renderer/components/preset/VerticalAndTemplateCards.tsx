@@ -24,7 +24,7 @@ export function VerticalCard({ v }: { v: VerticalInfo }) {
       </div>
       <table className="mt-2 w-full text-left text-[11px]">
         <thead>
-          <tr className="text-[10px] text-text-faint">
+          <tr className="text-[11px] text-text-faint">
             <th className="py-0.5 pr-2 font-normal">slot</th>
             <th className="py-0.5 font-normal">required</th>
           </tr>
@@ -35,16 +35,16 @@ export function VerticalCard({ v }: { v: VerticalInfo }) {
               <td className="py-1 pr-2 font-mono text-text">{s.slot}</td>
               <td className="py-1">
                 {s.required ? (
-                  <span className="font-mono text-[10px] text-accent">required</span>
+                  <span className="font-mono text-[11px] text-accent">required</span>
                 ) : (
-                  <span className="font-mono text-[10px] text-text-faint">optional</span>
+                  <span className="font-mono text-[11px] text-text-faint">optional</span>
                 )}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="mt-2 text-[10px] text-text-faint">
+      <p className="mt-2 text-[11px] text-text-faint">
         Vertical 不定义 statusMapping；新增 vertical 不得改 kernel entity
       </p>
     </div>

@@ -4,7 +4,7 @@ import type { DocEntry } from "../../model/types";
 export function AxisRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">{label}</span>
+      <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">{label}</span>
       <div className="flex flex-wrap items-center gap-1.5">{children}</div>
     </div>
   );
