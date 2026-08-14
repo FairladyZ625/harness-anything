@@ -182,6 +182,7 @@ export function readRelationGraphProjection(options: TaskProjectionOptions): {
   readonly edges: ReadonlyArray<RelationGraphEdgeRow>;
   readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
   readonly factAnchors: ReadonlyArray<FactAnchorRow>;
+  readonly taskRows: ProjectionReadResult["rows"];
   readonly warnings: ProjectionReadResult["warnings"];
 } {
   const rootDir = path.resolve(options.rootDir);
@@ -189,7 +190,7 @@ export function readRelationGraphProjection(options: TaskProjectionOptions): {
   const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
   const taskProjection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
   const graph = buildRelationGraphProjection(runtimeContext, readLifecycleRelationTruth(rootDir));
-  return { ...graph, warnings: taskProjection.warnings };
+  return { ...graph, taskRows: taskProjection.rows, warnings: taskProjection.warnings };
 }
 
 export function checkTaskProjection(options: TaskProjectionOptions): ProjectionCheckResult {

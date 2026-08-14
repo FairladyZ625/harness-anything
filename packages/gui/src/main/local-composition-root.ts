@@ -1,5 +1,5 @@
 import path from "node:path";
-import { daemonProtocolError, type DaemonGuiStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts"; import { parseDaemonGuiReadResponse } from "../../../daemon/src/protocol/gui-result-validation.ts";
+import { daemonProtocolError, isDaemonGuiActionMethod, type DaemonGuiStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts"; import { parseDaemonGuiActionResponse, parseDaemonGuiReadResponse } from "../../../daemon/src/protocol/gui-result-validation.ts";
 import { validateProjectPath } from "../api/local-api.ts";
 import { createGuiServiceBridgeForDaemon, type GuiServiceBridge, type ShippedGuiRoute } from "../api/service-bridge.ts";
 import { streamAgentRuntimeAt } from "./agent-runtime-stream-client.ts";
@@ -13,6 +13,6 @@ export function createLocalGuiServiceBridge(rootDir: string, _layoutOverrides?: 
 async function request(rootDir: string, route: ShippedGuiRoute, payload: unknown): Promise<JsonObject> { try {
   const daemon = await loadClient(), target = daemon.resolveLocalDaemonTarget({ rootDir, repoIdOverride: process.env.HARNESS_DAEMON_REPO_ID });
   const params = { repo: { repoId: target.repoId }, ...(route.inputSchemaId === "gui.empty/v1" ? {} : { payload: (payload ?? {}) as JsonObject }) };
-  return parseDaemonGuiReadResponse(route.rpcMethod, await daemon.requestLocalDaemonJsonRpcForTarget(target, route.rpcMethod, params, 200)) as unknown as JsonObject;
+  const result = await daemon.requestLocalDaemonJsonRpcForTarget(target, route.rpcMethod, params, 200); return (isDaemonGuiActionMethod(route.rpcMethod) ? parseDaemonGuiActionResponse(route.rpcMethod, result) : parseDaemonGuiReadResponse(route.rpcMethod, result)) as unknown as JsonObject;
 } catch (error) { return daemonProtocolError(route.rpcMethod, "daemon_unavailable", `Start the explicit daemon and retry. Cause: ${error instanceof Error ? error.message : String(error)}`) as unknown as JsonObject; } }
 async function loadClient(): Promise<DaemonClient> { client ??= import("../../../daemon/src/client/local-json-rpc-client.ts") as Promise<DaemonClient>; return client; }
