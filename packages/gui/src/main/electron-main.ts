@@ -4,6 +4,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import { createLocalGuiServiceBridge } from "./local-composition-root.ts";
+import { addLocalMainControls } from "./local-main-controls.ts";
+import { resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
 import { evaluateNavigationRequest, evaluatePermissionRequest, evaluateWindowOpenRequest } from "./security-policy.ts";
 import { assertDevRendererUrl, createGuiContentSecurityPolicy } from "./window-config.ts";
 
@@ -66,7 +68,8 @@ export async function startGuiApp(): Promise<void> {
   await app.whenReady();
   installContentSecurityPolicy();
   const trustedWebContentsIds = new Set<number>();
-  registerHarnessIpcHandlers(ipcMain, createLocalGuiServiceBridge(resolveGuiProjectRoot(), resolveGuiLayoutOverrides()), {
+  const rootDir = resolveGuiProjectRoot(), bridge = createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides()), controlled = addLocalMainControls({ bridge, target: async () => resolveLocalDaemonTarget({ rootDir, repoIdOverride: process.env.HARNESS_DAEMON_REPO_ID }), ...(app.isPackaged ? { packaged: { resourcesPath: process.resourcesPath } } : {}) });
+  registerHarnessIpcHandlers(ipcMain, controlled, {
     isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
     rendererUrl: {
       packagedRendererUrl: createLocalPackagedRendererUrl(),

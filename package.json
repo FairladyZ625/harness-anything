@@ -101,5 +101,8 @@
   },
   "overrides": {
     "esbuild": "0.28.1"
+  },
+  "allowScripts": {
+    "node-pty@1.1.0": true
   }
 }

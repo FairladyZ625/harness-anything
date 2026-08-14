@@ -90,10 +90,10 @@ async function prepareDaemonNodeModules() {
   rmSync(appNodeModulesDir, { recursive: true, force: true });
   mkdirSync(appNodeModulesDir, { recursive: true });
 
-  const dependencyPaths = execFileSync(npmExecutableName, ["ls", "--workspace", "@harness-anything/cli", "--omit=dev", "--parseable", "--all"], {
+  const dependencyPaths = [...new Set(["@harness-anything/cli", "@harness-anything/daemon"].flatMap((workspace) => execFileSync(npmExecutableName, ["ls", "--workspace", workspace, "--omit=dev", "--parseable", "--all"], {
     cwd: repoRoot,
     encoding: "utf8"
-  }).split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+  }).split(/\r?\n/u).map((line) => line.trim()).filter(Boolean)))];
 
   const nodeModulesRoot = join(repoRoot, "node_modules");
   for (const dependencyPath of dependencyPaths) {

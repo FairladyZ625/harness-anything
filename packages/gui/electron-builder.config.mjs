@@ -25,6 +25,8 @@ const config = {
     "packages/gui/dist/**/*",
     "packages/gui/dist-electron/**/*",
     "packages/daemon/src/**/*",
+    "packages/adapters/local/src/**/*",
+    "packages/adapters/multica/src/**/*",
     "packages/kernel/src/**/*",
     "packages/cli/package.json",
     "packages/cli/dist/**/*",
