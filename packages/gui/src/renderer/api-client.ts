@@ -1,6 +1,7 @@
 import type {
   DecisionProjectionRow,
   FactAnchorRow, FactProjectionRow,
+  GuiActionResult, GuiSubmissionV1,
   GuiBridgeMethod,
   ProjectionWarning,
   RelationCoverageRow,
@@ -45,7 +46,11 @@ export const harnessClient = {
   async getTasks(): Promise<TaskListSuccess> { return readTaskListResult(await invokeBridge("getTasks")); },
   async getTaskDocument(payload: { readonly taskId: string; readonly path: string }): Promise<TaskDocumentProjectionRead> { return readTaskDocumentResult(await invokeBridge("getTaskDocument", payload)); },
   async getRelationGraph(): Promise<RelationGraphSuccess> { return readRelationGraphResult(await invokeBridge("getRelationGraph")); },
-  async getDecisions(): Promise<DecisionListSuccess> { return readDecisionListResult(await invokeBridge("getDecisions")); }
+  async getDecisions(): Promise<DecisionListSuccess> { return readDecisionListResult(await invokeBridge("getDecisions")); },
+  async startTask(payload: { readonly taskId: string; readonly executionId: string }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("startTask", payload)); },
+  async appendTaskProgress(payload: { readonly taskId: string; readonly executionId?: string; readonly text: string; readonly evidence?: ReadonlyArray<{ readonly type: string; readonly path: string; readonly summary: string }>; readonly baseDocumentSha256?: string | null }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("appendTaskProgress", payload)); },
+  async submitTask(payload: { readonly taskId: string; readonly executionId: string; readonly submission: GuiSubmissionV1 }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("submitTask", payload)); },
+  async showReceipt(payload: { readonly opId: string }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("showReceipt", payload)); }
 };
 
 async function invokeBridge(method: GuiBridgeMethod, payload: object | null = null): Promise<unknown> { const bridge = window.harness;
@@ -95,6 +100,15 @@ function readDecisionListResult(value: unknown): DecisionListSuccess {
     decisions: result.decisions.filter(isDecisionProjectionRow),
     warnings: Array.isArray(result.warnings) ? result.warnings : []
   };
+}
+
+function readGuiActionResult(value: unknown): GuiActionResult {
+  const result = value as Partial<GuiActionResult>;
+  if (!result || result.schema !== "command-receipt/v2" || typeof result.ok !== "boolean" || typeof result.command !== "string"
+    || !["applied", "pending", "indeterminate", "rejected"].includes(String(result.outcome)) || typeof result.opId !== "string") {
+    throw new Error(localErrorHint(value, "GUI action bridge returned an invalid receipt."));
+  }
+  return result as GuiActionResult;
 }
 
 function isTaskSnapshotProjectionRow(value: unknown): value is TaskSnapshotProjectionRow {

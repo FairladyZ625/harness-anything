@@ -6,8 +6,9 @@ import {
   X,
   XCircle,
 } from "@phosphor-icons/react";
-import type { EventEntry, RelationEdge, TaskRow } from "../model/types";
+import type { RelationEdge, TaskRow } from "../model/types";
 import { isExternal } from "../model/types";
+import { normalizeTaskId } from "../model/triadic.ts";
 import {
   CloseoutBadge,
   EngineBadge,
@@ -38,7 +39,6 @@ export function TaskPreviewDrawer({
   task,
   tasks,
   relations,
-  events,
   onClose,
   onOpenDetail,
   onPreviewTask,
@@ -46,7 +46,6 @@ export function TaskPreviewDrawer({
   task: TaskRow | null;
   tasks: TaskRow[];
   relations: RelationEdge[];
-  events: EventEntry[];
   onClose: () => void;
   onOpenDetail: (id: string) => void;
   onPreviewTask: (id: string) => void;
@@ -63,15 +62,14 @@ export function TaskPreviewDrawer({
   if (!task) return null;
 
   const related = relations
-    .filter((edge) => edge.from === task.taskId || edge.to === task.taskId)
+    .filter((edge) => (edge.from.startsWith("task/") && normalizeTaskId(edge.from) === task.taskId) || (edge.to.startsWith("task/") && normalizeTaskId(edge.to) === task.taskId))
     .map((edge) => {
-      const otherId = edge.from === task.taskId ? edge.to : edge.from;
+      const otherRef = normalizeTaskId(edge.from) === task.taskId ? edge.to : edge.from, otherId = otherRef.startsWith("task/") ? normalizeTaskId(otherRef) : "";
       return { edge, task: tasks.find((candidate) => candidate.taskId === otherId) };
     })
     .filter((item) => item.task);
-  const missingDocs = task.docs.filter((doc) => doc.required && !doc.present);
-  const taskEvents = events
-    .filter((event) => event.taskId === task.taskId)
+  const missingDocs = task.docs.filter((doc) => doc.required && doc.presence !== "unknown" && !doc.present);
+  const taskEvents = (task.events ?? [])
     .sort((a, b) => b.at.localeCompare(a.at))
     .slice(0, 4);
 
@@ -107,6 +105,8 @@ export function TaskPreviewDrawer({
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <StatusBadge status={task.coordinationStatus} />
+            {task.coordinationStatus === "blocked" && task.canonicalStatus && <span className="font-mono text-[11px] text-status-blocked">canonical {task.canonicalStatus}</span>}
+            {task.blocking === "unknown" && <span className="text-[11px] text-stale">阻塞关系未能确定</span>}
             <CloseoutBadge value={task.closeoutReadiness} />
             <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
           </div>
@@ -129,7 +129,15 @@ export function TaskPreviewDrawer({
               </div>
               <div>
                 <dt className="font-mono text-[12px] text-text-faint">source</dt>
-                <dd className="font-mono text-text">{task.source}</dd>
+                <dd className="font-mono text-text">{task.origin ?? task.source}</dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[12px] text-text-faint">product lines</dt>
+                <dd className="font-mono text-text">{task.productLines?.join(", ") || "未投影"}</dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[12px] text-text-faint">parent / root</dt>
+                <dd className="font-mono text-text">{task.parentTaskId ?? "root"} / {task.rootTaskId ?? task.taskId}</dd>
               </div>
             </dl>
           </Section>
@@ -176,7 +184,9 @@ export function TaskPreviewDrawer({
           </Section>
 
           <Section title="收口材料">
-            {missingDocs.length === 0 ? (
+            {task.docs.length === 0 ? (
+              <p className="text-[14px] text-stale">文档清单未在预览投影；打开完整详情读取 task-contract。</p>
+            ) : missingDocs.length === 0 ? (
               <p className="text-[14px] text-text-muted">必需文档齐备。</p>
             ) : (
               <div className="space-y-1.5">

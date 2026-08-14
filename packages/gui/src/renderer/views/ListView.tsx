@@ -85,6 +85,8 @@ function AuditRow({
         <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-[12px] text-text-faint">
           <span>{task.module === "unassigned" || !task.module ? "未投影" : task.module}</span>
           <span>{task.rawStatus}</span>
+          {task.coordinationStatus === "blocked" && task.canonicalStatus && <span>canonical={task.canonicalStatus}</span>}
+          {task.blocking === "unknown" && <span className="text-stale">阻塞关系未能确定</span>}
           {spawningDecision && <DecisionSourceBadge decisionId={spawningDecision} compact />}
           {isExternal(task) && (
             <span className="inline-flex items-center gap-1">

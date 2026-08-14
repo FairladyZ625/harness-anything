@@ -63,6 +63,12 @@ describe("taskFilters status multi-select", () => {
     const chips = taskFilterSummary({ ...DEFAULT_TASK_FILTERS, status: ["active", "blocked"] });
     expect(chips).toContain("status=active|blocked");
   });
+
+  it("makes relation unknown and every projected module explicitly filterable", () => {
+    const task = makeTask({ coordinationStatus: "planned", canonicalStatus: "planned", blocking: "unknown", module: "multiple (gui, kernel)", moduleKeys: ["gui", "kernel"] });
+    expect(matchesTask(task, { ...DEFAULT_TASK_FILTERS, status: ["unknown"] })).toBe(true);
+    expect(matchesTask(task, { ...DEFAULT_TASK_FILTERS, module: "gui" })).toBe(true);
+  });
 });
 
 describe("taskFilters favoritesOnly", () => {

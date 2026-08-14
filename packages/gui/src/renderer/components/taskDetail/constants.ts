@@ -1,14 +1,5 @@
 import type { CanonicalStatus, RelationKind } from "../../model/types";
 
-export const LOCAL_TRANSITIONS: CanonicalStatus[] = [
-  "planned",
-  "active",
-  "blocked",
-  "in_review",
-  "done",
-  "cancelled",
-];
-
 export const STEP_FLOW: CanonicalStatus[] = ["planned", "active", "in_review", "done"];
 
 export const OUT_LABEL: Record<RelationKind, string> = {

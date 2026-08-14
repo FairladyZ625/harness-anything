@@ -66,6 +66,8 @@ export function matchesTask(
       task.taskId,
       task.title,
       task.module,
+      ...(task.moduleKeys ?? []),
+      ...(task.productLines ?? []),
       task.engine,
       task.rawStatus,
       task.coordinationStatus,
@@ -77,9 +79,9 @@ export function matchesTask(
     if (!haystack.includes(query)) return false;
   }
 
-  if (filters.module !== "all" && task.module !== filters.module) return false;
+  if (filters.module !== "all" && task.module !== filters.module && !task.moduleKeys?.includes(filters.module)) return false;
   if (filters.engine !== "all" && task.engine !== filters.engine) return false;
-  if (filters.status.length > 0 && !filters.status.includes(task.coordinationStatus))
+  if (filters.status.length > 0 && !filters.status.includes(task.coordinationStatus) && !(task.blocking === "unknown" && filters.status.includes("unknown")))
     return false;
   if (filters.closeout !== "all" && task.closeoutReadiness !== filters.closeout)
     return false;

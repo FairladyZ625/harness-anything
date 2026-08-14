@@ -16,20 +16,22 @@ import { makeTaskEventStore, type AgentRuntimeEventV1, type FrozenWritePlan } fr
 import { streamAgentRuntimeAt } from "../src/main/agent-runtime-stream-client.ts";
 
 test("GUI client reaches every shipped read through a real resident daemon", async () => {
-  const fixture = await startGuiResidentDaemonFixture({ task: { taskId: "task-gui-smoke", title: "Resident GUI task" }, beforeStop: async (endpoint: string, repoId: string) => { const started = await requestDaemonJsonRpcAt(endpoint, "repo.task.start", { repo: { repoId }, payload: { taskId: "task-gui-smoke", executionId: "execution-gui" } }, 1_000); assert.equal(started.ok, true, JSON.stringify(started)); }, beforeRestart: seedRuntime });
+  const fixture = await startGuiResidentDaemonFixture({ task: { taskId: "task-gui-smoke", title: "Resident GUI task" }, beforeRestart: seedRuntime });
   const previous = { userRoot: process.env.HARNESS_DAEMON_USER_ROOT, daemonId: process.env.HARNESS_DAEMON_ID,
     repoId: process.env.HARNESS_DAEMON_REPO_ID };
   Object.assign(process.env, fixture.env);
   try {
     writeTriadicLedger(fixture.rootDir);
+    const bridge = createLocalGuiServiceBridge(fixture.rootDir), executionId = "execution-gui-bridge";
+    const started = parseDaemonGuiActionResponse("repo.task.start", await bridge.invoke("startTask", { taskId: "task-gui-smoke", executionId }));
+    assert.equal(started.ok, true, JSON.stringify(started)); assert.equal(started.outcome, "applied");
     const documentBody = "# Canonical GUI document\n", documentPath = "tasks/task-gui-smoke-resident-gui-task/notes.md", authored = path.join(fixture.rootDir, "harness", documentPath);
     mkdirSync(path.dirname(authored), { recursive: true }); writeFileSync(authored, documentBody);
     const status = await requestDaemonJsonRpcAt(fixture.endpoint, "repo.task.run", { repo: { repoId: fixture.repoId },
       payload: { action: { kind: "doc-status", paths: [documentPath] } } }, 1_000);
     assert.equal(status.ok, true, JSON.stringify(status)); const synced = await requestDaemonJsonRpcAt(fixture.endpoint, "repo.task.run", { repo: { repoId: fixture.repoId }, payload: { action: { kind: "doc-submit",
-      executionId: "execution-gui", paths: [documentPath] } } }, 1_000);
+      executionId, paths: [documentPath] } } }, 1_000);
     assert.equal(synced.ok, true, JSON.stringify(synced)); writeFileSync(authored, "# Uncommitted filesystem edit\n");
-    const bridge = createLocalGuiServiceBridge(fixture.rootDir);
     const results = new Map<DaemonGuiReadMethod, unknown>();
     for (const contract of daemonGuiReadMethods) {
       const payload = contract.id === "tasks.document.read" ? { taskId: "task-gui-smoke", path: "notes.md" } : contract.id === "agentRuntime.sessions.read" ? { runtimeSessionId: "runtime-gui" } : contract.id === "agentRuntime.events.read" ? { runtimeSessionId: "runtime-gui", afterCursor: "lifecycle:0" } : null;
@@ -41,6 +43,8 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     const tasks = parseDaemonGuiReadResult("repo.tasks.list", results.get("repo.tasks.list"));
     assert.deepEqual(tasks.rows.map(({ taskId }) => taskId), ["task-gui-smoke"]);
     assert.equal(tasks.rows[0]?.snapshot.task?.title, "Resident GUI task");
+    assert.equal(tasks.rows[0]?.snapshot.task?.status, "active"); assert.equal(tasks.rows[0]?.snapshot.lease?.executionId, executionId);
+    assert.deepEqual(tasks.rows[0]?.placement.moduleKeys, ["gui"]); assert.equal(tasks.rows[0]?.placement.origin, "native");
     const graph = parseDaemonGuiReadResult("repo.triadic.relationGraph", results.get("repo.triadic.relationGraph"));
     assert.equal(graph.edges.length, 3); assert.equal(graph.factAnchors.length, 1); assert.equal(graph.facts.length, 1);
     assert.equal(graph.facts[0]?.statement, "The GUI renderer received event-backed triadic rows.");
@@ -49,6 +53,16 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     const controlled = parseDaemonGuiActionResponse("repo.decision.list", await bridge.invoke("listDecisions", {})); assert.equal(controlled.ok, true); assert.match(String(controlled.evidence), /dec_gui_smoke/u);
     const document = parseDaemonGuiReadResult("repo.tasks.document.read", results.get("repo.tasks.document.read"));
     assert.equal(document.body, documentBody); assert.equal(document.path, "notes.md"); assert.equal(document.status, "ready");
+    const progress = parseDaemonGuiActionResponse("repo.task.progress.append", await bridge.invoke("appendTaskProgress", { taskId: "task-gui-smoke", executionId, text: "Renderer sent typed progress.", evidence: [{ type: "test", path: "packages/gui/test/service-bridge.test.ts", summary: "resident daemon bridge" }], baseDocumentSha256: null }));
+    assert.equal(progress.ok, true, JSON.stringify(progress)); assert.equal(progress.outcome, "applied");
+    const commitSha = String(progress.commitSha); assert.match(commitSha, /^[0-9a-f]{40}$/u);
+    const submitted = parseDaemonGuiActionResponse("repo.task.submit", await bridge.invoke("submitTask", { taskId: "task-gui-smoke", executionId, submission: {
+      completionClaim: "GUI task mutation bridge is exercised.", deliverables: ["Task action bridge"], outputs: ["packages/gui/test/service-bridge.test.ts"],
+      verificationNotes: ["resident daemon"], knownGaps: ["Electron E2E unverified"], residualRisks: ["manual desktop verification pending"], commitSha
+    } }));
+    assert.equal(submitted.ok, true, JSON.stringify(submitted)); assert.equal(submitted.outcome, "applied");
+    const afterSubmit = parseDaemonGuiReadResult("repo.tasks.list", await bridge.invoke("getTasks", null));
+    assert.equal(afterSubmit.rows[0]?.snapshot.task?.status, "in_review"); assert.equal(afterSubmit.rows[0]?.snapshot.lease, null);
   } finally {
     await fixture.stop();
     restoreEnv("HARNESS_DAEMON_USER_ROOT", previous.userRoot); restoreEnv("HARNESS_DAEMON_ID", previous.daemonId);

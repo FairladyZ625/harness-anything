@@ -16,7 +16,6 @@ import {
   type TaskFilters,
 } from "../model/taskFilters";
 
-const ENGINES: (EngineId | "all")[] = ["all", "local", "multica", "github", "linear"];
 const CLOSEOUTS: (CloseoutReadiness | "all")[] = [
   "all",
   "ready",
@@ -166,7 +165,8 @@ export function TaskFilterBar({
   contextLabel: string;
   favorites?: ReadonlySet<string>;
 }) {
-  const modules = [...new Set(tasks.map((task) => task.module))].sort();
+  const modules = [...new Set(tasks.flatMap((task) => task.moduleKeys?.length ? task.moduleKeys : [task.module]))].sort();
+  const engines: (EngineId | "all")[] = ["all", ...new Set(tasks.map((task) => task.engine))];
   const chips = taskFilterSummary(filters);
   const active = hasActiveTaskFilters(filters);
   const favoriteCount = favorites ? tasks.filter((t) => favorites.has(t.taskId)).length : 0;
@@ -192,7 +192,7 @@ export function TaskFilterBar({
           values={["all", ...modules]}
           onChange={(module) => patch({ module })}
         />
-        <Select label="engine" value={filters.engine} values={ENGINES} onChange={(engine) => patch({ engine })} />
+        <Select label="engine" value={filters.engine} values={engines} onChange={(engine) => patch({ engine })} />
         <StatusMultiSelect
           selected={filters.status}
           onChange={(status) => patch({ status })}

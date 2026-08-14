@@ -9,13 +9,16 @@ export function normalizeTaskId(raw: string): string {
 }
 
 export function spawningDecisionOf(task: TaskRow, relations: RelationEdge[]): string | undefined {
-  const edge = relations.find(
+  const decisionIds = [...new Set(relations.filter(
     (relation) =>
       relation.kind === "derives" &&
+      relation.state === "active" &&
+      relation.direction === "directed" &&
       relation.from.startsWith("decision/") &&
       normalizeTaskId(relation.to) === task.taskId,
-  );
-  if (edge) return normalizeDecisionId(edge.from);
+  ).map((edge) => normalizeDecisionId(edge.from)))];
+  if (decisionIds.length === 1) return decisionIds[0];
+  if (decisionIds.length > 1) return undefined;
   return task.spawningDecision
     ? normalizeDecisionId(task.spawningDecision)
     : undefined;
@@ -27,7 +30,7 @@ export function derivedTasks(
   tasks: TaskRow[],
 ): TaskRow[] {
   const taskIds = relations
-    .filter((relation) => relation.from === `decision/${decision.decisionId}` && relation.kind === "derives")
+    .filter((relation) => relation.from === `decision/${decision.decisionId}` && relation.kind === "derives" && relation.state === "active" && relation.direction === "directed")
     .map((relation) => normalizeTaskId(relation.to));
   return tasks.filter((task) => taskIds.includes(task.taskId));
 }

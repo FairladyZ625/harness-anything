@@ -15,7 +15,8 @@ import { rendererCapabilityModel, rendererNavigation } from "../src/renderer/app
 import { GraphView } from "../src/renderer/views/GraphView.tsx";
 import { DecisionPoolView } from "../src/renderer/views/DecisionPoolView.tsx";
 import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
-import { taskDocumentQuery } from "../src/renderer/task-data.ts";
+import { parseTaskContractDocuments, taskDocumentQuery } from "../src/renderer/task-data.ts";
+import { isTaskStartable, settleTaskReceipt } from "../src/renderer/task-actions.ts";
 
 describe("renderer app model", () => {
   it("keeps the renderer capability model privilege-free", () => {
@@ -143,6 +144,39 @@ describe("renderer app model", () => {
     });
   });
 
+  it("settles task writes only from durable canonical receipts and resolves pending by opId", async () => {
+    const showReceipt = vi.fn(async () => receipt({ outcome: "applied", opId: "op-pending" }));
+    const settled = await settleTaskReceipt(receipt({ outcome: "pending", opId: "op-pending", proof: {
+      committedRevision: 8, appliedCut: 7, durable: true, canonicalVisible: false, worktreeVisible: true
+    }, nextAction: "ha receipt show op-pending" }), showReceipt);
+
+    expect(showReceipt).toHaveBeenCalledOnce();
+    expect(showReceipt).toHaveBeenCalledWith({ opId: "op-pending" });
+    expect(settled).toMatchObject({ state: "applied", opId: "op-pending" });
+    expect(await settleTaskReceipt(receipt({ proof: {
+      committedRevision: 8, appliedCut: 8, durable: true, canonicalVisible: false, worktreeVisible: true
+    } }), showReceipt)).toMatchObject({ state: "pending", code: "canonical_not_visible" });
+  });
+
+  it("preserves raw rejection code, hint, and opId", async () => {
+    const settled = await settleTaskReceipt({
+      schema: "command-receipt/v2", ok: false, command: "task-submit", outcome: "rejected", opId: "op-rejected",
+      code: "invalid_submission", origin: "daemon", evidence: "rejection:invalid_submission", nextAction: "Fix the packet.",
+      error: { code: "invalid_submission", hint: "Completion claim is required." }
+    }, vi.fn());
+    expect(settled).toMatchObject({ state: "rejected", opId: "op-rejected", code: "invalid_submission", hint: "Completion claim is required." });
+  });
+
+  it("allows drag start only for native planned clear active packages", () => {
+    const planned: TaskRow = { taskId: "task-1", title: "One", projectId: "p", coordinationStatus: "planned", canonicalStatus: "planned",
+      blocking: "clear", rawStatus: "planned/implementation", freshness: "fresh", packageDisposition: "active", closeoutReadiness: "not_required",
+      engine: "kernel/task-lifecycle/v1", origin: "native", source: "local-document", module: "gui", lastKnownAt: "2026-08-14T00:00:00.000Z", gates: [], docs: [] };
+    expect(isTaskStartable(planned)).toBe(true);
+    expect(isTaskStartable({ ...planned, blocking: "blocked", coordinationStatus: "blocked" })).toBe(false);
+    expect(isTaskStartable({ ...planned, origin: "external" })).toBe(false);
+    expect(isTaskStartable({ ...planned, canonicalStatus: "active", coordinationStatus: "active" })).toBe(false);
+  });
+
   it("renders an explicit empty state when the triadic ledger has no entities", () => {
     const markup = renderToStaticMarkup(
       createElement(GraphView, { tasks: [], decisions: [], facts: [], relations: [] })
@@ -153,23 +187,53 @@ describe("renderer app model", () => {
   });
 
   it("renders the daemon L2 document body and status through the renderer query", async () => {
-    const getTaskDocument = vi.fn(async () => ({ ok: true, status: "ready", taskId: "task-1", path: "INDEX.md",
-      body: "# Canonical renderer document", blobSha256: null, watermark: 7, sourceRevision: 7 }));
+    const contract = JSON.stringify({ schema: "task-contract/v1", taskId: "task-1", documents: [
+      { slot: "task.index", path: "INDEX.md", owner: "machine", materializeAs: "INDEX.md", requiredAnchors: [], templateRef: null, contentSha256: null }
+    ] });
+    const getTaskDocument = vi.fn(async ({ path }: { path: string }) => ({ ok: true, status: "ready", taskId: "task-1", path,
+      body: path === "task-contract.json" ? contract : "# Canonical renderer document", blobSha256: "sha256:canonical", watermark: 7, sourceRevision: 7 }));
     vi.stubGlobal("window", { harness: { getTaskDocument } });
     const queryClient = new QueryClient();
     try {
+      await queryClient.fetchQuery(taskDocumentQuery("task-1", "task-contract.json"));
       await queryClient.fetchQuery(taskDocumentQuery("task-1", "INDEX.md"));
       const task: TaskRow = { taskId: "task-1", title: "One", projectId: "project-1", coordinationStatus: "active", rawStatus: "active",
         freshness: "fresh", packageDisposition: "active", closeoutReadiness: "not_required", engine: "local", source: "snapshot-cache",
-        module: "gui", lastKnownAt: "2026-08-13T00:00:00.000Z", gates: [], docs: [] };
+        module: "gui", packagePath: "tasks/task-1-one", lastKnownAt: "2026-08-13T00:00:00.000Z", gates: [], docs: [] };
       const markup = renderToStaticMarkup(createElement(QueryClientProvider, { client: queryClient }, createElement(TaskDetailView,
         { task, onBack: () => undefined, projectName: "Harness" })));
+      expect(getTaskDocument).toHaveBeenCalledWith({ taskId: "task-1", path: "task-contract.json" });
       expect(getTaskDocument).toHaveBeenCalledWith({ taskId: "task-1", path: "INDEX.md" });
       expect(markup).toContain("Canonical renderer document");
       expect(markup).toContain("L2 · ready");
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("parses canonical task-contract descriptors without inventing document presence", () => {
+    expect(parseTaskContractDocuments("task-1", JSON.stringify({ schema: "task-contract/v1", taskId: "task-1", documents: [
+      { slot: "task.plan", path: "task_plan.md", owner: "doc-sync", materializeAs: "task_plan.md", requiredAnchors: [], templateRef: "template://plan@1", contentSha256: "abc" },
+      { slot: "task.artifacts.keep", path: "artifacts/.gitkeep", owner: "doc-sync", materializeAs: "artifacts/.gitkeep", requiredAnchors: [], templateRef: null, contentSha256: "def" }
+    ] }))).toEqual([
+      expect.objectContaining({ path: "task_plan.md", group: "计划", required: true, presence: "unknown" }),
+      expect.objectContaining({ path: "artifacts/.gitkeep", group: "证据", required: false, presence: "unknown" })
+    ]);
+    expect(() => parseTaskContractDocuments("task-1", JSON.stringify({ schema: "task-contract/v1", taskId: "other", documents: [] }))).toThrow("task-contract");
+  });
+
+  it("renders explicit active lease forms and read-only blocking explanations", () => {
+    const active: TaskRow = { taskId: "task-active", title: "Active", projectId: "p", coordinationStatus: "active", canonicalStatus: "active", blocking: "clear",
+      blockingLabel: "当前投影无 active blocking relation", rawStatus: "active/implementation", freshness: "fresh", packageDisposition: "active", closeoutReadiness: "not_required",
+      engine: "kernel/task-lifecycle/v1", origin: "native", source: "local-document", module: "gui", lastKnownAt: "2026-08-14T00:00:00.000Z", activeExecutionId: "execution-gui-1", gates: [], docs: [] };
+    const activeMarkup = renderToStaticMarkup(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(TaskDetailView,
+      { task: active, onBack: () => undefined, projectName: "Harness" })));
+    expect(activeMarkup).toContain("追加 progress"); expect(activeMarkup).toContain("atomic SubmissionV1"); expect(activeMarkup).toContain("execution-gui-1");
+
+    const blockedMarkup = renderToStaticMarkup(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(TaskDetailView,
+      { task: { ...active, canonicalStatus: "planned", coordinationStatus: "blocked", blocking: "blocked", blockingLabel: "1 个 active blocking relation", activeExecutionId: undefined,
+        blockers: [{ relationId: "rel_1", kind: "blocks", sourceTaskId: "task-upstream", targetTaskId: "task-active", rationale: "wait" }] }, onBack: () => undefined, projectName: "Harness" })));
+    expect(blockedMarkup).toContain("Blocked 是 relation overlay"); expect(blockedMarkup).toContain("rel_1"); expect(blockedMarkup).not.toContain("解除");
   });
 
   it("keeps the selected decision card visible and focused under all filters", () => {
@@ -212,6 +276,14 @@ function taskRow(overrides: Partial<TaskProjectionRow>): TaskProjectionRow {
     updatedAt: "2026-07-07T00:00:00.000Z",
     source: "local-document",
     sourcePath: "harness/tasks/task-default/INDEX.md",
+    ...overrides
+  };
+}
+
+function receipt(overrides: Record<string, unknown> = {}) {
+  return {
+    schema: "command-receipt/v2", ok: true, command: "task-start", outcome: "applied", opId: "op-applied", revision: 8,
+    evidence: "event-object:op-applied", visibility: "center", proof: { committedRevision: 8, appliedCut: 8, durable: true, canonicalVisible: true, worktreeVisible: true },
     ...overrides
   };
 }

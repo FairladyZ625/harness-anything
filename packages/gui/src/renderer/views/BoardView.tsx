@@ -12,7 +12,7 @@ import {
 } from "@dnd-kit/core";
 import { Lock, Archive, Star } from "@phosphor-icons/react";
 import type { TaskRow, SnapshotStatus, RelationEdge } from "../model/types";
-import { BOARD_COLUMNS, isExternal, isTerminal } from "../model/types";
+import { BOARD_COLUMNS, isExternal } from "../model/types";
 import {
   STATUS_META,
   CloseoutBadge,
@@ -27,12 +27,22 @@ import type { TaskFilters } from "../model/taskFilters";
 import { sortByFavoritesFirst } from "../model/taskFilters";
 import { spawningDecisionOf } from "../model/triadic";
 import { ListView } from "./ListView";
+import { isTaskStartable, type TaskMutationFeedback } from "../task-actions.ts";
 
 const ENGINE_HINT: Record<string, string> = {
   multica: "由 Multica 管理，去 Multica 改状态",
   github: "由 GitHub Issues 管理，去 GitHub 改状态",
   linear: "由 Linear 管理，去 Linear 改状态",
 };
+
+function taskControlHint(task: TaskRow): string {
+  if (isExternal(task)) return ENGINE_HINT[task.engine] ?? `由外部引擎 ${task.engine} 管理，GUI 只读`;
+  if (task.packageDisposition !== "active") return `${task.packageDisposition} package 只读`;
+  if (task.blocking === "blocked") return "Blocked 是 relation overlay，不可拖；关系在 canonical 来源处理";
+  if (task.canonicalStatus === "in_review") return "已进入 review；只能查看 canonical settlement";
+  if (task.canonicalStatus === "done") return "任务已完成，状态只读";
+  return task.canonicalStatus === "planned" ? "可拖到 Active 申请 execution lease" : "Active 状态请在详情追加 progress 或 request review";
+}
 
 function Card({
   task,
@@ -55,7 +65,7 @@ function Card({
   return (
     <div
       onClick={() => onSelect?.(task.taskId)}
-      title={external ? ENGINE_HINT[task.engine] : undefined}
+      title={taskControlHint(task)}
       className={`group relative cursor-pointer rounded-lg bg-surface-raised p-2.5 ${freshnessBorder(
         task.freshness,
       )} ${archived ? "opacity-50" : ""} ${dragging ? "shadow-lg" : "hover:border-border-strong"} ${isFavorite ? "ring-1 ring-accent/40" : ""}`}
@@ -88,6 +98,8 @@ function Card({
       </div>
       <p className="mt-1.5 text-[15px] leading-snug text-text">{task.title}</p>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {task.coordinationStatus === "blocked" && task.canonicalStatus && <span className="rounded border border-status-blocked/30 px-1 font-mono text-[10px] text-status-blocked">canonical {task.canonicalStatus}</span>}
+        {task.blocking === "unknown" && <span className="rounded border border-stale/30 px-1 text-[10px] text-stale">阻塞关系未能确定</span>}
         {spawningDecision && <DecisionSourceBadge decisionId={spawningDecision} compact />}
         <CloseoutBadge value={task.closeoutReadiness} />
         <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
@@ -109,8 +121,7 @@ function DraggableCard({
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
 }) {
-  // external 任务允许拿起、落下被拒，让护栏可感知；终态完全锁定
-  const draggable = !isTerminal(task.coordinationStatus);
+  const draggable = isTaskStartable(task);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.taskId,
     disabled: !draggable,
@@ -213,6 +224,8 @@ export function BoardView({
   onToggleFavorite,
   initialLayout,
   initialGroupBy,
+  onStartTask,
+  mutationFeedback,
 }: {
   tasks: TaskRow[];
   allTasks: TaskRow[];
@@ -225,6 +238,8 @@ export function BoardView({
   onToggleFavorite: (id: string) => void;
   initialLayout?: BoardLayout;
   initialGroupBy?: LaneGroupBy;
+  onStartTask?: (task: TaskRow) => Promise<unknown>;
+  mutationFeedback?: (taskId: string) => TaskMutationFeedback | undefined;
 }) {
   // coding preset 默认按 root 分组(milestone=root task)。drill 携带 groupBy 提示。
   const [layout, setLayout] = useState<BoardLayout>(
@@ -245,12 +260,18 @@ export function BoardView({
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
   const [activeTask, setActiveTask] = useState<TaskRow | null>(null);
+  const [dragMessage, setDragMessage] = useState<string | null>(null);
+  const [lastMutationTaskId, setLastMutationTaskId] = useState<string | null>(null);
 
   const onDragStart = (e: DragStartEvent) =>
     setActiveTask(tasks.find((t) => t.taskId === e.active.id) ?? null);
 
-  const onDragEnd = (_event: DragEndEvent) => {
+  const onDragEnd = (event: DragEndEvent) => {
+    const task = activeTask;
     setActiveTask(null);
+    if (!task) return;
+    if (event.over?.id !== "active") { setDragMessage("唯一允许的 transition 是 planned → active；Blocked 不是状态机节点。"); return; }
+    setDragMessage(null); setLastMutationTaskId(task.taskId); void onStartTask?.(task);
   };
 
   const seg = (active: boolean) =>
@@ -290,7 +311,7 @@ export function BoardView({
         </div>
         <span className="text-[12px] text-text-faint">
           {layout === "column"
-            ? "coordinationStatus 轴 · local 任务可拖拽"
+            ? "仅 native planned + blocking clear 可拖到 Active"
             : layout === "list"
               ? "审计面 · 支持 ID 复制与批量操作"
               : "拖拽改状态请在列模式 · 外部任务任何模式都只读"}
@@ -321,6 +342,9 @@ export function BoardView({
           </div>
         )}
       </header>
+      {(dragMessage || (lastMutationTaskId && mutationFeedback?.(lastMutationTaskId))) && <div className="border-b border-border px-4 py-2 text-[12px] text-text-muted" data-testid="board-mutation-feedback">
+        {dragMessage ?? (() => { const item = mutationFeedback?.(lastMutationTaskId!); return item ? `${item.kind} · ${item.state} · opId=${item.opId}${item.code ? ` · code=${item.code}` : ""} · ${item.hint}` : ""; })()}
+      </div>}
       <TaskFilterBar
         tasks={allTasks}
         filteredCount={tasks.length}

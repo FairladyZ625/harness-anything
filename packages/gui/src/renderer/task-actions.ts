@@ -1,0 +1,101 @@
+import { useQueryClient } from "@tanstack/react-query";
+import { useRef, useState } from "react";
+import type { GuiActionResult } from "../api/renderer-dto.ts";
+import type { GuiSubmissionV1 } from "../api/renderer-dto.ts";
+import { harnessClient, type TaskListSuccess } from "./api-client.ts";
+import type { TaskRow } from "./model/types.ts";
+import { taskQueryKeys } from "./task-data.ts";
+
+type ReceiptRecord = GuiActionResult & {
+  readonly revision?: number;
+  readonly code?: string;
+  readonly nextAction?: string;
+  readonly error?: { readonly code?: string; readonly hint?: string };
+  readonly proof?: {
+    readonly committedRevision?: number;
+    readonly appliedCut?: number;
+    readonly durable?: boolean;
+    readonly canonicalVisible?: boolean;
+    readonly worktreeVisible?: boolean | null;
+  };
+};
+
+export interface TaskSettlement {
+  readonly state: "applied" | "pending" | "rejected";
+  readonly opId: string;
+  readonly code?: string;
+  readonly hint?: string;
+  readonly revision?: number;
+  readonly receipt: GuiActionResult;
+}
+
+export async function settleTaskReceipt(
+  initial: GuiActionResult,
+  showReceipt: (payload: { readonly opId: string }) => Promise<GuiActionResult>
+): Promise<TaskSettlement> {
+  let receipt = initial as ReceiptRecord;
+  if ((receipt.outcome === "pending" || receipt.outcome === "indeterminate") && receipt.opId !== "N/A") {
+    receipt = await showReceipt({ opId: receipt.opId }) as ReceiptRecord;
+  }
+  const proof = receipt.proof;
+  if (receipt.outcome === "applied" && proof?.durable === true && proof.canonicalVisible === true
+    && proof.worktreeVisible === true && proof.committedRevision === proof.appliedCut) {
+    return { state: "applied", opId: receipt.opId, ...(Number.isInteger(receipt.revision) ? { revision: receipt.revision } : {}), receipt };
+  }
+  if (receipt.outcome === "pending" || receipt.outcome === "indeterminate" || receipt.outcome === "applied") {
+    return { state: "pending", opId: receipt.opId, code: receipt.outcome === "applied" ? "canonical_not_visible" : receipt.code ?? receipt.outcome,
+      hint: receipt.nextAction ?? "用 opId 查询 canonical receipt；不要重放 mutation。", ...(Number.isInteger(receipt.revision) ? { revision: receipt.revision } : {}), receipt };
+  }
+  return { state: "rejected", opId: receipt.opId, code: receipt.error?.code ?? receipt.code ?? "write_rejected",
+    hint: receipt.error?.hint ?? receipt.nextAction ?? "Inspect the canonical rejection.", receipt };
+}
+
+export function isTaskStartable(task: TaskRow): boolean {
+  return task.origin === "native" && task.packageDisposition === "active" && task.canonicalStatus === "planned" && task.blocking === "clear";
+}
+
+export function createGuiExecutionId(randomUUID: () => string = () => crypto.randomUUID()): string {
+  return `execution-gui-${randomUUID()}`;
+}
+
+export interface TaskMutationFeedback {
+  readonly state: "pending" | "success" | "error";
+  readonly kind: "start" | "progress" | "submit";
+  readonly opId: string;
+  readonly code?: string;
+  readonly hint: string;
+}
+
+export function useTaskActions() {
+  const queryClient = useQueryClient(), locks = useRef(new Map<string, Promise<TaskMutationFeedback>>()), [feedback, setFeedback] = useState<ReadonlyMap<string, TaskMutationFeedback>>(new Map());
+  const publish = (taskId: string, value: TaskMutationFeedback): TaskMutationFeedback => { setFeedback((current) => new Map(current).set(taskId, value)); return value; };
+  const reread = async (taskId: string, kind: TaskMutationFeedback["kind"], settlement: TaskSettlement, visible: (data: TaskListSuccess) => boolean): Promise<TaskMutationFeedback> => {
+    if (settlement.state !== "applied") return publish(taskId, { state: settlement.state === "rejected" ? "error" : "pending", kind, opId: settlement.opId, code: settlement.code, hint: settlement.hint ?? "canonical receipt 尚未 settled；不要重放 mutation。" });
+    const data = await queryClient.fetchQuery({ queryKey: taskQueryKeys.list(), queryFn: () => harnessClient.getTasks(), staleTime: 0 });
+    const revisionVisible = settlement.revision === undefined || data.watermark >= settlement.revision;
+    return revisionVisible && visible(data)
+      ? publish(taskId, { state: "success", kind, opId: settlement.opId, hint: "canonical projection 已重读并确认。" })
+      : publish(taskId, { state: "pending", kind, opId: settlement.opId, code: "projection_not_visible", hint: "receipt 已 applied，但 task projection 尚未显示目标 cut；用 opId 继续查询，勿重放 mutation。" });
+  };
+  const once = (key: string, taskId: string, run: () => Promise<TaskMutationFeedback>): Promise<TaskMutationFeedback> => {
+    const held = locks.current.get(key); if (held) return held;
+    const promise = run().then((result) => { if (result.state !== "pending") locks.current.delete(key); return result; }, (error) => { locks.current.delete(key); return publish(taskId, { state: "error", kind: key.split(":")[0] as TaskMutationFeedback["kind"], opId: "N/A", code: "bridge_error", hint: error instanceof Error ? error.message : String(error) }); });
+    locks.current.set(key, promise); return promise;
+  };
+  const startTask = (task: TaskRow): Promise<TaskMutationFeedback> => once(`start:${task.taskId}`, task.taskId, async () => {
+    const executionId = createGuiExecutionId(); publish(task.taskId, { state: "pending", kind: "start", opId: "awaiting-receipt", hint: `正在申请 lease · ${executionId}` });
+    const settlement = await settleTaskReceipt(await harnessClient.startTask({ taskId: task.taskId, executionId }), harnessClient.showReceipt);
+    return reread(task.taskId, "start", settlement, (data) => data.rows.some((row) => row.taskId === task.taskId && row.snapshot.task?.status === "active" && row.snapshot.lease?.executionId === executionId));
+  });
+  const appendProgress = (task: TaskRow, input: { readonly text: string; readonly evidence: ReadonlyArray<{ readonly type: string; readonly path: string; readonly summary: string }> }): Promise<TaskMutationFeedback> => once(`progress:${task.taskId}`, task.taskId, async () => {
+    publish(task.taskId, { state: "pending", kind: "progress", opId: "awaiting-receipt", hint: "正在追加 typed progress…" });
+    const settlement = await settleTaskReceipt(await harnessClient.appendTaskProgress({ taskId: task.taskId, executionId: task.activeExecutionId, ...input }), harnessClient.showReceipt);
+    return reread(task.taskId, "progress", settlement, (data) => data.rows.some((row) => row.taskId === task.taskId && row.snapshot.task?.status === "active" && row.snapshot.lease?.executionId === task.activeExecutionId));
+  });
+  const submitTask = (task: TaskRow, submission: GuiSubmissionV1): Promise<TaskMutationFeedback> => once(`submit:${task.taskId}`, task.taskId, async () => {
+    publish(task.taskId, { state: "pending", kind: "submit", opId: "awaiting-receipt", hint: "正在原子提交 SubmissionV1…" });
+    const settlement = await settleTaskReceipt(await harnessClient.submitTask({ taskId: task.taskId, executionId: task.activeExecutionId ?? "", submission }), harnessClient.showReceipt);
+    return reread(task.taskId, "submit", settlement, (data) => data.rows.some((row) => row.taskId === task.taskId && row.snapshot.task?.status === "in_review" && row.snapshot.lease === null));
+  });
+  return { feedback, startTask, appendProgress, submitTask };
+}

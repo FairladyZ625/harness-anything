@@ -11,6 +11,7 @@ export function AxisRow({ label, children }: { label: string; children: React.Re
 }
 
 export function DocPresence({ doc }: { doc: DocEntry }) {
+  if (doc.presence === "unknown") return <Circle weight="duotone" className="shrink-0 text-[13px] text-stale" />;
   if (doc.present) {
     return <CheckCircle weight="bold" className="shrink-0 text-[13px]" style={{ color: "var(--color-status-done)" }} />;
   }
