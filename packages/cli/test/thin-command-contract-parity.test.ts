@@ -15,14 +15,14 @@ const frozenMutations = Object.freeze([
   { commandId: "decision-show", inputName: "--include-body", facet: "boolean", argv: ["decision", "show", "dec_1", "--include-body"] }
 ] as const);
 
-test("all 44 public commands expose the canonical structured input facet", () => {
-  assert.equal(daemonProtocolCommands.length, 44);
+test("all 47 public commands expose the canonical structured input facet", () => {
+  assert.equal(daemonProtocolCommands.length, 47);
   for (const command of daemonProtocolCommands) {
     assert.equal(Object.hasOwn(command, "inputs"), true, `${command.id}: explicit inputs`);
     assert.deepEqual(deriveThinCliInputs(command), command.inputs, command.id);
     assert.equal(command.inputs.every((input) => input.name.startsWith("--") && Object.hasOwn(input, "required") && Object.hasOwn(input, "error")), true, command.id);
   }
-  for (const id of ["task-show", "receipt-show", "doc-materialize", "preset-uninstall", "preset-upgrade", "daemon-start", "daemon-status", "daemon-stop"]) assert.deepEqual(daemonProtocolCommands.find((command) => command.id === id)?.inputs, [], id);
+  for (const id of ["task-show", "receipt-show", "doc-materialize", "preset-upgrade", "daemon-start", "daemon-status", "daemon-stop"]) assert.deepEqual(daemonProtocolCommands.find((command) => command.id === id)?.inputs, [], id);
 });
 
 test("frozen public-parser mutations kill every canonical input facet", () => {

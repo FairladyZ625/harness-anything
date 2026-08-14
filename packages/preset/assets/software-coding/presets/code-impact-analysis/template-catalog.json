@@ -1,0 +1,64 @@
+{
+  "schema": "template-catalog/v2",
+  "package": {
+    "id": "preset-code-impact-analysis",
+    "title": "code-impact-analysis",
+    "version": "3.0.0",
+    "owner": "preset",
+    "locales": [
+      "zh-CN",
+      "en-US"
+    ]
+  },
+  "documents": [
+    {
+      "id": "analysis/code-impact",
+      "version": "1",
+      "documentKind": "code-impact-analysis",
+      "slot": "task.code.impact.analysis",
+      "materializeAs": "code-impact-analysis.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": [
+        "## Change Intent",
+        "## Affected Surfaces",
+        "## Dependency Paths",
+        "## Architecture Context",
+        "## Compatibility and Data",
+        "## Test and Verification Impact",
+        "## Risks and Unknowns",
+        "## Evidence"
+      ],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "## Change Intent",
+            "## Affected Surfaces",
+            "## Dependency Paths",
+            "## Architecture Context",
+            "## Compatibility and Data",
+            "## Test and Verification Impact",
+            "## Risks and Unknowns",
+            "## Evidence"
+          ],
+          "bodyPath": "templates/task.code.impact.analysis/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "## Change Intent",
+            "## Affected Surfaces",
+            "## Dependency Paths",
+            "## Architecture Context",
+            "## Compatibility and Data",
+            "## Test and Verification Impact",
+            "## Risks and Unknowns",
+            "## Evidence"
+          ],
+          "bodyPath": "templates/task.code.impact.analysis/en-US.md"
+        }
+      ]
+    }
+  ]
+}
