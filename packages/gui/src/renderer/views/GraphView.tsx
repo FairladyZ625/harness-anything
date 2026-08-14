@@ -12,21 +12,19 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { TaskRow, RelationEdge, DecisionRow, FactRef } from "../model/types";
 import type { FactAnchorRow, RelationCoverageRow } from "../../api/renderer-dto";
-import { parseEndpoint } from "../graph/endpoint";
+import { parseEndpoint, endpointToNodeId } from "../graph/endpoint";
 import { GraphDrawer } from "../graph/GraphDrawer";
-import { TaskNode } from "../graph/nodes/TaskNode";
-import { DecisionNode } from "../graph/nodes/DecisionNode";
-import { FactNode } from "../graph/nodes/FactNode";
-import { ModuleGroupNode } from "../graph/nodes/ModuleGroupNode";
-import { LaneBackgroundNode } from "../graph/nodes/LaneBackgroundNode";
+import { EgoNode } from "../graph/nodes/EgoNode";
 import { TerritoryZoneNode, TerritoryLandingNode } from "../graph/nodes/TerritoryNode";
 import { InteractiveEdge } from "../graph/edges/InteractiveEdge";
 import { GraphFilterPanel, type GraphFilters } from "../components/GraphFilterPanel";
 import { FocusHistoryBar } from "../components/FocusHistoryBar";
 import { TerritorySkelToggle, type TerritorySkel } from "../components/TerritoryModeBar";
 import { useColorMode, minimapMaskColor } from "../graph/colorMode";
-import { computeSpotlightLayout } from "../graph/threeLane";
+import { layoutEgoCanvas } from "../graph/egoCanvas";
+import { useEgoCanvas } from "../graph/useEgoCanvas";
 import { partitionForSkel } from "../graph/territory";
+import { UNPROJECTED_MODULE } from "../graph/moduleAssignment";
 import {
   defaultKindFilter,
   defaultAxisFilter,
@@ -48,11 +46,7 @@ import {
 export type ViewMode = "territory" | "spotlight";
 
 const nodeTypes = {
-  task: TaskNode,
-  decision: DecisionNode,
-  fact: FactNode,
-  moduleGroup: ModuleGroupNode,
-  laneBackground: LaneBackgroundNode,
+  ego: EgoNode,
   territoryZone: TerritoryZoneNode,
   territoryLanding: TerritoryLandingNode,
 };
@@ -60,6 +54,8 @@ const nodeTypes = {
 const edgeTypes = {
   interactive: InteractiveEdge,
 };
+
+const EMPTY_ANCHORS: ReadonlyArray<FactAnchorRow> = [];
 
 function GraphViewInner({
   tasks,
@@ -92,7 +88,6 @@ function GraphViewInner({
   const [skel, setSkel] = useState<TerritorySkel>("unified");
   const [collapsedZones, setCollapsedZones] = useState<Set<string>>(() => new Set());
   const [flowMode, setFlowMode] = useState<FlowAnimMode>("focus");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusEdgeId, setFocusEdgeId] = useState<string | null>(null);
 
   const availableModules = useMemo(
@@ -119,8 +114,6 @@ function GraphViewInner({
   // ---- 焦点历史(stable reducer,无自触发循环) ----
   const [histState, histDispatch] = useReducer(focusHistoryReducer, EMPTY_HISTORY);
 
-  // 外部 focusRef 变更 → push(去重当前位,截断 forward)。
-  // 只在 focusRef 真正变化时 push(useEffect 依赖 [focusRef])。
   useEffect(() => {
     if (focusRef) {
       histDispatch({ type: "push", ref: focusRef });
@@ -129,14 +122,21 @@ function GraphViewInner({
 
   const openFocus = useCallback(
     (ref: string | null) => {
-      if (!ref) {
-        onFocusEntityChange?.(null);
-        return;
-      }
-      onFocusEntityChange?.(ref);
+      onFocusEntityChange?.(ref ?? null);
     },
     [onFocusEntityChange],
   );
+
+  // ---- 无限画布 ego 状态机(dec_01KXBGJQFQARSZHHQW1WADFDNC) ----
+  const canvas = useEgoCanvas({
+    tasks,
+    decisions,
+    facts,
+    relations,
+    factAnchors: factAnchors ?? EMPTY_ANCHORS,
+    axes: filters.axes,
+    focusRef: viewMode === "spotlight" ? focusRef : null,
+  });
 
   const goBack = useCallback(() => {
     histDispatch({ type: "back" });
@@ -153,9 +153,9 @@ function GraphViewInner({
   const clearFocus = useCallback(() => {
     histDispatch({ type: "clear" });
     onFocusEntityChange?.(null);
-    setSelectedId(null);
+    canvas.clearCanvas();
     setFocusEdgeId(null);
-  }, [onFocusEntityChange]);
+  }, [onFocusEntityChange, canvas]);
 
   // ---- 进入聚光灯(territory chip 单击) ----
   const enterSpotlight = useCallback(
@@ -189,10 +189,23 @@ function GraphViewInner({
     });
   }, []);
 
+  // 未投影 zone 默认折叠(降权:不许占 C 位)。用户手动展开后不再被覆盖。
+  const [autoCollapsedSkel, setAutoCollapsedSkel] = useState<string | null>(null);
+  useEffect(() => {
+    if (!territory || autoCollapsedSkel === skel) return;
+    const unprojected = territory.zones
+      .filter((z) => z.moduleId === UNPROJECTED_MODULE)
+      .map((z) => z.zoneId);
+    setAutoCollapsedSkel(skel);
+    if (unprojected.length > 0) {
+      setCollapsedZones((prev) => new Set([...prev, ...unprojected]));
+    }
+  }, [territory, skel, autoCollapsedSkel]);
+
   const territoryNodes = useMemo(() => {
     if (!territory) return [];
     const nodes: any[] = [];
-    const colW = 260;
+    const colW = 300;
     const colGap = 32;
     const maxPerCol = 3;
     territory.zones.forEach((zone, i) => {
@@ -201,19 +214,18 @@ function GraphViewInner({
       nodes.push({
         id: zone.zoneId,
         type: "territoryZone",
-        position: { x: col * (colW + colGap), y: row * 220 },
+        position: { x: col * (colW + colGap), y: row * 260 },
         data: { zone, collapsed: collapsedZones.has(zone.zoneId), onOpen: enterSpotlight, onFold: toggleZone },
         draggable: false,
       });
     });
-    // landing chips(孤立 decision)。
     if (territory.landing.length > 0) {
       const landingCol = territory.zones.length % maxPerCol;
       const landingRow = Math.floor(territory.zones.length / maxPerCol);
       nodes.push({
         id: "__landing__",
         type: "territoryLanding",
-        position: { x: landingCol * (colW + colGap), y: landingRow * 220 },
+        position: { x: landingCol * (colW + colGap), y: landingRow * 260 },
         data: { chips: territory.landing, onOpen: enterSpotlight },
         draggable: false,
       });
@@ -221,45 +233,37 @@ function GraphViewInner({
     return nodes;
   }, [territory, collapsedZones, enterSpotlight, toggleZone]);
 
-  // ---- 聚光灯布局 ----
+  // ---- 聚光灯布局(纯函数:焦点 + 累积集 + 筛选 → 位置) ----
   const spotlight = useMemo(() => {
-    if (viewMode !== "spotlight") return null;
-    return computeSpotlightLayout(
-      focusRef,
-      tasks,
-      decisions,
-      facts,
-      factAnchors ?? [],
+    if (viewMode !== "spotlight" || !canvas.focusId) return null;
+    return layoutEgoCanvas({
+      focusId: canvas.focusId,
+      graph: canvas.graph,
       relations,
-      coverageRows ?? [],
-      {
+      filters: {
         axes: filters.axes,
         kinds: filters.kinds,
-        modules: filters.modules,
         types: filters.types,
         flowMode,
       },
-    );
-  }, [viewMode, focusRef, tasks, decisions, facts, factAnchors, relations, coverageRows, filters, flowMode]);
+      shown: canvas.shown,
+      expanded: canvas.expanded,
+      highlight: canvas.highlight,
+    });
+  }, [viewMode, canvas.focusId, canvas.graph, canvas.shown, canvas.expanded, canvas.highlight, relations, filters.axes, filters.kinds, filters.types, flowMode]);
 
   // ---- 实体状态筛选(聚光灯) ----
   const statusVisibleIds = useMemo(() => {
     if (!spotlight) return null;
-    const narrowed = isStatusNarrowed(filters.entityStatus);
-    if (!narrowed) return null;
+    if (!isStatusNarrowed(filters.entityStatus)) return null;
     const ids = new Set<string>();
     for (const n of spotlight.nodes) {
-      if (n.type === "laneBackground") {
-        ids.add(n.id);
-        continue;
-      }
+      const data = n.data as any;
       if (n.id === spotlight.focusId) {
         ids.add(n.id);
         continue;
       }
-      const data = n.data as any;
-      const entity = data?.entity ?? n.type;
-      if (nodePassesEntityStatusFilter(entity, data?.raw ?? data, filters.entityStatus)) {
+      if (nodePassesEntityStatusFilter(data?.entity, data?.raw ?? data, filters.entityStatus)) {
         ids.add(n.id);
       }
     }
@@ -271,11 +275,17 @@ function GraphViewInner({
     if (!spotlight) return [];
     return spotlight.nodes
       .filter((n) => (statusVisibleIds ? statusVisibleIds.has(n.id) : true))
-      .map((n) => {
-        if (n.id === selectedId) return { ...n, selected: true };
-        return n;
-      });
-  }, [viewMode, territoryNodes, spotlight, statusVisibleIds, selectedId]);
+      .map((n) => ({
+        ...n,
+        selected: n.id === canvas.selectId,
+        data: {
+          ...(n.data as any),
+          onCollapse: canvas.collapseNode,
+          onRefocus: openFocus,
+          onNavigate: onNavigateEntity,
+        },
+      }));
+  }, [viewMode, territoryNodes, spotlight, statusVisibleIds, canvas.selectId, canvas.collapseNode, openFocus, onNavigateEntity]);
 
   const displayEdges = useMemo(() => {
     if (viewMode !== "spotlight" || !spotlight) return [];
@@ -286,85 +296,70 @@ function GraphViewInner({
     });
   }, [viewMode, spotlight, filters.kinds, statusVisibleIds]);
 
-  // fitView on layout/mode change.
+  // fitView 只在换焦点 / 换模式时跑 —— 展开、收起、单击都不重排视口(决策 CH1)。
   useEffect(() => {
     if (displayNodes.length === 0) return;
-    const frame = requestAnimationFrame(() => fitView({ padding: 0.12, duration: 120 }));
+    const frame = requestAnimationFrame(() => fitView({ padding: 0.12, duration: 200 }));
     return () => cancelAnimationFrame(frame);
-  }, [displayNodes.length, displayEdges.length, fitView, viewMode, skel]);
+  }, [canvas.focusId, fitView, viewMode, skel]);
 
   // Esc 清选/清边。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (e.target instanceof HTMLElement && e.target.closest("input,textarea,select")) return;
-      setSelectedId(null);
+      canvas.clearSelect();
       setFocusEdgeId(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [canvas]);
 
+  // 单击 = 就地展开成卡片并长出下一环邻居;再点收起(已展开邻居累计保留,画布不重排)。
   const onNodeClick = useCallback(
     (_: any, node: any) => {
-      if (node.type === "laneBackground" || node.type === "territoryZone" || node.type === "territoryLanding") return;
-      setSelectedId((prev) => (prev === node.id ? null : node.id));
+      if (viewMode === "territory") return;
+      if (canvas.expanded.has(node.id)) canvas.collapseNode(node.id);
+      else canvas.expandNode(node.id);
+      canvas.selectNode(node.id);
     },
-    [],
+    [viewMode, canvas],
   );
 
+  // 双击 = 设为画布中心(唯一会重排画布的节点交互)。
   const onNodeDoubleClick = useCallback(
     (_: any, node: any) => {
       if (viewMode === "territory") return;
-      if (node.type === "laneBackground") return;
-      const data = node.data as any;
-      // 把 nodeId 翻译回 navRef 设焦点。
-      const entity = data?.entity ?? node.type;
-      const ref =
-        entity === "task"
-          ? `task/${node.id}`
-          : entity === "decision"
-            ? node.id
-            : node.id;
-      openFocus(ref);
+      const navRef = (node.data as any)?.navRef ?? node.id;
+      openFocus(navRef);
     },
     [viewMode, openFocus],
   );
 
   const onEdgeClick = useCallback((_: any, edge: any) => {
-    setSelectedId(null);
+    canvas.clearSelect();
     setFocusEdgeId((prev) => (prev === edge.id ? null : edge.id));
-  }, []);
+  }, [canvas]);
 
   const onPaneClick = useCallback(() => {
-    setSelectedId(null);
+    canvas.clearSelect();
     setFocusEdgeId(null);
-  }, []);
+  }, [canvas]);
 
   // ---- Drawer ----
-  const focusNode = useMemo(() => {
-    if (!spotlight) return null;
-    const id = selectedId ?? spotlight.focusId;
-    return spotlight.nodes.find((n) => n.id === id && n.type !== "laneBackground") ?? null;
-  }, [spotlight, selectedId]);
-
-  const focusEdge = useMemo(
-    () => (focusEdgeId ? displayEdges.find((e) => e.id === focusEdgeId) : null),
-    [focusEdgeId, displayEdges],
-  );
+  const drawerNodeId = canvas.selectId ?? canvas.focusId;
 
   const drawerNodesMap = useMemo(() => {
     const map = new Map();
     if (spotlight) {
       for (const n of spotlight.nodes) {
-        if (n.type === "laneBackground") continue;
         const data = n.data as any;
         map.set(n.id, {
           id: n.id,
-          entity: data?.entity ?? n.type,
+          entity: data?.entity,
           label: data?.label,
           sub: data?.sub,
-          task: data?.entity === "task" ? data : undefined,
+          task: data?.entity === "task" ? data?.raw : undefined,
           raw: data?.raw ?? data,
         });
       }
@@ -372,17 +367,23 @@ function GraphViewInner({
     return map;
   }, [spotlight]);
 
-  // ---- 焦点直接邻居计数(drawer 上下游) ----
+  const focusEdge = useMemo(
+    () => (focusEdgeId ? displayEdges.find((e) => e.id === focusEdgeId) : null),
+    [focusEdgeId, displayEdges],
+  );
+
+  // 上下游计数读**全量 relations**,不是当前可见边 —— 画布只铺开了一部分,
+  // 用可见边计数会把「还没铺开」误报成「没有关系」。
   const { upCount, downCount } = useMemo(() => {
-    if (!spotlight?.focusId) return { upCount: 0, downCount: 0 };
+    if (!drawerNodeId) return { upCount: 0, downCount: 0 };
     let up = 0;
     let down = 0;
-    for (const e of spotlight.edges) {
-      if (e.source === spotlight.focusId) down += 1;
-      if (e.target === spotlight.focusId) up += 1;
+    for (const e of relations) {
+      if (endpointToNodeId(e.from) === drawerNodeId) down += 1;
+      if (endpointToNodeId(e.to) === drawerNodeId) up += 1;
     }
     return { upCount: up, downCount: down };
-  }, [spotlight]);
+  }, [drawerNodeId, relations]);
 
   const breadcrumb = useMemo(() => {
     if (!focusRef) return null;
@@ -415,29 +416,26 @@ function GraphViewInner({
     );
   }
 
-  const visibleNodeCount =
-    viewMode === "spotlight"
-      ? displayNodes.filter((n) => n.type !== "laneBackground").length
-      : displayNodes.length;
-
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border px-4 py-2 text-[11px] text-text-muted">
         <span className="font-mono text-text-faint">
-          {viewMode === "territory" ? `领地 · ${territory?.zones.length ?? 0} zone` : `聚光灯 · ${visibleNodeCount} 节点 · ${displayEdges.length} 边`}
+          {viewMode === "territory"
+            ? `领地 · ${territory?.zones.length ?? 0} 块`
+            : `聚光灯 · ${displayNodes.length} 节点 · ${displayEdges.length} 边`}
         </span>
-        {viewMode === "spotlight" && spotlight && (
+        {viewMode === "spotlight" && (
           <>
             <span className="inline-flex items-center gap-1">
-              <span className="inline-block h-2.5 w-2.5 rounded-sm border border-border-strong bg-surface-raised" />
+              <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "var(--color-axis-execution)" }} />
               task
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="inline-block h-2.5 w-2.5 rotate-45 border border-accent bg-accent-fg" />
+              <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "var(--color-axis-authority)" }} />
               decision
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="inline-block h-2.5 w-2.5 rounded-full border border-stale bg-surface-raised" />
+              <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "var(--color-axis-evidence)" }} />
               fact
             </span>
           </>
@@ -445,7 +443,7 @@ function GraphViewInner({
         {territory && territory.unprojectedCount > 0 && (
           <span
             className="inline-flex items-center gap-1 rounded bg-stale/10 px-1.5 py-0.5 font-mono text-stale"
-            title="module/PLT 字段缺失,归入「未投影」zone —— 严禁缺字段当绿灯"
+            title="module/PLT 字段缺失,归入「未投影」块 —— 默认折叠并沉底,但绝不隐藏"
           >
             未投影 · {territory.unprojectedCount}
           </span>
@@ -453,9 +451,9 @@ function GraphViewInner({
         <span className="ml-auto text-text-faint">
           {viewMode === "spotlight"
             ? focusRef
-              ? "单击选中 · 双击设焦点 · Esc 退出"
+              ? "单击展开/收起 · 双击设为中心 · Esc 清选"
               : "从领地选实体,或在命令面板(⌘K)搜索"
-            : "zone chip 单击 → 聚光灯"}
+            : "块内 chip 单击 → 聚光灯"}
         </span>
       </header>
 
@@ -481,7 +479,7 @@ function GraphViewInner({
           onEdgeClick={onEdgeClick}
           onPaneClick={onPaneClick}
           colorMode={colorMode}
-          minZoom={0.1}
+          minZoom={0.05}
           maxZoom={2}
           zoomOnDoubleClick={false}
           nodesDraggable={false}
@@ -496,10 +494,11 @@ function GraphViewInner({
             data-testid="graph-minimap"
             bgColor="var(--color-surface)"
             nodeColor={(n) => {
-              if (n.type === "laneBackground" || n.type === "territoryZone") return "rgba(255, 255, 255, 0.04)";
-              if (n.type === "decision") return "var(--color-accent)";
-              if (n.type === "fact") return "var(--color-stale)";
-              return "var(--color-border-strong)";
+              if (n.type === "territoryZone" || n.type === "territoryLanding") return "var(--color-border)";
+              const entity = (n.data as any)?.entity;
+              if (entity === "decision") return "var(--color-axis-authority)";
+              if (entity === "fact") return "var(--color-axis-evidence)";
+              return "var(--color-axis-execution)";
             }}
             nodeStrokeColor="var(--color-border-strong)"
             maskColor={minimapMaskColor(colorMode)}
@@ -510,7 +509,7 @@ function GraphViewInner({
           {viewMode === "territory" && (
             <Panel position="top-left">
               <div className="flex items-center gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 text-[11px] text-text-muted">
-                <span>折叠 zone:</span>
+                <span>折叠块:</span>
                 <button
                   onClick={() => {
                     const all = new Set(territory?.zones.map((z) => z.zoneId) ?? []);
@@ -539,26 +538,21 @@ function GraphViewInner({
           )}
         </ReactFlow>
 
-        {viewMode === "spotlight" && (focusNode || focusEdge) && (
+        {viewMode === "spotlight" && (drawerNodeId || focusEdge) && (
           <GraphDrawer
-            focusNode={
-              focusNode
-                ? (drawerNodesMap.get(focusNode.id) ?? undefined)
-                : undefined
-            }
+            focusNode={drawerNodeId ? (drawerNodesMap.get(drawerNodeId) ?? undefined) : undefined}
             focusEdge={focusEdge ? (focusEdge.data as unknown as RelationEdge) : undefined}
             nodes={drawerNodesMap}
             edges={relations}
             upCount={upCount}
             downCount={downCount}
             onClose={() => {
-              setSelectedId(null);
+              canvas.clearSelect();
               setFocusEdgeId(null);
             }}
             onFocus={(id) => {
               const data = drawerNodesMap.get(id);
-              const ref = data?.entity === "task" ? `task/${id}` : id;
-              openFocus(ref);
+              openFocus(data?.entity === "task" ? `task/${id}` : id);
             }}
             onNavigateEntity={onNavigateEntity}
           />

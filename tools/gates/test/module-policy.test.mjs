@@ -77,3 +77,8 @@ test("W5 R1 fixture assigns replica cut production paths to their ratcheted buck
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/w5-r1-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
+
+test("GUI graph rework fixture bills the ego canvas + territory progress paths to gui", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/gui-graph-rework-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});

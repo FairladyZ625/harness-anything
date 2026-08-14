@@ -1,13 +1,17 @@
 // harness-test-tier: integration
 import { describe, expect, it } from "vitest";
 import type { TaskRow, DecisionRow, RelationEdge } from "../src/renderer/model/types.ts";
-import { computeSpotlightLayout } from "../src/renderer/graph/threeLane.ts";
-import { laneForKind } from "../src/renderer/graph/threeLane.ts";
+import {
+  buildEgoGraph,
+  bfsShownFromFocus,
+  layoutEgoCanvas,
+  type EgoFilters,
+} from "../src/renderer/graph/egoCanvas.ts";
 import { defaultAxisFilter, defaultKindFilter } from "../src/renderer/graph/relationVisual.ts";
 
 /**
- * GraphView entity resolution regression (migrated from fact-triage graph layout test).
- * Verifies fact anchors render without inventing bodies — now via computeSpotlightLayout.
+ * 实体解析的诚实性回归:fact 锚点可以成节点,但正文绝不编造。
+ * (原挂在 computeSpotlightLayout 上,随三泳道布局一起迁到无限画布 ego。)
  */
 
 function task(): TaskRow {
@@ -28,62 +32,61 @@ function dec(): DecisionRow {
   } as DecisionRow;
 }
 
-const baseFilters = {
+const filters: EgoFilters = {
   axes: defaultAxisFilter(),
   kinds: defaultKindFilter(),
-  modules: new Set<string>(),
   types: new Set(["decision", "task", "fact"]),
-  flowMode: "focus" as const,
+  flowMode: "focus",
 };
 
+function layoutFrom(
+  relations: RelationEdge[],
+  factAnchors: Array<{ factRef: string; taskId: string; factId: string }>,
+) {
+  const graph = buildEgoGraph([task()], [dec()], [], relations, factAnchors);
+  const shown = bfsShownFromFocus(graph, "decision/dec_1", 2, filters.axes);
+  return layoutEgoCanvas({
+    focusId: "decision/dec_1", graph, relations, filters,
+    shown, expanded: new Set(["decision/dec_1"]), highlight: null,
+  });
+}
+
 describe("graph entity resolution (fact anchors without inventing bodies)", () => {
-  it("renders task/decision/fact nodes from real relations, no ghost invention", () => {
-    const factAnchor = {
-      factRef: "fact/task_a/F-001", taskId: "task_a", factId: "F-001",
-      sourcePath: "event:fact/task_a/F-001",
-    };
+  it("renders task/decision/fact nodes from real relations", () => {
     const relations: RelationEdge[] = [
       { from: "decision/dec_1", to: "task/task_a", kind: "derives", provenance: "local-document" },
       { from: "task/task_a", to: "fact/task_a/F-001", kind: "produces", provenance: "local-document" },
       { from: "decision/dec_1/CH1", to: "fact/task_a/F-001", kind: "evidenced-by", provenance: "local-document" },
     ];
-    const result = computeSpotlightLayout(
-      "decision/dec_1", [task()], [dec()], [], [factAnchor], relations, [], baseFilters,
-    );
-    const entityNodes = result.nodes.filter((n) => n.type !== "laneBackground");
-    // ego(dec_1) + task_a(derives→execution lane). fact/F-001 only reached via
-    // produces(task→fact, focus not involved) so NOT auto-included as ego neighbor.
-    // evidenced-by(dec_1/CH1 → fact) has focus involvement → fact included.
-    const taskNodes = entityNodes.filter((n) => n.type === "task");
-    const factNodes = entityNodes.filter((n) => n.type === "fact");
-    const decNodes = entityNodes.filter((n) => n.type === "decision");
-    expect(decNodes.length).toBeGreaterThanOrEqual(1);
-    expect(taskNodes.length).toBe(1);
-    expect(factNodes.length).toBe(1);
+    const result = layoutFrom(relations, [
+      { factRef: "fact/task_a/F-001", taskId: "task_a", factId: "F-001" },
+    ]);
+    const entities = result.nodes.map((n) => (n.data as any).entity);
+    expect(entities.filter((e) => e === "decision")).toHaveLength(1);
+    expect(entities.filter((e) => e === "task")).toHaveLength(1);
+    expect(entities.filter((e) => e === "fact")).toHaveLength(1);
   });
 
-  it("does not invent fact bodies for anchors absent from facts projection", () => {
+  it("keeps an anchor-only fact visible but leaves its body empty", () => {
+    const relations: RelationEdge[] = [
+      { from: "decision/dec_1/CH1", to: "fact/task_a/F-001", kind: "evidenced-by", provenance: "local-document" },
+    ];
+    const result = layoutFrom(relations, [
+      { factRef: "fact/task_a/F-001", taskId: "task_a", factId: "F-001" },
+    ]);
+    const factNode = result.nodes.find((n) => n.id === "fact/task_a/F-001");
+    expect(factNode).toBeDefined();
+    // 标签退回锚点,正文为空 —— 不拿别处文字冒充观察。
+    expect((factNode!.data as any).raw.text).toBe("");
+    expect((factNode!.data as any).label).toBe("task_a/F-001");
+  });
+
+  it("does not invent fact nodes for refs absent from both facts and anchors", () => {
     const relations: RelationEdge[] = [
       { from: "decision/dec_1", to: "task/task_a", kind: "derives", provenance: "local-document" },
       { from: "decision/dec_1/CH1", to: "fact/task_a/F-ghost", kind: "evidenced-by", provenance: "local-document" },
     ];
-    const result = computeSpotlightLayout(
-      "decision/dec_1", [task()], [dec()], [], [], relations, [], baseFilters,
-    );
-    // F-ghost has no fact body and no factAnchor → not invented.
-    const ghostFact = result.nodes.find((n) => n.id === "fact/task_a/F-ghost");
-    expect(ghostFact).toBeUndefined();
-  });
-
-  it("laneForKind maps all relation kinds to a lane", () => {
-    const kinds: RelationEdge["kind"][] = [
-      "refines", "narrows", "supersedes", "supports",
-      "evidenced-by", "evidences", "supersedes-fact", "invalidated-by", "refuted-by",
-      "derives", "depends-on", "blocks", "produces", "relates", "implements",
-    ];
-    for (const kind of kinds) {
-      const lane = laneForKind(kind);
-      expect(["authority", "evidence", "execution"]).toContain(lane);
-    }
+    const result = layoutFrom(relations, []);
+    expect(result.nodes.find((n) => n.id === "fact/task_a/F-ghost")).toBeUndefined();
   });
 });
