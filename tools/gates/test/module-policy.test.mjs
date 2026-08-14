@@ -117,3 +117,8 @@ test("decision surface fixture bills CLI, daemon, Decision/Fact, and kernel seam
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/decision-surface-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
+
+test("GUI gap-fix fixture bills the legend, navigation, and terminal fidelity paths to gui", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/gui-gap-fix-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});

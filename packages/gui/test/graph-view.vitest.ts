@@ -90,3 +90,16 @@ describe("graph entity resolution (fact anchors without inventing bodies)", () =
     expect(result.nodes.find((n) => n.id === "fact/task_a/F-ghost")).toBeUndefined();
   });
 });
+
+describe("graph legend vocabulary (REQ-GUI-04 legend)", () => {
+  it("exposes one sample kind per semantic axis plus the fulfillment palette", async () => {
+    const { legendSampleKinds } = await import("../src/renderer/graph/relationVisual.ts");
+    const { FULFILLMENT_COLOR_VAR, FULFILLMENT_LABEL } = await import("../src/renderer/graph/constants.ts");
+    const samples = legendSampleKinds();
+    expect(new Set(samples.map((s) => s.axis))).toEqual(new Set(["authority", "evidence", "execution", "assoc"]));
+    for (const mode of ["evidenced", "delivered", "standing-policy", "unknown"] as const) {
+      expect(FULFILLMENT_COLOR_VAR[mode]).toMatch(/^var\(/u);
+      expect(FULFILLMENT_LABEL[mode].length).toBeGreaterThan(0);
+    }
+  });
+});

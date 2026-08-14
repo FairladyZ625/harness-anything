@@ -71,6 +71,21 @@ export const AXIS_COLOR_VAR: Record<SemanticAxis, string> = {
   assoc: "var(--color-axis-assoc)",
 };
 
+/** Claim 兑现三形态配色(coverageRows.fulfillment;移植老版 GraphLegend 词表)。 */
+export const FULFILLMENT_COLOR_VAR = {
+  evidenced: "var(--color-status-done)",
+  delivered: "var(--color-axis-execution)",
+  "standing-policy": "var(--color-accent)",
+  unknown: "var(--color-text-faint)",
+} as const;
+
+export const FULFILLMENT_LABEL: Record<keyof typeof FULFILLMENT_COLOR_VAR, string> = {
+  evidenced: "已佐证",
+  delivered: "已交付",
+  "standing-policy": "常设政策",
+  unknown: "未投影",
+};
+
 export const KIND_LABEL: Record<RelationKind, string> = {
   supports: "支撑",
   supersedes: "推翻",

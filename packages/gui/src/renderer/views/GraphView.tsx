@@ -18,6 +18,7 @@ import { EgoNode } from "../graph/nodes/EgoNode";
 import { TerritoryZoneNode, TerritoryLandingNode } from "../graph/nodes/TerritoryNode";
 import { InteractiveEdge } from "../graph/edges/InteractiveEdge";
 import { GraphFilterPanel, type GraphFilters } from "../components/GraphFilterPanel";
+import { GraphLegend } from "../components/GraphLegend.tsx";
 import { FocusHistoryBar } from "../components/FocusHistoryBar";
 import { TerritorySkelToggle, type TerritorySkel } from "../components/TerritoryModeBar";
 import { useColorMode, minimapMaskColor } from "../graph/colorMode";
@@ -425,20 +426,7 @@ function GraphViewInner({
             : `聚光灯 · ${displayNodes.length} 节点 · ${displayEdges.length} 边`}
         </span>
         {viewMode === "spotlight" && (
-          <>
-            <span className="inline-flex items-center gap-1">
-              <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "var(--color-axis-execution)" }} />
-              task
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "var(--color-axis-authority)" }} />
-              decision
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "var(--color-axis-evidence)" }} />
-              fact
-            </span>
-          </>
+          <GraphLegend showFulfillment={(coverageRows?.length ?? 0) > 0} />
         )}
         {territory && territory.unprojectedCount > 0 && (
           <span

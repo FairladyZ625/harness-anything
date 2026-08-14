@@ -102,3 +102,18 @@ export function kindsByAxis(): Record<SemanticAxis, RelationKind[]> {
   }
   return out;
 }
+
+/** 图例样例:每轴一条代表 kind(色=轴,线型=kind),与老版 GraphLegend 词表一致。 */
+export function legendSampleKinds(): ReadonlyArray<{
+  kind: RelationKind;
+  axis: SemanticAxis;
+}> {
+  return [
+    { kind: "derives", axis: "authority" },
+    { kind: "supersedes", axis: "authority" },
+    { kind: "evidenced-by", axis: "evidence" },
+    { kind: "depends-on", axis: "execution" },
+    { kind: "blocks", axis: "execution" },
+    { kind: "relates", axis: "assoc" },
+  ];
+}

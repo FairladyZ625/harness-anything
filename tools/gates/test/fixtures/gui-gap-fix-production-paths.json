@@ -1,0 +1,6 @@
+[
+  { "path": "packages/gui/src/renderer/components/GraphLegend.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/graph/constants.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/graph/relationVisual.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/views/GraphView.tsx", "module": "gui" }
+]
