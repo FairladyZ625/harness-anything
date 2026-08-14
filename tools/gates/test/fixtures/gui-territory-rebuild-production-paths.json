@@ -1,0 +1,18 @@
+[
+  {
+    "path": "packages/gui/src/renderer/graph/territoryLayout.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/graph/nodes/TerritoryNode.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/views/GraphView.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/views/PresetsView.tsx",
+    "module": "gui"
+  }
+]
