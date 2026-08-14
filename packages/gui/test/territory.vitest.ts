@@ -82,30 +82,47 @@ describe("module assignment honesty (未投影)", () => {
 });
 
 describe("territory task partition", () => {
-  it("groups tasks by real module", () => {
+  // 分组轴已从 module 换成 PRD 根 task(老版领地的「每个 PRD 的进度」能力)。
+  // module 不再决定摆放,但它的诚实性仍然承重 —— 见下面的 chip 级断言。
+  it("groups tasks by their PRD root task", () => {
     const zones = partitionTasks([
-      task({ taskId: "a", module: "kernel" }),
-      task({ taskId: "b", module: "kernel" }),
-      task({ taskId: "c", module: "gui" }),
+      task({ taskId: "root", title: "PRD", rootTaskId: "root" }),
+      task({ taskId: "a", parentTaskId: "root", rootTaskId: "root", rootTitle: "PRD" }),
+      task({ taskId: "b", parentTaskId: "root", rootTaskId: "root", rootTitle: "PRD" }),
     ]);
-    expect(zones).toHaveLength(2);
-    const kernel = zones.find((z) => z.title === "kernel")!;
-    expect(kernel.chips).toHaveLength(2);
-  });
-
-  it("puts unassigned-module tasks into a 未投影 zone, not a real module", () => {
-    const zones = partitionTasks([task({ taskId: "a", module: "unassigned" })]);
     expect(zones).toHaveLength(1);
-    expect(zones[0]!.title).toBe("未投影");
-    expect(zones[0]!.moduleId).toBe(UNPROJECTED_MODULE);
+    expect(zones[0]!.title).toBe("PRD");
+    expect(zones[0]!.chips).toHaveLength(3);
+    expect(zones[0]!.progress?.total).toBe(3);
   });
 
-  it("sorts 未投影 zone last", () => {
+  it("never fakes a real module for an unassigned task (chip keeps the sentinel)", () => {
+    const zones = partitionTasks([task({ taskId: "a", module: "unassigned" })]);
+    // 顶层无父任务的 task 自己就是一个 PRD 根,所以成块 —— 但它的 module 仍诚实标未投影。
+    expect(zones[0]!.chips[0]!.moduleId).toBe(UNPROJECTED_MODULE);
+  });
+
+  it("sinks the 未投影 block last and keeps it visible", () => {
     const zones = partitionTasks([
-      task({ taskId: "a", module: "unassigned" }),
-      task({ taskId: "b", module: "kernel" }),
+      task({ taskId: "orphan", parentTaskId: "ghost", module: "unassigned" }),
+      task({ taskId: "root", title: "PRD", rootTaskId: "root", module: "kernel" }),
     ]);
-    expect(zones[1]!.title).toBe("未投影");
+    expect(zones.at(-1)!.title).toBe("未投影");
+    expect(zones.at(-1)!.moduleId).toBe(UNPROJECTED_MODULE);
+    expect(zones.at(-1)!.chips).toHaveLength(1);
+  });
+
+  it("counts unprojected at chip level so PRD grouping cannot hide missing modules", () => {
+    const partition = partitionForSkel(
+      "task",
+      [
+        task({ taskId: "root", title: "PRD", rootTaskId: "root", module: "kernel" }),
+        task({ taskId: "a", parentTaskId: "root", rootTaskId: "root", module: "unassigned" }),
+      ],
+      [], [], [], [],
+    );
+    // a 落在真实 PRD 块里,但 module 缺失仍被计入未投影总数(块级计数会漏报)。
+    expect(partition.unprojectedCount).toBe(1);
   });
 });
 

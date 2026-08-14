@@ -1,5 +1,47 @@
 import { Handle, Position } from "@xyflow/react";
 import type { TerritoryChip, TerritoryZone } from "../territory";
+import type { ZoneProgress } from "../territoryProgress";
+
+/** 状态段配色(等亮度状态色,与视觉系统同源)。 */
+const PROGRESS_SEGMENTS: ReadonlyArray<{ key: keyof ZoneProgress; label: string; color: string }> = [
+  { key: "done", label: "完成", color: "var(--color-status-done)" },
+  { key: "inReview", label: "评审", color: "var(--color-status-in-review)" },
+  { key: "active", label: "进行", color: "var(--color-status-active)" },
+  { key: "blocked", label: "阻塞", color: "var(--color-status-blocked)" },
+  { key: "planned", label: "规划", color: "var(--color-status-planned)" },
+  { key: "other", label: "其他", color: "var(--color-status-unknown)" },
+];
+
+/**
+ * PRD 块进度条:状态比例条 + 完成率 + 阻塞计数。
+ * 老版领地的核心可读性来源 —— 一眼看出「这个 PRD 推到哪了、卡没卡住」。
+ */
+function ZoneProgressBar({ progress }: { progress: ZoneProgress }) {
+  return (
+    <div className="flex flex-col gap-1 px-3 pb-2" data-testid="zone-progress">
+      <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-surface">
+        {PROGRESS_SEGMENTS.map((segment) => {
+          const count = progress[segment.key] as number;
+          if (!count) return null;
+          return (
+            <span
+              key={segment.key}
+              title={`${segment.label} ${count}`}
+              style={{ width: `${(count / progress.total) * 100}%`, background: segment.color }}
+            />
+          );
+        })}
+      </div>
+      <div className="ui-micro flex items-center gap-2 font-mono text-text-faint">
+        <span data-testid="zone-done-ratio">{Math.round(progress.doneRatio * 100)}% 完成</span>
+        <span>{progress.done}/{progress.total}</span>
+        {progress.blocked > 0 && (
+          <span className="text-danger">阻塞 {progress.blocked}</span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /**
  * 领地总览的两类节点(REQ-GUI-03 territory):
@@ -42,6 +84,7 @@ export function TerritoryZoneNode({ data }: any) {
         </span>
         <span className="font-mono text-[10px] text-text-faint">{collapsed ? "▸" : "▾"}</span>
       </div>
+      {zone.progress && zone.progress.total > 0 && <ZoneProgressBar progress={zone.progress} />}
       {!collapsed && (
         <div className="flex max-h-[220px] flex-col gap-1 overflow-y-auto px-2 py-2">
           {zone.chips.slice(0, 24).map((chip: TerritoryChip) => (

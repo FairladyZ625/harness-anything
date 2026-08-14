@@ -1,0 +1,30 @@
+[
+  {
+    "path": "packages/gui/src/renderer/graph/egoCanvas.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/graph/useEgoCanvas.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/graph/territoryProgress.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/graph/territory.ts",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/graph/nodes/EgoNode.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/graph/nodes/TerritoryNode.tsx",
+    "module": "gui"
+  },
+  {
+    "path": "packages/gui/src/renderer/views/GraphView.tsx",
+    "module": "gui"
+  }
+]

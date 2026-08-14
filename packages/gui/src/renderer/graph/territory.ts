@@ -8,12 +8,13 @@ import {
 import {
   buildGenealogyEdges,
 } from "./genealogy";
+import { clusterTasksByPrd, type ZoneProgress } from "./territoryProgress";
 
 /**
  * 领地总览分区(REQ-GUI-03 territory zone)。
  *
  * 纯前端派生:把 task/decision/fact 按各自定位维度分进 zone。
- *   task      → module(诚实解析:unassigned → 未投影 zone)
+ *   task      → PRD(根 task)聚簇 + 进度信号;root 与 module 都缺 → 未投影块(沉底)
  *   decision  → family(谱系连通分量;孤立 decision → 各自独立 zone 或 landing)
  *   fact      → 异常(module 来自宿主 task;宿主不在 → 未投影)
  *
@@ -38,6 +39,8 @@ export interface TerritoryZone {
   entity: "task" | "decision" | "fact";
   moduleId: string;
   chips: TerritoryChip[];
+  /** PRD/里程碑块的进度信号(task zone 必有;decision/fact zone 无)。 */
+  progress?: ZoneProgress;
 }
 
 export interface TerritoryPartition {
@@ -48,37 +51,25 @@ export interface TerritoryPartition {
   unprojectedCount: number;
 }
 
-/** task 分区:按 module 归 zone;module 占位 → 未投影 zone。 */
+/**
+ * task 分区:按 PRD(根 task)聚簇,每块带状态构成与完成率;
+ * 「未投影」块由 clusterTasksByPrd 恒排最后(降权,不占 C 位),但显式保留、不隐藏。
+ */
 export function partitionTasks(tasks: ReadonlyArray<TaskRow>): TerritoryZone[] {
-  const byModule = new Map<string, TaskRow[]>();
-  for (const task of tasks) {
-    const mod = resolveTaskModule(task.module);
-    const arr = byModule.get(mod) ?? [];
-    arr.push(task);
-    byModule.set(mod, arr);
-  }
-  return [...byModule.entries()]
-    .sort(([a], [b]) => {
-      // 未投影排最后,其余字母序。
-      if (a === UNPROJECTED_MODULE) return 1;
-      if (b === UNPROJECTED_MODULE) return -1;
-      return a.localeCompare(b);
-    })
-    .map(([mod, group]) => ({
-      zoneId: `task:${mod}`,
-      title: mod === UNPROJECTED_MODULE ? "未投影" : mod,
+  return clusterTasksByPrd(tasks).map((cluster) => ({
+    zoneId: `task:${cluster.rootId}`,
+    title: cluster.title,
+    entity: "task" as const,
+    moduleId: cluster.progress.unprojected ? UNPROJECTED_MODULE : cluster.rootId,
+    chips: cluster.tasks.map((task) => ({
+      navRef: `task/${task.taskId}`,
+      label: task.title,
+      sub: task.coordinationStatus,
       entity: "task" as const,
-      moduleId: mod,
-      chips: group
-        .sort((a, b) => a.title.localeCompare(b.title))
-        .map((t) => ({
-          navRef: `task/${t.taskId}`,
-          label: t.title,
-          sub: t.coordinationStatus,
-          entity: "task" as const,
-          moduleId: mod,
-        })),
-    }));
+      moduleId: resolveTaskModule(task.module),
+    })),
+    progress: cluster.progress,
+  }));
 }
 
 /**
@@ -346,6 +337,20 @@ export function partitionFactsByAnomaly(
   return zones;
 }
 
+/**
+ * 未投影计数走 **chip 级真相**。task 分区改按 PRD 根聚簇后,module 不再是分组轴,
+ * 只数「整块未投影」会把散落在真实 PRD 块里的缺字段 task 漏报成已投影。
+ */
+function countUnprojectedChips(zones: ReadonlyArray<TerritoryZone>): number {
+  let count = 0;
+  for (const zone of zones) {
+    for (const chip of zone.chips) {
+      if (chip.moduleId === UNPROJECTED_MODULE) count += 1;
+    }
+  }
+  return count;
+}
+
 /** 全域 partition:task + decision + fact 三实体合图。 */
 export function partitionAll(
   tasks: ReadonlyArray<TaskRow>,
@@ -358,11 +363,7 @@ export function partitionAll(
   const { zones: decisionZones, landing } = partitionDecisions(decisions, relations);
   const factZones = partitionFacts(facts, factAnchors, tasks);
   const zones = [...taskZones, ...decisionZones, ...factZones];
-  const unprojectedCount = zones.filter((z) => z.moduleId === UNPROJECTED_MODULE).reduce(
-    (sum, z) => sum + z.chips.length,
-    0,
-  );
-  return { zones, landing, unprojectedCount };
+  return { zones, landing, unprojectedCount: countUnprojectedChips(zones) };
 }
 
 /** 按 skeleton 种类过滤 partition。 */
@@ -377,7 +378,7 @@ export function partitionForSkel(
 ): TerritoryPartition {
   if (skel === "task") {
     const zones = partitionTasks(tasks);
-    return { zones, landing: [], unprojectedCount: zones.filter((z) => z.moduleId === UNPROJECTED_MODULE).reduce((s, z) => s + z.chips.length, 0) };
+    return { zones, landing: [], unprojectedCount: countUnprojectedChips(zones) };
   }
   if (skel === "decision") {
     const { zones, landing } = partitionDecisions(decisions, relations);
@@ -385,7 +386,7 @@ export function partitionForSkel(
   }
   if (skel === "fact") {
     const zones = partitionFactsByAnomaly(facts, factAnchors, tasks, relations, coverageRows);
-    return { zones, landing: [], unprojectedCount: zones.filter((z) => z.moduleId === UNPROJECTED_MODULE).reduce((s, z) => s + z.chips.length, 0) };
+    return { zones, landing: [], unprojectedCount: countUnprojectedChips(zones) };
   }
   return partitionAll(tasks, decisions, facts, factAnchors, relations);
 }
