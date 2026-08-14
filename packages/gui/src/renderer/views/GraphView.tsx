@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   ReactFlow,
   MiniMap,
@@ -15,7 +15,7 @@ import type { FactAnchorRow, RelationCoverageRow } from "../../api/renderer-dto"
 import { parseEndpoint, endpointToNodeId } from "../graph/endpoint";
 import { GraphDrawer } from "../graph/GraphDrawer";
 import { EgoNode } from "../graph/nodes/EgoNode";
-import { TerritoryZoneNode, TerritoryLandingNode } from "../graph/nodes/TerritoryNode";
+import { TerritoryZoneNode, TerritoryChipNode } from "../graph/nodes/TerritoryNode";
 import { InteractiveEdge } from "../graph/edges/InteractiveEdge";
 import { GraphFilterPanel, type GraphFilters } from "../components/GraphFilterPanel";
 import { GraphLegend } from "../components/GraphLegend.tsx";
@@ -25,7 +25,7 @@ import { useColorMode, minimapMaskColor } from "../graph/colorMode";
 import { layoutEgoCanvas } from "../graph/egoCanvas";
 import { useEgoCanvas } from "../graph/useEgoCanvas";
 import { partitionForSkel } from "../graph/territory";
-import { UNPROJECTED_MODULE } from "../graph/moduleAssignment";
+import { layoutTerritory } from "../graph/territoryLayout";
 import {
   defaultKindFilter,
   defaultAxisFilter,
@@ -49,7 +49,7 @@ export type ViewMode = "territory" | "spotlight";
 const nodeTypes = {
   ego: EgoNode,
   territoryZone: TerritoryZoneNode,
-  territoryLanding: TerritoryLandingNode,
+  territoryChip: TerritoryChipNode,
 };
 
 const edgeTypes = {
@@ -84,12 +84,28 @@ function GraphViewInner({
   onViewModeChange: (m: ViewMode) => void;
 }) {
   const colorMode = useColorMode();
-  const { fitView } = useReactFlow();
+  const { fitView, setViewport } = useReactFlow();
 
   const [skel, setSkel] = useState<TerritorySkel>("unified");
-  const [collapsedZones, setCollapsedZones] = useState<Set<string>>(() => new Set());
+  // 折叠语义与老版同源:默认折叠(只显每块前 N 个热点 chip),expandedZones 是
+  // 用户手动展开的 zone 集。上千实体的真实数据下,折叠态保证首屏可读。
+  const [expandedZones, setExpandedZones] = useState<Set<string>>(() => new Set());
   const [flowMode, setFlowMode] = useState<FlowAnimMode>("focus");
   const [focusEdgeId, setFocusEdgeId] = useState<string | null>(null);
+
+  // 领地摆放区宽度(ResizeObserver 实测):列数由它派生,而非固定 3 列。
+  const canvasHostRef = useRef<HTMLDivElement | null>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+  useEffect(() => {
+    const host = canvasHostRef.current;
+    if (!host) return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? 0;
+      setContainerWidth((prev) => (Math.abs(prev - width) > 1 ? width : prev));
+    });
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
 
   const availableModules = useMemo(
     () => Array.from(new Set(tasks.map((t) => t.module))).sort(),
@@ -182,7 +198,7 @@ function GraphViewInner({
   }, [viewMode, skel, tasks, decisions, facts, factAnchors, relations, coverageRows]);
 
   const toggleZone = useCallback((zoneId: string) => {
-    setCollapsedZones((prev) => {
+    setExpandedZones((prev) => {
       const next = new Set(prev);
       if (next.has(zoneId)) next.delete(zoneId);
       else next.add(zoneId);
@@ -190,49 +206,18 @@ function GraphViewInner({
     });
   }, []);
 
-  // 未投影 zone 默认折叠(降权:不许占 C 位)。用户手动展开后不再被覆盖。
-  const [autoCollapsedSkel, setAutoCollapsedSkel] = useState<string | null>(null);
-  useEffect(() => {
-    if (!territory || autoCollapsedSkel === skel) return;
-    const unprojected = territory.zones
-      .filter((z) => z.moduleId === UNPROJECTED_MODULE)
-      .map((z) => z.zoneId);
-    setAutoCollapsedSkel(skel);
-    if (unprojected.length > 0) {
-      setCollapsedZones((prev) => new Set([...prev, ...unprojected]));
-    }
-  }, [territory, skel, autoCollapsedSkel]);
-
+  // 两级布局(archive 结构):zone 壳 + 独立 chip 节点,列数随容器宽派生,
+  // 盒高跟随 chip 数(行推进用行内最大高,零重叠)。分区数据见 graph/territory.ts。
   const territoryNodes = useMemo(() => {
     if (!territory) return [];
-    const nodes: any[] = [];
-    const colW = 300;
-    const colGap = 32;
-    const maxPerCol = 3;
-    territory.zones.forEach((zone, i) => {
-      const col = i % maxPerCol;
-      const row = Math.floor(i / maxPerCol);
-      nodes.push({
-        id: zone.zoneId,
-        type: "territoryZone",
-        position: { x: col * (colW + colGap), y: row * 260 },
-        data: { zone, collapsed: collapsedZones.has(zone.zoneId), onOpen: enterSpotlight, onFold: toggleZone },
-        draggable: false,
-      });
-    });
-    if (territory.landing.length > 0) {
-      const landingCol = territory.zones.length % maxPerCol;
-      const landingRow = Math.floor(territory.zones.length / maxPerCol);
-      nodes.push({
-        id: "__landing__",
-        type: "territoryLanding",
-        position: { x: landingCol * (colW + colGap), y: landingRow * 260 },
-        data: { chips: territory.landing, onOpen: enterSpotlight },
-        draggable: false,
-      });
-    }
-    return nodes;
-  }, [territory, collapsedZones, enterSpotlight, toggleZone]);
+    return layoutTerritory({
+      partition: territory,
+      expandedZones,
+      containerWidth,
+      onOpen: enterSpotlight,
+      onFold: toggleZone,
+    }).nodes;
+  }, [territory, expandedZones, containerWidth, enterSpotlight, toggleZone]);
 
   // ---- 聚光灯布局(纯函数:焦点 + 累积集 + 筛选 → 位置) ----
   const spotlight = useMemo(() => {
@@ -297,12 +282,18 @@ function GraphViewInner({
     });
   }, [viewMode, spotlight, filters.kinds, statusVisibleIds]);
 
-  // fitView 只在换焦点 / 换模式时跑 —— 展开、收起、单击都不重排视口(决策 CH1)。
+  // 视口策略(与老版同源):聚光灯 fitView(一屏装下 ego 图);领地**不 fitView** ——
+  // 上千块 fit 进一屏正是「块被压成几像素细横条」的成因,领地以默认视口(zoom 1,
+  // 左上角)打开,块保持可读尺寸,漫游交给 pan/zoom + MiniMap。
   useEffect(() => {
+    if (viewMode === "territory") {
+      const frame = requestAnimationFrame(() => void setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 200 }));
+      return () => cancelAnimationFrame(frame);
+    }
     if (displayNodes.length === 0) return;
     const frame = requestAnimationFrame(() => fitView({ padding: 0.12, duration: 200 }));
     return () => cancelAnimationFrame(frame);
-  }, [canvas.focusId, fitView, viewMode, skel]);
+  }, [canvas.focusId, fitView, setViewport, viewMode, skel]);
 
   // Esc 清选/清边。
   useEffect(() => {
@@ -454,7 +445,7 @@ function GraphViewInner({
         />
       )}
 
-      <div className="flex min-h-0 flex-1 relative">
+      <div ref={canvasHostRef} className="flex min-h-0 flex-1 relative">
         <ReactFlow
           nodes={displayNodes}
           edges={displayEdges}
@@ -470,8 +461,6 @@ function GraphViewInner({
           zoomOnDoubleClick={false}
           nodesDraggable={false}
           nodesConnectable={false}
-          fitView
-          fitViewOptions={{ padding: 0.12 }}
           attributionPosition="bottom-right"
         >
           <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--color-border)" />
@@ -480,7 +469,14 @@ function GraphViewInner({
             data-testid="graph-minimap"
             bgColor="var(--color-surface)"
             nodeColor={(n) => {
-              if (n.type === "territoryZone" || n.type === "territoryLanding") return "var(--color-border)";
+              if (n.type === "territoryZone") return "var(--color-border)";
+              if (n.type === "territoryChip") {
+                const entity = (n.data as any)?.chip?.entity;
+                if (entity === "decision") return "var(--color-axis-authority)";
+                if (entity === "fact") return "var(--color-axis-evidence)";
+                if (entity === "task") return "var(--color-axis-execution)";
+                return "var(--color-border-strong)";
+              }
               const entity = (n.data as any)?.entity;
               if (entity === "decision") return "var(--color-axis-authority)";
               if (entity === "fact") return "var(--color-axis-evidence)";
@@ -499,11 +495,11 @@ function GraphViewInner({
                 <button
                   onClick={() => {
                     const all = new Set(territory?.zones.map((z) => z.zoneId) ?? []);
-                    setCollapsedZones((cur) => (cur.size === all.size ? new Set() : all));
+                    setExpandedZones((cur) => (cur.size === all.size ? new Set() : all));
                   }}
                   className="rounded px-1 font-mono text-[11px] hover:bg-surface"
                 >
-                  {territory && collapsedZones.size === territory.zones.length ? "全部展开" : "全部折叠"}
+                  {territory && expandedZones.size > 0 && expandedZones.size >= territory.zones.length ? "全部折叠" : "全部展开"}
                 </button>
               </div>
             </Panel>

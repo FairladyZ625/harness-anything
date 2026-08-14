@@ -8,6 +8,7 @@ export const guiVitestManifest = [
   "packages/gui/test/terminal-renderer.vitest.ts",
   "packages/gui/test/genealogy.vitest.ts",
   "packages/gui/test/territory.vitest.ts",
+  "packages/gui/test/territory-layout.vitest.ts",
   "packages/gui/test/ego-canvas.vitest.ts",
   "packages/gui/test/territory-progress.vitest.ts",
   "packages/gui/test/graph-colormode.vitest.ts",
