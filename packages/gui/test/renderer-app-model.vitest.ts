@@ -15,8 +15,11 @@ import { rendererCapabilityModel, rendererNavigation } from "../src/renderer/app
 import { GraphView } from "../src/renderer/views/GraphView.tsx";
 import { DecisionPoolView } from "../src/renderer/views/DecisionPoolView.tsx";
 import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
+import { DecisionJudgmentPanel } from "../src/renderer/components/DecisionJudgmentPanel.tsx";
+import { DecisionProposalForm } from "../src/renderer/components/DecisionProposalForm.tsx";
 import { parseTaskContractDocuments, taskDocumentQuery } from "../src/renderer/task-data.ts";
 import { isTaskStartable, settleTaskReceipt } from "../src/renderer/task-actions.ts";
+import { decisionHasReachableEvidence, settleDecisionReceipt } from "../src/renderer/decision-actions.ts";
 
 describe("renderer app model", () => {
   it("keeps the renderer capability model privilege-free", () => {
@@ -167,6 +170,46 @@ describe("renderer app model", () => {
     expect(settled).toMatchObject({ state: "rejected", opId: "op-rejected", code: "invalid_submission", hint: "Completion claim is required." });
   });
 
+  it("settles decision writes once by opId and requires the complete durable worktree proof", async () => {
+    const showReceipt = vi.fn(async () => decisionReceipt({ outcome: "applied", opId: "op-decision" }));
+    const settled = await settleDecisionReceipt(decisionReceipt({ outcome: "pending", opId: "op-decision", nextAction: "receipt show" }), showReceipt);
+
+    expect(showReceipt).toHaveBeenCalledOnce();
+    expect(showReceipt).toHaveBeenCalledWith({ opId: "op-decision" });
+    expect(settled).toMatchObject({
+      state: "applied",
+      opId: "op-decision",
+      receipt: { consentId: "djc_0123456789abcdef0123456789", path: "decisions/decision-dec_test/decision.md", worktreeVisible: true },
+    });
+    expect(await settleDecisionReceipt(decisionReceipt({ worktreeVisible: false }), vi.fn())).toMatchObject({
+      state: "pending",
+      code: "canonical_not_visible",
+    });
+  });
+
+  it("preserves decision rejection origin/code/hint/opId and never resolves it as success", async () => {
+    const settled = await settleDecisionReceipt({
+      schema: "command-receipt/v2", ok: false, command: "decision-accept", outcome: "rejected", opId: "op-reject",
+      code: "judgment_only_rationale_required", origin: "daemon", nextAction: "Provide an independent rationale.",
+      evidence: "rejection:judgment_only_rationale_required",
+      error: { code: "judgment_only_rationale_required", hint: "No reachable claim evidence." },
+    }, vi.fn());
+
+    expect(settled).toMatchObject({ state: "rejected", opId: "op-reject", code: "judgment_only_rationale_required", origin: "daemon", hint: "No reachable claim evidence." });
+  });
+
+  it("requires an active claim-to-evidence edge for non-judgment-only acceptance", () => {
+    const decision = {
+      decisionId: "dec_test", title: "D", state: "proposed", question: "Q", chosen: [], rejected: [],
+      claims: [{ id: "C1", text: "Claim", loadBearing: true, fulfillment: "evidenced" }], judgmentConsents: [],
+    } satisfies DecisionRow;
+    const edge = { from: "decision/dec_test/C1", to: "fact/task_1/F-live", kind: "evidenced-by", direction: "directed", state: "active", provenance: "local-document" } as const;
+
+    expect(decisionHasReachableEvidence(decision, [edge])).toBe(true);
+    expect(decisionHasReachableEvidence(decision, [{ ...edge, state: "retired" }])).toBe(false);
+    expect(decisionHasReachableEvidence(decision, [{ ...edge, from: "decision/dec_test/C2" }])).toBe(false);
+  });
+
   it("allows drag start only for native planned clear active packages", () => {
     const planned: TaskRow = { taskId: "task-1", title: "One", projectId: "p", coordinationStatus: "planned", canonicalStatus: "planned",
       blocking: "clear", rawStatus: "planned/implementation", freshness: "fresh", packageDisposition: "active", closeoutReadiness: "not_required",
@@ -247,17 +290,48 @@ describe("renderer app model", () => {
       question: "Should the GUI use daemon projections?",
       chosen: [],
       rejected: [],
-      claims: []
+      claims: [],
+      judgmentConsents: [],
     };
-    const markup = renderToStaticMarkup(createElement(DecisionPoolView, {
-      decisions: [decision],
-      facts: [],
-      relations: [],
-      focusedDecisionId: decision.decisionId
-    }));
+    const markup = renderToStaticMarkup(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(DecisionPoolView, {
+      decisions: [decision], facts: [], relations: [], focusedDecisionId: decision.decisionId
+    })));
 
     expect(markup).toContain('id="decision-card-dec_gui_smoke"');
     expect(markup).toContain('data-focused="true"');
+  });
+
+  it("renders the exact proposal surface with human-selected risk and urgency", () => {
+    const markup = renderToStaticMarkup(createElement(DecisionProposalForm, {
+      onClose: () => undefined,
+      onSubmit: async () => ({ state: "success", kind: "propose", opId: "op", hint: "ok" }),
+    }));
+
+    for (const field of ["title", "question", "risk · 人选", "urgency · 人选", "decisionClass", "appliesTo.modules", "appliesTo.productLines", "chosen", "rejected", "claims", "fulfillments", "relations", "背景", "权衡", "结论"]) expect(markup).toContain(field);
+    expect(markup.match(/<option value="" disabled="" selected="">请选择<\/option>/gu)).toHaveLength(2);
+  });
+
+  it("opens judgment-only rationale whenever acceptance has no active claim evidence", () => {
+    const decision: DecisionRow = { decisionId: "dec_no_evidence", title: "D", state: "proposed", question: "Q", chosen: [], rejected: [], claims: [], judgmentConsents: [] };
+    const markup = renderToStaticMarkup(createElement(DecisionJudgmentPanel, {
+      decision, relations: [], openRequest: { action: "accept", nonce: 1 },
+      onSubmit: async () => ({ state: "success", kind: "accept", opId: "op", hint: "ok" }),
+    }));
+
+    expect(markup).toContain("judgment-only rationale");
+    expect(markup).toContain("1..199");
+  });
+
+  it("keeps a pending judgment on its card and offers receipt-show without mutation replay", () => {
+    const decision: DecisionRow = { decisionId: "dec_pending", title: "D", state: "proposed", question: "Q", chosen: [], rejected: [], claims: [], judgmentConsents: [] };
+    const markup = renderToStaticMarkup(createElement(DecisionJudgmentPanel, {
+      decision, relations: [], feedback: { state: "pending", kind: "accept", opId: "op-pending", hint: "wait" },
+      onCheckReceipt: () => undefined,
+      onSubmit: async () => ({ state: "success", kind: "accept", opId: "op", hint: "ok" }),
+    }));
+
+    expect(markup).toContain("op-pending");
+    expect(markup).toContain("receipt-show（不重放 mutation）");
   });
 });
 
@@ -286,4 +360,16 @@ function receipt(overrides: Record<string, unknown> = {}) {
     evidence: "event-object:op-applied", visibility: "center", proof: { committedRevision: 8, appliedCut: 8, durable: true, canonicalVisible: true, worktreeVisible: true },
     ...overrides
   };
+}
+
+function decisionReceipt(overrides: Record<string, unknown> = {}) {
+  return receipt({
+    command: "decision-accept",
+    path: "decisions/decision-dec_test/decision.md",
+    commitSha: "a".repeat(40),
+    documentSha256: `sha256:${"b".repeat(64)}`,
+    worktreeVisible: true,
+    consentId: "djc_0123456789abcdef0123456789",
+    ...overrides,
+  });
 }

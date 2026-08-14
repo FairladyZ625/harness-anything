@@ -1,4 +1,4 @@
-import type { RelationType } from "../../api/renderer-dto.ts";
+import type { DecisionProjectionRow, RelationType } from "../../api/renderer-dto.ts";
 
 export type CanonicalStatus =
   | "planned"
@@ -145,11 +145,23 @@ export type Urgency = "low" | "medium" | "high";
 export interface DecisionClaim {
   id: string;
   text: string;
+  /** chosen option rationale; rejected options use whyNot. */
+  rationale?: string;
   /** 沿 relation 可达的支撑 fact 锚（fact/<task>/<id>）。空数组 → 覆盖度不足，风化候选 */
   evidence: string[];
   /** rejected 项必填：为何否决（why_not）。chosen 项可空 */
   whyNot?: string;
 }
+
+export interface DecisionLoadBearingClaim {
+  id: string;
+  text: string;
+  loadBearing: boolean;
+  fulfillment: "evidenced" | "delivered" | "standing_policy" | null;
+}
+
+export type DecisionJudgmentConsent = DecisionProjectionRow["judgmentConsents"][number];
+export type DecisionBody = NonNullable<DecisionProjectionRow["body"]>;
 
 export interface ProvenanceEntry {
   runtime: "claude-code" | "codex" | "antigravity" | "zcode" | string;
@@ -160,12 +172,16 @@ export interface ProvenanceEntry {
 
 export interface DecisionRow {
   decisionId: string;
+  legacyId?: string;
+  path?: string;
   title: string;
   state: DecisionState;
   riskTier?: RiskTier; // 缺失即未知；不得以 UI 默认值合成风险等级
   urgency?: Urgency; // 缺失即未知；不得以 UI 默认值合成紧急等级
   vertical?: string;
   preset?: string;
+  decisionClass?: "ordinary" | "standing_policy";
+  workspaceRevision?: number;
   proposedBy?: { kind: "agent" | "human" | "system"; id: string };
   /** arbiter 必须 ≠ proposedBy（防自证） */
   arbiter?: { kind: "agent" | "human" | "system"; id: string };
@@ -174,7 +190,9 @@ export interface DecisionRow {
   question: string; // 这条决策回答的问题（复现当时场景）
   chosen: DecisionClaim[]; // 决定了什么策略
   rejected: DecisionClaim[]; // ⚠️ 必填非空，每条带 evidence + why_not（否决比选择更重要）
-  claims: { id: string; text: string }[]; // 承重论点（覆盖度查询的锚点）
+  claims: DecisionLoadBearingClaim[]; // 覆盖度只消费 canonical coverageRows,不从 option evidence 猜
+  judgmentConsents: DecisionJudgmentConsent[];
+  body?: DecisionBody | null;
   appliesTo?: { modules: string[]; productLines: string[] };
   /** entity 原文溯源（⚠️ 与 RelationEdge.provenance 同名不同义） */
   provenance?: ReadonlyArray<ProvenanceEntry>;

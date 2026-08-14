@@ -47,6 +47,7 @@ import { useFavorites } from "./model/favorites.ts";
 import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
 import { AgentRuntimeView } from "./views/agent-runtime-view.tsx";
 import { useTaskActions } from "./task-actions.ts";
+import { useDecisionActions } from "./decision-actions.ts";
 
 type ViewId =
   | "home"
@@ -104,6 +105,7 @@ function AppShell() {
   const tasksQuery = useTasksQuery();
   const triadicQuery = useTriadicProjectionQuery();
   const taskActions = useTaskActions();
+  const decisionActions = useDecisionActions();
   const realTasks = useMemo(
     () => adaptProjectionRows(tasksQuery.data?.rows ?? [], tasksQuery.data?.status, {
       relationState: triadicQuery.relationState,
@@ -504,12 +506,10 @@ function AppShell() {
                 tasks={tasks}
                 relations={relations}
                 facts={facts}
-                onTraceSession={(sid) => {
-                  // 原型占位：真实由 coordinator 内置 conversation-mining 导出该 session 原文（E47）
-                  console.log("[prototype] trace session:", sid);
-                }}
-                onDecide={() => undefined}
-                readOnly
+                onJudge={decisionActions.judge}
+                mutationFeedback={(decisionId) => decisionActions.feedback.get(decisionId)}
+                onCheckReceipt={(decisionId) => { void decisionActions.checkReceipt(decisionId); }}
+                relationState={triadicQuery.relationState}
                 onNavigateDecision={navigateToDecision}
                 onNavigateTask={navigateToTask}
                 onFocusGraph={focusEntityInGraph}
@@ -520,6 +520,13 @@ function AppShell() {
                 decisions={decisions}
                 facts={facts}
                 relations={relations}
+                coverageRows={coverageRows}
+                relationState={triadicQuery.relationState}
+                onPropose={decisionActions.propose}
+                proposalFeedback={decisionActions.feedback.get("proposal")}
+                onJudge={decisionActions.judge}
+                mutationFeedback={(decisionId) => decisionActions.feedback.get(decisionId)}
+                onCheckReceipt={(key) => { void decisionActions.checkReceipt(key); }}
                 focusedDecisionId={
                   focusedEntityRef?.startsWith("decision/")
                     ? focusedEntityRef.split("/")[1]

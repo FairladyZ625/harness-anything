@@ -51,6 +51,21 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     const decisions = parseDaemonGuiReadResult("repo.decisions.list", results.get("repo.decisions.list"));
     assert.deepEqual(decisions.decisions.map(({ decisionId }) => decisionId), ["dec_gui_smoke"]);
     const controlled = parseDaemonGuiActionResponse("repo.decision.list", await bridge.invoke("listDecisions", {})); assert.equal(controlled.ok, true); assert.match(String(controlled.evidence), /dec_gui_smoke/u);
+    const proposed = parseDaemonGuiActionResponse("repo.decision.propose", await bridge.invoke("proposeDecision", {
+      title: "Exercise the GUI proposal bridge", question: "Can proposal and judgment settle through the resident daemon?", riskTier: "medium", urgency: "high",
+      vertical: "software/coding", preset: "architecture-decision", decisionClass: "ordinary", appliesTo: { modules: ["gui"], productLines: ["harness"] },
+      chosen: [{ id: "CH1", text: "Use typed GUI facets", rationale: "They preserve the canonical packet" }], rejected: [{ id: "RJ1", text: "Use optimistic history", whyNot: "It is not canonical" }],
+      body: "## 背景\nResident bridge test.\n\n## 权衡\nTyped receipts over local optimism.\n\n## 结论\nUse daemon facets.\n", claims: [], fulfillments: [], relations: []
+    }));
+    assert.equal(proposed.ok, true, JSON.stringify(proposed)); assert.equal(proposed.outcome, "applied"); assert.equal(proposed.worktreeVisible, true); assert.equal(proposed.consentId, null);
+    assert.match(String(proposed.path), /^decisions\/decision-dec_/u); assert.match(String(proposed.commitSha), /^[0-9a-f]{40}$/u); assert.match(String(proposed.documentSha256), /^(?:sha256:)?[0-9a-f]{64}$/u);
+    const proposedEvidence = JSON.parse(String(proposed.evidence)) as { decisionId: string }; assert.match(proposedEvidence.decisionId, /^dec_[0-9A-F]{26}$/u);
+    const accepted = parseDaemonGuiActionResponse("repo.decision.accept", await bridge.invoke("acceptDecision", { decisionId: proposedEvidence.decisionId, rationale: "Independent resident-daemon acceptance.", judgmentOnlyRationale: "No load-bearing claim was declared; explicit human judgment is recorded." }));
+    assert.equal(accepted.ok, true, JSON.stringify(accepted)); assert.equal(accepted.outcome, "applied"); assert.equal(accepted.worktreeVisible, true); assert.match(String(accepted.consentId), /^djc_[0-9a-f]{26}$/u);
+    const acceptedReceipt = parseDaemonGuiActionResponse("repo.receipt.show", await bridge.invoke("showReceipt", { opId: accepted.opId })); assert.equal(acceptedReceipt.outcome, "applied"); assert.equal(acceptedReceipt.consentId, accepted.consentId);
+    const shown = parseDaemonGuiActionResponse("repo.decision.show", await bridge.invoke("showDecision", { decisionId: proposedEvidence.decisionId, includeBody: true })); assert.equal(shown.ok, true); assert.match(String(shown.evidence), new RegExp(String(accepted.consentId), "u"));
+    const afterJudgment = parseDaemonGuiReadResult("repo.decisions.list", await bridge.invoke("getDecisions", null));
+    const canonicalDecision = afterJudgment.decisions.find((decision) => decision.decisionId === proposedEvidence.decisionId); assert.equal(canonicalDecision?.state, "active"); assert.equal(canonicalDecision?.judgmentConsents[0]?.consentId, accepted.consentId);
     const document = parseDaemonGuiReadResult("repo.tasks.document.read", results.get("repo.tasks.document.read"));
     assert.equal(document.body, documentBody); assert.equal(document.path, "notes.md"); assert.equal(document.status, "ready");
     const progress = parseDaemonGuiActionResponse("repo.task.progress.append", await bridge.invoke("appendTaskProgress", { taskId: "task-gui-smoke", executionId, text: "Renderer sent typed progress.", evidence: [{ type: "test", path: "packages/gui/test/service-bridge.test.ts", summary: "resident daemon bridge" }], baseDocumentSha256: null }));

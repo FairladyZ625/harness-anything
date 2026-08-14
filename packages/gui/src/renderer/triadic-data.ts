@@ -91,6 +91,7 @@ const emptyDecisionList: DecisionListSuccess = {
 function adaptRelationRows(rows: ReadonlyArray<RelationGraphEdgeRow>): RelationEdge[] {
   const edges: RelationEdge[] = [];
   for (const row of rows) {
+    if (row.state !== "active") continue;
     if (!isKernelRelationKind(row.relationType)) continue;
     edges.push({
       relationId: row.relationId,
@@ -117,6 +118,7 @@ function adaptDecisionRows(
 ): DecisionRow[] {
   const relationsBySource = new Map<string, string[]>();
   for (const row of relationRows) {
+    if (row.state !== "active") continue;
     if (!row.targetRef.startsWith("fact/")) continue;
     const values = relationsBySource.get(row.sourceRef) ?? [];
     values.push(row.targetRef);
@@ -130,19 +132,26 @@ function adaptDecisionRows(
   }
 
   return rows.map((row) => {
-    const chosen = row.chosen.map((entry) => decisionClaim(row.decisionId, entry.id, entry.text, relationsBySource));
+    const chosen = row.chosen.map((entry) => ({
+      ...decisionClaim(row.decisionId, entry.id, entry.text, relationsBySource),
+      ...(entry.rationale ? { rationale: entry.rationale } : {})
+    }));
     const rejected = row.rejected.map((entry) => ({
       ...decisionClaim(row.decisionId, entry.id, entry.text, relationsBySource),
       whyNot: entry.whyNot
     }));
     return {
       decisionId: row.decisionId,
+      ...(row.legacyId ? { legacyId: row.legacyId } : {}),
+      path: row.path,
       title: row.title,
       state: decisionState(row.state),
       riskTier: row.riskTier,
       urgency: row.urgency,
       vertical: row.vertical,
       preset: row.preset,
+      decisionClass: row.decisionClass,
+      workspaceRevision: row.workspaceRevision,
       proposedBy: actorRef(row.proposer),
       proposedAt: row.proposedAt,
       ...(row.arbiter ? { arbiter: actorRef(row.arbiter) } : {}),
@@ -150,7 +159,9 @@ function adaptDecisionRows(
       question: row.question,
       chosen,
       rejected,
-      claims: row.claims.map((claim) => ({ id: claim.id, text: claim.text })),
+      claims: row.claims.map((claim) => ({ id: claim.id, text: claim.text, loadBearing: claim.loadBearing, fulfillment: claim.fulfillment })),
+      judgmentConsents: row.judgmentConsents.map((consent) => ({ ...consent })),
+      body: row.body ? { ...row.body } : null,
       appliesTo: { modules: [...row.appliesTo.modules], productLines: [...row.appliesTo.productLines] },
       lastChangedAt: row.decidedAt ?? row.proposedAt
     };

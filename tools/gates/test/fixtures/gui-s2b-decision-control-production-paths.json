@@ -1,0 +1,14 @@
+[
+  { "path": "packages/gui/src/renderer/App.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/api-client.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/components/DecisionJudgmentPanel.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/components/DecisionMutationFeedback.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/components/DecisionProposalForm.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/decision-actions.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/model/readiness-signals.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/model/types.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/triadic-data.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/views/DecisionPoolView.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/views/DecisionsView.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/views/decisions-verdict.tsx", "module": "gui" }
+]

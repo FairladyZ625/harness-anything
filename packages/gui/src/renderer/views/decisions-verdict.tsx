@@ -1,15 +1,12 @@
-import { useState } from "react";
 import {
   ArrowSquareOut,
-  CheckCircle,
   WarningCircle,
-  ClockClockwise,
   TreeStructure,
   PaperPlaneTilt,
-  ProhibitInset,
   BugBeetle,
   Robot,
 } from "@phosphor-icons/react";
+import type { RelationCoverageRow } from "../../api/renderer-dto.ts";
 import type {
   DecisionRow,
   DecisionClaim,
@@ -23,7 +20,6 @@ import {
   UrgencyBadge,
 } from "../components/badges";
 import {
-  coverageOf,
   derivedTasks,
   factOf,
   rationaleFor,
@@ -37,6 +33,8 @@ import {
   type SignalColor,
   type ReadinessSignal,
 } from "../model/readiness-signals";
+import { DecisionJudgmentPanel, type JudgmentOpenRequest } from "../components/DecisionJudgmentPanel.tsx";
+import type { DecisionAction, DecisionMutationFeedback } from "../decision-actions.ts";
 
 export { computeReadinessSignals, type SignalColor, type ReadinessSignal };
 
@@ -49,7 +47,7 @@ function SignalLamp({ signal }: { signal: ReadinessSignal }) {
       ? "text-danger"
       : signal.color === "yellow"
         ? "text-stale"
-        : signal.color === "unknown"
+        : signal.color === "unknown" || signal.color === "na"
           ? "text-text-faint"
           : "text-success";
   const dotCls =
@@ -57,7 +55,7 @@ function SignalLamp({ signal }: { signal: ReadinessSignal }) {
       ? "bg-danger"
       : signal.color === "yellow"
         ? "bg-stale"
-        : signal.color === "unknown"
+        : signal.color === "unknown" || signal.color === "na"
           ? "bg-text-faint"
           : "bg-success";
   return (
@@ -66,25 +64,9 @@ function SignalLamp({ signal }: { signal: ReadinessSignal }) {
       title={signal.summary}
     >
       <span className={`size-1.5 rounded-full ${dotCls} ${signal.color !== "green" ? "animate-pulse" : ""}`} />
-      {signal.label}
+      {signal.label}{signal.color === "na" ? " · N/A" : ""}
     </span>
   );
-}
-
-/** mock 的 coordinator 结构化拒因(冲突标记红灯 accept 时渲染,E52 R3) */
-function buildConflictRejection(d: DecisionRow): { code: string; reason: string; detail: string[] } {
-  const conflict = d.readinessSignals?.conflictMarker;
-  return {
-    code: "E_CONFLICT_MARKER",
-    reason: `accept 被 coordinator 前置预检拒绝:findConflictMarkers 命中该 decision 包`,
-    detail: conflict
-      ? [
-          `conflictingEntity: ${conflict.conflictingEntity}`,
-          `summary: ${conflict.summary}`,
-          `action: 先解决 ${conflict.conflictingEntity} 的并发修改冲突,重新 propose 或 amend`,
-        ]
-      : ["action: 解决并发冲突后重试"],
-  };
 }
 
 /**
@@ -211,24 +193,29 @@ export function VerdictCard({
   facts,
   tasks,
   relations,
-  onTrace,
   onCallAgent,
-  onDecide,
+  onJudge,
+  mutationFeedback,
+  onCheckReceipt,
+  openRequest,
   onInspectFact,
-  readOnly = false,
+  coverageRows = [],
+  relationState = "ready",
 }: {
   d: DecisionRow;
   decisions: DecisionRow[];
   facts: FactRef[];
   tasks: TaskRow[];
   relations: RelationEdge[];
-  onTrace: (sessionId: string) => void;
   onCallAgent?: (cmd: string) => void;
-  onDecide: (id: string, action: "accept" | "reject" | "defer") => void;
+  onJudge: (decision: DecisionRow, action: DecisionAction, input: { readonly rationale: string; readonly judgmentOnlyRationale?: string }) => Promise<DecisionMutationFeedback>;
+  mutationFeedback?: DecisionMutationFeedback;
+  onCheckReceipt?: () => void;
+  openRequest?: JudgmentOpenRequest;
   onInspectFact: (factRef: string) => void;
-  readOnly?: boolean;
+  coverageRows?: ReadonlyArray<RelationCoverageRow>;
+  relationState?: "ready" | "loading" | "error";
 }) {
-  const cov = coverageOf(d, facts);
   const selfArb = d.proposedBy?.id === d.arbiter?.id;
   const derived = derivedTasks(d, relations, tasks);
   const chain = supersedeChain(d, relations);
@@ -237,24 +224,10 @@ export function VerdictCard({
   const quickHint = d.riskTier === "low";
 
   // 决策就绪信号灯(41 §3.1a)
-  const signals = computeReadinessSignals(d, facts);
+  const signals = computeReadinessSignals(d, facts, coverageRows, relationState);
   const worst = worstColor(signals);
-  const hasAlert = worst !== "green";
-  const conflictSignal = signals.find((s) => s.id === "conflict-marker" && s.color === "red");
-
-  // 本会话态:冲突红灯 accept 被拒后的拒因渲染(不推进队列,卡片保留)
-  const [rejection, setRejection] = useState<{ code: string; reason: string; detail: string[] } | null>(null);
-
-  const handleAccept = () => {
-    if (readOnly) return;
-    if (conflictSignal) {
-      // 冲突标记红灯:coordinator 前置预检拒绝(E52 R3)——渲染结构化拒因,不静默失败、不用 alert
-      setRejection(buildConflictRejection(d));
-      return;
-    }
-    // accept 成功:派生回写提示由父级 handleDecide 记入处理历史(本卡会出队,无法承载提示)
-    onDecide(d.decisionId, "accept");
-  };
+  const hasAlert = worst === "red" || worst === "yellow" || worst === "unknown";
+  const coverage = signals.find((signal) => signal.id === "coverage")!;
 
   return (
     <div className="rounded-lg border border-border bg-surface p-4">
@@ -324,10 +297,10 @@ export function VerdictCard({
         >
           <div className="flex items-center gap-1 font-semibold">
             {worst === "red" ? <BugBeetle weight="bold" className="text-[12px]" /> : <WarningCircle weight="bold" className="text-[12px]" />}
-            {worst === "red" ? "红灯:决策批准前必须核查(承重风险)" : "黄灯:决策批准前建议核查"}
+            {worst === "red" ? "红灯:决策批准前必须核查(承重风险)" : worst === "unknown" ? "Unknown:缺字段不作绿灯" : "黄灯:决策批准前建议核查"}
           </div>
           <ul className="mt-1 space-y-0.5 pl-4">
-            {signals.filter((s) => s.color !== "green").map((s) => (
+            {signals.filter((s) => s.color !== "green" && s.color !== "na").map((s) => (
               <li key={s.id} className="flex gap-1">
                 <span className={`shrink-0 ${s.color === "red" ? "text-danger" : "text-stale"}`}>●</span>
                 <span className="font-mono text-[10px]">{s.label}:</span>
@@ -357,20 +330,10 @@ export function VerdictCard({
       <ClaimList title="chosen" items={d.chosen} tone="chosen" facts={facts} relations={relations} onInspectFact={onInspectFact} />
       <ClaimList title="rejected" items={d.rejected} tone="rejected" facts={facts} relations={relations} onInspectFact={onInspectFact} />
 
-      {/* 覆盖度:承重论点 → 活 fact 可达(布尔,非分数) */}
+      {/* 覆盖度只消费 canonical coverageRows；不从 option evidence 猜。 */}
       <div className="mt-2 flex items-center gap-2 text-[11px]">
         <span className="text-text-faint">覆盖度</span>
-        {cov.total === 0 ? (
-          <span className="text-text-faint">无承重论点</span>
-        ) : cov.covered === cov.total ? (
-          <span className="inline-flex items-center gap-1 text-success">
-            <CheckCircle weight="bold" /> {cov.covered}/{cov.total} 论点有可达 evidence
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1 text-stale">
-            <WarningCircle weight="bold" /> {cov.covered}/{cov.total} · 缺 {cov.gaps.join(", ")}
-          </span>
-        )}
+        <span className={coverage.color === "green" ? "text-success" : coverage.color === "red" ? "text-danger" : "text-text-faint"}>{coverage.color === "na" ? "N/A · " : ""}{coverage.summary}</span>
       </div>
 
       {/* ④ relation 上下游:派生 task + supersede 链(P2 loop) */}
@@ -409,11 +372,10 @@ export function VerdictCard({
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
         <span className="text-text-faint">provenance:</span>
         {d.provenance?.map((p) => (
-          <button
+          <button disabled
             key={p.sessionId}
-            onClick={() => onTrace(p.sessionId)}
-            className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-px font-mono text-[11px] text-accent hover:bg-surface-raised"
-            title={`runtime: ${p.runtime}\nsessionId: ${p.sessionId}\nboundAt: ${dateLabel(p.boundAt)}`}
+            className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-px font-mono text-[11px] text-text-faint opacity-70"
+            title={`E47 disabled:renderer 暂无 session 原文 IPC。runtime: ${p.runtime}; sessionId: ${p.sessionId}; boundAt: ${dateLabel(p.boundAt)}`}
           >
             <ArrowSquareOut weight="bold" className="text-[11px]" />
             {p.runtime}:{p.sessionId.slice(0, 8)}…
@@ -426,57 +388,7 @@ export function VerdictCard({
         proposedAt: {dateLabel(d.proposedAt)} · lastChanged: {dateLabel(d.lastChangedAt)}
       </div>
 
-      {/* 三操作视觉等权:accept 给 accent,但 reject/defer 同尺寸同可达,不藏菜单(反模式清单②) */}
-      <div className="mt-3 flex gap-2 border-t border-border pt-3">
-        <button
-          onClick={handleAccept}
-          disabled={readOnly}
-          title={readOnly ? "只读 API 已接入；决策批准写面不在本切片" : "Accept"}
-          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-accent-fg hover:bg-accent/90"
-        >
-          <CheckCircle weight="bold" className="text-[13px]" />
-          Accept
-        </button>
-        <button
-          onClick={() => {
-            if (!readOnly) onDecide(d.decisionId, "reject");
-          }}
-          disabled={readOnly}
-          title={readOnly ? "只读 API 已接入；决策批准写面不在本切片" : "Reject"}
-          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[12px] font-semibold text-text hover:border-danger/50 hover:bg-danger/5 hover:text-danger"
-        >
-          <ProhibitInset weight="bold" className="text-[13px]" />
-          Reject
-        </button>
-        <button
-          onClick={() => {
-            if (!readOnly) onDecide(d.decisionId, "defer");
-          }}
-          disabled={readOnly}
-          title={readOnly ? "只读 API 已接入；决策批准写面不在本切片" : "Defer"}
-          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[12px] font-semibold text-text hover:border-stale/50 hover:bg-stale/5 hover:text-stale"
-        >
-          <ClockClockwise weight="bold" className="text-[13px]" />
-          Defer
-        </button>
-      </div>
-
-      {/* 冲突红灯 accept 被拒后的结构化拒因渲染(E52 R3:coordinator 前置预检拒,非 alert) */}
-      {rejection && (
-        <div className="mt-2 rounded-md border border-danger/40 bg-danger/10 p-2.5 font-mono text-[11px] text-danger">
-          <div className="flex items-center justify-between">
-            <span className="font-semibold">✗ accept 被拒绝重来(coordinator 预检)</span>
-            <button onClick={() => setRejection(null)} className="text-danger/70 hover:text-danger">✕</button>
-          </div>
-          <div className="mt-1">code: {rejection.code}</div>
-          <div>{rejection.reason}</div>
-          <div className="mt-1 space-y-0.5 text-danger/80">
-            {rejection.detail.map((line, i) => (
-              <div key={i}>· {line}</div>
-            ))}
-          </div>
-        </div>
-      )}
+      <DecisionJudgmentPanel decision={d} relations={relations} feedback={mutationFeedback} openRequest={openRequest} onSubmit={onJudge} onCheckReceipt={onCheckReceipt} />
 
       {/* "呼叫 Agent 核查"动作(41 §3.1a):
           全绿 → 低调次级链接(直接决策批准才是正当主路径);

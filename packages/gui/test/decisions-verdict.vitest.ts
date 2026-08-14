@@ -1,68 +1,98 @@
 // harness-test-tier: integration
 import { describe, expect, it } from "vitest";
-import type { DecisionRow } from "../src/renderer/model/types.ts";
+import type { RelationCoverageRow } from "../src/api/renderer-dto.ts";
+import type { DecisionRow, FactRef } from "../src/renderer/model/types.ts";
 import { computeReadinessSignals } from "../src/renderer/views/decisions-verdict.tsx";
 
 function dec(overrides: Partial<DecisionRow> = {}): DecisionRow {
   return {
     decisionId: "dec_1", title: "D1", state: "proposed", question: "Q?",
     riskTier: "medium", urgency: "medium",
-    chosen: [{ id: "CH1", text: "c", evidence: [] }], rejected: [],
-    claims: [{ id: "CH1", text: "c" }],
+    chosen: [{ id: "CH1", text: "c", evidence: ["fact/task_1/F-live"] }], rejected: [],
+    claims: [{ id: "CH1", text: "c", loadBearing: true, fulfillment: "evidenced" }],
     proposedAt: "2026-08-01T00:00:00.000Z",
+    judgmentConsents: [],
     ...overrides,
-  } as DecisionRow;
+  };
 }
 
-describe("readiness signal unknown state (UNKNOWN-001 验收硬项)", () => {
-  it("shows applies-to-drift as unknown when readinessSignals is absent", () => {
-    const signals = computeReadinessSignals(dec(), []);
-    const drift = signals.find((s) => s.id === "applies-to-drift")!;
-    expect(drift.color).toBe("unknown");
-  });
+function fact(anchor: string, invalidated = false): FactRef {
+  return {
+    anchor,
+    taskId: anchor.split("/")[0] ?? "task_1",
+    category: "finding",
+    text: anchor,
+    at: "2026-08-01T00:00:00.000Z",
+    confidence: "high",
+    invalidated,
+  };
+}
 
-  it("shows conflict-marker as unknown when readinessSignals is absent", () => {
-    const signals = computeReadinessSignals(dec(), []);
-    const conflict = signals.find((s) => s.id === "conflict-marker")!;
-    expect(conflict.color).toBe("unknown");
-  });
+function coverage(overrides: Partial<RelationCoverageRow> = {}): RelationCoverageRow {
+  return {
+    decisionRef: "decision/dec_1",
+    claimRef: "decision/dec_1/CH1",
+    status: "covered",
+    fulfillment: "evidenced",
+    coveringFactRef: "fact/task_1/F-live",
+    refutingFactRefs: [],
+    relationPath: ["rel_evidence"],
+    basisRevision: 12,
+    ...overrides,
+  };
+}
 
-  it("shows applies-to-drift as yellow when drift is present", () => {
-    const signals = computeReadinessSignals(dec({
+const signal = (
+  decision: DecisionRow,
+  facts: FactRef[],
+  rows: RelationCoverageRow[],
+  id: "evidence-liveness" | "applies-to-drift" | "coverage" | "conflict-marker",
+  graphState: "ready" | "loading" | "error" = "ready",
+) => computeReadinessSignals(decision, facts, rows, graphState).find((item) => item.id === id)!;
+
+describe("decision readiness uses canonical coverage and explicit unknowns", () => {
+  it("keeps drift and conflict unknown even when legacy local hints claim green or red", () => {
+    const decision = dec({
       readinessSignals: {
         appliesToDrift: { docs: ["doc.md"], lastCommitAt: "2026-08-10" },
+        conflictMarker: { summary: "local guess", conflictingEntity: "dec_2" },
       },
-    }), []);
-    const drift = signals.find((s) => s.id === "applies-to-drift")!;
-    expect(drift.color).toBe("yellow");
+    });
+
+    expect(signal(decision, [], [], "applies-to-drift").color).toBe("unknown");
+    expect(signal(decision, [], [], "conflict-marker").color).toBe("unknown");
   });
 
-  it("shows conflict-marker as red when conflict is present", () => {
-    const signals = computeReadinessSignals(dec({
-      readinessSignals: {
-        conflictMarker: { summary: "merge conflict", conflictingEntity: "dec_2" },
-      },
-    }), []);
-    const conflict = signals.find((s) => s.id === "conflict-marker")!;
-    expect(conflict.color).toBe("red");
+  it("renders no load-bearing claims as gray N/A instead of green", () => {
+    const decision = dec({ claims: [{ id: "CH1", text: "c", loadBearing: false, fulfillment: null }] });
+
+    expect(signal(decision, [], [], "evidence-liveness").color).toBe("na");
+    expect(signal(decision, [], [], "coverage").color).toBe("na");
   });
 
-  it("shows green only when readinessSignals explicitly has no drift/conflict", () => {
-    const signals = computeReadinessSignals(dec({
-      readinessSignals: {},
-    }), []);
-    const drift = signals.find((s) => s.id === "applies-to-drift")!;
-    const conflict = signals.find((s) => s.id === "conflict-marker")!;
-    expect(drift.color).toBe("green");
-    expect(conflict.color).toBe("green");
+  it("uses coverageRows rather than guessing coverage from option evidence", () => {
+    const decision = dec();
+    const live = fact("task_1/F-live");
+
+    expect(signal(decision, [live], [], "coverage").color).toBe("unknown");
+    expect(signal(decision, [live], [coverage()], "coverage").color).toBe("green");
+    expect(signal(decision, [live], [coverage({ status: "uncovered", coveringFactRef: undefined })], "coverage").color).toBe("red");
   });
 
-  it("unknown signals never use green/success color", () => {
-    const signals = computeReadinessSignals(dec(), []);
-    for (const s of signals) {
-      if (s.color === "unknown") {
-        expect(s.color).not.toBe("green");
-      }
-    }
+  it("marks missing graph/fact projection unknown and invalidated evidence yellow", () => {
+    const decision = dec();
+
+    expect(signal(decision, [], [coverage()], "evidence-liveness", "loading").color).toBe("unknown");
+    expect(signal(decision, [], [coverage()], "evidence-liveness").color).toBe("unknown");
+    expect(signal(decision, [fact("task_1/F-live", true)], [coverage()], "evidence-liveness").color).toBe("yellow");
+  });
+
+  it("treats live covering and refuting fact references as a known liveness check", () => {
+    const decision = dec();
+    const row = coverage({ refutingFactRefs: ["fact/task_1/F-refute"] });
+    const liveness = signal(decision, [fact("task_1/F-live"), fact("task_1/F-refute")], [row], "evidence-liveness");
+
+    expect(liveness.color).toBe("green");
+    expect(liveness.summary).toContain("basisRevision 12");
   });
 });
