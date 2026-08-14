@@ -112,3 +112,8 @@ test("task surface fixture bills CLI, daemon, GUI, kernel, and preset seams to t
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/task-surface-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
+
+test("decision surface fixture bills CLI, daemon, Decision/Fact, and kernel seams to their ratcheted buckets", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/decision-surface-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});

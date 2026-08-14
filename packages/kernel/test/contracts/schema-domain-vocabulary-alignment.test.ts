@@ -24,7 +24,7 @@ test("domain status constants are accepted by the schema registry", () => {
 });
 
 test("Decision event state vocabulary uses the canonical authored active state", () => {
-  assert.deepEqual(decisionStates, ["proposed", "active", "rejected", "deferred", "retired"]);
+  assert.deepEqual(decisionStates, ["proposed", "active", "rejected", "deferred", "superseded", "retired"]);
   assert.equal(decisionStates.includes("accepted" as never), false);
 });
 

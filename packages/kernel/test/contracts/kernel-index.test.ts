@@ -19,6 +19,7 @@ test("kernel public source index is importable by the explicit TS test runner", 
     "active",
     "rejected",
     "deferred",
+    "superseded",
     "retired"
   ]);
   assert.equal("LifecycleEngine" in kernel, false);
