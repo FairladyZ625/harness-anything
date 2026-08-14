@@ -19,7 +19,7 @@ export interface EntityFieldContract {
   readonly reason?: string;
 }
 
-export type DecisionFieldKey = keyof DecisionProposalPayload | "schema" | "decisionId" | "state" | "proposer" | "arbiter" | "claims" | "relations" | "body";
+export type DecisionFieldKey = keyof DecisionProposalPayload | "schema" | "decisionId" | "state" | "proposer" | "arbiter" | "claims" | "relations" | "judgmentConsents" | "body";
 export type TaskFieldKey = keyof TaskFrontmatter;
 export type FactFieldKey = Exclude<keyof FactEventPayload, "factsDocumentClaim"> | "factId";
 export type RelationFieldKey = keyof EntityRelationRecord;
@@ -36,12 +36,13 @@ export const decisionFieldContracts = {
   appliesTo: immutable("scope changes require a new Decision", projection("appliesTo", false), show("decision.appliesTo")),
   decisionClass: immutable("classification never grants consent", show("decision.decisionClass")),
   proposer: immutable("proposal actor is canonical event provenance", show("decision.proposer")),
-  arbiter: lifecycle("outcome events bind an independent arbiter", [lifecycleWrite("decision-accept/reject/defer")], show("decision.arbiter")),
+  arbiter: lifecycle("outcome events bind a transport arbiter; agents cannot judge their own proposal", [lifecycleWrite("decision-accept/reject/defer")], show("decision.arbiter")),
   question: immutable("changing the core question changes the decision identity; use supersede", projection("question", true), show("decision.question")),
   chosen: immutable("proposal choices do not change", projection("chosen", false), show("decision.chosen")),
   rejected: immutable("proposal rejections do not change", projection("rejected", false), show("decision.rejected")),
   claims: amendable([amendWrite("append"), amendWrite("metadata")], show("decision.claims")),
   relations: amendable([amendWrite("append"), amendWrite("metadata")], show("decision.relations")),
+  judgmentConsents: lifecycle("outcome events append content-pinned consent", [lifecycleWrite("decision-accept/reject/defer")], show("decision.judgmentConsents")),
   body: amendable([amendWrite("append")], show("decision.body"))
 } satisfies Record<DecisionFieldKey, EntityFieldContract>;
 
