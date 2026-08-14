@@ -2,7 +2,7 @@ import { TextDecoder } from "node:util";
 import { sha256Text, stableStringify } from "../../../kernel/src/index.ts";
 
 export const FLEET_FRAME_BYTES = 96 * 1024, FLEET_CHUNK_BYTES = 64 * 1024, FLEET_PAGE_ROWS = 128;
-export type FleetCut = Readonly<{ revision: number; commitSha: string; headDigest: string }>;
+export type FleetCut = Readonly<{ revision: number; headDigest: string }>;
 export type FleetBlob = Readonly<{ sha256: string; size: number; mediaType: string }>;
 export type FleetDescriptor = FleetBlob & Readonly<{ ref: string }>;
 export interface FleetAssignmentScope { readonly repoId: string; readonly taskId: string; readonly executionId: string; readonly paths: readonly string[] }
@@ -50,7 +50,7 @@ const shape = (fields: Readonly<Record<string, Check>>): Check => (value) => rec
 const array = (check: Check, maximum = FLEET_PAGE_ROWS): Check => (value) => Array.isArray(value) && value.length <= maximum && value.every(check);
 const logicalPath: Check = (value) => typeof value === "string" && value === value.normalize("NFC") && value.length <= 512 && !value.startsWith("/") && !value.includes("\\") && value.split("/").every((part) => part.length > 0 && part !== "." && part !== "..");
 const base64: Check = (value) => typeof value === "string" && value.length > 0 && Buffer.from(value, "base64").byteLength <= FLEET_CHUNK_BYTES && Buffer.from(value, "base64").toString("base64") === value;
-const cut = shape({ revision: uint, commitSha: sha40, headDigest: (value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value) });
+const cut = shape({ revision: uint, headDigest: (value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value) });
 const blob = shape({ sha256: sha64, size: uint, mediaType: text }), descriptor = shape({ ref: (value) => typeof value === "string" && /^doc-sync-claims\/[A-Za-z0-9_-]{1,96}$/u.test(value), sha256: sha64, size: uint, mediaType: text });
 const manifest = shape({ digest: sha64, entryCount: uint, totalBytes: uint }), entry = shape({ path: logicalPath, blob }), put = shape({ op: one("put"), path: logicalPath, blob }), del = shape({ op: one("delete"), path: logicalPath });
 const docChange = shape({ path: logicalPath, baseBlobSha256: nullable(sha64), policyId: text, candidate: descriptor });

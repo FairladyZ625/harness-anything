@@ -24,6 +24,17 @@ test("task/doc reducers share one SQLite transaction and L2 rebuild restores exa
   });
 });
 
+test("replica basis returns one exact L2 manifest and only post-cut applied events", async () => {
+  await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir }), projection = makeTaskProjection({ rootDir, eventStore }), body = "# Replica\n", hash = sha256Text(body), base = eventStore.currentCommit();
+    const event: DocEventV1 = { schema: "doc-event/v1", eventId: "replica-event", workspaceRevision: 1, opId: "replica-op", type: "documents_written", actor: { principal: { personId: "person-1" }, executor: null }, source: "local", occurredAt: "2026-08-14T00:00:00.000Z", payload: { executionId: null, baseLedgerSha: base, changes: [{ path: "context/replica.md", baseBlobSha256: null, candidate: { sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" }, policyId: DOC_POLICY_ID, regionProofs: [{ regionId: "heading/replica", policyId: DOC_POLICY_ID, codecId: DOC_CODEC_ID, baseSha256: sha256Text(""), candidateSha256: hash, insertBytes: Buffer.byteLength(body) }] }] } }, plan = docSyncWritePlan(event);
+    eventStore.append({ event, plan, blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }] });
+    assert.deepEqual(projection.readReplicaBasis(null), { watermark: 0, sourceRevision: 1, headEvent: null, events: [], documents: [] });
+    projection.apply(event, plan);
+    assert.deepEqual(projection.readReplicaBasis(null), { watermark: 1, sourceRevision: 1, headEvent: event, events: [], documents: [{ path: "context/replica.md", blobSha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" }] });
+    assert.deepEqual(projection.readReplicaBasis(0).events, [event]);
+  });
+});
+
 test("steady apply and rebuild use the same reducer and reproduce watermark, op index, lease intervals", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);

@@ -10,6 +10,7 @@ import { openDocSyncWatcher, type DocSyncWatcher } from "./doc-sync-watcher.ts";
 import type { AgentRuntimeAttachEvent, AgentRuntimeAttachSubscription, AgentRuntimeNativeSignal, AgentRuntimeWitnessBinding, AgentRuntimeWitnessToken } from "./agent-runtime-stream.ts";
 export interface DaemonHost {
   readonly run: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => Promise<WriteReceipt>; readonly presetRun: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => ReturnType<RepoCell["presetRun"]>;
+  readonly replica: (repoId: string) => RepoCell["replica"];
   readonly read: <M extends DaemonGuiReadMethod>(repoId: string, method: M, payload: Readonly<Record<string, unknown>>, auth: DaemonAuthenticationContext) => Promise<DaemonGuiReadResultMap[M]>;
   readonly attach: (repoId: string, runtimeSessionId: string, afterCursor: string, auth: DaemonAuthenticationContext) => Promise<AgentRuntimeAttachSubscription>;
   readonly issueRuntimeWitness: (repoId: string, runtimeSessionId: string, auth: DaemonAuthenticationContext) => Promise<AgentRuntimeWitnessToken>; readonly bindRuntimeWitness: (repoId: string, token: string) => AgentRuntimeWitnessBinding; readonly publishRuntimeWitness: (repoId: string, token: string, signal: AgentRuntimeNativeSignal) => AgentRuntimeAttachEvent;
@@ -57,6 +58,7 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
       try { return await cell.run(action, await binding(cell.status().rootDir, auth, commandClassForAction(action.kind), action.kind === "doc-submit")); }
       catch (error) { return reject(action, code(error), consumeKnownError(error)); }
     },
+    replica: (repoId) => requiredCell(cells, unavailable, repoId).replica,
     presetRun: async (repoId, action, auth) => { const cell = cells.get(repoId), missing = unavailable.get(repoId), recoveryRunId = recoverableRunId(action); if (!cell) { if (missing && recoveryRunId) try { await binding(missing.rootDir, auth, commandClassForAction(action.kind)); return recoverPresetRunStatus({ rootDir: missing.rootDir, userRoot: presetUserRoot(missing.rootDir) }, recoveryRunId); } catch (error) { return rejectPresetRun(recoveryRunId, code(error), consumeKnownError(error)); } return rejectPresetRun("run_invalid", missing ? "repo_unavailable" : "repo_namespace_unknown", missing?.lastError ?? `Unknown repo namespace: ${repoId}.`); } try { return await cell.presetRun(action, await binding(cell.status().rootDir, auth, commandClassForAction(action.kind))); } catch (error) { return rejectPresetRun(typeof action.runId === "string" ? action.runId : "run_invalid", code(error), consumeKnownError(error)); } },
     read: async (repoId, method, payload, auth) => { const cell = cells.get(repoId);
       if (!cell) throw hostCodedError(unavailable.has(repoId) ? "repo_unavailable" : "repo_namespace_unknown", unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`);

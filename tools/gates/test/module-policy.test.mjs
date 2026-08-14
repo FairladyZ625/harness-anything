@@ -72,3 +72,8 @@ test("Fleet Slice 1 fixture isolates transport production from daemon seams", ()
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/fleet-slice-1-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
+
+test("W5 R1 fixture assigns replica cut production paths to their ratcheted buckets", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/w5-r1-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});

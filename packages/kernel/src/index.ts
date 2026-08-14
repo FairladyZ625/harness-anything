@@ -13,7 +13,7 @@ export { presetSnapshotUpgradeWritePlan, validatePresetSnapshotUpgradeEvent } fr
 export type { PresetSnapshotUpgradeBundle, PresetSnapshotUpgradeEventV1 } from "./domain/preset-snapshot-upgrade-event.ts";
 export { compileTaskProgress, isTaskProgressEvent } from "./domain/task-progress-event.ts";
 export type { TaskProgressEvidence, TaskProgressEventV1 } from "./domain/task-progress-event.ts";
-export { assertCurrentWriter, bindWriterGenerationToken, createWriteReceipt, normalizeCommandEnvelope, WRITE_RECEIPT_SCHEMA } from "./domain/write-chain.contract.ts";
+export { assertCurrentWriter, bindWriterGenerationToken, createWriteReceipt, normalizeCommandEnvelope, serializeEventHead, WRITE_RECEIPT_SCHEMA } from "./domain/write-chain.contract.ts";
 export type { ActorIdentity, DocSyncReceiptDetail, FrozenWritePlan, WriteOperationReceipt, WriteReceipt, WriteSource, WriteTarget, WriterGeneration, WriterGenerationToken } from "./domain/write-chain.contract.ts";
 export { parseVerticalScriptAction, parseVerticalScriptPlan, parseVerticalScriptResult } from "./domain/vertical-script-action.ts"; export type { VerticalScriptActionV1, VerticalScriptChangeV1, VerticalScriptPlanV1, VerticalScriptResultV1 } from "./domain/vertical-script-action.ts";
 export { DOC_POLICY_ID, decideDocWrite, docSyncWritePlan, documentPath, isDocEvent, isTaskEvent, parseDocWriteIntent, resolveDocRoute } from "./domain/doc-sync.contract.ts";
@@ -63,11 +63,12 @@ export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export * from "./schemas/docmap.ts";
 export {
+  canonicalDocumentClaims,
   makeTaskEventStore,
   makeTaskProjection,
   makeMarkdownArtifactStore
 } from "./composition/index.ts";
-export type { CanonicalEventStore, CanonicalWriteBundle, EventPublicationKillpoint, TaskProjection } from "./composition/index.ts";
+export type { CanonicalEventStore, CanonicalWriteBundle, EventPublicationKillpoint, ReplicaProjectionBasis, TaskProjection } from "./composition/index.ts";
 export {
   readDaemonRegistry,
   resolveDaemonRepoByRoot,

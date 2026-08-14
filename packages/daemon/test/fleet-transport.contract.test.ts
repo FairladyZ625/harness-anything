@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { FLEET_CHUNK_BYTES, FLEET_FRAME_BYTES, FleetContractError, FleetUtf8LineDecoder, parseFleetFrame, serializeFleetFrame } from "../src/fleet/contract.ts";
 
-const cut = { revision: 7, commitSha: "a".repeat(40), headDigest: `sha256:${"b".repeat(64)}` } as const;
+const cut = { revision: 7, headDigest: `sha256:${"b".repeat(64)}` } as const;
 const blob = { sha256: "c".repeat(64), size: 3, mediaType: "text/markdown" } as const;
 const frames = [
   { schema: "fleet.session.hello/v1", messageId: "m1", protocolVersion: 1, nodeId: "node-1", credential: "secret" },
@@ -41,6 +41,7 @@ test("Fleet codec rejects unknown provenance, nested fields, malformed values, a
     { ...frames[12], entries: Array.from({ length: 129 }, (_, index) => ({ path: `tasks/task/${index}.md`, blob })) },
     { ...frames[13], dataBase64: Buffer.alloc(FLEET_CHUNK_BYTES + 1).toString("base64") },
     { ...frames[12], entries: [{ path: "../escape", blob }] },
+    { ...frames[10], cut: { ...cut, commitSha: "a".repeat(40) } },
     { ...frames[0], schema: "fleet.unknown/v1" }
   ]) assert.throws(() => parseFleetFrame(invalid), FleetContractError);
   assert.throws(() => parseFleetFrame(`{"schema":"fleet.session.hello/v1","messageId":"m","protocolVersion":1,"nodeId":"n","credential":"${"x".repeat(FLEET_FRAME_BYTES)}"}`), /frame exceeds/u);
