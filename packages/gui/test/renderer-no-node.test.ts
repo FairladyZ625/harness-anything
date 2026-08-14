@@ -15,6 +15,7 @@ test("renderer model has no Node or Electron privileged surface", () => {
     "detail",
     "doc-viewer",
     "review-queue",
+    "execution-evidence",
     "graph"
   ]);
 });

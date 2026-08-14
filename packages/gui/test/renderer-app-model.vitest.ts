@@ -38,6 +38,7 @@ describe("renderer app model", () => {
       "detail",
       "doc-viewer",
       "review-queue",
+      "execution-evidence",
       "graph"
     ]);
   });
