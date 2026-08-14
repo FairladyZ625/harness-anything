@@ -17,11 +17,6 @@ import {
   Package,
 } from "@phosphor-icons/react";
 import type { SnapshotStatus } from "./model/types.ts";
-import {
-  MOCK_PRESETS,
-  MOCK_ADAPTERS,
-  MOCK_EVENTS,
-} from "./model/mock.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
@@ -34,16 +29,17 @@ import { EntityWorkspace } from "./components/EntityWorkspace.tsx";
 import { PresetsView } from "./views/PresetsView.tsx";
 import { AdaptersView } from "./views/AdaptersView.tsx";
 import { SettingsView } from "./views/SettingsView.tsx";
+import { SystemView } from "./views/SystemView.tsx";
 import { TaskDetailView } from "./views/TaskDetailView.tsx";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
-import { ThemeToggle, NavButton, ProjectSummary, MockViewBanner } from "./components/shell-chrome.tsx";
+import { ThemeToggle, NavButton, ProjectSummary } from "./components/shell-chrome.tsx";
 import { CommandPalette, buildPaletteIndex } from "./components/CommandPalette.tsx";
 import {
   DEFAULT_TASK_FILTERS,
   applyTaskFilters,
   type TaskFilters,
 } from "./model/taskFilters.ts";
-import { adaptProjectionRows, buildRealProject } from "./task-adapter.ts";
+import { adaptProjectionRows } from "./task-adapter.ts";
 import { taskQueryKeys, useTasksQuery } from "./task-data.ts";
 import { useTriadicProjectionQuery } from "./triadic-data.ts";
 import { useFavorites } from "./model/favorites.ts";
@@ -51,6 +47,9 @@ import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
 import { AgentRuntimeView } from "./views/agent-runtime-view.tsx";
 import { useTaskActions } from "./task-actions.ts";
 import { useDecisionActions } from "./decision-actions.ts";
+import { selectActiveRepoId, useSystemStatusQuery } from "./system-data.ts";
+import { useCatalogSnapshot } from "./catalog-data.ts";
+import { adaptRepoProject } from "./model/project-adapter.ts";
 
 type ViewId =
   | "home"
@@ -64,14 +63,8 @@ type ViewId =
   | "presets"
   | "adapters"
   | "agents"
+  | "system"
   | "settings";
-
-// 这些视图的数据仍为 mock:preset/adapter 管理面无真实后端。进入时顶部显式挂 MOCK 横幅。
-const MOCK_BACKED_VIEWS: ReadonlySet<ViewId> = new Set([
-  "home",
-  "presets",
-  "adapters",
-]);
 
 // W2C:列表并入看板(第三种 layout),独立「列表」入口删除。
 const WORKSPACE_NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
@@ -88,6 +81,7 @@ const MANAGE_NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
   { id: "presets", label: "Preset / Vertical", icon: <Stack weight="duotone" /> },
   { id: "adapters", label: "引擎 Adapter", icon: <PlugsConnected weight="duotone" /> },
   { id: "agents", label: "Agent Sessions", icon: <PlugsConnected weight="duotone" /> },
+  { id: "system", label: "System", icon: <GearSix weight="duotone" /> },
   { id: "settings", label: "设置", icon: <GearSix weight="duotone" /> },
 ];
 
@@ -103,30 +97,38 @@ const VIEW_LABEL: Record<ViewId, string> = {
   presets: "Preset / Vertical",
   adapters: "引擎 Adapter",
   agents: "Agent Sessions",
+  system: "System",
   settings: "设置",
 };
 
 function AppShell() {
   const [view, setView] = useState<ViewId>("overview");
+  const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
   const queryClient = useQueryClient();
-  const tasksQuery = useTasksQuery();
-  const triadicQuery = useTriadicProjectionQuery();
-  const taskActions = useTaskActions();
-  const decisionActions = useDecisionActions();
+  const systemQuery = useSystemStatusQuery();
+  const enabledRepos = useMemo(() => systemQuery.data?.repos.filter((repo) => repo.registrationState === "enabled") ?? [], [systemQuery.data?.repos]);
+  useEffect(() => {
+    const next = selectActiveRepoId(systemQuery.data?.repos ?? [], activeRepoId); if (next !== activeRepoId) setActiveRepoId(next);
+  }, [activeRepoId, systemQuery.data?.repos]);
+  const projectId = activeRepoId ?? "unselected";
+  const tasksQuery = useTasksQuery(activeRepoId);
+  const triadicQuery = useTriadicProjectionQuery(activeRepoId);
+  const catalogQuery = useCatalogSnapshot(activeRepoId);
+  const taskActions = useTaskActions(projectId);
+  const decisionActions = useDecisionActions(projectId);
   const tasks = useMemo(
-    () => adaptProjectionRows(tasksQuery.data?.rows ?? [], tasksQuery.data?.status, {
+    () => adaptProjectionRows(tasksQuery.data?.rows ?? [], projectId, tasksQuery.data?.status, {
       relationState: triadicQuery.relationState,
       relations: triadicQuery.relations,
       decisions: triadicQuery.decisions,
       relationWarnings: triadicQuery.relationWarnings
     }),
-    [tasksQuery.data, triadicQuery.relationState, triadicQuery.relations, triadicQuery.decisions, triadicQuery.relationWarnings],
+    [projectId, tasksQuery.data, triadicQuery.relationState, triadicQuery.relations, triadicQuery.decisions, triadicQuery.relationWarnings],
   );
-  const realTasks = tasks;
-
-  const project = useMemo(() => buildRealProject(realTasks), [realTasks]);
-  const projectId = project.id;
-  const projects = useMemo(() => [project], [project]);
+  const activeRepo = systemQuery.data?.repos.find((repo) => repo.repoId === activeRepoId);
+  const project = adaptRepoProject(projectId, activeRepo, catalogQuery.data?.defaults.presetId,
+    tasks[0]?.lastKnownAt ?? systemQuery.data?.observedAt ?? new Date(0).toISOString(),
+    triadicQuery.decisions.length, triadicQuery.facts.length);
   const { favorites, toggleFavorite } = useFavorites(projectId);
 
   const decisions = triadicQuery.decisions;
@@ -179,7 +181,11 @@ function AppShell() {
     if (v !== "board") setDrill(null);
   };
 
-  const openProject = () => {
+  const openProject = async (repoId: string) => {
+    if (repoId !== activeRepoId) {
+      if (activeRepoId) await queryClient.cancelQueries({ predicate: (query) => query.queryKey[1] === activeRepoId });
+      setActiveRepoId(repoId);
+    }
     setTaskFilters(DEFAULT_TASK_FILTERS);
     setProjectSwitcherOpen(false);
     goto("overview");
@@ -209,8 +215,8 @@ function AppShell() {
     setSelectedId(id);
   };
 
-  // W2B 活链接:跨实体跳转(task→详情, decision→决策池, fact→事实分诊)
-  const navigateToEntity = (ref: string) => {
+  // 带 repo/<repoId>/ 前缀的实体引用先显式切仓，再在该仓导航。
+  const navigateLocalEntity = (ref: string) => {
     if (ref.startsWith("task/")) {
       const id = ref.slice(5).split("/")[0];
       openTaskDetail(id);
@@ -227,6 +233,14 @@ function AppShell() {
       setPreviewId(null);
     }
   };
+  const navigateToEntity = (rawRef: string) => {
+    const scoped = /^repo\/([^/]+)\/(.+)$/u.exec(rawRef), targetRepoId = scoped?.[1] ?? activeRepoId, ref = scoped?.[2] ?? rawRef;
+    if (targetRepoId && targetRepoId !== activeRepoId) {
+      if (!enabledRepos.some((repo) => repo.repoId === targetRepoId)) { setView("home"); setProjectSwitcherOpen(true); return; }
+      void openProject(targetRepoId).then(() => navigateLocalEntity(ref)); return;
+    }
+    navigateLocalEntity(ref);
+  };
   const navigateToDecision = (decisionId: string) =>
     navigateToEntity(`decision/${decisionId}`);
   const navigateToTask = (taskId: string) => openTaskDetail(taskId);
@@ -236,8 +250,6 @@ function AppShell() {
     setSelectedId(null);
     setPreviewId(null);
   };
-
-  const showMockBanner = !selected && MOCK_BACKED_VIEWS.has(view);
 
   // ⌘K 命令面板(REQ-GUI-01):跨实体搜索 + 快速跳转。纯前端派生,不消费写 IPC。
   const paletteEntries = useMemo(
@@ -335,17 +347,16 @@ function AppShell() {
                     快速切换
                   </span>
                   <span className="font-mono text-[11px] text-text-faint">
-                    {projects.length} projects
+                    {systemQuery.data?.repos.length ?? 0} projects
                   </span>
                 </div>
                 <div className="flex max-h-[330px] flex-col gap-1.5 overflow-y-auto">
-                  {projects.map((p) => (
+                  {(systemQuery.data?.repos ?? []).map((repo) => (
                     <ProjectSummary
-                      key={p.id}
-                      project={p}
-                      tasks={tasks}
-                      active={p.id === projectId}
-                      onOpen={openProject}
+                      key={repo.repoId}
+                      repo={repo}
+                      active={repo.repoId === activeRepoId}
+                      onOpen={() => { void openProject(repo.repoId); }}
                     />
                   ))}
                 </div>
@@ -423,8 +434,7 @@ function AppShell() {
       </aside>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        {showMockBanner && <MockViewBanner />}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
+        <div key={projectId} className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {selected ? (
               <TaskDetailView
@@ -444,11 +454,9 @@ function AppShell() {
               />
             ) : view === "home" ? (
               <HomeView
-                projects={projects}
-                tasks={tasks}
-                events={MOCK_EVENTS}
-                currentProjectId={projectId}
-                onOpenProject={openProject}
+                repos={systemQuery.data?.repos ?? []}
+                currentRepoId={activeRepoId}
+                onOpenProject={(repoId) => { void openProject(repoId); }}
               />
             ) : view === "overview" ? (
               <OverviewView
@@ -511,7 +519,7 @@ function AppShell() {
                 isFetching={tasksQuery.isFetching}
                 error={tasksQuery.error}
                 onReload={() => { void tasksQuery.refetch(); }}
-                onReloadFromFirst={() => { void queryClient.invalidateQueries({ queryKey: taskQueryKeys.list() }); }}
+                onReloadFromFirst={() => { void queryClient.invalidateQueries({ queryKey: taskQueryKeys.list(projectId) }); }}
               />
             ) : view === "decisions" ? (
               <DecisionsView
@@ -530,6 +538,7 @@ function AppShell() {
               />
             ) : view === "decisionPool" ? (
               <DecisionPoolView
+                repoId={projectId}
                 decisions={decisions}
                 facts={facts}
                 relations={relations}
@@ -548,11 +557,13 @@ function AppShell() {
                 onFocusGraph={focusEntityInGraph}
               />
             ) : view === "presets" ? (
-              <PresetsView presets={MOCK_PRESETS} project={project} />
+              <PresetsView repoId={projectId} />
             ) : view === "adapters" ? (
-              <AdaptersView adapters={MOCK_ADAPTERS} tasks={projectTasks} />
+              <AdaptersView repoId={projectId} />
             ) : view === "agents" ? (
-              <AgentRuntimeView />
+              <AgentRuntimeView repoId={projectId} />
+            ) : view === "system" ? (
+              <SystemView activeRepoId={activeRepoId} />
             ) : (
               <SettingsView />
             )}

@@ -42,7 +42,8 @@ function ChainView({ decision, relations }: { decision: DecisionRow; relations: 
   </div>;
 }
 
-export function DecisionPoolView({ decisions, facts, relations, coverageRows = [], relationState = "ready", focusedDecisionId, onFocusGraph, onPropose, proposalFeedback, onJudge, mutationFeedback, onCheckReceipt }: {
+export function DecisionPoolView({ repoId, decisions, facts, relations, coverageRows = [], relationState = "ready", focusedDecisionId, onFocusGraph, onPropose, proposalFeedback, onJudge, mutationFeedback, onCheckReceipt }: {
+  repoId: string;
   decisions: DecisionRow[]; facts: FactRef[]; relations: RelationEdge[]; coverageRows?: ReadonlyArray<RelationCoverageRow>; relationState?: RelationState;
   focusedDecisionId?: string | null; onFocusGraph?: (ref: string) => void;
   onPropose?: (input: DecisionProposalInput) => Promise<DecisionMutationFeedback>; proposalFeedback?: DecisionMutationFeedback;
@@ -72,8 +73,8 @@ export function DecisionPoolView({ decisions, facts, relations, coverageRows = [
   const productLines = useMemo(() => [...new Set(decisions.flatMap((decision) => decision.appliesTo?.productLines ?? []))].sort(), [decisions]);
   const remoteEnabled = Boolean(search.trim() || moduleFilter !== "all" || productLineFilter !== "all");
   const remote = useQuery({
-    queryKey: [...triadicQueryKeys.decisions(), "control-list", search.trim(), moduleFilter, productLineFilter],
-    queryFn: () => harnessClient.listDecisionControls({ ...(search.trim() ? { search: search.trim() } : {}), ...(moduleFilter !== "all" ? { module: moduleFilter } : {}), ...(productLineFilter !== "all" ? { productLine: productLineFilter } : {}) }),
+    queryKey: [...triadicQueryKeys.decisions(repoId), "control-list", search.trim(), moduleFilter, productLineFilter],
+    queryFn: () => harnessClient.listDecisionControls({ repoId, ...(search.trim() ? { search: search.trim() } : {}), ...(moduleFilter !== "all" ? { module: moduleFilter } : {}), ...(productLineFilter !== "all" ? { productLine: productLineFilter } : {}) }),
     enabled: remoteEnabled,
     staleTime: 0,
   });

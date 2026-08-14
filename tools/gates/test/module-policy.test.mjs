@@ -87,3 +87,8 @@ test("backend truth fixture bills the read path, contract, and readiness project
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/backend-truth-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
+
+test("GUI S3 R1 fixture bills repo isolation and truthful catalog/system paths to their ratcheted buckets", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/gui-s3-r1-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});

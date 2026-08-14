@@ -1,13 +1,11 @@
 import type { TaskSnapshotProjectionRow } from "../api/renderer-dto.ts";
-import type { BlockingContributor, DecisionRow, GateResult, Project, RelationEdge, TaskRow } from "./model/types.ts";
+import type { BlockingContributor, DecisionRow, GateResult, RelationEdge, TaskRow } from "./model/types.ts";
 
 /**
  * Maps the rebuild L2 task snapshot onto the renderer view model. UI-only
  * readiness and freshness fields are derived here; the daemon returns the
  * canonical snapshot without recreating the retired GUI projection schema.
  */
-
-const REAL_PROJECT_ID = "harness-anything";
 
 export interface TaskAdaptContext {
   readonly relationState?: "ready" | "loading" | "error";
@@ -16,14 +14,14 @@ export interface TaskAdaptContext {
   readonly relationWarnings?: ReadonlyArray<{ readonly severity?: string; readonly code?: string; readonly message?: string }>;
 }
 
-function adaptProjectionRow(row: TaskSnapshotProjectionRow, projectionStatus: "ready" | "pending", context: TaskAdaptContext): TaskRow {
+function adaptProjectionRow(row: TaskSnapshotProjectionRow, projectId: string, projectionStatus: "ready" | "pending", context: TaskAdaptContext): TaskRow {
   const task = row.snapshot.task!;
   const placement = placementFor(row, context);
   const gates = gateResults(row);
   return {
     taskId: row.taskId,
     title: task.title,
-    projectId: REAL_PROJECT_ID,
+    projectId,
     coordinationStatus: task.status,
     canonicalStatus: task.status,
     blocking: "clear",
@@ -51,7 +49,7 @@ function adaptProjectionRow(row: TaskSnapshotProjectionRow, projectionStatus: "r
     lastKnownAt: row.updatedAt,
     gates,
     docs: [],
-    events: lifecycleEvents(row)
+    events: lifecycleEvents(row, projectId)
   };
 }
 
@@ -94,8 +92,8 @@ function closeoutReadiness(row: TaskSnapshotProjectionRow, gates: ReadonlyArray<
   return review && consent && gates.every((gate) => gate.ok === true) ? "ready" : "incomplete";
 }
 
-function lifecycleEvents(row: TaskSnapshotProjectionRow): TaskRow["events"] {
-  const projectId = REAL_PROJECT_ID, taskId = row.taskId, events = [
+function lifecycleEvents(row: TaskSnapshotProjectionRow, projectId: string): TaskRow["events"] {
+  const taskId = row.taskId, events = [
     ...row.snapshot.executions.flatMap((execution) => [
       { at: execution.claimedAt, projectId, taskId, summary: `Execution ${execution.executionId} started` },
       ...(execution.submittedAt ? [{ at: execution.submittedAt, projectId, taskId, summary: `Execution ${execution.executionId} submitted` }] : []),
@@ -133,8 +131,8 @@ export function computeRootTaskId(
  * 在 adaptProjectionRow 之上补齐 rootTaskId / rootTitle。两阶段:先建 parentById
  * 查找表,再按表给每个 row 标根与根标题。
  */
-export function adaptProjectionRows(rows: ReadonlyArray<TaskSnapshotProjectionRow>, projectionStatus: "ready" | "pending" = "ready", context: TaskAdaptContext = {}): TaskRow[] {
-  const base = deriveBlocking(rows.map((row) => adaptProjectionRow(row, projectionStatus, context)), context);
+export function adaptProjectionRows(rows: ReadonlyArray<TaskSnapshotProjectionRow>, projectId: string, projectionStatus: "ready" | "pending" = "ready", context: TaskAdaptContext = {}): TaskRow[] {
+  const base = deriveBlocking(rows.map((row) => adaptProjectionRow(row, projectId, projectionStatus, context)), context);
   const parentById = new Map<string, string | undefined>();
   const titleById = new Map<string, string>();
   for (const task of base) {
@@ -182,18 +180,3 @@ function findCycleNodes(graph: ReadonlyMap<string, ReadonlyArray<string>>): Set<
   const visit = (id: string): void => { if (active.has(id)) { stack.slice(stack.indexOf(id)).forEach((node) => cycle.add(node)); return; } if (visited.has(id)) return; visited.add(id); active.add(id); stack.push(id); for (const next of graph.get(id) ?? []) visit(next); stack.pop(); active.delete(id); };
   for (const id of graph.keys()) visit(id); return cycle;
 }
-
-export function buildRealProject(tasks: ReadonlyArray<TaskRow>): Project {
-  return {
-    id: REAL_PROJECT_ID,
-    name: "harness-anything",
-    path: "本地台账",
-    preset: "software/coding",
-    engines: ["local"],
-    watermarkAt: tasks[0]?.lastKnownAt ?? new Date().toISOString(),
-    decisionCount: undefined,
-    factCount: undefined
-  };
-}
-
-export { REAL_PROJECT_ID };

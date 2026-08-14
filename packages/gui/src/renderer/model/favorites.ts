@@ -10,14 +10,14 @@ import { useCallback, useEffect, useState } from "react";
  */
 const STORAGE_PREFIX = "harness:gui:favorites";
 
-function storageKey(projectId: string): string {
+export function favoritesStorageKey(projectId: string): string {
   return `${STORAGE_PREFIX}:${projectId}`;
 }
 
 function readFavorites(projectId: string): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
-    const raw = window.localStorage.getItem(storageKey(projectId));
+    const raw = window.localStorage.getItem(favoritesStorageKey(projectId));
     if (!raw) return new Set();
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return new Set();
@@ -30,7 +30,7 @@ function readFavorites(projectId: string): Set<string> {
 function writeFavorites(projectId: string, ids: ReadonlySet<string>): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(storageKey(projectId), JSON.stringify([...ids]));
+    window.localStorage.setItem(favoritesStorageKey(projectId), JSON.stringify([...ids]));
   } catch {
     // 隐私模式或 quota 满:静默降级,不阻断 UI。
   }
@@ -54,7 +54,7 @@ export function useFavorites(projectId: string): {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onStorage = (event: StorageEvent) => {
-      if (event.key === storageKey(projectId)) {
+      if (event.key === favoritesStorageKey(projectId)) {
         setFavorites(readFavorites(projectId));
       }
     };

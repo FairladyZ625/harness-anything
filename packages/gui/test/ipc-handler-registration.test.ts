@@ -22,7 +22,8 @@ test("main process registers one IPC handler for each preload allowlist method",
   registerHarnessIpcHandlers({ handle: (channel, listener) => { handlers.set(channel, listener as (event: typeof trustedEvent, payload: unknown) => Promise<unknown>); }, on: () => undefined }, bridge,
     { isTrustedWebContentsId: (id) => id === 1, rendererUrl: { packagedRendererUrl: trustedRendererUrl } });
   const streamMethods = new Set(apiRouteContracts.filter(({ method }) => method === "STREAM").map(({ guiBridgeMethod }) => guiBridgeMethod)), invokeMethods = preloadAllowlist.filter((method) => !streamMethods.has(method)); assert.deepEqual([...handlers.keys()], invokeMethods.map((method) => `harness:${method}`));
-  for (const method of invokeMethods) { const payload = method === "configureRuntimeCredential" ? { kindId: "codex" } : null; assert.deepEqual(await handlers.get(`harness:${method}`)?.(trustedEvent, payload), { ok: true, method, payload }); }
+  const routeByMethod = new Map(apiRouteContracts.map((route) => [route.guiBridgeMethod, route]));
+  for (const method of invokeMethods) { const payload = method === "configureRuntimeCredential" ? { kindId: "codex" } : routeByMethod.get(method)?.requiresRepo ? { repoId: "repo-a" } : null; assert.deepEqual(await handlers.get(`harness:${method}`)?.(trustedEvent, payload), { ok: true, method, payload }); }
   await assert.rejects(() => handlers.get("harness:getTasks")?.(trustedEvent, "raw-string"), /payload must be an object/iu);
   assert.throws(() => assertPreloadPayload("spawnAgentRuntime", { nested: { apiToken: "forbidden" } }), /secret-like key/iu);
   await assert.rejects(() => handlers.get("harness:getTasks")?.({ sender: { id: 1 }, senderFrame: { url: "https://example.com" } }, null), /untrusted_renderer_url/iu);

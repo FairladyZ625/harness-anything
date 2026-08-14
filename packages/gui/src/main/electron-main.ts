@@ -68,7 +68,7 @@ export async function startGuiApp(): Promise<void> {
   await app.whenReady();
   installContentSecurityPolicy();
   const trustedWebContentsIds = new Set<number>();
-  const rootDir = resolveGuiProjectRoot(), bridge = createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides()), controlled = addLocalMainControls({ bridge, target: async () => resolveLocalDaemonTarget({ rootDir, repoIdOverride: process.env.HARNESS_DAEMON_REPO_ID }), ...(app.isPackaged ? { packaged: { resourcesPath: process.resourcesPath } } : {}) });
+  const rootDir = resolveGuiProjectRoot(), bridge = createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides()), controlled = addLocalMainControls({ bridge, target: async (repoId) => resolveLocalDaemonTarget({ rootDir, ...(repoId ? { repoIdOverride: repoId } : {}) }), ...(app.isPackaged ? { packaged: { resourcesPath: process.resourcesPath } } : {}) });
   registerHarnessIpcHandlers(ipcMain, controlled, {
     isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
     rendererUrl: {

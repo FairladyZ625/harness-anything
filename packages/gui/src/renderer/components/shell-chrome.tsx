@@ -5,9 +5,8 @@ import {
   Moon,
   Desktop,
 } from "@phosphor-icons/react";
-import type { Project, TaskRow } from "../model/types.ts";
+import type { SystemRepoRow } from "../api-client.ts";
 import { useTheme, type ThemeMode } from "../theme.tsx";
-import { MockBadge } from "./MockBadge.tsx";
 
 const THEME_CYCLE: Record<ThemeMode, ThemeMode> = {
   dark: "light",
@@ -68,28 +67,22 @@ export function NavButton({
 }
 
 export function ProjectSummary({
-  project,
+  repo,
   active,
   onOpen,
-  tasks,
 }: {
-  project: Project;
+  repo: SystemRepoRow;
   active: boolean;
   onOpen: () => void;
-  tasks: TaskRow[];
 }) {
-  const projectTasks = tasks.filter((t) => t.projectId === project.id);
-  const review = projectTasks.filter((t) => t.closeoutReadiness === "ready").length;
-  const blocked = projectTasks.filter((t) => t.coordinationStatus === "blocked").length;
-  const stale = projectTasks.filter((t) => t.freshness !== "fresh").length;
-
   return (
     <button
       onClick={onOpen}
+      disabled={repo.registrationState !== "enabled"}
       className={`flex w-full items-start gap-2 rounded-md border px-2.5 py-2 text-left transition-colors duration-100 ${
         active
           ? "border-accent/70 bg-accent/10"
-          : "border-border bg-surface hover:border-border-strong hover:bg-surface-raised"
+          : repo.registrationState === "enabled" ? "border-border bg-surface hover:border-border-strong hover:bg-surface-raised" : "cursor-not-allowed border-border bg-surface opacity-60"
       }`}
     >
       <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded bg-surface-raised text-text-muted">
@@ -97,20 +90,17 @@ export function ProjectSummary({
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[15px] font-semibold text-text">
-          {project.name}
+          {repo.displayName}
         </span>
         <span className="block truncate font-mono text-[13px] text-text-faint">
-          {project.preset} · {projectTasks.length} tasks
+          {repo.repoId} · {repo.registrationState} / {repo.cellState}
         </span>
         <span className="mt-1 flex flex-wrap gap-1.5 font-mono text-[12px] tabular-nums">
-          <span className="text-accent">{review} review</span>
-          <span className={blocked > 0 ? "text-status-blocked" : "text-text-faint"}>
-            {blocked} blocked
-          </span>
-          <span className={stale > 0 ? "text-stale" : "text-text-faint"}>
-            {stale} stale
-          </span>
+          <span className={repo.cellState === "attached" ? "text-status-done" : "text-status-blocked"}>{repo.cellState}</span>
+          <span className="text-text-faint">queue {repo.queueDepth ?? "unknown"}</span>
+          <span className="text-text-faint">lock {repo.lockState}</span>
         </span>
+        {repo.cellState !== "attached" && <span className="mt-1 block text-[11px] text-status-blocked">{repo.unavailableReason ?? repo.lastError ?? "unknown / 未投影"}</span>}
       </span>
       {active && (
         <CheckCircle
@@ -120,17 +110,5 @@ export function ProjectSummary({
         />
       )}
     </button>
-  );
-}
-
-/** 挂在 mock 视图顶部的横幅,让操作者一眼分辨真假数据 */
-export function MockViewBanner() {
-  return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-stale/30 bg-stale/10 px-4 py-2">
-      <MockBadge />
-      <span className="font-mono text-[12px] text-text-muted">
-        演示数据 · decision/fact 与管理面真实客户端 API 尚未落地,以下内容不代表真实台账
-      </span>
-    </div>
   );
 }

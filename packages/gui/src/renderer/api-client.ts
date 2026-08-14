@@ -50,6 +50,34 @@ export interface DecisionControlListSuccess {
   readonly hint?: string;
 }
 
+export interface RepoScope { readonly repoId: string }
+export interface SystemRepoRow {
+  readonly repoId: string; readonly displayName: string; readonly canonicalRoot: string; readonly authoredBranch: string;
+  readonly registrationState: "enabled" | "disabled"; readonly cellState: "attached" | "unavailable" | "not_loaded";
+  readonly generation: number | null; readonly queueDepth: number | null; readonly lockState: "held" | "not_applicable" | "unknown";
+  readonly recoveryMs: number | null; readonly lastError: string | null; readonly unavailableReason: string | null;
+}
+export interface DaemonPoint { readonly daemonId: string; readonly pid: number; readonly startedAt: string }
+export interface SystemStatusSuccess {
+  readonly schema: "gui-system-status/v1"; readonly ok: true; readonly observedAt: string;
+  readonly daemon: DaemonPoint & { readonly protocolVersion: number; readonly uptimeMs: number; readonly endpoint: string; readonly build: { readonly version: string; readonly commitSha: string | null }; readonly activeControl: null | { readonly kind: "refresh" | "restart"; readonly operationId: string; readonly phase: DaemonControlReceipt["phase"]; readonly requestedAt: string; readonly error: BridgeError | null } };
+  readonly repos: ReadonlyArray<SystemRepoRow>;
+}
+export interface BridgeError { readonly code: string; readonly hint: string }
+export interface DaemonControlReceipt {
+  readonly schema: "daemon-control-receipt/v1"; readonly ok: boolean; readonly outcome: "pending" | "rejected";
+  readonly kind: "refresh" | "restart"; readonly operationId: string; readonly phase: "queued" | "draining" | "starting" | "settled" | "failed";
+  readonly requestedAt: string; readonly completedAt: string | null; readonly before: DaemonPoint | null; readonly after: DaemonPoint | null;
+  readonly error: BridgeError | null; readonly nextAction: string | null;
+}
+export interface CatalogPresetRow { readonly id: string; readonly title: string; readonly description: string; readonly verticalId: string; readonly sourceKind: "bundled" | "user" | "user-shadow"; readonly validity: "valid" | "unavailable" | "blocked"; readonly version: string | null; readonly kind: string | null; readonly defaultProfile: string | null; readonly entrypoints: ReadonlyArray<string>; readonly issues: ReadonlyArray<unknown>; readonly shadows: { readonly layer: "bundled"; readonly title: string } | null }
+export interface CatalogVerticalRow { readonly id: string; readonly title: string; readonly version: string; readonly source: "builtin"; readonly available: boolean; readonly valid: boolean; readonly issues: ReadonlyArray<unknown> }
+export interface CatalogTemplateRow { readonly templateRef: string; readonly slot: string; readonly materializeAs: string; readonly locales: ReadonlyArray<string> }
+export interface CatalogAdapterRow { readonly adapterId: string; readonly registered: true; readonly capabilities: ReadonlyArray<string>; readonly writability: "read-only" | "read-write" | "unknown"; readonly defaultProvider: boolean; readonly unavailableReason: string | null }
+export interface CatalogSnapshotSuccess { readonly schema: "gui-catalog-snapshot/v1"; readonly ok: true; readonly status: "ready" | "pending"; readonly repoId: string; readonly observedAt: string; readonly catalogDigest: string; readonly defaults: { readonly verticalId: string; readonly presetId: string; readonly profileId: string | null; readonly locale: string }; readonly presets: ReadonlyArray<CatalogPresetRow>; readonly verticals: ReadonlyArray<CatalogVerticalRow>; readonly templates: ReadonlyArray<CatalogTemplateRow>; readonly adapters: ReadonlyArray<CatalogAdapterRow> }
+export interface CatalogPresetSuccess { readonly schema: "gui-catalog-preset/v1"; readonly ok: true; readonly repoId: string; readonly preset: { readonly id: string; readonly title: string; readonly verticalId: string; readonly version: string | null; readonly extends: string | null; readonly capabilityImports: ReadonlyArray<unknown>; readonly profiles: ReadonlyArray<unknown> }; readonly resolved: { readonly identity: Readonly<Record<string, unknown>>; readonly profile: Readonly<Record<string, unknown>>; readonly templates: ReadonlyArray<unknown>; readonly entrypoints: ReadonlyArray<unknown>; readonly provenance: Readonly<Record<string, unknown>>; readonly digest: string } }
+export interface CatalogRereadReceipt { readonly schema: "catalog-reread-receipt/v1"; readonly ok: boolean; readonly outcome: "applied" | "rejected"; readonly operationId: string; readonly repoId: string; readonly beforeDigest: string; readonly afterDigest: string; readonly observedAt: string; readonly error: BridgeError | null }
+
 export interface DecisionProposalInput {
   readonly title: string;
   readonly question: string;
@@ -68,20 +96,26 @@ export interface DecisionProposalInput {
 }
 
 export const harnessClient = {
-  async getTasks(): Promise<TaskListSuccess> { return readTaskListResult(await invokeBridge("getTasks")); },
-  async getTaskDocument(payload: { readonly taskId: string; readonly path: string }): Promise<TaskDocumentProjectionRead> { return readTaskDocumentResult(await invokeBridge("getTaskDocument", payload)); },
-  async getRelationGraph(): Promise<RelationGraphSuccess> { return readRelationGraphResult(await invokeBridge("getRelationGraph")); },
-  async getDecisions(): Promise<DecisionListSuccess> { return readDecisionListResult(await invokeBridge("getDecisions")); },
-  async listDecisionControls(payload: { readonly search?: string; readonly state?: string; readonly module?: string; readonly productLine?: string }): Promise<DecisionControlListSuccess> { return readDecisionControlList(await invokeBridge("listDecisions", payload)); },
-  async showDecision(payload: { readonly decisionId: string; readonly includeBody?: boolean }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("showDecision", payload)); },
-  async proposeDecision(payload: DecisionProposalInput): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("proposeDecision", payload)); },
-  async acceptDecision(payload: { readonly decisionId: string; readonly rationale: string; readonly judgmentOnlyRationale?: string }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("acceptDecision", payload)); },
-  async rejectDecision(payload: { readonly decisionId: string; readonly reason: string }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("rejectDecision", payload)); },
-  async deferDecision(payload: { readonly decisionId: string; readonly reason: string }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("deferDecision", payload)); },
-  async startTask(payload: { readonly taskId: string; readonly executionId: string }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("startTask", payload)); },
-  async appendTaskProgress(payload: { readonly taskId: string; readonly executionId?: string; readonly text: string; readonly evidence?: ReadonlyArray<{ readonly type: string; readonly path: string; readonly summary: string }>; readonly baseDocumentSha256?: string | null }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("appendTaskProgress", payload)); },
-  async submitTask(payload: { readonly taskId: string; readonly executionId: string; readonly submission: GuiSubmissionV1 }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("submitTask", payload)); },
-  async showReceipt(payload: { readonly opId: string }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("showReceipt", payload)); }
+  async getSystemStatus(): Promise<SystemStatusSuccess> { return readSystemStatus(await invokeBridge("getSystemStatus")); },
+  async requestDaemonControl(payload: { readonly kind: "refresh" | "restart"; readonly authorityRepoId: string; readonly reason?: string }): Promise<DaemonControlReceipt> { return readDaemonControlReceipt(await invokeBridge("requestDaemonControl", payload)); },
+  async getDaemonControlReceipt(payload: { readonly operationId: string }): Promise<DaemonControlReceipt> { return readDaemonControlReceipt(await invokeBridge("getDaemonControlReceipt", payload)); },
+  async getTasks(payload: RepoScope): Promise<TaskListSuccess> { return readTaskListResult(await invokeBridge("getTasks", payload)); },
+  async getTaskDocument(payload: RepoScope & { readonly taskId: string; readonly path: string }): Promise<TaskDocumentProjectionRead> { return readTaskDocumentResult(await invokeBridge("getTaskDocument", payload)); },
+  async getRelationGraph(payload: RepoScope): Promise<RelationGraphSuccess> { return readRelationGraphResult(await invokeBridge("getRelationGraph", payload)); },
+  async getDecisions(payload: RepoScope): Promise<DecisionListSuccess> { return readDecisionListResult(await invokeBridge("getDecisions", payload)); },
+  async listDecisionControls(payload: RepoScope & { readonly search?: string; readonly state?: string; readonly module?: string; readonly productLine?: string }): Promise<DecisionControlListSuccess> { return readDecisionControlList(await invokeBridge("listDecisions", payload)); },
+  async showDecision(payload: RepoScope & { readonly decisionId: string; readonly includeBody?: boolean }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("showDecision", payload)); },
+  async proposeDecision(payload: RepoScope & DecisionProposalInput): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("proposeDecision", payload)); },
+  async acceptDecision(payload: RepoScope & { readonly decisionId: string; readonly rationale: string; readonly judgmentOnlyRationale?: string }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("acceptDecision", payload)); },
+  async rejectDecision(payload: RepoScope & { readonly decisionId: string; readonly reason: string }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("rejectDecision", payload)); },
+  async deferDecision(payload: RepoScope & { readonly decisionId: string; readonly reason: string }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("deferDecision", payload)); },
+  async startTask(payload: RepoScope & { readonly taskId: string; readonly executionId: string }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("startTask", payload)); },
+  async appendTaskProgress(payload: RepoScope & { readonly taskId: string; readonly executionId?: string; readonly text: string; readonly evidence?: ReadonlyArray<{ readonly type: string; readonly path: string; readonly summary: string }>; readonly baseDocumentSha256?: string | null }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("appendTaskProgress", payload)); },
+  async submitTask(payload: RepoScope & { readonly taskId: string; readonly executionId: string; readonly submission: GuiSubmissionV1 }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("submitTask", payload)); },
+  async showReceipt(payload: RepoScope & { readonly opId: string }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("showReceipt", payload)); },
+  async getCatalogSnapshot(payload: RepoScope): Promise<CatalogSnapshotSuccess> { return readCatalogSnapshot(await invokeBridge("getCatalogSnapshot", payload)); },
+  async getCatalogPreset(payload: RepoScope & { readonly presetId: string; readonly profileId?: string; readonly locale?: string }): Promise<CatalogPresetSuccess> { return readCatalogPreset(await invokeBridge("getCatalogPreset", payload)); },
+  async rereadCatalog(payload: RepoScope & { readonly expectedDigest?: string }): Promise<CatalogRereadReceipt> { return readCatalogRereadReceipt(await invokeBridge("rereadCatalog", payload)); },
 };
 
 async function invokeBridge(method: GuiBridgeMethod, payload: object | null = null): Promise<unknown> { const bridge = window.harness;
@@ -151,6 +185,28 @@ function readDecisionControlList(value: unknown): DecisionControlListSuccess {
     const decisionIds = evidence.decisions.flatMap((item) => record(item) && typeof item.decisionId === "string" ? [item.decisionId] : []);
     return { status: evidence.status, decisionIds, opId: receipt.opId, ...(receipt.nextAction ? { hint: receipt.nextAction } : {}) };
   } catch { throw new Error("Decision list receipt evidence is invalid."); }
+}
+
+function readSystemStatus(value: unknown): SystemStatusSuccess {
+  if (!record(value) || value.schema !== "gui-system-status/v1" || value.ok !== true || typeof value.observedAt !== "string" || !record(value.daemon) || !Array.isArray(value.repos)
+    || value.repos.some((repo) => !record(repo) || typeof repo.repoId !== "string" || typeof repo.displayName !== "string" || !["enabled", "disabled"].includes(String(repo.registrationState)) || !["attached", "unavailable", "not_loaded"].includes(String(repo.cellState)))) throw new Error(localErrorHint(value, "System status bridge returned an invalid result."));
+  return value as unknown as SystemStatusSuccess;
+}
+function readDaemonControlReceipt(value: unknown): DaemonControlReceipt {
+  if (!record(value) || value.schema !== "daemon-control-receipt/v1" || typeof value.ok !== "boolean" || !["pending", "rejected"].includes(String(value.outcome)) || !["refresh", "restart"].includes(String(value.kind)) || typeof value.operationId !== "string" || !["queued", "draining", "starting", "settled", "failed"].includes(String(value.phase))) throw new Error(localErrorHint(value, "Daemon control bridge returned an invalid receipt."));
+  return value as unknown as DaemonControlReceipt;
+}
+function readCatalogSnapshot(value: unknown): CatalogSnapshotSuccess {
+  if (!record(value) || value.schema !== "gui-catalog-snapshot/v1" || value.ok !== true || !["ready", "pending"].includes(String(value.status)) || typeof value.repoId !== "string" || !record(value.defaults) || !Array.isArray(value.presets) || !Array.isArray(value.verticals) || !Array.isArray(value.templates) || !Array.isArray(value.adapters)) throw new Error(localErrorHint(value, "Catalog snapshot bridge returned an invalid result."));
+  return value as unknown as CatalogSnapshotSuccess;
+}
+function readCatalogPreset(value: unknown): CatalogPresetSuccess {
+  if (!record(value) || value.schema !== "gui-catalog-preset/v1" || value.ok !== true || typeof value.repoId !== "string" || !record(value.preset) || !record(value.resolved)) throw new Error(localErrorHint(value, "Catalog preset bridge returned an invalid result."));
+  return value as unknown as CatalogPresetSuccess;
+}
+function readCatalogRereadReceipt(value: unknown): CatalogRereadReceipt {
+  if (!record(value) || value.schema !== "catalog-reread-receipt/v1" || typeof value.ok !== "boolean" || !["applied", "rejected"].includes(String(value.outcome)) || typeof value.operationId !== "string" || typeof value.repoId !== "string") throw new Error(localErrorHint(value, "Catalog reread bridge returned an invalid receipt."));
+  return value as unknown as CatalogRereadReceipt;
 }
 
 function isTaskSnapshotProjectionRow(value: unknown): value is TaskSnapshotProjectionRow {

@@ -3,21 +3,23 @@ import { harnessClient } from "./api-client.ts";
 import type { DocEntry, DocGroup } from "./model/types.ts";
 
 export const taskQueryKeys = {
-  all: ["harness", "tasks"] as const,
-  list: () => [...taskQueryKeys.all, "list"] as const, document: (taskId: string, path: string) => [...taskQueryKeys.all, taskId, "document", path] as const
+  all: (repoId: string) => ["tasks", repoId] as const,
+  list: (repoId: string) => ["tasks", repoId, "list"] as const,
+  document: (repoId: string, taskId: string, path: string) => ["tasks", repoId, taskId, "document", path] as const
 };
 
-export function useTasksQuery() {
+export function useTasksQuery(repoId: string | null) {
   return useQuery({
-    queryKey: taskQueryKeys.list(),
-    queryFn: () => harnessClient.getTasks(),
+    queryKey: taskQueryKeys.list(repoId ?? "unselected"),
+    queryFn: () => harnessClient.getTasks({ repoId: repoId! }),
+    enabled: repoId !== null,
     staleTime: 10_000
   });
 }
 
-export function taskDocumentQuery(taskId: string, path: string) { return { queryKey: taskQueryKeys.document(taskId, path), queryFn: () => harnessClient.getTaskDocument({ taskId, path }), staleTime: 10_000 }; }
+export function taskDocumentQuery(repoId: string, taskId: string, path: string) { return { queryKey: taskQueryKeys.document(repoId, taskId, path), queryFn: () => harnessClient.getTaskDocument({ repoId, taskId, path }), staleTime: 10_000 }; }
 
-export function useTaskDocumentQuery(taskId: string, path: string | null) { return useQuery({ ...taskDocumentQuery(taskId, path ?? ""), enabled: path !== null }); }
+export function useTaskDocumentQuery(repoId: string, taskId: string, path: string | null) { return useQuery({ ...taskDocumentQuery(repoId, taskId, path ?? ""), enabled: path !== null }); }
 
 export function parseTaskContractDocuments(taskId: string, body: string): DocEntry[] {
   let value: unknown; try { value = JSON.parse(body); } catch { throw new Error("task-contract projection is not valid JSON"); }

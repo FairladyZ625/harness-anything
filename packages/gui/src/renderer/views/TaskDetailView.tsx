@@ -33,13 +33,15 @@ import type { GuiSubmissionV1 } from "../../api/renderer-dto.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
 
 function DocBody({
+  repoId,
   taskId,
   path,
 }: {
+  repoId: string;
   taskId: string;
   path: string | null;
 }) {
-  const document = useTaskDocumentQuery(taskId, path);
+  const document = useTaskDocumentQuery(repoId, taskId, path);
   if (!path) {
     return (
       <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-strong py-16 text-center">
@@ -93,7 +95,7 @@ export function TaskDetailView({
   onSubmit?: (submission: GuiSubmissionV1) => Promise<unknown>;
 }) {
   const external = isExternal(task);
-  const canonicalPackage = typeof task.packagePath === "string", contract = useTaskDocumentQuery(task.taskId, canonicalPackage ? "task-contract.json" : null);
+  const canonicalPackage = typeof task.packagePath === "string", contract = useTaskDocumentQuery(task.projectId, task.taskId, canonicalPackage ? "task-contract.json" : null);
   const contractModel = useMemo(() => {
     if (!canonicalPackage) return { docs: task.packagePath === undefined ? task.docs : [], issue: null as string | null };
     if (contract.isError) return { docs: [], issue: contract.error.message };
@@ -101,7 +103,7 @@ export function TaskDetailView({
     try { return { docs: parseTaskContractDocuments(task.taskId, contract.data.body), issue: null }; }
     catch (error) { return { docs: [], issue: error instanceof Error ? error.message : String(error) }; }
   }, [canonicalPackage, contract.data, contract.error, contract.isError, task.docs, task.packagePath, task.taskId]);
-  const documentReads = useQueries({ queries: contractModel.docs.map((entry) => ({ ...taskDocumentQuery(task.taskId, entry.path) })) });
+  const documentReads = useQueries({ queries: contractModel.docs.map((entry) => ({ ...taskDocumentQuery(task.projectId, task.taskId, entry.path) })) });
   const realDocs = useMemo(() => contractModel.docs.map((entry, index) => { const read = documentReads[index];
     if (!read || read.isPending || read.isError || !read.data || read.data.status !== "ready") return { ...entry, present: false, presence: "unknown" as const };
     return { ...entry, present: read.data.blobSha256 !== null, presence: read.data.blobSha256 !== null ? "present" as const : "missing" as const };
@@ -245,6 +247,7 @@ export function TaskDetailView({
               )}
             </div>
             <DocBody
+              repoId={task.projectId}
               taskId={task.taskId}
               path={doc?.path ?? null}
             />
