@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, makeTaskProjection, sha256Text } from "../../kernel/src/index.ts";
-import { compilePresetSnapshotUpgrade, compileRepoTaskPackage, compileRepositoryScaffold, compileTaskBootstrap, createCanonicalPresetResolver, installPresetPackage, runPresetAction, uninstallPresetPackage } from "../src/index.ts";
+import { acceptBuiltinVerticalScriptPlan, compilePresetSnapshotUpgrade, compileRepoTaskPackage, compileRepositoryScaffold, compileTaskBootstrap, createCanonicalPresetResolver, installPresetPackage, prepareBuiltinVerticalScriptExecution, runPresetAction, uninstallPresetPackage } from "../src/index.ts";
 import { createRuntime, decodePresetPackageV3 } from "../src/preset-resolver.ts";
 
 test("canonical resolver decodes one complete bundled package into a content-addressed snapshot", async () => {
@@ -293,7 +293,32 @@ test("software coding declaration closes lifecycle, repository, projection, and 
   assert.equal(catalog.documents.some(({ materializeAs }) => materializeAs.includes("{{paths.authoredRoot}}/standards") || materializeAs.startsWith("harness/standards")), false);
 });
 
-test("template and script discovery expose builtin content without claiming vertical script execution", async () => {
+test("builtin script preparation binds one declared command and rejects undeclared or out-of-scope plans", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-script-prepare-")); write(path.join(rootDir, "harness/harness.yaml"), "layout:\n  adrRoot: harness/decisions/adrs\n");
+  try {
+    const action = { schema: "vertical-script-action/v1", kind: "script-run", scriptId: "vertical:software-coding:adr-seed", taskId: null, inputs: { locale: "zh-CN" }, dryRun: true } as const, prepared = prepareBuiltinVerticalScriptExecution({ rootDir, action, commitSha: "a".repeat(40) });
+    assert.equal(path.basename(prepared.command), "adr-seed.mjs"); assert.equal(prepared.readRoots.some((root) => root.endsWith("packages/preset/assets/software-coding")), true); assert.deepEqual(prepared.writePatterns, ["decisions/adrs/**"]); assert.deepEqual(prepared.producePatterns, ["decisions/adrs/README.md", "decisions/adrs/0000-template.md"]);
+    const accepted = acceptBuiltinVerticalScriptPlan(prepared, JSON.stringify({ schema: "vertical-script-plan/v1", scriptId: action.scriptId, ok: true, status: "planned", report: {}, warnings: [], changes: [{ path: "decisions/adrs/0000-template.md", body: "# ADR\n", mediaType: "text/markdown", disposition: "create" }] })); assert.equal(accepted.changes.length, 1);
+    assert.throws(() => acceptBuiltinVerticalScriptPlan(prepared, JSON.stringify({ ...accepted, changes: [{ ...accepted.changes[0], path: "tasks/escape.md" }] })), (error: unknown) => (error as { code?: string }).code === "script_scope_violation");
+    assert.throws(() => prepareBuiltinVerticalScriptExecution({ rootDir, action: { ...action, scriptId: "vertical:software-coding:not-declared" }, commitSha: "a".repeat(40) }), (error: unknown) => (error as { code?: string }).code === "script_not_found");
+  } finally { rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("all seven declared builtin script assets emit accepted deterministic plans", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-script-assets-")), taskId = "task_01KZXSYDTJ3K1YE88294X33QNW", commitSha = "b".repeat(40); write(path.join(rootDir, "harness/harness.yaml"), "layout:\n  adrRoot: harness/decisions/adrs\n"); write(path.join(rootDir, `harness/tasks/${taskId}/INDEX.md`), `---\nschema: task-package/v2\ntask_id: ${taskId}\n---\n# Script task\n`); write(path.join(rootDir, "harness/decisions/decision-dec_SCRIPT/decision.md"), "---\ndecision_id: dec_SCRIPT\nstate: active\n---\n# Script execution decision\n");
+  try {
+    const execute = (name: string, task: string | null = null, inputs: Record<string, string> = {}) => { const action = { schema: "vertical-script-action/v1", kind: "script-run", scriptId: `vertical:software-coding:${name}`, taskId: task, inputs, dryRun: true } as const, prepared = prepareBuiltinVerticalScriptExecution({ rootDir, action, commitSha }), frame = execFileSync(process.execPath, ["--permission", ...prepared.readRoots.map((root) => `--allow-fs-read=${root}/*`), prepared.command, prepared.contextArgument], { cwd: rootDir, encoding: "utf8" }); return acceptBuiltinVerticalScriptPlan(prepared, frame); }, materialize = (plan: ReturnType<typeof execute>) => { for (const change of plan.changes) write(path.join(rootDir, "harness", change.path), change.body); };
+    const init = execute("architecture-init"); assert.equal(init.changes.length, 7); assert.equal(existsSync(path.join(rootDir, "harness/context/architecture/architecture-manifest.json")), false); materialize(init);
+    const snapshot = execute("architecture-snapshot", taskId); assert.deepEqual(snapshot.changes.map(({ path: target }) => target), [`tasks/${taskId}/artifacts/architecture/code-facts.json`]); materialize(snapshot);
+    const check = execute("architecture-check", taskId); assert.equal(check.status, "fresh"); assert.deepEqual(check.changes, []);
+    const audit = execute("repository-audit"); assert.equal(audit.status, "conformant"); assert.deepEqual(audit.changes, []);
+    const seed = execute("adr-seed", null, { locale: "zh-CN" }); assert.equal(seed.changes.length, 2); materialize(seed);
+    const adr = execute("adr-render", null, { decisionId: "dec_SCRIPT" }); assert.deepEqual(adr.changes.map(({ path: target }) => target), ["decisions/adrs/dec_SCRIPT.md"]);
+    const conformance = execute("decision-conformance"); assert.equal(conformance.status, "conformant"); assert.deepEqual(conformance.changes, []); assert.equal(conformance.report.decisionCount, 1);
+  } finally { rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("template and script discovery expose builtin content with typed vertical execution", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-vertical-discovery-"));
   try {
     const templates = await runPresetAction({ rootDir, action: { kind: "template-list" } }) as Array<{ templateRef: string; slot: string; materializeAs: string; locales: string[] }>;
@@ -301,9 +326,9 @@ test("template and script discovery expose builtin content without claiming vert
     const rendered = await runPresetAction({ rootDir, action: { kind: "template-render", templateRef: "template://repository/architecture-manifest@1", locale: "zh-CN" } }) as { schema: string; source: string; templateRef: string; locale: string; path: string; body: string; digest: string };
     assert.equal(rendered.schema, "template-render/v1"); assert.equal(rendered.source, "builtin:software/coding"); assert.equal(rendered.templateRef, "template://repository/architecture-manifest@1"); assert.equal(rendered.locale, "en-US"); assert.equal(rendered.path, "{{paths.contextRoot}}/architecture/architecture-manifest.json"); assert.match(rendered.body, /"schema": "architecture-manifest\/v1"/u); assert.match(rendered.digest, /^sha256:[0-9a-f]{64}$/u);
     const scripts = await runPresetAction({ rootDir, action: { kind: "script-list" } }) as Array<{ id: string; purpose: string; execution: string }>;
-    assert.equal(scripts.length, 7); assert.deepEqual(scripts.map(({ id }) => id), [...scripts.map(({ id }) => id)].sort()); assert.ok(scripts.every(({ execution }) => execution === "unavailable"));
+    assert.equal(scripts.length, 7); assert.deepEqual(scripts.map(({ id }) => id), [...scripts.map(({ id }) => id)].sort()); assert.ok(scripts.every(({ execution }) => execution === "available"));
     const inspected = await runPresetAction({ rootDir, action: { kind: "script-inspect", scriptId: "vertical:software-coding:architecture-check" } }) as { schema: string; declaration: { command: string; writes: string[] }; execution: { available: boolean; code: string } };
-    assert.equal(inspected.schema, "vertical-script-inspection/v1"); assert.equal(inspected.declaration.command, "scripts/architecture-check.mjs"); assert.deepEqual(inspected.declaration.writes, []); assert.deepEqual(inspected.execution, { available: false, code: "script_run_unavailable", nextAction: "This surface supports declaration discovery only." });
+    assert.equal(inspected.schema, "vertical-script-inspection/v1"); assert.equal(inspected.declaration.command, "scripts/architecture-check.mjs"); assert.deepEqual(inspected.declaration.writes, []); assert.deepEqual(inspected.execution, { available: true, code: "script_run_available", nextAction: "Run ha script run vertical:software-coding:architecture-check [--dry-run]." });
     await assert.rejects(runPresetAction({ rootDir, action: { kind: "script-run", scriptId: "vertical:software-coding:architecture-check" } }), (error: unknown) => (error as { code?: string }).code === "unsupported_command");
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });

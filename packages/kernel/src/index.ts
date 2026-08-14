@@ -15,6 +15,7 @@ export { compileTaskProgress, isTaskProgressEvent } from "./domain/task-progress
 export type { TaskProgressEvidence, TaskProgressEventV1 } from "./domain/task-progress-event.ts";
 export { assertCurrentWriter, bindWriterGenerationToken, createWriteReceipt, normalizeCommandEnvelope, WRITE_RECEIPT_SCHEMA } from "./domain/write-chain.contract.ts";
 export type { ActorIdentity, DocSyncReceiptDetail, FrozenWritePlan, WriteOperationReceipt, WriteReceipt, WriteSource, WriteTarget, WriterGeneration, WriterGenerationToken } from "./domain/write-chain.contract.ts";
+export { parseVerticalScriptAction, parseVerticalScriptPlan, parseVerticalScriptResult } from "./domain/vertical-script-action.ts"; export type { VerticalScriptActionV1, VerticalScriptChangeV1, VerticalScriptPlanV1, VerticalScriptResultV1 } from "./domain/vertical-script-action.ts";
 export { DOC_POLICY_ID, decideDocWrite, docSyncWritePlan, documentPath, isDocEvent, isTaskEvent, parseDocWriteIntent, resolveDocRoute } from "./domain/doc-sync.contract.ts";
 export { parseCanonicalEvent, serializeCanonicalEvent } from "./domain/doc-sync.contract.ts";
 export type { CanonicalEventV1, DocClaimRef, DocEventV1, DocWriteIntent, LedgerCommitSha } from "./domain/doc-sync.contract.ts";

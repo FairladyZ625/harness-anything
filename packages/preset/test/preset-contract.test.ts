@@ -42,7 +42,7 @@ test("script run declares one closed start route and one read-only status route"
   ]);
 });
 
-test("builtin vertical, template, and script discovery commands stay read-only and omit vertical run", () => {
+test("builtin vertical and template discovery stay read-only while vertical run is one typed write route", () => {
   assert.deepEqual(presetContract.commands.filter(({ id }) => ["vertical-validate", "template-list", "template-render", "script-list", "script-inspect"].includes(id)).map(({ id, path, method, commandClass }) => ({ id, path, method, commandClass })), [
     { id: "vertical-validate", path: ["vertical", "validate"], method: "repo.vertical.validate", commandClass: "repo-read" },
     { id: "template-list", path: ["template", "list"], method: "repo.template.list", commandClass: "repo-read" },
@@ -50,7 +50,7 @@ test("builtin vertical, template, and script discovery commands stay read-only a
     { id: "script-list", path: ["script", "list"], method: "repo.script.list", commandClass: "repo-read" },
     { id: "script-inspect", path: ["script", "inspect"], method: "repo.script.inspect", commandClass: "repo-read" }
   ]);
-  assert.equal(presetContract.methods.some(({ actionKind }) => actionKind === "script-run"), false);
+  const run = presetContract.methods.find(({ actionKind }) => actionKind === "script-run"); assert.deepEqual(run && { method: run.method, commandClass: run.commandClass, fields: Object.keys(run.params.fields.payload.fields) }, { method: "repo.script.run", commandClass: "repo-write", fields: ["scriptId", "taskId", "inputs", "dryRun"] });
 });
 
 test("preset run receipt requires an exact current phase and bounded terminal vocabulary", () => {
