@@ -137,3 +137,8 @@ test("preset provider fixture keeps catalog resolution and its public contract i
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/preset-provider-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
+
+test("GUI territory rebuild fixture bills the two-level layout paths to gui", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/gui-territory-rebuild-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});
