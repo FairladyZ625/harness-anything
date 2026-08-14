@@ -3,7 +3,7 @@
   "package": {
     "id": "software-coding-core",
     "title": "Software Coding Core Templates",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "owner": "harness-anything",
     "locales": ["zh-CN", "en-US"]
   },
@@ -34,6 +34,97 @@
       "locales": [
         { "locale": "zh-CN", "anchors": ["## Purpose", "## Opt-in Boundary"], "bodyPath": "templates/repository.context.architecture/zh-CN.md" },
         { "locale": "en-US", "anchors": ["## Purpose", "## Opt-in Boundary"], "bodyPath": "templates/repository.context.architecture/en-US.md" }
+      ]
+    },
+    {
+      "id": "repository/architecture-manifest",
+      "version": "1",
+      "documentKind": "architecture-scaffold",
+      "slot": "repository.architecture.manifest",
+      "materializeAs": "{{paths.contextRoot}}/architecture/architecture-manifest.json",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["\"schema\": \"architecture-manifest/v1\"", "\"modelContract\": \"architecture-model/v1\""],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "en-US", "anchors": ["\"schema\": \"architecture-manifest/v1\"", "\"modelContract\": \"architecture-model/v1\""], "bodyPath": "templates/repository.architecture.manifest/en-US.txt" }
+      ]
+    },
+    {
+      "id": "repository/architecture-likec4-config",
+      "version": "1",
+      "documentKind": "architecture-scaffold",
+      "slot": "repository.architecture.likec4.config",
+      "materializeAs": "{{paths.contextRoot}}/architecture/model/likec4.config.json",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["\"name\": \"repository-architecture\""],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "en-US", "anchors": ["\"name\": \"repository-architecture\""], "bodyPath": "templates/repository.architecture.likec4.config/en-US.txt" }
+      ]
+    },
+    {
+      "id": "repository/architecture-likec4-specification",
+      "version": "1",
+      "documentKind": "architecture-scaffold",
+      "slot": "repository.architecture.likec4.specification",
+      "materializeAs": "{{paths.contextRoot}}/architecture/model/specification.c4",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["specification {"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "en-US", "anchors": ["specification {"], "bodyPath": "templates/repository.architecture.likec4.specification/en-US.txt" }
+      ]
+    },
+    {
+      "id": "repository/architecture-likec4-model",
+      "version": "1",
+      "documentKind": "architecture-scaffold",
+      "slot": "repository.architecture.likec4.model",
+      "materializeAs": "{{paths.contextRoot}}/architecture/model/model.c4",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["model {", "system.repository"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "en-US", "anchors": ["model {", "system.repository"], "bodyPath": "templates/repository.architecture.likec4.model/en-US.txt" }
+      ]
+    },
+    {
+      "id": "repository/architecture-likec4-view-landscape",
+      "version": "1",
+      "documentKind": "architecture-scaffold",
+      "slot": "repository.architecture.likec4.view.landscape",
+      "materializeAs": "{{paths.contextRoot}}/architecture/model/views/landscape.c4",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["view landscape"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "en-US", "anchors": ["view landscape"], "bodyPath": "templates/repository.architecture.likec4.view.landscape/en-US.txt" }
+      ]
+    },
+    {
+      "id": "repository/architecture-likec4-view-write-path",
+      "version": "1",
+      "documentKind": "architecture-scaffold",
+      "slot": "repository.architecture.likec4.view.write-path",
+      "materializeAs": "{{paths.contextRoot}}/architecture/model/views/write-path.c4",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["dynamic view writePath"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "en-US", "anchors": ["dynamic view writePath"], "bodyPath": "templates/repository.architecture.likec4.view.write-path/en-US.txt" }
+      ]
+    },
+    {
+      "id": "repository/architecture-likec4-view-runtime",
+      "version": "1",
+      "documentKind": "architecture-scaffold",
+      "slot": "repository.architecture.likec4.view.runtime",
+      "materializeAs": "{{paths.contextRoot}}/architecture/model/views/runtime.c4",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["view runtime"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "en-US", "anchors": ["view runtime"], "bodyPath": "templates/repository.architecture.likec4.view.runtime/en-US.txt" }
       ]
     },
     {
@@ -135,6 +226,20 @@
       ]
     },
     {
+      "id": "repository/adr-template",
+      "version": "1",
+      "documentKind": "adr-template",
+      "slot": "repository.adr.template",
+      "materializeAs": "{{paths.adrRoot}}/0000-template.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Status", "## Context", "## Decision", "## Consequences"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Status", "## Context", "## Decision", "## Consequences"], "bodyPath": "templates/repository.adr.template/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Status", "## Context", "## Decision", "## Consequences"], "bodyPath": "templates/repository.adr.template/en-US.md" }
+      ]
+    },
+    {
       "id": "repository/milestones-index",
       "version": "1",
       "documentKind": "repository-milestones-index",
@@ -177,17 +282,31 @@
       ]
     },
     {
-      "id": "repository/agent-entry",
+      "id": "repository/agent-base",
       "version": "1",
-      "documentKind": "repository-agent-entry",
-      "slot": "repository.agent.entry",
+      "documentKind": "repository-seeded-doc",
+      "slot": "repository.agent.base",
       "materializeAs": "{{paths.rootDir}}/AGENTS.md",
       "frontmatterSchema": "none",
-      "requiredAnchors": ["## Read First", "## Standards Routing"],
+      "requiredAnchors": ["## Context Loading", "## Worktree Discipline", "## Kernel Workflow", "## Relation Rules", "## Write Coordination"],
       "fallbackLocale": "en-US",
       "locales": [
-        { "locale": "zh-CN", "anchors": ["## Read First", "## Standards Routing"], "bodyPath": "templates/repository.agent.entry/zh-CN.md" },
-        { "locale": "en-US", "anchors": ["## Read First", "## Standards Routing"], "bodyPath": "templates/repository.agent.entry/en-US.md" }
+        { "locale": "zh-CN", "anchors": ["## Context Loading", "## Worktree Discipline", "## Kernel Workflow", "## Relation Rules", "## Write Coordination"], "bodyPath": "templates/repository.agent.base/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Context Loading", "## Worktree Discipline", "## Kernel Workflow", "## Relation Rules", "## Write Coordination"], "bodyPath": "templates/repository.agent.base/en-US.md" }
+      ]
+    },
+    {
+      "id": "repository/agent-overlay",
+      "version": "1",
+      "documentKind": "repository-seeded-doc",
+      "slot": "repository.agent.overlay",
+      "materializeAs": "{{paths.rootDir}}/AGENTS.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Harness CLI (software/coding)", "## Repository Scaffolds", "## Architecture-aware Changes", "## Governance Routing", "## Script Discovery"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Harness CLI (software/coding)", "## Repository Scaffolds", "## Architecture-aware Changes", "## Governance Routing", "## Script Discovery"], "bodyPath": "templates/repository.agent.overlay/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Harness CLI (software/coding)", "## Repository Scaffolds", "## Architecture-aware Changes", "## Governance Routing", "## Script Discovery"], "bodyPath": "templates/repository.agent.overlay/en-US.md" }
       ]
     },
     {

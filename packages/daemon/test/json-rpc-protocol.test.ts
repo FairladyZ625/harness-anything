@@ -18,7 +18,50 @@ const DOC_POLICY_ID = "markdown-body-replaceable/v1";
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 
 test("descriptor-derived RBAC preserves every preset, runtime, doc-sync, Fact, and Decision action class", () => {
-  const expected = { "task-create": "repo-write", "preset-list": "repo-read", "preset-inspect": "repo-read", "preset-check": "repo-read", "preset-validate": "repo-read", "preset-install": "repo-write", "preset-seed": "repo-write", "preset-audit": "repo-read", "preset-uninstall": "repo-write", "preset-upgrade": "repo-write", "preset-run-start": "repo-write", "preset-run-status": "repo-read", "task-start": "repo-write", "task-progress-append": "repo-write", "task-artifact-add": "repo-write", "task-submit": "repo-write", "task-review-execution": "arbiter", "task-review-consent": "repo-write", "task-code-doc-reconcile": "repo-write", "task-complete": "repo-write", "task-show": "repo-read", "receipt-show": "repo-read", "doc-status": "repo-read", "doc-dry-run": "repo-read", "doc-submit": "repo-write", "doc-materialize": "repo-write", "doc-show": "repo-read", "fact-record": "repo-write", "fact-search": "repo-read", "fact-show": "repo-read", "decision-propose": "repo-write", "decision-accept": "arbiter", "decision-reject": "arbiter", "decision-defer": "arbiter", "decision-retire": "repo-write", "decision-claim-add": "repo-write", "decision-claim-fulfill": "repo-write", "decision-relate": "repo-write", "decision-relation-retire": "repo-write", "decision-reckon": "repo-write", "decision-list": "repo-read", "decision-show": "repo-read" } as const;
+  const expected = {
+    "task-create": "repo-write",
+    "preset-list": "repo-read",
+    "preset-inspect": "repo-read",
+    "preset-check": "repo-read",
+    "preset-validate": "repo-read",
+    "preset-install": "repo-write",
+    "preset-seed": "repo-write",
+    "preset-audit": "repo-read",
+    "preset-uninstall": "repo-write",
+    "preset-upgrade": "repo-write",
+    "preset-run-start": "repo-write",
+    "preset-run-status": "repo-read",
+    "task-start": "repo-write",
+    "task-progress-append": "repo-write",
+    "task-artifact-add": "repo-write",
+    "task-submit": "repo-write",
+    "task-review-execution": "arbiter",
+    "task-review-consent": "repo-write",
+    "task-code-doc-reconcile": "repo-write",
+    "task-complete": "repo-write",
+    "task-show": "repo-read",
+    "receipt-show": "repo-read",
+    "doc-status": "repo-read",
+    "doc-dry-run": "repo-read",
+    "doc-submit": "repo-write",
+    "doc-materialize": "repo-write",
+    "doc-show": "repo-read",
+    "fact-record": "repo-write",
+    "fact-search": "repo-read",
+    "fact-show": "repo-read",
+    "decision-propose": "repo-write",
+    "decision-accept": "arbiter",
+    "decision-reject": "arbiter",
+    "decision-defer": "arbiter",
+    "decision-retire": "repo-write",
+    "decision-claim-add": "repo-write",
+    "decision-claim-fulfill": "repo-write",
+    "decision-relate": "repo-write",
+    "decision-relation-retire": "repo-write",
+    "decision-reckon": "repo-write",
+    "decision-list": "repo-read",
+    "decision-show": "repo-read"
+  } as const;
   assert.deepEqual(Object.fromEntries(Object.keys(expected).map((kind) => [kind, commandClassForAction(kind)])), expected);
 });
 

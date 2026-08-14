@@ -2,16 +2,40 @@
   "schema": "vertical-definition/v1",
   "id": "software/coding",
   "title": "Software Coding",
-  "version": "1.2.0",
+  "version": "1.3.0",
+  "entityFieldExtensions": [
+    {
+      "extends": "task",
+      "field": "taskClass",
+      "kind": "enum-facet",
+      "values": ["milestone", "epic"],
+      "default": null,
+      "mutability": "amendable",
+      "projection": { "column": "task_class", "queryable": true },
+      "reason": "Software delivery planning may explicitly classify milestone or epic tasks."
+    }
+  ],
   "entityKinds": [
     {
       "id": "task",
       "entityType": "lifecycle",
       "packageKind": "task-package/v2",
       "contractEntity": true
+    },
+    {
+      "id": "decision",
+      "entityType": "lifecycle",
+      "packageKind": "decision-event/v1",
+      "contractEntity": true
+    },
+    {
+      "id": "fact",
+      "entityType": "schema",
+      "schemaRef": "schema://fact-event",
+      "contractEntity": true
     }
   ],
-  "contractEntityKinds": ["task"],
+  "contractEntityKinds": ["task", "decision", "fact"],
   "packageScaffolds": [
     {
       "entityKind": "task",
@@ -35,13 +59,22 @@
           "localePolicy": { "prefer": "project", "fallback": "en-US" }
         }
       ]
-    }
+    },
+    { "entityKind": "decision", "templateSelections": [] }
   ],
   "repositoryScaffold": {
     "entityRoots": [
-      { "entityKind": "task", "path": "{{paths.tasksRoot}}", "create": "init" }
+      { "entityKind": "task", "path": "{{paths.tasksRoot}}", "create": "init" },
+      { "entityKind": "decision", "path": "{{paths.decisionsRoot}}", "create": "lazy" }
     ],
-    "dirs": [],
+    "dirs": [
+      { "path": "{{paths.standardsRoot}}", "create": "init" },
+      { "path": "{{paths.contextRoot}}", "create": "init" },
+      { "path": "{{paths.contextRoot}}/architecture", "create": "init" },
+      { "path": "{{paths.adrRoot}}", "create": "init" },
+      { "path": "{{paths.milestonesRoot}}", "create": "init" },
+      { "path": "{{paths.sessionsRoot}}", "create": "lazy" }
+    ],
     "seededDocs": [
       { "slot": "repository.context.index", "templateRef": "template://repository/context-index@1", "materializeAs": "{{paths.contextRoot}}/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.context.architecture", "templateRef": "template://repository/context-architecture@1", "materializeAs": "{{paths.contextRoot}}/architecture/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
@@ -55,12 +88,86 @@
       { "slot": "repository.milestones.index", "templateRef": "template://repository/milestones-index@1", "materializeAs": "{{paths.milestonesRoot}}/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.walls.manifest", "templateRef": "template://repository/walls-manifest@1", "materializeAs": "{{paths.governanceRoot}}/walls/walls.json", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.walls.runner", "templateRef": "template://repository/walls-runner@1", "materializeAs": "{{paths.governanceRoot}}/walls/run-walls.mjs", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.agent.entry", "templateRef": "template://repository/agent-entry@1", "materializeAs": "{{paths.rootDir}}/AGENTS.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.claude.entry", "templateRef": "template://repository/claude-entry@1", "materializeAs": "{{paths.rootDir}}/CLAUDE.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
-    ]
+    ],
+    "agentsEntry": {
+      "materializeAs": "{{paths.rootDir}}/AGENTS.md",
+      "localePolicy": { "prefer": "project", "fallback": "en-US" },
+      "baseRef": "template://repository/agent-base@1",
+      "overlayRef": "template://repository/agent-overlay@1",
+      "repoSpecificsAnchor": "## Repository Specifics"
+    }
   },
-  "scripts": [],
+  "scripts": [
+    {
+      "id": "vertical:software-coding:architecture-init",
+      "type": "script",
+      "command": "scripts/architecture-init.mjs",
+      "reads": ["{{outputRoot}}/architecture/**"],
+      "writes": ["{{outputRoot}}/architecture/**"],
+      "inputs": {},
+      "metadata": { "description": "Materialize the opt-in repository architecture manifest and LikeC4 scaffold without overwriting authored content.", "purpose": "scaffold", "contractVersion": "script-entry/v1", "produces": ["{{outputRoot}}/architecture/**"] }
+    },
+    {
+      "id": "vertical:software-coding:architecture-snapshot",
+      "type": "script",
+      "command": "scripts/architecture-snapshot.mjs",
+      "reads": ["{{paths.contextRoot}}/architecture/**"],
+      "writes": ["{{outputRoot}}/artifacts/architecture/**"],
+      "inputs": {},
+      "metadata": { "description": "Run declared architecture adapters and write a reproducible code-fact snapshot as a task artifact.", "purpose": "generate", "contractVersion": "script-entry/v1", "produces": ["{{outputRoot}}/artifacts/architecture/**"] }
+    },
+    {
+      "id": "vertical:software-coding:architecture-check",
+      "type": "script",
+      "command": "scripts/architecture-check.mjs",
+      "reads": ["{{paths.contextRoot}}/architecture/**", "{{outputRoot}}/artifacts/architecture/**"],
+      "writes": [],
+      "inputs": {},
+      "metadata": { "description": "Inspect deterministic architecture configuration, tool, freshness, and drift state.", "purpose": "audit", "contractVersion": "script-entry/v1", "produces": [] }
+    },
+    {
+      "id": "vertical:software-coding:repository-audit",
+      "type": "script",
+      "command": "scripts/repository-audit.mjs",
+      "reads": [],
+      "writes": [],
+      "inputs": {},
+      "metadata": { "description": "Inspect the bundled software/coding repository scaffold contract.", "purpose": "audit", "contractVersion": "script-entry/v1", "produces": [] }
+    },
+    {
+      "id": "vertical:software-coding:adr-seed",
+      "type": "script",
+      "command": "scripts/adr-seed.mjs",
+      "reads": [],
+      "writes": ["{{paths.adrRoot}}/**"],
+      "inputs": { "locale": "en-US" },
+      "metadata": { "description": "Seed repository ADR README and template documents.", "purpose": "scaffold", "contractVersion": "script-entry/v1", "produces": ["{{paths.adrRoot}}/README.md", "{{paths.adrRoot}}/0000-template.md"] }
+    },
+    {
+      "id": "vertical:software-coding:adr-render",
+      "type": "script",
+      "command": "scripts/adr-render.mjs",
+      "reads": ["{{paths.decisionsRoot}}/**", "{{paths.adrRoot}}/**"],
+      "writes": ["{{paths.adrRoot}}/**"],
+      "inputs": { "locale": "en-US" },
+      "metadata": { "description": "Render an ADR document from a canonical decision entity.", "purpose": "generate", "contractVersion": "script-entry/v1", "produces": ["{{paths.adrRoot}}/*.md"] }
+    },
+    {
+      "id": "vertical:software-coding:decision-conformance",
+      "type": "script",
+      "command": "scripts/decision-conformance-check.mjs",
+      "reads": ["{{paths.tasksRoot}}/**", "{{paths.decisionsRoot}}/**", "{{paths.sessionsRoot}}/**"],
+      "writes": [],
+      "inputs": {},
+      "metadata": { "description": "Inspect decision conformance across task derivation, relation coverage, fact coverage, supersession, and proposed-decision drift.", "purpose": "audit", "kind": "check", "contractVersion": "script-entry/v1", "produces": [] }
+    }
+  ],
   "templateSelections": [],
   "checkerProfile": "software-coding-standard",
-  "projectionSchemas": []
+  "projectionSchemas": [
+    { "id": "task-frontmatter", "schemaRef": "schema://task-frontmatter" },
+    { "id": "decision-frontmatter", "schemaRef": "schema://decision-frontmatter" },
+    { "id": "fact-event", "schemaRef": "schema://fact-event" }
+  ]
 }

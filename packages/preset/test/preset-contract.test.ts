@@ -42,6 +42,17 @@ test("script run declares one closed start route and one read-only status route"
   ]);
 });
 
+test("builtin vertical, template, and script discovery commands stay read-only and omit vertical run", () => {
+  assert.deepEqual(presetContract.commands.filter(({ id }) => ["vertical-validate", "template-list", "template-render", "script-list", "script-inspect"].includes(id)).map(({ id, path, method, commandClass }) => ({ id, path, method, commandClass })), [
+    { id: "vertical-validate", path: ["vertical", "validate"], method: "repo.vertical.validate", commandClass: "repo-read" },
+    { id: "template-list", path: ["template", "list"], method: "repo.template.list", commandClass: "repo-read" },
+    { id: "template-render", path: ["template", "render"], method: "repo.template.render", commandClass: "repo-read" },
+    { id: "script-list", path: ["script", "list"], method: "repo.script.list", commandClass: "repo-read" },
+    { id: "script-inspect", path: ["script", "inspect"], method: "repo.script.inspect", commandClass: "repo-read" }
+  ]);
+  assert.equal(presetContract.methods.some(({ actionKind }) => actionKind === "script-run"), false);
+});
+
 test("preset run receipt requires an exact current phase and bounded terminal vocabulary", () => {
   const receipt = { schema: "preset-run-receipt/v1", runId: "run_1", outcome: "started", phase: "admitted", phases: ["admitted"], snapshotDigest: `sha256:${"a".repeat(64)}` };
   assert.deepEqual(validatePresetRunReceiptV1(receipt), []); assert.match(validatePresetRunReceiptV1({ ...receipt, phase: "running" }).join("\n"), /invalid/u); assert.match(validatePresetRunReceiptV1({ ...receipt, outcome: "queued" }).join("\n"), /invalid/u); assert.match(validatePresetRunReceiptV1({ ...receipt, retry: true }).join("\n"), /invalid/u);

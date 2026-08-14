@@ -248,6 +248,14 @@ test("task and repository overlays share replace/add validation while keeping se
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("repository init plan consumes the declaration and composes package-local AGENTS layers", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repository-plan-"));
+  try {
+    const vertical = JSON.parse(readFileSync(new URL("../assets/software-coding/vertical.json", import.meta.url), "utf8")) as { repositoryScaffold: { seededDocs: Array<{ slot: string }>; agentsEntry: { repoSpecificsAnchor: string } } }, expectedSlots = [...vertical.repositoryScaffold.seededDocs.map(({ slot }) => slot), "repository.agent.entry"].sort();
+    for (const locale of ["en-US", "zh-CN"]) { const plan = compileRepositoryScaffold({ rootDir, verticalId: "software/coding", locale }), agents = plan.documents.find(({ slot }) => slot === "repository.agent.entry"); assert.deepEqual(plan.documents.map(({ slot }) => slot).sort(), expectedSlots); assert.equal(agents?.path, "AGENTS.md"); assert.match(agents?.body ?? "", /## Context Loading/u); assert.match(agents?.body ?? "", /## Harness CLI \(software\/coding\)/u); assert.match(agents?.body ?? "", /## Repository Specifics/u); assert.equal(agents?.requiredAnchors.includes(vertical.repositoryScaffold.agentsEntry.repoSpecificsAnchor), true); assert.equal(plan.documents.some(({ path: target }) => target.includes("harness/standards/") || target.includes("architecture-manifest.json")), false); }
+  } finally { rmSync(rootDir, { recursive: true, force: true }); }
+});
+
 test("generic list, inspect, check, install, and uninstall actions share the canonical inventory", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-actions-")), sourceRoot = path.join(rootDir, "source");
   try {
@@ -257,6 +265,46 @@ test("generic list, inspect, check, install, and uninstall actions share the can
     const stale = `sha256:${"0".repeat(64)}`; assert.deepEqual(await runPresetAction({ rootDir, action: { kind: "preset-check", presetId: "standard-task", snapshotDigest: stale } }), { valid: false, code: "snapshot_mismatch", actualDigest: stale, expectedDigest: inspected.snapshot.digest, nextAction: "Run ha preset upgrade <task-id>." }); assert.deepEqual(await runPresetAction({ rootDir, action: { kind: "preset-check", presetId: "standard-task", snapshotDigest: inspected.snapshot.digest } }), { valid: true, digest: inspected.snapshot.digest });
     writePackage(sourceRoot, "user-task", { version: "3.4.0" }); const installed = await runPresetAction({ rootDir, action: { kind: "preset-install", packageSource: path.join(sourceRoot, "user-task") } }) as { presetId: string; mode: string; changed: boolean; issues: unknown[] }; assert.deepEqual({ presetId: installed.presetId, mode: installed.mode, changed: installed.changed, issues: installed.issues }, { presetId: "user-task", mode: "apply", changed: true, issues: [] }); assert.equal((await runPresetAction({ rootDir, action: { kind: "preset-inspect", presetId: "user-task" } }) as { snapshot: { identity: { layer: string } } }).snapshot.identity.layer, "user"); assert.deepEqual(await runPresetAction({ rootDir, action: { kind: "preset-uninstall", presetId: "user-task" } }), { presetId: "user-task", mode: "apply", active: true, removed: true });
     await assert.rejects(runPresetAction({ rootDir, action: { kind: "preset-unknown", presetId: "standard-task" } }), (error: unknown) => (error as { code?: string }).code === "unsupported_command");
+  } finally { rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("builtin vertical validation is closed while custom verticals stay explicitly unavailable", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-vertical-validate-"));
+  try {
+    const builtin = await runPresetAction({ rootDir, action: { kind: "vertical-validate", verticalSource: "software/coding" } }) as { schema: string; source: string; available: boolean; valid: boolean; vertical?: { id: string }; issues: unknown[] };
+    assert.deepEqual(builtin, { schema: "vertical-validate-report/v1", source: "builtin:software/coding", available: true, valid: true, vertical: { id: "software/coding", title: "Software Coding", version: "1.3.0" }, issues: [] });
+    const custom = await runPresetAction({ rootDir, action: { kind: "vertical-validate", verticalSource: "./custom-vertical.json" } }) as { available: boolean; valid: boolean; issues: Array<{ code: string }> };
+    assert.equal(custom.available, false); assert.equal(custom.valid, false); assert.deepEqual(custom.issues.map(({ code }) => code), ["custom_vertical_unavailable"]);
+  } finally { rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("software coding declaration closes lifecycle, repository, projection, and discovery assets", () => {
+  const vertical = JSON.parse(readFileSync(new URL("../assets/software-coding/vertical.json", import.meta.url), "utf8")) as { entityFieldExtensions?: Array<{ field: string; values: string[] }>; entityKinds: Array<{ id: string; packageKind?: string; schemaRef?: string }>; contractEntityKinds: string[]; packageScaffolds: Array<{ entityKind: string }>; repositoryScaffold: { entityRoots: Array<{ entityKind: string; path: string; create: string }>; dirs: Array<{ path: string; create: string }>; agentsEntry?: { baseRef: string; overlayRef: string; materializeAs: string } }; scripts: Array<{ id: string; command: string }>; projectionSchemas: Array<{ id: string; schemaRef: string }> };
+  assert.deepEqual(vertical.entityFieldExtensions?.map(({ field, values }) => ({ field, values })), [{ field: "taskClass", values: ["milestone", "epic"] }]);
+  assert.deepEqual(vertical.entityKinds, [{ id: "task", entityType: "lifecycle", packageKind: "task-package/v2", contractEntity: true }, { id: "decision", entityType: "lifecycle", packageKind: "decision-event/v1", contractEntity: true }, { id: "fact", entityType: "schema", schemaRef: "schema://fact-event", contractEntity: true }]);
+  assert.deepEqual(vertical.contractEntityKinds, ["task", "decision", "fact"]); assert.deepEqual(vertical.packageScaffolds.map(({ entityKind }) => entityKind), ["task", "decision"]);
+  assert.deepEqual(vertical.repositoryScaffold.entityRoots, [{ entityKind: "task", path: "{{paths.tasksRoot}}", create: "init" }, { entityKind: "decision", path: "{{paths.decisionsRoot}}", create: "lazy" }]);
+  assert.deepEqual(vertical.repositoryScaffold.dirs, [{ path: "{{paths.standardsRoot}}", create: "init" }, { path: "{{paths.contextRoot}}", create: "init" }, { path: "{{paths.contextRoot}}/architecture", create: "init" }, { path: "{{paths.adrRoot}}", create: "init" }, { path: "{{paths.milestonesRoot}}", create: "init" }, { path: "{{paths.sessionsRoot}}", create: "lazy" }]);
+  assert.deepEqual(vertical.repositoryScaffold.agentsEntry, { materializeAs: "{{paths.rootDir}}/AGENTS.md", localePolicy: { prefer: "project", fallback: "en-US" }, baseRef: "template://repository/agent-base@1", overlayRef: "template://repository/agent-overlay@1", repoSpecificsAnchor: "## Repository Specifics" });
+  assert.deepEqual(vertical.scripts.map(({ id }) => id), ["vertical:software-coding:architecture-init", "vertical:software-coding:architecture-snapshot", "vertical:software-coding:architecture-check", "vertical:software-coding:repository-audit", "vertical:software-coding:adr-seed", "vertical:software-coding:adr-render", "vertical:software-coding:decision-conformance"]); assert.ok(vertical.scripts.every(({ command }) => command.startsWith("scripts/") && command.endsWith(".mjs")));
+  assert.deepEqual(vertical.projectionSchemas, [{ id: "task-frontmatter", schemaRef: "schema://task-frontmatter" }, { id: "decision-frontmatter", schemaRef: "schema://decision-frontmatter" }, { id: "fact-event", schemaRef: "schema://fact-event" }]);
+  const catalog = JSON.parse(readFileSync(new URL("../assets/software-coding/template-catalog.json", import.meta.url), "utf8")) as { documents: Array<{ id: string; materializeAs: string }> }, ids = new Set(catalog.documents.map(({ id }) => id));
+  for (const id of ["repository/agent-base", "repository/agent-overlay", "repository/adr-template", "repository/architecture-manifest", "repository/architecture-likec4-config", "repository/architecture-likec4-model", "repository/architecture-likec4-specification", "repository/architecture-likec4-view-landscape", "repository/architecture-likec4-view-write-path", "repository/architecture-likec4-view-runtime"]) assert.equal(ids.has(id), true, id);
+  assert.equal(catalog.documents.some(({ materializeAs }) => materializeAs.includes("{{paths.authoredRoot}}/standards") || materializeAs.startsWith("harness/standards")), false);
+});
+
+test("template and script discovery expose builtin content without claiming vertical script execution", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-vertical-discovery-"));
+  try {
+    const templates = await runPresetAction({ rootDir, action: { kind: "template-list" } }) as Array<{ templateRef: string; slot: string; materializeAs: string; locales: string[] }>;
+    assert.equal(templates.length, 32); assert.deepEqual(templates, [...templates].sort((left, right) => left.templateRef.localeCompare(right.templateRef))); assert.deepEqual(templates.find(({ templateRef }) => templateRef === "template://repository/architecture-manifest@1"), { templateRef: "template://repository/architecture-manifest@1", slot: "repository.architecture.manifest", materializeAs: "{{paths.contextRoot}}/architecture/architecture-manifest.json", locales: ["en-US"] });
+    const rendered = await runPresetAction({ rootDir, action: { kind: "template-render", templateRef: "template://repository/architecture-manifest@1", locale: "zh-CN" } }) as { schema: string; source: string; templateRef: string; locale: string; path: string; body: string; digest: string };
+    assert.equal(rendered.schema, "template-render/v1"); assert.equal(rendered.source, "builtin:software/coding"); assert.equal(rendered.templateRef, "template://repository/architecture-manifest@1"); assert.equal(rendered.locale, "en-US"); assert.equal(rendered.path, "{{paths.contextRoot}}/architecture/architecture-manifest.json"); assert.match(rendered.body, /"schema": "architecture-manifest\/v1"/u); assert.match(rendered.digest, /^sha256:[0-9a-f]{64}$/u);
+    const scripts = await runPresetAction({ rootDir, action: { kind: "script-list" } }) as Array<{ id: string; purpose: string; execution: string }>;
+    assert.equal(scripts.length, 7); assert.deepEqual(scripts.map(({ id }) => id), [...scripts.map(({ id }) => id)].sort()); assert.ok(scripts.every(({ execution }) => execution === "unavailable"));
+    const inspected = await runPresetAction({ rootDir, action: { kind: "script-inspect", scriptId: "vertical:software-coding:architecture-check" } }) as { schema: string; declaration: { command: string; writes: string[] }; execution: { available: boolean; code: string } };
+    assert.equal(inspected.schema, "vertical-script-inspection/v1"); assert.equal(inspected.declaration.command, "scripts/architecture-check.mjs"); assert.deepEqual(inspected.declaration.writes, []); assert.deepEqual(inspected.execution, { available: false, code: "script_run_unavailable", nextAction: "This surface supports declaration discovery only." });
+    await assert.rejects(runPresetAction({ rootDir, action: { kind: "script-run", scriptId: "vertical:software-coding:architecture-check" } }), (error: unknown) => (error as { code?: string }).code === "unsupported_command");
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 

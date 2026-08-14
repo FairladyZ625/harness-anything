@@ -18,7 +18,7 @@ export function runCliPackageSmoke(root = process.cwd()) {
     execFileSync("npm", ["install", "--prefix", consumerDir, "--no-audit", "--no-fund", tarball], { cwd: root, stdio: "inherit" });
     binPath = resolveBinCommand(consumerDir, "harness-anything"); const alias = resolveBinCommand(consumerDir, "ha");
     for (const command of [binPath, alias]) { const help = run(command, ["--help"], projectDir, env(userRoot, home));
-      if (help.status !== 0 || !help.stdout.includes("ha init --repo-id") || !help.stdout.includes("ha daemon start --service") || help.stdout.includes("ha template")) throw new Error(`unexpected packaged help: ${help.stdout}${help.stderr}`); }
+      if (help.status !== 0 || !help.stdout.includes("ha init --repo-id") || !help.stdout.includes("ha daemon start --service") || !["ha vertical validate", "ha template list", "ha template render <ref> [--locale <zh-CN|en-US>]", "ha script list", "ha script inspect <id>"].every((usage) => help.stdout.includes(usage))) throw new Error(`unexpected packaged help: ${help.stdout}${help.stderr}`); }
     const rejectedSamples = [];
     for (let index = 0; index < 5; index += 1) { const before = performance.now(); const rejected = runJson(binPath,
       ["--root", projectDir, "--json", "init", "--repo-id", "smoke", "--person-id", "owner", "--display-name", "Owner"], projectDir, env(userRoot, home));
