@@ -328,39 +328,79 @@ forward. Keep the current file's structure and add to it — do not paste the ol
 file over it, which would undo the resolution that was just applied. Show the
 user the resulting diff. This is the last write of the migration.
 
-## 9. Hand over
+## 9. Land the ledger
 
-`$TARGET_REPO` is a **standalone ledger repository**. It holds `harness/` and
-nothing else — no project code — and it is meant to live **outside** the
-project it serves. A ledger is central: one ledger, mirrored by the checkouts
-that use it. Copying it inside a project would give every project its own
-divergent copy, and on a public project it would publish the ledger outright.
+`$TARGET_REPO/harness` is a **standalone git repository** — its own `.git`, its
+own history, its own remote. That is true in both placements below, and it is
+the thing that must not be lost: a ledger is never a subdirectory of the
+project's repository. One ledger, mirrored by the checkouts that use it.
 
-Say this explicitly, because the old layout was different. Previous generations
-kept `harness/` as a git repository nested inside the project directory. That
-shape is intended and will be supported again, but **on this version place the
-ledger outside the project**, for a reason that has nothing to do with nesting:
+**Local — the default.** The ledger lives inside the project directory as
+`<project>/harness`, a repository of its own, and the project ignores it. This
+is the shape `ha init` produces for a new project and the shape previous
+generations used. Choose it unless the user says otherwise.
 
-`ha init` currently treats the repository it runs in as the ledger's git
-carrier, tracking state in `refs/ha/canonical`. An ordinary project commit
-moves `HEAD` while that ref stays put, and the next ledger write fails with
-`publication_indeterminate: Canonical and authored refs must agree`. A ledger
-sharing a repository with project code is therefore locked by the project's own
-development. Keeping it in a repository of its own avoids that entirely.
+**Central.** The ledger lives outside any project, in a directory of its own,
+and is registered by absolute path. Choose it when the user tells you the
+ledger is shared — several machines mirroring one authoritative copy.
+
+The procedure below is the same for both. Only `LEDGER_HOME` differs.
 
 ```bash
-mv "$TARGET_REPO" /absolute/path/the/user/chooses      # a directory of its own
-$HA daemon repo register --repo-id <new-repo-id> --root /absolute/path/the/user/chooses
+# local (default) — the project directory the user is migrating
+export LEDGER_HOME="/absolute/path/to/the/project"
+# central — a directory of its own, outside every project
+# export LEDGER_HOME="/absolute/path/the/user/chooses"
+
+cd "$LEDGER_HOME"
+rm -rf harness                                        # superseded; step 2 archived it
+cp -R "$TARGET_REPO/harness" ./harness
 ```
 
-The old `harness/` still sits in the project directory. It is superseded, the
-step 2 archive holds it, and the project already ignores it, so removing it is
-safe — but it is the user's directory, so show the path and let them decide.
+In a project, isolate the ledger from the project's own repository before
+committing anything. `ha init` does this on a fresh project, but registering an
+existing ledger does not, so do it here:
+
+```bash
+git check-ignore -q harness || printf '/harness/\n/.harness/\n' >> .gitignore
+git rm -r -q --cached --ignore-unmatch -- harness .harness
+```
+
+The `git rm --cached` is not redundant. `.gitignore` has no effect on paths the
+index already tracks, so a project that had committed any part of the old
+`harness/` keeps tracking it — and the ledger is private while the project may
+well be public.
+
+Then bind the repo id to its new location and commit the project side:
+
+```bash
+$HA daemon repo unregister --repo-id <new-repo-id>
+$HA daemon repo register   --repo-id <new-repo-id> --root "$LEDGER_HOME"
+git add -A && git commit -m "adopt migrated ledger"    # local placement only
+```
+
+`--root` takes `$LEDGER_HOME`, not `$LEDGER_HOME/harness`. Both are accepted and
+resolve to the same canonical root, but the runtime's `.harness/` directory and
+its writer lock are placed relative to the root you pass, and only the former
+puts them where the ignore rules above expect them.
+
+Check the landing before handing over. All five must hold:
+
+```bash
+test -d harness/.git                         && echo "ledger has its own git"
+git check-ignore -q harness                  && echo "project ignores the ledger"
+test -z "$(git ls-files harness/ .harness/)" && echo "project tracks no ledger file"
+git status --porcelain                       # expected: empty
+$HA task create --title "landing check" --kind chore   # expected: created task ...
+```
+
+The last one is the only proof that the ledger is writable where it now sits;
+the other four only prove it is shaped correctly.
 
 Then tell them:
 
 - their existing Harness installation was not modified;
-- the new ledger is a repository of its own, registered by path, and does not belong inside a project checkout;
+- the ledger is a git repository of its own, and the project must never track it;
 - the migration daemon lives under `$HARNESS_DAEMON_USER_ROOT` and can be removed with the work directory;
 - the previous ledger's git history is not carried forward — this migration rebuilds the ledger from its events, and the old history remains in the step 2 archive.
 
@@ -418,6 +458,8 @@ success and failure paths.
 - Every merge recorded in the step 5 table has been applied to the destination.
 - Every legacy preset has a validated v3 replacement installed.
 - `source-before` equals `source-after`.
+- The ledger has its own `.git` at its landed location, the project tracks no
+  ledger file, and `ha task create` succeeded there.
 
 ## Known rough edges
 
@@ -427,3 +469,10 @@ success and failure paths.
   `HARNESS_DAEMON_USER_ROOT`. Route on the code and origin, not the wording.
 - `--daemon-mode direct` does not support `init` — it rejects with
   `unsupported_command`. Isolation is done with the user root, not with direct mode.
+- `daemon repo register` does not isolate a ledger from the project repository
+  around it; only `ha init` does. That is why step 9 writes the ignore rules and
+  runs `git rm --cached` by hand rather than trusting registration to do it.
+- The writer lock is created as a sibling of the root you register — for a local
+  placement that is `<parent-of-project>/<project-name>.harness-anything-writer.lock`.
+  It is outside the project, so it does not dirty the working tree, but it is
+  visible next to the project directory while the daemon holds the ledger.
