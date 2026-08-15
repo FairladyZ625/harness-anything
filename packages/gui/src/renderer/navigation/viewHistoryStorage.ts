@@ -1,8 +1,6 @@
 import { DEFAULT_TASK_FILTERS, type TaskFilters } from "../model/taskFilters.ts";
 import {
   createViewHistory,
-  currentLocation,
-  pushLocation,
   type AppLocation,
   type ViewId,
   type ViewHistoryState,
@@ -131,12 +129,6 @@ export function writeViewHistory(
     // 导航在存储不可用/写满时必须继续工作;失败被显式消费(不静默吞)。
     consumeKnownError(cause);
   }
-}
-
-/** 把恢复出的历史栈顶校准为期望的初始视图(启动落 overview)。 */
-export function reseedView(history: ViewHistoryState, view: ViewId): ViewHistoryState {
-  const top = currentLocation(history);
-  return top.view === view ? history : pushLocation(history, { ...top, view });
 }
 
 function consumeKnownError(error: unknown): void { void error; }

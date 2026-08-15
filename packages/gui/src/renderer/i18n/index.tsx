@@ -13,13 +13,11 @@ import {
 import {
   LOCALE_STORAGE_KEY,
   initialLocale,
-  messageFor,
   setActiveLocale,
   type Locale,
-  type MessageKey,
 } from "./core.ts";
 
-export { t, tp } from "./core.ts";
+export { t } from "./core.ts";
 export type { Locale, MessageKey, MessageParams } from "./core.ts";
 
 const startingLocale = initialLocale();
@@ -68,19 +66,6 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
 export function useI18n() {
   return useContext(LocaleContext);
-}
-
-export function Trans({
-  message,
-  values,
-}: {
-  message: MessageKey;
-  values: Record<string, ReactNode>;
-}) {
-  return messageFor(message).split(/(\{[A-Za-z][A-Za-z0-9]*\})/g).map((part, index) => {
-    const match = /^\{([A-Za-z][A-Za-z0-9]*)\}$/.exec(part);
-    return <span key={`${part}-${index}`}>{match ? values[match[1]] ?? part : part}</span>;
-  });
 }
 
 function consumeKnownError(error: unknown): void { void error; }

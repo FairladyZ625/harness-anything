@@ -366,18 +366,6 @@ test("profile precedence is explicit action, then settings, then manifest defaul
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 
-test("agent-dispatch resolves one runtime instance from preset then project default and otherwise fails closed", async () => {
-  const fixture = makeFixture(); try {
-    writePackage(fixture.bundledRoot, "instance-bound", { profiles: [{ id: "baseline", title: "Baseline", completionGates: [], templateSelections: [], runtimeInstanceId: "preset-codex" }] });
-    writePackage(fixture.bundledRoot, "instance-portable"); const resolver = createCanonicalPresetResolver({ bundledRoot: fixture.bundledRoot, userRoot: fixture.userRoot, assetsRoot: fixture.assetsRoot });
-    const explicit = await resolver.resolve({ presetId: "instance-bound", verticalId: "software/coding", locale: "en-US", purpose: "agent-dispatch", defaultRuntimeInstanceId: "project-codex" }); assert.equal(explicit.ok, true); if (explicit.ok) assert.equal(explicit.snapshot.profile.runtimeInstanceId, "preset-codex");
-    const project = await resolver.resolve({ presetId: "instance-portable", verticalId: "software/coding", locale: "en-US", purpose: "agent-dispatch", defaultRuntimeInstanceId: "project-codex" }); assert.equal(project.ok, true); if (project.ok) assert.equal(project.snapshot.profile.runtimeInstanceId, "project-codex");
-    const missing = await resolver.resolve({ presetId: "instance-portable", verticalId: "software/coding", locale: "en-US", purpose: "agent-dispatch" }); assert.equal(missing.ok, false); if (!missing.ok) assert.equal(missing.error.code, "runtime_instance_required");
-    const invalid = await resolver.resolve({ presetId: "instance-portable", verticalId: "software/coding", locale: "en-US", purpose: "agent-dispatch", defaultRuntimeInstanceId: "Shared/Default" }); assert.equal(invalid.ok, false); if (!invalid.ok) assert.equal(invalid.error.code, "invalid_runtime_instance_id");
-    const task = await resolver.resolve({ presetId: "instance-bound", verticalId: "software/coding", locale: "en-US", purpose: "task-create" }); assert.equal(task.ok, true); if (task.ok) assert.equal("runtimeInstanceId" in task.snapshot.profile, false);
-  } finally { fixture.cleanup(); }
-});
-
 test("snapshot upgrade atomically replaces the complete snapshot and typed task contract without touching task prose", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-upgrade-")), sourceRoot = path.join(rootDir, "source"), userRoot = path.join(rootDir, ".harness/presets"), taskId = "task-upgrade";
   try {

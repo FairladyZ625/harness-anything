@@ -29,7 +29,7 @@ export function runCliPackageSmoke(root = process.cwd()) {
     const daemonStart = runJson(binPath, ["--root", projectDir, "--json", "daemon", "start", "--service"], projectDir, env(userRoot, home)); started = daemonStart.status === 0 && daemonStart.receipt?.ok === true; expectOk(daemonStart, "daemon start");
     const initialized = expectOk(runJson(binPath, ["--root", projectDir, "--json", "init", "--repo-id", "smoke", "--person-id", "owner", "--display-name", "Owner"], projectDir, env(userRoot, home)), "init");
     if (initialized.repoId !== "smoke" || !existsSync(path.join(projectDir, "harness/harness.yaml"))) throw new Error(`unexpected init receipt: ${JSON.stringify(initialized)}`);
-    const created = expectOk(runJson(binPath, ["--root", projectDir, "--json", "task", "create", "--task-id", "task-smoke", "--title", "Smoke Task"], projectDir, env(userRoot, home)), "task create");
+    const created = expectOk(runJson(binPath, ["--root", projectDir, "--json", "task", "create", "--id", "task-smoke", "--admin", "--title", "Smoke Task"], projectDir, env(userRoot, home)), "task create");
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "task", "show", "task-smoke"], projectDir, env(userRoot, home)), "task show");
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "receipt", "show", String(created.opId)], projectDir, env(userRoot, home)), "receipt show");
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "task", "start", "task-smoke", "--execution-id", "execution-smoke"], projectDir, env(userRoot, home)), "task start");
