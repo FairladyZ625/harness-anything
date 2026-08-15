@@ -38,6 +38,7 @@ test("100k Fact FTS exact searches stay indexed with p95 below 10ms", (context) 
     context.diagnostic(`fact-fts rows=100000 samples=200 p95=${p95.toFixed(3)}ms`);
     assert.ok(p95 < 10, `100k Fact FTS p95 ${p95.toFixed(3)}ms exceeded 10ms`);
     assert.equal(readFactGraphRows(db).facts.length, 100_000, "triadic Fact rows must not inherit the 100-result search limit");
+    assert.equal(searchFactRows(db, { taskId: "task-0" }).length, 1_000, "fact search must return every match instead of silently truncating");
   } finally {
     db.close();
   }
@@ -56,6 +57,7 @@ test("10k Decision FTS searches stay indexed after refresh with p95 below 10ms",
     assert.equal(plan.some(({ detail }) => /VIRTUAL TABLE INDEX/u.test(detail)), true, JSON.stringify(plan));
     db.prepare("DELETE FROM decision_fts WHERE decision_id='dec_PERF_00000'").run(); db.prepare("INSERT INTO decision_fts VALUES ('dec_PERF_00000','Refreshed token0','Should token0 ship?','','','')").run();
     assert.equal(listDecisionRows(db, { search: "token0" })[0]?.decisionId, "dec_PERF_00000");
+    assert.equal(listDecisionRows(db, {}).length, 10_000, "decision list must return every row instead of silently truncating");
     const samples: number[] = [];
     for (let index = 0; index < 200; index += 1) { const target = 9_800 + index, startedAt = performance.now(), rows = listDecisionRows(db, { search: `token${target}` }); samples.push(performance.now() - startedAt); assert.equal(rows[0]?.decisionId, `dec_PERF_${String(target).padStart(5, "0")}`); }
     samples.sort((left, right) => left - right); const p95 = samples[Math.ceil(samples.length * 0.95) - 1]!;

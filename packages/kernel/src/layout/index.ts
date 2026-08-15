@@ -339,8 +339,8 @@ export function slugifyTaskTitle(title: string): string {
     .normalize("NFKD")
     .toLowerCase()
     .replace(/[^a-z0-9]+/gu, "-")
-    .replace(/^-+|-+$/gu, "")
-    .slice(0, 72);
+    .slice(0, 72)
+    .replace(/^-+|-+$/gu, "");
   return slug.length > 0 ? slug : "task";
 }
 

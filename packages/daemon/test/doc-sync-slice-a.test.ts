@@ -43,9 +43,9 @@ test("materialize preserves a divergent local edit in one ignored deterministic 
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
-test("an authored branch advanced outside the daemon returns indeterminate with reconcile guidance", async () => {
+test("an authored branch advanced outside the daemon returns indeterminate with an executable recovery command", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-diverged-")); initRepo(rootDir); const cell = await openRepoCell({ repoId: workspaceId("diverged"), rootDir: canonicalRoot(rootDir), ownerId: "diverged-daemon" }), binding = { actor, source: "local" as const };
-  try { write(rootDir, "context/notes.md", "# Notes\n"); git(rootDir, "add", "harness/context/notes.md"); git(rootDir, "commit", "-qm", "external advance"); const result = await cell.run({ kind: "doc-submit", paths: ["context/notes.md"] }, binding); assert.equal(result.outcome, "indeterminate"); assert.equal(result.code, "publication_indeterminate"); assert.match(result.nextAction ?? "", /reconcile/iu); assert.equal(cell.status().state, "unavailable"); }
+  try { write(rootDir, "context/notes.md", "# Notes\n"); git(rootDir, "add", "harness/context/notes.md"); git(rootDir, "commit", "-qm", "external advance"); const result = await cell.run({ kind: "doc-submit", paths: ["context/notes.md"] }, binding); assert.equal(result.outcome, "indeterminate"); assert.equal(result.code, "publication_indeterminate"); assert.match(result.nextAction ?? "", /update-ref refs\/heads\/\S+ [0-9a-f]{40}/u); assert.match(result.nextAction ?? "", /ha daemon stop/u); assert.equal(cell.status().state, "unavailable"); }
   finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 

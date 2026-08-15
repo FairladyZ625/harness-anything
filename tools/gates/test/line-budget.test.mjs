@@ -5,7 +5,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { evaluateLineBudget, parseBudgets } from "../line-budget.mjs";
 import { MODULES } from "../module-policy.mjs";
-import { loadReceipts, signReceipt, validateReceiptSchema } from "../receipt-verify.mjs";
+import { loadReceipts, signReceipt, verifyReceipt } from "../receipt-verify.mjs";
 import { makeRepo, writeRepoFile } from "./helpers.mjs";
 
 function budgetBody(kernel) {
@@ -107,16 +107,21 @@ test("every committed line-budget receipt verifies, and the raised ceilings are 
   const ceilings = parseBudgets(readFileSync(path.join(gatesDir, "line-budgets.json"), "utf8"));
   const receipts = loadReceipts(path.join(gatesDir, "receipts")).filter(({ receipt }) => receipt?.kind === "line-budget");
   assert.ok(receipts.length > 0, "no line-budget receipts are committed");
+  // verifyReceipt, not a hand-rolled schema+signature pair: expiry is the half a
+  // hand-rolled check silently drops, and an expired receipt is exactly the case
+  // this test claims to catch -- it still parses and still signs, but the gate
+  // stops accepting it, so the ceiling it backs goes unbacked while this stays green.
+  const now = new Date();
   for (const { filePath, receipt } of receipts) {
-    assert.deepEqual(validateReceiptSchema(receipt), [], filePath);
-    assert.equal(receipt.signature, signReceipt(receipt), `${filePath}: signature does not verify`);
+    assert.deepEqual(verifyReceipt(receipt, { now }).errors, [], filePath);
     assert.ok(MODULES.includes(receipt.scope.replace(/^module:/u, "")), `${filePath}: scope names an unknown module`);
   }
   // A receipt may outlive the ceiling it was minted for -- the ratchet only ever
   // falls -- so the reverse direction is the one worth asserting: every ceiling
   // that a receipt was needed for still has one that reaches it.
   for (const moduleName of ["cli", "daemon"]) {
-    assert.ok(receipts.some(({ receipt }) => receipt.scope === `module:${moduleName}` && receipt.limit >= ceilings[moduleName]),
-      `${moduleName}: ceiling ${ceilings[moduleName]} has no receipt covering it`);
+    assert.ok(receipts.some(({ receipt }) => verifyReceipt(receipt, {
+      scope: `module:${moduleName}`, kind: "line-budget", minimumLimit: ceilings[moduleName], now
+    }).ok), `${moduleName}: ceiling ${ceilings[moduleName]} has no receipt the gate would accept`);
   }
 });
