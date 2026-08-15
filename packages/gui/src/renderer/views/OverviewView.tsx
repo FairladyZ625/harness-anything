@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowSquareOut,
   CheckCircle,
@@ -22,6 +22,16 @@ import {
 } from "../components/badges";
 import { Card } from "../components/overview/parts";
 import { sortDecisionQueue } from "../model/triadic";
+import { t } from "../i18n/index.tsx";
+
+// 与 archive 线一致:维度表首屏固定行数上限,超出走分页(不做无限下拉)。
+const OVERVIEW_DIMENSION_PAGE_SIZE = 40;
+
+/** 窗口化维度行,不静默截断 —— 调用方必须暴露分页控件。 */
+export function windowDimensionRows<T>(rows: readonly T[], page: number, pageSize = OVERVIEW_DIMENSION_PAGE_SIZE): { readonly visible: readonly T[]; readonly page: number; readonly pageCount: number; readonly total: number } {
+  const total = rows.length, pageCount = Math.max(1, Math.ceil(total / pageSize)), safePage = Math.min(Math.max(0, page), pageCount - 1), start = safePage * pageSize;
+  return { visible: rows.slice(start, start + pageSize), page: safePage, pageCount, total };
+}
 
 const timeOf = (iso: string) => iso.slice(11, 16);
 const dateTime = (iso: string) => iso.slice(5, 16).replace("T", " ");
@@ -83,6 +93,9 @@ export function OverviewView({
 }) {
   // coding preset 默认按 root(milestone=root task)。用户可切回 module 维度。
   const [dimension, setDimension] = useState<DrillDimension>("root");
+  const [dimensionPage, setDimensionPage] = useState(0);
+  // 维度切换或行数变化 → 回到第一页(筛后行集变了,旧页码没有意义)。
+  useEffect(() => { setDimensionPage(0); }, [dimension, tasks.length]);
 
   const countStatus = (status: SnapshotStatus) =>
     tasks.filter((task) => task.coordinationStatus === status).length;
@@ -106,6 +119,10 @@ export function OverviewView({
   const dimensionKeys = useMemo(
     () => [...new Set(tasks.flatMap((task) => dimensionKeysOf(task, dimension)))],
     [tasks, dimension],
+  );
+  const windowed = useMemo(
+    () => windowDimensionRows(dimensionKeys, dimensionPage),
+    [dimensionKeys, dimensionPage],
   );
   const cellCount = (key: string, status: SnapshotStatus) =>
     tasks.filter(
@@ -303,7 +320,7 @@ export function OverviewView({
               </tr>
             </thead>
             <tbody>
-              {dimensionKeys.map((key) => {
+              {windowed.visible.map((key) => {
                 const label = dimensionLabel(key, dimension, tasks);
                 return (
                   <tr key={key} className="border-t border-border">
@@ -336,6 +353,13 @@ export function OverviewView({
               })}
             </tbody>
           </table>
+          {windowed.pageCount > 1 && (
+            <nav aria-label={t("views.overviewView.dimensionPaging")} className="mt-2 flex items-center justify-center gap-2 font-mono text-[12px]">
+              <button type="button" className="rounded border border-border px-2 py-1 text-text-muted disabled:opacity-40" disabled={windowed.page === 0} onClick={() => setDimensionPage((page) => Math.max(0, page - 1))}>{t("views.overviewView.previousPage")}</button>
+              <span className="text-text-faint">{t("views.overviewView.pageOf", { page: windowed.page + 1, pageCount: windowed.pageCount, total: windowed.total, unit: t(dimension === "root" ? "views.overviewView.unitRoot" : dimension === "module" ? "views.overviewView.unitModule" : "views.overviewView.unitPlt") })}</span>
+              <button type="button" className="rounded border border-border px-2 py-1 text-text-muted disabled:opacity-40" disabled={windowed.page + 1 >= windowed.pageCount} onClick={() => setDimensionPage((page) => page + 1)}>{t("views.overviewView.nextPage")}</button>
+            </nav>
+          )}
         </Card>
       </div>
     </div>

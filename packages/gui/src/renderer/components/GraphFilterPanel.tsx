@@ -37,6 +37,7 @@ import {
 } from "../graph/entityStatusFilter";
 import type { DecisionState, RelationKind, SnapshotStatus } from "../model/types";
 import { STATUS_META } from "./badges";
+import { t } from "../i18n/index.tsx";
 
 export type EntityType = "decision" | "task" | "fact";
 
@@ -59,20 +60,31 @@ interface Props {
   filters: GraphFilters;
   setFilters: (f: GraphFilters | ((prev: GraphFilters) => GraphFilters)) => void;
   availableModules: string[];
+  /**
+   * 实体类型筛选段是否可见。单种类领地(task/decision/fact skel)下类型由 skel
+   * 子开关独占(隐藏此段,避免一个维度两处控件);聚光灯 / 全域(unified)下保留。
+   * 默认 true。
+   */
+  showEntityTypes?: boolean;
   flowMode: FlowAnimMode;
   onFlowModeChange: (mode: FlowAnimMode) => void;
 }
 
 function decisionStateLabel(state: DecisionState | typeof OTHER_STATUS_BUCKET): string {
-  if (state === OTHER_STATUS_BUCKET) return "其他";
-  const map: Record<DecisionState, string> = {
-    proposed: "待批准", active: "生效中", deferred: "暂缓", rejected: "已否决", retired: "已退役",
+  if (state === OTHER_STATUS_BUCKET) return t("components.graphFilterPanel.statusOther");
+  const map: Record<DecisionState, Parameters<typeof t>[0]> = {
+    proposed: "components.badges.pendingDecisionApproval",
+    active: "components.badges.takingEffect",
+    deferred: "components.badges.suspended",
+    rejected: "components.badges.rejected",
+    retired: "components.badges.retired",
   };
-  return map[state] ?? state;
+  const key = map[state];
+  return key ? t(key) : state;
 }
 
 function taskStatusLabel(status: SnapshotStatus | typeof OTHER_STATUS_BUCKET): string {
-  if (status === OTHER_STATUS_BUCKET) return "其他";
+  if (status === OTHER_STATUS_BUCKET) return t("components.graphFilterPanel.statusOther");
   return STATUS_META[status]?.label ?? status;
 }
 
@@ -82,6 +94,7 @@ export function GraphFilterPanel({
   filters,
   setFilters,
   availableModules,
+  showEntityTypes = true,
   flowMode,
   onFlowModeChange,
 }: Props) {
@@ -169,7 +182,7 @@ export function GraphFilterPanel({
     Math.max(0, decisionStateOffCount(entityStatus));
   const narrowed =
     AXIS_ORDER.filter((a) => !filters.axes[a]).length +
-    Math.max(0, 3 - filters.types.size) +
+    (showEntityTypes ? Math.max(0, 3 - filters.types.size) : 0) +
     Math.max(0, availableModules.length - filters.modules.size) +
     Math.max(0, kindOff) +
     statusOff;
@@ -179,7 +192,7 @@ export function GraphFilterPanel({
     const i = FLOW_MODES.indexOf(flowMode);
     onFlowModeChange(FLOW_MODES[(i + 1) % FLOW_MODES.length]!);
   };
-  const flowLabel = flowMode === "off" ? "关" : flowMode === "all" ? "全开" : "焦点";
+  const flowLabel = flowMode === "off" ? t("components.graphFilterPanel.flowOff") : flowMode === "all" ? t("components.graphFilterPanel.flowAll") : t("components.graphFilterPanel.flowFocus");
 
   return (
     <div
@@ -191,6 +204,7 @@ export function GraphFilterPanel({
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
+          title={open ? t("components.graphFilterPanel.collapseFilterPanel") : t("components.graphFilterPanel.expandFilterPanel")}
           className={`flex flex-1 items-center gap-2 px-3 py-2 text-left hover:bg-surface-raised ${
             open ? "rounded-t-lg" : "rounded-l-lg"
           }`}
@@ -201,7 +215,7 @@ export function GraphFilterPanel({
             <CaretRight weight="bold" className="text-[11px] text-text-faint" />
           )}
           <Funnel weight="duotone" className="text-text-muted" />
-          <span className="font-mono text-xs font-semibold text-text">筛选</span>
+          <span className="font-mono text-xs font-semibold text-text">{t("components.graphFilterPanel.filters")}</span>
           {!open && narrowed > 0 && (
             <span className="rounded-full bg-accent px-1.5 py-0.5 font-mono text-[11px] text-accent-fg">
               {narrowed}
@@ -211,7 +225,7 @@ export function GraphFilterPanel({
         <button
           type="button"
           onClick={cycleFlow}
-          title="边方向流动动画"
+          title={t("components.graphFilterPanel.flowToggleHint")}
           className={`flex items-center gap-1 border-l border-border px-2.5 py-2 text-[11px] font-mono text-text-muted hover:bg-surface-raised hover:text-text ${
             open ? "rounded-tr-lg" : "rounded-r-lg"
           }`}
@@ -226,7 +240,7 @@ export function GraphFilterPanel({
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wide text-text-muted">
             <Bandaids weight="bold" />
-            <span>语义轴</span>
+            <span>{t("components.graphFilterPanel.semanticAxis")}</span>
           </div>
           <div className="flex flex-col gap-1.5">
             {AXIS_ORDER.map((axis) => {
@@ -255,7 +269,7 @@ export function GraphFilterPanel({
               );
             })}
             <div className="mt-0.5 text-[9.5px] leading-snug text-text-faint">
-              assoc(relates/implements)默认关,降噪。
+              {t("components.graphFilterPanel.assocRelatesTurnedOffByDefaultReduce")}
             </div>
           </div>
         </div>
@@ -264,10 +278,10 @@ export function GraphFilterPanel({
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wide text-text-muted">
             <GitBranch weight="bold" />
-            <span>关系类型</span>
+            <span>{t("components.graphFilterPanel.relationTypes")}</span>
             <span className="ml-auto flex gap-1 normal-case tracking-normal">
-              <button onClick={() => setAllKinds(true)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">全</button>
-              <button onClick={() => setAllKinds(false)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">无</button>
+              <button onClick={() => setAllKinds(true)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">{t("components.graphFilterPanel.kindsAll")}</button>
+              <button onClick={() => setAllKinds(false)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">{t("components.graphFilterPanel.kindsNone")}</button>
             </span>
           </div>
           <div className="flex flex-col gap-2">
@@ -309,7 +323,7 @@ export function GraphFilterPanel({
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wide text-text-muted">
             <SquaresFour weight="bold" />
-            <span>模块</span>
+            <span>{t("components.graphFilterPanel.modules")}</span>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {availableModules.map((mod) => {
@@ -329,16 +343,17 @@ export function GraphFilterPanel({
               );
             })}
             {availableModules.length === 0 && (
-              <span className="text-[11px] text-text-faint">无模块数据(task.module 未投影)</span>
+              <span className="text-[11px] text-text-faint">{t("components.graphFilterPanel.modulesEmpty")}</span>
             )}
           </div>
         </div>
 
-        {/* 实体类型 */}
+        {/* 实体类型:单种类领地下隐藏(skel 独占类型)。 */}
+        {showEntityTypes && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wide text-text-muted">
             <Graph weight="bold" />
-            <span>实体类型</span>
+            <span>{t("components.graphFilterPanel.entityTypes")}</span>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {(["decision", "task", "fact"] as const).map((entityType) => {
@@ -359,12 +374,13 @@ export function GraphFilterPanel({
             })}
           </div>
         </div>
+        )}
 
         {/* 实体状态 */}
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wide text-text-muted">
             <CircleHalf weight="bold" />
-            <span>实体状态</span>
+            <span>{t("components.graphFilterPanel.entityStatus")}</span>
             {isEntityStatusFilterNarrowed(entityStatus) && (
               <button
                 onClick={() =>
@@ -372,7 +388,7 @@ export function GraphFilterPanel({
                 }
                 className="ml-auto rounded px-1 py-0.5 text-[11px] normal-case tracking-normal text-text-faint hover:bg-surface-raised hover:text-text"
               >
-                重置
+                {t("components.graphFilterPanel.statusReset")}
               </button>
             )}
           </div>
@@ -380,8 +396,8 @@ export function GraphFilterPanel({
             <div className="flex items-center gap-1.5">
               <span className="font-mono text-[11px] uppercase text-text-faint">task 状态</span>
               <span className="ml-auto flex gap-1 normal-case tracking-normal">
-                <button onClick={() => setAllTaskStatuses(true)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">全</button>
-                <button onClick={() => setAllTaskStatuses(false)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">无</button>
+                <button onClick={() => setAllTaskStatuses(true)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">{t("components.graphFilterPanel.kindsAll")}</button>
+                <button onClick={() => setAllTaskStatuses(false)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">{t("components.graphFilterPanel.kindsNone")}</button>
               </span>
             </div>
             <div className="flex flex-wrap gap-1">
@@ -405,7 +421,7 @@ export function GraphFilterPanel({
               })}
               <button
                 onClick={() => toggleTaskStatus(OTHER_STATUS_BUCKET)}
-                title="未知状态归此桶"
+                title={t("components.graphFilterPanel.statusOtherHint")}
                 className={`rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ${
                   entityStatus.taskStatuses.has(OTHER_STATUS_BUCKET)
                     ? "border border-border bg-surface-raised text-text"
@@ -420,8 +436,8 @@ export function GraphFilterPanel({
             <div className="flex items-center gap-1.5">
               <span className="font-mono text-[11px] uppercase text-text-faint">decision 状态</span>
               <span className="ml-auto flex gap-1 normal-case tracking-normal">
-                <button onClick={() => setAllDecisionStates(true)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">全</button>
-                <button onClick={() => setAllDecisionStates(false)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">无</button>
+                <button onClick={() => setAllDecisionStates(true)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">{t("components.graphFilterPanel.kindsAll")}</button>
+                <button onClick={() => setAllDecisionStates(false)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">{t("components.graphFilterPanel.kindsNone")}</button>
               </span>
             </div>
             <div className="flex flex-wrap gap-1">
@@ -444,7 +460,7 @@ export function GraphFilterPanel({
               })}
               <button
                 onClick={() => toggleDecisionState(OTHER_STATUS_BUCKET)}
-                title="未知状态归此桶"
+                title={t("components.graphFilterPanel.statusOtherHint")}
                 className={`rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ${
                   entityStatus.decisionStates.has(OTHER_STATUS_BUCKET)
                     ? "border border-border bg-surface-raised text-text"

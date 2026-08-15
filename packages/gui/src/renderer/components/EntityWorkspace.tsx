@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { TaskRow, RelationEdge, DecisionRow, FactRef } from "../model/types";
 import type { RelationCoverageRow, FactAnchorRow } from "../../api/renderer-dto";
 import { GraphView, type ViewMode } from "../views/GraphView.tsx";
+import type { PaletteEntry } from "./CommandPalette.tsx";
 import { GenealogyTimelineView } from "../views/GenealogyTimelineView.tsx";
 import { TerritoryModeBar, type WorkspaceMode } from "./TerritoryModeBar.tsx";
 
@@ -27,6 +28,12 @@ export interface EntityWorkspaceProps {
   factAnchors?: ReadonlyArray<FactAnchorRow>;
   onNavigateEntity: (ref: string) => void;
   onFocusEntityChange: (ref: string | null) => void;
+  /** 最近访问 navRef 列表,透传给 GraphView 左栏(最近访问/搜索)。 */
+  recentRefs?: ReadonlyArray<string>;
+  /** 统一实体索引(buildPaletteIndex 产物),透传给 GraphView 左栏。 */
+  entries?: ReadonlyArray<PaletteEntry>;
+  /** 点击左栏 ⌘K 徽标打开全局面板。 */
+  onOpenPalette?: () => void;
 }
 
 const FOCUS_REF_DECISION = /^decision\//u;
@@ -41,6 +48,9 @@ export function EntityWorkspace({
   factAnchors,
   onNavigateEntity,
   onFocusEntityChange,
+  recentRefs,
+  entries,
+  onOpenPalette,
 }: EntityWorkspaceProps) {
   // lineage 仅 decision 有谱系。
   const canShowLineage = focusedEntityRef
@@ -108,6 +118,9 @@ export function EntityWorkspace({
             focusRef={focusedEntityRef}
             viewMode={viewMode}
             onViewModeChange={setViewMode}
+            recentRefs={recentRefs}
+            entries={entries}
+            onOpenPalette={onOpenPalette}
           />
         )}
       </div>

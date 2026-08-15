@@ -21,5 +21,9 @@ export const guiVitestManifest = [
   "packages/gui/test/navigation-history.vitest.ts",
   "packages/gui/test/decision-pool-grouping.vitest.ts",
   "packages/gui/test/i18n-locale-parity.vitest.ts",
-  "packages/gui/test/overview-plt-dimension.vitest.ts"
+  "packages/gui/test/overview-plt-dimension.vitest.ts",
+  "packages/gui/test/overview-dimension-paging.vitest.ts",
+  "packages/gui/test/system-view-detail.vitest.ts",
+  "packages/gui/test/recent-refs.vitest.ts",
+  "packages/gui/test/terminal-spawn-helper.vitest.ts"
 ];
