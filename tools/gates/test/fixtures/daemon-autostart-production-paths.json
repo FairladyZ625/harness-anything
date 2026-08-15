@@ -1,0 +1,13 @@
+[
+  { "path": "packages/daemon/src/client/daemon-autostart.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/process-port.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/protocol/daemon-protocol.contract.ts", "module": "daemon" },
+  { "path": "packages/cli/src/daemon/client.ts", "module": "cli" },
+  { "path": "packages/cli/src/daemon/control.ts", "module": "cli" },
+  { "path": "packages/cli/src/index.ts", "module": "cli" },
+  { "path": "packages/gui/src/main/daemon-serve-launch.ts", "module": "gui" },
+  { "path": "packages/gui/src/main/local-composition-root.ts", "module": "gui" },
+  { "path": "packages/gui/src/main/local-main-controls.ts", "module": "gui" },
+  { "path": "packages/gui/src/main/electron-main.ts", "module": "gui" },
+  { "path": "packages/gui/src/main/daemon-supervisor.ts", "module": "gui" }
+]

@@ -73,7 +73,7 @@ export async function startGuiApp(): Promise<void> {
   ensurePtySpawnHelperExecutable();
   installContentSecurityPolicy();
   const trustedWebContentsIds = new Set<number>();
-  const rootDir = resolveGuiProjectRoot(), bridge = createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides()), controlled = addLocalMainControls({ bridge, target: async (repoId) => resolveLocalDaemonTarget({ rootDir, ...(repoId ? { repoIdOverride: repoId } : {}) }), ...(app.isPackaged ? { packaged: { resourcesPath: process.resourcesPath } } : {}) });
+  const rootDir = resolveGuiProjectRoot(), packaged = app.isPackaged ? { resourcesPath: process.resourcesPath } : undefined, bridge = createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides(), packaged ? { packaged } : {}), controlled = addLocalMainControls({ bridge, target: async (repoId) => resolveLocalDaemonTarget({ rootDir, ...(repoId ? { repoIdOverride: repoId } : {}) }), ...(packaged ? { packaged } : {}) });
   registerHarnessIpcHandlers(ipcMain, controlled, {
     isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
     rendererUrl: {

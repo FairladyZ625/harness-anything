@@ -73,12 +73,12 @@ test("real CLI creates module and subtask-expansion packages through their decla
 test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority parity, fixed receipt, and phantom-free Configure-Verify", () => {
   const fixture = setupEmpty();
   try {
-    const before = runMaybe(fixture.repo, fixture.userRoot,
-      ["init", "--repo-id", "fresh", "--person-id", "owner", "--display-name", "Owner"]);
-    assert.notEqual(before.status, 0); assert.equal(existsSync(path.join(fixture.repo, "harness")), false);
-    assert.equal(run(fixture.repo, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
+    assert.equal(existsSync(path.join(fixture.repo, "harness")), false);
+    // No explicit daemon was started: init must auto-start the resident daemon
+    // (bounded autostart) and still publish only through it.
     const initialized = run(fixture.repo, fixture.userRoot,
       ["init", "--repo-id", "fresh", "--person-id", "owner", "--display-name", "Owner", "--add-npm-scripts"]);
+    assert.ok(readDaemonPid(fixture.userRoot, "default"), "init must leave an auto-started resident daemon pid");
     assert.equal(initialized.ok, true); assert.equal(initialized.repoId, "fresh"); assert.equal(initialized.outcome, "applied"); assert.match(String(initialized.commit), /^[0-9a-f]{40}$/u);
     assert.deepEqual(initialized.created, ["harness/harness.yaml", "harness/people.yaml", "package.json", "harness/context/README.md", "harness/context/architecture/README.md", "harness/context/development/README.md", "harness/context/integrations/README.md", "harness/context/research/README.md", "harness/governance/standards/README.md", "harness/governance/standards/repository-governance.md", "harness/governance/standards/decision-writing.md", "harness/adr/README.md", "harness/milestones/README.md", "harness/governance/walls/walls.json", "harness/governance/walls/run-walls.mjs", "AGENTS.md", "CLAUDE.md"]); assert.deepEqual(initialized.updated, []); assert.deepEqual(initialized.preserved, []); assert.deepEqual(initialized.drifted, []);
     const plan = initialized.plan as { digest: string; baseScaffoldDigest: string; projectOverlayPath: string | null; projectOverlayDigest: string | null; documents: Array<{ path: string; contentSha256: string; disposition: string }> }; assert.match(plan.digest, /^sha256:[0-9a-f]{64}$/u); assert.match(plan.baseScaffoldDigest, /^sha256:[0-9a-f]{64}$/u); assert.equal(plan.projectOverlayPath, null); assert.equal(plan.projectOverlayDigest, null); assert.deepEqual(plan.documents.map(({ disposition }) => disposition), Array(14).fill("created")); assert.equal((initialized.publication as { ok: boolean }).ok, true);
