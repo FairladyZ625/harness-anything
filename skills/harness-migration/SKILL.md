@@ -337,13 +337,19 @@ that use it. Copying it inside a project would give every project its own
 divergent copy, and on a public project it would publish the ledger outright.
 
 Say this explicitly, because the old layout was different. Previous generations
-kept `harness/` as a git repository nested inside the project directory. **Do
-not reproduce that.** The daemon rejects it — a nested standalone ledger fails
-with `publication_indeterminate: Canonical and authored refs must agree` — and
-the ledger is no longer reachable for writes.
+kept `harness/` as a git repository nested inside the project directory. That
+shape is intended and will be supported again, but **on this version place the
+ledger outside the project**, for a reason that has nothing to do with nesting:
+
+`ha init` currently treats the repository it runs in as the ledger's git
+carrier, tracking state in `refs/ha/canonical`. An ordinary project commit
+moves `HEAD` while that ref stays put, and the next ledger write fails with
+`publication_indeterminate: Canonical and authored refs must agree`. A ledger
+sharing a repository with project code is therefore locked by the project's own
+development. Keeping it in a repository of its own avoids that entirely.
 
 ```bash
-mv "$TARGET_REPO" /absolute/path/the/user/chooses      # outside any project checkout
+mv "$TARGET_REPO" /absolute/path/the/user/chooses      # a directory of its own
 $HA daemon repo register --repo-id <new-repo-id> --root /absolute/path/the/user/chooses
 ```
 
