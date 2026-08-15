@@ -8,7 +8,7 @@ import { deriveCliCapabilities, parseThinCommand, renderThinHelp } from "../src/
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 79);
+  assert.equal(thinCliCommands.length, 81);
   for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))].filter((value): value is string => value !== undefined).sort()) assert.match(help, new RegExp(`^  ${domain} \\(`, "mu"));
   assert.doesNotMatch(help, /ha task start <task-id>/u);
   const taskHelp = renderThinHelp([], "task");
@@ -23,7 +23,7 @@ test("top-level help renders a derived domain directory and domain help filters 
 
 test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(deriveCliCapabilities(), {
-    daemon: ["daemon-repo-register", "daemon-repo-unregister", "daemon-start", "daemon-status", "daemon-stop"],
+    daemon: ["daemon-fleet-center-start", "daemon-fleet-edge-sync", "daemon-repo-register", "daemon-repo-unregister", "daemon-start", "daemon-status", "daemon-stop"],
     decision: ["decision-accept", "decision-amend", "decision-claim-add", "decision-claim-fulfill", "decision-defer", "decision-list", "decision-propose", "decision-reckon", "decision-reject", "decision-relate", "decision-relation-replace", "decision-relation-retire", "decision-repin", "decision-retire", "decision-show", "decision-supersede", "decision-transition", "decision-validate", "decision-verify"],
     distill: ["distill-candidate", "distill-promote"],
     doc: ["doc-materialize", "doc-show", "doc-status", "doc-sync-dry-run", "doc-sync-submit"],
