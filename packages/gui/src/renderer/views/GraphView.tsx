@@ -20,6 +20,8 @@ import { InteractiveEdge } from "../graph/edges/InteractiveEdge";
 import { GraphFilterPanel, type GraphFilters } from "../components/GraphFilterPanel";
 import { GraphLegend } from "../components/GraphLegend.tsx";
 import { FocusHistoryBar } from "../components/FocusHistoryBar";
+import { FocusSwitcher } from "../components/FocusSwitcher";
+import type { PaletteEntry } from "../components/CommandPalette.tsx";
 import { TerritorySkelToggle, type TerritorySkel } from "../components/TerritoryModeBar";
 import { useColorMode, minimapMaskColor } from "../graph/colorMode";
 import { layoutEgoCanvas } from "../graph/egoCanvas";
@@ -70,6 +72,9 @@ function GraphViewInner({
   focusRef,
   viewMode,
   onViewModeChange,
+  recentRefs = [],
+  entries = [],
+  onOpenPalette = () => {},
 }: {
   tasks: TaskRow[];
   relations: RelationEdge[];
@@ -79,6 +84,12 @@ function GraphViewInner({
   factAnchors?: ReadonlyArray<FactAnchorRow>;
   onNavigateEntity?: (ref: string) => void;
   onFocusEntityChange?: (ref: string | null) => void;
+  /** 最近访问 navRef 列表(App 层 pushRecent 维护),左栏 Recent 段数据源。 */
+  recentRefs?: ReadonlyArray<string>;
+  /** 统一实体索引(buildPaletteIndex 产物),左栏 typeahead 与 Recent 反解共用。 */
+  entries?: ReadonlyArray<PaletteEntry>;
+  /** 点击 ⌘K 徽标打开全局面板。 */
+  onOpenPalette?: () => void;
   focusRef: string | null;
   viewMode: ViewMode;
   onViewModeChange: (m: ViewMode) => void;
@@ -184,18 +195,29 @@ function GraphViewInner({
   );
 
   // ---- 领地布局 ----
+  // 筛选口径与 archive 线对齐:module/实体类型筛选同样作用于领地(此前只在聚光灯
+  // 生效,领地模式下筛选面板不渲染 = 覆盖面缺口)。单种类 skel 下 types 由 skel 独占。
+  const territoryTypes = useMemo(
+    () => (skel === "task" || skel === "decision" || skel === "fact" ? new Set<string>([skel]) : filters.types),
+    [skel, filters.types],
+  );
   const territory = useMemo(() => {
     if (viewMode !== "territory") return null;
+    const taskVisible = (task: TaskRow) => filters.modules.has(task.module) && territoryTypes.has("task");
+    const visibleTasks = tasks.filter(taskVisible);
+    const moduleByTaskId = new Map(tasks.map((task) => [task.taskId, task.module] as const));
+    // fact 跟随宿主 task 的 module 可见性;无宿主(未知/外部)不因 module 筛选隐藏。
+    const factVisible = (fact: FactRef) => territoryTypes.has("fact") && (moduleByTaskId.get(fact.taskId) ? filters.modules.has(moduleByTaskId.get(fact.taskId)!) : true);
     return partitionForSkel(
       skel,
-      tasks,
-      decisions,
-      facts,
+      visibleTasks,
+      territoryTypes.has("decision") ? decisions : [],
+      facts.filter(factVisible),
       factAnchors ?? [],
       relations,
       coverageRows ?? [],
     );
-  }, [viewMode, skel, tasks, decisions, facts, factAnchors, relations, coverageRows]);
+  }, [viewMode, skel, tasks, decisions, facts, factAnchors, relations, coverageRows, filters.modules, territoryTypes]);
 
   const toggleZone = useCallback((zoneId: string) => {
     setExpandedZones((prev) => {
@@ -445,7 +467,9 @@ function GraphViewInner({
         />
       )}
 
-      <div ref={canvasHostRef} className="flex min-h-0 flex-1 relative">
+      <div className="flex min-h-0 flex-1">
+        <FocusSwitcher recentRefs={recentRefs} entries={entries} focusRef={focusRef} onFocus={(ref) => (viewMode === "territory" ? enterSpotlight(ref) : openFocus(ref))} onOpenPalette={onOpenPalette} />
+        <div ref={canvasHostRef} className="flex min-h-0 min-w-0 flex-1 relative">
         <ReactFlow
           nodes={displayNodes}
           edges={displayEdges}
@@ -507,17 +531,16 @@ function GraphViewInner({
           {viewMode === "territory" && (
             <TerritorySkelToggle skel={skel} onSkelChange={setSkel} />
           )}
-          {viewMode === "spotlight" && (
-            <Panel position="top-left">
-              <GraphFilterPanel
-                filters={filters}
-                setFilters={setFilters}
-                availableModules={availableModules}
-                flowMode={flowMode}
-                onFlowModeChange={setFlowMode}
-              />
-            </Panel>
-          )}
+          <Panel position="top-left">
+            <GraphFilterPanel
+              filters={filters}
+              setFilters={setFilters}
+              availableModules={availableModules}
+              showEntityTypes={viewMode === "spotlight" || skel === "unified"}
+              flowMode={flowMode}
+              onFlowModeChange={setFlowMode}
+            />
+          </Panel>
         </ReactFlow>
 
         {viewMode === "spotlight" && (drawerNodeId || focusEdge) && (
@@ -539,6 +562,7 @@ function GraphViewInner({
             onNavigateEntity={onNavigateEntity}
           />
         )}
+        </div>
       </div>
     </div>
   );

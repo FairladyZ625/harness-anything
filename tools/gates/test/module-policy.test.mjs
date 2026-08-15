@@ -157,3 +157,8 @@ test("territory root-cluster fixture bills the graph clustering seam to the gui 
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/territory-root-cluster-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
+
+test("GUI archive-parity fixture bills the terminal repair, recents rail, filter parity, and system detail seams to the gui bucket", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/gui-archive-parity-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});

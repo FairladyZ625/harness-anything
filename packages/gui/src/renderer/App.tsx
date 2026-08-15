@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Kanban, FolderSimple, SquaresFour, Graph, Scales, Stack, PlugsConnected, GearSix, CaretUpDown, CloudSlash, WarningCircle, GitBranch, FirstAidKit, Package } from "@phosphor-icons/react";
+import { FolderSimple, CaretUpDown, CloudSlash, WarningCircle } from "@phosphor-icons/react";
 import type { SnapshotStatus } from "./model/types.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
@@ -19,6 +19,7 @@ import { TaskDetailView } from "./views/TaskDetailView.tsx";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
 import { ThemeToggle, NavButton, ProjectSummary } from "./components/shell-chrome.tsx";
 import { CommandPalette, buildPaletteIndex } from "./components/CommandPalette.tsx";
+import { pushRecentRef } from "./navigation/recentRefs.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
 import { taskQueryKeys, useTasksQuery } from "./task-data.ts";
@@ -33,48 +34,12 @@ import { useCatalogSnapshot } from "./catalog-data.ts";
 import { adaptRepoProject } from "./model/project-adapter.ts";
 import { TerminalDock, type TerminalDockHandle } from "./components/TerminalDock.tsx";
 import { NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
-import { t, type MessageKey } from "./i18n/index.tsx";
+import { t } from "./i18n/index.tsx";
 import { useViewHistory } from "./navigation/useViewHistory.ts";
 import { initialLocation, resetViewHistory } from "./navigation/viewHistoryStorage.ts";
 import type { ViewId } from "./navigation/viewHistory.ts";
+import { navLabel, WORKSPACE_NAV, MANAGE_NAV } from "./navigation/navConfig.tsx";
 
-// W2C:列表并入看板(第三种 layout),独立「列表」入口删除。
-// 侧栏文案走 i18n 字典(shell.nav.*);未接字典的视图保持中文(见完成度报告)。
-const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
-  home: "shell.nav.home",
-  overview: "shell.nav.overview",
-  board: "shell.nav.board",
-  decisions: "shell.nav.decisions",
-  decisionPool: "shell.nav.decisionPool",
-  factTriage: "shell.nav.factTriage",
-  executionEvidence: "shell.nav.executionEvidence",
-  graph: "shell.nav.graph",
-  presets: "shell.nav.presets",
-  adapters: "shell.nav.adapters",
-  agents: "shell.nav.agents",
-  system: "shell.nav.system",
-  settings: "shell.nav.settings",
-};
-
-const navLabel = (id: ViewId): string => t(NAV_LABEL_KEY[id]);
-
-const WORKSPACE_NAV: { id: ViewId; icon: React.ReactNode }[] = [
-  { id: "overview", icon: <SquaresFour weight="duotone" /> },
-  { id: "board", icon: <Kanban weight="duotone" /> },
-  { id: "decisions", icon: <Scales weight="duotone" /> },
-  { id: "decisionPool", icon: <GitBranch weight="duotone" /> },
-  { id: "factTriage", icon: <FirstAidKit weight="duotone" /> },
-  { id: "executionEvidence", icon: <Package weight="duotone" /> },
-  { id: "graph", icon: <Graph weight="duotone" /> },
-];
-
-const MANAGE_NAV: { id: ViewId; icon: React.ReactNode }[] = [
-  { id: "presets", icon: <Stack weight="duotone" /> },
-  { id: "adapters", icon: <PlugsConnected weight="duotone" /> },
-  { id: "agents", icon: <PlugsConnected weight="duotone" /> },
-  { id: "system", icon: <GearSix weight="duotone" /> },
-  { id: "settings", icon: <GearSix weight="duotone" /> },
-];
 
 function AppShell() {
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
@@ -120,6 +85,8 @@ function AppShell() {
   const setTaskFilters = (next: TaskFilters) => updateLocation({ taskFilters: next });
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // 最近访问(关系图左栏数据源):点过的 task/decision/fact 推到头部,去重 + 截断。
+  const [recentRefs, setRecentRefs] = useState<string[]>([]);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const terminalDock = useRef<TerminalDockHandle>(null);
 
@@ -163,6 +130,7 @@ function AppShell() {
       if (activeRepoId) await queryClient.cancelQueries({ predicate: (query) => query.queryKey[1] === activeRepoId });
       // 新仓以干净初始栈打开(overview + 默认筛选);仓内 back/forward 仍持久化。
       resetViewHistory(window.sessionStorage, repoId);
+      setRecentRefs([]);
       setActiveRepoId(repoId);
     }
     setProjectSwitcherOpen(false);
@@ -190,6 +158,7 @@ function AppShell() {
 
   // 带 repo/<repoId>/ 前缀的实体引用先显式切仓，再在该仓导航。
   const navigateLocalEntity = (ref: string) => {
+    setRecentRefs((prev) => pushRecentRef(prev, ref));
     if (ref.startsWith("task/")) {
       const id = ref.slice(5).split("/")[0];
       openTaskDetail(id);
@@ -212,6 +181,7 @@ function AppShell() {
     navigateToEntity(`decision/${decisionId}`);
   const navigateToTask = (taskId: string) => openTaskDetail(taskId);
   const focusEntityInGraph = (ref: string) => {
+    setRecentRefs((prev) => pushRecentRef(prev, ref));
     navigate({ focusedEntityRef: ref, view: "graph", selectedId: null, previewId: null });
   };
 
@@ -486,6 +456,9 @@ function AppShell() {
                 onFocusEntityChange={(ref) =>
                   ref === null ? updateLocation({ focusedEntityRef: null }) : navigate({ focusedEntityRef: ref })
                 }
+                recentRefs={recentRefs}
+                entries={paletteEntries}
+                onOpenPalette={() => setPaletteOpen(true)}
               />
             ) : view === "factTriage" ? (
               <FactTriageView

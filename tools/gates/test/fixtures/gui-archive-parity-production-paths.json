@@ -1,0 +1,14 @@
+[
+  { "path": "packages/gui/src/main/electron-main.ts", "module": "gui" },
+  { "path": "packages/gui/src/main/local-main-controls.ts", "module": "gui" },
+  { "path": "packages/gui/src/main/terminal-spawn-helper.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/App.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/api-client.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/components/EntityWorkspace.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/components/FocusSwitcher.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/components/GraphFilterPanel.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/navigation/recentRefs.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/views/GraphView.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/views/OverviewView.tsx", "module": "gui" },
+  { "path": "packages/gui/src/renderer/views/SystemView.tsx", "module": "gui" }
+]
