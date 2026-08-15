@@ -14,6 +14,7 @@ test("repo-document accepts only its exact fields and non-specialized document p
   for (const target of ["tasks/task_x/note.md", "decisions/decision-dec_X/note.md", "presets/custom/README.md", "objects/sha256/blob", "events/old.json", "harness.yaml"]) {
     assert.deepEqual(validateMigrationImportEvent(repoDocumentEvent(target)), ["migration repo document entity is invalid"], target);
   }
+  const symbolicLink = repoDocumentEvent("tasks/task_x/note.md", "symbolic-link"); assert.deepEqual(validateMigrationImportEvent(symbolicLink), []); assert.deepEqual(validateMigrationImportEvent({ ...symbolicLink, payload: { ...symbolicLink.payload, entity: { ...symbolicLink.payload.entity, nodeKind: "shortcut" as never } } }), ["migration repo document entity is invalid"]);
 });
 
 test("repo-document write plan publishes the document and every referenced CAS claim", () => {
@@ -23,4 +24,4 @@ test("repo-document write plan publishes the document and every referenced CAS c
   assert.equal(plan.targets.some((target) => target.kind === "content_blob" && target.sha256 === referencedContentClaims[0].sha256 && target.size === referencedContentClaims[0].size), true);
 });
 
-function repoDocumentEvent(target: string): MigrationImportEventV1 { const opId = `migration-${sha256Text(target).slice(0, 26)}`; return { schema: "migration-import-event/v1", eventId: `event-${sha256Text(opId)}`, workspaceRevision: 1, opId, type: "entity_migrated", actor: { principal: { personId: "person_migration" }, executor: null }, source: "migration-import/v1", occurredAt: "2026-08-15T00:00:00.000Z", payload: { migratedFrom: target, generation: "v0", entity: { kind: "repo-document", documentClaim: { ...documentClaim, path: target }, referencedContentClaims } } }; }
+function repoDocumentEvent(target: string, nodeKind: "file" | "symbolic-link" = "file"): MigrationImportEventV1 { const opId = `migration-${sha256Text(target).slice(0, 26)}`; return { schema: "migration-import-event/v1", eventId: `event-${sha256Text(opId)}`, workspaceRevision: 1, opId, type: "entity_migrated", actor: { principal: { personId: "person_migration" }, executor: null }, source: "migration-import/v1", occurredAt: "2026-08-15T00:00:00.000Z", payload: { migratedFrom: target, generation: "v0", entity: { kind: "repo-document", nodeKind, documentClaim: { ...documentClaim, path: target }, referencedContentClaims } } }; }
