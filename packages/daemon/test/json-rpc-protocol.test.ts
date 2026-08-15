@@ -8,7 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { makeTaskEventStore, makeTaskProjection, readDaemonRegistry, type AgentRuntimeEventV1, type FrozenWritePlan } from "../../kernel/src/index.ts";
-import { reviewDigest } from "../../kernel/src/index.ts";
+import { projectDecisionReadiness, reviewDigest } from "../../kernel/src/index.ts";
 import { actionForDaemonMethod, canonicalRoot, commandClassForAction, daemonGuiActionMethods, parseDaemonRpcParams, validateDaemonDecisionList, validateDaemonGuiCommandReceipt, validateDaemonRelationGraph, validateDaemonTaskSnapshotList, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
@@ -505,6 +505,28 @@ function rbacRepo(rootDir: string, ids: Readonly<Record<string, number>>): void 
 async function rpc(host: Awaited<ReturnType<typeof openDaemonHost>>, auth: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2], method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
   const server = createJsonRpcProtocolServer({ host, authContext: auth, emit: async () => undefined }); await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } });
   const response = await server.handle({ jsonrpc: "2.0", id: 2, method, params }); assert.ok(response && !Array.isArray(response) && "result" in response); return (response as { result: Record<string, unknown> }).result; }
+// The readiness projection reports an unavailable canonical Git cut with no basis commit. Before the
+// ledger owned its own repository the outer repository always had a HEAD, so that branch was
+// unreachable and the wire validator was free to demand a sha; once it became reachable the producer
+// was emitting a value its own validator rejected. This pins producer and validator to each other.
+test("decision readiness survives the wire when the canonical Git cut is unavailable", () => {
+  const decision = { decisionId: "dec_1", proposedAt: "2026-01-01T00:00:00Z", appliesTo: { modules: ["packages/kernel"], productLines: [] } };
+  const noCut = projectDecisionReadiness({ rootDir: "/nonexistent", commitSha: "", decisions: [decision] }, { run: () => ({ ok: false, stdout: "" }) });
+  assert.equal(noCut[0]?.basisCommitSha, "");
+  assert.equal(noCut[0]?.appliesToDrift.state, "unknown");
+  assert.deepEqual(validateDaemonDecisionList(decisionList(noCut[0]!)), []);
+
+  const verdictWithoutBasis = { ...noCut[0]!, appliesToDrift: { ...noCut[0]!.appliesToDrift, state: "clear" as const } };
+  assert.deepEqual(validateDaemonDecisionList(decisionList(verdictWithoutBasis)), ["daemon decision list is invalid"]);
+});
+
+function decisionList(readiness: unknown): Record<string, unknown> {
+  return { ok: true, warnings: [], decisions: [{ schema: "decision-row/v1", decisionId: "dec_1", path: "harness/decisions/decision-dec_1/decision.md", state: "active",
+    title: "t", question: "q", riskTier: "low", urgency: "low", vertical: "v", preset: "p", decisionClass: "c", proposedAt: "2026-01-01T00:00:00Z", decidedAt: null,
+    workspaceRevision: 1, appliesTo: {}, proposer: {}, arbiter: null, body: null, chosen: [], rejected: [], claims: [], judgmentConsents: [], readiness }] };
+}
+
+
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
