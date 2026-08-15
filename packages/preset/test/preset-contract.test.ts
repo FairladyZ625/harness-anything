@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import presetContract, { parsePresetManifestV3, validatePresetManifestV3, validatePresetRunReceiptV1, validatePresetSnapshotV1 } from "../src/preset.contract.ts";
+import { decodePresetPackageV3, validateBuiltinVertical } from "../src/preset-resolver.ts";
 
 const manifest = {
   schema: "preset-manifest/v3",
@@ -51,6 +52,13 @@ test("builtin vertical and template discovery stay read-only while vertical run 
     { id: "script-inspect", path: ["script", "inspect"], method: "repo.script.inspect", commandClass: "repo-read" }
   ]);
   const run = presetContract.methods.find(({ actionKind }) => actionKind === "script-run"); assert.deepEqual(run && { method: run.method, commandClass: run.commandClass, fields: Object.keys(run.params.fields.payload.fields) }, { method: "repo.script.run", commandClass: "repo-write", fields: ["scriptId", "taskId", "inputs", "dryRun"] });
+});
+
+test("preset failures reach the daemon boundary as readable text and survive report serialization", () => {
+  const thrown = (() => { try { decodePresetPackageV3("/nonexistent-preset-package"); return null; } catch (error) { return error; } })();
+  const hint = thrown instanceof Error ? thrown.message : String(thrown);
+  assert.notEqual(hint, "[object Object]"); assert.match(hint, /is not a regular directory/u); assert.equal((thrown as { readonly code?: string }).code, "invalid_package");
+  assert.deepEqual(JSON.parse(JSON.stringify(validateBuiltinVertical({ source: "custom-vertical" }).issues)), [{ code: "custom_vertical_unavailable", message: "Custom verticals remain unavailable until validate, discovery, and create materialization share one source." }]);
 });
 
 test("preset run receipt requires an exact current phase and bounded terminal vocabulary", () => {
