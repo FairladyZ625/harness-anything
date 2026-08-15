@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,12 +20,27 @@ export function runCliPackageSmoke(root = process.cwd()) {
     for (const command of [binPath, alias]) { const help = run(command, ["--help"], projectDir, env(userRoot, home));
       if (help.status !== 0 || !help.stdout.includes("ha daemon start --service") || !help.stdout.includes("capabilities [--json]") || !help.stdout.includes("--version")) throw new Error(`unexpected packaged help: ${help.stdout}${help.stderr}`);
       for (const [domain, usages] of [["init", ["ha init --repo-id"]], ["vertical", ["ha vertical validate"]], ["template", ["ha template list", "ha template render <ref> [--locale <zh-CN|en-US>]"]], ["script", ["ha script list", "ha script inspect <id>"]]]) { const domainHelp = run(command, [domain, "--help"], projectDir, env(userRoot, home)); if (domainHelp.status !== 0 || !usages.every((usage) => domainHelp.stdout.includes(usage))) throw new Error(`unexpected packaged ${domain} help: ${domainHelp.stdout}${domainHelp.stderr}`); } }
-    const rejectedSamples = [];
-    for (let index = 0; index < 5; index += 1) { const before = performance.now(); const rejected = runJson(binPath,
-      ["--root", projectDir, "--json", "init", "--repo-id", "smoke", "--person-id", "owner", "--display-name", "Owner"], projectDir, env(userRoot, home));
-      rejectedSamples.push(performance.now() - before); if (rejected.status === 0 || rejected.receipt?.error?.code !== "daemon_unavailable" || existsSync(path.join(projectDir, "harness"))) throw new Error(`missing-daemon bootstrap did not fail closed: ${JSON.stringify(rejected)}`); }
-    rejectedSamples.sort((left, right) => left - right); const rejectP50 = rejectedSamples[2];
-    if (rejectP50 > 100) throw new Error(`packaged missing-daemon rejection p50 ${rejectP50.toFixed(3)}ms exceeded 100ms`);
+    // The old posture (a merely missing daemon rejects bootstrap) was overturned
+    // by bounded autostart: a plain `ha init` now starts the daemon on demand.
+    // What must still hold is that bootstrap fails closed when the daemon CANNOT
+    // start. A read-only user root makes every spawned `daemon serve` die writing
+    // its pid file, so autostart exhausts its two attempts and reports the
+    // classified bind timeout without touching the project tree. POSIX non-root
+    // only (the package-policy CI job runs ubuntu-latest); root ignores the mode.
+    const unstartableSupported = process.platform !== "win32" && process.getuid?.() !== 0;
+    let unstartableMs = null;
+    if (unstartableSupported) {
+      const deniedRoot = path.join(consumerDir, "denied-user"); mkdirSync(deniedRoot); chmodSync(deniedRoot, 0o555);
+      try {
+        const failClosedStarted = performance.now(), failedStart = runJson(binPath,
+          ["--root", projectDir, "--json", "init", "--repo-id", "smoke", "--person-id", "owner", "--display-name", "Owner"], projectDir, env(path.join(deniedRoot, "user"), home));
+        unstartableMs = performance.now() - failClosedStarted;
+        if (failedStart.status === 0 || failedStart.receipt?.error?.code !== "daemon_bind_timeout" || existsSync(path.join(projectDir, "harness"))) throw new Error(`unstartable-daemon bootstrap did not fail closed: ${JSON.stringify(failedStart)}`);
+        // Bounded, not instant: two attempts x 10s ready wait + 500ms retry gap,
+        // plus cold-start slack for the two dying daemon processes.
+        if (unstartableMs > 30_000) throw new Error(`unstartable-daemon rejection ${unstartableMs.toFixed(3)}ms exceeded the bounded two-attempt budget`);
+      } finally { chmodSync(deniedRoot, 0o755); }
+    } else { console.log("CLI package smoke: skipping unstartable-daemon fail-closed check (requires POSIX non-root permission semantics)."); }
     const daemonStart = runJson(binPath, ["--root", projectDir, "--json", "daemon", "start", "--service"], projectDir, env(userRoot, home)); started = daemonStart.status === 0 && daemonStart.receipt?.ok === true; expectOk(daemonStart, "daemon start");
     const initialized = expectOk(runJson(binPath, ["--root", projectDir, "--json", "init", "--repo-id", "smoke", "--person-id", "owner", "--display-name", "Owner"], projectDir, env(userRoot, home)), "init");
     if (initialized.repoId !== "smoke" || !existsSync(path.join(projectDir, "harness/harness.yaml"))) throw new Error(`unexpected init receipt: ${JSON.stringify(initialized)}`);
@@ -37,7 +52,11 @@ export function runCliPackageSmoke(root = process.cwd()) {
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "task", "submit", "task-smoke", "--execution-id", "execution-smoke", "--from-file", "submission.json"], projectDir, env(userRoot, home)), "task submit");
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "daemon", "status"], projectDir, env(userRoot, home)), "daemon status");
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "daemon", "stop"], projectDir, env(userRoot, home)), "daemon stop"); started = false;
-    console.log(`CLI package smoke passed: npm-pack consumer bootstrap + lifecycle; missing-daemon p50=${rejectP50.toFixed(3)}ms.`);
+    // Bounded autostart is the headline behavior: with no explicit daemon left
+    // running, a plain repository command must bring it back and still answer.
+    expectOk(runJson(binPath, ["--root", projectDir, "--json", "task", "list"], projectDir, env(userRoot, home)), "task list after auto-start"); started = true;
+    expectOk(runJson(binPath, ["--root", projectDir, "--json", "daemon", "stop"], projectDir, env(userRoot, home)), "daemon stop after auto-start"); started = false;
+    console.log(`CLI package smoke passed: npm-pack consumer bootstrap + lifecycle + auto-start; unstartable-daemon rejection=${unstartableMs === null ? "skipped" : `${unstartableMs.toFixed(3)}ms`}.`);
   } finally {
     if (started && binPath) run(binPath, ["--root", projectDir, "--json", "daemon", "stop"], projectDir, env(userRoot, home));
     rmSync(tempRoot, { recursive: true, force: true });

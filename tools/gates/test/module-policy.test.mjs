@@ -162,3 +162,8 @@ test("GUI archive-parity fixture bills the terminal repair, recents rail, filter
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/gui-archive-parity-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
+
+test("daemon autostart fixture bills the shared autostart seam and both client wirings to their buckets", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/daemon-autostart-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});
