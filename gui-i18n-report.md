@@ -1,6 +1,6 @@
 # GUI 中文界面补全报告
 
-基线：`f6758ac5`；工作分支：`codex/gui-i18n`；工作目录：`/Users/lizeyu/Projects/coding-agent-harness/harness-anything/.worktrees/gui-i18n`。
+基线：`f6758ac5`；工作分支：`codex/gui-i18n`；工作目录：当前 worktree。
 
 本报告只覆盖 renderer 文案、locale，以及 line-budget ceiling 上调所必需的 gate fixture/接线。Preset 卡片的 `preset.title`、`preset.description`、`vertical.title` 等来自 bundled preset 数据定义，不是 UI 文案，本包未修改。
 
