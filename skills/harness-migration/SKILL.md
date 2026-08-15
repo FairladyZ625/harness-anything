@@ -18,7 +18,7 @@ already on the machine — including a running daemon — is left untouched.
 keep it exported for the whole session:
 
 ```bash
-export HARNESS_MIGRATION_WORK="$(mktemp -d "${TMPDIR:-/tmp}/ha-migration.XXXXXX")"
+export HARNESS_MIGRATION_WORK="$(mktemp -d "${TMPDIR:-/tmp}"/ha-migration.XXXXXX)"
 export HARNESS_DAEMON_USER_ROOT="$HARNESS_MIGRATION_WORK/daemon-user-root"
 mkdir -p "$HARNESS_DAEMON_USER_ROOT"
 ```
@@ -41,18 +41,57 @@ Do **not** stop or uninstall the user's existing Harness to work around it:
 isolation is sufficient, and stopping their daemon interrupts work you are not
 responsible for restoring.
 
+The quoting around `mktemp` is deliberate. On macOS `$TMPDIR` already ends in a
+slash, so the more natural `"${TMPDIR:-/tmp}/ha-migration.XXXXXX"` yields a path
+with a doubled slash in it. Harmless, but it appears in every path the migration
+prints from here on, and it makes the receipts hard to read against the
+filesystem.
+
 ## 1. Fetch the current source
+
+**Node 24 or newer is required.** Check before cloning:
+
+```bash
+node --version
+```
+
+The CLI is run from its TypeScript entry point, which relies on Node's native
+type stripping. On an older Node every command fails with
+
+```
+TypeError [ERR_UNKNOWN_FILE_EXTENSION]: Unknown file extension ".ts"
+```
+
+which reads like a missing build step and is not one — no amount of `npm run
+build` fixes it. Stop and tell the user to upgrade Node; nothing below works
+until they do.
 
 ```bash
 cd "$HARNESS_MIGRATION_WORK"
 git clone --depth 1 --branch rebuild/main https://github.com/FairladyZ625/harness-anything.git ha-src
 cd ha-src
 npm install --no-audit --no-fund
-export HA="node $HARNESS_MIGRATION_WORK/ha-src/packages/cli/src/index.ts"
-$HA --version
+export HA_ENTRY="$HARNESS_MIGRATION_WORK/ha-src/packages/cli/src/index.ts"
+ha() { node "$HA_ENTRY" "$@"; }
+ha --version
 ```
 
 Expect a version line. The repository is about 10 MB and install takes seconds.
+
+**`ha` here is a shell function, not an exported variable.** The obvious
+`export HA="node …/index.ts"` followed by `$HA --version` works in bash and
+silently fails in zsh, which does not word-split unquoted parameters: zsh passes
+`node …/index.ts` as a **single** argument and the receipt comes back
+`unsupported_command`. A function behaves identically in both shells.
+
+Two consequences worth knowing now rather than at step 8:
+
+- The function lives in this shell only. Anything that runs in a **detached**
+  process — see step 8 — must spell out `node "$HA_ENTRY" …` instead.
+- `env -u HARNESS_DAEMON_USER_ROOT ha …`, which step 9 uses on purpose, does
+  **not** see the function. `env` execs a program, so it resolves `ha` from
+  `PATH` — the machine's own installation. That is exactly what step 9 wants,
+  and step 9 says so again where it matters.
 
 **Do not look for `node_modules/.bin/ha`.** The published `bin` points at
 `dist/`, which a source checkout does not contain, so the linked binary is
@@ -72,7 +111,7 @@ export WORK_SOURCE="$HARNESS_MIGRATION_WORK/legacy-copy"
 mkdir -p "$HARNESS_MIGRATION_WORK/backups" "$WORK_SOURCE"
 export LEDGER_ARCHIVE="$HARNESS_MIGRATION_WORK/backups/legacy-harness.tar"
 COPYFILE_DISABLE=1 tar -cf "$LEDGER_ARCHIVE" -C "$ARCHIVE_SOURCE" harness
-export SOURCE_SHA_BEFORE="$(COPYFILE_DISABLE=1 tar -cf - -C "$ARCHIVE_SOURCE" harness | shasum -a 256 | awk '{print $1}')"
+export SOURCE_SHA_BEFORE="$(COPYFILE_DISABLE=1 tar -cf - --exclude='harness/.git' -C "$ARCHIVE_SOURCE" harness | shasum -a 256 | awk '{print $1}')"
 printf 'source-before %s\n' "$SOURCE_SHA_BEFORE"
 tar -xf "$LEDGER_ARCHIVE" -C "$WORK_SOURCE"
 ```
@@ -96,6 +135,15 @@ Three things this deliberately does **not** do, each for a reason worth knowing:
 - **No `cp -a` of the root.** It copies `node_modules` and the whole `.git`
   directory, which the importer never reads.
 
+The digest excludes `harness/.git` for the same reason the root digest is
+excluded entirely: it is live metadata, not content. A `git fetch` from any
+mirror or a background maintenance run rewrites `packed-refs`, `FETCH_HEAD` and
+the reflog without touching a single ledger file, and the closing comparison
+then fails for a reason unrelated to the importer. This bit a real migration —
+an unrelated mirror fetch landed mid-run and the source looked modified when it
+was not. **The archive is not filtered**: a backup must carry the ledger's own
+git history, and only the digest needs the exclusion.
+
 On a large ledger the digest takes tens of seconds and prints nothing while it
 runs — that is normal, do not kill it. If it runs for many minutes you are
 digesting more than `harness/`; check the `-C` argument. Nothing may write to
@@ -105,6 +153,14 @@ differ for a reason that has nothing to do with the importer.
 Show the user `$LEDGER_ARCHIVE` and **stop until they confirm one independent
 copy exists off this machine.** Migration is one-shot; this is the only point
 where that confirmation is cheap.
+
+If you are a dispatched agent with no way to reach the user, you cannot satisfy
+that stop — say so rather than pretending you did. Record the archive path and
+its size, state plainly in your report that the off-machine copy was never
+confirmed, and continue. The rest of the migration writes only to
+`$HARNESS_MIGRATION_WORK`, so nothing before step 9 can lose the source; step 9
+is where the missing confirmation actually matters, and step 9 is not yours to
+execute anyway.
 
 Every repair below targets `$WORK_SOURCE`. `$ARCHIVE_SOURCE` is read-only and
 its `harness/` digest is re-checked at the end.
@@ -117,7 +173,7 @@ Ask the user for the new repository id, owner person id, and display name.
 export TARGET_REPO="$HARNESS_MIGRATION_WORK/new-repository"
 mkdir -p "$TARGET_REPO" && cd "$TARGET_REPO"
 git init -q . && git commit -q --allow-empty -m "base"
-$HA init --repo-id <new-repo-id> --person-id <owner-person-id> --display-name '<display-name>'
+ha init --repo-id <new-repo-id> --person-id <owner-person-id> --display-name '<display-name>'
 ```
 
 Expect a receipt listing created paths and a commit sha. The first command in a
@@ -131,7 +187,7 @@ repair a half-initialized target in place.
 
 ```bash
 export DRY_RUN="$HARNESS_MIGRATION_WORK/dry-run.txt"
-$HA migrate import --source "$WORK_SOURCE" --dry-run > "$DRY_RUN" 2>&1; echo "exit=$?"
+ha migrate import --source "$WORK_SOURCE" --dry-run > "$DRY_RUN" 2>&1; echo "exit=$?"
 cat "$DRY_RUN"
 ```
 
@@ -221,7 +277,7 @@ export RESOLVE_ARGS=(
   --resolve 'harness/context/README.md=destination'
   --resolve 'harness/people.yaml=source'
 )
-$HA migrate import --source "$WORK_SOURCE" "${RESOLVE_ARGS[@]}" --dry-run > "$DRY_RUN" 2>&1; echo "exit=$?"
+ha migrate import --source "$WORK_SOURCE" "${RESOLVE_ARGS[@]}" --dry-run > "$DRY_RUN" 2>&1; echo "exit=$?"
 ```
 
 Each answer comes back as a row beginning `resolved: destination` or
@@ -238,7 +294,7 @@ current format.
 
 ```bash
 find "$WORK_SOURCE/harness/presets" -mindepth 1 -maxdepth 1 -type d | sort
-$HA preset inspect standard-task --profile baseline --vertical software/coding --locale en-US --json
+ha preset inspect standard-task --profile baseline --vertical software/coding --locale en-US --json
 ```
 
 The `legacy-migration` preset bundled with the current release documents the
@@ -254,15 +310,24 @@ then validate and install from the destination:
 ```bash
 cd "$TARGET_REPO"
 for NEW_PRESET in "$HARNESS_MIGRATION_WORK/rebuilt-presets"/*; do
-  $HA preset validate --source "$NEW_PRESET" --json
-  $HA preset install --source "$NEW_PRESET" --json
+  ha preset validate --source "$NEW_PRESET" --json
+  ha preset install --source "$NEW_PRESET" --json
 done
-$HA preset audit --vertical software/coding --json
+ha preset audit --vertical software/coding --json
 ```
 
 Continue only when every validation reports `"valid": true` and the audit shows
-no blocked package. Then take the old packages out of the copy being imported —
-the archived original still has them:
+no blocked package.
+
+`preset audit --json` answers about the vertical as a whole — a count of
+packages and a count of issues — not one row per package. So it tells you
+*whether* something is blocked, not *which* package it is. The per-package
+verdict is the `validate` output in the loop above; if the audit reports issues,
+read back the validations rather than looking for a package list in the audit
+receipt that is not there.
+
+Then take the old packages out of the copy being imported — the archived
+original still has them:
 
 ```bash
 mv "$WORK_SOURCE/harness/presets" "$HARNESS_MIGRATION_WORK/legacy-presets-rebuilt"
@@ -298,22 +363,71 @@ cd "$HARNESS_MIGRATION_WORK"
 mv "$TARGET_REPO" "$HARNESS_MIGRATION_WORK/preview-repository"
 mkdir -p "$TARGET_REPO" && cd "$TARGET_REPO"
 git init -q . && git commit -q --allow-empty -m "base"
-$HA init --repo-id <new-repo-id> --person-id <owner-person-id> --display-name '<display-name>'
-for NEW_PRESET in "$HARNESS_MIGRATION_WORK/rebuilt-presets"/*; do $HA preset install --source "$NEW_PRESET" --json; done
-$HA migrate import --source "$WORK_SOURCE" "${RESOLVE_ARGS[@]}" --dry-run; echo "exit=$?"
+ha init --repo-id <new-repo-id> --person-id <owner-person-id> --display-name '<display-name>'
+for NEW_PRESET in "$HARNESS_MIGRATION_WORK/rebuilt-presets"/*; do ha preset install --source "$NEW_PRESET" --json; done
+ha migrate import --source "$WORK_SOURCE" "${RESOLVE_ARGS[@]}" --dry-run; echo "exit=$?"
 ```
 
 Apply only when that exits zero, all five rows show `Old = Expected = New` with
 `Skipped = 0`, authored coverage has no `required`, and reconciliation passes.
 
+**Run apply detached, and poll it.** On a large ledger it takes over an hour —
+a 21,000-event ledger took 1h22m — and it prints **nothing at all** until it
+finishes. There is no progress output to read, so a foreground run is
+indistinguishable from a hang, and any caller with a command timeout will kill
+it partway. That has already happened once: an agent harness terminated a real
+apply at around the 60-minute mark, and a half-imported target is not
+recoverable — step 8 has to start over from `ha init`.
+
 ```bash
-$HA migrate import --source "$WORK_SOURCE" "${RESOLVE_ARGS[@]}"; echo "apply-exit=$?"
-export SOURCE_SHA_AFTER="$(COPYFILE_DISABLE=1 tar -cf - -C "$ARCHIVE_SOURCE" harness | shasum -a 256 | awk '{print $1}')"
+cd "$TARGET_REPO"
+nohup node "$HA_ENTRY" migrate import --source "$WORK_SOURCE" "${RESOLVE_ARGS[@]}" \
+  > "$HARNESS_MIGRATION_WORK/apply.log" 2>&1 &
+echo "apply pid=$!"
+```
+
+Note `node "$HA_ENTRY"` rather than `ha`: the shell function from step 1 does
+not exist inside `nohup`.
+
+Poll until the process is gone, then read the exit line out of the log:
+
+```bash
+ps -p <pid> >/dev/null && echo "still running" || tail -20 "$HARNESS_MIGRATION_WORK/apply.log"
+```
+
+While it runs, `du -sh "$TARGET_REPO/harness"` and the commit count in
+`$TARGET_REPO/harness` both climb — that is the only live progress signal there
+is. A stalled apply shows neither growing for many minutes.
+
+Once it has finished, confirm the source was never written to:
+
+```bash
+export SOURCE_SHA_AFTER="$(COPYFILE_DISABLE=1 tar -cf - --exclude='harness/.git' -C "$ARCHIVE_SOURCE" harness | shasum -a 256 | awk '{print $1}')"
 test "$SOURCE_SHA_BEFORE" = "$SOURCE_SHA_AFTER" && echo "source ledger untouched"
 ```
 
+The `--exclude` must match step 2's exactly. Digesting different sets on the two
+sides guarantees a mismatch and tells you nothing.
+
 If apply exits nonzero, keep its output, move the target aside, and restart from
 a fresh `ha init`. **Never re-run apply against a partially imported target.**
+
+**Then pack the new ledger's git repository.** The importer commits once per
+event and never packs, so a freshly imported ledger is all loose objects — the
+21,000-event migration produced **218,213 loose objects, zero packs, and an 18 GB
+`.git`** for about 850 MB of actual content.
+
+```bash
+git -C "$TARGET_REPO/harness" gc --aggressive --prune=now
+du -sh "$TARGET_REPO/harness/.git" "$TARGET_REPO/harness"
+git -C "$TARGET_REPO/harness" rev-list --count HEAD
+git -C "$TARGET_REPO/harness" fsck --no-progress
+```
+
+That run took the same ledger from 18 GB to a 181 MB `.git` in a single pack,
+with the commit count unchanged and `fsck` clean. Do this before step 9 — it is
+the difference between handing the user a 19 GB directory and a 862 MB one, and
+after landing the daemon holds the repository.
 
 Now execute the merge column recorded in step 5. `$HARNESS_MIGRATION_WORK/preview-repository`
 still holds the previous destination, and `$WORK_SOURCE` still holds the old
@@ -344,7 +458,55 @@ generations used. Choose it unless the user says otherwise.
 and is registered by absolute path. Choose it when the user tells you the
 ledger is shared — several machines mirroring one authoritative copy.
 
-The procedure below is the same for both. Only `LEDGER_HOME` differs.
+### First: the machine needs a current-generation CLI that outlives this work directory
+
+**Read this before touching the destination.** Everything up to here ran from
+`$HARNESS_MIGRATION_WORK`, which is disposable. The landed ledger is not: it
+needs a daemon serving it from here on, and **that daemon must be the current
+generation** — the whole reason for this migration is that the machine's
+installed `ha` belongs to the previous one, and a previous-generation daemon
+cannot serve a current-format ledger.
+
+Check what the machine actually has:
+
+```bash
+env -u HARNESS_DAEMON_USER_ROOT command ha --version
+```
+
+A current-generation CLI prints a version. A previous-generation one rejects the
+flag outright:
+
+```
+{"ok":false,"command":"parse","error":{"code":"unknown_option",
+ "hint":"Unknown option '--version' for 'ha'. …"}}
+```
+
+If it rejects, **the installed CLI cannot serve what you are about to land**, and
+there is no package to upgrade to: `@harness-anything/cli` is not on npm
+(`npm view` returns 404), and a source checkout has no `dist/`, so the `bin`
+entry points at a file that does not exist. The working answer today is to keep
+a source checkout permanently and call it by path:
+
+```bash
+export HA_HOME="$HOME/.harness-cli-src"          # anywhere durable; not $HARNESS_MIGRATION_WORK
+cp -R "$HARNESS_MIGRATION_WORK/ha-src" "$HA_HOME"
+export HA_ENTRY="$HA_HOME/packages/cli/src/index.ts"
+node "$HA_ENTRY" --version
+```
+
+Then hand the user that invocation, and say plainly that it replaces their
+existing `ha` for this ledger. **This is a real rough edge, not a preference** —
+until the CLI ships as an installable artifact, a migrated ledger is served by a
+checkout the user has to keep. Tell them so rather than leaving them to discover
+it the first time `ha task list` fails.
+
+Note also that `env -u HARNESS_DAEMON_USER_ROOT ha …` below resolves `ha` from
+`PATH`, which skips any shell function or alias the user has defined around it.
+If theirs injects flags — `--actor`, a default `--root` — those are silently
+dropped. Check `type ha` before relying on it, and use `command ha` explicitly
+when you mean the binary.
+
+The procedure below is the same for both placements. Only `LEDGER_HOME` differs.
 
 ```bash
 # local (default) — the project directory the user is migrating
@@ -399,17 +561,30 @@ index already tracks, so a project that had committed any part of the old
 well be public.
 
 Then attach the landed ledger to the daemon that will actually serve it, and
-commit the project side:
+commit the project side. **Start that daemon first** — `register` does not
+autostart one, and against a stopped daemon it fails with:
+
+```
+error code=daemon_unavailable hint=connect ENOENT /var/folders/…/daemon-501-u-….sock
+```
 
 ```bash
-env -u HARNESS_DAEMON_USER_ROOT ha daemon repo register --repo-id <repo-id> --root "$LEDGER_HOME"
+export HARNESS_DAEMON_USER_ROOT="$HOME/.harness"    # the serving root, not the migration one
+node "$HA_ENTRY" daemon start --service
+node "$HA_ENTRY" daemon repo register --repo-id <repo-id> --root "$LEDGER_HOME"
 git add -A && git commit -m "adopt migrated ledger"    # local placement only
 ```
 
-`HARNESS_DAEMON_USER_ROOT` is unset here for the same reason as above: the
-migration daemon is throwaway and its registry dies with the work directory.
-Registering the landed ledger there would leave the user with a ledger nothing
-serves — and the command would succeed, so nothing would say so.
+If the machine's installed CLI *is* current-generation, `env -u
+HARNESS_DAEMON_USER_ROOT ha daemon repo register …` does the same thing and is
+shorter. Use whichever matches what you found at the top of this step; do not
+register through the throwaway migration root either way — its registry dies
+with the work directory, and the command would succeed while leaving the user
+with a ledger nothing serves.
+
+**The first attach is slow.** The daemon builds its projection over every event
+in the ledger — for a 21,000-event ledger that took several minutes with no
+output. Do not conclude it is stuck, and do not run it under a short timeout.
 
 Reuse `<existing-repo-id>` if you released one; otherwise pick the id the user
 wants. A previously released id is free to reuse at the new path.
@@ -419,26 +594,63 @@ resolve to the same canonical root, but the runtime's `.harness/` directory and
 its writer lock are placed relative to the root you pass, and only the former
 puts them where the ignore rules above expect them.
 
-Check the landing before handing over. All five must hold:
+Check the landing before handing over. All six must hold:
 
 ```bash
-test -d harness/.git                         && echo "ledger has its own git"
-git check-ignore -q harness                  && echo "project ignores the ledger"
-test -z "$(git ls-files harness/ .harness/)" && echo "project tracks no ledger file"
-git status --porcelain                       # expected: empty
-env -u HARNESS_DAEMON_USER_ROOT ha task create --title "landing check" --kind chore
+test -d harness/.git                                   && echo "ledger has its own git"
+git check-ignore -q harness                            && echo "project ignores the ledger"
+test -z "$(git ls-files harness/ .harness/)"           && echo "project tracks no ledger file"
+git --no-optional-locks status --porcelain             # project tree — expected: empty
+git --no-optional-locks -C harness status --porcelain  # LEDGER tree — expected: empty
+node "$HA_ENTRY" task create --title "landing check" --kind chore
 ```
 
 The last one is the only proof that the ledger is writable where it now sits,
-and it has to run against the serving daemon to prove anything — through the
+and it has to run against the **serving** daemon to prove anything — through the
 migration daemon it would pass while telling you nothing about what the user
-will actually experience. The other four only prove the layout is right.
+will actually experience. The others only prove the layout is right.
+
+**The ledger tree check is not a formality.** The importer commits event data,
+but the project-specific authored content merged at the end of step 8 is written
+to the working tree and is **not** part of any commit. On a real migration this
+left `governance/walls/walls.json` uncommitted — with the committed version
+holding an empty `walls: []` array and seventeen governance walls existing only
+in the unstaged file. One `git checkout` would have erased them silently.
+
+If that tree is dirty, do not reach for `git commit` — read the next paragraph
+first, then carry the content forward by whatever CLI path owns those files.
+
+**Never run `git commit` inside the ledger directory.** The ledger's HEAD must
+be exactly the last event commit; the daemon derives that expectation from
+`harness/events/head.json`, whose `opId` is the last event commit's message. Any
+extra commit on top breaks the compare-and-swap and every write starts failing:
+
+```
+error code=publication_indeterminate hint=authored or canonical ref advanced outside
+the daemon; reconcile before publishing: cannot lock ref 'refs/heads/master':
+is at <your commit> but expected <last event commit>
+```
+
+Two things about that message are worth knowing in advance, because they cost a
+real operator most of an hour:
+
+- **Restarting the daemon does not fix it.** It re-reads the ref but not the
+  expectation. The only recovery is `git reset` back to the expected commit —
+  the sha the message calls `expected` — and that sha appears nowhere on disk to
+  search for.
+- **`reconcile` names no command.** There is no `ha reconcile`; the word
+  describes an outcome, not a path. The recovery is the `git reset` above.
+
+Editing files in the ledger tree without committing is safe: the daemon commits
+by explicit pathspec and leaves unrelated working-tree changes alone.
 
 Then tell them:
 
 - their existing Harness installation was not modified;
+- **which CLI now serves this ledger, spelled out as a command they can run** — if the machine's `ha` was previous-generation, that is the durable checkout from the top of this step, and their old `ha` will not work against this ledger;
+- **never `git commit` inside the ledger directory**, and what to do if they already have (the `git reset` above);
 - the ledger is a git repository of its own, and the project must never track it;
-- the migration daemon lives under `$HARNESS_DAEMON_USER_ROOT` and can be removed with the work directory;
+- the migration daemon lives under the migration `HARNESS_DAEMON_USER_ROOT` and can be removed with the work directory;
 - the previous ledger's git history is not carried forward — this migration rebuilds the ledger from its events, and the old history remains in the step 2 archive and in the `harness.pre-migration-*` directory beside the new one;
 - that directory is theirs to delete once they are satisfied, and nothing in the migration depends on it any more — give them the path.
 
@@ -449,8 +661,12 @@ It is git-ignored runtime state, the importer never read it, and none of it was
 migrated. On a long-lived repository it can be very large: previous generations
 wrote a **full copy of the ledger** into a `staging/` directory on every script
 or preset run and never removed them, so `.harness/` can reach hundreds of
-gigabytes while the ledger itself is a fraction of that. Measure it and tell
-the user the number:
+gigabytes while the ledger itself is a fraction of that.
+
+**Measure before quoting any of that.** The staging directories are the usual
+culprit but not a given — on a repository where someone has already reclaimed
+them, the cleanup below frees nothing and `cache/` and `write-journal/` are what
+is left. Report the actual numbers:
 
 ```bash
 du -sh "$ARCHIVE_SOURCE/.harness" "$ARCHIVE_SOURCE/harness"
@@ -497,7 +713,10 @@ success and failure paths.
 - Every legacy preset has a validated v3 replacement installed.
 - `source-before` equals `source-after`.
 - The ledger has its own `.git` at its landed location, the project tracks no
-  ledger file, and `ha task create` succeeded there.
+  ledger file, and `task create` succeeded there **through the serving daemon**.
+- The ledger's own working tree is clean — no authored content left uncommitted.
+- The ledger's git repository has been packed (`git gc`) and `fsck` is clean.
+- The user has been handed the exact command that now drives this ledger.
 - The superseded `harness.pre-migration-*` directory still exists, and the user
   has been told where it is and that deleting it is theirs to decide.
 
@@ -516,3 +735,25 @@ success and failure paths.
   placement that is `<parent-of-project>/<project-name>.harness-anything-writer.lock`.
   It is outside the project, so it does not dirty the working tree, but it is
   visible next to the project directory while the daemon holds the ledger.
+- **There is no installable current-generation CLI.** `@harness-anything/cli` is
+  not published (`npm view` → 404) and a source checkout has no `dist/`, so the
+  package's own `bin` entry points at a missing file. A migrated ledger is
+  therefore served by a source checkout the user has to keep around and invoke
+  by path. Step 9 says how; there is no better answer available today.
+- **`migrate import` prints nothing until it finishes** — no progress, no
+  heartbeat, over an hour on a large ledger. Run it detached (step 8). A
+  half-imported target cannot be repaired, only discarded.
+- **The importer never packs.** It commits once per event, so the delivered
+  ledger is entirely loose objects: 218,213 of them and an 18 GB `.git` in one
+  real migration. `git gc` is a required step, not an optimization.
+- **`git commit` inside the ledger wedges every write** with
+  `publication_indeterminate`, restarting the daemon does not clear it, and the
+  hint's word "reconcile" corresponds to no command. Recovery is `git reset` to
+  the sha the message calls `expected`. See step 9.
+- **`decision list` returns at most 100 rows** and does not say so — no
+  pagination flag exists. A migrated ledger with more decisions than that is
+  complete on disk while the CLI shows a truncated view.
+- **Most read commands print only `<command>: applied`.** The rows are in the
+  `--json` receipt's `evidence` field, as a JSON **string** needing a second
+  parse. `doc sync --dry-run` is affected too, which makes the dry-run's whole
+  purpose invisible unless you read the JSON.
