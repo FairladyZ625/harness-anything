@@ -64,23 +64,50 @@ needs no build step.
 Ask the user for the absolute path of the repository holding the old `harness/`
 directory.
 
+Back up and digest **`harness/` only** — never the repository root.
+
 ```bash
 export ARCHIVE_SOURCE="$(cd /absolute/path/to/legacy-repository && pwd -P)"
 export WORK_SOURCE="$HARNESS_MIGRATION_WORK/legacy-copy"
-mkdir -p "$HARNESS_MIGRATION_WORK/backups"
-export SOURCE_SHA_BEFORE="$(COPYFILE_DISABLE=1 tar -cf - -C "$ARCHIVE_SOURCE" . | shasum -a 256 | awk '{print $1}')"
+mkdir -p "$HARNESS_MIGRATION_WORK/backups" "$WORK_SOURCE"
+export LEDGER_ARCHIVE="$HARNESS_MIGRATION_WORK/backups/legacy-harness.tar"
+COPYFILE_DISABLE=1 tar -cf "$LEDGER_ARCHIVE" -C "$ARCHIVE_SOURCE" harness
+export SOURCE_SHA_BEFORE="$(COPYFILE_DISABLE=1 tar -cf - -C "$ARCHIVE_SOURCE" harness | shasum -a 256 | awk '{print $1}')"
 printf 'source-before %s\n' "$SOURCE_SHA_BEFORE"
-git -C "$ARCHIVE_SOURCE" bundle create "$HARNESS_MIGRATION_WORK/backups/legacy.bundle" --all
-git -C "$ARCHIVE_SOURCE" bundle verify "$HARNESS_MIGRATION_WORK/backups/legacy.bundle"
-cp -a "$ARCHIVE_SOURCE" "$WORK_SOURCE"
+tar -xf "$LEDGER_ARCHIVE" -C "$WORK_SOURCE"
 ```
 
-Show the user both backup paths and **stop until they confirm one independent
+`$WORK_SOURCE` now contains `harness/` and nothing else, which is all the
+importer reads — `--source` takes the repository root and descends into
+`harness/` itself.
+
+Three things this deliberately does **not** do, each for a reason worth knowing:
+
+- **No `git bundle`.** `harness/` is its own git repository and the outer repo
+  ignores it (`/harness/` in `.gitignore`, `git ls-files harness/` returns
+  nothing). A bundle of the outer repo therefore contains **zero** ledger
+  content — it looks like a backup and protects nothing.
+- **No repository-root digest.** The root contains `.harness/`, which is
+  ignored runtime state — locks, `write-journal`, `cache`, `script-runs`,
+  `task-holders` — that any running daemon rewrites continuously. A root digest
+  changes on its own between the before and after reads, so the "source
+  untouched" check would report a false failure every time. A check that must be
+  ignored to proceed is worse than no check.
+- **No `cp -a` of the root.** It copies `node_modules` and the whole `.git`
+  directory, which the importer never reads.
+
+On a large ledger the digest takes tens of seconds and prints nothing while it
+runs — that is normal, do not kill it. If it runs for many minutes you are
+digesting more than `harness/`; check the `-C` argument. Nothing may write to
+`$ARCHIVE_SOURCE/harness/` while the migration runs, or the closing digest will
+differ for a reason that has nothing to do with the importer.
+
+Show the user `$LEDGER_ARCHIVE` and **stop until they confirm one independent
 copy exists off this machine.** Migration is one-shot; this is the only point
 where that confirmation is cheap.
 
 Every repair below targets `$WORK_SOURCE`. `$ARCHIVE_SOURCE` is read-only and
-its digest is re-checked at the end.
+its `harness/` digest is re-checked at the end.
 
 ## 3. Initialize the destination
 
@@ -245,8 +272,8 @@ Apply only when that exits zero, all five rows show `Old = Expected = New` with
 
 ```bash
 $HA migrate import --source "$WORK_SOURCE" "${RESOLVE_ARGS[@]}"; echo "apply-exit=$?"
-export SOURCE_SHA_AFTER="$(COPYFILE_DISABLE=1 tar -cf - -C "$ARCHIVE_SOURCE" . | shasum -a 256 | awk '{print $1}')"
-test "$SOURCE_SHA_BEFORE" = "$SOURCE_SHA_AFTER" && echo "source untouched"
+export SOURCE_SHA_AFTER="$(COPYFILE_DISABLE=1 tar -cf - -C "$ARCHIVE_SOURCE" harness | shasum -a 256 | awk '{print $1}')"
+test "$SOURCE_SHA_BEFORE" = "$SOURCE_SHA_AFTER" && echo "source ledger untouched"
 ```
 
 If apply exits nonzero, keep its output, move the target aside, and restart from
