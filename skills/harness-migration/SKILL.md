@@ -154,7 +154,7 @@ Branch on those rows:
 | any other `required` row | show the exact row to the user and stop — this workflow does not cover it |
 | no `required`, no `SKIP` | section 8 |
 
-## 5. Resolve destination conflicts — ask, one at a time
+## 5. Resolve destination conflicts — one batch, one decision
 
 `ha init` seeds README, ADR, milestone, walls and `people.yaml` files. A source
 ledger usually has its own versions of those paths. Each conflict row prints
@@ -167,10 +167,52 @@ both sides and the exact flag to use:
   resolve with --resolve harness/people.yaml=destination|source |
 ```
 
-For every conflict row, show the user both sides and ask for one answer:
-`destination` (keep what `ha init` produced, discard the source version) or
-`source` (replace with the source version). **Do not pick a default.** If it
-helps them decide, print the two files.
+**Handle every conflict in one pass. Never ask about them one at a time** — a
+migration has a handful of these and each round trip costs the user an
+interruption for a decision that is usually the same one.
+
+Read both sides of all of them first:
+
+```bash
+CONFLICTS=($(grep -o -- '--resolve [^=]*=' "$DRY_RUN" | sed 's/--resolve //;s/=$//' | sort -u))
+printf 'conflicts: %s\n' "${#CONFLICTS[@]}"
+for c in "${CONFLICTS[@]}"; do
+  printf '\n===== %s :: DESTINATION =====\n' "$c"; cat "$TARGET_REPO/$c" 2>/dev/null
+  printf '\n===== %s :: SOURCE =====\n' "$c"; cat "$WORK_SOURCE/$c" 2>/dev/null
+done
+```
+
+**The default is `destination` for every row.** The destination file is the
+current format's skeleton and the migration exists to adopt it — a source file
+that merely says the same thing in the old shape has nothing to preserve.
+
+What the source file *may* have is project-specific substance the skeleton does
+not carry: local conventions, routing rules, directory contracts, a
+project's own standards. **Carry that content forward into the destination
+file.** Merging is an edit you make, not something the importer does; the flag
+is still `=destination`.
+
+So present **one table** and ask for **one confirmation**:
+
+| path | resolution | what carries over from the old file |
+| --- | --- | --- |
+| `harness/adr/README.md` | destination | when a lightweight ADR fits, `ha decision propose` for load-bearing choices, back-link rule |
+| `harness/context/architecture/README.md` | destination | manifest read order, `architecture-check`, model update boundary |
+| `harness/people.yaml` | **choose** | nothing — see below |
+
+Say plainly: this is the default, and they can override any row to `source` if
+they want the old file kept verbatim. One answer covers the whole table.
+
+**`people.yaml` is the exception and must be asked.** It is the person roster
+and it cannot be merged — roster merging is not yet available — so it is a
+genuine either/or where both answers lose something. `destination` leaves the
+migrated history referencing people absent from the new roster; `source`
+replaces the roster the new repository was initialized with. Keep it as its own
+question inside the same message; do not fold it into the default.
+
+**Do the merge edits after the final apply in step 8, not now.** Step 8
+recreates the destination from scratch, which would discard anything edited
+earlier. Record the third column now; apply it once at the end.
 
 Collect the answers into repeated flags and re-run:
 
@@ -185,12 +227,6 @@ $HA migrate import --source "$WORK_SOURCE" "${RESOLVE_ARGS[@]}" --dry-run > "$DR
 Each answer comes back as a row beginning `resolved: destination` or
 `resolved: source`, carrying both digests so the discarded side stays visible.
 A conflict left out of the flags stays `required`.
-
-**`people.yaml` deserves a word to the user.** It is the person roster. Picking
-`destination` means the migrated ledger's history references people who are not
-in the new roster; picking `source` means the roster the new repository was
-initialized with is replaced. Roster merging is not yet available, so say this
-plainly and let them choose.
 
 A directory target accepts only `=destination`. If `=source` reports that the
 target is a directory, show the error and have the user handle that path.
@@ -279,6 +315,19 @@ test "$SOURCE_SHA_BEFORE" = "$SOURCE_SHA_AFTER" && echo "source ledger untouched
 If apply exits nonzero, keep its output, move the target aside, and restart from
 a fresh `ha init`. **Never re-run apply against a partially imported target.**
 
+Now execute the merge column recorded in step 5. `$HARNESS_MIGRATION_WORK/preview-repository`
+still holds the previous destination, and `$WORK_SOURCE` still holds the old
+files, so both sides remain readable:
+
+```bash
+diff -u "$TARGET_REPO/harness/adr/README.md" "$WORK_SOURCE/harness/adr/README.md" | head -40
+```
+
+For each row, edit the destination file to carry the project-specific content
+forward. Keep the current file's structure and add to it — do not paste the old
+file over it, which would undo the resolution that was just applied. Show the
+user the resulting diff. This is the last write of the migration.
+
 ## 9. Hand over
 
 Move `$TARGET_REPO` to where the user wants it, then tell them:
@@ -293,6 +342,7 @@ Move `$TARGET_REPO` to where the user wants it, then tell them:
 - All five entity classes show `Old = Expected = New`, `Skipped = 0`.
 - Authored coverage has no `required` row.
 - Every conflict appears as an explicit `resolved:` row.
+- Every merge recorded in the step 5 table has been applied to the destination.
 - Every legacy preset has a validated v3 replacement installed.
 - `source-before` equals `source-after`.
 
