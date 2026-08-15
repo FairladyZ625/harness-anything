@@ -112,10 +112,27 @@ Ready to use it on a project? Continue with the
 
 The ledger format has changed by a generation and this project keeps no
 backward compatibility, so existing repositories cannot be upgraded in place.
-If you have a repository with an older-format ledger, follow the
-[migration guide](./docs-release/migration-genesis-replay.md) — the old
-repository is archived read-only and replayed into a new one; it is never at
-risk.
+The old repository is archived read-only and replayed into a new one; it is
+never at risk.
+
+**You do not have to do this by hand, and you do not need the current version
+installed first.** Paste this to a coding agent working in the repository you
+want to migrate:
+
+> Read `skills/harness-migration/SKILL.md` from
+> https://github.com/FairladyZ625/harness-anything (branch `rebuild/main`) and
+> follow it to migrate this project's `harness/` ledger to the current format.
+> Ask me before each decision the skill says to ask about.
+
+The skill fetches the current source into a temporary directory and runs
+everything from there, so an older Harness installation on the same machine —
+including a running daemon — is left untouched. It stops and asks you at each
+point where a choice destroys something: file conflicts between your ledger and
+the freshly initialized one, records the strict format rejects, and presets that
+must be rebuilt rather than copied.
+
+Prefer to drive it yourself? The [migration guide](./docs-release/migration-genesis-replay.md)
+is the same procedure in reference form.
 
 ## How It Works
 
@@ -142,6 +159,7 @@ The result is a repository that remembers more than its code:
 - [Learn](./docs-release/learn/en/00-overview.md) — understand the memory model, gates, and compounding loop. ([中文](./docs-release/learn/zh/00-overview.md))
 - [Architecture](./docs-release/architecture/en/00-overview.md) — explore the kernel, storage model, write path, and projections. ([中文](./docs-release/architecture/zh/00-overview.md))
 - [Release posture](./docs-release/release-posture.md) — see what is shipped, foundational, or planned.
+- [Migration](./docs-release/migration-genesis-replay.md) — replay an older-generation ledger into the current format. ([agent skill](./skills/harness-migration/SKILL.md))
 - [Minimal example](./examples/minimal-project/) — inspect the smallest working project.
 
 ## Contributing

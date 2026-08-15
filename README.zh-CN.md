@@ -99,7 +99,17 @@ Demo 会构建 CLI、创建一个临时项目、跑通一条真实任务循环�
 
 ## 破坏性变更：已有仓库需要迁移
 
-台账格式发生了代差变更，本项目不保留向后兼容，因此已有仓库无法原地升级。如果你本地有老格式的台账仓，请阅读[迁移指南](./docs-release/migration-genesis-replay.zh-CN.md)——老仓会被归档为只读底稿并重放进新仓，全程不受损害。
+台账格式发生了代差变更，本项目不保留向后兼容，因此已有仓库无法原地升级。老仓会被归档为只读底稿并重放进新仓，全程不受损害。
+
+**这件事不必手工做，也不需要你先装好当前版本。** 把下面这段话交给一个在待迁移仓库里工作的编码 agent：
+
+> 读取 https://github.com/FairladyZ625/harness-anything （分支 `rebuild/main`）的
+> `skills/harness-migration/SKILL.md`，按它把本项目的 `harness/` 台账迁移到当前格式。
+> skill 里说要问我的每个决定，都先问我。
+
+该 skill 会把当前源码拉到一个临时目录并全程在那里运行，因此同一台机器上已有的老版 Harness——包括正在运行的 daemon——不受任何影响。凡是「做出选择就会毁掉某样东西」的地方它都会停下来问你：你的台账与新初始化仓库之间的文件冲突、被严格校验拒收的记录、以及必须重做而非搬运的 preset。
+
+想自己动手？[迁移指南](./docs-release/migration-genesis-replay.zh-CN.md)是同一套流程的参考文档形态。
 
 ## 它如何工作
 
@@ -125,6 +135,7 @@ Harness Anything 用三个长期存在的原语承载 agent 工作：
 - [理解（Learn）](./docs-release/learn/zh/00-overview.md)：理解记忆模型、门禁与复利循环。（[English](./docs-release/learn/en/00-overview.md)）
 - [架构（Architecture）](./docs-release/architecture/zh/00-overview.md)：了解内核、存储模型、写入路径与投影。（[English](./docs-release/architecture/en/00-overview.md)）
 - [发布态势](./docs-release/release-posture.md)：查看哪些能力已经发布、仍是基础设施或尚在规划。
+- [迁移](./docs-release/migration-genesis-replay.zh-CN.md)：把上一代台账重放进当前格式。（[agent skill](./skills/harness-migration/SKILL.md)）
 - [最小示例](./examples/minimal-project/)：查看最小可运行项目。
 
 ## 贡献
