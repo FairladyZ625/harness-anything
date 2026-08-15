@@ -152,3 +152,8 @@ test("GUI i18n fixture bills renderer copy paths into their ratcheted buckets", 
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/gui-i18n-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
+
+test("territory root-cluster fixture bills the graph clustering seam to the gui bucket", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/territory-root-cluster-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});

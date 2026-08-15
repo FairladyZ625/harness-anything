@@ -101,10 +101,26 @@ export function clusterTasksByPrd(tasks: ReadonlyArray<TaskRow>): PrdCluster[] {
   const titleById = new Map<string, string>();
   for (const task of tasks) titleById.set(task.taskId, task.title);
 
+  // 投影只给 parentTaskId,不给 rootTaskId。父链完整时上溯到根是确定性推导,不是猜归属。
+  // 父不在本集合内(不可见)或成环时归属仍然未知 —— 返回 undefined 交给 module 兜底,不伪装成根。
+  const parentById = new Map<string, string>();
+  for (const task of tasks) if (task.parentTaskId) parentById.set(task.taskId, task.parentTaskId);
+  const rootOf = (taskId: string): string | undefined => {
+    const seen = new Set<string>();
+    for (let current = taskId; ; ) {
+      if (seen.has(current)) return undefined;
+      seen.add(current);
+      const parent = parentById.get(current);
+      if (!parent) return current;
+      if (!titleById.has(parent)) return undefined;
+      current = parent;
+    }
+  };
+
   const groups = new Map<string, TaskRow[]>();
   const unprojected: TaskRow[] = [];
   for (const task of tasks) {
-    const root = task.rootTaskId ?? (task.parentTaskId ? undefined : task.taskId);
+    const root = task.rootTaskId ?? rootOf(task.taskId);
     if (root) {
       const list = groups.get(root) ?? [];
       list.push(task);
