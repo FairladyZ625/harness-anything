@@ -21,8 +21,8 @@ test("quickstart demo runs daemon init to task to event-backed Fact search/show"
 
     assert.equal(result.ok, true);
     assert.equal(result.schema, "quickstart-demo/v1");
-    assert.equal(result.taskId, "task-quickstart");
-    assert.match(result.factRef, /^fact\/task-quickstart\/F-[0-9A-HJKMNP-TV-Z]{8}$/u);
+    assert.match(result.taskId, /^task_[0-9a-f]{26}$/u);
+    assert.match(result.factRef, new RegExp(`^fact/${result.taskId}/F-[0-9A-HJKMNP-TV-Z]{8}$`, "u"));
   });
 });
 

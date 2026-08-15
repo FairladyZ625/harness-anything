@@ -39,15 +39,13 @@ try {
   const task = runCli([
     "task",
     "create",
-    "--task-id",
-    "task-quickstart",
     "--title",
     "First harness value",
     "--preset",
     "standard-task"
   ]);
-  const taskId = "task-quickstart";
   assertEqual(task.outcome, "applied", "task create outcome");
+  const taskId = assertString(task.taskId, "created task id");
 
   step = "fact record";
   const fact = runCli([
