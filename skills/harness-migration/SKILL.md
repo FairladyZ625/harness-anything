@@ -25,16 +25,21 @@ mkdir -p "$HARNESS_DAEMON_USER_ROOT"
 
 Without it, the CLI connects to whatever Harness daemon is already running on
 the machine and that daemon serves a different generation of the code. The
-observed failure is not a helpful conflict message — it is:
+failure does not announce itself as a conflict — it arrives as:
 
 ```
-error code=missing_vertical hint=[object Object]
+error code=missing_vertical
 ```
 
-with `"origin":"daemon"` in the JSON receipt. If you see that, `HARNESS_DAEMON_USER_ROOT`
-is not set. Do **not** stop or uninstall the user's existing Harness to work
-around it: isolation is sufficient, and stopping their daemon interrupts work
-you are not responsible for restoring.
+with `"origin":"daemon"` in the JSON receipt. **Match on those two fields, not on
+the hint text**: the hint describes an unavailable vertical, which is true but
+misleading, and it reads differently depending on which generation the running
+daemon serves. `code=missing_vertical` together with `"origin":"daemon"` means
+`HARNESS_DAEMON_USER_ROOT` is not set.
+
+Do **not** stop or uninstall the user's existing Harness to work around it:
+isolation is sufficient, and stopping their daemon interrupts work you are not
+responsible for restoring.
 
 ## 1. Fetch the current source
 
@@ -267,7 +272,8 @@ Move `$TARGET_REPO` to where the user wants it, then tell them:
 ## Known rough edges
 
 - Connecting to a foreign daemon reports `missing_vertical` with
-  `hint=[object Object]`. That message does not describe the real problem;
-  the cause is a missing `HARNESS_DAEMON_USER_ROOT`.
+  `"origin":"daemon"`. The hint is readable text about an unavailable vertical,
+  but it still does not name the real cause — a missing
+  `HARNESS_DAEMON_USER_ROOT`. Route on the code and origin, not the wording.
 - `--daemon-mode direct` does not support `init` — it rejects with
   `unsupported_command`. Isolation is done with the user root, not with direct mode.
