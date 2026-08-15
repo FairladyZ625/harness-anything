@@ -382,8 +382,8 @@ function changeLease(db: DatabaseSync, expected: LeaseV1, phase: "active" | "rel
 function effectiveLease(db: DatabaseSync, taskId: string, now: string): LeaseV1 | null {
   const current = storedLease(db, taskId);
   if (current === null || current.phase === "released") return current;
-  if (current.expiresAt <= now && current.phase !== "orphaned") return checkedLease({ ...current, phase: "orphaned" });
-  return current;
+  if (current.expiresAt > now) return current;
+  return current.phase === "reserving" ? null : checkedLease({ ...current, phase: "orphaned" });
 }
 
 function storedLease(db: DatabaseSync, taskId: string): LeaseV1 | null { const row = queryRows(db, "SELECT lease_json FROM lease_cas WHERE task_id = ?", taskId)[0]; return row === undefined ? null : checkedLease(JSON.parse(String(row.lease_json)) as LeaseV1); }
