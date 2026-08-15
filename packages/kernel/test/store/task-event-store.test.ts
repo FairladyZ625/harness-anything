@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readlinkSync, readdirSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, parseCanonicalEvent, serializeCanonicalEvent, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
@@ -11,6 +11,7 @@ import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import { serializeTaskEvent, type TaskCreatedEvent } from "../../src/domain/task-lifecycle.contract.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import { freezeDeclaredWritePlan, serializeEventHead } from "../../src/domain/write-chain.contract.ts";
+import { MIGRATION_DOCUMENT_POLICY_ID, migrationImportWritePlan, type MigrationImportEventV1 } from "../../src/domain/migration-import-event.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { CANONICAL_EVENT_REF, makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
@@ -69,6 +70,38 @@ test("doc event, content blob, and authored file publish in one default-branch c
   });
 });
 
+test("a committed symbolic link is replaced without a hidden conflict copy", async () => {
+  await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const directory = path.join(rootDir, "harness/context"), target = path.join(directory, "latest.md"); mkdirSync(directory, { recursive: true }); symlinkSync("old.md", target); git(rootDir, "add", "harness/context/latest.md"); git(rootDir, "commit", "-qm", "committed link");
+    const store = makeTaskEventStore({ repoId: "symlink-store", rootDir }); store.append(repoLinkBundle("context/latest.md", "new.md"));
+    assert.equal(readlinkSync(target), "new.md"); assert.equal(readdirSync(directory).some((name) => name.includes(".conflict-")), false);
+  });
+});
+
+test("a symbolic link changed after its parent commit still gets a conflict copy", async () => {
+  await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const directory = path.join(rootDir, "harness/context"), target = path.join(directory, "latest.md"); mkdirSync(directory, { recursive: true }); symlinkSync("old.md", target); git(rootDir, "add", "harness/context/latest.md"); git(rootDir, "commit", "-qm", "committed link"); unlinkSync(target); symlinkSync("local-edit.md", target);
+    const store = makeTaskEventStore({ repoId: "symlink-conflict-store", rootDir }); store.append(repoLinkBundle("context/latest.md", "new.md")); const conflict = readdirSync(directory).find((name) => name.includes(".conflict-"));
+    assert.equal(readlinkSync(target), "new.md"); assert.ok(conflict); assert.equal(readlinkSync(path.join(directory, conflict)), "local-edit.md");
+  });
+});
+
+test("an authorized migration replacement rejects a destination that changed after classification", async () => {
+  await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const directory = path.join(rootDir, "harness/context"), target = path.join(directory, "notes.md"), expected = "# Initialized\n", changed = "# Edited after dry-run\n"; mkdirSync(directory, { recursive: true }); writeFileSync(target, expected); git(rootDir, "add", "harness/context/notes.md"); git(rootDir, "commit", "-qm", "initialized document"); const store = makeTaskEventStore({ repoId: "preimage-store", rootDir }); writeFileSync(target, changed);
+    assert.throws(() => store.append(repoFileBundle("context/notes.md", "# Legacy\n", expected)), /destination changed.*dry-run/iu); assert.equal(store.read().revision, 0); assert.equal(readFileSync(target, "utf8"), changed); assert.equal(readdirSync(directory).some((name) => name.includes(".conflict-")), false); assert.equal(git(rootDir, "for-each-ref", "--format=%(refname)", "refs/ha-event-prepared/"), "");
+  });
+});
+
+test("recovery rechecks the durable destination preimage instead of creating a hidden backup", async () => {
+  await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const directory = path.join(rootDir, "harness/context"), target = path.join(directory, "notes.md"), expected = "# Initialized\n", changed = "# Edited after preparation\n"; mkdirSync(directory, { recursive: true }); writeFileSync(target, expected); git(rootDir, "add", "harness/context/notes.md"); git(rootDir, "commit", "-qm", "initialized document"); const interrupted = makeTaskEventStore({ repoId: "preimage-recovery", rootDir, killpoint: (point) => { if (point === "after_head_write") throw new Error("crash"); } }); assert.throws(() => interrupted.append(repoFileBundle("context/notes.md", "# Legacy\n", expected)), /crash/u); writeFileSync(target, changed);
+    const recovered = makeTaskEventStore({ repoId: "preimage-recovery", rootDir }).recover(); assert.equal(recovered.status, "indeterminate"); assert.equal(readFileSync(target, "utf8"), changed); assert.equal(readdirSync(directory).some((name) => name.includes(".conflict-")), false); assert.equal(git(rootDir, "rev-parse", CANONICAL_EVENT_REF), git(rootDir, "rev-parse", "HEAD"));
+  });
+});
+
+test("recovery accepts the authorized result after refs and worktree replacement completed", async () => {
+  await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const directory = path.join(rootDir, "harness/context"), target = path.join(directory, "notes.md"), expected = "# Initialized\n", migrated = "# Legacy\n"; mkdirSync(directory, { recursive: true }); writeFileSync(target, expected); git(rootDir, "add", "harness/context/notes.md"); git(rootDir, "commit", "-qm", "initialized document"); const interrupted = makeTaskEventStore({ repoId: "preimage-published-recovery", rootDir, killpoint: (point) => { if (point === "after_worktree_rename") throw new Error("crash"); } }); assert.throws(() => interrupted.append(repoFileBundle("context/notes.md", migrated, expected)), /crash/u);
+    const recovered = makeTaskEventStore({ repoId: "preimage-published-recovery", rootDir }).recover(); assert.equal(recovered.status, "already_committed"); assert.equal(readFileSync(target, "utf8"), migrated); assert.equal(readdirSync(directory).some((name) => name.includes(".conflict-")), false); assert.equal(git(rootDir, "for-each-ref", "--format=%(refname)", "refs/ha-event-prepared/"), "");
+  });
+});
+
 test("Decision bundle publishes one canonical document, enforces base CAS, and preserves a hand-edit conflict", async () => {
   await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const store = makeTaskEventStore({ repoId: "decision-store", rootDir }), proposal = decisionProposal(), compiled = compileDecisionWrite({ event: proposal, currentDecision: null, currentRelations: [], currentDocument: null }), missing = { ...compiled, blobs: [] }, invalidPlan = freezeDeclaredWritePlan({ commandType: "DecisionWrite", targets: compiled.plan.targets.slice(0, -1) }, ["DecisionWrite"]), before = store.currentCommit();
     assert.throws(() => store.append({ ...compiled, plan: invalidPlan }), /decision write plan/u); assert.throws(() => store.append(missing), /content inputs/u); assert.deepEqual(store.currentCommit(), before); const receipt = store.append(compiled), documentTarget = `harness/${compiled.path}`, objectTarget = `harness/objects/sha256/${compiled.event.payload.decisionDocumentClaim.sha256}`; assert.deepEqual(receipt.metrics.changedPaths, [documentTarget, `harness/events/${proposal.opId}.json`, "harness/events/head.json", objectTarget].sort()); assert.equal(git(rootDir, "show", `${receipt.commitSha.sha}:${documentTarget}`), compiled.body.trimEnd()); assert.equal(git(rootDir, "show", `${receipt.commitSha.sha}:${objectTarget}`), compiled.body.trimEnd());
@@ -122,5 +155,7 @@ function initRepo(rootDir: string): void { git(rootDir, "init", "-q"); git(rootD
 function eventAt(revision: number): TaskCreatedEvent { const suffix = String(revision).padStart(5, "0"); return { ...event, eventId: `event-${suffix}`, workspaceRevision: revision, opId: `op-${suffix}`, taskId: `task-${suffix}`, payload: { task: { ...event.payload.task, taskId: `task-${suffix}`, title: `Task ${suffix}` } } }; }
 function decisionProposal(): Extract<DecisionEventDraftV1, { readonly type: "decision_proposed" }> { return { schema: "decision-event/v1", eventId: "event-decision-store-1", workspaceRevision: 1, opId: "op-decision-store-1", decisionId: "dec_STORE", type: "decision_proposed", actor: { principal: { personId: "person-proposer" }, executor: null }, source: "local", occurredAt: "2026-08-14T00:00:00.000Z", payload: { title: "Store Decision", question: "Does one bundle own every write?", riskTier: "medium", urgency: "medium", vertical: "software/coding", preset: "standard-task", appliesTo: { modules: ["kernel"], productLines: [] }, decisionClass: "ordinary", chosen: [{ id: "CH1", text: "Use one bundle" }], rejected: [{ id: "RJ1", text: "Split writes", whyNot: "They can diverge." }], body: "\n# Store Decision\n", claims: [], fulfillments: [], relations: [] } }; }
 function bundle(value: TaskCreatedEvent): CanonicalWriteBundle { return { event: value, plan: taskLifecycleWritePlan(value), blobs: [] }; }
+function repoLinkBundle(target: string, body: string): CanonicalWriteBundle { const hash = sha256Text(body), migration: MigrationImportEventV1 = { schema: "migration-import-event/v1", eventId: "event-link", workspaceRevision: 1, opId: "op-link", type: "entity_migrated", actor: event.actor, source: "migration-import/v1", occurredAt: event.occurredAt, payload: { migratedFrom: target, generation: "v0", entity: { kind: "repo-document", nodeKind: "symbolic-link", documentClaim: { path: target, sha256: hash, size: Buffer.byteLength(body), mediaType: "application/vnd.harness.symbolic-link", policyId: MIGRATION_DOCUMENT_POLICY_ID }, referencedContentClaims: [] } } }; return { event: migration, plan: migrationImportWritePlan(migration), blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "application/vnd.harness.symbolic-link", body }] }; }
+function repoFileBundle(target: string, body: string, destinationBody: string): CanonicalWriteBundle { const hash = sha256Text(body), migration: MigrationImportEventV1 = { schema: "migration-import-event/v1", eventId: "event-file", workspaceRevision: 1, opId: "op-file", type: "entity_migrated", actor: event.actor, source: "migration-import/v1", occurredAt: event.occurredAt, payload: { migratedFrom: target, generation: "v0", entity: { kind: "repo-document", nodeKind: "file", documentClaim: { path: target, sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", policyId: MIGRATION_DOCUMENT_POLICY_ID }, referencedContentClaims: [], destinationPreimage: { nodeKind: "file", sha256: sha256Text(destinationBody), size: Buffer.byteLength(destinationBody) } } } }; return { event: migration, plan: migrationImportWritePlan(migration), blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }] }; }
 function snapshot(rootDir: string): unknown { const files = ["harness/context/user.md", "dirty.txt"]; return { status: git(rootDir, "status", "--porcelain", "-uall"), index: git(rootDir, "ls-files", "-s"), bytes: files.map((file) => readFileSync(path.join(rootDir, file)).toString("hex")) }; }
 function git(rootDir: string, ...args: readonly string[]): string { return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); }

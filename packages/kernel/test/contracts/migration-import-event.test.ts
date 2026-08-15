@@ -17,6 +17,11 @@ test("repo-document accepts only its exact fields and non-specialized document p
   const symbolicLink = repoDocumentEvent("tasks/task_x/note.md", "symbolic-link"); assert.deepEqual(validateMigrationImportEvent(symbolicLink), []); assert.deepEqual(validateMigrationImportEvent({ ...symbolicLink, payload: { ...symbolicLink.payload, entity: { ...symbolicLink.payload.entity, nodeKind: "shortcut" as never } } }), ["migration repo document entity is invalid"]);
 });
 
+test("repo-document accepts an exact file or link destination preimage but never a directory preimage", () => {
+  const event = repoDocumentEvent("people.yaml"), entity = event.payload.entity as Extract<MigrationImportEventV1["payload"]["entity"], { readonly kind: "repo-document" }>, resolved = (nodeKind: "file" | "symbolic-link" | "directory") => ({ ...event, payload: { ...event.payload, entity: { ...entity, destinationPreimage: { nodeKind, sha256: "b".repeat(64), size: 42 } } } });
+  assert.deepEqual(validateMigrationImportEvent(resolved("file")), []); assert.deepEqual(validateMigrationImportEvent(resolved("symbolic-link")), []); assert.deepEqual(validateMigrationImportEvent(resolved("directory")), ["migration repo document entity is invalid"]); assert.deepEqual(validateMigrationImportEvent({ ...resolved("file"), payload: { ...resolved("file").payload, entity: { ...resolved("file").payload.entity, extra: true } } }), ["migration repo document entity is invalid"]);
+});
+
 test("repo-document write plan publishes the document and every referenced CAS claim", () => {
   const plan = migrationImportWritePlan(repoDocumentEvent(documentClaim.path));
   assert.equal(plan.targets.some((target) => target.kind === "authored_file" && target.path === documentClaim.path && target.sha256 === documentClaim.sha256), true);

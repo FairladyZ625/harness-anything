@@ -208,10 +208,11 @@ test("thin parser exposes daemon-backed workspace bootstrap", () => {
   assert.equal(parseThinCommand(["init", "--repo-id", "alpha", "--person-id", "owner"]).ok, false);
 });
 
-test("migration import parser exposes only source and dry-run", () => {
-  const parsed = parseThinCommand(["migrate", "import", "--source", "../legacy", "--dry-run", "--json"]);
-  assert.equal(parsed.ok, true); if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "migrate-import", sourceRoot: "../legacy", dryRun: true });
+test("migration import parser accepts repeated explicit conflict resolutions", () => {
+  const parsed = parseThinCommand(["migrate", "import", "--source", "../legacy", "--resolve", "harness/people.yaml=source", "--resolve", "harness/AGENTS.md=destination", "--dry-run", "--json"]);
+  assert.equal(parsed.ok, true); if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "migrate-import", sourceRoot: "../legacy", resolutions: ["harness/people.yaml=source", "harness/AGENTS.md=destination"], dryRun: true });
   assert.equal(parseThinCommand(["migrate", "import"]).ok, false);
+  assert.equal(parseThinCommand(["migrate", "import", "--source", "a", "--resolve", "harness/people.yaml=automatic"]).ok, false);
   assert.equal(parseThinCommand(["migrate", "import", "--source", "a", "--force"]).ok, false);
 });
 

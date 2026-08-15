@@ -17,8 +17,8 @@ into it as canonical migration events, in original `occurredAt` order.
 The entry point is a single command:
 
 ```
-ha migrate import --source <source> [--dry-run]
-    Import a legacy Harness repository through canonical migration events.
+ha migrate import --source <source> [--resolve <repo-relative-path>=destination|source]... [--dry-run]
+    Import a legacy Harness repository; resolve reported destination conflicts with repeated --resolve path=destination|source.
 ```
 
 For anything beyond what this page states, run `ha migrate --help`.
@@ -40,7 +40,8 @@ data.
 ## The five steps
 
 The order matters. Do not run the real import before the dry-run reports
-`skipped=0` across all five entity classes.
+`skipped=0` across all five entity classes, no authored `required` rows, and a
+passing reconciliation.
 
 ### 1. Back up the old repository
 
@@ -71,9 +72,36 @@ ha migrate import --source <path-to-old-repo> --dry-run
 
 The dry-run writes nothing. It prints a reconciliation table for five entity
 classes — task / decision / fact / relation / coverage — each with four counts:
-old / skipped / expected / new, plus a `Format validation: N skipped` line.
+old / skipped / expected / new, plus a `Format validation: N skipped` line, an
+`Attribution` line, and an authored coverage table.
 
-### 4. Resolve the skips
+### 4. Resolve required rows and skips
+
+A destination conflict remains `required` until the user chooses that exact
+path explicitly. The row reports both node kinds, SHA-256 digests and byte
+counts; symbolic-link rows also report link targets. Repeat `--resolve` once per
+conflict:
+
+```bash
+ha migrate import --source <path-to-old-repo> \
+  --resolve <repo-relative-path>=destination \
+  --resolve <another-repo-relative-path>=source \
+  --dry-run
+```
+
+`destination` keeps the initialized destination node and explicitly discards
+the source version. `source` compare-and-replaces that one destination file or
+symbolic link. If the destination changes after classification, import rejects
+and requires a new dry-run. A destination directory supports `destination` but
+not `source`; handle that path manually and dry-run again. Resolution flags for
+missing, duplicate, normalized-different, non-conflicting, or no-longer-conflicting
+paths are rejected.
+
+Legacy `presets/**` are also `required`: rebuild each package in the current
+`preset-manifest/v3` format and validate/install it through the preset commands.
+Do not copy the v2 package into the new repository. Retain its original bytes in
+the archive, then remove it only from the working source copy fed to the
+importer.
 
 A non-zero `skipped` count means some corpus entries do not satisfy the current
 schema. For each entry, read the stated reason and fix the source data **on a
@@ -91,8 +119,13 @@ ha migrate import --source <path-to-old-repo>
 ```
 
 Acceptance: the five entity classes report old == new and skipped=0. If any
-class does not, do not proceed on the new repository as-is — investigate, and if
+class does not, authored coverage has a `required` row, or reconciliation does
+not pass, do not proceed on the new repository as-is — investigate, and if
 needed discard the new repository and restart from step 2.
+
+The command exits 1 while authored `required` rows remain, exits 3 when strict
+format skips remain after authored reconciliation passes, and exits 0 only when
+the full reconciliation passes.
 
 ## What the migrated data is
 
