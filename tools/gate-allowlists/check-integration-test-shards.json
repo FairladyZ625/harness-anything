@@ -352,6 +352,11 @@
         "value": "packages/kernel/test/store/relation-graph-toctou.test.ts",
         "ref": "task_01KZV5NZ3XYM4TZJ3MR8S6ZZ3J-w2-decision-fact",
         "reason": "Fact eventification deletes the facts.md scanner; crash catch-up is covered at the canonical event and SQLite projection boundary."
+      },
+      {
+        "value": "tools/graph-panorama.test.mjs",
+        "ref": "task_01KZWTC8HNP2PVNEAQ02TWDTHF",
+        "reason": "The panorama generator imports packages/cli/src/commands/graph-panorama.ts, which the thin-CLI rewrite deleted; the archive implementation is 453 lines against a 171-line cli ceiling, so restoring it is a redesign on the daemon read surface rather than a repair. The relation_edges and relation_coverage projections it reads are intact, so the capability is registered on the functional restore bus instead of carried forward broken."
       }
     ]
   }
