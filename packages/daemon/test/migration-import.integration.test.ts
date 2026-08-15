@@ -56,3 +56,78 @@ function coverageCompleteFixture(root: string): void { const taskRoot = path.joi
 function initRepo(root: string): void { mkdirSync(root, { recursive: true }); git(root, "init", "-q"); git(root, "config", "user.name", "Migration Test"); git(root, "config", "user.email", "migration@example.invalid"); mkdirSync(path.join(root, "harness"), { recursive: true }); writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n"); git(root, "add", "."); git(root, "commit", "-qm", "initialized"); }
 function snapshot(root: string): readonly string[] { const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => { const target = path.join(dir, entry.name); return entry.isDirectory() ? walk(target) : [`${path.relative(root, target)}:${statSync(target).size}:${readFileSync(target, "utf8")}`]; }); return walk(root).sort(); }
 function git(root: string, ...args: string[]): string { return execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim(); }
+
+test("task hierarchy and task-side relations replay into the event stream", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-hierarchy-")), source = path.join(scratch, "legacy"), destination = path.join(scratch, "new"); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    hierarchyFixture(source); initRepo(destination); cell = await openRepoCell({ repoId: workspaceId("migration-hierarchy-target"), rootDir: canonicalRoot(destination), ownerId: "migration-daemon", now: () => "2026-06-01T00:00:00.000Z" });
+    const dryRun = await cell.run({ kind: "migrate-import", sourceRoot: source, dryRun: true }, { actor, source: "local" }) as Record<string, unknown>;
+    assert.equal(dryRun.exitCode, 0, JSON.stringify(dryRun));
+    assert.match(String(dryRun.summary), /\| task \| 2 \| 0 \| 2 \| 2 \| PASS \|/u);
+    assert.match(String(dryRun.summary), /\| relation \| 1 \| 0 \| 1 \| 1 \| PASS \|/u);
+
+    const applied = await cell.run({ kind: "migrate-import", sourceRoot: source }, { actor, source: "local" }) as Record<string, unknown>; assert.equal(applied.exitCode, 0, JSON.stringify(applied));
+    const events = makeTaskEventStore({ repoId: "migration-hierarchy-target", rootDir: destination }).read().events.filter((event) => event.schema === "migration-import-event/v1");
+    const child = events.find((event) => event.payload.entity.kind === "task" && event.payload.entity.task.taskId === "task_child")!;
+    assert.equal((child.payload.entity as { readonly task: { readonly metadata?: { readonly parentTaskId?: string | null } } }).task.metadata?.parentTaskId, "task_parent", "child task must carry its parent binding in the event payload");
+    const relations = events.filter((event) => event.payload.entity.kind === "relation").map((event) => (event.payload.entity as { readonly relation: { readonly source: string; readonly target: string; readonly type: string } }).relation);
+    assert.deepEqual(relations.map(({ source: from, target, type }) => `${from} ${type} ${target}`), ["task/task_child depends-on task/task_parent"]);
+
+    const rows = (await cell.read("repo.tasks.list")).rows; assert.equal(rows.find(({ taskId }) => taskId === "task_child")!.placement.parentTaskId, "task_parent");
+  } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }
+});
+
+function hierarchyFixture(root: string): void {
+  const parentRoot = path.join(root, "harness/tasks/task_parent-root"), childRoot = path.join(root, "harness/tasks/task_child-leaf");
+  mkdirSync(parentRoot, { recursive: true }); mkdirSync(childRoot, { recursive: true });
+  writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n");
+  const frontmatter = (taskId: string, title: string, extra: string): string => `---\nschema: task-package/v2\ntask_id: ${taskId}\ntitle: ${title}\n${extra}lifecycle:\n  status: planned\n  engine: local\n  bindingCreatedAt: 2026-01-01T00:00:00.000Z\nvertical: software/coding\npreset: standard-task\nprofile: baseline\n---\n\n# ${title}\n`;
+  writeFileSync(path.join(parentRoot, "INDEX.md"), frontmatter("task_parent", "Parent milestone", ""));
+  const relation = { relation_id: deriveRelationId({ source: "task/task_child", target: "task/task_parent", type: "depends-on", direction: "directed" }), source: "task/task_child", target: "task/task_parent", type: "depends-on", strength: "strong", direction: "directed", origin: "declared", rationale: "The child cannot start before the parent lands.", state: "active" };
+  writeFileSync(path.join(childRoot, "INDEX.md"), frontmatter("task_child", "Child work", `parent: task_parent\nrelations: ${JSON.stringify([relation])}\n`));
+}
+
+test("relations the current matrix rejects are skipped with a reason instead of migrating", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-illegal-")), source = path.join(scratch, "legacy"), destination = path.join(scratch, "new"); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    illegalRelationFixture(source); initRepo(destination); cell = await openRepoCell({ repoId: workspaceId("migration-illegal-target"), rootDir: canonicalRoot(destination), ownerId: "migration-daemon", now: () => "2026-06-01T00:00:00.000Z" });
+    const dryRun = await cell.run({ kind: "migrate-import", sourceRoot: source, dryRun: true }, { actor, source: "local" }) as Record<string, unknown>;
+    assert.equal(dryRun.exitCode, 3, JSON.stringify(dryRun));
+    assert.match(String(dryRun.summary), /\| relation \| 2 \| 1 \| 1 \| 1 \| PASS \|/u);
+    assert.match(String(dryRun.summary), /Format validation: 1 skipped/u);
+    assert.match(String(dryRun.summary), /type supports is not allowed for decision->fact/u);
+  } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }
+});
+
+function illegalRelationFixture(root: string): void {
+  const taskRoot = path.join(root, "harness/tasks/task_evidence-holder"), decisionRoot = path.join(root, "harness/decisions/decision-dec_MATRIX");
+  mkdirSync(taskRoot, { recursive: true }); mkdirSync(decisionRoot, { recursive: true });
+  writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n");
+  writeFileSync(path.join(taskRoot, "INDEX.md"), "---\nschema: task-package/v2\ntask_id: task_evidence\ntitle: Evidence holder\nlifecycle:\n  status: done\n  engine: local\n  bindingCreatedAt: 2026-01-01T00:00:00.000Z\n---\n\n# Evidence holder\n");
+  writeFileSync(path.join(taskRoot, "facts.md"), "# Facts\n\n- {fact_id: F-ABCDEFGH, statement: Observed migration, source: legacy-test, observedAt: 2026-01-02T00:00:00.000Z, confidence: high, memoryClass: semantic, memoryTags: [pattern], provenance: [{runtime: codex, sessionId: legacy-session, boundAt: 2026-01-02T00:00:00.000Z}]}\n");
+  const edge = (type: string, rationale: string) => ({ relation_id: deriveRelationId({ source: "decision/dec_MATRIX/C1", target: "fact/task_evidence/F-ABCDEFGH", type, direction: "directed" }), source: "decision/dec_MATRIX/C1", target: "fact/task_evidence/F-ABCDEFGH", type, strength: "strong", direction: "directed", origin: "declared", rationale, state: "active" });
+  // `supports` was the pre-2026-07-05 spelling of this edge; the current matrix only accepts evidenced-by.
+  const relations = [edge("evidenced-by", "The observation evidences the claim."), edge("supports", "Legacy spelling of the same evidence edge.")];
+  writeFileSync(path.join(decisionRoot, "decision.md"), `---\nschema: decision-package/v1\ndecision_id: dec_MATRIX\nworkspaceRevision: 3\ntitle: "Matrix decision"\nstate: active\nriskTier: medium\nurgency: medium\nvertical: "software/coding"\npreset: "standard-task"\ndecisionClass: ordinary\napplies_to: {"modules":["kernel"],"productLines":["harness"]}\nproposedAt: "2026-01-01T12:00:00.000Z"\ndecidedAt: "2026-01-03T00:00:00.000Z"\nquestion: "Does the matrix hold?"\nchosen: [{"id":"CH1","text":"Hold it"}]\nrejected: [{"id":"RJ1","text":"Widen it","whyNot":"Historical dirt must not become product logic"}]\nclaims: [{"id":"C1","text":"Only allowed triples migrate","loadBearing":true,"fulfillment":"evidenced"}]\nrelations: ${JSON.stringify(relations)}\n---\n\n# Matrix decision\n\nPreserved prose.\n`);
+}
+
+test("a relation whose endpoint entity never migrates is reported, not dropped in silence", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-orphan-")), source = path.join(scratch, "legacy"), destination = path.join(scratch, "new"); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    orphanEndpointFixture(source); initRepo(destination); cell = await openRepoCell({ repoId: workspaceId("migration-orphan-target"), rootDir: canonicalRoot(destination), ownerId: "migration-daemon", now: () => "2026-06-01T00:00:00.000Z" });
+    const dryRun = await cell.run({ kind: "migrate-import", sourceRoot: source, dryRun: true }, { actor, source: "local" }) as Record<string, unknown>;
+    // old counts the edge, and it cannot be produced because its endpoint task is skipped.
+    // Either it is accounted for as a skip, or the reconciliation must fail — never a silent drop.
+    assert.match(String(dryRun.summary), /\| relation \| 1 \| 1 \| 0 \| 0 \| PASS \|/u, String(dryRun.summary));
+    assert.match(String(dryRun.summary), /SKIP relation/u, String(dryRun.summary));
+  } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }
+});
+
+function orphanEndpointFixture(root: string): void {
+  const goodRoot = path.join(root, "harness/tasks/task_good"), orphanRoot = path.join(root, "harness/tasks/task_orphan");
+  mkdirSync(goodRoot, { recursive: true }); mkdirSync(orphanRoot, { recursive: true });
+  writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n");
+  const relation = { relation_id: deriveRelationId({ source: "task/task_good", target: "task/task_orphan", type: "depends-on", direction: "directed" }), source: "task/task_good", target: "task/task_orphan", type: "depends-on", strength: "strong", direction: "directed", origin: "declared", rationale: "The good task depends on a package that cannot migrate.", state: "active" };
+  writeFileSync(path.join(goodRoot, "INDEX.md"), `---\nschema: task-package/v2\ntask_id: task_good\ntitle: Good task\nrelations: ${JSON.stringify([relation])}\nlifecycle:\n  status: planned\n  engine: local\n  bindingCreatedAt: 2026-01-01T00:00:00.000Z\nvertical: software/coding\npreset: standard-task\nprofile: baseline\n---\n\n# Good task\n`);
+  writeFileSync(path.join(orphanRoot, "INDEX.md"), "# missing frontmatter so this package cannot migrate\n");
+}
