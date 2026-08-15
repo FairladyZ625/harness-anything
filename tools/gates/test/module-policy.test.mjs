@@ -167,3 +167,8 @@ test("daemon autostart fixture bills the shared autostart seam and both client w
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/daemon-autostart-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
+
+test("authored content migration fixture bills replay and symlink materialization to daemon and kernel", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/authored-content-migration-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});
