@@ -73,7 +73,7 @@ export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export * from "./schemas/docmap.ts";
 export {
-  canonicalDocumentClaims, canonicalEventWritePlan,
+  canonicalDocumentClaims, canonicalEventWritePlan, ledgerGitPath, resolveLedgerGitLayout,
   makeTaskEventStore,
   makeTaskProjection,
   makeMarkdownArtifactStore

@@ -396,11 +396,11 @@ test("bootstrap concurrent writer admission commits one complete workspace", asy
   const hosts = await Promise.all(["one", "two"].map((daemonId) => openDaemonHost({ daemonId, userRoot: path.join(parent, daemonId) })));
   try { const results = await Promise.allSettled(hosts.map((host) => host.bootstrap({ rootDir, repoId: "fresh", personId: "owner", displayName: "Owner" }, auth)));
     assert.equal(results.filter(({ status }) => status === "fulfilled").length, 1); assert.equal(results.filter(({ status }) => status === "rejected").length, 1);
-    assert.equal(git(rootDir, "rev-list", "--count", "HEAD"), "1"); assert.equal(git(rootDir, "status", "--porcelain"), "?? .harness/"); }
+    const ledgerRoot = path.join(rootDir, "harness"); assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "1"); assert.equal(git(rootDir, "check-ignore", "harness"), "harness"); assert.equal(git(rootDir, "check-ignore", ".harness"), ".harness"); }
   finally { await Promise.all(hosts.map((host) => host.close())); rmSync(parent, { recursive: true, force: true }); }
 });
 
-test("bootstrap binds registered default authored branch", async () => {
+test("bootstrap binds the ledger repository branch independently of the project branch", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-bootstrap-branch-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user");
   const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: process.getuid?.() ?? 0,
     source: "unix-socket-filesystem-owner-boundary" } } as const;
@@ -409,11 +409,11 @@ test("bootstrap binds registered default authored branch", async () => {
   let host = await openDaemonHost({ daemonId: "bootstrap-one", userRoot });
   try {
     const initialized = await host.bootstrap({ rootDir, repoId: "branch-bound", personId: "owner", displayName: "Owner" }, auth); assert.equal(initialized.outcome, "applied");
-    const registered = readDaemonRegistry({ userRoot }).repos.find((repo) => repo.repoId === "branch-bound"); assert.equal(registered?.authoredBranch, "main");
-    assert.equal(git(rootDir, "rev-parse", "refs/ha/canonical"), git(rootDir, "rev-parse", "refs/heads/main")); assert.equal(git(rootDir, "branch", "--show-current"), "main");
+    const ledgerRoot = path.join(rootDir, "harness"), registered = readDaemonRegistry({ userRoot }).repos.find((repo) => repo.repoId === "branch-bound"), ledgerBranch = git(ledgerRoot, "branch", "--show-current"); assert.equal(registered?.authoredBranch, ledgerBranch);
+    assert.equal(git(ledgerRoot, "rev-parse", "refs/ha/canonical"), git(ledgerRoot, "rev-parse", `refs/heads/${ledgerBranch}`)); assert.equal(git(rootDir, "branch", "--show-current"), "feature");
     await host.close(); host = await openDaemonHost({ daemonId: "bootstrap-two", userRoot });
     const afterRestart = await host.run("branch-bound", { kind: "task-create", taskId: "task-after-restart", title: "After restart" }, auth); assert.equal(afterRestart.outcome, "applied", JSON.stringify(afterRestart));
-    assert.equal(git(rootDir, "rev-parse", "refs/ha/canonical"), git(rootDir, "rev-parse", "refs/heads/main")); assert.notEqual(git(rootDir, "rev-parse", "refs/heads/feature"), git(rootDir, "rev-parse", "refs/heads/main"));
+    assert.equal(git(ledgerRoot, "rev-parse", "refs/ha/canonical"), git(ledgerRoot, "rev-parse", `refs/heads/${ledgerBranch}`)); assert.equal(git(rootDir, "branch", "--show-current"), "feature");
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 

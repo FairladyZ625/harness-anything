@@ -5,7 +5,8 @@ import { rmSync } from "node:fs";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
-import { canonicalEventWritePlan, makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
+import { makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
+import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
 import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
@@ -153,7 +154,7 @@ test("renewed lease survives database rebuild", async () => {
     assert.deepEqual(projection.readLeaseIntervals("task-1"), beforeIntervals);
   });
 });
-function taskBundle(event: TaskEventV1): CanonicalWriteBundle { return { event, plan: canonicalEventWritePlan(event, "task-lifecycle/v1", event.taskId), blobs: [] }; }
+function taskBundle(event: TaskEventV1): CanonicalWriteBundle { return { event, plan: taskLifecycleWritePlan(event), blobs: [] }; }
 
 function initRepo(rootDir: string): void {
   git(rootDir, "init", "--quiet");

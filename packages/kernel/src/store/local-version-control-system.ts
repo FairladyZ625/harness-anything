@@ -119,9 +119,8 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
 }
 
 function gitTopLevel(inputPath: string): string | null {
-  try {
-    return normalizeLocalPath(runGit(inputPath, "rev-parse", "--show-toplevel").trim());
-  } catch (error) {
+  try { let probe = path.resolve(inputPath); while (!existsSync(probe) && path.dirname(probe) !== probe) probe = path.dirname(probe);
+    return normalizeLocalPath(runGit(probe, "rev-parse", "--show-toplevel").trim()); } catch (error) {
     consumeKnownError(error);
     return null;
   }

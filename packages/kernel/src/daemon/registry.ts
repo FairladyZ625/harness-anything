@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSyn
 import os from "node:os";
 import path from "node:path";
 import { resolveHarnessLayout } from "../layout/index.ts";
-import { makeLocalVersionControlSystem } from "../store/local-version-control-system.ts";
+import { resolveLedgerGitLayout } from "../store/ledger-git-layout.ts"; import { makeLocalVersionControlSystem } from "../store/local-version-control-system.ts";
 
 export const daemonRegistrySchema = "harness-daemon-registry/v1";
 
@@ -271,7 +271,7 @@ function daemonRepoEquals(left: DaemonRegistryRepo, right: DaemonRegistryRepo): 
     && left.registeredAt === right.registeredAt;
 }
 
-function defaultAuthoredBranch(repoRoot: string): string { const vcs = makeLocalVersionControlSystem(), branch = vcs.originHeadBranch(repoRoot) ?? vcs.currentBranch(repoRoot); if (!branch || !validBranch(branch)) throw new Error(`canonicalRoot must have an attached default Git branch: ${repoRoot}`); return branch; }
+function defaultAuthoredBranch(canonicalRoot: string): string { const vcs = makeLocalVersionControlSystem(), repoRoot = resolveLedgerGitLayout(canonicalRoot).rootDir, branch = vcs.originHeadBranch(repoRoot) ?? vcs.currentBranch(repoRoot); if (!branch || !validBranch(branch)) throw new Error(`canonicalRoot must have an attached default Git branch: ${repoRoot}`); return branch; }
 function validBranch(value: string): boolean { return value.length > 0 && !value.startsWith("-") && !value.includes("..") && !/[~^:?*[\\\s]/u.test(value) && !value.endsWith("/") && !value.endsWith(".lock"); }
 
 function isDaemonRegistryRecord(value: unknown): value is Record<string, unknown> {
