@@ -128,6 +128,30 @@ test("daemon registry unregister disables a repo without deleting registry histo
   });
 });
 
+test("daemon registry rebinds an unregistered repoId to a new canonical root", () => {
+  withTempDir((root) => {
+    const userRoot = path.join(root, "user-harness");
+    const firstRoot = createHarnessRepo(path.join(root, "before-move"));
+    const secondRoot = createHarnessRepo(path.join(root, "after-move"));
+
+    registerDaemonRepo({ userRoot, canonicalRoot: firstRoot, repoId: "land", createConvenienceLinks: false });
+    assert.throws(
+      () => registerDaemonRepo({ userRoot, canonicalRoot: secondRoot, repoId: "land", createConvenienceLinks: false }),
+      /already registered for/u
+    );
+
+    unregisterDaemonRepo("land", { userRoot, createConvenienceLinks: false });
+    const rebound = registerDaemonRepo({ userRoot, canonicalRoot: secondRoot, repoId: "land", createConvenienceLinks: false });
+
+    assert.equal(rebound.repo.canonicalRoot, secondRoot);
+    assert.equal(rebound.repo.state, "enabled");
+    assert.deepEqual(
+      readDaemonRegistry({ userRoot }).repos.map((repo) => [repo.repoId, repo.canonicalRoot, repo.state]),
+      [["land", secondRoot, "enabled"]]
+    );
+  });
+});
+
 test("daemon registry fails closed for malformed registries and uninitialized roots", () => {
   withTempDir((root) => {
     const userRoot = path.join(root, "user-harness");

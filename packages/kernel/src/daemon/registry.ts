@@ -80,11 +80,11 @@ export function registerDaemonRepo(input: DaemonRegistryRegisterInput): DaemonRe
 
   const reservedRepoIds = [...registry.repos.map(({ repoId }) => repoId), ...registry.invalidRepos.flatMap(({ repoId }) => repoId ? [repoId] : [])];
   const repoId = explicitRepoId ?? generateRepoId(displayName, canonicalRoot, reservedRepoIds);
-  const conflictingRepo = registry.repos.find((repo) => repo.repoId === repoId);
+  const conflictingRepo = registry.repos.find((repo) => repo.repoId === repoId && repo.state === "enabled");
   if (conflictingRepo) {
     throw new Error(`repoId "${repoId}" is already registered for ${conflictingRepo.canonicalRoot}`);
   }
-  if (registry.invalidRepos.some((repo) => repo.repoId === repoId)) throw new Error(`repoId "${repoId}" has an invalid daemon registry entry; unregister it before reusing the id`);
+  if (registry.invalidRepos.some((repo) => repo.repoId === repoId && repo.state !== "disabled")) throw new Error(`repoId "${repoId}" has an invalid daemon registry entry; unregister it before reusing the id`);
 
   const repo: DaemonRegistryRepo = {
     repoId,
@@ -94,7 +94,7 @@ export function registerDaemonRepo(input: DaemonRegistryRegisterInput): DaemonRe
     state: "enabled",
     registeredAt: (input.now ?? (() => new Date()))().toISOString()
   };
-  const next = sortDaemonRegistry({ ...registry, repos: [...registry.repos, repo] });
+  const next = sortDaemonRegistry({ ...registry, repos: [...registry.repos.filter((existing) => existing.repoId !== repoId), repo], invalidRepos: registry.invalidRepos.filter((existing) => existing.repoId !== repoId) });
   writeDaemonRegistry(next, input);
   warnings.push(...syncConvenienceLink(repo, input));
   return { registry: next, repo, registryPath: paths.registryPath, changed: true, warnings };
