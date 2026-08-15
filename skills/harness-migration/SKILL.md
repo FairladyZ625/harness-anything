@@ -336,6 +336,51 @@ Move `$TARGET_REPO` to where the user wants it, then tell them:
 - the migration daemon lives under `$HARNESS_DAEMON_USER_ROOT` and can be removed with the work directory;
 - to use the new repository with their normal installation, register it there.
 
+### Report the old runtime directory — do not delete it
+
+The source repository has a `.harness/` directory beside the `harness/` ledger.
+It is git-ignored runtime state, the importer never read it, and none of it was
+migrated. On a long-lived repository it can be very large: previous generations
+wrote a **full copy of the ledger** into a `staging/` directory on every script
+or preset run and never removed them, so `.harness/` can reach hundreds of
+gigabytes while the ledger itself is a fraction of that. Measure it and tell
+the user the number:
+
+```bash
+du -sh "$ARCHIVE_SOURCE/.harness" "$ARCHIVE_SOURCE/harness"
+du -sh "$ARCHIVE_SOURCE"/.harness/* 2>/dev/null | sort -rh | head
+```
+
+**Do not delete it, and do not offer to.** Report it and hand them the command:
+
+```bash
+# after you are satisfied with the new repository — reclaims the ledger copies,
+# keeps each run's context/result/stderr metadata
+chmod -R u+w "$ARCHIVE_SOURCE"/.harness/script-runs/*/staging \
+             "$ARCHIVE_SOURCE"/.harness/evidence/presets/*/*/staging 2>/dev/null
+rm -rf "$ARCHIVE_SOURCE"/.harness/script-runs/*/staging \
+       "$ARCHIVE_SOURCE"/.harness/evidence/presets/*/*/staging
+```
+
+Name those two paths exactly. A shorter `.harness/*/staging` also matches
+`.harness/preset-runs/staging`, which the **current** generation uses while a
+run is in flight.
+
+The `chmod` is not optional. Some staged copies contain read-only archives —
+benchmark fixtures are stored `dr-xr-xr-x`/`-r--r--r--` on purpose — and `rm`
+stops on them with `Permission denied`, leaving the reclaim silently partial.
+Only the *copies* are made writable; the originals under `harness/` keep their
+protection.
+
+Deleting is theirs to decide, for two reasons worth saying out loud: the moment
+right after a one-shot migration is exactly when the old installation is most
+likely to be needed again, and this skill has no way to restore what it removes.
+The same reasoning already governs why it does not stop their daemon.
+
+Tell them the current generation does not accumulate this way — run staging now
+holds a preset package rather than the ledger, and is removed on both the
+success and failure paths.
+
 ## Done when
 
 - Apply exited zero and the final dry-run had `Reconciliation: PASS`.
