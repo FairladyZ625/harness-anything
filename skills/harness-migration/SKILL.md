@@ -353,9 +353,28 @@ export LEDGER_HOME="/absolute/path/to/the/project"
 # export LEDGER_HOME="/absolute/path/the/user/chooses"
 
 cd "$LEDGER_HOME"
+# If the machine's own daemon already serves a ledger here, release it FIRST -- see below.
 mv harness "harness.pre-migration-$(date +%Y%m%d-%H%M%S)"    # superseded, not disposable
 cp -R "$TARGET_REPO/harness" ./harness
 ```
+
+**If the destination is already a live Harness workspace, release it before the
+`mv`, not after.** Everything up to here ran against the throwaway migration
+daemon; the ledger you are replacing belongs to the machine's own daemon, which
+is a different registry and is holding an open cell and a writer lock on the
+directory you are about to move. Release it first, with `HARNESS_DAEMON_USER_ROOT`
+**unset** so the commands reach that daemon rather than the migration one:
+
+```bash
+env -u HARNESS_DAEMON_USER_ROOT ha daemon repo unregister --repo-id <existing-repo-id>
+```
+
+The daemon keeps running and keeps serving its other repositories; only this
+ledger is released, which you can confirm by the writer lock next to it
+disappearing. Then do the `mv` and `cp` above.
+
+A destination with no Harness yet has nothing to release, and this step is
+skipped.
 
 **Move the old ledger aside; do not delete it.** The step 2 archive holds its
 content, but the directory is also a git repository with its own history, and
@@ -379,13 +398,21 @@ index already tracks, so a project that had committed any part of the old
 `harness/` keeps tracking it — and the ledger is private while the project may
 well be public.
 
-Then bind the repo id to its new location and commit the project side:
+Then attach the landed ledger to the daemon that will actually serve it, and
+commit the project side:
 
 ```bash
-$HA daemon repo unregister --repo-id <new-repo-id>
-$HA daemon repo register   --repo-id <new-repo-id> --root "$LEDGER_HOME"
+env -u HARNESS_DAEMON_USER_ROOT ha daemon repo register --repo-id <repo-id> --root "$LEDGER_HOME"
 git add -A && git commit -m "adopt migrated ledger"    # local placement only
 ```
+
+`HARNESS_DAEMON_USER_ROOT` is unset here for the same reason as above: the
+migration daemon is throwaway and its registry dies with the work directory.
+Registering the landed ledger there would leave the user with a ledger nothing
+serves — and the command would succeed, so nothing would say so.
+
+Reuse `<existing-repo-id>` if you released one; otherwise pick the id the user
+wants. A previously released id is free to reuse at the new path.
 
 `--root` takes `$LEDGER_HOME`, not `$LEDGER_HOME/harness`. Both are accepted and
 resolve to the same canonical root, but the runtime's `.harness/` directory and
@@ -399,11 +426,13 @@ test -d harness/.git                         && echo "ledger has its own git"
 git check-ignore -q harness                  && echo "project ignores the ledger"
 test -z "$(git ls-files harness/ .harness/)" && echo "project tracks no ledger file"
 git status --porcelain                       # expected: empty
-$HA task create --title "landing check" --kind chore   # expected: created task ...
+env -u HARNESS_DAEMON_USER_ROOT ha task create --title "landing check" --kind chore
 ```
 
-The last one is the only proof that the ledger is writable where it now sits;
-the other four only prove it is shaped correctly.
+The last one is the only proof that the ledger is writable where it now sits,
+and it has to run against the serving daemon to prove anything — through the
+migration daemon it would pass while telling you nothing about what the user
+will actually experience. The other four only prove the layout is right.
 
 Then tell them:
 
