@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, wr
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { deriveRelationId, makeTaskEventStore } from "../../kernel/src/index.ts";
+import { deriveRelationId, makeTaskEventStore, sha256Text } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
@@ -22,14 +22,47 @@ test("legacy copy -> initialized repository -> migration import -> reconciliatio
   } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }
 });
 
-test("authored coverage rejects an unclassified source path before any migration write", async () => {
+test("authored coverage migrates ordinary documents but blocks an unwired specialized channel before any write", async () => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-coverage-")), source = path.join(scratch, "legacy"), destination = path.join(scratch, "new"); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     coverageGapFixture(source); initRepo(destination); const sourceBefore = snapshot(source);
     cell = await openRepoCell({ repoId: workspaceId("migration-coverage-target"), rootDir: canonicalRoot(destination), ownerId: "migration-daemon", now: () => "2026-06-01T00:00:00.000Z" });
     const before = makeTaskEventStore({ repoId: "migration-coverage-target", rootDir: destination }).readHead()?.revision ?? 0, result = await cell.run({ kind: "migrate-import", sourceRoot: source }, { actor, source: "local" }) as Record<string, unknown>;
     assert.equal(result.exitCode, 1, JSON.stringify(result)); assert.equal(result.outcome, "rejected"); assert.equal(makeTaskEventStore({ repoId: "migration-coverage-target", rootDir: destination }).readHead()?.revision ?? 0, before); assert.deepEqual(snapshot(source), sourceBefore);
-    assert.match(String(result.summary), /Authored reconciliation: FAIL/u); assert.match(String(result.summary), /\| task:task_plan\.md \| migrated \| 1 \| PASS \|/u); assert.match(String(result.summary), /\| objects\/\*\* \| excluded \| 1 \| PASS \|/u); assert.match(String(result.summary), /DECISION_REQUIRED people\.yaml/u); assert.match(String(result.summary), /UNCOVERED mystery\/orphan\.md/u);
+    assert.match(String(result.summary), /Authored reconciliation: FAIL/u); assert.match(String(result.summary), /\| task:task_plan\.md \| migrated \| 1 \| PASS \|/u); assert.match(String(result.summary), /\| objects\/\*\* \| excluded \| 1 \| PASS \|/u); assert.match(String(result.summary), /\| repo-document \| migrated \| 1 \| PASS \|/u); assert.match(String(result.summary), /REQUIRED presets\/\*\*/u); assert.doesNotMatch(String(result.summary), /UNCOVERED/u);
+  } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test("an authored document in an unfamiliar directory migrates as a repo document", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-repo-document-")), source = path.join(scratch, "legacy"), destination = path.join(scratch, "new"); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    unfamiliarDocumentFixture(source); initRepo(destination); cell = await openRepoCell({ repoId: workspaceId("migration-repo-document-target"), rootDir: canonicalRoot(destination), ownerId: "migration-daemon", now: () => "2026-06-01T00:00:00.000Z" });
+    const result = await cell.run({ kind: "migrate-import", sourceRoot: source }, { actor, source: "local" }) as Record<string, unknown>;
+    assert.equal(result.exitCode, 0, JSON.stringify(result)); assert.equal(result.outcome, "applied"); assert.match(String(result.summary), /\| repo-document \| migrated \| 1 \| PASS \|/u);
+    assert.equal(readFileSync(path.join(destination, "harness/field-notes/2024/xyz.md"), "utf8"), "# Field observation\n\nUnknown directories are ordinary authored content.\n");
+    const event = makeTaskEventStore({ repoId: "migration-repo-document-target", rootDir: destination }).read().events.find((candidate) => candidate.schema === "migration-import-event/v1" && candidate.payload.entity.kind === "repo-document");
+    assert.equal(event?.payload.migratedFrom, "field-notes/2024/xyz.md"); assert.equal(event?.payload.entity.kind, "repo-document");
+  } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test("a different destination document at the same path requires a decision and reports both sides", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-repo-conflict-")), source = path.join(scratch, "legacy"), destination = path.join(scratch, "new"), sourceBody = "# Field observation\n\nUnknown directories are ordinary authored content.\n", destinationBody = "# Existing target\n\nKeep this version.\n"; let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    unfamiliarDocumentFixture(source); initRepo(destination); const target = path.join(destination, "harness/field-notes/2024/xyz.md"); mkdirSync(path.dirname(target), { recursive: true }); writeFileSync(target, destinationBody); git(destination, "add", "."); git(destination, "commit", "-qm", "existing target document");
+    cell = await openRepoCell({ repoId: workspaceId("migration-repo-conflict-target"), rootDir: canonicalRoot(destination), ownerId: "migration-daemon", now: () => "2026-06-01T00:00:00.000Z" });
+    const result = await cell.run({ kind: "migrate-import", sourceRoot: source }, { actor, source: "local" }) as Record<string, unknown>;
+    assert.equal(result.exitCode, 1, JSON.stringify(result)); assert.equal(result.outcome, "rejected"); assert.equal(readFileSync(target, "utf8"), destinationBody);
+    assert.match(String(result.summary), /REQUIRED field-notes\/2024\/xyz\.md/u); assert.match(String(result.summary), new RegExp(`source sha256=${sha256Text(sourceBody)}.*destination sha256=${sha256Text(destinationBody)}`, "u"));
+  } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test("a CAS blob referenced by any migrated repo document follows it into the event stream", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-repo-reference-")), source = path.join(scratch, "legacy"), destination = path.join(scratch, "new"), referencedBody = "# Referenced body\n"; let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    referencedDocumentFixture(source, referencedBody); initRepo(destination); cell = await openRepoCell({ repoId: workspaceId("migration-repo-reference-target"), rootDir: canonicalRoot(destination), ownerId: "migration-daemon", now: () => "2026-06-01T00:00:00.000Z" });
+    const result = await cell.run({ kind: "migrate-import", sourceRoot: source }, { actor, source: "local" }) as Record<string, unknown>;
+    assert.equal(result.exitCode, 0, JSON.stringify(result)); const store = makeTaskEventStore({ repoId: "migration-repo-reference-target", rootDir: destination }), hash = sha256Text(referencedBody), event = store.read().events.find((candidate) => candidate.schema === "migration-import-event/v1" && candidate.payload.migratedFrom === "field-notes/reference.json")!;
+    assert.equal(event.payload.entity.kind, "repo-document"); assert.deepEqual((event.payload.entity as { readonly referencedContentClaims: readonly unknown[] }).referencedContentClaims, [{ sha256: hash, size: Buffer.byteLength(referencedBody), mediaType: "text/markdown; charset=utf-8" }]); assert.equal(Buffer.from(store.readContentBlob(hash) ?? []).toString("utf8"), referencedBody);
   } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }
 });
 
@@ -51,7 +84,9 @@ function legacyFixture(root: string): void { const taskRoot = path.join(root, "h
   const relation = { relation_id: deriveRelationId({ source: "decision/dec_LEGACY/C1", target: "fact/task_legacy/F-ABCDEFGH", type: "evidenced-by", direction: "directed" }), source: "decision/dec_LEGACY/C1", target: "fact/task_legacy/F-ABCDEFGH", type: "evidenced-by", strength: "strong", direction: "directed", origin: "declared", rationale: "Legacy observation supports the claim.", state: "active" };
   const migratedFactRelation = { relation_id: deriveRelationId({ source: "decision/dec_LEGACY/C1", target: "fact/task_legacy/F-MGRATEDX", type: "evidenced-by", direction: "directed" }), source: "decision/dec_LEGACY/C1", target: "fact/task_legacy/F-MGRATEDX", type: "evidenced-by", strength: "strong", direction: "directed", origin: "declared", rationale: "The historical relation keeps its migrated fact endpoint resolvable.", state: "retired" };
   writeFileSync(path.join(decisionRoot, "decision.md"), `---\nschema: decision-package/v1\ndecision_id: dec_LEGACY\nworkspaceRevision: 7\ntitle: "Legacy decision"\nstate: active\nriskTier: medium\nurgency: medium\nvertical: "software/coding"\npreset: "standard-task"\ndecisionClass: ordinary\napplies_to: {"modules":["kernel"],"productLines":["harness"]}\nproposedAt: "2026-01-01T12:00:00.000Z"\ndecidedAt: "2026-01-03T00:00:00.000Z"\nquestion: "Should the history migrate?"\nchosen: [{"id":"CH1","text":"Migrate it"}]\nrejected: [{"id":"RJ1","text":"Drop it","whyNot":"History is required"}]\nclaims: [{"id":"C1","text":"History remains auditable","loadBearing":true,"fulfillment":"evidenced"}]\nrelations: ${JSON.stringify([relation, migratedFactRelation])}\n---\n\n# Legacy decision\n\nPreserved prose.\n`); }
-function coverageGapFixture(root: string): void { coverageCompleteFixture(root); const taskRoot = path.join(root, "harness/tasks/task_coverage-old"), mysteryRoot = path.join(root, "harness/mystery"), objectsRoot = path.join(root, "harness/objects/sha256/aa"); mkdirSync(mysteryRoot, { recursive: true }); mkdirSync(objectsRoot, { recursive: true }); writeFileSync(path.join(taskRoot, "task_plan.md"), "# Authored plan\n"); writeFileSync(path.join(mysteryRoot, "orphan.md"), "# This path has no migration rule\n"); writeFileSync(path.join(objectsRoot, "blob"), "rebuildable CAS\n"); writeFileSync(path.join(root, "harness/people.yaml"), '{"schema":"harness-people/v1","people":[],"roles":[]}\n'); }
+function coverageGapFixture(root: string): void { coverageCompleteFixture(root); const taskRoot = path.join(root, "harness/tasks/task_coverage-old"), mysteryRoot = path.join(root, "harness/mystery"), objectsRoot = path.join(root, "harness/objects/sha256/aa"), presetRoot = path.join(root, "harness/presets/example"); mkdirSync(mysteryRoot, { recursive: true }); mkdirSync(objectsRoot, { recursive: true }); mkdirSync(presetRoot, { recursive: true }); writeFileSync(path.join(taskRoot, "task_plan.md"), "# Authored plan\n"); writeFileSync(path.join(mysteryRoot, "orphan.md"), "# This path has no migration rule\n"); writeFileSync(path.join(objectsRoot, "blob"), "rebuildable CAS\n"); writeFileSync(path.join(presetRoot, "preset.json"), '{"schema":"harness-preset/v1"}\n'); }
+function unfamiliarDocumentFixture(root: string): void { const notes = path.join(root, "harness/field-notes/2024"); mkdirSync(notes, { recursive: true }); writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n"); writeFileSync(path.join(notes, "xyz.md"), "# Field observation\n\nUnknown directories are ordinary authored content.\n"); }
+function referencedDocumentFixture(root: string, referencedBody: string): void { const hash = sha256Text(referencedBody), notes = path.join(root, "harness/field-notes"), objects = path.join(root, `harness/objects/sha256/${hash.slice(0, 2)}`); mkdirSync(notes, { recursive: true }); mkdirSync(objects, { recursive: true }); writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n"); writeFileSync(path.join(notes, "reference.json"), `${JSON.stringify({ schema: "unfamiliar-record/v1", nested: { attachment: { store: "authored-cas/v1", ref: `harness/objects/sha256/${hash.slice(0, 2)}/${hash.slice(2)}`, sha256: hash, size: Buffer.byteLength(referencedBody), mediaType: "text/markdown; charset=utf-8" } } }, null, 2)}\n`); writeFileSync(path.join(objects, hash.slice(2)), referencedBody); }
 function coverageCompleteFixture(root: string): void { const taskRoot = path.join(root, "harness/tasks/task_coverage-old"), artifactRoot = path.join(taskRoot, "artifacts"), executionRoot = path.join(taskRoot, "executions"), nestedExecutionRoot = path.join(artifactRoot, "probe/executions"); mkdirSync(artifactRoot, { recursive: true }); mkdirSync(executionRoot, { recursive: true }); mkdirSync(nestedExecutionRoot, { recursive: true }); writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n"); writeFileSync(path.join(taskRoot, "INDEX.md"), "---\nschema: task-package/v2\ntask_id: task_coverage\ntitle: Coverage fixture\nlifecycle:\n  status: planned\n  engine: local\n  bindingCreatedAt: 2026-01-01T00:00:00.000Z\n---\n\n# Coverage fixture\n"); writeFileSync(path.join(taskRoot, "task_plan.md"), "# Authored plan\n"); writeFileSync(path.join(artifactRoot, "evidence.html"), "<p>historical evidence</p>\n"); writeFileSync(path.join(artifactRoot, "INDEX.md"), "# Artifact index\n"); writeFileSync(path.join(nestedExecutionRoot, "exe_nested.md"), "# Nested fixture\n"); writeFileSync(path.join(executionRoot, "exe_history.md"), `${JSON.stringify({ schema: "execution/v2", execution_id: "exe_history", task_ref: "task/task_coverage", state: "accepted", primary_actor: { principal: { personId: "person_historical" }, executor: { kind: "agent", id: "legacy-agent" }, responsibleHuman: "person:historical" }, claimed_at: "2026-01-02T00:00:00.000Z", submitted_at: "2026-01-03T00:00:00.000Z", closed_at: "2026-01-04T00:00:00.000Z", session_bindings: [], outputs: [{ evidence_id: "legacy-output", execution_ref: "execution/task_coverage/exe_history", locator: { substrate: "file", path: "artifacts/evidence.html" } }], submission: { completion_claim: "Historical work completed.", deliverables: ["evidence"], evidence_refs: ["legacy-output"], verification_notes: ["legacy verification"], known_gaps: [], residual_risks: [] } }, null, 2)}\n`); }
 function initRepo(root: string): void { mkdirSync(root, { recursive: true }); git(root, "init", "-q"); git(root, "config", "user.name", "Migration Test"); git(root, "config", "user.email", "migration@example.invalid"); mkdirSync(path.join(root, "harness"), { recursive: true }); writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n"); git(root, "add", "."); git(root, "commit", "-qm", "initialized"); }
 function snapshot(root: string): readonly string[] { const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => { const target = path.join(dir, entry.name); return entry.isDirectory() ? walk(target) : [`${path.relative(root, target)}:${statSync(target).size}:${readFileSync(target, "utf8")}`]; }); return walk(root).sort(); }
@@ -140,7 +175,7 @@ test("migrated entities keep the actor recorded in the source repository, not th
     assert.equal(applied.exitCode, 0, JSON.stringify(applied));
     // task_owned has an attribution record; task_unowned has none and falls back to the importer.
     // Both must be non-zero, otherwise the index is either ignored or applied blindly.
-    assert.match(String(applied.summary), /Attribution: principal restored from source records for [1-9]\d* entities, [1-9]\d* fell back/u, String(applied.summary));
+    assert.match(String(applied.summary), /Attribution: principal restored from source records for [1-9]\d* entities, [1-9]\d* fell back/u, String(applied.summary)); assert.match(String(applied.summary), /\| source-authority-attribution \| excluded \| 1 \| PASS \|/u);
     const events = makeTaskEventStore({ repoId: "migration-attribution-target", rootDir: destination }).read().events.filter((event) => event.schema === "migration-import-event/v1" && event.payload.entity.kind === "task");
     const seen = Object.fromEntries(events.map((event) => [(event.payload.entity as { readonly task: { readonly taskId: string } }).task.taskId, event.actor]));
     // The person is the one the source recorded; the executor is whoever ran this import.
@@ -150,8 +185,8 @@ test("migrated entities keep the actor recorded in the source repository, not th
 });
 
 function attributionFixture(root: string): void {
-  const owned = path.join(root, "harness/tasks/task_owned"), unowned = path.join(root, "harness/tasks/task_unowned"), attribution = path.join(root, "harness/attribution-events");
-  mkdirSync(owned, { recursive: true }); mkdirSync(unowned, { recursive: true }); mkdirSync(attribution, { recursive: true });
+  const owned = path.join(root, "harness/tasks/task_owned"), unowned = path.join(root, "harness/tasks/task_unowned"), attribution = path.join(root, "harness/attribution-events"), authorityWitnesses = path.join(root, "harness/audit-witnesses");
+  mkdirSync(owned, { recursive: true }); mkdirSync(unowned, { recursive: true }); mkdirSync(attribution, { recursive: true }); mkdirSync(authorityWitnesses, { recursive: true });
   writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n");
   const pkg = (taskId: string, title: string): string => `---\nschema: task-package/v2\ntask_id: ${taskId}\ntitle: ${title}\nlifecycle:\n  status: planned\n  engine: local\n  bindingCreatedAt: 2026-01-01T00:00:00.000Z\nvertical: software/coding\npreset: standard-task\nprofile: baseline\n---\n\n# ${title}\n`;
   writeFileSync(path.join(owned, "INDEX.md"), pkg("task_owned", "Task with recorded attribution"));
@@ -160,4 +195,5 @@ function attributionFixture(root: string): void {
   // legacy shape and must be dropped: the current identity contract accepts personId only.
   const line = (at: string, executorId: string): string => JSON.stringify({ schema: "attribution-event/v1", entityId: "task/task_owned", kind: "package_create", actor: { principal: { kind: "person", personId: "person_original" }, executor: { kind: "agent", id: executorId } }, at });
   writeFileSync(path.join(attribution, "aa.jsonl"), `${line("2026-01-05T00:00:00.000Z", "later-agent")}\n${line("2026-01-01T00:00:00.000Z", "codex")}\n`);
+  writeFileSync(path.join(authorityWitnesses, "authority.jsonl"), `${JSON.stringify({ schema: "attribution-event/v2", mutationSet: { mutations: [] }, actorAxesBinding: { principalPersonId: "person_original" } })}\n`);
 }
