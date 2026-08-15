@@ -11,8 +11,8 @@
 入口只有一个命令：
 
 ```
-ha migrate import --source <source> [--dry-run]
-    Import a legacy Harness repository through canonical migration events.
+ha migrate import --source <source> [--resolve <仓库相对路径>=destination|source]... [--dry-run]
+    Import a legacy Harness repository; resolve reported destination conflicts with repeated --resolve path=destination|source.
 ```
 
 本页之外的内容，运行 `ha migrate --help` 查看权威描述。
@@ -25,7 +25,8 @@ ha migrate import --source <source> [--dry-run]
 
 ## 五步流程
 
-顺序承重。在 dry-run 对全部五类实体报出 `skipped=0` 之前，不要跑正式导入。
+顺序承重。在 dry-run 对全部五类实体报出 `skipped=0`、authored 表没有
+`required` 且总对账通过之前，不要跑正式导入。
 
 ### 1. 备份老仓
 
@@ -50,9 +51,32 @@ ha init --repo-id <id> --person-id <id> --display-name <name>
 ha migrate import --source <老仓路径> --dry-run
 ```
 
-dry-run 不写任何东西。它输出五类实体——task / decision / fact / relation / coverage——的对账表，每类给出 old / skipped / expected / new 四个数，另有一行 `Format validation: N skipped`。
+dry-run 不写任何东西。它输出五类实体——task / decision / fact / relation /
+coverage——的对账表，每类给出 old / skipped / expected / new 四个数，另有
+`Format validation: N skipped`、`Attribution` 行和 authored coverage 表。
 
-### 4. 处置 skip
+### 4. 处置 required 与 skip
+
+目标冲突在用户逐路径明确选择前一直是 `required`。冲突行会同时给出源与
+目标的节点类型、SHA-256、字节数；符号链接还会给出 link target。每条冲突
+重复传一个 `--resolve`：
+
+```bash
+ha migrate import --source <老仓副本路径> \
+  --resolve <仓库相对路径>=destination \
+  --resolve <另一仓库相对路径>=source \
+  --dry-run
+```
+
+`destination` 保留初始化出的目标节点，并显式丢弃源版本；`source` 只对该
+文件或符号链接做 compare-and-replace。分类之后目标发生变化，导入会拒绝并
+要求重跑 dry-run。目标是目录时只支持 `destination`，不支持 `source`；请
+手工处置该路径后重跑。缺失、规范化后重复、非冲突或已经不再冲突的路径都
+会被拒绝。
+
+老线 `presets/**` 同样是 `required`：按当前 `preset-manifest/v3` 重做每个
+包，经 preset 命令验证并安装。不要把 v2 包搬进新仓；原始字节保留在归档
+中，只从送给导入器的工作副本移出。
 
 `skipped` 不为 0 表示有语料格式不合当前 schema。逐条查看原因，在**老仓的副本上**修正源数据，然后重跑 dry-run，直到五类全部 `skipped=0`。
 
@@ -64,7 +88,12 @@ dry-run 不写任何东西。它输出五类实体——task / decision / fact /
 ha migrate import --source <老仓路径>
 ```
 
-验收条件：五类实体 old == new 且 skipped=0。任何一类不满足，就不要把新仓当作可用状态继续用——先排查，必要时丢掉新仓，从第 2 步重来。
+验收条件：五类实体 old == new 且 skipped=0，authored 表没有 `required`，
+总对账 PASS。任何一项不满足，就不要把新仓当作可用状态继续用——先排查，
+必要时丢掉新仓，从第 2 步重来。
+
+authored 仍有 `required` 时命令退出 1；authored 对账通过但严格格式仍有
+skip 时退出 3；只有全量对账通过才退出 0。
 
 ## 迁移后的数据是什么性质
 

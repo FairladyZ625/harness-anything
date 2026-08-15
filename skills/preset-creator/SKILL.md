@@ -1,223 +1,193 @@
 ---
 name: preset-creator
-description: Create, review, or update Harness Anything presets. Use when designing preset-manifest JSON, preset script entrypoints, reads/writes scopes, preset profiles, process-action presets, or preset tests for Harness Anything. Enforces declaration-first presets and forbids hardcoding preset-specific behavior in CLI core TypeScript.
+description: Create, review, or update Harness Anything preset-manifest/v3 packages, including profiles, completion gates, template selections, output shapes, script entrypoints, capability declarations, package validation, and preset tests. Use when authoring or migrating a Harness Anything preset.
 ---
 
 # Preset Creator
 
-## Core Rule
+## Use the current contract
 
-Keep presets declaration-first. A preset is a `preset-manifest/v2` manifest plus optional package-local scripts and template selections. Template bodies are assets owned by a template catalog, not inline manifest strings. Do not add `presetId` or action-specific branches to CLI core code.
+Treat `packages/preset/src/preset.contract.ts` as the contract and
+`packages/preset/assets/software-coding/presets/standard-task/preset.json` as
+the minimal bundled example. Presets are declaration-first packages. Keep
+preset-specific behavior in package assets or scripts; never add a CLI core
+branch keyed by preset id, title, or action name.
 
-The CLI may provide only generic infrastructure:
+A self-contained package contains:
 
-- Manifest/schema validation.
-- Layer resolution: builtin, user, project.
-- Generic script execution.
-- Declared `reads`/`writes` permission handling.
-- Generic result envelope collection.
+```text
+<preset-id>/
+  preset.json
+  PRESET.md
+  policy.json       # only when policyPath declares it
+  scripts/          # only when an entrypoint declares a script
+```
 
-Preset behavior belongs in the preset package:
+`PRESET.md` uses this frontmatter:
 
-- `preset.json`
-- `scripts/*`
-- `profiles[*].templateSelections`
-- declared inputs, reads, and writes
+```markdown
+---
+schema: preset-document/v1
+description: One sentence describing the supplied workflow or shape.
+whenToUse: One sentence naming the triggering situation.
+---
+```
 
-## Workflow
+## Manifest v3
 
-1. Define the preset's job in one sentence.
-2. Decide whether it is `template-content` or `process-action`.
-3. Write or update `preset.json` as `preset-manifest/v2`.
-4. Put template overlays in `profiles[*].templateSelections`; point each selection at `template://<id>@<version>`.
-5. Put template body Markdown in the vertical template assets, then reference it from `template-catalog/v2` with `bodyPath`.
-6. For script entrypoints, declare the narrowest possible `reads` and `writes`.
-7. Put all preset-specific action logic in `scripts/`, not CLI command dispatch.
-8. Run `ha preset validate <manifest>` before publishing the preset.
-9. Add tests in the correct tier by putting exactly one `// harness-test-tier: fast|contract|integration` declaration on each new Node test file's first line.
+Use `schema: "preset-manifest/v3"`. Required top-level keys are exactly:
 
-## Manifest v2 Contract
+- `schema`, `id`, `title`, `vertical`, `version`, `kind`, and `outputShape`
+- `kernelVersionRange` and `capabilityImports`
+- `profiles` and `defaultProfile`
 
-Allowed top-level keys are exactly:
+Optional top-level keys are `extends`, `policyPath`, and `entrypoints`. No other
+top-level key is accepted. `kind` is `template-content` or `process-action`.
+`outputShape` is a required non-empty string.
 
-- `schema`
-- `id`
-- `title`
-- `vertical`
-- `version`
-- `kind`
-- `extends`
-- `kernelVersionRange`
-- `capabilityImports`
-- `entrypoints`
-- `profiles`
-- `defaultProfile`
+Each profile requires `id`, `title`, `completionGates`, and
+`templateSelections`; it may add `checkerProfile` and `capabilityImports`.
+`completionGates` is an array of gate-id strings, including an explicit empty
+array when the profile has no gates. `defaultProfile` must name one declared
+profile.
 
-Use `schema: "preset-manifest/v2"`. `profiles` must contain at least one profile, and `defaultProfile` must match one declared profile id. `extends` is optional; when present, the parent preset must be available to the validation context. A standalone `ha preset validate <manifest>` run validates only that one manifest, so omit `extends` in minimal examples unless you also validate through a resolved preset set.
-
-Allowed profile keys are exactly:
-
-- `id`
-- `title`
-- `checkerProfile`
-- `completionGates`
-- `templateSelections`
-- `capabilityImports`
-
-Every `preset-manifest/v2` profile must declare `completionGates`, even when the
-array is empty. Gate IDs are opaque, portable identifiers at the manifest
-boundary; the application validates which IDs it implements. A coding profile
-normally declares `ci` and `code-doc-reconciliation`, while a non-coding or
-purpose-built profile may declare a different set or none. This makes completion
-derive from the selected preset/profile contract instead of promoting CI or any
-other coding convention into a universal kernel gate (ADR-0027 D7).
-
-## Minimal Valid Preset
-
-This example was validated with `ha preset validate preset.json`.
+Each template selection is exactly:
 
 ```json
 {
-  "schema": "preset-manifest/v2",
+  "slot": "task.plan",
+  "templateRef": "template://planning/task-plan@1",
+  "materializeAs": "task_plan.md",
+  "localePolicy": { "prefer": "project", "fallback": "en-US" }
+}
+```
+
+`localePolicy.prefer` is `project`, `preset`, or `explicit`; `fallback` is
+`zh-CN` or `en-US`.
+
+Top-level `capabilityImports` items require `id`, `kind`, `version`, and a
+boolean `required`. Profile and entrypoint capability items use `id`, `kind`,
+and `version`, with an optional boolean `required`. Valid kinds are `checker`,
+`scaffold`, `projection`, `command`, `template`, and `raw-fs`.
+
+## Minimal valid package
+
+Use this manifest shape:
+
+```json
+{
+  "schema": "preset-manifest/v3",
   "id": "example-note",
   "title": "Example Note",
   "vertical": "software/coding",
   "version": "1.0.0",
   "kind": "template-content",
+  "outputShape": "repository-diff",
   "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
-  "capabilityImports": [
-    { "id": "example-note-template", "kind": "template", "version": "1", "required": false }
-  ],
-  "entrypoints": {
-    "scaffold": {
-      "type": "template",
-      "writes": ["{{outputRoot}}/notes/example.md"],
-      "templates": {
-        "note": "template://example/note@1"
-      }
-    }
-  },
+  "capabilityImports": [],
   "profiles": [
     {
       "id": "baseline",
       "title": "Baseline",
       "checkerProfile": "standard",
       "completionGates": ["ci", "code-doc-reconciliation"],
-      "templateSelections": [
-        {
-          "slot": "example.note",
-          "templateRef": "template://example/note@1",
-          "materializeAs": "notes/example.md",
-          "localePolicy": { "prefer": "project", "fallback": "en-US" }
-        }
-      ]
+      "templateSelections": []
     }
   ],
   "defaultProfile": "baseline"
 }
 ```
 
-Validate it:
+Validate the package directory, not an individual manifest file:
 
-```sh
-ha preset validate preset.json
+```bash
+ha preset validate --source /path/to/example-note --json
 ```
 
-## Asset-Based Templates
+Continue only when the report has `"valid": true` and an empty `issues` array.
 
-Preset manifests select templates; template catalogs own template metadata; Markdown files own template bodies. Do not put inline `body` content in `template-catalog/v2`; v2 catalogs use `bodyPath` only.
+## Script entrypoints
 
-Preferred package layout:
-
-```text
-assets/software-coding/
-  template-catalog.json
-  templates/
-    example.note/
-      en-US.md
-      zh-CN.md
-  presets/
-    example-note/
-      preset.json
-```
-
-Catalog entry:
-
-```json
-{
-  "id": "example/note",
-  "version": "1",
-  "documentKind": "example-note",
-  "slot": "example.note",
-  "materializeAs": "notes/example.md",
-  "frontmatterSchema": "task-package/v2",
-  "requiredAnchors": ["## Summary"],
-  "fallbackLocale": "en-US",
-  "locales": [
-    {
-      "locale": "en-US",
-      "anchors": ["## Summary"],
-      "bodyPath": "templates/example.note/en-US.md"
-    },
-    {
-      "locale": "zh-CN",
-      "anchors": ["## Summary"],
-      "bodyPath": "templates/example.note/zh-CN.md"
-    }
-  ]
-}
-```
-
-`templates/example.note/en-US.md` must contain every required anchor:
-
-```md
-## Summary
-
-Write the note here.
-```
-
-## Script Pattern
-
-Process-action presets use script entrypoints. Use `reads` for input permissions and `writes` for output permissions:
+A v3 entrypoint is a named object with exactly these fields:
 
 ```json
 {
   "type": "script",
-  "command": "scripts/preset-action.mjs",
-  "reads": ["{{outputRoot}}/**"],
-  "writes": ["{{outputRoot}}/**"],
-  "inputs": {}
+  "intent": "Produce a bounded preset result.",
+  "inputs": [
+    { "name": "title", "type": "string", "required": true }
+  ],
+  "requires": [
+    { "id": "capability:input/v1", "kind": "command", "version": "1" }
+  ],
+  "produces": [
+    { "id": "capability:result/v1", "kind": "projection", "version": "1" }
+  ],
+  "sideEffects": [],
+  "command": "scripts/run.mjs"
 }
 ```
 
-Scripts should read `process.env.HARNESS_PRESET_CONTEXT`, use only declared paths, and write outputs under `context.outputRoot`.
+Input types are `string`, `number`, `boolean`, or `json`. `intent` is a plain
+string. `requires`, `produces`, and `sideEffects` are flat capability-ref
+arrays. The command path must name a regular package-local file. The script
+reads its context from `HARNESS_PRESET_CONTEXT`; do not invent undeclared
+filesystem permissions.
 
-If the CLI should surface a domain result, write:
+## Migrating v2 packages
 
-```json
-{
-  "ok": true,
-  "rows": 1,
-  "report": { "schema": "example-report/v1" }
-}
-```
+Do not relabel a v2 object and leave its fields in place. Apply these mappings:
 
-to `artifacts/preset-result.json`.
+- Add the required top-level `outputShape` when absent.
+- Keep profile ids, titles, optional checker profile, string completion-gate
+  ids, and valid current template selections.
+- Convert script `inputs` from an object/map to the v3 array of
+  `{name,type,required}` only when the types and requiredness are explicit.
+- Convert a structured/object `intent` to one plain string only when its exact
+  user-visible meaning is present.
+- Replace nested capability selectors with flat `requires`, `produces`, and
+  `sideEffects` refs only when current providers are explicitly known.
+- Discard v2 raw-filesystem `reads` and `writes` path-glob fields. They have no
+  v3 manifest counterpart. A `raw-fs` capability ref names a provider; it does
+  not restore those old path scopes.
+- Remove any entrypoint whose authority or input meaning cannot be expressed
+  without guessing. Preserve its user-visible procedure in `PRESET.md` and
+  report the removed behavior to the owner.
+- Delete all unknown v2 keys. Validation is exact-field and fails closed.
 
-## Review Checklist
+## Template assets
 
-- `preset.json` uses `schema: "preset-manifest/v2"`.
-- Top-level manifest keys match the v2 allowed key list.
-- Every profile uses only the v2 allowed profile keys and explicitly declares
-  `completionGates`; `profiles` and `defaultProfile` are consistent (ADR-0027
-  D7).
-- Any `extends` parent is available to the validation path used.
-- Template bodies live in `.md` assets referenced by `template-catalog/v2` `bodyPath`.
-- No catalog or manifest example teaches inline `body`.
-- `ha preset validate <manifest>` passes for the manifest being published.
-- No CLI core branch checks `presetId`, preset title, or action name for behavior.
-- No preset script requires permissions not declared in `preset.json`.
-- `writes` never grants repo-root write access.
-- Any repo-wide read is deliberate and justified by the preset's job.
-- Process-action presets are not left as capability-smoke placeholders.
-- Tests prove unauthorized script runs fail and authorized runs produce expected artifacts.
+Preset manifests select templates; the vertical template catalog owns template
+metadata and Markdown assets own bodies. Use
+`template://<id>@<version>` references. Do not inline template bodies in the
+manifest. Run `ha template list` to discover current builtin declarations and
+validate that every selected slot, path, locale policy, and required anchor
+resolves.
+
+## Workflow
+
+1. State the preset job in one sentence and choose `template-content` or
+   `process-action`.
+2. Read the v3 contract and a nearby bundled manifest; do not copy a v2 schema.
+3. Create `preset.json` and `PRESET.md`, then add only declared policy, template,
+   or script files.
+4. Run `ha preset validate --source <package-directory> --json`.
+5. Run `ha preset install --source <package-directory> --dry-run --json` before an
+   installation and inspect its issues.
+6. Add resolver, materialization, permission, or execution tests at the tier
+   matching the behavior. Put exactly one `// harness-test-tier:` declaration
+   on the first line of every new Node test file.
+
+## Review checklist
+
+- The schema is `preset-manifest/v3`; `outputShape` is present.
+- Top-level, profile, selection, capability, input, and entrypoint fields are
+  exact current-contract fields.
+- `profiles` is non-empty and `defaultProfile` resolves.
+- Completion gates are string ids; template selections use the current nested
+  locale policy.
+- No v2 `reads`, `writes`, object input/intent, or nested capability selector
+  survives.
+- `PRESET.md` has valid `preset-document/v1` frontmatter.
+- Package validation reports valid with no issues.
+- No preset-specific behavior was added to generic CLI dispatch.

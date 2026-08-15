@@ -25,18 +25,22 @@ ha capabilities preset
 
 ## Available Presets
 
-- `standard-task`: General implementation or maintenance task; the default starting point.
-- `long-running-task`: Extended task that needs explicit long-running coordination.
+- `architecture-rot-audit`: Detect structural architecture drift.
+- `code-impact-analysis`: Map a proposed change across code, tests, docs, dependencies, and operations.
+- `create-milestone`: Create a milestone root and its durable map.
+- `decision-conformance`: Prove implementation alignment with accepted decisions.
+- `docs-task`: Plan design, documentation, or chore work without a code commit.
+- `github-issue-repair`: Repair an existing GitHub issue with evidence.
+- `legacy-migration`: Run generation replay of a previous-generation Harness repository, resolve reported conflicts, and rebuild legacy presets as v3 packages.
+- `milestone-closeout`: Verify a milestone before declaring it closed.
 - `module`: Module-scoped task with registered module metadata.
+- `standard-task`: General implementation or maintenance task; the default starting point.
 - `subtask-expansion`: Plan and fan out a parent task into concrete subtasks.
-- `github-issue-repair`: Pull a GitHub issue and prepare an evidence-backed repair plan.
-- `legacy-migration`: Legacy task intake or migration planning.
-- `create-milestone`: Create a milestone root task, then scaffold and check the milestone map files.
-- `decision-conformance`: Work that must prove alignment with recorded decisions.
-- `milestone-closeout`: Milestone wrap-up checks and evidence collection.
+- `worker-dispatch`: Add bounded worker coordination roles and dependencies.
 
 ## Guardrails
 
 - Do not hand-create task package directories.
 - Do not skip preset selection for software/coding work; use `standard-task` when no narrower preset fits.
+- Use `legacy-migration` only for `ha migrate import` generation replay; do not turn it into manual legacy-material classification.
 - Do not edit task markdown directly when a `ha task create` path is available.
