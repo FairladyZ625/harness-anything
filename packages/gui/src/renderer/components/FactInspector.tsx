@@ -4,6 +4,7 @@ import { normalizeDecisionId } from "../model/triadic";
 import { CopyContextButton } from "./CopyContextButton";
 import { buildEntityJumpContext } from "../model/copy-context";
 import type { RelationCoverageRow } from "../../api/renderer-dto";
+import { t } from "../i18n/index.tsx";
 
 function shortEndpoint(raw: string): string {
   if (raw.startsWith("decision/")) return normalizeDecisionId(raw);
@@ -74,7 +75,7 @@ export function FactInspector({
         <GitBranch weight="duotone" className="shrink-0 text-text-muted" />
         <span className="min-w-0 truncate font-mono text-xs text-text-muted">{anchor}</span>
         <span className="rounded bg-surface-raised px-1.5 py-0.5 text-[11px] text-text-faint">
-          Fact Inspector
+          {t("components.factInspector.title")}
         </span>
         {fact && (
           <CopyContextButton
@@ -86,7 +87,7 @@ export function FactInspector({
                 decisions,
                 facts,
                 tasks,
-                "正在检查此 fact 的来源、支撑关系、矛盾与 supersede 状态",
+                t("components.factInspector.checkingSourceSupportingRelationshipsContradictionsSupersedeStatus"),
               )
             }
           />
@@ -94,7 +95,7 @@ export function FactInspector({
         {onFocusGraph && (
           <button
             onClick={() => onFocusGraph(fullRef)}
-            title="在关系图中聚焦此 fact"
+            title={t("components.factInspector.focusFactDiagram")}
             className="grid size-6 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-accent"
           >
             <Graph weight="bold" />
@@ -102,7 +103,7 @@ export function FactInspector({
         )}
         <button
           onClick={onClose}
-          title="关闭 Fact Inspector"
+          title={t("components.factInspector.closeFactInspector")}
           className="ml-auto grid size-6 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text"
         >
           <X weight="bold" />
@@ -114,11 +115,11 @@ export function FactInspector({
           <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[12px] text-danger">
             <div className="flex items-center gap-1 font-semibold">
               <WarningCircle weight="bold" />
-              悬空 fact 引用
+              {t("components.factInspector.danglingFactReference")}
             </div>
             <div className="mt-1 font-mono">{factRef}</div>
             <p className="mt-1 leading-relaxed">
-              INV-6 会在真实投影中检出该锚不存在。GUI 只渲染告警，不创建或修复 fact。
+              {t("components.factInspector.inv6WillDetectAnchorNotPresent")}
             </p>
           </div>
         ) : (
@@ -129,7 +130,7 @@ export function FactInspector({
                   {fact.category}
                 </span>
                 <span className="font-mono text-[11px] text-text-faint">{fact.at}</span>
-                <span className="font-mono text-[11px] text-text-faint">confidence {fact.confidence}</span>
+                <span className="font-mono text-[11px] text-text-faint">{t("components.factInspector.confidenceValue", { confidence: fact.confidence })}</span>
                 {fact.invalidated && (
                   <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-stale">
                     <WarningCircle weight="bold" />
@@ -138,19 +139,19 @@ export function FactInspector({
                 )}
               </div>
               <p className="mt-2 text-[13px] font-medium leading-relaxed text-text">{fact.text}</p>
-              <div className="mt-1 font-mono text-[11px] text-text-faint">source {fact.source ?? "未知/—"}</div>
+              <div className="mt-1 font-mono text-[11px] text-text-faint">{t("components.factInspector.sourceValue", { source: fact.source ?? t("components.factInspector.unknown") })}</div>
             </div>
 
             <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
               <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-                所在 task 包
+                {t("components.factInspector.taskPackage")}
               </div>
               <div className="mt-1 flex items-center gap-2">
                 {onNavigateTask && task ? (
                   <button
                     onClick={() => onNavigateTask(fact.taskId)}
                     className="font-mono text-[12px] text-accent hover:underline"
-                    title="跳转到来源 task"
+                    title={t("components.factInspector.jumpSourceTask")}
                   >
                     {fact.taskId}
                   </button>
@@ -158,19 +159,19 @@ export function FactInspector({
                   <span className="font-mono text-[12px] text-text">{fact.taskId}</span>
                 )}
                 <span className="min-w-0 truncate text-[12px] text-text-muted">
-                  {task?.title ?? "宿主 task 不在当前 task 投影"}
+                  {task?.title ?? t("components.factInspector.hostTaskNotProjectedByCurrentTask")}
                 </span>
               </div>
               {task && (
                 <div className="mt-1 font-mono text-[11px] text-text-faint">
-                  module {task.module} · source {task.source}
+                  {t("components.factInspector.moduleSourceValue", { module: task.module, source: task.source })}
                 </div>
               )}
             </div>
 
             <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
-              <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-                provenance
+            <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
+                {t("components.factInspector.provenance")}
               </div>
               {fact.provenance?.length ? (
                 <div className="mt-1 space-y-1">
@@ -182,7 +183,7 @@ export function FactInspector({
                 </div>
               ) : (
                 <p className="mt-1 text-[12px] text-text-faint">
-                  当前 fact 投影未携带 provenance。
+                  {t("components.factInspector.noProvenance")}
                 </p>
               )}
             </div>
@@ -191,10 +192,10 @@ export function FactInspector({
 
         <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
           <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-            入边 relation
+            {t("components.factInspector.incomingRelation")}
           </div>
           {inbound.length === 0 ? (
-            <p className="mt-1 text-[12px] text-text-faint">当前投影没有指向该 fact 的入边。</p>
+            <p className="mt-1 text-[12px] text-text-faint">{t("components.factInspector.noIncomingRelation")}</p>
           ) : (
             <div className="mt-1 space-y-1.5">
               {inbound.map((relation, index) => (
@@ -224,7 +225,7 @@ export function FactInspector({
         {supportedDecisionIds.length > 0 && (
           <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
             <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-              支撑的 decision
+              {t("components.factInspector.supportingDecisionTitle")}
             </div>
             <div className="mt-1 space-y-1">
               {supportedDecisionIds.map((decId) => {
@@ -237,14 +238,14 @@ export function FactInspector({
                     <button
                       onClick={() => onNavigateDecision(decId)}
                       className="font-mono text-accent hover:underline"
-                      title="跳转到该 decision"
+                      title={t("components.factInspector.jumpDecision")}
                     >
                       {decId}
                     </button>
                   ) : (
                     <span className="font-mono text-accent">{decId}</span>
                   )}
-                  <span className="ml-1 text-text-muted">{decision?.title ?? "未知 decision"}</span>
+                  <span className="ml-1 text-text-muted">{decision?.title ?? t("components.factInspector.unknownDecision")}</span>
                 </div>
                 );
               })}
@@ -256,16 +257,16 @@ export function FactInspector({
           <div className="rounded-md border border-stale/40 bg-stale/10 px-2.5 py-2 text-stale">
             <div className="flex items-center gap-1 text-[12px] font-semibold">
               <WarningCircle weight="bold" />
-              危险关系
+              {t("components.factInspector.dangerousLiaisons")}
             </div>
             {contradictions.length > 0 && (
               <div className="mt-1 font-mono text-[11px]">
-                矛盾于 {contradictions.map((relation) => shortEndpoint(relation.to)).join(", ")}
+                {t("components.factInspector.contradictsValue", { value: contradictions.map((relation) => shortEndpoint(relation.to)).join(", ") })}
               </div>
             )}
             {supersedingRelations.length > 0 && (
               <div className="mt-1 font-mono text-[11px]">
-                已被 {supersedingRelations.map((relation) => shortEndpoint(relation.from)).join(", ")} 取代
+                {t("components.factInspector.replacedByValue", { value: supersedingRelations.map((relation) => shortEndpoint(relation.from)).join(", ") })}
               </div>
             )}
           </div>

@@ -35,6 +35,7 @@ import {
 } from "../model/readiness-signals";
 import { DecisionJudgmentPanel, type JudgmentOpenRequest } from "../components/DecisionJudgmentPanel.tsx";
 import type { DecisionAction, DecisionMutationFeedback } from "../decision-actions.ts";
+import { t } from "../i18n/index.tsx";
 
 export { computeReadinessSignals, type SignalColor, type ReadinessSignal };
 
@@ -99,7 +100,7 @@ function FactChip({
       <button
         onClick={() => onInspect(factRef)}
         className="inline-flex items-center gap-1 rounded border border-dashed border-danger/60 px-1.5 py-0.5 font-mono text-[11px] text-danger hover:bg-danger/10"
-        title="悬空:引用不存在的 fact 锚"
+        title={t("views.decisionsVerdict.danglingReferenceNonExistentFactAnchor")}
       >
         <WarningCircle weight="bold" className="text-[11px]" />
         {factRef}
@@ -327,8 +328,8 @@ export function VerdictCard({
       </div>
 
       {/* ① chosen + rejected(必显) */}
-      <ClaimList title="chosen" items={d.chosen} tone="chosen" facts={facts} relations={relations} onInspectFact={onInspectFact} />
-      <ClaimList title="rejected" items={d.rejected} tone="rejected" facts={facts} relations={relations} onInspectFact={onInspectFact} />
+      <ClaimList title={t("views.decisionsVerdict.chosen")} items={d.chosen} tone="chosen" facts={facts} relations={relations} onInspectFact={onInspectFact} />
+      <ClaimList title={t("views.decisionsVerdict.rejected")} items={d.rejected} tone="rejected" facts={facts} relations={relations} onInspectFact={onInspectFact} />
 
       {/* 覆盖度只消费 canonical coverageRows；不从 option evidence 猜。 */}
       <div className="mt-2 flex items-center gap-2 text-[11px]">
@@ -370,7 +371,7 @@ export function VerdictCard({
 
       {/* ⑤ provenance 三字段 + 原文追溯入口 */}
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-        <span className="text-text-faint">provenance:</span>
+        <span className="text-text-faint">{t("views.decisionsVerdict.provenance")}</span>
         {d.provenance?.map((p) => (
           <button disabled
             key={p.sessionId}

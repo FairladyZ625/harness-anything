@@ -96,7 +96,7 @@ export function SettingsView() {
                 value={locale}
                 options={[
                   { key: "zh-CN", label: "中文" },
-                  { key: "en-US", label: "English" },
+                  { key: "en-US", label: t("views.settingsView.english") },
                 ]}
                 onChange={setLocale}
               />
