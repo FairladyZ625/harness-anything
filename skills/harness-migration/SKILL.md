@@ -330,11 +330,33 @@ user the resulting diff. This is the last write of the migration.
 
 ## 9. Hand over
 
-Move `$TARGET_REPO` to where the user wants it, then tell them:
+`$TARGET_REPO` is a **standalone ledger repository**. It holds `harness/` and
+nothing else — no project code — and it is meant to live **outside** the
+project it serves. A ledger is central: one ledger, mirrored by the checkouts
+that use it. Copying it inside a project would give every project its own
+divergent copy, and on a public project it would publish the ledger outright.
+
+Say this explicitly, because the old layout was different. Previous generations
+kept `harness/` as a git repository nested inside the project directory. **Do
+not reproduce that.** The daemon rejects it — a nested standalone ledger fails
+with `publication_indeterminate: Canonical and authored refs must agree` — and
+the ledger is no longer reachable for writes.
+
+```bash
+mv "$TARGET_REPO" /absolute/path/the/user/chooses      # outside any project checkout
+$HA daemon repo register --repo-id <new-repo-id> --root /absolute/path/the/user/chooses
+```
+
+The old `harness/` still sits in the project directory. It is superseded, the
+step 2 archive holds it, and the project already ignores it, so removing it is
+safe — but it is the user's directory, so show the path and let them decide.
+
+Then tell them:
 
 - their existing Harness installation was not modified;
+- the new ledger is a repository of its own, registered by path, and does not belong inside a project checkout;
 - the migration daemon lives under `$HARNESS_DAEMON_USER_ROOT` and can be removed with the work directory;
-- to use the new repository with their normal installation, register it there.
+- the previous ledger's git history is not carried forward — this migration rebuilds the ledger from its events, and the old history remains in the step 2 archive.
 
 ### Report the old runtime directory — do not delete it
 
