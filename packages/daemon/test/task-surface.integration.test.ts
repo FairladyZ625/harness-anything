@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, readRelationGraphProjection, readTaskProjection, rebuildTaskProjection, REPLAY_TASK_GRAPH, taskLifecycleWritePlan, type TaskEventV1 } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, makeTaskProjection, readRelationGraphProjection, readTaskProjection, rebuildTaskProjection, REPLAY_TASK_GRAPH, taskLifecycleWritePlan, type TaskEventV1 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
@@ -101,6 +101,46 @@ test("a lapsed lease stays readable through task show and releasable through tas
     const released = await cell.run({ kind: "task-release", taskId: "task_lease", reason: "The holder never came back" }, binding);
     assert.equal(released.outcome, "applied", JSON.stringify(released));
     assert.equal(evidence(await cell.run({ kind: "task-show", taskId: "task_lease" }, binding)).lease, null);
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("a released round is re-enterable by its own execution and still refuses a second one", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-round-reenter-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("task-round-reenter"), rootDir: canonicalRoot(rootDir), ownerId: "task-round-reenter", now: () => "2026-08-15T02:00:00.000Z" }); const binding = { actor, source: "local" as const };
+    assert.equal((await cell.run({ kind: "task-create", taskId: "task_round", title: "Round re-entry" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-start", taskId: "task_round", executionId: "exe_round" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-release", taskId: "task_round", reason: "Holder handed the round back" }, binding)).outcome, "applied");
+    // Release ends the lease but not the round: the execution is still active, so a *second* execution stays refused.
+    const second = await cell.run({ kind: "task-start", taskId: "task_round", executionId: "exe_second" }, binding);
+    assert.equal(second.outcome, "rejected", JSON.stringify(second)); assert.equal(second.code, "invalid_transition");
+    // The adjudicated exit: the same execution re-leases the round it never finished.
+    const rejoined = await cell.run({ kind: "task-start", taskId: "task_round", executionId: "exe_round" }, binding);
+    assert.equal(rejoined.outcome, "applied", JSON.stringify(rejoined));
+    const shown = evidence(await cell.run({ kind: "task-show", taskId: "task_round" }, binding));
+    assert.deepEqual((shown.executions as readonly { readonly executionId: string; readonly state: string }[]).map((row) => `${row.executionId}/${row.state}`), ["exe_round/active"]);
+    assert.equal((shown.lease as { readonly executionId: string } | null)?.executionId, "exe_round");
+    // Replay is the real contract: a cold rebuild from the event log must not grow a duplicate execution.
+    await cell.close(); cell = undefined;
+    const store = makeTaskEventStore({ repoId: "task-round-reenter", rootDir }), replay = makeTaskProjection({ rootDir, eventStore: store });
+    rmSync(replay.path, { force: true }); replay.rebuild();
+    assert.deepEqual(replay.read("task_round").snapshot.executions.map((row) => `${row.executionId}/${row.state}`), ["exe_round/active"]);
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("read commands report projection readiness instead of asserting canonical visibility", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-readiness-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("task-readiness"), rootDir: canonicalRoot(rootDir), ownerId: "task-readiness", now: () => "2026-08-15T02:00:00.000Z" }); const binding = { actor, source: "local" as const };
+    assert.equal((await cell.run({ kind: "task-create", taskId: "task_ready", title: "Readiness" }, binding)).outcome, "applied");
+    const listed = await cell.run({ kind: "task-list" }, binding), payload = evidence(listed);
+    assert.equal(listed.outcome, "applied");
+    // A caught-up read now says so in its own payload, so "count=0" can never again be mistaken for an empty ledger.
+    assert.equal(payload.status, "ready");
+    assert.equal(payload.watermark, payload.sourceRevision);
+    assert.equal(listed.proof?.canonicalVisible, true);
+    assert.equal(listed.proof?.appliedCut, payload.watermark);
+    assert.match(String((listed as Record<string, unknown>).summary), /status=ready/u);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 

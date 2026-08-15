@@ -154,6 +154,33 @@ test("renewed lease survives database rebuild", async () => {
     assert.deepEqual(projection.readLeaseIntervals("task-1"), beforeIntervals);
   });
 });
+test("a lapsed reservation stops being a lease while a lapsed active lease stays orphaned", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
+    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
+    const [created, started] = lifecycleFixture().events;
+    if (created === undefined || started?.type !== "execution_started") throw new Error("fixture requires start event");
+    eventStore.append(taskBundle(created)); projection.apply(created);
+
+    // A reservation whose execution was never published: the CAS row is the only trace it ever existed.
+    projection.reserveLease({ ...started.payload.lease, executionId: "execution-unpublished", phase: "reserving",
+      expiresAt: "2026-08-11T01:00:00.000Z", version: 0 }, "2026-08-11T00:00:00.000Z");
+    // Still inside its TTL it must keep protecting the round against a concurrent claim.
+    assert.equal(projection.currentLease("task-1", "2026-08-11T00:30:00.000Z")?.phase, "reserving");
+    // Past its TTL it can never be published, so it is not a lease and must not wedge the task.
+    assert.equal(projection.currentLease("task-1", "2026-08-11T02:00:00.000Z"), null);
+    // The snapshot a daemon reads after the TTL lapsed is what task show and task release act on.
+    assert.equal(makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T02:00:00.000Z" }).read("task-1").snapshot.lease, null);
+
+    // Contrast, holding every other input fixed and varying only the phase: a published lease that
+    // lapsed is still a lease, because a real execution stands behind it and release must audit it.
+    eventStore.append(taskBundle(started)); projection.apply(started);
+    assert.equal(projection.currentLease("task-1", "2026-08-11T02:00:00.000Z")?.phase, "orphaned");
+    assert.equal(projection.currentLease("task-1", "2026-08-11T02:00:00.000Z")?.executionId, started.payload.execution.executionId);
+  });
+});
+
 function taskBundle(event: TaskEventV1): CanonicalWriteBundle { return { event, plan: taskLifecycleWritePlan(event), blobs: [] }; }
 
 function initRepo(rootDir: string): void {
