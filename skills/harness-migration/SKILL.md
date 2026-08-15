@@ -353,9 +353,17 @@ export LEDGER_HOME="/absolute/path/to/the/project"
 # export LEDGER_HOME="/absolute/path/the/user/chooses"
 
 cd "$LEDGER_HOME"
-rm -rf harness                                        # superseded; step 2 archived it
+mv harness "harness.pre-migration-$(date +%Y%m%d-%H%M%S)"    # superseded, not disposable
 cp -R "$TARGET_REPO/harness" ./harness
 ```
+
+**Move the old ledger aside; do not delete it.** The step 2 archive holds its
+content, but the directory is also a git repository with its own history, and
+this is the one moment in the migration where a mistake is discovered late. The
+same reasoning already governs the old runtime directory below: report it, hand
+over the path, and let the user delete it when they are satisfied. A rename is
+reversible in one command; `rm -rf` against a directory the skill does not own
+is not.
 
 In a project, isolate the ledger from the project's own repository before
 committing anything. `ha init` does this on a fresh project, but registering an
@@ -402,7 +410,8 @@ Then tell them:
 - their existing Harness installation was not modified;
 - the ledger is a git repository of its own, and the project must never track it;
 - the migration daemon lives under `$HARNESS_DAEMON_USER_ROOT` and can be removed with the work directory;
-- the previous ledger's git history is not carried forward — this migration rebuilds the ledger from its events, and the old history remains in the step 2 archive.
+- the previous ledger's git history is not carried forward — this migration rebuilds the ledger from its events, and the old history remains in the step 2 archive and in the `harness.pre-migration-*` directory beside the new one;
+- that directory is theirs to delete once they are satisfied, and nothing in the migration depends on it any more — give them the path.
 
 ### Report the old runtime directory — do not delete it
 
@@ -460,6 +469,8 @@ success and failure paths.
 - `source-before` equals `source-after`.
 - The ledger has its own `.git` at its landed location, the project tracks no
   ledger file, and `ha task create` succeeded there.
+- The superseded `harness.pre-migration-*` directory still exists, and the user
+  has been told where it is and that deleting it is theirs to decide.
 
 ## Known rough edges
 
