@@ -15,6 +15,7 @@ import {
   taskFilterSummary,
   type TaskFilters,
 } from "../model/taskFilters";
+import { t } from "../i18n/index.tsx";
 
 const CLOSEOUTS: (CloseoutReadiness | "all")[] = [
   "all",
@@ -53,7 +54,7 @@ function Select<T extends string>({
       >
         {values.map((item) => (
           <option key={item} value={item}>
-            {item === "all" ? "全部" : item}
+            {item === "all" ? t("components.taskFilterBar.all") : item}
           </option>
         ))}
       </select>
@@ -89,15 +90,15 @@ function StatusMultiSelect({
   };
 
   const label = selected.length === 0
-    ? "全部"
+    ? t("components.taskFilterBar.all")
     : selected.length === 1
       ? STATUS_META[selected[0]]?.label ?? selected[0]
-      : `${selected.length} 项`;
+      : t("components.taskFilterBar.countItems", { count: selected.length });
 
   return (
     <div ref={containerRef} className="relative">
       <label className="flex items-center gap-1.5 text-[13px] text-text-faint">
-        status
+        {t("components.taskFilterBar.status")}
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -141,7 +142,7 @@ function StatusMultiSelect({
               onClick={() => onChange([])}
               className="mt-1 w-full rounded border border-border px-2 py-1 text-[12px] text-text-muted hover:bg-surface hover:text-text"
             >
-              清空状态筛选
+              {t("components.taskFilterBar.clearStatusFilter")}
             </button>
           )}
         </div>
@@ -181,30 +182,30 @@ export function TaskFilterBar({
           <input
             value={filters.query}
             onChange={(event) => patch({ query: event.target.value })}
-            placeholder={`${contextLabel} 内搜索任务、模块、状态`}
+            placeholder={t("components.taskFilterBar.searchTasksModulesStatusWithinContextLabel", { contextLabel })}
             className="min-w-0 flex-1 bg-transparent text-[15px] text-text outline-none placeholder:text-text-faint"
           />
         </label>
 
         <Select
-          label="module"
+          label={t("components.taskFilterBar.module")}
           value={filters.module}
           values={["all", ...modules]}
           onChange={(module) => patch({ module })}
         />
-        <Select label="engine" value={filters.engine} values={engines} onChange={(engine) => patch({ engine })} />
+        <Select label={t("components.taskFilterBar.engine")} value={filters.engine} values={engines} onChange={(engine) => patch({ engine })} />
         <StatusMultiSelect
           selected={filters.status}
           onChange={(status) => patch({ status })}
         />
         <Select
-          label="closeout"
+          label={t("components.taskFilterBar.closeout")}
           value={filters.closeout}
           values={CLOSEOUTS}
           onChange={(closeout) => patch({ closeout })}
         />
         <Select
-          label="freshness"
+          label={t("components.taskFilterBar.freshness")}
           value={filters.freshness}
           values={FRESHNESS}
           onChange={(freshness) => patch({ freshness })}
@@ -221,7 +222,7 @@ export function TaskFilterBar({
               : "border-border text-text-muted hover:bg-surface-raised"
           }`}
         >
-          含归档
+          {t("components.taskFilterBar.archive")}
         </button>
 
         {favorites && favoriteCount > 0 && (
@@ -235,10 +236,10 @@ export function TaskFilterBar({
                 ? "border-accent bg-accent/10 text-accent"
                 : "border-border text-text-muted hover:bg-surface-raised"
             }`}
-            title={`仅看收藏任务(共 ${favoriteCount} 个)`}
+            title={t("components.taskFilterBar.viewOnlyFavoriteTasksFavoriteCountTotal", { favoriteCount })}
           >
             <Star weight={filters.favoritesOnly ? "fill" : "bold"} className="text-[12px]" />
-            仅看收藏 · {favoriteCount}
+            {t("components.taskFilterBar.viewOnlyCollection")} {favoriteCount}
           </button>
         )}
 
@@ -248,14 +249,14 @@ export function TaskFilterBar({
             className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-[13px] text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text"
           >
             <X weight="bold" />
-            清除
+            {t("components.taskFilterBar.clear")}
           </button>
         )}
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[12px] text-text-faint">
         <span>
-          {filteredCount} / {tasks.length} tasks
+          {t("components.taskFilterBar.filteredTaskCount", { filteredCount, totalCount: tasks.length })}
         </span>
         {chips.length > 0 ? (
           chips.map((chip) => (
@@ -264,7 +265,7 @@ export function TaskFilterBar({
             </span>
           ))
         ) : (
-          <span>默认隐藏 archived / cancelled，降低噪音</span>
+          <span>{t("components.taskFilterBar.archivedCancelledHiddenByDefaultReduceNoise")}</span>
         )}
       </div>
     </section>

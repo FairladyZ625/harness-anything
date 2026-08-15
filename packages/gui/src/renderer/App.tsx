@@ -263,11 +263,11 @@ function AppShell() {
             HARNESS
           </span>
           <span
-            title="本地模式 · 未同步（V2：多端同步）"
+            title={t("components.appSidebar.localModeNotSynchronizedV2MultiTerminal")}
             className="inline-flex items-center gap-1 rounded border border-border px-1 py-px font-mono text-[10px] text-text-faint"
           >
             <CloudSlash weight="bold" />
-            本地
+            {t("components.appSidebar.local")}
           </span>
           <div className="ml-auto">
             <ThemeToggle />
@@ -281,23 +281,23 @@ function AppShell() {
                 data-testid="real-task-summary"
                 className="block font-mono text-[11px] text-text-faint"
               >
-                Active work · {activeCount} of {projectTasks.length} tasks
+                {t("components.appSidebar.activeWorkSummary", { activeCount, totalCount: projectTasks.length })}
               </span>
             ) : (
               <span
                 data-testid="task-empty-state"
                 className="block font-mono text-[11px] text-text-faint"
               >
-                No task rows available from the local task bridge
+                {t("components.appSidebar.noTaskRowsFromLocalBridge")}
               </span>
             )
           ) : tasksQuery.isError ? (
             <span data-testid="task-error-state" className="block font-mono text-[11px] text-status-blocked">
-              台账桥读取失败：{tasksQuery.error instanceof Error ? tasksQuery.error.message : String(tasksQuery.error)}
+              {t("components.appSidebar.failedReadLedgerBridge")}: {tasksQuery.error instanceof Error ? tasksQuery.error.message : String(tasksQuery.error)}
             </span>
           ) : (
             <span className="block font-mono text-[11px] text-text-faint">
-              读取本地台账…
+              {t("components.appSidebar.readLocalLedger")}
             </span>
           )}
         </div>
@@ -306,7 +306,7 @@ function AppShell() {
           <div className="relative">
             <button
               onClick={() => setProjectSwitcherOpen((open) => !open)}
-              title="快速切换项目"
+              title={t("components.appSidebar.quicklySwitchProjects")}
               className={`flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left text-sm font-medium hover:border-border-strong ${
                 projectSwitcherOpen || view === "home"
                   ? "border-border-strong bg-surface-raised"
@@ -327,10 +327,10 @@ function AppShell() {
               <div className="absolute left-0 right-0 z-30 mt-2 rounded-lg border border-border-strong bg-surface-raised p-2 shadow-2xl shadow-black/35 md:right-auto md:w-[320px]">
                 <div className="flex items-center justify-between px-1 pb-2">
                   <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-                    快速切换
+                    {t("components.appSidebar.quickSwitch")}
                   </span>
                   <span className="font-mono text-[11px] text-text-faint">
-                    {systemQuery.data?.repos.length ?? 0} projects
+                    {t("components.appSidebar.projectCount", { count: systemQuery.data?.repos.length ?? 0 })}
                   </span>
                 </div>
                 <div className="flex max-h-[330px] flex-col gap-1.5 overflow-y-auto">
@@ -351,14 +351,14 @@ function AppShell() {
                     }}
                     className="rounded-md border border-border px-2 py-1.5 text-left text-[12px] font-medium text-text-muted hover:border-border-strong hover:text-text"
                   >
-                    管理全部
+                    {t("components.appSidebar.manageAll")}
                   </button>
                   <button
                     disabled
                     className="inline-flex items-center justify-center gap-1 rounded-md border border-border px-2 py-1.5 text-[12px] text-text-faint opacity-70"
                   >
                     <WarningCircle weight="bold" />
-                    本地模式
+                    {t("components.appSidebar.localMode")}
                   </button>
                 </div>
               </div>
@@ -400,16 +400,16 @@ function AppShell() {
         <div className="mt-auto hidden border-t border-border px-3 py-2.5 md:block">
           <button
             disabled
-            title="V2 预览：账号登录后可多设备同步、远程访问项目"
+            title={t("components.appSidebar.v2PreviewAfterLoggingYourAccountYou")}
             className="flex w-full cursor-not-allowed items-center gap-2 text-left opacity-70"
           >
             <span className="grid size-6 shrink-0 place-items-center rounded-full bg-surface-raised font-mono text-[11px] font-semibold text-text-muted">
               Z
             </span>
             <span className="min-w-0">
-              <span className="block truncate text-xs text-text">本地模式</span>
+              <span className="block truncate text-xs text-text">{t("components.appSidebar.localMode2")}</span>
               <span className="block truncate text-[10px] text-text-faint">
-                账号与同步 · V2
+                {t("components.appSidebar.accountSynchronizationV2")}
               </span>
             </span>
           </button>

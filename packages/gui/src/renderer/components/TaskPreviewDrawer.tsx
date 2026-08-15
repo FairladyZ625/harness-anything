@@ -15,6 +15,7 @@ import {
   FreshnessTag,
   StatusBadge,
 } from "./badges";
+import { t } from "../i18n/index.tsx";
 
 const timeOf = (iso: string) => iso.slice(5, 16).replace("T", " ");
 
@@ -87,7 +88,7 @@ export function TaskPreviewDrawer({
                 {isExternal(task) && (
                   <span className="inline-flex items-center gap-1 text-[12px] text-text-faint">
                     <Lock weight="bold" />
-                    只读源
+                    {t("components.taskPreviewDrawer.readOnlySource")}
                   </span>
                 )}
               </div>
@@ -97,7 +98,7 @@ export function TaskPreviewDrawer({
             </div>
             <button
               onClick={onClose}
-              aria-label="关闭任务预览"
+              aria-label={t("components.taskPreviewDrawer.closeTaskPreview")}
               className="grid size-8 shrink-0 place-items-center rounded-md text-text-faint hover:bg-surface-raised hover:text-text"
             >
               <X weight="bold" />
@@ -105,46 +106,46 @@ export function TaskPreviewDrawer({
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <StatusBadge status={task.coordinationStatus} />
-            {task.coordinationStatus === "blocked" && task.canonicalStatus && <span className="font-mono text-[11px] text-status-blocked">canonical {task.canonicalStatus}</span>}
-            {task.blocking === "unknown" && <span className="text-[11px] text-stale">阻塞关系未能确定</span>}
+            {task.coordinationStatus === "blocked" && task.canonicalStatus && <span className="font-mono text-[11px] text-status-blocked">{t("components.taskPreviewDrawer.canonical")} {task.canonicalStatus}</span>}
+            {task.blocking === "unknown" && <span className="text-[11px] text-stale">{t("components.taskPreviewDrawer.blockingUnknown")}</span>}
             <CloseoutBadge value={task.closeoutReadiness} />
             <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
           </div>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <Section title="上下文">
+          <Section title={t("components.taskPreviewDrawer.context")}>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[14px]">
               <div>
-                <dt className="font-mono text-[12px] text-text-faint">module</dt>
-                <dd className="font-mono text-text">{task.module === "unassigned" || !task.module ? "未投影" : task.module}</dd>
+                <dt className="font-mono text-[12px] text-text-faint">{t("components.taskPreviewDrawer.module")}</dt>
+                <dd className="font-mono text-text">{task.module === "unassigned" || !task.module ? t("components.taskPreviewDrawer.notProjected") : task.module}</dd>
               </div>
               <div>
-                <dt className="font-mono text-[12px] text-text-faint">raw status</dt>
+                <dt className="font-mono text-[12px] text-text-faint">{t("components.taskPreviewDrawer.rawStatus")}</dt>
                 <dd className="font-mono text-text">{task.rawStatus}</dd>
               </div>
               <div>
-                <dt className="font-mono text-[12px] text-text-faint">package</dt>
+                <dt className="font-mono text-[12px] text-text-faint">{t("components.taskPreviewDrawer.package")}</dt>
                 <dd className="font-mono text-text">{task.packageDisposition}</dd>
               </div>
               <div>
-                <dt className="font-mono text-[12px] text-text-faint">source</dt>
+                <dt className="font-mono text-[12px] text-text-faint">{t("components.taskPreviewDrawer.source")}</dt>
                 <dd className="font-mono text-text">{task.origin ?? task.source}</dd>
               </div>
               <div>
-                <dt className="font-mono text-[12px] text-text-faint">product lines</dt>
-                <dd className="font-mono text-text">{task.productLines?.join(", ") || "未投影"}</dd>
+                <dt className="font-mono text-[12px] text-text-faint">{t("components.taskPreviewDrawer.productLines")}</dt>
+                <dd className="font-mono text-text">{task.productLines?.join(", ") || t("components.taskPreviewDrawer.notProjected")}</dd>
               </div>
               <div>
-                <dt className="font-mono text-[12px] text-text-faint">parent / root</dt>
+                <dt className="font-mono text-[12px] text-text-faint">{t("components.taskPreviewDrawer.parentRoot")}</dt>
                 <dd className="font-mono text-text">{task.parentTaskId ?? "root"} / {task.rootTaskId ?? task.taskId}</dd>
               </div>
             </dl>
           </Section>
 
-          <Section title="Gates">
+          <Section title={t("components.taskPreviewDrawer.gates")}>
             {task.gates.length === 0 ? (
-              <p className="text-[14px] text-text-faint">暂无 gate 记录</p>
+              <p className="text-[14px] text-text-faint">{t("components.taskPreviewDrawer.thereNoGateRecordYet")}</p>
             ) : (
               <div className="space-y-2">
                 {task.gates.map((gate) => (
@@ -183,11 +184,11 @@ export function TaskPreviewDrawer({
             )}
           </Section>
 
-          <Section title="收口材料">
+          <Section title={t("components.taskPreviewDrawer.closingMaterial")}>
             {task.docs.length === 0 ? (
-              <p className="text-[14px] text-stale">文档清单未在预览投影；打开完整详情读取 task-contract。</p>
+              <p className="text-[14px] text-stale">{t("components.taskPreviewDrawer.documentListUnavailable")}</p>
             ) : missingDocs.length === 0 ? (
-              <p className="text-[14px] text-text-muted">必需文档齐备。</p>
+              <p className="text-[14px] text-text-muted">{t("components.taskPreviewDrawer.requiredDocumentationComplete")}</p>
             ) : (
               <div className="space-y-1.5">
                 {missingDocs.map((doc) => (
@@ -195,7 +196,7 @@ export function TaskPreviewDrawer({
                     key={doc.path}
                     className="flex items-center gap-2 rounded-md bg-surface-raised px-3 py-2"
                   >
-                    <span className="font-mono text-[13px] text-danger">missing</span>
+                    <span className="font-mono text-[13px] text-danger">{t("components.taskPreviewDrawer.missingDocument")}</span>
                     <span className="min-w-0 flex-1 truncate text-[14px]">
                       {doc.title}
                     </span>
@@ -208,9 +209,9 @@ export function TaskPreviewDrawer({
             )}
           </Section>
 
-          <Section title="关联任务">
+          <Section title={t("components.taskPreviewDrawer.associatedTasks")}>
             {related.length === 0 ? (
-              <p className="text-[14px] text-text-faint">暂无关联边。</p>
+              <p className="text-[14px] text-text-faint">{t("components.taskPreviewDrawer.thereCurrentlyNoRelatedEdges")}</p>
             ) : (
               <div className="space-y-1.5">
                 {related.map(({ edge, task: relatedTask }) => (
@@ -234,9 +235,9 @@ export function TaskPreviewDrawer({
             )}
           </Section>
 
-          <Section title="近期事件">
+          <Section title={t("components.taskPreviewDrawer.recentEvents")}>
             {taskEvents.length === 0 ? (
-              <p className="text-[14px] text-text-faint">暂无事件。</p>
+              <p className="text-[14px] text-text-faint">{t("components.taskPreviewDrawer.noEventsYet")}</p>
             ) : (
               <div className="space-y-2">
                 {taskEvents.map((event) => (
@@ -258,13 +259,13 @@ export function TaskPreviewDrawer({
             className="inline-flex flex-1 items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-[15px] font-semibold text-accent-fg"
           >
             <ArrowSquareOut weight="bold" />
-            打开完整详情
+            {t("components.taskPreviewDrawer.openFullDetails")}
           </button>
           <button
             onClick={onClose}
             className="rounded-md border border-border px-3 py-2 text-[15px] text-text-muted hover:bg-surface-raised hover:text-text"
           >
-            关闭
+            {t("components.taskPreviewDrawer.close")}
           </button>
         </footer>
       </aside>

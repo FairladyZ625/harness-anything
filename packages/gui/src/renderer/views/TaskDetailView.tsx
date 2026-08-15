@@ -31,6 +31,7 @@ import { normalizeTaskId, spawningDecisionOf } from "../model/triadic";
 import { TaskControlPanel } from "../components/TaskControlPanel.tsx";
 import type { GuiSubmissionV1 } from "../../api/renderer-dto.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
+import { t } from "../i18n/index.tsx";
 
 function DocBody({
   repoId,
@@ -46,8 +47,8 @@ function DocBody({
     return (
       <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-strong py-16 text-center">
         <FileText weight="duotone" className="text-2xl text-text-faint" />
-        <p className="text-[13px] text-text-muted">该任务无投影文档</p>
-        <p className="font-mono text-[11px] text-text-faint">从 preset 物化的 doc 清单为空</p>
+        <p className="text-[13px] text-text-muted">{t("views.taskDetailView.thereNoProjectionDocumentTask")}</p>
+        <p className="font-mono text-[11px] text-text-faint">{t("views.taskDetailView.listDocMaterializedFromPresetEmpty")}</p>
       </div>
     );
   }
@@ -55,12 +56,12 @@ function DocBody({
     return (
       <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-strong py-16 text-center">
         <FileText weight="duotone" className="text-2xl text-text-faint" />
-        <p className="text-[13px] text-text-muted">读取 canonical document projection…</p>
+        <p className="text-[13px] text-text-muted">{t("views.taskDetailView.reading")} canonical document projection…</p>
       </div>
     );
   }
-  if (document.isError) return <p className="text-[13px] text-status-blocked">文档投影读取失败：{document.error.message}</p>;
-  return <><span data-testid="task-document-status" className="mb-3 block font-mono text-[11px] text-text-faint">L2 · {document.data.status}</span>{document.data.status !== "ready" ? <p className="text-[13px] text-text-muted">canonical document projection 尚未追平</p> : document.data.blobSha256 === null ? <p className="text-[13px] text-stale">canonical document 未投影</p> : <DocReader content={document.data.body} />}</>;
+  if (document.isError) return <p className="text-[13px] text-status-blocked">{t("views.taskDetailView.documentReadingFailed")}：{document.error.message}</p>;
+  return <><span data-testid="task-document-status" className="mb-3 block font-mono text-[11px] text-text-faint">L2 · {document.data.status}</span>{document.data.status !== "ready" ? <p className="text-[13px] text-text-muted">canonical document projection 尚未追平</p> : document.data.blobSha256 === null ? <p className="text-[13px] text-stale">{t("views.taskDetailView.documentNotMaterialized")}</p> : <DocReader content={document.data.body} />}</>;
 }
 
 export function TaskDetailView({
@@ -71,7 +72,7 @@ export function TaskDetailView({
   decisions = [],
   onSelect,
   projectName,
-  fromViewLabel = "工作区",
+  fromViewLabel = t("views.taskDetailView.workspace"),
   onNavigateDecision,
   onNavigateEntity,
   mutationFeedback,
@@ -144,7 +145,7 @@ export function TaskDetailView({
         <button
           onClick={onBack}
           className="rounded-md border border-border p-1.5 text-text-muted hover:border-border-strong hover:bg-surface-raised hover:text-text"
-          title="返回上一层"
+          title={t("views.taskDetailView.returnPreviousLevel")}
         >
           <ArrowLeft weight="bold" />
         </button>
@@ -174,7 +175,7 @@ export function TaskDetailView({
         <nav className="w-56 shrink-0 overflow-y-auto border-r border-border bg-surface p-3">
           {docGroups.length === 0 ? (
             <div className="rounded-md border border-dashed border-border px-2 py-3 text-[12px] text-text-faint">
-              {contractModel.issue ? `task-contract 读取失败：${contractModel.issue}` : canonicalPackage && contract.isPending ? "读取 canonical task-contract…" : "投影未返回文档清单"}
+              {contractModel.issue ? `task-contract ${t("views.taskDetailView.documentReadingFailed")}：${contractModel.issue}` : canonicalPackage && contract.isPending ? `${t("views.taskDetailView.reading")} canonical task-contract…` : t("views.taskDetailView.localLedgerBridgeDidNotReturn")}
             </div>
           ) : (
             docGroups.map((g) => {
@@ -204,7 +205,7 @@ export function TaskDetailView({
                       <span className="min-w-0 truncate">{d.title}</span>
                       {d.required && (
                         <span className="shrink-0 rounded border border-border px-1 text-[11px] leading-[1.5] text-text-faint">
-                          必需
+                          {t("components.docTree.required")}
                         </span>
                       )}
                       {d.presence === "missing" && d.required && (
@@ -212,7 +213,7 @@ export function TaskDetailView({
                           className="shrink-0 text-[11px]"
                           style={{ color: "var(--color-danger)" }}
                         >
-                          缺失
+                          {t("components.docTree.missing")}
                         </span>
                       )}
                     </button>
@@ -239,7 +240,7 @@ export function TaskDetailView({
                 weight="bold"
                 className="self-center text-[11px] text-text-faint"
               />
-              <span className="text-[13px] font-semibold text-text">{doc?.title ?? "无文档"}</span>
+              <span className="text-[13px] font-semibold text-text">{doc?.title ?? t("views.taskDetailView.noDocumentation")}</span>
               {doc && (
                 <span className="ml-2 font-mono text-[11px] text-text-faint">
                   {doc.path}
@@ -257,7 +258,7 @@ export function TaskDetailView({
         {/* 治理侧栏：三轴并排 */}
         <aside className="w-64 shrink-0 overflow-y-auto border-l border-border bg-surface p-4">
           <div className="flex flex-col gap-4">
-            <AxisRow label="coordinationStatus">
+            <AxisRow label={t("views.taskDetailView.coordinationStatus")}>
               <StatusBadge status={task.coordinationStatus} />
               <span className="w-full font-mono text-[11px] text-text-faint">
                 canonical: {task.canonicalStatus ?? "unknown"} · 原文: {task.rawStatus}
@@ -265,17 +266,17 @@ export function TaskDetailView({
               <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
             </AxisRow>
 
-            <AxisRow label="closeoutReadiness">
+            <AxisRow label={t("views.taskDetailView.closeoutReadiness")}>
               <CloseoutBadge value={task.closeoutReadiness} />
             </AxisRow>
 
-            <AxisRow label="packageDisposition">
+            <AxisRow label={t("views.taskDetailView.packageDisposition")}>
               <span className="font-mono text-[12px] text-text-muted">
                 {task.packageDisposition}
               </span>
             </AxisRow>
 
-            <AxisRow label="placement">
+            <AxisRow label={t("views.taskDetailView.placement")}>
               <span className="w-full font-mono text-[11px] text-text-muted">modules: {task.moduleKeys?.join(", ") || "未投影"}</span>
               <span className="w-full font-mono text-[11px] text-text-muted">productLines: {task.productLines?.join(", ") || "未投影"}</span>
               <span className="w-full font-mono text-[11px] text-text-muted">parent/root: {task.parentTaskId ?? "root"} / {task.rootTaskId ?? task.taskId}</span>
@@ -286,7 +287,7 @@ export function TaskDetailView({
 
             <div className="flex flex-col gap-1.5">
               <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-                阶段
+                {t("views.taskDetailView.stage")}
               </span>
               <PhaseSteps status={task.canonicalStatus ?? "unknown"} />
             </div>
@@ -296,7 +297,7 @@ export function TaskDetailView({
             {spawningDecision && (
               <div className="flex flex-col gap-1.5 rounded-md border border-accent/20 bg-accent/5 px-2.5 py-2">
                 <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-                  Decision 上游
+                  {t("views.taskDetailView.decisionUpstream")}
                 </span>
                 <DecisionSourceBadge
                   decisionId={spawningDecision}
@@ -315,10 +316,10 @@ export function TaskDetailView({
 
             <div className="flex flex-col gap-1.5">
               <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-                Gates
+                {t("views.taskDetailView.gates")}
               </span>
               {task.gates.length === 0 ? (
-                <span className="text-[11px] text-text-faint">无 gate 记录</span>
+                <span className="text-[11px] text-text-faint">{t("views.taskDetailView.noGateRecord")}</span>
               ) : (
                 task.gates.map((g) => (
                   <div key={g.name} className="flex items-center gap-1.5 text-[11px]">
@@ -346,16 +347,16 @@ export function TaskDetailView({
 
             <div className="flex flex-col gap-1.5">
               <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-                关系
+                {t("views.taskDetailView.relationship")}
               </span>
-              <span className="text-[11px] text-text-faint">只读 · 请在 canonical relation 来源处理</span>
+              <span className="text-[11px] text-text-faint">{t("views.taskDetailView.readOnlyCanonicalRelation")}</span>
               {outEdges.length === 0 && inEdges.length === 0 ? (
-                <span className="text-[11px] text-text-faint">无关联任务</span>
+                <span className="text-[11px] text-text-faint">{t("views.taskDetailView.unrelatedTasks")}</span>
               ) : (
                 <>
                   {outEdges.length > 0 && (
                     <div className="flex flex-col gap-1">
-                      <span className="text-[11px] text-text-faint">出边</span>
+                      <span className="text-[11px] text-text-faint">{t("views.taskDetailView.outSide")}</span>
                       {outEdges.map((r, i) => (
                         <RelationRow
                           key={`out-${r.kind}-${r.to}-${i}`}
@@ -371,7 +372,7 @@ export function TaskDetailView({
                   )}
                   {inEdges.length > 0 && (
                     <div className="flex flex-col gap-1">
-                      <span className="text-[11px] text-text-faint">入边</span>
+                      <span className="text-[11px] text-text-faint">{t("views.taskDetailView.enterEdge")}</span>
                       {inEdges.map((r, i) => (
                         <RelationRow
                           key={`in-${r.kind}-${r.from}-${i}`}

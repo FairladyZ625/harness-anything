@@ -147,3 +147,8 @@ test("GUI territory rebuild fixture bills the two-level layout paths to gui", ()
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/gui-territory-rebuild-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
+
+test("GUI i18n fixture bills renderer copy paths into their ratcheted buckets", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/gui-i18n-production-paths.json", import.meta.url), "utf8"));
+  for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+});

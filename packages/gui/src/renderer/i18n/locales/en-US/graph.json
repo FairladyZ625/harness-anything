@@ -132,5 +132,8 @@
   "graph.territoryZoneNode.claimCoverage": "{covered}/{total} claim",
   "graph.graphDrawer.edgeKindMessage": "This is a {kind} relation edge.",
   "graph.egoNode.hiddenNotExpanded": "+{count} not expanded",
-  "graph.egoNode.degreeHop": "degree {degree} · hop {hop}"
+  "graph.egoNode.degreeHop": "degree {degree} · hop {hop}",
+  "graph.graphDrawer.chainCounts": "Chain: upstream {up} · downstream {down}",
+  "graph.graphDrawer.outEdgesCount": "out-edges {count}",
+  "graph.graphDrawer.inEdgesCount": "in-edges {count}"
 }

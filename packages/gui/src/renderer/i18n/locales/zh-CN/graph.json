@@ -132,5 +132,8 @@
   "graph.territoryZoneNode.claimCoverage": "{covered}/{total} 个论点",
   "graph.graphDrawer.edgeKindMessage": "这是一个 {kind} 关系边。",
   "graph.egoNode.hiddenNotExpanded": "还有 +{count} 未展开",
-  "graph.egoNode.degreeHop": "度数 {degree} · 第 {hop} 跳"
+  "graph.egoNode.degreeHop": "度数 {degree} · 第 {hop} 跳",
+  "graph.graphDrawer.chainCounts": "链路：上游 {up} · 下游 {down}",
+  "graph.graphDrawer.outEdgesCount": "出边 {count}",
+  "graph.graphDrawer.inEdgesCount": "入边 {count}"
 }
