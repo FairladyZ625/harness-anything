@@ -131,3 +131,33 @@ function orphanEndpointFixture(root: string): void {
   writeFileSync(path.join(goodRoot, "INDEX.md"), `---\nschema: task-package/v2\ntask_id: task_good\ntitle: Good task\nrelations: ${JSON.stringify([relation])}\nlifecycle:\n  status: planned\n  engine: local\n  bindingCreatedAt: 2026-01-01T00:00:00.000Z\nvertical: software/coding\npreset: standard-task\nprofile: baseline\n---\n\n# Good task\n`);
   writeFileSync(path.join(orphanRoot, "INDEX.md"), "# missing frontmatter so this package cannot migrate\n");
 }
+
+test("migrated entities keep the actor recorded in the source repository, not the importer", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-attribution-")), source = path.join(scratch, "legacy"), destination = path.join(scratch, "new"); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    attributionFixture(source); initRepo(destination); cell = await openRepoCell({ repoId: workspaceId("migration-attribution-target"), rootDir: canonicalRoot(destination), ownerId: "migration-daemon", now: () => "2026-06-01T00:00:00.000Z" });
+    const applied = await cell.run({ kind: "migrate-import", sourceRoot: source }, { actor, source: "local" }) as Record<string, unknown>;
+    assert.equal(applied.exitCode, 0, JSON.stringify(applied));
+    // task_owned has an attribution record; task_unowned has none and falls back to the importer.
+    // Both must be non-zero, otherwise the index is either ignored or applied blindly.
+    assert.match(String(applied.summary), /Attribution: principal restored from source records for [1-9]\d* entities, [1-9]\d* fell back/u, String(applied.summary));
+    const events = makeTaskEventStore({ repoId: "migration-attribution-target", rootDir: destination }).read().events.filter((event) => event.schema === "migration-import-event/v1" && event.payload.entity.kind === "task");
+    const seen = Object.fromEntries(events.map((event) => [(event.payload.entity as { readonly task: { readonly taskId: string } }).task.taskId, event.actor]));
+    // The person is the one the source recorded; the executor is whoever ran this import.
+    assert.deepEqual(seen.task_owned, { principal: { personId: "person_original" }, executor: { kind: "agent", id: "codex" } });
+    assert.deepEqual(seen.task_unowned, actor);
+  } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }
+});
+
+function attributionFixture(root: string): void {
+  const owned = path.join(root, "harness/tasks/task_owned"), unowned = path.join(root, "harness/tasks/task_unowned"), attribution = path.join(root, "harness/attribution-events");
+  mkdirSync(owned, { recursive: true }); mkdirSync(unowned, { recursive: true }); mkdirSync(attribution, { recursive: true });
+  writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n");
+  const pkg = (taskId: string, title: string): string => `---\nschema: task-package/v2\ntask_id: ${taskId}\ntitle: ${title}\nlifecycle:\n  status: planned\n  engine: local\n  bindingCreatedAt: 2026-01-01T00:00:00.000Z\nvertical: software/coding\npreset: standard-task\nprofile: baseline\n---\n\n# ${title}\n`;
+  writeFileSync(path.join(owned, "INDEX.md"), pkg("task_owned", "Task with recorded attribution"));
+  writeFileSync(path.join(unowned, "INDEX.md"), pkg("task_unowned", "Task with no attribution record"));
+  // The earliest record for an entity is its creation attribution. `principal.kind` exists in the
+  // legacy shape and must be dropped: the current identity contract accepts personId only.
+  const line = (at: string, executorId: string): string => JSON.stringify({ schema: "attribution-event/v1", entityId: "task/task_owned", kind: "package_create", actor: { principal: { kind: "person", personId: "person_original" }, executor: { kind: "agent", id: executorId } }, at });
+  writeFileSync(path.join(attribution, "aa.jsonl"), `${line("2026-01-05T00:00:00.000Z", "later-agent")}\n${line("2026-01-01T00:00:00.000Z", "codex")}\n`);
+}
