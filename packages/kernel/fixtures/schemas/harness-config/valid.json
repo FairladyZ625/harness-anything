@@ -29,7 +29,6 @@
     "defaultVertical": "software/coding",
     "defaultPreset": "standard-task",
     "defaultProfile": "baseline",
-    "defaultRuntimeInstanceId": "codex-review",
     "identity": {
       "personId": "person_zeyu",
       "displayName": "Zeyu Li"

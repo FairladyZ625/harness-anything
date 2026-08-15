@@ -43,7 +43,8 @@ test("G32 captures line reductions in the same change", () => {
   assert.equal(stale.ok, false);
   assert.match(stale.errors.join("\n"), /lower the ceiling to 1/u);
   writeRepoFile(rootDir, "tools/gates/line-budgets.json", budgetBody(1));
-  assert.equal(evaluateLineBudget({ rootDir, base }).ok, true);
+  const ratcheted = evaluateLineBudget({ rootDir, base });
+  assert.deepEqual({ ok: ratcheted.ok, actual: ratcheted.actual.kernel, ceiling: ratcheted.ceilings.kernel }, { ok: true, actual: 1, ceiling: 1 });
 });
 
 test("G32 accepts a ceiling increase only with a scoped decision receipt", () => {

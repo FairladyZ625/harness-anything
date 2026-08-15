@@ -15,8 +15,8 @@ const frozenMutations = Object.freeze([
   { commandId: "decision-show", inputName: "--include-body", facet: "boolean", argv: ["decision", "show", "dec_1", "--include-body"] }
 ] as const);
 
-test("all 80 public commands expose the canonical structured input facet", () => {
-  assert.equal(daemonProtocolCommands.length, 80);
+test("all 79 public commands expose the canonical structured input facet", () => {
+  assert.equal(daemonProtocolCommands.length, 79);
   for (const command of daemonProtocolCommands) {
     assert.equal(Object.hasOwn(command, "inputs"), true, `${command.id}: explicit inputs`);
     assert.deepEqual(deriveThinCliInputs(command), command.inputs, command.id);

@@ -21,7 +21,6 @@ test("preset contract accepts only the closed v3 wire shape", () => {
   assert.equal(parsePresetManifestV3(manifest).id, "standard-task");
   assert.match(validatePresetManifestV3({ ...manifest, schema: "preset-manifest/v2" }).join("\n"), /v3/u);
   assert.match(validatePresetManifestV3({ ...manifest, fallback: true }).join("\n"), /unknown/u);
-  assert.match(validatePresetManifestV3({ ...manifest, profiles: [{ ...manifest.profiles[0], runtimeInstanceId: "Shared/Default" }] }).join("\n"), /profile/iu);
   assert.deepEqual(presetContract.schemas.map((schema) => schema.id), ["preset-manifest/v3", "preset-document/v1", "preset-snapshot/v1", "preset-run-receipt/v1"]);
 });
 

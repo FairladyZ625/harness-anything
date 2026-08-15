@@ -82,12 +82,3 @@ function interpolate(message: string, params: MessageParams = {}): string {
 export function t(key: MessageKey, params?: MessageParams): string {
   return interpolate(messageFor(key), params);
 }
-
-export function tp(
-  count: number,
-  keys: Partial<Record<Intl.LDMLPluralRule, MessageKey>> & { other: MessageKey },
-  params: MessageParams = {},
-): string {
-  const rule = new Intl.PluralRules(activeLocale).select(count);
-  return t(keys[rule] ?? keys.other, { ...params, count });
-}

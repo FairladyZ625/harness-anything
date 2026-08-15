@@ -62,7 +62,6 @@ export interface TerritoryLayoutInput {
 
 export interface TerritoryLayout {
   nodes: Node[];
-  bounds: { width: number; height: number };
 }
 
 /** landing(孤立实体)伪 zone:复用 zone 壳的虚线变体。 */
@@ -85,7 +84,6 @@ export function layoutTerritory(input: TerritoryLayoutInput): TerritoryLayout {
 
   const nodes: Node[] = [];
   let cursorY = TOP_PAD;
-  let maxX = LEFT_PAD;
 
   const rows = chunk(zones, gridCols);
   for (const row of rows) {
@@ -153,18 +151,11 @@ export function layoutTerritory(input: TerritoryLayoutInput): TerritoryLayout {
       }
 
       cursorX += ZONE_W + ZONE_GAP_X;
-      maxX = Math.max(maxX, cursorX);
     }
     cursorY += rowH + ZONE_GAP_Y;
   }
 
-  return {
-    nodes,
-    bounds: {
-      width: Math.max(maxX, LEFT_PAD + gridCols * ZONE_W) - LEFT_PAD,
-      height: cursorY - TOP_PAD - ZONE_GAP_Y,
-    },
-  };
+  return { nodes };
 }
 
 /** zone 头部高:基础 + (task 进度条块)。渲染端按同一常量排,几何与视觉同源。 */
