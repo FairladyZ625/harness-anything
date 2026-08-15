@@ -113,7 +113,7 @@ test("Decision bundle publishes one canonical document, enforces base CAS, and p
 
 test("authored branch advancement outside the daemon fails closed", async () => {
   await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const store = makeTaskEventStore({ repoId: "test-repo", rootDir }), canonical = store.currentCommit().sha; git(rootDir, "commit", "--allow-empty", "-qm", "external advance");
-    assert.throws(() => store.append(bundle(event)), (error: unknown) => { assert.equal((error as { code?: string }).code, "publication_indeterminate"); return /reconcile/iu.test(String(error)); }); assert.equal(git(rootDir, "rev-parse", CANONICAL_EVENT_REF), canonical); assert.equal(store.readHead(), null);
+    assert.throws(() => store.append(bundle(event)), (error: unknown) => { assert.equal((error as { code?: string }).code, "publication_indeterminate"); const text = String(error); assert.ok(text.includes(canonical), `recovery guidance must name the target commit: ${text}`); assert.ok(text.includes(`update-ref refs/heads/master ${canonical}`), `recovery guidance must give an executable command: ${text}`); return true; }); assert.equal(git(rootDir, "rev-parse", CANONICAL_EVENT_REF), canonical); assert.equal(store.readHead(), null);
   });
 });
 
