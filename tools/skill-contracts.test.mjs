@@ -15,8 +15,8 @@ test("repository decision skills are discoverable with agent metadata", () => {
     .map((entry) => entry.name)
     .sort();
 
-  assert.deepEqual(skillNames, ["decision", "decisions", "graph-panorama", "preset-creator", "preset-trigger", "vertical-creator"]);
-  for (const skillName of ["decision", "decisions", "graph-panorama", "preset-trigger"]) {
+  assert.deepEqual(skillNames, ["decision", "decisions", "graph-panorama", "harness-migration", "preset-creator", "preset-trigger", "vertical-creator"]);
+  for (const skillName of ["decision", "decisions", "graph-panorama", "harness-migration", "preset-trigger"]) {
     assert.equal(existsSync(path.join(skillsRoot, skillName, "SKILL.md")), true, skillName);
     assert.equal(existsSync(path.join(skillsRoot, skillName, "agents", "openai.yaml")), true, skillName);
   }

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Migration"
+  short_description: "Migrate a previous-generation Harness ledger into the current format"
+  default_prompt: "Use $harness-migration to replay this project's older-format harness/ ledger into a freshly initialized current-format repository, fetching the current source into a temporary directory so no prior installation is required."
