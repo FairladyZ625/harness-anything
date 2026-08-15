@@ -8,6 +8,7 @@ test("GUI catalog projection uses canonical inventory without source paths or pl
     const catalog = openGuiCatalog({ repoId: "catalog-test", rootDir: process.cwd() });
     const snapshot = await catalog.snapshot();
     assert.deepEqual(validateCatalogSnapshot(snapshot), []);
+    assert.equal(Object.hasOwn(snapshot.defaults, "runtimeInstanceId"), true);
     assert.equal(snapshot.presets.length, 12);
     assert.equal(snapshot.presets.every((row) => !("source" in row)), true);
     assert.deepEqual(snapshot.adapters.map((row) => row.adapterId), ["local", "multica"]);
