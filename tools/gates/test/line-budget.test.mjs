@@ -2,9 +2,10 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import { evaluateLineBudget } from "../line-budget.mjs";
+import { readFileSync } from "node:fs";
+import { evaluateLineBudget, parseBudgets } from "../line-budget.mjs";
 import { MODULES } from "../module-policy.mjs";
-import { signReceipt } from "../receipt-verify.mjs";
+import { loadReceipts, signReceipt, validateReceiptSchema } from "../receipt-verify.mjs";
 import { makeRepo, writeRepoFile } from "./helpers.mjs";
 
 function budgetBody(kernel) {
@@ -95,4 +96,27 @@ test("G32 introduces the Fleet bucket with the 350-line design ceiling", () => {
   const result = evaluateLineBudget({ rootDir, base });
   assert.equal(result.ok, true, result.errors.join("\n"));
   assert.equal(result.actual.fleet, 1);
+});
+
+// The tests above prove the mechanism on synthetic repositories. This one reads
+// what is actually committed: a raised ceiling only stands while its receipt
+// verifies, so a receipt that stopped verifying would leave the ceiling unbacked
+// without anything failing.
+test("every committed line-budget receipt verifies, and the raised ceilings are covered", () => {
+  const gatesDir = path.join(import.meta.dirname, "..");
+  const ceilings = parseBudgets(readFileSync(path.join(gatesDir, "line-budgets.json"), "utf8"));
+  const receipts = loadReceipts(path.join(gatesDir, "receipts")).filter(({ receipt }) => receipt?.kind === "line-budget");
+  assert.ok(receipts.length > 0, "no line-budget receipts are committed");
+  for (const { filePath, receipt } of receipts) {
+    assert.deepEqual(validateReceiptSchema(receipt), [], filePath);
+    assert.equal(receipt.signature, signReceipt(receipt), `${filePath}: signature does not verify`);
+    assert.ok(MODULES.includes(receipt.scope.replace(/^module:/u, "")), `${filePath}: scope names an unknown module`);
+  }
+  // A receipt may outlive the ceiling it was minted for -- the ratchet only ever
+  // falls -- so the reverse direction is the one worth asserting: every ceiling
+  // that a receipt was needed for still has one that reaches it.
+  for (const moduleName of ["cli", "daemon"]) {
+    assert.ok(receipts.some(({ receipt }) => receipt.scope === `module:${moduleName}` && receipt.limit >= ceilings[moduleName]),
+      `${moduleName}: ceiling ${ceilings[moduleName]} has no receipt covering it`);
+  }
 });
