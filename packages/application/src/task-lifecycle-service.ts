@@ -39,9 +39,9 @@ export function makeTaskLifecycleService(options: { readonly eventStore: EventSt
     }
     const current = await read(command.taskId);
     if (current.status !== "ready" && (command.type !== "CreateReplayTask" || current.snapshot.task !== null)) return { outcome: "indeterminate", opId: command.opId, code: "operation_not_published", origin: "N/A", snapshot: current.snapshot, frozenPlan: Object.freeze({ commandType: command.type, targets: Object.freeze([]) }) as unknown as FrozenWritePlan, nextAction: "retry task lifecycle read: projection catch-up is pending" };
-    const claim = command.type === "StartExecution" ? reserveClaim(options.projection, command, proof as TaskLifecycleServiceProof<StartCommand>) : null;
+    const claim = command.type === "StartExecution" ? planClaim(options.projection, command, proof as TaskLifecycleServiceProof<StartCommand>) : null;
     const transition = applyTransition(current.snapshot, command, (claim?.proof ?? proof) as ProofFor<C>), paths = current.packagePath ? lifecycleDocumentPaths(transition.event, current.packagePath) : [], compiled = compileTaskLifecycleWrite({ event: transition.event, snapshot: transition.snapshot, packagePath: current.packagePath, currentDocuments: paths.flatMap((path) => { const document = options.projection.readDocument(path).document; return document ? [document] : []; }) }), { event, plan } = compiled;
-    try { plannedPublication(plan, event, () => options.eventStore.append(compiled)); }
+    if (claim !== null) options.projection.reserveLease(claim.reserving, command.occurredAt); try { plannedPublication(plan, event, () => options.eventStore.append(compiled)); }
     catch (error) { if (claim !== null) releaseReservation(options.projection, claim.reserving); throw error; }
     if (claim !== null) try {
       const active = options.projection.activateLease(claim.reserving);
@@ -77,11 +77,11 @@ async function renewTaskLease(options: { readonly eventStore: EventStorePort; re
   options.projection.apply(event, plan); return changed;
 }
 
-function reserveClaim(projection: ProjectionPort, command: StartCommand, proof: TaskLifecycleServiceProof<StartCommand>): { readonly reserving: Lease; readonly active: Lease; readonly proof: ProofFor<StartCommand> } {
+function planClaim(projection: ProjectionPort, command: StartCommand, proof: TaskLifecycleServiceProof<StartCommand>): { readonly reserving: Lease; readonly active: Lease; readonly proof: ProofFor<StartCommand> } {
   const previous = projection.currentLease(command.taskId, command.occurredAt);
   if (previous?.phase === "active" || previous?.phase === "reserving") throw new TaskLifecycleOperationConflict("the current round already has an active execution or lease", "invalid_transition");
-  const reserving = projection.reserveLease({ schema: "lease/v1", taskId: command.taskId, executionId: command.executionId, actor: command.actor, source: command.source,
-    phase: "reserving", expiresAt: proof.reservation.expiresAt, ttlMs: proof.reservation.ttlMs, version: previous === null ? 0 : previous.version + 1 }, command.occurredAt);
+  const reserving: Lease = { schema: "lease/v1", taskId: command.taskId, executionId: command.executionId, actor: command.actor, source: command.source,
+    phase: "reserving", expiresAt: proof.reservation.expiresAt, ttlMs: proof.reservation.ttlMs, version: previous === null ? 0 : previous.version + 1 };
   const active = { ...reserving, phase: "active" as const, version: reserving.version + 1 }, previousHolder = previous === null ? null : holder(previous);
   const reason = previous === null ? "initial_claim" as const : sameActor(previous.actor, command.actor) ? "same_principal_reconnect" as const : "ttl_expired_takeover" as const;
   return { reserving, active, proof: { actorBinding: proof.actorBinding, reservation: { taskId: active.taskId, executionId: active.executionId,

@@ -83,11 +83,11 @@ export function lifecycleHarness() {
         type: "CreateReplayTask", taskId: "task-1", title: "Replay task", taskClass: "standard", graph: replayGraph, completionGateIds: [], presetSnapshotDigest: null
       }, opId), { taskIdUnique: true, actorBinding: owner });
     },
-    start: (executionId = `execution-${revision() + 1}`, opId = `op-start-${revision() + 1}`) => {
+    start: (executionId = `execution-${revision() + 1}`, opId = `op-start-${revision() + 1}`, expiresAt = "2026-08-11T01:00:00.000Z") => {
       const next = revision() + 1;
       return service.execute(command(owner, next, { type: "StartExecution", taskId: "task-1", executionId }, opId), {
         actorBinding: owner,
-        reservation: { taskId: "task-1", executionId, expiresAt: "2026-08-11T01:00:00.000Z", ttlMs: 1_800_000,
+        reservation: { taskId: "task-1", executionId, expiresAt, ttlMs: 1_800_000,
           previousHolder: null, reason: "initial_claim", version: 0 }
       });
     },
