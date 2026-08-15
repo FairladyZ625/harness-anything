@@ -15,7 +15,6 @@ export const integrationTestFileWeightsMs = Object.freeze({
   "tools/check-kernel-dead-exports.test.mjs": 1909.3,
   "tools/check-runtime-release-readiness.test.mjs": 1003.8,
   "tools/check-supply-chain.test.mjs": 8797.4,
-  "tools/graph-panorama.test.mjs": 455.6,
   "tools/quickstart-demo.test.mjs": 5488.9,
   "tools/relation-weathering-spike.test.mjs": 182.9
 });
