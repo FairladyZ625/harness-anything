@@ -11,6 +11,7 @@ import {
   classifyFactAnomaly,
 } from "../src/renderer/graph/territory.ts";
 import { UNPROJECTED_MODULE, resolveTaskModule, isModuleUnprojected } from "../src/renderer/graph/moduleAssignment.ts";
+import { defaultEntityStatusFilter, taskPassesStatusFilter, decisionPassesStateFilter } from "../src/renderer/graph/entityStatusFilter.ts";
 
 function task(overrides: Partial<TaskRow> = {}): TaskRow {
   return {
@@ -274,5 +275,46 @@ describe("fact anomaly partition (partitionFactsByAnomaly)", () => {
     const normalIdx = zones.findIndex((z) => z.zoneId.includes("fact:normal:"));
     expect(orphanIdx).toBeLessThan(normalIdx);
     expect(orphanIdx).toBeGreaterThanOrEqual(0);
+  });
+});
+
+/**
+ * 领地筛选覆盖面(archive 线 territoryLayout/territoryPartition 在领地上同样应用实体状态筛选)。
+ *
+ * rebuild 线把状态筛选下沉到**行**上:GraphView 先用这两个谓词过滤 tasks/decisions,
+ * 再交给 partitionForSkel。因此块计数与可见 chip 天然一致,不会出现「筛选徽章记了一笔、
+ * 领地画布纹丝不动」的空筛。本组测试锁的是这条组合链的可观察结果。
+ */
+describe("territory honours the entity-status filter through the row predicates", () => {
+  const rows = [
+    task({ taskId: "t_active", title: "Active", coordinationStatus: "active", module: "kernel" }),
+    task({ taskId: "t_done", title: "Done", coordinationStatus: "done", module: "kernel" }),
+  ];
+
+  function chipNavRefs(tasks: ReadonlyArray<TaskRow>): string[] {
+    const partition = partitionForSkel("task", tasks, [], [], [], [], []);
+    return [...partition.zones.flatMap((zone) => zone.chips), ...partition.landing].map((chip) => chip.navRef).sort();
+  }
+
+  it("drops the tasks whose status is filtered off", () => {
+    const filter = defaultEntityStatusFilter();
+    filter.taskStatuses.delete("done");
+    const visible = rows.filter((row) => taskPassesStatusFilter(row, filter));
+    expect(visible.map((row) => row.taskId)).toEqual(["t_active"]);
+    expect(chipNavRefs(visible)).not.toContain("task/t_done");
+  });
+
+  it("keeps every task under the default all-selected filter", () => {
+    const filter = defaultEntityStatusFilter();
+    expect(rows.filter((row) => taskPassesStatusFilter(row, filter))).toHaveLength(2);
+    expect(chipNavRefs(rows)).toEqual(["task/t_active", "task/t_done"]);
+  });
+
+  it("drops the decisions whose state is filtered off", () => {
+    const filter = defaultEntityStatusFilter();
+    filter.decisionStates.delete("retired");
+    const decisions = [dec(), { ...dec(), decisionId: "dec_2", state: "retired" } as DecisionRow];
+    const visible = decisions.filter((row) => decisionPassesStateFilter(row, filter));
+    expect(visible.map((row) => row.decisionId)).toEqual(["dec_1"]);
   });
 });

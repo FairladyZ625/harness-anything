@@ -2,12 +2,13 @@ import { useState } from "react";
 import { CaretDown, CaretUp } from "@phosphor-icons/react";
 import {
   AXIS_COLOR_VAR,
-  AXIS_LABEL,
+  axisLabel,
   FULFILLMENT_COLOR_VAR,
   FULFILLMENT_LABEL,
   KIND_LABEL,
 } from "../graph/constants.ts";
 import { legendSampleKinds, visualForKind } from "../graph/relationVisual.ts";
+import { t } from "../i18n/index.tsx";
 
 /**
  * 关系图图例(REQ-GUI-04 missing 项;移植老版 views/GraphLegend.tsx 词表)。
@@ -59,7 +60,7 @@ export function GraphLegend({ showFulfillment }: { showFulfillment: boolean }) {
             {legendSampleKinds().map(({ kind, axis }) => {
               const visual = visualForKind(kind);
               return (
-                <span key={kind} className="inline-flex items-center gap-1" title={`轴:${AXIS_LABEL[axis]}`}>
+                <span key={kind} className="inline-flex items-center gap-1" title={t("graph.axisTitle", { axis: axisLabel(axis) })}>
                   <svg width="22" height="8" aria-hidden className="shrink-0">
                     <line
                       x1="1"

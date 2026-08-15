@@ -23,5 +23,10 @@
   "graph.graphDrawer.edgeKindMessage": "This is a {kind} relation edge.",
   "graph.graphDrawer.chainCounts": "Chain: upstream {up} · downstream {down}",
   "graph.graphDrawer.outEdgesCount": "out-edges {count}",
-  "graph.graphDrawer.inEdgesCount": "in-edges {count}"
+  "graph.graphDrawer.inEdgesCount": "in-edges {count}",
+  "graph.axis.authority": "Authority",
+  "graph.axis.evidence": "Evidence",
+  "graph.axis.execution": "Execution",
+  "graph.axis.assoc": "Association",
+  "graph.axisTitle": "Axis: {axis}"
 }

@@ -184,6 +184,12 @@ function AppShell() {
     setRecentRefs((prev) => pushRecentRef(prev, ref));
     navigate({ focusedEntityRef: ref, view: "graph", selectedId: null, previewId: null });
   };
+  // 图内换焦点(双击 / 领地 chip / 抽屉设焦 / 最近访问列表自身 / 焦点前后退)同样计入最近访问,否则那条侧栏记不下在图里逛过的东西。
+  const focusEntityInWorkspace = (ref: string | null) => {
+    if (ref === null) { updateLocation({ focusedEntityRef: null }); return; }
+    setRecentRefs((prev) => pushRecentRef(prev, ref));
+    navigate({ focusedEntityRef: ref });
+  };
 
   // ⌘K 命令面板(REQ-GUI-01):跨实体搜索 + 快速跳转。纯前端派生,不消费写 IPC。
   const paletteEntries = useMemo(
@@ -453,9 +459,7 @@ function AppShell() {
                 coverageRows={coverageRows}
                 factAnchors={factAnchors}
                 onNavigateEntity={navigateToEntity}
-                onFocusEntityChange={(ref) =>
-                  ref === null ? updateLocation({ focusedEntityRef: null }) : navigate({ focusedEntityRef: ref })
-                }
+                onFocusEntityChange={focusEntityInWorkspace}
                 recentRefs={recentRefs}
                 entries={paletteEntries}
                 onOpenPalette={() => setPaletteOpen(true)}

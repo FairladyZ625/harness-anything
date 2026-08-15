@@ -37,6 +37,8 @@ import {
 import {
   defaultEntityStatusFilter,
   nodePassesEntityStatusFilter,
+  taskPassesStatusFilter,
+  decisionPassesStateFilter,
   type EntityStatusFilterState,
 } from "../graph/entityStatusFilter";
 import {
@@ -195,15 +197,16 @@ function GraphViewInner({
   );
 
   // ---- 领地布局 ----
-  // 筛选口径与 archive 线对齐:module/实体类型筛选同样作用于领地(此前只在聚光灯
-  // 生效,领地模式下筛选面板不渲染 = 覆盖面缺口)。单种类 skel 下 types 由 skel 独占。
+  // 筛选口径与 archive 线对齐:module/实体类型/实体状态筛选同样作用于领地。单种类 skel
+  // 下 types 由 skel 独占。状态筛选在**行**上生效(archive 是过滤已渲染节点):块计数因此
+  // 与可见 chip 一致,不会出现「徽章记了一笔、屏幕纹丝不动」的空筛。fact 不受状态筛选。
   const territoryTypes = useMemo(
     () => (skel === "task" || skel === "decision" || skel === "fact" ? new Set<string>([skel]) : filters.types),
     [skel, filters.types],
   );
   const territory = useMemo(() => {
     if (viewMode !== "territory") return null;
-    const taskVisible = (task: TaskRow) => filters.modules.has(task.module) && territoryTypes.has("task");
+    const taskVisible = (task: TaskRow) => filters.modules.has(task.module) && territoryTypes.has("task") && taskPassesStatusFilter(task, filters.entityStatus);
     const visibleTasks = tasks.filter(taskVisible);
     const moduleByTaskId = new Map(tasks.map((task) => [task.taskId, task.module] as const));
     // fact 跟随宿主 task 的 module 可见性;无宿主(未知/外部)不因 module 筛选隐藏。
@@ -211,13 +214,13 @@ function GraphViewInner({
     return partitionForSkel(
       skel,
       visibleTasks,
-      territoryTypes.has("decision") ? decisions : [],
+      territoryTypes.has("decision") ? decisions.filter((decision) => decisionPassesStateFilter(decision, filters.entityStatus)) : [],
       facts.filter(factVisible),
       factAnchors ?? [],
       relations,
       coverageRows ?? [],
     );
-  }, [viewMode, skel, tasks, decisions, facts, factAnchors, relations, coverageRows, filters.modules, territoryTypes]);
+  }, [viewMode, skel, tasks, decisions, facts, factAnchors, relations, coverageRows, filters.modules, filters.entityStatus, territoryTypes]);
 
   const toggleZone = useCallback((zoneId: string) => {
     setExpandedZones((prev) => {

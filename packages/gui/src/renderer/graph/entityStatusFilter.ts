@@ -106,11 +106,3 @@ export function decisionPassesStateFilter(
 ): boolean {
   return nodePassesEntityStatusFilter("decision", decision, filter);
 }
-
-export function edgeEndpointsVisible(
-  sourceId: string,
-  targetId: string,
-  visibleNodeIds: ReadonlySet<string>,
-): boolean {
-  return visibleNodeIds.has(sourceId) && visibleNodeIds.has(targetId);
-}
