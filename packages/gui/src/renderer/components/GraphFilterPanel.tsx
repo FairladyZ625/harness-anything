@@ -12,7 +12,7 @@ import {
 } from "@phosphor-icons/react";
 import {
   AXIS_COLOR_VAR,
-  AXIS_LABEL,
+  axisLabel,
   AXIS_ORDER,
   AXIS_SUBLABEL,
   KIND_LABEL,
@@ -261,7 +261,7 @@ export function GraphFilterPanel({
                     className="inline-block h-2.5 w-4 shrink-0 rounded-sm"
                     style={{ backgroundColor: color, opacity: active ? 1 : 0.4 }}
                   />
-                  <span className="font-medium">{AXIS_LABEL[axis]}</span>
+                  <span className="font-medium">{axisLabel(axis)}</span>
                   <span className="ml-auto truncate font-mono text-[11px] text-text-faint">
                     {AXIS_SUBLABEL[axis]}
                   </span>
@@ -292,7 +292,7 @@ export function GraphFilterPanel({
                 <div key={axis} className="flex flex-col gap-1">
                   <div className="flex items-center gap-1.5">
                     <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: AXIS_COLOR_VAR[axis] }} />
-                    <span className="font-mono text-[11px] uppercase text-text-faint">{AXIS_LABEL[axis]}</span>
+                    <span className="font-mono text-[11px] uppercase text-text-faint">{axisLabel(axis)}</span>
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {kinds.map((kind) => {
@@ -394,7 +394,7 @@ export function GraphFilterPanel({
           </div>
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-1.5">
-              <span className="font-mono text-[11px] uppercase text-text-faint">task 状态</span>
+              <span className="font-mono text-[11px] uppercase text-text-faint">{t("components.graphFilterPanel.taskStatus")}</span>
               <span className="ml-auto flex gap-1 normal-case tracking-normal">
                 <button onClick={() => setAllTaskStatuses(true)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">{t("components.graphFilterPanel.kindsAll")}</button>
                 <button onClick={() => setAllTaskStatuses(false)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">{t("components.graphFilterPanel.kindsNone")}</button>
@@ -434,7 +434,7 @@ export function GraphFilterPanel({
           </div>
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-1.5">
-              <span className="font-mono text-[11px] uppercase text-text-faint">decision 状态</span>
+              <span className="font-mono text-[11px] uppercase text-text-faint">{t("components.graphFilterPanel.decisionState")}</span>
               <span className="ml-auto flex gap-1 normal-case tracking-normal">
                 <button onClick={() => setAllDecisionStates(true)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">{t("components.graphFilterPanel.kindsAll")}</button>
                 <button onClick={() => setAllDecisionStates(false)} className="rounded px-1 py-0.5 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text">{t("components.graphFilterPanel.kindsNone")}</button>

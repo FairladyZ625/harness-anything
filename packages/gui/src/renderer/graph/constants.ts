@@ -1,4 +1,5 @@
 import type { RelationKind } from "../model/types";
+import { t } from "../i18n/index.tsx";
 
 // 图节点尺寸
 export const NODE_W = 150;
@@ -26,12 +27,8 @@ export const AXIS_ORDER: ReadonlyArray<SemanticAxis> = [
   "assoc",
 ];
 
-export const AXIS_LABEL: Record<SemanticAxis, string> = {
-  authority: "权威",
-  evidence: "证据",
-  execution: "执行",
-  assoc: "关联",
-};
+/** 轴名是给人读的散文,走 i18n(取值时求值,语言切换即时生效);下面的 SUBLABEL 是关系类型字面量,不翻译。 */
+export const axisLabel = (axis: SemanticAxis): string => t(`graph.axis.${axis}`);
 
 export const AXIS_SUBLABEL: Record<SemanticAxis, string> = {
   authority: "refines · supersedes · derives · supports",
