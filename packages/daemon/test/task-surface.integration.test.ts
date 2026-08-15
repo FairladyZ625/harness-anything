@@ -87,6 +87,23 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+test("a lapsed lease stays readable through task show and releasable through task release", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-lease-exit-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined; let clock = "2026-08-15T02:00:00.000Z";
+  try {
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("task-lease-exit"), rootDir: canonicalRoot(rootDir), ownerId: "task-lease-exit", now: () => clock }); const binding = { actor, source: "local" as const };
+    assert.equal((await cell.run({ kind: "task-create", taskId: "task_lease", title: "Lease exit" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-start", taskId: "task_lease", executionId: "exe_lapse", ttlMs: 60_000 }, binding)).outcome, "applied");
+    clock = "2026-08-15T03:00:00.000Z";
+    const summary = String((await cell.run({ kind: "task-show", taskId: "task_lease" }, binding) as Record<string, unknown>).summary);
+    assert.match(summary, /\nlease: [^\n]*executionId=exe_lapse[^\n]*phase=orphaned/u, summary);
+    assert.match(summary, /\ntask: [^\n]*status=active[^\n]*/u, summary);
+    assert.match(summary, /executions:\n[^\n]*\texe_lapse\t/u, summary);
+    const released = await cell.run({ kind: "task-release", taskId: "task_lease", reason: "The holder never came back" }, binding);
+    assert.equal(released.outcome, "applied", JSON.stringify(released));
+    assert.equal(evidence(await cell.run({ kind: "task-show", taskId: "task_lease" }, binding)).lease, null);
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
 function evidence(receipt: Awaited<ReturnType<Awaited<ReturnType<typeof openRepoCell>>["run"]>>): Record<string, unknown> { return JSON.parse(String(receipt.evidence)) as Record<string, unknown>; }
 
 function initRepo(rootDir: string): void { git(rootDir, "init", "-q"); git(rootDir, "config", "user.name", "Task Surface Test"); git(rootDir, "config", "user.email", "task-surface@example.invalid"); git(rootDir, "commit", "--allow-empty", "-qm", "base"); }
