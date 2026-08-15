@@ -1,0 +1,4 @@
+[
+  { "path": "packages/gui/src/renderer/graph/territoryProgress.ts", "module": "gui" },
+  { "path": "packages/gui/src/renderer/graph/territory.ts", "module": "gui" }
+]
