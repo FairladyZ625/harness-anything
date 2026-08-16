@@ -8,6 +8,7 @@ import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import { normalizeRelativeDocumentPath } from "./portable-path.ts";
 
 export { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
+export { setting, settingBlockValue } from "./harness-settings.ts";
 export {
   assertNoPortablePathCollisions,
   findPortablePathCollisions,

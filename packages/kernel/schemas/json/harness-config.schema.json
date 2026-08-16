@@ -34,6 +34,13 @@
             "enabled": { "type": "boolean" }
           },
           "additionalProperties": false
+        },
+        "tasks": {
+          "type": "object",
+          "properties": {
+            "wipLimit": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

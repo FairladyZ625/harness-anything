@@ -17,13 +17,16 @@ export type { ReviewVerdict } from "./review.ts";
 export { isPriorityTier, isTaskWorkKind, priorityTiers, taskWorkKinds } from "./task-metadata.ts";
 export type { PriorityTier, TaskWorkKind } from "./task-metadata.ts";
 
-export { explainStatusTransition, isDomainStatus, isTerminalStatus } from "./lifecycle-status.ts"; export type { CanonicalStatus, StatusCoarseClass, StatusTransitionExplanation, StatusTransitionRejectionReason } from "./lifecycle-status.ts";
+export { explainStatusTransition, isDomainStatus, isTerminalStatus } from "./lifecycle-status.ts"; export type { CanonicalStatus, DomainStatus, StatusCoarseClass, StatusTransitionExplanation, StatusTransitionRejectionReason } from "./lifecycle-status.ts";
 
 export { immutableBindingFields, validateLifecycleBindingInvariant } from "./lifecycle-binding.ts";
 export type { LifecycleBinding, BindingInvariantResult, ImmutableBindingField } from "./lifecycle-binding.ts";
 
 export { closeoutReadinesses, isCloseoutReadiness } from "./closeout-readiness.ts";
 export type { CloseoutReadiness } from "./closeout-readiness.ts";
+
+export { DEFAULT_TASK_WIP_LIMIT, admitTaskExecutionWip, hasCloseoutEvidence, parseTaskWipLimit, taskWipOccupyingStatuses } from "./task-wip-policy.ts";
+export type { TaskWipSnapshotEntryV1 } from "./task-wip-policy.ts";
 
 export { findEntityRefs, parseEntityRef } from "./entity-ref.ts";
 export type { EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";
