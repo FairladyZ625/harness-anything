@@ -634,10 +634,14 @@ is at <your commit> but expected <last event commit>
 Two things about that message are worth knowing in advance, because they cost a
 real operator most of an hour:
 
-- **Restarting the daemon does not fix it.** It re-reads the ref but not the
-  expectation. The only recovery is `git reset` back to the expected commit —
-  the sha the message calls `expected` — and that sha appears nowhere on disk to
-  search for.
+- **Recovery takes both a `git reset` and a daemon restart, in that order, and
+  neither alone is enough.** Reset back to the expected commit — the sha the
+  message calls `expected`, which appears nowhere on disk to search for — then
+  restart the daemon. `publication_indeterminate` is a fatal cell error: it
+  latches the RepoCell and replays the cached failure on every later write, so
+  after a reset alone you will still see the identical message and conclude the
+  reset failed. It did not; the daemon is answering from a latch. Restarting
+  without the reset fails too, because the ref really is wrong.
 - **`reconcile` names no command.** There is no `ha reconcile`; the word
   describes an outcome, not a path. The recovery is the `git reset` above.
 
@@ -747,13 +751,18 @@ success and failure paths.
   ledger is entirely loose objects: 218,213 of them and an 18 GB `.git` in one
   real migration. `git gc` is a required step, not an optimization.
 - **`git commit` inside the ledger wedges every write** with
-  `publication_indeterminate`, restarting the daemon does not clear it, and the
-  hint's word "reconcile" corresponds to no command. Recovery is `git reset` to
-  the sha the message calls `expected`. See step 9.
-- **`decision list` returns at most 100 rows** and does not say so — no
-  pagination flag exists. A migrated ledger with more decisions than that is
-  complete on disk while the CLI shows a truncated view.
-- **Most read commands print only `<command>: applied`.** The rows are in the
-  `--json` receipt's `evidence` field, as a JSON **string** needing a second
-  parse. `doc sync --dry-run` is affected too, which makes the dry-run's whole
-  purpose invisible unless you read the JSON.
+  `publication_indeterminate`, and the hint's word "reconcile" corresponds to no
+  command. Recovery is `git reset` to the sha the message calls `expected`
+  **followed by a daemon restart** — a reset alone leaves the cell latched and
+  reproduces the identical error. See step 9.
+- **The first reads after an import can legitimately report nothing.** The
+  projection catches up 64 events per read call with no background driver, and
+  the scan walks `events/<opId>.json` in filename order while the reducer needs
+  contiguous revisions — so a large ledger stays at a near-zero watermark for
+  most of the catch-up and then completes all at once. A read in that state
+  reports `outcome: "pending"` with `status`, `watermark` and `sourceRevision`
+  in its evidence, and a `nextAction` naming the two revisions. **That is the
+  import working, not failing.** Keep issuing read commands — they are what
+  drives it. Measured on a real ledger: ~193 ms per event, so 21k events is
+  about an hour. If instead you see `status: "ready"` with a plausible small row
+  count, that is a real answer.
