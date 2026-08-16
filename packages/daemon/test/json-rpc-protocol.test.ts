@@ -9,7 +9,7 @@ import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { eventObjectTarget, makeTaskEventStore, makeTaskProjection, readDaemonRegistry, REPLAY_TASK_GRAPH, serializeCanonicalEvent, serializeEventHead, sha256Text, type AgentRuntimeEventV1, type FrozenWritePlan, type TaskEventV1 } from "../../kernel/src/index.ts";
 import { projectDecisionReadiness, reviewDigest } from "../../kernel/src/index.ts";
-import { actionForDaemonMethod, canonicalRoot, commandClassForAction, daemonGuiActionMethods, parseDaemonRpcParams, validateDaemonDecisionList, validateDaemonGuiCommandReceipt, validateDaemonRelationGraph, validateDaemonTaskSnapshotList, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { actionForDaemonMethod, canonicalRoot, commandClassForAction, daemonGuiActionMethods, daemonProtocolCommands, parseDaemonRpcParams, validateDaemonDecisionList, validateDaemonGuiCommandReceipt, validateDaemonRelationGraph, validateDaemonTaskSnapshotList, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
@@ -552,6 +552,21 @@ test("decision readiness survives the wire when the canonical Git cut is unavail
 
   const verdictWithoutBasis = { ...noCut[0]!, appliesToDrift: { ...noCut[0]!.appliesToDrift, state: "clear" as const } };
   assert.deepEqual(validateDaemonDecisionList(decisionList(verdictWithoutBasis)), ["daemon decision list is invalid"]);
+});
+
+// A flag can be declared on the init command, parsed by the CLI, and honored by the bootstrap
+// implementation while the wire shape still rejects it — the CLI and the RPC params are two
+// separate declarations of the same request. This walks the declared flags so the next one added
+// to init cannot repeat that.
+test("every declared ha init flag survives the daemon.repo.bootstrap wire params", () => {
+  const command = daemonProtocolCommands.find((candidate) => candidate.id === "repo-bootstrap");
+  assert.ok(command, "the init command must stay declared as repo-bootstrap");
+  const base = { rootDir: "/tmp/workspace", repoId: "alpha", personId: "owner", displayName: "Owner" };
+  for (const input of command.inputs) {
+    const field = (input as { readonly field?: string }).field ?? input.name.slice(2).replace(/-([a-z])/gu, (_match, letter: string) => letter.toUpperCase());
+    const parsed = parseDaemonRpcParams("daemon.repo.bootstrap", { ...base, [field]: input.kind === "boolean" ? true : "value" });
+    assert.equal(parsed.ok, true, `${input.name} reaches the daemon as params.${field}, which the wire shape rejects`);
+  }
 });
 
 function decisionList(readiness: unknown): Record<string, unknown> {

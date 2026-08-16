@@ -149,7 +149,7 @@ export function daemonProtocolError(command: string, code: string, hint: string)
 export const daemonProtocolMethods = Object.freeze([
   { id: "protocol.hello", phase: "W3", method: "protocol.hello", requiresRepo: false, params: shape({ protocolVersion: "number" }) },
   { id: "daemon.status", phase: "W3", method: "daemon.status", requiresRepo: false, params: shape({}) },
-  { id: "daemon.repo.bootstrap", phase: "W3", method: "daemon.repo.bootstrap", requiresRepo: false, params: shape({ rootDir: "string", repoId: "string", personId: "string", displayName: "string", name: "string?", addNpmScripts: "boolean?" }) },
+  { id: "daemon.repo.bootstrap", phase: "W3", method: "daemon.repo.bootstrap", requiresRepo: false, params: shape({ rootDir: "string", repoId: "string", personId: "string", displayName: "string", name: "string?", addNpmScripts: "boolean?", configureOnly: "boolean?" }) },
   { id: "daemon.repo.register", phase: "W3", method: "daemon.repo.register", requiresRepo: false, params: shape({ rootDir: "string", repoId: "string" }) },
   { id: "daemon.repo.unregister", phase: "W3", method: "daemon.repo.unregister", requiresRepo: false, params: shape({ repoId: "string" }) },
   { id: "repo.task.run", phase: "W3", method: "repo.task.run", requiresRepo: true, params: shape({ repo: shape({ repoId: "string" }), payload: shape({ action: shape({ kind: "string" }, true) }) }) }
