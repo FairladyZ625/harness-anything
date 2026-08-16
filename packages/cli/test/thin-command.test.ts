@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { daemonProtocolCommands, thinCliCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { resolveCliVersion } from "../src/index.ts";
+import { main, resolveCliVersion } from "../src/index.ts";
 import { deriveCliCapabilities, parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
@@ -19,6 +19,17 @@ test("top-level help renders a derived domain directory and domain help filters 
     for (const command of thinCliCommands.filter(({ usage }) => usage.split(" ")[1] === domain)) assert.match(domainHelp, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   }
   assert.match(help, /capabilities \[--json\].*--version.*ha daemon start --service/su);
+});
+
+test("an unknown command domain reports unknown with the available set instead of an empty help page", async () => {
+  const logs: string[] = [], errors: string[] = [], log = console.log, error = console.error;
+  console.log = (value: unknown) => { logs.push(String(value)); }; console.error = (value: unknown) => { errors.push(String(value)); };
+  const exits: number[] = [];
+  try { exits.push(await main(["bananas", "--help"]), await main(["bananas"]), await main(["migrate", "--help"])); } finally { console.log = log; console.error = error; }
+  assert.deepEqual(exits, [2, 2, 0]);
+  assert.equal(errors.length, 2); assert.equal(errors[0], errors[1]);
+  for (const line of errors) { assert.match(line, /code=unsupported_command/u); assert.match(line, /bananas is not a command domain/u); for (const domain of Object.keys(deriveCliCapabilities())) assert.match(line, new RegExp(`\\b${domain}\\b`, "u")); }
+  assert.equal(logs.length, 1); assert.match(logs[0] ?? "", /Commands for migrate:\n {2}ha migrate import/u);
 });
 
 test("capabilities is an exact-set projection of the command contract", () => {

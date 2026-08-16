@@ -149,6 +149,23 @@ test("migration replays archived executions and UTF-8 task package documents thr
   } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }
 });
 
+test("re-importing a source the destination already holds names the completed import instead of leaking event bytes", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-twice-")), source = path.join(scratch, "legacy"), destination = path.join(scratch, "new"); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    coverageCompleteFixture(source); initRepo(destination); cell = await openRepoCell({ repoId: workspaceId("migration-twice-target"), rootDir: canonicalRoot(destination), ownerId: "migration-daemon", now: () => "2026-06-01T00:00:00.000Z" });
+    const first = await cell.run({ kind: "migrate-import", sourceRoot: source }, { actor, source: "local" }) as Record<string, unknown>;
+    assert.equal(first.exitCode, 0, JSON.stringify(first)); const importId = /migrations\/(import_[0-9a-f]+)\//u.exec(String(first.idMapPath))?.[1];
+    const second = await cell.run({ kind: "migrate-import", sourceRoot: source }, { actor, source: "local" }) as Record<string, unknown>, hint = String(second.nextAction ?? "");
+    assert.equal(second.outcome, "rejected"); assert.equal(second.code, "migration_already_imported");
+    assert.match(hint, new RegExp(`^Import ${importId} from \\S+/legacy already completed into \\S+/new\\.`, "u"));
+    assert.match(hint, /ha init --repo-id <repo-id> --person-id <person-id> --display-name <display-name>, then ha --root <new-destination> migrate import --source /u);
+    assert.doesNotMatch(hint, /event bytes|opId /u);
+    assert.equal(cell.status().state, "attached", "a repeated import must not latch the workspace");
+    const dry = await cell.run({ kind: "migrate-import", sourceRoot: source, dryRun: true }, { actor, source: "local" }) as Record<string, unknown>;
+    assert.equal(dry.code, "migration_already_imported", "a dry run must not predict an import that cannot apply");
+  } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }
+});
+
 test("decision replay keeps source prose and legacy frontmatter readable beside the native projection", async () => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-decision-content-")), source = path.join(scratch, "legacy"), destination = path.join(scratch, "new"); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {

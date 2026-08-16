@@ -2,12 +2,14 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { deriveCliCapabilities, firstCliCommand, helpDomain, parseThinCommand, renderThinCapabilities, renderThinHelp } from "./cli/thin-command.ts";
+import { cliCommandDomains, deriveCliCapabilities, firstCliCommand, helpDomain, parseThinCommand, renderThinCapabilities, renderThinHelp, unsupportedCommandHint } from "./cli/thin-command.ts";
 import { daemonAutostartFailureCode, runCommandThroughDaemon } from "./daemon/client.ts";
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
   const command = firstCliCommand(argv); if (argv.includes("--version") || argv.includes("-v") || command === "version") return emitMeta("version", argv.includes("--json")); if (command === "capabilities") return emitMeta("capabilities", argv.includes("--json"));
-  if (argv.length === 0 || argv.includes("--help")) { const rows = await taskCreateHelpCatalog(argv), domain = helpDomain(argv); console.log(rows.length === 0 && domain === undefined ? renderThinHelp() : renderThinHelp(rows, domain)); return 0; }
+  if (argv.length === 0 || argv.includes("--help")) { const domain = helpDomain(argv);
+    if (domain !== undefined && !cliCommandDomains().includes(domain)) { emit(cliFailure("help", "unsupported_command", unsupportedCommandHint([domain])), argv.includes("--json")); return 2; }
+    const rows = await taskCreateHelpCatalog(argv); console.log(rows.length === 0 && domain === undefined ? renderThinHelp() : renderThinHelp(rows, domain)); return 0; }
   if (argv.includes("daemon")) { const { runDaemonControl } = await import("./daemon/control.ts"); return runDaemonControl(argv); }
   const parsed = parseThinCommand(argv);
   if (!parsed.ok) { emit(cliFailure("parse", parsed.code, parsed.nextAction), parsed.json); return 2; }
