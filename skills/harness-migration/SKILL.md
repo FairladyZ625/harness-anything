@@ -12,13 +12,32 @@ current-format repository. The source is never written to.
 a throwaway directory and runs everything from there. A Harness installation
 already on the machine — including a running daemon — is left untouched.
 
+## Before anything: confirm this is the right document
+
+This skill is versioned in the `harness-anything` repository as
+`skills/harness-migration/SKILL.md` on **`rebuild/main`**, and that branch is the
+authority. **Read it from a git ref, never from whatever working tree happens to
+be at hand** — a checkout parked on another branch may not carry this file at
+all, or may carry an older revision, and neither difference is visible once the
+text is in front of you.
+
+```bash
+git -C <any-checkout-of-harness-anything> show origin/rebuild/main:skills/harness-migration/SKILL.md
+```
+
+A machine may also carry a separately maintained skill with a similar name —
+`harness-ledger-migration` is the one that exists today, and it is an older,
+**different** document rather than an alias. Following it instead is a silent
+wrong turn. The front matter settles it: this skill's `name:` is exactly
+`harness-migration`.
+
 ## The one rule that makes this work
 
 **Every command runs against an isolated daemon user root.** Export it once and
 keep it exported for the whole session:
 
 ```bash
-export HARNESS_MIGRATION_WORK="$(mktemp -d "${TMPDIR:-/tmp}"/ha-migration.XXXXXX)"
+export HARNESS_MIGRATION_WORK="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/ha-migration.XXXXXX")" && pwd -P)"
 export HARNESS_DAEMON_USER_ROOT="$HARNESS_MIGRATION_WORK/daemon-user-root"
 mkdir -p "$HARNESS_DAEMON_USER_ROOT"
 ```
@@ -41,11 +60,53 @@ Do **not** stop or uninstall the user's existing Harness to work around it:
 isolation is sufficient, and stopping their daemon interrupts work you are not
 responsible for restoring.
 
-The quoting around `mktemp` is deliberate. On macOS `$TMPDIR` already ends in a
-slash, so the more natural `"${TMPDIR:-/tmp}/ha-migration.XXXXXX"` yields a path
-with a doubled slash in it. Harmless, but it appears in every path the migration
-prints from here on, and it makes the receipts hard to read against the
-filesystem.
+The `cd … && pwd -P` wrapper around `mktemp` is what keeps the path readable. On
+macOS `$TMPDIR` already ends in a slash, so the template produces a doubled
+slash, and `/tmp` is itself a symlink into `/private/tmp`. Either way the raw
+path turns up in every receipt from here on and does not match what you see on
+the filesystem. `pwd -P` resolves both, once, at the start. Quoting is not
+involved: `"${TMPDIR:-/tmp}"/ha-migration.XXXXXX` and
+`"${TMPDIR:-/tmp}/ha-migration.XXXXXX"` are the same string to the shell, and
+neither one avoids the doubled slash.
+
+### If your shell does not persist between commands
+
+The steps below accumulate exported variables and, in step 1, a shell function.
+An agent that gets a **fresh shell per tool call keeps none of them** — the
+second command runs with `HARNESS_DAEMON_USER_ROOT` unset and connects to the
+machine's own daemon, which is exactly the failure this section exists to
+prevent. This is the root cause of the downstream traps the later steps describe
+individually (zsh word-splitting in step 1, `nohup` not seeing the function in
+step 8, `env` resolving `ha` from `PATH` in step 9).
+
+Write the session state to a file and source it at the start of every later
+command:
+
+```bash
+export HARNESS_MIGRATION_ENV="$HARNESS_MIGRATION_WORK/env.sh"
+cat > "$HARNESS_MIGRATION_ENV" <<EOF
+export HARNESS_MIGRATION_WORK='$HARNESS_MIGRATION_WORK'
+export HARNESS_MIGRATION_ENV='$HARNESS_MIGRATION_ENV'
+export HARNESS_DAEMON_USER_ROOT='$HARNESS_DAEMON_USER_ROOT'
+EOF
+# every later command:  . "$HARNESS_MIGRATION_ENV" && <command>
+```
+
+Append each new `export` to that file as the steps below introduce it —
+`HA_ENTRY`, `ARCHIVE_SOURCE`, `WORK_SOURCE`, `TARGET_REPO`, `DRY_RUN`,
+`LEDGER_ARCHIVE`, `SOURCE_SHA_BEFORE`. Record `$HARNESS_MIGRATION_ENV` somewhere
+you will still have it later; it is the one path you must not lose.
+
+**Keep this file inside `$HARNESS_MIGRATION_WORK`, and if you write anything
+anywhere else, put the repository name in its filename.** `mktemp` already makes
+the work directory unique, but agents habitually drop scratch files into a
+shared session scratchpad instead — and `env.sh`, `dry-run.txt` and `apply.log`
+are the same name in every migration. When two migrations run in parallel, a
+sibling overwriting your env file is not hypothetical: it has happened, and it
+presents as your own variables quietly turning into someone else's, several
+steps after the damage. Either keep everything under
+`$HARNESS_MIGRATION_WORK`, or name it `env-<repo>.sh`, `dry-run-<repo>.txt`,
+`apply-<repo>.log`.
 
 ## 1. Fetch the current source
 
@@ -84,10 +145,20 @@ silently fails in zsh, which does not word-split unquoted parameters: zsh passes
 `node …/index.ts` as a **single** argument and the receipt comes back
 `unsupported_command`. A function behaves identically in both shells.
 
+If your shell does not persist between commands, append both the variable and
+the function to the env file from the top of this skill, and source it every
+time:
+
+```bash
+{ echo "export HA_ENTRY='$HA_ENTRY'"
+  echo 'ha() { node "$HA_ENTRY" "$@"; }'; } >> "$HARNESS_MIGRATION_ENV"
+```
+
 Two consequences worth knowing now rather than at step 8:
 
-- The function lives in this shell only. Anything that runs in a **detached**
-  process — see step 8 — must spell out `node "$HA_ENTRY" …` instead.
+- The function lives in the shell that defined it. Anything that runs in a
+  **detached** process — see step 8 — must spell out `node "$HA_ENTRY" …`
+  instead, and sourcing the env file does not change that.
 - `env -u HARNESS_DAEMON_USER_ROOT ha …`, which step 9 uses on purpose, does
   **not** see the function. `env` execs a program, so it resolves `ha` from
   `PATH` — the machine's own installation. That is exactly what step 9 wants,
@@ -144,8 +215,11 @@ an unrelated mirror fetch landed mid-run and the source looked modified when it
 was not. **The archive is not filtered**: a backup must carry the ledger's own
 git history, and only the digest needs the exclusion.
 
-On a large ledger the digest takes tens of seconds and prints nothing while it
-runs — that is normal, do not kill it. If it runs for many minutes you are
+The digest and the `tar` print nothing while they run. On a **small ledger they
+are effectively instant** — about a second each for a 963-event, 257 MB `harness/`
+— so if you are staring at a blank prompt for more than a few seconds, look at
+the size of what you are digesting rather than waiting. Only a genuinely large
+ledger takes tens of seconds. Either way, if it runs for many minutes you are
 digesting more than `harness/`; check the `-C` argument. Nothing may write to
 `$ARCHIVE_SOURCE/harness/` while the migration runs, or the closing digest will
 differ for a reason that has nothing to do with the importer.
@@ -159,8 +233,11 @@ that stop — say so rather than pretending you did. Record the archive path and
 its size, state plainly in your report that the off-machine copy was never
 confirmed, and continue. The rest of the migration writes only to
 `$HARNESS_MIGRATION_WORK`, so nothing before step 9 can lose the source; step 9
-is where the missing confirmation actually matters, and step 9 is not yours to
-execute anyway.
+is where the missing confirmation actually matters. **Only the confirmation is
+waived, not step 9.** Unless your dispatch says otherwise, landing the ledger and
+running the six landing checks are yours to do; carry the unconfirmed backup
+forward as a stated caveat in your report instead of treating it as permission to
+stop at step 8.
 
 Every repair below targets `$WORK_SOURCE`. `$ARCHIVE_SOURCE` is read-only and
 its `harness/` digest is re-checked at the end.
@@ -259,12 +336,29 @@ So present **one table** and ask for **one confirmation**:
 Say plainly: this is the default, and they can override any row to `source` if
 they want the old file kept verbatim. One answer covers the whole table.
 
-**`people.yaml` is the exception and must be asked.** It is the person roster
-and it cannot be merged — roster merging is not yet available — so it is a
-genuine either/or where both answers lose something. `destination` leaves the
-migrated history referencing people absent from the new roster; `source`
-replaces the roster the new repository was initialized with. Keep it as its own
-question inside the same message; do not fold it into the default.
+**`people.yaml` is the exception and must be asked.** It is the person roster,
+and unlike every other row it is a genuine either/or where both answers lose
+something. `destination` leaves the migrated history referencing people absent
+from the new roster; `source` replaces the roster the new repository was
+initialized with. Keep it as its own question inside the same message; do not
+fold it into the default.
+
+**Do not merge it, and do not hand-edit it either.** There is no write road for
+this file. `doc sync` refuses it — the path is registered to `people-registry`,
+so every submission comes back `blocked: path is owned by people-registry` — and
+the owning command surface does not exist: `ha people --help` prints a heading
+and **zero commands**, and `ha capabilities` has no `people` domain at all. A
+hand-merged roster therefore can never be committed, and it leaves the ledger's
+own working tree permanently dirty, which fails the landing check in step 9 and
+the "Done when" list below. An operator who tries this loses the time twice:
+once merging, once reverting.
+
+So when the two rosters genuinely conflict: **pick one side with the flag**,
+write the losing side's entries into your hand-over report so the information is
+not lost, and tell the user they remain recoverable verbatim from the step 2
+archive (`tar -xOf "$LEDGER_ARCHIVE" harness/people.yaml`). Reconciling the two
+rosters is a task for the user, later, through whatever road exists by then —
+not part of this migration.
 
 **Do the merge edits after the final apply in step 8, not now.** Step 8
 recreates the destination from scratch, which would discard anything edited
@@ -371,28 +465,55 @@ ha migrate import --source "$WORK_SOURCE" "${RESOLVE_ARGS[@]}" --dry-run; echo "
 Apply only when that exits zero, all five rows show `Old = Expected = New` with
 `Skipped = 0`, authored coverage has no `required`, and reconciliation passes.
 
-**Run apply detached, and poll it.** On a large ledger it takes over an hour —
-a 21,000-event ledger took 1h22m — and it prints **nothing at all** until it
-finishes. There is no progress output to read, so a foreground run is
-indistinguishable from a hang, and any caller with a command timeout will kill
-it partway. That has already happened once: an agent harness terminated a real
-apply at around the 60-minute mark, and a half-imported target is not
-recoverable — step 8 has to start over from `ha init`.
+**Run apply detached, and poll it.** It prints **nothing at all** until it
+finishes, so a foreground run is indistinguishable from a hang and any caller
+with a command timeout will kill it partway. That has already happened once: an
+agent harness terminated a real apply at around the 60-minute mark, and a
+half-imported target is not recoverable — step 8 has to start over from
+`ha init`.
+
+**Budget from the event count, not from the worst case.** Apply costs roughly
+200 ms per event and scales with the count, not with the byte size: a
+963-event / 257 MB ledger finished in **211 seconds**, while a 21,000-event
+ledger took **1h22m**. Multiply before you plan around it; treating every
+migration as an overnight job over-provisions a small one by more than an order
+of magnitude.
+
+**Have the detached run record its own exit code.** A background process that
+has already been reaped cannot be asked for its status from another shell — and
+"apply exited zero" is a line in the "Done when" list, so an unrecoverable exit
+code means the migration cannot be signed off. Write it to a file as the process
+ends:
 
 ```bash
+cat > "$HARNESS_MIGRATION_WORK/apply.sh" <<'EOF'
+#!/bin/sh
+node "$HA_ENTRY" migrate import --source "$WORK_SOURCE" "$@"
+echo "exit=$?" > "$HARNESS_MIGRATION_WORK/apply-exit.txt"
+EOF
+chmod +x "$HARNESS_MIGRATION_WORK/apply.sh"
+
 cd "$TARGET_REPO"
-nohup node "$HA_ENTRY" migrate import --source "$WORK_SOURCE" "${RESOLVE_ARGS[@]}" \
+nohup "$HARNESS_MIGRATION_WORK/apply.sh" "${RESOLVE_ARGS[@]}" \
   > "$HARNESS_MIGRATION_WORK/apply.log" 2>&1 &
 echo "apply pid=$!"
 ```
 
-Note `node "$HA_ENTRY"` rather than `ha`: the shell function from step 1 does
-not exist inside `nohup`.
+The wrapper is a file rather than an inline `sh -c` because `RESOLVE_ARGS` is a
+shell array and does not survive being flattened into a quoted string. It reads
+`HA_ENTRY`, `WORK_SOURCE`, `HARNESS_MIGRATION_WORK` and `HARNESS_DAEMON_USER_ROOT`
+from the environment, so they must be **exported** — which they are, if you
+followed the export blocks above. Note also `node "$HA_ENTRY"` rather than `ha`:
+the shell function from step 1 does not exist inside `nohup`.
 
-Poll until the process is gone, then read the exit line out of the log:
+Poll for the exit file, not for the pid — the file is what survives:
 
 ```bash
-ps -p <pid> >/dev/null && echo "still running" || tail -20 "$HARNESS_MIGRATION_WORK/apply.log"
+if [ -f "$HARNESS_MIGRATION_WORK/apply-exit.txt" ]; then
+  cat "$HARNESS_MIGRATION_WORK/apply-exit.txt"; tail -20 "$HARNESS_MIGRATION_WORK/apply.log"
+else
+  echo "still running"
+fi
 ```
 
 While it runs, `du -sh "$TARGET_REPO/harness"` and the commit count in
@@ -425,9 +546,15 @@ git -C "$TARGET_REPO/harness" fsck --no-progress
 ```
 
 That run took the same ledger from 18 GB to a 181 MB `.git` in a single pack,
-with the commit count unchanged and `fsck` clean. Do this before step 9 — it is
-the difference between handing the user a 19 GB directory and a 862 MB one, and
-after landing the daemon holds the repository.
+with the commit count unchanged and `fsck` clean. The effect holds at small
+scale with the same shape and a far smaller bill: a 963-event ledger went from
+**104 MB / 10,332 loose objects / 0 packs to 19 MB / 0 loose / 1 pack in about
+7 seconds**, again with the commit count unchanged and `fsck` clean. Expect
+seconds on a small ledger, not the long wait the 18 GB figure suggests.
+
+Do this before step 9 either way — it is the difference between handing the user
+a 19 GB directory and a 862 MB one, and after landing the daemon holds the
+repository.
 
 Now execute the merge column recorded in step 5. `$HARNESS_MIGRATION_WORK/preview-repository`
 still holds the previous destination, and `$WORK_SOURCE` still holds the old
@@ -467,44 +594,75 @@ generation** — the whole reason for this migration is that the machine's
 installed `ha` belongs to the previous one, and a previous-generation daemon
 cannot serve a current-format ledger.
 
-Check what the machine actually has:
+Check what the machine actually has — **do not assume it has nothing.** A
+current-generation `ha` is often already installed, built from this repository
+rather than from a registry:
 
 ```bash
-env -u HARNESS_DAEMON_USER_ROOT command ha --version
+env -u HARNESS_DAEMON_USER_ROOT command ha --version; echo "exit=$?"
 ```
 
-A current-generation CLI prints a version. A previous-generation one rejects the
-flag outright:
+A current-generation CLI prints a version and exits `0`. A previous-generation
+one rejects the flag outright and exits nonzero:
 
 ```
 {"ok":false,"command":"parse","error":{"code":"unknown_option",
- "hint":"Unknown option '--version' for 'ha'. …"}}
+ "hint":"Unknown option '--version' for 'ha'. Did you mean '--json'?"}}
 ```
 
-If it rejects, **the installed CLI cannot serve what you are about to land**, and
-there is no package to upgrade to: `@harness-anything/cli` is not on npm
-(`npm view` returns 404), and a source checkout has no `dist/`, so the `bin`
-entry points at a file that does not exist. The working answer today is to keep
-a source checkout permanently and call it by path:
+**Route on whether the flag is accepted, never on the number it prints.** The
+version string is `0.1.0` and carries no generation marker, so it is the same on
+a current-generation global install and on the source checkout you have been
+running all along — seeing `0.1.0` twice tells you nothing about which build is
+which. Acceptance of `--version` is the whole signal; the number is noise.
+
+**If the flag is accepted, use that installation** and skip to the `ha_serving`
+block below. Running the migration checkout would also work, but handing the user
+a command they already have beats handing them a checkout to maintain.
+
+**If it rejects**, the installed CLI cannot serve what you are about to land, and
+there is nothing to `npm install`: `@harness-anything/cli` is not published
+(`npm view` returns 404). Two workable answers, in order of preference:
 
 ```bash
+# preferred — build the checkout and install it on PATH, so `ha` just works
+cd "$HARNESS_MIGRATION_WORK/ha-src/packages/cli" && npm run build && npm install -g .
+command ha --version
+
+# fallback — keep a durable checkout and invoke it by path
 export HA_HOME="$HOME/.harness-cli-src"          # anywhere durable; not $HARNESS_MIGRATION_WORK
 cp -R "$HARNESS_MIGRATION_WORK/ha-src" "$HA_HOME"
 export HA_ENTRY="$HA_HOME/packages/cli/src/index.ts"
 node "$HA_ENTRY" --version
 ```
 
-Then hand the user that invocation, and say plainly that it replaces their
-existing `ha` for this ledger. **This is a real rough edge, not a preference** —
-until the CLI ships as an installable artifact, a migrated ledger is served by a
-checkout the user has to keep. Tell them so rather than leaving them to discover
-it the first time `ha task list` fails.
+The package's `bin` points into `dist/`, which a fresh clone does not contain —
+that is why the global install needs an explicit `npm run build` first, and why
+the skill has been running the TypeScript entry point directly up to now. A
+build is all that is missing; it is not an unavailable artifact.
+
+Whichever branch you took, **name the result once and use it for the rest of
+step 9**, so the serving CLI and the throwaway migration entry point never get
+confused for each other:
+
+```bash
+ha_serving() { command ha "$@"; }           # the machine's ha is current-generation
+# ha_serving() { node "$HA_ENTRY" "$@"; }   # ...or the durable checkout instead
+ha_serving --version
+```
+
+Hand the user that same invocation — the exact command that now drives this
+ledger — and say plainly whether it replaces their existing `ha`. Do not leave
+them to discover it the first time `ha task list` fails.
 
 Note also that `env -u HARNESS_DAEMON_USER_ROOT ha …` below resolves `ha` from
 `PATH`, which skips any shell function or alias the user has defined around it.
 If theirs injects flags — `--actor`, a default `--root` — those are silently
-dropped. Check `type ha` before relying on it, and use `command ha` explicitly
-when you mean the binary.
+dropped. This is not hypothetical: a real machine defines `ha` as a function
+wrapping `command ha --actor human:<person>`, so commands run through `env` are
+attributed to a different actor than the same commands typed by hand. Run
+`type ha` before relying on either form, and write `command ha` when you mean
+the binary.
 
 The procedure below is the same for both placements. Only `LEDGER_HOME` differs.
 
@@ -528,7 +686,7 @@ directory you are about to move. Release it first, with `HARNESS_DAEMON_USER_ROO
 **unset** so the commands reach that daemon rather than the migration one:
 
 ```bash
-env -u HARNESS_DAEMON_USER_ROOT ha daemon repo unregister --repo-id <existing-repo-id>
+env -u HARNESS_DAEMON_USER_ROOT command ha daemon repo unregister --repo-id <existing-repo-id>
 ```
 
 The daemon keeps running and keeps serving its other repositories; only this
@@ -551,14 +709,29 @@ committing anything. `ha init` does this on a fresh project, but registering an
 existing ledger does not, so do it here:
 
 ```bash
-git check-ignore -q harness || printf '/harness/\n/.harness/\n' >> .gitignore
+for rule in '/harness/' '/.harness/' '/harness.pre-migration-*/'; do
+  grep -qxF "$rule" .gitignore 2>/dev/null || printf '%s\n' "$rule" >> .gitignore
+done
 git rm -r -q --cached --ignore-unmatch -- harness .harness
 ```
 
-The `git rm --cached` is not redundant. `.gitignore` has no effect on paths the
-index already tracks, so a project that had committed any part of the old
-`harness/` keeps tracking it — and the ledger is private while the project may
-well be public.
+**The third rule is load-bearing, and so is checking the rules one at a time.**
+The `mv` above leaves a `harness.pre-migration-<timestamp>/` directory sitting in
+the project root, and `/harness/` does not match it — it matches only a directory
+named exactly `harness`. Without its own rule that directory is untracked and
+visible, so the `git add -A` below sweeps it into the project's index: at best a
+39 MB ledger copy committed into the project, at worst — since it carries its own
+`.git` — a broken gitlink to an embedded repository. It also makes the project
+tree permanently non-empty, which means the `git status --porcelain` landing
+check further down **can never pass**. Checking each rule individually matters
+for the same reason: a single `git check-ignore -q harness` guard short-circuits
+on projects that already ignored `harness/`, and those are precisely the projects
+that have an old ledger to move aside.
+
+The `git rm --cached` is not redundant either. `.gitignore` has no effect on
+paths the index already tracks, so a project that had committed any part of the
+old `harness/` keeps tracking it — and the ledger is private while the project
+may well be public.
 
 Then attach the landed ledger to the daemon that will actually serve it, and
 commit the project side. **Start that daemon first** — `register` does not
@@ -570,17 +743,16 @@ error code=daemon_unavailable hint=connect ENOENT /var/folders/…/daemon-501-u-
 
 ```bash
 export HARNESS_DAEMON_USER_ROOT="$HOME/.harness"    # the serving root, not the migration one
-node "$HA_ENTRY" daemon start --service
-node "$HA_ENTRY" daemon repo register --repo-id <repo-id> --root "$LEDGER_HOME"
+ha_serving daemon start --service
+ha_serving daemon repo register --repo-id <repo-id> --root "$LEDGER_HOME"
 git add -A && git commit -m "adopt migrated ledger"    # local placement only
 ```
 
-If the machine's installed CLI *is* current-generation, `env -u
-HARNESS_DAEMON_USER_ROOT ha daemon repo register …` does the same thing and is
-shorter. Use whichever matches what you found at the top of this step; do not
-register through the throwaway migration root either way — its registry dies
-with the work directory, and the command would succeed while leaving the user
-with a ledger nothing serves.
+`ha_serving` is the function defined at the top of this step; the point is that
+the register must not go through the **throwaway migration root** — its registry
+dies with the work directory, and the command would succeed while leaving the
+user with a ledger nothing serves. Overriding `HARNESS_DAEMON_USER_ROOT` to the
+serving root, as the first line does, is what prevents that.
 
 **The first attach is slow.** The daemon builds its projection over every event
 in the ledger — for a 21,000-event ledger that took several minutes with no
@@ -601,8 +773,8 @@ test -d harness/.git                                   && echo "ledger has its o
 git check-ignore -q harness                            && echo "project ignores the ledger"
 test -z "$(git ls-files harness/ .harness/)"           && echo "project tracks no ledger file"
 git --no-optional-locks status --porcelain             # project tree — expected: empty
-git --no-optional-locks -C harness status --porcelain  # LEDGER tree — expected: empty
-node "$HA_ENTRY" task create --title "landing check" --kind chore
+git --no-optional-locks -C harness status --porcelain  # LEDGER tree — see below
+ha_serving task create --title "landing check" --kind chore
 ```
 
 The last one is the only proof that the ledger is writable where it now sits,
@@ -618,7 +790,40 @@ holding an empty `walls: []` array and seventeen governance walls existing only
 in the unstaged file. One `git checkout` would have erased them silently.
 
 If that tree is dirty, do not reach for `git commit` — read the next paragraph
-first, then carry the content forward by whatever CLI path owns those files.
+first. Carry the content forward like this instead:
+
+```bash
+git --no-optional-locks -C harness status --porcelain      # the real list
+ha_serving doc sync --submit --path <one-dirty-path>       # per prose file
+```
+
+**Take the list from `git`, not from `doc status`.** A bare `ha doc status` or
+`ha doc sync --dry-run` does not enumerate every dirty authored file: with no
+`--path`, the scanner keeps a dirty path only when it is prose (`.md` / `.txt`)
+**or** its route is blocked, so a dirty file that is neither — any `.json` or
+`.yaml` outside the route registry, `governance/walls/walls.json` being the case
+that actually bit someone — is filtered out and never appears. The operator reads
+an empty report, concludes there is nothing to carry over, and hands over a dirty
+tree. The filter is one expression in
+`packages/daemon/src/doc-sync-candidate-scanner.ts:13`.
+
+Then sort the list by what each file can actually do:
+
+- **Prose (`.md` / `.txt`), route allowed** — `doc sync --submit --path` accepts
+  it. This is the road; naming the path explicitly is fine and expected.
+- **Non-prose, route allowed** (`walls.json` and friends) — **there is no road.**
+  Naming it does not help: the scanner blocks it a few lines later with `path is
+  not canonical prose`. `--path` converts silence into a stated reason, which is
+  worth doing so you know what you are looking at, but it does not make the file
+  submittable. Leave it in the working tree, name it and its contents in the
+  hand-over, and do **not** commit it — see the next paragraph for why that
+  cure is worse than the disease.
+- **Route blocked** (`people.yaml`, `harness.yaml`, anything under `events/` or
+  `objects/`, task-package files) — the block reason names the owning command.
+  For `people.yaml` that command does not exist yet; step 5 says what to do.
+
+So keep the step 5 merge column to prose files wherever you have the choice. A
+non-prose file in that column is content the migration cannot land.
 
 **Never run `git commit` inside the ledger directory.** The ledger's HEAD must
 be exactly the last event commit; the daemon derives that expectation from
@@ -651,7 +856,8 @@ by explicit pathspec and leaves unrelated working-tree changes alone.
 Then tell them:
 
 - their existing Harness installation was not modified;
-- **which CLI now serves this ledger, spelled out as a command they can run** — if the machine's `ha` was previous-generation, that is the durable checkout from the top of this step, and their old `ha` will not work against this ledger;
+- **which CLI now serves this ledger, spelled out as a command they can run** — whatever the probe at the top of this step settled on: their existing `ha` if it accepted `--version`, otherwise the newly installed one or the durable checkout, in which case say that their old `ha` will not work against this ledger;
+- **any dirty file left in the ledger tree that has no write road** — name each one and what it contains, because a later `git checkout` there would erase it silently;
 - **never `git commit` inside the ledger directory**, and what to do if they already have (the `git reset` above);
 - the ledger is a git repository of its own, and the project must never track it;
 - the migration daemon lives under the migration `HARNESS_DAEMON_USER_ROOT` and can be removed with the work directory;
@@ -661,8 +867,22 @@ Then tell them:
 ### Report the old runtime directory — do not delete it
 
 The source repository has a `.harness/` directory beside the `harness/` ledger.
-It is git-ignored runtime state, the importer never read it, and none of it was
-migrated. On a long-lived repository it can be very large: previous generations
+It is git-ignored runtime state and the importer never read it.
+
+**It is no longer purely old state once you have landed a local placement.**
+`daemon repo register --root "$LEDGER_HOME"` puts the new runtime directory at
+`$LEDGER_HOME/.harness` — and in the default local placement `$LEDGER_HOME` *is*
+`$ARCHIVE_SOURCE`, so from the moment you registered, the current generation's
+live `cache/` sits in the same directory as the previous generation's dead
+`write-journal/`, `task-holders/` and `script-runs/`. **Never describe this
+directory as safe to remove wholesale, and never hand the user an `rm -rf` of
+it**; that command would delete the working state of the ledger you just landed.
+The narrow `staging`-only reclaim below stays safe under both placements because
+it names paths the current generation does not use — that is why it names them
+exactly. Under a central placement the two generations do live apart, but the
+distinction is not worth relying on: the narrow command is correct either way.
+
+On a long-lived repository the directory can be very large: previous generations
 wrote a **full copy of the ledger** into a `staging/` directory on every script
 or preset run and never removed them, so `.harness/` can reach hundreds of
 gigabytes while the ledger itself is a fraction of that.
@@ -718,7 +938,9 @@ success and failure paths.
 - `source-before` equals `source-after`.
 - The ledger has its own `.git` at its landed location, the project tracks no
   ledger file, and `task create` succeeded there **through the serving daemon**.
-- The ledger's own working tree is clean — no authored content left uncommitted.
+- The ledger's own working tree holds nothing that had a write road and was not
+  taken through it. Every prose file has gone through `doc sync --submit`; any
+  file left dirty is one the CLI cannot accept, and it is named in the hand-over.
 - The ledger's git repository has been packed (`git gc`) and `fsck` is clean.
 - The user has been handed the exact command that now drives this ledger.
 - The superseded `harness.pre-migration-*` directory still exists, and the user
@@ -739,30 +961,50 @@ success and failure paths.
   placement that is `<parent-of-project>/<project-name>.harness-anything-writer.lock`.
   It is outside the project, so it does not dirty the working tree, but it is
   visible next to the project directory while the daemon holds the ledger.
-- **There is no installable current-generation CLI.** `@harness-anything/cli` is
-  not published (`npm view` → 404) and a source checkout has no `dist/`, so the
-  package's own `bin` entry points at a missing file. A migrated ledger is
-  therefore served by a source checkout the user has to keep around and invoke
-  by path. Step 9 says how; there is no better answer available today.
+- **`@harness-anything/cli` is not on a registry** — `npm view` returns 404 — so
+  there is nothing to `npm install` by name. It is still installable: a fresh
+  clone has no `dist/`, but `npm run build` produces one and `npm install -g .`
+  puts a working `ha` on `PATH`. Many machines already have exactly that. Step 9
+  probes for it before assuming otherwise.
+- **The CLI version string does not identify a generation.** Both the current
+  source checkout and a current-generation global install print `0.1.0`. What
+  discriminates is whether `--version` is *accepted* at all: the previous
+  generation rejects it with `unknown_option` and a nonzero exit. Never compare
+  version numbers to decide which build you are talking to.
+- **`ha people` has no commands.** `ha people --help` prints a heading and an
+  empty list, and `ha capabilities` has no `people` domain, so `harness/people.yaml`
+  has no write road at all — `doc sync` refuses it as owned by `people-registry`,
+  and nothing else claims it. Roster conflicts are resolved by picking a side in
+  step 5, not by merging.
+- **`doc status` and `doc sync --dry-run` under-report dirty files.** With no
+  `--path` they list only prose files and route-blocked paths, so a dirty
+  non-prose authored file is silently absent. Take the list from
+  `git -C harness status --porcelain` instead. Naming such a file with `--path`
+  surfaces a `path is not canonical prose` block rather than submitting it —
+  there is no road for non-prose authored content today.
 - **`migrate import` prints nothing until it finishes** — no progress, no
-  heartbeat, over an hour on a large ledger. Run it detached (step 8). A
-  half-imported target cannot be repaired, only discarded.
+  heartbeat. Run it detached (step 8), and have the wrapper record its exit code
+  to a file: once the process is reaped, the exit status cannot be recovered from
+  another shell, and "apply exited zero" is a sign-off condition. A half-imported
+  target cannot be repaired, only discarded.
 - **The importer never packs.** It commits once per event, so the delivered
   ledger is entirely loose objects: 218,213 of them and an 18 GB `.git` in one
-  real migration. `git gc` is a required step, not an optimization.
+  real migration; 10,332 and 104 MB in a small one. `git gc` is a required step,
+  not an optimization.
 - **`git commit` inside the ledger wedges every write** with
   `publication_indeterminate`, and the hint's word "reconcile" corresponds to no
   command. Recovery is `git reset` to the sha the message calls `expected`
   **followed by a daemon restart** — a reset alone leaves the cell latched and
   reproduces the identical error. See step 9.
-- **The first reads after an import can legitimately report nothing.** The
-  projection catches up 64 events per read call with no background driver, and
-  the scan walks `events/<opId>.json` in filename order while the reducer needs
-  contiguous revisions — so a large ledger stays at a near-zero watermark for
-  most of the catch-up and then completes all at once. A read in that state
-  reports `outcome: "pending"` with `status`, `watermark` and `sourceRevision`
-  in its evidence, and a `nextAction` naming the two revisions. **That is the
-  import working, not failing.** Keep issuing read commands — they are what
-  drives it. Measured on a real ledger: ~193 ms per event, so 21k events is
-  about an hour. If instead you see `status: "ready"` with a plausible small row
-  count, that is a real answer.
+- **The expected first read after an import is `status: "ready"` with a
+  plausible row count.** Two real migrations of 695 and 963 events both answered
+  immediately; treat a normal answer as normal and move on. The exception is
+  large ledgers: the projection catches up 64 events per read call with no
+  background driver, and the scan walks `events/<opId>.json` in filename order
+  while the reducer needs contiguous revisions, so a large ledger can sit at a
+  near-zero watermark for most of the catch-up and then complete all at once. A
+  read in that state reports `outcome: "pending"` with `status`, `watermark` and
+  `sourceRevision` in its evidence, and a `nextAction` naming the two revisions.
+  **That is the import working, not failing** — keep issuing read commands, they
+  are what drives it. Measured at ~193 ms per event, so 21k events is about an
+  hour. Do not wait for a `pending` that is not going to come.
