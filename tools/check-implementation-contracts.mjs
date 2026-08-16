@@ -220,6 +220,12 @@ if (hasStoreImplementation) {
   const publisher = readFileSync(path.join(root, "packages/kernel/src/store/task-event-store.ts"), "utf8");
   for (const forbidden of ["update-index", "checkout", "reset", "restore"]) if (publisher.includes(forbidden)) record(`object/ref event publisher must not expose Git ${forbidden}`);
   if (!daemonTest.includes("without a duplicate publication")) record("RepoCell crash recovery must prove publish-once behavior");
+  // A cell that latches on how long recovery took makes availability a function of machine
+  // speed: the same committed recovery attaches on an idle laptop and latches the workspace
+  // unavailable on a loaded CI runner. Only the recovery status may decide availability.
+  const cellText = readFileSync(path.join(root, "packages/daemon/src/repo-cell.ts"), "utf8");
+  const availability = cellText.slice(cellText.indexOf('state: RepoCellStatus["state"] ='), cellText.indexOf("let lastError"));
+  if (/elapsedMs|Date\.now|performance\.now/u.test(availability)) record("RepoCell availability must depend on recovery status alone, never on elapsed time");
 }
 
 if (hasLocalLifecycleImplementation) {
