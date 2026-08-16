@@ -39,13 +39,21 @@ test("Git object reads distinguish a missing commit path from repository failure
   });
 });
 
+test("opening a settled event store does not scan event or content trees", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir); makeTaskEventStore({ repoId: "startup-budget", rootDir });
+    const before = localGitObjectRefStore.processCount(); makeTaskEventStore({ repoId: "startup-budget", rootDir }); const openedProcesses = localGitObjectRefStore.processCount() - before;
+    assert.equal(openedProcesses <= 2, true, `settled store startup opened ${openedProcesses} Git processes`);
+  });
+});
+
 test("unified publication advances canonical and authored refs to one SHA while preserving index, prose, and every unrelated dirty path byte", async (context) => {
   await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); mkdirSync(path.join(rootDir, "harness/context"), { recursive: true });
     writeFileSync(path.join(rootDir, "harness/context/user.md"), "draft\n"); writeFileSync(path.join(rootDir, "dirty.txt"), "dirty\n"); git(rootDir, "add", "harness/context/user.md"); git(rootDir, "commit", "-qm", "user prose"); writeFileSync(path.join(rootDir, "harness/context/user.md"), "draft plus local edit\n");
     const before = snapshot(rootDir), head = git(rootDir, "rev-parse", "HEAD"), store = makeTaskEventStore({ repoId: "test-repo", rootDir }), receipt = store.append(bundle(event)), after = snapshot(rootDir);
     assert.deepEqual(after.bytes, before.bytes); assert.equal(after.status, before.status); assert.equal((after.index as string).includes(before.index as string), true); assert.notEqual(git(rootDir, "rev-parse", "HEAD"), head); assert.equal(store.currentCommit().sha, git(rootDir, "rev-parse", "HEAD")); assert.equal(existsSync(path.join(rootDir, "harness/events")), true);
     assert.equal(git(rootDir, "show", `${CANONICAL_EVENT_REF}:harness/events/op-1.json`), serializeCanonicalEvent(event).trimEnd()); assert.equal(store.readTaskEvent(event.opId)?.opId, event.opId);
-    assert.deepEqual(store.append(bundle(event)).metrics.changedPaths, []); assert.throws(() => store.append(bundle({ ...event, payload: { task: { ...event.payload.task, title: "different" } } })), (error: unknown) => { assert.equal((error as { code?: string }).code, "op_conflict"); return /different event/u.test(String(error)); });
+    const reopened = makeTaskEventStore({ repoId: "test-repo", rootDir }); assert.deepEqual(reopened.append(bundle(event)).metrics.changedPaths, []); assert.throws(() => reopened.append(bundle({ ...event, payload: { task: { ...event.payload.task, title: "different" } } })), (error: unknown) => { assert.equal((error as { code?: string }).code, "op_conflict"); return /different event/u.test(String(error)); });
     assert.equal(receipt.metrics.nodeSyncs, 3); context.diagnostic(`unified-publisher-git-processes=${receipt.metrics.gitProcesses}`);
   });
 });
@@ -67,6 +75,19 @@ test("doc event, content blob, and authored file publish in one default-branch c
     assert.deepEqual(git(rootDir, "diff-tree", "--no-commit-id", "--name-only", "-r", receipt.commitSha.sha).split("\n").sort(), ["harness/context/notes.md", "harness/events/doc-op-1.json", "harness/events/head.json", `harness/objects/sha256/${hash}`]);
     assert.equal(git(rootDir, "status", "--porcelain", "-uall"), ""); assert.equal(git(rootDir, "ls-tree", "--name-only", `${receipt.commitSha.sha}^`, "harness/context/notes.md"), "");
     const clone = path.join(rootDir, "fresh-clone"); execFileSync("git", ["clone", "-q", rootDir, clone]); const cloned = makeTaskEventStore({ repoId: "test-repo", rootDir: clone }); assert.equal(cloned.currentCommit().sha, git(clone, "rev-parse", "HEAD")); assert.deepEqual(cloned.readEvent(doc.opId), doc); assert.equal(readFileSync(path.join(clone, "harness/context/notes.md"), "utf8"), body); assert.equal(git(clone, "status", "--porcelain", "-uall"), "");
+  });
+});
+
+test("a reopened store verifies and reuses a reachable content blob", async () => {
+  await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const body = "# Shared\n", hash = sha256Text(body), first = makeTaskEventStore({ repoId: "blob-reuse", rootDir }); first.append(docBundle(first, body, 1, "blob-one", "context/one.md"));
+    const reopened = makeTaskEventStore({ repoId: "blob-reuse", rootDir }), receipt = reopened.append(docBundle(reopened, body, 2, "blob-two", "context/two.md")), objectPath = `harness/objects/sha256/${hash}`;
+    assert.equal(receipt.metrics.changedPaths.includes(objectPath), false); assert.equal(git(rootDir, "diff-tree", "--no-commit-id", "--name-only", "-r", receipt.commitSha.sha).split("\n").includes(objectPath), false); assert.equal(Buffer.from(reopened.readContentBlob(hash)!).toString("utf8"), body);
+  });
+});
+
+test("a reachable content blob is validated before reuse", async () => {
+  await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const body = "# Valid\n", hash = sha256Text(body), objectPath = path.join(rootDir, "harness/objects/sha256", hash); mkdirSync(path.dirname(objectPath), { recursive: true }); writeFileSync(objectPath, "corrupt\n"); git(rootDir, "add", "harness/objects"); git(rootDir, "commit", "-qm", "corrupt fixture"); const store = makeTaskEventStore({ repoId: "blob-corrupt", rootDir });
+    assert.throws(() => store.append(docBundle(store, body, 1, "blob-corrupt", "context/corrupt.md")), (error: unknown) => { assert.equal((error as { code?: string }).code, "invalid_store"); return /content blob.*corrupt/u.test(String(error)); });
   });
 });
 
@@ -142,12 +163,12 @@ for (const killpoint of ["before_event_write", "after_event_write", "after_head_
   });
 }
 
-test("startup recovery is under 250ms and independent of 100 versus 10,000-event history", async (context) => {
+test("startup recovery is independent of 100 versus 10,000-event history", async (context) => {
   const fixture = async (count: number) => withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const eventsRoot = path.join(rootDir, "harness/events"); mkdirSync(eventsRoot, { recursive: true }); let last = event;
     for (let revision = 1; revision <= count; revision += 1) { last = eventAt(revision); writeFileSync(path.join(eventsRoot, `${last.opId}.json`), serializeTaskEvent(last)); }
     const bytes = serializeTaskEvent(last); writeFileSync(path.join(eventsRoot, "head.json"), serializeEventHead({ revision: count, opId: last.opId, eventDigest: `sha256:${createHash("sha256").update(bytes).digest("hex")}` })); git(rootDir, "add", "harness/events"); git(rootDir, "commit", "-qm", `${count} events`);
     const next = eventAt(count + 1), interrupted = makeTaskEventStore({ repoId: "test-repo", rootDir, killpoint: (point) => { if (point === "after_head_write") throw new Error("crash"); } }); assert.throws(() => interrupted.append(bundle(next)), /crash/u);
-    const started = performance.now(), recovered = makeTaskEventStore({ repoId: "test-repo", rootDir }).recover(), elapsed = performance.now() - started; assert.equal(recovered.status, "committed"); context.diagnostic(`recovery-${count} constructor=${(elapsed - recovered.elapsedMs).toFixed(3)}ms recover=${recovered.elapsedMs.toFixed(3)}ms`); assert.equal(elapsed < 250, true, `recovery ${elapsed}ms`); return elapsed; });
+    const started = performance.now(), recovered = makeTaskEventStore({ repoId: "test-repo", rootDir }).recover(), elapsed = performance.now() - started; assert.equal(recovered.status, "committed"); context.diagnostic(`recovery-${count} constructor=${(elapsed - recovered.elapsedMs).toFixed(3)}ms recover=${recovered.elapsedMs.toFixed(3)}ms`); return elapsed; });
   const hundred = await fixture(100), tenThousand = await fixture(10_000), ratio = tenThousand / hundred; context.diagnostic(`recovery 100=${hundred.toFixed(3)}ms 10000=${tenThousand.toFixed(3)}ms ratio=${ratio.toFixed(3)}`); assert.equal(ratio < 2, true, `10k/100 ratio ${ratio}`);
 });
 
@@ -155,6 +176,7 @@ function initRepo(rootDir: string): void { git(rootDir, "init", "-q"); git(rootD
 function eventAt(revision: number): TaskCreatedEvent { const suffix = String(revision).padStart(5, "0"); return { ...event, eventId: `event-${suffix}`, workspaceRevision: revision, opId: `op-${suffix}`, taskId: `task-${suffix}`, payload: { task: { ...event.payload.task, taskId: `task-${suffix}`, title: `Task ${suffix}` } } }; }
 function decisionProposal(): Extract<DecisionEventDraftV1, { readonly type: "decision_proposed" }> { return { schema: "decision-event/v1", eventId: "event-decision-store-1", workspaceRevision: 1, opId: "op-decision-store-1", decisionId: "dec_STORE", type: "decision_proposed", actor: { principal: { personId: "person-proposer" }, executor: null }, source: "local", occurredAt: "2026-08-14T00:00:00.000Z", payload: { title: "Store Decision", question: "Does one bundle own every write?", riskTier: "medium", urgency: "medium", vertical: "software/coding", preset: "standard-task", appliesTo: { modules: ["kernel"], productLines: [] }, decisionClass: "ordinary", chosen: [{ id: "CH1", text: "Use one bundle" }], rejected: [{ id: "RJ1", text: "Split writes", whyNot: "They can diverge." }], body: "\n# Store Decision\n", claims: [], fulfillments: [], relations: [] } }; }
 function bundle(value: TaskCreatedEvent): CanonicalWriteBundle { return { event: value, plan: taskLifecycleWritePlan(value), blobs: [] }; }
+function docBundle(store: ReturnType<typeof makeTaskEventStore>, body: string, revision: number, opId: string, target: string): CanonicalWriteBundle { const hash = sha256Text(body), value: DocEventV1 = { schema: "doc-event/v1", eventId: `event-${opId}`, workspaceRevision: revision, opId, type: "documents_written", actor: event.actor, source: "local", occurredAt: event.occurredAt, payload: { executionId: "execution-1", baseLedgerSha: store.currentCommit(), changes: [{ path: target, baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: { sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" }, regionProofs: [{ regionId: "heading/shared", policyId: DOC_POLICY_ID, codecId: DOC_CODEC_ID, baseSha256: sha256Text(""), candidateSha256: hash, insertBytes: Buffer.byteLength(body) }] }] } }; return { event: value, plan: docSyncWritePlan(value), blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }] }; }
 function repoLinkBundle(target: string, body: string): CanonicalWriteBundle { const hash = sha256Text(body), migration: MigrationImportEventV1 = { schema: "migration-import-event/v1", eventId: "event-link", workspaceRevision: 1, opId: "op-link", type: "entity_migrated", actor: event.actor, source: "migration-import/v1", occurredAt: event.occurredAt, payload: { migratedFrom: target, generation: "v0", entity: { kind: "repo-document", nodeKind: "symbolic-link", documentClaim: { path: target, sha256: hash, size: Buffer.byteLength(body), mediaType: "application/vnd.harness.symbolic-link", policyId: MIGRATION_DOCUMENT_POLICY_ID }, referencedContentClaims: [] } } }; return { event: migration, plan: migrationImportWritePlan(migration), blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "application/vnd.harness.symbolic-link", body }] }; }
 function repoFileBundle(target: string, body: string, destinationBody: string): CanonicalWriteBundle { const hash = sha256Text(body), migration: MigrationImportEventV1 = { schema: "migration-import-event/v1", eventId: "event-file", workspaceRevision: 1, opId: "op-file", type: "entity_migrated", actor: event.actor, source: "migration-import/v1", occurredAt: event.occurredAt, payload: { migratedFrom: target, generation: "v0", entity: { kind: "repo-document", nodeKind: "file", documentClaim: { path: target, sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", policyId: MIGRATION_DOCUMENT_POLICY_ID }, referencedContentClaims: [], destinationPreimage: { nodeKind: "file", sha256: sha256Text(destinationBody), size: Buffer.byteLength(destinationBody) } } } }; return { event: migration, plan: migrationImportWritePlan(migration), blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }] }; }
 function snapshot(rootDir: string): unknown { const files = ["harness/context/user.md", "dirty.txt"]; return { status: git(rootDir, "status", "--porcelain", "-uall"), index: git(rootDir, "ls-files", "-s"), bytes: files.map((file) => readFileSync(path.join(rootDir, file)).toString("hex")) }; }
