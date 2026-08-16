@@ -118,9 +118,6 @@ export function evaluateLineBudget({
     if (actual > ceiling) {
       errors.push(`${moduleName}: actual ${actual} exceeds ceiling ${ceiling}; reduce production lines to ${ceiling} or add a verified line-budget decision receipt and update the ceiling`);
     }
-    if (actual < before.counts[moduleName] && ceiling !== actual) {
-      errors.push(`${moduleName}: production lines fell from ${before.counts[moduleName]} to ${actual}; lower the ceiling to ${actual} in the same change`);
-    }
     if (baseCeilings !== null && ceiling > baseCeilings[moduleName] && !hasBudgetReceipt(receipts, moduleName, ceiling, now)) {
       errors.push(`${moduleName}: ceiling rose from ${baseCeilings[moduleName]} to ${ceiling} without a valid receipt scoped to module:${moduleName} with limit >= ${ceiling}`);
     }

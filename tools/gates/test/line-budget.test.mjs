@@ -37,15 +37,19 @@ test("G32 rejects production lines above the ceiling", () => {
   assert.match(result.errors.join("\n"), /actual 3 exceeds ceiling 2/u);
 });
 
-test("G32 captures line reductions in the same change", () => {
+// Deleting production code must not tighten the budget. The old rule forced the
+// ceiling down to the new actual on any reduction, which is why every module sat
+// at exactly 100% before dec_407E904F6938FA9FD304D3E34E: each refactor pinned the
+// ceiling back to whatever the code happened to measure. Headroom that a
+// refactor can evaporate is not headroom, so the assertion runs the other way now.
+test("G32 leaves the ceiling alone when production lines fall", () => {
   const { rootDir, base } = fixtureRepo();
   writeRepoFile(rootDir, "packages/kernel/src/index.ts", "one\n");
-  const stale = evaluateLineBudget({ rootDir, base });
-  assert.equal(stale.ok, false);
-  assert.match(stale.errors.join("\n"), /lower the ceiling to 1/u);
+  const reduced = evaluateLineBudget({ rootDir, base });
+  assert.deepEqual({ ok: reduced.ok, actual: reduced.actual.kernel, ceiling: reduced.ceilings.kernel }, { ok: true, actual: 1, ceiling: 2 });
+  // Lowering it deliberately stays available -- it is just no longer compulsory.
   writeRepoFile(rootDir, "tools/gates/line-budgets.json", budgetBody(1));
-  const ratcheted = evaluateLineBudget({ rootDir, base });
-  assert.deepEqual({ ok: ratcheted.ok, actual: ratcheted.actual.kernel, ceiling: ratcheted.ceilings.kernel }, { ok: true, actual: 1, ceiling: 1 });
+  assert.equal(evaluateLineBudget({ rootDir, base }).ok, true);
 });
 
 test("G32 accepts a ceiling increase only with a scoped decision receipt", () => {
@@ -116,8 +120,8 @@ test("every committed line-budget receipt verifies, and the raised ceilings are 
     assert.deepEqual(verifyReceipt(receipt, { now }).errors, [], filePath);
     assert.ok(MODULES.includes(receipt.scope.replace(/^module:/u, "")), `${filePath}: scope names an unknown module`);
   }
-  // A receipt may outlive the ceiling it was minted for -- the ratchet only ever
-  // falls -- so the reverse direction is the one worth asserting: every ceiling
+  // A receipt may outlive the ceiling it was minted for -- a ceiling can still be
+  // lowered deliberately -- so the reverse direction is the one worth asserting: every ceiling
   // that a receipt was needed for still has one that reaches it. The module list
   // is derived from what is committed rather than named here, so a module whose
   // receipt is minted below its ceiling fails instead of going unchecked.
