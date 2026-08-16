@@ -18,18 +18,14 @@ test("rewrite CI runs the integration tier on every PR and scopes baseline retir
   const integrationBlock = workflow.slice(workflow.indexOf("  integration-shard:"), workflow.indexOf("  boundaries:"));
   assert.doesNotMatch(integrationBlock, /base_ref/u);
 
+  // The rebuild lane once excluded eight boundary gates. Seven were repaired and
+  // reopened; the exclusion list is a ratchet, so it is asserted exactly rather
+  // than by membership — re-excluding a gate has to be a deliberate edit here.
   const rebuildBoundaryCommand = workflow.split(/\r?\n/u)
-    .find((line) => line.includes("--workflow-job boundaries") && line.includes("check-cli-structure"));
-  assert.ok(rebuildBoundaryCommand, "rebuild boundary command must explicitly retire replaced baseline checks");
-  for (const gateId of [
-    "check-import-boundaries",
-    "check-write-road-registry",
-    "check-duplicate-definitions",
-    "check-integration-test-shards",
-    "check-mergify-queue-contexts",
-    "check-github-required-contexts",
-    "check-legacy-intake-readiness"
-  ]) assert.match(rebuildBoundaryCommand, new RegExp(`(?:^|,)${gateId}(?:,|$)`, "u"));
+    .find((line) => line.includes("--workflow-job boundaries") && line.includes("startsWith") === false && line.includes("--exclude") && line.includes("check-duplicate-definitions"));
+  assert.ok(rebuildBoundaryCommand, "rebuild boundary command must declare its remaining exclusions");
+  const excluded = /--exclude\s+(\S+)/u.exec(rebuildBoundaryCommand)?.[1].split(",");
+  assert.deepEqual(excluded, ["mergify-queue-metadata-edit-noop", "check-duplicate-definitions"]);
 
   for (const job of ["pr-body-lint", "typecheck", "fast-contract", "integration-shard", "boundaries", "package-policy", "supply-chain", "gui-build", "node26-compatibility"]) {
     assert.match(workflow, new RegExp(`^  ${job}:`, "mu"), `${job} must remain a general PR lane`);
