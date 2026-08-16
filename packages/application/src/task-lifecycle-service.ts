@@ -1,6 +1,6 @@
 // @slice-activation P4 W2 is composed by tests; W3 owns daemon and production publication cutover.
 import { Effect } from "effect";
-import { applyTransition, canonicalizeContractValue, compileTaskLifecycleWrite, lifecycleDocumentPaths, taskLifecycleWritePlan, validateTaskLifecycleCommandEnvelope,
+import { applyTransition, canonicalizeContractValue, compileTaskLifecycleWrite, eventObjectTarget, lifecycleDocumentPaths, taskLifecycleWritePlan, validateTaskLifecycleCommandEnvelope,
   type ExecutionV1, type FrozenWritePlan, type ProofFor, type TaskEventV1, type TaskLifecycleCommand, type TaskLifecycleSnapshot,
   type WriteError, type WriteOperationReceipt, type WriteTarget } from "../../kernel/src/index.ts";
 
@@ -94,7 +94,7 @@ function matchesRenewal(event: TaskEventV1, input: TaskLeaseRenewInput): boolean
   && event.payload.execution.executionId === input.executionId && event.payload.lease.version === input.expectedVersion + 1 && event.payload.lease.expiresAt === input.expiresAt
   && sameActor(event.actor, input.actor) && json(event.source) === json(input.source); }
 function sameActor(left: TaskLifecycleCommand["actor"], right: TaskLifecycleCommand["actor"]): boolean { return left.principal.personId === right.principal.personId && left.executor?.kind === right.executor?.kind && left.executor?.id === right.executor?.id; }
-function eventTargets(opId: string): readonly [WriteTarget, WriteTarget] { return [{ kind: "event_file", path: `harness/events/${opId}.json`, operation: "create" }, { kind: "event_head", path: "harness/events/head.json", operation: "replace" }]; }
+function eventTargets(opId: string): readonly [WriteTarget, WriteTarget] { return [{ kind: "event_file", path: eventObjectTarget(opId), operation: "create" }, { kind: "event_head", path: "harness/events/head.json", operation: "replace" }]; }
 function projectionTarget(taskId: string): WriteTarget { return { kind: "projection_invalidation", projection: "task-lifecycle/v1", key: taskId }; }
 function plannedPublication<A>(plan: FrozenWritePlan, event: TaskEventV1, write: () => A): A { for (const target of eventTargets(event.opId)) assertWriteTargetDeclared(plan, target); return write(); }
 function planned<A>(plan: FrozenWritePlan, target: WriteTarget, write: () => A): A { assertWriteTargetDeclared(plan, target); return write(); }

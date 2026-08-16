@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { applyTransition, compileCompletionGateWitness, completionBlockers, normalizeTaskLifecycleCommand, type TaskEventV1 } from "../../kernel/src/index.ts";
+import { applyTransition, compileCompletionGateWitness, completionBlockers, eventObjectTarget, normalizeTaskLifecycleCommand, type TaskEventV1 } from "../../kernel/src/index.ts";
 import { makeTaskEventStore, makeTaskProjection, reduceTaskEvent, serializeEventHead, serializeTaskEvent, TASK_LEASE_BROKER_CONTRACT } from "../../kernel/test/store/task-lifecycle-runtime.ts";
 import { makeTaskLifecycleService, TaskLifecycleOperationConflict } from "../src/task-lifecycle-service.ts";
 import { lifecycleHarness, replayGraph } from "./task-lifecycle-test-harness.ts";
@@ -190,7 +190,9 @@ function seedOldEvents(rootDir: string, count: number): void {
   let last = oldTaskEvent(1);
   for (let revision = 1; revision <= count; revision += 1) {
     last = oldTaskEvent(revision);
-    writeFileSync(path.join(eventsRoot, `${last.opId}.json`), serializeTaskEvent(last));
+    const eventPath = path.join(rootDir, eventObjectTarget(last.opId));
+    mkdirSync(path.dirname(eventPath), { recursive: true });
+    writeFileSync(eventPath, serializeTaskEvent(last));
   }
   const lastBytes = serializeTaskEvent(last);
   writeFileSync(path.join(eventsRoot, "head.json"), serializeEventHead({ revision: last.workspaceRevision, opId: last.opId,
@@ -301,7 +303,7 @@ test("SQLite/response killpoints reconstruct the exact applied receipt by opId w
       if (published === null) throw new Error(`${point} did not publish an event`);
       const eventBytes = serializeTaskEvent(published);
       const digest = `sha256:${createHash("sha256").update(eventBytes).digest("hex")}` as const;
-      assert.equal(git(rootDir, "show", `refs/ha/canonical:harness/events/${create.opId}.json`), eventBytes);
+      assert.equal(git(rootDir, "show", `refs/ha/canonical:${eventObjectTarget(create.opId)}`), eventBytes);
       assert.equal(git(rootDir, "show", "refs/ha/canonical:harness/events/head.json"), serializeEventHead({ revision: 1, opId: create.opId, eventDigest: digest }));
 
       const resumed = makeTaskLifecycleService({ eventStore, projection });

@@ -29,6 +29,8 @@ export * from "./entity/disposition.ts";
 export * from "./entity/field-contracts.ts";
 export * from "./entity/registry.ts";
 export { sha256Bytes, sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
+export { eventObjectTarget } from "./layout/ledger-object-layout.ts";
+export { isLedgerLayoutMigrationEvent } from "./domain/ledger-layout-migration-event.ts";
 export {
   assertNoPortablePathCollisions,
   createHarnessRuntimeContext,

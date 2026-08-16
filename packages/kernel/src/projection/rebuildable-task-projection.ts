@@ -5,6 +5,7 @@ import { emptyTaskLifecycleSnapshot, reduceTaskEvent, type LeaseChangeReason, ty
   type TaskLifecycleSnapshot } from "../domain/task-lifecycle.contract.ts";
 import { assertDocSyncWritePlan, docByteLength, isDecisionEvent, isDocEvent, isFactEvent, isMigrationImportEvent, isTaskEvent, parseCanonicalEvent, serializeCanonicalEvent, verifyDocEventChange, type CanonicalEventV1, type DocumentState } from "../domain/doc-sync.contract.ts"; import type { FrozenWritePlan } from "../domain/write-chain.contract.ts";
 import { assertMigrationImportWritePlan, type MigrationDocumentClaim, type MigrationImportEventV1 } from "../domain/migration-import-event.ts";
+import { assertLedgerLayoutMigrationWritePlan, isLedgerLayoutMigrationEvent } from "../domain/ledger-layout-migration-event.ts";
 import { TASK_LEASE_BROKER_CONTRACT, validateLeaseV1, type LeaseHolder, type LeaseV1 } from "../domain/execution.ts";
 import { canonicalizeContractValue } from "../domain/task.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
@@ -68,7 +69,6 @@ export interface TaskProjection {
   readonly readRuntimeInstallation: (installationId: string) => RuntimeInstallation | null; readonly readRuntimeInstallations: () => readonly RuntimeInstallation[]; readonly readRuntimeSession: (runtimeSessionId: string) => RuntimeSession | null;
   readonly readRuntimeSessions: () => readonly RuntimeSession[]; readonly readRuntimeSessionsForTask: (taskId: string) => readonly RuntimeSession[];
 }
-
 export function defaultLifecycleTaskProjectionPath(rootDir: string): string { return path.join(path.resolve(rootDir), ".harness/cache/task.sqlite"); }
 export function readLiveEventRelationTruth(rootDir: string): EventBackedRelationTruth { const projectionPath = defaultLifecycleTaskProjectionPath(rootDir); if (!localRuntimeStateFileSystem.exists(projectionPath)) return { factAnchors: [], decisionAnchors: [], edges: [], coverageRows: [] }; const db = new DatabaseSync(projectionPath, { readOnly: true }); try { const facts = readFactGraphRows(db), decisions = readDecisionGraphRows(db); return { factAnchors: facts.factAnchors, decisionAnchors: decisions.decisionAnchors, edges: [...facts.edges, ...decisions.edges], coverageRows: decisions.coverageRows.map((row) => ({ ...row, fulfillment: row.fulfillment === "standing_policy" ? "standing-policy" as const : row.fulfillment })) }; } finally { db.close(); } }
 export function makeTaskProjection(options: { readonly rootDir: string; readonly eventStore: EventStreamPort;
@@ -79,7 +79,7 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
   if (localRuntimeStateFileSystem.exists(projectionPath)) withDatabase(projectionPath, (db) => transaction(db, () => markRuntimeSessionsUnknown(db)));
   return {
     path: projectionPath,
-    apply: (event, plan) => { if (isDocEvent(event)) assertDocSyncWritePlan(event, plan as FrozenWritePlan<"DocSyncSubmit">); if (isTaskEvent(event) && (event.payload.documentClaims?.length ?? 0) > 0) assertTaskLifecycleWritePlan(event, plan); if (isTaskBootstrapEvent(event)) assertTaskBootstrapWritePlan(event, plan as FrozenWritePlan<"TaskBootstrap">); if (isPresetSnapshotUpgradeEvent(event)) assertPresetSnapshotUpgradeWritePlan(event, plan as FrozenWritePlan<"PresetSnapshotUpgrade">); if (isTaskProgressEvent(event)) assertTaskProgressWritePlan(event, plan); if (isFactEvent(event)) assertFactWritePlan(event, plan); if (isDecisionEvent(event)) assertDecisionWritePlan(event, plan); if (isMigrationImportEvent(event)) assertMigrationImportWritePlan(event, plan); return withDatabase(projectionPath, (db) => reduceBatch(db, [event], limit, options.eventStore.readContentBlob)); },
+    apply: (event, plan) => { if (isDocEvent(event)) assertDocSyncWritePlan(event, plan as FrozenWritePlan<"DocSyncSubmit">); if (isTaskEvent(event) && (event.payload.documentClaims?.length ?? 0) > 0) assertTaskLifecycleWritePlan(event, plan); if (isTaskBootstrapEvent(event)) assertTaskBootstrapWritePlan(event, plan as FrozenWritePlan<"TaskBootstrap">); if (isPresetSnapshotUpgradeEvent(event)) assertPresetSnapshotUpgradeWritePlan(event, plan as FrozenWritePlan<"PresetSnapshotUpgrade">); if (isTaskProgressEvent(event)) assertTaskProgressWritePlan(event, plan); if (isFactEvent(event)) assertFactWritePlan(event, plan); if (isDecisionEvent(event)) assertDecisionWritePlan(event, plan); if (isMigrationImportEvent(event)) assertMigrationImportWritePlan(event, plan); if (isLedgerLayoutMigrationEvent(event)) assertLedgerLayoutMigrationWritePlan(event, plan); return withDatabase(projectionPath, (db) => reduceBatch(db, [event], limit, options.eventStore.readContentBlob)); },
     rebuild: () => rebuildProjection(projectionPath, options.eventStore, limit),
     read: (taskId) => readProjection(projectionPath, options.eventStore, taskId, limit, now),
     list: () => listProjection(projectionPath, options.eventStore, limit, now),
@@ -258,6 +258,7 @@ function drainDeferred(db: DatabaseSync, limit: number, readBlob: EventStreamPor
 }
 
 function applyEvent(db: DatabaseSync, event: CanonicalEventV1, eventJson: string, readBlob: EventStreamPort["readContentBlob"]): void {
+  if (isLedgerLayoutMigrationEvent(event)) { runSql(db, "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)", event.opId, event.workspaceRevision, eventJson); return; }
   if (isMigrationImportEvent(event)) { projectMigration(db, event, eventJson, readBlob); return; }
   if (isFactEvent(event)) { projectFact(db, event, eventJson, readBlob); return; }
   if (isDecisionEvent(event)) { projectDecision(db, event, eventJson, readBlob); return; }

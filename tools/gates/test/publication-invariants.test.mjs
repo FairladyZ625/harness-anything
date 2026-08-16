@@ -8,6 +8,7 @@ import test from "node:test";
 import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan } from "../../../packages/kernel/src/domain/doc-sync.contract.ts";
 import { freezeDeclaredWritePlan } from "../../../packages/kernel/src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../../packages/kernel/src/integrity/stable-hash.ts";
+import { contentObjectRelativePath, eventObjectTarget } from "../../../packages/kernel/src/layout/ledger-object-layout.ts";
 import { makeTaskProjection } from "../../../packages/kernel/src/projection/task-projection.ts";
 import { makeTaskEventStore } from "../../../packages/kernel/src/store/task-event-store.ts";
 import { TaskLifecycleContractError } from "../../../packages/kernel/src/domain/task-lifecycle.contract.ts";
@@ -78,7 +79,7 @@ test("G29 doc publication rejects extra, missing, and late targets before Git or
     const blob = { sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }, plan = docSyncWritePlan(event), extra = freezeDeclaredWritePlan({ commandType: "DocSyncSubmit", targets: [...plan.targets, { kind: "content_blob", sha256: "f".repeat(64), size: 1, mediaType: "text/plain" }] }, ["DocSyncSubmit"]), missing = freezeDeclaredWritePlan({ commandType: "DocSyncSubmit", targets: plan.targets.filter((target) => target.kind !== "content_blob") }, ["DocSyncSubmit"]);
     for (const invalid of [extra, missing]) { assert.throws(() => store.append({ event, plan: invalid, blobs: [blob] }), /write plan/iu); assert.deepEqual(store.currentCommit(), base); }
     assert.throws(() => plan.targets.push(extra.targets.at(-1))); assert.deepEqual(store.currentCommit(), base); const receipt = store.append({ event, plan, blobs: [blob] }); assert.deepEqual(projection.apply(event, plan).metrics, { sqliteTransactions: 1, reducedItems: 1 });
-    assert.deepEqual(receipt.metrics.changedPaths, ["harness/context/notes.md", "harness/events/doc-op.json", "harness/events/head.json", `harness/objects/sha256/${hash}`]); assert.equal(projection.readDocument("context/notes.md").document?.blobSha256, hash);
+    assert.deepEqual(receipt.metrics.changedPaths, ["harness/context/notes.md", eventObjectTarget("doc-op"), "harness/events/head.json", `harness/${contentObjectRelativePath(hash)}`]); assert.equal(projection.readDocument("context/notes.md").document?.blobSha256, hash);
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -109,7 +110,7 @@ function declaredMatchers(plan) {
     if (target.kind === "event_file" || target.kind === "event_head") return [exact(target.path)];
     if (target.kind === "authored_file") return [exact(`harness/${target.path}`)];
     if (target.kind === "projection_invalidation" || target.kind === "lease_sqlite") return [exact(".harness/cache/task.sqlite")];
-    return target.kind === "content_blob" ? [exact(`harness/objects/sha256/${target.sha256}`)] : [];
+    return target.kind === "content_blob" ? [exact(`harness/${contentObjectRelativePath(target.sha256)}`)] : [];
   });
 }
 
