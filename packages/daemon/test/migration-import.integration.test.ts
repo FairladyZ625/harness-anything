@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { deriveRelationId, makeTaskEventStore, sha256Text } from "../../kernel/src/index.ts";
+import { peopleRosterFromDocument } from "../src/identity/people-roster.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
@@ -170,7 +171,77 @@ function binaryAttachmentFixture(root: string): void { coverageCompleteFixture(r
 function symbolicLinkFixture(root: string, linkTarget: string): void { const notes = path.join(root, "harness/field-notes"); mkdirSync(notes, { recursive: true }); writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n"); symlinkSync(linkTarget, path.join(notes, "latest.md")); }
 function coverageCompleteFixture(root: string): void { const taskRoot = path.join(root, "harness/tasks/task_coverage-old"), artifactRoot = path.join(taskRoot, "artifacts"), executionRoot = path.join(taskRoot, "executions"), nestedExecutionRoot = path.join(artifactRoot, "probe/executions"); mkdirSync(artifactRoot, { recursive: true }); mkdirSync(executionRoot, { recursive: true }); mkdirSync(nestedExecutionRoot, { recursive: true }); writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n"); writeFileSync(path.join(taskRoot, "INDEX.md"), "---\nschema: task-package/v2\ntask_id: task_coverage\ntitle: Coverage fixture\nlifecycle:\n  status: planned\n  engine: local\n  bindingCreatedAt: 2026-01-01T00:00:00.000Z\nlegacyOpaque: keep-this-source-field\n---\n\n# Coverage fixture\n\n## Lifecycle Note\n\nArchived as superseded; archivedBy=person_historical\n"); writeFileSync(path.join(taskRoot, "task_plan.md"), "# Authored plan\n"); writeFileSync(path.join(artifactRoot, "evidence.html"), "<p>historical evidence</p>\n"); writeFileSync(path.join(artifactRoot, "INDEX.md"), "# Artifact index\n"); writeFileSync(path.join(nestedExecutionRoot, "exe_nested.md"), "# Nested fixture\n"); writeFileSync(path.join(executionRoot, "exe_history.md"), `${JSON.stringify({ schema: "execution/v2", execution_id: "exe_history", task_ref: "task/task_coverage", state: "accepted", primary_actor: { principal: { personId: "person_historical" }, executor: { kind: "agent", id: "legacy-agent" }, responsibleHuman: "person:historical" }, claimed_at: "2026-01-02T00:00:00.000Z", submitted_at: "2026-01-03T00:00:00.000Z", closed_at: "2026-01-04T00:00:00.000Z", session_bindings: [], outputs: [{ evidence_id: "legacy-output", execution_ref: "execution/task_coverage/exe_history", locator: { substrate: "file", path: "artifacts/evidence.html" } }], submission: { completion_claim: "Historical work completed.", deliverables: ["evidence"], evidence_refs: ["legacy-output"], verification_notes: ["legacy verification"], known_gaps: [], residual_risks: [] } }, null, 2)}\n`); }
 function decisionContentFixture(root: string): void { const decisionRoot = path.join(root, "harness/decisions/decision-dec_CONTENT"); mkdirSync(decisionRoot, { recursive: true }); writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n"); writeFileSync(path.join(decisionRoot, "decision.md"), `---\nschema: decision-package/v1\ndecision_id: dec_CONTENT\nworkspaceRevision: 3\ntitle: "Content decision"\nstate: active\nriskTier: medium\nurgency: medium\nvertical: "software/coding"\npreset: "standard-task"\napplies_to: {"modules":[],"productLines":[]}\nproposedAt: "2026-01-01T12:00:00.000Z"\ndecidedAt: "2026-01-03T00:00:00.000Z"\ncontentPins:\n  - { action: "accept", digest: "sha256:aaaaaaaa" }\nprovenance:\n  - { runtime: "codex", sessionId: "legacy-session", boundAt: "2026-01-01T12:00:00.000Z" }\nquestion: "Will every source field remain readable?"\nchosen: [{"id":"CH1","text":"Preserve it"}]\nrejected: [{"id":"RJ1","text":"Drop it","whyNot":"Information matters"}]\nclaims: [{"id":"C1","text":"The source survives","loadBearing":false}]\nrelations:\n---\n\n# Content decision\n\nPreserve this rationale verbatim.\n`); }
-function initRepo(root: string): void { mkdirSync(root, { recursive: true }); git(root, "init", "-q"); git(root, "config", "user.name", "Migration Test"); git(root, "config", "user.email", "migration@example.invalid"); mkdirSync(path.join(root, "harness"), { recursive: true }); writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n"); git(root, "add", "."); git(root, "commit", "-qm", "initialized"); }
+// `ha init` always writes both harness.yaml and people.yaml, so a destination fixture without a roster
+// cannot reproduce what a real migration lands on.
+const bootstrapPerson = { personId: "person_zeyu", displayName: "Zeyu Li", roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: "host:MacBook-Pro.local", subject: "501" }] } as const;
+function bootstrapRoster(people: readonly Readonly<Record<string, unknown>>[] = [bootstrapPerson]): string { return `${JSON.stringify({ schema: "harness-people/v1", people, roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }] }, null, 2)}\n`; }
+const legacyRoster = `schema: harness-people/v1
+people:
+  - personId: person_zeyu
+    displayName: "Zeyu Li"
+    primaryEmail: "lizeyu990625@gmail.com"
+    roles: [owner]
+    credentials:
+      - kind: unix-socket-owner-boundary
+        issuer: host:MacBook-Pro.local
+        subject: 501
+  - personId: person_dingwen
+    displayName: "Dingwen"
+    roles: [owner]
+    credentials:
+      - kind: email-address
+        issuer: example.invalid
+        subject: dingwen@example.invalid
+roles:
+  - roleId: owner
+    commandClasses: [admin, repo-write, repo-read, arbiter]
+`;
+
+test("a destination roster and a source roster both survive the migration without an operator decision", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-people-union-")), source = path.join(scratch, "legacy"), destination = path.join(scratch, "new"); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    unfamiliarDocumentFixture(source); writeFileSync(path.join(source, "harness/people.yaml"), legacyRoster); initRepo(destination);
+    cell = await openRepoCell({ repoId: workspaceId("migration-people-union"), rootDir: canonicalRoot(destination), ownerId: "migration-daemon", now: () => "2026-06-01T00:00:00.000Z" });
+    const result = await cell.run({ kind: "migrate-import", sourceRoot: source }, { actor, source: "local" }) as Record<string, unknown>;
+    assert.equal(result.exitCode, 0, JSON.stringify(result)); assert.equal(result.outcome, "applied");
+    assert.match(String(result.summary), /\| people-registry \| migrated \| 1 \| PASS \| unioned both rosters into the destination: 2 people \(1 carried from the source: person_dingwen, 1 enriched in place: person_zeyu\), 1 roles \(0 carried from the source\) \|/u);
+    const roster = peopleRosterFromDocument(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"));
+    assert.deepEqual(roster.people.map(({ personId }) => personId), ["person_zeyu", "person_dingwen"]);
+    assert.equal(roster.people[0]!.primaryEmail, "lizeyu990625@gmail.com");
+    assert.deepEqual([...roster.people[0]!.credentials], [...bootstrapPerson.credentials]);
+    assert.equal(git(destination, "status", "--porcelain", "--", "harness"), "");
+    const event = makeTaskEventStore({ repoId: "migration-people-union", rootDir: destination }).read().events.find((candidate) => candidate.schema === "migration-import-event/v1" && candidate.payload.migratedFrom === "people.yaml")!;
+    assert.deepEqual((event.payload.entity as { readonly destinationPreimage?: unknown }).destinationPreimage, { nodeKind: "file", sha256: sha256Text(bootstrapRoster()), size: Buffer.byteLength(bootstrapRoster()) });
+  } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test("a roster the destination already covers is reported as covered rather than rewritten", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-people-covered-")), source = path.join(scratch, "legacy"), destination = path.join(scratch, "new"); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    unfamiliarDocumentFixture(source); writeFileSync(path.join(source, "harness/people.yaml"), legacyRoster.replace(/^ +primaryEmail:.*\n/mu, "")); initRepo(destination, bootstrapRoster([bootstrapPerson, { personId: "person_dingwen", displayName: "Dingwen", roles: ["owner"], credentials: [{ kind: "email-address", issuer: "example.invalid", subject: "dingwen@example.invalid" }] }]));
+    const before = readFileSync(path.join(destination, "harness/people.yaml"), "utf8");
+    cell = await openRepoCell({ repoId: workspaceId("migration-people-covered"), rootDir: canonicalRoot(destination), ownerId: "migration-daemon", now: () => "2026-06-01T00:00:00.000Z" });
+    const result = await cell.run({ kind: "migrate-import", sourceRoot: source }, { actor, source: "local" }) as Record<string, unknown>;
+    assert.equal(result.exitCode, 0, JSON.stringify(result)); assert.match(String(result.summary), /\| people-registry \| excluded \| 1 \| PASS \| the destination roster already contains every source entry/u);
+    assert.equal(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"), before);
+    assert.equal(makeTaskEventStore({ repoId: "migration-people-covered", rootDir: destination }).read().events.some((event) => event.schema === "migration-import-event/v1" && event.payload.migratedFrom === "people.yaml"), false);
+  } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test("rosters that genuinely contradict still stop, name the contradiction, and keep the explicit resolution", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-people-contradiction-")), source = path.join(scratch, "legacy"), destination = path.join(scratch, "new"); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    unfamiliarDocumentFixture(source); writeFileSync(path.join(source, "harness/people.yaml"), legacyRoster.replace('displayName: "Zeyu Li"\n    primaryEmail', 'displayName: "Li Zeyu"\n    primaryEmail')); initRepo(destination);
+    cell = await openRepoCell({ repoId: workspaceId("migration-people-contradiction"), rootDir: canonicalRoot(destination), ownerId: "migration-daemon", now: () => "2026-06-01T00:00:00.000Z" });
+    const blocked = await cell.run({ kind: "migrate-import", sourceRoot: source, dryRun: true }, { actor, source: "local" }) as Record<string, unknown>;
+    assert.equal(blocked.exitCode, 1, JSON.stringify(blocked)); assert.match(String(blocked.summary), /REQUIRED people\.yaml/u);
+    assert.match(String(blocked.summary), /the two rosters cannot be unioned: person person_zeyu declares a different displayName on each side.*resolve with --resolve harness\/people\.yaml=destination\|source/u);
+    const resolved = await cell.run({ kind: "migrate-import", sourceRoot: source, resolutions: ["harness/people.yaml=destination"] }, { actor, source: "local" }) as Record<string, unknown>;
+    assert.equal(resolved.exitCode, 0, JSON.stringify(resolved)); assert.equal(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"), bootstrapRoster());
+  } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }
+});
+
+function initRepo(root: string, roster: string = bootstrapRoster()): void { mkdirSync(root, { recursive: true }); git(root, "init", "-q"); git(root, "config", "user.name", "Migration Test"); git(root, "config", "user.email", "migration@example.invalid"); mkdirSync(path.join(root, "harness"), { recursive: true }); writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n"); writeFileSync(path.join(root, "harness/people.yaml"), roster); git(root, "add", "."); git(root, "commit", "-qm", "initialized"); }
 function snapshot(root: string): readonly string[] { const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => { const target = path.join(dir, entry.name); return entry.isDirectory() ? walk(target) : [`${path.relative(root, target)}:${statSync(target).size}:${readFileSync(target, "utf8")}`]; }); return walk(root).sort(); }
 function statOrNull(target: string): ReturnType<typeof statSync> | null { try { return statSync(target); } catch { return null; } }
 function git(root: string, ...args: string[]): string { return execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim(); }
