@@ -31,13 +31,13 @@ export type TaskProjectionWarning = "projection_missing";
 export interface TaskProjectionRead {
   readonly status: "ready" | "pending"; readonly snapshot: TaskLifecycleSnapshot; readonly packagePath: string | null; readonly watermark: number;
   readonly sourceRevision: number; readonly warnings: readonly TaskProjectionWarning[];
-  readonly catchUp: { readonly deadlineMs: 100; readonly maxItems: 64; readonly elapsedMs: number; readonly reducedItems: number; readonly sqliteTransactions: 0 | 1 };
+  readonly catchUp: { readonly maxItems: number; readonly reducedItems: number; readonly sqliteTransactions: 0 | 1 };
 }
 export interface TaskProjectionListRow { readonly taskId: string; readonly packagePath: string | null; readonly generation: "v0" | "v1"; readonly workspaceRevision: number; readonly updatedAt: string; readonly snapshot: TaskLifecycleSnapshot }
 export interface TaskProjectionListRead { readonly status: "ready" | "pending"; readonly rows: readonly TaskProjectionListRow[]; readonly watermark: number; readonly sourceRevision: number; readonly warnings: readonly TaskProjectionWarning[] }
 export interface ProjectionApplyReceipt { readonly metrics: { readonly sqliteTransactions: 1; readonly reducedItems: number } }
 export interface ProjectionRebuildReceipt {
-  readonly watermark: number; readonly metrics: { readonly sqliteTransactions: number; readonly reducedItems: number; readonly maxBatchItems: number; readonly maxBatchElapsedMs: number };
+  readonly watermark: number; readonly metrics: { readonly sqliteTransactions: number; readonly reducedItems: number; readonly maxBatchItems: number };
 }
 export interface LeaseInterval {
   readonly taskId: string; readonly executionId: string; readonly holder: LeaseHolder; readonly previousHolder: LeaseHolder | null;
@@ -132,33 +132,28 @@ function readDocument(projectionPath: string, eventStore: EventStreamPort, docum
 function readPresetSnapshot(projectionPath: string, eventStore: EventStreamPort, digest: string, limit: number): PresetSnapshotProjectionRead { return withDatabase(projectionPath, (db) => { const round = catchUpRound(db, eventStore, limit), current = watermark(db), row = db.prepare("SELECT value_json FROM preset_snapshot WHERE digest = ?").get(digest) as { readonly value_json: string } | undefined; return { status: current === round.sourceRevision ? "ready" : "pending", snapshot: row ? JSON.parse(row.value_json) : null, watermark: current, sourceRevision: round.sourceRevision }; }); }
 
 function readProjection(projectionPath: string, eventStore: EventStreamPort, taskId: string, limit: number, now: () => string): TaskProjectionRead {
-  const started = performance.now();
   const existed = localRuntimeStateFileSystem.exists(projectionPath);
   return withDatabase(projectionPath, (db) => {
     const round = catchUpRound(db, eventStore, limit);
     const current = watermark(db);
-    const elapsedMs = performance.now() - started;
     return { status: current === round.sourceRevision ? "ready" : "pending", snapshot: readSnapshot(db, taskId, now()), packagePath: (db.prepare("SELECT package_path FROM task_package WHERE task_id = ?").get(taskId) as { readonly package_path: string } | undefined)?.package_path ?? null, watermark: current,
       sourceRevision: round.sourceRevision, warnings: !existed && round.sourceRevision > 0 ? ["projection_missing"] : [],
-      catchUp: { deadlineMs: 100, maxItems: 64, elapsedMs, reducedItems: round.reducedItems, sqliteTransactions: round.sqliteTransactions } };
+      catchUp: { maxItems: limit, reducedItems: round.reducedItems, sqliteTransactions: round.sqliteTransactions } };
   });
 }
 
 function rebuildProjection(projectionPath: string, eventStore: EventStreamPort, limit: number): ProjectionRebuildReceipt {
   localRuntimeStateFileSystem.remove(projectionPath);
-  let transactions = 0, reducedItems = 0, maxBatchItems = 0, maxBatchElapsedMs = 0;
+  let transactions = 0, reducedItems = 0, maxBatchItems = 0;
   for (;;) {
-    const started = performance.now();
     const round = withDatabase(projectionPath, (db) => catchUpRound(db, eventStore, limit));
-    const elapsedMs = performance.now() - started;
     transactions += round.sqliteTransactions;
     reducedItems += round.reducedItems;
     maxBatchItems = Math.max(maxBatchItems, round.accessedItems);
-    maxBatchElapsedMs = Math.max(maxBatchElapsedMs, elapsedMs);
     if (round.watermark === round.sourceRevision) break;
   }
   const current = withDatabase(projectionPath, (db) => transaction(db, () => { markRuntimeSessionsUnknown(db); return watermark(db); })); transactions += 1;
-  return { watermark: current, metrics: { sqliteTransactions: transactions, reducedItems, maxBatchItems, maxBatchElapsedMs } };
+  return { watermark: current, metrics: { sqliteTransactions: transactions, reducedItems, maxBatchItems } };
 }
 
 function withDatabase<A>(projectionPath: string, use: (db: DatabaseSync) => A): A {
