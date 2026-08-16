@@ -345,6 +345,24 @@ for (const killpoint of ["before_event_write", "after_event_write", "after_head_
   });
 }
 
+test("every latched RepoCell exit declares the latch, the recovery command, and the cause identically", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-latch-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  const reason = (error: unknown): string => error instanceof Error ? error.message : String(error);
+  try {
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("latch"), rootDir: canonicalRoot(rootDir), ownerId: "latch-generation", killpoint: (point) => { if (point === "after_sqlite_commit") throw new Error("crash:after_sqlite_commit"); } });
+    const crash = await cell.run({ kind: "task-create", taskId: "task-latch", title: "Latch" }, { actor, source: "local" });
+    assert.equal(crash.outcome, "rejected"); assert.equal(cell.status().state, "unavailable");
+    assert.equal(String(crash.nextAction ?? ""), "crash:after_sqlite_commit");
+    const write = await cell.run({ kind: "task-create", taskId: "task-after-latch", title: "After latch" }, { actor, source: "local" });
+    const declared = String(write.nextAction ?? ""), latched = cell;
+    const reads = await Promise.all([latched.read("repo.tasks.list"), latched.spawnRuntime({}, { actor, source: "local" }), latched.attach("runtime-session", ""), latched.verifyReadiness()].map((pending) => pending.then(() => "resolved without reporting the latch", reason)));
+    for (const observed of reads) assert.equal(observed, declared);
+    assert.match(declared, /stays latched until the daemon re-attaches/u);
+    assert.match(declared, /run ha daemon stop/u);
+    assert.match(declared, /Cause: crash:after_sqlite_commit$/u);
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
 for (const killpoint of ["after_sqlite_commit", "before_response_write", "after_response_write"] as const) {
   test(`Decision response recovery handles ${killpoint} without a duplicate authored event`, async () => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-response-crash-")), action = decisionProposal("Recover Decision", "Does the receipt settle once?"), binding = { actor, source: "local" as const };
