@@ -2,4 +2,4 @@ export { canonicalDocumentClaims, canonicalEventWritePlan, makeTaskEventStore, T
 export type { CanonicalEventStore, CanonicalWriteBundle, EventPublicationKillpoint } from "../store/task-event-store.ts";
 export { makeTaskProjection } from "../projection/rebuildable-task-projection.ts";
 export type { ReplicaProjectionBasis, TaskProjection } from "../projection/rebuildable-task-projection.ts";
-export { makeLocalVersionControlSystem } from "../store/local-version-control-system.ts";
+export { configureLedgerMaintenance, makeLocalVersionControlSystem } from "../store/local-version-control-system.ts";
