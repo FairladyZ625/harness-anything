@@ -22,6 +22,22 @@ test("watch notifications are hints and two stable fingerprints admit one RepoCe
   } finally { await watcher.close(); }
 });
 
+test("watch registration failure degrades to periodic full-scan polling instead of a silent dead zone", async () => {
+  // Missing authored root makes every watch() registration throw, the same failure shape
+  // as Linux inotify watch exhaustion (ENOSPC). The watcher must keep reconciling via
+  // periodic wakes rather than silently reporting nothing.
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-watch-degrade-")); let scans = 0;
+  const watcher = openDocSyncWatcher({ rootDir, personId: "person-owner", startupScan: false, debounceMs: 1, pollMs: 5,
+    run: async () => { scans += 1; return scan("f".repeat(40), []); } });
+  try {
+    assert.equal(watcher.status().state, "blocked");
+    await new Promise((resolve) => setTimeout(resolve, 60)); await watcher.flush();
+    assert.ok(scans >= 1, `expected the poll fallback to trigger at least one scan, saw ${scans}`);
+    const settled = scans; await watcher.close(); await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(scans, settled, "closed watcher must stop polling");
+  } finally { await watcher.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
 test("temporary and unnormalizable filesystem hints fall back to a full scan", async () => {
   const actions: Array<{ kind: string; paths: readonly string[] }> = [], canonical = "context/notes.md", fingerprint = "d".repeat(64);
   const watcher = openDocSyncWatcher({ rootDir: process.cwd(), personId: "person-owner", watchFilesystem: false, startupScan: false, debounceMs: 1,
