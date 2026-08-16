@@ -249,7 +249,7 @@ if (hasTaskProjectionImplementation) {
     }
   }
   if (!/steady apply and rebuild use the same reducer/.test(rebuildTestText)) record("task projection tests must prove deterministic event-stream rebuild");
-  if (!/at most one 64-item\/100ms round and never reports stale data ready/.test(rebuildTestText)) record("task projection tests must prove bounded catch-up and no stale-ready result");
+  if (!/at most one bounded round and never reports stale data ready/.test(rebuildTestText)) record("task projection tests must prove bounded catch-up and no stale-ready result");
   if (!/lease CAS rejects stale renew\/release/.test(rebuildTestText)) record("task projection tests must prove lease CAS rejection");
   if (/writeFileSync\s*\([^)]*tasks\//s.test(projectionText) || /renameSync\s*\([^)]*tasks\//s.test(projectionText)) {
     record("task projection must not write authored task documents");

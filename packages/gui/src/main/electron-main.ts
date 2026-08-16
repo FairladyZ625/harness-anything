@@ -8,7 +8,6 @@ import { addLocalMainControls } from "./local-main-controls.ts";
 import { resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
 import { evaluateNavigationRequest, evaluatePermissionRequest, evaluateWindowOpenRequest } from "./security-policy.ts";
 import { assertDevRendererUrl, createGuiContentSecurityPolicy } from "./window-config.ts";
-import { ensurePtySpawnHelperExecutable } from "./terminal-spawn-helper.ts";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -67,10 +66,6 @@ export function installContentSecurityPolicy(): void {
 
 export async function startGuiApp(): Promise<void> {
   await app.whenReady();
-  // Direct-PTY terminals spawn through node-pty's prebuilt spawn-helper, which
-  // node-pty 1.1.0 ships without the executable bit; repair it before any
-  // renderer can request a terminal session.
-  ensurePtySpawnHelperExecutable();
   installContentSecurityPolicy();
   const trustedWebContentsIds = new Set<number>();
   const rootDir = resolveGuiProjectRoot(), packaged = app.isPackaged ? { resourcesPath: process.resourcesPath } : undefined, bridge = createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides(), packaged ? { packaged } : {}), controlled = addLocalMainControls({ bridge, target: async (repoId) => resolveLocalDaemonTarget({ rootDir, ...(repoId ? { repoIdOverride: repoId } : {}) }), ...(packaged ? { packaged } : {}) });

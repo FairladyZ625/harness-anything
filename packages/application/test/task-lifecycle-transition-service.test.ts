@@ -138,61 +138,101 @@ test("pending without an event uses an honest receipt", async () => {
   assert.match(receipt.nextAction ?? "", /retry.*read/iu);
 });
 
+// Every phase of an independent write is O(old events) by construction: store init builds its
+// known-op set from the whole event tree, each bounded catch-up round re-parses that same tree to
+// slice a 64-item window out of it, and the git commit writes a tree holding every event file.
+// No phase is flat, so neither an absolute millisecond budget nor a fixed ratio against a shorter
+// history can be the gate -- the first measures the runner, the second measures git
+// (dec_01KY6X4J486MZ35RW1QN51V2V1: relative overhead, not absolute milliseconds).
+// What bounded catch-up promises is narrower than "flat": it never READS every old event.
+// accessedItems cannot witness that promise, because a path that reads the whole stream without
+// touching the batch window still reports 64 -- which is why a timing comparison has to carry it.
+// So the gate is a positive control rather than a constant: the same write runs twice over the
+// same fixture, in one process and one time window, once through the bounded read path and once
+// through a path that reads every old event first. Both arms report accessedItems <= 64; only the
+// read cost separates them, and it must separate them on any machine at any load.
 test("10,000 old events do not block a new write", async (context) => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-10k-"));
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-10k-"));
   try {
-    initRepo(rootDir);
-    const eventsRoot = path.join(rootDir, "harness/events");
-    mkdirSync(eventsRoot, { recursive: true });
-    let last = oldTaskEvent(1);
-    for (let revision = 1; revision <= 10_000; revision += 1) {
-      last = oldTaskEvent(revision);
-      writeFileSync(path.join(eventsRoot, `${last.opId}.json`), serializeTaskEvent(last));
+    const historyRoot = path.join(parent, "history"), historyEvents = 10_000;
+    seedOldEvents(historyRoot, historyEvents);
+    const readMs: Record<ReadMode, number[]> = { bounded: [], "whole-history": [] };
+    let revision = historyEvents;
+    for (let round = 1; round <= 3; round += 1) {
+      // Alternate which arm pays the process warm-up so it cannot bias one side.
+      const order: readonly ReadMode[] = round % 2 === 0 ? ["whole-history", "bounded"] : ["bounded", "whole-history"];
+      for (const mode of order) {
+        revision += 1;
+        const arm = await independentWrite(historyRoot, revision, `${round}-${mode}`, mode);
+        readMs[mode].push(arm.readMs);
+        context.diagnostic(`independent-write round=${round} mode=${mode} readMs=${arm.readMs.toFixed(3)} storeInitMs=${arm.storeInitMs.toFixed(3)} appendMs=${arm.appendMs.toFixed(3)} applyMs=${arm.applyMs.toFixed(3)} accessedItems=${arm.maxAccessedItems}`);
+        assert.notEqual(arm.published, null, "the independent write must enter L1");
+        assert.equal(arm.outcome, "pending", "L1 may lead the bounded L2 catch-up");
+        // Both arms stay inside the item bound -- including the one that reads every old event --
+        // so this assertion cannot stand in for the read-cost comparison below.
+        assert.equal(arm.maxAccessedItems <= 64, true, `catch-up accessed ${arm.maxAccessedItems} event files`);
+      }
     }
-    const lastBytes = serializeTaskEvent(last);
-    writeFileSync(path.join(eventsRoot, "head.json"), serializeEventHead({ revision: last.workspaceRevision, opId: last.opId,
-      eventDigest: `sha256:${createHash("sha256").update(lastBytes).digest("hex")}` }));
-    git(rootDir, "add", "--", "harness/events");
-    git(rootDir, "commit", "--quiet", "-m", "10k old event fixture");
-    git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
-
-    const started = performance.now();
-    const checkpoints = new Map<string, number>();
-    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir, killpoint: (point) => checkpoints.set(point, performance.now() - started) });
-    const storeReady = performance.now();
-    const phase = { readMs: 0, appendMs: 0, applyMs: 0, maxAccessedItems: 0 };
-    const boundedEventStore = { ...eventStore, readBatch: (cursor: string | null, maxItems: number) => {
-      const batch = eventStore.readBatch(cursor, maxItems);
-      phase.maxAccessedItems = Math.max(phase.maxAccessedItems, batch.accessedItems);
-      return batch;
-    } };
-    const projection = makeTaskProjection({ rootDir, eventStore: boundedEventStore, now: () => "2026-08-12T00:00:00.000Z" });
-    const service = makeTaskLifecycleService({
-      eventStore: { ...boundedEventStore, append: (candidate) => {
-        const phaseStarted = performance.now(); try { return eventStore.append(candidate); } finally { phase.appendMs += performance.now() - phaseStarted; }
-      } },
-      projection: { ...projection, read: (taskId) => {
-        const phaseStarted = performance.now(); try { return projection.read(taskId); } finally { phase.readMs += performance.now() - phaseStarted; }
-      }, apply: (candidate) => {
-        const phaseStarted = performance.now(); try { return projection.apply(candidate); } finally { phase.applyMs += performance.now() - phaseStarted; }
-      } }
-    });
-    const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: "task-new", title: "New independent task", taskClass: "standard" as const,
-      graph: replayGraph, completionGateIds: [], presetSnapshotDigest: null }, { eventId: "event-new", workspaceRevision: 10_001,
-      occurredAt: "2026-08-12T00:00:00.000Z" }, 0);
-    const receipt = await service.execute(create, { taskIdUnique: true, actorBinding: actor });
-    const elapsedMs = performance.now() - started;
-
-    context.diagnostic(`first-store-access-through-receipt elapsedMs=${elapsedMs.toFixed(3)} storeInitMs=${(storeReady - started).toFixed(3)} readMs=${phase.readMs.toFixed(3)} appendMs=${phase.appendMs.toFixed(3)} applyMs=${phase.applyMs.toFixed(3)}`);
-    context.diagnostic(`publication checkpoints=${JSON.stringify(Object.fromEntries(checkpoints))}`);
-    assert.notEqual(eventStore.readEvent(create.opId), null, "the independent write must enter L1");
-    assert.equal(receipt.outcome, "pending", "L1 may lead the bounded L2 catch-up");
-    assert.equal(phase.maxAccessedItems <= 64, true, `catch-up accessed ${phase.maxAccessedItems} event files`);
-    assert.equal(elapsedMs < 250, true, `first store access through receipt took ${elapsedMs}ms`);
+    const median = (values: readonly number[]) => [...values].sort((left, right) => left - right)[Math.floor(values.length / 2)]!;
+    const bounded = median(readMs.bounded), wholeHistory = median(readMs["whole-history"]);
+    assert.equal(bounded * 3 < wholeHistory, true,
+      `bounded catch-up read ${bounded.toFixed(1)}ms against ${wholeHistory.toFixed(1)}ms for reading every old event (bounded: ${readMs.bounded.map((value) => value.toFixed(1)).join(", ")}; whole-history: ${readMs["whole-history"].map((value) => value.toFixed(1)).join(", ")})`);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
+
+function seedOldEvents(rootDir: string, count: number): void {
+  mkdirSync(rootDir, { recursive: true });
+  initRepo(rootDir);
+  const eventsRoot = path.join(rootDir, "harness/events");
+  mkdirSync(eventsRoot, { recursive: true });
+  let last = oldTaskEvent(1);
+  for (let revision = 1; revision <= count; revision += 1) {
+    last = oldTaskEvent(revision);
+    writeFileSync(path.join(eventsRoot, `${last.opId}.json`), serializeTaskEvent(last));
+  }
+  const lastBytes = serializeTaskEvent(last);
+  writeFileSync(path.join(eventsRoot, "head.json"), serializeEventHead({ revision: last.workspaceRevision, opId: last.opId,
+    eventDigest: `sha256:${createHash("sha256").update(lastBytes).digest("hex")}` }));
+  git(rootDir, "add", "--", "harness/events");
+  git(rootDir, "commit", "--quiet", "-m", `${count} old event fixture`);
+  git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
+}
+
+type ReadMode = "bounded" | "whole-history";
+
+async function independentWrite(rootDir: string, revision: number, label: string, mode: ReadMode) {
+  const started = performance.now();
+  const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
+  const storeReady = performance.now();
+  const phase = { readMs: 0, appendMs: 0, applyMs: 0, maxAccessedItems: 0 };
+  const boundedEventStore = { ...eventStore, readBatch: (cursor: string | null, maxItems: number) => {
+    // The failure mode the item bound cannot see: read every old event, then hand back the same
+    // 64-item window, so accessedItems is unchanged and only the clock notices the difference.
+    if (mode === "whole-history") eventStore.read();
+    const batch = eventStore.readBatch(cursor, maxItems);
+    phase.maxAccessedItems = Math.max(phase.maxAccessedItems, batch.accessedItems);
+    return batch;
+  } };
+  const projection = makeTaskProjection({ rootDir, eventStore: boundedEventStore, now: () => "2026-08-12T00:00:00.000Z" });
+  const service = makeTaskLifecycleService({
+    eventStore: { ...boundedEventStore, append: (candidate) => {
+      const phaseStarted = performance.now(); try { return eventStore.append(candidate); } finally { phase.appendMs += performance.now() - phaseStarted; }
+    } },
+    projection: { ...projection, read: (taskId) => {
+      const phaseStarted = performance.now(); try { return projection.read(taskId); } finally { phase.readMs += performance.now() - phaseStarted; }
+    }, apply: (candidate) => {
+      const phaseStarted = performance.now(); try { return projection.apply(candidate); } finally { phase.applyMs += performance.now() - phaseStarted; }
+    } }
+  });
+  const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: `task-new-${label}`, title: "New independent task", taskClass: "standard" as const,
+    graph: replayGraph, completionGateIds: [], presetSnapshotDigest: null }, { eventId: `event-new-${label}`, workspaceRevision: revision,
+    occurredAt: "2026-08-12T00:00:00.000Z" }, 0);
+  const receipt = await service.execute(create, { taskIdUnique: true, actorBinding: actor });
+  return { elapsedMs: performance.now() - started, storeInitMs: storeReady - started, ...phase,
+    outcome: receipt.outcome, published: eventStore.readEvent(create.opId) };
+}
 
 test("transition service replays reject through a new Execution before completion", async () => {
   const harness = lifecycleHarness();

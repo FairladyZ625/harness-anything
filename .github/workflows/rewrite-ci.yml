@@ -154,10 +154,7 @@ jobs:
         run: node tools/run-manifest-gates.mjs --workflow-job fast-contract --exclude mergify-queue-metadata-edit-noop
 
   integration-shard:
-    # The rebuild line's task lifecycle is covered by G09/G10/G28/G29/G34 and
-    # its directed package tests. These shards exercise the retired 07-11 task
-    # package/status/journal machine and remain authoritative only for main.
-    if: github.event_name == 'pull_request' && !startsWith(github.base_ref, 'rebuild/')
+    if: github.event_name == 'pull_request'
     needs: metadata-source-proof
     name: integration-shard (${{ matrix.shard }})
     runs-on: ubuntu-latest

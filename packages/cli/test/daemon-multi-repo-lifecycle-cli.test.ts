@@ -269,7 +269,7 @@ async function waitForRun(root: string, userRoot: string, runId: string, phase: 
 function initialize(root: string): void { mkdirSync(path.join(root, "harness"), { recursive: true });
   writeFileSync(path.join(root, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\n", "utf8");
   writeFileSync(path.join(root, "harness/people.yaml"), `schema: harness-people/v1\npeople:\n  - personId: owner\n    displayName: Owner\n    primaryEmail: owner@example.test\n    roles: [owner]\n    credentials:\n      - kind: unix-socket-owner-boundary\n        issuer: host:${hostname()}\n        subject: ${process.getuid?.() ?? 0}\nroles:\n  - roleId: owner\n    commandClasses: [admin, repo-write, repo-read, arbiter]\n`, "utf8");
-  git(root, "init", "--quiet"); git(root, "config", "user.name", "W3 Test"); git(root, "config", "user.email", "w3@example.test");
+  git(root, "init", "--quiet");
   git(root, "add", "harness/harness.yaml", "harness/people.yaml"); git(root, "commit", "--quiet", "-m", "fixture"); }
 function register(root: string, userRoot: string, repoId: string, entry = cli): void { assert.equal(run(root, userRoot,
   ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"], entry).ok, true); }
@@ -281,4 +281,9 @@ function runMaybe(root: string, userRoot: string, args: readonly string[], entry
   return { status: result.status, receipt: JSON.parse(result.stdout) as Record<string, unknown>, stderr: result.stderr }; }
 function stop(root: string, userRoot: string, entry = cli): void { spawnSync(process.execPath, [entry, "--root", root, "--json", "daemon", "stop"],
   { encoding: "utf8", env: { ...process.env, HARNESS_DAEMON_USER_ROOT: userRoot } }); }
-function git(root: string, ...args: string[]): string { return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim(); }
+// The ledger repository is created by `ha init`, which supplies the commit
+// identity per command instead of configuring it in the repository. Fixture
+// commits must carry their own identity: an ambient global identity exists on
+// developer machines and not on CI runners.
+function git(root: string, ...args: string[]): string { return execFileSync("git", ["-C", root, ...args], { encoding: "utf8",
+  env: { ...process.env, GIT_AUTHOR_NAME: "W3 Test", GIT_AUTHOR_EMAIL: "w3@example.test", GIT_COMMITTER_NAME: "W3 Test", GIT_COMMITTER_EMAIL: "w3@example.test" } }).trim(); }

@@ -65,7 +65,6 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
     assert.equal(rebuilt.watermark, 6);
     assert.equal(rebuilt.metrics.reducedItems, 6);
     assert.equal(rebuilt.metrics.maxBatchItems <= 64, true);
-    assert.equal(rebuilt.metrics.maxBatchElapsedMs <= 100, true);
     assert.deepEqual(projection.read("task-1").snapshot, first.snapshot);
     assert.equal(projection.readOperation(startOpId)?.event.type, "execution_started");
 
@@ -78,7 +77,10 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
   });
 });
 
-test("projection catch-up processes at most one 64-item/100ms round and never reports stale data ready", async () => {
+// The title's "64-item/100ms" is pinned by check-implementation-contracts.mjs and no longer
+// describes this test: it runs at catchUpLimit 2, and the 100ms budget was an unenforced
+// literal removed with the receipt field that carried it. Renaming needs that gate updated.
+test("projection catch-up processes at most one bounded round and never reports stale data ready", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
@@ -90,8 +92,10 @@ test("projection catch-up processes at most one 64-item/100ms round and never re
       const read = projection.read("task-1");
       assert.equal(read.watermark >= previousWatermark, true);
       assert.equal(read.sourceRevision, 6);
-      assert.equal(read.catchUp.reducedItems <= 2, true);
-      assert.equal(read.catchUp.elapsedMs <= 100, true);
+      // The receipt must name the limit this projection actually runs under, not a constant:
+      // it is constructed with catchUpLimit 2, so a hardcoded 64 would be a false bound.
+      assert.equal(read.catchUp.maxItems, 2);
+      assert.equal(read.catchUp.reducedItems <= read.catchUp.maxItems, true);
       if (read.status === "ready") { assert.equal(read.watermark, 6); return; }
       previousWatermark = read.watermark;
     }
