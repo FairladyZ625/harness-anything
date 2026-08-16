@@ -3,6 +3,7 @@ import path from "node:path";
 import * as pty from "node-pty";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { writeTerminalAttach, writeTerminalAttachEvent, writeTerminalControlReceipt, writeTerminalDetachAck, writeTerminalInputAck, writeTerminalSessionList, type TerminalAttachSubscription, type TerminalControlReceipt, type TerminalSessionRow } from "./gui-s3-control.ts";
+import { ensurePtySpawnHelperExecutable } from "./terminal-spawn-helper.ts";
 
 const scrollbackLimit = 1024 * 1024, replayLimit = 256 * 1024, subscriberLimit = 256 * 1024;
 type Frame = JsonObject & { readonly schema: "terminal-attach-event/v1"; readonly sessionId: string; readonly seq: number; readonly kind: "output" | "gap" | "exit"; readonly utf8: string; readonly droppedThrough: number | null; readonly occurredAt: string };
@@ -13,6 +14,7 @@ export interface TerminalHost {
 }
 export interface TrustedTerminalLaunch { readonly idempotencyKey: string; readonly name: string; readonly executablePath: string; readonly args: readonly string[]; readonly env: Readonly<Record<string, string>>; readonly cwd: string; readonly publicCwd: string; readonly profile: "runtime-auth" }
 export function openTerminalHost(input: { readonly repoId: string; readonly rootDir: string; readonly daemonGeneration: number; readonly now?: () => string; readonly spawnPty?: typeof pty.spawn }): TerminalHost {
+  ensurePtySpawnHelperExecutable();
   const sessions = new Map<string, Session>(), idempotency = new Map<string, string>(), now = input.now ?? (() => new Date().toISOString()), spawnPty = input.spawnPty ?? pty.spawn;
   const list = (): JsonObject => writeTerminalSessionList({ schema: "terminal-session-list/v1", ok: true, repoId: input.repoId, daemonGeneration: input.daemonGeneration, sessions: [...sessions.values()].map((session) => ({ ...row(session), repoId: input.repoId })).sort((a, b) => a.createdAt.localeCompare(b.createdAt)) });
   const spawnTerminal = (payload: JsonObject): TerminalControlReceipt => {

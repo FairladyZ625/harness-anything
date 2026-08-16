@@ -267,7 +267,7 @@ async function main(argv) {
   console.log(
     `Local check (${options.full ? "full" : "fast"} tier): ${steps.length} steps, ` +
       `QoS wrapper: ${qosLabel}, cores: ${cores}. ` +
-      `Cloud CI enforces the required checks; integration/gui run in CI regardless.`
+      `Cloud CI enforces the required checks on pull requests.`
   );
 
   const totalStart = Date.now();
@@ -287,7 +287,11 @@ async function main(argv) {
   const totalS = ((Date.now() - totalStart) / 1000).toFixed(1);
   console.log(`\nLocal check passed (${options.full ? "full" : "fast"} tier) in ${totalS}s.`);
   if (!options.full) {
-    console.log("Note: integration and GUI tests are covered by cloud CI, not this fast tier.");
+    console.log(
+      "Note: this tier did not run test:integration or test:gui. Cloud CI runs the integration shards on every "
+        + "pull request; the GUI job runs only when the pull request touches packages/gui or the root "
+        + "package/tsconfig manifests. Run `npm run check:local -- --full` to cover both here."
+    );
   }
 }
 

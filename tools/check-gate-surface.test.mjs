@@ -10,10 +10,13 @@ import test from "node:test";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const checkerPath = path.join(repoRoot, "tools/check-gate-surface.mjs");
 
-test("rewrite CI scopes baseline lifecycle retirement to rebuild PRs", () => {
+test("rewrite CI runs the integration tier on every PR and scopes baseline retirement to the boundaries lane", () => {
   const workflow = readFileSync(path.join(repoRoot, ".github/workflows/rewrite-ci.yml"), "utf8");
+  // The integration shards once skipped rebuild-base PRs on the claim that they
+  // only exercised retired 07-11 machinery. 66 tier-marked files falsified it,
+  // so the tier runs on every PR again; nothing may re-scope it by base branch.
   const integrationBlock = workflow.slice(workflow.indexOf("  integration-shard:"), workflow.indexOf("  boundaries:"));
-  assert.match(integrationBlock, /!startsWith\(github\.base_ref, 'rebuild\/'\)/u);
+  assert.doesNotMatch(integrationBlock, /base_ref/u);
 
   const rebuildBoundaryCommand = workflow.split(/\r?\n/u)
     .find((line) => line.includes("--workflow-job boundaries") && line.includes("check-cli-structure"));
@@ -28,7 +31,7 @@ test("rewrite CI scopes baseline lifecycle retirement to rebuild PRs", () => {
     "check-legacy-intake-readiness"
   ]) assert.match(rebuildBoundaryCommand, new RegExp(`(?:^|,)${gateId}(?:,|$)`, "u"));
 
-  for (const job of ["pr-body-lint", "typecheck", "fast-contract", "boundaries", "package-policy", "supply-chain", "gui-build", "node26-compatibility"]) {
+  for (const job of ["pr-body-lint", "typecheck", "fast-contract", "integration-shard", "boundaries", "package-policy", "supply-chain", "gui-build", "node26-compatibility"]) {
     assert.match(workflow, new RegExp(`^  ${job}:`, "mu"), `${job} must remain a general PR lane`);
   }
 });
