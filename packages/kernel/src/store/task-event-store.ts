@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { consumeKnownError } from "../error-consumption.ts";
 import { assertDocSyncWritePlan, isDecisionEvent, isDocEvent, isFactEvent, isMigrationImportEvent, isTaskEvent, ledgerCommitSha, parseCanonicalEvent, serializeCanonicalEvent, type CanonicalEventV1, type DocEventV1, type LedgerCommitSha } from "../domain/doc-sync.contract.ts";
 import { assertMigrationImportWritePlan, migrationImportClaims, migrationImportContentClaims } from "../domain/migration-import-event.ts";
 import { assertLedgerLayoutMigrationWritePlan, isLedgerLayoutMigrationEvent, ledgerLayoutMigrationWritePlan, type LedgerLayoutMigrationEventV1 } from "../domain/ledger-layout-migration-event.ts";
@@ -96,5 +97,4 @@ function showBytes(repoRoot: string, commit: string, target: string): Uint8Array
 function workspacePath(workspaceRoot: string, authoredRoot: string, ledger: LedgerGitLayout, target: string): string { const authored = path.relative(workspaceRoot, authoredRoot).split(path.sep).join("/"), prefix = ledger.authoredPrefix ? `${ledger.authoredPrefix}/` : "", logical = prefix && target.startsWith(prefix) ? target.slice(prefix.length) : target; return authored ? `${authored}/${logical}` : logical; }
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function shapeError(body: string, detail: string): TaskEventStoreError { let schema = "unknown"; try { const parsed = JSON.parse(body) as { schema?: unknown }; schema = String(parsed.schema); } catch (error) { consumeKnownError(error); } const legacy = /^(?:execution|review|task-holder)\//u.test(schema); return new TaskEventStoreError(legacy ? "legacy_shape" : "invalid_store", legacy ? `${detail}; use the archived CLI on archive/main` : detail); }
-function consumeKnownError(error: unknown): void { void error; }
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }

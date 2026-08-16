@@ -56,7 +56,7 @@ export function discoverDeclaredEntityRows(
   const layout = resolveHarnessLayout(rootInput);
   const matcher = templateMatcher(declaration.rootResolver.pathTemplate);
   const rows: DeclaredProjectionRow[] = [];
-  for (const relativePath of listFiles(layout.authoredRoot)) {
+  for (const relativePath of listDeclarationFiles(layout.authoredRoot)) {
     const match = matcher.pattern.exec(relativePath);
     if (!match) continue;
     const identity = Object.fromEntries(matcher.keys.map((key, index) => [key, match[index + 1]!]));
@@ -133,7 +133,7 @@ function templateMatcher(template: string): { readonly pattern: RegExp; readonly
   return { pattern: new RegExp(`^${source}$`, "u"), keys };
 }
 
-function listFiles(rootPath: string): ReadonlyArray<string> {
+function listDeclarationFiles(rootPath: string): ReadonlyArray<string> {
   if (!localLayoutFileSystem.exists(rootPath)) return [];
   const files: string[] = [];
   function visit(directory: string): void {

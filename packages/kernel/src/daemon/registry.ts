@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { consumeKnownError } from "../error-consumption.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { makeLocalVersionControlSystem, resolveLedgerGitLayout } from "../composition/index.ts";
 
@@ -278,4 +279,4 @@ function isDaemonRegistryRecord(value: unknown): value is Record<string, unknown
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function invalidCanonicalRoot(rootDir: string): never { throw new Error(`canonicalRoot must be an initialized harness repository: ${rootDir}`); } function consumeKnownError(error: unknown): void { void error; }
+function invalidCanonicalRoot(rootDir: string): never { throw new Error(`canonicalRoot must be an initialized harness repository: ${rootDir}`); }

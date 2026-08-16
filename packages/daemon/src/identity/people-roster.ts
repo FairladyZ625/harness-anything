@@ -272,7 +272,7 @@ function parsePeopleYaml(body: string): { readonly schema: string; readonly peop
     const topLevel = /^([A-Za-z][A-Za-z0-9_-]*):(?:\s*(.*))?$/u.exec(line);
     if (topLevel) {
       const [, key, value = ""] = topLevel;
-      if (key === "schema") schema = unquote(value.trim());
+      if (key === "schema") schema = unquoteRosterValue(value.trim());
       else if (key === "people") section = "people";
       else if (key === "roles") section = "roles";
       else throw new Error(`Unsupported people.yaml key: ${key}`);
@@ -284,7 +284,7 @@ function parsePeopleYaml(body: string): { readonly schema: string; readonly peop
     if (section === "people") {
       const started = /^  - personId:\s*(.+)$/u.exec(line);
       if (started) {
-        currentPerson = { personId: unquote(started[1]), displayName: "", roles: [], credentials: [] };
+        currentPerson = { personId: unquoteRosterValue(started[1]), displayName: "", roles: [], credentials: [] };
         people.push(currentPerson);
         currentCredential = undefined;
         continue;
@@ -299,20 +299,20 @@ function parsePeopleYaml(body: string): { readonly schema: string; readonly peop
       }
       const credentialStart = /^      - kind:\s*(.+)$/u.exec(line);
       if (credentialStart) {
-        currentCredential = { kind: unquote(credentialStart[1]), issuer: "", subject: "" };
+        currentCredential = { kind: unquoteRosterValue(credentialStart[1]), issuer: "", subject: "" };
         currentPerson.credentials.push(currentCredential);
         continue;
       }
       const credentialScalar = /^        (issuer|subject):\s*(.+)$/u.exec(line);
       if (credentialScalar && currentCredential) {
-        currentCredential[credentialScalar[1] as "issuer" | "subject"] = unquote(credentialScalar[2]);
+        currentCredential[credentialScalar[1] as "issuer" | "subject"] = unquoteRosterValue(credentialScalar[2]);
         continue;
       }
     }
     if (section === "roles") {
       const started = /^  - roleId:\s*(.+)$/u.exec(line);
       if (started) {
-        currentRole = { roleId: unquote(started[1]), commandClasses: [] };
+        currentRole = { roleId: unquoteRosterValue(started[1]), commandClasses: [] };
         roles.push(currentRole);
         continue;
       }
@@ -328,8 +328,8 @@ function parsePeopleYaml(body: string): { readonly schema: string; readonly peop
 }
 
 function assignPersonScalar(person: MutablePerson, key: string, rawValue: string): void {
-  if (key === "displayName") person.displayName = unquote(rawValue);
-  else if (key === "primaryEmail") person.primaryEmail = unquote(rawValue);
+  if (key === "displayName") person.displayName = unquoteRosterValue(rawValue);
+  else if (key === "primaryEmail") person.primaryEmail = unquoteRosterValue(rawValue);
   else if (key === "roles") person.roles = parseInlineArray(rawValue);
   else if (key === "disabled") person.disabled = rawValue === "true";
   else if (key !== "credentials") throw new Error(`Unsupported person key: ${key}`);
@@ -340,10 +340,10 @@ function parseInlineArray(rawValue: string): string[] {
   if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) throw new Error(`Expected inline array: ${rawValue}`);
   const inner = trimmed.slice(1, -1).trim();
   if (!inner) return [];
-  return inner.split(",").map((item) => unquote(item.trim()));
+  return inner.split(",").map((item) => unquoteRosterValue(item.trim()));
 }
 
-function unquote(value: string): string {
+function unquoteRosterValue(value: string): string {
   const trimmed = value.trim();
   if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
     return trimmed.slice(1, -1);

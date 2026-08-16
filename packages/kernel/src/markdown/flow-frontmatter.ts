@@ -47,7 +47,7 @@ export function parseObjectList(
 export function parseFlowObject(value: string, options: FlowFrontmatterParseOptions = {}): Record<string, unknown> {
   const body = value.trim().replace(/^\{\s*/u, "").replace(/\s*\}$/u, "");
   const result: Record<string, unknown> = {};
-  for (const part of splitTopLevel(body)) {
+  for (const part of splitFlowFrontmatterTopLevel(body)) {
     const separator = part.indexOf(":");
     if (separator === -1) continue;
     const key = part.slice(0, separator).trim();
@@ -94,7 +94,7 @@ function parseFlowValue(value: string, options: FlowFrontmatterParseOptions): un
   return unquote(value);
 }
 
-function splitTopLevel(value: string): string[] {
+function splitFlowFrontmatterTopLevel(value: string): string[] {
   const parts: string[] = [];
   let depth = 0;
   let inString = false;

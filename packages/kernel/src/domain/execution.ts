@@ -6,6 +6,7 @@ import {
 } from "./task.ts";
 import type { ActorAxes, ContractValidationIssue } from "./task.ts";
 import type { TaskNodeId } from "./task-graph.ts";
+import { timestamp } from "./timestamp.ts";
 import { validateWriteSource } from "./write-chain.contract.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
 
@@ -74,4 +75,3 @@ export function validateLeaseHolder(value: unknown): readonly ContractValidation
 }
 function archivedOutput(value: unknown): boolean { return isRecord(value) && hasOnlyFields(value, ["migratedFrom", "locator", "substrate", "checkerReceiptRef", "checkerResult"]) && isNonEmptyString(value.migratedFrom) && isNonEmptyString(value.locator) && ["repository-path", "uri", "canonical-event", "opaque"].includes(String(value.substrate)) && (value.checkerReceiptRef === null || isNonEmptyString(value.checkerReceiptRef)) && ["pass", "fail", "unknown"].includes(String(value.checkerResult)) && (value.checkerResult === "unknown" || value.checkerReceiptRef !== null); }
 function archivedSubmission(value: unknown): boolean { return isRecord(value) && hasOnlyFields(value, ["completionClaim", "deliverables", "evidenceRefs", "verificationNotes", "knownGaps", "residualRisks"]) && isNonEmptyString(value.completionClaim) && [value.deliverables, value.evidenceRefs, value.verificationNotes, value.knownGaps, value.residualRisks].every(stringArray); }
-function timestamp(value: unknown): value is string { return typeof value === "string" && Number.isFinite(Date.parse(value)); }

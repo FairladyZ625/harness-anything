@@ -12,7 +12,7 @@ export interface LocalDaemonTarget {
   readonly socketPath: EndpointIdentity;
 }
 export function localUserDaemonEndpoint(userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), platform: NodeJS.Platform = process.platform): EndpointIdentity {
-  const id = `u-${hash(`${path.resolve(userRoot)}\0${daemonId}`)}`;
+  const id = `u-${localDaemonTargetHash(`${path.resolve(userRoot)}\0${daemonId}`)}`;
   return endpointIdentity(platform === "win32" ? `\\\\.\\pipe\\harness-anything-${safeDaemonId(id)}` : unixEndpoint(id));
 }
 export function daemonUserRoot(env: NodeJS.ProcessEnv = process.env): string { return path.resolve(env.HARNESS_DAEMON_USER_ROOT || path.join(os.homedir(), ".harness")); }
@@ -37,6 +37,6 @@ function readRegisteredRepos(userRoot: string): readonly { readonly repoId: stri
     && typeof repo.repoId === "string" && typeof repo.canonicalRoot === "string" && typeof repo.state === "string");
 }
 function daemonRegistryRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }
-function hash(value: string): string { return createHash("sha256").update(value).digest("hex").slice(0, 16); }
+function localDaemonTargetHash(value: string): string { return createHash("sha256").update(value).digest("hex").slice(0, 16); }
 function safeDaemonId(value: string): string { return value.replace(/[^A-Za-z0-9_.-]/gu, "-"); }
 function unixEndpoint(id: string): string { return path.join(os.tmpdir(), "harness-anything", `daemon-${process.getuid?.() ?? 0}-${safeDaemonId(id)}.sock`); }

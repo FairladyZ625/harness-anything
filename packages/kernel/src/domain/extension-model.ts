@@ -86,25 +86,25 @@ export function validateTemplateCatalog(catalog: TemplateCatalog, options: Templ
     const documentPath = `documents[${documentIndex}]`;
     const documentKey = formatTemplateRef(document.id, document.version);
     if (seenDocuments.has(documentKey)) {
-      issues.push(issue("duplicate_document", `Duplicate template document ${documentKey}.`, documentPath));
+      issues.push(extensionIssue("duplicate_document", `Duplicate template document ${documentKey}.`, documentPath));
     }
     seenDocuments.add(documentKey);
 
     const locales = new Set(document.locales.map((variant) => variant.locale));
     if (!locales.has(document.fallbackLocale)) {
-      issues.push(issue("missing_fallback_locale", `Fallback locale ${document.fallbackLocale} is not present for ${documentKey}.`, `${documentPath}.fallbackLocale`));
+      issues.push(extensionIssue("missing_fallback_locale", `Fallback locale ${document.fallbackLocale} is not present for ${documentKey}.`, `${documentPath}.fallbackLocale`));
     }
 
     for (const [variantIndex, variant] of document.locales.entries()) {
       const variantPath = `${documentPath}.locales[${variantIndex}]`;
       if (!sameStringSet(variant.anchors, document.requiredAnchors)) {
-        issues.push(issue("template_locale_structure_mismatch", `Locale ${variant.locale} anchors must match required anchors for ${documentKey}.`, `${variantPath}.anchors`));
+        issues.push(extensionIssue("template_locale_structure_mismatch", `Locale ${variant.locale} anchors must match required anchors for ${documentKey}.`, `${variantPath}.anchors`));
       }
       const body = options.resolveBody?.({ document, locale: variant, documentIndex, localeIndex: variantIndex });
       if (body !== undefined) {
         for (const anchor of document.requiredAnchors) {
           if (!body.includes(anchor)) {
-            issues.push(issue("missing_required_anchor", `Locale ${variant.locale} body is missing anchor ${anchor}.`, `${variantPath}.bodyPath`));
+            issues.push(extensionIssue("missing_required_anchor", `Locale ${variant.locale} body is missing anchor ${anchor}.`, `${variantPath}.bodyPath`));
           }
         }
       }
@@ -123,18 +123,18 @@ export function validateVerticalDefinition(vertical: VerticalDefinition): Extens
 
   for (const [entityIndex, entity] of vertical.entityKinds.entries()) {
     if (vertical.entityKinds.findIndex((candidate) => candidate.id === entity.id) !== entityIndex) {
-      issues.push(issue("duplicate_vertical_entity", `Duplicate vertical entity kind ${entity.id}.`, `entityKinds[${entityIndex}].id`));
+      issues.push(extensionIssue("duplicate_vertical_entity", `Duplicate vertical entity kind ${entity.id}.`, `entityKinds[${entityIndex}].id`));
     }
   }
 
   for (const [contractIndex, entityKind] of vertical.contractEntityKinds.entries()) {
     const entity = entityById.get(entityKind);
     if (!entity) {
-      issues.push(issue("vertical_contract_entity_missing", `Contract entity ${entityKind} is not declared in entityKinds.`, `contractEntityKinds[${contractIndex}]`));
+      issues.push(extensionIssue("vertical_contract_entity_missing", `Contract entity ${entityKind} is not declared in entityKinds.`, `contractEntityKinds[${contractIndex}]`));
       continue;
     }
     if (!entity.contractEntity) {
-      issues.push(issue("vertical_contract_entity_disabled", `Contract entity ${entityKind} must be marked contractEntity: true.`, `contractEntityKinds[${contractIndex}]`));
+      issues.push(extensionIssue("vertical_contract_entity_disabled", `Contract entity ${entityKind} must be marked contractEntity: true.`, `contractEntityKinds[${contractIndex}]`));
     }
   }
 
@@ -142,11 +142,11 @@ export function validateVerticalDefinition(vertical: VerticalDefinition): Extens
     scaffoldEntityKinds.add(scaffold.entityKind);
     const entity = entityById.get(scaffold.entityKind);
     if (!entity) {
-      issues.push(issue("vertical_scaffold_entity_missing", `Package scaffold entity ${scaffold.entityKind} is not declared in entityKinds.`, `packageScaffolds[${scaffoldIndex}].entityKind`));
+      issues.push(extensionIssue("vertical_scaffold_entity_missing", `Package scaffold entity ${scaffold.entityKind} is not declared in entityKinds.`, `packageScaffolds[${scaffoldIndex}].entityKind`));
       continue;
     }
     if (entity.entityType === "schema") {
-      issues.push(issue("vertical_schema_scaffold_forbidden", `Schema entity ${scaffold.entityKind} must not declare a package scaffold.`, `packageScaffolds[${scaffoldIndex}].entityKind`));
+      issues.push(extensionIssue("vertical_schema_scaffold_forbidden", `Schema entity ${scaffold.entityKind} must not declare a package scaffold.`, `packageScaffolds[${scaffoldIndex}].entityKind`));
     }
   }
 
@@ -154,27 +154,27 @@ export function validateVerticalDefinition(vertical: VerticalDefinition): Extens
     repositoryRootEntityKinds.add(root.entityKind);
     const entity = entityById.get(root.entityKind);
     if (!entity) {
-      issues.push(issue("vertical_scaffold_entity_missing", `Repository scaffold entity ${root.entityKind} is not declared in entityKinds.`, `repositoryScaffold.entityRoots[${rootIndex}].entityKind`));
+      issues.push(extensionIssue("vertical_scaffold_entity_missing", `Repository scaffold entity ${root.entityKind} is not declared in entityKinds.`, `repositoryScaffold.entityRoots[${rootIndex}].entityKind`));
       continue;
     }
     if (entity.entityType === "schema") {
-      issues.push(issue("vertical_schema_repository_scaffold_forbidden", `Schema entity ${root.entityKind} must not declare a repository root scaffold.`, `repositoryScaffold.entityRoots[${rootIndex}].entityKind`));
+      issues.push(extensionIssue("vertical_schema_repository_scaffold_forbidden", `Schema entity ${root.entityKind} must not declare a repository root scaffold.`, `repositoryScaffold.entityRoots[${rootIndex}].entityKind`));
     }
   }
 
   for (const [entityIndex, entity] of vertical.entityKinds.entries()) {
     if (entity.entityType === "lifecycle" && !scaffoldEntityKinds.has(entity.id)) {
-      issues.push(issue("vertical_lifecycle_scaffold_missing", `Lifecycle entity ${entity.id} must declare a package scaffold.`, `entityKinds[${entityIndex}].id`));
+      issues.push(extensionIssue("vertical_lifecycle_scaffold_missing", `Lifecycle entity ${entity.id} must declare a package scaffold.`, `entityKinds[${entityIndex}].id`));
     }
     if (entity.entityType === "lifecycle" && !repositoryRootEntityKinds.has(entity.id)) {
-      issues.push(issue("vertical_lifecycle_repository_scaffold_missing", `Lifecycle entity ${entity.id} must declare a repository scaffold root.`, `entityKinds[${entityIndex}].id`));
+      issues.push(extensionIssue("vertical_lifecycle_repository_scaffold_missing", `Lifecycle entity ${entity.id} must declare a repository scaffold root.`, `entityKinds[${entityIndex}].id`));
     }
   }
 
   const serialized = JSON.stringify(vertical);
   const lifecycleLeakTokens = [`status${"Mapping"}`, `lifecycle${"Status"}`, `provider${"Status"}`];
   if (lifecycleLeakTokens.some((token) => serialized.includes(token))) {
-    issues.push(issue("status_mapping_forbidden", "Vertical definitions must not own lifecycle status mapping.", "$"));
+    issues.push(extensionIssue("status_mapping_forbidden", "Vertical definitions must not own lifecycle status mapping.", "$"));
   }
 
   return { ok: issues.length === 0, issues };
@@ -189,7 +189,7 @@ export function planTemplateMaterialization(request: MaterializationRequest): Ma
     const parsedRef = parseTemplateRef(selection.templateRef);
     const document = request.catalog.documents.find((candidate) => candidate.id === parsedRef.id && candidate.version === parsedRef.version);
     if (!document) {
-      issues.push(issue("missing_template", `Template ${selection.templateRef} is not present in the catalog.`, `selections[${selectionIndex}].templateRef`));
+      issues.push(extensionIssue("missing_template", `Template ${selection.templateRef} is not present in the catalog.`, `selections[${selectionIndex}].templateRef`));
       continue;
     }
 
@@ -199,14 +199,14 @@ export function planTemplateMaterialization(request: MaterializationRequest): Ma
       ?? document.locales.find((variant) => variant.locale === document.fallbackLocale);
     const selected = preferred ?? fallback;
     if (!selected) {
-      issues.push(issue("missing_fallback_locale", `No usable locale for ${selection.templateRef}.`, `selections[${selectionIndex}].localePolicy`));
+      issues.push(extensionIssue("missing_fallback_locale", `No usable locale for ${selection.templateRef}.`, `selections[${selectionIndex}].localePolicy`));
       continue;
     }
     const documentIndex = request.catalog.documents.indexOf(document);
     const localeIndex = document.locales.indexOf(selected);
     const body = request.resolveBody?.({ document, locale: selected, documentIndex, localeIndex });
     if (body === undefined) {
-      issues.push(issue("template_body_unavailable", `Template body is unavailable for ${selection.templateRef} ${selected.locale}.`, `documents[${documentIndex}].locales[${localeIndex}].bodyPath`));
+      issues.push(extensionIssue("template_body_unavailable", `Template body is unavailable for ${selection.templateRef} ${selected.locale}.`, `documents[${documentIndex}].locales[${localeIndex}].bodyPath`));
       continue;
     }
 
@@ -238,7 +238,7 @@ function sameStringSet(left: ReadonlyArray<string>, right: ReadonlyArray<string>
   return left.length === right.length && left.every((value) => right.includes(value));
 }
 
-function issue(code: ExtensionValidationIssue["code"], message: string, path: string): ExtensionValidationIssue {
+function extensionIssue(code: ExtensionValidationIssue["code"], message: string, path: string): ExtensionValidationIssue {
   return { code, message, path };
 }
 
@@ -356,7 +356,7 @@ function validateObjectKeys(input: unknown, path: string, allowedKeys: ReadonlyA
   const allowed = new Set(allowedKeys);
   for (const key of Object.keys(input)) {
     if (!allowed.has(key)) {
-      issues.push(issue("unknown_extension_field", `Unknown extension field ${key}.`, `${path}.${key}`));
+      issues.push(extensionIssue("unknown_extension_field", `Unknown extension field ${key}.`, `${path}.${key}`));
     }
   }
 }
@@ -380,7 +380,7 @@ function scanForbiddenKeys(input: unknown, path: string, issues: ExtensionValida
   ]);
   for (const [key, value] of Object.entries(input)) {
     if (forbidden.has(key)) {
-      issues.push(issue("unknown_extension_field", `Forbidden extension field ${key}.`, `${path}.${key}`));
+      issues.push(extensionIssue("unknown_extension_field", `Forbidden extension field ${key}.`, `${path}.${key}`));
     }
     scanForbiddenKeys(value, `${path}.${key}`, issues);
   }
