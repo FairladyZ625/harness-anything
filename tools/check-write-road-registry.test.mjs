@@ -21,6 +21,26 @@ test("write-road registry binds the workspace admission lock to RepoCell", () =>
   assert.match(findWriteRoadRegistryViolations(root).join("\n"), /repo-cell\.ts: physical write sink is not declared/u);
 }));
 
+test("write-road registry classifies sqlite read-only by construction site, not by file", () => withFixture((root) => {
+  write(root, "packages/kernel/src/projection/mixed-projection.ts", [
+    "import { DatabaseSync } from \"node:sqlite\";",
+    "export function readTruth(path) { const db = new DatabaseSync(path, { readOnly: true }); try { return db.prepare(\"SELECT 1\").all(); } finally { db.close(); } }",
+    "export function writeTruth(path) { const db = new DatabaseSync(path); try { db.exec(\"CREATE TABLE IF NOT EXISTS t (id INTEGER)\"); } finally { db.close(); } }",
+    ""
+  ].join("\n"));
+  assert.match(findWriteRoadRegistryViolations(root).join("\n"), /mixed-projection\.ts: physical write sink is not declared/u);
+}));
+
+test("write-road registry does not flag a file whose sqlite sites are all read-only", () => withFixture((root) => {
+  write(root, "packages/kernel/src/projection/read-only-projection.ts", [
+    "import { DatabaseSync } from \"node:sqlite\";",
+    "export function readTruth(path) { const db = new DatabaseSync(path, { readOnly: true }); try { return db.prepare(\"SELECT 1\").all(); } finally { db.close(); } }",
+    "export function readOther(other) { const db = new DatabaseSync(other, { readOnly: true }); return db.prepare(\"SELECT 2\").all(); }",
+    ""
+  ].join("\n"));
+  assert.doesNotMatch(findWriteRoadRegistryViolations(root).join("\n"), /read-only-projection\.ts/u);
+}));
+
 test("write-road registry rejects stale legacy rows", () => withFixture((root) => {
   const file = path.join(root, "tools/write-road-registry.json"), registry = JSON.parse(readFileSync(file, "utf8"));
   registry.rows.push({ id: "write-coordinator.runtime-substrate", actions: [], evidence: [] }); writeFileSync(file, JSON.stringify(registry));

@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSyn
 import os from "node:os";
 import path from "node:path";
 import { resolveHarnessLayout } from "../layout/index.ts";
-import { resolveLedgerGitLayout } from "../store/ledger-git-layout.ts"; import { makeLocalVersionControlSystem } from "../store/local-version-control-system.ts";
+import { makeLocalVersionControlSystem, resolveLedgerGitLayout } from "../composition/index.ts";
 
 export const daemonRegistrySchema = "harness-daemon-registry/v1";
 

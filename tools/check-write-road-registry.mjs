@@ -44,11 +44,29 @@ function discoverPhysicalWriteFiles(rootDir) { const files = walk(path.join(root
     const gitWrite = /\b(?:execFileSync|spawnSync)\(\s*["']git["']/u.test(body)
       && !/^packages\/kernel\/src\/projection\/post-merge-checks\.ts$/u.test(file);
     const sqliteWrite = /from\s*["'](?:node:sqlite|@effect\/sql-sqlite-node)["']/u.test(body)
-      && /(?:new\s+DatabaseSync|SqliteClient\.make)\s*\(/u.test(body) && !/readOnly:\s*true/u.test(body);
+      && hasWritableSqliteConstructionSite(body);
     return fsWrite || gitWrite || sqliteWrite;
   }).sort(); }
 function walk(directory, rootDir) { if (!existsSync(directory)) return []; const out = []; for (const entry of readdirSync(directory, { withFileTypes: true })) { const file = path.join(directory, entry.name);
   if (entry.isDirectory()) out.push(...walk(file, rootDir)); else out.push(path.relative(rootDir, file).split(path.sep).join("/")); } return out; }
+function hasWritableSqliteConstructionSite(body) {
+  for (const match of body.matchAll(/(?:new\s+DatabaseSync|SqliteClient\.make)\s*\(/gu)) {
+    const args = sqliteConstructionArguments(body, match.index + match[0].length);
+    if (args !== null && !/readOnly:\s*true/u.test(args)) return true;
+  }
+  return false;
+}
+function sqliteConstructionArguments(body, openParenIndex) {
+  let depth = 1, quote = null;
+  for (let index = openParenIndex; index < body.length; index += 1) {
+    const char = body[index];
+    if (quote) { if (char === "\\") index += 1; else if (char === quote) quote = null; continue; }
+    if (char === "\"" || char === "'" || char === "`") { quote = char; continue; }
+    if (char === "(") depth += 1;
+    else if (char === ")") { depth -= 1; if (depth === 0) return body.slice(openParenIndex, index); }
+  }
+  return null;
+}
 function read(file) { return existsSync(file) ? readFileSync(file, "utf8") : ""; }
 function main() { const violations = findWriteRoadRegistryViolations(); if (violations.length > 0) { console.error("Write-road registry check failed:"); for (const violation of violations) console.error(`- ${violation}`); process.exitCode = 1; }
   else console.log("Write-road registry check passed: legacy roads absent and RepoCell/event store is the sole lifecycle write road."); }

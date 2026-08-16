@@ -18,6 +18,35 @@ test("Legacy Intake readiness rejects old runtime production references", async 
   });
 });
 
+test("Legacy Intake readiness rejects each forbidden runtime-control API symbol in production source", async () => {
+  await withFixtureRepo(async (root) => {
+    for (const [index, symbol] of ["requestTransition", "runtimeQueue", "providerNeutralTransition"].entries()) {
+      mkdirSync(path.join(root, `packages/kernel/src/forbidden-${index}`), { recursive: true });
+      writeFileSync(path.join(root, `packages/kernel/src/forbidden-${index}/api.ts`), `export const api = { ${symbol}: () => {} };\n`);
+    }
+
+    const violations = await evaluateLegacyIntakeReadiness(root);
+
+    for (const [index, symbol] of ["requestTransition", "runtimeQueue", "providerNeutralTransition"].entries()) {
+      assert.equal(
+        violations.some((violation) => violation.startsWith(`packages/kernel/src/forbidden-${index}/api.ts:`) && violation.includes("exposes forbidden runtime-control API surface")),
+        true,
+        `expected a forbidden API violation for ${symbol}, got: ${violations.join(" | ")}`
+      );
+    }
+  });
+});
+
+test("Legacy Intake readiness does not flag Object.assign member calls as API definitions", async () => {
+  await withFixtureRepo(async (root) => {
+    writeFileSync(path.join(root, "packages/kernel/src/index.ts"), "export const coded = Object.assign(new Error('x'), { code: 'E' });\n");
+
+    const violations = await evaluateLegacyIntakeReadiness(root);
+
+    assert.deepEqual(violations, []);
+  });
+});
+
 test("Legacy Intake readiness allows old runtime references in tests and behavior report", async () => {
   await withFixtureRepo(async (root) => {
     mkdirSync(path.join(root, "packages/kernel/test"), { recursive: true });
