@@ -8,7 +8,7 @@ import { deriveCliCapabilities, parseThinCommand, renderThinHelp } from "../src/
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 81);
+  assert.equal(thinCliCommands.length, 82);
   for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))].filter((value): value is string => value !== undefined).sort()) assert.match(help, new RegExp(`^  ${domain} \\(`, "mu"));
   assert.doesNotMatch(help, /ha task start <task-id>/u);
   const taskHelp = renderThinHelp([], "task");
@@ -40,7 +40,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     doc: ["doc-materialize", "doc-show", "doc-status", "doc-sync-dry-run", "doc-sync-submit"],
     fact: ["fact-record", "fact-search", "fact-show"],
     init: ["repo-bootstrap"],
-    migrate: ["migrate-import"],
+    migrate: ["ledger-migrate", "migrate-import"],
     preset: ["preset-audit", "preset-check", "preset-inspect", "preset-install", "preset-list", "preset-seed", "preset-uninstall", "preset-upgrade", "preset-validate"],
     receipt: ["receipt-show"],
     relation: ["relation-list"],
@@ -225,6 +225,13 @@ test("migration import parser accepts repeated explicit conflict resolutions", (
   assert.equal(parseThinCommand(["migrate", "import"]).ok, false);
   assert.equal(parseThinCommand(["migrate", "import", "--source", "a", "--resolve", "harness/people.yaml=automatic"]).ok, false);
   assert.equal(parseThinCommand(["migrate", "import", "--source", "a", "--force"]).ok, false);
+});
+
+test("migrate ledger is one closed no-option command", () => {
+  const parsed = parseThinCommand(["migrate", "ledger"]);
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "ledger-migrate" });
+  assert.equal(parseThinCommand(["migrate", "ledger", "--dry-run"]).ok, false);
 });
 
 test("thin parser rejects retired caller-supplied gate receipts", () => {

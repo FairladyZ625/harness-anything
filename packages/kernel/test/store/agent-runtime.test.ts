@@ -6,6 +6,7 @@ import test from "node:test";
 import { eventFromProviderWitness, type ProviderWitnessV1 } from "../../src/agent-runtime/provider-witness.ts";
 import { reduceRuntimeSession, type AgentRuntimeEventType, type AgentRuntimeEventV1 } from "../../src/domain/agent-runtime.ts";
 import { serializeCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
+import { eventObjectRelativePath } from "../../src/layout/ledger-object-layout.ts";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
 import { CANONICAL_EVENT_REF, canonicalEventWritePlan, makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 import { withTempStoreAsync } from "./helpers.ts";
@@ -33,7 +34,7 @@ test("runtime events use the canonical envelope, head, store, and the shared pro
     events.push(eventFromProviderWitness({ ...claude.witnesses[0]!, payload: { ...claude.witnesses[0]!.payload, version: "1.1.0" } }, envelope(events.length + 1))!);
     for (const event of events) { const receipt = store.append(bundle(event)); assert.deepEqual(projection.apply(event).metrics, { sqliteTransactions: 1, reducedItems: 1 }); assert.equal(receipt.revision, event.workspaceRevision); }
     assert.equal(store.readHead()?.revision, events.length); assert.deepEqual(store.readEvent(events.at(-1)!.opId), events.at(-1));
-    assert.equal(git(rootDir, "show", `${CANONICAL_EVENT_REF}:harness/events/${events[0]!.opId}.json`), serializeCanonicalEvent(events[0]!).trimEnd());
+    assert.equal(git(rootDir, "show", `${CANONICAL_EVENT_REF}:harness/${eventObjectRelativePath(events[0]!.opId)}`), serializeCanonicalEvent(events[0]!).trimEnd());
     assert.deepEqual(projection.readRuntimeInstallation("installation-claude"), { installationId: "installation-claude", kindId: "claude-compatible", protocolFamily: "claude-compatible", hostRef: "host:local", version: "1.1.0", discoverySource: "wrapper", effectiveCapabilities: ["structured_witness", "resume"], lastObservedAt: "2026-08-12T00:00:09.000Z" });
     const session = projection.readRuntimeSession("runtime-session-claude"); assert.equal(session?.providerSessionId, "provider-session-claude");
     assert.deepEqual(session?.taskBindings.map(({ taskId, executionId, transcriptRef }) => ({ taskId, executionId, transcriptRef })), [{ taskId: "task-runtime", executionId: "execution-claude", transcriptRef: "file:runtime-transcripts/claude/session.jsonl" }]);

@@ -1,4 +1,5 @@
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
+import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import { validateTaskV1, type TaskV1 } from "./task.ts";
 import { freezeDeclaredWritePlan, hasOnlyFields, isFrozenWritePlan, isNonEmptyString, isRecord, serializeEventEnvelope, validateActorIdentity, validateWriteSource,
@@ -24,7 +25,7 @@ export function validateTaskBootstrapEvent(value: unknown): readonly string[] {
 }
 export function isTaskBootstrapEvent(event: { readonly schema: string }): event is TaskBootstrapEventV1 { return event.schema === "task-bootstrap-event/v1"; }
 export function taskBootstrapWritePlan(event: TaskBootstrapEventV1): FrozenWritePlan<"TaskBootstrap"> {
-  const targets: WriteTarget[] = [{ kind: "event_file", path: `harness/events/${event.opId}.json`, operation: "create" }, { kind: "event_head", path: "harness/events/head.json", operation: "replace" }, { kind: "projection_invalidation", projection: "task-lifecycle/v1", key: event.taskId }, { kind: "projection_invalidation", projection: "preset-snapshot/v1", key: event.payload.presetSnapshotClaim.digest }];
+  const targets: WriteTarget[] = [{ kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" }, { kind: "event_head", path: "harness/events/head.json", operation: "replace" }, { kind: "projection_invalidation", projection: "task-lifecycle/v1", key: event.taskId }, { kind: "projection_invalidation", projection: "preset-snapshot/v1", key: event.payload.presetSnapshotClaim.digest }];
   for (const claim of event.payload.initialDocumentClaims) targets.push({ kind: "authored_file", path: claim.path, operation: "replace", sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType }, { kind: "projection_invalidation", projection: "document/v1", key: claim.path });
   for (const claim of uniqueClaims(event)) targets.push({ kind: "content_blob", sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType });
   return freezeDeclaredWritePlan({ commandType: "TaskBootstrap", targets }, ["TaskBootstrap"]);

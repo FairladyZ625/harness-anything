@@ -7,7 +7,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { makeTaskEventStore, makeTaskProjection, readDaemonRegistry, type AgentRuntimeEventV1, type FrozenWritePlan } from "../../kernel/src/index.ts";
+import { eventObjectTarget, makeTaskEventStore, makeTaskProjection, readDaemonRegistry, REPLAY_TASK_GRAPH, serializeCanonicalEvent, serializeEventHead, sha256Text, type AgentRuntimeEventV1, type FrozenWritePlan, type TaskEventV1 } from "../../kernel/src/index.ts";
 import { projectDecisionReadiness, reviewDigest } from "../../kernel/src/index.ts";
 import { actionForDaemonMethod, canonicalRoot, commandClassForAction, daemonGuiActionMethods, parseDaemonRpcParams, validateDaemonDecisionList, validateDaemonGuiCommandReceipt, validateDaemonRelationGraph, validateDaemonTaskSnapshotList, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
@@ -20,6 +20,7 @@ const actor = { principal: { personId: "person-owner" }, executor: { kind: "agen
 test("descriptor-derived RBAC preserves every preset, runtime, doc-sync, Fact, and Decision action class", () => {
   const expected = {
     "migrate-import": "repo-write",
+    "ledger-migrate": "repo-write",
     "task-create": "repo-write",
     "preset-list": "repo-read",
     "preset-inspect": "repo-read",
@@ -79,6 +80,21 @@ test("task-create and preset RPC descriptors enforce closed payloads and retire 
   const params = { repo: { repoId: "alpha" }, payload: { title: "Closed", presetId: "standard-task" } };
   assert.equal(parseDaemonRpcParams("repo.task.create", params).ok, true); assert.equal(parseDaemonRpcParams("repo.task.create", { ...params, payload: { ...params.payload, dryRun: true } }).ok, true); assert.equal(parseDaemonRpcParams("repo.task.create", { ...params, payload: { ...params.payload, dryRun: "true" } }).ok, false); assert.equal(parseDaemonRpcParams("repo.task.create", { ...params, payload: { ...params.payload, completionGateIds: [] } }).ok, false); assert.deepEqual(actionForDaemonMethod("repo.task.create", params.payload), { kind: "task-create", ...params.payload }); assert.throws(() => actionForDaemonMethod("repo.task.run", { action: { kind: "task-create", title: "Open" } }), /closed method/u);
   assert.equal(parseDaemonRpcParams("repo.task.create", { repo: { repoId: "alpha" }, payload: { taskId: "task_full", title: "Full", idempotencyKey: "once", parentTaskId: "task_parent", workKind: "feat", riskTier: "high", urgency: "medium", moduleKey: "kernel", registerModule: { key: "kernel", title: "Kernel", prefix: "KER", scope: "packages/kernel/**" }, surfaces: ["ha task create"], relations: [{ type: "depends-on", target: "task/task_parent", rationale: "First" }], longRunning: true, createMode: "admin" } }).ok, true);
+});
+
+test("ledger migrate runs through the RepoCell write queue and rebuilds the projection at the migrated cut", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-ledger-layout-migrate-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir); const flatEvent: TaskEventV1 = { schema: "task-event/v1", eventId: "event-flat-ledger", workspaceRevision: 1, opId: "migration-flat-ledger", taskId: "task_flat_ledger", type: "task_created", actor, source: "local", occurredAt: "2026-08-16T00:00:00.000Z", payload: { task: { schema: "task/v1", taskId: "task_flat_ledger", title: "Flat ledger", taskClass: "standard", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [], presetSnapshotDigest: null } } }, eventBody = serializeCanonicalEvent(flatEvent), eventsRoot = path.join(rootDir, "harness/events"); mkdirSync(eventsRoot, { recursive: true }); writeFileSync(path.join(eventsRoot, `${flatEvent.opId}.json`), eventBody); writeFileSync(path.join(eventsRoot, "head.json"), serializeEventHead({ revision: 1, opId: flatEvent.opId, eventDigest: `sha256:${sha256Text(eventBody)}` })); git(rootDir, "add", "harness/events"); git(rootDir, "commit", "--quiet", "-m", "flat ledger fixture");
+    cell = await openRepoCell({ repoId: workspaceId("ledger-layout-migrate"), rootDir: canonicalRoot(rootDir), ownerId: "ledger-layout-migrate", now: () => "2026-08-16T00:00:01.000Z" }); const receipt = await cell.run({ kind: "ledger-migrate" }, { actor, source: "local" }) as Record<string, unknown>; assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); assert.equal(receipt.revision, 2); assert.equal(receipt.commitSha, git(rootDir, "rev-parse", "HEAD")); assert.deepEqual(git(rootDir, "ls-tree", "--name-only", "HEAD:harness/events").split("\n").filter((name) => name.endsWith(".json")), ["head.json"]); const projected = await cell.read("repo.tasks.list"); assert.equal(projected.status, "ready"); assert.equal(projected.watermark, 2); assert.equal(projected.rows.some(({ taskId }) => taskId === flatEvent.taskId), true);
+    const repeated = await cell.run({ kind: "ledger-migrate" }, { actor, source: "local" }) as Record<string, unknown>; assert.equal(repeated.commitSha, receipt.commitSha); assert.equal(git(rootDir, "rev-list", "--count", "HEAD"), "3");
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("replay receipts report the current canonical cut instead of scanning for first publication", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-replay-current-cut-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("replay-current-cut"), rootDir: canonicalRoot(rootDir), ownerId: "replay-current-cut" }); const binding = { actor, source: "local" as const }; await cell.run({ kind: "task-create", taskId: "task_replay_first", title: "First" }, binding); const first = await cell.run({ kind: "task-start", taskId: "task_replay_first", executionId: "execution_replay_first" }, binding) as Record<string, unknown>, second = await cell.run({ kind: "task-create", taskId: "task_replay_second", title: "Second" }, binding) as Record<string, unknown>, replay = await cell.run({ kind: "receipt-show", opId: first.opId }, binding) as Record<string, unknown>; assert.notEqual(first.commitSha, second.commitSha); assert.equal(replay.commitSha, second.commitSha); assert.equal(replay.commitSha, git(rootDir, "rev-parse", "HEAD")); }
+  finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
 test("relation graph contract accepts the materialized ledger row schema and rejects malformed rows", () => {
@@ -281,7 +297,7 @@ test("invalid Decision payload stays invalid_command and reckon records exact pr
     assert.deepEqual({ outcome: invalid.outcome, code: invalid.code, state: cell.status().state }, { outcome: "rejected", code: "invalid_command", state: "attached" }); assert.equal(makeTaskEventStore({ repoId: "decision-cell", rootDir }).readHead()?.revision, beforeInvalid);
     const reckon = await cell.run({ kind: "decision-reckon", decisionId, taskId: "task-decision" }, binding); assert.equal(reckon.outcome, "applied", JSON.stringify(reckon)); const fact = JSON.parse(reckon.evidence) as { evidenceSource: string; statement: string; workspaceRevision: number };
     assert.equal(fact.evidenceSource, `decision/${decisionId}@${beforeInvalid}`); assert.match(fact.statement, new RegExp(`basisRevision ${beforeInvalid}`, "u")); assert.equal(fact.workspaceRevision, beforeInvalid + 1);
-    const stable = await cell.run({ kind: "receipt-show", opId: proposed.opId }, binding) as Record<string, unknown>; assert.deepEqual({ consentId: stable.consentId, path: stable.path, commitSha: stable.commitSha, documentSha256: stable.documentSha256, worktreeVisible: stable.worktreeVisible }, { consentId: (proposed as Record<string, unknown>).consentId, path: (proposed as Record<string, unknown>).path, commitSha: (proposed as Record<string, unknown>).commitSha, documentSha256: (proposed as Record<string, unknown>).documentSha256, worktreeVisible: true }); assert.notEqual(stable.commitSha, git(rootDir, "rev-parse", "HEAD"));
+    const stable = await cell.run({ kind: "receipt-show", opId: proposed.opId }, binding) as Record<string, unknown>, currentCut = git(rootDir, "rev-parse", "HEAD"); assert.deepEqual({ consentId: stable.consentId, path: stable.path, commitSha: stable.commitSha, documentSha256: stable.documentSha256, worktreeVisible: stable.worktreeVisible }, { consentId: (proposed as Record<string, unknown>).consentId, path: (proposed as Record<string, unknown>).path, commitSha: currentCut, documentSha256: (proposed as Record<string, unknown>).documentSha256, worktreeVisible: true }); assert.equal(stable.commitSha, currentCut);
     const event = makeTaskEventStore({ repoId: "decision-cell", rootDir }).readEvent(reckon.opId); assert.equal(event?.schema, "fact-event/v1"); if (event?.schema === "fact-event/v1") assert.equal(event.payload.evidenceSource, fact.evidenceSource);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
@@ -549,4 +565,4 @@ function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 function hasCode(expected: string): (error: unknown) => boolean { return (error) => typeof error === "object" && error !== null && "code" in error && error.code === expected; }
-function runtimeWritePlan(event: AgentRuntimeEventV1): FrozenWritePlan { return Object.freeze({ commandType: event.type, targets: Object.freeze([{ kind: "event_file", path: `harness/events/${event.opId}.json`, operation: "create" }, { kind: "event_head", path: "harness/events/head.json", operation: "replace" }, { kind: "projection_invalidation", projection: "agent-runtime/v1", key: event.opId }].map((target) => Object.freeze(target))) }) as FrozenWritePlan; }
+function runtimeWritePlan(event: AgentRuntimeEventV1): FrozenWritePlan { return Object.freeze({ commandType: event.type, targets: Object.freeze([{ kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" }, { kind: "event_head", path: "harness/events/head.json", operation: "replace" }, { kind: "projection_invalidation", projection: "agent-runtime/v1", key: event.opId }].map((target) => Object.freeze(target))) }) as FrozenWritePlan; }

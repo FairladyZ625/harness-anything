@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { makeTaskLifecycleService, type TaskLifecycleServiceProof } from "../../application/src/task-lifecycle-service.ts";
-import { assertCurrentWriter, bindWriterGenerationToken, canonicalGateReceipts, compileCompletionGateWitness, compileTaskLifecycleWrite, completionBlockers, compileTaskProgress, deriveRelationId, explainStatusTransition, isDomainStatus, isTaskEvent, isTaskProgressEvent, isTerminalStatus, lifecycleDocumentPaths, makeTaskEventStore, makeTaskProjection, normalizeCommandEnvelope,
+import { assertCurrentWriter, bindWriterGenerationToken, canonicalGateReceipts, compileCompletionGateWitness, compileTaskLifecycleWrite, completionBlockers, compileTaskProgress, deriveRelationId, explainStatusTransition, isDomainStatus, isLedgerLayoutMigrationEvent, isTaskEvent, isTaskProgressEvent, isTerminalStatus, lifecycleDocumentPaths, makeTaskEventStore, makeTaskProjection, normalizeCommandEnvelope,
   normalizeTaskLifecycleCommand, readRelationGraphProjection, reduceTaskEvent, reviewDigest, validateRelationRecordsForHost, type ActorIdentity, type CompleteTaskCommand, type CompletionReadinessContext, type EntityRelationRecord, type EventPublicationKillpoint, type ProofFor,
   projectDecisionReadiness, type ProjectedExecution, type TaskEventV1, type TaskLifecycleCommand, type TaskProgressEvidence, type TaskProgressEventV1, type TaskV1, VcsCommandError, type WriteReceipt, type WriteSource, type WriterGeneration, admitTaskExecutionWip, hasCloseoutEvidence, taskWipOccupyingStatuses, type DomainStatus, type TaskWipSnapshotEntryV1 } from "../../kernel/src/index.ts";
 import { compileRepoPresetSnapshotUpgrade, compileRepoTaskBootstrap, compileRepoTaskPackage, createPresetProcessService, presetUserRoot, runPresetAction, type PresetRunReceiptV1 } from "../../preset/src/index.ts";
@@ -76,6 +76,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
     close: async () => { if (state === "closed") return; state = "closed"; runtimeSpawner.close(); await terminal.close(); runtimeStream.close(); await presetProcess.close(); await tail; replica.close(); await lock.close(); } };
   async function executeAction(action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> {
     if (action.kind === "migrate-import") return runMigrationImport({ action, binding, rootDir, store, projection, now });
+    if (action.kind === "ledger-migrate") { const appended = store.migrateLayout({ actor: binding.actor, source: binding.source, occurredAt: now() }); if (!isLedgerLayoutMigrationEvent(appended.event)) throw cellCodedError("invalid_store", "Ledger migration returned the wrong event type."); const rebuilt = projection.rebuild(); if (rebuilt.watermark !== appended.revision) throw cellCodedError("content_not_ready", "Ledger migration committed, but the projection did not rebuild to the migrated cut."); return { outcome: "applied", opId: appended.event.opId, revision: appended.revision, evidence: JSON.stringify({ ...appended.event.payload, commitSha: appended.commitSha.sha }), visibility: "center", proof: { committedRevision: appended.revision, appliedCut: rebuilt.watermark, durable: true, canonicalVisible: true, worktreeVisible: true }, commitSha: appended.commitSha.sha, worktreeVisible: true } as WriteReceipt; }
     if (action.kind === "receipt-show") return receiptForOperation(String(action.opId ?? ""), binding);
     if (action.kind === "task-show") return showTask(String(action.taskId ?? ""));
     if (action.kind === "task-list") return listTasks(action, binding);
@@ -156,8 +157,9 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
   function receiptForOperation(opId: string, binding: RepoCellBinding): WriteReceipt {
     requiredString(opId, "opId"); const event = store.readEvent(opId);
     if (event === null) return rejected(opId, "operation_not_published", "No committed event exists; retry only if the original request was rejected.");
+    // Replay receipts name the current canonical cut: the event is reachable there, and replay proves occurrence rather than original publication provenance.
     if (event.schema === "doc-event/v1") return readDocReceipt({ binding, workspaceId: input.repoId, rootDir, store, projection, now, killpoint: input.killpoint }, event);
-    const commitSha = store.commitForOperation(opId)?.sha ?? store.currentCommit().sha;
+    const commitSha = store.currentCommit().sha;
     if (isTaskProgressEvent(event)) return progressReceipt(event, commitSha);
     const applied = projection.readOperation(opId), visible = !!applied && applied.watermark >= event.workspaceRevision, proof = { committedRevision: event.workspaceRevision, appliedCut: applied?.watermark ?? 0, durable: true, canonicalVisible: visible, worktreeVisible: isTaskEvent(event) || event.schema === "decision-event/v1" ? true : null };
     if (isTaskEvent(event) && visible) return lifecycleReceipt(event, projection.read(event.taskId).snapshot, commitSha, proof);
