@@ -208,7 +208,7 @@ jobs:
         if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' && startsWith(github.base_ref, 'rebuild/') }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node tools/run-manifest-gates.mjs --workflow-job boundaries --exclude mergify-queue-metadata-edit-noop,check-cli-structure,check-import-boundaries,check-write-road-registry,check-duplicate-definitions,check-integration-test-shards,check-mergify-queue-contexts,check-github-required-contexts,check-legacy-intake-readiness
+        run: node tools/run-manifest-gates.mjs --workflow-job boundaries --exclude mergify-queue-metadata-edit-noop,check-duplicate-definitions
 
   package-policy:
     if: github.event_name == 'pull_request'
