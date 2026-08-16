@@ -1,6 +1,10 @@
 import { appendFileSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError, resolveHarnessLayout } from "../../kernel/src/index.ts";
+// Classification lives here rather than at the dispatch point: the schema registry names the
+// protocol server as a writer, so schema-closure imports it without node_modules and it must stay
+// clear of anything that reaches into the kernel.
+import { commandClassForAction } from "./protocol/daemon-protocol.contract.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 
 // Observability, not accountability. Write receipts are the accountability record and live in the
@@ -17,8 +21,7 @@ const defaultKeptFiles = 4;
 export interface DaemonRequestLogEntry {
   readonly method: string;
   readonly repoId: string;
-  readonly command: string | null;
-  readonly commandClass: string | null;
+  readonly command: string;
   readonly connectionId: string;
   readonly auth: DaemonAuthenticationContext;
   readonly executor: { readonly kind: "agent"; readonly id: string } | null;
@@ -118,7 +121,7 @@ function buildRecord(entry: DaemonRequestLogEntry, at: Date): DaemonRequestLogRe
     executor: entry.executor,
     method: entry.method,
     command: entry.command,
-    commandClass: entry.commandClass,
+    commandClass: commandClassOrNull(entry.command),
     repoId: entry.repoId,
     ok: entry.ok,
     outcome: entry.outcome,
@@ -126,6 +129,12 @@ function buildRecord(entry: DaemonRequestLogEntry, at: Date): DaemonRequestLogRe
     opId: entry.opId,
     durationMs: entry.durationMs
   };
+}
+
+// A transport method that resolves to no action kind (protocol.hello and friends) has no command
+// class; the record still carries the method it was reached by.
+function commandClassOrNull(command: string): string | null {
+  try { return commandClassForAction(command); } catch (error) { consumeKnownError(error); return null; }
 }
 
 function rotate(logPath: string, maxBytes: number, keptFiles: number): void {

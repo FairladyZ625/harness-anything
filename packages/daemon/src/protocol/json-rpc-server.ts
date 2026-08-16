@@ -1,14 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { consumeKnownError } from "../../../kernel/src/index.ts";
 import type { DaemonHost } from "../daemon-host.ts";
 import type { DaemonRequestLogEntry } from "../request-log.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
-import { actionForDaemonMethod, commandClassForAction, daemonGuiStreamFacets, daemonProtocolError, isDaemonGuiActionMethod, isDaemonGuiReadMethod, isDaemonGuiStreamMethod, jsonRpcMethodContracts, parseDaemonRpcParams } from "./daemon-protocol.contract.ts";
+import { actionForDaemonMethod, daemonGuiStreamFacets, daemonProtocolError, isDaemonGuiActionMethod, isDaemonGuiReadMethod, isDaemonGuiStreamMethod, jsonRpcMethodContracts, parseDaemonRpcParams } from "./daemon-protocol.contract.ts";
 import { parseDaemonGuiActionResult, parseDaemonGuiReadResult, parseDaemonGuiStreamResult } from "./gui-result-validation.ts";
 import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./version.ts";
 export interface JsonRpcProtocolServer { readonly handle: (message: JsonRpcRequest | JsonRpcRequest[]) => Promise<JsonRpcResponse | JsonRpcResponse[] | undefined>; readonly close: () => void }
-interface ObservedRequest { readonly repoId: string; readonly command: string; readonly commandClass: string | null; readonly executor: DaemonRequestLogEntry["executor"] }
+interface ObservedRequest { readonly repoId: string; readonly command: string; readonly executor: DaemonRequestLogEntry["executor"] }
 export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost; readonly authContext: DaemonAuthenticationContext; readonly emit: (method: string, params: JsonObject) => Promise<void>; readonly recordRequest?: (entry: DaemonRequestLogEntry) => void }): JsonRpcProtocolServer {
   let handshaken = false;
   // Every client — CLI, GUI, fleet — converges on this server, and every dispatched response is
@@ -17,7 +16,7 @@ export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost
   type Subscription = { readonly initial: unknown; readonly next: () => Promise<JsonObject | null>; readonly detach: () => void }; const subscriptions = new Set<Subscription>();
   const one = async (request: JsonRpcRequest): Promise<JsonRpcResponse | undefined> => {
     const id = request.id ?? null, startedAt = Date.now();
-    let observed: ObservedRequest = { repoId: "", command: typeof request.method === "string" ? request.method : "", commandClass: null, executor: null };
+    let observed: ObservedRequest = { repoId: "", command: typeof request.method === "string" ? request.method : "", executor: null };
     if (request.jsonrpc !== "2.0" || typeof request.method !== "string") return rpcError(id, -32600, "Invalid Request");
     if (!jsonRpcMethodContracts.some((entry) => entry.method === request.method)) return rpcError(id, -32601, "Method not found");
     const reply = (result: JsonObject): JsonRpcResponse | undefined => { record(request.method, observed, result, Date.now() - startedAt); return request.id === undefined ? undefined : { jsonrpc: "2.0", id, result }; };
@@ -54,7 +53,7 @@ export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost
     if (request.method === "repo.agentRuntime.spawn") { const repo = (params.repo as JsonObject).repoId as string; try { return reply(parseDaemonGuiActionResult(request.method, await options.host.spawnRuntime(repo, params.payload as JsonObject, options.authContext)) as unknown as JsonObject); } catch (error) { return reply(daemonProtocolError(request.method, rpcServerErrorCode(error), error instanceof Error ? error.message : String(error)) as unknown as JsonObject); } }
     if (request.method === "repo.gui.catalog.reread" || request.method.startsWith("repo.terminal.")) { const repo = (params.repo as JsonObject).repoId as string; try { return reply(parseDaemonGuiActionResult(request.method as import("./daemon-protocol.contract.ts").DaemonGuiActionMethod, await options.host.terminalAction(repo, request.method, params.payload as JsonObject, options.authContext)) as unknown as JsonObject); } catch (error) { return reply(daemonProtocolError(request.method, rpcServerErrorCode(error), error instanceof Error ? error.message : String(error)) as unknown as JsonObject); } }
     const repo = (params.repo as JsonObject).repoId as string; let action: JsonObject & { readonly kind: string }; try { action = actionForDaemonMethod(request.method, params.payload as JsonObject); } catch (error) { return reply(daemonProtocolError(request.method, rpcServerErrorCode(error), error instanceof Error ? error.message : String(error)) as unknown as JsonObject); }
-    observed = { ...observed, command: action.kind, commandClass: commandClassOrNull(action.kind), executor: declaredExecutorOrNull(action) };
+    observed = { ...observed, command: action.kind, executor: declaredExecutorOrNull(action) };
     if (action.kind === "preset-run-start" || action.kind === "preset-run-status") return reply(await options.host.presetRun(repo, action, options.authContext) as unknown as JsonObject);
     const receipt = await options.host.run(repo, action, options.authContext);
     const ok = receipt.outcome === "applied" || receipt.outcome === "pending";
@@ -68,7 +67,7 @@ export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost
   // repository (protocol.hello, daemon.status, registry admin) has nowhere to be filed and is skipped.
   function record(method: string, observed: ObservedRequest, result: JsonObject, durationMs: number): void {
     if (!options.recordRequest || !observed.repoId) return;
-    options.recordRequest({ method, repoId: observed.repoId, command: observed.command, commandClass: observed.commandClass,
+    options.recordRequest({ method, repoId: observed.repoId, command: observed.command,
       connectionId, auth: options.authContext, executor: observed.executor, ok: result.ok === true,
       outcome: typeof result.outcome === "string" ? result.outcome : null, code: resultErrorCode(result),
       opId: typeof result.opId === "string" ? result.opId : null, durationMs });
@@ -83,10 +82,6 @@ function repoIdFromParams(params: JsonObject): string {
 function declaredExecutorOrNull(action: JsonObject): DaemonRequestLogEntry["executor"] {
   const executor = action.executor;
   return isJsonObject(executor) && executor.kind === "agent" && typeof executor.id === "string" ? { kind: "agent", id: executor.id } : null;
-}
-function commandClassOrNull(kind: string): string | null {
-  // An action the contract cannot classify is still worth recording under its kind alone.
-  try { return commandClassForAction(kind); } catch (error) { consumeKnownError(error); return null; }
 }
 function resultErrorCode(result: JsonObject): string | null {
   if (typeof result.code === "string") return result.code;

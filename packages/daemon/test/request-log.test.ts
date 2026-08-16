@@ -138,7 +138,7 @@ test("a sink that cannot write neither throws nor keeps reporting", () => {
 
 function entry(overrides: Partial<DaemonRequestLogEntry>): DaemonRequestLogEntry {
   return {
-    method: "repo.task.run", repoId: "logged", command: "task-show", commandClass: "repo-read",
+    method: "repo.task.run", repoId: "logged", command: "task-show",
     connectionId: "connection-1", auth: { transportKind: "unix-socket" }, executor: null,
     ok: true, outcome: "applied", code: null, opId: "op_test", durationMs: 1, ...overrides
   };
