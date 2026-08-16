@@ -35,6 +35,9 @@
     },
     "customVerticals": {
       "enabled": false
+    },
+    "tasks": {
+      "wipLimit": 30
     }
   },
   "storage": {

@@ -43,6 +43,8 @@ export {
   readScalar,
   resolveEntityRoot,
   resolveHarnessLayout,
+  setting,
+  settingBlockValue,
   slugifyTaskTitle,
   taskDocumentPath,
   taskPackagePath,

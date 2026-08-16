@@ -47,6 +47,7 @@ const LegacyPathSchema = Schema.String.pipe(Schema.pattern(/^harness\/legacy\/(?
 const LegacyConfidenceSchema = Schema.Literal("high", "medium", "low");
 const StrictSha256Schema = Schema.String.pipe(Schema.pattern(/^sha256:[a-f0-9]{64}$/u));
 const ConfigIdentifierSchema = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9/_@.-]*$/u));
+const TaskWipLimitSchema = Schema.Number.pipe(Schema.int(), Schema.greaterThan(0));
 
 export const HarnessConfigSchema = Schema.Struct({
   schema: Schema.Literal("harness/v2"),
@@ -77,6 +78,9 @@ export const HarnessConfigSchema = Schema.Struct({
     defaultVertical: Schema.optional(ConfigIdentifierSchema),
     defaultPreset: Schema.optional(ConfigIdentifierSchema),
     defaultProfile: Schema.optional(ConfigIdentifierSchema),
+    tasks: Schema.optional(Schema.Struct({
+      wipLimit: Schema.optional(TaskWipLimitSchema)
+    })),
     identity: Schema.optional(Schema.Struct({
       personId: ConfigIdentifierSchema,
       displayName: Schema.optional(Schema.String)
