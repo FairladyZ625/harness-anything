@@ -1,21 +1,29 @@
+import { randomUUID } from "node:crypto";
 import type { DaemonHost } from "../daemon-host.ts";
+import type { DaemonRequestLogEntry } from "../request-log.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { actionForDaemonMethod, daemonGuiStreamFacets, daemonProtocolError, isDaemonGuiActionMethod, isDaemonGuiReadMethod, isDaemonGuiStreamMethod, jsonRpcMethodContracts, parseDaemonRpcParams } from "./daemon-protocol.contract.ts";
 import { parseDaemonGuiActionResult, parseDaemonGuiReadResult, parseDaemonGuiStreamResult } from "./gui-result-validation.ts";
-import { type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
+import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./version.ts";
 export interface JsonRpcProtocolServer { readonly handle: (message: JsonRpcRequest | JsonRpcRequest[]) => Promise<JsonRpcResponse | JsonRpcResponse[] | undefined>; readonly close: () => void }
-export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost; readonly authContext: DaemonAuthenticationContext; readonly emit: (method: string, params: JsonObject) => Promise<void> }): JsonRpcProtocolServer {
+interface ObservedRequest { readonly repoId: string; readonly command: string; readonly executor: DaemonRequestLogEntry["executor"] }
+export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost; readonly authContext: DaemonAuthenticationContext; readonly emit: (method: string, params: JsonObject) => Promise<void>; readonly recordRequest?: (entry: DaemonRequestLogEntry) => void }): JsonRpcProtocolServer {
   let handshaken = false;
+  // Every client — CLI, GUI, fleet — converges on this server, and every dispatched response is
+  // built by the reply() below, so one hook there observes the whole request surface.
+  const connectionId = randomUUID();
   type Subscription = { readonly initial: unknown; readonly next: () => Promise<JsonObject | null>; readonly detach: () => void }; const subscriptions = new Set<Subscription>();
   const one = async (request: JsonRpcRequest): Promise<JsonRpcResponse | undefined> => {
-    const id = request.id ?? null;
+    const id = request.id ?? null, startedAt = Date.now();
+    let observed: ObservedRequest = { repoId: "", command: typeof request.method === "string" ? request.method : "", executor: null };
     if (request.jsonrpc !== "2.0" || typeof request.method !== "string") return rpcError(id, -32600, "Invalid Request");
     if (!jsonRpcMethodContracts.some((entry) => entry.method === request.method)) return rpcError(id, -32601, "Method not found");
-    const reply = (result: JsonObject): JsonRpcResponse | undefined => request.id === undefined ? undefined : { jsonrpc: "2.0", id, result };
+    const reply = (result: JsonObject): JsonRpcResponse | undefined => { record(request.method, observed, result, Date.now() - startedAt); return request.id === undefined ? undefined : { jsonrpc: "2.0", id, result }; };
     const parsed = parseDaemonRpcParams(request.method, request.params);
     if (!parsed.ok) return reply(daemonProtocolError(request.method, "invalid_request", parsed.errors.join("; ")) as unknown as JsonObject);
     const params = parsed.params;
+    observed = { ...observed, repoId: repoIdFromParams(params) };
     if (request.method === "protocol.hello") {
       if (params.protocolVersion !== currentDaemonProtocolVersion) return reply(daemonProtocolError("protocol.hello", "incompatible_protocol_version", "Use the daemon protocol version reported by this binary.") as unknown as JsonObject);
       handshaken = true; return reply({ ok: true, protocolVersion: currentDaemonProtocolVersion, methods: jsonRpcMethodContracts.map((entry) => entry.method) });
@@ -45,6 +53,7 @@ export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost
     if (request.method === "repo.agentRuntime.spawn") { const repo = (params.repo as JsonObject).repoId as string; try { return reply(parseDaemonGuiActionResult(request.method, await options.host.spawnRuntime(repo, params.payload as JsonObject, options.authContext)) as unknown as JsonObject); } catch (error) { return reply(daemonProtocolError(request.method, rpcServerErrorCode(error), error instanceof Error ? error.message : String(error)) as unknown as JsonObject); } }
     if (request.method === "repo.gui.catalog.reread" || request.method.startsWith("repo.terminal.")) { const repo = (params.repo as JsonObject).repoId as string; try { return reply(parseDaemonGuiActionResult(request.method as import("./daemon-protocol.contract.ts").DaemonGuiActionMethod, await options.host.terminalAction(repo, request.method, params.payload as JsonObject, options.authContext)) as unknown as JsonObject); } catch (error) { return reply(daemonProtocolError(request.method, rpcServerErrorCode(error), error instanceof Error ? error.message : String(error)) as unknown as JsonObject); } }
     const repo = (params.repo as JsonObject).repoId as string; let action: JsonObject & { readonly kind: string }; try { action = actionForDaemonMethod(request.method, params.payload as JsonObject); } catch (error) { return reply(daemonProtocolError(request.method, rpcServerErrorCode(error), error instanceof Error ? error.message : String(error)) as unknown as JsonObject); }
+    observed = { ...observed, command: action.kind, executor: declaredExecutorOrNull(action) };
     if (action.kind === "preset-run-start" || action.kind === "preset-run-status") return reply(await options.host.presetRun(repo, action, options.authContext) as unknown as JsonObject);
     const receipt = await options.host.run(repo, action, options.authContext);
     const ok = receipt.outcome === "applied" || receipt.outcome === "pending";
@@ -54,6 +63,30 @@ export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost
   return { handle: async (message) => Array.isArray(message)
     ? (await Promise.all(message.map(one))).filter((item): item is JsonRpcResponse => item !== undefined) : one(message), close: () => { for (const subscription of subscriptions) subscription.detach(); subscriptions.clear(); } };
   async function pump(subscription: Subscription, eventMethod: string): Promise<void> { try { for (;;) { const event = await subscription.next(); if (!event) break; await options.emit(eventMethod, event); } } finally { subscription.detach(); subscriptions.delete(subscription); } }
+  // Repo-scoped by design: the log lives in the repository's local root, so a request that binds no
+  // repository (protocol.hello, daemon.status, registry admin) has nowhere to be filed and is skipped.
+  function record(method: string, observed: ObservedRequest, result: JsonObject, durationMs: number): void {
+    if (!options.recordRequest || !observed.repoId) return;
+    options.recordRequest({ method, repoId: observed.repoId, command: observed.command,
+      connectionId, auth: options.authContext, executor: observed.executor, ok: result.ok === true,
+      outcome: typeof result.outcome === "string" ? result.outcome : null, code: resultErrorCode(result),
+      opId: typeof result.opId === "string" ? result.opId : null, durationMs });
+  }
+}
+function repoIdFromParams(params: JsonObject): string {
+  const repo = params.repo;
+  return isJsonObject(repo) && typeof repo.repoId === "string" ? repo.repoId : "";
+}
+// The executor rides on the resolved action, which is where the daemon reads it for attribution:
+// repo.task.run carries it inside payload.action, every other method merges payload into the action.
+function declaredExecutorOrNull(action: JsonObject): DaemonRequestLogEntry["executor"] {
+  const executor = action.executor;
+  return isJsonObject(executor) && executor.kind === "agent" && typeof executor.id === "string" ? { kind: "agent", id: executor.id } : null;
+}
+function resultErrorCode(result: JsonObject): string | null {
+  if (typeof result.code === "string") return result.code;
+  const error = result.error;
+  return isJsonObject(error) && typeof error.code === "string" ? error.code : null;
 }
 function rpcError(id: JsonRpcId, errorCode: number, message: string): JsonRpcResponse { return { jsonrpc: "2.0", id, error: { code: errorCode, message } }; }
 function rpcServerErrorCode(error: unknown): string { return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "bootstrap_failed"; }
