@@ -1,8 +1,8 @@
 {
-  "decisionId": "dec_01KZV78NDZ1XMZAGDMK3NWYCJH",
+  "decisionId": "dec_407E904F6938FA9FD304D3E34E",
   "scope": "module:agent-runtime",
   "kind": "line-budget",
   "limit": 520,
-  "expiry": "2026-09-13T00:00:00Z",
-  "signature": "495c6a9c9c47b96d7ee854f2a24f80b2fdd71e6d2b5f578baabc7ba6ec71d988"
+  "expiry": "2027-08-31T00:00:00Z",
+  "signature": "89538061d059ee3a39f89f6e0e4732e65bfad2d0825b2e3779cd251af5cb3bd7"
 }

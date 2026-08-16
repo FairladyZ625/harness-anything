@@ -118,10 +118,21 @@ test("every committed line-budget receipt verifies, and the raised ceilings are 
   }
   // A receipt may outlive the ceiling it was minted for -- the ratchet only ever
   // falls -- so the reverse direction is the one worth asserting: every ceiling
-  // that a receipt was needed for still has one that reaches it.
-  for (const moduleName of ["cli", "daemon"]) {
+  // that a receipt was needed for still has one that reaches it. The module list
+  // is derived from what is committed rather than named here, so a module whose
+  // receipt is minted below its ceiling fails instead of going unchecked.
+  const receiptModules = [...new Set(receipts.map(({ receipt }) => receipt.scope.replace(/^module:/u, "")))];
+  for (const moduleName of receiptModules) {
     assert.ok(receipts.some(({ receipt }) => verifyReceipt(receipt, {
       scope: `module:${moduleName}`, kind: "line-budget", minimumLimit: ceilings[moduleName], now
     }).ok), `${moduleName}: ceiling ${ceilings[moduleName]} has no receipt the gate would accept`);
   }
+  // Superseded receipts are deleted, not stacked: the gate reads whichever one
+  // verifies, so a module carrying several is carrying expiries nobody is
+  // tracking -- and this test fails the day the oldest of them lapses.
+  assert.deepEqual(
+    receiptModules.filter((moduleName) => receipts.filter(({ receipt }) => receipt.scope === `module:${moduleName}`).length > 1),
+    [],
+    "each module keeps exactly one line-budget receipt; supersede by replacing the file"
+  );
 });
