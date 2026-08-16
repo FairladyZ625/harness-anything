@@ -1,3 +1,4 @@
+export { consumeKnownError } from "./error-consumption.ts";
 export * from "./domain/index.ts";
 export { isAgentRuntimeEvent, runtimeSessionId } from "./domain/agent-runtime.ts"; export type { AgentDefinitionSnapshot, AgentRuntimeEventV1, RuntimeInstallation, RuntimeSession } from "./domain/agent-runtime.ts";
 export { applyTransition, canonicalGateReceipts, normalizeTaskLifecycleCommand, reviewDigest, validateTaskLifecycleCommandEnvelope } from "./domain/task-lifecycle.contract.ts";

@@ -2,6 +2,7 @@ import { chmodSync, realpathSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { consumeKnownError } from "../../kernel/src/index.ts";
 
 /**
  * node-pty 1.1.0 ships `prebuilds/<platform>-<arch>/spawn-helper` in its npm
@@ -25,4 +26,3 @@ export function ensurePtySpawnHelperExecutable(input: { readonly anchorDir?: str
     return helper;
   } catch (error) { consumeKnownError(error); return null; }
 }
-function consumeKnownError(error: unknown): void { void error; }

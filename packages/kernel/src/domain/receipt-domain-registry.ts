@@ -23,19 +23,19 @@ export interface WriteReceipt {
 export const WRITE_RECEIPT_SCHEMA = Object.freeze({ id: "write-receipt/v1", outcomes: Object.freeze(["applied", "pending", "indeterminate", "rejected"] as const),
   required: Object.freeze(["outcome", "opId"]), optional: Object.freeze(["revision", "code", "origin", "nextAction", "evidence", "visibility", "proof", "detail"]) });
 export function validateWriteReceipt(value: unknown): readonly string[] {
-  if (!record(value)) return ["receipt must be an object"];
+  if (!isReceiptDomainRecord(value)) return ["receipt must be an object"];
   const errors = Object.keys(value).filter((key) => ![...WRITE_RECEIPT_SCHEMA.required, ...WRITE_RECEIPT_SCHEMA.optional].includes(key)).map((key) => `unexpected field: ${key}`);
   if (!(WRITE_RECEIPT_SCHEMA.outcomes as readonly unknown[]).includes(value.outcome)) errors.push("receipt outcome is invalid");
   if (!text(value.opId)) errors.push("opId is required");
   if ("revision" in value && !cut(value.revision)) errors.push("revision must be a non-negative integer");
   for (const field of ["code", "origin", "nextAction", "evidence"] as const) if (field in value && !text(value[field])) errors.push(`${field} must be a non-empty string`);
-  const visibility = value.visibility, replica = record(visibility) && exact(visibility, ["kind", "viewId"]) && visibility.kind === "replica" && text(visibility.viewId);
+  const visibility = value.visibility, replica = isReceiptDomainRecord(visibility) && exact(visibility, ["kind", "viewId"]) && visibility.kind === "replica" && text(visibility.viewId);
   if ("visibility" in value && visibility !== "center" && !replica) errors.push("visibility must be center or replica(viewId)");
-  const proof = value.proof, proofFields = record(proof) && "ackCut" in proof ? ["committedRevision", "appliedCut", "ackCut", "durable", "canonicalVisible", "worktreeVisible"] : ["committedRevision", "appliedCut", "durable", "canonicalVisible", "worktreeVisible"];
-  const validProof = record(proof) && exact(proof, proofFields) && cut(proof.committedRevision) && cut(proof.appliedCut)
+  const proof = value.proof, proofFields = isReceiptDomainRecord(proof) && "ackCut" in proof ? ["committedRevision", "appliedCut", "ackCut", "durable", "canonicalVisible", "worktreeVisible"] : ["committedRevision", "appliedCut", "durable", "canonicalVisible", "worktreeVisible"];
+  const validProof = isReceiptDomainRecord(proof) && exact(proof, proofFields) && cut(proof.committedRevision) && cut(proof.appliedCut)
     && (!("ackCut" in proof) || cut(proof.ackCut)) && typeof proof.durable === "boolean" && typeof proof.canonicalVisible === "boolean" && (typeof proof.worktreeVisible === "boolean" || proof.worktreeVisible === null);
   if ("proof" in value && !validProof) errors.push("proof must carry durable, canonical-visible, worktree-visible, and non-negative revision cuts");
-  if ("detail" in value && !receiptDetailRegistry.some((entry) => record(value.detail) && value.detail.kind === entry.kind && entry.validate(value.detail))) errors.push("detail must match a registered receipt domain");
+  if ("detail" in value && !receiptDetailRegistry.some((entry) => isReceiptDomainRecord(value.detail) && value.detail.kind === entry.kind && entry.validate(value.detail))) errors.push("detail must match a registered receipt domain");
   if ((value.outcome === "applied" || value.outcome === "pending") && (visibility === undefined || !validProof)) errors.push(`${String(value.outcome)} requires visibility and proof`);
   if (value.outcome === "applied" && validProof && (!proof.durable || !proof.canonicalVisible || proof.committedRevision !== proof.appliedCut)) errors.push("applied proof must prove durable and canonical-visible at the committed cut");
   if (value.outcome === "applied" && replica && validProof && (proof.ackCut !== proof.appliedCut || proof.worktreeVisible !== true)) errors.push("replica applied requires worktree visibility and ackCut at the same cut");
@@ -48,13 +48,13 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
 function validateDocSyncDetail(value: Readonly<Record<string, unknown>>): boolean {
   return exact(value, ["kind", "code", "baseLedgerSha", "currentLedgerSha", "paths", "holder", "differences", "unresolvedTouches", "deletions", "nextAction"])
     && value.kind === "doc_sync" && text(value.code) && sha(value.baseLedgerSha) && sha(value.currentLedgerSha) && text(value.nextAction)
-    && Array.isArray(value.paths) && value.paths.every((row) => record(row) && exact(row, ["path", "baseBlobSha256", "currentBlobSha256", "candidateBlobSha256"]) && text(row.path) && [row.baseBlobSha256, row.currentBlobSha256, row.candidateBlobSha256].every(nullableSha))
-    && (value.holder === null || record(value.holder) && exact(value.holder, ["taskId", "executionId", "personId", "executorId", "source", "expiresAt", "version"]) && [value.holder.taskId, value.holder.executionId, value.holder.personId, value.holder.expiresAt].every(text) && (value.holder.executorId === null || text(value.holder.executorId)) && cut(value.holder.version))
-    && Array.isArray(value.differences) && value.differences.every((row) => record(row) && exact(row, ["path", "regionId", "insertBytes", "deleteBytes", "replaceBytes", "firstChange"]) && text(row.path) && text(row.regionId) && [row.insertBytes, row.deleteBytes, row.replaceBytes].every(cut) && (row.firstChange === null || record(row.firstChange) && exact(row.firstChange, ["baseOffset", "candidateOffset"]) && cut(row.firstChange.baseOffset) && cut(row.firstChange.candidateOffset)))
-    && Array.isArray(value.unresolvedTouches) && value.unresolvedTouches.every((row) => record(row) && exact(row, ["path", "regionId", "anchor", "reason", "requiredRoute", "policy"]) && [row.path, row.reason, row.requiredRoute, row.policy].every(text) && (row.regionId === null || text(row.regionId)) && (row.anchor === null || text(row.anchor)))
-    && Array.isArray(value.deletions) && value.deletions.every((row) => record(row) && exact(row, ["path", "baseBlobSha256", "source"]) && text(row.path) && nullableSha(row.baseBlobSha256) && row.baseBlobSha256 !== null && row.source === "intent");
+    && Array.isArray(value.paths) && value.paths.every((row) => isReceiptDomainRecord(row) && exact(row, ["path", "baseBlobSha256", "currentBlobSha256", "candidateBlobSha256"]) && text(row.path) && [row.baseBlobSha256, row.currentBlobSha256, row.candidateBlobSha256].every(nullableSha))
+    && (value.holder === null || isReceiptDomainRecord(value.holder) && exact(value.holder, ["taskId", "executionId", "personId", "executorId", "source", "expiresAt", "version"]) && [value.holder.taskId, value.holder.executionId, value.holder.personId, value.holder.expiresAt].every(text) && (value.holder.executorId === null || text(value.holder.executorId)) && cut(value.holder.version))
+    && Array.isArray(value.differences) && value.differences.every((row) => isReceiptDomainRecord(row) && exact(row, ["path", "regionId", "insertBytes", "deleteBytes", "replaceBytes", "firstChange"]) && text(row.path) && text(row.regionId) && [row.insertBytes, row.deleteBytes, row.replaceBytes].every(cut) && (row.firstChange === null || isReceiptDomainRecord(row.firstChange) && exact(row.firstChange, ["baseOffset", "candidateOffset"]) && cut(row.firstChange.baseOffset) && cut(row.firstChange.candidateOffset)))
+    && Array.isArray(value.unresolvedTouches) && value.unresolvedTouches.every((row) => isReceiptDomainRecord(row) && exact(row, ["path", "regionId", "anchor", "reason", "requiredRoute", "policy"]) && [row.path, row.reason, row.requiredRoute, row.policy].every(text) && (row.regionId === null || text(row.regionId)) && (row.anchor === null || text(row.anchor)))
+    && Array.isArray(value.deletions) && value.deletions.every((row) => isReceiptDomainRecord(row) && exact(row, ["path", "baseBlobSha256", "source"]) && text(row.path) && nullableSha(row.baseBlobSha256) && row.baseBlobSha256 !== null && row.source === "intent");
 }
-function record(value: unknown): value is Readonly<Record<string, unknown>> { return typeof value === "object" && value !== null && !Array.isArray(value); }
+function isReceiptDomainRecord(value: unknown): value is Readonly<Record<string, unknown>> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function exact(value: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean { return Object.keys(value).length === fields.length && fields.every((field) => field in value); }
 function text(value: unknown): value is string { return typeof value === "string" && value.trim().length > 0; }
 function cut(value: unknown): value is number { return Number.isInteger(value) && (value as number) >= 0; }

@@ -1,3 +1,4 @@
+import { consumeKnownError } from "../error-consumption.ts";
 import { isNativeCommitSha } from "./execution.ts";
 import { hasOnlyFields, isNonEmptyString, isRecord, validateActorAxes } from "./task.ts";
 import type { ActorAxes, ContractValidationIssue } from "./task.ts";
@@ -6,4 +7,3 @@ import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 export interface CodeDocWitnessV1 { readonly schema: "code-doc-witness/v1"; readonly witnessId: string; readonly taskId: string; readonly executionId: string; readonly commitSha: string; readonly iteration: 0 | 1; readonly paths: readonly string[]; readonly actor: ActorAxes; readonly source: WriteSource; readonly reconciledAt: string }
 export function validateCodeDocWitnessV1(value: unknown): readonly ContractValidationIssue[] { if (!isRecord(value) || !hasOnlyFields(value, ["schema", "witnessId", "taskId", "executionId", "commitSha", "iteration", "paths", "actor", "source", "reconciledAt"])) return [{ code: "invalid_witness", message: "CodeDocWitness/v1 fields are incomplete or unknown" }]; const canonical = canonicalPaths(value.paths); return value.schema === "code-doc-witness/v1" && [value.witnessId, value.taskId, value.executionId, value.reconciledAt].every(isNonEmptyString) && isNativeCommitSha(value.commitSha) && (value.iteration === 0 || value.iteration === 1) && canonical && validateActorAxes(value.actor).length === 0 && validateWriteSource(value.source).length === 0 ? [] : [{ code: "invalid_witness", message: "code-doc witness must bind canonical paths to an execution commit" }]; }
 function canonicalPaths(value: unknown): boolean { if (!Array.isArray(value) || value.length === 0 || new Set(value).size !== value.length) return false; try { return value.every((path) => typeof path === "string" && normalizeRelativeDocumentPath(path) === path); } catch (error) { consumeKnownError(error); return false; } }
-function consumeKnownError(error: unknown): void { void error; }

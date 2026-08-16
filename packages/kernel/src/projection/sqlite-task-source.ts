@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { consumeKnownError } from "../error-consumption.ts";
 import type { CloseoutReadiness } from "../domain/index.ts";
 import { isPriorityTier, isTaskWorkKind } from "../domain/index.ts";
 import { isDomainStatus, isTerminalStatus } from "../domain/lifecycle-status.ts";
@@ -89,7 +90,6 @@ function readTaskProjectionSource(rootInput: HarnessLayoutInput): {
   };
 }
 
-function consumeKnownError(error: unknown): void { void error; }
 
 export interface TaskSourceEntry {
   readonly taskId: string;

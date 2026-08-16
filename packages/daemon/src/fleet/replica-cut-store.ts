@@ -1,6 +1,7 @@
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { consumeKnownError } from "../../../kernel/src/index.ts";
 import { canonicalDocumentClaims, serializeCanonicalEvent, serializeEventHead, sha256Bytes, sha256Text, stableStringify, type CanonicalEventV1, type ReplicaProjectionBasis } from "../../../kernel/src/index.ts";
 import { fleetManifestDigest, type FleetBlob, type FleetDeltaChange, type FleetEntry, type FleetManifest } from "./contract.ts";
 
@@ -33,4 +34,3 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
   const content = (blob: FleetBlob) => { const bytes = options.readContentBlob(blob.sha256); if (!bytes || bytes.byteLength !== blob.size || sha256Bytes(bytes) !== blob.sha256) throw new Error(`canonical content blob ${blob.sha256} is unavailable or corrupt`); return bytes; };
   return { activate, exactRevision, kick, waitForCut, latest, cut, eventAt, receiptBasis, manifest, changes, changeLog, content, close: () => { closed = true; for (const row of [...waiters.values()].flat()) row.reject(new Error("replica cut source is closed")); waiters.clear(); database?.close(); database = null; } };
 }
-function consumeKnownError(error: unknown): void { void error; }
