@@ -3,6 +3,7 @@ import { createInterface } from "node:readline";
 import { currentDaemonProtocolVersion } from "../../../daemon/src/protocol/version.ts";
 import { daemonGuiStreamFacets, type DaemonGuiStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts"; import { parseDaemonGuiStreamEvent, parseDaemonGuiStreamResult } from "../../../daemon/src/protocol/gui-result-validation.ts";
 import type { AgentRuntimeAttachEvent, AgentRuntimeAttachResult } from "../../../daemon/src/agent-runtime-stream.ts";
+import { consumeKnownError } from "../api/error-consumption.ts";
 export type AgentRuntimeStreamValue = AgentRuntimeAttachResult | AgentRuntimeAttachEvent;
 export async function streamAgentRuntimeAt(input: { readonly socketPath: string; readonly repoId: string; readonly payload: DaemonGuiStreamPayloadMap["repo.agentRuntime.attach"]; readonly onValue: (value: AgentRuntimeStreamValue) => void; readonly timeoutMs?: number }): Promise<() => void> {
   return streamDaemonFacetAt({ ...input, method: "repo.agentRuntime.attach", onValue: input.onValue as (value: unknown) => void });
@@ -17,4 +18,4 @@ export async function streamDaemonFacetAt(input: { readonly socketPath: string; 
     function fail(error: Error): void { clearTimeout(timeout); if (!settled) reject(error); next.destroy(); }
   });
   await connect(); return () => { if (detached) return; detached = true; if (retry) clearTimeout(retry); socket?.end(); };
-} function consumeKnownError(error: unknown): void { void error; }
+}

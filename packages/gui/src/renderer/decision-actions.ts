@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
+import { consumeKnownError } from "../api/error-consumption.ts";
 import { harnessClient, type DecisionListSuccess, type DecisionProposalInput, type RelationGraphSuccess } from "./api-client.ts";
 import type { DecisionRow, RelationEdge } from "./model/types.ts";
 import { triadicQueryKeys } from "./triadic-data.ts";
@@ -166,7 +167,5 @@ function decisionIdFromEvidence(evidence: string | undefined): string | null {
   try { const value = JSON.parse(evidence) as { readonly decisionId?: unknown }; return typeof value.decisionId === "string" ? value.decisionId : null; }
   catch (error) { consumeKnownError(error); return null; }
 }
-
-function consumeKnownError(error: unknown): void { void error; }
 
 export type { DecisionProposalInput } from "./api-client.ts";

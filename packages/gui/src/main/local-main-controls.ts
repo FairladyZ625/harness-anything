@@ -2,6 +2,7 @@ import { readDaemonPid } from "../../../daemon/src/runtime.ts";
 import { startDetachedProcess, terminateProcess } from "../../../daemon/src/process-port.ts";
 import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts";
 import type { GuiServiceBridge } from "../api/service-bridge.ts";
+import { consumeKnownError } from "../api/error-consumption.ts";
 import { createDaemonSupervisor } from "./daemon-supervisor.ts";
 import { daemonServeLaunch, type PackagedRuntime } from "./daemon-serve-launch.ts";
 import { createRuntimeInstanceCredentialController, type NativeCredentialBroker } from "./secure-credential-broker.ts";
@@ -34,4 +35,3 @@ function point(value: Record<string, unknown>) { const daemon = asRecord(value.d
 function asRecord(value: unknown): Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function isCode(error: unknown, code: string): boolean { return typeof error === "object" && error !== null && "code" in error && error.code === code; }
 function delay(ms: number): Promise<void> { return new Promise((resolve) => setTimeout(resolve, ms)); }
-function consumeKnownError(error: unknown): void { void error; }
