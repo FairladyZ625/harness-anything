@@ -9,14 +9,14 @@ import { runtimeSkillTargetDirs, syncRuntimeSkills } from "./sync-runtime-skills
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const skillsRoot = path.join(repoRoot, "skills");
 
-test("repository decision skills are discoverable with agent metadata", () => {
+test("repository skills are discoverable with agent metadata", () => {
   const skillNames = readdirSync(skillsRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();
 
-  assert.deepEqual(skillNames, ["decision", "decisions", "harness-migration", "preset-creator", "preset-trigger", "vertical-creator"]);
-  for (const skillName of ["decision", "decisions", "harness-migration", "preset-trigger"]) {
+  assert.deepEqual(skillNames, ["harness-install", "harness-migration", "preset-creator", "preset-trigger", "vertical-creator"]);
+  for (const skillName of ["harness-install", "harness-migration", "preset-trigger"]) {
     assert.equal(existsSync(path.join(skillsRoot, skillName, "SKILL.md")), true, skillName);
     assert.equal(existsSync(path.join(skillsRoot, skillName, "agents", "openai.yaml")), true, skillName);
   }
@@ -49,17 +49,28 @@ test("runtime skill sync links every repository skill into project runtime dirs"
   }
 });
 
-test("decision skills are thin CLI triggers and do not instruct direct markdown writes", () => {
-  for (const skillName of ["decision", "decisions"]) {
-    const body = readFileSync(path.join(skillsRoot, skillName, "SKILL.md"), "utf8");
+test("adoption skills route to the branch that carries them and to each other", () => {
+  const install = readFileSync(path.join(skillsRoot, "harness-install", "SKILL.md"), "utf8");
+  const migration = readFileSync(path.join(skillsRoot, "harness-migration", "SKILL.md"), "utf8");
 
-    assert.match(body, new RegExp(`name: ${skillName}`, "u"), skillName);
-    assert.match(body, /npx ha decision propose/u, skillName);
-    assert.match(body, /npx ha decision accept/u, skillName);
-    assert.match(body, /WriteCoordinator/u, skillName);
-    assert.match(body, /Do not edit, create, patch, append, or rewrite/u, skillName);
-    assert.doesNotMatch(body, /\bwriteFileSync\b|\bfs\.write|\bapply_patch\b|cat\s*>\s*.+decision\.md|tee\s+.+decision\.md/u, skillName);
+  for (const [skillName, body] of [["harness-install", install], ["harness-migration", migration]]) {
+    assert.match(body, new RegExp(`^name: ${skillName}$`, "mu"), skillName);
+    assert.match(body, /origin\/main:skills\//u, skillName);
+    assert.doesNotMatch(body, /rebuild\/main/u, skillName);
   }
+
+  assert.match(install, /harness-migration/u, "install must route an existing ledger to migration");
+});
+
+test("the install skill carries the cold-start facts the CLI does not surface", () => {
+  const body = readFileSync(path.join(skillsRoot, "harness-install", "SKILL.md"), "utf8");
+
+  assert.match(body, /"decisionClass": "ordinary"/u, "decision packet shape is not discoverable from --help");
+  assert.match(body, /fromFile must stay inside the workspace/u);
+  assert.match(body, /Execution Review requires an independent transport-bound arbiter/u);
+  assert.match(body, /HARNESS_ACTOR=agent:/u, "executor is the only movable half of actor independence");
+  assert.match(body, /evidence\.lease\.executionId|\["lease"\]\["executionId"\]/u, "task start does not print the execution id");
+  assert.doesNotMatch(body, /export HARNESS_DAEMON_USER_ROOT=/u, "an install must land in the serving user root");
 });
 
 test("preset trigger skill routes task creation through preset selection", () => {

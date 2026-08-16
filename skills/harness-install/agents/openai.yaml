@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Install"
+  short_description: "Install Harness Anything into a project that has never had it"
+  default_prompt: "Use $harness-install to adopt Harness Anything in this project: read the project first, initialize a ledger, attach it to a daemon, and drive one real task to done so the install is proven. Ask me before each decision the skill says to ask about."
