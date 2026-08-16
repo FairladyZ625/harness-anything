@@ -138,61 +138,89 @@ test("pending without an event uses an honest receipt", async () => {
   assert.match(receipt.nextAction ?? "", /retry.*read/iu);
 });
 
+// An absolute millisecond budget measures the runner, not the write path: it is red on a
+// loaded laptop and on a shared CI runner alike, and green on a fast idle machine even if
+// the write became linear in the history. What the title claims is that the cost of an
+// independent write does not grow with the number of old events, so the gate is the paired
+// ratio between two histories measured in the same process and time window
+// (dec_01KY6X4J486MZ35RW1QN51V2V1: relative overhead, not absolute milliseconds).
+// Measured at load 8-16 on a developer machine: bounded rounds land at 0.88-1.28, while a
+// write path that reads every old event without changing accessedItems lands at 1.58-3.06.
 test("10,000 old events do not block a new write", async (context) => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-10k-"));
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-10k-"));
   try {
-    initRepo(rootDir);
-    const eventsRoot = path.join(rootDir, "harness/events");
-    mkdirSync(eventsRoot, { recursive: true });
-    let last = oldTaskEvent(1);
-    for (let revision = 1; revision <= 10_000; revision += 1) {
-      last = oldTaskEvent(revision);
-      writeFileSync(path.join(eventsRoot, `${last.opId}.json`), serializeTaskEvent(last));
+    const baselineRoot = path.join(parent, "baseline"), historyRoot = path.join(parent, "history"), baselineEvents = 250, historyEvents = 10_000;
+    seedOldEvents(baselineRoot, baselineEvents);
+    seedOldEvents(historyRoot, historyEvents);
+    const ratios: number[] = [];
+    for (let round = 1; round <= 3; round += 1) {
+      // Alternate which history pays the process warm-up so it cannot bias one arm.
+      const leading = round % 2 === 0 ? await independentWrite(historyRoot, historyEvents, round) : null;
+      const baseline = await independentWrite(baselineRoot, baselineEvents, round);
+      const history = leading ?? await independentWrite(historyRoot, historyEvents, round);
+      ratios.push(history.elapsedMs / baseline.elapsedMs);
+      context.diagnostic(`independent-write round=${round} baseline(${baselineEvents})=${baseline.elapsedMs.toFixed(3)}ms history(${historyEvents})=${history.elapsedMs.toFixed(3)}ms ratio=${(history.elapsedMs / baseline.elapsedMs).toFixed(3)}`);
+      context.diagnostic(`history phases storeInitMs=${history.storeInitMs.toFixed(3)} readMs=${history.readMs.toFixed(3)} appendMs=${history.appendMs.toFixed(3)} applyMs=${history.applyMs.toFixed(3)} checkpoints=${JSON.stringify(history.checkpoints)}`);
+      for (const arm of [baseline, history]) {
+        assert.notEqual(arm.published, null, "the independent write must enter L1");
+        assert.equal(arm.outcome, "pending", "L1 may lead the bounded L2 catch-up");
+        assert.equal(arm.maxAccessedItems <= 64, true, `catch-up accessed ${arm.maxAccessedItems} event files`);
+      }
     }
-    const lastBytes = serializeTaskEvent(last);
-    writeFileSync(path.join(eventsRoot, "head.json"), serializeEventHead({ revision: last.workspaceRevision, opId: last.opId,
-      eventDigest: `sha256:${createHash("sha256").update(lastBytes).digest("hex")}` }));
-    git(rootDir, "add", "--", "harness/events");
-    git(rootDir, "commit", "--quiet", "-m", "10k old event fixture");
-    git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
-
-    const started = performance.now();
-    const checkpoints = new Map<string, number>();
-    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir, killpoint: (point) => checkpoints.set(point, performance.now() - started) });
-    const storeReady = performance.now();
-    const phase = { readMs: 0, appendMs: 0, applyMs: 0, maxAccessedItems: 0 };
-    const boundedEventStore = { ...eventStore, readBatch: (cursor: string | null, maxItems: number) => {
-      const batch = eventStore.readBatch(cursor, maxItems);
-      phase.maxAccessedItems = Math.max(phase.maxAccessedItems, batch.accessedItems);
-      return batch;
-    } };
-    const projection = makeTaskProjection({ rootDir, eventStore: boundedEventStore, now: () => "2026-08-12T00:00:00.000Z" });
-    const service = makeTaskLifecycleService({
-      eventStore: { ...boundedEventStore, append: (candidate) => {
-        const phaseStarted = performance.now(); try { return eventStore.append(candidate); } finally { phase.appendMs += performance.now() - phaseStarted; }
-      } },
-      projection: { ...projection, read: (taskId) => {
-        const phaseStarted = performance.now(); try { return projection.read(taskId); } finally { phase.readMs += performance.now() - phaseStarted; }
-      }, apply: (candidate) => {
-        const phaseStarted = performance.now(); try { return projection.apply(candidate); } finally { phase.applyMs += performance.now() - phaseStarted; }
-      } }
-    });
-    const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: "task-new", title: "New independent task", taskClass: "standard" as const,
-      graph: replayGraph, completionGateIds: [], presetSnapshotDigest: null }, { eventId: "event-new", workspaceRevision: 10_001,
-      occurredAt: "2026-08-12T00:00:00.000Z" }, 0);
-    const receipt = await service.execute(create, { taskIdUnique: true, actorBinding: actor });
-    const elapsedMs = performance.now() - started;
-
-    context.diagnostic(`first-store-access-through-receipt elapsedMs=${elapsedMs.toFixed(3)} storeInitMs=${(storeReady - started).toFixed(3)} readMs=${phase.readMs.toFixed(3)} appendMs=${phase.appendMs.toFixed(3)} applyMs=${phase.applyMs.toFixed(3)}`);
-    context.diagnostic(`publication checkpoints=${JSON.stringify(Object.fromEntries(checkpoints))}`);
-    assert.notEqual(eventStore.readEvent(create.opId), null, "the independent write must enter L1");
-    assert.equal(receipt.outcome, "pending", "L1 may lead the bounded L2 catch-up");
-    assert.equal(phase.maxAccessedItems <= 64, true, `catch-up accessed ${phase.maxAccessedItems} event files`);
-    assert.equal(elapsedMs < 250, true, `first store access through receipt took ${elapsedMs}ms`);
+    const median = [...ratios].sort((left, right) => left - right)[1]!;
+    assert.equal(median < 1.5, true, `40x the old events cost ${median.toFixed(2)}x the write (rounds: ${ratios.map((ratio) => ratio.toFixed(2)).join(", ")})`);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
+
+function seedOldEvents(rootDir: string, count: number): void {
+  mkdirSync(rootDir, { recursive: true });
+  initRepo(rootDir);
+  const eventsRoot = path.join(rootDir, "harness/events");
+  mkdirSync(eventsRoot, { recursive: true });
+  let last = oldTaskEvent(1);
+  for (let revision = 1; revision <= count; revision += 1) {
+    last = oldTaskEvent(revision);
+    writeFileSync(path.join(eventsRoot, `${last.opId}.json`), serializeTaskEvent(last));
+  }
+  const lastBytes = serializeTaskEvent(last);
+  writeFileSync(path.join(eventsRoot, "head.json"), serializeEventHead({ revision: last.workspaceRevision, opId: last.opId,
+    eventDigest: `sha256:${createHash("sha256").update(lastBytes).digest("hex")}` }));
+  git(rootDir, "add", "--", "harness/events");
+  git(rootDir, "commit", "--quiet", "-m", `${count} old event fixture`);
+  git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
+}
+
+async function independentWrite(rootDir: string, oldEvents: number, round: number) {
+  const started = performance.now();
+  const checkpoints = new Map<string, number>();
+  const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir, killpoint: (point) => checkpoints.set(point, performance.now() - started) });
+  const storeReady = performance.now();
+  const phase = { readMs: 0, appendMs: 0, applyMs: 0, maxAccessedItems: 0 };
+  const boundedEventStore = { ...eventStore, readBatch: (cursor: string | null, maxItems: number) => {
+    const batch = eventStore.readBatch(cursor, maxItems);
+    phase.maxAccessedItems = Math.max(phase.maxAccessedItems, batch.accessedItems);
+    return batch;
+  } };
+  const projection = makeTaskProjection({ rootDir, eventStore: boundedEventStore, now: () => "2026-08-12T00:00:00.000Z" });
+  const service = makeTaskLifecycleService({
+    eventStore: { ...boundedEventStore, append: (candidate) => {
+      const phaseStarted = performance.now(); try { return eventStore.append(candidate); } finally { phase.appendMs += performance.now() - phaseStarted; }
+    } },
+    projection: { ...projection, read: (taskId) => {
+      const phaseStarted = performance.now(); try { return projection.read(taskId); } finally { phase.readMs += performance.now() - phaseStarted; }
+    }, apply: (candidate) => {
+      const phaseStarted = performance.now(); try { return projection.apply(candidate); } finally { phase.applyMs += performance.now() - phaseStarted; }
+    } }
+  });
+  const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: `task-new-${round}`, title: "New independent task", taskClass: "standard" as const,
+    graph: replayGraph, completionGateIds: [], presetSnapshotDigest: null }, { eventId: `event-new-${round}`, workspaceRevision: oldEvents + round,
+    occurredAt: "2026-08-12T00:00:00.000Z" }, 0);
+  const receipt = await service.execute(create, { taskIdUnique: true, actorBinding: actor });
+  return { elapsedMs: performance.now() - started, storeInitMs: storeReady - started, ...phase, checkpoints: Object.fromEntries(checkpoints),
+    outcome: receipt.outcome, published: eventStore.readEvent(create.opId) };
+}
 
 test("transition service replays reject through a new Execution before completion", async () => {
   const harness = lifecycleHarness();

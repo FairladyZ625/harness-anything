@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { watch, type FSWatcher } from "node:fs";
+import { lstatSync, readdirSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout, type WriteReceipt } from "../../kernel/src/index.ts";
 
@@ -12,7 +12,7 @@ interface ScanRow { readonly path: string; readonly state: "clean" | "eligible" 
 
 export function openDocSyncWatcher(input: { readonly rootDir: string; readonly personId: string; readonly run: Runner; readonly debounceMs?: number; readonly watchFilesystem?: boolean; readonly startupScan?: boolean }): DocSyncWatcher {
   const sessionId = `watch-${randomUUID()}`, debounceMs = input.debounceMs ?? 75, pending = new Set<string>(), observations = new Map<string, { fingerprint: string; count: number }>(), submitted = new Map<string, string>();
-  const metrics = { scans: 0, intents: 0, commits: 0, writes: 0 }; let state: DocSyncWatchStatus["state"] = "active", lastReceipt: DocSyncWatchStatus["lastReceipt"] = null, timer: NodeJS.Timeout | null = null, filesystem: FSWatcher | null = null, tail = Promise.resolve();
+  const metrics = { scans: 0, intents: 0, commits: 0, writes: 0 }, directories = new Map<string, FSWatcher>(); let state: DocSyncWatchStatus["state"] = "active", lastReceipt: DocSyncWatchStatus["lastReceipt"] = null, timer: NodeJS.Timeout | null = null, tail = Promise.resolve();
   const schedule = () => { if (timer || state === "closed") return; timer = setTimeout(() => { timer = null; enqueue(false); }, debounceMs); };
   const wake = (logicalPath?: string) => { if (state === "closed") return; const normalized = logicalPath && normalize(logicalPath); pending.add(normalized ?? fullScan); schedule(); };
   const enqueue = (drain: boolean) => { tail = tail.then(async () => { do { await scanOnce(); } while (drain && pending.size > 0); }, () => undefined); };
@@ -33,10 +33,21 @@ export function openDocSyncWatcher(input: { readonly rootDir: string; readonly p
     if (pending.size && timer === null) schedule();
   };
   const authoredRoot = resolveHarnessLayout(input.rootDir).authoredRoot;
-  if (input.watchFilesystem !== false) try { filesystem = watch(authoredRoot, { recursive: true }, (_event, filename) => filename === null ? wake() : wake(String(filename))); filesystem.on("error", () => wake()); } catch (error) { consumeKnownError(error); state = "blocked"; }
+  // One non-recursive watcher per authored directory. Node's recursive watch keeps a
+  // per-file watch and stops reporting a file through its parent directory once it has
+  // seen it; an editor save writes a temporary file and renames it over the target, which
+  // unlinks the watched inode, so on Linux the second and every later save of the same
+  // file is delivered nowhere. Directory inodes survive rename-over.
+  const watchDirectory = (directory: string): void => {
+    if (directories.has(directory) || state === "closed" || path.basename(directory) === ".git") return; let watcher: FSWatcher;
+    try { watcher = watch(directory, (_event, filename) => { if (filename === null) { wake(); return; } const child = path.join(directory, String(filename));
+      try { if (lstatSync(child).isDirectory()) watchDirectory(child); } catch (error) { consumeKnownError(error); } wake(path.relative(authoredRoot, child)); }); } catch (error) { consumeKnownError(error); return; }
+    watcher.on("error", () => { watcher.close(); directories.delete(directory); wake(); }); directories.set(directory, watcher);
+    try { for (const entry of readdirSync(directory, { withFileTypes: true })) if (entry.isDirectory()) watchDirectory(path.join(directory, entry.name)); } catch (error) { consumeKnownError(error); } };
+  if (input.watchFilesystem !== false) { watchDirectory(authoredRoot); if (directories.size === 0) state = "blocked"; }
   if (input.startupScan !== false) wake();
   return { wake, overflow: () => wake(), flush: async () => { if (timer) { clearTimeout(timer); timer = null; } enqueue(true); await tail; }, status: () => ({ sessionId, personId: input.personId, state, pendingPaths: [...pending].sort(), lastReceipt, metrics: { ...metrics } }),
-    close: async () => { if (state === "closed") return; state = "closed"; if (timer) clearTimeout(timer); timer = null; filesystem?.close(); await tail; } };
+    close: async () => { if (state === "closed") return; state = "closed"; if (timer) clearTimeout(timer); timer = null; for (const watcher of directories.values()) watcher.close(); directories.clear(); await tail; } };
   function remember(receipt: WriteReceipt): void { const nextAction = receipt.nextAction ?? receipt.detail?.nextAction; lastReceipt = { outcome: receipt.outcome, opId: receipt.opId, ...(receipt.code ? { code: receipt.code } : {}), ...(nextAction ? { nextAction } : {}) }; }
 }
 
