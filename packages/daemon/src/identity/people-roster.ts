@@ -13,6 +13,7 @@ import {
   type RolePolicy
 } from "./types.ts";
 
+const ROSTER_SCHEMA = "harness-people/v1";
 const commandClasses = new Set<DaemonCommandClass>(["admin", "repo-write", "repo-read", "arbiter"]);
 const credentialKinds = new Set<CredentialKind>([
   "unix-socket-owner-boundary",
@@ -37,7 +38,7 @@ export function loadPeopleRoster(rootInput: HarnessLayoutInput): PeopleRoster {
 
 export function peopleRosterFromDocument(body: string): PeopleRoster {
   const raw = parsePeopleYaml(body);
-  if (raw.schema !== "harness-people/v1") throw new Error("people.yaml schema must be harness-people/v1");
+  if (raw.schema !== ROSTER_SCHEMA) throw new Error(`people.yaml schema must be ${ROSTER_SCHEMA}`);
   validateRoster(raw.people, raw.roles);
   const peopleByCredential = new Map<string, PersonProfile>();
   for (const person of raw.people) {
@@ -106,6 +107,152 @@ function validateRoster(people: ReadonlyArray<PersonProfile>, roles: ReadonlyArr
     }
   }
 }
+
+export type PeopleRosterMerge =
+  | { readonly ok: true; readonly body: string; readonly summary: string }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * Union two `people.yaml` documents into one roster.
+ *
+ * A roster states who exists and what each person may do, so the two sides of a migration are not
+ * two candidate values for one document: they are two partial statements about one set of people.
+ * Set-valued facts (which people exist, which roles a person holds, which credentials bind to a
+ * person) therefore union. Scalars (`displayName`, `primaryEmail`, `disabled`) and role authority
+ * definitions (`commandClasses`) must agree, because a union has no meaning for a scalar and
+ * widening a role's command classes would grant authority that neither side granted. When the two
+ * sides genuinely contradict, this refuses and the caller falls back to an explicit operator choice.
+ *
+ * The result is serialized in the same JSON shape `ha init` writes, so re-running is idempotent.
+ */
+export function mergePeopleRosterDocuments(sourceBody: string, destinationBody: string): PeopleRosterMerge {
+  let source: ParsedRoster;
+  let destination: ParsedRoster;
+  try {
+    source = parsePeopleYaml(sourceBody);
+    destination = parsePeopleYaml(destinationBody);
+  } catch (error) {
+    return { ok: false, reason: `people.yaml does not parse as a roster on both sides: ${describe(error)}` };
+  }
+  if (source.schema !== ROSTER_SCHEMA || destination.schema !== ROSTER_SCHEMA) {
+    return { ok: false, reason: `people.yaml schema must be ${ROSTER_SCHEMA} on both sides; source=${label(source.schema)}, destination=${label(destination.schema)}` };
+  }
+  for (const [side, roster] of [["source", source], ["destination", destination]] as const) {
+    const shape = rosterShapeError(roster);
+    if (shape) return { ok: false, reason: `${side} people.yaml is not a well-formed roster: ${shape}` };
+  }
+
+  const roles = [...destination.roles];
+  const addedRoles: string[] = [];
+  for (const role of source.roles) {
+    const held = roles.find((candidate) => candidate.roleId === role.roleId);
+    if (!held) {
+      roles.push(role);
+      addedRoles.push(role.roleId);
+      continue;
+    }
+    const kept = [...held.commandClasses].sort().join(","), incoming = [...role.commandClasses].sort().join(",");
+    if (kept !== incoming) {
+      return { ok: false, reason: `role ${role.roleId} authorizes different command classes on each side (source=[${incoming}], destination=[${kept}]); merging would change what the role grants` };
+    }
+  }
+
+  const people: PersonProfile[] = [];
+  const enriched: string[] = [];
+  const addedPeople: string[] = [];
+  for (const person of destination.people) {
+    const counterpart = source.people.find((candidate) => candidate.personId === person.personId);
+    if (!counterpart) {
+      people.push(person);
+      continue;
+    }
+    const merged = mergePerson(person, counterpart);
+    if (!merged.ok) return merged;
+    people.push(merged.person);
+    if (merged.changed) enriched.push(person.personId);
+  }
+  for (const person of source.people) {
+    if (destination.people.some((candidate) => candidate.personId === person.personId)) continue;
+    people.push(person);
+    addedPeople.push(person.personId);
+  }
+
+  try {
+    validateRoster(people, roles);
+  } catch (error) {
+    return { ok: false, reason: `the union of both rosters is not a valid roster: ${describe(error)}` };
+  }
+  const summary = `${people.length} people (${addedPeople.length} carried from the source${addedPeople.length ? `: ${addedPeople.join(", ")}` : ""}, ${enriched.length} enriched in place${enriched.length ? `: ${enriched.join(", ")}` : ""}), ${roles.length} roles (${addedRoles.length} carried from the source${addedRoles.length ? `: ${addedRoles.join(", ")}` : ""})`;
+  return { ok: true, body: serializeRoster(people, roles), summary };
+}
+
+function mergePerson(destination: PersonProfile, source: PersonProfile): { readonly ok: true; readonly person: PersonProfile; readonly changed: boolean } | { readonly ok: false; readonly reason: string } {
+  const scalars: { primaryEmail?: string; disabled?: boolean } = {};
+  for (const field of ["displayName", "primaryEmail", "disabled"] as const) {
+    const kept = destination[field], incoming = source[field];
+    if (kept !== undefined && incoming !== undefined && kept !== incoming) {
+      return { ok: false, reason: `person ${destination.personId} declares a different ${field} on each side (source=${JSON.stringify(incoming)}, destination=${JSON.stringify(kept)}); a roster union cannot choose between two values for one field` };
+    }
+    if (field !== "displayName") {
+      const resolved = kept ?? incoming;
+      if (resolved !== undefined) Object.assign(scalars, { [field]: resolved });
+    }
+  }
+  const roles = [...destination.roles];
+  for (const roleId of source.roles) if (!roles.includes(roleId)) roles.push(roleId);
+  const credentials = [...destination.credentials];
+  const held = new Set(credentials.map(credentialKey));
+  for (const credential of source.credentials) {
+    if (held.has(credentialKey(credential))) continue;
+    credentials.push(credential);
+    held.add(credentialKey(credential));
+  }
+  const person: PersonProfile = { personId: destination.personId, displayName: destination.displayName || source.displayName, ...scalars, roles, credentials };
+  return { ok: true, person, changed: serializePerson(person) !== serializePerson(destination) };
+}
+
+function serializeRoster(people: ReadonlyArray<PersonProfile>, roles: ReadonlyArray<RolePolicy>): string {
+  return `${JSON.stringify({ schema: ROSTER_SCHEMA, people: people.map(orderedPerson), roles: roles.map(({ roleId, commandClasses }) => ({ roleId, commandClasses: [...commandClasses] })) }, null, 2)}\n`;
+}
+
+function orderedPerson(person: PersonProfile): Readonly<Record<string, unknown>> {
+  return {
+    personId: person.personId,
+    displayName: person.displayName,
+    ...(person.primaryEmail === undefined ? {} : { primaryEmail: person.primaryEmail }),
+    roles: [...person.roles],
+    credentials: person.credentials.map(({ kind, issuer, subject }) => ({ kind, issuer, subject })),
+    ...(person.disabled === undefined ? {} : { disabled: person.disabled })
+  };
+}
+
+function serializePerson(person: PersonProfile): string {
+  return JSON.stringify(orderedPerson(person));
+}
+
+function rosterShapeError(roster: ParsedRoster): string | null {
+  if (!Array.isArray(roster.people) || !Array.isArray(roster.roles)) return "people and roles must both be lists";
+  for (const person of roster.people) {
+    if (!person || typeof person.personId !== "string" || !person.personId) return "every person needs a personId";
+    if (typeof person.displayName !== "string") return `person ${person.personId} needs a displayName`;
+    if (!Array.isArray(person.roles) || !Array.isArray(person.credentials)) return `person ${person.personId} needs list-valued roles and credentials`;
+  }
+  for (const role of roster.roles) {
+    if (!role || typeof role.roleId !== "string" || !role.roleId) return "every role needs a roleId";
+    if (!Array.isArray(role.commandClasses)) return `role ${role.roleId} needs list-valued commandClasses`;
+  }
+  return null;
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function label(schema: string): string {
+  return schema ? JSON.stringify(schema) : "<missing>";
+}
+
+type ParsedRoster = { readonly schema: string; readonly people: PersonProfile[]; readonly roles: RolePolicy[] };
 
 function parsePeopleYaml(body: string): { readonly schema: string; readonly people: PersonProfile[]; readonly roles: RolePolicy[] } {
   const trimmed = body.trimStart();
