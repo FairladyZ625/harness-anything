@@ -1,4 +1,0 @@
-interface:
-  display_name: "Decision"
-  short_description: "Record one consequential decision through the CLI"
-  default_prompt: "Capture one consequential decision by using the Harness Anything decision CLI. Do not edit markdown directly."

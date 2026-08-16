@@ -108,6 +108,26 @@ shows the records that remain after the agent work is over.
 Ready to use it on a project? Continue with the
 [Start guide](./docs-release/start/en/00-what-is-this.md).
 
+### Or have an agent install it for you
+
+**You do not need anything installed first.** Paste this to a coding agent
+working in the project you want to adopt it in:
+
+> Read `skills/harness-install/SKILL.md` from
+> https://github.com/FairladyZ625/harness-anything and follow it to install
+> Harness Anything in this project. Ask me before each decision the skill says
+> to ask about.
+
+The skill reads your project first — language, layout, CI, whether you already
+have an `AGENTS.md` — then initializes a ledger, attaches it to a daemon, and
+drives one real task all the way to `done`, so the install is proven rather than
+assumed. It stops and asks you wherever a choice is hard to undo: the person id
+it is about to write, and any file of yours it would have to merge into.
+
+If the project **already has** a `harness/` ledger from an earlier release, use
+the [migration skill](#breaking-change-existing-repositories-must-migrate)
+below instead.
+
 ## Breaking change: existing repositories must migrate
 
 The ledger format has changed by a generation and this project keeps no
