@@ -74,7 +74,6 @@
         "check-integration-test-shards",
         "check-mergify-queue-contexts",
         "check-docs-release-map",
-        "check-docmap-fresh",
         "check-gate-surface",
         "check-gate-manifest-invariants",
         "check-template-command-surface",
@@ -117,7 +116,6 @@
         "check-integration-test-shards",
         "check-mergify-queue-contexts",
         "check-docs-release-map",
-        "check-docmap-fresh",
         "check-gate-surface",
         "check-gate-manifest-invariants",
         "check-template-command-surface",
@@ -2861,82 +2859,6 @@
         "status": "covered",
         "evidence": [
           "tools/check-docs-release-map.test.mjs"
-        ]
-      }
-    },
-    {
-      "id": "check-docmap-fresh",
-      "command": "npm run harness:check-docmap-fresh",
-      "category": "local-consistency",
-      "tier": "pr-required",
-      "tierReason": null,
-      "authoritySource": [
-        "harness/docmap or generated docmap source declarations",
-        "tools/check-docmap-fresh.mjs"
-      ],
-      "consumerScope": [
-        "docmap generated freshness surface"
-      ],
-      "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries",
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
-      },
-      "allowlistPolicy": {
-        "allowed": true,
-        "location": "tools/check-docmap-fresh.mjs",
-        "adrOrDecisionRequired": true,
-        "notes": "Freshness exclusions are local-consistency authority assets."
-      },
-      "changeControl": {
-        "ordinaryImplementationMayModify": false,
-        "requiresGovernanceEvidence": true,
-        "protectedSurfaces": [
-          "tools/check-docmap-fresh.mjs",
-          "package.json:scripts.harness:check-docmap-fresh",
-          "tools/gate-manifest.json"
-        ]
-      },
-      "bypassFixtureRequired": false,
-      "executionSurfaces": {
-        "packageJson": {
-          "check": true,
-          "checkPr": true,
-          "script": "harness:check-docmap-fresh"
-        },
-        "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
-        },
-        "branchProtection": {
-          "required": true,
-          "contexts": [
-            "boundaries"
-          ]
-        },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
-      },
-      "deterministic": true,
-      "positiveControl": {
-        "status": "covered",
-        "evidence": [
-          "tools/check-docmap-fresh.test.mjs"
         ]
       }
     },

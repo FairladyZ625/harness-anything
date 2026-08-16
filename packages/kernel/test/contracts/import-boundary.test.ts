@@ -34,10 +34,9 @@ test("domain source does not import runtime, IO, database or Effect modules", as
   }
 });
 
-test("layout and docmap logic do not import direct physical IO modules", async () => {
+test("layout logic does not import direct physical IO modules", async () => {
   const files = [
-    ...await readKernelSourceFilesUnder("layout"),
-    ...await readKernelSourceFilesUnder("docmap")
+    ...await readKernelSourceFilesUnder("layout")
   ];
   const forbiddenIoImports = [
     "node:fs",

@@ -39,11 +39,6 @@
         "reason": "Preset v3 Slice A exposes the fixed canonical task bootstrap event contract for downstream consumers and contract tests."
       },
       {
-        "value": "assertUniqueDocmapIds",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
-      },
-      {
         "value": "BindingInvariantError",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
@@ -57,11 +52,6 @@
         "value": "buildCheckReport",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "buildDocmapReadSet",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
       },
       {
         "value": "buildPublishableProjection",
@@ -205,71 +195,6 @@
       },
       {
         "value": "DispositionMatrixEntry",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "DocmapDocument",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
-      },
-      {
-        "value": "DocmapDocumentKind",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "docmapDocumentKinds",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "DocmapDocumentSchema",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "DocmapManifest",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
-      },
-      {
-        "value": "DocmapManifestContract",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "DocmapManifestDocument",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "docmapManifestPath",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
-      },
-      {
-        "value": "DocmapManifestSchema",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
-      },
-      {
-        "value": "DocmapReadResult",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "DocmapReadSet",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
-      },
-      {
-        "value": "DocmapReadSetFilters",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "DocmapScope",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
       },
@@ -530,11 +455,6 @@
       },
       {
         "value": "FactMemoryTag",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
-      },
-      {
-        "value": "filterDocmapDocuments",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
       },
