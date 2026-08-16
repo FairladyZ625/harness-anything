@@ -67,14 +67,21 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
       const cell = cells.get(repoId);
       if (!cell) return reject(action, unavailable.has(repoId) ? "repo_unavailable" : "repo_namespace_unknown",
         unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`);
-      const spoof = ["actor", "root", "canonicalRoot", "source", "workspaceId", "expectedRevision", "eventId", "occurredAt", "gitCredential", "credential"]
+      const spoof = ["actor", "root", "canonicalRoot", "workspaceId", "expectedRevision", "eventId", "occurredAt", "gitCredential", "credential"]
         .find((field) => Object.hasOwn(action, field));
-      if (spoof) return reject(action, "ingress_binding_forbidden", `Payload cannot report ${spoof}; daemon binds actor, root, source, revision, and time.`);
-      try { return await cell.run(action, await binding(cell.status().rootDir, auth, commandClassForAction(action.kind), action.kind === "doc-submit")); }
+      if (spoof) return reject(action, "ingress_binding_forbidden", `Payload cannot report ${spoof}; daemon binds principal authority, root, revision, and time.`);
+      try { const { executor: declared, ...intent } = action, executor = declaredExecutor(declared);
+        return await cell.run(intent as RepoTaskAction, await binding(cell.status().rootDir, auth, commandClassForAction(action.kind), action.kind === "doc-submit", executor)); }
       catch (error) { return reject(action, code(error), consumeKnownError(error)); }
     },
     replica: (repoId) => requiredCell(cells, unavailable, repoId).replica,
-    presetRun: async (repoId, action, auth) => { const cell = cells.get(repoId), missing = unavailable.get(repoId), recoveryRunId = recoverableRunId(action); if (!cell) { if (missing && recoveryRunId) try { await binding(missing.rootDir, auth, commandClassForAction(action.kind)); return recoverPresetRunStatus({ rootDir: missing.rootDir, userRoot: presetUserRoot(missing.rootDir) }, recoveryRunId); } catch (error) { return rejectPresetRun(recoveryRunId, code(error), consumeKnownError(error)); } return rejectPresetRun("run_invalid", missing ? "repo_unavailable" : "repo_namespace_unknown", missing?.lastError ?? `Unknown repo namespace: ${repoId}.`); } try { return await cell.presetRun(action, await binding(cell.status().rootDir, auth, commandClassForAction(action.kind))); } catch (error) { return rejectPresetRun(typeof action.runId === "string" ? action.runId : "run_invalid", code(error), consumeKnownError(error)); } },
+    presetRun: async (repoId, action, auth) => {
+      const cell = cells.get(repoId), missing = unavailable.get(repoId), recoveryRunId = recoverableRunId(action);
+      try { const { executor: declared, ...intent } = action, executor = declaredExecutor(declared), routed = intent as RepoTaskAction;
+        if (!cell) { if (missing && recoveryRunId) { await binding(missing.rootDir, auth, commandClassForAction(routed.kind), false, executor); return recoverPresetRunStatus({ rootDir: missing.rootDir, userRoot: presetUserRoot(missing.rootDir) }, recoveryRunId); } return rejectPresetRun("run_invalid", missing ? "repo_unavailable" : "repo_namespace_unknown", missing?.lastError ?? `Unknown repo namespace: ${repoId}.`); }
+        return await cell.presetRun(routed, await binding(cell.status().rootDir, auth, commandClassForAction(routed.kind), false, executor));
+      } catch (error) { return rejectPresetRun(typeof action.runId === "string" ? action.runId : "run_invalid", code(error), consumeKnownError(error)); }
+    },
     read: async (repoId, method, payload, auth) => { const cell = cells.get(repoId);
       if (!cell) throw hostCodedError(unavailable.has(repoId) ? "repo_unavailable" : "repo_namespace_unknown", unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`);
       await binding(cell.status().rootDir, auth, "repo-read"); if (method === "repo.gui.catalog.snapshot") return await cell.catalog.snapshot() as unknown as DaemonGuiReadResultMap[typeof method]; if (method === "repo.gui.catalog.preset.read") return await cell.catalog.preset(payload as JsonObject) as unknown as DaemonGuiReadResultMap[typeof method]; if (method === "repo.terminal.sessions.list") return cell.terminal.list() as DaemonGuiReadResultMap[typeof method]; return cell.read(method as import("./repo-cell.ts").RepoCellReadMethod, payload) as Promise<DaemonGuiReadResultMap[typeof method]>; },
@@ -99,7 +106,7 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
   async function refreshRegistry(): Promise<void> { const registry = readDaemonRegistry({ userRoot: input.userRoot }), enabled = new Map(registry.repos.filter((repo) => repo.state === "enabled").map((repo) => [repo.repoId, repo])), invalid = new Map(registry.invalidRepos.filter((repo) => repo.state !== "disabled").map((repo) => [invalidRepoId(repo), repo])); for (const repoId of [...cells.keys()]) if (!enabled.has(repoId)) { await watchers.get(repoId)?.close(); watchers.delete(repoId); await cells.get(repoId)?.close(); cells.delete(repoId); unavailable.delete(repoId); } for (const repoId of [...unavailable.keys()]) if (!enabled.has(repoId) && !invalid.has(repoId)) unavailable.delete(repoId); for (const repo of invalid.values()) unavailable.set(invalidRepoId(repo), invalidRegistryStatus(repo)); for (const repo of enabled.values()) if (!cells.has(repo.repoId)) try { await openRegistered(repo); } catch (error) { unavailable.set(repo.repoId, { repoId: repo.repoId, rootDir: repo.canonicalRoot, state: "unavailable", generation: 0, queueDepth: 0, recoveryMs: 0, lastError: consumeKnownError(error) }); } }
   function settleControl(pending: DaemonControlReceipt, ok: boolean, error?: unknown): void { const completedAt = new Date().toISOString(), settled: DaemonControlReceipt = { ...pending, ok, outcome: ok ? "pending" : "rejected", phase: ok ? "settled" : "failed", completedAt, after: ok ? point() : null, error: ok ? null : { code: code(error), hint: consumeKnownError(error) }, nextAction: ok ? null : "Repair the reported registry or RepoCell error, then request a new refresh." }; controls.set(pending.operationId, settled); latestControl = settled; }
 }
-async function binding(rootDir: string, auth: DaemonAuthenticationContext, required: DaemonCommandClass, returnDeniedDocDetail = false): Promise<RepoCellBinding> {
+async function binding(rootDir: string, auth: DaemonAuthenticationContext, required: DaemonCommandClass, returnDeniedDocDetail = false, executor: RepoCellBinding["actor"]["executor"] = null): Promise<RepoCellBinding> {
   if (auth.assignmentBinding) { if (required === "admin" || required === "arbiter") throw hostCodedError("rbac_forbidden", `Assignment ingress cannot perform ${required}.`); return { actor: auth.assignmentBinding.actor,
     source: { kind: "assignment", nodeId: auth.assignmentBinding.nodeId, assignmentId: auth.assignmentBinding.assignmentId }, docWriteAllowed: true, assignmentScope: { repoId: auth.assignmentBinding.repoId, taskId: auth.assignmentBinding.taskId, executionId: auth.assignmentBinding.executionId, paths: auth.assignmentBinding.paths } }; }
   const roster = loadPeopleRoster({ rootDir });
@@ -109,9 +116,16 @@ async function binding(rootDir: string, auth: DaemonAuthenticationContext, requi
   const allowed = resolved.actor.roles.some((role) => roster.roleAllows(role, required)); if (!allowed && !returnDeniedDocDetail) {
     throw hostCodedError("rbac_forbidden", `Principal ${resolved.actor.personId} lacks ${required}.`);
   }
-  return { actor: { principal: { personId: resolved.actor.personId }, executor: null },
+  return { actor: { principal: { personId: resolved.actor.personId }, executor },
     roles: [...resolved.actor.roles, ...(resolved.actor.roles.some((role) => roster.roleAllows(role, "arbiter")) ? ["$arbiter"] : []), ...(resolved.actor.roles.some((role) => roster.roleAllows(role, "admin")) ? ["$admin"] : [])],
     source: "local", docWriteAllowed: allowed };
+}
+function declaredExecutor(value: unknown): RepoCellBinding["actor"]["executor"] {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw hostCodedError("invalid_executor", "Executor must be null or an agent declaration.");
+  const record = value as Record<string, unknown>, id = typeof record.id === "string" ? record.id.trim() : "";
+  if (record.kind !== "agent" || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(id) || Object.keys(record).some((field) => field !== "kind" && field !== "id")) throw hostCodedError("invalid_executor", "Executor must be { kind: \"agent\", id: string }.");
+  return { kind: "agent", id };
 }
 function reject(action: RepoTaskAction, errorCode: string, nextAction: string): WriteReceipt { return { outcome: "rejected", opId: `rejected:${action.kind}`,
   code: errorCode, origin: "daemon", evidence: `rejection:${errorCode}`, nextAction }; } function rejectPresetRun(runId: string, code: string, nextAction: string) { return { schema: "preset-run-receipt/v1" as const, runId, outcome: "rejected" as const, phase: "rejected" as const, phases: ["rejected"] as const, code, nextAction }; }
