@@ -6,10 +6,9 @@ import test from "node:test";
 
 const workflowPath = path.join(process.cwd(), ".github/workflows/rebuild-gates.yml");
 
-// The trunk carries two names while the rebuild line is being renamed to main:
-// "rebuild/main" today, "main" after the rename, never both at once in practice.
+// The rename landed: the trunk is "main" and the triggers name only it.
 // Drop the retired name from this list the moment the rename lands.
-const TRUNK_BRANCHES = ['- "main"', '- "rebuild/main"'];
+const TRUNK_BRANCHES = ['- "main"'];
 
 test("push trigger covers only trunk branches — feature branches gate through pull_request runs, whose diff is the full PR; a feature-branch push run would re-evaluate walls against the narrow event.before diff and mint contradictory conclusions on the same head SHA (dec_01KZTQ1KRG17545YMSFKXJGEPN)", () => {
   const workflow = readFileSync(workflowPath, "utf8");
@@ -30,8 +29,8 @@ test("diff-based gates guard BASE_SHA against the zero SHA of a first branch pus
     const runBlock = workflow.slice(Math.max(0, invocation - 400), invocation);
     assert.match(
       runBlock,
-      /git cat-file -e "\$BASE_SHA\^\{tree\}"[\s\S]*git rev-parse origin\/rebuild\/main/u,
-      `${gate} must fall back to origin/rebuild/main when BASE_SHA is unresolvable (github.event.before is the zero SHA on a first branch push)`
+      /git cat-file -e "\$BASE_SHA\^\{tree\}"[\s\S]*git rev-parse origin\/main/u,
+      `${gate} must fall back to origin/main when BASE_SHA is unresolvable (github.event.before is the zero SHA on a first branch push)`
     );
   }
 });

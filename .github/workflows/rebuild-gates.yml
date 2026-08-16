@@ -4,17 +4,14 @@ on:
   pull_request:
     branches:
       - "main"
-      - "rebuild/**"
     types: [opened, reopened, synchronize, edited]
   pull_request_target:
     branches:
       - "main"
-      - "rebuild/**"
     types: [opened, reopened, synchronize, edited]
   push:
     branches:
       - "main"
-      - "rebuild/main"
 
 permissions:
   contents: read
@@ -98,7 +95,7 @@ jobs:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
           if [ -z "$BASE_SHA" ] || ! git cat-file -e "$BASE_SHA^{tree}" 2>/dev/null; then
-            BASE_SHA=$(git rev-parse origin/rebuild/main 2>/dev/null || git rev-parse origin/main)
+            BASE_SHA=$(git rev-parse origin/main)
           fi
           node tools/gates/test-selection.mjs --base "$BASE_SHA"
 
@@ -143,7 +140,7 @@ jobs:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
           if [ -z "$BASE_SHA" ] || ! git cat-file -e "$BASE_SHA^{tree}" 2>/dev/null; then
-            BASE_SHA=$(git rev-parse origin/rebuild/main 2>/dev/null || git rev-parse origin/main)
+            BASE_SHA=$(git rev-parse origin/main)
           fi
           node tools/gates/line-budget.mjs --base "$BASE_SHA"
 

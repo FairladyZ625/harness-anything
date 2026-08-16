@@ -15,14 +15,14 @@ already on the machine — including a running daemon — is left untouched.
 ## Before anything: confirm this is the right document
 
 This skill is versioned in the `harness-anything` repository as
-`skills/harness-migration/SKILL.md` on **`rebuild/main`**, and that branch is the
+`skills/harness-migration/SKILL.md` on **`main`**, and that branch is the
 authority. **Read it from a git ref, never from whatever working tree happens to
 be at hand** — a checkout parked on another branch may not carry this file at
 all, or may carry an older revision, and neither difference is visible once the
 text is in front of you.
 
 ```bash
-git -C <any-checkout-of-harness-anything> show origin/rebuild/main:skills/harness-migration/SKILL.md
+git -C <any-checkout-of-harness-anything> show origin/main:skills/harness-migration/SKILL.md
 ```
 
 A machine may also carry a separately maintained skill with a similar name —
@@ -129,7 +129,7 @@ until they do.
 
 ```bash
 cd "$HARNESS_MIGRATION_WORK"
-git clone --depth 1 --branch rebuild/main https://github.com/FairladyZ625/harness-anything.git ha-src
+git clone --depth 1 https://github.com/FairladyZ625/harness-anything.git ha-src
 cd ha-src
 npm install --no-audit --no-fund
 export HA_ENTRY="$HARNESS_MIGRATION_WORK/ha-src/packages/cli/src/index.ts"

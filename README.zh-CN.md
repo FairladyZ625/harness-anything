@@ -103,7 +103,7 @@ Demo 会构建 CLI、创建一个临时项目、跑通一条真实任务循环�
 
 **这件事不必手工做，也不需要你先装好当前版本。** 把下面这段话交给一个在待迁移仓库里工作的编码 agent：
 
-> 读取 https://github.com/FairladyZ625/harness-anything （分支 `rebuild/main`）的
+> 读取 https://github.com/FairladyZ625/harness-anything 的
 > `skills/harness-migration/SKILL.md`，按它把本项目的 `harness/` 台账迁移到当前格式。
 > skill 里说要问我的每个决定，都先问我。
 
