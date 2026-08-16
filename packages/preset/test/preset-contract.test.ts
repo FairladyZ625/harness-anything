@@ -38,9 +38,16 @@ test("script run declares one closed start route and one read-only status route"
     path: ["script", "run"], method: "repo.preset.run.start", commandClass: "repo-write"
   });
   assert.deepEqual(presetContract.methods.filter(({ method }) => method.startsWith("repo.preset.run.")).map(({ method, commandClass, params }) => ({ method, commandClass, fields: Object.keys(params.fields.payload.fields) })), [
-    { method: "repo.preset.run.start", commandClass: "repo-write", fields: ["presetId", "entrypoint", "taskId", "inputs", "idempotencyKey"] },
-    { method: "repo.preset.run.status", commandClass: "repo-read", fields: ["runId"] }
+    { method: "repo.preset.run.start", commandClass: "repo-write", fields: ["presetId", "entrypoint", "taskId", "inputs", "idempotencyKey", "executor"] },
+    { method: "repo.preset.run.status", commandClass: "repo-read", fields: ["runId", "executor"] }
   ]);
+});
+
+test("every preset method accepts the caller's executor declaration", () => {
+  // The thin CLI attaches the executor to every payload rather than knowing which
+  // methods carry attribution, so a method that omits the field rejects the call
+  // outright. run.status is built outside the command map and is the one that drifts.
+  assert.deepEqual(presetContract.methods.filter(({ params }) => params.fields.payload.fields.executor !== "json?").map(({ method }) => method), []);
 });
 
 test("builtin vertical and template discovery stay read-only while vertical run is one typed write route", () => {
@@ -51,7 +58,7 @@ test("builtin vertical and template discovery stay read-only while vertical run 
     { id: "script-list", path: ["script", "list"], method: "repo.script.list", commandClass: "repo-read" },
     { id: "script-inspect", path: ["script", "inspect"], method: "repo.script.inspect", commandClass: "repo-read" }
   ]);
-  const run = presetContract.methods.find(({ actionKind }) => actionKind === "script-run"); assert.deepEqual(run && { method: run.method, commandClass: run.commandClass, fields: Object.keys(run.params.fields.payload.fields) }, { method: "repo.script.run", commandClass: "repo-write", fields: ["scriptId", "taskId", "inputs", "dryRun"] });
+  const run = presetContract.methods.find(({ actionKind }) => actionKind === "script-run"); assert.deepEqual(run && { method: run.method, commandClass: run.commandClass, fields: Object.keys(run.params.fields.payload.fields) }, { method: "repo.script.run", commandClass: "repo-write", fields: ["scriptId", "taskId", "inputs", "dryRun", "executor"] });
 });
 
 test("preset failures reach the daemon boundary as readable text and survive report serialization", () => {

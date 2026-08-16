@@ -297,7 +297,8 @@ function register(root: string, userRoot: string, repoId: string, entry = cli): 
 function run(root: string, userRoot: string, args: readonly string[], entry = cli): Record<string, unknown> { const result = runMaybe(root, userRoot, args, entry);
   assert.equal(result.status, 0, `${result.stderr}\n${JSON.stringify(result.receipt)}`); return result.receipt; }
 function runMaybe(root: string, userRoot: string, args: readonly string[], entry = cli): { status: number | null; receipt: Record<string, unknown>; stderr: string } {
-  const result = spawnSync(process.execPath, [entry, "--root", root, "--json", ...args], { encoding: "utf8", env: { ...process.env,
+  const { HARNESS_ACTOR: _actor, ...baseEnv } = process.env;
+  const result = spawnSync(process.execPath, [entry, "--root", root, "--json", ...args], { encoding: "utf8", env: { ...baseEnv,
     HOME: path.join(root, ".home"), GIT_CONFIG_GLOBAL: "/dev/null", HARNESS_DAEMON_USER_ROOT: userRoot } });
   return { status: result.status, receipt: JSON.parse(result.stdout) as Record<string, unknown>, stderr: result.stderr }; }
 function stop(root: string, userRoot: string, entry = cli): void { spawnSync(process.execPath, [entry, "--root", root, "--json", "daemon", "stop"],

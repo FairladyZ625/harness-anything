@@ -8,7 +8,7 @@ import path from "node:path";
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const defaultCliPath = path.join(repoRoot, "packages/cli/dist/cli/src/index.js");
 const demoAttribution = {
-  actor: "system:quickstart-demo",
+  actor: "agent:quickstart-demo",
   gitAuthorName: "Harness Quickstart Demo",
   gitAuthorEmail: "quickstart-demo@example.invalid"
 };
