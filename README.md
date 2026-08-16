@@ -120,7 +120,7 @@ installed first.** Paste this to a coding agent working in the repository you
 want to migrate:
 
 > Read `skills/harness-migration/SKILL.md` from
-> https://github.com/FairladyZ625/harness-anything (branch `rebuild/main`) and
+> https://github.com/FairladyZ625/harness-anything and
 > follow it to migrate this project's `harness/` ledger to the current format.
 > Ask me before each decision the skill says to ask about.
 
