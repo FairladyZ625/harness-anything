@@ -217,6 +217,9 @@ test("thin parser exposes daemon-backed workspace bootstrap", () => {
     kind: "repo-bootstrap", repoId: "alpha", personId: "owner", displayName: "Owner", name: "Alpha Project", addNpmScripts: true
   });
   assert.equal(parseThinCommand(["init", "--repo-id", "alpha", "--person-id", "owner"]).ok, false);
+  const configureOnly = parseThinCommand(["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner", "--configure-only"]);
+  assert.equal(configureOnly.ok, true);
+  if (configureOnly.ok) assert.deepEqual(configureOnly.command.action, { kind: "repo-bootstrap", repoId: "alpha", personId: "owner", displayName: "Owner", configureOnly: true });
 });
 
 test("migration import parser accepts repeated explicit conflict resolutions", () => {
