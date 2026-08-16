@@ -3,13 +3,16 @@ import path from "node:path";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import { openDaemonHost } from "./daemon-host.ts";
 import { createJsonRpcProtocolServer } from "./protocol/json-rpc-server.ts";
+import { openDaemonRequestLog } from "./request-log.ts";
 import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
 
 export interface RunningDaemon { readonly endpoint: string; readonly stop: () => Promise<void> }
 export async function startDaemon(input: { readonly daemonId: string; readonly userRoot: string }): Promise<RunningDaemon> {
   const endpoint = localUserDaemonEndpoint(input.userRoot, input.daemonId), host = await openDaemonHost({ ...input, endpoint });
+  // One sink for the daemon; the protocol server is created per connection and reports into it.
+  const requestLog = openDaemonRequestLog({ resolveRootDir: (repoId) => host.status().repos.find((repo) => repo.repoId === repoId)?.rootDir });
   const transport = createUnixSocketTransportServer({ daemonId: input.daemonId, socketPath: endpoint,
-    createProtocolServer: (authContext, emit) => createJsonRpcProtocolServer({ host, authContext, emit }) });
+    createProtocolServer: (authContext, emit) => createJsonRpcProtocolServer({ host, authContext, emit, recordRequest: requestLog.record }) });
   try { await transport.start(); }
   catch (error) { await host.close(); throw error; }
   const pidPath = daemonPidPath(input.userRoot, input.daemonId);
