@@ -39,21 +39,21 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
   }
   if (containsSecretLikeKey(payload)) throw new Error("Preload payload contains a forbidden secret-like key.");
   if (repoScopedMethods.has(method as PreloadApiMethod)) {
-    if (!record(payload) || typeof payload.repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(payload.repoId)) {
+    if (!isPreloadPayloadRecord(payload) || typeof payload.repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(payload.repoId)) {
       throw new Error(`Preload ${method} payload requires an exact repoId.`);
     }
     if (emptyRepoMethods.has(method) && Object.keys(payload).some((key) => key !== "repoId")) throw new Error(`Preload ${method} fields are not allowed.`);
-  } else if (record(payload) && Object.hasOwn(payload, "repoId")) {
+  } else if (isPreloadPayloadRecord(payload) && Object.hasOwn(payload, "repoId")) {
     throw new Error(`Preload ${method} payload: repoId is not allowed.`);
   }
-  if (method === "getSystemStatus" && record(payload) && Object.keys(payload).length > 0) throw new Error("Preload getSystemStatus fields are not allowed.");
-  if (method === "listRuntimeInstances" && payload !== null && (!record(payload) || Object.keys(payload).length > 0)) throw new Error("Runtime instance list fields are not allowed.");
+  if (method === "getSystemStatus" && isPreloadPayloadRecord(payload) && Object.keys(payload).length > 0) throw new Error("Preload getSystemStatus fields are not allowed.");
+  if (method === "listRuntimeInstances" && payload !== null && (!isPreloadPayloadRecord(payload) || Object.keys(payload).length > 0)) throw new Error("Runtime instance list fields are not allowed.");
   if (["showRuntimeInstance", "deleteRuntimeInstance", "validateRuntimeInstanceAuth"].includes(method) && !exactStrings(payload, ["instanceId"])) throw new Error(`Preload ${method} request is invalid.`);
   if (["signInRuntimeInstance", "reauthRuntimeInstance", "signOutRuntimeInstance"].includes(method) && !exactStrings(payload, ["repoId", "instanceId", "idempotencyKey"])) throw new Error(`Preload ${method} request is invalid.`);
-  if (method === "createRuntimeInstance" && (!record(payload) || !closed(payload, ["instanceId", "name", "kindId", "installationId", "providerId", "model", "reasoningEffort", "baseUrl", "authMode"]) || !["claude", "codex"].includes(String(payload.kindId)) || !["subscription", "api-key"].includes(String(payload.authMode)) || !["instanceId", "name", "kindId", "installationId", "providerId", "model", "authMode"].every((key) => typeof payload[key] === "string" && String(payload[key]).length > 0) || [payload.reasoningEffort, payload.baseUrl].some((value) => value !== undefined && typeof value !== "string"))) throw new Error("Runtime instance create request is invalid.");
+  if (method === "createRuntimeInstance" && (!isPreloadPayloadRecord(payload) || !closed(payload, ["instanceId", "name", "kindId", "installationId", "providerId", "model", "reasoningEffort", "baseUrl", "authMode"]) || !["claude", "codex"].includes(String(payload.kindId)) || !["subscription", "api-key"].includes(String(payload.authMode)) || !["instanceId", "name", "kindId", "installationId", "providerId", "model", "authMode"].every((key) => typeof payload[key] === "string" && String(payload[key]).length > 0) || [payload.reasoningEffort, payload.baseUrl].some((value) => value !== undefined && typeof value !== "string"))) throw new Error("Runtime instance create request is invalid.");
   return true;
 }
-function containsSecretLikeKey(value: unknown): boolean { if (Array.isArray(value)) return value.some(containsSecretLikeKey); if (!record(value)) return false; return Object.entries(value).some(([key, nested]) => /(?:secret|token|password|passphrase)/iu.test(key) || /^(?:api[-_]?key|credential(?:ref|value))$/iu.test(key) || containsSecretLikeKey(nested)); }
-function exactStrings(value: unknown, fields: readonly string[]): boolean { return record(value) && Object.keys(value).length === fields.length && fields.every((field) => typeof value[field] === "string" && String(value[field]).length > 0); }
+function containsSecretLikeKey(value: unknown): boolean { if (Array.isArray(value)) return value.some(containsSecretLikeKey); if (!isPreloadPayloadRecord(value)) return false; return Object.entries(value).some(([key, nested]) => /(?:secret|token|password|passphrase)/iu.test(key) || /^(?:api[-_]?key|credential(?:ref|value))$/iu.test(key) || containsSecretLikeKey(nested)); }
+function exactStrings(value: unknown, fields: readonly string[]): boolean { return isPreloadPayloadRecord(value) && Object.keys(value).length === fields.length && fields.every((field) => typeof value[field] === "string" && String(value[field]).length > 0); }
 function closed(value: Record<string, unknown>, fields: readonly string[]): boolean { return Object.keys(value).every((key) => fields.includes(key)); }
-function record(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }
+function isPreloadPayloadRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }

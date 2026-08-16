@@ -1,10 +1,12 @@
 import { DEFAULT_TASK_FILTERS, type TaskFilters } from "../model/taskFilters.ts";
+import { consumeKnownError } from "../../api/error-consumption.ts";
 import {
   createViewHistory,
   type AppLocation,
   type ViewId,
   type ViewHistoryState,
 } from "./viewHistory.ts";
+import { isRendererRecord } from "../result-validation.ts";
 
 /**
  * 视图导航历史的 sessionStorage 持久化(移植老 main 线 navigationHistoryStorage)。
@@ -36,16 +38,12 @@ const VIEW_IDS: ReadonlySet<string> = new Set<ViewId>([
   "settings",
 ]);
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
 function isNullableString(value: unknown): boolean {
   return value === null || typeof value === "string";
 }
 
 function isTaskFilters(value: unknown): value is TaskFilters {
-  if (!isRecord(value)) return false;
+  if (!isRendererRecord(value)) return false;
   return (
     typeof value.query === "string"
     && typeof value.module === "string"
@@ -60,7 +58,7 @@ function isTaskFilters(value: unknown): value is TaskFilters {
 }
 
 function isAppLocation(value: unknown): value is AppLocation {
-  if (!isRecord(value) || typeof value.view !== "string" || !VIEW_IDS.has(value.view)) return false;
+  if (!isRendererRecord(value) || typeof value.view !== "string" || !VIEW_IDS.has(value.view)) return false;
   if (
     !isNullableString(value.selectedId)
     || !isNullableString(value.previewId)
@@ -69,7 +67,7 @@ function isAppLocation(value: unknown): value is AppLocation {
   ) return false;
   const drill = value.drill;
   return drill === null || (
-    isRecord(drill)
+    isRendererRecord(drill)
     && typeof drill.lane === "string"
     && typeof drill.status === "string"
     && (drill.groupBy === "root" || drill.groupBy === "module" || drill.groupBy === "engine" || drill.groupBy === "productLine")
@@ -77,9 +75,9 @@ function isAppLocation(value: unknown): value is AppLocation {
 }
 
 function isStoredViewHistory(value: unknown): value is { schema: string; history: ViewHistoryState } {
-  if (!isRecord(value) || value.schema !== VIEW_HISTORY_SCHEMA) return false;
+  if (!isRendererRecord(value) || value.schema !== VIEW_HISTORY_SCHEMA) return false;
   const history: unknown = value.history;
-  if (!isRecord(history) || !Array.isArray(history.entries) || history.entries.length === 0) return false;
+  if (!isRendererRecord(history) || !Array.isArray(history.entries) || history.entries.length === 0) return false;
   const index: unknown = history.index;
   if (!Number.isInteger(index) || (index as number) < 0 || (index as number) >= history.entries.length) return false;
   return history.entries.every(isAppLocation);
@@ -130,8 +128,6 @@ export function writeViewHistory(
     consumeKnownError(cause);
   }
 }
-
-function consumeKnownError(error: unknown): void { void error; }
 
 /** 为指定仓写入干净初始栈(打开项目时复位到 overview + 默认筛选)。 */
 export function resetViewHistory(

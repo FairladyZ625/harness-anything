@@ -9,6 +9,7 @@ import type {
   RelationType,
   TaskDocumentProjectionRead, TaskSnapshotProjectionRow
 } from "../api/renderer-dto.ts";
+import { isRendererRecord } from "./result-validation.ts";
 
 type HarnessBridge = Record<GuiBridgeMethod, (payload?: object | null) => Promise<unknown>> & {
   readonly capabilities?: unknown;
@@ -182,62 +183,58 @@ function readDecisionControlList(value: unknown): DecisionControlListSuccess {
   try {
     const evidence = JSON.parse(receipt.evidence ?? "") as { readonly status?: unknown; readonly decisions?: unknown };
     if ((evidence.status !== "ready" && evidence.status !== "pending") || !Array.isArray(evidence.decisions)) throw new Error();
-    const decisionIds = evidence.decisions.flatMap((item) => record(item) && typeof item.decisionId === "string" ? [item.decisionId] : []);
+    const decisionIds = evidence.decisions.flatMap((item) => isRendererRecord(item) && typeof item.decisionId === "string" ? [item.decisionId] : []);
     return { status: evidence.status, decisionIds, opId: receipt.opId, ...(receipt.nextAction ? { hint: receipt.nextAction } : {}) };
   } catch { throw new Error("Decision list receipt evidence is invalid."); }
 }
 
 function readSystemStatus(value: unknown): SystemStatusSuccess {
-  if (!record(value) || value.schema !== "gui-system-status/v1" || value.ok !== true || typeof value.observedAt !== "string" || !record(value.daemon) || !Array.isArray(value.repos)
-    || value.repos.some((repo) => !record(repo) || typeof repo.repoId !== "string" || typeof repo.displayName !== "string" || !["enabled", "disabled"].includes(String(repo.registrationState)) || !["attached", "unavailable", "not_loaded"].includes(String(repo.cellState)))) throw new Error(localErrorHint(value, "System status bridge returned an invalid result."));
+  if (!isRendererRecord(value) || value.schema !== "gui-system-status/v1" || value.ok !== true || typeof value.observedAt !== "string" || !isRendererRecord(value.daemon) || !Array.isArray(value.repos)
+    || value.repos.some((repo) => !isRendererRecord(repo) || typeof repo.repoId !== "string" || typeof repo.displayName !== "string" || !["enabled", "disabled"].includes(String(repo.registrationState)) || !["attached", "unavailable", "not_loaded"].includes(String(repo.cellState)))) throw new Error(localErrorHint(value, "System status bridge returned an invalid result."));
   return value as unknown as SystemStatusSuccess;
 }
 function readDaemonControlReceipt(value: unknown): DaemonControlReceipt {
-  if (!record(value) || value.schema !== "daemon-control-receipt/v1" || typeof value.ok !== "boolean" || !["pending", "rejected"].includes(String(value.outcome)) || !["refresh", "restart"].includes(String(value.kind)) || typeof value.operationId !== "string" || !["queued", "draining", "starting", "settled", "failed"].includes(String(value.phase))) throw new Error(localErrorHint(value, "Daemon control bridge returned an invalid receipt."));
+  if (!isRendererRecord(value) || value.schema !== "daemon-control-receipt/v1" || typeof value.ok !== "boolean" || !["pending", "rejected"].includes(String(value.outcome)) || !["refresh", "restart"].includes(String(value.kind)) || typeof value.operationId !== "string" || !["queued", "draining", "starting", "settled", "failed"].includes(String(value.phase))) throw new Error(localErrorHint(value, "Daemon control bridge returned an invalid receipt."));
   return value as unknown as DaemonControlReceipt;
 }
 function readCatalogSnapshot(value: unknown): CatalogSnapshotSuccess {
-  if (!record(value) || value.schema !== "gui-catalog-snapshot/v1" || value.ok !== true || !["ready", "pending"].includes(String(value.status)) || typeof value.repoId !== "string" || !record(value.defaults) || !Array.isArray(value.presets) || !Array.isArray(value.verticals) || !Array.isArray(value.templates) || !Array.isArray(value.adapters)) throw new Error(localErrorHint(value, "Catalog snapshot bridge returned an invalid result."));
+  if (!isRendererRecord(value) || value.schema !== "gui-catalog-snapshot/v1" || value.ok !== true || !["ready", "pending"].includes(String(value.status)) || typeof value.repoId !== "string" || !isRendererRecord(value.defaults) || !Array.isArray(value.presets) || !Array.isArray(value.verticals) || !Array.isArray(value.templates) || !Array.isArray(value.adapters)) throw new Error(localErrorHint(value, "Catalog snapshot bridge returned an invalid result."));
   return value as unknown as CatalogSnapshotSuccess;
 }
 function readCatalogPreset(value: unknown): CatalogPresetSuccess {
-  if (!record(value) || value.schema !== "gui-catalog-preset/v1" || value.ok !== true || typeof value.repoId !== "string" || !record(value.preset) || !record(value.resolved)) throw new Error(localErrorHint(value, "Catalog preset bridge returned an invalid result."));
+  if (!isRendererRecord(value) || value.schema !== "gui-catalog-preset/v1" || value.ok !== true || typeof value.repoId !== "string" || !isRendererRecord(value.preset) || !isRendererRecord(value.resolved)) throw new Error(localErrorHint(value, "Catalog preset bridge returned an invalid result."));
   return value as unknown as CatalogPresetSuccess;
 }
 function readCatalogRereadReceipt(value: unknown): CatalogRereadReceipt {
-  if (!record(value) || value.schema !== "catalog-reread-receipt/v1" || typeof value.ok !== "boolean" || !["applied", "rejected"].includes(String(value.outcome)) || typeof value.operationId !== "string" || typeof value.repoId !== "string") throw new Error(localErrorHint(value, "Catalog reread bridge returned an invalid receipt."));
+  if (!isRendererRecord(value) || value.schema !== "catalog-reread-receipt/v1" || typeof value.ok !== "boolean" || !["applied", "rejected"].includes(String(value.outcome)) || typeof value.operationId !== "string" || typeof value.repoId !== "string") throw new Error(localErrorHint(value, "Catalog reread bridge returned an invalid receipt."));
   return value as unknown as CatalogRereadReceipt;
 }
 
 function isTaskSnapshotProjectionRow(value: unknown): value is TaskSnapshotProjectionRow {
-  if (!record(value) || typeof value.taskId !== "string" || typeof value.updatedAt !== "string" || value.generation !== "v0" && value.generation !== "v1" || !record(value.snapshot)) return false;
+  if (!isRendererRecord(value) || typeof value.taskId !== "string" || typeof value.updatedAt !== "string" || value.generation !== "v0" && value.generation !== "v1" || !isRendererRecord(value.snapshot)) return false;
   const task = value.snapshot.task;
-  return record(task) && task.schema === "task/v1" && task.taskId === value.taskId && typeof task.title === "string";
+  return isRendererRecord(task) && task.schema === "task/v1" && task.taskId === value.taskId && typeof task.title === "string";
 }
 
 function isDecisionProjectionRow(value: unknown): value is DecisionProjectionRow {
-  return record(value) && value.schema === "decision-row/v1" && typeof value.decisionId === "string" && typeof value.title === "string" && typeof value.state === "string" && Number.isInteger(value.workspaceRevision) && Array.isArray(value.claims);
+  return isRendererRecord(value) && value.schema === "decision-row/v1" && typeof value.decisionId === "string" && typeof value.title === "string" && typeof value.state === "string" && Number.isInteger(value.workspaceRevision) && Array.isArray(value.claims);
 }
 
 function isRelationGraphEdgeRow(value: unknown): value is RelationGraphEdgeRow {
-  return record(value) && typeof value.sourceRef === "string" && typeof value.targetRef === "string"
+  return isRendererRecord(value) && typeof value.sourceRef === "string" && typeof value.targetRef === "string"
     && typeof value.relationType === "string";
 }
 
 function isRelationCoverageRow(value: unknown): value is RelationCoverageRow {
-  return record(value) && typeof value.decisionRef === "string" && typeof value.claimRef === "string" && typeof value.status === "string" && (value.fulfillment === null || ["evidenced", "delivered", "standing-policy"].includes(String(value.fulfillment))) && (value.refutingFactRefs === undefined || Array.isArray(value.refutingFactRefs)) && Array.isArray(value.relationPath) && (value.basisRevision === undefined || Number.isInteger(value.basisRevision));
+  return isRendererRecord(value) && typeof value.decisionRef === "string" && typeof value.claimRef === "string" && typeof value.status === "string" && (value.fulfillment === null || ["evidenced", "delivered", "standing-policy"].includes(String(value.fulfillment))) && (value.refutingFactRefs === undefined || Array.isArray(value.refutingFactRefs)) && Array.isArray(value.relationPath) && (value.basisRevision === undefined || Number.isInteger(value.basisRevision));
 }
 
 function isFactAnchorRow(value: unknown): value is FactAnchorRow {
-  return record(value) && typeof value.factRef === "string" && typeof value.taskId === "string"
+  return isRendererRecord(value) && typeof value.factRef === "string" && typeof value.taskId === "string"
     && typeof value.factId === "string";
 }
 
 function localErrorHint(value: unknown, fallback: string): string {
-  if (record(value) && value.ok === false && record(value.error) && typeof value.error.hint === "string") return value.error.hint;
+  if (isRendererRecord(value) && value.ok === false && isRendererRecord(value.error) && typeof value.error.hint === "string") return value.error.hint;
   return fallback;
-}
-
-function record(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

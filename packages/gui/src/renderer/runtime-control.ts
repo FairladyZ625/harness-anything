@@ -1,5 +1,6 @@
 import type { AgentRuntimeOverviewResult } from "../../../daemon/src/agent-runtime-contract.ts";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
+import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 
 export interface RuntimeSpawnInput {
   readonly runtimeInstanceId: string;
@@ -53,10 +54,8 @@ export async function submitRuntimeSpawn(
 }
 
 function receipt(value: unknown): RuntimeReceipt {
-  if (!record(value) || value.schema !== "command-receipt/v2" || typeof value.opId !== "string" || !["applied", "pending", "indeterminate", "rejected"].includes(String(value.outcome))) throw new Error(hint(value, "Runtime spawn returned an invalid receipt."));
+  if (!isRendererRecord(value) || value.schema !== "command-receipt/v2" || typeof value.opId !== "string" || !["applied", "pending", "indeterminate", "rejected"].includes(String(value.outcome))) throw new Error(rendererErrorHint(value, "Runtime spawn returned an invalid receipt."));
   return value as RuntimeReceipt;
 }
 function pending(value: RuntimeReceipt): boolean { return value.outcome === "pending" || value.outcome === "indeterminate"; }
 function pendingSettlement(value: RuntimeReceipt, runtimeSessionId: string | null): RuntimeSpawnSettlement { return { state: "pending", opId: value.opId, runtimeSessionId, code: value.code ?? value.outcome, hint: value.nextAction ?? "Keep this opId and poll its receipt; do not resubmit." }; }
-function hint(value: unknown, fallback: string): string { return record(value) && record(value.error) && typeof value.error.hint === "string" ? value.error.hint : fallback; }
-function record(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }

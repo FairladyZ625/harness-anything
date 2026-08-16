@@ -4,6 +4,7 @@ import type { GuiServiceBridge } from "../api/service-bridge.ts";
 import { assertPreloadPayload } from "../preload/allowlist.ts";
 import { assertTrustedIpcSender } from "./ipc-handlers.ts";
 import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
+import { isMainProcessRecord } from "./value-validation.ts";
 export interface AgentRuntimeIpcRegistrar { readonly on: (channel: string, listener: (event: IpcMainEvent, payload: unknown) => void) => void }
 export function registerAgentRuntimeIpc(registrar: AgentRuntimeIpcRegistrar, bridge: GuiServiceBridge, trustPolicy: IpcWebContentsTrustPolicy): void {
   const active = new Map<string, Promise<() => void>>();
@@ -13,5 +14,5 @@ export function registerAgentRuntimeIpc(registrar: AgentRuntimeIpcRegistrar, bri
       void pending.catch((error) => { event.sender.send(frameChannel, { ok: false, code: "daemon_stream_error", hint: error instanceof Error ? error.message : String(error) }); active.delete(key); }); });
     registrar.on(detachChannel, (event, value) => { assertTrustedIpcSender(event, trustPolicy); const subscriptionId = checkedSubscription(value); void detach(`${event.sender.id}:${facet.guiBridgeMethod}:${subscriptionId}`); }); }
   async function detach(key: string): Promise<void> { const pending = active.get(key); if (!pending) return; active.delete(key); (await pending)(); }
-} function checkedEnvelope(value: unknown): { readonly subscriptionId: string; readonly payload: DaemonGuiStreamPayloadMap[keyof DaemonGuiStreamPayloadMap] } { if (!record(value) || typeof value.subscriptionId !== "string" || !record(value.payload)) throw new Error("Stream envelope is invalid."); return value as { subscriptionId: string; payload: DaemonGuiStreamPayloadMap[keyof DaemonGuiStreamPayloadMap] }; }
-function checkedSubscription(value: unknown): string { if (!record(value) || typeof value.subscriptionId !== "string") throw new Error("Agent runtime subscription id is required."); return value.subscriptionId; } function record(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }
+} function checkedEnvelope(value: unknown): { readonly subscriptionId: string; readonly payload: DaemonGuiStreamPayloadMap[keyof DaemonGuiStreamPayloadMap] } { if (!isMainProcessRecord(value) || typeof value.subscriptionId !== "string" || !isMainProcessRecord(value.payload)) throw new Error("Stream envelope is invalid."); return value as { subscriptionId: string; payload: DaemonGuiStreamPayloadMap[keyof DaemonGuiStreamPayloadMap] }; }
+function checkedSubscription(value: unknown): string { if (!isMainProcessRecord(value) || typeof value.subscriptionId !== "string") throw new Error("Agent runtime subscription id is required."); return value.subscriptionId; }
