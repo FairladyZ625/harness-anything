@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { buildSteps, parseLocalCheckArgs, rebuildExcludedGateIds, selectQosPrefix } from "./run-local-check.mjs";
+import { buildSteps, parseLocalCheckArgs, excludedBoundaryGateIds, selectQosPrefix } from "./run-local-check.mjs";
 
 test("parseLocalCheckArgs defaults to the waiting fast tier", () => {
   assert.deepEqual(parseLocalCheckArgs([]), { full: false, wait: true, pollMs: 2000 });
@@ -35,7 +35,7 @@ test("buildSteps appends integration and gui lanes only in the full tier", () =>
   // Fast tier derives the CI boundaries + package-policy surface from the gate
   // manifest, so every deterministic checkPr gate in those jobs must be present.
   const manifest = JSON.parse(readFileSync(new URL("./gate-manifest.json", import.meta.url), "utf8"));
-  const excluded = rebuildExcludedGateIds();
+  const excluded = excludedBoundaryGateIds();
   const expectedScripts = manifest.gates
     .filter((gate) => {
       const surfaces = gate.executionSurfaces ?? {};
@@ -52,9 +52,11 @@ test("buildSteps appends integration and gui lanes only in the full tier", () =>
   assert.ok(fastScripts.includes("lint"));
   // Positive control: the gate PR #1358 slipped through on must be present.
   assert.ok(fastScripts.includes("harness:check-cli-help-contract"));
-  // The rebuild line's CI exclusions must be honored locally too.
-  assert.ok(excluded.has("check-duplicate-definitions"));
-  assert.ok(!fastScripts.includes("harness:check-duplicate-definitions"));
+  // CI's boundaries exclusions must be honored locally too — and only those. The
+  // rebuild lane used to exclude check-duplicate-definitions here; with all 50 groups
+  // cleared the gate is back in CI, so it has to be back in the local set as well.
+  assert.deepEqual([...excluded], ["mergify-queue-metadata-edit-noop"]);
+  assert.ok(fastScripts.includes("harness:check-duplicate-definitions"));
   assert.deepEqual(fastScripts.slice(-2), ["check:local:derived-contracts", "check:local:schema-closure"]);
 });
 

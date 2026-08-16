@@ -44,19 +44,25 @@ const LOCK_PID_FILE = path.join(LOCK_DIR, "pid");
 // context needed).
 const LOCAL_MANIFEST_JOBS = new Set(["boundaries", "package-policy"]);
 
-// The rebuild line's boundaries job runs with an exclude list declared in the
-// workflow itself ("Run rebuild-compatible boundary gates"). Read it from there
-// so this runner never grows a second hand-maintained copy of that list.
-export function rebuildExcludedGateIds() {
+// The boundaries job declares its exclude list in the workflow itself. Read it from
+// there so this runner never grows a second hand-maintained copy. Anchored on the
+// command, not on a step name: a step's prose label is free to change, and the
+// previous anchor ("Run rebuild-compatible boundary gates") named a step that the
+// rebuild-lane collapse deleted. Exactly one such command must exist — two would
+// mean the job runs different gate sets on different lanes again, and this runner
+// would have to pick one and be silently wrong on the other.
+export function excludedBoundaryGateIds() {
   const workflow = readFileSync(path.join(repoRoot, ".github/workflows/rewrite-ci.yml"), "utf8");
-  const step = workflow.match(/Run rebuild-compatible boundary gates[\s\S]*?--exclude\s+(\S+)/u);
-  if (!step) throw new Error("run-local-check: rebuild-compatible boundary gates step not found in rewrite-ci.yml");
-  return new Set(step[1].split(","));
+  const commands = [...workflow.matchAll(/--workflow-job boundaries\s+--exclude\s+(\S+)/gu)];
+  if (commands.length !== 1) {
+    throw new Error(`run-local-check: expected exactly one boundaries gate command in rewrite-ci.yml, found ${commands.length}`);
+  }
+  return new Set(commands[0][1].split(","));
 }
 
 function manifestDerivedSteps() {
   const manifest = JSON.parse(readFileSync(path.join(repoRoot, "tools/gate-manifest.json"), "utf8"));
-  const excluded = rebuildExcludedGateIds();
+  const excluded = excludedBoundaryGateIds();
   return manifest.gates
     .filter((gate) => {
       const surfaces = gate.executionSurfaces ?? {};
