@@ -1,8 +1,0 @@
-{
-  "decisionId": "dec_01KZWTAPXF24FR62Q53Y42JGMV",
-  "scope": "module:kernel",
-  "kind": "line-budget",
-  "limit": 8210,
-  "expiry": "2026-09-30T00:00:00Z",
-  "signature": "db65b253ebbb23c2e8ab287ffe650cd88f6dc28464c3a7c3696e9ff3fafd485c"
-}

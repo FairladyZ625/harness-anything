@@ -1,8 +1,0 @@
-{
-  "decisionId": "dec_01KZTX02KPWXJ5WRK8JTRPC55M",
-  "scope": "module:doc-sync",
-  "kind": "line-budget",
-  "limit": 300,
-  "expiry": "2026-09-12T00:00:00Z",
-  "signature": "3700e5a68e9320cf4081380e1d27f85b713111d906f19041f9c3fb52356f13a5"
-}
