@@ -145,6 +145,7 @@ test("import boundary check confines kernel store imports to the kernel composit
     const result = runChecker(root);
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /packages\/kernel\/src\/application\/service\.ts/);
+    assert.match(result.stderr, /store implementation is internal to the kernel and must be obtained via the packages\/kernel\/src\/composition\/ seam/u);
     assert.doesNotMatch(result.stderr, /packages\/kernel\/src\/composition\/index\.ts/);
     assert.doesNotMatch(result.stderr, /packages\/application\/src\/index\.ts/);
   } finally {

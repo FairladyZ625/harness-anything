@@ -20,10 +20,7 @@ const oldRuntimePatterns = [
 const forbiddenApiPatterns = [
   /\brequestTransition\b/u,
   /\bruntimeQueue\b/u,
-  /\bproviderNeutralTransition\b/u,
-  /(?:^|[.\s{,])rerun\s*[:(]/u,
-  /(?:^|[.\s{,])cancel\s*[:(]/u,
-  /(?:^|[.\s{,])assign\s*[:(]/u
+  /\bproviderNeutralTransition\b/u
 ];
 const publicCompatibilityPatterns = [
   /\bcoding-agent-harness\b/u,

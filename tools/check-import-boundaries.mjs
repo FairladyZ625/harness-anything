@@ -252,7 +252,7 @@ for (const file of packageSourceFiles) {
     if (!isTestOrFixture && !isLocalAdapterCompositionRoot && !isKernelStoreCompositionRoot && !rel.startsWith("packages/kernel/src/store/")) {
       for (const specifier of imports) {
         if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/store\//.test(target))) {
-          record(file, `store implementation is internal to WriteCoordinator and must not be imported via ${specifier}`);
+          record(file, `store implementation is internal to the kernel and must be obtained via the packages/kernel/src/composition/ seam, not imported via ${specifier}`);
         }
       }
     }
