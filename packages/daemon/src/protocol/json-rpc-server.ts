@@ -31,7 +31,7 @@ export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost
     if (!handshaken) return reply(daemonProtocolError(request.method, "hello_required", "Call protocol.hello first.") as unknown as JsonObject);
     if (request.method === "daemon.status") return reply({ ok: true, ...options.host.status() } as unknown as JsonObject);
     if (request.method === "daemon.repo.bootstrap") {
-      try { return reply(await options.host.bootstrap(params as unknown as { rootDir: string; repoId: string; personId: string; displayName: string; name?: string; addNpmScripts?: boolean }, options.authContext) as JsonObject); }
+      try { return reply(await options.host.bootstrap(params as unknown as Parameters<DaemonHost["bootstrap"]>[0], options.authContext) as JsonObject); }
       catch (error) { return reply(daemonProtocolError("init", rpcServerErrorCode(error), error instanceof Error ? error.message : String(error)) as unknown as JsonObject); }
     }
     if (request.method === "daemon.repo.register" || request.method === "daemon.repo.unregister") {
