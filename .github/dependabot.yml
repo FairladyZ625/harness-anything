@@ -1,10 +1,18 @@
 version: 2
 updates:
+  # Version-update pull requests are switched off (limit 0). They cost two manual
+  # repairs this bot cannot perform — a bilingual governance PR body, and a lock
+  # normalization, because dependabot writes an exact version into package.json but a
+  # caret range into the lock's workspace spec, which the dependency-policy gate rejects.
+  # The security half is already covered harder elsewhere: `npm audit --audit-level=high`
+  # runs in the required `supply-chain` CI job, so a high-severity advisory blocks every
+  # merge rather than merely opening a pull request. Raise the limit to resume version
+  # updates; security updates are governed by repository settings, not by this file.
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     labels:
       - "dependencies"
       - "security"
