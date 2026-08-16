@@ -1,10 +1,15 @@
+import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
+import { accessSync, constants, existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
-import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint } from "../../../daemon/src/client/local-daemon-target.ts"; import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts"; import { terminateProcess } from "../../../daemon/src/process-port.ts"; import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
+import { fileURLToPath } from "node:url";
+import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint } from "../../../daemon/src/client/local-daemon-target.ts"; import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts"; import { detachedProcessOptions, terminateProcess } from "../../../daemon/src/process-port.ts"; import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
 import { ensureLocalDaemonRunning } from "../../../daemon/src/client/daemon-autostart.ts";
 import { readDaemonPid, startDaemon } from "../../../daemon/src/runtime.ts";
-import { cliDaemonServeLaunch } from "./client.ts";
+import { cliDaemonServeLaunch, consumeKnownError } from "./client.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
 export async function runDaemonControl(argv: readonly string[]): Promise<number> {
+  if (argv.includes("gui") && !argv.includes("daemon")) return runGuiLaunch(argv);
   const at = argv.indexOf("daemon"), command = argv[at + 1], subcommand = argv[at + 2];
   const json = argv.includes("--json"), userRoot = path.resolve(daemonOption(argv, "--user-root") ?? daemonUserRoot());
   const daemonId = daemonOption(argv, "--daemon-id") ?? daemonIdFromEnv();
@@ -44,3 +49,43 @@ function emitDaemonReceipt(receipt: Record<string, unknown>, json: boolean, exit
   else if (receipt.ok === true) console.log(String(receipt.command ?? "daemon")); else console.error(`error code=${String((receipt.error as { code?: unknown })?.code)} hint=${String(receipt.nextAction)}`); return exitCode; }
 function code(error: unknown): string { const value = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "daemon_control_failed"; return ["ENOENT", "ECONNREFUSED", "ETIMEDOUT"].includes(value) ? "daemon_unavailable" : value; }
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+const guiRequire = createRequire(import.meta.url);
+export interface GuiLaunchDependencies { readonly resolveElectronBinary?: () => string | undefined; readonly spawnProcess?: (command: string, args: string[], options: SpawnOptions) => ChildProcess; readonly workspaceRoot?: string; }
+export function runGuiLaunch(argv: readonly string[], dependencies: GuiLaunchDependencies = {}): number {
+  const json = argv.includes("--json"), reject = (errorCode: string, hint: string) => emitDaemonReceipt(daemonFailure("gui", errorCode, hint), json, 1);
+  const workspaceRoot = dependencies.workspaceRoot ?? guiWorkspaceRoot();
+  if (!workspaceRoot) return reject("gui_unavailable", "Run `ha gui` from a harness-anything source workspace that contains the GUI package.");
+  const electronBinary = (dependencies.resolveElectronBinary ?? guiElectronBinary)();
+  if (!electronBinary) return reject("electron_unavailable", "Run `node node_modules/electron/install.js` in the harness-anything workspace, then retry `ha gui`.");
+  if (!existsSync(path.join(workspaceRoot, "packages/gui/dist/index.html"))) return reject("gui_dist_missing", "Run `npm run build -w @harness-anything/gui` from the harness-anything workspace, then retry `ha gui`.");
+  // Electron loads the preload before the renderer, so a missing bundle opens a window whose
+  // IPC bridge is silently undefined. Refuse up front rather than hand back a dead GUI.
+  if (!existsSync(path.join(workspaceRoot, "packages/gui/dist-electron/electron-preload.cjs"))) return reject("gui_preload_missing", "Run `npm run build:preload -w @harness-anything/gui` from the harness-anything workspace, then retry `ha gui`.");
+  try { const child = (dependencies.spawnProcess ?? spawn)(electronBinary, [path.join(workspaceRoot, "packages/gui/src/main/electron-main.ts")], { cwd: workspaceRoot, ...detachedProcessOptions, env: guiLaunchEnvironment(guiRoot(argv)) });
+    // spawn reports an unusable binary asynchronously, so the catch below never sees it and a
+    // detached launch cannot wait for the event. An absent pid is the synchronous witness that
+    // the launch failed; the listener keeps the async ENOENT from crashing this process instead.
+    child.on?.("error", consumeKnownError);
+    if (child.pid === undefined) return reject("gui_launch_failed", `Electron at ${electronBinary} could not be started. Reinstall it with \`node node_modules/electron/install.js\`, then retry \`ha gui\`.`);
+    child.unref(); return emitDaemonReceipt({ ok: true, command: "gui", pid: child.pid }, json, 0); }
+  catch (error) { return reject("gui_launch_failed", `Electron could not start the GUI. Cause: ${message(error)}`); }
+}
+function guiElectronBinary(): string | undefined {
+  // `electron` ships a stub package whose binary arrives from a postinstall download, so a
+  // resolvable package is not a runnable one. Probe the executable itself to keep the two states apart.
+  try { const packageRoot = path.dirname(guiRequire.resolve("electron/package.json")), relativeBinary = readFileSync(path.join(packageRoot, "path.txt"), "utf8").trim();
+    if (!relativeBinary) return undefined;
+    const candidate = path.resolve(packageRoot, "dist", relativeBinary); accessSync(candidate, constants.F_OK | constants.X_OK); return candidate; }
+  catch (error) { consumeKnownError(error); return undefined; }
+}
+function guiWorkspaceRoot(): string | undefined {
+  let current = path.dirname(fileURLToPath(import.meta.url));
+  for (;;) { if (existsSync(path.join(current, "package.json")) && existsSync(path.join(current, "packages/gui/src/main/electron-main.ts"))) return current;
+    const parent = path.dirname(current); if (parent === current) return undefined; current = parent; }
+}
+function guiRoot(argv: readonly string[]): string { const supplied = daemonOption(argv, "--root"); return path.resolve(supplied && !supplied.startsWith("-") ? supplied : process.cwd()); }
+function guiLaunchEnvironment(rootDir: string): NodeJS.ProcessEnv {
+  // A packaged launch must never inherit the dev loop's renderer origin or node-mode flag.
+  const environment: NodeJS.ProcessEnv = { ...process.env, HARNESS_GUI_ROOT: rootDir };
+  delete environment.ELECTRON_RENDERER_URL; delete environment.ELECTRON_RUN_AS_NODE; return environment;
+}

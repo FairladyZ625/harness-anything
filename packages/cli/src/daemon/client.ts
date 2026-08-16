@@ -46,4 +46,4 @@ function declaredExecutor(env: NodeJS.ProcessEnv = process.env): JsonObject | nu
   if (!match) throw new Error("HARNESS_ACTOR must use agent:<id> with an alphanumeric id containing only letters, numbers, dot, underscore, colon, or dash.");
   return { kind: "agent", id: match[1]! };
 }
-function consumeKnownError(error: unknown): void { void error; }
+export function consumeKnownError(error: unknown): void { void error; }
