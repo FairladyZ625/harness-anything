@@ -119,6 +119,26 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
   };
 }
 
+const geometricMaintenanceFloor = Object.freeze([2, 52, 0]);
+export interface LedgerMaintenanceReceipt { readonly gitVersion: string | null; readonly strategy: "geometric" | null; readonly applied: readonly string[]; readonly degraded: string | null }
+/** Pins the ledger repository's own maintenance policy so Git's automatic housekeeping stays out of the write path and repacks incrementally instead of rebuilding every pack from scratch. Repository config outranks the user's global config, so a global `gc.autoDetach=false` cannot drag a repack into a ledger write. Idempotent: only differing keys are written. */
+export function configureLedgerMaintenance(repoRoot: string): LedgerMaintenanceReceipt {
+  const version = readGitVersion(repoRoot), applied: string[] = [];
+  const pin = (key: string, value: string): void => { if (readGitConfig(repoRoot, key) === value) return; runGit(repoRoot, "config", key, value); applied.push(`${key}=${value}`); };
+  pin("maintenance.autoDetach", "true"); pin("gc.autoDetach", "true");
+  const geometric = version !== null && atLeastGitVersion(version.parts, geometricMaintenanceFloor);
+  if (geometric) pin("maintenance.strategy", "geometric");
+  return { gitVersion: version?.text ?? null, strategy: geometric ? "geometric" : null, applied, degraded: geometric ? null : `git ${version?.text ?? "(version unreadable)"} predates the 2.52.0 geometric maintenance strategy; this ledger keeps Git's default repack cadence.` };
+}
+function readGitVersion(repoRoot: string): { readonly text: string; readonly parts: readonly number[] } | null {
+  const raw = readGitText(repoRoot, ["version"]); if (raw === null) return null;
+  const match = /(\d+)\.(\d+)(?:\.(\d+))?/u.exec(raw); if (!match) return null;
+  return { text: match[0], parts: [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)] };
+}
+function readGitConfig(repoRoot: string, key: string): string | null { return readGitText(repoRoot, ["config", "--get", key]); }
+function readGitText(repoRoot: string, args: readonly string[]): string | null { try { const value = runGit(repoRoot, ...args).trim(); return value.length > 0 ? value : null; } catch (error) { consumeKnownError(error); return null; } }
+function atLeastGitVersion(actual: readonly number[], floor: readonly number[]): boolean { for (let at = 0; at < floor.length; at += 1) { const seen = actual[at] ?? 0, want = floor[at] ?? 0; if (seen !== want) return seen > want; } return true; }
+
 function gitTopLevel(inputPath: string): string | null {
   try { let probe = path.resolve(inputPath); while (!existsSync(probe) && path.dirname(probe) !== probe) probe = path.dirname(probe);
     return normalizeLocalPath(runGit(probe, "rev-parse", "--show-toplevel").trim()); } catch (error) {

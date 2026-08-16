@@ -75,7 +75,7 @@ export * from "./projection/sqlite-task-projection.ts";
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export {
-  canonicalDocumentClaims, canonicalEventWritePlan, ledgerGitPath, resolveLedgerGitLayout,
+  canonicalDocumentClaims, canonicalEventWritePlan, configureLedgerMaintenance, ledgerGitPath, resolveLedgerGitLayout,
   makeTaskEventStore,
   makeTaskProjection
 } from "./composition/index.ts";
