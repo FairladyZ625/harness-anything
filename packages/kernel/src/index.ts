@@ -24,8 +24,6 @@ export type { CanonicalEventV1, DocClaimRef, DocEventV1, DocWriteIntent, LedgerC
 export { MIGRATION_DOCUMENT_POLICY_ID, MIGRATION_IMPORT_SOURCE, migrationImportWritePlan, validateMigrationImportEvent } from "./domain/migration-import-event.ts";
 export type { MigrationDestinationPreimage, MigrationDocumentClaim, MigrationImportEventV1 } from "./domain/migration-import-event.ts";
 export type { ArchivedExecutionV0, ExecutionV1, ProjectedExecution } from "./domain/execution.ts";
-export * from "./docmap/index.ts";
-export * from "./docmap/docmap-unique.ts";
 export * from "./entity/disposition.ts";
 export * from "./entity/field-contracts.ts";
 export * from "./entity/registry.ts";
@@ -76,12 +74,10 @@ export * from "./publish/index.ts";
 export * from "./projection/sqlite-task-projection.ts";
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
-export * from "./schemas/docmap.ts";
 export {
   canonicalDocumentClaims, canonicalEventWritePlan, ledgerGitPath, resolveLedgerGitLayout,
   makeTaskEventStore,
-  makeTaskProjection,
-  makeMarkdownArtifactStore
+  makeTaskProjection
 } from "./composition/index.ts";
 export type { CanonicalEventStore, CanonicalWriteBundle, EventPublicationKillpoint, ReplicaProjectionBasis, TaskProjection } from "./composition/index.ts";
 export {

@@ -4,7 +4,6 @@ import { packageDispositions } from "../domain/package-disposition.ts";
 import { priorityTiers, taskWorkKinds } from "../domain/task-metadata.ts";
 import type { LifecycleBinding } from "../domain/lifecycle-binding.ts";
 import { LinkKindSchema, ProvenanceEntrySchema } from "./common.ts";
-import { DocmapManifestSchema } from "./docmap.ts";
 import { EntityRelationsSchema } from "./entity-relations.ts";
 import { DecisionEventSchema, FactEventSchema } from "./fact-event.ts";
 import { HarnessCheckReportSchema } from "./harness-check-report.ts";
@@ -12,7 +11,6 @@ import { SubtaskPlanSchema } from "./subtask-plan.ts";
 import { VerticalDefinitionSchema } from "./vertical-definition.ts";
 
 export { ActorKindSchema, ActorRefSchema, LinkKindSchema } from "./common.ts";
-export { DocmapDocumentSchema, DocmapManifestSchema } from "./docmap.ts";
 export { FactEventSchema } from "./fact-event.ts";
 export {
   HarnessCheckReportSchema,
@@ -318,7 +316,6 @@ export const DocsReleasePromotionBundleSchema = Schema.Struct({
 
 export type HarnessConfig = Schema.Schema.Type<typeof HarnessConfigSchema>;
 export type TaskFrontmatter = Schema.Schema.Type<typeof TaskFrontmatterSchema>;
-export type DocmapManifestContract = Schema.Schema.Type<typeof DocmapManifestSchema>;
 export type EntityRelations = Schema.Schema.Type<typeof EntityRelationsSchema>;
 export type TaskSnapshot = Schema.Schema.Type<typeof TaskSnapshotSchema>;
 export type PublishableProjection = Schema.Schema.Type<typeof PublishableProjectionSchema>;
@@ -369,13 +366,6 @@ export const schemaRegistry = [
     jsonSchemaPath: "packages/kernel/schemas/json/fact-event.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/fact-event/valid.json",
     invalidFixturePath: "packages/kernel/fixtures/schemas/fact-event/invalid.json"
-  },
-  {
-    id: "docmap",
-    schema: DocmapManifestSchema,
-    jsonSchemaPath: "packages/kernel/schemas/json/docmap.schema.json",
-    validFixturePath: "packages/kernel/fixtures/schemas/docmap/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/docmap/invalid.json"
   },
   {
     id: "task-snapshot",
