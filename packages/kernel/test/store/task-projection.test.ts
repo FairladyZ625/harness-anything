@@ -80,7 +80,7 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
 // The title's "64-item/100ms" is pinned by check-implementation-contracts.mjs and no longer
 // describes this test: it runs at catchUpLimit 2, and the 100ms budget was an unenforced
 // literal removed with the receipt field that carried it. Renaming needs that gate updated.
-test("projection catch-up processes at most one 64-item/100ms round and never reports stale data ready", async () => {
+test("projection catch-up processes at most one bounded round and never reports stale data ready", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
