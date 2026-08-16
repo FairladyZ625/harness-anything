@@ -1,8 +1,0 @@
-{
-  "decisionId": "dec_407E904F6938FA9FD304D3E34E",
-  "scope": "module:doc-sync",
-  "kind": "line-budget",
-  "limit": 525,
-  "expiry": "2027-08-31T00:00:00Z",
-  "signature": "5b4ed9499a6be28116826d9d39ae974dd94f74222636d6eaef1e5a2a7da792b5"
-}

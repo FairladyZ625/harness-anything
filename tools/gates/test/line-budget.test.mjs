@@ -140,3 +140,82 @@ test("every committed line-budget receipt verifies, and the raised ceilings are 
     "each module keeps exactly one line-budget receipt; supersede by replacing the file"
   );
 });
+
+// dec_9C87C67DCE4073DB9AA56A8148 sets headroom as an absolute allowance banded by
+// how large the module already is, so a ceiling nobody can reach in foreseeable
+// time -- a gate that cannot ring -- stops being expressible.
+function headroomFor(measured) {
+  if (measured < 500) return 200;
+  if (measured < 2000) return 500;
+  if (measured < 10000) return 2000;
+  return 3500;
+}
+
+// The production lines each ceiling was derived from, measured at c00066ba and
+// taken as max(c00066ba, c00066ba merged with #1458) so the result is the same
+// whichever of the two lands first. Only two modules differ between those trees:
+// daemon (1630 -> 1660, #1458 adds lines) and gui (18494 -> 18414, #1458 removes
+// them), so daemon uses the merged figure and gui the base one.
+const DECISION_INPUT_LINES = Object.freeze({
+  kernel: 7962,
+  "task-lifecycle": 375,
+  "write-contract": 292,
+  "doc-sync": 350,
+  preset: 372,
+  cli: 171,
+  gui: 18494,
+  daemon: 1660,
+  fleet: 222,
+  "authority-write-path": 0,
+  "identity-rbac": 563,
+  "agent-runtime": 360,
+  "decision-fact": 452,
+  "test-infra": 0
+});
+
+test("the headroom tiers match the decision's table at every boundary", () => {
+  assert.deepEqual(
+    [1, 499, 500, 1999, 2000, 9999, 10000, 25000].map((measured) => headroomFor(measured)),
+    [200, 200, 500, 500, 2000, 2000, 3500, 3500]
+  );
+});
+
+// Binding the tier rule to what is actually committed is the only way it can
+// fail: the rule lives in a decision, not in the gate, so nothing else notices a
+// ceiling that was picked rather than derived.
+test("every committed ceiling is the tier rule applied to the lines it was derived from", () => {
+  const committed = parseBudgets(readFileSync(path.join(import.meta.dirname, "..", "line-budgets.json"), "utf8"));
+  assert.deepEqual(
+    Object.keys(DECISION_INPUT_LINES).sort(),
+    [...MODULES].sort(),
+    "a module without a recorded line count would skip the tier rule unnoticed"
+  );
+
+  // The design caps in INITIAL_MODULE_CEILINGS are a separate decision and are not
+  // exported, so they are probed rather than copied: a capped module is one whose
+  // tier ceiling parseBudgets refuses, and it must then sit exactly at the cap.
+  const accepts = (moduleName, value) => {
+    try {
+      parseBudgets(JSON.stringify({ version: 1, ceilings: { ...committed, [moduleName]: value } }));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  for (const [moduleName, measured] of Object.entries(DECISION_INPUT_LINES)) {
+    // A module measuring zero lines carries a prohibition, not a budget: handing it
+    // headroom would let new production code land there with no signal at all.
+    if (measured === 0) {
+      assert.equal(committed[moduleName], 0, `${moduleName}: a zero-line module must stay at zero`);
+      continue;
+    }
+    const tierCeiling = measured + headroomFor(measured);
+    if (accepts(moduleName, tierCeiling)) {
+      assert.equal(committed[moduleName], tierCeiling, `${moduleName}: ${measured} lines earns ${tierCeiling}, not ${committed[moduleName]}`);
+    } else {
+      assert.equal(accepts(moduleName, committed[moduleName]), true, `${moduleName}: ceiling exceeds its design cap`);
+      assert.equal(accepts(moduleName, committed[moduleName] + 1), false, `${moduleName}: tier ceiling ${tierCeiling} is capped, so the ceiling must sit exactly at the cap`);
+    }
+  }
+});
