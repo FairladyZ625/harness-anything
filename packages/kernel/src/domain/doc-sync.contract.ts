@@ -12,6 +12,7 @@ import { assertNoPortablePathCollisions, normalizeRelativeDocumentPath, type Por
 import { isMigrationImportEvent, validateMigrationImportEvent, type MigrationImportEventV1 } from "./migration-import-event.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { isLedgerLayoutMigrationEvent, validateLedgerLayoutMigrationEvent, type LedgerLayoutMigrationEventV1 } from "./ledger-layout-migration-event.ts";
+import { isSameExecution } from "./actor-domain-services.ts";
 
 export const DOC_POLICY_ID = "markdown-body-replaceable/v1", DOC_CODEC_ID = "markdown-regions/v1";
 export const DOC_WRITE_INTENT_SCHEMA = Object.freeze({ id: "doc-write-intent/v1", required: Object.freeze(["schema", "executionId", "baseLedgerSha", "changes"]) }); export const DOC_EVENT_SCHEMA = Object.freeze({ id: "doc-event/v1", required: Object.freeze(["schema", "eventId", "workspaceRevision", "opId", "type", "actor", "source", "occurredAt", "payload"]) });
@@ -66,7 +67,7 @@ export function decideDocWrite(input: DocWriteDecisionInput): DocWriteDecision {
   const differences: DocSyncDifference[] = [], unresolvedTouches: DocSyncUnresolvedTouch[] = [], deletions: { path: string; baseBlobSha256: string; source: "intent" }[] = [], changes: DocEventChange[] = [], blobs: DocContentBlob[] = [];
   const reject = (code: string, nextAction: string): DocWriteDecision => ({ accepted: false, code, detail: { kind: "doc_sync", code,
     baseLedgerSha: input.intent.baseLedgerSha.sha, currentLedgerSha: input.currentLedgerSha.sha, paths, holder, differences, unresolvedTouches, deletions, nextAction } });
-  if (input.intent.executionId === null ? input.lease !== null : input.lease === null || input.lease.phase !== "active" || input.lease.executionId !== input.intent.executionId || !sameDocSyncActor(input.lease.actor, input.actor) || !sameWriteChannel(input.lease.source, input.source)) return reject("lease_conflict", "refresh status and submit through the matching execution or repository prose channel");
+  if (input.intent.executionId === null ? input.lease !== null : input.lease === null || input.lease.phase !== "active" || input.lease.executionId !== input.intent.executionId || !isSameExecution(input.lease.actor, input.actor) || !sameWriteChannel(input.lease.source, input.source)) return reject("lease_conflict", "refresh status and submit through the matching execution or repository prose channel");
   if (input.intent.baseLedgerSha.repoId !== input.currentLedgerSha.repoId || input.intent.baseLedgerSha.sha !== input.currentLedgerSha.sha) return reject("base_ledger_changed", "run ha doc status, then ha doc sync --dry-run --path <path> for the fresh base and resubmit with a new opId");
   for (const [index, change] of input.intent.changes.entries()) {
     const current = input.documents[index] ?? null, route = resolveDocRoute(change.path), task = input.resolvedTaskIds === undefined ? taskFromPath(change.path) : input.resolvedTaskIds[index] ?? null;
@@ -107,7 +108,6 @@ function validRegionProof(value: unknown): boolean { return isRecord(value) && h
 function commitSha(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f]{40}$/u.test(value); } function ledgerIdentity(value: unknown): value is LedgerCommitSha { return isRecord(value) && hasOnlyFields(value, ["repoId", "sha"]) && /^[a-z][a-z0-9-]{0,62}$/u.test(String(value.repoId)) && commitSha(value.sha); }
 function nullableBlobSha(value: unknown): boolean { return value === null || typeof value === "string" && /^[0-9a-f]{64}$/u.test(value); }
 function safeDocSyncPath(value: unknown): value is string { try { return typeof value === "string" && normalizeRelativeDocumentPath(value) === value; } catch { return false; } }
-function sameDocSyncActor(left: ActorIdentity, right: ActorIdentity): boolean { return left.principal.personId === right.principal.personId && left.executor?.id === right.executor?.id; }
 function sameWriteChannel(left: WriteSource, right: WriteSource): boolean { return stableStringify(left) === stableStringify(right) || left === "local" && typeof right === "object" && right.kind === "watch_session"; }
 function taskFromPath(value: PortableDocumentPath): string | null { const match = /^tasks\/([^/]+)\//u.exec(value); if (!match) return null; const folder = match[1]!; return /^task_[0-9A-HJKMNP-TV-Z]{26}(?:-|$)/u.test(folder) ? folder.slice(0, 31) : folder; }
 function touch(path: PortableDocumentPath, regionId: string | null, reason: string, requiredRoute: string): DocSyncUnresolvedTouch { return { path, regionId, anchor: regionId, reason, requiredRoute, policy: DOC_POLICY_ID }; }
