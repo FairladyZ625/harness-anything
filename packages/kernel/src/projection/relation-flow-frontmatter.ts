@@ -1,4 +1,4 @@
-import type { EntityRelationRecord } from "../domain/index.ts";
+import { relationDirections, relationOrigins, relationStates, relationStrengths, relationTypes, type EntityRelationRecord } from "../domain/index.ts";
 
 export function parseRelationFlowRecords(body: string): ReadonlyArray<EntityRelationRecord> {
   const records: EntityRelationRecord[] = [];
@@ -90,21 +90,21 @@ function parseRelationFlowValue(value: string): string {
 }
 
 function isRelationType(value: string): value is EntityRelationRecord["type"] {
-  return ["supports", "supersedes", "refines", "narrows", "derives", "blocks", "relates", "implements", "depends-on", "produces", "evidences", "evidenced-by", "invalidated-by", "supersedes-fact"].includes(value);
+  return relationTypes.includes(value as EntityRelationRecord["type"]);
 }
 
 function isRelationStrength(value: string): value is EntityRelationRecord["strength"] {
-  return value === "strong" || value === "weak";
+  return relationStrengths.includes(value as EntityRelationRecord["strength"]);
 }
 
 function isRelationDirection(value: string): value is EntityRelationRecord["direction"] {
-  return value === "directed" || value === "undirected";
+  return relationDirections.includes(value as EntityRelationRecord["direction"]);
 }
 
 function isRelationOrigin(value: string): value is EntityRelationRecord["origin"] {
-  return value === "declared" || value === "imported_snapshot" || value === "generated" || value === "inferred";
+  return relationOrigins.includes(value as EntityRelationRecord["origin"]);
 }
 
 function isRelationState(value: string): value is EntityRelationRecord["state"] {
-  return value === "active" || value === "retired" || value === "deleted";
+  return relationStates.includes(value as EntityRelationRecord["state"]);
 }
