@@ -73,8 +73,7 @@ export type {
   EngineError,
   BindingInvariantError,
   ArtifactStoreError,
-  TemplateLibraryError,
-  WriteError
+  TemplateLibraryError
 } from "./errors.ts";
 
 export {

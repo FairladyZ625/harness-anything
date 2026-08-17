@@ -1,10 +1,8 @@
 // @slice-activation P4 W2 is composed by tests; W3 owns daemon and production publication cutover.
-import { Effect } from "effect";
 import { applyTransition, canonicalizeContractValue, compileTaskLifecycleWrite, eventObjectTarget, lifecycleDocumentPaths, taskLifecycleWritePlan, validateTaskLifecycleCommandEnvelope,
   type ExecutionV1, type FrozenWritePlan, type ProofFor, type TaskEventV1, type TaskLifecycleCommand, type TaskLifecycleSnapshot,
-  type WriteError, type WriteOperationReceipt, type WriteTarget } from "../../kernel/src/index.ts";
+  type WriteOperationReceipt, type WriteTarget } from "../../kernel/src/index.ts";
 
-export async function runTaskLifecycleEffect<A>(effect: Effect.Effect<A, WriteError>): Promise<A> { const result = await Effect.runPromise(Effect.either(effect)); if (result._tag === "Left") throw result.left; return result.right; }
 export class TaskLifecycleOperationConflict extends Error {
   readonly code: string;
   constructor(message: string, code = "service_rejected") { super(message); this.name = "TaskLifecycleOperationConflict"; this.code = code; }
