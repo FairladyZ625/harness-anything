@@ -29,7 +29,7 @@ export interface DaemonHost {
   readonly bootstrap: (request: RepoBootstrapRequest, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
   readonly admin: (request: { readonly kind: "register"; readonly rootDir: string; readonly repoId: string } | { readonly kind: "unregister"; readonly repoId: string }, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
   readonly fleet: { readonly startCenter: (payload: JsonObject, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>; readonly edgeSync: (payload: JsonObject, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>> };
-  readonly status: () => { readonly daemonId: string; readonly pid: number; readonly repos: readonly RepoCellStatus[] };
+  readonly status: () => { readonly daemonId: string; readonly pid: number; readonly repos: readonly RepoCellStatus[]; readonly summary: string };
   readonly close: () => Promise<void>;
 }
 export async function openDaemonHost(input: { readonly daemonId: string; readonly userRoot: string; readonly endpoint?: string; readonly startedAt?: string; readonly watchOwnerUid?: number; readonly watchDebounceMs?: number; readonly runtimeLaunch?: RuntimeLauncher; readonly runtimeDiscover?: () => readonly RuntimeInstallationWitness[] }): Promise<DaemonHost> {
@@ -60,9 +60,9 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
     },
     admin: async (request, auth) => { const registry = request.kind === "unregister" ? readDaemonRegistry({ userRoot: input.userRoot }) : undefined, rootDir = request.kind === "register" ? request.rootDir : registry?.repos.find((repo) => repo.repoId === request.repoId)?.canonicalRoot ?? registry?.invalidRepos.find((repo) => repo.repoId === request.repoId)?.canonicalRoot;
       if (!rootDir) throw hostCodedError("repo_namespace_unknown", `Unknown repo namespace: ${request.repoId}.`); await binding(rootDir, auth, "admin");
-      if (request.kind === "register") { const result = await attach(request.rootDir, request.repoId); return { schema: "command-receipt/v2", ok: true, command: "daemon-repo-register", outcome: "applied", repo: result.repo, changed: result.changed }; }
+      if (request.kind === "register") { const result = await attach(request.rootDir, request.repoId); return { schema: "command-receipt/v2", ok: true, command: "daemon-repo-register", outcome: "applied", repo: result.repo, changed: result.changed, summary: `repo register: repoId=${result.repo.repoId} canonicalRoot=${result.repo.canonicalRoot} changed=${result.changed}` }; }
       const result = unregisterDaemonRepo(request.repoId, { userRoot: input.userRoot, createConvenienceLinks: false }); await watchers.get(request.repoId)?.close(); watchers.delete(request.repoId); watchFailures.delete(request.repoId); await cells.get(request.repoId)?.close(); cells.delete(request.repoId); unavailable.delete(request.repoId);
-      return { schema: "command-receipt/v2", ok: true, command: "daemon-repo-unregister", outcome: "applied", repo: publicRegistryRepo(result.repo), changed: result.changed }; },
+      const repo = publicRegistryRepo(result.repo); return { schema: "command-receipt/v2", ok: true, command: "daemon-repo-unregister", outcome: "applied", repo, changed: result.changed, summary: `repo unregister: repoId=${repo.repoId} canonicalRoot=${String(repo.canonicalRoot)} changed=${result.changed}` }; },
     run: async (repoId, action, auth) => {
       const cell = cells.get(repoId);
       if (!cell) return rejectHostAction(action, unavailable.has(repoId) ? "repo_unavailable" : "repo_namespace_unknown",
@@ -97,7 +97,8 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
     controlReceipt: (operationId, auth) => { localOnly(auth); const receipt = controls.get(operationId); if (receipt) return receipt; const now = new Date().toISOString(); return { schema: "daemon-control-receipt/v1", ok: false, outcome: "rejected", kind: "refresh", operationId, phase: "failed", requestedAt: now, completedAt: now, before: null, after: null, error: { code: "operation_not_found", hint: "No daemon control receipt exists for this operationId." }, nextAction: null }; },
     issueRuntimeWitness: async (repoId, runtimeSessionId, auth) => { const cell = requiredCell(cells, unavailable, repoId), serverBinding = await binding(cell.status().rootDir, auth, "repo-write"); if (serverBinding.roles?.some((role) => role === "$admin" || role === "$arbiter")) throw hostCodedError("rbac_forbidden", "Admin and arbiter identities cannot become runtime witnesses."); return cell.runtime.issueWitnessToken(runtimeSessionId, { principalId: serverBinding.actor.principal.personId, source: serverBinding.source }); }, bindRuntimeWitness: (repoId, token) => requiredCell(cells, unavailable, repoId).runtime.bindWitness(token), publishRuntimeWitness: (repoId, token, signal) => { const cell = requiredCell(cells, unavailable, repoId), witness = cell.runtime.bindWitness(token); return cell.runtime.publish(witness.runtimeSessionId, signal); },
     status: () => ({ daemonId: input.daemonId, pid: process.pid,
-      repos: [...[...cells.entries()].map(([repoId, cell]) => ({ ...cell.status(), docSync: watchers.get(repoId)?.status() ?? { state: "blocked", nextAction: watchFailures.get(repoId) ?? "register the Unix socket owner in the repository prose writer role" } })), ...unavailable.values()].sort((a, b) => a.repoId.localeCompare(b.repoId)) }),
+      repos: [...[...cells.entries()].map(([repoId, cell]) => ({ ...cell.status(), docSync: watchers.get(repoId)?.status() ?? { state: "blocked", nextAction: watchFailures.get(repoId) ?? "register the Unix socket owner in the repository prose writer role" } })), ...unavailable.values()].sort((a, b) => a.repoId.localeCompare(b.repoId)),
+      summary: `daemon status: pid=${process.pid} repos=${cells.size}` }),
     close: async () => { if (fleetCenter) await fleetCenter.close(); await Promise.all([...watchers.values()].map((watcher) => watcher.close())); await Promise.all([...cells.values()].map((cell) => cell.close())); }
   };
   return host;
