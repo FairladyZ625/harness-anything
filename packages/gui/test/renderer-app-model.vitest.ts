@@ -255,6 +255,44 @@ describe("renderer app model", () => {
     }
   });
 
+  it("renders the projection empty state, not corruption, when the task has no task-contract projection", async () => {
+    const getTaskDocument = vi.fn(async ({ path }: { path: string }) => ({ ok: true, status: "ready", taskId: "task-legacy", path,
+      body: "", blobSha256: null, watermark: 9, sourceRevision: 9 }));
+    vi.stubGlobal("window", { harness: { getTaskDocument } });
+    const queryClient = new QueryClient();
+    try {
+      await queryClient.fetchQuery(taskDocumentQuery("project-1", "task-legacy", "task-contract.json"));
+      const task: TaskRow = { taskId: "task-legacy", title: "Legacy", projectId: "project-1", coordinationStatus: "planned", rawStatus: "planned",
+        freshness: "fresh", packageDisposition: "active", closeoutReadiness: "not_required", engine: "local", source: "snapshot-cache",
+        module: "gui", packagePath: "tasks/task-legacy-legacy", lastKnownAt: "2026-08-13T00:00:00.000Z", gates: [], docs: [] };
+      const markup = renderToStaticMarkup(createElement(QueryClientProvider, { client: queryClient }, createElement(TaskDetailView,
+        { task, onBack: () => undefined, projectName: "Harness" })));
+      expect(markup).toContain("该任务无投影文档");
+      expect(markup).not.toContain("文档读取失败");
+      expect(markup).not.toContain("not valid JSON");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("still reports a materialized but malformed task-contract body as invalid JSON", async () => {
+    const getTaskDocument = vi.fn(async ({ path }: { path: string }) => ({ ok: true, status: "ready", taskId: "task-broken", path,
+      body: "{ this is not json", blobSha256: "sha256:broken", watermark: 9, sourceRevision: 9 }));
+    vi.stubGlobal("window", { harness: { getTaskDocument } });
+    const queryClient = new QueryClient();
+    try {
+      await queryClient.fetchQuery(taskDocumentQuery("project-1", "task-broken", "task-contract.json"));
+      const task: TaskRow = { taskId: "task-broken", title: "Broken", projectId: "project-1", coordinationStatus: "planned", rawStatus: "planned",
+        freshness: "fresh", packageDisposition: "active", closeoutReadiness: "not_required", engine: "local", source: "snapshot-cache",
+        module: "gui", packagePath: "tasks/task-broken-broken", lastKnownAt: "2026-08-13T00:00:00.000Z", gates: [], docs: [] };
+      const markup = renderToStaticMarkup(createElement(QueryClientProvider, { client: queryClient }, createElement(TaskDetailView,
+        { task, onBack: () => undefined, projectName: "Harness" })));
+      expect(markup).toContain("task-contract 文档读取失败：task-contract projection is not valid JSON");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("parses canonical task-contract descriptors without inventing document presence", () => {
     expect(parseTaskContractDocuments("task-1", JSON.stringify({ schema: "task-contract/v1", taskId: "task-1", documents: [
       { slot: "task.plan", path: "task_plan.md", owner: "doc-sync", materializeAs: "task_plan.md", requiredAnchors: [], templateRef: "template://plan@1", contentSha256: "abc" },

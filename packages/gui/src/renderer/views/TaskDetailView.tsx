@@ -98,11 +98,13 @@ export function TaskDetailView({
   const external = isExternal(task);
   const canonicalPackage = typeof task.packagePath === "string", contract = useTaskDocumentQuery(task.projectId, task.taskId, canonicalPackage ? "task-contract.json" : null);
   const contractModel = useMemo(() => {
-    if (!canonicalPackage) return { docs: task.packagePath === undefined ? task.docs : [], issue: null as string | null };
-    if (contract.isError) return { docs: [], issue: contract.error.message };
-    if (!contract.data || contract.data.status !== "ready") return { docs: [], issue: null };
-    try { return { docs: parseTaskContractDocuments(task.taskId, contract.data.body), issue: null }; }
-    catch (error) { return { docs: [], issue: error instanceof Error ? error.message : String(error) }; }
+    if (!canonicalPackage) return { docs: task.packagePath === undefined ? task.docs : [], issue: null as string | null, absent: false };
+    if (contract.isError) return { docs: [], issue: contract.error.message, absent: false };
+    if (!contract.data || contract.data.status !== "ready") return { docs: [], issue: null, absent: false };
+    // blobSha256 === null 的 ready 读数是「台账没有 contract 投影」(同 DocBody 的文档未物化信号),不是坏数据。
+    if (contract.data.blobSha256 === null) return { docs: [], issue: null, absent: true };
+    try { return { docs: parseTaskContractDocuments(task.taskId, contract.data.body), issue: null, absent: false }; }
+    catch (error) { return { docs: [], issue: error instanceof Error ? error.message : String(error), absent: false }; }
   }, [canonicalPackage, contract.data, contract.error, contract.isError, task.docs, task.packagePath, task.taskId]);
   const documentReads = useQueries({ queries: contractModel.docs.map((entry) => ({ ...taskDocumentQuery(task.projectId, task.taskId, entry.path) })) });
   const realDocs = useMemo(() => contractModel.docs.map((entry, index) => { const read = documentReads[index];
@@ -175,7 +177,7 @@ export function TaskDetailView({
         <nav className="w-56 shrink-0 overflow-y-auto border-r border-border bg-surface p-3">
           {docGroups.length === 0 ? (
             <div className="rounded-md border border-dashed border-border px-2 py-3 text-[12px] text-text-faint">
-              {contractModel.issue ? `task-contract ${t("views.taskDetailView.documentReadingFailed")}：${contractModel.issue}` : canonicalPackage && contract.isPending ? `${t("views.taskDetailView.reading")} canonical task-contract…` : t("views.taskDetailView.localLedgerBridgeDidNotReturn")}
+              {contractModel.issue ? `task-contract ${t("views.taskDetailView.documentReadingFailed")}：${contractModel.issue}` : contractModel.absent ? t("views.taskDetailView.thereNoProjectionDocumentTask") : canonicalPackage && contract.isPending ? `${t("views.taskDetailView.reading")} canonical task-contract…` : t("views.taskDetailView.localLedgerBridgeDidNotReturn")}
             </div>
           ) : (
             docGroups.map((g) => {
