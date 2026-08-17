@@ -234,49 +234,49 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
     execFileSync("npm", ["run", "build", "--workspace", "@harness-anything/cli"], { cwd: process.cwd(), stdio: "pipe" });
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"], builtCli).ok, true);
     register(fixture.alpha, fixture.userRoot, "alpha", builtCli);
-    const daemonSamples: number[] = [];
+    // All three terms are measured adjacently inside one iteration, and the ratio is
+    // formed per iteration. Collecting them as three sequential batches and dividing
+    // p50 by p50 does not cancel machine speed: the batches see different moments, and
+    // the bare-spawn batch ran last, after ~22 spawns had already warmed the page cache
+    // for the Node binary, so the denominator was systematically the most favourable
+    // number in the run. That is how this gate reported 6.450x and 1.650x for the same
+    // commit with no diff (runs 32002647956 and its rerun).
+    const daemonSamples: number[] = [], cliSamples: number[] = [], bareSamples: number[] = [], ratios: number[] = [];
     for (let index = 0; index < 11; index += 1) {
-      const started = performance.now();
+      const daemonStarted = performance.now();
       const response = await requestLocalDaemonJsonRpc(fixture.alpha, "repo.task.create", { repo: { repoId: "alpha" },
         payload: { taskId: `task-daemon-latency-${index}`, title: `Daemon latency ${index}` } }, 1_000,
       { userRoot: fixture.userRoot });
-      daemonSamples.push(performance.now() - started);
+      const daemonElapsed = performance.now() - daemonStarted;
       assert.equal(response.ok, true, JSON.stringify(response));
-    }
-    const samples: number[] = [];
-    for (let index = 0; index < 11; index += 1) {
-      const started = performance.now();
+      const cliStarted = performance.now();
       const receipt = run(fixture.alpha, fixture.userRoot,
         ["task", "create", "--id", `task-latency-${index}`, "--admin", "--title", `Latency ${index}`], builtCli);
-      samples.push(performance.now() - started);
+      const cliElapsed = performance.now() - cliStarted;
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-    }
-    const bareSamples: number[] = [];
-    for (let index = 0; index < 11; index += 1) {
-      const started = performance.now();
+      const bareStarted = performance.now();
       spawnSync(process.execPath, ["-e", ""], { stdio: "ignore" });
-      bareSamples.push(performance.now() - started);
+      const bareElapsed = performance.now() - bareStarted;
+      daemonSamples.push(daemonElapsed); cliSamples.push(cliElapsed); bareSamples.push(bareElapsed);
+      ratios.push((cliElapsed - daemonElapsed) / bareElapsed);
     }
-    const ordered = [...samples].sort((left, right) => left - right), p50 = ordered[Math.floor(ordered.length / 2)]!;
-    const daemonOrdered = [...daemonSamples].sort((left, right) => left - right), daemonP50 = daemonOrdered[Math.floor(daemonOrdered.length / 2)]!;
-    const bareOrdered = [...bareSamples].sort((left, right) => left - right), bareP50 = bareOrdered[Math.floor(bareOrdered.length / 2)]!;
-    const cliOverhead = p50 - daemonP50, overheadRatio = cliOverhead / bareP50;
-    context.diagnostic(`latency-window=before-cli-process-spawn-through-exit-and-parsed-receipt daemon=resident samples=${samples.length} p50=${p50.toFixed(3)}ms min=${ordered[0]!.toFixed(3)}ms max=${ordered.at(-1)!.toFixed(3)}ms`);
-    context.diagnostic(`latency-segment=resident-daemon-socket-through-parsed-receipt samples=${daemonSamples.length} p50=${daemonP50.toFixed(3)}ms min=${daemonOrdered[0]!.toFixed(3)}ms max=${daemonOrdered.at(-1)!.toFixed(3)}ms inferred-cli-process-startup-parse-render-p50=${cliOverhead.toFixed(3)}ms`);
-    context.diagnostic(`latency-baseline=bare-node-process-spawn samples=${bareSamples.length} p50=${bareP50.toFixed(3)}ms cli-overhead-over-bare-spawn=${overheadRatio.toFixed(3)}x`);
+    const p50 = median(cliSamples), daemonP50 = median(daemonSamples), bareP50 = median(bareSamples), overheadRatio = median(ratios);
+    const orderedRatios = [...ratios].sort((left, right) => left - right);
+    context.diagnostic(`latency-window=before-cli-process-spawn-through-exit-and-parsed-receipt daemon=resident samples=${cliSamples.length} p50=${p50.toFixed(3)}ms min=${Math.min(...cliSamples).toFixed(3)}ms max=${Math.max(...cliSamples).toFixed(3)}ms`);
+    context.diagnostic(`latency-segment=resident-daemon-socket-through-parsed-receipt samples=${daemonSamples.length} p50=${daemonP50.toFixed(3)}ms min=${Math.min(...daemonSamples).toFixed(3)}ms max=${Math.max(...daemonSamples).toFixed(3)}ms`);
+    context.diagnostic(`latency-baseline=bare-node-process-spawn samples=${bareSamples.length} p50=${bareP50.toFixed(3)}ms min=${Math.min(...bareSamples).toFixed(3)}ms max=${Math.max(...bareSamples).toFixed(3)}ms`);
+    context.diagnostic(`latency-ratio=paired-cli-overhead-over-bare-spawn samples=${ratios.length} p50=${overheadRatio.toFixed(3)}x min=${orderedRatios[0]!.toFixed(3)}x max=${orderedRatios.at(-1)!.toFixed(3)}x`);
     // The thin CLI's own cost is everything outside the daemon round-trip: spawning a
     // process, loading its modules, parsing, rendering. Measured against a bare Node
-    // spawn on the same machine in the same window, so machine speed and load cancel —
-    // an absolute millisecond bound here would only assert how fast the runner is, and
-    // dec_01KY6X4J486MZ35RW1QN51V2V1 restricts performance gates to relative overhead.
-    // It fails if the CLI grows eager module loading, or stops delegating to the
-    // resident daemon and starts doing the write in its own process. Measured basis:
-    // 1.26x across repeated local runs at load average 7.9 (both terms are process
-    // spawns, so the ratio barely moves with load); injecting 120 ms of synthetic
-    // startup into the CLI entry raised it to 2.50x. The bound is set so a doubling
-    // of the thin CLI's own cost fails.
+    // spawn taken immediately after it, so machine speed and load cancel within each
+    // pair — an absolute millisecond bound here would only assert how fast the runner
+    // is, and dec_01KY6X4J486MZ35RW1QN51V2V1 restricts performance gates to relative
+    // overhead. It fails if the CLI grows eager module loading, or stops delegating to
+    // the resident daemon and starts doing the write in its own process. The bound is
+    // unchanged at 3: it was never the problem, and raising it to accommodate an
+    // unstable reading would have treated the display instead of the instrument.
     assert.equal(overheadRatio <= 3, true,
-      `thin CLI overhead was ${overheadRatio.toFixed(3)}x a bare Node spawn (cli=${cliOverhead.toFixed(3)}ms, bare=${bareP50.toFixed(3)}ms, total=${p50.toFixed(3)}ms, daemon=${daemonP50.toFixed(3)}ms)`);
+      `thin CLI overhead was ${overheadRatio.toFixed(3)}x a bare Node spawn (paired p50; spread ${orderedRatios[0]!.toFixed(3)}x-${orderedRatios.at(-1)!.toFixed(3)}x, cli=${p50.toFixed(3)}ms, bare=${bareP50.toFixed(3)}ms, daemon=${daemonP50.toFixed(3)}ms)`);
   } finally { stop(fixture.alpha, fixture.userRoot, builtCli); rmSync(fixture.root, { recursive: true, force: true }); }
 });
 
@@ -292,6 +292,8 @@ function initialize(root: string): void { mkdirSync(path.join(root, "harness"), 
   writeFileSync(path.join(root, "harness/people.yaml"), `schema: harness-people/v1\npeople:\n  - personId: owner\n    displayName: Owner\n    primaryEmail: owner@example.test\n    roles: [owner]\n    credentials:\n      - kind: unix-socket-owner-boundary\n        issuer: host:${hostname()}\n        subject: ${process.getuid?.() ?? 0}\nroles:\n  - roleId: owner\n    commandClasses: [admin, repo-write, repo-read, arbiter]\n`, "utf8");
   git(root, "init", "--quiet");
   git(root, "add", "harness/harness.yaml", "harness/people.yaml"); git(root, "commit", "--quiet", "-m", "fixture"); }
+function median(values: readonly number[]): number { const ordered = [...values].sort((left, right) => left - right); return ordered[Math.floor(ordered.length / 2)]!; }
+
 function register(root: string, userRoot: string, repoId: string, entry = cli): void { assert.equal(run(root, userRoot,
   ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"], entry).ok, true); }
 function run(root: string, userRoot: string, args: readonly string[], entry = cli): Record<string, unknown> { const result = runMaybe(root, userRoot, args, entry);
