@@ -241,7 +241,7 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
     // for the Node binary, so the denominator was systematically the most favourable
     // number in the run. That is how this gate reported 6.450x and 1.650x for the same
     // commit with no diff (runs 32002647956 and its rerun).
-    const daemonSamples: number[] = [], cliSamples: number[] = [], bareSamples: number[] = [], ratios: number[] = [];
+    const daemonSamples: number[] = [], cliSamples: number[] = [], bareSamples: number[] = [], overheadSamples: number[] = [], ratios: number[] = [];
     for (let index = 0; index < 11; index += 1) {
       const daemonStarted = performance.now();
       const response = await requestLocalDaemonJsonRpc(fixture.alpha, "repo.task.create", { repo: { repoId: "alpha" },
@@ -258,12 +258,13 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
       spawnSync(process.execPath, ["-e", ""], { stdio: "ignore" });
       const bareElapsed = performance.now() - bareStarted;
       daemonSamples.push(daemonElapsed); cliSamples.push(cliElapsed); bareSamples.push(bareElapsed);
-      ratios.push((cliElapsed - daemonElapsed) / bareElapsed);
+      overheadSamples.push(cliElapsed - daemonElapsed); ratios.push((cliElapsed - daemonElapsed) / bareElapsed);
     }
     const p50 = median(cliSamples), daemonP50 = median(daemonSamples), bareP50 = median(bareSamples), overheadRatio = median(ratios);
     const orderedRatios = [...ratios].sort((left, right) => left - right);
     context.diagnostic(`latency-window=before-cli-process-spawn-through-exit-and-parsed-receipt daemon=resident samples=${cliSamples.length} p50=${p50.toFixed(3)}ms min=${Math.min(...cliSamples).toFixed(3)}ms max=${Math.max(...cliSamples).toFixed(3)}ms`);
     context.diagnostic(`latency-segment=resident-daemon-socket-through-parsed-receipt samples=${daemonSamples.length} p50=${daemonP50.toFixed(3)}ms min=${Math.min(...daemonSamples).toFixed(3)}ms max=${Math.max(...daemonSamples).toFixed(3)}ms`);
+    context.diagnostic(`latency-segment=paired-cli-minus-daemon samples=${overheadSamples.length} p50=${median(overheadSamples).toFixed(3)}ms min=${Math.min(...overheadSamples).toFixed(3)}ms max=${Math.max(...overheadSamples).toFixed(3)}ms`);
     context.diagnostic(`latency-baseline=bare-node-process-spawn samples=${bareSamples.length} p50=${bareP50.toFixed(3)}ms min=${Math.min(...bareSamples).toFixed(3)}ms max=${Math.max(...bareSamples).toFixed(3)}ms`);
     context.diagnostic(`latency-ratio=paired-cli-overhead-over-bare-spawn samples=${ratios.length} p50=${overheadRatio.toFixed(3)}x min=${orderedRatios[0]!.toFixed(3)}x max=${orderedRatios.at(-1)!.toFixed(3)}x`);
     // The thin CLI's own cost is everything outside the daemon round-trip: spawning a
