@@ -314,7 +314,7 @@ describe("renderer app model", () => {
 
     const blockedMarkup = renderToStaticMarkup(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(TaskDetailView,
       { task: { ...active, canonicalStatus: "planned", coordinationStatus: "blocked", blocking: "blocked", blockingLabel: "1 个 active blocking relation", activeExecutionId: undefined,
-        blockers: [{ relationId: "rel_1", kind: "blocks", sourceTaskId: "task-upstream", targetTaskId: "task-active", rationale: "wait" }] }, onBack: () => undefined, projectName: "Harness" })));
+        blockers: [{ relationId: "rel_1", kind: "depends-on", sourceTaskId: "task-active", targetTaskId: "task-upstream", rationale: "wait" }] }, onBack: () => undefined, projectName: "Harness" })));
     expect(blockedMarkup).toContain("Blocked 是 relation overlay"); expect(blockedMarkup).toContain("rel_1"); expect(blockedMarkup).not.toContain("解除");
   });
 

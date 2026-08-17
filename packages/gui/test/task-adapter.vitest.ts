@@ -15,8 +15,8 @@ function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotPr
 }
 
 const relation = (overrides: Partial<RelationEdge>): RelationEdge => ({
-  relationId: "rel_0000000000000001", from: "task/task-a", to: "task/task-b", kind: "blocks",
-  direction: "directed", state: "active", provenance: "local-document", rationale: "B waits for A", ...overrides
+  relationId: "rel_0000000000000001", from: "task/task-a", to: "task/task-b", kind: "depends-on",
+  direction: "directed", state: "active", provenance: "local-document", rationale: "A waits for B", ...overrides
 });
 
 describe("computeRootTaskId", () => {
@@ -39,21 +39,33 @@ describe("adaptProjectionRows", () => {
     expect(adaptProjectionRows([row()], "repo-test", "pending")[0]?.freshness).toBe("stale-but-usable");
   });
 
-  it("keeps canonical status separate while blocks and depends-on derive the blocked display lane", () => {
+  it("derives the blocked display lane from the canonical depends-on direction", () => {
     const rows = [row({ taskId: "task-a" }), row({ taskId: "task-b" }), row({ taskId: "task-c", snapshot: {
       ...row().snapshot, task: { ...row().snapshot.task!, taskId: "task-c", status: "done" }
     } })];
     const relations = [
-      relation({ from: "task/task-a", to: "task/task-b", kind: "blocks" }),
+      relation({ from: "task/task-a", to: "task/task-b", kind: "depends-on" }),
       relation({ relationId: "rel_0000000000000002", from: "task/task-b", to: "task/task-c", kind: "depends-on" })
     ];
     const tasks = adaptProjectionRows(rows, "repo-test", "ready", { relationState: "ready", relations });
 
-    expect(tasks.find((task) => task.taskId === "task-b")).toMatchObject({
+    // `task A depends-on task B`: A (the source) is blocked; a done target stops blocking.
+    expect(tasks.find((task) => task.taskId === "task-a")).toMatchObject({
       canonicalStatus: "planned", coordinationStatus: "blocked", blocking: "blocked",
       blockers: [{ relationId: "rel_0000000000000001", sourceTaskId: "task-a", targetTaskId: "task-b" }]
     });
+    expect(tasks.find((task) => task.taskId === "task-b")?.blocking).toBe("clear");
     expect(tasks.find((task) => task.taskId === "task-c")?.blocking).toBe("clear");
+  });
+
+  it("ignores the retired blocks mirror: only depends-on expresses task blocking", () => {
+    // Before slice 4 the adapter read `blocks` with the opposite endpoint orientation;
+    // the kernel registry now refuses that triple, and the adapter no longer derives
+    // direction per verb. A legacy blocks edge must not block either endpoint.
+    const rows = [row({ taskId: "task-a" }), row({ taskId: "task-b" })];
+    const relations = [relation({ from: "task/task-a", to: "task/task-b", kind: "blocks" })];
+    const tasks = adaptProjectionRows(rows, "repo-test", "ready", { relationState: "ready", relations });
+    expect(tasks.map((task) => task.blocking)).toEqual(["clear", "clear"]);
   });
 
   it("fails closed to unknown for unavailable relation truth, malformed blocking edges, and missing endpoints", () => {

@@ -42,7 +42,8 @@ export type BlockingState = "blocked" | "clear" | "unknown";
 
 export interface BlockingContributor {
   relationId: string;
-  kind: "blocks" | "depends-on";
+  /** The only writable task→task blocking verb (canonical direction: source is blocked). */
+  kind: "depends-on";
   sourceTaskId: string;
   targetTaskId: string;
   rationale?: string;
@@ -212,7 +213,7 @@ export interface DecisionRow {
 /**
  * fact 是不可变观察，内嵌产出它的 task，不搬家。
  * 稳定短锚形如 task_x/F-a3f2（禁行号）。
- * 失效不靠状态，靠 relation 边（invalidated-by/supersedes-fact）。
+ * 失效不靠状态，靠 relation 边（规范方向：fact --supersedes-fact--> fact，仅 target 失效）。
  */
 export interface FactRef {
   anchor: string; // task_x/F-a3f2
@@ -226,7 +227,7 @@ export interface FactRef {
   source?: string;
   /** Authored fact provenance, passed through from task-fact-row/v1. */
   provenance?: ReadonlyArray<ProvenanceEntry>;
-  /** 是否已被 invalidated-by/supersedes-fact 边标记失效（由图投影推得） */
+  /** 是否已被 supersedes-fact 边指向而失效（由图投影推得） */
   invalidated?: boolean;
 }
 

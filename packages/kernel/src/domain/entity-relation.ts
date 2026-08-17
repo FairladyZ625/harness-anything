@@ -1,6 +1,7 @@
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import type { ParsedEntityRef } from "./entity-ref.ts";
+import { canonicalRelationDirections } from "./relation-direction.ts";
 
 export const relationTypes = [
   "supports",
@@ -150,27 +151,16 @@ export function isAllowedRelationKindTriple(
 ): boolean {
   // Ratified convention (dec_mr74sbka, 2026-07-05): every edge reads as one sentence,
   // `source <verb> target`, in the physical (host -> target) direction — no cell whose
-  // verb reads backwards. Verbs are chosen so the source is always the grammatical subject.
-  if (sourceKind === "decision" && targetKind === "decision") {
-    return type === "supersedes" || type === "refines" || type === "narrows" || type === "relates" ||
-      type === "blocks" || type === "derives" || type === "supports";
-  }
-  // derives = "the decision spawns the task"; relates = the task was not born from this
-  // decision but was later found to be connected to it.
-  if (sourceKind === "decision" && targetKind === "task") return type === "derives" || type === "relates";
-  // Evidence relation, authored from the decision side: "the decision is evidenced-by the
-  // fact" — a decision-subject verb so the sentence reads in the storage direction.
-  // The transitional "supports" alias was removed after the 2026-07-05 ledger migration
-  // moved every evidence edge to evidenced-by (dec_mr74sbka).
-  if (sourceKind === "decision" && targetKind === "fact") {
-    return type === "evidenced-by" || type === "refuted-by";
-  }
-  if (sourceKind === "task" && targetKind === "decision") return type === "implements";
-  if (sourceKind === "task" && targetKind === "task") return type === "blocks" || type === "relates" || type === "depends-on";
-  if (sourceKind === "task" && targetKind === "fact") return type === "produces" || type === "evidences";
-  if (sourceKind === "fact" && targetKind === "decision") return type === "supports" || type === "invalidated-by";
-  if (sourceKind === "fact" && targetKind === "fact") return type === "supersedes-fact";
-  return false;
+  // verb reads backwards. The canonical direction registry is the single authority:
+  // a triple is writable exactly when it has a registry row (one canonical direction
+  // per semantic relation, blueprint 铁律三). Every reversed-direction pair keeps only
+  // its canonical side writable — fact→decision supports/invalidated-by and task→task
+  // blocks were retired with zero stored active edges (2026-08-17 census); the retired
+  // aliases remain parse-only vocabulary and reverse questions go through
+  // `incomingRelations` in relation-direction.ts.
+  return canonicalRelationDirections.some(
+    (direction) => direction.sourceKind === sourceKind && direction.type === type && direction.targetKind === targetKind
+  );
 }
 
 function requiresRationale(record: EntityRelationRecord): boolean {
@@ -183,8 +173,7 @@ function requiresRationale(record: EntityRelationRecord): boolean {
     record.type === "supersedes" ||
     record.type === "refines" ||
     record.type === "narrows" ||
-    record.type === "supersedes-fact" ||
-    record.type === "invalidated-by";
+    record.type === "supersedes-fact";
 }
 
 function hostOwnsSource(host: ParsedEntityRef, source: ParsedEntityRef): boolean {

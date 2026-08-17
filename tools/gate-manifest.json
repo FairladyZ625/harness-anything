@@ -67,6 +67,7 @@
         "check-write-road-registry",
         "check-kernel-dead-exports",
         "check-relation-cycle-substrate",
+        "check-relation-canonical-direction",
         "scan-forbidden-symbols",
         "check-duplicate-definitions",
         "check-integrity-single-source",
@@ -109,6 +110,7 @@
         "check-write-road-registry",
         "check-kernel-dead-exports",
         "check-relation-cycle-substrate",
+        "check-relation-canonical-direction",
         "scan-forbidden-symbols",
         "check-duplicate-definitions",
         "check-integrity-single-source",
@@ -2179,6 +2181,85 @@
         "status": "covered",
         "evidence": [
           "tools/check-relation-cycle-substrate.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "check-relation-canonical-direction",
+      "command": "npm run harness:check-relation-canonical-direction",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "packages/kernel/src/domain/relation-direction.ts",
+        "packages/kernel/src/domain/entity-relation.ts#isAllowedRelationKindTriple",
+        "decision/dec_mr74sbka",
+        "decision/dec_399F48E3547D831F1199F51E84#CH1",
+        "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#铁律三--一个语义关系只有一个规范方向"
+      ],
+      "consumerScope": [
+        "kernel relation write surface (isAllowedRelationKindTriple behind validateRelationRecordsForHost)",
+        "relation reverse-direction queries consumed by packages/gui renderer models",
+        "non-test packages/** sources re-reading the retired invalidated-by alias"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Ratchet per dec_399F48E3547D831F1199F51E84 CH1: stored retired mirror edges are tolerated audit history; re-widening the writable triples or re-reading the retired alias is refused with no allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-relation-canonical-direction.mjs",
+          "package.json:scripts.harness:check-relation-canonical-direction",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-relation-canonical-direction"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-relation-canonical-direction.test.mjs"
         ]
       }
     },
