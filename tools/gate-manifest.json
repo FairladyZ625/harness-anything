@@ -68,6 +68,7 @@
         "check-kernel-dead-exports",
         "check-relation-cycle-substrate",
         "check-relation-canonical-direction",
+        "check-task-event-aggregate-entry",
         "scan-forbidden-symbols",
         "check-duplicate-definitions",
         "check-integrity-single-source",
@@ -111,6 +112,7 @@
         "check-kernel-dead-exports",
         "check-relation-cycle-substrate",
         "check-relation-canonical-direction",
+        "check-task-event-aggregate-entry",
         "scan-forbidden-symbols",
         "check-duplicate-definitions",
         "check-integrity-single-source",
@@ -133,7 +135,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 37
+      "harnessLeafGateCount": 38
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -2260,6 +2262,84 @@
         "status": "covered",
         "evidence": [
           "tools/check-relation-canonical-direction.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "check-task-event-aggregate-entry",
+      "command": "npm run harness:check-task-event-aggregate-entry",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "packages/kernel/src/domain/task-lifecycle.contract.ts#TASK_LIFECYCLE_TRANSITIONS",
+        "decision/dec_399F48E3547D831F1199F51E84#CH1",
+        "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#铁律一--任何跨状态修改必须经过聚合入口",
+        "task_9178bc1dd384c27084b2a9ab79"
+      ],
+      "consumerScope": [
+        "production packages/**/src task_* event construction sites",
+        "task-event/v1 constructors with dynamically selected event types"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/gate-allowlists/task-event-aggregate-entry.mjs#TASK_EVENT_CONSTRUCTION_ALLOWLIST",
+        "adrOrDecisionRequired": true,
+        "notes": "Ratchet per dec_399F48E3547D831F1199F51E84 CH1: existing task_* construction sites are tolerated at their recorded counts; any new site or additional constructor requires an explicit governance decision."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-task-event-aggregate-entry.mjs",
+          "tools/gate-allowlists/task-event-aggregate-entry.mjs",
+          "package.json:scripts.harness:check-task-event-aggregate-entry",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-task-event-aggregate-entry"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-task-event-aggregate-entry.test.mjs"
         ]
       }
     },

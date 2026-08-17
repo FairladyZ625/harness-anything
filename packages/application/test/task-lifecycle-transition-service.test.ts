@@ -92,6 +92,30 @@ test("transition service freezes targets and makes create/start idempotent by op
   }
 });
 
+test("transition service publishes aggregate-authored task status idempotently", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-status-service-"));
+  try {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
+    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
+    const service = makeTaskLifecycleService({ eventStore, projection });
+    const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: "task-1", title: "Status task", taskClass: "standard" as const, graph: replayGraph,
+      completionGateIds: [], presetSnapshotDigest: null }, { eventId: "event-create", workspaceRevision: 1, occurredAt: "2026-08-11T00:00:00.000Z" });
+    await service.execute(create, { taskIdUnique: true, actorBinding: actor });
+    const block = command(rootDir, { type: "TransitionTask" as const, taskId: "task-1", status: "blocked" as const, reason: "Waiting on scope", force: true },
+      { eventId: "event-block", workspaceRevision: 2, occurredAt: "2026-08-11T00:01:00.000Z" });
+    const first = await service.execute(block, {}), second = await service.execute(block, {});
+    assert.equal(first.event?.type, "task_transitioned"); assert.deepEqual(second, first);
+    const unblock = command(rootDir, { type: "TransitionTask" as const, taskId: "task-1", status: "active" as const, reason: "", force: true },
+      { eventId: "event-unblock", workspaceRevision: 3, occurredAt: "2026-08-11T00:02:00.000Z" });
+    const unblocked = await service.execute(unblock, {}), retried = await service.execute(unblock, {});
+    assert.equal(unblocked.snapshot.task?.status, "active"); assert.equal(unblocked.event?.type, "task_transitioned"); assert.equal(unblocked.event?.payload.mutation.reason, "Explicit lifecycle transition to active"); assert.deepEqual(retried, unblocked);
+    assert.equal(eventStore.read().events.filter((event) => event.schema === "task-event/v1").length, 3);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("second distinct task create uses aggregate revision zero in a non-empty workspace", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-two-tasks-"));
   try {

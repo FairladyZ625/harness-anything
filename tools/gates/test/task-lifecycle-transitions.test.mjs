@@ -34,6 +34,7 @@ function create(revision = 1) { return command(owner, revision, { type: "CreateR
 function createProof() { return { taskIdUnique: true, actorBinding: owner }; }
 function start(revision, executionId = "execution-0") { return command(executor, revision, { type: "StartExecution", taskId: "task-1", executionId }, `start-${executionId}`); }
 function startProof(executionId = "execution-0") { return { actorBinding: executor, reservation: { taskId: "task-1", executionId, expiresAt: "2026-08-11T01:00:00.000Z", ttlMs: 1_800_000, previousHolder: null, reason: "initial_claim", version: 1 } }; }
+function transition(revision, status, reason = `Transition to ${status}`, force = status === "cancelled") { return command(owner, revision, { type: "TransitionTask", taskId: "task-1", status, reason, force }, `transition-${status}`); }
 function submission(commitSha = commit0) { return { completionClaim: "Implementation is ready for review.", deliverables: ["kernel lifecycle"], outputs: ["typed event"], verificationNotes: ["contract tests"], knownGaps: [], residualRisks: [], commitSha }; }
 function submit(revision, executionId = "execution-0", commitSha = commit0) { return command(executor, revision, { type: "SubmitExecution", taskId: "task-1", executionId, submission: submission(commitSha) }, `submit-${executionId}`); }
 function submitProof() { return { actorBinding: executor, leaseVersion: 1, sessionDisposition: "complete" }; }
@@ -59,6 +60,31 @@ function firstRound() {
 test("G10 lease broker keeps one positive capacity ceiling", () => {
   assert.deepEqual(TASK_LEASE_BROKER_CONTRACT, { capacity: 32 });
   assert.equal(Object.isFrozen(TASK_LEASE_BROKER_CONTRACT), true);
+});
+
+test("G10 block, unblock, and cancel are catalog transitions while unrelated activation stays refused", () => {
+  const created = applyTransition(emptyTaskLifecycleSnapshot(), create(), createProof());
+  const blocked = applyTransition(created.snapshot, transition(2, "blocked"), {});
+  assert.equal(blocked.snapshot.task.status, "blocked");
+  assert.deepEqual(blocked.event.payload.mutation, { command: "transition", reason: "Transition to blocked", fields: ["status"] });
+  assert.deepEqual(reduceTaskEvent(created.snapshot, blocked.event), blocked.snapshot, "the unchanged task_transitioned event shape must replay exactly");
+  assert.equal(applyTransition(created.snapshot, transition(2, "blocked", "Force remains an ignored block flag", true), {}).snapshot.task.status, "blocked");
+  const unblocked = applyTransition(blocked.snapshot, transition(3, "active"), {});
+  assert.equal(unblocked.snapshot.task.status, "active");
+  assert.deepEqual(unblocked.event.payload.mutation, { command: "transition", reason: "Transition to active", fields: ["status"] });
+  assert.deepEqual(reduceTaskEvent(blocked.snapshot, unblocked.event), unblocked.snapshot);
+  assert.throws(() => applyTransition(created.snapshot, transition(2, "active"), {}), (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition");
+
+  const cancelled = applyTransition(blocked.snapshot, transition(3, "cancelled", "Scope was withdrawn", true), {});
+  assert.equal(cancelled.snapshot.task.status, "cancelled");
+  assert.deepEqual(reduceTaskEvent(blocked.snapshot, cancelled.event), cancelled.snapshot);
+  assert.throws(() => applyTransition(blocked.snapshot, transition(3, "cancelled", "", false), {}), /force and an auditable reason/u);
+
+  const started = applyTransition(created.snapshot, start(2), startProof());
+  assert.throws(() => applyTransition(started.snapshot, transition(3, "blocked"), {}), /unleased/u);
+  const { submitted } = firstRound();
+  assert.equal(applyTransition(submitted.snapshot, transition(4, "blocked"), {}).snapshot.task.status, "blocked");
+  assert.throws(() => applyTransition(submitted.snapshot, transition(4, "active"), {}), (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition");
 });
 
 test("G10 submit atomically finalizes Execution, releases lease, and enters in_review", () => {
@@ -119,15 +145,15 @@ test("G10 exhaustive phase table rejects every command outside its canonical pre
   const completed = applyTransition(round.consented.snapshot, complete(6), completeProof());
   const states = [
     ["missing", emptyTaskLifecycleSnapshot(), new Set(["CreateReplayTask"])],
-    ["planned", round.created.snapshot, new Set(["StartExecution"])],
+    ["planned", round.created.snapshot, new Set(["StartExecution", "TransitionTask"])],
     ["active", round.started.snapshot, new Set(["SubmitExecution"])],
-    ["submitted", round.submitted.snapshot, new Set(["RecordReview", "ReconcileCodeDoc"])],
-    ["approved", round.approved.snapshot, new Set(["RecordReviewConsent", "ReconcileCodeDoc"])],
-    ["consented", round.consented.snapshot, new Set(["ReconcileCodeDoc", "CompleteTask"])],
-    ["returned", returned.snapshot, new Set(["StartExecution"])],
+    ["submitted", round.submitted.snapshot, new Set(["RecordReview", "ReconcileCodeDoc", "TransitionTask"])],
+    ["approved", round.approved.snapshot, new Set(["RecordReviewConsent", "ReconcileCodeDoc", "TransitionTask"])],
+    ["consented", round.consented.snapshot, new Set(["ReconcileCodeDoc", "CompleteTask", "TransitionTask"])],
+    ["returned", returned.snapshot, new Set(["StartExecution", "TransitionTask"])],
     ["done", completed.snapshot, new Set()]
   ];
-  const types = ["CreateReplayTask", "StartExecution", "SubmitExecution", "RecordReview", "RecordReviewConsent", "ReconcileCodeDoc", "CompleteTask"];
+  const types = ["CreateReplayTask", "StartExecution", "TransitionTask", "SubmitExecution", "RecordReview", "RecordReviewConsent", "ReconcileCodeDoc", "CompleteTask"];
   for (const [label, snapshot, allowed] of states) for (const type of types) {
     if (allowed.has(type)) continue;
     const revision = snapshot.revision + 1;
@@ -135,6 +161,7 @@ test("G10 exhaustive phase table rejects every command outside its canonical pre
     const entries = {
       CreateReplayTask: [create(), createProof()],
       StartExecution: [start(revision, `execution-${label}`), startProof(`execution-${label}`)],
+      TransitionTask: [transition(revision, "blocked"), {}],
       SubmitExecution: [submit(revision), submitProof()],
       RecordReview: [review(revision), reviewProof()],
       RecordReviewConsent: [consent(revision, recorded), consentProof()],
