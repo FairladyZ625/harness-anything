@@ -44,6 +44,7 @@
   "components.badges.rejected": "Rejected",
   "components.badges.retired": "Retired",
   "components.badges.riskSignificanceDepthReview": "Risk/Significance → Depth of Review",
+  "components.badges.superseded": "Superseded",
   "components.badges.suspended": "Suspended",
   "components.badges.takingEffect": "Taking effect",
   "components.badges.tooltipClickJump": "{tooltip} — Click to jump",

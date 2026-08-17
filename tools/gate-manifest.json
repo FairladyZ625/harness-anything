@@ -68,6 +68,7 @@
         "check-kernel-dead-exports",
         "check-relation-cycle-substrate",
         "check-relation-canonical-direction",
+        "check-status-vocabulary",
         "check-domain-judgment-single-definition",
         "check-task-event-aggregate-entry",
         "scan-forbidden-symbols",
@@ -113,6 +114,7 @@
         "check-kernel-dead-exports",
         "check-relation-cycle-substrate",
         "check-relation-canonical-direction",
+        "check-status-vocabulary",
         "check-domain-judgment-single-definition",
         "check-task-event-aggregate-entry",
         "scan-forbidden-symbols",
@@ -137,7 +139,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 39
+      "harnessLeafGateCount": 40
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -2208,9 +2210,15 @@
         "daemon task blocking projection and GUI DTO consumption"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
-        "nodeVersions": [24]
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -2229,10 +2237,30 @@
       },
       "bypassFixtureRequired": true,
       "executionSurfaces": {
-        "packageJson": { "check": true, "checkPr": true, "script": "harness:check-domain-judgment-single-definition" },
-        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["full-check"] },
-        "branchProtection": { "required": true, "contexts": ["boundaries"] },
-        "classes": ["local", "pr", "main-full"]
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-domain-judgment-single-definition"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
       },
       "deterministic": true,
       "positiveControl": {
@@ -4306,6 +4334,84 @@
         "status": "covered",
         "evidence": [
           "tools/smoke-cli-package.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "check-status-vocabulary",
+      "command": "npm run harness:check-status-vocabulary",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "packages/kernel/src/domain/status-vocabulary.ts",
+        "decision/dec_399F48E3547D831F1199F51E84#CH1",
+        "harness/adr/ADR-0020-decision-entity-adr-boundary.md#d1--decision-是承重选择的唯一结构化-sot",
+        "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#铁律四--一个词只能指一件事"
+      ],
+      "consumerScope": [
+        "kernel domain status vocabularies (every word declared in packages/kernel/src/domain)",
+        "GUI renderer model mirrors of kernel status vocabularies (SnapshotStatus, DecisionState, CanonicalStatus, PackageDisposition)",
+        "the GUI decision adapter unknown fallback (triadic-data.ts decisionState)"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Ratchet per dec_399F48E3547D831F1199F51E84 CH1: existing status words are grandfathered through the register itself; a new status word or vocabulary must be registered with its meaning, and mirrors must equal their kernel source. No allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-status-vocabulary.mjs",
+          "package.json:scripts.harness:check-status-vocabulary",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-status-vocabulary"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-status-vocabulary.test.mjs"
         ]
       }
     }

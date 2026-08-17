@@ -27,6 +27,7 @@ import {
   Lightning,
   ChatCircleDots,
   Archive,
+  ArrowArcRight,
 } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { t, type MessageKey } from "../i18n/index.tsx";
@@ -186,8 +187,10 @@ const DECISION_STATE_META: Record<
   proposed: { ...localizedLabel("components.badges.pendingDecisionApproval"), icon: <ChatCircleDots weight="bold" />, cls: "bg-accent text-accent-fg" },
   rejected: { ...localizedLabel("components.badges.rejected"), icon: <XCircle weight="bold" />, cls: "bg-danger/20 text-danger" },
   deferred: { ...localizedLabel("components.badges.suspended"), icon: <PauseCircle weight="bold" />, cls: "bg-stale/20 text-stale" },
+  superseded: { ...localizedLabel("components.badges.superseded"), icon: <ArrowArcRight weight="bold" />, cls: "bg-stale/20 text-stale" },
   active: { ...localizedLabel("components.badges.takingEffect"), icon: <SealCheck weight="bold" />, cls: "bg-success/15 text-success" },
   retired: { ...localizedLabel("components.badges.retired"), icon: <Archive weight="bold" />, cls: "bg-surface-raised text-text-faint" },
+  unknown: { ...localizedLabel("components.badges.unknown"), icon: <Question weight="bold" />, cls: "bg-surface-raised text-text-faint" },
 };
 
 export function DecisionStateBadge({ state }: { state: DecisionState }) {
