@@ -114,6 +114,40 @@ test("task list rows expose packageDisposition and taskClass so the occupancy co
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+test("taskClass=long_running work never occupies the execution worktable, even mid-flight", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-wip-long-running-"));
+  const previous = process.env[TASK_WIP_LIMIT_ENV];
+  process.env[TASK_WIP_LIMIT_ENV] = "1";
+  let cell: Cell | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({ repoId: workspaceId("task-wip-long-running"), rootDir: canonicalRoot(rootDir), ownerId: "task-wip-long-running", now: () => "2026-08-16T00:00:00.000Z" });
+    const binding = { actor, source: "local" as const };
+    assert.equal((await cell.run({ kind: "task-create", taskId: "task_OCC", title: "Occupant" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-start", taskId: "task_OCC", executionId: "exe_occ" }, binding)).outcome, "applied");
+    // The migration path the live carrier will take: amend an existing task into the class.
+    assert.equal((await cell.run({ kind: "task-create", taskId: "task_RESIDENT", title: "Resident ledger" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-amend", taskId: "task_RESIDENT", patches: [{ field: "taskClass", value: "long_running" }] }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-create", taskId: "task_NATIVE", title: "Native resident", taskClass: "long_running" }, binding)).outcome, "applied");
+    // The worktable is full at 1/1 with natural-endpoint work; resident work still runs.
+    assert.equal((await cell.run({ kind: "task-start", taskId: "task_RESIDENT", executionId: "exe_resident" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-start", taskId: "task_NATIVE", executionId: "exe_native" }, binding)).outcome, "applied");
+    const fresh = await cell.run({ kind: "task-create", taskId: "task_FRESH", title: "Fresh work" }, binding);
+    assert.equal(fresh.outcome, "applied");
+    const rejected = await cell.run({ kind: "task-start", taskId: "task_FRESH", executionId: "exe_fresh" }, binding);
+    assert.equal(rejected.outcome, "rejected"); assert.equal(rejected.code, "task_wip_limit_reached");
+    const listed = evidence(await cell.run({ kind: "task-list" }, binding));
+    const rows = listed.rows as readonly { readonly taskId: string; readonly status: string; readonly taskClass: string; readonly packageDisposition: string }[];
+    const byTask = new Map(rows.map((row) => [row.taskId, row]));
+    assert.equal(byTask.get("task_RESIDENT")?.taskClass, "long_running"); assert.equal(byTask.get("task_RESIDENT")?.status, "active");
+    assert.equal(byTask.get("task_NATIVE")?.taskClass, "long_running"); assert.equal(byTask.get("task_NATIVE")?.status, "active");
+    assert.deepEqual(rows.filter((row) => ["active", "blocked", "in_review"].includes(row.status) && row.packageDisposition === "active" && row.taskClass === "standard").map((row) => row.taskId), ["task_OCC"]);
+  } finally {
+    if (previous === undefined) delete process.env[TASK_WIP_LIMIT_ENV]; else process.env[TASK_WIP_LIMIT_ENV] = previous;
+    await cell?.close(); rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 async function packagePathOf(cell: Cell, taskId: string): Promise<string> {
   const shown = await cell.run({ kind: "task-show", taskId }, { actor, source: "local" }) as { readonly evidence: string };
   return String((JSON.parse(shown.evidence) as { readonly packagePath: string }).packagePath);

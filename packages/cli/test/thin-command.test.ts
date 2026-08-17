@@ -83,6 +83,14 @@ test("task create preserves the complete contract and initial relations in one c
   assert.equal(parseThinCommand(["task", "create"]).ok, false);
 });
 
+test("long-running work arrives only as --task-class long_running; the retired boolean flag is unknown", () => {
+  const resident = parseThinCommand(["task", "create", "--title", "Resident ledger", "--task-class", "long_running"]);
+  assert.equal(resident.ok, true, JSON.stringify(resident));
+  if (resident.ok) assert.deepEqual(resident.command.action, { kind: "task-create", title: "Resident ledger", taskClass: "long_running" });
+  assert.deepEqual(parseThinCommand(["task", "create", "--title", "Resident ledger", "--long-running"]), { ok: false, code: "unknown_field", nextAction: "Unknown option --long-running.", json: false });
+  assert.equal(parseThinCommand(["task", "create", "--title", "Resident ledger", "--task-class", "long-running"]).ok, false);
+});
+
 test("task lifecycle and read surfaces parse every F03 F04 F05 leaf into closed actions", () => {
   const cases = [
     [["task", "start", "task-1", "--execution-id", "exe-1", "--ttl-ms", "60000", "--dry-run"], { kind: "task-start", verb: "start", commandType: "StartExecution", taskId: "task-1", executionId: "exe-1", ttlMs: 60000, dryRun: true }],

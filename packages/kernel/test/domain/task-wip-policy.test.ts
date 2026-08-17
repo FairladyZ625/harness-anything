@@ -67,6 +67,16 @@ test("the kty-web deadlock stays broken: a full worktable still admits a closeou
   assert.equal(withoutEvidence.ok, false);
 });
 
+test("long_running work has no natural endpoint and never occupies the execution worktable (dec_01KYRHP8ND)", () => {
+  const resident = entry({ taskId: "task_RESIDENT", status: "active", taskClass: "long_running" });
+  assert.equal(isExecutionWipTask(resident), false);
+  assert.equal(enteringExecutionWip(resident, "active"), false);
+  assert.equal(enteringExecutionWip(entry({ taskId: "task_RESIDENT", status: "planned", taskClass: "long_running" }), "active"), false);
+  // Occupancy is driven by taskClass alone: a full standard worktable still starts resident work.
+  const full = Array.from({ length: 30 }, (_, index) => entry({ taskId: `task_OCC_${index}`, status: "active" }));
+  assert.deepEqual(admitTaskExecutionWip({ limit: 30, limitLabel: "settings.tasks.wipLimit", tasks: [...full, resident], activatingTaskId: "task_RESIDENT", nextStatus: "active" }), { ok: true });
+});
+
 test("delivery evidence is canonical: submitted native executions and migrated archived records", () => {
   const actor = { principal: { personId: "person" }, executor: null };
   assert.equal(hasCloseoutEvidence([]), false);
