@@ -27,6 +27,30 @@ test("closeout readiness requires a passing exact-cut gate, not witness existenc
   assert.deepEqual(closeoutReadiness({ ...recovered, gateWitnesses: [...recovered.gateWitnesses, { ...recovered.gateWitnesses[0]!, witnessId: "witness-2", receiptId: "receipt-2", result: "pass" }] }).gates, [{ gateId: "ci", status: "passed" }]);
 });
 
+test("closeout readiness gates milestone and long_running completion on an active decision derives edge", () => {
+  const edge = (relationType: string, state: string, targetRef = "task/task-1") => [{ relationId: "rel-lineage", sourceRef: "decision/dec-1/CH1", targetRef, relationType, state }];
+  const milestone = () => { const base = closeout("pass"); return { ...base, task: { ...base.task!, taskId: "task-1", taskClass: "milestone" as const } }; };
+  // An orphan milestone is not closeout-ready even with every other criterion green.
+  const orphan = closeoutReadiness(milestone());
+  assert.equal(orphan.readiness, "incomplete");
+  assert.equal(orphan.blocker, "lineage");
+  // Only an active derives edge naming this task authorises completion.
+  assert.equal(closeoutReadiness({ ...milestone(), decisionRelations: edge("derives", "retired") }).readiness, "incomplete");
+  assert.equal(closeoutReadiness({ ...milestone(), decisionRelations: edge("relates", "active") }).readiness, "incomplete");
+  assert.equal(closeoutReadiness({ ...milestone(), decisionRelations: edge("derives", "active", "task/someone-else") }).readiness, "incomplete");
+  assert.equal(closeoutReadiness({ ...milestone(), decisionRelations: edge("derives", "active") }).readiness, "ready");
+  // long_running tasks read their class, not a boolean, and obey the same rule.
+  const longRunning = { ...milestone(), task: { ...milestone().task!, taskClass: "long_running" as const } };
+  assert.equal(closeoutReadiness(longRunning).blocker, "lineage");
+  assert.equal(closeoutReadiness({ ...longRunning, decisionRelations: edge("derives", "active") }).readiness, "ready");
+  // Standard tasks never required lineage and still do not.
+  assert.equal(closeoutReadiness({ ...closeout("pass"), task: { ...closeout("pass").task!, taskId: "task-1", taskClass: "standard" } }).readiness, "ready");
+  // A missing gate keeps its own blocker; the lineage gap still withholds readiness.
+  const gateFirst = closeoutReadiness({ ...milestone(), gateWitnesses: [], decisionRelations: edge("derives", "active") });
+  assert.equal(gateFirst.readiness, "incomplete");
+  assert.equal(gateFirst.blocker, "gate");
+});
+
 test("completed tasks retain passed gate badges from their accepted execution cut", () => {
   const snapshot = closeout("pass");
   const assessment = closeoutReadiness({ ...snapshot, task: { ...snapshot.task!, status: "done" }, executions: snapshot.executions.map((execution) => ({ ...execution, state: "accepted" })) });

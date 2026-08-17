@@ -1,7 +1,7 @@
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import { closeoutReadiness } from "./closeout-readiness.ts";
 
-export type CompletionBlockerCode = "not_in_review" | "closeout_placeholder" | "review_missing" | "consent_missing" | "ci_missing" | "code_doc_missing" | "lease_held" | "doc_sync_required" | "gate_witness_missing";
+export type CompletionBlockerCode = "not_in_review" | "closeout_placeholder" | "review_missing" | "consent_missing" | "ci_missing" | "code_doc_missing" | "decision_lineage_missing" | "lease_held" | "doc_sync_required" | "gate_witness_missing";
 export interface CompletionNext { readonly command: string; readonly reason: string }
 export interface CompletionBlocker { readonly code: CompletionBlockerCode; readonly gate: string; readonly next: CompletionNext }
 export interface CompletionReadinessContext { readonly closeout: "ready" | "placeholder" | "dirty_eligible" | "missing"; readonly closeoutPath: string; readonly eligibleDirtyPaths: readonly string[] }
@@ -19,6 +19,7 @@ export function completionBlockers(snapshot: TaskLifecycleSnapshot, executionId:
   if (gate) return gate.gateId === "code-doc-reconciliation"
     ? one("code_doc_missing", gate.gateId, `ha task code-doc reconcile ${task.taskId} --execution-id ${executionId} --commit-sha ${submission.commitSha} --iteration ${execution.iteration} --path <path>`, "Publish a typed code-doc witness for this execution cut.")
     : one(gate.gateId === "ci" ? "ci_missing" : "gate_witness_missing", gate.gateId, gate.gateId === "ci" ? `ha task complete ${task.taskId} --execution-id ${executionId} --ci passed` : `ha task complete ${task.taskId} --execution-id ${executionId}`, `Publish a passing canonical ${gate.gateId} checker witness for this execution cut.`);
+  if (assessment.blocker === "lineage") return one("decision_lineage_missing", "lineage", `ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/${task.taskId} --rationale <why this decision authorises the task>`, `A ${task.taskClass} task completes only with an active decision derives edge; no active edge names this task.`);
   if (context.eligibleDirtyPaths.length) return one("doc_sync_required", "documents", `ha doc sync --submit${context.eligibleDirtyPaths.map((value) => ` --path ${value}`).join("")}`, "Publish eligible closeout and artifact edits through doc-sync.");
   if (context.closeout !== "ready") return one("closeout_placeholder", "closeout", `edit harness/${context.closeoutPath}`, "Replace the canonical closeout placeholder before completion.");
   return [];

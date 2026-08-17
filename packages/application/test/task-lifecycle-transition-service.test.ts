@@ -21,6 +21,7 @@ test("completion blocker matrix returns one canonical next for every substantive
     const created = await harness.create(), started = await harness.start("execution-1"), submitted = await harness.submit("execution-1"), reviewed = await harness.review("execution-1", "acceptance", "approved"), consented = await harness.consent("execution-1");
     const ready = { closeout: "ready" as const, closeoutPath: "tasks/task-1/closeout.md", eligibleDirtyPaths: [] as string[] };
     const withGates = (gateIds: readonly string[]) => ({ ...consented.snapshot, task: { ...consented.snapshot.task!, completionGateIds: gateIds } });
+    const orphanMilestone = { ...consented.snapshot, task: { ...consented.snapshot.task!, taskClass: "milestone" as const } };
     const cases = [
       ["not_in_review", started.snapshot, ready],
       ["closeout_placeholder", consented.snapshot, { ...ready, closeout: "placeholder" as const }],
@@ -28,6 +29,7 @@ test("completion blocker matrix returns one canonical next for every substantive
       ["consent_missing", reviewed.snapshot, ready],
       ["ci_missing", withGates(["ci"]), ready],
       ["code_doc_missing", withGates(["code-doc-reconciliation"]), ready],
+      ["decision_lineage_missing", orphanMilestone, ready],
       ["lease_held", { ...consented.snapshot, lease: started.snapshot.lease }, ready],
       ["doc_sync_required", consented.snapshot, { ...ready, closeout: "dirty_eligible" as const, eligibleDirtyPaths: ["tasks/task-1/closeout.md"] }]
     ] as const;
@@ -38,6 +40,9 @@ test("completion blocker matrix returns one canonical next for every substantive
       assert.equal((blockers[0]?.next.command.length ?? 0) > 0, true, code);
       assert.equal((blockers[0]?.next.reason.length ?? 0) > 0, true, code);
     }
+    // The lineage blocker names the missing edge with the exact command that writes it.
+    const lineage = completionBlockers(orphanMilestone, "execution-1", ready)[0]!;
+    assert.equal(lineage.next.command, "ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/task-1 --rationale <why this decision authorises the task>");
     assert.deepEqual(completionBlockers(consented.snapshot, "execution-1", ready), []);
   } finally { harness.cleanup(); }
 });
