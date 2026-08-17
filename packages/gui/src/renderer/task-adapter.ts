@@ -152,7 +152,7 @@ export function deriveBlocking(tasks: ReadonlyArray<TaskRow>, context: TaskAdapt
   if (globalUnknown) for (const task of tasks) add(unknown, task.taskId, context.relationState === "error" ? "relation query failed" : context.relationState === "loading" ? "relation query loading" : "relation projection hard-fail warning");
   const graph = new Map<string, string[]>();
   for (const edge of context.relations ?? []) {
-    if (edge.kind !== "blocks" && edge.kind !== "depends-on") continue;
+    if (edge.kind !== "depends-on") continue;
     const sourceId = exactTaskId(edge.from), targetId = exactTaskId(edge.to), knownIds = [sourceId, targetId].filter((id): id is string => Boolean(id && taskById.has(id)));
     if (edge.state === "retired" || edge.state === "deleted") continue;
     if (edge.state !== "active" || edge.direction !== "directed" || !sourceId || !targetId || !taskById.has(sourceId) || !taskById.has(targetId)) {
@@ -161,7 +161,10 @@ export function deriveBlocking(tasks: ReadonlyArray<TaskRow>, context: TaskAdapt
       continue;
     }
     add(graph, sourceId, targetId);
-    const blockedId = edge.kind === "blocks" ? targetId : taskById.get(targetId)?.canonicalStatus === "done" ? null : sourceId;
+    // Canonical direction: `task A depends-on task B` — A is the blocked party, and a
+    // done target no longer blocks its dependents. The mirrored "blocks" verb (target
+    // blocked) is retired vocabulary; the kernel registry refuses that triple.
+    const blockedId = taskById.get(targetId)?.canonicalStatus === "done" ? null : sourceId;
     if (blockedId) add(blockers, blockedId, { relationId: edge.relationId ?? "unknown", kind: edge.kind, sourceTaskId: sourceId, targetTaskId: targetId, ...(edge.rationale ? { rationale: edge.rationale } : {}) });
   }
   findCycleNodes(graph).forEach((id) => cycleNodes.add(id));

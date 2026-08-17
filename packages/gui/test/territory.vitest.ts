@@ -194,10 +194,10 @@ describe("territory skeleton dispatch", () => {
 });
 
 describe("fact anomaly classification (TERRITORY-001)", () => {
-  it("classifies a fact with invalidated-by edge as contradictory", () => {
+  it("classifies a fact targeted by refuted-by as contradictory", () => {
     const f = fact({ anchor: "task_a/F-contr" });
     const relations: RelationEdge[] = [
-      { from: `fact/${f.anchor}`, to: "decision/dec_1", kind: "invalidated-by", provenance: "local-document" },
+      { from: "decision/dec_1", to: `fact/${f.anchor}`, kind: "refuted-by", provenance: "local-document" },
     ];
     expect(classifyFactAnomaly(`fact/${f.anchor}`, f, relations, new Set())).toBe("contradictory");
   });

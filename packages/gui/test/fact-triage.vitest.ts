@@ -126,7 +126,7 @@ describe("fact-triage signal computation", () => {
   it("flags a contradiction fact that invalidates a decision", () => {
     const fact = baseFact();
     const relations = [
-      edge("fact/task_a/F-001", "decision/dec_2", "invalidated-by", {
+      edge("decision/dec_2", "fact/task_a/F-001", "refuted-by", {
         rationale: "复现失败",
       }),
     ];
@@ -135,6 +135,27 @@ describe("fact-triage signal computation", () => {
 
     expect(item.signals.map((signal) => signal.kind)).toContain("INVALIDATED");
     expect(item.severity).toBe(SIGNAL_SEVERITY.INVALIDATED);
+  });
+
+  it("derives the INVALIDATED signal from the canonical direction, not the retired alias", () => {
+    // Before slice 4 the triage read fact --invalidated-by--> decision, a shape the
+    // kernel registry refuses; a canonical decision --refuted-by--> fact edge produced
+    // no signal. The two orientations disagreed for this input.
+    const fact = baseFact();
+    const canonical = computeFactTriageSignals(
+      fact,
+      [edge("decision/dec_2", "fact/task_a/F-001", "refuted-by")],
+      [],
+      [anchor(fact)],
+    );
+    const retiredAlias = computeFactTriageSignals(
+      fact,
+      [edge("fact/task_a/F-001", "decision/dec_2", "invalidated-by")],
+      [],
+      [anchor(fact)],
+    );
+    expect(canonical.signals.map((signal) => signal.kind)).toContain("INVALIDATED");
+    expect(retiredAlias.signals.map((signal) => signal.kind)).not.toContain("INVALIDATED");
   });
 
   it("flags an orphan from factAnchors minus covered coverageRows", () => {
@@ -230,7 +251,7 @@ describe("fact-triage ranking", () => {
     const anchors = facts.map(anchor);
     const coverageRows = [coverage(contradiction), coverage(low), coverage(superseded)];
     const relations = [
-      edge(`fact/${contradiction.anchor}`, "decision/dec_2", "invalidated-by"),
+      edge("decision/dec_2", `fact/${contradiction.anchor}`, "refuted-by"),
       edge("fact/task_a/F-new", `fact/${superseded.anchor}`, "supersedes-fact"),
     ];
 
@@ -410,10 +431,10 @@ describe("cross-entity navigation projection", () => {
         ok: true,
         edges: [
           {
-            relationId: "rel_invalidated",
-            sourceRef: `fact/${fact.anchor}`,
-            targetRef: "decision/dec_1",
-            relationType: "invalidated-by",
+            relationId: "rel_refuted",
+            sourceRef: "decision/dec_1",
+            targetRef: `fact/${fact.anchor}`,
+            relationType: "refuted-by",
             direction: "directed",
             strength: "strong",
             origin: "declared",

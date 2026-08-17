@@ -82,6 +82,7 @@
     "harness:check-write-road-registry": "node tools/check-write-road-registry.mjs",
     "harness:check-kernel-dead-exports": "node tools/check-kernel-dead-exports.mjs",
     "harness:check-relation-cycle-substrate": "node tools/check-relation-cycle-substrate.mjs",
+    "harness:check-relation-canonical-direction": "node tools/check-relation-canonical-direction.mjs",
     "harness:check-enforcement-debt-sunset": "node tools/check-enforcement-debt-sunset.mjs",
     "pr:doctor": "node tools/pr-doctor.mjs"
   },

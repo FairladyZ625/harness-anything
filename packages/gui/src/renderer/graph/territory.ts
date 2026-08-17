@@ -1,5 +1,6 @@
 import type { TaskRow, DecisionRow, FactRef, RelationEdge } from "../model/types";
 import type { FactAnchorRow, RelationCoverageRow } from "../../api/renderer-dto";
+import { incomingRelations } from "../model/relation-direction.ts";
 import {
   resolveTaskModule,
   resolveFactModule,
@@ -168,21 +169,15 @@ export function classifyFactAnomaly(
   relations: ReadonlyArray<RelationEdge>,
   coveredRefs: ReadonlySet<string>,
 ): FactAnomaly {
-  // contradictory:被 invalidated-by 指向 或 fact.invalidated 标记。
+  // contradictory:fact.invalidated 标记,或作为 decision --refuted-by--> fact 的 target(规范方向反查)。
   if (fact?.invalidated) return "contradictory";
-  for (const e of relations) {
-    if (e.kind === "invalidated-by" && e.from === factRef) return "contradictory";
-  }
+  if (incomingRelations(factRef, "refuted-by", relations).length > 0) return "contradictory";
   // superseded:被 supersedes-fact 指向(是 target)。
-  for (const e of relations) {
-    if (e.kind === "supersedes-fact" && e.to === factRef) return "superseded";
-  }
+  if (incomingRelations(factRef, "supersedes-fact", relations).length > 0) return "superseded";
   // low-confidence。
   if (fact?.confidence === "low") return "low-confidence";
   // orphan:无 decision 引用(不在 coveredRefs 且无 evidenced-by 边指向它)。
-  const hasEvidence = relations.some(
-    (e) => e.kind === "evidenced-by" && e.to === factRef,
-  );
+  const hasEvidence = incomingRelations(factRef, "evidenced-by", relations).length > 0;
   if (!coveredRefs.has(factRef) && !hasEvidence) return "orphan";
   return "normal";
 }

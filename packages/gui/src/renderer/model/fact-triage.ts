@@ -2,6 +2,7 @@ import type {
   FactAnchorRow,
   RelationCoverageRow,
 } from "../../api/renderer-dto";
+import { incomingRelations } from "./relation-direction.ts";
 import type { FactRef, RelationEdge } from "./types";
 
 /**
@@ -55,18 +56,14 @@ export function computeFactTriageSignals(
   const factRef = `fact/${fact.anchor}`;
   const signals: FactTriageSignal[] = [];
 
-  // Kernel grammar: fact --invalidated-by--> decision. The source fact is the
-  // contradictory observation that deserves attention.
-  const invalidatedDecisions = relations
-    .filter(
-      (relation) =>
-        relation.from === factRef && relation.kind === "invalidated-by",
-    )
-    .map((relation) => relation.to);
-  if (invalidatedDecisions.length > 0) {
+  // Kernel grammar (canonical direction): decision --refuted-by--> fact. The fact that
+  // refutes a decision is the contradictory observation that deserves attention; the
+  // reverse question goes through the domain query, never the retired invalidated-by alias.
+  const refutingDecisionRefs = incomingRelations(factRef, "refuted-by", relations).map((edge) => edge.from);
+  if (refutingDecisionRefs.length > 0) {
     signals.push({
       kind: "INVALIDATED",
-      detail: `与 decision 冲突: ${[...new Set(invalidatedDecisions)].join(", ")}`,
+      detail: `与 decision 冲突: ${[...new Set(refutingDecisionRefs)].join(", ")}`,
     });
   }
 
@@ -81,16 +78,8 @@ export function computeFactTriageSignals(
         .map((row) => decisionIdFromRef(row.decisionRef))
         .filter((id): id is string => Boolean(id)),
   );
-  for (const relation of relations) {
-    const decisionRef =
-      relation.kind === "evidenced-by" && relation.to === factRef
-        ? relation.from
-        : relation.kind === "supports" && relation.from === factRef
-          ? relation.to
-          : undefined;
-    const decisionId = decisionRef
-      ? decisionIdFromRef(decisionRef)
-      : undefined;
+  for (const edge of incomingRelations(factRef, "evidenced-by", relations)) {
+    const decisionId = decisionIdFromRef(edge.from);
     if (decisionId) citingDecisionIdSet.add(decisionId);
   }
   const citingDecisionIds = [...citingDecisionIdSet].sort();
@@ -109,14 +98,9 @@ export function computeFactTriageSignals(
     });
   }
 
-  // Kernel grammar: decision/fact --supersedes-fact--> old fact. Only the
+  // Kernel grammar: fact --supersedes-fact--> old fact. Only the
   // target is stale; the source is the replacement and must not be penalized.
-  const supersedingRefs = relations
-    .filter(
-      (relation) =>
-        relation.to === factRef && relation.kind === "supersedes-fact",
-    )
-    .map((relation) => relation.from);
+  const supersedingRefs = incomingRelations(factRef, "supersedes-fact", relations).map((edge) => edge.from);
   if (supersedingRefs.length > 0) {
     signals.push({
       kind: "SUPERSEDED",

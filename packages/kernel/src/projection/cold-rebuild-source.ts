@@ -47,7 +47,7 @@ export function readColdRebuildSource(rootInput: HarnessLayoutInput): ColdRebuil
 
 export function buildColdCoverage(source: ColdRebuildSource, edgesInput: readonly RelationGraphEdgeRow[]): readonly RelationCoverageRow[] {
   const edges = [...edgesInput].filter(({ state }) => state === "active").sort((a, b) => `${a.sourceRef}\0${a.targetRef}\0${a.relationId}`.localeCompare(`${b.sourceRef}\0${b.targetRef}\0${b.relationId}`));
-  const evidence = new Map<string, RelationGraphEdgeRow[]>(), facts = new Set(source.facts.map(({ ref }) => ref)), invalidated = new Set(edges.filter((edge) => edge.sourceRef.startsWith("fact/") && edge.targetRef.startsWith("fact/") && (edge.relationType === "invalidated-by" || edge.relationType === "supersedes-fact")).map(({ targetRef }) => targetRef)), refuted = new Map<string, Set<string>>();
+  const evidence = new Map<string, RelationGraphEdgeRow[]>(), facts = new Set(source.facts.map(({ ref }) => ref)), invalidated = new Set(edges.filter((edge) => edge.relationType === "supersedes-fact").map(({ targetRef }) => targetRef)), refuted = new Map<string, Set<string>>();
   for (const edge of edges) {
     if (edge.relationType === "evidenced-by") evidence.set(edge.sourceRef, [...evidence.get(edge.sourceRef) ?? [], edge]);
     if (edge.relationType === "refuted-by" && edge.sourceRef.startsWith("decision/") && edge.targetRef.startsWith("fact/")) { const refs = refuted.get(edge.sourceRef) ?? new Set<string>(); refs.add(edge.targetRef); refuted.set(edge.sourceRef, refs); }

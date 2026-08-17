@@ -1,6 +1,7 @@
 import { ArrowSquareOut, Graph, GitBranch, WarningCircle, X } from "@phosphor-icons/react";
 import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../model/types";
 import { normalizeDecisionId } from "../model/triadic";
+import { incomingRelations } from "../model/relation-direction.ts";
 import { CopyContextButton } from "./CopyContextButton";
 import { buildEntityJumpContext } from "../model/copy-context";
 import type { RelationCoverageRow } from "../../api/renderer-dto";
@@ -42,24 +43,10 @@ export function FactInspector({
   const fact = facts.find((candidate) => candidate.anchor === anchor);
   const task = fact ? tasks.find((candidate) => candidate.taskId === fact.taskId) : undefined;
   const inbound = relations.filter((relation) => relation.to === fullRef);
-  const outbound = relations.filter((relation) => relation.from === fullRef);
-  const contradictions = outbound.filter(
-    (relation) => relation.kind === "invalidated-by",
-  );
-  const supersedingRelations = inbound.filter(
-    (relation) => relation.kind === "supersedes-fact",
-  );
-  const directlySupportedDecisionIds = [...inbound, ...outbound]
-    .filter(
-      (relation) =>
-        (relation.kind === "supports" || relation.kind === "evidenced-by") &&
-        (relation.from.startsWith("decision/") || relation.to.startsWith("decision/")),
-    )
-    .map((relation) =>
-      normalizeDecisionId(
-        relation.from.startsWith("decision/") ? relation.from : relation.to,
-      ),
-    );
+  const contradictions = incomingRelations(fullRef, "refuted-by", relations);
+  const supersedingRelations = incomingRelations(fullRef, "supersedes-fact", relations);
+  const directlySupportedDecisionIds = incomingRelations(fullRef, "evidenced-by", relations)
+    .map((relation) => normalizeDecisionId(relation.from));
   const coveredDecisionIds = coverageRows
     .filter(
       (row) => row.status === "covered" && row.coveringFactRef === fullRef,
@@ -204,7 +191,7 @@ export function FactInspector({
                     <span className="text-text-faint">{shortEndpoint(relation.from)}</span>
                     <ArrowSquareOut weight="bold" className="text-[11px] text-text-faint" />
                     <span className={
-                      relation.kind === "invalidated-by" || relation.kind === "supersedes-fact"
+                      relation.kind === "refuted-by" || relation.kind === "supersedes-fact"
                         ? "text-stale"
                         : "text-accent"
                     }>
@@ -261,7 +248,7 @@ export function FactInspector({
             </div>
             {contradictions.length > 0 && (
               <div className="mt-1 font-mono text-[11px]">
-                {t("components.factInspector.contradictsValue", { value: contradictions.map((relation) => shortEndpoint(relation.to)).join(", ") })}
+                {t("components.factInspector.contradictsValue", { value: contradictions.map((relation) => shortEndpoint(relation.from)).join(", ") })}
               </div>
             )}
             {supersedingRelations.length > 0 && (

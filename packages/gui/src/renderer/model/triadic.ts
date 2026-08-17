@@ -1,3 +1,4 @@
+import { incomingRelations } from "./relation-direction.ts";
 import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "./types";
 
 export function normalizeDecisionId(raw: string): string {
@@ -82,10 +83,11 @@ export function factOf(ref: string, facts: FactRef[]): FactRef | undefined {
 }
 
 export function rationaleFor(ref: string, relations: RelationEdge[]): string | undefined {
-  return relations.find((relation) =>
-    (relation.to === ref && (relation.kind === "supports" || relation.kind === "evidenced-by" || relation.kind === "evidences")) ||
-    (relation.from === ref && relation.kind === "supports")
-  )?.rationale;
+  // Canonical direction only: the rationale shown on a fact's card comes from the
+  // decisions citing it (evidenced-by) or the tasks evidencing it — both read
+  // `source <verb> fact`, so the reverse question goes through the shared query.
+  const incoming = [...incomingRelations(ref, "evidenced-by", relations), ...incomingRelations(ref, "evidences", relations)];
+  return incoming[0]?.rationale;
 }
 
 export const axisRank = (value?: "high" | "medium" | "low") =>
