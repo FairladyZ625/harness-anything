@@ -68,6 +68,7 @@
         "check-kernel-dead-exports",
         "check-relation-cycle-substrate",
         "check-relation-canonical-direction",
+        "check-domain-judgment-single-definition",
         "check-task-event-aggregate-entry",
         "scan-forbidden-symbols",
         "check-duplicate-definitions",
@@ -112,6 +113,7 @@
         "check-kernel-dead-exports",
         "check-relation-cycle-substrate",
         "check-relation-canonical-direction",
+        "check-domain-judgment-single-definition",
         "check-task-event-aggregate-entry",
         "scan-forbidden-symbols",
         "check-duplicate-definitions",
@@ -135,7 +137,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 38
+      "harnessLeafGateCount": 39
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -2183,6 +2185,61 @@
         "status": "covered",
         "evidence": [
           "tools/check-relation-cycle-substrate.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "check-domain-judgment-single-definition",
+      "command": "npm run harness:check-domain-judgment-single-definition",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "decision/dec_399F48E3547D831F1199F51E84#CH1",
+        "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#领域服务跨聚合的判定仍在-domain-层",
+        "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#切片-3--判定下沉",
+        "harness/adr/ADR-0027-task-completion-proof-and-gate-semantics.md#d7",
+        "harness/adr/ADR-0024-gui-architecture-and-trust-boundary.md#p4"
+      ],
+      "consumerScope": [
+        "kernel transition and completion readiness",
+        "warm and cold Decision coverage projections",
+        "Fact liveness projection and GUI DTO consumption",
+        "daemon task blocking projection and GUI DTO consumption"
+      ],
+      "githubContext": {
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "CH1 ratchet: projection and GUI business judgments must call the four named kernel domain functions; duplicate algorithms have no allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-domain-judgment-single-definition.mjs",
+          "package.json:scripts.harness:check-domain-judgment-single-definition",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": { "check": true, "checkPr": true, "script": "harness:check-domain-judgment-single-definition" },
+        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["full-check"] },
+        "branchProtection": { "required": true, "contexts": ["boundaries"] },
+        "classes": ["local", "pr", "main-full"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-domain-judgment-single-definition.test.mjs",
+          "tools/fixtures/domain-judgment-single-definition/packages/gui/src/duplicate-readiness.ts"
         ]
       }
     },

@@ -22,8 +22,9 @@ export { explainStatusTransition, isDomainStatus, isTerminalStatus } from "./lif
 export { immutableBindingFields, validateLifecycleBindingInvariant } from "./lifecycle-binding.ts";
 export type { LifecycleBinding, BindingInvariantResult, ImmutableBindingField } from "./lifecycle-binding.ts";
 
-export { closeoutReadinesses, isCloseoutReadiness } from "./closeout-readiness.ts";
+export { closeoutReadiness, closeoutReadinesses, isCloseoutReadiness } from "./closeout-readiness.ts";
 export type { CloseoutReadiness } from "./closeout-readiness.ts";
+export { blockingOf } from "./task-blocking.ts";
 
 export { DEFAULT_TASK_WIP_LIMIT, admitTaskExecutionWip, hasCloseoutEvidence, parseTaskWipLimit, taskWipOccupyingStatuses } from "./task-wip-policy.ts";
 export type { TaskWipSnapshotEntryV1 } from "./task-wip-policy.ts";

@@ -1,0 +1,70 @@
+// harness-test-tier: fast
+import assert from "node:assert/strict";
+import test from "node:test";
+import { blockingOf } from "../../src/domain/task-blocking.ts";
+import { closeoutReadiness, type CloseoutSnapshot } from "../../src/domain/closeout-readiness.ts";
+import { coverageOf } from "../../src/domain/decision-coverage.ts";
+import { factLiveness } from "../../src/domain/fact-liveness.ts";
+import { reviewDigest } from "../../src/domain/review.ts";
+
+const actor = { principal: { personId: "owner" }, executor: null } as const;
+const commitSha = "a".repeat(40);
+
+function closeout(gateResult: "pass" | "fail" = "pass"): CloseoutSnapshot {
+  const execution = { schema: "execution/v1", executionId: "exe-1", taskId: "task-1", state: "submitted", iteration: 0, actor, source: "local", claimedAt: "2026-08-18T00:00:00.000Z", submittedAt: "2026-08-18T00:01:00.000Z", closedAt: null, submission: { schema: "submission/v1", commitSha, summary: "done", tests: [], artifacts: [], submittedAt: "2026-08-18T00:01:00.000Z" } } as unknown as CloseoutSnapshot["executions"][number];
+  const review = { schema: "review/v1", reviewId: "review-1", taskId: "task-1", executionId: "exe-1", verdict: "approved", actor, capabilityRef: "cap", reason: "approved", evidenceChecked: ["tests"], commitSha, iteration: 0, contentDigest: `sha256:${"b".repeat(64)}`, reviewedAt: "2026-08-18T00:02:00.000Z" } as const;
+  return { task: { status: "in_review", iteration: 0, completionGateIds: ["ci"] }, executions: [execution], reviews: [review], consents: [{ schema: "review-consent/v1", consentId: "consent-1", taskId: "task-1", executionId: "exe-1", reviewId: "review-1", reviewDigest: reviewDigest(review), contentDigest: review.contentDigest, actor, source: "local", consentedAt: "2026-08-18T00:03:00.000Z" }], codeDocWitnesses: [], gateWitnesses: [{ schema: "completion-gate-witness/v1", witnessId: "witness-1", receiptId: "receipt-1", checkerId: "ci", gateId: "ci", result: gateResult, taskId: "task-1", executionId: "exe-1", commitSha, iteration: 0, actor, source: "local", verifiedAt: "2026-08-18T00:04:00.000Z" } as CloseoutSnapshot["gateWitnesses"][number]] };
+}
+
+test("closeout readiness requires a passing exact-cut gate, not witness existence", () => {
+  assert.equal(closeoutReadiness(closeout("pass")).readiness, "ready");
+  const failed = closeoutReadiness(closeout("fail"));
+  assert.equal(failed.readiness, "failed");
+  assert.deepEqual(failed.gates, [{ gateId: "ci", status: "failed", detail: "current execution cut did not pass" }]);
+  const stale = closeout();
+  assert.equal(closeoutReadiness({ ...stale, gateWitnesses: stale.gateWitnesses.map((witness) => ({ ...witness, commitSha: "c".repeat(40) })) }).readiness, "incomplete");
+  const recovered = closeout("fail");
+  assert.deepEqual(closeoutReadiness({ ...recovered, gateWitnesses: [...recovered.gateWitnesses, { ...recovered.gateWitnesses[0]!, witnessId: "witness-2", receiptId: "receipt-2", result: "pass" }] }).gates, [{ gateId: "ci", status: "passed" }]);
+});
+
+test("completed tasks retain passed gate badges from their accepted execution cut", () => {
+  const snapshot = closeout("pass");
+  const assessment = closeoutReadiness({ ...snapshot, task: { ...snapshot.task!, status: "done" }, executions: snapshot.executions.map((execution) => ({ ...execution, state: "accepted" })) });
+  assert.equal(assessment.readiness, "passed");
+  assert.equal(assessment.executionId, "exe-1");
+  assert.deepEqual(assessment.gates, [{ gateId: "ci", status: "passed" }]);
+});
+
+test("fact liveness retires the target of the canonical supersedes-fact edge", () => {
+  const edges = [{ sourceRef: "fact/task/F-new", targetRef: "fact/task/F-old", relationType: "supersedes-fact", state: "active" }];
+  assert.equal(factLiveness({ ref: "fact/task/F-old" }, edges), "retired");
+  assert.equal(factLiveness({ ref: "fact/task/F-new" }, edges), "live");
+  assert.equal(factLiveness({ ref: "fact/task/F-old" }, [{ ...edges[0]!, state: "retired" }]), "live");
+});
+
+test("coverage handles transitive evidence, delivered tasks, standing policy, and only live refuters", () => {
+  const decisions = [{ ref: "decision/d1", state: "active", decisionClass: "ordinary", appliesTo: { modules: [], productLines: [] }, claims: [
+    { ref: "decision/d1/C1", loadBearing: true, fulfillment: "evidenced" as const },
+    { ref: "decision/d1/C2", loadBearing: true, fulfillment: "delivered" as const }
+  ] }, { ref: "decision/policy", state: "active", decisionClass: "standing_policy", appliesTo: { modules: ["kernel"], productLines: [] }, claims: [{ ref: "decision/policy/C1", loadBearing: true, fulfillment: "standing-policy" as const }] }];
+  const relations = [
+    { relationId: "via", sourceRef: "decision/d1/C1", targetRef: "decision/helper", relationType: "relates", state: "active" },
+    { relationId: "evidence", sourceRef: "decision/helper", targetRef: "fact/task/F-live", relationType: "evidenced-by", state: "active" },
+    { relationId: "delivery", sourceRef: "decision/d1/C2", targetRef: "task/done", relationType: "derives", state: "active" },
+    { relationId: "refute", sourceRef: "decision/d1", targetRef: "fact/task/F-retired", relationType: "refuted-by", state: "active" },
+    { relationId: "retire", sourceRef: "fact/task/F-new", targetRef: "fact/task/F-retired", relationType: "supersedes-fact", state: "active" }
+  ];
+  const rows = coverageOf(decisions, [{ ref: "fact/task/F-live" }, { ref: "fact/task/F-retired" }, { ref: "fact/task/F-new" }], [{ ref: "task/done", status: "done" }], relations);
+  assert.deepEqual(rows.map(({ claimRef, status, relationPath }) => ({ claimRef, status, relationPath })), [
+    { claimRef: "decision/d1/C1", status: "covered", relationPath: ["via", "evidence"] },
+    { claimRef: "decision/d1/C2", status: "covered", relationPath: ["delivery"] },
+    { claimRef: "decision/policy/C1", status: "covered", relationPath: ["decision/policy"] }
+  ]);
+});
+
+test("blocking applies depends-on to the source and releases it only when the target is done", () => {
+  const tasks = [{ taskId: "a", status: "active" }, { taskId: "b", status: "active" }], relation = { relationId: "dep", sourceRef: "task/a", targetRef: "task/b", relationType: "depends-on", direction: "directed", state: "active", rationale: "a waits" };
+  assert.deepEqual(blockingOf(tasks, [relation]).map(({ taskId, state }) => ({ taskId, state })), [{ taskId: "a", state: "blocked" }, { taskId: "b", state: "clear" }]);
+  assert.deepEqual(blockingOf([{ ...tasks[0]! }, { ...tasks[1]!, status: "done" }], [relation]).map(({ state }) => state), ["clear", "clear"]);
+  assert.deepEqual(blockingOf(tasks, [relation, { ...relation, relationId: "return", sourceRef: "task/b", targetRef: "task/a" }]).map(({ state, warnings }) => ({ state, cycle: warnings.some((warning) => warning.includes("cycle")) })), [{ state: "blocked", cycle: true }, { state: "blocked", cycle: true }]);
+});

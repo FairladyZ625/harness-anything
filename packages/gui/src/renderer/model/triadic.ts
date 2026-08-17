@@ -49,34 +49,6 @@ export function supersedeChain(
   return { supersedes, supersededBy };
 }
 
-/**
- * 覆盖度: claim 沿 relation 可达的活 fact。
- * 原型简化为 evidence anchor walk; 真实版由 RelationGraphProjection 查询。
- */
-export function coverageOf(
-  decision: DecisionRow,
-  facts: FactRef[],
-): { covered: number; total: number; gaps: string[] } {
-  const evidenceByClaim = new Map<string, string[]>();
-  for (const claim of [...decision.chosen, ...decision.rejected]) {
-    evidenceByClaim.set(claim.id, claim.evidence);
-  }
-
-  let covered = 0;
-  const gaps: string[] = [];
-  for (const claim of decision.claims) {
-    const evidence = evidenceByClaim.get(claim.id) ?? [];
-    const reached = evidence.some((ref) => {
-      const anchor = ref.replace(/^fact\//, "");
-      const fact = facts.find((candidate) => candidate.anchor === anchor);
-      return fact && !fact.invalidated;
-    });
-    if (reached) covered += 1;
-    else gaps.push(claim.id);
-  }
-  return { covered, total: decision.claims.length, gaps };
-}
-
 export function factOf(ref: string, facts: FactRef[]): FactRef | undefined {
   const anchor = ref.replace(/^fact\//, "");
   return facts.find((fact) => fact.anchor === anchor);
