@@ -24,12 +24,12 @@ export async function requestLocalDaemonJsonRpc(rootDir: string, method: string,
 
 export async function requestLocalDaemonJsonRpcForTarget(target: { readonly socketPath: string; readonly repoId?: string; readonly canonicalRoot?: string;
   readonly userRoot?: string; readonly daemonId?: string }, method: string, params: JsonObject,
-  timeoutMs = 75): Promise<JsonObject> {
-  return requestDaemonJsonRpcAt(target.socketPath, method, params, timeoutMs);
+  timeoutMs = 75, responseTimeoutMs?: number): Promise<JsonObject> {
+  return requestDaemonJsonRpcAt(target.socketPath, method, params, timeoutMs, responseTimeoutMs);
 }
 
-export async function requestDaemonJsonRpcAt(socketPath: string, method: string, params: JsonObject, timeoutMs = 75): Promise<JsonObject> {
-  return requestWithSocket(await connectSocket(socketPath, timeoutMs), method, params);
+export async function requestDaemonJsonRpcAt(socketPath: string, method: string, params: JsonObject, timeoutMs = 75, responseTimeoutMs?: number): Promise<JsonObject> {
+  return requestWithSocket(await connectSocket(socketPath, timeoutMs), method, params, responseTimeoutMs);
 }
 
 export class JsonRpcLineClient {
@@ -37,10 +37,10 @@ export class JsonRpcLineClient {
   private readonly input: Readable;
   private readonly output: Writable;
   constructor(input: Readable, output: Writable) { this.input = input; this.output = output; }
-  async request(method: string, params: JsonObject): Promise<JsonObject> {
+  async request(method: string, params: JsonObject, responseTimeoutMs?: number): Promise<JsonObject> {
     const id = this.nextId++, responsePromise = this.readResponse(id);
     this.output.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params } satisfies JsonRpcRequest)}\n`);
-    const response = await responsePromise;
+    const response = responseTimeoutMs === undefined ? await responsePromise : await Promise.race([responsePromise, responseDeadline(method, responseTimeoutMs)]);
     if ("error" in response) throw new Error(response.error.message);
     if (!jsonRpcRecord(response.result)) throw new Error(`daemon returned non-object result for ${method}`);
     return response.result;
@@ -53,10 +53,16 @@ export class JsonRpcLineClient {
   }
 }
 
-async function requestWithSocket(socket: net.Socket, method: string, params: JsonObject): Promise<JsonObject> {
+async function requestWithSocket(socket: net.Socket, method: string, params: JsonObject, responseTimeoutMs?: number): Promise<JsonObject> {
   const client = new JsonRpcLineClient(socket, socket);
-  try { await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }); return await client.request(method, params); }
+  try { await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, responseTimeoutMs); return await client.request(method, params, responseTimeoutMs); }
+  catch (error) { if (typeof error === "object" && error !== null && (error as { readonly code?: unknown }).code === "daemon_response_timeout") socket.destroy(); throw error; }
   finally { client.close(); }
+}
+// A daemon that never answers leaves the caller with no output and no error, so a caller that knows its request is
+// cheap can name a deadline and get a classified failure instead of an open-ended wait.
+function responseDeadline(method: string, responseTimeoutMs: number): Promise<never> {
+  return new Promise((_resolve, reject) => { setTimeout(() => reject(Object.assign(new Error(`the daemon did not answer ${method} within ${responseTimeoutMs / 1_000}s; a long write is holding the workspace queue. Run ha daemon status, wait for it to finish, then retry.`), { code: "daemon_response_timeout" })), responseTimeoutMs).unref(); });
 }
 
 function connectSocket(socketPath: string, timeoutMs: number): Promise<net.Socket> {

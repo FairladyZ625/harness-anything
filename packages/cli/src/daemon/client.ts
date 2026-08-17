@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs"; import { fileURLToPath } from "node:url";
-import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts"; import { canonicalRoot, workspaceId } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts"; import { canonicalRoot, commandClassForAction, workspaceId } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
 import type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
@@ -35,10 +35,14 @@ export async function runCommandThroughDaemon(command: ThinCommand, onPhase: (re
   const target = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId });
   const { kind: _kind, ...actionPayload } = command.action, payload = command.method === "repo.script.run" ? Object.fromEntries(Object.entries(actionPayload).filter(([field, value]) => field !== "schema" && (field !== "taskId" || value !== null))) : actionPayload, executor = declaredExecutor();
   const requestPayload = command.method === "repo.task.run" ? { action: executor ? { ...command.action, executor } : command.action } : executor ? { ...payload, executor } : payload;
-  let result = await withAutostart(() => requestLocalDaemonJsonRpcForTarget(target, command.method, { repo: { repoId: target.repoId }, payload: requestPayload as JsonObject }, 75), () => cliDaemonServeLaunch(target.userRoot, target.daemonId), target.socketPath, autostart);
+  let result = await withAutostart(() => requestLocalDaemonJsonRpcForTarget(target, command.method, { repo: { repoId: target.repoId }, payload: requestPayload as JsonObject }, 75, readResponseDeadlineMs(command.action.kind)), () => cliDaemonServeLaunch(target.userRoot, target.daemonId), target.socketPath, autostart);
   if (command.action.kind !== "preset-run-start") return result; let observed = 0;
   for (;;) { const phases = Array.isArray(result.phases) ? result.phases.filter((phase): phase is string => typeof phase === "string") : []; for (const phase of phases.slice(observed)) onPhase({ ...result, ok: !["rejected", "failed", "outcome_unknown"].includes(phase), command: "preset-run-start", summary: `preset-run-start: ${phase}` }); observed = phases.length; if (["applied", "rejected", "failed", "outcome_unknown"].includes(String(result.outcome))) { const ok = result.outcome === "applied"; return { ...result, ok, command: "preset-run-start", summary: `preset-run-start: ${String(result.phase)}`, ...(!ok ? { error: { code: result.code ?? "preset_run_failed", hint: result.nextAction ?? "Inspect the run receipt." } } : {}) }; } await new Promise((resolve) => setTimeout(resolve, 20)); try { result = await requestLocalDaemonJsonRpcForTarget(target, "repo.preset.run.status", { repo: { repoId: target.repoId }, payload: { runId: result.runId } }, 75); } catch (error) { consumeKnownError(error); result = { ...result, outcome: "outcome_unknown", phase: "outcome_unknown", phases: [...phases, "outcome_unknown"], code: "daemon_disconnect", nextAction: "Reconnect and inspect status; do not automatically retry." }; } }
 }
+// Reads never mutate and every measured read answers in well under a second, so a read that is still unanswered after
+// this long is queued behind a long write. Naming that deadline turns an open-ended silent socket into one classified
+// failure; writes stay unbounded because their honest duration is not knowable from here.
+const readResponseDeadlineMs = (kind: string): number | undefined => { try { return commandClassForAction(kind) === "repo-read" ? 30_000 : undefined; } catch (error) { consumeKnownError(error); return undefined; } };
 function declaredExecutor(env: NodeJS.ProcessEnv = process.env): JsonObject | null {
   const raw = env.HARNESS_ACTOR?.trim();
   if (!raw) return null;

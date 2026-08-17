@@ -80,6 +80,22 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
 // The title's "64-item/100ms" is pinned by check-implementation-contracts.mjs and no longer
 // describes this test: it runs at catchUpLimit 2, and the 100ms budget was an unenforced
 // literal removed with the receipt field that carried it. Renaming needs that gate updated.
+test("completion lookup answers from the projection index and stays scoped to one task and execution", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir); const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir }), projection = makeTaskProjection({ rootDir, eventStore }), events = lifecycleFixture().events;
+    const completion = events.find((event) => event.type === "task_completed")!;
+    for (const event of events) { eventStore.append(taskBundle(event)); projection.apply(event); }
+    assert.deepEqual(projection.readTaskCompletion("task-1", "execution-1"), completion);
+    assert.equal(projection.readTaskCompletion("task-1", "execution-2"), null);
+    assert.equal(projection.readTaskCompletion("task-2", "execution-1"), null);
+    // A completion published to the store but not yet reduced must still be found, or a crash between publication and
+    // projection would report the write as unpublished and invite a duplicate attempt.
+    const lagging = makeTaskProjection({ rootDir, eventStore, projectionPath: `${projection.path}.lagging` });
+    for (const event of events.filter((event) => event.type !== "task_completed")) lagging.apply(event);
+    assert.deepEqual(lagging.readTaskCompletion("task-1", "execution-1"), completion);
+  });
+});
+
 test("projection catch-up processes at most one bounded round and never reports stale data ready", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);

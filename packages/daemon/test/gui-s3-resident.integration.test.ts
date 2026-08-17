@@ -2,17 +2,32 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { hostname, tmpdir } from "node:os";
+import net from "node:net";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { registerDaemonRepo } from "../../kernel/src/index.ts";
 import { streamDaemonFacetAt } from "../../gui/src/main/agent-runtime-stream-client.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
+import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
+
+test("a caller that names a response deadline gets a classified failure instead of an open-ended silent socket", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "daemon-response-deadline-")), endpoint = path.join(root, "quiet.sock");
+  const server = net.createServer((socket) => { socket.on("data", (chunk) => { for (const line of String(chunk).split("\n").filter(Boolean)) { const request = JSON.parse(line) as { readonly id: number; readonly method: string };
+    if (request.method === "protocol.hello") socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true } })}\n`); } }); });
+  await new Promise<void>((resolve) => server.listen(endpoint, resolve));
+  try {
+    const started = Date.now();
+    await assert.rejects(() => requestDaemonJsonRpcAt(endpoint, "repo.task.run", {}, 2_000, 250), (error: unknown) => { assert.equal((error as { readonly code?: string }).code, "daemon_response_timeout"); return /did not answer repo\.task\.run within 0\.25s/u.test(String(error)); });
+    assert.equal(Date.now() - started < 2_000, true, "the deadline must fire without waiting for the connect timeout");
+    assert.deepEqual(await requestDaemonJsonRpcAt(endpoint, "protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000, 2_000), { ok: true });
+  } finally { server.close(); rmSync(root, { recursive: true, force: true }); }
+});
 
 test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/control, secret rejection, and real PTY", async () => {
     const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-s3-resident-")), userRoot = path.join(parent, "user"), alpha = path.join(parent, "alpha"), beta = path.join(parent, "beta"), endpoint = path.join(parent, "daemon.sock"), executablePath = path.join(parent, "runtime-stub.mjs"), uid = process.getuid?.() ?? 0; writeFileSync(executablePath, `#!${process.execPath}\nif (process.argv[2] === "--version") console.log("resident-runtime-stub 1.0.0");\nprocess.exit(0);\n`); chmodSync(executablePath, 0o755);
