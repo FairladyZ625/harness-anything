@@ -1,9 +1,14 @@
 // harness-test-tier: fast
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
+
+vi.hoisted(() => {
+  Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
+});
 import { catalogQueryKeys } from "../src/renderer/catalog-data.ts";
 import { controlSucceeded, selectActiveRepoId, settleDaemonControl, systemQueryKeys } from "../src/renderer/system-data.ts";
 import type { DaemonControlReceipt, SystemRepoRow } from "../src/renderer/api-client.ts";
-import { taskQueryKeys } from "../src/renderer/task-data.ts";
+import { invalidateLedgerDependents, LEDGER_REFRESH_INTERVAL_MS, taskDocumentQuery, taskListQuery, taskQueryKeys } from "../src/renderer/task-data.ts";
 import { triadicQueryKeys } from "../src/renderer/triadic-data.ts";
 import { favoritesStorageKey } from "../src/renderer/model/favorites.ts";
 
@@ -24,6 +29,48 @@ describe("GUI S3 R1 repository isolation", () => {
 
   it("keeps daemon-global status outside repository namespaces", () => {
     expect(systemQueryKeys.status()).toEqual(["system", "global", "status"]);
+  });
+
+  it("observes a newer ledger revision while the task view stays mounted", async () => {
+    vi.useFakeTimers();
+    let revision = 41;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const observer = new QueryObserver(client, {
+      ...taskListQuery("repo-a"),
+      queryFn: async () => ({ ok: true as const, status: "ready" as const, rows: [], watermark: revision, sourceRevision: revision, warnings: [] }),
+    });
+    const unsubscribe = observer.subscribe(() => undefined);
+    try {
+      await observer.refetch();
+      expect(observer.getCurrentResult().data?.sourceRevision).toBe(41);
+      revision = 42;
+      await vi.advanceTimersByTimeAsync(LEDGER_REFRESH_INTERVAL_MS + 1);
+      expect(observer.getCurrentResult().data?.sourceRevision).toBe(42);
+    } finally {
+      unsubscribe();
+      client.clear();
+      vi.useRealTimers();
+    }
+  });
+
+  it("refreshes an open task document when the ledger cut advances", async () => {
+    let body = "before";
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const observer = new QueryObserver(client, {
+      ...taskDocumentQuery("repo-a", "task-1", "progress.md"),
+      queryFn: async () => ({ ok: true as const, status: "ready" as const, taskId: "task-1", path: "progress.md", body, blobSha256: "sha", watermark: body === "before" ? 41 : 42, sourceRevision: body === "before" ? 41 : 42 }),
+    });
+    const unsubscribe = observer.subscribe(() => undefined);
+    try {
+      await observer.refetch();
+      expect(observer.getCurrentResult().data?.body).toBe("before");
+      body = "after";
+      await invalidateLedgerDependents(client, "repo-a");
+      expect(observer.getCurrentResult().data?.body).toBe("after");
+    } finally {
+      unsubscribe();
+      client.clear();
+    }
   });
 
   it("selects only enabled repos and retains an enabled unavailable repo", () => {

@@ -22,7 +22,7 @@ import { CommandPalette, buildPaletteIndex } from "./components/CommandPalette.t
 import { pushRecentRef } from "./navigation/recentRefs.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
-import { taskQueryKeys, useTasksQuery } from "./task-data.ts";
+import { invalidateLedgerDependents, LEDGER_REFRESH_INTERVAL_MS, taskQueryKeys, useTasksQuery } from "./task-data.ts";
 import { useTriadicProjectionQuery } from "./triadic-data.ts";
 import { useFavorites } from "./model/favorites.ts";
 import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
@@ -51,6 +51,7 @@ function AppShell() {
   }, [activeRepoId, systemQuery.data?.repos]);
   const projectId = activeRepoId ?? "unselected";
   const tasksQuery = useTasksQuery(activeRepoId);
+  const lastLedgerCut = useRef<string | null>(null);
   const triadicQuery = useTriadicProjectionQuery(activeRepoId);
   const catalogQuery = useCatalogSnapshot(activeRepoId);
   const taskActions = useTaskActions(projectId);
@@ -69,6 +70,14 @@ function AppShell() {
     tasks[0]?.lastKnownAt ?? systemQuery.data?.observedAt ?? new Date(0).toISOString(),
     triadicQuery.decisions.length, triadicQuery.facts.length);
   const { favorites, toggleFavorite } = useFavorites(projectId);
+
+  useEffect(() => {
+    if (!activeRepoId || !tasksQuery.data) return;
+    const cut = `${activeRepoId}:${tasksQuery.data.watermark}:${tasksQuery.data.sourceRevision}`;
+    if (lastLedgerCut.current === cut) return;
+    lastLedgerCut.current = cut;
+    void invalidateLedgerDependents(queryClient, activeRepoId);
+  }, [activeRepoId, queryClient, tasksQuery.data?.sourceRevision, tasksQuery.data?.watermark]);
 
   const decisions = triadicQuery.decisions;
   const facts = triadicQuery.facts;
@@ -274,6 +283,17 @@ function AppShell() {
           ) : (
             <span className="block font-mono text-[11px] text-text-faint">
               {t("components.appSidebar.readLocalLedger")}
+            </span>
+          )}
+          {tasksQuery.data && (
+            <span data-testid="ledger-refresh-status" className="mt-0.5 block font-mono text-[10px] text-text-faint">
+              {tasksQuery.isRefetchError
+                ? t("components.appSidebar.ledgerRefreshFailed", { watermark: String(tasksQuery.data.watermark) })
+                : tasksQuery.data.status === "pending"
+                  ? t("components.appSidebar.ledgerCatchingUp", { watermark: String(tasksQuery.data.watermark), sourceRevision: String(tasksQuery.data.sourceRevision) })
+                  : tasksQuery.isFetching
+                    ? t("components.appSidebar.ledgerChecking", { watermark: String(tasksQuery.data.watermark) })
+                    : t("components.appSidebar.ledgerRevision", { watermark: String(tasksQuery.data.watermark), seconds: String(LEDGER_REFRESH_INTERVAL_MS / 1_000) })}
             </span>
           )}
         </div>

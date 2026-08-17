@@ -1,7 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type QueryClient } from "@tanstack/react-query";
 import { harnessClient } from "./api-client.ts";
 import type { DocEntry, DocGroup } from "./model/types.ts";
 import { isRendererRecord } from "./result-validation.ts";
+
+export const LEDGER_REFRESH_INTERVAL_MS = 2_000;
 
 export const taskQueryKeys = {
   all: (repoId: string) => ["tasks", repoId] as const,
@@ -9,13 +11,28 @@ export const taskQueryKeys = {
   document: (repoId: string, taskId: string, path: string) => ["tasks", repoId, taskId, "document", path] as const
 };
 
+export function taskListQuery(repoId: string) {
+  return {
+    queryKey: taskQueryKeys.list(repoId),
+    queryFn: () => harnessClient.getTasks({ repoId }),
+    staleTime: 10_000,
+    refetchInterval: LEDGER_REFRESH_INTERVAL_MS,
+    refetchOnWindowFocus: "always" as const
+  };
+}
+
 export function useTasksQuery(repoId: string | null) {
   return useQuery({
-    queryKey: taskQueryKeys.list(repoId ?? "unselected"),
-    queryFn: () => harnessClient.getTasks({ repoId: repoId! }),
-    enabled: repoId !== null,
-    staleTime: 10_000
+    ...taskListQuery(repoId ?? "unselected"),
+    enabled: repoId !== null
   });
+}
+
+export async function invalidateLedgerDependents(queryClient: QueryClient, repoId: string): Promise<void> {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: taskQueryKeys.all(repoId), predicate: (query) => query.queryKey[2] !== "list" }),
+    queryClient.invalidateQueries({ queryKey: ["triadic", repoId] })
+  ]);
 }
 
 export function taskDocumentQuery(repoId: string, taskId: string, path: string) { return { queryKey: taskQueryKeys.document(repoId, taskId, path), queryFn: () => harnessClient.getTaskDocument({ repoId, taskId, path }), staleTime: 10_000 }; }
