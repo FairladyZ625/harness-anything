@@ -14,10 +14,11 @@ import type { ProjectedExecution } from "./execution.ts";
 import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
 import type { CodeDocWitnessV1 } from "./code-doc-witness.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
+import type { CoverageRelation } from "./decision-coverage.ts";
 
 export type CloseoutGateStatus = "passed" | "failed" | "missing" | "unknown";
 export interface CloseoutGateResult { readonly gateId: string; readonly status: CloseoutGateStatus; readonly detail?: string }
-export type CloseoutBlocker = "execution" | "review" | "consent" | "gate" | "projection_unknown";
+export type CloseoutBlocker = "execution" | "review" | "consent" | "gate" | "lineage" | "projection_unknown";
 export interface CloseoutAssessment {
   readonly readiness: CloseoutReadiness;
   readonly executionId?: string;
@@ -30,12 +31,13 @@ export interface CloseoutProjectionAvailability {
   readonly gateWitnesses: "known" | "unknown";
 }
 export interface CloseoutSnapshot {
-  readonly task: { readonly status: string; readonly iteration: number; readonly completionGateIds: readonly string[] } | null;
+  readonly task: { readonly status: string; readonly iteration: number; readonly completionGateIds: readonly string[]; readonly taskId?: string; readonly taskClass?: string } | null;
   readonly executions: readonly ProjectedExecution[];
   readonly reviews: readonly ReviewV1[];
   readonly consents: readonly ReviewConsentV1[];
   readonly codeDocWitnesses: readonly CodeDocWitnessV1[];
   readonly gateWitnesses: readonly CompletionGateWitnessV1[];
+  readonly decisionRelations?: readonly CoverageRelation[];
 }
 
 /** The one cross-aggregate closeout judgment used by transitions and read models. */
@@ -54,7 +56,14 @@ export function closeoutReadiness(snapshot: CloseoutSnapshot, availability?: Clo
   const consent = snapshot.consents.find((value) => value.executionId === execution.executionId && value.reviewId === review.reviewId && value.reviewDigest === reviewDigest(review) && value.contentDigest === review.contentDigest);
   if (!consent) return { readiness: "incomplete", executionId: execution.executionId, blocker: "consent", gates };
   const failed = gates.some(({ status }) => status === "failed"), missing = gates.some(({ status }) => status !== "passed");
-  return { readiness: failed ? "failed" : missing ? "incomplete" : "ready", executionId: execution.executionId, ...(missing ? { blocker: "gate" as const } : {}), gates };
+  const orphan = lineageOrphan(task, snapshot.decisionRelations ?? []);
+  return { readiness: failed ? "failed" : missing || orphan ? "incomplete" : "ready", executionId: execution.executionId, ...(missing ? { blocker: "gate" as const } : orphan ? { blocker: "lineage" as const } : {}), gates };
+}
+
+/** dec_01KXBDV2R6DA0AA0MXTCH0E4AP CH1: a milestone or long_running task completes only with an active decision derives edge naming it. */
+function lineageOrphan(task: NonNullable<CloseoutSnapshot["task"]>, relations: readonly CoverageRelation[]): boolean {
+  if (task.taskId === undefined || task.taskClass !== "milestone" && task.taskClass !== "long_running") return false;
+  return !relations.some(({ sourceRef, targetRef, relationType, state }) => sourceRef.startsWith("decision/") && relationType === "derives" && state === "active" && targetRef === `task/${task.taskId}`);
 }
 
 export function gateResults(snapshot: CloseoutSnapshot, availability?: CloseoutProjectionAvailability, executionId?: string, commitSha?: string, iteration?: number): readonly CloseoutGateResult[] {

@@ -347,7 +347,13 @@ function readSnapshot(db: DatabaseSync, taskId: string, now?: string): TaskLifec
   let snapshot: TaskLifecycleSnapshot;
   try { snapshot = JSON.parse(row.snapshot_json) as TaskLifecycleSnapshot; } catch { throw new Error(`projection snapshot mismatch for task ${taskId}`); }
   const lease = now === undefined ? storedLease(db, taskId) : effectiveLease(db, taskId, now);
-  return { ...snapshot, lease: lease?.phase === "released" ? null : lease };
+  // The stored snapshot is pure task-aggregate state; the decision relations this task is a
+  // target of are stamped at read time as-of the applied cut, the same join the live lease uses.
+  const decisionRelations = (queryRows(db, "SELECT row_json FROM relation_edge WHERE target_ref = ?", `task/${taskId}`) as readonly { readonly row_json: string }[]).map((edge) => {
+    const parsed = JSON.parse(edge.row_json) as { readonly relationId: string; readonly sourceRef: string; readonly targetRef: string; readonly relationType: string; readonly state: string };
+    return { relationId: parsed.relationId, sourceRef: parsed.sourceRef, targetRef: parsed.targetRef, relationType: parsed.relationType, state: parsed.state };
+  });
+  return { ...snapshot, lease: lease?.phase === "released" ? null : lease, decisionRelations };
 }
 
 function readIntervals(db: DatabaseSync, taskId: string): readonly LeaseInterval[] {
