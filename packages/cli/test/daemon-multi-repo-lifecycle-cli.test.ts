@@ -272,10 +272,23 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
     // pair — an absolute millisecond bound here would only assert how fast the runner
     // is, and dec_01KY6X4J486MZ35RW1QN51V2V1 restricts performance gates to relative
     // overhead. It fails if the CLI grows eager module loading, or stops delegating to
-    // the resident daemon and starts doing the write in its own process. The bound is
-    // unchanged at 3: it was never the problem, and raising it to accommodate an
-    // unstable reading would have treated the display instead of the instrument.
-    assert.equal(overheadRatio <= 3, true,
+    // the resident daemon and starts doing the write in its own process.
+    //
+    // The bound is 4, derived rather than chosen. The old bound of 3 was calibrated
+    // against a measurement that systematically under-read: the bare-spawn batch ran
+    // last, after ~22 spawns had warmed the page cache, so the denominator was too
+    // small and the reading too low. With the denominator fixed, the enforcement lane
+    // (full-check) reads 3.086 / 3.106 / 3.072 / 3.071 — stable to ±0.6%, and above the
+    // old bound. Keeping 3 would have failed every run; the bound was never calibrated
+    // against a correct instrument in the first place.
+    //
+    // 4 preserves the original design's sensitivity in absolute terms, which is what
+    // the gate actually protects. Old: (3 - 2.028) x 37.9ms bare = 36.8ms of added CLI
+    // startup before it fires. New: (4 - 3.08) x 33.7ms bare = 31.0ms. The gate gets
+    // slightly stricter in milliseconds while gaining 1.29x headroom over the worst
+    // observed reading. 3.5 leaves only 1.13x headroom; 4.5 relaxes sensitivity to
+    // 47.9ms, looser than the design it replaces.
+    assert.equal(overheadRatio <= 4, true,
       `thin CLI overhead was ${overheadRatio.toFixed(3)}x a bare Node spawn (paired p50; spread ${orderedRatios[0]!.toFixed(3)}x-${orderedRatios.at(-1)!.toFixed(3)}x, cli=${p50.toFixed(3)}ms, bare=${bareP50.toFixed(3)}ms, daemon=${daemonP50.toFixed(3)}ms)`);
   } finally { stop(fixture.alpha, fixture.userRoot, builtCli); rmSync(fixture.root, { recursive: true, force: true }); }
 });
