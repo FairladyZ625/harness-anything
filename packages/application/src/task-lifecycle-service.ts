@@ -1,5 +1,5 @@
 // @slice-activation P4 W2 is composed by tests; W3 owns daemon and production publication cutover.
-import { applyTransition, canonicalizeContractValue, compileTaskLifecycleWrite, eventObjectTarget, lifecycleDocumentPaths, taskLifecycleWritePlan, validateTaskLifecycleCommandEnvelope,
+import { applyTransition, canonicalizeContractValue, compileTaskLifecycleWrite, eventObjectTarget, isSameExecution, isSamePerson, lifecycleDocumentPaths, taskLifecycleWritePlan, validateTaskLifecycleCommandEnvelope,
   type ExecutionV1, type FrozenWritePlan, type ProofFor, type TaskEventV1, type TaskLifecycleCommand, type TaskLifecycleSnapshot,
   type WriteOperationReceipt, type WriteTarget } from "../../kernel/src/index.ts";
 
@@ -62,7 +62,7 @@ async function renewTaskLease(options: { readonly eventStore: EventStorePort; re
     const replayed = options.projection.currentLease(input.taskId); if (replayed === null) throw new TaskLifecycleOperationConflict(`renewed lease ${input.opId} is not readable`); return replayed;
   }
   const current = options.projection.currentLease(input.taskId);
-  if (current === null || current.phase !== "active" || current.executionId !== input.executionId || !sameActor(current.actor, input.actor)
+  if (current === null || current.phase !== "active" || current.executionId !== input.executionId || !isSameExecution(current.actor, input.actor)
     || json(current.source) !== json(input.source) || current.version !== input.expectedVersion) throw new TaskLifecycleOperationConflict(`stale lease CAS for task ${input.taskId}`);
   const state = await read(input.taskId), task = state.snapshot.task, execution = state.snapshot.executions.find((candidate): candidate is ExecutionV1 => candidate.schema === "execution/v1" && candidate.executionId === input.executionId);
   if (state.status !== "ready" || task === null || execution === undefined) throw new TaskLifecycleOperationConflict("lease renewal requires a ready active execution");
@@ -81,7 +81,7 @@ function planClaim(projection: ProjectionPort, command: StartCommand, proof: Tas
   const reserving: Lease = { schema: "lease/v1", taskId: command.taskId, executionId: command.executionId, actor: command.actor, source: command.source,
     phase: "reserving", expiresAt: proof.reservation.expiresAt, ttlMs: proof.reservation.ttlMs, version: previous === null ? 0 : previous.version + 1 };
   const active = { ...reserving, phase: "active" as const, version: reserving.version + 1 }, previousHolder = previous === null ? null : holder(previous);
-  const reason = previous === null ? "initial_claim" as const : sameActor(previous.actor, command.actor) ? "same_principal_reconnect" as const : "ttl_expired_takeover" as const;
+  const reason = previous === null ? "initial_claim" as const : isSamePerson(previous.actor, command.actor) ? "same_principal_reconnect" as const : "ttl_expired_takeover" as const;
   return { reserving, active, proof: { actorBinding: proof.actorBinding, reservation: { taskId: active.taskId, executionId: active.executionId,
     expiresAt: active.expiresAt, ttlMs: active.ttlMs, previousHolder, reason, version: active.version } } };
 }
@@ -90,8 +90,7 @@ function consumeKnownError(error: unknown): void { void error; }
 function holder(lease: Lease): Pick<Lease, "taskId" | "executionId" | "actor" | "source"> { return { taskId: lease.taskId, executionId: lease.executionId, actor: lease.actor, source: lease.source }; }
 function matchesRenewal(event: TaskEventV1, input: TaskLeaseRenewInput): boolean { return event.type === "lease_renewed" && event.taskId === input.taskId
   && event.payload.execution.executionId === input.executionId && event.payload.lease.version === input.expectedVersion + 1 && event.payload.lease.expiresAt === input.expiresAt
-  && sameActor(event.actor, input.actor) && json(event.source) === json(input.source); }
-function sameActor(left: TaskLifecycleCommand["actor"], right: TaskLifecycleCommand["actor"]): boolean { return left.principal.personId === right.principal.personId && left.executor?.kind === right.executor?.kind && left.executor?.id === right.executor?.id; }
+  && isSameExecution(event.actor, input.actor) && json(event.source) === json(input.source); }
 function eventTargets(opId: string): readonly [WriteTarget, WriteTarget] { return [{ kind: "event_file", path: eventObjectTarget(opId), operation: "create" }, { kind: "event_head", path: "harness/events/head.json", operation: "replace" }]; }
 function projectionTarget(taskId: string): WriteTarget { return { kind: "projection_invalidation", projection: "task-lifecycle/v1", key: taskId }; }
 function plannedPublication<A>(plan: FrozenWritePlan, event: TaskEventV1, write: () => A): A { for (const target of eventTargets(event.opId)) assertWriteTargetDeclared(plan, target); return write(); }

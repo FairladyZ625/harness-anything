@@ -91,30 +91,39 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
 test("a lapsed lease stays readable through task show and releasable through task release", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-lease-exit-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined; let clock = "2026-08-15T02:00:00.000Z";
   try {
-    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("task-lease-exit"), rootDir: canonicalRoot(rootDir), ownerId: "task-lease-exit", now: () => clock }); const binding = { actor, source: "local" as const };
-    assert.equal((await cell.run({ kind: "task-create", taskId: "task_lease", title: "Lease exit" }, binding)).outcome, "applied");
-    assert.equal((await cell.run({ kind: "task-start", taskId: "task_lease", executionId: "exe_lapse", ttlMs: 60_000 }, binding)).outcome, "applied");
-    const held = String((await cell.run({ kind: "task-show", taskId: "task_lease" }, binding) as Record<string, unknown>).summary);
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("task-lease-exit"), rootDir: canonicalRoot(rootDir), ownerId: "task-lease-exit", now: () => clock });
+    const holder = { actor: { principal: { personId: "person-surface" }, executor: { kind: "agent" as const, id: "executor-departed" } }, source: "local" as const };
+    const reclaimer = { actor: { principal: { personId: "person-surface" }, executor: { kind: "agent" as const, id: "executor-reclaimer" } }, source: "local" as const };
+    assert.equal((await cell.run({ kind: "task-create", taskId: "task_lease", title: "Lease exit" }, holder)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-start", taskId: "task_lease", executionId: "exe_lapse", ttlMs: 60_000 }, holder)).outcome, "applied");
+    const held = String((await cell.run({ kind: "task-show", taskId: "task_lease" }, reclaimer) as Record<string, unknown>).summary);
     assert.match(held, /\nlease: [^\n]*phase=active/u, held);
     assert.match(held, /\nlease: [^\n]*expiresAt=2026-08-15T02:01:00\.000Z/u, held);
+    const earlyReclaim = await cell.run({ kind: "task-release", taskId: "task_lease", reason: "Holder is still active" }, reclaimer);
+    assert.equal(earlyReclaim.outcome, "rejected", JSON.stringify(earlyReclaim));
+    assert.equal((earlyReclaim as Record<string, unknown>).code, "lease_conflict", JSON.stringify(earlyReclaim));
     clock = "2026-08-15T03:00:00.000Z";
-    const summary = String((await cell.run({ kind: "task-show", taskId: "task_lease" }, binding) as Record<string, unknown>).summary);
+    const summary = String((await cell.run({ kind: "task-show", taskId: "task_lease" }, reclaimer) as Record<string, unknown>).summary);
     assert.match(summary, /\nlease: [^\n]*executionId=exe_lapse[^\n]*phase=orphaned/u, summary);
     assert.match(summary, /\nlease: [^\n]*expiresAt=2026-08-15T02:01:00\.000Z/u, summary);
     assert.match(summary, /\ntask: [^\n]*status=active[^\n]*/u, summary);
     assert.match(summary, /executions:\n[^\n]*\texe_lapse\t/u, summary);
     // The reporter's bite: the failed append must say when the lease lapsed and name the round to re-enter.
-    const bite = await cell.run({ kind: "task-progress-append", taskId: "task_lease", text: "Append after the lease lapsed", evidence: [] }, binding) as Record<string, unknown>;
+    const bite = await cell.run({ kind: "task-progress-append", taskId: "task_lease", text: "Append after the lease lapsed", evidence: [] }, reclaimer) as Record<string, unknown>;
     assert.equal(bite.outcome, "rejected", JSON.stringify(bite));
     assert.equal(bite.code, "progress_lease_required", JSON.stringify(bite));
     assert.match(String(bite.nextAction), /lapsed at 2026-08-15T02:01:00\.000Z/u, JSON.stringify(bite));
     assert.match(String(bite.nextAction), /ha task release task_lease, then re-enter the round with ha task start task_lease --execution-id exe_lapse/u, JSON.stringify(bite));
-    const released = await cell.run({ kind: "task-release", taskId: "task_lease", reason: "The holder never came back" }, binding);
+    const outsider = { actor: { principal: { personId: "person-outsider" }, executor: { kind: "agent" as const, id: "executor-outsider" } }, source: "local" as const };
+    const crossPrincipal = await cell.run({ kind: "task-release", taskId: "task_lease", reason: "Different principal" }, outsider);
+    assert.equal(crossPrincipal.outcome, "rejected", JSON.stringify(crossPrincipal));
+    assert.equal((crossPrincipal as Record<string, unknown>).code, "lease_conflict", JSON.stringify(crossPrincipal));
+    const released = await cell.run({ kind: "task-release", taskId: "task_lease", reason: "The holder never came back" }, reclaimer);
     assert.equal(released.outcome, "applied", JSON.stringify(released));
-    assert.equal(evidence(await cell.run({ kind: "task-show", taskId: "task_lease" }, binding)).lease, null);
+    assert.equal(evidence(await cell.run({ kind: "task-show", taskId: "task_lease" }, reclaimer)).lease, null);
     // The recovery the error prescribes must actually work: same execution re-leases the round, then the append lands.
-    assert.equal((await cell.run({ kind: "task-start", taskId: "task_lease", executionId: "exe_lapse", ttlMs: 60_000 }, binding)).outcome, "applied");
-    assert.equal((await cell.run({ kind: "task-progress-append", taskId: "task_lease", text: "Re-entered after the lapse", evidence: [] }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-start", taskId: "task_lease", executionId: "exe_lapse", ttlMs: 60_000 }, reclaimer)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-progress-append", taskId: "task_lease", text: "Re-entered after the lapse", evidence: [] }, reclaimer)).outcome, "applied");
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
