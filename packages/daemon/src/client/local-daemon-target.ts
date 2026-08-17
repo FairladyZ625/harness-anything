@@ -24,7 +24,8 @@ export function resolveLocalDaemonTarget(input: { readonly rootDir: string; read
   const requested = input.repoIdOverride ?? env.HARNESS_DAEMON_REPO_ID;
   const rootDir = bindCanonicalRoot(input.rootDir);
   const repo = requested ? repos.find((candidate) => candidate.repoId === requested && candidate.state === "enabled")
-    : repos.find((candidate) => candidate.canonicalRoot === rootDir);
+    : repos.filter((candidate) => candidate.canonicalRoot === rootDir || rootDir.startsWith(`${candidate.canonicalRoot}${path.sep}`))
+      .sort((left, right) => right.canonicalRoot.length - left.canonicalRoot.length)[0];
   if (!repo || repo.state !== "enabled") throw new Error(`workspace is not registered; run ha daemon repo register --repo-id <id> --root ${JSON.stringify(path.resolve(input.rootDir))}`);
   return { repoId: workspaceId(repo.repoId), canonicalRoot: bindCanonicalRoot(repo.canonicalRoot), userRoot, daemonId, socketPath: localUserDaemonEndpoint(userRoot, daemonId) };
 }

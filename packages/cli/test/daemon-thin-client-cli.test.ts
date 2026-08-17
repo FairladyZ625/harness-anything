@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { detachedProcessOptions } from "../../daemon/src/process-port.ts";
 import { runGuiLaunch, type GuiLaunchDependencies } from "../src/daemon/control.ts";
+import { emit } from "../src/index.ts";
 
 test("daemon process port hides detached startup windows", () => {
   assert.deepEqual(detachedProcessOptions, { detached: true, stdio: "ignore", windowsHide: true });
@@ -46,7 +47,7 @@ test("daemon-missing preset run rejects promptly without child or direct fallbac
 test("GUI launch reports a missing Electron binary with a next action", () => {
   const fixture = makeGuiFixture(false);
   try {
-    const output = captureGuiOutput(() => runGuiLaunch(["gui", "--json"], { workspaceRoot: fixture.root, resolveElectronBinary: () => undefined }));
+    const output = captureGuiOutput(() => runGuiLaunch(["gui", "--json"], { workspaceRoot: fixture.root, resolveElectronBinary: () => undefined }, emit));
     const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string; error: { code: string; hint: string } };
     assert.equal(output.status, 1); assert.equal(receipt.ok, false); assert.equal(receipt.code, "electron_unavailable");
     assert.equal(receipt.error.code, "electron_unavailable"); assert.match(receipt.error.hint, /electron\/install\.js/u);
@@ -56,7 +57,7 @@ test("GUI launch reports a missing Electron binary with a next action", () => {
 test("GUI launch reports a missing renderer dist with the build command", () => {
   const fixture = makeGuiFixture(true);
   try {
-    const output = captureGuiOutput(() => runGuiLaunch(["gui", "--json"], { workspaceRoot: fixture.root, resolveElectronBinary: () => "/electron" }));
+    const output = captureGuiOutput(() => runGuiLaunch(["gui", "--json"], { workspaceRoot: fixture.root, resolveElectronBinary: () => "/electron" }, emit));
     const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string; error: { code: string; hint: string } };
     assert.equal(output.status, 1); assert.equal(receipt.ok, false); assert.equal(receipt.code, "gui_dist_missing");
     assert.equal(receipt.error.code, "gui_dist_missing"); assert.match(receipt.error.hint, /npm run build -w @harness-anything\/gui/u);
@@ -67,7 +68,7 @@ test("GUI launch refuses a built renderer whose preload bundle is missing", () =
   const fixture = makeGuiFixture(true);
   try {
     writeFileSync(path.join(fixture.root, "packages/gui/dist/index.html"), "<!doctype html>\n");
-    const output = captureGuiOutput(() => runGuiLaunch(["gui", "--json"], { workspaceRoot: fixture.root, resolveElectronBinary: () => "/electron", spawnProcess: () => { throw new Error("a GUI without its preload bridge must never be launched"); } }));
+    const output = captureGuiOutput(() => runGuiLaunch(["gui", "--json"], { workspaceRoot: fixture.root, resolveElectronBinary: () => "/electron", spawnProcess: () => { throw new Error("a GUI without its preload bridge must never be launched"); } }, emit));
     const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string; error: { code: string; hint: string } };
     assert.equal(output.status, 1); assert.equal(receipt.ok, false); assert.equal(receipt.code, "gui_preload_missing");
     assert.match(receipt.error.hint, /npm run build:preload -w @harness-anything\/gui/u);
@@ -87,7 +88,7 @@ test("GUI launch starts the packaged Electron entry detached and without a dev r
         void command; calls.push({ args, options: options as Record<string, unknown> });
         return { pid: 42, on() {}, unref() { unrefs += 1; } } as unknown as ReturnType<NonNullable<GuiLaunchDependencies["spawnProcess"]>>;
       }
-    }));
+    }, emit));
     const receipt = JSON.parse(output.stdout) as { ok: boolean; pid: number };
     assert.equal(output.status, 0); assert.equal(receipt.ok, true); assert.equal(receipt.pid, 42);
     assert.deepEqual(calls[0]?.args, [path.join(fixture.root, "packages/gui/src/main/electron-main.ts")]);
@@ -108,7 +109,7 @@ test("GUI launch rejects when the spawned Electron never yields a pid", () => {
     // spawn surfaces a missing or unusable binary asynchronously, so it never throws here; an
     // absent pid is the only synchronous witness, and reporting ok would hand back a dead GUI.
     const output = captureGuiOutput(() => runGuiLaunch(["gui", "--json"], { workspaceRoot: fixture.root, resolveElectronBinary: () => "/nonexistent-electron",
-      spawnProcess: () => ({ pid: undefined, on() {}, unref() {} }) as unknown as ReturnType<NonNullable<GuiLaunchDependencies["spawnProcess"]>> }));
+      spawnProcess: () => ({ pid: undefined, on() {}, unref() {} }) as unknown as ReturnType<NonNullable<GuiLaunchDependencies["spawnProcess"]>> }, emit));
     const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string };
     assert.equal(output.status, 1); assert.equal(receipt.ok, false); assert.equal(receipt.code, "gui_launch_failed");
   } finally { rmSync(fixture.root, { recursive: true, force: true }); }
