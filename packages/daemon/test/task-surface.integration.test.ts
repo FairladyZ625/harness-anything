@@ -121,6 +121,12 @@ test("a released round is re-enterable by its own execution and still refuses a 
     const shown = evidence(await cell.run({ kind: "task-show", taskId: "task_round" }, binding));
     assert.deepEqual((shown.executions as readonly { readonly executionId: string; readonly state: string }[]).map((row) => `${row.executionId}/${row.state}`), ["exe_round/active"]);
     assert.equal((shown.lease as { readonly executionId: string } | null)?.executionId, "exe_round");
+    // Re-entry must not require the caller to remember the id. Omitting it used to derive a fresh one,
+    // which the round then refused — the reported dead end, reachable with no execution id at all.
+    assert.equal((await cell.run({ kind: "task-release", taskId: "task_round", reason: "Handed back again" }, binding)).outcome, "applied");
+    const blind = await cell.run({ kind: "task-start", taskId: "task_round" }, binding);
+    assert.equal(blind.outcome, "applied", JSON.stringify(blind));
+    assert.equal((evidence(await cell.run({ kind: "task-show", taskId: "task_round" }, binding)).lease as { readonly executionId: string } | null)?.executionId, "exe_round");
     // Replay is the real contract: a cold rebuild from the event log must not grow a duplicate execution.
     await cell.close(); cell = undefined;
     const store = makeTaskEventStore({ repoId: "task-round-reenter", rootDir }), replay = makeTaskProjection({ rootDir, eventStore: store });
