@@ -1,8 +1,10 @@
 export interface BlockingTask { readonly taskId: string; readonly status: string }
 export interface BlockingRelation { readonly relationId: string; readonly sourceRef: string; readonly targetRef: string; readonly relationType: string; readonly direction: string; readonly state: string; readonly rationale?: string }
 export interface BlockingContributor { readonly relationId: string; readonly kind: "depends-on"; readonly sourceTaskId: string; readonly targetTaskId: string; readonly rationale?: string }
-export interface BlockingAssessment { readonly taskId: string; readonly state: "blocked" | "clear" | "unknown"; readonly blockers: readonly BlockingContributor[]; readonly warnings: readonly string[] }
-export interface BlockingProjectionState { readonly state?: "ready" | "loading" | "error"; readonly hardFailWarnings?: readonly string[] }
+export type BlockingAssessmentState = "blocked" | "clear" | "unknown";
+export type BlockingAvailabilityState = "ready" | "loading" | "error";
+export interface BlockingAssessment { readonly taskId: string; readonly state: BlockingAssessmentState; readonly blockers: readonly BlockingContributor[]; readonly warnings: readonly string[] }
+export interface BlockingProjectionState { readonly state?: BlockingAvailabilityState; readonly hardFailWarnings?: readonly string[] }
 
 /** Canonical direction: `A depends-on B` blocks A until B is done. */
 export function blockingOf(tasks: readonly BlockingTask[], relations: readonly BlockingRelation[], projection: BlockingProjectionState = {}): readonly BlockingAssessment[] {

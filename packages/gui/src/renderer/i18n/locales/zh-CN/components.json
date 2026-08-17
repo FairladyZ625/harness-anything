@@ -44,6 +44,7 @@
   "components.badges.rejected": "已否决",
   "components.badges.retired": "已退役",
   "components.badges.riskSignificanceDepthReview": "风险/重要性 → 评审深度",
+  "components.badges.superseded": "已取代",
   "components.badges.suspended": "暂缓",
   "components.badges.takingEffect": "生效中",
   "components.badges.tooltipClickJump": "{tooltip} — 点击跳转",

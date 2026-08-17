@@ -77,7 +77,9 @@ function decisionStateLabel(state: DecisionState | typeof OTHER_STATUS_BUCKET): 
     active: "components.badges.takingEffect",
     deferred: "components.badges.suspended",
     rejected: "components.badges.rejected",
+    superseded: "components.badges.superseded",
     retired: "components.badges.retired",
+    unknown: "components.badges.unknown",
   };
   const key = map[state];
   return key ? t(key) : state;

@@ -12,6 +12,8 @@ import type { WriteSource } from "./write-chain.contract.ts";
 
 export const executionStates = ["active", "submitted", "accepted", "changes_requested", "abandoned"] as const;
 export type ExecutionState = (typeof executionStates)[number];
+export const leasePhases = ["reserving", "active", "orphaned", "released"] as const;
+export type LeasePhase = (typeof leasePhases)[number];
 
 export const executionV1States = ["active", "submitted", "changes_requested", "accepted"] as const;
 export type ExecutionV1State = (typeof executionV1States)[number];
@@ -22,7 +24,7 @@ export interface ArchivedExecutionV0 { readonly schema: "archived-execution/v1";
 export type ProjectedExecution = ExecutionV1 | ArchivedExecutionV0;
 export function isNativeExecution(value: ProjectedExecution): value is ExecutionV1 { return value.schema === "execution/v1"; }
 export interface LeaseHolder { readonly taskId: string; readonly executionId: string; readonly actor: ActorAxes; readonly source: WriteSource }
-export interface LeaseV1 extends LeaseHolder { readonly schema: "lease/v1"; readonly phase: "reserving" | "active" | "orphaned" | "released"; readonly expiresAt: string; readonly ttlMs: number; readonly version: number }
+export interface LeaseV1 extends LeaseHolder { readonly schema: "lease/v1"; readonly phase: LeasePhase; readonly expiresAt: string; readonly ttlMs: number; readonly version: number }
 export const TASK_LEASE_BROKER_CONTRACT = Object.freeze({ capacity: 32 });
 export const EXECUTION_V1_SCHEMA = Object.freeze({ id: "Execution/v1", required: Object.freeze(["schema", "executionId", "taskId", "nodeId", "iteration", "state", "actor", "claimedAt", "submittedAt", "closedAt", "submission"]), states: executionV1States });
 export const LEASE_V1_SCHEMA = Object.freeze({ id: "Lease/v1", required: Object.freeze(["schema", "taskId", "executionId", "actor", "source", "phase", "expiresAt", "ttlMs", "version"]) });

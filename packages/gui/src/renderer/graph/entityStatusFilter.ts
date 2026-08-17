@@ -20,6 +20,7 @@ export const DECISION_STATE_FILTER_OPTIONS: ReadonlyArray<DecisionState> = [
   "active",
   "deferred",
   "rejected",
+  "superseded",
   "retired",
 ];
 

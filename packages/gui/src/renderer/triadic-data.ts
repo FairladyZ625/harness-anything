@@ -186,8 +186,12 @@ function decisionClaim(
   };
 }
 
+/**
+ * Kernel decision states pass through; anything else is unknown — never a plausible
+ * neighbour (ADR-0020 D1: `superseded` is not "awaiting approval").
+ */
+const kernelDecisionStates: ReadonlySet<string> = new Set(["proposed", "rejected", "deferred", "superseded", "active", "retired"]);
 function decisionState(value: string): DecisionState {
-  if (value === "proposed" || value === "rejected" || value === "deferred" || value === "active" || value === "retired") return value;
-  return "proposed";
+  return kernelDecisionStates.has(value) ? value as DecisionState : "unknown";
 }
 function actorRef(value: DecisionProjectionRow["proposer"]): { readonly kind: "agent" | "human"; readonly id: string } { return value.executor ? { kind: "agent", id: value.executor.id } : { kind: "human", id: value.principal.personId }; }

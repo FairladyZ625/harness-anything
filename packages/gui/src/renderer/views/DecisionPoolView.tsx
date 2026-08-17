@@ -17,7 +17,9 @@ import { t } from "../i18n/index.tsx";
 type PoolTab = "proposed" | "active" | "retired";
 type TimeRange = "all" | "14d" | "30d";
 type RelationState = "ready" | "loading" | "error";
-const TAB_STATE: Record<PoolTab, DecisionState[]> = { proposed: ["proposed", "rejected", "deferred"], active: ["active"], retired: ["retired"] };
+// Ended-decision family: retired (human-ended) and superseded (replaced) share the
+// retired bucket; each keeps its own badge and filter option inside the tab.
+const TAB_STATE: Record<PoolTab, DecisionState[]> = { proposed: ["proposed", "rejected", "deferred"], active: ["active"], retired: ["retired", "superseded"] };
 const selectClass = "rounded-md border border-border bg-surface px-2 py-1 font-mono text-[12px] text-text-muted outline-none transition-colors duration-100 hover:border-border-strong focus-visible:border-border-strong";
 
 function withinRange(decision: DecisionRow, range: TimeRange) {
@@ -64,7 +66,7 @@ export function DecisionPoolView({ repoId, decisions, facts, relations, coverage
     if (!focusedDecisionId) { handledFocusRef.current = null; return; }
     if (handledFocusRef.current === focusedDecisionId) return;
     const decision = decisions.find((candidate) => candidate.decisionId === focusedDecisionId); if (!decision) return;
-    handledFocusRef.current = focusedDecisionId; setTab(decision.state === "active" ? "active" : decision.state === "retired" ? "retired" : "proposed");
+    handledFocusRef.current = focusedDecisionId; setTab(decision.state === "active" ? "active" : TAB_STATE.retired.includes(decision.state) ? "retired" : "proposed");
     setStateFilter("all"); setRiskFilter("all"); setUrgencyFilter("all"); setVerticalFilter("all"); setPresetFilter("all"); setProposedByFilter("all"); setTimeRange("all"); setSearch(""); setModuleFilter("all"); setProductLineFilter("all");
     const frame = window.requestAnimationFrame(() => document.getElementById(`decision-card-${focusedDecisionId}`)?.scrollIntoView({ block: "center" }));
     return () => window.cancelAnimationFrame(frame);

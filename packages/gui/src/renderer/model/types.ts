@@ -2,7 +2,20 @@ import type { DecisionProjectionRow, RelationType } from "../../api/renderer-dto
 
 export type CanonicalStatus = "planned" | "active" | "blocked" | "in_review" | "done" | "cancelled";
 
-export type SnapshotStatus = CanonicalStatus | "unknown";
+/**
+ * GUI adapter superset of the kernel task-status vocabulary plus the explicit
+ * unknown (house convention: unknown shows as unknown, e.g. the board's unknown
+ * column). Spelled out literally so the status-word register gate can lock this
+ * mirror against the kernel vocabulary directly.
+ */
+export type SnapshotStatus =
+  | "planned"
+  | "active"
+  | "blocked"
+  | "in_review"
+  | "done"
+  | "cancelled"
+  | "unknown";
 
 export type Freshness = "fresh" | "stale-but-usable" | "unavailable-no-cache";
 
@@ -127,13 +140,21 @@ export interface RelationEdge {
 
 // ============ 三元语：decision（why，脊梁）============
 
-// schema 无独立 accepted 态:accept 即 active(TP-M3-01 state 枚举)
+/**
+ * Mirror of the kernel decision-state vocabulary (decisionStates, 6 words) plus the
+ * explicit unknown. The status-word register ratchet gate locks this mirror against
+ * the kernel, and `superseded` must stay distinct (ADR-0020 D1): a superseded
+ * decision is not awaiting approval, and a value outside the vocabulary renders as
+ * unknown, never as a plausible neighbour.
+ */
 export type DecisionState =
   | "proposed"
   | "rejected"
   | "deferred"
+  | "superseded"
   | "active"
-  | "retired";
+  | "retired"
+  | "unknown";
 
 export type RiskTier = "low" | "medium" | "high";
 export type Urgency = "low" | "medium" | "high";
