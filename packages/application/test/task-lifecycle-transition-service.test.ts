@@ -149,22 +149,24 @@ test("pending without an event uses an honest receipt", async () => {
 // touching the batch window still reports 64 -- which is why a timing comparison has to carry it.
 // So the gate is a positive control rather than a constant: the same write runs twice over the
 // same fixture, in one process and one time window, once through the bounded read path and once
-// through a path that reads every old event first. Both arms report accessedItems <= 64; only the
-// read cost separates them, and it must separate them on any machine at any load.
+// through a control that reads every old event twice. Two scans move the signal above scheduler
+// noise, while one accidental full scan in the bounded path still collapses the ratio below 3.
+// Both arms report accessedItems <= 64, so only the read-cost comparison exposes that regression.
 test("10,000 old events do not block a new write", async (context) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-10k-"));
   try {
     const historyRoot = path.join(parent, "history"), historyEvents = 10_000;
     seedOldEvents(historyRoot, historyEvents);
-    const readMs: Record<ReadMode, number[]> = { bounded: [], "whole-history": [] };
+    const samples: Record<ReadMode, Awaited<ReturnType<typeof independentWrite>>[]> = { bounded: [], "whole-history": [] }, ratios: number[] = [];
     let revision = historyEvents;
-    for (let round = 1; round <= 3; round += 1) {
-      // Alternate which arm pays the process warm-up so it cannot bias one side.
+    for (let round = 1; round <= 5; round += 1) {
+      // Keep each pair adjacent and alternate which arm pays the process warm-up.
       const order: readonly ReadMode[] = round % 2 === 0 ? ["whole-history", "bounded"] : ["bounded", "whole-history"];
+      let boundedArm: Awaited<ReturnType<typeof independentWrite>> | undefined, wholeHistoryArm: Awaited<ReturnType<typeof independentWrite>> | undefined;
       for (const mode of order) {
         revision += 1;
         const arm = await independentWrite(historyRoot, revision, `${round}-${mode}`, mode);
-        readMs[mode].push(arm.readMs);
+        samples[mode].push(arm); if (mode === "bounded") boundedArm = arm; else wholeHistoryArm = arm;
         context.diagnostic(`independent-write round=${round} mode=${mode} readMs=${arm.readMs.toFixed(3)} storeInitMs=${arm.storeInitMs.toFixed(3)} appendMs=${arm.appendMs.toFixed(3)} applyMs=${arm.applyMs.toFixed(3)} accessedItems=${arm.maxAccessedItems}`);
         assert.notEqual(arm.published, null, "the independent write must enter L1");
         assert.equal(arm.outcome, "pending", "L1 may lead the bounded L2 catch-up");
@@ -172,11 +174,13 @@ test("10,000 old events do not block a new write", async (context) => {
         // so this assertion cannot stand in for the read-cost comparison below.
         assert.equal(arm.maxAccessedItems <= 64, true, `catch-up accessed ${arm.maxAccessedItems} event files`);
       }
+      assert.ok(boundedArm); assert.ok(wholeHistoryArm); ratios.push(wholeHistoryArm.readMs / boundedArm.readMs);
     }
-    const median = (values: readonly number[]) => [...values].sort((left, right) => left - right)[Math.floor(values.length / 2)]!;
-    const bounded = median(readMs.bounded), wholeHistory = median(readMs["whole-history"]);
-    assert.equal(bounded * 3 < wholeHistory, true,
-      `bounded catch-up read ${bounded.toFixed(1)}ms against ${wholeHistory.toFixed(1)}ms for reading every old event (bounded: ${readMs.bounded.map((value) => value.toFixed(1)).join(", ")}; whole-history: ${readMs["whole-history"].map((value) => value.toFixed(1)).join(", ")})`);
+    const describe = (values: readonly number[]) => `p50=${median(values).toFixed(3)}ms min=${Math.min(...values).toFixed(3)}ms max=${Math.max(...values).toFixed(3)}ms`, metric = (mode: ReadMode, key: "elapsedMs" | "storeInitMs" | "readMs" | "appendMs" | "applyMs") => samples[mode].map((sample) => sample[key]);
+    for (const mode of ["bounded", "whole-history"] as const) context.diagnostic(`independent-write-samples mode=${mode} samples=${samples[mode].length} total(${describe(metric(mode, "elapsedMs"))}) storeInit(${describe(metric(mode, "storeInitMs"))}) read(${describe(metric(mode, "readMs"))}) append(${describe(metric(mode, "appendMs"))}) apply(${describe(metric(mode, "applyMs"))})`);
+    const orderedRatios = [...ratios].sort((left, right) => left - right), ratio = median(ratios); context.diagnostic(`independent-write-ratio=paired-whole-history-over-bounded samples=${ratios.length} p50=${ratio.toFixed(3)}x min=${orderedRatios[0]!.toFixed(3)}x max=${orderedRatios.at(-1)!.toFixed(3)}x`);
+    assert.equal(ratio > 3, true,
+      `whole-history/bounded paired p50 was ${ratio.toFixed(3)}x (spread ${orderedRatios[0]!.toFixed(3)}x-${orderedRatios.at(-1)!.toFixed(3)}x)`);
   } finally {
     rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
@@ -203,6 +207,7 @@ function seedOldEvents(rootDir: string, count: number): void {
 }
 
 type ReadMode = "bounded" | "whole-history";
+function median(values: readonly number[]): number { const ordered = [...values].sort((left, right) => left - right); return ordered[Math.floor(ordered.length / 2)]!; }
 
 async function independentWrite(rootDir: string, revision: number, label: string, mode: ReadMode) {
   const started = performance.now();
@@ -212,7 +217,7 @@ async function independentWrite(rootDir: string, revision: number, label: string
   const boundedEventStore = { ...eventStore, readBatch: (cursor: string | null, maxItems: number) => {
     // The failure mode the item bound cannot see: read every old event, then hand back the same
     // 64-item window, so accessedItems is unchanged and only the clock notices the difference.
-    if (mode === "whole-history") eventStore.read();
+    if (mode === "whole-history") { eventStore.read(); eventStore.read(); }
     const batch = eventStore.readBatch(cursor, maxItems);
     phase.maxAccessedItems = Math.max(phase.maxAccessedItems, batch.accessedItems);
     return batch;
