@@ -2,7 +2,7 @@ import type { LifecycleBinding } from "./lifecycle-binding.js";
 import { validateRelationRecordsForHost, type EntityRelationRecord } from "./entity-relation.ts";
 import { validateTaskGraph } from "./task-graph.ts";
 import type { TaskGraphV1, TaskNodeId } from "./task-graph.ts";
-import { hasOnlyFields, isNonEmptyString, isRecord, validateActorIdentity } from "./write-chain.contract.ts";
+import { isNonEmptyString, isRecord, validateActorIdentity } from "./write-chain.contract.ts";
 export { canonicalizeWriteValue as canonicalizeContractValue, hasOnlyFields, isNonEmptyString, isRecord } from "./write-chain.contract.ts";
 
 export type TaskId = string;
@@ -29,11 +29,11 @@ export function createTaskIdentity(id: TaskId, title: string): TaskIdentity {
 
 export const replayTaskStatuses = ["planned", "active", "blocked", "in_review", "done", "cancelled"] as const;
 export type ReplayTaskStatus = (typeof replayTaskStatuses)[number];
-export const taskClasses = ["standard", "milestone", "epic"] as const;
+export const taskClasses = ["standard", "milestone", "epic", "long_running"] as const;
 export type TaskClass = (typeof taskClasses)[number];
 export interface ActorAxes { readonly principal: { readonly personId: string }; readonly executor: { readonly kind: "agent"; readonly id: string } | null }
 export type TaskPackageDisposition = "active" | "archived" | "tombstoned";
-export interface TaskMetadataV1 { readonly idempotencyKey: string | null; readonly parentTaskId: string | null; readonly workKind: "feat" | "fix" | "refactor" | "docs" | "test" | "chore" | null; readonly riskTier: "low" | "medium" | "high" | null; readonly urgency: "low" | "medium" | "high" | null; readonly verticalId: string; readonly presetId: string; readonly profileId: string; readonly moduleKey: string | null; readonly slug: string; readonly surfaces: readonly string[]; readonly longRunning: boolean; readonly fromLegacyId: string | null }
+export interface TaskMetadataV1 { readonly idempotencyKey: string | null; readonly parentTaskId: string | null; readonly workKind: "feat" | "fix" | "refactor" | "docs" | "test" | "chore" | null; readonly riskTier: "low" | "medium" | "high" | null; readonly urgency: "low" | "medium" | "high" | null; readonly verticalId: string; readonly presetId: string; readonly profileId: string; readonly moduleKey: string | null; readonly slug: string; readonly surfaces: readonly string[]; readonly fromLegacyId: string | null }
 export interface TaskV1 { readonly schema: "task/v1"; readonly taskId: string; readonly title: string; readonly taskClass: TaskClass; readonly status: ReplayTaskStatus; readonly graph: TaskGraphV1; readonly currentNode: TaskNodeId; readonly iteration: 0 | 1; readonly createdBy: ActorAxes; readonly completionGateIds: readonly string[]; readonly presetSnapshotDigest: `sha256:${string}` | null; readonly metadata?: TaskMetadataV1; readonly relations?: readonly EntityRelationRecord[]; readonly packageDisposition?: TaskPackageDisposition; readonly supersededBy?: string | null; readonly contractVersion?: number }
 export interface ContractValidationIssue { readonly code: string; readonly message: string }
 export const TASK_V1_SCHEMA = Object.freeze({ id: "Task/v1", required: Object.freeze(["schema", "taskId", "title", "taskClass", "status", "graph", "currentNode", "iteration", "createdBy", "completionGateIds", "presetSnapshotDigest"]), statuses: replayTaskStatuses, taskClasses });
@@ -62,10 +62,12 @@ export function validateTaskV1(value: unknown): readonly ContractValidationIssue
 }
 
 function validMetadata(value: unknown): value is TaskMetadataV1 {
-  const fields = ["idempotencyKey", "parentTaskId", "workKind", "riskTier", "urgency", "verticalId", "presetId", "profileId", "moduleKey", "slug", "surfaces", "longRunning", "fromLegacyId"];
-  if (!isRecord(value) || !hasOnlyFields(value, fields)) return false;
+  // longRunning predates taskClass=long_running (dec_01KYRHP8ND). The event log is immutable,
+  // so historical payloads may still carry the retired boolean; current writers never emit it.
+  const fields = ["idempotencyKey", "parentTaskId", "workKind", "riskTier", "urgency", "verticalId", "presetId", "profileId", "moduleKey", "slug", "surfaces", "fromLegacyId"];
+  if (!isRecord(value) || !fields.every((field) => Object.hasOwn(value, field)) || Object.keys(value).some((field) => field !== "longRunning" && !fields.includes(field)) || typeof value.longRunning !== "undefined" && typeof value.longRunning !== "boolean") return false;
   const nullableText = (candidate: unknown): boolean => candidate === null || isNonEmptyString(candidate);
-  return nullableText(value.idempotencyKey) && nullableText(value.parentTaskId) && (value.workKind === null || ["feat", "fix", "refactor", "docs", "test", "chore"].includes(String(value.workKind))) && (value.riskTier === null || ["low", "medium", "high"].includes(String(value.riskTier))) && (value.urgency === null || ["low", "medium", "high"].includes(String(value.urgency))) && isNonEmptyString(value.verticalId) && isNonEmptyString(value.presetId) && isNonEmptyString(value.profileId) && nullableText(value.moduleKey) && /^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$/u.test(String(value.slug)) && Array.isArray(value.surfaces) && value.surfaces.every(isNonEmptyString) && typeof value.longRunning === "boolean" && nullableText(value.fromLegacyId);
+  return nullableText(value.idempotencyKey) && nullableText(value.parentTaskId) && (value.workKind === null || ["feat", "fix", "refactor", "docs", "test", "chore"].includes(String(value.workKind))) && (value.riskTier === null || ["low", "medium", "high"].includes(String(value.riskTier))) && (value.urgency === null || ["low", "medium", "high"].includes(String(value.urgency))) && isNonEmptyString(value.verticalId) && isNonEmptyString(value.presetId) && isNonEmptyString(value.profileId) && nullableText(value.moduleKey) && /^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$/u.test(String(value.slug)) && Array.isArray(value.surfaces) && value.surfaces.every(isNonEmptyString) && nullableText(value.fromLegacyId);
 }
 
 const taskNodeIdsForValidation = ["implementation", "review"] as const;

@@ -79,7 +79,12 @@ test("descriptor-derived RBAC preserves every preset, runtime, doc-sync, Fact, a
 test("task-create and preset RPC descriptors enforce closed payloads and retire the open route", () => {
   const params = { repo: { repoId: "alpha" }, payload: { title: "Closed", presetId: "standard-task" } };
   assert.equal(parseDaemonRpcParams("repo.task.create", params).ok, true); assert.equal(parseDaemonRpcParams("repo.task.create", { ...params, payload: { ...params.payload, dryRun: true } }).ok, true); assert.equal(parseDaemonRpcParams("repo.task.create", { ...params, payload: { ...params.payload, dryRun: "true" } }).ok, false); assert.equal(parseDaemonRpcParams("repo.task.create", { ...params, payload: { ...params.payload, completionGateIds: [] } }).ok, false); assert.deepEqual(actionForDaemonMethod("repo.task.create", params.payload), { kind: "task-create", ...params.payload }); assert.throws(() => actionForDaemonMethod("repo.task.run", { action: { kind: "task-create", title: "Open" } }), /closed method/u);
-  assert.equal(parseDaemonRpcParams("repo.task.create", { repo: { repoId: "alpha" }, payload: { taskId: "task_full", title: "Full", idempotencyKey: "once", parentTaskId: "task_parent", workKind: "feat", riskTier: "high", urgency: "medium", moduleKey: "kernel", registerModule: { key: "kernel", title: "Kernel", prefix: "KER", scope: "packages/kernel/**" }, surfaces: ["ha task create"], relations: [{ type: "depends-on", target: "task/task_parent", rationale: "First" }], longRunning: true, createMode: "admin" } }).ok, true);
+  const fullPayload = { taskId: "task_full", title: "Full", idempotencyKey: "once", parentTaskId: "task_parent", workKind: "feat", riskTier: "high", urgency: "medium", moduleKey: "kernel", registerModule: { key: "kernel", title: "Kernel", prefix: "KER", scope: "packages/kernel/**" }, surfaces: ["ha task create"], relations: [{ type: "depends-on", target: "task/task_parent", rationale: "First" }], createMode: "admin" };
+  assert.equal(parseDaemonRpcParams("repo.task.create", { repo: { repoId: "alpha" }, payload: fullPayload }).ok, true);
+  const retiredBoolean = parseDaemonRpcParams("repo.task.create", { repo: { repoId: "alpha" }, payload: { ...fullPayload, longRunning: true } });
+  assert.equal(retiredBoolean.ok, false);
+  if (!retiredBoolean.ok) assert.deepEqual(retiredBoolean.errors, ["params.payload.longRunning is not allowed"]);
+  assert.equal(parseDaemonRpcParams("repo.task.create", { repo: { repoId: "alpha" }, payload: { ...fullPayload, taskClass: "long_running" } }).ok, true);
 });
 
 test("ledger migrate runs through the RepoCell write queue and rebuilds the projection at the migrated cut", async () => {
