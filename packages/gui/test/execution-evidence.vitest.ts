@@ -135,6 +135,8 @@ function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotPr
       edgesTaken: [], lease: null,
     },
     snapshotAvailability: { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" },
+    closeoutAssessment: { readiness: "incomplete", executionId: "execution-1", blocker: "consent", gates: [{ gateId: "build", status: "passed" }] },
+    blockingAssessment: { taskId, state: "clear", blockers: [], warnings: [] },
     placement: { moduleKeys: ["gui"], productLines: ["harness"], parentTaskId: null, origin: "native", engine: "kernel/task-lifecycle/v1",
       packageDisposition: "active", provenance: [{ kind: "canonical-event", ref: `task/${taskId}` }] },
     executionEvidence: [{ executionId: "execution-1", origin: "native", outputs: [

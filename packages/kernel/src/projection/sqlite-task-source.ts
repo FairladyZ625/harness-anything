@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "../error-consumption.ts";
 import type { CloseoutReadiness } from "../domain/index.ts";
-import { isPriorityTier, isTaskWorkKind } from "../domain/index.ts";
+import { closeoutReadiness as domainCloseoutReadiness, isPriorityTier, isTaskWorkKind } from "../domain/index.ts";
 import { isDomainStatus, isTerminalStatus } from "../domain/lifecycle-status.ts";
 import { isPackageDisposition } from "../domain/package-disposition.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
@@ -131,7 +131,7 @@ export function taskEntryToRow(
     coordinationStatus: coordinationStatus(canonicalStatus),
     rawStatus,
     packageDisposition,
-    closeoutReadiness: closeoutReadiness(rootInput, entry.taskId, canonicalStatus),
+    closeoutReadiness: projectCloseoutReadiness(canonicalStatus),
     lifecycleEngine,
     freshness: canonicalStatus === "unknown" || !isPackageDisposition(rawDisposition) ? "stale-but-usable" : "fresh",
     updatedAt: (statPathIfPresent(entry.indexPath)?.mtime ?? new Date(0)).toISOString(),
@@ -273,12 +273,9 @@ function coordinationStatus(status: ProjectionCanonicalStatus): CoordinationStat
   return isTerminalStatus(status) ? "terminal" : "open";
 }
 
-function closeoutReadiness(rootInput: HarnessLayoutInput, taskId: string, status: ProjectionCanonicalStatus): CloseoutReadiness {
+function projectCloseoutReadiness(status: ProjectionCanonicalStatus): CloseoutReadiness {
   if (status === "unknown") return "missing";
-  if (!isTerminalStatus(status) && status !== "in_review") return "not_required";
-  const taskDir = path.join(resolveHarnessLayout(rootInput).tasksRoot, taskId);
-  if (existsSync(path.join(taskDir, "closeout.md"))) return "ready";
-  return "missing";
+  return domainCloseoutReadiness({ task: { status, iteration: 0, completionGateIds: [] }, executions: [], reviews: [], consents: [], codeDocWitnesses: [], gateWitnesses: [] }).readiness;
 }
 
 export function sourcePath(rootDir: string, filePath: string): string {
