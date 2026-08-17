@@ -334,7 +334,7 @@ for (const file of files) {
     }
   }
 
-  if (!rel.startsWith("packages/cli/src/") && !rel.startsWith("packages/application/src/") && /\b(?:Effect|E|Fx)\.runPromise\w*\s*\(|\brunPromise\w*\s*\(/.test(text)) {
+  if (!rel.startsWith("packages/cli/src/") && /\b(?:Effect|E|Fx)\.runPromise\w*\s*\(|\brunPromise\w*\s*\(/.test(text)) {
     record(`${rel}: Effect.runPromise* is only allowed at controller composition roots`);
   }
 
