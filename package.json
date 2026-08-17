@@ -83,6 +83,7 @@
     "harness:check-kernel-dead-exports": "node tools/check-kernel-dead-exports.mjs",
     "harness:check-relation-cycle-substrate": "node tools/check-relation-cycle-substrate.mjs",
     "harness:check-relation-canonical-direction": "node tools/check-relation-canonical-direction.mjs",
+    "harness:check-task-event-aggregate-entry": "node tools/check-task-event-aggregate-entry.mjs",
     "harness:check-enforcement-debt-sunset": "node tools/check-enforcement-debt-sunset.mjs",
     "pr:doctor": "node tools/pr-doctor.mjs"
   },

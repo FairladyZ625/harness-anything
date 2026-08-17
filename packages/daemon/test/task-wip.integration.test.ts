@@ -40,7 +40,7 @@ test("the execution WIP gate hard-rejects at the limit and never holds closeout 
     assert.equal(preview.outcome, "rejected"); assert.equal(preview.code, "task_wip_limit_reached");
     // The same transition surface cannot bypass the gate.
     const sideways = await cell.run({ kind: "task-transition", taskId: "task_FRESH", status: "active", reason: "Bypass" }, binding);
-    assert.equal(sideways.outcome, "rejected"); assert.equal(sideways.code, "task_wip_limit_reached");
+    assert.equal(sideways.outcome, "rejected"); assert.equal(sideways.code, "invalid_transition");
     // THE DEADLOCK: at a full worktable, starting the closeout backfill must still work.
     const backfill = await cell.run({ kind: "task-start", taskId: "task_BACKFILL", executionId: "exe_backfill" }, binding);
     assert.equal(backfill.outcome, "applied", JSON.stringify(backfill));
@@ -99,7 +99,7 @@ test("task list rows expose packageDisposition and taskClass so the occupancy co
     await cell.run({ kind: "task-create", taskId: "task_MILESTONE", title: "Milestone container", taskClass: "milestone" }, binding);
     await cell.run({ kind: "task-create", taskId: "task_ARCHIVED", title: "Retired work" }, binding);
     assert.equal((await cell.run({ kind: "task-start", taskId: "task_STD", executionId: "exe_std" }, binding)).outcome, "applied");
-    assert.equal((await cell.run({ kind: "task-transition", taskId: "task_MILESTONE", status: "active", reason: "Tracking only" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-start", taskId: "task_MILESTONE", executionId: "exe_milestone" }, binding)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-transition", taskId: "task_ARCHIVED", status: "blocked", reason: "Stale" }, binding)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-archive", taskId: "task_ARCHIVED", reason: "Retired from the worktable" }, binding)).outcome, "applied");
     const listed = evidence(await cell.run({ kind: "task-list" }, binding));

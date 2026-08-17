@@ -32,10 +32,18 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-lifecycle-surface-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("task-lifecycle-surface"), rootDir: canonicalRoot(rootDir), ownerId: "task-lifecycle-surface", now: () => "2026-08-15T01:00:00.000Z" }); const binding = { actor, source: "local" as const };
-    for (const [taskId, title] of [["task_lifecycle", "Lifecycle"], ["task_replacement", "Replacement"]] as const) assert.equal((await cell.run({ kind: "task-create", taskId, title, profileId: "baseline" }, binding)).outcome, "applied");
+    for (const [taskId, title] of [["task_lifecycle", "Lifecycle"], ["task_replacement", "Replacement"], ["task_reviewing", "Reviewing"]] as const) assert.equal((await cell.run({ kind: "task-create", taskId, title, profileId: "baseline" }, binding)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-start", taskId: "task_lifecycle", executionId: "exe_surface", ttlMs: 60_000 }, binding)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-release", taskId: "task_lifecycle", reason: "Pause before changing scope" }, binding)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-transition", taskId: "task_lifecycle", status: "blocked", reason: "Waiting on scope" }, binding)).outcome, "applied");
+    const unblocked = await cell.run({ kind: "task-transition", taskId: "task_lifecycle", status: "active" }, binding);
+    assert.equal(unblocked.outcome, "applied");
+    const plannedActivation = await cell.run({ kind: "task-transition", taskId: "task_replacement", status: "active", reason: "Bypass task start" }, binding);
+    assert.equal(plannedActivation.outcome, "rejected"); assert.equal(plannedActivation.code, "invalid_transition");
+    assert.equal((await cell.run({ kind: "task-start", taskId: "task_reviewing", executionId: "exe_reviewing" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-submit", taskId: "task_reviewing", executionId: "exe_reviewing", submission: { completionClaim: "Status routing is ready for review.", deliverables: ["aggregate status route"], outputs: ["task lifecycle event"], verificationNotes: ["daemon integration"], knownGaps: [], residualRisks: [], commitSha: git(rootDir, "rev-parse", "HEAD") } }, binding)).outcome, "applied");
+    const reviewActivation = await cell.run({ kind: "task-transition", taskId: "task_reviewing", status: "active", reason: "Bypass review outcome" }, binding);
+    assert.equal(reviewActivation.outcome, "rejected"); assert.equal(reviewActivation.code, "invalid_transition");
     assert.equal((await cell.run({ kind: "task-transition", taskId: "task_lifecycle", status: "done", reason: "bypass" }, binding)).outcome, "rejected");
     assert.equal((await cell.run({ kind: "task-amend", taskId: "task_lifecycle", patches: [{ field: "title", value: "Lifecycle amended" }, { field: "riskTier", value: "high" }, { field: "moduleKey", value: "daemon" }, { field: "taskClass", value: "milestone" }] }, binding)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-amend", taskId: "task_lifecycle", patches: [{ field: "taskClass", value: "container" }] }, binding)).outcome, "rejected");
@@ -59,6 +67,24 @@ test("forced cancellation is audited and terminal tasks require supersede instea
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-terminal-surface-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("task-terminal-surface"), rootDir: canonicalRoot(rootDir), ownerId: "task-terminal-surface", now: () => "2026-08-15T02:00:00.000Z" }); const binding = { actor, source: "local" as const }; await cell.run({ kind: "task-create", taskId: "task_terminal", title: "Terminal", profileId: "baseline" }, binding);
     assert.equal((await cell.run({ kind: "task-transition", taskId: "task_terminal", status: "cancelled" }, binding)).outcome, "rejected"); assert.equal((await cell.run({ kind: "task-transition", taskId: "task_terminal", status: "cancelled", force: true, reason: "Audited cancellation after invalid scope" }, binding)).outcome, "applied"); await cell.run({ kind: "task-archive", taskId: "task_terminal", reason: "Retain cancellation audit" }, binding); const reopen = await cell.run({ kind: "task-reopen", taskId: "task_terminal", reason: "More work" }, binding); assert.equal(reopen.outcome, "rejected"); assert.match(String(reopen.nextAction), /supersede/u);
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("aggregate-authored status events rebuild to the exact hot snapshot", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-status-replay-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("task-status-replay"), rootDir: canonicalRoot(rootDir), ownerId: "task-status-replay", now: () => "2026-08-15T02:15:00.000Z" }); const binding = { actor, source: "local" as const };
+    assert.equal((await cell.run({ kind: "task-create", taskId: "task_status_replay", title: "Status replay" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-transition", taskId: "task_status_replay", status: "blocked", reason: "Waiting for a dependency" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-transition", taskId: "task_status_replay", status: "active" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-transition", taskId: "task_status_replay", status: "blocked", reason: "Dependency regressed" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-transition", taskId: "task_status_replay", status: "cancelled", force: true, reason: "Scope withdrawn" }, binding)).outcome, "applied");
+    const hot = (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === "task_status_replay")?.snapshot;
+    assert.ok(hot); await cell.close(); cell = undefined;
+    const store = makeTaskEventStore({ repoId: "task-status-replay", rootDir }), replay = makeTaskProjection({ rootDir, eventStore: store });
+    assert.deepEqual(store.read().events.filter((event) => event.schema === "task-event/v1").map((event) => event.type), ["task_transitioned", "task_transitioned", "task_transitioned", "task_transitioned"]);
+    rmSync(replay.path, { force: true }); const rebuilt = replay.rebuild(), cold = replay.read("task_status_replay").snapshot;
+    assert.equal(rebuilt.watermark, store.readHead()?.revision); assert.deepEqual(cold, hot);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 

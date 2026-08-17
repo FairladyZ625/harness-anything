@@ -26,7 +26,7 @@ test("G28 freezes a unique declared write set and rejects late targets", () => {
 
 test("G28 validates a predeclared write plan for every lifecycle command", () => {
   const commandTypes = [...new Set(TASK_LIFECYCLE_COMMAND_CATALOG.map((entry) => entry.commandType))];
-  assert.deepEqual(commandTypes.sort(), ["CompleteTask", "CreateReplayTask", "ReconcileCodeDoc", "RecordReview", "RecordReviewConsent", "StartExecution", "SubmitExecution"]);
+  assert.deepEqual(commandTypes.sort(), ["CompleteTask", "CreateReplayTask", "ReconcileCodeDoc", "RecordReview", "RecordReviewConsent", "StartExecution", "SubmitExecution", "TransitionTask"]);
   for (const commandType of commandTypes) {
     assert.deepEqual(validateWritePlan({ commandType, targets: targets.slice(0, 3) }), []);
   }

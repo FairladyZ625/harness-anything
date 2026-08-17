@@ -1,7 +1,7 @@
 export { consumeKnownError } from "./error-consumption.ts";
 export * from "./domain/index.ts";
 export { isAgentRuntimeEvent, runtimeSessionId } from "./domain/agent-runtime.ts"; export type { AgentDefinitionSnapshot, AgentRuntimeEventV1, RuntimeInstallation, RuntimeSession } from "./domain/agent-runtime.ts";
-export { applyTransition, canonicalGateReceipts, canStartExecution, normalizeTaskLifecycleCommand, reviewDigest, validateTaskLifecycleCommandEnvelope } from "./domain/task-lifecycle.contract.ts";
+export { allowsTaskStatusMove, applyTransition, canonicalGateReceipts, canStartExecution, normalizeTaskLifecycleCommand, reviewDigest, validateTaskLifecycleCommandEnvelope } from "./domain/task-lifecycle.contract.ts";
 export { canReclaim, isIndependentFrom, isSameExecution, isSamePerson } from "./domain/actor-domain-services.ts";
 export { compileTaskLifecycleWrite, lifecycleDocumentPaths, taskLifecycleWritePlan } from "./domain/task-lifecycle-publication.ts";
 export { completionBlockers, type CompletionReadinessContext } from "./domain/completion-readiness.ts";
