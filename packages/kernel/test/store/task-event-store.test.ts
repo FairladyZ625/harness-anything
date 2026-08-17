@@ -48,6 +48,25 @@ test("opening a settled event store does not scan event or content trees", async
   });
 });
 
+test("reading the whole event stream validates every content blob in batches instead of one Git process per blob", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir); const count = 40, writer = makeTaskEventStore({ repoId: "stream-budget", rootDir });
+    for (let revision = 1; revision <= count; revision += 1) writer.append(docBundle(writer, `# Doc ${revision}\n`, revision, `op-doc-${String(revision).padStart(4, "0")}`, `context/doc-${revision}.md`));
+    const store = makeTaskEventStore({ repoId: "stream-budget", rootDir }), before = localGitObjectRefStore.processCount(), stream = store.read(), readProcesses = localGitObjectRefStore.processCount() - before;
+    assert.equal(stream.revision, count); assert.deepEqual(stream.events.map((value) => value.workspaceRevision), Array.from({ length: count }, (_value, index) => index + 1));
+    assert.equal(readProcesses <= 6, true, `reading ${count} events with one content blob each opened ${readProcesses} Git processes`);
+  });
+});
+
+test("batched stream validation still rejects an unreachable content blob", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir); const writer = makeTaskEventStore({ repoId: "stream-corrupt", rootDir }); writer.append(docBundle(writer, "# Doc 1\n", 1, "op-doc-0001", "context/doc-1.md"));
+    const hash = sha256Text("# Doc 1\n"), objectPath = path.join(rootDir, "harness", contentObjectRelativePath(hash)); writeFileSync(objectPath, "corrupt\n"); git(rootDir, "add", "harness/objects"); git(rootDir, "commit", "-qm", "corrupt blob"); git(rootDir, "update-ref", CANONICAL_EVENT_REF, "HEAD");
+    const store = makeTaskEventStore({ repoId: "stream-corrupt", rootDir });
+    assert.throws(() => store.read(), (error: unknown) => { assert.equal((error as { code?: string }).code, "invalid_store"); return new RegExp(`content blob ${hash} is not reachable and exact`, "u").test(String(error)); });
+  });
+});
+
 test("unified publication advances canonical and authored refs to one SHA while preserving index, prose, and every unrelated dirty path byte", async (context) => {
   await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); mkdirSync(path.join(rootDir, "harness/context"), { recursive: true });
     writeFileSync(path.join(rootDir, "harness/context/user.md"), "draft\n"); writeFileSync(path.join(rootDir, "dirty.txt"), "dirty\n"); git(rootDir, "add", "harness/context/user.md"); git(rootDir, "commit", "-qm", "user prose"); writeFileSync(path.join(rootDir, "harness/context/user.md"), "draft plus local edit\n");
