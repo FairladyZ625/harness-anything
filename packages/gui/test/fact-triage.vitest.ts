@@ -158,6 +158,21 @@ describe("fact-triage signal computation", () => {
     expect(retiredAlias.signals.map((signal) => signal.kind)).not.toContain("INVALIDATED");
   });
 
+  it("does not flag INVALIDATED from a retired or deleted refuted-by edge", () => {
+    const fact = baseFact();
+    for (const state of ["retired", "deleted"] as const) {
+      const item = computeFactTriageSignals(
+        fact,
+        [edge("decision/dec_2", `fact/${fact.anchor}`, "refuted-by", { state })],
+        [coverage(fact)],
+        [anchor(fact)],
+      );
+
+      expect(item.signals.map((signal) => signal.kind)).not.toContain("INVALIDATED");
+      expect(item.severity).toBe(0);
+    }
+  });
+
   it("flags an orphan from factAnchors minus covered coverageRows", () => {
     const fact = baseFact();
 
@@ -530,6 +545,29 @@ describe("cross-entity navigation projection", () => {
 
     expect(markup).not.toContain("危险关系");
     expect(markup).not.toContain("已被");
+  });
+
+  it("keeps retired and deleted refuted-by edges in the audit list but out of the FactInspector danger panel", () => {
+    const fact = baseFact();
+    for (const state of ["retired", "deleted"] as const) {
+      const markup = renderToStaticMarkup(
+        createElement(FactInspector, {
+          factRef: `fact/${fact.anchor}`,
+          facts: [fact],
+          tasks: [baseTask()],
+          decisions: [baseDecision()],
+          relations: [
+            edge("decision/dec_2", `fact/${fact.anchor}`, "refuted-by", { state }),
+          ],
+          coverageRows: [coverage(fact)],
+          onClose: () => undefined,
+        }),
+      );
+
+      expect(markup).toContain("refuted-by");
+      expect(markup).not.toContain("危险关系");
+      expect(markup).not.toContain("矛盾于");
+    }
   });
 });
 
