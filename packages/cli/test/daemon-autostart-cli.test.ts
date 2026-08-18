@@ -73,6 +73,31 @@ test("semantic sources and agent execution cross the daemon before transport-bou
   }
 });
 
+test("cancelled task reinstates to planned through the CLI and daemon", () => {
+  const fixture = setup(), taskId = "task-reinstate";
+  try {
+    assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
+    register(fixture.root, fixture.userRoot, "reinstate");
+    assert.equal(run(fixture.root, fixture.userRoot, ["task", "create", "--id", taskId, "--admin", "--title", "Reinstate"]).outcome, "applied");
+    assert.equal(run(fixture.root, fixture.userRoot, ["task", "transition", taskId, "cancelled", "--force", "--reason", "Erroneous batch cleanup"]).outcome, "applied");
+    assert.equal(statusOf(fixture.root, fixture.userRoot, taskId), "cancelled");
+
+    // A reinstate without the auditable reason is refused by the CLI before it can reach the daemon.
+    const bare = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "task", "transition", taskId, "planned"], { encoding: "utf8", env: cliEnv(fixture.root, fixture.userRoot) });
+    assert.equal(bare.status, 2, `${bare.stderr}\n${bare.stdout}`);
+    const bareReceipt = JSON.parse(bare.stdout) as { ok: boolean; error?: { code: string } };
+    assert.equal(bareReceipt.ok, false);
+    assert.equal(bareReceipt.error?.code, "missing_field");
+
+    const reinstated = run(fixture.root, fixture.userRoot, ["task", "transition", taskId, "planned", "--reason", "Owner adjudicated rollback of the batch cancellation"]);
+    assert.equal(reinstated.outcome, "applied", JSON.stringify(reinstated));
+    assert.equal(statusOf(fixture.root, fixture.userRoot, taskId), "planned");
+  } finally {
+    stop(fixture.root, fixture.userRoot);
+    rmSync(fixture.parent, { recursive: true, force: true });
+  }
+});
+
 test("dry-run contract migration prints each manual task once", () => {
   const fixture = setup(), repoId = "contract-receipt", taskId = "task_legacy_l1";
   try {
@@ -128,6 +153,7 @@ function waitForDaemonDown(userRoot: string): void { const socketPath = localUse
   for (let attempt = 0; attempt < 200; attempt += 1) { if (readDaemonPid(userRoot, "default") === null && !existsSync(socketPath)) return; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10); }
   throw new Error("previous daemon did not drain before the autostart probe"); }
 function stop(root: string, userRoot: string): void { if (readDaemonPid(userRoot, "default") !== null) spawnSync(process.execPath, [cli, "--root", root, "--json", "daemon", "stop"], { encoding: "utf8", env: cliEnv(root, userRoot) }); }
+function statusOf(root: string, userRoot: string, taskId: string): string { const shown = run(root, userRoot, ["task", "show", taskId]); return (JSON.parse(String(shown.evidence)) as { task: { status: string } }).task.status; }
 function git(root: string, ...args: string[]): string { return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim(); }
 function seedLegacyTask(root: string, repoId: string, taskId: string): void {
   const actor = { principal: { personId: "owner" }, executor: null } as const, event: TaskEventV1 = { schema: "task-event/v1", eventId: "event-contract-receipt", workspaceRevision: 1, opId: "op-contract-receipt", taskId, type: "task_created", actor, source: "local", occurredAt: "2026-08-18T00:00:00.000Z", payload: { task: { schema: "task/v1", taskId, title: "Legacy contract receipt", taskClass: "standard", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [], presetSnapshotDigest: null } } };

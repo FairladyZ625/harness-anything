@@ -122,6 +122,52 @@ test("transition service publishes aggregate-authored task status idempotently",
   }
 });
 
+test("reinstate rolls a cancelled task back to planned, active, or in_review with an audited reason", async () => {
+  const harness = lifecycleHarness();
+  try {
+    const transition = (status: "planned" | "active" | "in_review" | "cancelled", reason: string, force = false) => {
+      const revision = harness.eventStore.read().revision + 1;
+      return harness.service.execute(command(harness.rootDir, { type: "TransitionTask" as const, taskId: "task-1", status, reason, force }, { eventId: `event-reinstate-${revision}`, workspaceRevision: revision, occurredAt: `2026-08-11T00:${String(revision).padStart(2, "0")}:00.000Z` }), {});
+    };
+
+    // planned: the CH6 shape — a committed task cancelled in error and rolled back.
+    await harness.create();
+    await transition("cancelled", "CH6 batch cleanup cancelled in error", true);
+    await assert.rejects(transition("planned", ""), /auditable reason/u, "reinstate is audit-first: an empty reason never publishes");
+    const planned = await transition("planned", "Owner adjudicated rollback of the batch cancellation");
+    assert.equal(planned.outcome, "applied");
+    assert.equal(planned.snapshot.task?.status, "planned");
+    assert.equal(harness.projection.read("task-1").snapshot.task?.status, "planned");
+    assert.equal(planned.event?.type, "task_transitioned");
+    assert.equal(planned.event?.payload.mutation.reason, "Owner adjudicated rollback of the batch cancellation");
+
+    // active: the owner adjudicates the recorded executing state as the restore point.
+    await transition("cancelled", "Second erroneous cancellation", true);
+    const active = await transition("active", "Restore the recorded executing state");
+    assert.equal(active.outcome, "applied");
+    assert.equal(active.snapshot.task?.status, "active");
+    assert.equal(harness.projection.read("task-1").snapshot.task?.status, "active");
+
+    // in_review: a task cancelled mid-review returns to the review position it held.
+    await harness.start("execution-1");
+    await harness.submit("execution-1");
+    await transition("cancelled", "Cancelled while awaiting review", true);
+    const reviewed = await transition("in_review", "Resume the interrupted review");
+    assert.equal(reviewed.outcome, "applied");
+    assert.equal(reviewed.snapshot.task?.status, "in_review");
+    assert.equal(harness.projection.read("task-1").snapshot.task?.status, "in_review");
+
+    // done keeps its terminal integrity: completion, not compensation, owns its reversal.
+    await harness.review("execution-1", "acceptance", "approved");
+    await harness.consent("execution-1");
+    await harness.complete("execution-1");
+    assert.equal((await harness.service.read("task-1")).snapshot.task?.status, "done");
+    await assert.rejects(transition("planned", "Attempted done rollback"), /no lifecycle transition accepts TransitionTask/u);
+  } finally {
+    harness.cleanup();
+  }
+});
+
 test("second distinct task create uses aggregate revision zero in a non-empty workspace", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-two-tasks-"));
   try {

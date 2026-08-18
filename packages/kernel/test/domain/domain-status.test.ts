@@ -65,7 +65,10 @@ test("domain owns canonical lifecycle status transition semantics", () => {
     "in_review->done",
     "in_review->cancelled",
     "done->done",
-    "cancelled->cancelled"
+    "cancelled->cancelled",
+    "cancelled->planned",
+    "cancelled->active",
+    "cancelled->in_review"
   ]);
 
   for (const from of domainStatuses) {
@@ -74,6 +77,8 @@ test("domain owns canonical lifecycle status transition semantics", () => {
     }
   }
   assert.deepEqual(explainStatusTransition("done", "active"), { allowed: false, reason: "terminal_status" });
+  assert.deepEqual(explainStatusTransition("done", "planned"), { allowed: false, reason: "terminal_status" });
+  assert.deepEqual(explainStatusTransition("cancelled", "blocked"), { allowed: false, reason: "terminal_status" });
   assert.deepEqual(explainStatusTransition("planned", "done"), { allowed: false, reason: "unsupported_transition" });
 });
 
