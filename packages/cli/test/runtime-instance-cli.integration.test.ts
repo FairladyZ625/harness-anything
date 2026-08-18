@@ -21,9 +21,10 @@ test("real CLI performs machine runtime instance CRUD through an isolated reside
     const installation = installations.find(({ kindId, version }) => kindId === "codex" && version === `codex ${fixtureVersion}`); assert.ok(installation, JSON.stringify(initial));
     const created = run(root, env, ["runtime", "instance", "create", "--id", "cli-isolated", "--name", "CLI Isolated", "--kind", installation.kindId, "--installation", installation.installationId, "--provider", installation.kindId === "codex" ? "openai" : "anthropic", "--model", "runtime-test-model", "--base-url", "https://gateway.example.test/v1", "--auth", "api-key", "--credential-ref", "keychain:harness/cli-isolated"]);
     assert.equal((created.instance as Record<string, unknown>).isolationState, "enforced");
-    const shown = run(root, env, ["runtime", "instance", "show", "cli-isolated"]), listed = run(root, env, ["runtime", "instance", "list"]);
+    const shown = run(root, env, ["runtime", "instance", "show", "cli-isolated"]), status = run(root, env, ["runtime", "instance", "status", "cli-isolated"]), listed = run(root, env, ["runtime", "instance", "list"]);
     assert.deepEqual(shown.instance, created.instance); assert.equal((listed.instances as Array<Record<string, unknown>>).length, 1);
-    for (const receipt of [created, shown, listed]) assert.doesNotMatch(JSON.stringify(receipt), /credentialRef|keychain:|executablePath/u);
+    assert.equal((status.authReadiness as Record<string, unknown>).status, "not-ready");
+    for (const receipt of [created, shown, status, listed]) assert.doesNotMatch(JSON.stringify(receipt), /credentialRef|keychain:|executablePath/u);
     const target = path.join(userRoot, "runtime-instances.json"), stateRoot = path.join(userRoot, "runtime-instances", "cli-isolated"); assert.equal(statSync(target).mode & 0o777, 0o600); for (const directory of [stateRoot, "home", "tmp", "run"].map((entry) => entry === stateRoot ? entry : path.join(stateRoot, entry))) assert.equal(statSync(directory).mode & 0o777, 0o700, directory);
     assert.equal(run(root, env, ["runtime", "instance", "delete", "cli-isolated"]).deletedInstanceId, "cli-isolated"); assert.equal(existsSync(stateRoot), false);
     const missing = runMaybe(root, env, ["runtime", "instance", "show", "cli-isolated"]); assert.notEqual(missing.status, 0); assert.equal((missing.receipt.error as Record<string, unknown>).code, "runtime_instance_not_found");
