@@ -8,7 +8,7 @@ import { deriveCliCapabilities, firstCliCommand, firstCliCommandIndex, parseThin
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 98);
+  assert.equal(thinCliCommands.length, 101);
   for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))].filter((value): value is string => value !== undefined).sort()) assert.match(help, new RegExp(`^  ${domain} \\(`, "mu"));
   assert.doesNotMatch(help, /ha task start <task-id>/u);
   const taskHelp = renderThinHelp([], "task");
