@@ -1,7 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
-import { DaemonAutostartError, ensureLocalDaemonRunning, isDaemonUnreachable, type DaemonAutostartResult, type DaemonLaunchSpec } from "../src/client/daemon-autostart.ts";
+import { DaemonAutostartError, daemonLaunchOutputPath, ensureLocalDaemonRunning, isDaemonUnreachable, type DaemonAutostartResult, type DaemonLaunchSpec } from "../src/client/daemon-autostart.ts";
+import { daemonLifecycleLogPath } from "../src/lifecycle-log.ts";
+import { startDetachedProcessChecked } from "../src/process-port.ts";
 
 function coded(code: string): Error & { code: string } { const error = Object.assign(new Error(`connect ${code}`), { code }); return error; }
 const launch = (): DaemonLaunchSpec => ({ command: "node", args: ["index.ts", "daemon", "serve", "--user-root", "/tmp/ha-user", "--daemon-id", "default"], env: {} });
@@ -55,4 +60,19 @@ test("DaemonAutostartError carries the classified code for CLI/GUI receipt rende
   const result: DaemonAutostartResult = { ok: false, code: "daemon_bind_timeout", hint: "The daemon did not accept connections.", attempts: 2 };
   const error = new DaemonAutostartError(result);
   assert.equal(error instanceof Error, true); assert.equal(error.code, "daemon_bind_timeout"); assert.equal(error.attempts, 2); assert.equal(error.message, result.hint);
+});
+
+test("daemon launch output path is derived from the explicit serve target", () => {
+  const userRoot = path.join(tmpdir(), "ha-output-target");
+  assert.equal(daemonLaunchOutputPath({ command: "node", args: ["index.js", "daemon", "serve", "--user-root", userRoot, "--daemon-id", "blue"], env: {} }), daemonLifecycleLogPath(userRoot, "blue"));
+  assert.equal(daemonLaunchOutputPath({ command: "node", args: ["index.js", "task", "list"], env: {} }), undefined);
+});
+
+test("detached stdout, stderr, and a fatal stack land in the daemon output log", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-detached-output-")), outputPath = path.join(root, "daemon.log");
+  try {
+    await startDetachedProcessChecked(process.execPath, ["-e", "console.log('stdout witness'); console.error('stderr witness'); throw new Error('fatal witness')"], process.env, outputPath);
+    for (let attempt = 0; attempt < 100 && !readFileSync(outputPath, "utf8").includes("fatal witness"); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    const output = readFileSync(outputPath, "utf8"); assert.match(output, /stdout witness/u); assert.match(output, /stderr witness/u); assert.match(output, /Error: fatal witness/u);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

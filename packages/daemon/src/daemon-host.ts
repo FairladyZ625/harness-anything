@@ -18,6 +18,7 @@ import type { DaemonControlReceipt, TerminalAttachSubscription } from "./gui-s3-
 import type { RuntimeLauncher } from "./runtime-spawn.ts";
 import { admitRepoMode, type RepoModeAdmission } from "./repo-mode.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
+import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 export interface DaemonHost {
   readonly run: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => Promise<WriteReceipt>; readonly presetRun: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => ReturnType<RepoCell["presetRun"]>;
   readonly replica: (repoId: string) => RepoCell["replica"];
@@ -36,7 +37,7 @@ export interface DaemonHost {
   readonly status: () => { readonly daemonId: string; readonly pid: number; readonly repos: readonly RepoCellStatus[]; readonly summary: string };
   readonly close: () => Promise<void>;
 }
-export async function openDaemonHost(input: { readonly daemonId: string; readonly userRoot: string; readonly endpoint?: string; readonly startedAt?: string; readonly now?: () => string; readonly watchOwnerUid?: number; readonly watchDebounceMs?: number; readonly runtimeLaunch?: RuntimeLauncher; readonly runtimeDiscover?: () => readonly RuntimeInstallationWitness[]; readonly shutdownRequested?: () => boolean }): Promise<DaemonHost> {
+export async function openDaemonHost(input: { readonly daemonId: string; readonly userRoot: string; readonly endpoint?: string; readonly startedAt?: string; readonly now?: () => string; readonly watchOwnerUid?: number; readonly watchDebounceMs?: number; readonly runtimeLaunch?: RuntimeLauncher; readonly runtimeDiscover?: () => readonly RuntimeInstallationWitness[]; readonly shutdownRequested?: () => boolean; readonly recordLifecycle?: DaemonLifecycleRecorder }): Promise<DaemonHost> {
   const cells = new Map<string, RepoCell>(), watchers = new Map<string, DocSyncWatcher>(), watchFailures = new Map<string, string>(), ownerUid = input.watchOwnerUid ?? process.getuid?.() ?? 0;
   const unavailable = new Map<string, RepoCellStatus>(), unavailableProbes = new Map<string, ReturnType<typeof makeRecoveryProbe>>(), controls = new Map<string, DaemonControlReceipt>(), discover = input.runtimeDiscover ?? (() => discoverRuntimeInstallations()), instances = openRuntimeInstanceStore({ userRoot: input.userRoot, discover }), runtimePorts = { runtimeInstances: instances.listPublic, prepareRuntimeLaunch: instances.prepareLaunch }, startedAt = input.startedAt ?? new Date().toISOString(), now = input.now ?? (() => new Date().toISOString()), initialRegistry = readDaemonRegistry({ userRoot: input.userRoot }); let latestControl: DaemonControlReceipt | null = null; let fleetCenter: FleetTlsCenter | null = null;
   // An unavailable row reports no writer generation or queue: the cell that would own them
@@ -48,16 +49,16 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
   // and a SIGTERM that lands mid-startup must reach its handler between repos
   // instead of waiting out the whole registry. Cell bodies are synchronous, so
   // Promise.all would interleave them on microtasks and never yield at all.
-  for (const repo of repos) {
+  for (const [index, repo] of repos.entries()) {
     if (input.shutdownRequested?.()) break;
-    try { await openRegistered(repo); }
+    try { await openRegistered(repo, { attachIndex: index + 1, attachTotal: repos.length }); }
     catch (error) { consumeKnownError(error); latchUnavailable(repo.repoId, unavailableStatus(repo.repoId, repo.canonicalRoot, repo.mode, error)); }
     await yieldToEventLoop();
   }
   const attach = async (rootDir: string, repoId: string, mode?: DaemonRepoMode) => { const root = canonicalRoot(rootDir), id = workspaceId(repoId);
     const registered = registerDaemonRepo({ canonicalRoot: root, repoId, mode, userRoot: input.userRoot, createConvenienceLinks: false });
     const loaded = cells.get(repoId); if (loaded && loaded.status().mode !== registered.repo.mode) await closeCell(repoId);
-    if (!cells.has(repoId)) try { const cell = await openRepoCell({ repoId: id, rootDir: root, mode: registered.repo.mode, ownerId: input.daemonId, authoredBranch: registered.repo.authoredBranch, ...(input.shutdownRequested ? { shouldStop: input.shutdownRequested } : {}), ...runtimePorts, ...(input.runtimeLaunch ? { runtimeLaunch: input.runtimeLaunch } : {}) }); cells.set(repoId, cell); await startWatch(repoId, cell); unavailable.delete(repoId); }
+    if (!cells.has(repoId)) try { await openRegistered({ ...registered.repo, repoId: id, canonicalRoot: root }); }
     catch (error) { consumeKnownError(error); latchUnavailable(repoId, unavailableStatus(repoId, root, registered.repo.mode, error)); }
     return registered; };
   const point = () => ({ daemonId: input.daemonId, pid: process.pid, startedAt });
@@ -124,7 +125,11 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
   return host;
   async function closeCell(repoId: string): Promise<void> { const cell = cells.get(repoId), closing = cell?.close(); await watchers.get(repoId)?.close(); watchers.delete(repoId); if (closing) await closing; cells.delete(repoId); }
   async function startWatch(repoId: string, cell: RepoCell): Promise<void> { if (cell.status().mode !== "local") { watchers.delete(repoId); watchFailures.delete(repoId); return; } try { const base = await binding(cell.status().rootDir, { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" } }, "repo-write", true); watchers.set(repoId, openDocSyncWatcher({ rootDir: cell.status().rootDir, personId: base.actor.principal.personId, debounceMs: input.watchDebounceMs, run: (action, attribution) => cell.run(action, attribution ? { ...base, source: { kind: "watch_session", sessionId: attribution.sessionId, path: attribution.path, fingerprint: attribution.fingerprint } } : base) })); watchFailures.delete(repoId); } catch (error) { consumeKnownError(error); watchFailures.set(repoId, error instanceof Error ? error.message : String(error)); } }
-  async function openRegistered(repo: { readonly repoId: string; readonly canonicalRoot: string; readonly authoredBranch: string; readonly mode: DaemonRepoMode }): Promise<void> { const cell = await openRepoCell({ repoId: workspaceId(repo.repoId), rootDir: canonicalRoot(repo.canonicalRoot), mode: repo.mode, ownerId: input.daemonId, authoredBranch: repo.authoredBranch, ...(input.shutdownRequested ? { shouldStop: input.shutdownRequested } : {}), ...runtimePorts, ...(input.runtimeLaunch ? { runtimeLaunch: input.runtimeLaunch } : {}) }); cells.set(repo.repoId, cell); unavailable.delete(repo.repoId); await startWatch(repo.repoId, cell); }
+  async function openRegistered(repo: { readonly repoId: string; readonly canonicalRoot: string; readonly authoredBranch: string; readonly mode: DaemonRepoMode }, progress?: { readonly attachIndex: number; readonly attachTotal: number }): Promise<void> {
+    const started = performance.now(), lifecycle = { repoId: repo.repoId, rootDir: repo.canonicalRoot, ...(progress ?? {}) }; input.recordLifecycle?.({ event: "repo_attach_started", ...lifecycle });
+    try { const cell = await openRepoCell({ repoId: workspaceId(repo.repoId), rootDir: canonicalRoot(repo.canonicalRoot), mode: repo.mode, ownerId: input.daemonId, authoredBranch: repo.authoredBranch, ...(input.shutdownRequested ? { shouldStop: input.shutdownRequested } : {}), ...runtimePorts, ...(input.runtimeLaunch ? { runtimeLaunch: input.runtimeLaunch } : {}) }); cells.set(repo.repoId, cell); unavailable.delete(repo.repoId); await startWatch(repo.repoId, cell); input.recordLifecycle?.({ event: "repo_attach_completed", ...lifecycle, durationMs: performance.now() - started }); }
+    catch (error) { input.recordLifecycle?.({ event: "repo_attach_failed", ...lifecycle, durationMs: performance.now() - started, error: error instanceof Error ? error.stack ?? error.message : String(error) }); throw error; }
+  }
   async function refreshRegistry(): Promise<void> { const registry = readDaemonRegistry({ userRoot: input.userRoot }), enabled = new Map(registry.repos.filter((repo) => repo.state === "enabled").map((repo) => [repo.repoId, repo])), invalid = new Map(registry.invalidRepos.filter((repo) => repo.state !== "disabled").map((repo) => [invalidRepoId(repo), repo])); for (const [repoId, cell] of [...cells]) { const repo = enabled.get(repoId); if (!repo || cell.status().mode !== repo.mode) { await closeCell(repoId); unavailable.delete(repoId); unavailableProbes.delete(repoId); } } for (const repoId of [...unavailable.keys()]) if (!enabled.has(repoId) && !invalid.has(repoId)) { unavailable.delete(repoId); unavailableProbes.delete(repoId); } for (const repo of invalid.values()) latchUnavailable(invalidRepoId(repo), invalidRegistryStatus(repo)); for (const repo of enabled.values()) if (!cells.has(repo.repoId)) try { await openRegistered(repo); } catch (error) { consumeKnownError(error); latchUnavailable(repo.repoId, unavailableStatus(repo.repoId, repo.canonicalRoot, repo.mode, error)); } }
   // Host-level latch self-heal, mirroring RepoCell's attemptRecovery cadence: a repo parked in
   // `unavailable` is re-opened (openRegistered) when a command touches it, throttled to one probe

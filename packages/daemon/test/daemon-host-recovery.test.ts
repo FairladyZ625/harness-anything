@@ -43,6 +43,21 @@ test("a startup-failed repo self-heals on the next command and reports honest st
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
+test("startup records each repository attach outcome with duration and ordinal", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-lifecycle-")), userRoot = path.join(parent, "user"), live = path.join(parent, "live"), dead = path.join(parent, "dead"), records: Record<string, unknown>[] = [];
+  rosterRepo(live, "lifecycle-live"); rosterRepo(dead, "lifecycle-dead"); registerDaemonRepo({ canonicalRoot: live, repoId: "lifecycle-live", userRoot, createConvenienceLinks: false });
+  registerDaemonRepo({ canonicalRoot: dead, repoId: "lifecycle-dead", userRoot, createConvenienceLinks: false }); rmSync(dead, { recursive: true, force: true });
+  const host = await openDaemonHost({ daemonId: "host-lifecycle", userRoot, recordLifecycle: (record) => records.push(record) });
+  try {
+    assert.deepEqual(records.filter((record) => record.event === "repo_attach_started").map((record) => record.repoId).sort(), ["lifecycle-dead", "lifecycle-live"]);
+    const settled = records.filter((record) => record.event === "repo_attach_completed" || record.event === "repo_attach_failed");
+    assert.equal(settled.length, 2); assert.deepEqual(settled.map((record) => record.attachTotal), [2, 2]);
+    assert.deepEqual(settled.map((record) => record.attachIndex), [1, 2]); assert.equal(settled.every((record) => typeof record.durationMs === "number"), true);
+    assert.equal(settled.some((record) => record.event === "repo_attach_completed" && record.repoId === "lifecycle-live"), true);
+    assert.equal(settled.some((record) => record.event === "repo_attach_failed" && record.repoId === "lifecycle-dead" && typeof record.error === "string"), true);
+  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+});
+
 test("the host-level re-probe is throttled to one attempt per interval", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-throttle-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user");
   rosterRepo(rootDir, "host-throttle");

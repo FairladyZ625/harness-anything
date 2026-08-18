@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { DaemonHost } from "../src/daemon-host.ts";
+import { daemonLifecycleLogPath, openDaemonLifecycleLog, readDaemonLifecycleRecords } from "../src/lifecycle-log.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { daemonRequestLogPath, openDaemonRequestLog, type DaemonRequestLogEntry, type DaemonRequestLogRecord } from "../src/request-log.ts";
@@ -134,6 +135,16 @@ test("a sink that cannot write neither throws nor keeps reporting", () => {
   assert.doesNotThrow(() => { log.record(entry({})); log.record(entry({})); log.record(entry({})); });
   // Reported once, then silent: an observability sink must not become a log spammer either.
   assert.equal(failures.length, 1);
+});
+
+test("daemon lifecycle records are structured and roll before an unbounded next generation", () => {
+  const userRoot = tempRoot(), logPath = daemonLifecycleLogPath(userRoot, "availability"); mkdirSync(path.dirname(logPath), { recursive: true });
+  for (let generation = 0; generation < 3; generation += 1) { writeFileSync(logPath, `${"x".repeat(600)}\n`, "utf8"); openDaemonLifecycleLog({ userRoot, daemonId: "availability", maxBytes: 512, keptFiles: 2,
+    now: () => new Date("2026-08-19T00:00:00.000Z") }).record({ event: "repo_attach_completed", repoId: `repo-${generation}`, durationMs: generation, attachIndex: generation + 1, attachTotal: 3 }); }
+  const records = readDaemonLifecycleRecords(userRoot, "availability"), latest = records.at(-1)!;
+  assert.equal(latest.schema, "daemon-lifecycle/v1"); assert.equal(latest.daemonId, "availability"); assert.equal(latest.event, "repo_attach_completed");
+  assert.equal(latest.repoId, "repo-2"); assert.equal(latest.durationMs, 2); assert.equal(latest.at, "2026-08-19T00:00:00.000Z");
+  assert.deepEqual(readdirSync(path.dirname(daemonLifecycleLogPath(userRoot, "availability"))).sort(), ["daemon-availability.log", "daemon-availability.log.1", "daemon-availability.log.2"]);
 });
 
 function entry(overrides: Partial<DaemonRequestLogEntry>): DaemonRequestLogEntry {
