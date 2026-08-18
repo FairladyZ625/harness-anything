@@ -99,9 +99,9 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   { word: "blocked", entity: "Task", field: "status", meaning: "Task is held by an external condition; still open, still occupies WIP.", divergence: "entity-scoped" },
   { word: "in_review", entity: "Task", field: "status", meaning: "Task is in the review node; review artifacts are required.", divergence: "entity-scoped" },
   { word: "done", entity: "Task", field: "status", meaning: "Task reached its delivery terminal state.", divergence: "entity-scoped" },
-  { word: "cancelled", entity: "Task", field: "status", meaning: "Task was abandoned; terminal.", divergence: "entity-scoped" },
+  { word: "cancelled", entity: "Task", field: "status", meaning: "Task was abandoned; terminal except the compensating reinstate rollback to the recorded pre-cancel status.", divergence: "entity-scoped" },
   { word: "open", entity: "Task", field: "coarse class", meaning: "Coarse class of every non-terminal task status.", divergence: "entity-scoped" },
-  { word: "terminal", entity: "Task", field: "coarse class", meaning: "Coarse class of done/cancelled; no further transitions.", divergence: "entity-scoped" },
+  { word: "terminal", entity: "Task", field: "coarse class", meaning: "Coarse class of done/cancelled; no forward transitions (cancelled keeps only the compensating reinstate exit).", divergence: "entity-scoped" },
 
   // ---- Decision.state (adjudication outcomes; persisted policy) ----
   { word: "proposed", entity: "Decision", field: "state", meaning: "Decision awaits judgment.", divergence: "entity-scoped" },

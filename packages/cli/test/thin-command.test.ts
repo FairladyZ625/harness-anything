@@ -96,6 +96,7 @@ test("task lifecycle and read surfaces parse every F03 F04 F05 leaf into closed 
     [["task", "start", "task-1", "--execution-id", "exe-1", "--ttl-ms", "60000", "--dry-run"], { kind: "task-start", verb: "start", commandType: "StartExecution", taskId: "task-1", executionId: "exe-1", ttlMs: 60000, dryRun: true }],
     [["task", "release", "task-1"], { kind: "task-release", taskId: "task-1" }],
     [["task", "transition", "task-1", "cancelled", "--force", "--reason", "Invalid scope"], { kind: "task-transition", taskId: "task-1", status: "cancelled", force: true, reason: "Invalid scope" }],
+    [["task", "transition", "task-1", "planned", "--reason", "Owner rolled back the batch cancellation"], { kind: "task-transition", taskId: "task-1", status: "planned", reason: "Owner rolled back the batch cancellation" }],
     [["task", "amend", "task-1", "--set", "title:New title", "--set", "riskTier:high"], { kind: "task-amend", taskId: "task-1", patches: [{ field: "title", value: "New title" }, { field: "riskTier", value: "high" }] }],
     [["task", "archive", "task-1", "--reason", "Delivered", "--archived-by", "owner"], { kind: "task-archive", taskId: "task-1", reason: "Delivered", archivedBy: "owner" }],
     [["task", "supersede", "task-1", "--by", "task-2", "--confirm", "task-1", "--reason", "Scope changed"], { kind: "task-supersede", oldTaskId: "task-1", byTaskId: "task-2", confirm: "task-1", reason: "Scope changed", allowOpenFindings: false }],
@@ -109,6 +110,9 @@ test("task lifecycle and read surfaces parse every F03 F04 F05 leaf into closed 
   ] as const;
   for (const [argv, expected] of cases) { const parsed = parseThinCommand(argv); assert.equal(parsed.ok, true, `${argv.join(" ")}: ${JSON.stringify(parsed)}`); if (parsed.ok) assert.deepEqual(parsed.command.action, expected); }
   assert.equal(parseThinCommand(["task", "transition", "task-1", "done"]).ok, false);
+  const bareReinstate = parseThinCommand(["task", "transition", "task-1", "planned"]);
+  assert.equal(bareReinstate.ok, false);
+  if (!bareReinstate.ok) { assert.equal(bareReinstate.code, "missing_field"); assert.match(bareReinstate.nextAction, /--reason/u); }
   assert.equal(parseThinCommand(["task", "delete", "--hard", "task-1", "--confirm", "task-1"]).ok, true);
   assert.equal(parseThinCommand(["task", "contract", "migrate", "--apply", "--dry-run"]).ok, false);
   assert.equal(parseThinCommand(["task", "supersede", "task-1", "--by", "task-2"]).ok, false);
