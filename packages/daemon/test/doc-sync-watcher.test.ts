@@ -22,17 +22,25 @@ test("watch notifications are hints and two stable fingerprints admit one RepoCe
   } finally { await watcher.close(); }
 });
 
-test("filesystem watching stays O(1) and selects recursive semantics only on supporting platforms", async () => {
-  for (const [platform, recursive] of [["darwin", true], ["linux", false]] as const) {
+test("filesystem watching stays O(1) and selects one recursive root watch on daemon platforms", async () => {
+  for (const platform of ["darwin", "linux"] as const) {
     const calls: Array<{ target: string; recursive: boolean }> = [], actions: Array<{ kind: string; paths: readonly string[] }> = []; let notify: ((event: string, filename: string | Buffer | null) => void) | undefined, closes = 0;
     const fake = { on: () => fake, close: () => { closes += 1; } } as unknown as FSWatcher;
     const watcher = openDocSyncWatcher({ rootDir: process.cwd(), personId: "capacity", platform, startupScan: false, debounceMs: 1, pollMs: 60_000,
       watchPath: (target, options, listener) => { calls.push({ target, recursive: options.recursive }); notify = listener; return fake; },
       run: async (action) => { actions.push(action); return scan("a".repeat(40), []); } });
-    try { assert.equal(calls.length, 1); assert.equal(calls[0]?.recursive, recursive); notify?.("rename", path.join("context", "notes.md")); await watcher.flush(); assert.deepEqual(actions, [{ kind: "doc-dry-run", paths: ["context/notes.md"] }]); }
+    try { assert.equal(calls.length, 1); assert.equal(calls[0]?.recursive, true); notify?.("rename", path.join("context", "notes.md")); await watcher.flush(); assert.deepEqual(actions, [{ kind: "doc-dry-run", paths: ["context/notes.md"] }]); notify?.("change", path.join(".git", "HEAD")); await watcher.flush(); assert.equal(actions.length, 1); }
     finally { await watcher.close(); }
     assert.equal(closes, 1);
   }
+});
+
+test("Linux recursive root watch observes a deep atomic rename without waiting for reconciliation", { skip: process.platform !== "linux" }, async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-watch-linux-recursive-")); mkdirSync(path.join(rootDir, "harness/context/deep"), { recursive: true }); let scans = 0;
+  const watcher = openDocSyncWatcher({ rootDir, personId: "linux-proof", startupScan: false, debounceMs: 2, pollMs: 60_000,
+    run: async () => { scans += 1; return scan("a".repeat(40), []); } });
+  try { atomicSave(rootDir, "context/deep/note.md", "# Linux recursive proof\n"); await waitFor(() => scans > 0, 2_000); }
+  finally { await watcher.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
 test("watch registration failure degrades to periodic full-scan polling instead of a silent dead zone", async () => {

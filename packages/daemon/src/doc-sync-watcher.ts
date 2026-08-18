@@ -36,13 +36,13 @@ export function openDocSyncWatcher(input: { readonly rootDir: string; readonly p
     if (pending.size && timer === null) schedule();
   };
   const authoredRoot = resolveHarnessLayout(input.rootDir).authoredRoot;
-  // One recursive FSEvents stream avoids the per-directory handles that serialized start/stop
-  // through one macOS run-loop thread and could deadlock on error. Watch notifications are only
-  // latency hints; the periodic full scan below is the correctness path. Linux temporarily keeps
-  // one non-recursive root hint until its recursive delivery semantics are covered separately.
+  // One recursive root stream avoids the per-directory FSEvents handles that could deadlock
+  // macOS and keeps JS watcher/fd registration O(1). Linux implements recursion with inotify
+  // watch descriptors. Notifications are latency hints; periodic full-scan reconciliation
+  // remains the correctness path when registration fails or an event is lost.
   const reconcile = (): void => { if (pollTimer || state === "closed") return; pollTimer = setInterval(() => wake(), pollMs); pollTimer.unref?.(); };
   if (input.watchFilesystem !== false) {
-    reconcile(); const recursive = (input.platform ?? process.platform) === "darwin" || (input.platform ?? process.platform) === "win32", watchPath = input.watchPath ?? watch;
+    reconcile(); const recursive = ["darwin", "linux", "win32"].includes(input.platform ?? process.platform), watchPath = input.watchPath ?? watch;
     try { filesystemWatcher = watchPath(authoredRoot, { recursive }, (_event, filename) => { if (filename === null) { wake(); return; } const relative = String(filename); if (!relative.split(path.sep).includes(".git")) wake(relative); });
       // Closing directly inside an FSEvents error callback deadlocks libuv on macOS.
       filesystemWatcher.on("error", () => { const failed = filesystemWatcher; filesystemWatcher = null; setImmediate(() => failed?.close()); wake(); }); }
