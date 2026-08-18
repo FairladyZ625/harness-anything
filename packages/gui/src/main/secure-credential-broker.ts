@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
-import { credentialPort, type CredentialCommand, type CredentialPort } from "../../../daemon/src/credential-port.ts";
+import { credentialPort, type CredentialCommand, type CredentialPort } from "../../../daemon/src/agent-runtime-credential-port.ts";
 
 // The native credential broker collects an API key through the platform's own
 // masked-input prompt (macOS osascript dialog, Windows Get-Credential dialog,

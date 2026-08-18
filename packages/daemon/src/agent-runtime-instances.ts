@@ -4,7 +4,7 @@ import { accessSync, chmodSync, constants, existsSync, mkdirSync, readFileSync, 
 import path from "node:path";
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import type { AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
-import { credentialPort, isCredentialReferenceText } from "./credential-port.ts";
+import { credentialPort, isCredentialReferenceText } from "./agent-runtime-credential-port.ts";
 export type RuntimeInstanceKind = "claude" | "codex"; export type RuntimeInstanceAuth = { readonly mode: "subscription" } | { readonly mode: "api-key"; readonly credentialRef: string };
 export interface RuntimeInstanceConfig { readonly schemaVersion: 1; readonly instanceId: string; readonly name: string; readonly kindId: RuntimeInstanceKind; readonly installationId: string; readonly providerId: string; readonly model: string; readonly reasoningEffort?: string; readonly baseUrl?: string; readonly auth: RuntimeInstanceAuth } export interface RuntimeInstallationWitness { readonly installationId: string; readonly kindId: RuntimeInstanceKind; readonly executablePath: string; readonly version: string; readonly observedAt: string }
 export interface RuntimeAuthReadiness { readonly status: "ready" | "not-ready"; readonly code: string | null; readonly hint: string | null }

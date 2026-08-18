@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { credentialPort, isCredentialReferenceText, type CredentialCommand } from "../src/credential-port.ts";
+import { credentialPort, isCredentialReferenceText, type CredentialCommand } from "../src/agent-runtime-credential-port.ts";
 
 const namespace = "com.harness-anything.runtime-instance";
 type Recorded = { command: CredentialCommand; results: string[] };
