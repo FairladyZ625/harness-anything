@@ -27,7 +27,7 @@ test("enforcement debt sunset check fails active decisions with overdue unfinish
   try {
     writeDecision(root, {
       decisionId: "dec_OVERDUE",
-      state: "active",
+      state: "in_effect",
       decidedAt: "2026-06-01T00:00:00.000Z",
       targetTaskId: "task_OVERDUE",
       rationale: "ADR names an enforcement gate that must be implemented."
@@ -52,7 +52,7 @@ test("enforcement debt sunset check ignores completed enforcement tasks and ordi
   try {
     writeDecision(root, {
       decisionId: "dec_DONE",
-      state: "active",
+      state: "in_effect",
       decidedAt: "2026-06-01T00:00:00.000Z",
       targetTaskId: "task_DONE",
       rationale: "ADR names an enforcement gate that must be implemented."
@@ -64,7 +64,7 @@ test("enforcement debt sunset check ignores completed enforcement tasks and ordi
     });
     writeDecision(root, {
       decisionId: "dec_ORDINARY",
-      state: "active",
+      state: "in_effect",
       decidedAt: "2026-06-01T00:00:00.000Z",
       targetTaskId: "task_ORDINARY",
       rationale: "Ordinary feature work."
