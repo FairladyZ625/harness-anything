@@ -1,6 +1,6 @@
 {
   "components.appSidebar.accountSynchronizationV2": "Account and synchronization · V2",
-  "components.appSidebar.activeWorkSummary": "Active work · {activeCount} of {totalCount} tasks",
+  "components.appSidebar.taskCensus": "{totalCount} tasks total",
   "components.appSidebar.failedReadLedgerBridge": "Failed to read ledger bridge",
   "components.appSidebar.ledgerCatchingUp": "shown r{watermark} · catching up to r{sourceRevision}",
   "components.appSidebar.ledgerChecking": "shown r{watermark} · checking ledger",

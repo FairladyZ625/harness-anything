@@ -21,6 +21,7 @@ import {
   UrgencyBadge,
 } from "../components/badges";
 import { Card } from "../components/overview/parts";
+import { coordinationStatusCensus } from "../model/status-census.ts";
 import { sortDecisionQueue } from "../model/triadic";
 import { t } from "../i18n/index.tsx";
 
@@ -97,8 +98,9 @@ export function OverviewView({
   // 维度切换或行数变化 → 回到第一页(筛后行集变了,旧页码没有意义)。
   useEffect(() => { setDimensionPage(0); }, [dimension, tasks.length]);
 
-  const countStatus = (status: SnapshotStatus) =>
-    tasks.filter((task) => task.coordinationStatus === status).length;
+  // 统计口径注释见 model/status-census.ts:数字与侧栏摘要同源同义。
+  const census = useMemo(() => coordinationStatusCensus(tasks), [tasks]);
+  const countStatus = (status: SnapshotStatus) => census.get(status) ?? 0;
   const blocked = tasks.filter((task) => task.coordinationStatus === "blocked");
   const inReview = tasks.filter((task) => task.coordinationStatus === "in_review");
   const stale = tasks.filter((task) => task.freshness === "stale-but-usable");

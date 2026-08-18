@@ -6,6 +6,9 @@ import {
   Desktop,
 } from "@phosphor-icons/react";
 import type { SystemRepoRow } from "../api-client.ts";
+import type { SnapshotStatus } from "../model/types.ts";
+import { STATUS_META } from "./badges.tsx";
+import { t } from "../i18n/index.tsx";
 import { useTheme, type ThemeMode } from "../theme.tsx";
 
 const THEME_CYCLE: Record<ThemeMode, ThemeMode> = {
@@ -63,6 +66,30 @@ export function NavButton({
         </span>
       )}
     </button>
+  );
+}
+
+/** 侧栏任务摘要展示的状态词,与总览「现在在跑什么」卡片同一集合、同一标签。 */
+const SIDEBAR_CENSUS_STATUSES = ["active", "blocked", "in_review"] as const;
+
+/**
+ * 侧栏统计摘要(口径:model/status-census.ts):按 kernel 状态词逐词计数,
+ * 与总览卡片逐字相等;总数含 done/cancelled。
+ */
+export function TaskCensusSummary({
+  census,
+  totalCount,
+}: {
+  census: ReadonlyMap<SnapshotStatus, number>;
+  totalCount: number;
+}) {
+  return (
+    <span data-testid="real-task-summary" className="block font-mono text-[11px] text-text-faint">
+      {t("components.appSidebar.taskCensus", { totalCount })}
+      {SIDEBAR_CENSUS_STATUSES.map((status) => (
+        <span key={status}> · {STATUS_META[status].label} {census.get(status) ?? 0}</span>
+      ))}
+    </span>
   );
 }
 

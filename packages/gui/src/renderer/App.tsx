@@ -17,10 +17,11 @@ import { SettingsView } from "./views/SettingsView.tsx";
 import { SystemView } from "./views/SystemView.tsx";
 import { TaskDetailView } from "./views/TaskDetailView.tsx";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
-import { ThemeToggle, NavButton, ProjectSummary } from "./components/shell-chrome.tsx";
+import { ThemeToggle, NavButton, ProjectSummary, TaskCensusSummary } from "./components/shell-chrome.tsx";
 import { CommandPalette, buildPaletteIndex } from "./components/CommandPalette.tsx";
 import { pushRecentRef } from "./navigation/recentRefs.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
+import { coordinationStatusCensus } from "./model/status-census.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
 import { invalidateLedgerDependents, LEDGER_REFRESH_INTERVAL_MS, taskQueryKeys, useTasksQuery } from "./task-data.ts";
 import { useTriadicProjectionQuery } from "./triadic-data.ts";
@@ -103,9 +104,9 @@ function AppShell() {
     () => tasks.filter((t) => t.projectId === projectId),
     [tasks, projectId],
   );
-  const activeCount = projectTasks.filter(
-    (t) => t.coordinationStatus === "active" || t.coordinationStatus === "blocked" || t.coordinationStatus === "in_review",
-  ).length;
+  // 统计口径(kernel 投影状态词为唯一真源):进行中/已阻塞/封存中 = coordinationStatus
+  // 恰等于该状态词的任务数,与总览「现在在跑什么」卡片逐字相等;总数含 done/cancelled。
+  const statusCensus = useMemo(() => coordinationStatusCensus(projectTasks), [projectTasks]);
 
   const selected = useMemo(
     () => tasks.find((t) => t.taskId === selectedId) ?? null,
@@ -262,12 +263,7 @@ function AppShell() {
         <div className="px-3 pb-1">
           {tasksQuery.isSuccess ? (
             projectTasks.length > 0 ? (
-              <span
-                data-testid="real-task-summary"
-                className="block font-mono text-[11px] text-text-faint"
-              >
-                {t("components.appSidebar.activeWorkSummary", { activeCount, totalCount: projectTasks.length })}
-              </span>
+              <TaskCensusSummary census={statusCensus} totalCount={projectTasks.length} />
             ) : (
               <span
                 data-testid="task-empty-state"
