@@ -26,14 +26,14 @@ test("an invalid_store latch re-attaches on the next command after the ledger is
     assert.equal(cell.status().state, "attached"); // the open is lazy; the first ledger read latches
     const latchedList = await cell.run({ kind: "task-list" }, binding);
     assert.equal(latchedList.outcome, "rejected"); assert.equal(latchedList.code, "invalid_store");
-    assert.match(String(latchedList.nextAction), /events root contains non-sharded entry/u);
+    assert.match(String(latchedList.nextAction), /events root mixes .* flat\/v1 .* sharded entries; run ha migrate ledger/u);
     assert.equal(cell.status().state, "unavailable"); assert.equal(cell.status().causeClass, "data-shape");
     // The fault persists: the next command re-probes, fails the same judgment, and keeps rejecting.
     clock = "2026-08-18T00:00:06.000Z";
     const stillLatched = await cell.run({ kind: "task-list" }, binding);
     assert.equal(stillLatched.outcome, "rejected"); assert.equal(stillLatched.code, "repo_unavailable");
     assert.match(String(stillLatched.nextAction), /stays latched until its ledger data verifies/u);
-    assert.match(String(stillLatched.nextAction), /non-sharded entry/u);
+    assert.match(String(stillLatched.nextAction), /flat\/v1 .* sharded entries/u);
     assert.equal(cell.status().state, "unavailable");
     // Repair the data underneath the live cell; the next command re-attaches without a reopen.
     git(rootDir, "rm", "-q", stray); git(rootDir, "commit", "-qm", "repair: restore pure sharded events root"); git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");

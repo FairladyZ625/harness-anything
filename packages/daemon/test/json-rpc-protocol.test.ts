@@ -381,14 +381,14 @@ test("every latched RepoCell exit declares the latch and the cause identically w
     cell = await openRepoCell({ repoId: workspaceId("latch"), rootDir: canonicalRoot(rootDir), ownerId: "latch-two" });
     const first = await cell.run({ kind: "task-list" }, binding);
     assert.equal(first.outcome, "rejected"); assert.equal(first.code, "invalid_store"); assert.equal(cell.status().state, "unavailable");
-    assert.match(String(first.nextAction ?? ""), /events root contains non-sharded entry/u);
+    assert.match(String(first.nextAction ?? ""), /events root mixes .* flat\/v1 .* sharded entries; run ha migrate ledger/u);
     const write = await cell.run({ kind: "task-create", taskId: "task-after-latch", title: "After latch" }, binding);
     const declared = String(write.nextAction ?? ""), latched = cell;
     const reads = await Promise.all([latched.read("repo.tasks.list"), latched.spawnRuntime({}, binding), latched.attach("runtime-session", ""), latched.verifyReadiness()].map((pending) => pending.then(() => "resolved without reporting the latch", reason)));
     for (const observed of reads) assert.equal(observed, declared);
     assert.match(declared, /stays latched until its ledger data verifies/u);
     assert.match(declared, /re-probes the ledger and re-attaches automatically/u);
-    assert.match(declared, /Cause: events root contains non-sharded entry migration-stray\.json$/u);
+    assert.match(declared, /Cause: events root mixes \d+ flat\/v1 and \d+ sharded entries; run ha migrate ledger to normalize and migrate the ledger$/u);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
