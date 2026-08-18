@@ -141,9 +141,11 @@ function mintFleetMaterial(seed) {
   const roster = {
     schema: "fleet-roster/v1",
     nodes: edges.map((nodeId) => ({ nodeId, credential: `${nodeId}-machine-secret` })),
+    // Distinct principals per edge: the write scenarios need two real
+    // collaborators whose domain leases genuinely conflict.
     assignments: edges.map((nodeId) => ({
       assignmentId: `assignment-${nodeId}`, nodeId, repoId: TESTBED.repoId, taskId: seed.taskId, executionId: seed.executionId,
-      viewId: `${nodeId}-view`, personId: TESTBED.personId, executorId: "plt-center-testbed", expiresAt,
+      viewId: `${nodeId}-view`, personId: `testbed-${nodeId}`, executorId: `testbed-agent-${nodeId}`, expiresAt,
       paths: [`${seed.packagePath}/task_plan.md`, seed.decisionPath]
     }))
   };
@@ -157,6 +159,10 @@ function mintFleetMaterial(seed) {
 function writeStateFile(seed, project, fleet) {
   const state = {
     schema: "center-testbed-state/v1",
+    // Bumped on every reseed so the center can tell a warm restart (keep the
+    // attached ledger and fleet lease state) from a reseeded ledger (cold
+    // re-clone) without trusting wall-clock side channels.
+    generation: `${Date.now()}`,
     repoId: TESTBED.repoId,
     taskId: seed.taskId,
     executionId: seed.executionId,

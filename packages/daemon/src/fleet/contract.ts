@@ -5,6 +5,13 @@ export const FLEET_FRAME_BYTES = 96 * 1024, FLEET_CHUNK_BYTES = 64 * 1024, FLEET
 export type FleetCut = Readonly<{ revision: number; headDigest: string }>;
 export type FleetBlob = Readonly<{ sha256: string; size: number; mediaType: string }>;
 export type FleetDescriptor = FleetBlob & Readonly<{ ref: string }>;
+export const FLEET_TASK_COMMAND_KINDS = Object.freeze(["task-create", "task-start", "task-progress-append", "task-submit", "task-release"] as const);
+export type FleetTaskCommandKind = typeof FLEET_TASK_COMMAND_KINDS[number];
+export type FleetTaskAction = Readonly<Record<string, unknown>> & { readonly kind: FleetTaskCommandKind };
+// Closed per-kind action surface: every field of a fleet task command must be
+// declared for its kind. The daemon re-binds principal authority server-side,
+// so identity/origin fields are simply absent from every allowlist (the same
+// posture as the mode enum in the daemon protocol contract).
 export interface FleetAssignmentScope { readonly repoId: string; readonly taskId: string; readonly executionId: string; readonly paths: readonly string[] }
 export interface FleetAssignmentBinding extends FleetAssignmentScope { readonly nodeId: string; readonly assignmentId: string; readonly actor: { readonly principal: { readonly personId: string }; readonly executor: { readonly kind: "agent"; readonly id: string } | null } }
 type Msg<S extends string, P extends object = object> = Readonly<{ schema: S; messageId: string }> & Readonly<P>;
@@ -20,6 +27,8 @@ export type FleetFrameV1 =
   | Msg<"fleet.upload.result/v1", { inReplyTo: string; status: "staged" | "already_staged"; descriptor: FleetDescriptor }>
   | Msg<"fleet.doc.submit/v1", { assignmentId: string; baseLedgerSha: string; changes: readonly FleetDocChange[] }>
   | Msg<"fleet.doc.result/v1", { inReplyTo: string; outcome: "applied" | "pending" | "op_rejected" | "indeterminate"; opId: string; revision: number | null; code: string | null }>
+  | Msg<"fleet.task.command/v1", { assignmentId: string; opId: string; repoId: string; taskId: string | null; action: FleetTaskAction; waitMs: number }>
+  | Msg<"fleet.task.result/v1", { inReplyTo: string; outcome: "applied" | "op_rejected" | "wait_expired"; opId: string; revision: number | null; code: string | null; receipt: Readonly<Record<string, unknown>> | null; lease: { readonly taskId: string; readonly executionId: string | null; readonly assignmentId: string; readonly expiresAt: string } | null; queuePosition: number | null }>
   | Msg<"fleet.replica.pull/v1", { assignmentId: string }>
   | Msg<"fleet.replica.current/v1", { inReplyTo: string; repoId: string; viewId: string; cut: FleetCut; manifestDigest: string }>
   | Msg<"fleet.snapshot.begin/v1", { transferId: string; repoId: string; viewId: string; cut: FleetCut; manifest: FleetManifest }>
@@ -54,6 +63,20 @@ const logicalPath: Check = (value) => typeof value === "string" && value === val
 const base64: Check = (value) => typeof value === "string" && value.length > 0 && Buffer.from(value, "base64").byteLength <= FLEET_CHUNK_BYTES && Buffer.from(value, "base64").toString("base64") === value;
 const cut = shape({ revision: uint, headDigest: (value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value) });
 const blob = shape({ sha256: sha64, size: uint, mediaType: text }), descriptor = shape({ ref: (value) => typeof value === "string" && /^doc-sync-claims\/[A-Za-z0-9_-]{1,96}$/u.test(value), sha256: sha64, size: uint, mediaType: text });
+const boolean: Check = (value) => typeof value === "boolean", positiveInt: Check = (value) => Number.isSafeInteger(value) && Number(value) > 0;
+const optionalShape = (fields: Readonly<Record<string, Check>>, required: readonly string[]): Check => (value) => record(value) && required.every((field) => Object.hasOwn(value, field)) && Object.entries(value).every(([field, entry]) => Object.hasOwn(fields, field) && fields[field]!(entry));
+const registerModule = shape({ key: text, title: text, prefix: text, scope: text });
+const taskRelation = shape({ type: text, target: text, rationale: text });
+const taskEvidence = shape({ type: text, path: logicalPath, summary: text });
+const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
+  "task-create": optionalShape({ kind: one("task-create"), title: text, taskId: id, idempotencyKey: text, parentTaskId: id, workKind: one("feat", "fix", "refactor", "docs", "test", "chore"), riskTier: one("low", "medium", "high"), urgency: one("low", "medium", "high"), verticalId: text, presetId: id, profileId: id, moduleKey: id, registerModule, slug: (value) => typeof value === "string" && /^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$/u.test(value), surfaces: array(text), relations: array(taskRelation), taskClass: one("standard", "milestone", "epic", "long_running"), locale: one("zh-CN", "en-US"), dryRun: boolean }, ["kind"]),
+  "task-start": optionalShape({ kind: one("task-start"), taskId: id, executionId: id, ttlMs: positiveInt, dryRun: boolean }, ["kind"]),
+  "task-progress-append": optionalShape({ kind: one("task-progress-append"), taskId: id, executionId: id, text, evidence: array(taskEvidence), baseDocumentSha256: nullable(sha64) }, ["kind"]),
+  "task-submit": optionalShape({ kind: one("task-submit"), taskId: id, executionId: id, submission: record }, ["kind"]),
+  "task-release": optionalShape({ kind: one("task-release"), taskId: id, reason: text }, ["kind"])
+};
+const taskAction: Check = (value) => record(value) && typeof value.kind === "string" && Object.hasOwn(taskActionShapes, value.kind) && taskActionShapes[value.kind as FleetTaskCommandKind]!(value);
+const taskLease = shape({ taskId: id, executionId: nullable(id), assignmentId: id, expiresAt: (value) => typeof value === "string" && !Number.isNaN(Date.parse(value)) });
 const manifest = shape({ digest: sha64, entryCount: uint, totalBytes: uint }), entry = shape({ path: logicalPath, blob }), put = shape({ op: one("put"), path: logicalPath, blob }), del = shape({ op: one("delete"), path: logicalPath });
 const docChange = shape({ path: logicalPath, baseBlobSha256: nullable(sha64), policyId: text, candidate: descriptor });
 const common = { schema: text, messageId: id } as const, reply = { ...common, inReplyTo: id } as const;
@@ -61,7 +84,7 @@ const schemas: Readonly<Record<string, Check>> = {
   "fleet.session.hello/v1": shape({ ...common, protocolVersion: one(1), nodeId: id, credential: text }), "fleet.session.ready/v1": shape({ ...reply, sessionId: id, maxFrameBytes: one(FLEET_FRAME_BYTES), chunkBytes: one(FLEET_CHUNK_BYTES) }),
   "fleet.assignment.get/v1": shape({ ...common, assignmentId: id }), "fleet.assignment.result/v1": shape({ ...reply, assignmentId: id, repoId: id, taskId: id, executionId: id, paths: array(logicalPath), baseLedgerSha: sha40, expiresAt: (value) => typeof value === "string" && !Number.isNaN(Date.parse(value)) }),
   "fleet.upload.begin/v1": shape({ ...common, assignmentId: id, content: blob }), "fleet.upload.ready/v1": shape({ ...reply, uploadId: id, resumeOffset: uint, status: one("receiving", "already_staged") }), "fleet.upload.chunk/v1": shape({ ...common, uploadId: id, offset: uint, dataBase64: base64 }), "fleet.upload.finish/v1": shape({ ...common, uploadId: id }), "fleet.upload.result/v1": shape({ ...reply, status: one("staged", "already_staged"), descriptor }),
-  "fleet.doc.submit/v1": shape({ ...common, assignmentId: id, baseLedgerSha: sha40, changes: array(docChange) }), "fleet.doc.result/v1": shape({ ...reply, outcome: one("applied", "pending", "op_rejected", "indeterminate"), opId: text, revision: nullable(uint), code: nullable(text) }), "fleet.replica.pull/v1": shape({ ...common, assignmentId: id }), "fleet.replica.current/v1": shape({ ...reply, repoId: id, viewId: id, cut, manifestDigest: sha64 }),
+  "fleet.doc.submit/v1": shape({ ...common, assignmentId: id, baseLedgerSha: sha40, changes: array(docChange) }), "fleet.doc.result/v1": shape({ ...reply, outcome: one("applied", "pending", "op_rejected", "indeterminate"), opId: text, revision: nullable(uint), code: nullable(text) }), "fleet.task.command/v1": shape({ ...common, assignmentId: id, opId: id, repoId: id, taskId: nullable(id), action: taskAction, waitMs: uint }), "fleet.task.result/v1": shape({ ...reply, outcome: one("applied", "op_rejected", "wait_expired"), opId: id, revision: nullable(uint), code: nullable(text), receipt: nullable(record), lease: nullable(taskLease), queuePosition: nullable(uint) }), "fleet.replica.pull/v1": shape({ ...common, assignmentId: id }), "fleet.replica.current/v1": shape({ ...reply, repoId: id, viewId: id, cut, manifestDigest: sha64 }),
   "fleet.snapshot.begin/v1": shape({ ...common, transferId: id, repoId: id, viewId: id, cut, manifest }), "fleet.snapshot.page/v1": shape({ ...common, transferId: id, pageIndex: uint, entries: array(entry) }), "fleet.snapshot.chunk/v1": shape({ ...common, transferId: id, blobSha256: sha64, offset: uint, dataBase64: base64 }), "fleet.snapshot.finish/v1": shape({ ...common, transferId: id, manifestDigest: sha64 }),
   "fleet.delta.begin/v1": shape({ ...common, transferId: id, repoId: id, viewId: id, fromCut: cut, toCut: cut, changeCount: uint, resultManifestDigest: sha64 }), "fleet.delta.page/v1": shape({ ...common, transferId: id, pageIndex: uint, changes: array((value) => put(value) || del(value)) }), "fleet.delta.chunk/v1": shape({ ...common, transferId: id, blobSha256: sha64, offset: uint, dataBase64: base64 }), "fleet.delta.finish/v1": shape({ ...common, transferId: id, resultManifestDigest: sha64 }),
   "fleet.ack/v1": shape({ ...common, transferId: id, cut, manifestDigest: sha64 }), "fleet.ack.result/v1": shape({ ...reply, outcome: one("applied", "current", "op_rejected"), viewId: id, ackCut: uint, code: nullable(text) }), "fleet.error/v1": shape({ ...reply, code: text, retryable: (value) => typeof value === "boolean", resumeOffset: nullable(uint), nextAction: text })

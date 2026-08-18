@@ -35,7 +35,7 @@
     "packages/daemon/src/doc-sync-actions.ts",
     "packages/daemon/src/doc-sync-candidate-scanner.ts",
     "packages/daemon/src/fleet/center.ts",
-    "packages/daemon/src/fleet/edge.ts",
+    "packages/daemon/src/fleet/edge.ts", "packages/daemon/src/lease-broker.ts",
     "packages/daemon/src/fleet/replica-ack-store.ts",
     "packages/daemon/src/fleet/replica-cut-store.ts",
     "packages/daemon/src/repo-bootstrap.ts",

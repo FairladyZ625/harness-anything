@@ -29,12 +29,12 @@ export function resolveLocalDaemonTarget(input: { readonly rootDir: string; read
   if (!repo || repo.state !== "enabled") throw new Error(`workspace is not registered; run ha daemon repo register --repo-id <id> --root ${JSON.stringify(path.resolve(input.rootDir))}`);
   return { repoId: workspaceId(repo.repoId), canonicalRoot: bindCanonicalRoot(repo.canonicalRoot), userRoot, daemonId, socketPath: localUserDaemonEndpoint(userRoot, daemonId) };
 }
-function readRegisteredRepos(userRoot: string): readonly { readonly repoId: string; readonly canonicalRoot: string; readonly state: string }[] {
+export function readRegisteredRepos(userRoot: string): readonly { readonly repoId: string; readonly canonicalRoot: string; readonly state: string; readonly mode?: string }[] {
   const registryPath = path.join(userRoot, "registry.json");
   if (!existsSync(registryPath)) return [];
   const value: unknown = JSON.parse(readFileSync(registryPath, "utf8"));
   if (!daemonRegistryRecord(value) || value.schema !== "harness-daemon-registry/v1" || !Array.isArray(value.repos)) throw new Error(`invalid daemon registry at ${registryPath}`);
-  return value.repos.filter((repo): repo is { repoId: string; canonicalRoot: string; state: string } => daemonRegistryRecord(repo)
+  return value.repos.filter((repo): repo is { repoId: string; canonicalRoot: string; state: string; mode?: string } => daemonRegistryRecord(repo)
     && typeof repo.repoId === "string" && typeof repo.canonicalRoot === "string" && typeof repo.state === "string");
 }
 function daemonRegistryRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }

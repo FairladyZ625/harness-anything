@@ -1,6 +1,6 @@
-import { realpathSync } from "node:fs"; import { fileURLToPath } from "node:url";
+import { realpathSync, readFileSync } from "node:fs"; import path from "node:path"; import { fileURLToPath } from "node:url";
 import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts"; import { canonicalRoot, commandClassForAction, workspaceId } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
+import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, readRegisteredRepos, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
 import type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 
@@ -32,6 +32,8 @@ export async function runCommandThroughDaemon(command: ThinCommand, onPhase: (re
   if (command.action.kind === "repo-bootstrap") { const userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), { kind: _kind, ...params } = command.action, socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ repoId: workspaceId("bootstrap"),
     canonicalRoot: canonicalRoot(command.rootDir, true), userRoot, daemonId, socketPath }, "daemon.repo.bootstrap", { rootDir: command.rootDir, ...params }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
   if (command.method.startsWith("daemon.runtimeInstance.")) { const userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), { kind: _kind, ...payload } = command.action, socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ userRoot, daemonId, socketPath }, command.method, { payload: payload as JsonObject }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
+  const fleetTask = await fleetTaskRoute(command);
+  if (fleetTask) { const userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ userRoot, daemonId, socketPath }, "daemon.fleet.task.run", { payload: fleetTask as JsonObject }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
   const target = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId });
   const { kind: _kind, ...actionPayload } = command.action, payload = command.method === "repo.script.run" ? Object.fromEntries(Object.entries(actionPayload).filter(([field, value]) => field !== "schema" && (field !== "taskId" || value !== null))) : actionPayload, executor = declaredExecutor();
   const requestPayload = command.method === "repo.task.run" ? { action: executor ? { ...command.action, executor } : command.action } : executor ? { ...payload, executor } : payload;
@@ -43,6 +45,40 @@ export async function runCommandThroughDaemon(command: ThinCommand, onPhase: (re
 // this long is queued behind a long write. Naming that deadline turns an open-ended silent socket into one classified
 // failure; writes stay unbounded because their honest duration is not knowable from here.
 const readResponseDeadlineMs = (kind: string): number | undefined => { try { return commandClassForAction(kind) === "repo-read" ? 30_000 : undefined; } catch (error) { consumeKnownError(error); return undefined; } };
+// The automatic lease product entry: on a remote-edge workspace the task write
+// commands route through the fleet channel instead of a local cell. The
+// operator never runs a lease command — acquisition, queueing, and renewal are
+// the center's job (dec_9E7AC30E/CH2).
+// task-create rides its own preset method; the lifecycle commands ride repo.task.run.
+const fleetTaskMethods = ["repo.task.run", "repo.task.create"];
+// The fleet modules stay lazy for the same reason the autostart seam does: the
+// thin dist static import graph is entry/parser/transport-only. The config
+// reader is a leaf (node:fs only) and runs first, so a plain local workspace
+// rejects exactly as fast as before the routing existed. The registry mode is
+// the single repo-mode source of truth: only a remote-edge registration routes
+// writes to the fleet channel (adversarial F7).
+export async function fleetTaskRoute(command: ThinCommand, env: NodeJS.ProcessEnv = process.env): Promise<Record<string, unknown> | null> {
+  if (!fleetTaskMethods.includes(command.method)) return null;
+  const { readFleetEdgeConfig } = await import("../../../daemon/src/client/fleet-edge-config.ts");
+  const config = readFleetEdgeConfig(command.rootDir);
+  if (!config) return null;
+  const commandRoot = path.resolve(command.rootDir), registered = readRegisteredRepos(daemonUserRoot(env)).filter((repo) => repo.repoId === config.repoId && repo.state === "enabled" && (commandRoot === path.resolve(repo.canonicalRoot) || commandRoot.startsWith(`${path.resolve(repo.canonicalRoot)}${path.sep}`))).sort((left, right) => right.canonicalRoot.length - left.canonicalRoot.length)[0];
+  if (registered?.mode !== "remote-edge") return null;
+  const { FLEET_TASK_COMMAND_KINDS } = await import("../../../daemon/src/fleet/contract.ts");
+  if (!(FLEET_TASK_COMMAND_KINDS as readonly string[]).includes(command.action.kind)) return null;
+  const { executor: _executor, createMode, verb: _verb, commandType: _commandType, fromFile, jsonInput, fromLegacyId, ...action } = command.action as Record<string, unknown> & { executor?: unknown; createMode?: unknown; verb?: unknown; commandType?: unknown; fromFile?: unknown; jsonInput?: unknown; fromLegacyId?: unknown };
+  // Migration/import/admin creation and legacy conversion are intentionally
+  // outside the remote-edge surface. Falling through produces the existing,
+  // explicit repo_mode_read_only receipt instead of silently dropping their
+  // authority-bearing fields on the fleet route.
+  if (command.action.kind === "task-create" && (createMode !== undefined || fromLegacyId !== undefined)) return null;
+  const payload: Record<string, unknown> = { host: config.host, port: config.port, caPath: config.caPath, ...(config.servername ? { servername: config.servername } : {}), nodeId: config.nodeId, ...(config.rosterPath ? { rosterPath: config.rosterPath } : {}), ...(config.credential ? { credential: config.credential } : {}), assignmentId: config.assignmentId, repoId: config.repoId, viewRoot: config.viewRoot, quotaBytes: config.quotaBytes, ...(config.waitTimeoutMs ? { waitTimeoutMs: config.waitTimeoutMs } : {}), action };
+  if (typeof fromFile === "string" || typeof jsonInput === "string") { const source = typeof fromFile === "string" ? `--from-file ${fromFile}` : "--json-input", file = typeof fromFile === "string" ? path.isAbsolute(fromFile) ? fromFile : path.join(command.rootDir, fromFile) : null; let packet: unknown; try { packet = JSON.parse(file ? readFileSync(file, "utf8") : String(jsonInput)); } catch (error) { throw Object.assign(new Error(`${source} could not be read as JSON on this edge: ${error instanceof Error ? error.message : String(error)}`), { code: "invalid_field" }); }
+    if (packet === null || typeof packet !== "object" || Array.isArray(packet)) throw Object.assign(new Error(`${source} must contain one JSON object.`), { code: "invalid_field" });
+    if (command.action.kind === "task-create") { const fields = packet as Record<string, unknown>; const unsupported = Object.keys(fields).filter((field) => ["fromFile", "jsonInput", "kind", "createMode", "fromLegacyId"].includes(field)); if (unsupported.length) throw Object.assign(new Error(`--from-file for task create cannot carry ${unsupported.join(", ")} over the fleet channel.`), { code: "invalid_field" }); payload.action = { ...fields, ...action }; }
+    else payload.action = { ...action, submission: packet }; }
+  return payload;
+}
 function declaredExecutor(env: NodeJS.ProcessEnv = process.env): JsonObject | null {
   const raw = env.HARNESS_ACTOR?.trim();
   if (!raw) return null;
