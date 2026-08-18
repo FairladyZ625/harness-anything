@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import { FleetRemoteError, runFleetReplicaPullClient, runFleetTaskCommandClient } from "./fleet/edge.ts";
 import { readFleetRosterFile } from "./fleet-center-admission.ts";
-import { fleetLeaseTimers } from "./fleet/lease-broker.ts";
+import { fleetLeaseTimers } from "./lease-broker.ts";
 import type { FleetTaskAction } from "./fleet/contract.ts";
 
 const BACKOFF_MIN_MS = 250, BACKOFF_MAX_MS = 30_000;

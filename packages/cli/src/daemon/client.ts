@@ -52,14 +52,16 @@ const readResponseDeadlineMs = (kind: string): number | undefined => { try { ret
 // task-create rides its own preset method; the lifecycle commands ride repo.task.run.
 const fleetTaskMethods = ["repo.task.run", "repo.task.create"];
 // The fleet modules stay lazy for the same reason the autostart seam does: the
-// thin dist static import graph is entry/parser/transport-only.
+// thin dist static import graph is entry/parser/transport-only. The config
+// reader is a leaf (node:fs only) and runs first, so a plain local workspace
+// rejects exactly as fast as before the routing existed.
 async function fleetTaskRoute(command: ThinCommand): Promise<Record<string, unknown> | null> {
   if (!fleetTaskMethods.includes(command.method)) return null;
-  const { FLEET_TASK_COMMAND_KINDS } = await import("../../../daemon/src/fleet/contract.ts");
-  if (!(FLEET_TASK_COMMAND_KINDS as readonly string[]).includes(command.action.kind)) return null;
   const { readFleetEdgeConfig } = await import("../../../daemon/src/client/fleet-edge-config.ts");
   const config = readFleetEdgeConfig(command.rootDir);
   if (!config) return null;
+  const { FLEET_TASK_COMMAND_KINDS } = await import("../../../daemon/src/fleet/contract.ts");
+  if (!(FLEET_TASK_COMMAND_KINDS as readonly string[]).includes(command.action.kind)) return null;
   const { executor: _executor, createMode: _createMode, fromFile, ...action } = command.action as Record<string, unknown> & { executor?: unknown; createMode?: unknown; fromFile?: unknown };
   const payload: Record<string, unknown> = { host: config.host, port: config.port, caPath: config.caPath, ...(config.servername ? { servername: config.servername } : {}), nodeId: config.nodeId, ...(config.rosterPath ? { rosterPath: config.rosterPath } : {}), ...(config.credential ? { credential: config.credential } : {}), assignmentId: config.assignmentId, repoId: config.repoId, viewRoot: config.viewRoot, quotaBytes: config.quotaBytes, ...(config.waitTimeoutMs ? { waitTimeoutMs: config.waitTimeoutMs } : {}), action };
   if (typeof fromFile === "string") { const file = path.isAbsolute(fromFile) ? fromFile : path.join(command.rootDir, fromFile); let submission: unknown; try { submission = JSON.parse(readFileSync(file, "utf8")); } catch (error) { throw Object.assign(new Error(`--from-file ${fromFile} could not be read as JSON on this edge: ${error instanceof Error ? error.message : String(error)}`), { code: "invalid_field" }); } payload.action = { ...action, submission }; }
