@@ -136,6 +136,7 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.receipt.show", { opId: "op_A" }],
     ["repo.gui.catalog.reread", {}],
     ["repo.agentRuntime.spawn", { runtimeInstanceId: "instance-codex", cwd: { scope: "repo-root" }, prompt: "Inspect", taskId: null, idempotencyKey: "runtime-once" }],
+    ["repo.agentRuntime.cancel", { runtimeSessionId: "runtime-session-a" }],
     ["repo.terminal.spawn", { idempotencyKey: "terminal-once", name: "Shell", cwd: { scope: "repo-root" }, shellProfileId: "default" }],
     ["repo.terminal.input", { sessionId: "terminal-a", clientSeq: 1, utf8: "pwd\n" }],
     ["repo.terminal.resize", { sessionId: "terminal-a", cols: 100, rows: 30 }],
