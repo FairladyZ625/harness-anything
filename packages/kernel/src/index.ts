@@ -73,6 +73,8 @@ export type { TaskSourceEntry } from "./projection/sqlite-task-source.ts";
 export { renderDecisionDocument, renderFactsDocument } from "./domain/fact-event.ts";
 export * from "./publish/index.ts";
 export * from "./projection/sqlite-task-projection.ts";
+export { readTaskProjectionSchemaVersion, taskProjectionSchemaVersion } from "./projection/projection-schema.ts";
+export { defaultLifecycleTaskProjectionPath } from "./projection/rebuildable-task-projection.ts";
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export {
@@ -87,4 +89,4 @@ export {
   registerDaemonRepo,
   unregisterDaemonRepo
 } from "./daemon/registry.ts";
-export type { DaemonRegistry, DaemonRegistryRepo, InvalidDaemonRegistryRepo } from "./daemon/registry.ts";
+export type { DaemonRegistry, DaemonRegistryRepo, DaemonRepoMode, InvalidDaemonRegistryRepo } from "./daemon/registry.ts";

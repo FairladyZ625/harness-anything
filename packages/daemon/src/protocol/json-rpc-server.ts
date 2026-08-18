@@ -35,7 +35,7 @@ export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost
       catch (error) { return reply(daemonProtocolError("init", rpcServerErrorCode(error), error instanceof Error ? error.message : String(error)) as unknown as JsonObject); }
     }
     if (request.method === "daemon.repo.register" || request.method === "daemon.repo.unregister") {
-      try { return reply(await options.host.admin(request.method.endsWith("unregister") ? { kind: "unregister", repoId: params.repoId as string } : { kind: "register", repoId: params.repoId as string, rootDir: params.rootDir as string }, options.authContext) as JsonObject); }
+      try { return reply(await options.host.admin(request.method.endsWith("unregister") ? { kind: "unregister", repoId: params.repoId as string } : { kind: "register", repoId: params.repoId as string, rootDir: params.rootDir as string, ...(typeof params.mode === "string" ? { mode: params.mode as "local" | "remote-center" | "remote-edge" } : {}) }, options.authContext) as JsonObject); }
       catch (error) { return reply(daemonProtocolError(request.method, rpcServerErrorCode(error), error instanceof Error ? error.message : String(error)) as unknown as JsonObject); }
     }
     if (request.method.startsWith("daemon.runtimeInstance.")) { try { return reply(options.host.runtimeInstance(request.method, params.payload as JsonObject, options.authContext)); } catch (error) { return reply(daemonProtocolError(request.method, rpcServerErrorCode(error), error instanceof Error ? error.message : String(error)) as unknown as JsonObject); } }

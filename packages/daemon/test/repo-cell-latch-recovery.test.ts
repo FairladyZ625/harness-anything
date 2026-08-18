@@ -77,12 +77,14 @@ test("a publication_indeterminate latch reports the infrastructure class and hea
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-latch-infra-")); let clock = "2026-08-18T00:00:00.000Z"; let cell: RepoCell | undefined;
   try {
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("latch-infra"), rootDir: canonicalRoot(rootDir), ownerId: "latch-infra-one", now: () => clock }); const binding = { actor, source: "local" as const };
-    await cell.run({ kind: "task-create", taskId: "task_infra", title: "Infra" }, binding);
+    const seed = await cell.run({ kind: "task-create", taskId: "task_infra", title: "Infra" }, binding);
     mkdirSync(path.join(rootDir, "harness/context"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/context/notes.md"), "# Notes\n");
     git(rootDir, "commit", "--allow-empty", "-qm", "external advance"); // moves the authored branch off the canonical cut
     const indeterminate = await cell.run({ kind: "doc-submit", paths: ["context/notes.md"] }, binding);
     assert.equal(indeterminate.outcome, "indeterminate"); assert.equal(indeterminate.code, "publication_indeterminate");
     assert.equal(cell.status().state, "unavailable"); assert.equal(cell.status().causeClass, "infrastructure");
+    const receiptWhileLatched = await cell.run({ kind: "receipt-show", opId: seed.opId }, binding);
+    assert.equal(receiptWhileLatched.outcome, "applied", JSON.stringify(receiptWhileLatched));
     // Repair per the embedded recovery command: point the authored branch back at the canonical cut.
     git(rootDir, "update-ref", git(rootDir, "symbolic-ref", "HEAD"), "refs/ha/canonical");
     clock = "2026-08-18T00:00:06.000Z";

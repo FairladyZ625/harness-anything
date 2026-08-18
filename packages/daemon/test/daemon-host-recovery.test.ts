@@ -1,13 +1,15 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { registerDaemonRepo } from "../../kernel/src/index.ts";
+import { makeTaskProjection, registerDaemonRepo } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { canonicalRoot } from "../src/protocol/daemon-protocol.contract.ts";
+import { staleDistFiles } from "../src/runtime-admission.ts";
 
 const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: process.getuid?.() ?? 0, source: "unix-socket-filesystem-owner-boundary" } } as const;
 
@@ -24,7 +26,7 @@ test("a startup-failed repo self-heals on the next command and reports honest st
     assert.ok(latched, "startup failure must park the repo in the status list");
     assert.equal(latched.state, "unavailable"); assert.equal(latched.causeClass, "infrastructure");
     assert.match(String(latched.lastError), /writer lock/u);
-    assert.equal(latched.generation, null); assert.equal(latched.queueDepth, null);
+    assert.equal(latched.generation, null); assert.equal(latched.queueDepth, null); assert.equal(latched.recoveryMs, null);
     const systemLatched = systemRow(host, "host-heal");
     assert.equal(systemLatched.cellState, "unavailable");
     assert.equal(systemLatched.generation, null); assert.equal(systemLatched.queueDepth, null);
@@ -62,6 +64,45 @@ test("the host-level re-probe is throttled to one attempt per interval", async (
     assert.equal(healed.outcome, "applied", JSON.stringify(healed));
     assert.equal(host.status().repos.find((repo) => repo.repoId === "host-throttle")!.state, "attached");
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("repository modes close local, center-assignment, and edge command families", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-modes-")), userRoot = path.join(parent, "user"), roots = Object.fromEntries(["local", "center", "edge"].map((name) => [name, path.join(parent, name)]));
+  for (const [name, rootDir] of Object.entries(roots)) { rosterRepo(rootDir, name); registerDaemonRepo({ canonicalRoot: rootDir, repoId: name, mode: name === "center" ? "remote-center" : name === "edge" ? "remote-edge" : "local", userRoot, createConvenienceLinks: false }); }
+  const host = await openDaemonHost({ daemonId: "host-modes", userRoot });
+  const assignment = (repoId: string) => ({ transportKind: "unix-socket", assignmentBinding: { nodeId: "node-mode", repoId, taskId: "task-mode", executionId: "execution-mode", assignmentId: `assignment-${repoId}`, paths: [], actor: { principal: { personId: "writer" }, executor: null } } } as const);
+  try {
+    assert.deepEqual(host.status().repos.map(({ repoId, mode }) => [repoId, mode]), [["center", "remote-center"], ["edge", "remote-edge"], ["local", "local"]]);
+    assert.match(host.status().summary, /repos=3$/u);
+    assert.equal((await host.run("local", { kind: "task-create", taskId: "task-local", title: "Local" }, auth)).outcome, "applied");
+    assert.equal((await host.run("local", { kind: "task-create", taskId: "task-local-remote", title: "Assignment on local" }, assignment("local"))).outcome, "applied");
+    assert.equal((await host.run("center", { kind: "task-create", taskId: "task-center-local", title: "Wrong ingress" }, auth)).code, "repo_mode_requires_center_ingress");
+    assert.equal((await host.run("center", { kind: "task-create", taskId: "task-center", title: "Center" }, assignment("center"))).outcome, "applied");
+    assert.equal((await host.run("edge", { kind: "task-list" }, auth)).outcome, "applied");
+    assert.equal((await host.run("edge", { kind: "task-create", taskId: "task-edge", title: "Edge" }, auth)).code, "repo_mode_read_only");
+  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("daemon admission rejects a mismatched kernel projection schema and recovers after rebuild", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-schema-admission-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user");
+  rosterRepo(rootDir, "schema-admission"); registerDaemonRepo({ canonicalRoot: rootDir, repoId: "schema-admission", userRoot, createConvenienceLinks: false });
+  const cache = path.join(rootDir, ".harness/cache/task.sqlite"); makeTaskProjection({ rootDir, eventStore: { readHead: () => null, readBatch: () => ({ sourceRevision: 0, events: [], cursor: null, done: true, accessedItems: 0 }), readContentBlob: () => null } }).list(); const db = new DatabaseSync(cache); db.exec("UPDATE projection_meta SET schema_version = 999 WHERE singleton = 1;"); db.close();
+  let clock = "2026-08-18T00:00:00.000Z";
+  const host = await openDaemonHost({ daemonId: "schema-admission", userRoot, now: () => clock });
+  try {
+    const unavailable = host.status().repos.find((repo) => repo.repoId === "schema-admission")!;
+    assert.equal(unavailable.state, "unavailable"); assert.equal(unavailable.causeClass, "data-shape"); assert.match(String(unavailable.lastError), /kernel projection schema 999/u);
+    assert.equal((await host.run("schema-admission", { kind: "task-list" }, auth)).code, "repo_unavailable");
+    const repaired = new DatabaseSync(cache); repaired.exec("UPDATE projection_meta SET schema_version = 2 WHERE singleton = 1;"); repaired.close(); clock = "2026-08-18T00:00:06.000Z";
+    assert.equal((await host.run("schema-admission", { kind: "task-list" }, auth)).outcome, "applied");
+    assert.equal(host.status().repos.find((repo) => repo.repoId === "schema-admission")?.state, "attached");
+  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("built-daemon admission identifies source files newer than dist output", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-dist-admission-")), source = path.join(parent, "packages/kernel/src/example.ts"), output = path.join(parent, "packages/cli/dist/kernel/src/example.js"), runtime = path.join(parent, "packages/cli/dist/daemon/src/runtime-admission.js");
+  try { mkdirSync(path.dirname(source), { recursive: true }); mkdirSync(path.dirname(output), { recursive: true }); mkdirSync(path.dirname(runtime), { recursive: true }); writeFileSync(output, "built\n"); writeFileSync(source, "source\n"); writeFileSync(runtime, "runtime\n"); const old = Date.now() / 1_000 - 10; utimesSync(output, old, old); assert.deepEqual(staleDistFiles(runtime), ["packages/kernel/src/example.ts"]); }
+  finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
 function systemRow(host: Awaited<ReturnType<typeof openDaemonHost>>, repoId: string): Record<string, unknown> {
