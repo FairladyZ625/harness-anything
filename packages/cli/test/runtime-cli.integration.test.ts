@@ -1,0 +1,33 @@
+// harness-test-tier: integration
+import assert from "node:assert/strict";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+
+const cli = path.resolve("packages/cli/src/index.ts");
+
+test("real CLI runs, resumes, waits, streams, reads prompt files, and cancels idempotently", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-cli-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), binRoot = path.join(parent, "bin"), promptFile = path.join(root, "prompt.txt"), version = "0.0.0-runtime-cli-fixture";
+  mkdirSync(root, { recursive: true }); mkdirSync(binRoot, { recursive: true }); writeProvider(path.join(binRoot, "codex"), version);
+  const env = { ...process.env, HOME: path.join(parent, "home"), PATH: `${binRoot}${path.delimiter}${process.env.PATH ?? ""}`, HARNESS_DAEMON_USER_ROOT: userRoot, HARNESS_DAEMON_ID: "runtime-cli-test" };
+  let active: ReturnType<typeof spawn> | undefined;
+  try {
+    assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true); run(root, env, ["init", "--repo-id", "runtime-cli", "--person-id", "owner", "--display-name", "Owner"]);
+    const inventory = run(root, env, ["runtime", "instance", "list"]), installation = (inventory.installations as Array<Record<string, unknown>>).find((row) => row.kindId === "codex" && row.version === `codex ${version}`); assert.ok(installation, JSON.stringify(inventory));
+    run(root, env, ["runtime", "instance", "create", "--id", "cli-worker", "--name", "CLI Worker", "--kind", "codex", "--installation", String(installation.installationId), "--provider", "openai", "--model", "runtime-test-model", "--auth", "subscription"]);
+    writeFileSync(promptFile, "file prompt"); const fromFile = run(root, env, ["runtime", "run", "cli-worker", "--prompt-file", "prompt.txt", "--no-stream"]); assert.equal((fromFile.result as Record<string, unknown>).text, "final:file prompt");
+    const resumed = run(root, env, ["runtime", "run", "cli-worker", "--prompt", "second turn", "--resume", "provider-cli-session", "--no-stream"]); assert.equal((resumed.result as Record<string, unknown>).text, "resumed:provider-cli-session:second turn"); assert.equal((resumed.session as Record<string, unknown>).providerSessionId, "provider-cli-session");
+    const streamed = spawnSync(process.execPath, [cli, "--root", root, "runtime", "run", "cli-worker", "--prompt", "stream prompt"], { encoding: "utf8", env }); assert.equal(streamed.status, 0, streamed.stderr); assert.equal(streamed.stdout.trim(), "final:stream prompt");
+    const listed = run(root, env, ["runtime", "status"]), sessions = listed.sessions as Array<Record<string, unknown>>; assert.equal(sessions.length, 3); assert.match(streamed.stderr, /\[message\] live:stream prompt/u, JSON.stringify(sessions)); const detail = run(root, env, ["runtime", "status", String(resumed.runtimeSessionId)]); assert.equal((detail.result as Record<string, unknown>).text, "resumed:provider-cli-session:second turn");
+    active = spawn(process.execPath, [cli, "--root", root, "--json", "runtime", "run", "cli-worker", "--prompt", "hold", "--no-stream"], { env, stdio: ["ignore", "pipe", "pipe"] }); let stdout = "", stderr = ""; active.stdout!.setEncoding("utf8"); active.stderr!.setEncoding("utf8"); active.stdout!.on("data", (chunk) => { stdout += chunk; }); active.stderr!.on("data", (chunk) => { stderr += chunk; }); const closed = once(active, "close"), runtimeSessionId = await activeSession(root, env);
+    assert.equal(run(root, env, ["runtime", "cancel", runtimeSessionId]).detail, "cancelled"); assert.equal(run(root, env, ["runtime", "cancel", runtimeSessionId]).detail, "already-exited"); const [code] = await closed; assert.notEqual(code, 0, stderr); assert.equal((JSON.parse(stdout) as Record<string, unknown>).outcome, "cancelled");
+  } finally { active?.kill(); runMaybe(root, env, ["daemon", "stop"]); rmSync(parent, { recursive: true, force: true }); }
+});
+
+async function activeSession(root: string, env: NodeJS.ProcessEnv): Promise<string> { for (let attempt = 0; attempt < 250; attempt += 1) { const result = runMaybe(root, env, ["runtime", "status"]), sessions = Array.isArray(result.receipt.sessions) ? result.receipt.sessions as Array<Record<string, unknown>> : [], live = sessions.find((session) => session.liveness === "live" && (session.activity as Record<string, unknown>).outcome === null); if (live) return String(live.runtimeSessionId); await new Promise((resolve) => setTimeout(resolve, 20)); } throw new Error("runtime session did not become live"); }
+function run(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): Record<string, unknown> { const result = runMaybe(root, env, args); assert.equal(result.status, 0, `${result.stderr}\n${JSON.stringify(result.receipt)}`); return result.receipt; }
+function runMaybe(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): { readonly status: number | null; readonly receipt: Record<string, unknown>; readonly stderr: string } { const result = spawnSync(process.execPath, [cli, "--root", root, "--json", ...args], { encoding: "utf8", env }); return { status: result.status, receipt: result.stdout.trim() ? JSON.parse(result.stdout) as Record<string, unknown> : {}, stderr: result.stderr }; }
+function writeProvider(target: string, version: string): void { writeFileSync(target, `#!${process.execPath}\nconst fs = require("node:fs");\nconst args = process.argv.slice(2);\nif (args[0] === "--version") { console.log("codex ${version}"); process.exit(0); }\nif (args[0] === "login" && args[1] === "status") process.exit(0);\nconst prompt = fs.readFileSync(0, "utf8");\nconst resumed = args[0] === "exec" && args[1] === "resume";\nconst session = resumed ? args.at(-2) : "provider-cli-session";\nconst emit = () => { console.log(JSON.stringify({ type: "thread.started", thread_id: session })); console.log(JSON.stringify({ type: "item.completed", item: { id: "live", type: "agent_message", text: "live:" + prompt } })); if (prompt === "hold") setInterval(() => {}, 1000); else { console.log(JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: resumed ? "resumed:" + session + ":" + prompt : "final:" + prompt } })); console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); } };\nif (prompt === "stream prompt") setTimeout(emit, 3000); else emit();\n`, { mode: 0o755 }); }
