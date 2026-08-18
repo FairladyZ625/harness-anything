@@ -197,18 +197,19 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
   }
   function receiptForOperation(opId: string, binding: RepoCellBinding): WriteReceipt {
     requiredCellText(opId, "opId"); const event = store.readEvent(opId);
-    if (event === null) return rejected(opId, "operation_not_published", "No committed event exists; retry only if the original request was rejected.");
+    if (event === null) return recovery.status === "indeterminate"
+      ? { outcome: "indeterminate", opId, code: "publication_indeterminate", origin: "daemon", evidence: "prepared-recovery:indeterminate", nextAction: `Repair the prepared publication state, restart the daemon, then run ha receipt show ${opId} again before retrying.` }
+      : rejected(opId, "operation_not_published", "No committed or recoverable event exists for this opId; the write was not applied and may be retried.");
     // Replay receipts name the current canonical cut: the event is reachable there, and replay proves occurrence rather than original publication provenance.
-    if (event.schema === "doc-event/v1") return readDocReceipt({ binding, workspaceId: input.repoId, rootDir, store, projection, now, killpoint: input.killpoint }, event);
+    if (event.schema === "doc-event/v1") return canonicalSettlement(readDocReceipt({ binding, workspaceId: input.repoId, rootDir, store, projection, now, killpoint: input.killpoint }, event), event);
     const commitSha = store.currentCommit().sha;
-    if (isTaskProgressEvent(event)) return progressReceipt(event, commitSha);
+    if (isTaskProgressEvent(event)) return canonicalSettlement(progressReceipt(event, commitSha), event);
     const applied = projection.readOperation(opId), visible = !!applied && applied.watermark >= event.workspaceRevision, proof = { committedRevision: event.workspaceRevision, appliedCut: applied?.watermark ?? 0, durable: true, canonicalVisible: visible, worktreeVisible: isTaskEvent(event) || event.schema === "decision-event/v1" ? true : null };
     if (isTaskEvent(event) && visible) return lifecycleReceipt(event, projection.read(event.taskId).snapshot, commitSha, proof);
     if (event.schema === "decision-event/v1" && visible) { const claim = event.payload.decisionDocumentClaim, consentId = "judgmentConsent" in event.payload ? event.payload.judgmentConsent.consentId : null; return { outcome: "applied", opId, revision: event.workspaceRevision, evidence: `event-object:${opId}`, visibility: "center", proof, path: claim.path, commitSha, documentSha256: claim.sha256, worktreeVisible: true, consentId } as WriteReceipt; }
-    return applied && applied.watermark >= event.workspaceRevision
-      ? { outcome: "applied", opId, revision: event.workspaceRevision, evidence: `event-object:${opId}`, visibility: "center", proof }
-      : { outcome: "pending", opId, revision: event.workspaceRevision, evidence: `event-object:${opId}`, visibility: "center", proof, nextAction: "Retry receipt show after projection catch-up." };
+    return canonicalSettlement({ outcome: "pending", opId, revision: event.workspaceRevision, evidence: `event-object:${opId}`, visibility: "center", proof, nextAction: "Projection catch-up may still be pending." }, event);
   }
+  function canonicalSettlement(receipt: WriteReceipt, event: ReturnType<typeof store.readEvent> & object): WriteReceipt { return { ...receipt, outcome: "applied", revision: event.workspaceRevision, evidence: receipt.evidence ?? `event-object:${event.opId}`, visibility: "center", proof: { committedRevision: event.workspaceRevision, appliedCut: event.workspaceRevision, durable: true, canonicalVisible: true, worktreeVisible: receipt.proof?.worktreeVisible ?? null } }; }
   function projectedTaskIds(): Set<string> { if (knownTaskIds) return knownTaskIds; let read = projection.list(); while (read.status === "pending") read = projection.list(); knownTaskIds = new Set(read.rows.map(({ taskId }) => taskId)); return knownTaskIds; }
   function progressReceipt(event: TaskProgressEventV1, commitSha: string): TaskProgressReceipt { const applied = projection.readOperation(event.opId), visible = !!applied && applied.watermark >= event.workspaceRevision; return { outcome: visible ? "applied" : "pending", opId: event.opId, revision: event.workspaceRevision, evidence: `event-object:${event.opId};file:${event.payload.resultDocumentClaim.path}`, visibility: "center", proof: { committedRevision: event.workspaceRevision, appliedCut: applied?.watermark ?? 0, durable: true, canonicalVisible: visible, worktreeVisible: true }, summary: `appended progress for ${event.payload.taskId} at ${event.payload.resultDocumentClaim.path}`, taskId: event.payload.taskId, executionId: event.payload.executionId, progressPath: event.payload.resultDocumentClaim.path, eventId: event.eventId, commitSha, worktreeVisible: true, nextAction: `ha task submit ${event.payload.taskId} --execution-id ${event.payload.executionId} ...` }; }
 } function dispatchRead<M extends RepoCellReadMethod>(handlers: DaemonGuiReadHandlers, method: M, payload: Readonly<Record<string, unknown>>): DaemonGuiReadResultMap[M] { return handlers[method](payload); }
