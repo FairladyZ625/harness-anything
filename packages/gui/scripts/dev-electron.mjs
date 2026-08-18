@@ -14,30 +14,21 @@ const guiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const repoRoot = path.resolve(guiRoot, "../..");
 const rendererUrl = "http://127.0.0.1:5173";
 const electronPath = require("electron");
-const npxBin = process.platform === "win32" ? "npx.cmd" : "npx";
+// Resolve vite's own bin script through Node's module resolution rather than shelling
+// out to npx: npx.cmd resolves its own npm-cli.js relative to the invoking npm script's
+// cwd, which does not exist in this repo's hoisted workspace install and aborts on
+// Windows (#1536). Running the bin file directly under the current Node needs no shell
+// on any platform.
+const viteBin = path.join(path.dirname(require.resolve("vite/package.json")), require("vite/package.json").bin.vite);
 
 function log(message) {
   console.log(`[dev-electron] ${message}`);
 }
 
-function runCommand(program, args) {
-  return process.platform === "win32" ? [quoteWindowsShell(program), ...args.map(quoteWindowsShell)].join(" ") : program;
-}
-
-function commandArgs(args) {
-  return process.platform === "win32" ? [] : args;
-}
-
-function quoteWindowsShell(value) {
-  return `"${String(value).replace(/"/gu, "\"\"")}"`;
-}
-
 log("building preload bundle...");
-const preloadArgs = ["vite", "build", "--config", "vite.preload.config.ts"];
-const preloadBuild = spawnSync(runCommand(npxBin, preloadArgs), commandArgs(preloadArgs), {
+const preloadBuild = spawnSync(process.execPath, [viteBin, "build", "--config", "vite.preload.config.ts"], {
   cwd: guiRoot,
-  stdio: "inherit",
-  shell: process.platform === "win32"
+  stdio: "inherit"
 });
 if (preloadBuild.status !== 0) {
   console.error("[dev-electron] preload build failed");
@@ -45,17 +36,21 @@ if (preloadBuild.status !== 0) {
 }
 
 log(`starting renderer dev server at ${rendererUrl} ...`);
-const viteArgs = ["vite", "--host", "127.0.0.1", "--port", "5173", "--strictPort"];
-const vite = spawn(runCommand(npxBin, viteArgs), commandArgs(viteArgs), {
+const vite = spawn(process.execPath, [viteBin, "--host", "127.0.0.1", "--port", "5173", "--strictPort"], {
   cwd: guiRoot,
   env: { ...process.env, BROWSER: "none" },
-  stdio: ["ignore", "pipe", "pipe"],
-  shell: process.platform === "win32"
+  stdio: ["ignore", "pipe", "pipe"]
 });
+// Forwarding stdout (previously discarded) surfaces Vite's own diagnostics, including its
+// "ready in" banner, in the launcher log instead of the poll loop being the only witness.
 vite.stderr.on("data", (chunk) => process.stderr.write(chunk));
+vite.stdout.on("data", (chunk) => process.stdout.write(chunk));
 
 async function waitForRenderer() {
-  const deadline = Date.now() + 30_000;
+  // #1537: a cold start (config load, plugin init, dependency scan) measurably ran past
+  // 30s under concurrent CPU load. Keep polling as long as the process is alive; the cap
+  // only guards against a renderer that neither serves nor exits.
+  const deadline = Date.now() + 180_000;
   let lastError;
   while (Date.now() < deadline) {
     if (vite.exitCode !== null) {

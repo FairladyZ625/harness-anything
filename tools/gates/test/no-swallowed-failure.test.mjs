@@ -25,6 +25,16 @@ test("G05 rejects fallthrough and undefined or success projections", () => {
   assert.match(lint("try { work(); } catch (error) { return { ok: true }; }")[0].message, /projected as undefined or success/u);
 });
 
+test("G05 baseline fingerprints agree across LF and CRLF checkouts of the same source (#1538)", () => {
+  const lf = "try {\n  work();\n} catch (error) {\n  return undefined;\n}";
+  const first = lint(lf);
+  const fingerprint = /Baseline key: (\S+)/u.exec(first[0].message)?.[1];
+  assert.ok(fingerprint);
+  // A Git-for-Windows checkout with core.autocrlf=true carries \r\n; the baseline was
+  // generated on an LF checkout, so the same source must fingerprint identically either way.
+  assert.deepEqual(lint(lf.replaceAll("\n", "\r\n"), [fingerprint]), []);
+});
+
 test("G05 baseline exempts only the exact existing catch body", () => {
   const source = "try { work(); } catch (error) { return undefined; }";
   const first = lint(source);

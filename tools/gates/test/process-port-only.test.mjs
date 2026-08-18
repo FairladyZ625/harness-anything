@@ -32,6 +32,16 @@ test("G19 rejects string exec, shell:true, POSIX shell literals, and entry regex
   assert.match(messages.map((entry) => entry.message).join("\n"), /exec\(string\).*shell: true.*\/bin\/sh.*entrypoints/su);
 });
 
+test("G19 baseline fingerprints agree across LF and CRLF checkouts of the same source (#1538)", () => {
+  const lf = "spawn(\n  'git status',\n  { shell: true }\n);";
+  const first = lint(lf);
+  const fingerprint = /Baseline key: (\S+)/u.exec(first[0].message)?.[1];
+  assert.ok(fingerprint);
+  // A Git-for-Windows checkout with core.autocrlf=true carries \r\n; the baseline was
+  // generated on an LF checkout, so the same source must fingerprint identically either way.
+  assert.deepEqual(lint(lf.replaceAll("\n", "\r\n"), { baseline: [fingerprint] }), []);
+});
+
 test("G19 baseline exemptions are exact and do not cover modified code", () => {
   const source = "spawn('git status', { shell: true });";
   const first = lint(source);
