@@ -3,6 +3,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defaultLifecycleTaskProjectionPath, readTaskProjectionSchemaVersion, taskProjectionSchemaVersion } from "../../kernel/src/index.ts";
 
+export const runtimeAdmissionRecheckMs = 5_000;
+export interface DaemonRuntimeAdmissionGuard { readonly assert: (rootDir: string, force?: boolean) => void }
+
 export class DaemonAdmissionError extends Error {
   readonly code: "daemon_build_stale" | "kernel_schema_mismatch";
   constructor(code: "daemon_build_stale" | "kernel_schema_mismatch", message: string) { super(message); this.name = "DaemonAdmissionError"; this.code = code; }
@@ -13,6 +16,12 @@ export function assertDaemonRuntimeAdmitted(rootDir: string, runtimeFile = fileU
   if (stale.length > 0) throw new DaemonAdmissionError("daemon_build_stale", `daemon build is behind source for ${stale.slice(0, 3).join(", ")}${stale.length > 3 ? ` and ${stale.length - 3} more files` : ""}; stop the resident daemon, run npm run build -w @harness-anything/cli, then restart.`);
   const projectionPath = defaultLifecycleTaskProjectionPath(rootDir), observed = readTaskProjectionSchemaVersion(projectionPath);
   if (observed !== null && observed !== taskProjectionSchemaVersion) throw new DaemonAdmissionError("kernel_schema_mismatch", `kernel projection schema ${observed} does not match daemon schema ${taskProjectionSchemaVersion}; stop the daemon, remove ${projectionPath}, then restart so the projection is rebuilt.`);
+}
+
+export function makeDaemonRuntimeAdmissionGuard(options: { readonly runtimeFile?: string; readonly nowMs?: () => number; readonly recheckMs?: number } = {}): DaemonRuntimeAdmissionGuard {
+  const runtimeFile = options.runtimeFile ?? fileURLToPath(import.meta.url), nowMs = options.nowMs ?? Date.now, recheckMs = options.recheckMs ?? runtimeAdmissionRecheckMs;
+  let admittedAt = Number.NEGATIVE_INFINITY;
+  return { assert: (rootDir, force = false) => { const observedAt = nowMs(); if (!force && observedAt >= admittedAt && observedAt - admittedAt < recheckMs) return; assertDaemonRuntimeAdmitted(rootDir, runtimeFile); admittedAt = observedAt; } };
 }
 
 export function staleDistFiles(runtimeFile: string): readonly string[] {

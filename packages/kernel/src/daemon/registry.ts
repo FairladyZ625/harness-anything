@@ -5,12 +5,14 @@ import path from "node:path";
 import { consumeKnownError } from "../error-consumption.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { makeLocalVersionControlSystem, resolveLedgerGitLayout } from "../composition/index.ts";
+import { daemonRepoModes, type DaemonRepoMode } from "./repo-mode.ts";
+
+export { daemonRepoModes } from "./repo-mode.ts";
+export type { DaemonRepoMode } from "./repo-mode.ts";
 
 export const daemonRegistrySchema = "harness-daemon-registry/v1";
 
 export type DaemonRepoState = "enabled" | "disabled";
-export const daemonRepoModes = Object.freeze(["local", "remote-center", "remote-edge"] as const);
-export type DaemonRepoMode = (typeof daemonRepoModes)[number];
 
 export interface DaemonRegistryRepo { readonly repoId: string; readonly canonicalRoot: string; readonly displayName: string; readonly authoredBranch: string; readonly mode: DaemonRepoMode; readonly state: DaemonRepoState; readonly registeredAt: string }
 export interface InvalidDaemonRegistryRepo { readonly entryIndex: number; readonly repoId?: string; readonly canonicalRoot?: string; readonly displayName?: string; readonly authoredBranch?: string; readonly mode?: DaemonRepoMode; readonly state?: DaemonRepoState; readonly registeredAt?: string; readonly error: string; readonly raw: unknown }

@@ -95,6 +95,28 @@ test("a publication_indeterminate latch reports the infrastructure class and hea
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+test("failed in-process recovery keeps a prepared operation indeterminate for immediate receipt lookup", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-latch-prepared-receipt-")), clock = "2026-08-18T00:00:00.000Z"; let armed = true, cell: RepoCell | undefined;
+  try {
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("latch-prepared-receipt"), rootDir: canonicalRoot(rootDir), ownerId: "latch-prepared-receipt", now: () => clock, killpoint: (point) => { if (armed && point === "after_head_write") { armed = false; throw new Error("prepared publication interruption"); } } }); const binding = { actor, source: "local" as const };
+    const interrupted = await cell.run({ kind: "task-create", taskId: "task_prepared_receipt", title: "Prepared receipt" }, binding);
+    assert.equal(interrupted.outcome, "op_rejected"); assert.equal(cell.status().state, "unavailable");
+    git(rootDir, "commit", "--allow-empty", "-qm", "external advance after prepared publication");
+    const receipt = await cell.run({ kind: "receipt-show", opId: interrupted.opId }, binding);
+    assert.equal(receipt.outcome, "indeterminate", JSON.stringify(receipt)); assert.equal(receipt.code, "publication_indeterminate");
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("a queued write rechecks Cell state after close begins", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cell-close-queue-")); let cell: RepoCell | undefined;
+  try {
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("cell-close-queue"), rootDir: canonicalRoot(rootDir), ownerId: "cell-close-queue" }); const binding = { actor, source: "local" as const };
+    const pending = cell.run({ kind: "task-create", taskId: "task_must_not_publish", title: "Must not publish" }, binding), closing = cell.close();
+    const receipt = await pending; assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt)); assert.equal(receipt.code, "repo_unavailable");
+    await closing; cell = undefined; assert.equal(makeTaskEventStore({ repoId: "cell-close-queue", rootDir }).readHead(), null);
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
 function appendRawEvent(rootDir: string, repoId: string, taskId: string, revision: number): void {
   const event: TaskEventV1 = { schema: "task-event/v1", eventId: `event-${taskId}`, workspaceRevision: revision, opId: `op-${taskId}`, taskId, type: "task_created", actor, source: "local", occurredAt: "2026-08-18T00:00:00.000Z", payload: { task: { schema: "task/v1", taskId, title: "Lagging append", taskClass: "standard", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [], presetSnapshotDigest: null } } };
   makeTaskEventStore({ repoId, rootDir }).append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
