@@ -37,7 +37,7 @@ export interface RecoveryBudget {
   readonly retry: number;
 }
 export const RECOVERY_BUDGET: Readonly<RecoveryBudget> = Object.freeze({ deadline: 100, maxItems: 64, retry: 1 });
-export const recoveryStates = Object.freeze(["queued", "running", "deferred", "failed", "done"] as const);
+export const recoveryStates = Object.freeze(["queued", "running", "exhausted", "failed", "drained"] as const);
 export type RecoveryState = (typeof recoveryStates)[number];
 export interface RecoveryWindow { readonly elapsed: number; readonly attempt: number }
 
@@ -55,12 +55,12 @@ export function nextRecoveryBatch<T>(items: readonly T[], cursor = 0, budget: Re
     || !Number.isInteger(window.elapsed) || window.elapsed < 0 || !Number.isInteger(window.attempt) || window.attempt < 0) {
     throw new WriteChainContractError("invalid_contract", "recovery cursor, budget, and window must be non-negative integers with a positive item limit");
   }
-  const exhausted: RecoveryState | null = window.attempt > budget.retry ? "failed" : window.elapsed >= budget.deadline ? "deferred" : null;
-  if (exhausted !== null) return Object.freeze({ items: Object.freeze([]) as readonly T[], deferred: Math.max(0, items.length - cursor), nextCursor: cursor, state: exhausted });
+  const stopped: RecoveryState | null = window.attempt > budget.retry ? "failed" : window.elapsed >= budget.deadline ? "exhausted" : null;
+  if (stopped !== null) return Object.freeze({ items: Object.freeze([]) as readonly T[], deferred: Math.max(0, items.length - cursor), nextCursor: cursor, state: stopped });
   const batch = Object.freeze(items.slice(cursor, cursor + budget.maxItems));
   const nextCursor = cursor + batch.length;
   const deferred = Math.max(0, items.length - nextCursor);
-  return Object.freeze({ items: batch, deferred, nextCursor, state: deferred === 0 ? "done" : "deferred" });
+  return Object.freeze({ items: batch, deferred, nextCursor, state: deferred === 0 ? "drained" : "exhausted" });
 }
 
 export interface EventEnvelope<S extends string, T extends string, A extends ActorIdentity, P> {

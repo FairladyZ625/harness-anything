@@ -114,7 +114,7 @@ test("G02/G07 expose one four-state receipt and bounded recovery contract", asyn
   }), WriteChainContractError);
 });
 
-test("G08 recovery cursor is monotonic, visits once, defers exhausted budgets, and escalates exhausted retry", () => {
+test("G08 recovery cursor is monotonic, visits once, reports exhausted budgets, drains, and escalates exhausted retry", () => {
   const budget = { deadline: 100, maxItems: 2, retry: 1 };
   for (const invalid of [{ ...budget, deadline: -1 }, { ...budget, maxItems: -1 }, { ...budget, retry: -1 }]) {
     assert.throws(() => nextRecoveryBatch([0, 1], 0, invalid), WriteChainContractError);
@@ -124,9 +124,9 @@ test("G08 recovery cursor is monotonic, visits once, defers exhausted budgets, a
   const third = nextRecoveryBatch([0, 1, 2, 3, 4], second.nextCursor, budget);
   assert.deepEqual([first.nextCursor, second.nextCursor, third.nextCursor], [2, 4, 5]);
   assert.deepEqual([...first.items, ...second.items, ...third.items], [0, 1, 2, 3, 4]);
-  assert.deepEqual([first.deferred, first.state, third.deferred, third.state], [3, "deferred", 0, "done"]);
+  assert.deepEqual([first.deferred, first.state, third.deferred, third.state], [3, "exhausted", 0, "drained"]);
   assert.deepEqual(nextRecoveryBatch([0, 1], 0, budget, { elapsed: 100, attempt: 0 }),
-    { items: [], deferred: 2, nextCursor: 0, state: "deferred" });
+    { items: [], deferred: 2, nextCursor: 0, state: "exhausted" });
   assert.deepEqual(nextRecoveryBatch([0, 1], 0, budget, { elapsed: 0, attempt: 2 }),
     { items: [], deferred: 2, nextCursor: 0, state: "failed" });
 });
