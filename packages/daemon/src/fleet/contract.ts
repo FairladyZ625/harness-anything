@@ -8,9 +8,10 @@ export type FleetDescriptor = FleetBlob & Readonly<{ ref: string }>;
 export const FLEET_TASK_COMMAND_KINDS = Object.freeze(["task-create", "task-start", "task-progress-append", "task-submit", "task-release"] as const);
 export type FleetTaskCommandKind = typeof FLEET_TASK_COMMAND_KINDS[number];
 export type FleetTaskAction = Readonly<Record<string, unknown>> & { readonly kind: FleetTaskCommandKind };
-// The daemon re-binds principal authority server-side, so a task command may never carry these
-// fields even before host.run's own ingress guard rejects them.
-export const FLEET_TASK_FORBIDDEN_ACTION_FIELDS = Object.freeze(["actor", "executor", "root", "canonicalRoot", "workspaceId", "expectedRevision", "eventId", "occurredAt", "gitCredential", "credential", "createMode"] as const);
+// Closed per-kind action surface: every field of a fleet task command must be
+// declared for its kind. The daemon re-binds principal authority server-side,
+// so identity/origin fields are simply absent from every allowlist (the same
+// posture as the mode enum in the daemon protocol contract).
 export interface FleetAssignmentScope { readonly repoId: string; readonly taskId: string; readonly executionId: string; readonly paths: readonly string[] }
 export interface FleetAssignmentBinding extends FleetAssignmentScope { readonly nodeId: string; readonly assignmentId: string; readonly actor: { readonly principal: { readonly personId: string }; readonly executor: { readonly kind: "agent"; readonly id: string } | null } }
 type Msg<S extends string, P extends object = object> = Readonly<{ schema: S; messageId: string }> & Readonly<P>;
@@ -62,7 +63,19 @@ const logicalPath: Check = (value) => typeof value === "string" && value === val
 const base64: Check = (value) => typeof value === "string" && value.length > 0 && Buffer.from(value, "base64").byteLength <= FLEET_CHUNK_BYTES && Buffer.from(value, "base64").toString("base64") === value;
 const cut = shape({ revision: uint, headDigest: (value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value) });
 const blob = shape({ sha256: sha64, size: uint, mediaType: text }), descriptor = shape({ ref: (value) => typeof value === "string" && /^doc-sync-claims\/[A-Za-z0-9_-]{1,96}$/u.test(value), sha256: sha64, size: uint, mediaType: text });
-const taskAction: Check = (value) => record(value) && typeof (value as RecordValue).kind === "string" && (FLEET_TASK_COMMAND_KINDS as readonly string[]).includes((value as RecordValue).kind as string) && Object.keys(value).length <= 24 && !Object.keys(value).some((field) => (FLEET_TASK_FORBIDDEN_ACTION_FIELDS as readonly string[]).includes(field));
+const boolean: Check = (value) => typeof value === "boolean", positiveInt: Check = (value) => Number.isSafeInteger(value) && Number(value) > 0;
+const optionalShape = (fields: Readonly<Record<string, Check>>, required: readonly string[]): Check => (value) => record(value) && required.every((field) => Object.hasOwn(value, field)) && Object.entries(value).every(([field, entry]) => Object.hasOwn(fields, field) && fields[field]!(entry));
+const registerModule = shape({ key: text, title: text, prefix: text, scope: text });
+const taskRelation = shape({ type: text, target: text, rationale: text });
+const taskEvidence = shape({ type: text, path: logicalPath, summary: text });
+const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
+  "task-create": optionalShape({ kind: one("task-create"), title: text, taskId: id, idempotencyKey: text, parentTaskId: id, workKind: one("feat", "fix", "refactor", "docs", "test", "chore"), riskTier: one("low", "medium", "high"), urgency: one("low", "medium", "high"), verticalId: text, presetId: id, profileId: id, moduleKey: id, registerModule, slug: (value) => typeof value === "string" && /^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$/u.test(value), surfaces: array(text), relations: array(taskRelation), taskClass: one("standard", "milestone", "epic", "long_running"), locale: one("zh-CN", "en-US"), dryRun: boolean }, ["kind"]),
+  "task-start": optionalShape({ kind: one("task-start"), taskId: id, executionId: id, ttlMs: positiveInt, dryRun: boolean }, ["kind"]),
+  "task-progress-append": optionalShape({ kind: one("task-progress-append"), taskId: id, executionId: id, text, evidence: array(taskEvidence), baseDocumentSha256: nullable(sha64) }, ["kind"]),
+  "task-submit": optionalShape({ kind: one("task-submit"), taskId: id, executionId: id, submission: record }, ["kind"]),
+  "task-release": optionalShape({ kind: one("task-release"), taskId: id, reason: text }, ["kind"])
+};
+const taskAction: Check = (value) => record(value) && typeof value.kind === "string" && Object.hasOwn(taskActionShapes, value.kind) && taskActionShapes[value.kind as FleetTaskCommandKind]!(value);
 const taskLease = shape({ taskId: id, executionId: nullable(id), assignmentId: id, expiresAt: (value) => typeof value === "string" && !Number.isNaN(Date.parse(value)) });
 const manifest = shape({ digest: sha64, entryCount: uint, totalBytes: uint }), entry = shape({ path: logicalPath, blob }), put = shape({ op: one("put"), path: logicalPath, blob }), del = shape({ op: one("delete"), path: logicalPath });
 const docChange = shape({ path: logicalPath, baseBlobSha256: nullable(sha64), policyId: text, candidate: descriptor });

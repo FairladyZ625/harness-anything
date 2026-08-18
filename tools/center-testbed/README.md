@@ -3,7 +3,7 @@
 为 PLT-Center M1-E/M2 验证搭的可一键起停的 Docker 台子：一个中心权威 daemon + 多个
 edge 节点 + 一个 harness 化测试项目 + 腾讯 GitLab 中心仓对接。W3-B 起本台同时承载
 **写回冒烟**：edge 的 `ha task create|start|progress append|submit|release` 经 fleet TLS
-自动获取/排队 task lease（`smoke-write.sh`，四场景全真容器）。
+自动获取/排队 task lease（`smoke-write.sh`，五场景全真容器）。
 
 拓扑（对照 `harness/tasks/task_856697c1a1b98d751bbe09034f-plt-center` design-v2 的 M1-E/M2 节）：
 
@@ -53,7 +53,7 @@ cd tools/center-testbed
 docker compose build            # 首次构建（npm ci + CLI build，几分钟）
 docker compose up -d --wait     # seed 跑完 → center healthy → edges 起来
 bash smoke-read.sh              # 读链路冒烟（edge 拉取 + GitLab 可见性 + 日志）
-bash smoke-write.sh             # 写链路冒烟（自动 lease 四场景，见下）
+bash smoke-write.sh             # 写链路冒烟（自动 lease 五场景，见下）
 ```
 
 `docker compose down` 停止；`docker compose down -v` 连卷一起清（彻底重置，含 lease 态）。
@@ -76,6 +76,8 @@ bash smoke-write.sh             # 写链路冒烟（自动 lease 四场景，见
    不自动 complete、不回滚），edge-2 可认领；
 4. `docker compose restart center`（热路径）后 `/data/fleet-state/leases.json` 的授予行、
    域内 lease、原持有者写权、等待队列全部幸存，release 仍唤醒队首。
+5. edge-1/edge-2 对同一未持有 task 并发 `task start`，恰一方立即授予、另一方只出现一条
+   FIFO 等待行；赢家 release 后输家自动获得 lease。
 
 ## 凭证与安全边界
 
@@ -133,9 +135,9 @@ docker compose exec edge-2 ha --json daemon fleet edge sync --host center --port
 | `docker-compose.yml` | seed → center(healthcheck) → edge-1/edge-2 拓扑与卷/网络；center 带 `HARNESS_LEASE_REAP_INTERVAL_MS=2000` |
 | `bootstrap.mjs` | seed 入口：建项目、写台账、建/推 GitLab、铸 TLS+roster（每 edge 独立 principal）、bump generation |
 | `entrypoint-center.mjs` | center 入口：冷启动 clone/register/重建；同 generation 重启走热路径；fleet center start（`--state-root /data/fleet-state`） |
-| `entrypoint-edge.mjs` | edge 入口：常驻 daemon + 写 `/data/workspace/fleet-edge.json`（remote-edge 标记） |
+| `entrypoint-edge.mjs` | edge 入口：常驻 daemon + 隔离管理壳注册为 remote-edge + 写 `/data/workspace/fleet-edge.json` |
 | `smoke-edge.mjs` / `smoke-read.sh` | 容器内单边读冒烟 / 宿主机一键读冒烟 |
-| `smoke-write.sh` | 宿主机一键写冒烟（自动 lease 四场景） |
+| `smoke-write.sh` | 宿主机一键写冒烟（自动 lease 五场景） |
 | `lib/testbed.mjs` | 容器内共享 helper（ha 调用、receipt 解包、daemon 生命周期） |
 
 ## 已知边界

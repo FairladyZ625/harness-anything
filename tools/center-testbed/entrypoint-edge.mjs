@@ -2,13 +2,14 @@
 // Edge-container entrypoint. Each edge runs its own daemon in its own socket
 // namespace and stays resident. The read-path smoke (`smoke-edge.mjs`) pulls
 // replica views on demand; the write path marks the workspace as a remote-edge
-// mirror by dropping fleet-edge.json (the machine credential itself stays only
-// in the shared roster; the daemon resolves it at run time). Edge views under
+// mirror by registering a minimal local management shell as remote-edge and
+// dropping fleet-edge.json (the machine credential itself stays only in the
+// shared roster; the daemon resolves it at run time). Edge views under
 // /data/view survive restarts so re-runs exercise the delta/current replica
 // paths instead of always resnapshotting.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { fail, log, readState, startDaemon } from "./lib/testbed.mjs";
+import { fail, fleetEnv, ha, log, readState, startDaemon } from "./lib/testbed.mjs";
 
 const userRoot = "/data/daemon-user";
 const workspace = "/data/workspace";
@@ -21,9 +22,19 @@ if (existsSync(userRoot)) rmSync(userRoot, { recursive: true, force: true });
 // would otherwise ENOENT.
 mkdirSync("/data/view", { recursive: true });
 
-writeEdgeConfig();
-
 const daemon = startDaemon("edge", userRoot, nodeId);
+// The registry mode is the single repo-mode source of truth for the write
+// routing: a remote-edge registration is what makes `ha task ...` take the
+// fleet channel for this workspace. Registration itself is authenticated
+// against the target repo's people roster, so each isolated edge volume first
+// gets a minimal local management shell. It is never the data mirror (replica
+// cuts remain under /data/view), and switching it to remote-edge makes local
+// writes fail closed.
+const state = readState();
+ha("init", fleetEnv(userRoot, nodeId), ["--root", workspace, "init", "--repo-id", state.repoId, "--person-id", `testbed-${nodeId}`, "--display-name", `PLT Center Testbed ${nodeId}`, "--name", `plt-center-${nodeId}`]);
+writeEdgeConfig();
+ha("register", fleetEnv(userRoot, nodeId), ["daemon", "repo", "register", "--repo-id", state.repoId, "--root", workspace, "--mode", "remote-edge"]);
+log("register", `workspace registered as remote-edge for repo ${state.repoId}`);
 for (const signal of ["SIGTERM", "SIGINT"]) {
   process.on(signal, () => daemon.kill(signal));
 }

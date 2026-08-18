@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Host-side write-path smoke for the PLT-Center testbed. Assumes
 # `docker compose up -d --wait` succeeded (a reseeded fresh stack). Drives the
-# four W3-B automatic-lease acceptance scenarios with real containers:
+# five W3-B automatic-lease acceptance scenarios with real containers:
 #   1. edge-1 runs the task create -> start -> progress -> submit closed loop;
 #      the center ledger advances and the effect projects back to both edges.
 #   2. edge-2's start on a task edge-1 holds parks in the center FIFO queue;
@@ -10,6 +10,8 @@
 #      orphan and edge-2 claims the task.
 #   4. a center restart (warm boot) preserves the lease table; the original
 #      holder still writes, and a queued second node still waits until release.
+#   5. both edges start the same unheld task concurrently; exactly one wins
+#      immediately and the other remains queued until the winner releases.
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -17,7 +19,8 @@ cd "$(dirname "$0")"
 WORKSPACE=/data/workspace
 SMOKE_TMP=$(mktemp -d)
 RUN_TAG=$(date +%s)
-trap 'rm -rf "$SMOKE_TMP"' EXIT
+cleanup() { for pid in $(jobs -pr); do kill "$pid" 2>/dev/null || true; done; rm -rf "$SMOKE_TMP"; }
+trap cleanup EXIT
 REPO_ID=$(docker compose exec -T center node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).repoId)' /data/shared/testbed-state.json)
 
 log() { echo "[smoke-write] $*"; }
@@ -55,6 +58,15 @@ state = json.load(open(sys.argv[1]))
 for key, row in state.get("leases", {}).items():
     if key.split("|", 1)[1] == sys.argv[2]:
         print(row.get("assignment", {}).get("assignmentId")); break
+PY
+}
+
+queue_count() { # queue_count <task-id>
+  center_leases > "$SMOKE_TMP/leases.json"
+  python3 - "$SMOKE_TMP/leases.json" "$1" <<'PY'
+import json, sys
+state = json.load(open(sys.argv[1]))
+print(sum(1 for key, rows in state.get("queue", {}).items() if key.split("|", 1)[1] == sys.argv[2] for _ in rows))
 PY
 }
 
@@ -155,6 +167,38 @@ expect "$SMOKE_TMP/s4-start2.json" ok true
 [ "$(jsonget "$SMOKE_TMP/s4-start2.json" fleet.lease.assignmentId)" = "assignment-edge-2" ] || fail_smoke "edge-2 did not acquire after the post-restart release"
 log "scenario 4 PASS: lease table, holder rights, and queue all survived the restart"
 
+log "== scenario 5: simultaneous first-starts serialize into one grant and one FIFO waiter =="
+ha edge-1 task create --title "W3-B concurrent first grab $RUN_TAG" --preset standard-task > "$SMOKE_TMP/s5-create.json"
+T5=$(jsonget "$SMOKE_TMP/s5-create.json" taskId)
+docker compose exec -T edge-1 ha --json --root "$WORKSPACE" task start "$T5" > "$SMOKE_TMP/s5-start1.json" 2> "$SMOKE_TMP/s5-start1.err" &
+START51=$!
+docker compose exec -T edge-2 ha --json --root "$WORKSPACE" task start "$T5" > "$SMOKE_TMP/s5-start2.json" 2> "$SMOKE_TMP/s5-start2.err" &
+START52=$!
+for _ in $(seq 1 30); do
+  LIVE51=0; LIVE52=0
+  kill -0 "$START51" 2>/dev/null && LIVE51=1
+  kill -0 "$START52" 2>/dev/null && LIVE52=1
+  [ $((LIVE51 + LIVE52)) -eq 0 ] && fail_smoke "both simultaneous starts completed; expected one FIFO waiter (edge-1: $(head -c 300 "$SMOKE_TMP/s5-start1.json"), edge-2: $(head -c 300 "$SMOKE_TMP/s5-start2.json"))"
+  [ $((LIVE51 + LIVE52)) -eq 1 ] && [ "$(queue_count "$T5")" = "1" ] && break
+  sleep 0.5
+done
+HOLDER5=$(lease_row "$T5")
+case "$HOLDER5" in
+  assignment-edge-1) WINNER5=edge-1; WINPID5=$START51; WINFILE5="$SMOKE_TMP/s5-start1.json"; LOSER5=edge-2; WAITPID5=$START52; WAITFILE5="$SMOKE_TMP/s5-start2.json" ;;
+  assignment-edge-2) WINNER5=edge-2; WINPID5=$START52; WINFILE5="$SMOKE_TMP/s5-start2.json"; LOSER5=edge-1; WAITPID5=$START51; WAITFILE5="$SMOKE_TMP/s5-start1.json" ;;
+  *) fail_smoke "simultaneous first-start did not produce exactly one known holder for $T5 (holder='$HOLDER5', queue=$(queue_count "$T5"))" ;;
+esac
+[ "$(queue_count "$T5")" = "1" ] || fail_smoke "the losing simultaneous start was not parked exactly once"
+wait "$WINPID5"
+expect "$WINFILE5" ok true
+[ "$(jsonget "$WINFILE5" fleet.lease.assignmentId)" = "$HOLDER5" ] || fail_smoke "the completed simultaneous start does not match broker holder $HOLDER5"
+ha "$WINNER5" task release "$T5" --reason "smoke: concurrent winner hands off to FIFO loser" > "$SMOKE_TMP/s5-release.json"
+expect "$SMOKE_TMP/s5-release.json" ok true
+wait "$WAITPID5"
+expect "$WAITFILE5" ok true
+[ "$(jsonget "$WAITFILE5" fleet.lease.assignmentId)" = "assignment-$LOSER5" ] || fail_smoke "$LOSER5 did not acquire after the concurrent winner released"
+log "scenario 5 PASS: $WINNER5 won exactly once; $LOSER5 queued and acquired after release"
+
 echo
 log "center lease table (final):"
 center_leases > "$SMOKE_TMP/final-leases.json"
@@ -163,4 +207,4 @@ import json, sys
 for key, row in json.load(open(sys.argv[1])).get("leases", {}).items():
     print(f"  {key.split('|', 1)[1]}: {row['assignment']['assignmentId']} (expires {row.get('expiresAt', '?')})")
 PY
-echo "SMOKE PASS: all four automatic-lease scenarios passed on real containers."
+echo "SMOKE PASS: all five automatic-lease scenarios passed on real containers."

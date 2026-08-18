@@ -38,9 +38,17 @@ test("Fleet transport union round-trips every closed wire variant", () => {
   assert.equal(FLEET_KEY_SEND_WINDOW_BYTES, 256 * 1024);
   assert.equal(FLEET_SESSION_SEND_WINDOW_BYTES, 512 * 1024);
   for (const frame of frames) assert.deepEqual(parseFleetFrame(serializeFleetFrame(frame)), frame, frame.schema);
+  for (const action of [
+    { kind: "task-create", title: "Fleet task", riskTier: "high", registerModule: { key: "kernel", title: "Kernel", prefix: "task", scope: "repo" }, surfaces: ["ha task start"], relations: [{ type: "depends-on", target: "task/task_parent", rationale: "ordered" }] },
+    { kind: "task-start", taskId: "task_abc", executionId: "exe_abc", ttlMs: 60_000, dryRun: true },
+    { kind: "task-progress-append", taskId: "task_abc", executionId: "exe_abc", text: "progress", evidence: [{ type: "test", path: "reports/result.txt", summary: "pass" }], baseDocumentSha256: null },
+    { kind: "task-submit", taskId: "task_abc", executionId: "exe_abc", submission: { completionClaim: "complete", deliverables: [] } },
+    { kind: "task-release", taskId: "task_abc", reason: "handoff" }
+  ]) assert.deepEqual(parseFleetFrame({ ...frames[23], taskId: "task_abc", action }).action, action);
 });
 
 test("Fleet codec rejects unknown provenance, nested fields, malformed values, and limits", () => {
+  const spoofFields = ["actor", "executor", "root", "canonicalRoot", "workspaceId", "expectedRevision", "eventId", "occurredAt", "gitCredential", "credential", "createMode"];
   for (const invalid of [
     { ...frames[4], actor: { principal: { personId: "spoof" } } },
     { ...frames[4], content: { ...blob, extra: true } },
@@ -50,6 +58,14 @@ test("Fleet codec rejects unknown provenance, nested fields, malformed values, a
     { ...frames[10], cut: { ...cut, commitSha: "a".repeat(40) } },
     { ...frames[23], action: { kind: "task-start", taskId: "task_abc", actor: { principal: { personId: "spoof" } } } },
     { ...frames[23], action: { kind: "host-run", command: "anything" } },
+    { ...frames[23], action: { kind: "task-start", taskId: "task_abc", verb: "start" } },
+    { ...frames[23], action: { kind: "task-create", title: "t", createMode: "admin" } },
+    { ...frames[23], action: { kind: "task-release", taskId: "task_abc", ttlMs: 1 } },
+    { ...frames[23], action: { kind: "task-start", taskId: "task_abc", ttlMs: "forever" } },
+    { ...frames[23], action: { kind: "task-create", title: "t", riskTier: "critical" } },
+    { ...frames[23], action: { kind: "task-create", title: "t", registerModule: { key: "m", title: "M", prefix: "m", scope: "repo", actor: "spoof" } } },
+    { ...frames[23], action: { kind: "task-submit", taskId: "task_abc", submission: "not-an-object" } },
+    ...spoofFields.map((field) => ({ ...frames[23], action: { kind: "task-start", taskId: "task_abc", [field]: field === "actor" ? { principal: { personId: "spoof" } } : "spoof" } })),
     { ...frames[0], schema: "fleet.unknown/v1" }
   ]) assert.throws(() => parseFleetFrame(invalid), FleetContractError);
   assert.throws(() => parseFleetFrame(`{"schema":"fleet.session.hello/v1","messageId":"m","protocolVersion":1,"nodeId":"n","credential":"${"x".repeat(FLEET_FRAME_BYTES)}"}`), /frame exceeds/u);

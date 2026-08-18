@@ -7,8 +7,10 @@ import path from "node:path";
 import test from "node:test";
 import { registerDaemonRepo } from "../../kernel/src/index.ts";
 import { openDaemonHost, type DaemonHost } from "../src/daemon-host.ts";
+import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { runFleetTaskCommandClient } from "../src/fleet/edge.ts";
+import { fleetLeaseTimers } from "../src/lease-broker.ts";
 import { randomUUID } from "node:crypto";
 
 const replicaQuota = 64 * 1024 * 1024;
@@ -16,7 +18,7 @@ const replicaQuota = 64 * 1024 * 1024;
 // Same fixture discipline as fleet-transport.integration: every OS resource is
 // owned by the fixture and reclaimed through t.after, because a `node --test`
 // timeout suspends the body and never runs try/finally teardown.
-async function leaseFixture() {
+async function leaseFixture(wrapRun?: (run: DaemonHost["run"]) => DaemonHost["run"]) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-lease-")), repo = path.join(root, "repo"), userRoot = path.join(root, "user"), stateRoot = path.join(root, "state"), keyFile = path.join(root, "tls.key"), certFile = path.join(root, "tls.crt");
   mkdirSync(path.join(repo, "harness"), { recursive: true });
   const git = (...args: readonly string[]): string => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
@@ -30,18 +32,18 @@ async function leaseFixture() {
   const assignments = [assignment("node-one", "person-one"), assignment("node-two", "person-two")], byId = new Map(assignments.map((value) => [value.assignmentId, value]));
   const hosts: DaemonHost[] = [], centers: FleetTlsCenter[] = [];
   const previousReap = process.env.HARNESS_LEASE_REAP_INTERVAL_MS;
-  const openCenter = async (host: DaemonHost): Promise<FleetTlsCenter> => {
+  const openCenter = async (host: DaemonHost, port?: number): Promise<FleetTlsCenter> => {
     process.env.HARNESS_LEASE_REAP_INTERVAL_MS = "250";
-    try { const center = await listenFleetTls({ host, stateRoot, key, cert, replicaDiskQuotaBytes: replicaQuota, authenticate: (nodeId, credential) => credential === `secret-${nodeId}`, resolveAssignment: (assignmentId) => byId.get(assignmentId) ?? null }); centers.push(center); return center; }
+    try { const center = await listenFleetTls({ host, stateRoot, key, cert, ...(port === undefined ? {} : { port }), replicaDiskQuotaBytes: replicaQuota, authenticate: (nodeId, credential) => credential === `secret-${nodeId}`, resolveAssignment: (assignmentId) => byId.get(assignmentId) ?? null }); centers.push(center); return center; }
     finally { if (previousReap === undefined) delete process.env.HARNESS_LEASE_REAP_INTERVAL_MS; else process.env.HARNESS_LEASE_REAP_INTERVAL_MS = previousReap; }
   };
-  const openHost = (): Promise<DaemonHost> => openDaemonHost({ daemonId: "lease-center", userRoot }).then((host) => { hosts.push(host); return host; });
+  const openHost = (): Promise<DaemonHost> => openDaemonHost({ daemonId: "lease-center", userRoot }).then((host) => { const wrapped = wrapRun ? { ...host, run: wrapRun(host.run) } : host; hosts.push(wrapped); return wrapped; });
   const closeHost = async (host: DaemonHost): Promise<void> => { const at = hosts.indexOf(host); if (at >= 0) hosts.splice(at, 1); await host.close(); };
   const host = await openHost(), center = await openCenter(host);
   const command = (nodeId: string, action: Record<string, unknown>, waitMs = 5_000, taskId: string | null = typeof action.taskId === "string" ? action.taskId : null) => runFleetTaskCommandClient({ port: center.port, ca: cert, servername: "localhost", nodeId, credential: `secret-${nodeId}`, assignmentId: `assignment-${nodeId}`, opId: randomUUID(), repoId: "lease-repo", taskId, action: action as never, waitMs });
   const commandOn = (target: FleetTlsCenter, nodeId: string, action: Record<string, unknown>, waitMs = 5_000) => runFleetTaskCommandClient({ port: target.port, ca: cert, servername: "localhost", nodeId, credential: `secret-${nodeId}`, assignmentId: `assignment-${nodeId}`, opId: randomUUID(), repoId: "lease-repo", taskId: typeof action.taskId === "string" ? action.taskId : null, action: action as never, waitMs });
   const commitCount = (): number => Number(git("rev-list", "--count", "refs/ha/canonical"));
-  return { root, repo, stateRoot, host, center, command, commandOn, openHost, openCenter, closeHost, commitCount, close: async () => { for (const target of centers.splice(0)) await target.close(); for (const target of hosts.splice(0)) await target.close(); rmSync(root, { recursive: true, force: true }); } };
+  return { root, repo, stateRoot, host, center, command, commandOn, openHost, openCenter, closeHost, commitCount, assignmentFor: (nodeId: string): FleetAssignmentRecord => byId.get(`assignment-${nodeId}`)!, close: async () => { for (const target of centers.splice(0)) await target.close(); for (const target of hosts.splice(0)) await target.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 
 test("auto lease: create/start/progress over fleet TLS, second node queues and is woken by release", { timeout: 30_000 }, async (t) => {
@@ -150,4 +152,182 @@ test("frame hygiene: cross-repo and missing taskId are rejected before any write
   assert.equal(noTask.outcome, "op_rejected");
   assert.equal(noTask.code, "task_command_rejected");
   assert.equal(fixture.commitCount(), before);
+});
+
+test("crash window restart: a domain lease whose mirror row was lost is rebuilt, not dropped", { timeout: 30_000 }, async (t) => {
+  const fixture = await leaseFixture(); t.after(() => fixture.close());
+  const created = await fixture.command("node-one", { kind: "task-create", title: "Crash window" });
+  const taskId = String((created.receipt as Record<string, unknown>).taskId);
+  // Simulate the crash window: the domain task-start commits through the host
+  // directly while the broker never records its grant (center died between
+  // the domain write and the mirror bookkeeping, then restarted).
+  const direct = await fixture.host.run("lease-repo", { kind: "task-start", taskId }, { transportKind: "fleet-tls", assignmentBinding: fixture.assignmentFor("node-one") });
+  assert.equal(direct.outcome, "applied");
+  assert.equal(fixture.center.status().leases.leases.length, 0, "precondition: the broker mirror is empty");
+  await fixture.center.close(); await fixture.closeHost(fixture.host);
+  const host = await fixture.openHost(), reopened = await fixture.openCenter(host);
+  assert.equal(reopened.status().leases.leases.length, 0, "the restarted broker begins from the lost-mirror state");
+  // The other node's start must RECONCILE from the domain lease (rebuild the
+  // row via roster attribution) and queue behind it — not delete the mirror
+  // and strand the domain orphan.
+  let secondResolved = false;
+  const waiting = fixture.commandOn(reopened, "node-two", { kind: "task-start", taskId }).then((result) => { secondResolved = true; return result; });
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  assert.equal(secondResolved, false, "the second start parks behind the reconciled lease");
+  const reconciled = reopened.status().leases.leases;
+  assert.equal(reconciled.length, 1);
+  assert.equal(reconciled[0]?.assignmentId, "assignment-node-one", "the mirror row is rebuilt from the domain lease attribution");
+  assert.equal((await fixture.commandOn(reopened, "node-one", { kind: "task-release", taskId })).outcome, "applied");
+  const granted = await waiting;
+  assert.equal(granted.outcome, "applied");
+  assert.equal(granted.lease?.assignmentId, "assignment-node-two");
+});
+
+test("a failed orphan release keeps the mirror row and the reaper retries it", { timeout: 30_000 }, async (t) => {
+  let releaseFails = true;
+  const fixture = await leaseFixture((run) => (repoId, action, auth) => action.kind === "task-release" && releaseFails ? Promise.reject(new Error("simulated release infrastructure failure")) : run(repoId, action, auth));
+  t.after(() => fixture.close());
+  const created = await fixture.command("node-one", { kind: "task-create", title: "Reaper retry" });
+  const taskId = String((created.receipt as Record<string, unknown>).taskId);
+  assert.equal((await fixture.command("node-one", { kind: "task-start", taskId, ttlMs: 500 })).outcome, "applied");
+  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  const retained = fixture.center.status().leases.leases;
+  assert.equal(retained.length, 1, "a failed release must keep the mirror row for the next sweep");
+  assert.equal(retained[0]?.assignmentId, "assignment-node-one");
+  releaseFails = false;
+  for (let index = 0; index < 20 && fixture.center.status().leases.leases.length > 0; index += 1) await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(fixture.center.status().leases.leases.length, 0, "the retried release clears the row");
+  const claimed = await fixture.command("node-two", { kind: "task-start", taskId });
+  assert.equal(claimed.outcome, "applied");
+  assert.equal(claimed.lease?.assignmentId, "assignment-node-two");
+});
+
+test("a rejected domain probe cannot erase the mirror or wake a waiter", { timeout: 30_000 }, async (t) => {
+  let rejectProbe = false;
+  const fixture = await leaseFixture((run) => async (repoId, action, auth) => action.kind === "task-show" && rejectProbe ? { outcome: "op_rejected", opId: "probe-unavailable", code: "repo_unavailable", nextAction: "retry the canonical read" } : run(repoId, action, auth));
+  t.after(() => fixture.close());
+  const created = await fixture.command("node-one", { kind: "task-create", title: "Probe fail closed" });
+  const taskId = String((created.receipt as Record<string, unknown>).taskId);
+  assert.equal((await fixture.command("node-one", { kind: "task-start", taskId, ttlMs: 500 })).outcome, "applied");
+  rejectProbe = true;
+  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  assert.equal(fixture.center.status().leases.leases[0]?.assignmentId, "assignment-node-one", "an unavailable canonical read preserves the coordination mirror");
+  rejectProbe = false;
+  for (let index = 0; index < 20 && fixture.center.status().leases.leases.length > 0; index += 1) await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(fixture.center.status().leases.leases.length, 0, "a later successful probe lets the reaper complete");
+  assert.equal((await fixture.command("node-two", { kind: "task-start", taskId })).outcome, "applied");
+});
+
+test("two simultaneous first-starts serialize: exactly one grants, the other queues", { timeout: 30_000 }, async (t) => {
+  // The asymmetric probe delay forces the adversarial interleaving: the slow
+  // prober reads an empty domain (its task-show completes early) but decides
+  // 300ms later, so a non-atomic check-and-reserve acting on the stale read
+  // would overwrite the winner's mirror row and drop it when the domain
+  // rejects the second grab.
+  const fixture = await leaseFixture((run) => (repoId, action, auth) => run(repoId, action, auth).then((receipt) => action.kind === "task-show" && auth.assignmentBinding?.nodeId === "node-one" ? new Promise((resolve) => setTimeout(resolve, 300)).then(() => receipt) : receipt));
+  t.after(() => fixture.close());
+  const created = await fixture.command("node-one", { kind: "task-create", title: "Concurrent first grab" });
+  const taskId = String((created.receipt as Record<string, unknown>).taskId);
+  const outcomes: string[] = [];
+  const slow = fixture.command("node-one", { kind: "task-start", taskId }).then((result) => { outcomes.push(`one:${result.outcome}:${result.code ?? null}`); return result; });
+  const fast = fixture.command("node-two", { kind: "task-start", taskId }).then((result) => { outcomes.push(`two:${result.outcome}:${result.code ?? null}`); return result; });
+  await new Promise((resolve) => setTimeout(resolve, 900));
+  assert.equal(outcomes.length, 1, `exactly one start applies immediately; the loser must park, not race (saw: ${outcomes.join(", ")})`);
+  assert.match(outcomes[0]!, /:applied:undefined$|:applied:null$/u, "the immediate winner applies without a lease_conflict");
+  assert.equal(fixture.center.status().leases.queue.length, 1);
+  const winner = outcomes[0]!.startsWith("two:") ? "node-two" : "node-one", loser = winner === "node-two" ? "node-one" : "node-two";
+  assert.equal(fixture.center.status().leases.leases[0]?.assignmentId, `assignment-${winner}`);
+  await (winner === "node-two" ? fast : slow);
+  assert.equal((await fixture.command(winner, { kind: "task-release", taskId })).outcome, "applied");
+  const granted = await (loser === "node-two" ? fast : slow);
+  assert.equal(granted.outcome, "applied");
+  assert.equal(granted.lease?.assignmentId, `assignment-${loser}`);
+});
+
+test("a failed queue head drains and latecomers cannot jump the FIFO", { timeout: 30_000 }, async (t) => {
+  const fixture = await leaseFixture(); t.after(() => fixture.close());
+  const created = await fixture.command("node-one", { kind: "task-create", title: "Failed head FIFO" });
+  const taskId = String((created.receipt as Record<string, unknown>).taskId);
+  assert.equal((await fixture.command("node-one", { kind: "task-start", taskId })).outcome, "applied");
+  const marks: string[] = [];
+  const progressHead = fixture.command("node-two", { kind: "task-progress-append", taskId, text: "queued behind the holder" }).then((result) => { marks.push(`progress:${result.outcome}:${result.code}`); return result; });
+  const queuedStart = fixture.command("node-two", { kind: "task-start", taskId }).then((result) => { marks.push(`start:${result.outcome}`); return result; });
+  // A late non-holder arrival must enqueue behind the existing waiters. (The
+  // holder's own start would execute directly and earn its honest domain
+  // rejection — that is the no-self-queue rule, not a jump. The latecomer
+  // uses the auto execution id so it rejoins the round the way the domain
+  // requires after a release.)
+  const latecomer = fixture.command("node-two", { kind: "task-start", taskId }).then((result) => { marks.push(`late:${result.outcome}`); return result; });
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  assert.equal(marks.length, 0, "nobody jumps the queue while the holder holds");
+  assert.equal(fixture.center.status().leases.queue.length, 3);
+  assert.equal((await fixture.command("node-one", { kind: "task-release", taskId })).outcome, "applied");
+  // The non-acquire head fails fast (no lease for node-two yet) and drains;
+  // the queued start takes the lease; the latecomer waits behind it.
+  const drained = await Promise.race([progressHead, new Promise<string>((resolve) => setTimeout(() => resolve("progress-still-pending"), 3_000))]);
+  assert.notEqual(drained, "progress-still-pending", "the failed head must leave the queue");
+  const started = await queuedStart;
+  assert.equal(started.outcome, "applied");
+  assert.equal(started.lease?.assignmentId, "assignment-node-two");
+  let lateDone = false;
+  latecomer.then(() => { lateDone = true; });
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.equal(lateDone, false, "the latecomer stays queued behind the new holder");
+  assert.equal((await fixture.command("node-two", { kind: "task-release", taskId })).outcome, "applied");
+  const late = await latecomer;
+  assert.equal(late.outcome, "applied");
+});
+
+test("mid-wait disconnect automatically reconnects with the same opId and queue slot", { timeout: 30_000 }, async (t) => {
+  const fixture = await leaseFixture(); t.after(async () => { closeProxy(); await fixture.close(); });
+  const created = await fixture.command("node-one", { kind: "task-create", title: "Disconnect reattach" });
+  const taskId = String((created.receipt as Record<string, unknown>).taskId);
+  assert.equal((await fixture.command("node-one", { kind: "task-start", taskId })).outcome, "applied");
+  let proxyConnections = 0;
+  const proxySockets = new Set<import("node:net").Socket>(), proxy = import("node:net").then(({ createServer }) => new Promise<{ readonly port: number }>((resolve) => { const server = createServer((client) => { proxyConnections += 1; proxySockets.add(client); const upstream = import("node:net").then(({ connect }) => connect(fixture.center.port, "127.0.0.1")); upstream.then((target) => { client.pipe(target); target.pipe(client); client.on("close", () => target.destroy()); target.on("close", () => client.destroy()); }); }); server.listen(0, "127.0.0.1", () => resolve({ port: (server.address() as import("node:net").AddressInfo).port })); t.after(() => server.close()); }));
+  function closeProxy(): void { for (const socket of proxySockets) socket.destroy(); }
+  const { port: proxyPort } = await proxy, caPath = path.join(fixture.root, "tls.crt");
+  const viaProxy = runFleetEdgeTask({ payload: { host: "127.0.0.1", port: proxyPort, caPath, servername: "localhost", nodeId: "node-two", credential: "secret-node-two", assignmentId: "assignment-node-two", repoId: "lease-repo", viewRoot: path.join(fixture.root, "edge-two-view"), quotaBytes: replicaQuota, waitTimeoutMs: 8_000, action: { kind: "task-start", taskId } } });
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  assert.equal(fixture.center.status().leases.queue.length, 1, "the command parked through the proxy");
+  const queuedOpId = fixture.center.status().leases.queue[0]!.opId;
+  closeProxy();
+  for (let attempt = 0; attempt < 30 && proxyConnections < 2; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.ok(proxyConnections >= 2, "the product edge path reconnects promptly instead of waiting for the business deadline");
+  assert.equal(fixture.center.status().leases.queue.length, 1, "re-attach did not duplicate the queue item");
+  assert.equal(fixture.center.status().leases.queue[0]?.opId, queuedOpId, "the re-attach kept the original opId and FIFO slot");
+  assert.equal((await fixture.command("node-one", { kind: "task-release", taskId })).outcome, "applied");
+  const granted = await viaProxy;
+  assert.equal(granted.outcome, "applied");
+  const fleet = granted.fleet as { readonly commandOpId?: string; readonly lease?: { readonly assignmentId?: string } };
+  assert.equal(fleet.commandOpId, queuedOpId);
+  assert.equal(fleet.lease?.assignmentId, "assignment-node-two");
+});
+
+test("a queued product command re-attaches after a center restart on the same port", { timeout: 30_000 }, async (t) => {
+  const fixture = await leaseFixture(); t.after(() => fixture.close());
+  const created = await fixture.command("node-one", { kind: "task-create", title: "Queued restart" });
+  const taskId = String((created.receipt as Record<string, unknown>).taskId);
+  assert.equal((await fixture.command("node-one", { kind: "task-start", taskId })).outcome, "applied");
+  const port = fixture.center.port, queued = runFleetEdgeTask({ payload: { host: "127.0.0.1", port, caPath: path.join(fixture.root, "tls.crt"), servername: "localhost", nodeId: "node-two", credential: "secret-node-two", assignmentId: "assignment-node-two", repoId: "lease-repo", viewRoot: path.join(fixture.root, "restart-edge-view"), quotaBytes: replicaQuota, waitTimeoutMs: 10_000, action: { kind: "task-start", taskId } } });
+  for (let attempt = 0; attempt < 30 && fixture.center.status().leases.queue.length !== 1; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+  const queuedOpId = fixture.center.status().leases.queue[0]?.opId; assert.ok(queuedOpId);
+  await fixture.center.close();
+  const reopened = await fixture.openCenter(fixture.host, port);
+  assert.equal(reopened.status().leases.queue[0]?.opId, queuedOpId, "the persisted FIFO slot survives the center restart");
+  assert.equal((await fixture.commandOn(reopened, "node-one", { kind: "task-release", taskId })).outcome, "applied");
+  const granted = await queued, fleet = granted.fleet as { readonly commandOpId?: string; readonly lease?: { readonly assignmentId?: string } };
+  assert.equal(granted.outcome, "applied");
+  assert.equal(fleet.commandOpId, queuedOpId, "the edge re-used the original opId after center_closing");
+  assert.equal(fleet.lease?.assignmentId, "assignment-node-two");
+});
+
+test("an in-flight opId is deduplicated and the wait default is thirty minutes", { timeout: 30_000 }, async (t) => {
+  assert.equal(fleetLeaseTimers({}).maxWaitMs, 30 * 60 * 1_000);
+  const fixture = await leaseFixture((run) => async (repoId, action, auth) => { if (action.kind === "task-create") await new Promise((resolve) => setTimeout(resolve, 400)); return run(repoId, action, auth); });
+  t.after(() => fixture.close());
+  const opId = randomUUID(), send = () => runFleetTaskCommandClient({ port: fixture.center.port, ca: readFileSync(path.join(fixture.root, "tls.crt")), servername: "localhost", nodeId: "node-one", credential: "secret-node-one", assignmentId: "assignment-node-one", opId, repoId: "lease-repo", taskId: null, action: { kind: "task-create", title: "In-flight dedup" }, waitMs: 5_000 });
+  const [first, second] = await Promise.all([send(), send()]);
+  const codes = [first, second].map((result) => `${result.outcome}:${result.code}`).sort();
+  assert.deepEqual(codes, ["applied:null", "op_rejected:op_in_flight"]);
 });
