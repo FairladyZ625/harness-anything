@@ -51,7 +51,7 @@ function credentialBackend(platform: NodeJS.Platform): CredentialBackend {
   };
   throw credentialUnavailable(`Native credential storage has no implementation for ${platform}; supported platforms are darwin, linux, and win32.`);
 }
-const legacyHint = "Legacy keychain: references resolve only on macOS.";
+const legacyHint = "Legacy keychain references resolve only on macOS.";
 function requiredId(reference: string): string { const id = neutralPattern.exec(reference)?.[1]; if (!id) throw credentialUnavailable("Credential references must use the credential:v1:<id> grammar."); return id; }
 function credentialUnavailable(hint: string): Error { return Object.assign(new Error(hint), { code: "runtime_credential_unavailable" }); }
 function throwCredentialUnavailable(hint: string): never { throw credentialUnavailable(hint); }
