@@ -125,9 +125,9 @@ export function assertFactAdmission(db: DatabaseSync, event: FactEventV1): void 
     throw new FactProjectionError("invalid_transition", `Fact ${ownRef} already exists.`);
   const supersedes = event.payload.supersedes;
   if (!supersedes) return;
-  const target = db.prepare("SELECT 1 FROM fact WHERE ref = ?").get(supersedes.factRef);
+  const target = db.prepare("SELECT ref FROM fact WHERE ref = ?").get(supersedes.factRef) as { readonly ref: string } | undefined;
   if (!target) throw new FactProjectionError("entity_not_found", `Superseded endpoint ${supersedes.factRef} does not exist.`);
-  if (db.prepare("SELECT 1 FROM relation_edge WHERE target_ref = ? AND relation_type = 'supersedes-fact' AND state = 'active'").get(supersedes.factRef))
+  if (factLiveness(target, livenessRelations(db)) === "retired")
     throw new FactProjectionError("relation_invalid", `Superseded endpoint ${supersedes.factRef} is already retired.`);
 }
 

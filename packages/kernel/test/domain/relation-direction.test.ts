@@ -77,8 +77,8 @@ test("semantics with no registered reading are flagged, not silently ratified", 
   const unregistered = canonicalRelationDirections.filter(({ registration }) => registration === "unregistered");
   assert.deepEqual(
     unregistered.map(({ type }) => type).sort(),
-    ["blocks", "supports"],
-    "exactly the decision->decision blocks/supports cells lack registered semantics"
+    ["blocks"],
+    "only the decision->decision blocks cell lacks registered semantics"
   );
   for (const direction of unregistered) {
     assert.equal(direction.sourceKind, "decision");

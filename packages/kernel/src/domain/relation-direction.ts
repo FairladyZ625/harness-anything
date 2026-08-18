@@ -34,9 +34,7 @@ export const canonicalRelationDirections: readonly CanonicalRelationDirection[] 
   { type: "narrows", sourceKind: "decision", targetKind: "decision", reads: "the decision narrows the target decision", registration: "ratified" },
   { type: "relates", sourceKind: "decision", targetKind: "decision", reads: "the decision relates to the target decision", registration: "ratified" },
   { type: "derives", sourceKind: "decision", targetKind: "decision", reads: "the decision spawns the target decision", registration: "ratified" },
-  // 4 active edges exist in this shape but no semantics are registered for
-  // decision-to-decision support; the owner must register or migrate them (slice 4 closeout).
-  { type: "supports", sourceKind: "decision", targetKind: "decision", reads: "the decision supports the target decision", registration: "unregistered" },
+  { type: "supports", sourceKind: "decision", targetKind: "decision", reads: "the decision supports the target decision", registration: "ratified" },
   // Allowed by the ratified sentence grammar; zero stored edges and no registered semantics.
   { type: "blocks", sourceKind: "decision", targetKind: "decision", reads: "the decision blocks the target decision", registration: "unregistered" },
   // decision → task

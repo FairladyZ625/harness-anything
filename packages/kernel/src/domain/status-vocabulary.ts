@@ -98,7 +98,7 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   { word: "active", entity: "Task", field: "status", meaning: "Task is in an open executing state and occupies a WIP slot.", divergence: "divergent", resolution: "One of six unrelated `active` concepts; rename is stored data (task snapshots and events), so this slice registers the meaning instead — CH2 proposal only." },
   { word: "blocked", entity: "Task", field: "status", meaning: "Task is held by an external condition; still open, still occupies WIP.", divergence: "entity-scoped" },
   { word: "in_review", entity: "Task", field: "status", meaning: "Task is in the review node; review artifacts are required.", divergence: "entity-scoped" },
-  { word: "done", entity: "Task", field: "status", meaning: "Task reached its delivery terminal state.", divergence: "divergent", resolution: "Recovery.done is a batch bookkeeping word, not delivery; Recovery is runtime-only so its rename (e.g. exhausted) is executable later — proposal in slice report." },
+  { word: "done", entity: "Task", field: "status", meaning: "Task reached its delivery terminal state.", divergence: "entity-scoped" },
   { word: "cancelled", entity: "Task", field: "status", meaning: "Task was abandoned; terminal.", divergence: "entity-scoped" },
   { word: "open", entity: "Task", field: "coarse class", meaning: "Coarse class of every non-terminal task status.", divergence: "entity-scoped" },
   { word: "terminal", entity: "Task", field: "coarse class", meaning: "Coarse class of done/cancelled; no further transitions.", divergence: "entity-scoped" },
@@ -107,7 +107,7 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   { word: "proposed", entity: "Decision", field: "state", meaning: "Decision awaits judgment.", divergence: "entity-scoped" },
   { word: "active", entity: "Decision", field: "state", meaning: "Decision was accepted and its policy is in effect (accept writes active; there is no separate accepted state).", divergence: "divergent", resolution: "Diverges from Task/Execution/Lease/Relation/Package `active`; stored in decision documents and events, so registration only — CH2 proposal (e.g. in_effect) in slice report." },
   { word: "rejected", entity: "Decision", field: "state", meaning: "Judgment refused the decision; a persistent policy state that feeds later adjudication.", divergence: "divergent", resolution: "Preset-run and write-receipt `rejected` are one-shot operation results; the decision word is stored policy. Receipt/preset renames are public surfaces — CH2 proposal only." },
-  { word: "deferred", entity: "Decision", field: "state", meaning: "Judgment postponed; a persistent policy state.", divergence: "divergent", resolution: "Recovery.deferred is an ops deferral of queued work, not adjudication; runtime-only vocabulary, rename executable later — proposal in slice report." },
+  { word: "deferred", entity: "Decision", field: "state", meaning: "Judgment postponed; a persistent policy state.", divergence: "entity-scoped" },
   { word: "superseded", entity: "Decision", field: "state", meaning: "A later decision replaced this one (ADR-0020 D1: consumers must preserve this state, never fold it back into proposed).", divergence: "entity-scoped" },
   { word: "retired", entity: "Decision", field: "state", meaning: "A human ended the decision's standing deliberately.", divergence: "divergent", resolution: "Edge-retired is bookkeeping and fact-retired is derivation; decision-retired is a chosen outcome stored in the ledger (34 live rows at scout time) — CH2 proposal only." },
   { word: "active", entity: "Decision", field: "judgment targetState", meaning: "Judgment consent target when the action is accept.", divergence: "entity-scoped" },
@@ -164,9 +164,9 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   // ---- Recovery.state (write-chain recovery batches; runtime-only) ----
   { word: "queued", entity: "Recovery", field: "state", meaning: "Recovery items still queued behind the cursor.", divergence: "entity-scoped" },
   { word: "running", entity: "Recovery", field: "state", meaning: "Recovery batch is executing.", divergence: "entity-scoped" },
-  { word: "deferred", entity: "Recovery", field: "state", meaning: "Recovery batch ran out of deadline budget and deferred the remainder.", divergence: "divergent", resolution: "Ops deferral, not adjudication (Decision.deferred); Recovery is runtime-only, rename executable later — proposal in slice report." },
+  { word: "exhausted", entity: "Recovery", field: "state", meaning: "Recovery batch exhausted its current budget with items remaining.", divergence: "entity-scoped" },
   { word: "failed", entity: "Recovery", field: "state", meaning: "Recovery exhausted its retries.", divergence: "entity-scoped" },
-  { word: "done", entity: "Recovery", field: "state", meaning: "Recovery batch drained its items.", divergence: "divergent", resolution: "Batch bookkeeping, not delivery (Task.done); runtime-only, rename executable later — proposal in slice report." },
+  { word: "drained", entity: "Recovery", field: "state", meaning: "Recovery batch drained its items.", divergence: "entity-scoped" },
 
   // ---- PresetRun outcome/phase (documented; declared in packages/preset) ----
   { word: "started", entity: "PresetRun", field: "outcome", meaning: "Preset run was launched.", divergence: "entity-scoped" },
@@ -235,7 +235,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
   { id: "runtime.outcome", entity: "RuntimeSession", field: "outcome", module: "packages/kernel/src/domain/agent-runtime.ts", anchor: "#outcome", words: ["succeeded", "failed", "unknown"] },
   { id: "receipt.outcome", entity: "WriteReceipt", field: "outcome", module: "packages/kernel/src/domain/write-chain.contract.ts", anchor: "writeReceiptOutcomes", words: ["applied", "pending", "indeterminate", "rejected"] },
   { id: "receipt.detail.outcome", entity: "WriteReceipt", field: "outcome", module: "packages/kernel/src/domain/receipt-domain-registry.ts", anchor: "#outcome", words: ["applied", "pending", "indeterminate", "rejected"], subsetOf: "receipt.outcome", note: "The WriteReceipt interface repeats the outcome vocabulary; must stay equal to writeReceiptOutcomes." },
-  { id: "recovery.state", entity: "Recovery", field: "state", module: "packages/kernel/src/domain/write-chain.contract.ts", anchor: "recoveryStates", words: ["queued", "running", "deferred", "failed", "done"] },
+  { id: "recovery.state", entity: "Recovery", field: "state", module: "packages/kernel/src/domain/write-chain.contract.ts", anchor: "recoveryStates", words: ["queued", "running", "exhausted", "failed", "drained"] },
   { id: "closeout.readiness", entity: "TaskCloseout", field: "readiness", module: "packages/kernel/src/domain/closeout-readiness.ts", anchor: "closeoutReadinesses", words: ["not_required", "missing", "incomplete", "ready", "passed", "failed"] },
   { id: "task.session-disposition", entity: "Task", field: "sessionBinding disposition", module: "packages/kernel/src/domain/task-lifecycle.contract.ts", anchor: "#sessionDisposition", words: ["complete", "partial", "unavailable"], note: "Witness availability, not entity standing." },
   { id: "vertical-script.disposition", entity: "VerticalScript", field: "disposition", module: "packages/kernel/src/domain/vertical-script-action.ts", anchor: "#disposition", words: ["create", "replace"] },
