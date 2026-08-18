@@ -1,0 +1,60 @@
+// harness-test-tier: integration
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import test from "node:test";
+import { makeTaskProjection } from "../../src/projection/task-projection.ts";
+import { makeTaskEventStore, type CanonicalEventStore } from "../../src/store/task-event-store.ts";
+import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
+import { sha256Text } from "../../src/integrity/stable-hash.ts";
+import { withTempStoreAsync } from "./helpers.ts";
+
+// Two ledgers at the same revision with different content is exactly the shape a genesis replay
+// produces: the whole ledger is rewritten while the head revision stays put. A projection cache
+// scanned from one ledger must not be able to impersonate the other's cache, so opening a cache
+// against a same-revision ledger with a different head eventDigest must cold-rebuild it.
+test("projection cache from a same-revision different-content ledger is discarded and cold-rebuilt", async () => {
+  await withTempStoreAsync(async (rootA) => {
+    await withTempStoreAsync(async (rootB) => {
+      const bodyA = "# Notes\n\nLedger A generation prose.\n", bodyB = "# Notes\n\nLedger B generation prose.\n";
+      const storeA = seedLedger(rootA, "ledger-a", bodyA), storeB = seedLedger(rootB, "ledger-b", bodyB);
+      const projectionA = makeTaskProjection({ rootDir: rootA, eventStore: storeA });
+      const warmed = projectionA.readDocument("context/notes.md");
+      assert.equal(warmed.status, "ready");
+      assert.equal(warmed.document?.body, bodyA);
+
+      // Reuse ledger A's warmed cache file for ledger B: same revision (1), different content.
+      const projectionBOnStaleCache = makeTaskProjection({ rootDir: rootB, eventStore: storeB, projectionPath: projectionA.path });
+      const readB = projectionBOnStaleCache.readDocument("context/notes.md");
+      assert.equal(readB.status, "ready");
+      assert.equal(readB.document?.body, bodyB);
+      assert.equal(readB.sourceRevision, 1);
+
+      // Swap back: the cache now carries ledger B's identity, so ledger A must rebuild it again.
+      const projectionAOnStaleCache = makeTaskProjection({ rootDir: rootA, eventStore: storeA, projectionPath: projectionA.path });
+      const readA = projectionAOnStaleCache.readDocument("context/notes.md");
+      assert.equal(readA.status, "ready");
+      assert.equal(readA.document?.body, bodyA);
+      assert.equal(readA.sourceRevision, 1);
+    });
+  });
+});
+
+function seedLedger(rootDir: string, name: string, body: string): CanonicalEventStore {
+  git(rootDir, "init", "--quiet");
+  git(rootDir, "config", "user.name", "Identity Test");
+  git(rootDir, "config", "user.email", "identity-test@example.invalid");
+  git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
+  const eventStore = makeTaskEventStore({ repoId: name, rootDir });
+  const hash = sha256Text(body), base = eventStore.currentCommit();
+  const event: DocEventV1 = { schema: "doc-event/v1", eventId: `event-${name}`, workspaceRevision: 1, opId: `op-${name}`, type: "documents_written",
+    actor: { principal: { personId: "person-1" }, executor: null }, source: "local", occurredAt: "2026-08-18T00:00:00.000Z",
+    payload: { executionId: null, baseLedgerSha: base, changes: [{ path: "context/notes.md", baseBlobSha256: null,
+      candidate: { sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" }, policyId: DOC_POLICY_ID,
+      regionProofs: [{ regionId: "heading/notes", policyId: DOC_POLICY_ID, codecId: DOC_CODEC_ID, baseSha256: sha256Text(""), candidateSha256: hash, insertBytes: Buffer.byteLength(body) }] }] } };
+  eventStore.append({ event, plan: docSyncWritePlan(event), blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }] });
+  return eventStore;
+}
+
+function git(rootDir: string, ...args: readonly string[]): string {
+  return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+}

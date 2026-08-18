@@ -20,9 +20,9 @@ import { sha256Text } from "../integrity/stable-hash.ts";
 import { assertDecisionAdmission, assertFactAdmission, createFactProjectionTables, FactProjectionError, listDecisionRows, readDecisionDocumentState, readDecisionGraphRows, readDecisionRow, readFactGraphRows, readFactRow, reduceDecisionEvent, reduceFactEvent, refreshDecisionDocumentSearch, searchFactRows, type DecisionListFilters, type DecisionProjectionRow, type FactProjectionRow, type FactSearchFilters } from "./fact-event-projection.ts";
 import type { EventBackedRelationTruth } from "./relation-graph-projection.ts";
 
-const taskProjectionSchemaVersion = 1;
+const taskProjectionSchemaVersion = 2;
 interface EventStreamPort {
-  readonly readHead: () => { readonly revision: number } | null;
+  readonly readHead: () => { readonly revision: number; readonly eventDigest: `sha256:${string}` } | null;
   readonly readBatch: (cursor: string | null, maxItems: number) => {
     readonly sourceRevision: number; readonly events: readonly CanonicalEventV1[]; readonly cursor: string | null;
     readonly done: boolean; readonly accessedItems: number;
@@ -78,52 +78,52 @@ export function readLiveEventRelationTruth(rootDir: string): EventBackedRelation
 export function makeTaskProjection(options: { readonly rootDir: string; readonly eventStore: EventStreamPort;
   readonly projectionPath?: string; readonly catchUpLimit?: number; readonly now?: () => string }): TaskProjection {
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
-  const limit = options.catchUpLimit ?? 64, now = options.now ?? (() => new Date().toISOString());
+  const limit = options.catchUpLimit ?? 64, now = options.now ?? (() => new Date().toISOString()), readHead = options.eventStore.readHead;
   if (!Number.isInteger(limit) || limit < 1 || limit > 64) throw new Error("task projection catch-up limit must be between 1 and 64");
-  if (localRuntimeStateFileSystem.exists(projectionPath)) withDatabase(projectionPath, (db) => transaction(db, () => markRuntimeSessionsUnknown(db)));
+  if (localRuntimeStateFileSystem.exists(projectionPath)) withDatabase(projectionPath, readHead, (db) => transaction(db, () => markRuntimeSessionsUnknown(db)));
   return {
     path: projectionPath,
-    apply: (event, plan) => { if (isDocEvent(event)) assertDocSyncWritePlan(event, plan as FrozenWritePlan<"DocSyncSubmit">); if (isTaskEvent(event) && (event.payload.documentClaims?.length ?? 0) > 0) assertTaskLifecycleWritePlan(event, plan); if (isTaskBootstrapEvent(event)) assertTaskBootstrapWritePlan(event, plan as FrozenWritePlan<"TaskBootstrap">); if (isPresetSnapshotUpgradeEvent(event)) assertPresetSnapshotUpgradeWritePlan(event, plan as FrozenWritePlan<"PresetSnapshotUpgrade">); if (isTaskProgressEvent(event)) assertTaskProgressWritePlan(event, plan); if (isFactEvent(event)) assertFactWritePlan(event, plan); if (isDecisionEvent(event)) assertDecisionWritePlan(event, plan); if (isMigrationImportEvent(event)) assertMigrationImportWritePlan(event, plan); if (isLedgerLayoutMigrationEvent(event)) assertLedgerLayoutMigrationWritePlan(event, plan); return withDatabase(projectionPath, (db) => reduceBatch(db, [event], limit, options.eventStore.readContentBlob)); },
+    apply: (event, plan) => { if (isDocEvent(event)) assertDocSyncWritePlan(event, plan as FrozenWritePlan<"DocSyncSubmit">); if (isTaskEvent(event) && (event.payload.documentClaims?.length ?? 0) > 0) assertTaskLifecycleWritePlan(event, plan); if (isTaskBootstrapEvent(event)) assertTaskBootstrapWritePlan(event, plan as FrozenWritePlan<"TaskBootstrap">); if (isPresetSnapshotUpgradeEvent(event)) assertPresetSnapshotUpgradeWritePlan(event, plan as FrozenWritePlan<"PresetSnapshotUpgrade">); if (isTaskProgressEvent(event)) assertTaskProgressWritePlan(event, plan); if (isFactEvent(event)) assertFactWritePlan(event, plan); if (isDecisionEvent(event)) assertDecisionWritePlan(event, plan); if (isMigrationImportEvent(event)) assertMigrationImportWritePlan(event, plan); if (isLedgerLayoutMigrationEvent(event)) assertLedgerLayoutMigrationWritePlan(event, plan); return withDatabase(projectionPath, readHead, (db) => reduceBatch(db, [event], limit, options.eventStore.readContentBlob)); },
     rebuild: () => rebuildProjection(projectionPath, options.eventStore, limit),
     read: (taskId) => readProjection(projectionPath, options.eventStore, taskId, limit, now),
     list: () => listProjection(projectionPath, options.eventStore, limit, now),
-    readOperation: (opId) => withDatabase(projectionPath, (db) => {
+    readOperation: (opId) => withDatabase(projectionPath, readHead, (db) => {
       const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as { readonly event_json: string } | undefined;
       return row === undefined ? null : { event: parseEventJson(row.event_json), watermark: watermark(db) };
     }),
-    readTaskOperation: (opId) => withDatabase(projectionPath, (db) => { const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as { readonly event_json: string } | undefined; if (!row) return null; const event = parseEventJson(row.event_json); return isTaskEvent(event) ? { event, watermark: watermark(db) } : null; }),
-    readTaskCompletion: (taskId, executionId) => withDatabase(projectionPath, (db) => { catchUpRound(db, options.eventStore, limit); const row = queryRows(db, "SELECT event_json FROM event_index WHERE task_id = ? AND json_extract(event_json, '$.schema') = 'task-event/v1' AND json_extract(event_json, '$.type') = 'task_completed' AND json_extract(event_json, '$.payload.execution.executionId') = ? ORDER BY workspace_revision DESC LIMIT 1", taskId, executionId)[0]; if (!row) return null; const event = parseEventJson(String(row.event_json)); return isTaskEvent(event) ? event : null; }),
-    readRuntimeDispatch: (runtimeSessionIdValue, definitionSnapshotRef) => withDatabase(projectionPath, (db) => { const row = queryRows(db, "SELECT event_json FROM event_index WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND json_extract(event_json, '$.payload.definitionSnapshotRef') = ? ORDER BY workspace_revision LIMIT 1", runtimeSessionIdValue, definitionSnapshotRef)[0]; if (!row) return null; const event = parseEventJson(String(row.event_json)); return isAgentRuntimeEvent(event) ? event : null; }),
-    readRuntimeSessionEvents: (runtimeSessionIdValue, afterRevision, limit) => withDatabase(projectionPath, (db) => { if (!Number.isSafeInteger(afterRevision) || afterRevision < 0 || !Number.isSafeInteger(limit) || limit < 1) throw new Error("runtime session event page requires a non-negative revision and a positive limit"); return queryRows(db, "SELECT event_json FROM event_index WHERE workspace_revision > ? AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? ORDER BY workspace_revision LIMIT ?", afterRevision, runtimeSessionIdValue, limit).map((row) => parseEventJson(String(row.event_json))).filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event)); }),
+    readTaskOperation: (opId) => withDatabase(projectionPath, readHead, (db) => { const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as { readonly event_json: string } | undefined; if (!row) return null; const event = parseEventJson(row.event_json); return isTaskEvent(event) ? { event, watermark: watermark(db) } : null; }),
+    readTaskCompletion: (taskId, executionId) => withDatabase(projectionPath, readHead, (db) => { catchUpRound(db, options.eventStore, limit); const row = queryRows(db, "SELECT event_json FROM event_index WHERE task_id = ? AND json_extract(event_json, '$.schema') = 'task-event/v1' AND json_extract(event_json, '$.type') = 'task_completed' AND json_extract(event_json, '$.payload.execution.executionId') = ? ORDER BY workspace_revision DESC LIMIT 1", taskId, executionId)[0]; if (!row) return null; const event = parseEventJson(String(row.event_json)); return isTaskEvent(event) ? event : null; }),
+    readRuntimeDispatch: (runtimeSessionIdValue, definitionSnapshotRef) => withDatabase(projectionPath, readHead, (db) => { const row = queryRows(db, "SELECT event_json FROM event_index WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND json_extract(event_json, '$.payload.definitionSnapshotRef') = ? ORDER BY workspace_revision LIMIT 1", runtimeSessionIdValue, definitionSnapshotRef)[0]; if (!row) return null; const event = parseEventJson(String(row.event_json)); return isAgentRuntimeEvent(event) ? event : null; }),
+    readRuntimeSessionEvents: (runtimeSessionIdValue, afterRevision, limit) => withDatabase(projectionPath, readHead, (db) => { if (!Number.isSafeInteger(afterRevision) || afterRevision < 0 || !Number.isSafeInteger(limit) || limit < 1) throw new Error("runtime session event page requires a non-negative revision and a positive limit"); return queryRows(db, "SELECT event_json FROM event_index WHERE workspace_revision > ? AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? ORDER BY workspace_revision LIMIT ?", afterRevision, runtimeSessionIdValue, limit).map((row) => parseEventJson(String(row.event_json))).filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event)); }),
     readDocument: (documentPath) => readDocument(projectionPath, options.eventStore, documentPath, limit),
-    readReplicaBasis: (afterRevision) => { if (afterRevision !== null && (!Number.isSafeInteger(afterRevision) || afterRevision < 0)) throw new Error("replica basis revision must be a non-negative integer or null"); const sourceRevision = options.eventStore.readHead()?.revision ?? 0; return withDatabase(projectionPath, (db) => transaction(db, () => { const current = watermark(db), head = current === 0 ? undefined : queryRows(db, "SELECT event_json FROM event_index WHERE workspace_revision = ?", current)[0], rows = afterRevision === null ? [] : queryRows(db, "SELECT event_json FROM event_index WHERE workspace_revision > ? AND workspace_revision <= ? ORDER BY workspace_revision LIMIT 64", afterRevision, current), documents = queryRows(db, "SELECT path, json_extract(value_json, '$.blobSha256') AS blob_sha256, json_extract(value_json, '$.size') AS size, json_extract(value_json, '$.mediaType') AS media_type FROM document ORDER BY path"); return { watermark: current, sourceRevision, headEvent: head ? parseEventJson(String(head.event_json)) : null, events: rows.map((row) => parseEventJson(String(row.event_json))), documents: documents.map((row) => ({ path: String(row.path), blobSha256: String(row.blob_sha256), size: Number(row.size), mediaType: String(row.media_type) })) }; })); },
-    taskIdForDocumentPath: (documentPath) => withDatabase(projectionPath, (db) => (db.prepare("SELECT task_id FROM task_package WHERE ? = package_path OR substr(?, 1, length(package_path) + 1) = package_path || '/' ORDER BY length(package_path) DESC LIMIT 1").get(documentPath, documentPath) as { readonly task_id: string } | undefined)?.task_id ?? null),
+    readReplicaBasis: (afterRevision) => { if (afterRevision !== null && (!Number.isSafeInteger(afterRevision) || afterRevision < 0)) throw new Error("replica basis revision must be a non-negative integer or null"); const sourceRevision = options.eventStore.readHead()?.revision ?? 0; return withDatabase(projectionPath, readHead, (db) => transaction(db, () => { const current = watermark(db), head = current === 0 ? undefined : queryRows(db, "SELECT event_json FROM event_index WHERE workspace_revision = ?", current)[0], rows = afterRevision === null ? [] : queryRows(db, "SELECT event_json FROM event_index WHERE workspace_revision > ? AND workspace_revision <= ? ORDER BY workspace_revision LIMIT 64", afterRevision, current), documents = queryRows(db, "SELECT path, json_extract(value_json, '$.blobSha256') AS blob_sha256, json_extract(value_json, '$.size') AS size, json_extract(value_json, '$.mediaType') AS media_type FROM document ORDER BY path"); return { watermark: current, sourceRevision, headEvent: head ? parseEventJson(String(head.event_json)) : null, events: rows.map((row) => parseEventJson(String(row.event_json))), documents: documents.map((row) => ({ path: String(row.path), blobSha256: String(row.blob_sha256), size: Number(row.size), mediaType: String(row.media_type) })) }; })); },
+    taskIdForDocumentPath: (documentPath) => withDatabase(projectionPath, readHead, (db) => (db.prepare("SELECT task_id FROM task_package WHERE ? = package_path OR substr(?, 1, length(package_path) + 1) = package_path || '/' ORDER BY length(package_path) DESC LIMIT 1").get(documentPath, documentPath) as { readonly task_id: string } | undefined)?.task_id ?? null),
     readPresetSnapshot: (digest) => readPresetSnapshot(projectionPath, options.eventStore, digest, limit),
-    readProgress: (taskId) => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db), rows = queryRows(db, "SELECT event_json FROM task_progress WHERE task_id = ? ORDER BY workspace_revision", taskId); return { status: current === round.sourceRevision ? "ready" : "pending", rows: rows.map((row) => parseEventJson(String(row.event_json)) as TaskProgressEventV1), watermark: current, sourceRevision: round.sourceRevision }; }),
-    admitFact: (event) => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit); if (round.watermark !== round.sourceRevision) throw new FactProjectionError("content_not_ready", `Fact admission requires projection revision ${round.sourceRevision}; current watermark is ${round.watermark}.`); assertFactAdmission(db, event); }),
-    readFact: (taskId, factId) => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", fact: readFactRow(db, taskId, factId), watermark: current, sourceRevision: round.sourceRevision }; }),
-    searchFacts: (filters) => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", facts: searchFactRows(db, filters), watermark: current, sourceRevision: round.sourceRevision }; }),
-    readFactGraph: () => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", ...readFactGraphRows(db), watermark: current, sourceRevision: round.sourceRevision }; }),
-    admitDecision: (event) => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit); if (round.watermark !== round.sourceRevision) throw new FactProjectionError("content_not_ready", `Decision admission requires projection revision ${round.sourceRevision}; current watermark is ${round.watermark}.`); assertDecisionAdmission(db, event); }),
-    readDecision: (decisionId) => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", decision: readDecisionRow(db, decisionId), watermark: current, sourceRevision: round.sourceRevision }; }),
-    listDecisions: (filters) => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", decisions: listDecisionRows(db, filters), watermark: current, sourceRevision: round.sourceRevision }; }),
-    readDecisionGraph: () => withDatabase(projectionPath, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", ...readDecisionGraphRows(db), watermark: current, sourceRevision: round.sourceRevision }; }),
-    readRuntimeInstallation: (installationId) => withDatabase(projectionPath, (db) => readRuntimeInstallation(db, installationId)), readRuntimeInstallations: () => withDatabase(projectionPath, readRuntimeInstallations),
-    readRuntimeSession: (runtimeSessionIdValue) => withDatabase(projectionPath, (db) => readRuntimeSession(db, runtimeSessionIdValue)), readRuntimeSessions: () => withDatabase(projectionPath, readRuntimeSessions),
-    readRuntimeSessionsForTask: (taskId) => withDatabase(projectionPath, (db) => readRuntimeSessions(db).filter((session) => session.taskBindings.some((binding) => binding.taskId === taskId))),
-    readLeaseIntervals: (taskId) => withDatabase(projectionPath, (db) => readIntervals(db, taskId)),
-    currentLease: (taskId, at) => withDatabase(projectionPath, (db) => effectiveLease(db, taskId, at ?? now())),
-    currentLeaseForExecution: (executionId, at) => withDatabase(projectionPath, (db) => { const row = db.prepare("SELECT task_id FROM lease_cas WHERE json_extract(lease_json, '$.executionId') = ?").get(executionId) as { readonly task_id: string } | undefined; return row ? effectiveLease(db, row.task_id, at ?? now()) : null; }),
-    reserveLease: (lease, now) => withDatabase(projectionPath, (db) => transaction(db, () => reserve(db, lease, now))),
-    activateLease: (lease) => withDatabase(projectionPath, (db) => transaction(db, () => changeLease(db, lease, "active", lease.expiresAt, now()))),
-    renewLease: (lease, expiresAt) => withDatabase(projectionPath, (db) => transaction(db, () => changeLease(db, lease, "active", expiresAt, now()))),
-    releaseLease: (lease) => withDatabase(projectionPath, (db) => transaction(db, () => changeLease(db, lease, "released", lease.expiresAt, now())))
+    readProgress: (taskId) => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db), rows = queryRows(db, "SELECT event_json FROM task_progress WHERE task_id = ? ORDER BY workspace_revision", taskId); return { status: current === round.sourceRevision ? "ready" : "pending", rows: rows.map((row) => parseEventJson(String(row.event_json)) as TaskProgressEventV1), watermark: current, sourceRevision: round.sourceRevision }; }),
+    admitFact: (event) => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit); if (round.watermark !== round.sourceRevision) throw new FactProjectionError("content_not_ready", `Fact admission requires projection revision ${round.sourceRevision}; current watermark is ${round.watermark}.`); assertFactAdmission(db, event); }),
+    readFact: (taskId, factId) => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", fact: readFactRow(db, taskId, factId), watermark: current, sourceRevision: round.sourceRevision }; }),
+    searchFacts: (filters) => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", facts: searchFactRows(db, filters), watermark: current, sourceRevision: round.sourceRevision }; }),
+    readFactGraph: () => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", ...readFactGraphRows(db), watermark: current, sourceRevision: round.sourceRevision }; }),
+    admitDecision: (event) => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit); if (round.watermark !== round.sourceRevision) throw new FactProjectionError("content_not_ready", `Decision admission requires projection revision ${round.sourceRevision}; current watermark is ${round.watermark}.`); assertDecisionAdmission(db, event); }),
+    readDecision: (decisionId) => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", decision: readDecisionRow(db, decisionId), watermark: current, sourceRevision: round.sourceRevision }; }),
+    listDecisions: (filters) => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", decisions: listDecisionRows(db, filters), watermark: current, sourceRevision: round.sourceRevision }; }),
+    readDecisionGraph: () => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", ...readDecisionGraphRows(db), watermark: current, sourceRevision: round.sourceRevision }; }),
+    readRuntimeInstallation: (installationId) => withDatabase(projectionPath, readHead, (db) => readRuntimeInstallation(db, installationId)), readRuntimeInstallations: () => withDatabase(projectionPath, readHead, readRuntimeInstallations),
+    readRuntimeSession: (runtimeSessionIdValue) => withDatabase(projectionPath, readHead, (db) => readRuntimeSession(db, runtimeSessionIdValue)), readRuntimeSessions: () => withDatabase(projectionPath, readHead, readRuntimeSessions),
+    readRuntimeSessionsForTask: (taskId) => withDatabase(projectionPath, readHead, (db) => readRuntimeSessions(db).filter((session) => session.taskBindings.some((binding) => binding.taskId === taskId))),
+    readLeaseIntervals: (taskId) => withDatabase(projectionPath, readHead, (db) => readIntervals(db, taskId)),
+    currentLease: (taskId, at) => withDatabase(projectionPath, readHead, (db) => effectiveLease(db, taskId, at ?? now())),
+    currentLeaseForExecution: (executionId, at) => withDatabase(projectionPath, readHead, (db) => { const row = db.prepare("SELECT task_id FROM lease_cas WHERE json_extract(lease_json, '$.executionId') = ?").get(executionId) as { readonly task_id: string } | undefined; return row ? effectiveLease(db, row.task_id, at ?? now()) : null; }),
+    reserveLease: (lease, now) => withDatabase(projectionPath, readHead, (db) => transaction(db, () => reserve(db, lease, now))),
+    activateLease: (lease) => withDatabase(projectionPath, readHead, (db) => transaction(db, () => changeLease(db, lease, "active", lease.expiresAt, now()))),
+    renewLease: (lease, expiresAt) => withDatabase(projectionPath, readHead, (db) => transaction(db, () => changeLease(db, lease, "active", expiresAt, now()))),
+    releaseLease: (lease) => withDatabase(projectionPath, readHead, (db) => transaction(db, () => changeLease(db, lease, "released", lease.expiresAt, now())))
   };
 }
 
 function listProjection(projectionPath: string, eventStore: EventStreamPort, limit: number, now: () => string): TaskProjectionListRead {
   const existed = localRuntimeStateFileSystem.exists(projectionPath);
-  return withDatabase(projectionPath, (db) => {
+  return withDatabase(projectionPath, eventStore.readHead, (db) => {
     const round = catchUpRound(db, eventStore, limit), current = watermark(db), at = now();
     const rows = db.prepare("SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path, COALESCE(task_generation.generation, 'v1') AS generation, task_snapshot.workspace_revision AS workspace_revision, event_index.event_json AS event_json FROM task_snapshot LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id) JOIN event_index ON event_index.workspace_revision = task_snapshot.workspace_revision ORDER BY task_snapshot.task_id").all() as unknown as readonly { readonly task_id: string; readonly package_path: string | null; readonly generation: "v0" | "v1"; readonly workspace_revision: number; readonly event_json: string }[];
     return { status: current === round.sourceRevision ? "ready" : "pending", rows: rows.map((row) => ({ taskId: row.task_id, packagePath: row.package_path, generation: row.generation, workspaceRevision: row.workspace_revision,
@@ -133,14 +133,14 @@ function listProjection(projectionPath: string, eventStore: EventStreamPort, lim
 }
 
 function readDocument(projectionPath: string, eventStore: EventStreamPort, documentPath: string, limit: number): DocumentProjectionRead {
-  return withDatabase(projectionPath, (db) => { const round = catchUpRound(db, eventStore, limit), current = watermark(db), row = db.prepare("SELECT value_json FROM document WHERE path = ?").get(documentPath) as { readonly value_json: string } | undefined;
+  return withDatabase(projectionPath, eventStore.readHead, (db) => { const round = catchUpRound(db, eventStore, limit), current = watermark(db), row = db.prepare("SELECT value_json FROM document WHERE path = ?").get(documentPath) as { readonly value_json: string } | undefined;
     return { status: current === round.sourceRevision ? "ready" : "pending", document: row ? JSON.parse(row.value_json) as DocumentState : null, watermark: current, sourceRevision: round.sourceRevision }; });
 }
-function readPresetSnapshot(projectionPath: string, eventStore: EventStreamPort, digest: string, limit: number): PresetSnapshotProjectionRead { return withDatabase(projectionPath, (db) => { const round = catchUpRound(db, eventStore, limit), current = watermark(db), row = db.prepare("SELECT value_json FROM preset_snapshot WHERE digest = ?").get(digest) as { readonly value_json: string } | undefined; return { status: current === round.sourceRevision ? "ready" : "pending", snapshot: row ? JSON.parse(row.value_json) : null, watermark: current, sourceRevision: round.sourceRevision }; }); }
+function readPresetSnapshot(projectionPath: string, eventStore: EventStreamPort, digest: string, limit: number): PresetSnapshotProjectionRead { return withDatabase(projectionPath, eventStore.readHead, (db) => { const round = catchUpRound(db, eventStore, limit), current = watermark(db), row = db.prepare("SELECT value_json FROM preset_snapshot WHERE digest = ?").get(digest) as { readonly value_json: string } | undefined; return { status: current === round.sourceRevision ? "ready" : "pending", snapshot: row ? JSON.parse(row.value_json) : null, watermark: current, sourceRevision: round.sourceRevision }; }); }
 
 function readProjection(projectionPath: string, eventStore: EventStreamPort, taskId: string, limit: number, now: () => string): TaskProjectionRead {
   const existed = localRuntimeStateFileSystem.exists(projectionPath);
-  return withDatabase(projectionPath, (db) => {
+  return withDatabase(projectionPath, eventStore.readHead, (db) => {
     const round = catchUpRound(db, eventStore, limit);
     const current = watermark(db);
     return { status: current === round.sourceRevision ? "ready" : "pending", snapshot: readSnapshot(db, taskId, now()), packagePath: (db.prepare("SELECT package_path FROM task_package WHERE task_id = ?").get(taskId) as { readonly package_path: string } | undefined)?.package_path ?? null, watermark: current,
@@ -153,39 +153,55 @@ function rebuildProjection(projectionPath: string, eventStore: EventStreamPort, 
   localRuntimeStateFileSystem.remove(projectionPath);
   let transactions = 0, reducedItems = 0, maxBatchItems = 0;
   for (;;) {
-    const round = withDatabase(projectionPath, (db) => catchUpRound(db, eventStore, limit));
+    const round = withDatabase(projectionPath, eventStore.readHead, (db) => catchUpRound(db, eventStore, limit));
     transactions += round.sqliteTransactions;
     reducedItems += round.reducedItems;
     maxBatchItems = Math.max(maxBatchItems, round.accessedItems);
     if (round.watermark === round.sourceRevision) break;
   }
-  const current = withDatabase(projectionPath, (db) => transaction(db, () => { markRuntimeSessionsUnknown(db); return watermark(db); })); transactions += 1;
+  const current = withDatabase(projectionPath, eventStore.readHead, (db) => transaction(db, () => { markRuntimeSessionsUnknown(db); return watermark(db); })); transactions += 1;
   return { watermark: current, metrics: { sqliteTransactions: transactions, reducedItems, maxBatchItems } };
 }
 
-function withDatabase<A>(projectionPath: string, use: (db: DatabaseSync) => A): A {
+function withDatabase<A>(projectionPath: string, readHead: EventStreamPort["readHead"], use: (db: DatabaseSync) => A): A {
   localRuntimeStateFileSystem.mkdirp(path.dirname(projectionPath));
   let db = openDatabase(projectionPath);
+  const discardCache = () => {
+    db.close();
+    localRuntimeStateFileSystem.remove(projectionPath);
+    db = openDatabase(projectionPath);
+    configureDatabase(db);
+  };
   try {
     configureDatabase(db);
     const existingVersion = projectionSchemaVersion(db);
-    if (existingVersion !== null && existingVersion !== taskProjectionSchemaVersion) {
-      db.close();
-      localRuntimeStateFileSystem.remove(projectionPath);
-      db = openDatabase(projectionPath);
-      configureDatabase(db);
-    }
+    if (existingVersion !== null && existingVersion !== taskProjectionSchemaVersion) discardCache();
     createTables(db);
+    if (!matchesLedgerIdentity(db, readHead())) { discardCache(); createTables(db); }
     return use(db);
   } finally { db.close(); }
+}
+
+// The cache is only fresh for the ledger it was scanned from. Revision alone cannot tell two
+// ledgers apart (a genesis replay rewrites every event while keeping the revision), so the meta
+// row also pins the head eventDigest as of the last completed scan. A cache whose scan claims the
+// current head revision but pins a different digest belongs to another ledger: discard it. Every
+// other revision relationship either rescans (behind) or reads as "pending" (ahead), so the
+// equal-revision case is the only one that can impersonate a ready cache.
+function matchesLedgerIdentity(db: DatabaseSync, head: ReturnType<EventStreamPort["readHead"]>): boolean {
+  const row = db.prepare("SELECT scanned_revision, head_digest FROM projection_meta WHERE singleton = 1").get() as {
+    readonly scanned_revision: number; readonly head_digest: string | null;
+  };
+  const sourceRevision = head?.revision ?? 0;
+  return Number(row.scanned_revision) !== sourceRevision || row.head_digest === (head?.eventDigest ?? null);
 }
 function openDatabase(projectionPath: string): DatabaseSync { return new DatabaseSync(projectionPath); }
 function configureDatabase(db: DatabaseSync): void { db.exec("PRAGMA journal_mode = DELETE; PRAGMA foreign_keys = ON"); }
 
 function createTables(db: DatabaseSync): void {
   db.exec(`
-    CREATE TABLE IF NOT EXISTS projection_meta (singleton INTEGER PRIMARY KEY CHECK(singleton=1), schema_version INTEGER NOT NULL, watermark INTEGER NOT NULL, scan_cursor TEXT, scanned_revision INTEGER NOT NULL);
-    INSERT OR IGNORE INTO projection_meta(singleton, schema_version, watermark, scan_cursor, scanned_revision) VALUES (1, ${taskProjectionSchemaVersion}, 0, NULL, 0);
+    CREATE TABLE IF NOT EXISTS projection_meta (singleton INTEGER PRIMARY KEY CHECK(singleton=1), schema_version INTEGER NOT NULL, watermark INTEGER NOT NULL, scan_cursor TEXT, scanned_revision INTEGER NOT NULL, head_digest TEXT);
+    INSERT OR IGNORE INTO projection_meta(singleton, schema_version, watermark, scan_cursor, scanned_revision, head_digest) VALUES (1, ${taskProjectionSchemaVersion}, 0, NULL, 0, NULL);
     CREATE TABLE IF NOT EXISTS event_source (workspace_revision INTEGER PRIMARY KEY, op_id TEXT NOT NULL UNIQUE, event_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS event_index (op_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL UNIQUE, task_id TEXT, event_json TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS event_index_task_id ON event_index (task_id);
@@ -218,7 +234,7 @@ function reduceBatch(db: DatabaseSync, events: readonly CanonicalEventV1[], limi
     const last = events.at(-1);
     if (last !== undefined && state.scan_cursor === null && state.scanned_revision === last.workspaceRevision - events.length
       && watermark(db) >= last.workspaceRevision) {
-      runSql(db, "UPDATE projection_meta SET scanned_revision = ? WHERE singleton = 1", last.workspaceRevision);
+      runSql(db, "UPDATE projection_meta SET scanned_revision = ?, head_digest = ? WHERE singleton = 1", last.workspaceRevision, `sha256:${sha256Text(serializeCanonicalEvent(last))}`);
     }
     return { metrics: { sqliteTransactions: 1, reducedItems } };
   });
@@ -228,7 +244,8 @@ function catchUpRound(db: DatabaseSync, eventStore: EventStreamPort, limit: numb
   readonly sourceRevision: number; readonly watermark: number; readonly reducedItems: number;
   readonly accessedItems: number; readonly sqliteTransactions: 0 | 1;
 } {
-  const sourceRevision = eventStore.readHead()?.revision ?? 0;
+  const head = eventStore.readHead();
+  const sourceRevision = head?.revision ?? 0;
   const state = db.prepare("SELECT scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1").get() as {
     readonly scan_cursor: string | null; readonly scanned_revision: number;
   };
@@ -239,7 +256,8 @@ function catchUpRound(db: DatabaseSync, eventStore: EventStreamPort, limit: numb
   const reducedItems = transaction(db, () => {
     if (batch !== null) {
       for (const event of batch.events) stageEvent(db, event);
-      runSql(db, "UPDATE projection_meta SET scan_cursor = ?, scanned_revision = ? WHERE singleton = 1", batch.done ? null : batch.cursor, batch.done ? batch.sourceRevision : state.scanned_revision);
+      if (batch.done) runSql(db, "UPDATE projection_meta SET scan_cursor = NULL, scanned_revision = ?, head_digest = ? WHERE singleton = 1", batch.sourceRevision, head?.eventDigest ?? null);
+      else runSql(db, "UPDATE projection_meta SET scan_cursor = ? WHERE singleton = 1", batch.cursor);
     }
     return drainDeferred(db, limit, eventStore.readContentBlob);
   });
