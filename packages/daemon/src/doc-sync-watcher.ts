@@ -55,7 +55,20 @@ export function openDocSyncWatcher(input: { readonly rootDir: string; readonly p
     // waits on a semaphore the in-flight callback prevents from ever being signaled).
     watcher.on("error", () => { setImmediate(() => watcher.close()); directories.delete(directory); degradeToPolling(); wake(); }); directories.set(directory, watcher);
     try { for (const entry of readdirSync(directory, { withFileTypes: true })) if (entry.isDirectory()) watchDirectory(path.join(directory, entry.name)); } catch (error) { consumeKnownError(error); } };
-  if (input.watchFilesystem !== false) { watchDirectory(authoredRoot); if (directories.size === 0) state = "blocked"; }
+  // macOS gives every fs.watch handle its own FSEvents stream, and every stream's start and stop is
+  // serialized through one CoreFoundation run loop thread. At authored-root scale — thousands of
+  // directories — an error status on any single handle wedges the whole event loop: Node's own
+  // onchange closes that handle synchronously *before* it emits "error", from inside the in-flight
+  // FSEvents callback, and uv__fsevents_close then waits on a semaphore only that callback can
+  // signal. Deferring the close in a user-level error handler cannot help, because the close Node
+  // already made is the one that blocks. One recursive stream removes the per-directory handles
+  // instead of guarding them. The rename-over blindness documented above is an inotify property;
+  // FSEvents resolves paths, not inodes, so it does not apply here.
+  const watchTree = (): void => { let watcher: FSWatcher;
+    try { watcher = watch(authoredRoot, { recursive: true }, (_event, filename) => { if (filename === null) { wake(); return; } const relative = String(filename); if (relative.split(path.sep).includes(".git")) return; wake(relative); }); }
+    catch (error) { consumeKnownError(error); degradeToPolling(); return; }
+    watcher.on("error", () => { setImmediate(() => watcher.close()); directories.delete(authoredRoot); degradeToPolling(); wake(); }); directories.set(authoredRoot, watcher); };
+  if (input.watchFilesystem !== false) { if (process.platform === "darwin") watchTree(); else watchDirectory(authoredRoot); if (directories.size === 0) state = "blocked"; }
   if (input.startupScan !== false) wake();
   return { wake, overflow: () => wake(), flush: async () => { if (timer) { clearTimeout(timer); timer = null; } enqueue(true); await tail; }, status: () => ({ sessionId, personId: input.personId, state, pendingPaths: [...pending].sort(), lastReceipt, metrics: { ...metrics } }),
     close: async () => { if (state === "closed") return; state = "closed"; if (timer) clearTimeout(timer); timer = null; if (pollTimer) clearInterval(pollTimer); pollTimer = null; for (const watcher of directories.values()) watcher.close(); directories.clear(); await tail; } };
