@@ -23,23 +23,33 @@
  *   node scripts/rename-drill/replay.mjs \
  *     --source <source-harness-git-repo> --dest <dest-harness-git-repo-clone> \
  *     --manifest <out.json> [--branch refs/heads/master]
+ *   node scripts/rename-drill/replay.mjs --verify-only --source <repo>
+ *
+ * --verify-only writes NOTHING: it walks the full source chain and runs only
+ * the source-side proofs (every stored consent/pin digest recomputed from the
+ * source documents via the kernel's decisionMachineDigest, the decision
+ * baseDocumentSha256 chain, and the layout-migration preEventsTreeSha audit
+ * field). Run it before freezing anything in production.
  *
  * The destination must be a clone of the source (all source objects present);
  * the new generation is written to refs/ha/canonical + the authored branch and
- * the worktree is NOT touched (run `git checkout -f` afterwards).
+ * the worktree is NOT touched (run `git checkout -f` afterwards). A non-zero
+ * exit means the destination is poisoned: delete the whole dest root and
+ * re-clone — never reuse it.
  */
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { STATUS_KEYS, WORD_MAP, classifyStatusPath, git } from "./ledger-walk.mjs";
+import { decisionSemanticFromDocument } from "./decision-semantics.mjs";
 import { serializeCanonicalEvent } from "../../packages/kernel/src/domain/doc-sync.contract.ts";
 import { serializeEventHead } from "../../packages/kernel/src/domain/write-chain.contract.ts";
 import { decisionMachineDigest } from "../../packages/kernel/src/domain/fact-event.ts";
-import { readFrontmatter, readScalar } from "../../packages/kernel/src/markdown/frontmatter.ts";
 import { contentObjectRelativePath } from "../../packages/kernel/src/layout/ledger-object-layout.ts";
 import { sha256Text, stableStringify } from "../../packages/kernel/src/integrity/stable-hash.ts";
 
 const args = parseArgs(process.argv.slice(2));
-if (!args.source || !args.dest) { console.error("usage: replay.mjs --source <repo> --dest <clone> [--branch refs/heads/master] [--manifest out.json]"); process.exit(2); }
+const VERIFY_ONLY = args["verify-only"] === true;
+if (!args.source || (!VERIFY_ONLY && !args.dest)) { console.error("usage: replay.mjs --source <repo> --dest <clone> [--branch refs/heads/master] [--manifest out.json] | replay.mjs --verify-only --source <repo>"); process.exit(2); }
 const SOURCE = args.source, DEST = args.dest, BRANCH = args.branch ?? "refs/heads/master";
 const NEW_REF = "refs/ha/canonical";
 
@@ -225,27 +235,6 @@ function transformDocument(path, body, digestMap) {
 }
 
 // ---------------------------------------------------------------------------
-// decision machine-content reconstruction (digest proof + recompute)
-// ---------------------------------------------------------------------------
-
-function decisionSemanticFromDocument(body, where) {
-  const frontmatter = readFrontmatter(body);
-  if (frontmatter === null) throw new Error(`${where}: decision frontmatter is missing`);
-  const scalar = (key) => readScalar(frontmatter, key);
-  const text = (key) => { const value = scalar(key); return value.startsWith("\"") ? JSON.parse(value) : value; };
-  const json = (key) => { const value = scalar(key); return value === "" ? [] : JSON.parse(value); };
-  return {
-    schema: "decision-machine-content/v1",
-    decisionId: scalar("decision_id"),
-    title: text("title"), question: text("question"),
-    riskTier: scalar("riskTier"), urgency: scalar("urgency"),
-    vertical: text("vertical"), preset: text("preset"), decisionClass: scalar("decisionClass"),
-    appliesTo: json("applies_to"),
-    chosen: json("chosen"), rejected: json("rejected"), claims: json("claims"), relations: json("relations"),
-  };
-}
-
-// ---------------------------------------------------------------------------
 // claims
 // ---------------------------------------------------------------------------
 
@@ -352,10 +341,11 @@ const blobShaRenames = new Map();
 const transformedBlobBodies = new Map();
 const cutMap = [];
 
-const fi = makeFastImport(DEST);
+const fi = VERIFY_ONLY ? null : makeFastImport(DEST);
 let previousMark = null;
 let pendingParentResolved = base.sha;
 
+try {
 for (const [index, commit] of commits.slice(1).entries()) {
   const revision = index + 1;
   const entries = diffs.get(commit.sha);
@@ -367,7 +357,7 @@ for (const [index, commit] of commits.slice(1).entries()) {
   const headEntry = entries.find((entry) => entry.path === "events/head.json");
   if (!headEntry) throw new Error(`revision ${revision}: commit ${commit.sha} does not update events/head.json`);
   const sourceHead = JSON.parse(await blobs.get(headEntry.newOid));
-  const eventEntry = entries.find((entry) => entry.status !== "D" && entry.path.startsWith("events/") && entry.path.endsWith(`/${sourceHead.opId}.json`) || entry.path === `events/${sourceHead.opId}.json`);
+  const eventEntry = entries.find((entry) => entry.status !== "D" && (entry.path.startsWith("events/") && entry.path.endsWith(`/${sourceHead.opId}.json`) || entry.path === `events/${sourceHead.opId}.json`));
   if (!eventEntry) throw new Error(`revision ${revision}: no event object for ${sourceHead.opId} in commit ${commit.sha}`);
   const sourceBytes = await blobs.get(eventEntry.newOid);
   const event = JSON.parse(sourceBytes);
@@ -386,6 +376,48 @@ for (const [index, commit] of commits.slice(1).entries()) {
 
   // decision digest recomputation needs the base (pre-event) doc; snapshot it now
   const decisionBase = decisionClaim ? docState.get(decisionClaim.path) ?? null : null;
+
+  if (VERIFY_ONLY) {
+    // source-side proofs only: no destination, no transforms, no writes.
+    for (const { path, claim } of claims) {
+      if (!DECISION_DOC.test(path)) continue;
+      const oid = pathOid.get(path);
+      if (oid === undefined) {
+        const known = docState.get(path);
+        if (known && known.oldSha === claim.sha256) continue;
+        throw new Error(`revision ${revision}: claim ${path} not in commit diff and not previously tracked`);
+      }
+      const oldBody = await blobs.get(oid);
+      if (sha256Text(oldBody) !== claim.sha256) throw new Error(`revision ${revision}: claim sha mismatch for ${path}`);
+      if (decisionClaim && path === decisionClaim.path) {
+        const where = `revision ${revision} ${path}`;
+        const consent = originalEvent.payload.judgmentConsent;
+        const pin = originalEvent.payload.contentPin;
+        if (consent) {
+          if (!decisionBase) throw new Error(`${where}: consent event without tracked base document`);
+          const oldDigest = decisionMachineDigest(decisionSemanticFromDocument(decisionBase.oldBody, where));
+          if (oldDigest !== consent.machineDigest) failures.push(`${where}: source consent digest mismatch (${consent.machineDigest} != recomputed ${oldDigest})`);
+          counters.sourceDigestProofs += 1;
+        }
+        if (pin) {
+          const oldDigest = decisionMachineDigest(decisionSemanticFromDocument(oldBody, where));
+          if (oldDigest !== pin.digest) failures.push(`${where}: source pin digest mismatch (${pin.digest} != recomputed ${oldDigest})`);
+          counters.sourceDigestProofs += 1;
+        }
+      }
+      docState.set(path, { oldSha: claim.sha256, oldBody });
+    }
+    if (decisionClaim && originalEvent.payload.baseDocumentSha256 !== null) {
+      if (!decisionBase) throw new Error(`revision ${revision}: decision base document untracked for ${decisionClaim.path}`);
+      if (decisionBase.oldSha !== originalEvent.payload.baseDocumentSha256) failures.push(`revision ${revision}: source baseDocumentSha256 does not match tracked chain`);
+    }
+    if (event.schema === "ledger-layout-event/v1") {
+      const sourceParentEventsTree = (await git(SOURCE, ["rev-parse", `${commit.sha}^:events`])).trim();
+      if (originalEvent.payload.preEventsTreeSha !== sourceParentEventsTree) failures.push(`revision ${revision}: source preEventsTreeSha ${originalEvent.payload.preEventsTreeSha} != parent events tree ${sourceParentEventsTree}`);
+    }
+    if (revision % 4000 === 0) console.error(`… verify ${revision}/${head.revision} (${Math.round((Date.now() - startedAt) / 1000)}s)`);
+    continue;
+  }
 
   for (const { path, claim } of claims) {
     const oid = pathOid.get(path);
@@ -533,6 +565,31 @@ for (const [index, commit] of commits.slice(1).entries()) {
   if (eventChanged) cutMap.push({ revision, opId: event.opId, oldCommit: commit.sha, schema: event.schema, type: event.type, renamedFields: payloadChange.changedPaths, claimRewrites: shaRewrites.size, docEventRebased: event.schema === "doc-event/v1" });
   if (revision % 2000 === 0) console.error(`… revision ${revision}/${head.revision} (${Math.round((Date.now() - startedAt) / 1000)}s)`);
 }
+} catch (error) {
+  if (!VERIFY_ONLY) await git(DEST, ["update-ref", "-d", "refs/heads/ha-drill-new"]).catch(() => {});
+  throw error;
+}
+
+if (VERIFY_ONLY) {
+  blobs.close();
+  if (failures.length > 0) { console.error(`VERIFY FAILED (${failures.length}):\n${failures.slice(0, 40).join("\n")}`); process.exit(1); }
+  console.error(`verify-only: ${counters.sourceDigestProofs} consent/pin digest proofs, ${docState.size} decision documents chained, 0 failures (${Math.round((Date.now() - startedAt) / 1000)}s)`);
+  console.log(JSON.stringify({ verifyOnly: true, sourceDigestProofs: counters.sourceDigestProofs, decisionDocumentsChained: docState.size, failures: 0 }));
+  process.exit(0);
+}
+
+// final-tree cross-check: the set of current documents the transform actually
+// changed must equal the set the typed scan of their final source bodies says
+// must change (the same numbers the freeze census reports per document kind).
+const finalChanged = { decision: 0, facts: 0, index: 0 };
+const finalExpected = { decision: 0, facts: 0, index: 0 };
+for (const [path, state] of docState) {
+  const kind = DECISION_DOC.test(path) ? "decision" : FACTS_DOC.test(path) ? "facts" : INDEX_DOC.test(path) ? "index" : null;
+  if (kind === null) continue;
+  if (state.newSha !== state.oldSha) finalChanged[kind] += 1;
+  if (transformDocument(path, state.oldBody, digestMap) !== state.oldBody) finalExpected[kind] += 1;
+}
+if (JSON.stringify(finalChanged) !== JSON.stringify(finalExpected)) failures.push(`final document reconciliation mismatch: changed ${JSON.stringify(finalChanged)} != expected ${JSON.stringify(finalExpected)}`);
 
 const finalSha = await fi.getMark(previousMark);
 await fi.finish();
@@ -540,6 +597,8 @@ blobs.close();
 
 if (failures.length > 0) {
   console.error(`FAILURES (${failures.length}):\n${failures.slice(0, 40).join("\n")}`);
+  await git(DEST, ["update-ref", "-d", "refs/heads/ha-drill-new"]).catch(() => {});
+  console.error("the destination is poisoned: delete the whole dest root and re-clone before retrying.");
   process.exit(1);
 }
 
@@ -553,6 +612,7 @@ const manifest = {
   destination: { repo: DEST, head: finalSha, canonicalRef: NEW_REF },
   wordMap: WORD_MAP,
   counters,
+  finalDocumentReconciliation: { changed: finalChanged, expected: finalExpected },
   digestMapSize: digestMap.size,
   digestMap: Object.fromEntries(digestMap),
   transformedEventCount: cutMap.length,

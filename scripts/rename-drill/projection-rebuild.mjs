@@ -1,10 +1,16 @@
 #!/usr/bin/env node
 /**
  * Full SQLite projection rebuild for the rename drill: replays every canonical
- * event through the kernel's real projection reducer, which re-derives and
- * asserts judgment-consent machineDigest and content-pin digest per decision
- * event — the strongest check that the replayer's recomputed digests are the
- * ones the current generation of code derives.
+ * event through the kernel's real projection reducer against the real event
+ * store. This exercises the complete read path over the new generation
+ * (event parsing under the new vocabulary, claim/blob readback, reducer
+ * admission rules) — note that live-write digest assertions
+ * (assertDecisionJudgmentConsent / assertDecisionContentPin) run on the
+ * daemon's apply path, NOT inside this batch reducer; digest verification is
+ * covered by the replayer's source proofs and decision-digest-pair.mjs.
+ *
+ * Fails non-zero when the rebuild throws or when the rebuilt watermark does
+ * not reach the ledger head revision.
  *
  * Usage: node scripts/rename-drill/projection-rebuild.mjs --workspace <ws-root>
  */
@@ -18,7 +24,10 @@ if (!args.workspace) { console.error("usage: projection-rebuild.mjs --workspace 
 const projectionPath = path.join(args.workspace, ".harness/cache/task.sqlite");
 rmSync(projectionPath, { force: true });
 const store = makeTaskEventStore({ repoId: "canonical", rootInput: args.workspace });
+const expectedRevision = store.readHead()?.revision ?? 0;
 const projection = makeTaskProjection({ rootDir: args.workspace, eventStore: store, projectionPath });
 const started = Date.now();
-const receipt = projection.rebuild();
-console.log(JSON.stringify({ receipt, elapsedSeconds: Math.round((Date.now() - started) / 1000) }));
+let receipt;
+try { receipt = projection.rebuild(); } catch (error) { console.error(`projection rebuild failed: ${error instanceof Error ? error.message : String(error)}`); process.exit(1); }
+if (receipt.watermark !== expectedRevision) { console.error(`projection watermark ${receipt.watermark} does not match ledger head revision ${expectedRevision}`); process.exit(1); }
+console.log(JSON.stringify({ receipt, expectedRevision, elapsedSeconds: Math.round((Date.now() - started) / 1000) }));
