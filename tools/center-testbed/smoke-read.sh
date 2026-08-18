@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-: "${GITLAB_TOKEN:?export GITLAB_TOKEN=$(cat ~/.harness-secrets-center-testbed-token)}"
+: "${GITLAB_TOKEN:?missing; run: export GITLAB_TOKEN=\$(cat ~/.harness-secrets-center-testbed-token)}"
 GITLAB_URL="${GITLAB_URL:-http://43.142.81.196:8929}"
 PROJECT_PATH="${TESTBED_GITLAB_PROJECT:-plt-center-testbed}"
 
