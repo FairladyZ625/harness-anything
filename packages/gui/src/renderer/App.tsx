@@ -450,6 +450,7 @@ function AppShell() {
                 onDrill={drillToBoard}
                 onOpenInbox={() => goto("decisions")}
                 onOpenDecisionPool={() => goto("decisionPool")}
+                onOpenDecision={navigateToDecision}
               />
             ) : view === "board" ? (
               <BoardView

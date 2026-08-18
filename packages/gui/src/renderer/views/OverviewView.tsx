@@ -21,6 +21,7 @@ import {
   UrgencyBadge,
 } from "../components/badges";
 import { Card } from "../components/overview/parts";
+import { LedgerTimeline } from "../components/overview/LedgerTimeline.tsx";
 import { coordinationStatusCensus } from "../model/status-census.ts";
 import { sortDecisionQueue } from "../model/triadic";
 import { t } from "../i18n/index.tsx";
@@ -36,6 +37,12 @@ export function windowDimensionRows<T>(rows: readonly T[], page: number, pageSiz
 
 const timeOf = (iso: string) => iso.slice(11, 16);
 const dateTime = (iso: string) => iso.slice(5, 16).replace("T", " ");
+
+/** 分段切换钮(时间线/下钻、root/module/plt 共用的视觉)。 */
+const seg = (active: boolean) =>
+  `rounded px-2 py-0.5 text-[11px] ${
+    active ? "bg-surface-raised font-medium text-text" : "text-text-muted hover:text-text"
+  }`;
 
 function QuestionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -81,6 +88,7 @@ export function OverviewView({
   onDrill,
   onOpenInbox,
   onOpenDecisionPool,
+  onOpenDecision,
 }: {
   project: Project;
   tasks: TaskRow[];
@@ -91,7 +99,11 @@ export function OverviewView({
   onDrill: (lane: string, status: SnapshotStatus, dimension: DrillDimension) => void;
   onOpenInbox: () => void;
   onOpenDecisionPool: () => void;
+  /** 任务流里点 decision 行跳转到该决策。 */
+  onOpenDecision: (decisionId: string) => void;
 }) {
+  // 任务区主位 = 创建时间倒序的任务流(老 Archive 主线);状态下钻保留为次要切换。
+  const [taskAreaMode, setTaskAreaMode] = useState<"timeline" | "drill">("timeline");
   // coding preset 默认按 root(milestone=root task)。用户可切回 module 维度。
   const [dimension, setDimension] = useState<DrillDimension>("root");
   const [dimensionPage, setDimensionPage] = useState(0);
@@ -161,11 +173,6 @@ export function OverviewView({
       ok: stale.length + unavailable.length === 0,
     },
   ];
-
-  const seg = (active: boolean) =>
-    `rounded px-2 py-0.5 text-[11px] ${
-      active ? "bg-surface-raised font-medium text-text" : "text-text-muted hover:text-text"
-    }`;
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
@@ -284,14 +291,77 @@ export function OverviewView({
           </div>
         </Card>
 
-        <Card title={`${dimension === "root" ? "根任务" : dimension === "module" ? "模块" : "PLT"} × 状态下钻`} bodyClassName="p-3">
+        <Card title="任务流" bodyClassName="p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <QuestionLabel>② 新建任务与决策 · 创建时间倒序,一直往下滑</QuestionLabel>
+            <div className="ml-auto flex items-center gap-0.5 rounded-md border border-border p-0.5">
+              <button
+                onClick={() => setTaskAreaMode("timeline")}
+                title="任务+决策按创建时间倒序混排,内联滚动"
+                className={seg(taskAreaMode === "timeline")}
+              >
+                时间线
+              </button>
+              <button
+                onClick={() => setTaskAreaMode("drill")}
+                title={`${dimension === "root" ? "根任务" : dimension === "module" ? "模块" : "PLT"} × 状态下钻(次要视图)`}
+                className={seg(taskAreaMode === "drill")}
+              >
+                下钻
+              </button>
+            </div>
+          </div>
+          {taskAreaMode === "timeline" ? (
+            <LedgerTimeline
+              tasks={tasks}
+              decisions={decisions}
+              onOpenTask={onSelect}
+              onOpenDecision={onOpenDecision}
+            />
+          ) : (
+            <DrillTable
+              tasks={tasks}
+              dimension={dimension}
+              onDimensionChange={setDimension}
+              windowed={windowed}
+              onPageChange={setDimensionPage}
+              cellCount={cellCount}
+              onDrill={onDrill}
+            />
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+/** 状态下钻表(次要视图):从任务流卡片的时间线/下钻切换进入。 */
+function DrillTable({
+  tasks,
+  dimension,
+  onDimensionChange,
+  windowed,
+  onPageChange,
+  cellCount,
+  onDrill,
+}: {
+  tasks: TaskRow[];
+  dimension: DrillDimension;
+  onDimensionChange: (dimension: DrillDimension) => void;
+  windowed: { readonly visible: readonly string[]; readonly page: number; readonly pageCount: number; readonly total: number };
+  onPageChange: (page: number) => void;
+  cellCount: (key: string, status: SnapshotStatus) => number;
+  onDrill: (lane: string, status: SnapshotStatus, dimension: DrillDimension) => void;
+}) {
+  return (
+    <>
           <div className="mb-2 flex items-center gap-2">
             <QuestionLabel>② 点击进入可操作任务集合</QuestionLabel>
             <div className="ml-auto flex items-center gap-0.5 rounded-md border border-border p-0.5">
               {(["root", "module", "plt"] as const).map((d) => (
                 <button
                   key={d}
-                  onClick={() => setDimension(d)}
+                  onClick={() => onDimensionChange(d)}
                   title={
                     d === "root"
                       ? "按任务树根分组(milestone)"
@@ -357,13 +427,11 @@ export function OverviewView({
           </table>
           {windowed.pageCount > 1 && (
             <nav aria-label={t("views.overviewView.dimensionPaging")} className="mt-2 flex items-center justify-center gap-2 font-mono text-[12px]">
-              <button type="button" className="rounded border border-border px-2 py-1 text-text-muted disabled:opacity-40" disabled={windowed.page === 0} onClick={() => setDimensionPage((page) => Math.max(0, page - 1))}>{t("views.overviewView.previousPage")}</button>
+              <button type="button" className="rounded border border-border px-2 py-1 text-text-muted disabled:opacity-40" disabled={windowed.page === 0} onClick={() => onPageChange(Math.max(0, windowed.page - 1))}>{t("views.overviewView.previousPage")}</button>
               <span className="text-text-faint">{t("views.overviewView.pageOf", { page: windowed.page + 1, pageCount: windowed.pageCount, total: windowed.total, unit: t(dimension === "root" ? "views.overviewView.unitRoot" : dimension === "module" ? "views.overviewView.unitModule" : "views.overviewView.unitPlt") })}</span>
-              <button type="button" className="rounded border border-border px-2 py-1 text-text-muted disabled:opacity-40" disabled={windowed.page + 1 >= windowed.pageCount} onClick={() => setDimensionPage((page) => page + 1)}>{t("views.overviewView.nextPage")}</button>
+              <button type="button" className="rounded border border-border px-2 py-1 text-text-muted disabled:opacity-40" disabled={windowed.page + 1 >= windowed.pageCount} onClick={() => onPageChange(windowed.page + 1)}>{t("views.overviewView.nextPage")}</button>
             </nav>
           )}
-        </Card>
-      </div>
-    </div>
+    </>
   );
 }

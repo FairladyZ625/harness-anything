@@ -307,5 +307,7 @@
   "views.presetsView.copied": "Copied",
   "views.adaptersView.readOnlyDescription": "The GUI reads the canonical registry only; installation, removal, and configuration are managed by the CLI.",
   "views.adaptersView.default": "default",
-  "views.adaptersView.unknownNotProjected": "unknown / not projected"
+  "views.adaptersView.unknownNotProjected": "unknown / not projected",
+  "views.overviewView.timelineEmpty": "No tasks or decisions in the projection yet.",
+  "views.overviewView.timelineCreatedUnknown": "created time unknown"
 }

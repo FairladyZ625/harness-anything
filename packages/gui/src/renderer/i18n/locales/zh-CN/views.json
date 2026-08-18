@@ -307,5 +307,7 @@
   "views.presetsView.copied": "已复制",
   "views.adaptersView.readOnlyDescription": "GUI 只读 canonical registry；安装、卸载与配置由 CLI 管理。",
   "views.adaptersView.default": "默认",
-  "views.adaptersView.unknownNotProjected": "未知 / 未投影"
+  "views.adaptersView.unknownNotProjected": "未知 / 未投影",
+  "views.overviewView.timelineEmpty": "投影里还没有任务或决策。",
+  "views.overviewView.timelineCreatedUnknown": "创建时间未知"
 }
