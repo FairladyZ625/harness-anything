@@ -14,7 +14,7 @@ export function completionBlockers(snapshot: TaskLifecycleSnapshot, executionId:
   const assessment = closeoutReadiness(snapshot);
   const review = snapshot.reviews.find((value) => value.executionId === executionId && value.verdict === "approved" && value.commitSha === submission.commitSha && value.iteration === execution.iteration);
   if (assessment.blocker === "review" || !review) return one("review_missing", "review", `ha task review-execution ${task.taskId} --execution-id ${executionId} --review-id <id> --from-file <review.json>`, "Record one independent approved Execution Review.");
-  if (assessment.blocker === "consent") return one("consent_missing", "consent", `ha task review-consent ${task.taskId} --execution-id ${executionId} --review-id ${review.reviewId} --consent-id <id> --from-file <consent.json>`, "Record content-pinned owner consent for the approved Review.");
+  if (assessment.blocker === "consent") return one("consent_missing", "consent", `ha task review-consent ${task.taskId} --execution-id ${executionId} --review-id ${review.reviewId} --consent-id <id>`, "Record content-pinned owner consent for the approved Review.");
   const gate = assessment.gates.find(({ status }) => status !== "passed");
   if (gate) return gate.gateId === "code-doc-reconciliation"
     ? one("code_doc_missing", gate.gateId, `ha task code-doc reconcile ${task.taskId} --execution-id ${executionId} --commit-sha ${submission.commitSha} --iteration ${execution.iteration} --path <path>`, "Publish a typed code-doc witness for this execution cut.")

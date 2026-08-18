@@ -603,17 +603,17 @@ HARNESS_ACTOR=agent:reviewer \
 or `1`. The `HARNESS_ACTOR` on that one command is what makes the review
 independent — see the rule at the top of this section.
 
-**Keep the two digests from that receipt.** `reviewDigest` and `contentDigest`
-are the whole content of the consent packet, and they pin the consent to the
-exact review text:
+**Consent needs no packet.** The consent binds itself to the recorded Review —
+the harness derives `reviewDigest` and `contentDigest` from the review you just
+recorded, so there is nothing to copy or recompute:
 
 ```bash
-cat > "$PWD/consent.json" <<'EOF'
-{"reviewDigest":"sha256:…","contentDigest":"sha256:…"}
-EOF
 ha --root "$PWD" task review-consent <task-id> --execution-id <execution-id> \
-   --review-id review-1 --consent-id consent-1 --from-file "$PWD/consent.json"
+   --review-id review-1 --consent-id consent-1
 ```
+
+(`--from-file` with both digests still works for pinning them yourself; a
+mismatched digest is rejected.)
 
 Consent is the owner's, so run it under the working actor, not the reviewer one.
 
