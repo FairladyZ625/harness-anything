@@ -10,7 +10,6 @@ import { makeTaskProjection, registerDaemonRepo } from "../../kernel/src/index.t
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
-import { staleDistFiles } from "../src/runtime-admission.ts";
 
 const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: process.getuid?.() ?? 0, source: "unix-socket-filesystem-owner-boundary" } } as const;
 
@@ -84,33 +83,36 @@ test("repository modes close local, center-assignment, and edge command families
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
-test("resident admission rechecks emitted preset output and projection schema before later writes", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-resident-admission-")), rootDir = path.join(parent, "repo"), runtimeRoot = path.join(parent, "runtime");
-  const source = path.join(runtimeRoot, "packages/preset/src/example.ts"), output = path.join(runtimeRoot, "packages/cli/dist/preset/src/example.js"), runtimeFile = path.join(runtimeRoot, "packages/cli/dist/daemon/src/runtime-admission.js");
-  let clock = "2026-08-18T00:00:00.000Z", cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+test("a dist orphan from an old build graph does not reject the resident daemon", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-dist-orphan-admission-")), rootDir = path.join(parent, "repo"), runtimeRoot = path.join(parent, "runtime"), runtimeFile = builtRuntime(runtimeRoot, "build-a");
+  const source = path.join(runtimeRoot, "packages/application/src/record.ts"), orphan = path.join(runtimeRoot, "packages/cli/dist/application/src/record.js"); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
-    rosterRepo(rootDir, "resident-admission");
-    for (const file of [source, output, runtimeFile]) { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, `${path.basename(file)}\n`); }
-    const initial = Date.parse(clock) / 1_000; utimesSync(source, initial, initial); utimesSync(output, initial, initial);
-    cell = await openRepoCell({ repoId: workspaceId("resident-admission"), rootDir: canonicalRoot(rootDir), ownerId: "resident-admission", now: () => clock, runtimeFile });
-    clock = "2026-08-18T00:00:06.000Z"; const stale = Date.parse(clock) / 1_000; utimesSync(source, stale, stale);
-    const buildBlocked = await cell.run({ kind: "task-create", taskId: "task_build_blocked", title: "Blocked by build" }, { actor: { principal: { personId: "writer" }, executor: null }, source: "local" });
-    assert.equal(buildBlocked.outcome, "op_rejected"); assert.equal(buildBlocked.code, "daemon_build_stale"); assert.equal(cell.status().state, "unavailable");
-    clock = "2026-08-18T00:00:12.000Z"; const rebuilt = Date.parse(clock) / 1_000; utimesSync(output, rebuilt, rebuilt);
-    assert.equal((await cell.run({ kind: "task-create", taskId: "task_after_build", title: "After build" }, { actor: { principal: { personId: "writer" }, executor: null }, source: "local" })).outcome, "applied");
-    clock = "2026-08-18T00:00:18.000Z"; const presetStale = Date.parse(clock) / 1_000; utimesSync(source, presetStale, presetStale);
-    const presetBlocked = await cell.presetRun({ kind: "preset-run-start" }, { actor: { principal: { personId: "writer" }, executor: null }, source: "local" }); assert.equal(presetBlocked.outcome, "op_rejected"); assert.equal(presetBlocked.code, "daemon_build_stale");
-    clock = "2026-08-18T00:00:24.000Z"; const presetRebuilt = Date.parse(clock) / 1_000; utimesSync(output, presetRebuilt, presetRebuilt);
-    assert.equal((await cell.run({ kind: "task-create", taskId: "task_after_preset_build", title: "After preset build" }, { actor: { principal: { personId: "writer" }, executor: null }, source: "local" })).outcome, "applied");
-    clock = "2026-08-18T00:00:30.000Z"; const spawnStale = Date.parse(clock) / 1_000; utimesSync(source, spawnStale, spawnStale);
-    await assert.rejects(cell.spawnRuntime({}, { actor: { principal: { personId: "writer" }, executor: null }, source: "local" }), (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "daemon_build_stale");
-    clock = "2026-08-18T00:00:36.000Z"; const spawnRebuilt = Date.parse(clock) / 1_000; utimesSync(output, spawnRebuilt, spawnRebuilt);
-    assert.equal((await cell.run({ kind: "task-create", taskId: "task_after_spawn_build", title: "After spawn build" }, { actor: { principal: { personId: "writer" }, executor: null }, source: "local" })).outcome, "applied");
-    const cache = path.join(rootDir, ".harness/cache/task.sqlite"), db = new DatabaseSync(cache); db.exec("UPDATE projection_meta SET schema_version = 999 WHERE singleton = 1;"); db.close(); clock = "2026-08-18T00:00:42.000Z";
-    const schemaBlocked = await cell.run({ kind: "task-create", taskId: "task_schema_blocked", title: "Blocked by schema" }, { actor: { principal: { personId: "writer" }, executor: null }, source: "local" });
-    assert.equal(schemaBlocked.outcome, "op_rejected"); assert.equal(schemaBlocked.code, "kernel_schema_mismatch"); assert.equal(cell.status().state, "unavailable");
-    const repaired = new DatabaseSync(cache); repaired.exec("UPDATE projection_meta SET schema_version = 2 WHERE singleton = 1;"); repaired.close(); clock = "2026-08-18T00:00:48.000Z";
-    assert.equal((await cell.run({ kind: "task-create", taskId: "task_after_schema", title: "After schema" }, { actor: { principal: { personId: "writer" }, executor: null }, source: "local" })).outcome, "applied");
+    rosterRepo(rootDir, "dist-orphan-admission"); for (const file of [source, orphan]) { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, `${path.basename(file)}\n`); }
+    const old = Date.now() / 1_000 - 10, current = old + 5; utimesSync(orphan, old, old); utimesSync(source, current, current);
+    cell = await openRepoCell({ repoId: workspaceId("dist-orphan-admission"), rootDir: canonicalRoot(rootDir), ownerId: "dist-orphan-admission", runtimeFile });
+    assert.equal((await cell.run({ kind: "task-create", taskId: "task_dist_orphan", title: "Dist orphan" }, writerBinding)).outcome, "applied");
+  } finally { await cell?.close(); rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("an uncommitted canonical source edit does not reject the unchanged daemon process", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-dirty-source-admission-")), rootDir = path.join(parent, "repo"), runtimeRoot = path.join(parent, "runtime"), runtimeFile = builtRuntime(runtimeRoot, "build-a");
+  const source = path.join(runtimeRoot, "packages/cli/src/cli/thin-command.ts"), output = path.join(runtimeRoot, "packages/cli/dist/cli/src/cli/thin-command.js"); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    rosterRepo(rootDir, "dirty-source-admission"); for (const file of [source, output]) { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, `${path.basename(file)}\n`); }
+    const old = Date.now() / 1_000 - 10, current = old + 5; utimesSync(output, old, old); utimesSync(source, current, current);
+    cell = await openRepoCell({ repoId: workspaceId("dirty-source-admission"), rootDir: canonicalRoot(rootDir), ownerId: "dirty-source-admission", runtimeFile });
+    assert.equal((await cell.run({ kind: "task-create", taskId: "task_dirty_source", title: "Dirty source" }, writerBinding)).outcome, "applied");
+  } finally { await cell?.close(); rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("a dist rebuild after process start rejects writes until the daemon restarts", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-rebuilt-dist-admission-")), rootDir = path.join(parent, "repo"), runtimeRoot = path.join(parent, "runtime"), runtimeFile = builtRuntime(runtimeRoot, "build-a"), buildId = path.join(runtimeRoot, "packages/cli/dist/build-id.txt"); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    rosterRepo(rootDir, "rebuilt-dist-admission"); cell = await openRepoCell({ repoId: workspaceId("rebuilt-dist-admission"), rootDir: canonicalRoot(rootDir), ownerId: "rebuilt-dist-admission", runtimeFile });
+    assert.equal((await cell.run({ kind: "task-create", taskId: "task_before_rebuild", title: "Before rebuild" }, writerBinding)).outcome, "applied");
+    writeFileSync(buildId, "build-b\n");
+    const rejected = await cell.run({ kind: "task-create", taskId: "task_after_rebuild", title: "After rebuild" }, writerBinding);
+    assert.equal(rejected.outcome, "op_rejected"); assert.equal(rejected.code, "daemon_build_stale"); assert.equal(cell.status().state, "unavailable");
   } finally { await cell?.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
@@ -153,26 +155,17 @@ test("daemon admission rejects a mismatched kernel projection schema and recover
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
-test("built-daemon admission compares only sources represented by emitted dist files", () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-dist-admission-")), runtime = path.join(parent, "packages/cli/dist/daemon/src/runtime-admission.js");
-  const staleSource = path.join(parent, "packages/kernel/src/stale.ts"), staleOutput = path.join(parent, "packages/cli/dist/kernel/src/stale.js");
-  const equalSource = path.join(parent, "packages/daemon/src/equal.ts"), equalOutput = path.join(parent, "packages/cli/dist/daemon/src/equal.js");
-  const missingOutputSource = path.join(parent, "packages/kernel/src/not-emitted.ts"), outsideBuildSource = path.join(parent, "packages/application/src/record.ts");
-  try {
-    for (const file of [runtime, staleSource, staleOutput, equalSource, equalOutput, missingOutputSource, outsideBuildSource]) { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, `${path.basename(file)}\n`); }
-    const old = Date.now() / 1_000 - 10, current = old + 5;
-    utimesSync(staleOutput, old, old); utimesSync(staleSource, current, current);
-    utimesSync(equalOutput, current, current); utimesSync(equalSource, current, current);
-    assert.deepEqual(staleDistFiles(runtime), ["packages/kernel/src/stale.ts"]);
-  }
-  finally { rmSync(parent, { recursive: true, force: true }); }
-});
-
 function systemRow(host: Awaited<ReturnType<typeof openDaemonHost>>, repoId: string): Record<string, unknown> {
   const system = host.system(auth) as { readonly repos: readonly Record<string, unknown>[] };
   const row = system.repos.find((repo) => repo.repoId === repoId);
   assert.ok(row, `gui-system-status must list ${repoId}`);
   return row;
+}
+const writerBinding = { actor: { principal: { personId: "writer" }, executor: null }, source: "local" as const };
+function builtRuntime(runtimeRoot: string, buildId: string): string {
+  const runtimeFile = path.join(runtimeRoot, "packages/cli/dist/daemon/src/runtime-admission.js"), marker = path.join(runtimeRoot, "packages/cli/dist/build-id.txt");
+  for (const [file, body] of [[runtimeFile, "runtime\n"], [marker, `${buildId}\n`]] as const) { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, body); }
+  return runtimeFile;
 }
 function rosterRepo(rootDir: string, repoId: string): void {
   mkdirSync(rootDir, { recursive: true });
