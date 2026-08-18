@@ -9,7 +9,8 @@ import { makeTaskProjection } from "../../src/projection/task-projection.ts";
 import { makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
-import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
+import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, decideDocWrite, parseDocWriteIntent, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
+import { MIGRATION_DOCUMENT_POLICY_ID, MIGRATION_IMPORT_SOURCE, migrationImportWritePlan, type MigrationImportEventV1 } from "../../src/domain/migration-import-event.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "./helpers.ts";
@@ -34,6 +35,35 @@ test("replica basis returns one exact L2 manifest and only post-cut applied even
     projection.apply(event, plan);
     assert.deepEqual(projection.readReplicaBasis(null), { watermark: 1, sourceRevision: 1, headEvent: event, events: [], documents: [{ path: "context/replica.md", blobSha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" }] });
     assert.deepEqual(projection.readReplicaBasis(0).events, [event]);
+  });
+});
+
+test("a migration policy upgrade replays identically in cold rebuild", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir }), standard = "governance/standards/notes-standard.md", actor = { principal: { personId: "person-1" }, executor: null } as const;
+    const legacy = "# Standard\n\nLegacy wording.\n", legacyHash = sha256Text(legacy);
+    const migration: MigrationImportEventV1 = { schema: "migration-import-event/v1", eventId: "event-migration", workspaceRevision: 1, opId: "op-migration", type: "entity_migrated", actor, source: MIGRATION_IMPORT_SOURCE, occurredAt: "2026-08-11T00:00:00.000Z", payload: { migratedFrom: standard, generation: "v0", entity: { kind: "repo-document", nodeKind: "file", documentClaim: { path: standard, sha256: legacyHash, size: Buffer.byteLength(legacy), mediaType: "text/markdown", policyId: MIGRATION_DOCUMENT_POLICY_ID }, referencedContentClaims: [] } } };
+    eventStore.append({ event: migration, plan: migrationImportWritePlan(migration), blobs: [{ sha256: legacyHash, size: Buffer.byteLength(legacy), mediaType: "text/markdown", body: legacy }] });
+    const projection = makeTaskProjection({ rootDir, eventStore });
+    const imported = projection.readDocument(standard);
+    assert.equal(imported.status, "ready");
+    assert.equal(imported.document?.policyId, MIGRATION_DOCUMENT_POLICY_ID);
+
+    const authored = `${legacy}Replacement wording.\n`, intent = parseDocWriteIntent({ schema: "doc-write-intent/v1", executionId: null, baseLedgerSha: eventStore.currentCommit().sha, changes: [{ path: standard, baseBlobSha256: imported.document?.blobSha256 ?? null, policyId: DOC_POLICY_ID, candidate: { ref: `doc-sync-claims/${sha256Text(authored)}`, sha256: sha256Text(authored), size: Buffer.byteLength(authored), mediaType: "text/markdown" } }] }, "test-repo");
+    const decision = decideDocWrite({ intent, opId: "op-upgrade", eventId: "event-upgrade", workspaceRevision: 2, actor, source: "local", occurredAt: "2026-08-11T00:01:00.000Z", currentLedgerSha: eventStore.currentCommit(), lease: null, documents: [imported.document], claims: [Buffer.from(authored)] });
+    assert.equal(decision.accepted, true, JSON.stringify(decision)); if (!decision.accepted) return;
+    assert.deepEqual(decision.event.payload.changes[0]?.policyUpgrade, { from: MIGRATION_DOCUMENT_POLICY_ID, to: DOC_POLICY_ID });
+    eventStore.append({ event: decision.event, plan: decision.plan, blobs: decision.blobs });
+
+    const warm = projection.readDocument(standard);
+    assert.equal(warm.status, "ready");
+    assert.equal(warm.document?.policyId, DOC_POLICY_ID);
+    assert.equal(warm.document?.body, authored);
+    rmSync(projection.path, { force: true });
+    const rebuilt = projection.rebuild();
+    assert.equal(rebuilt.watermark, 2);
+    assert.deepEqual(projection.readDocument(standard).document, warm.document);
   });
 });
 
