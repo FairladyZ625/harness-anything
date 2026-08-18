@@ -155,3 +155,68 @@ test("subscription auth commands use the witnessed executable and instance-only 
 
 function requireDirectory(directory: string): void { mkdirSync(directory); }
 function codedAs(error: unknown, code: string): boolean { return error instanceof Error && "code" in error && error.code === code; }
+
+test("win32 instances derive USERPROFILE/TEMP/APPDATA isolation without POSIX variables", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-win32-isolation-"));
+  try {
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed], platform: "win32", env: { PATH: "C:\\runtime\\tools", HOME: "C:\\host\\home", TMPDIR: "C:\\host\\tmp", SYSTEMROOT: "C:\\Windows", SYSTEMDRIVE: "C:", COMSPEC: "C:\\Windows\\system32\\cmd.exe", PATHEXT: ".COM;.EXE;.CMD", OPENAI_API_KEY: "host-secret" }, resolveCredential: () => "instance-secret" });
+    store.create({ schemaVersion: 1, instanceId: "codex-win", name: "Codex Windows", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "api-key", credentialRef: "credential:v1:codex-win" } });
+    const launch = store.prepareLaunch("codex-win", { cwd: "/workspace/repo", prompt: "Inspect" }), stateRoot = path.join(userRoot, "runtime-instances", "codex-win");
+    assert.deepEqual(launch.env, { PATH: "C:\\runtime\\tools", PATHEXT: ".COM;.EXE;.CMD", SYSTEMROOT: "C:\\Windows", SYSTEMDRIVE: "C:", COMSPEC: "C:\\Windows\\system32\\cmd.exe", USERPROFILE: path.join(stateRoot, "home"), TEMP: path.join(stateRoot, "tmp"), TMP: path.join(stateRoot, "tmp"), APPDATA: path.join(stateRoot, "home", "AppData", "Roaming"), LOCALAPPDATA: path.join(stateRoot, "home", "AppData", "Local"), CODEX_HOME: path.join(stateRoot, "home", ".codex"), OPENAI_API_KEY: "instance-secret" });
+    assert.equal("HOME" in launch.env, false); assert.equal("TMPDIR" in launch.env, false); assert.equal("XDG_RUNTIME_DIR" in launch.env, false);
+    assert.equal(Object.values(launch.env).includes("host-secret"), false);
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+test("linux instances keep the POSIX isolation shape distinct from the host", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-linux-isolation-"));
+  try {
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [{ ...observed, kindId: "claude", installationId: "claude-installation-test", executablePath: "/opt/runtime-test/claude" }], platform: "linux", env: { PATH: "/runtime/tools", HOME: "/host/home", USERPROFILE: "C:\\host\\home", XDG_RUNTIME_DIR: "/host/run/xdg", ANTHROPIC_API_KEY: "host-secret" } });
+    store.create({ schemaVersion: 1, instanceId: "claude-linux", name: "Claude Linux", kindId: "claude", installationId: "claude-installation-test", providerId: "anthropic", model: "claude-fable-5", auth: { mode: "subscription" } });
+    const command = store.prepareAuthCommand("claude-linux", "login"), stateRoot = path.join(userRoot, "runtime-instances", "claude-linux");
+    assert.deepEqual(command.env, { PATH: "/runtime/tools", HOME: path.join(stateRoot, "home"), TMPDIR: path.join(stateRoot, "tmp"), XDG_RUNTIME_DIR: path.join(stateRoot, "run"), CLAUDE_CONFIG_DIR: path.join(stateRoot, "home", ".claude") });
+    assert.equal("USERPROFILE" in command.env, false); assert.equal(Object.values(command.env).includes("host-secret"), false);
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+test("two same-binary same-model instances never share state roots or credentials", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-pair-isolation-"));
+  try {
+    const vault = new Map<string, string>([["credential:v1:codex-a", "secret-a"], ["credential:v1:codex-b", "secret-b"]]), secrets: string[] = [];
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed], resolveCredential: (reference) => { if (!vault.has(reference)) throw new Error(`missing ${reference}`); const secret = vault.get(reference)!; secrets.push(secret); return secret; } });
+    for (const [suffix, reference] of [["a", "credential:v1:codex-a"], ["b", "credential:v1:codex-b"]] as const) store.create({ schemaVersion: 1, instanceId: `codex-pair-${suffix}`, name: `Codex Pair ${suffix}`, kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "api-key", credentialRef: reference } });
+    const launchA = store.prepareLaunch("codex-pair-a", { cwd: "/workspace/repo", prompt: "A" }), launchB = store.prepareLaunch("codex-pair-b", { cwd: "/workspace/repo", prompt: "B" }), rootA = path.join(userRoot, "runtime-instances", "codex-pair-a"), rootB = path.join(userRoot, "runtime-instances", "codex-pair-b");
+    assert.notEqual(rootA, rootB); assert.notEqual(launchA.env.HOME, launchB.env.HOME); assert.notEqual(launchA.env.TMPDIR, launchB.env.TMPDIR);
+    assert.equal(launchA.env.OPENAI_API_KEY, "secret-a"); assert.equal(launchB.env.OPENAI_API_KEY, "secret-b");
+    assert.equal(Object.values(launchA.env).includes("secret-b"), false); assert.equal(Object.values(launchB.env).includes("secret-a"), false);
+    assert.equal(JSON.stringify(launchA).includes("secret-b"), false); assert.equal(JSON.stringify(launchB).includes("secret-a"), false);
+    store.create({ schemaVersion: 1, instanceId: "codex-pair-c", name: "Codex Pair C", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "api-key", credentialRef: "credential:v1:not-in-vault" } });
+    assert.throws(() => store.prepareLaunch("codex-pair-c", { cwd: "/workspace/repo", prompt: "C" }), (error: unknown) => codedAs(error, "runtime_credential_unavailable"));
+    assert.equal(secrets.includes("secret-a"), true); assert.equal(secrets.includes("secret-b"), true);
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+test("credential references accept the backend-agnostic grammar and legacy keychain form", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-credential-grammar-")), store = openRuntimeInstanceStore({ userRoot, discover: () => [observed] });
+  try {
+    const base = { schemaVersion: 1 as const, kindId: "codex" as const, installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "api-key" as const, credentialRef: "" } };
+    for (const reference of ["credential:v1:codex-review", "credential:v1:openai-main-2", "keychain:harness/codex-review"]) { const config = { ...base, instanceId: "codex-grammar", name: "Codex Grammar", auth: { mode: "api-key" as const, credentialRef: reference } }; assert.deepEqual(store.create(config), config); store.delete("codex-grammar"); }
+    for (const reference of ["credential:v1:-leading", "credential:v2:codex", "keychain:a/b/c", "plaintext-secret", "credential:v1:"]) assert.throws(() => store.create({ ...base, instanceId: "codex-grammar", name: "Codex Grammar", auth: { mode: "api-key", credentialRef: reference } }), (error: unknown) => codedAs(error, "invalid_credential_reference"));
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+// The PATHEXT suffix enumeration and argv-direct spawn are observable from any
+// host (the `.exe`-named probe is a shell script here); routing `.cmd` shims
+// through the explicit cmd.exe argv needs a real Windows host and is covered by
+// the manual cross-platform regression checklist instead.
+test("win32 installation discovery probes PATHEXT suffixes and witnesses the shim", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-win32-discovery-")), bin = path.join(root, "bin");
+  try {
+    mkdirSync(bin);
+    writeFileSync(path.join(bin, "codex.exe"), "#!/bin/sh\necho stub-runtime-1.0.0\n", { mode: 0o755 });
+    const installations = discoverRuntimeInstallations({ env: { PATH: bin }, platform: "win32", now: () => "2026-08-15T01:00:00.000Z" });
+    assert.equal(installations.length, 1);
+    assert.deepEqual({ kindId: installations[0]!.kindId, version: installations[0]!.version, observedAt: installations[0]!.observedAt }, { kindId: "codex", version: "stub-runtime-1.0.0", observedAt: "2026-08-15T01:00:00.000Z" });
+    assert.equal(installations[0]!.executablePath.endsWith("codex.exe"), true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
