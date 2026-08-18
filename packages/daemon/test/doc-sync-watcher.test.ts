@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, type FSWatcher } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -22,6 +22,19 @@ test("watch notifications are hints and two stable fingerprints admit one RepoCe
   } finally { await watcher.close(); }
 });
 
+test("filesystem watching stays O(1) and selects recursive semantics only on supporting platforms", async () => {
+  for (const [platform, recursive] of [["darwin", true], ["linux", false]] as const) {
+    const calls: Array<{ target: string; recursive: boolean }> = [], actions: Array<{ kind: string; paths: readonly string[] }> = []; let notify: ((event: string, filename: string | Buffer | null) => void) | undefined, closes = 0;
+    const fake = { on: () => fake, close: () => { closes += 1; } } as unknown as FSWatcher;
+    const watcher = openDocSyncWatcher({ rootDir: process.cwd(), personId: "capacity", platform, startupScan: false, debounceMs: 1, pollMs: 60_000,
+      watchPath: (target, options, listener) => { calls.push({ target, recursive: options.recursive }); notify = listener; return fake; },
+      run: async (action) => { actions.push(action); return scan("a".repeat(40), []); } });
+    try { assert.equal(calls.length, 1); assert.equal(calls[0]?.recursive, recursive); notify?.("rename", path.join("context", "notes.md")); await watcher.flush(); assert.deepEqual(actions, [{ kind: "doc-dry-run", paths: ["context/notes.md"] }]); }
+    finally { await watcher.close(); }
+    assert.equal(closes, 1);
+  }
+});
+
 test("watch registration failure degrades to periodic full-scan polling instead of a silent dead zone", async () => {
   // Missing authored root makes every watch() registration throw, the same failure shape
   // as Linux inotify watch exhaustion (ENOSPC). The watcher must keep reconciling via
@@ -30,7 +43,7 @@ test("watch registration failure degrades to periodic full-scan polling instead 
   const watcher = openDocSyncWatcher({ rootDir, personId: "person-owner", startupScan: false, debounceMs: 1, pollMs: 5,
     run: async () => { scans += 1; return scan("f".repeat(40), []); } });
   try {
-    assert.equal(watcher.status().state, "blocked");
+    assert.equal(watcher.status().state, "active", "periodic reconciliation remains a valid active path when the hint watcher is absent");
     await new Promise((resolve) => setTimeout(resolve, 60)); await watcher.flush();
     assert.ok(scans >= 1, `expected the poll fallback to trigger at least one scan, saw ${scans}`);
     const settled = scans; await watcher.close(); await new Promise((resolve) => setTimeout(resolve, 20));

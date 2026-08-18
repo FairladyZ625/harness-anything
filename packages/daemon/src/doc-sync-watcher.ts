@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { lstatSync, readdirSync, watch, type FSWatcher } from "node:fs";
+import { watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import { resolveHarnessLayout, type WriteReceipt } from "../../kernel/src/index.ts";
@@ -9,11 +9,12 @@ export interface WatchAttribution { readonly sessionId: string; readonly personI
 export interface DocSyncWatchStatus { readonly sessionId: string; readonly personId: string; readonly state: "active" | "blocked" | "closed"; readonly pendingPaths: readonly string[]; readonly lastReceipt: Pick<WriteReceipt, "outcome" | "opId" | "code" | "nextAction"> | null; readonly metrics: { readonly scans: number; readonly intents: number; readonly commits: number; readonly writes: number } }
 export interface DocSyncWatcher { readonly wake: (logicalPath?: string) => void; readonly overflow: () => void; readonly flush: () => Promise<void>; readonly status: () => DocSyncWatchStatus; readonly close: () => Promise<void> }
 type Runner = (action: { readonly kind: "doc-dry-run" | "doc-submit"; readonly paths: readonly string[] }, attribution?: WatchAttribution) => Promise<WriteReceipt>;
+type WatchFactory = (target: string, options: { readonly recursive: boolean }, listener: (event: string, filename: string | Buffer | null) => void) => FSWatcher;
 interface ScanRow { readonly path: string; readonly state: "clean" | "eligible" | "blocked" | "deletion" | "conflict"; readonly reason: string | null; readonly candidateBlobSha256: string | null }
 
-export function openDocSyncWatcher(input: { readonly rootDir: string; readonly personId: string; readonly run: Runner; readonly debounceMs?: number; readonly pollMs?: number; readonly watchFilesystem?: boolean; readonly startupScan?: boolean }): DocSyncWatcher {
+export function openDocSyncWatcher(input: { readonly rootDir: string; readonly personId: string; readonly run: Runner; readonly debounceMs?: number; readonly pollMs?: number; readonly watchFilesystem?: boolean; readonly startupScan?: boolean; readonly platform?: NodeJS.Platform; readonly watchPath?: WatchFactory }): DocSyncWatcher {
   const sessionId = `watch-${randomUUID()}`, debounceMs = input.debounceMs ?? 75, pending = new Set<string>(), observations = new Map<string, { fingerprint: string; count: number }>(), submitted = new Map<string, string>();
-  const metrics = { scans: 0, intents: 0, commits: 0, writes: 0 }, directories = new Map<string, FSWatcher>(); let state: DocSyncWatchStatus["state"] = "active", lastReceipt: DocSyncWatchStatus["lastReceipt"] = null, timer: NodeJS.Timeout | null = null, pollTimer: NodeJS.Timeout | null = null, tail = Promise.resolve();
+  const metrics = { scans: 0, intents: 0, commits: 0, writes: 0 }; let state: DocSyncWatchStatus["state"] = "active", lastReceipt: DocSyncWatchStatus["lastReceipt"] = null, timer: NodeJS.Timeout | null = null, pollTimer: NodeJS.Timeout | null = null, filesystemWatcher: FSWatcher | null = null, tail = Promise.resolve();
   const pollMs = input.pollMs ?? 30_000;
   const schedule = () => { if (timer || state === "closed") return; timer = setTimeout(() => { timer = null; enqueue(false); }, debounceMs); };
   const wake = (logicalPath?: string) => { if (state === "closed") return; const normalized = logicalPath && normalize(logicalPath); pending.add(normalized ?? fullScan); schedule(); };
@@ -35,43 +36,21 @@ export function openDocSyncWatcher(input: { readonly rootDir: string; readonly p
     if (pending.size && timer === null) schedule();
   };
   const authoredRoot = resolveHarnessLayout(input.rootDir).authoredRoot;
-  // One non-recursive watcher per authored directory. Node's recursive watch keeps a
-  // per-file watch and stops reporting a file through its parent directory once it has
-  // seen it; an editor save writes a temporary file and renames it over the target, which
-  // unlinks the watched inode, so on Linux the second and every later save of the same
-  // file is delivered nowhere. Directory inodes survive rename-over.
-  // A directory whose watch registration fails (Linux inotify watch exhaustion throws
-  // ENOSPC/EMFILE here) becomes a silent dead zone: its subtree reports no events and the
-  // "blocked" state below only covers total failure. Instead of tracking which subtrees
-  // are blind, degrade to one periodic full-scan wake — wake() already reconciles every
-  // authored path, so a missed trigger costs latency, never data.
-  const degradeToPolling = (): void => { if (pollTimer || state === "closed") return; pollTimer = setInterval(() => wake(), pollMs); pollTimer.unref?.(); };
-  const watchDirectory = (directory: string): void => {
-    if (directories.has(directory) || state === "closed" || path.basename(directory) === ".git") return; let watcher: FSWatcher;
-    try { watcher = watch(directory, (_event, filename) => { if (filename === null) { wake(); return; } const child = path.join(directory, String(filename));
-      try { if (lstatSync(child).isDirectory()) watchDirectory(child); } catch (error) { consumeKnownError(error); } wake(path.relative(authoredRoot, child)); }); } catch (error) { consumeKnownError(error); degradeToPolling(); return; }
-    // The error event is delivered from inside the FSEvents callback (FSEventWrap::OnEvent);
-    // closing the watcher synchronously there deadlocks libuv on macOS (uv__fsevents_close
-    // waits on a semaphore the in-flight callback prevents from ever being signaled).
-    watcher.on("error", () => { setImmediate(() => watcher.close()); directories.delete(directory); degradeToPolling(); wake(); }); directories.set(directory, watcher);
-    try { for (const entry of readdirSync(directory, { withFileTypes: true })) if (entry.isDirectory()) watchDirectory(path.join(directory, entry.name)); } catch (error) { consumeKnownError(error); } };
-  // macOS gives every fs.watch handle its own FSEvents stream, and every stream's start and stop is
-  // serialized through one CoreFoundation run loop thread. At authored-root scale — thousands of
-  // directories — an error status on any single handle wedges the whole event loop: Node's own
-  // onchange closes that handle synchronously *before* it emits "error", from inside the in-flight
-  // FSEvents callback, and uv__fsevents_close then waits on a semaphore only that callback can
-  // signal. Deferring the close in a user-level error handler cannot help, because the close Node
-  // already made is the one that blocks. One recursive stream removes the per-directory handles
-  // instead of guarding them. The rename-over blindness documented above is an inotify property;
-  // FSEvents resolves paths, not inodes, so it does not apply here.
-  const watchTree = (): void => { let watcher: FSWatcher;
-    try { watcher = watch(authoredRoot, { recursive: true }, (_event, filename) => { if (filename === null) { wake(); return; } const relative = String(filename); if (relative.split(path.sep).includes(".git")) return; wake(relative); }); }
-    catch (error) { consumeKnownError(error); degradeToPolling(); return; }
-    watcher.on("error", () => { setImmediate(() => watcher.close()); directories.delete(authoredRoot); degradeToPolling(); wake(); }); directories.set(authoredRoot, watcher); };
-  if (input.watchFilesystem !== false) { if (process.platform === "darwin") watchTree(); else watchDirectory(authoredRoot); if (directories.size === 0) state = "blocked"; }
+  // One recursive FSEvents stream avoids the per-directory handles that serialized start/stop
+  // through one macOS run-loop thread and could deadlock on error. Watch notifications are only
+  // latency hints; the periodic full scan below is the correctness path. Linux temporarily keeps
+  // one non-recursive root hint until its recursive delivery semantics are covered separately.
+  const reconcile = (): void => { if (pollTimer || state === "closed") return; pollTimer = setInterval(() => wake(), pollMs); pollTimer.unref?.(); };
+  if (input.watchFilesystem !== false) {
+    reconcile(); const recursive = (input.platform ?? process.platform) === "darwin" || (input.platform ?? process.platform) === "win32", watchPath = input.watchPath ?? watch;
+    try { filesystemWatcher = watchPath(authoredRoot, { recursive }, (_event, filename) => { if (filename === null) { wake(); return; } const relative = String(filename); if (!relative.split(path.sep).includes(".git")) wake(relative); });
+      // Closing directly inside an FSEvents error callback deadlocks libuv on macOS.
+      filesystemWatcher.on("error", () => { const failed = filesystemWatcher; filesystemWatcher = null; setImmediate(() => failed?.close()); wake(); }); }
+    catch (error) { consumeKnownError(error); filesystemWatcher = null; }
+  }
   if (input.startupScan !== false) wake();
   return { wake, overflow: () => wake(), flush: async () => { if (timer) { clearTimeout(timer); timer = null; } enqueue(true); await tail; }, status: () => ({ sessionId, personId: input.personId, state, pendingPaths: [...pending].sort(), lastReceipt, metrics: { ...metrics } }),
-    close: async () => { if (state === "closed") return; state = "closed"; if (timer) clearTimeout(timer); timer = null; if (pollTimer) clearInterval(pollTimer); pollTimer = null; for (const watcher of directories.values()) watcher.close(); directories.clear(); await tail; } };
+    close: async () => { if (state === "closed") return; state = "closed"; if (timer) clearTimeout(timer); timer = null; if (pollTimer) clearInterval(pollTimer); pollTimer = null; filesystemWatcher?.close(); filesystemWatcher = null; await tail; } };
   function remember(receipt: WriteReceipt): void { const nextAction = receipt.nextAction ?? receipt.detail?.nextAction; lastReceipt = { outcome: receipt.outcome, opId: receipt.opId, ...(receipt.code ? { code: receipt.code } : {}), ...(nextAction ? { nextAction } : {}) }; }
 }
 
