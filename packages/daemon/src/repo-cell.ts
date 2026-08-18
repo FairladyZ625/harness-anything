@@ -39,7 +39,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
   readonly prepareRuntimeLaunch?: (instanceId: string, request: { readonly cwd: string; readonly prompt: string }) => PreparedRuntimeLaunch;
   readonly bootstrap?: RepoBootstrapInput; readonly onBootstrap?: (receipt: RepoBootstrapReceipt) => void;
-  readonly now?: () => string; readonly killpoint?: (point: EventPublicationKillpoint) => void }): Promise<RepoCell> {
+  readonly now?: () => string; readonly killpoint?: (point: EventPublicationKillpoint) => void; readonly shouldStop?: () => boolean }): Promise<RepoCell> {
   const rootDir = input.rootDir, lock = await acquireWorkspaceLock(rootDir), generation = Date.now() * 1_000 + process.pid % 1_000;
   const activeWriter: WriterGeneration = { workspaceId: input.repoId, generation, ownerId: input.ownerId }, writerToken = bindWriterGenerationToken(activeWriter), now = input.now ?? (() => new Date().toISOString());
   let authoredBranch = input.authoredBranch, bootstrapReceipt: RepoBootstrapReceipt | undefined;
@@ -76,7 +76,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
     status: () => ({ repoId: input.repoId, rootDir, state, generation, queueDepth, lastError, recoveryMs: recovery.elapsedMs }),
     close: async () => { if (state === "closed") return; state = "closed"; runtimeSpawner.close(); await terminal.close(); runtimeStream.close(); await presetProcess.close(); await tail; replica.close(); await lock.close(); } };
   async function executeAction(action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> {
-    if (action.kind === "migrate-import") return runMigrationImport({ action, binding, rootDir, store, projection, now });
+    if (action.kind === "migrate-import") return runMigrationImport({ action, binding, rootDir, store, projection, now, ...(input.shouldStop ? { shouldStop: input.shouldStop } : {}) });
     if (action.kind === "ledger-migrate") { const appended = store.migrateLayout({ actor: binding.actor, source: binding.source, occurredAt: now() }); if (!isLedgerLayoutMigrationEvent(appended.event)) throw cellCodedError("invalid_store", "Ledger migration returned the wrong event type."); const rebuilt = projection.rebuild(); if (rebuilt.watermark !== appended.revision) throw cellCodedError("content_not_ready", "Ledger migration committed, but the projection did not rebuild to the migrated cut."); return { outcome: "applied", opId: appended.event.opId, revision: appended.revision, evidence: JSON.stringify({ ...appended.event.payload, commitSha: appended.commitSha.sha }), visibility: "center", proof: { committedRevision: appended.revision, appliedCut: rebuilt.watermark, durable: true, canonicalVisible: true, worktreeVisible: true }, commitSha: appended.commitSha.sha, worktreeVisible: true } as WriteReceipt; }
     if (action.kind === "receipt-show") return receiptForOperation(String(action.opId ?? ""), binding);
     if (action.kind === "task-show") return showTask(String(action.taskId ?? ""));

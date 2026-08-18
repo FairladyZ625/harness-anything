@@ -1,21 +1,27 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
 import { terminateProcess } from "../../daemon/src/process-port.ts";
-import { readDaemonPid, startDaemon } from "../../daemon/src/runtime.ts";
+import { daemonSingletonLockPath } from "../../daemon/src/daemon-singleton.ts";
+import { readDaemonPid, startDaemon, type RunningDaemon } from "../../daemon/src/runtime.ts";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 
 interface Failure { readonly ok: boolean; readonly error?: { readonly code: string; readonly hint: string } }
+
+function resident(daemon: Awaited<ReturnType<typeof startDaemon>>): RunningDaemon {
+  if (!("stop" in daemon)) throw new Error(`startDaemon deferred to incumbent pid ${String(daemon.pid)} in a fixture that expects a fresh daemon`);
+  return daemon;
+}
 
 test("GUI bridge auto-starts an unreachable daemon, retries the read, and reaches the resident daemon", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-autostart-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user"), daemonId = "gui-autostart";
   const previous = process.env.HARNESS_DAEMON_USER_ROOT, previousId = process.env.HARNESS_DAEMON_ID;
   process.env.HARNESS_DAEMON_USER_ROOT = userRoot; process.env.HARNESS_DAEMON_ID = daemonId;
-  const daemon = await startDaemon({ daemonId, userRoot });
+  const daemon = resident(await startDaemon({ daemonId, userRoot }));
   try {
     assert.equal((await requestDaemonJsonRpcAt(daemon.endpoint, "daemon.repo.bootstrap", { rootDir, repoId: "gui-autostart", personId: "person-gui", displayName: "GUI Autostart" }, 1_000)).ok, true);
     assert.equal((await requestDaemonJsonRpcAt(daemon.endpoint, "repo.task.create", { repo: { repoId: "gui-autostart" }, payload: { taskId: "task-gui-autostart", title: "GUI autostart task" } }, 1_000)).ok, true);
@@ -28,6 +34,12 @@ test("GUI bridge auto-starts an unreachable daemon, retries the read, and reache
     const rows = (tasks as { rows?: Array<{ taskId?: string }> }).rows ?? [];
     assert.deepEqual(rows.map((row) => row.taskId), ["task-gui-autostart"], JSON.stringify(tasks));
     const afterPid = readDaemonPid(userRoot, daemonId); assert.ok(afterPid, "bridge autostart must leave a resident daemon pid file"); assert.notEqual(afterPid, beforePid);
+    // A live resident daemon is probed and reused, never respawned: a second
+    // bridge read must keep the same generation and the same singleton holder.
+    const again = await createLocalGuiServiceBridge(rootDir).invoke("getTasks", { repoId: "gui-autostart" });
+    assert.equal(again.ok, true, JSON.stringify(again));
+    assert.equal(readDaemonPid(userRoot, daemonId), afterPid, "a reachable daemon must not be replaced by a second spawn");
+    assert.equal(readFileSync(daemonSingletonLockPath(userRoot, daemonId), "utf8"), `${afterPid}\n`, "the bridge must not disturb the daemon singleton claim");
     await stopResident(userRoot, daemonId);
   } finally {
     process.env.HARNESS_DAEMON_USER_ROOT = previous; process.env.HARNESS_DAEMON_ID = previousId;
@@ -39,7 +51,7 @@ test("GUI bridge reports a classified error after two failed autostart attempts"
   const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-autostart-fail-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user"), daemonId = "gui-autostart-fail";
   const previous = process.env.HARNESS_DAEMON_USER_ROOT, previousId = process.env.HARNESS_DAEMON_ID;
   process.env.HARNESS_DAEMON_USER_ROOT = userRoot; process.env.HARNESS_DAEMON_ID = daemonId;
-  const daemon = await startDaemon({ daemonId, userRoot });
+  const daemon = resident(await startDaemon({ daemonId, userRoot }));
   try {
     assert.equal((await requestDaemonJsonRpcAt(daemon.endpoint, "daemon.repo.bootstrap", { rootDir, repoId: "gui-autostart-fail", personId: "person-gui", displayName: "GUI Autostart" }, 1_000)).ok, true);
     await daemon.stop();

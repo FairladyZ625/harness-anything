@@ -20,7 +20,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     if (command === "repo" && subcommand === "register") { const root = daemonOption(argv, "--root"), repoId = daemonOption(argv, "--repo-id"); if (!root || !repoId) return finish(daemonFailure("daemon-repo-register", "missing_field", "Add --repo-id and --root."), 2); const result = await requestDaemonJsonRpcAt(localUserDaemonEndpoint(userRoot, daemonId), "daemon.repo.register", { rootDir: path.resolve(root), repoId }, 75); return finish(result, result.ok === true ? 0 : 1); }
     if (command === "repo" && subcommand === "unregister") { const repoId = daemonOption(argv, "--repo-id"); if (!repoId) return finish(daemonFailure("daemon-repo-unregister", "missing_field", "Add --repo-id."), 2);
       const result = await requestDaemonJsonRpcAt(localUserDaemonEndpoint(userRoot, daemonId), "daemon.repo.unregister", { repoId }, 75); return finish(result, result.ok === true ? 0 : 1); }
-    if (command === "serve") return serve(userRoot, daemonId);
+    if (command === "serve") return serve(userRoot, daemonId, finish);
     if (command === "start") { if (!argv.includes("--service")) return finish(daemonFailure("daemon-start", "service_required", "Use `ha daemon start --service` to start the resident daemon; other CLI commands start it on demand."), 2);
       const running = await status(userRoot, daemonId).catch(() => null); if (running?.ok === true) return finish(running, 0);
       const started = await ensureLocalDaemonRunning({ socketPath: localUserDaemonEndpoint(userRoot, daemonId), launch: () => cliDaemonServeLaunch(userRoot, daemonId) });
@@ -41,7 +41,26 @@ async function fleetControl(argv: readonly string[], at: number, userRoot: strin
   try { const result = await requestDaemonJsonRpcAt(localUserDaemonEndpoint(userRoot, daemonId), center ? "daemon.fleet.center.start" : "daemon.fleet.edge.sync", { payload }, 75); return finish(result, result.ok === true ? 0 : 1); }
   catch { return finish(daemonFailure(command, "daemon_unavailable", `Start the resident daemon with \`ha daemon start --service\`, then retry ${command.replace("daemon-", "ha daemon ").replaceAll("-", " ")}.`), 1); }
 }
-async function serve(userRoot: string, daemonId: string): Promise<number> { const running = await startDaemon({ userRoot, daemonId }); await new Promise<void>((resolve) => { const stop = () => void running.stop().finally(resolve); process.once("SIGTERM", stop); process.once("SIGINT", stop); }); return 0; }
+async function serve(userRoot: string, daemonId: string, finish: ControlFinisher): Promise<number> {
+  // The signal latch registers before startup: a TERM that lands during the
+  // startup replay parks here and drains at the next yield instead of being
+  // swallowed by synchronous work. stop() is idempotent, so a second signal
+  // cannot cut the drain short.
+  let daemon: Awaited<ReturnType<typeof startDaemon>>, stopping: Promise<void> | null = null, parked: (() => void) | undefined;
+  const idle = new Promise<void>((resolve) => { parked = resolve; });
+  const requestStop = () => { parked?.(); stopping ??= (async () => { if (daemon && "stop" in daemon) await daemon.stop(); })(); };
+  process.once("SIGTERM", requestStop); process.once("SIGINT", requestStop);
+  try {
+    daemon = await startDaemon({ userRoot, daemonId, shutdownRequested: () => stopping !== null });
+    if (!("stop" in daemon)) return finish(deferredServeReceipt(daemon, userRoot), 0);
+    if (stopping === null) { await idle; await stopping; } else await daemon.stop();
+    return 0;
+  } finally { process.removeListener("SIGTERM", requestStop); process.removeListener("SIGINT", requestStop); }
+}
+function deferredServeReceipt(incumbent: { readonly pid: number | null; readonly endpoint: string; readonly witness: string }, userRoot: string): Record<string, unknown> {
+  const witness = incumbent.witness === "unix-socket" ? `a daemon is already accepting connections at ${incumbent.endpoint}` : `daemon pid ${incumbent.pid} already holds the singleton lock for --user-root ${userRoot}`;
+  return { ok: true, command: "daemon-serve", outcome: "deferred", incumbent: { pid: incumbent.pid, endpoint: incumbent.endpoint }, summary: `daemon serve deferred: ${witness}; this process did not bind the socket or take any workspace writer lock.`, nextAction: "Use the resident daemon (ha daemon status) or stop it first (ha daemon stop)." };
+}
 async function status(userRoot: string, daemonId: string): Promise<Record<string, unknown>> { return requestDaemonJsonRpcAt(localUserDaemonEndpoint(userRoot, daemonId), "daemon.status", {}, 75) as Promise<Record<string, unknown>>; }
 function daemonOption(argv: readonly string[], name: string): string | undefined { const at = argv.indexOf(name); return at < 0 ? undefined : argv[at + 1]; }
 function daemonFailure(command: string, errorCode: string, nextAction: string): Record<string, unknown> { return { schema: "command-receipt/v2", ok: false,

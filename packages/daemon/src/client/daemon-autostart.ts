@@ -27,7 +27,7 @@ export async function ensureLocalDaemonRunning(input: { readonly socketPath: str
   }
   return { ok: false, code: "daemon_bind_timeout", attempts: maxAttempts, hint: `The daemon did not accept connections at ${input.socketPath} within ${readyTimeoutMs}ms per attempt after ${maxAttempts} start attempts. Run this command directly to see the daemon's own error output: ${launched ? `${launched.command} ${launched.args.join(" ")}` : "the daemon launcher"}.` };
 }
-async function daemonSocketProbe(socketPath: string): Promise<boolean> {
+export async function daemonSocketProbe(socketPath: string): Promise<boolean> {
   return new Promise((resolve) => { const socket = net.createConnection(socketPath), finish = (up: boolean) => { socket.destroy(); resolve(up); }; const timer = setTimeout(() => finish(false), 250);
     socket.once("connect", () => { clearTimeout(timer); finish(true); }); socket.once("error", () => { clearTimeout(timer); finish(false); }); });
 }
