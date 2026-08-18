@@ -14,7 +14,7 @@ interface ScanRow { readonly path: string; readonly state: "clean" | "eligible" 
 
 export function openDocSyncWatcher(input: { readonly rootDir: string; readonly personId: string; readonly run: Runner; readonly debounceMs?: number; readonly pollMs?: number; readonly watchFilesystem?: boolean; readonly startupScan?: boolean; readonly platform?: NodeJS.Platform; readonly watchPath?: WatchFactory }): DocSyncWatcher {
   const sessionId = `watch-${randomUUID()}`, debounceMs = input.debounceMs ?? 75, pending = new Set<string>(), observations = new Map<string, { fingerprint: string; count: number }>(), submitted = new Map<string, string>();
-  const metrics = { scans: 0, intents: 0, commits: 0, writes: 0 }; let state: DocSyncWatchStatus["state"] = "active", lastReceipt: DocSyncWatchStatus["lastReceipt"] = null, timer: NodeJS.Timeout | null = null, pollTimer: NodeJS.Timeout | null = null, filesystemWatcher: FSWatcher | null = null, tail = Promise.resolve();
+  const metrics = { scans: 0, intents: 0, commits: 0, writes: 0 }; let state: DocSyncWatchStatus["state"] = "active", lastReceipt: DocSyncWatchStatus["lastReceipt"] = null, timer: NodeJS.Timeout | null = null, pollTimer: NodeJS.Timeout | null = null, filesystemWatcher: FSWatcher | null = null, rearmPending = false, tail = Promise.resolve();
   const pollMs = input.pollMs ?? 30_000;
   const schedule = () => { if (timer || state === "closed") return; timer = setTimeout(() => { timer = null; enqueue(false); }, debounceMs); };
   const wake = (logicalPath?: string) => { if (state === "closed") return; const normalized = logicalPath && normalize(logicalPath); pending.add(normalized ?? fullScan); schedule(); };
@@ -42,11 +42,21 @@ export function openDocSyncWatcher(input: { readonly rootDir: string; readonly p
   // remains the correctness path when registration fails or an event is lost.
   const reconcile = (): void => { if (pollTimer || state === "closed") return; pollTimer = setInterval(() => wake(), pollMs); pollTimer.unref?.(); };
   if (input.watchFilesystem !== false) {
-    reconcile(); const recursive = ["darwin", "linux", "win32"].includes(input.platform ?? process.platform), watchPath = input.watchPath ?? watch;
-    try { filesystemWatcher = watchPath(authoredRoot, { recursive }, (_event, filename) => { if (filename === null) { wake(); return; } const relative = String(filename); if (!relative.split(path.sep).includes(".git")) wake(relative); });
+    reconcile(); const platform = input.platform ?? process.platform, recursive = ["darwin", "linux", "win32"].includes(platform), watchPath = input.watchPath ?? watch;
+    const armFilesystemWatcher = (): void => {
+      let watcher: FSWatcher;
+      try { watcher = watchPath(authoredRoot, { recursive }, (_event, filename) => {
+        if (filename === null) { wake(); return; } const relative = String(filename); if (relative.split(path.sep).includes(".git")) return; wake(relative);
+        // Linux's recursive fs.watch may retain a stale inode binding after an
+        // editor renames a temporary file over the watched path. Re-arm the one
+        // root stream after document events so the next atomic save is observed.
+        if (platform === "linux" && normalize(relative) !== null && !rearmPending && state !== "closed") { rearmPending = true; setImmediate(() => { rearmPending = false; if (state === "closed") return; const stale = filesystemWatcher; filesystemWatcher = null; stale?.close(); armFilesystemWatcher(); }); }
+      }); filesystemWatcher = watcher;
       // Closing directly inside an FSEvents error callback deadlocks libuv on macOS.
-      filesystemWatcher.on("error", () => { const failed = filesystemWatcher; filesystemWatcher = null; setImmediate(() => failed?.close()); wake(); }); }
-    catch (error) { consumeKnownError(error); filesystemWatcher = null; }
+      watcher.on("error", () => { if (filesystemWatcher === watcher) filesystemWatcher = null; setImmediate(() => watcher.close()); wake(); });
+      } catch (error) { consumeKnownError(error); filesystemWatcher = null; }
+    };
+    armFilesystemWatcher();
   }
   if (input.startupScan !== false) wake();
   return { wake, overflow: () => wake(), flush: async () => { if (timer) { clearTimeout(timer); timer = null; } enqueue(true); await tail; }, status: () => ({ sessionId, personId: input.personId, state, pendingPaths: [...pending].sort(), lastReceipt, metrics: { ...metrics } }),
