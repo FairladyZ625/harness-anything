@@ -1,0 +1,18 @@
+# Per-Dockerfile ignore (BuildKit picks <Dockerfile>.dockerignore when it sits
+# next to the Dockerfile inside the context). Patterns are relative to the
+# build context (the repo root). Keeps installed dependencies, private ledger
+# state, and build outputs out of the image so `docker compose build` always
+# compiles from source.
+node_modules
+**/node_modules
+.git
+.harness
+.harness-private
+harness
+.worktrees
+coverage
+tmp
+packages/*/dist
+packages/adapters/*/dist
+packages/gui/.runtime-cache
+packages/gui/build-resources
