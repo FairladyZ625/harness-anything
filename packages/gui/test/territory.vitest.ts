@@ -210,9 +210,23 @@ describe("fact anomaly classification (TERRITORY-001)", () => {
   it("classifies a fact targeted by supersedes-fact as superseded", () => {
     const f = fact({ anchor: "task_a/F-old" });
     const relations: RelationEdge[] = [
-      { from: "fact/task_a/F-new", to: `fact/${f.anchor}`, kind: "supersedes-fact", provenance: "local-document" },
+      { from: "fact/task_a/F-new", to: `fact/${f.anchor}`, kind: "supersedes-fact", state: "active", provenance: "local-document" },
     ];
     expect(classifyFactAnomaly(`fact/${f.anchor}`, f, relations, new Set())).toBe("superseded");
+  });
+
+  it("does not classify a fact as superseded when the supersedes-fact edge is retired or deleted", () => {
+    // Kernel criterion (packages/kernel/src/domain/fact-liveness.ts): only an
+    // ACTIVE incoming supersedes-fact edge retires the fact. Retired/deleted
+    // edges are audit history and must not drive the territory anomaly display.
+    const f = fact({ anchor: "task_a/F-old" });
+    const covered = new Set([`fact/${f.anchor}`]);
+    for (const state of ["retired", "deleted"] as const) {
+      const relations: RelationEdge[] = [
+        { from: "fact/task_a/F-new", to: `fact/${f.anchor}`, kind: "supersedes-fact", state, provenance: "local-document" },
+      ];
+      expect(classifyFactAnomaly(`fact/${f.anchor}`, f, relations, covered)).toBe("normal");
+    }
   });
 
   it("classifies a low-confidence fact as low-confidence", () => {
@@ -242,7 +256,7 @@ describe("fact anomaly partition (partitionFactsByAnomaly)", () => {
     const fSuper = fact({ anchor: "task_a/F-old" });
     const fOk = fact({ anchor: "task_a/F-ok" });
     const relations: RelationEdge[] = [
-      { from: "fact/task_a/F-new", to: "fact/task_a/F-old", kind: "supersedes-fact", provenance: "local-document" },
+      { from: "fact/task_a/F-new", to: "fact/task_a/F-old", kind: "supersedes-fact", state: "active", provenance: "local-document" },
       { from: "decision/dec_1/CH1", to: "fact/task_a/F-ok", kind: "evidenced-by", provenance: "local-document" },
     ];
     const coverage: RelationCoverageRow[] = [];

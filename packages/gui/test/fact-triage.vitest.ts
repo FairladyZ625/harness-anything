@@ -239,6 +239,29 @@ describe("fact-triage signal computation", () => {
     expect(oldItem.signals.map((signal) => signal.kind)).toContain("SUPERSEDED");
     expect(newItem.signals.map((signal) => signal.kind)).not.toContain("SUPERSEDED");
   });
+
+  it("does not flag SUPERSEDED from a retired or deleted supersedes-fact edge", () => {
+    // Kernel criterion (packages/kernel/src/domain/fact-liveness.ts): only an
+    // ACTIVE incoming supersedes-fact edge supersedes the target. Retired/deleted
+    // edges are audit history and must not surface the old fact in the triage queue.
+    const oldFact = baseFact({ anchor: "task_a/F-old" });
+    for (const state of ["retired", "deleted"] as const) {
+      const relations = [
+        edge("fact/task_a/F-new", "fact/task_a/F-old", "supersedes-fact", { state }),
+      ];
+
+      const item = computeFactTriageSignals(
+        oldFact,
+        relations,
+        [coverage(oldFact)],
+        [anchor(oldFact)],
+      );
+
+      expect(item.signals.map((signal) => signal.kind)).not.toContain("SUPERSEDED");
+      expect(item.severity).toBe(0);
+      expect(rankFactTriage([item])).toEqual([]);
+    }
+  });
 });
 
 describe("fact-triage ranking", () => {
@@ -483,6 +506,30 @@ describe("cross-entity navigation projection", () => {
 
     expect(markup).toContain("支撑的 decision");
     expect(markup).toContain("dec_1");
+  });
+
+  it("does not show the replaced-by panel in FactInspector from a retired supersedes-fact edge", () => {
+    // Same kernel criterion as the triage signal: a retired supersedes-fact edge is
+    // audit history and must not render the fact as replaced.
+    const fact = baseFact();
+    const markup = renderToStaticMarkup(
+      createElement(FactInspector, {
+        factRef: `fact/${fact.anchor}`,
+        facts: [fact],
+        tasks: [baseTask()],
+        decisions: [baseDecision()],
+        relations: [
+          edge("fact/task_a/F-new", `fact/${fact.anchor}`, "supersedes-fact", {
+            state: "retired",
+          }),
+        ],
+        coverageRows: [coverage(fact)],
+        onClose: () => undefined,
+      }),
+    );
+
+    expect(markup).not.toContain("危险关系");
+    expect(markup).not.toContain("已被");
   });
 });
 
