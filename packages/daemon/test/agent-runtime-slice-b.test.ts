@@ -25,7 +25,7 @@ test("runtime read facets expose safe overview/session/events through the shared
 }));
 
 test("attach catches up from cursor, gaps require snapshot, and unsupported is typed", async () => withRuntime(async ({ stream, session }) => {
-  for (let index = 0; index < 3; index += 1) stream.publish(session.runtimeSessionId, { type: "activity", activity: index === 2 ? "message" : "thinking" });
+  for (let index = 0; index < 3; index += 1) stream.publish(session.runtimeSessionId, { type: "activity", activity: index === 2 ? "message" : "thinking", content: `content-${index}` });
   const resumed = stream.attach(session.runtimeSessionId, "stream:1"); assert.equal(resumed.initial.ok && resumed.initial.status, "attached"); assert.deepEqual(resumed.initial.ok && resumed.initial.events.map(({ cursor }) => cursor), ["stream:2", "stream:3"]); resumed.detach();
   for (let index = 0; index < 35; index += 1) stream.publish(session.runtimeSessionId, { type: "heartbeat" });
   const gap = stream.attach(session.runtimeSessionId, "stream:0"); assert.equal(gap.initial.ok && gap.initial.status, "gap"); assert.deepEqual(gap.initial.ok && gap.initial.events[0], { schema: "agent-runtime-attach-event/v1", type: "gap", runtimeSessionId: "runtime-session", cursor: "stream:38", occurredAt: "2026-08-13T00:00:00.000Z", required: "snapshot" }); gap.detach();

@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { eventFromProviderWitness, type ProviderWitnessV1 } from "../../src/agent-runtime/provider-witness.ts";
-import { reduceRuntimeSession, type AgentRuntimeEventType, type AgentRuntimeEventV1 } from "../../src/domain/agent-runtime.ts";
+import { reduceRuntimeSession, runtimeEventContentClaims, type AgentRuntimeEventType, type AgentRuntimeEventV1 } from "../../src/domain/agent-runtime.ts";
 import { serializeCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
 import { eventObjectRelativePath } from "../../src/layout/ledger-object-layout.ts";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
@@ -100,7 +100,7 @@ test("session outcome and exit round-trip while exited remains terminal", async 
     initRepo(rootDir); const store = makeTaskEventStore({ repoId: "test-repo", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store });
     const events = [witness("runtime_session_started"), witness("runtime_session_outcome_observed"), witness("runtime_session_exited")].map((value, index) => eventFromProviderWitness(value, envelope(index + 1))!);
     for (const event of events) { store.append(bundle(event)); assert.deepEqual(projection.apply(event).metrics, { sqliteTransactions: 1, reducedItems: 1 }); assert.deepEqual(store.readEvent(event.opId), event); }
-    assert.equal(store.readHead()?.revision, 3); assert.deepEqual(projection.readRuntimeSession("runtime-session-claude"), { runtimeSessionId: "runtime-session-claude", instanceId: "claude-fixture", installationId: "installation-claude", kindId: "claude", definitionSnapshotRef: "artifact:runtime-definitions/claude/v1", providerSessionId: null, transcriptRef: null, launchGeneration: 1, liveness: "exited", attachable: false, taskBindings: [], outcome: "succeeded", resultRef: "artifact:runtime-results/claude/succeeded", lastObservedAt: "2026-08-12T00:00:03.000Z" });
+    assert.equal(store.readHead()?.revision, 3); assert.deepEqual(projection.readRuntimeSession("runtime-session-claude"), { runtimeSessionId: "runtime-session-claude", instanceId: "claude-fixture", installationId: "installation-claude", kindId: "claude", definitionSnapshotRef: "artifact:runtime-definitions/claude/v1", providerSessionId: null, transcriptRef: null, launchGeneration: 1, liveness: "exited", attachable: false, taskBindings: [], outcome: "succeeded", exitCode: 0, resultRef: "artifact:runtime-result/sha256/bc4e5d54eb57cccf71e6b1e926ea7fe979ee04cdc883ba550ac827f576e89787", lastObservedAt: "2026-08-12T00:00:03.000Z" });
     const liveness = eventFromProviderWitness({ ...witness("heartbeat"), type: "runtime_session_liveness_changed", payload: { runtimeSessionId: "runtime-session-claude", liveness: "live" } }, envelope(4))!;
     assert.throws(() => projection.apply(liveness), /already exited/iu); assert.equal(projection.readRuntimeSession("runtime-session-claude")?.liveness, "exited"); assert.equal(store.read().revision, 3);
     assert.throws(() => eventFromProviderWitness({ ...witness("runtime_session_outcome_observed"), payload: { ...witness("runtime_session_outcome_observed").payload, resultRef: "inline result" } }, envelope(4)), /payload/iu);
@@ -121,7 +121,8 @@ test("runtime schema rejects credential, transcript body, tool/cost stream, and 
 function fixture(name: string): Fixture { return JSON.parse(readFileSync(new URL(`../fixtures/agent-runtime-witness/${name}`, import.meta.url), "utf8")) as Fixture; }
 function witness(type: AgentRuntimeEventType | "heartbeat"): ProviderWitnessV1 { const value = claude.witnesses.find((candidate) => candidate.type === type); if (value === undefined) throw new Error(`missing ${type} witness`); return value; }
 function runtimeState(projection: ReturnType<typeof makeTaskProjection>, runtimeSessionId: string): { readonly liveness: string; readonly attachable: boolean } | null { const session = projection.readRuntimeSession(runtimeSessionId); return session === null ? null : { liveness: session.liveness, attachable: session.attachable }; }
-function bundle(event: AgentRuntimeEventV1): CanonicalWriteBundle { return { event, plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId), blobs: [] }; }
+const FIXTURE_RESULT_TEXT = "fixture result"; // sha256 bc4e5d54eb57cccf71e6b1e926ea7fe979ee04cdc883ba550ac827f576e89787, matches both fixtures' runtime_session_outcome_observed.payload.result
+function bundle(event: AgentRuntimeEventV1): CanonicalWriteBundle { return { event, plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId), blobs: runtimeEventContentClaims(event).map((claim) => ({ ...claim, body: FIXTURE_RESULT_TEXT })) }; }
 function forbiddenKeys(value: unknown, found: string[] = []): string[] { if (Array.isArray(value)) { for (const item of value) forbiddenKeys(item, found); return found; } if (typeof value !== "object" || value === null) return found;
   for (const [key, nested] of Object.entries(value)) { if (["credential", "transcript", "transcriptBody", "tool", "cost", "stdout", "stderr"].includes(key)) found.push(key); forbiddenKeys(nested, found); } return found; }
 function initRepo(rootDir: string): void { git(rootDir, "init", "-q"); git(rootDir, "config", "user.name", "Runtime Test"); git(rootDir, "config", "user.email", "runtime@example.invalid"); git(rootDir, "commit", "--allow-empty", "-qm", "base"); }

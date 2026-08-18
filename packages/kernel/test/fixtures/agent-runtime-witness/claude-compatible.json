@@ -88,7 +88,13 @@
       "payload": {
         "runtimeSessionId": "runtime-session-claude",
         "outcome": "succeeded",
-        "resultRef": "artifact:runtime-results/claude/succeeded"
+        "exitCode": 0,
+        "resultRef": "artifact:runtime-result/sha256/bc4e5d54eb57cccf71e6b1e926ea7fe979ee04cdc883ba550ac827f576e89787",
+        "result": {
+          "sha256": "bc4e5d54eb57cccf71e6b1e926ea7fe979ee04cdc883ba550ac827f576e89787",
+          "size": 14,
+          "mediaType": "text/plain; charset=utf-8"
+        }
       }
     },
     {
