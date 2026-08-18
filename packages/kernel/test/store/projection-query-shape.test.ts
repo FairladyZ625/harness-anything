@@ -26,8 +26,8 @@ function seed(db: DatabaseSync, decisions: number, facts: number): void {
   db.exec("INSERT INTO projection_meta VALUES (1, 1, NULL, 1)");
   const applies = JSON.stringify({ modules: ["kernel"], productLines: [] }), proposer = JSON.stringify({ principal: { personId: "shape" }, executor: null });
   const insertDecision = db.prepare("INSERT INTO decision(decision_id,state,title,question,risk_tier,urgency,vertical,preset,decision_class,applies_json,proposer_json,arbiter_json,proposed_at,decided_at,workspace_revision) VALUES (?, 'active', ?, ?, 'high', 'medium', 'shape', 'default', 'ordinary', ?, ?, NULL, '2026-08-16T00:00:00.000Z', NULL, ?)");
-  const insertOption = db.prepare("INSERT INTO decision_option VALUES (?, 'chosen', ?, ?, NULL, ?)");
-  const insertClaim = db.prepare("INSERT INTO decision_claim VALUES (?, ?, ?, 1, 'evidenced', ?, NULL)");
+  const insertOption = db.prepare("INSERT INTO decision_option VALUES (?, 'chosen', ?, 0, ?, NULL, ?)");
+  const insertClaim = db.prepare("INSERT INTO decision_claim VALUES (?, ?, 0, ?, 1, 'evidenced', ?, NULL)");
   const insertFact = db.prepare("INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
   const insertEdge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'evidenced-by', 'active', ?, ?, ?)");
   db.exec("BEGIN");

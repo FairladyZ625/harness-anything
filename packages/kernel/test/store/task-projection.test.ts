@@ -1,7 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
@@ -74,6 +75,24 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
     assert.throws(() => projection.read("task-1"), /projection.*mismatch/u);
     projection.rebuild();
     assert.equal(projection.read("task-1").snapshot.executions[0]?.state, "accepted");
+  });
+});
+
+test("stale persistent event projection schema is discarded and replayed from the ledger", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir }), created = lifecycleFixture().events[0]!;
+    eventStore.append(taskBundle(created));
+    const projectionPath = path.join(rootDir, ".harness/cache/task.sqlite");
+    mkdirSync(path.dirname(projectionPath), { recursive: true });
+    const stale = new DatabaseSync(projectionPath);
+    stale.exec("CREATE TABLE projection_meta (singleton INTEGER PRIMARY KEY CHECK(singleton=1), watermark INTEGER NOT NULL, scan_cursor TEXT, scanned_revision INTEGER NOT NULL); INSERT INTO projection_meta VALUES (1, 1, NULL, 1)");
+    stale.close();
+
+    const read = makeTaskProjection({ rootDir, eventStore }).read(created.taskId);
+    assert.equal(read.status, "ready");
+    assert.equal(read.snapshot.task?.taskId, created.taskId);
+    assert.equal(read.watermark, 1);
   });
 });
 
