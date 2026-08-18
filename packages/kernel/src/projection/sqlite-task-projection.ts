@@ -200,7 +200,7 @@ export function checkTaskProjection(options: TaskProjectionOptions): ProjectionC
   const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
   const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
   const result = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-  const postMergeWarnings = options.postMerge ? runPostMergeChecks(runtimeContext) : [];
+  const postMergeWarnings = options.postMerge ? runPostMergeChecks(runtimeContext, options.eventRelationTruth ?? null) : [];
   const warnings = [...result.warnings, ...postMergeWarnings];
   const ok = warnings.every((item) => item.severity !== "hard-fail");
   return {

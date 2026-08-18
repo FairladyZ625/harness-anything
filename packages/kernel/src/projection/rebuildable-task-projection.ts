@@ -19,8 +19,8 @@ import { slugifyTaskTitle } from "../layout/index.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { assertDecisionAdmission, assertFactAdmission, createFactProjectionTables, FactProjectionError, listDecisionRows, readDecisionDocumentState, readDecisionGraphRows, readDecisionRow, readFactGraphRows, readFactRow, reduceDecisionEvent, reduceFactEvent, refreshDecisionDocumentSearch, searchFactRows, type DecisionListFilters, type DecisionProjectionRow, type FactProjectionRow, type FactSearchFilters } from "./fact-event-projection.ts";
 import type { EventBackedRelationTruth } from "./relation-graph-projection.ts";
+import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 
-const taskProjectionSchemaVersion = 2;
 interface EventStreamPort {
   readonly readHead: () => { readonly revision: number; readonly eventDigest: `sha256:${string}` } | null;
   readonly readBatch: (cursor: string | null, maxItems: number) => {
@@ -59,6 +59,7 @@ export interface DecisionGraphProjectionRead { readonly status: "ready" | "pendi
 export interface TaskProjection {
   readonly path: string; readonly apply: (event: CanonicalEventV1, plan?: FrozenWritePlan) => ProjectionApplyReceipt; readonly rebuild: () => ProjectionRebuildReceipt;
   readonly read: (taskId: string) => TaskProjectionRead; readonly list: () => TaskProjectionListRead; readonly readOperation: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
+  readonly readRelationTruth: () => EventBackedRelationTruth;
   readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null; readonly readDocument: (path: string) => DocumentProjectionRead; readonly readReplicaBasis: (afterRevision: number | null) => ReplicaProjectionBasis; readonly taskIdForDocumentPath: (path: string) => string | null;
   readonly readTaskCompletion: (taskId: string, executionId: string) => TaskEventV1 | null;
   readonly readRuntimeDispatch: (runtimeSessionIdValue: string, definitionSnapshotRef: string) => AgentRuntimeEventV1 | null;
@@ -74,7 +75,6 @@ export interface TaskProjection {
   readonly readRuntimeSessions: () => readonly RuntimeSession[]; readonly readRuntimeSessionsForTask: (taskId: string) => readonly RuntimeSession[];
 }
 export function defaultLifecycleTaskProjectionPath(rootDir: string): string { return path.join(path.resolve(rootDir), ".harness/cache/task.sqlite"); }
-export function readLiveEventRelationTruth(rootDir: string): EventBackedRelationTruth { const projectionPath = defaultLifecycleTaskProjectionPath(rootDir); if (!localRuntimeStateFileSystem.exists(projectionPath)) return { factAnchors: [], decisionAnchors: [], edges: [], coverageRows: [] }; const db = new DatabaseSync(projectionPath, { readOnly: true }); try { const facts = readFactGraphRows(db), decisions = readDecisionGraphRows(db); return { factAnchors: facts.factAnchors, decisionAnchors: decisions.decisionAnchors, edges: [...facts.edges, ...decisions.edges], coverageRows: decisions.coverageRows.map((row) => ({ ...row, fulfillment: row.fulfillment === "standing_policy" ? "standing-policy" as const : row.fulfillment })) }; } finally { db.close(); } }
 export function makeTaskProjection(options: { readonly rootDir: string; readonly eventStore: EventStreamPort;
   readonly projectionPath?: string; readonly catchUpLimit?: number; readonly now?: () => string }): TaskProjection {
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
@@ -91,6 +91,7 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
       const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as { readonly event_json: string } | undefined;
       return row === undefined ? null : { event: parseEventJson(row.event_json), watermark: watermark(db) };
     }),
+    readRelationTruth: () => withDatabase(projectionPath, readHead, (db) => { const facts = readFactGraphRows(db), decisions = readDecisionGraphRows(db); return { factAnchors: facts.factAnchors, decisionAnchors: decisions.decisionAnchors, edges: [...facts.edges, ...decisions.edges], coverageRows: decisions.coverageRows.map((row) => ({ ...row, fulfillment: row.fulfillment === "standing_policy" ? "standing-policy" as const : row.fulfillment })) }; }),
     readTaskOperation: (opId) => withDatabase(projectionPath, readHead, (db) => { const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as { readonly event_json: string } | undefined; if (!row) return null; const event = parseEventJson(row.event_json); return isTaskEvent(event) ? { event, watermark: watermark(db) } : null; }),
     readTaskCompletion: (taskId, executionId) => withDatabase(projectionPath, readHead, (db) => { catchUpRound(db, options.eventStore, limit); const row = queryRows(db, "SELECT event_json FROM event_index WHERE task_id = ? AND json_extract(event_json, '$.schema') = 'task-event/v1' AND json_extract(event_json, '$.type') = 'task_completed' AND json_extract(event_json, '$.payload.execution.executionId') = ? ORDER BY workspace_revision DESC LIMIT 1", taskId, executionId)[0]; if (!row) return null; const event = parseEventJson(String(row.event_json)); return isTaskEvent(event) ? event : null; }),
     readRuntimeDispatch: (runtimeSessionIdValue, definitionSnapshotRef) => withDatabase(projectionPath, readHead, (db) => { const row = queryRows(db, "SELECT event_json FROM event_index WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND json_extract(event_json, '$.payload.definitionSnapshotRef') = ? ORDER BY workspace_revision LIMIT 1", runtimeSessionIdValue, definitionSnapshotRef)[0]; if (!row) return null; const event = parseEventJson(String(row.event_json)); return isAgentRuntimeEvent(event) ? event : null; }),

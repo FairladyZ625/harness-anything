@@ -6,6 +6,7 @@ import { makeTaskProjection } from "../../src/projection/task-projection.ts";
 import { makeTaskEventStore, type CanonicalEventStore } from "../../src/store/task-event-store.ts";
 import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
+import { compileFactWrite, type FactEventDraftV1 } from "../../src/domain/fact-event.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
 // Two ledgers at the same revision with different content is exactly the shape a genesis replay
@@ -39,6 +40,16 @@ test("projection cache from a same-revision different-content ledger is discarde
   });
 });
 
+test("event relation truth cannot cross a same-revision ledger identity", async () => {
+  await withTempStoreAsync(async (rootA) => { await withTempStoreAsync(async (rootB) => {
+    const storeA = seedFactLedger(rootA), storeB = seedLedger(rootB, "relation-empty", "# Empty\n"), projectionA = makeTaskProjection({ rootDir: rootA, eventStore: storeA });
+    projectionA.readFactGraph();
+    assert.deepEqual(projectionA.readRelationTruth().factAnchors.map(({ factRef }) => factRef), ["fact/task-identity/F-12345678"]);
+    const projectionB = makeTaskProjection({ rootDir: rootB, eventStore: storeB, projectionPath: projectionA.path });
+    assert.deepEqual(projectionB.readRelationTruth(), { factAnchors: [], decisionAnchors: [], edges: [], coverageRows: [] });
+  }); });
+});
+
 function seedLedger(rootDir: string, name: string, body: string): CanonicalEventStore {
   git(rootDir, "init", "--quiet");
   git(rootDir, "config", "user.name", "Identity Test");
@@ -53,6 +64,11 @@ function seedLedger(rootDir: string, name: string, body: string): CanonicalEvent
       regionProofs: [{ regionId: "heading/notes", policyId: DOC_POLICY_ID, codecId: DOC_CODEC_ID, baseSha256: sha256Text(""), candidateSha256: hash, insertBytes: Buffer.byteLength(body) }] }] } };
   eventStore.append({ event, plan: docSyncWritePlan(event), blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }] });
   return eventStore;
+}
+
+function seedFactLedger(rootDir: string): CanonicalEventStore {
+  git(rootDir, "init", "--quiet"); git(rootDir, "config", "user.name", "Identity Test"); git(rootDir, "config", "user.email", "identity-test@example.invalid"); git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
+  const eventStore = makeTaskEventStore({ repoId: "relation-source", rootDir }), event: FactEventDraftV1 = { schema: "fact-event/v1", eventId: "event-relation-source", workspaceRevision: 1, opId: "op-relation-source", taskId: "task-identity", factId: "F-12345678", type: "fact_recorded", actor: { principal: { personId: "person-1" }, executor: null }, source: "local", occurredAt: "2026-08-18T00:00:00.000Z", payload: { statement: "Identity-bound fact", evidenceSource: "fixture", observedAt: "2026-08-18T00:00:00.000Z", confidence: "high", memoryClass: "semantic", memoryTags: [], provenance: [{ runtime: "human", sessionId: "identity", boundAt: "2026-08-18T00:00:00.000Z" }] } }, compiled = compileFactWrite({ event, packagePath: "tasks/task-identity-identity", currentFacts: [] }); eventStore.append(compiled); return eventStore;
 }
 
 function git(rootDir: string, ...args: readonly string[]): string {
