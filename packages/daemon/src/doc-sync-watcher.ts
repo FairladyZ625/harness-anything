@@ -50,7 +50,10 @@ export function openDocSyncWatcher(input: { readonly rootDir: string; readonly p
     if (directories.has(directory) || state === "closed" || path.basename(directory) === ".git") return; let watcher: FSWatcher;
     try { watcher = watch(directory, (_event, filename) => { if (filename === null) { wake(); return; } const child = path.join(directory, String(filename));
       try { if (lstatSync(child).isDirectory()) watchDirectory(child); } catch (error) { consumeKnownError(error); } wake(path.relative(authoredRoot, child)); }); } catch (error) { consumeKnownError(error); degradeToPolling(); return; }
-    watcher.on("error", () => { watcher.close(); directories.delete(directory); degradeToPolling(); wake(); }); directories.set(directory, watcher);
+    // The error event is delivered from inside the FSEvents callback (FSEventWrap::OnEvent);
+    // closing the watcher synchronously there deadlocks libuv on macOS (uv__fsevents_close
+    // waits on a semaphore the in-flight callback prevents from ever being signaled).
+    watcher.on("error", () => { setImmediate(() => watcher.close()); directories.delete(directory); degradeToPolling(); wake(); }); directories.set(directory, watcher);
     try { for (const entry of readdirSync(directory, { withFileTypes: true })) if (entry.isDirectory()) watchDirectory(path.join(directory, entry.name)); } catch (error) { consumeKnownError(error); } };
   if (input.watchFilesystem !== false) { watchDirectory(authoredRoot); if (directories.size === 0) state = "blocked"; }
   if (input.startupScan !== false) wake();
