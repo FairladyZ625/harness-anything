@@ -1,5 +1,7 @@
-import { realpathSync } from "node:fs"; import { fileURLToPath } from "node:url";
+import { realpathSync, readFileSync } from "node:fs"; import path from "node:path"; import { fileURLToPath } from "node:url";
 import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts"; import { canonicalRoot, commandClassForAction, workspaceId } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { readFleetEdgeConfig } from "../../../daemon/src/client/fleet-edge-config.ts";
+import { FLEET_TASK_COMMAND_KINDS } from "../../../daemon/src/fleet/contract.ts";
 import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
 import type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
@@ -32,6 +34,8 @@ export async function runCommandThroughDaemon(command: ThinCommand, onPhase: (re
   if (command.action.kind === "repo-bootstrap") { const userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), { kind: _kind, ...params } = command.action, socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ repoId: workspaceId("bootstrap"),
     canonicalRoot: canonicalRoot(command.rootDir, true), userRoot, daemonId, socketPath }, "daemon.repo.bootstrap", { rootDir: command.rootDir, ...params }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
   if (command.method.startsWith("daemon.runtimeInstance.")) { const userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), { kind: _kind, ...payload } = command.action, socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ userRoot, daemonId, socketPath }, command.method, { payload: payload as JsonObject }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
+  const fleetTask = fleetTaskRoute(command);
+  if (fleetTask) { const userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ userRoot, daemonId, socketPath }, "daemon.fleet.task.run", { payload: fleetTask as JsonObject }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
   const target = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId });
   const { kind: _kind, ...actionPayload } = command.action, payload = command.method === "repo.script.run" ? Object.fromEntries(Object.entries(actionPayload).filter(([field, value]) => field !== "schema" && (field !== "taskId" || value !== null))) : actionPayload, executor = declaredExecutor();
   const requestPayload = command.method === "repo.task.run" ? { action: executor ? { ...command.action, executor } : command.action } : executor ? { ...payload, executor } : payload;
@@ -43,6 +47,20 @@ export async function runCommandThroughDaemon(command: ThinCommand, onPhase: (re
 // this long is queued behind a long write. Naming that deadline turns an open-ended silent socket into one classified
 // failure; writes stay unbounded because their honest duration is not knowable from here.
 const readResponseDeadlineMs = (kind: string): number | undefined => { try { return commandClassForAction(kind) === "repo-read" ? 30_000 : undefined; } catch (error) { consumeKnownError(error); return undefined; } };
+// The automatic lease product entry: on a remote-edge workspace the task write
+// commands route through the fleet channel instead of a local cell. The
+// operator never runs a lease command — acquisition, queueing, and renewal are
+// the center's job (dec_9E7AC30E/CH2).
+const fleetTaskCommandRoute = (kind: string): boolean => (FLEET_TASK_COMMAND_KINDS as readonly string[]).includes(kind);
+function fleetTaskRoute(command: ThinCommand): Record<string, unknown> | null {
+  if (command.method !== "repo.task.run" || !fleetTaskCommandRoute(command.action.kind)) return null;
+  const config = readFleetEdgeConfig(command.rootDir);
+  if (!config) return null;
+  const { executor: _executor, createMode: _createMode, fromFile, ...action } = command.action as Record<string, unknown> & { executor?: unknown; createMode?: unknown; fromFile?: unknown };
+  const payload: Record<string, unknown> = { host: config.host, port: config.port, caPath: config.caPath, ...(config.servername ? { servername: config.servername } : {}), nodeId: config.nodeId, ...(config.rosterPath ? { rosterPath: config.rosterPath } : {}), ...(config.credential ? { credential: config.credential } : {}), assignmentId: config.assignmentId, repoId: config.repoId, viewRoot: config.viewRoot, quotaBytes: config.quotaBytes, ...(config.waitTimeoutMs ? { waitTimeoutMs: config.waitTimeoutMs } : {}), action };
+  if (typeof fromFile === "string") { const file = path.isAbsolute(fromFile) ? fromFile : path.join(command.rootDir, fromFile); let submission: unknown; try { submission = JSON.parse(readFileSync(file, "utf8")); } catch (error) { throw Object.assign(new Error(`--from-file ${fromFile} could not be read as JSON on this edge: ${error instanceof Error ? error.message : String(error)}`), { code: "invalid_field" }); } payload.action = { ...action, submission }; }
+  return payload;
+}
 function declaredExecutor(env: NodeJS.ProcessEnv = process.env): JsonObject | null {
   const raw = env.HARNESS_ACTOR?.trim();
   if (!raw) return null;
