@@ -8,7 +8,7 @@ import { deriveCliCapabilities, firstCliCommand, firstCliCommandIndex, parseThin
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 86);
+  assert.equal(thinCliCommands.length, 89);
   for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))].filter((value): value is string => value !== undefined).sort()) assert.match(help, new RegExp(`^  ${domain} \\(`, "mu"));
   assert.doesNotMatch(help, /ha task start <task-id>/u);
   const taskHelp = renderThinHelp([], "task");
@@ -44,7 +44,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     preset: ["preset-audit", "preset-check", "preset-inspect", "preset-install", "preset-list", "preset-seed", "preset-uninstall", "preset-upgrade", "preset-validate"],
     receipt: ["receipt-show"],
     relation: ["relation-list"],
-    runtime: ["runtime-cancel", "runtime-instance-create", "runtime-instance-delete", "runtime-instance-list", "runtime-instance-show", "runtime-run", "runtime-status", "runtime-wait"],
+    runtime: ["runtime-cancel", "runtime-instance-create", "runtime-instance-delete", "runtime-instance-list", "runtime-instance-login", "runtime-instance-logout", "runtime-instance-reauth", "runtime-instance-show", "runtime-run", "runtime-status", "runtime-wait"],
     script: ["preset-run-start", "script-inspect", "script-list", "script-run"],
     task: ["task-amend", "task-archive", "task-artifact-add", "task-code-doc-reconcile", "task-complete", "task-contract-migrate", "task-create", "task-delete", "task-list", "task-progress-append", "task-relate", "task-release", "task-reopen", "task-review", "task-review-consent", "task-review-execution", "task-show", "task-start", "task-submit", "task-supersede", "task-transition"],
     template: ["template-list", "template-render"],
@@ -257,6 +257,15 @@ test("runtime work commands parse into closed daemon facade actions", () => {
   if (wait.ok) assert.deepEqual(wait.command.action, { kind: "runtime-wait", runtimeSessionId: "runtime-1", noStream: true });
   if (cancel.ok) assert.deepEqual(cancel.command.action, { kind: "runtime-cancel", runtimeSessionId: "runtime-1" });
   assert.equal(parseThinCommand(["runtime", "run", "worker"]).ok, false); assert.equal(parseThinCommand(["runtime", "run", "worker", "--prompt", "one", "--prompt-file", "two"]).ok, false); assert.equal(parseThinCommand(["runtime", "status", "runtime-1", "--task", "task-1"]).ok, false);
+});
+
+test("runtime instance auth commands parse into repo-scoped interactive sign-in actions", () => {
+  const login = parseThinCommand(["runtime", "instance", "login", "worker", "--repo", "alpha", "--idempotency-key", "sign-in-once"]), reauth = parseThinCommand(["runtime", "instance", "reauth", "worker"]), logout = parseThinCommand(["runtime", "instance", "logout", "worker"]);
+  for (const parsed of [login, reauth, logout]) assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (login.ok) assert.deepEqual({ repoId: login.command.repoId, method: login.command.method, action: login.command.action }, { repoId: "alpha", method: "repo.runtimeInstance.auth.login", action: { kind: "runtime-instance-login", instanceId: "worker", idempotencyKey: "sign-in-once" } });
+  if (reauth.ok) assert.deepEqual({ repoId: reauth.command.repoId, method: reauth.command.method, action: reauth.command.action }, { repoId: undefined, method: "repo.runtimeInstance.auth.reauth", action: { kind: "runtime-instance-reauth", instanceId: "worker" } });
+  if (logout.ok) assert.deepEqual({ method: logout.command.method, action: logout.command.action }, { method: "repo.runtimeInstance.auth.logout", action: { kind: "runtime-instance-logout", instanceId: "worker" } });
+  assert.equal(parseThinCommand(["runtime", "instance", "login"]).ok, false); assert.equal(parseThinCommand(["runtime", "instance", "login", "worker", "--prompt", "x"]).ok, false); const shown = parseThinCommand(["runtime", "instance", "show", "worker", "--repo", "alpha"]); assert.equal(shown.ok === true && shown.command.repoId, undefined);
 });
 
 test("migration import parser accepts repeated explicit conflict resolutions", () => {
