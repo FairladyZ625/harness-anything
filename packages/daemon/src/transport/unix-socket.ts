@@ -29,7 +29,10 @@ export function defaultUnixSocketPath(daemonId: string, uid = process.getuid?.()
 export function createUnixSocketTransportServer(options: UnixSocketTransportOptions): UnixSocketTransportServer {
   const endpoint = options.socketPath ?? defaultUnixSocketPath(options.daemonId);
   const server = net.createServer((socket) => {
-    const ownerUid = statSync(endpoint).uid;
+    // Windows endpoints are named pipes, which have no filesystem owner to
+    // stat: statSync raises EBUSY on \\.\pipe\*. Fall back to the process uid,
+    // the convention defaultUnixSocketPath already uses where getuid is absent.
+    const ownerUid = process.platform === "win32" ? process.getuid?.() ?? 0 : statSync(endpoint).uid;
     const authContext: DaemonAuthenticationContext = {
       transportKind: "unix-socket",
       endpoint,

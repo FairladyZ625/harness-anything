@@ -104,3 +104,26 @@ test("ledger maintenance config outranks a global gc.autoDetach opt-out", () => 
     }
   });
 });
+
+test("ledger maintenance keeps blobs byte-identical under a global core.autocrlf=true", () => {
+  withTempStore((rootDir) => {
+    const repoRoot = ledger(rootDir), globalConfig = path.join(rootDir, "global-gitconfig");
+    writeFileSync(globalConfig, "[core]\n\tautocrlf = true\n", "utf8");
+    const previous = process.env.GIT_CONFIG_GLOBAL;
+    process.env.GIT_CONFIG_GLOBAL = globalConfig;
+    try {
+      configureLedgerMaintenance(repoRoot);
+      assert.equal(git(repoRoot, "config", "--get", "core.autocrlf"), "false");
+      // Init verifies its publication by hashing the exact bytes it wrote, so a
+      // CRLF document normalized to LF on commit fails that readback wholesale.
+      const body = "line one\r\nline two\r\n", target = path.join(repoRoot, "crlf.md");
+      writeFileSync(target, body, "utf8");
+      git(repoRoot, "add", "crlf.md");
+      git(repoRoot, "-c", "user.name=Ledger", "-c", "user.email=ledger@example.com", "commit", "--quiet", "-m", "crlf");
+      const blob = execFileSync("git", ["-C", repoRoot, "show", "HEAD:crlf.md"], { encoding: "buffer" });
+      assert.deepEqual(new Uint8Array(blob), new Uint8Array(Buffer.from(body)));
+    } finally {
+      if (previous === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = previous;
+    }
+  });
+});
