@@ -61,14 +61,22 @@ test("startup records each repository attach outcome with duration and ordinal",
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
-test("a registered repo is explicitly warming until background attachment settles", async () => {
+test("a request arriving while a registered repo warms parks until background attachment settles", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-warming-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user"); rosterRepo(rootDir, "host-warming"); registerDaemonRepo({ canonicalRoot: rootDir, repoId: "host-warming", userRoot, createConvenienceLinks: false });
   const host = await openDaemonHost({ daemonId: "host-warming", userRoot });
   try {
     assert.equal(host.status().repos.find((repo) => repo.repoId === "host-warming")?.state, "warming");
-    const warming = await host.run("host-warming", { kind: "task-list" }, auth); assert.equal(warming.outcome, "op_rejected"); assert.equal(warming.code, "repo_warming");
-    assert.equal(systemRow(host, "host-warming").cellState, "warming");
-    await host.attachmentsSettled(); assert.equal(host.status().repos.find((repo) => repo.repoId === "host-warming")?.state, "attached");
+    const receipt = await host.run("host-warming", { kind: "task-list" }, auth); assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    assert.equal(host.status().repos.find((repo) => repo.repoId === "host-warming")?.state, "attached");
+  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("a request parked behind a non-settling initial attachment times out as repo_warming", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-warming-timeout-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user"); rosterRepo(rootDir, "host-warming-timeout"); registerDaemonRepo({ canonicalRoot: rootDir, repoId: "host-warming-timeout", userRoot, createConvenienceLinks: false });
+  const host = await openDaemonHost({ daemonId: "host-warming-timeout", userRoot, shutdownRequested: () => true });
+  try {
+    const started = performance.now(), receipt = await host.run("host-warming-timeout", { kind: "task-list" }, auth), elapsedMs = performance.now() - started;
+    assert.equal(receipt.outcome, "op_rejected"); assert.equal(receipt.code, "repo_warming"); assert.ok(elapsedMs >= 4_500, `warming timeout returned too early: ${elapsedMs.toFixed(1)}ms`); assert.ok(elapsedMs < 8_000, `warming timeout exceeded its bounded window: ${elapsedMs.toFixed(1)}ms`);
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
