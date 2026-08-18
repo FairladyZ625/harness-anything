@@ -416,3 +416,21 @@ function writePackage(root: string, id: string, extra: Record<string, unknown> =
 function templateCatalog(documents: readonly Record<string, unknown>[], id = "fixture") { return { schema: "template-catalog/v2", package: { id, title: id, version: "1.0.0", owner: "test", locales: ["en-US"] }, documents }; }
 function write(target: string, body: string): void { mkdirSync(path.dirname(target), { recursive: true }); writeFileSync(target, `${body}${body.endsWith("\n") ? "" : "\n"}`); }
 function git(rootDir: string, ...args: readonly string[]): string { return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim(); }
+
+test("a preset document parses the same on a CRLF checkout as on an LF checkout", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-preset-crlf-"));
+  try {
+    const manifest = JSON.stringify({ schema: "preset-manifest/v3", id: "crlf", title: "CRLF", vertical: "software/coding", version: "3.0.0", kind: "template-content", outputShape: "repository-diff", kernelVersionRange: { min: "1.0.0" }, capabilityImports: [], profiles: [{ id: "baseline", title: "Baseline", completionGates: [], templateSelections: [] }], defaultProfile: "baseline" });
+    const frontmatter = (eol: string): string => `---${eol}schema: preset-document/v1${eol}description: CRLF package${eol}whenToUse: Use on a Windows checkout.${eol}---${eol}# CRLF${eol}`;
+    const lfRoot = path.join(root, "lf"), crlfRoot = path.join(root, "crlf");
+    write(path.join(lfRoot, "preset.json"), manifest); write(path.join(lfRoot, "PRESET.md"), frontmatter("\n"));
+    write(path.join(crlfRoot, "preset.json"), manifest); write(path.join(crlfRoot, "PRESET.md"), frontmatter("\r\n"));
+
+    // Git for Windows checks out CRLF by default, so the frontmatter grammar
+    // cannot encode LF. Field values must not carry the carriage return either.
+    const lf = decodePresetPackageV3(lfRoot).document, crlf = decodePresetPackageV3(crlfRoot).document;
+    assert.deepEqual({ ...crlf, body: null }, { ...lf, body: null });
+    assert.equal(crlf.description, "CRLF package");
+    assert.equal(crlf.whenToUse, "Use on a Windows checkout.");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
