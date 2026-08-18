@@ -1,0 +1,12 @@
+{
+  "verdict": "approved",
+  "reason": "三件修补与审计裁定一致;红端两侧输出真实;方案偏离(tsc --listFilesOnly 替代 references 推导)有充分理由且更可靠;类边界扩展(post-commit/post-checkout 同族清单)是同族更窄洞的正确收敛;合入本身现场验证了新派生清单。",
+  "evidenceChecked": [
+    "gh pr view 1521: MERGED, mergeCommit 8700db3519ee6ec1d580c31a4bd2865166361c8d",
+    "daemon suite 209/209, daemon-host-recovery red/green both sides",
+    "post-merge on #1521 itself: dual rebuild triggered by derived list",
+    "production daemon restart post-merge: attach ok (pid 2432, repos=5)"
+  ],
+  "commitSha": "8700db3519ee6ec1d580c31a4bd2865166361c8d",
+  "iteration": 0
+}
