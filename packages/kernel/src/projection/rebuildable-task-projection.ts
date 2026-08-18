@@ -20,6 +20,7 @@ import { sha256Text } from "../integrity/stable-hash.ts";
 import { assertDecisionAdmission, assertFactAdmission, createFactProjectionTables, FactProjectionError, listDecisionRows, readDecisionDocumentState, readDecisionGraphRows, readDecisionRow, readFactGraphRows, readFactRow, reduceDecisionEvent, reduceFactEvent, refreshDecisionDocumentSearch, searchFactRows, type DecisionListFilters, type DecisionProjectionRow, type FactProjectionRow, type FactSearchFilters } from "./fact-event-projection.ts";
 import type { EventBackedRelationTruth } from "./relation-graph-projection.ts";
 
+const taskProjectionSchemaVersion = 1;
 interface EventStreamPort {
   readonly readHead: () => { readonly revision: number } | null;
   readonly readBatch: (cursor: string | null, maxItems: number) => {
@@ -164,18 +165,27 @@ function rebuildProjection(projectionPath: string, eventStore: EventStreamPort, 
 
 function withDatabase<A>(projectionPath: string, use: (db: DatabaseSync) => A): A {
   localRuntimeStateFileSystem.mkdirp(path.dirname(projectionPath));
-  const db = new DatabaseSync(projectionPath);
+  let db = openDatabase(projectionPath);
   try {
-    db.exec("PRAGMA journal_mode = DELETE; PRAGMA foreign_keys = ON");
+    configureDatabase(db);
+    const existingVersion = projectionSchemaVersion(db);
+    if (existingVersion !== null && existingVersion !== taskProjectionSchemaVersion) {
+      db.close();
+      localRuntimeStateFileSystem.remove(projectionPath);
+      db = openDatabase(projectionPath);
+      configureDatabase(db);
+    }
     createTables(db);
     return use(db);
   } finally { db.close(); }
 }
+function openDatabase(projectionPath: string): DatabaseSync { return new DatabaseSync(projectionPath); }
+function configureDatabase(db: DatabaseSync): void { db.exec("PRAGMA journal_mode = DELETE; PRAGMA foreign_keys = ON"); }
 
 function createTables(db: DatabaseSync): void {
   db.exec(`
-    CREATE TABLE IF NOT EXISTS projection_meta (singleton INTEGER PRIMARY KEY CHECK(singleton=1), watermark INTEGER NOT NULL, scan_cursor TEXT, scanned_revision INTEGER NOT NULL);
-    INSERT OR IGNORE INTO projection_meta(singleton, watermark, scan_cursor, scanned_revision) VALUES (1, 0, NULL, 0);
+    CREATE TABLE IF NOT EXISTS projection_meta (singleton INTEGER PRIMARY KEY CHECK(singleton=1), schema_version INTEGER NOT NULL, watermark INTEGER NOT NULL, scan_cursor TEXT, scanned_revision INTEGER NOT NULL);
+    INSERT OR IGNORE INTO projection_meta(singleton, schema_version, watermark, scan_cursor, scanned_revision) VALUES (1, ${taskProjectionSchemaVersion}, 0, NULL, 0);
     CREATE TABLE IF NOT EXISTS event_source (workspace_revision INTEGER PRIMARY KEY, op_id TEXT NOT NULL UNIQUE, event_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS event_index (op_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL UNIQUE, task_id TEXT, event_json TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS event_index_task_id ON event_index (task_id);
@@ -195,6 +205,8 @@ function createTables(db: DatabaseSync): void {
   `);
   createFactProjectionTables(db);
 }
+
+function projectionSchemaVersion(db: DatabaseSync): number | null { if (queryRows(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='projection_meta'").length === 0) return null; const columns = queryRows(db, "PRAGMA table_info(projection_meta)"); if (!columns.some(({ name }) => name === "schema_version")) return 0; const row = queryRows(db, "SELECT schema_version FROM projection_meta WHERE singleton=1")[0]; return row ? Number(row.schema_version) : 0; }
 
 function reduceBatch(db: DatabaseSync, events: readonly CanonicalEventV1[], limit: number, readBlob: EventStreamPort["readContentBlob"]): ProjectionApplyReceipt {
   return transaction(db, () => {
@@ -296,7 +308,7 @@ function applyEvent(db: DatabaseSync, event: CanonicalEventV1, eventJson: string
 
 function projectMigration(db: DatabaseSync, event: MigrationImportEventV1, eventJson: string, readBlob: EventStreamPort["readContentBlob"]): void { const entity = event.payload.entity, taskId = entity.kind === "task" ? entity.task.taskId : entity.kind === "fact" ? entity.fact.taskId : entity.kind === "execution" ? entity.execution.taskId : entity.kind === "task-document" ? entity.taskId : null; runSql(db, "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)", event.opId, event.workspaceRevision, taskId, eventJson);
   if (entity.kind === "task") { runSql(db, "INSERT INTO task_snapshot VALUES (?, ?, ?)", entity.task.taskId, event.workspaceRevision, canonicalJson({ ...emptyTaskLifecycleSnapshot(event.workspaceRevision), task: entity.task })); runSql(db, "INSERT INTO task_package VALUES (?, ?)", entity.task.taskId, entity.packagePath); runSql(db, "INSERT INTO task_generation VALUES (?, 'v0')", entity.task.taskId); storeMigrationDocument(db, event, entity.documentClaim, readBlob); return; }
-  if (entity.kind === "decision") { const value = entity.decision, revision = event.workspaceRevision; runSql(db, "INSERT INTO decision VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", value.decisionId, value.state, value.title, value.question, value.riskTier, value.urgency, value.vertical, value.preset, value.decisionClass, JSON.stringify(value.appliesTo), JSON.stringify(value.proposer), value.arbiter === null ? null : JSON.stringify(value.arbiter), value.proposedAt, value.decidedAt, revision); for (const row of value.chosen) runSql(db, "INSERT INTO decision_option VALUES (?, ?, ?, ?, ?, ?)", value.decisionId, "chosen", row.id, row.text, row.rationale ?? null, revision); for (const row of value.rejected) runSql(db, "INSERT INTO decision_option VALUES (?, ?, ?, ?, ?, ?)", value.decisionId, "rejected", row.id, row.text, row.whyNot, revision); for (const row of value.claims) runSql(db, "INSERT INTO decision_claim VALUES (?, ?, ?, ?, ?, ?, ?)", value.decisionId, row.id, row.text, row.loadBearing ? 1 : 0, row.fulfillment, revision, row.fulfillment ? revision : null); storeMigrationDocument(db, event, entity.documentClaim, readBlob); refreshDecisionDocumentSearch(db, migrationDocument(db, entity.documentClaim.path)!); return; }
+  if (entity.kind === "decision") { const value = entity.decision, revision = event.workspaceRevision; runSql(db, "INSERT INTO decision VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", value.decisionId, value.state, value.title, value.question, value.riskTier, value.urgency, value.vertical, value.preset, value.decisionClass, JSON.stringify(value.appliesTo), JSON.stringify(value.proposer), value.arbiter === null ? null : JSON.stringify(value.arbiter), value.proposedAt, value.decidedAt, revision); for (const [position, row] of value.chosen.entries()) runSql(db, "INSERT INTO decision_option VALUES (?, ?, ?, ?, ?, ?, ?)", value.decisionId, "chosen", row.id, position, row.text, row.rationale ?? null, revision); for (const [position, row] of value.rejected.entries()) runSql(db, "INSERT INTO decision_option VALUES (?, ?, ?, ?, ?, ?, ?)", value.decisionId, "rejected", row.id, position, row.text, row.whyNot, revision); for (const [position, row] of value.claims.entries()) runSql(db, "INSERT INTO decision_claim VALUES (?, ?, ?, ?, ?, ?, ?, ?)", value.decisionId, row.id, position, row.text, row.loadBearing ? 1 : 0, row.fulfillment, revision, row.fulfillment ? revision : null); storeMigrationDocument(db, event, entity.documentClaim, readBlob); refreshDecisionDocumentSearch(db, migrationDocument(db, entity.documentClaim.path)!); return; }
   if (entity.kind === "fact") { const value = entity.fact, ref = `fact/${value.taskId}/${value.factId}`, row = { schema: "fact-row/v1", ref, ...value, actor: event.actor, source: event.source, occurredAt: event.occurredAt, workspaceRevision: event.workspaceRevision }; runSql(db, "INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", value.taskId, value.factId, ref, value.statement, value.evidenceSource, value.observedAt, value.confidence, value.memoryClass, event.opId, event.workspaceRevision, JSON.stringify(row)); runSql(db, "INSERT INTO fact_fts VALUES (?, ?, ?, ?)", value.taskId, value.factId, value.statement, value.evidenceSource); storeMigrationDocument(db, event, entity.documentClaim, readBlob); return; }
   if (entity.kind === "execution") { const value = entity.execution, snapshot = readSnapshot(db, value.taskId); if (!snapshot.task || snapshot.executions.some(({ executionId }) => executionId === value.executionId)) throw new Error(`migration execution owner or identity mismatch for ${value.executionId}`); const next = { ...snapshot, revision: event.workspaceRevision, executions: [...snapshot.executions, value] }; runSql(db, "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET workspace_revision=excluded.workspace_revision, snapshot_json=excluded.snapshot_json", value.taskId, event.workspaceRevision, canonicalJson(next)); runSql(db, "INSERT INTO execution(execution_id, task_id, workspace_revision, value_json) VALUES (?, ?, ?, ?)", value.executionId, value.taskId, event.workspaceRevision, canonicalJson(value)); storeMigrationDocument(db, event, entity.documentClaim, readBlob); return; }
   if (entity.kind === "task-document") { if (!readSnapshot(db, entity.taskId).task) throw new Error(`migration task document owner is missing for ${entity.taskId}`); storeMigrationDocument(db, event, entity.documentClaim, readBlob); return; } if (entity.kind === "repo-document") { storeMigrationDocument(db, event, entity.documentClaim, readBlob); return; }
