@@ -24,7 +24,7 @@ test("registered workspace CLI command auto-starts the daemon, retries, and succ
     assert.equal(run(fixture.root, fixture.userRoot, ["task", "list"]).outcome, "applied");
     assert.equal(readDaemonPid(fixture.userRoot, "default"), previousPid, "a reachable daemon must not be replaced by a second spawn");
     assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "stop"]).ok, true);
-    waitForDaemonDown(fixture.userRoot);
+    assert.equal(readDaemonPid(fixture.userRoot, "default"), null); assert.equal(existsSync(localUserDaemonEndpoint(fixture.userRoot, "default")), false, "stop receipt settles only after pid and socket are gone");
     const lifecycle = readDaemonLifecycleRecords(fixture.userRoot, "default");
     assert.equal(lifecycle.some((record) => record.event === "process_start"), true);
     assert.equal(lifecycle.some((record) => record.event === "socket_bound"), true);
