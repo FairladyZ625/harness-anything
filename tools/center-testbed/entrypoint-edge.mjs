@@ -8,7 +8,7 @@
 // paths instead of always resnapshotting.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { TESTBED, fail, log, readState, startDaemon } from "./lib/testbed.mjs";
+import { fail, log, readState, startDaemon } from "./lib/testbed.mjs";
 
 const userRoot = "/data/daemon-user";
 const workspace = "/data/workspace";

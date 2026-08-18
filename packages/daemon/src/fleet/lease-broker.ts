@@ -3,10 +3,9 @@
 // leases. The canonical ledger's lease events remain the single ownership
 // record; this broker persists only coordination state (grant mirror, wait
 // queue, executed-opId receipt ring) under the fleet state root.
-import { createHash } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, stableStringify } from "../../../kernel/src/index.ts";
+import { consumeKnownError, sha256Text, stableStringify } from "../../../kernel/src/index.ts";
 import type { DaemonHost } from "../daemon-host.ts";
 import { FLEET_TASK_COMMAND_KINDS, type FleetFrameV1, type FleetTaskAction } from "./contract.ts";
 import type { FleetAssignmentRecord } from "./center.ts";
@@ -30,7 +29,7 @@ type BrokerState = { seq: number; leases: Record<string, LeaseRow>; queue: Recor
 const RECEIPT_RING = 512;
 
 export function openFleetLeaseBroker(options: { readonly stateRoot: string; readonly host: Pick<DaemonHost, "run">; readonly resolveAssignment: (assignmentId: string) => FleetAssignmentRecord | null | Promise<FleetAssignmentRecord | null>; readonly now: () => string; readonly env?: NodeJS.ProcessEnv }): FleetLeaseBroker {
-  const timers = fleetLeaseTimers(options.env), stateFile = path.join(options.stateRoot, "leases.json"), state = loadState(stateFile);
+  const timers = fleetLeaseTimers(options.env), stateFile = path.join(options.stateRoot, "leases.json"), state = loadBrokerState(stateFile);
   const parks = new Map<string, (result: FleetTaskResultFields) => void>();
   const taskKey = (repoId: string, taskId: string): string => `${repoId}|${taskId}`, splitKey = (key: string): { readonly repoId: string; readonly taskId: string } => { const at = key.indexOf("|"); return { repoId: key.slice(0, at), taskId: key.slice(at + 1) }; };
   const persist = (): void => writeDurableJson(stateFile, state), auth = (assignment: FleetAssignmentRecord) => ({ transportKind: "fleet-tls" as const, assignmentBinding: assignment });
@@ -51,7 +50,7 @@ export function openFleetLeaseBroker(options: { readonly stateRoot: string; read
   function receiptPayload(receipt: Readonly<Record<string, unknown>> | null): Readonly<Record<string, unknown>> | null { if (!receipt) return null; return Buffer.byteLength(stableStringify(receipt)) > 64 * 1_024 ? { outcome: receipt.outcome, code: receipt.code ?? null, note: "receipt omitted: larger than the frame budget" } : receipt; }
   function failure(outcome: "op_rejected" | "wait_expired", code: string, nextAction: string): FleetTaskResultFields { return { outcome, opId: "", code, revision: null, receipt: { outcome: "op_rejected", code, nextAction }, lease: null, queuePosition: null }; }
   async function execute(assignment: FleetAssignmentRecord, action: FleetTaskAction, opId: string, key: string | null): Promise<FleetTaskResultFields> {
-    const digest = createHash("sha256").update(stableStringify({ assignmentId: assignment.assignmentId, action })).digest("hex");
+    const digest = sha256Text(stableStringify({ assignmentId: assignment.assignmentId, action }));
     const effective: FleetTaskAction = action.kind === "task-start" && action.dryRun !== true && !Number.isSafeInteger(action.ttlMs) ? { ...action, ttlMs: timers.orphanTimeoutMs } : action;
     const ttlMs = Number(effective.ttlMs ?? timers.orphanTimeoutMs), dryRun = action.dryRun === true;
     let reserved = false;
@@ -79,7 +78,7 @@ export function openFleetLeaseBroker(options: { readonly stateRoot: string; read
     if (actionTaskId !== null && taskId !== null && actionTaskId !== taskId) return { ...failure("op_rejected", "task_command_rejected", "Lease-bound task commands must carry one consistent taskId."), opId: frame.opId };
     if (kind === "task-create") return execute(assignment, action, frame.opId, null);
     if (taskId === null) return { ...failure("op_rejected", "task_command_rejected", "Lease-bound task commands must carry one consistent taskId."), opId: frame.opId };
-    const key = taskKey(assignment.repoId, taskId), digest = createHash("sha256").update(stableStringify({ assignmentId: assignment.assignmentId, action })).digest("hex"), replay = state.receipts[frame.opId];
+    const key = taskKey(assignment.repoId, taskId), digest = sha256Text(stableStringify({ assignmentId: assignment.assignmentId, action })), replay = state.receipts[frame.opId];
     if (replay) return replay.digest === digest ? { outcome: replay.outcome, opId: frame.opId, code: replay.code, revision: replay.revision, receipt: replay.receipt, lease: null, queuePosition: null } : { ...failure("op_rejected", "op_conflict", "This opId was already used for a different command."), opId: frame.opId };
     const queued = (state.queue[key] ?? []).find((item) => item.opId === frame.opId);
     if (queued && Date.parse(queued.deadlineAt) > nowMs) return parkOn(key, queued, clientGone);
@@ -114,5 +113,5 @@ export function openFleetLeaseBroker(options: { readonly stateRoot: string; read
     close: () => { clearInterval(reaper); for (const [opId, park] of [...parks.entries()]) park({ ...failure("op_rejected", "center_closing", "The fleet center is shutting down; resubmit to re-attach to the persisted queue."), opId }); parks.clear(); }
   };
 }
-function loadState(file: string): BrokerState { if (!existsSync(file)) return { seq: 0, leases: {}, queue: {}, receipts: {} }; const value = JSON.parse(readFileSync(file, "utf8")) as BrokerState & Record<string, unknown>; if (value.schema !== "fleet-lease-state/v1" || typeof value.seq !== "number" || value.leases === null || typeof value.leases !== "object" || value.queue === null || typeof value.queue !== "object" || value.receipts === null || typeof value.receipts !== "object") throw new Error("Fleet lease broker state contains an unrecognized shape"); return { seq: value.seq, leases: value.leases, queue: value.queue, receipts: value.receipts }; }
+function loadBrokerState(file: string): BrokerState { if (!existsSync(file)) return { seq: 0, leases: {}, queue: {}, receipts: {} }; const value = JSON.parse(readFileSync(file, "utf8")) as BrokerState & Record<string, unknown>; if (value.schema !== "fleet-lease-state/v1" || typeof value.seq !== "number" || value.leases === null || typeof value.leases !== "object" || value.queue === null || typeof value.queue !== "object" || value.receipts === null || typeof value.receipts !== "object") throw new Error("Fleet lease broker state contains an unrecognized shape"); return { seq: value.seq, leases: value.leases, queue: value.queue, receipts: value.receipts }; }
 function writeDurableJson(file: string, value: unknown): void { mkdirSync(path.dirname(file), { recursive: true }); const temp = `${file}.${process.pid}.tmp`, fd = openSync(temp, "w"); try { writeFileSync(fd, `${JSON.stringify({ schema: "fleet-lease-state/v1", ...(value as object) })}\n`); fsyncSync(fd); } finally { closeSync(fd); } renameSync(temp, file); const dir = openSync(path.dirname(file), "r"); try { fsyncSync(dir); } finally { closeSync(dir); } }

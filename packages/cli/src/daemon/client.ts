@@ -1,7 +1,5 @@
 import { realpathSync, readFileSync } from "node:fs"; import path from "node:path"; import { fileURLToPath } from "node:url";
 import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts"; import { canonicalRoot, commandClassForAction, workspaceId } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { readFleetEdgeConfig } from "../../../daemon/src/client/fleet-edge-config.ts";
-import { FLEET_TASK_COMMAND_KINDS } from "../../../daemon/src/fleet/contract.ts";
 import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
 import type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
@@ -34,7 +32,7 @@ export async function runCommandThroughDaemon(command: ThinCommand, onPhase: (re
   if (command.action.kind === "repo-bootstrap") { const userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), { kind: _kind, ...params } = command.action, socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ repoId: workspaceId("bootstrap"),
     canonicalRoot: canonicalRoot(command.rootDir, true), userRoot, daemonId, socketPath }, "daemon.repo.bootstrap", { rootDir: command.rootDir, ...params }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
   if (command.method.startsWith("daemon.runtimeInstance.")) { const userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), { kind: _kind, ...payload } = command.action, socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ userRoot, daemonId, socketPath }, command.method, { payload: payload as JsonObject }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
-  const fleetTask = fleetTaskRoute(command);
+  const fleetTask = await fleetTaskRoute(command);
   if (fleetTask) { const userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ userRoot, daemonId, socketPath }, "daemon.fleet.task.run", { payload: fleetTask as JsonObject }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
   const target = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId });
   const { kind: _kind, ...actionPayload } = command.action, payload = command.method === "repo.script.run" ? Object.fromEntries(Object.entries(actionPayload).filter(([field, value]) => field !== "schema" && (field !== "taskId" || value !== null))) : actionPayload, executor = declaredExecutor();
@@ -51,11 +49,15 @@ const readResponseDeadlineMs = (kind: string): number | undefined => { try { ret
 // commands route through the fleet channel instead of a local cell. The
 // operator never runs a lease command — acquisition, queueing, and renewal are
 // the center's job (dec_9E7AC30E/CH2).
-const fleetTaskCommandRoute = (kind: string): boolean => (FLEET_TASK_COMMAND_KINDS as readonly string[]).includes(kind);
 // task-create rides its own preset method; the lifecycle commands ride repo.task.run.
 const fleetTaskMethods = ["repo.task.run", "repo.task.create"];
-function fleetTaskRoute(command: ThinCommand): Record<string, unknown> | null {
-  if (!fleetTaskMethods.includes(command.method) || !fleetTaskCommandRoute(command.action.kind)) return null;
+// The fleet modules stay lazy for the same reason the autostart seam does: the
+// thin dist static import graph is entry/parser/transport-only.
+async function fleetTaskRoute(command: ThinCommand): Promise<Record<string, unknown> | null> {
+  if (!fleetTaskMethods.includes(command.method)) return null;
+  const { FLEET_TASK_COMMAND_KINDS } = await import("../../../daemon/src/fleet/contract.ts");
+  if (!(FLEET_TASK_COMMAND_KINDS as readonly string[]).includes(command.action.kind)) return null;
+  const { readFleetEdgeConfig } = await import("../../../daemon/src/client/fleet-edge-config.ts");
   const config = readFleetEdgeConfig(command.rootDir);
   if (!config) return null;
   const { executor: _executor, createMode: _createMode, fromFile, ...action } = command.action as Record<string, unknown> & { executor?: unknown; createMode?: unknown; fromFile?: unknown };
