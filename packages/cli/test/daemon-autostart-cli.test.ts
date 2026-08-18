@@ -6,6 +6,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
+import { readDaemonLifecycleRecords } from "../../daemon/src/lifecycle-log.ts";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
 import { makeTaskEventStore, REPLAY_TASK_GRAPH, taskLifecycleWritePlan, type TaskEventV1 } from "../../kernel/src/index.ts";
 
@@ -23,6 +24,10 @@ test("registered workspace CLI command auto-starts the daemon, retries, and succ
     assert.equal(readDaemonPid(fixture.userRoot, "default"), previousPid, "a reachable daemon must not be replaced by a second spawn");
     assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "stop"]).ok, true);
     waitForDaemonDown(fixture.userRoot);
+    const lifecycle = readDaemonLifecycleRecords(fixture.userRoot, "default");
+    assert.equal(lifecycle.some((record) => record.event === "process_start"), true);
+    assert.equal(lifecycle.some((record) => record.event === "socket_bound"), true);
+    assert.equal(lifecycle.some((record) => record.event === "process_exit" && record.outcome === "stop_requested"), true);
     // The daemon is gone; a plain CLI command must bring it back and still answer.
     const result = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "task", "list"], { encoding: "utf8", env: cliEnv(fixture.root, fixture.userRoot) });
     assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
@@ -30,6 +35,8 @@ test("registered workspace CLI command auto-starts the daemon, retries, and succ
     assert.equal(receipt.ok, true, JSON.stringify(receipt)); assert.equal(receipt.outcome, "applied");
     const restartedPid = readDaemonPid(fixture.userRoot, "default");
     assert.ok(restartedPid, "autostart must leave a resident daemon pid file"); assert.notEqual(restartedPid, previousPid);
+    const restartedLifecycle = readDaemonLifecycleRecords(fixture.userRoot, "default"), generationStart = restartedLifecycle.findLastIndex((record) => record.event === "process_start"), bound = restartedLifecycle.findIndex((record, index) => index > generationStart && record.event === "socket_bound"), attach = restartedLifecycle.findIndex((record, index) => index > generationStart && record.event === "repo_attach_started");
+    assert.ok(generationStart >= 0 && bound > generationStart && attach > bound, "the resident socket must bind before the cold registry starts attaching");
     assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "stop"]).ok, true);
   } finally { rmSync(fixture.parent, { recursive: true, force: true }); }
 });

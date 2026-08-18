@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, type FSWatcher } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -22,6 +22,26 @@ test("watch notifications are hints and two stable fingerprints admit one RepoCe
   } finally { await watcher.close(); }
 });
 
+test("filesystem watching keeps one live recursive root watch and rearms Linux after document events", async () => {
+  for (const platform of ["darwin", "linux"] as const) {
+    const calls: Array<{ target: string; recursive: boolean }> = [], actions: Array<{ kind: string; paths: readonly string[] }> = [], notifications: Array<(event: string, filename: string | Buffer | null) => void> = []; let closes = 0;
+    const watcher = openDocSyncWatcher({ rootDir: process.cwd(), personId: "capacity", platform, startupScan: false, debounceMs: 1, pollMs: 60_000,
+      watchPath: (target, options, listener) => { calls.push({ target, recursive: options.recursive }); notifications.push(listener); const fake = { on: () => fake, close: () => { closes += 1; } } as unknown as FSWatcher; return fake; },
+      run: async (action) => { actions.push(action); return scan("a".repeat(40), []); } });
+    try { assert.equal(calls.length, 1); assert.equal(calls[0]?.recursive, true); notifications[0]?.("rename", path.join("context", "notes.md")); await watcher.flush(); await new Promise((resolve) => setImmediate(resolve)); assert.deepEqual(actions, [{ kind: "doc-dry-run", paths: ["context/notes.md"] }]); assert.equal(calls.length, platform === "linux" ? 2 : 1); assert.equal(closes, platform === "linux" ? 1 : 0); notifications.at(-1)?.("change", path.join(".git", "HEAD")); await watcher.flush(); await new Promise((resolve) => setImmediate(resolve)); assert.equal(actions.length, 1); assert.equal(calls.length, platform === "linux" ? 2 : 1); }
+    finally { await watcher.close(); }
+    assert.equal(closes, platform === "linux" ? 2 : 1);
+  }
+});
+
+test("Linux recursive root watch observes a deep atomic rename without waiting for reconciliation", { skip: process.platform !== "linux" }, async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-watch-linux-recursive-")); mkdirSync(path.join(rootDir, "harness/context/deep"), { recursive: true }); let scans = 0;
+  const watcher = openDocSyncWatcher({ rootDir, personId: "linux-proof", startupScan: false, debounceMs: 2, pollMs: 60_000,
+    run: async () => { scans += 1; return scan("a".repeat(40), []); } });
+  try { atomicSave(rootDir, "context/deep/note.md", "# Linux recursive proof one\n"); await waitFor(() => scans > 0, 2_000); const first = scans; atomicSave(rootDir, "context/deep/note.md", "# Linux recursive proof two\n"); await waitFor(() => scans > first, 2_000); }
+  finally { await watcher.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
 test("watch registration failure degrades to periodic full-scan polling instead of a silent dead zone", async () => {
   // Missing authored root makes every watch() registration throw, the same failure shape
   // as Linux inotify watch exhaustion (ENOSPC). The watcher must keep reconciling via
@@ -30,7 +50,7 @@ test("watch registration failure degrades to periodic full-scan polling instead 
   const watcher = openDocSyncWatcher({ rootDir, personId: "person-owner", startupScan: false, debounceMs: 1, pollMs: 5,
     run: async () => { scans += 1; return scan("f".repeat(40), []); } });
   try {
-    assert.equal(watcher.status().state, "blocked");
+    assert.equal(watcher.status().state, "active", "periodic reconciliation remains a valid active path when the hint watcher is absent");
     await new Promise((resolve) => setTimeout(resolve, 60)); await watcher.flush();
     assert.ok(scans >= 1, `expected the poll fallback to trigger at least one scan, saw ${scans}`);
     const settled = scans; await watcher.close(); await new Promise((resolve) => setTimeout(resolve, 20));
@@ -48,16 +68,18 @@ test("temporary and unnormalizable filesystem hints fall back to a full scan", a
 
 test("vim save is harvested without a doc command and restart collects offline edits", async () => {
   const fixture = repoFixture("offline"); let host = await openDaemonHost({ daemonId: "watch-offline-one", userRoot: fixture.userRoot, watchOwnerUid: fixture.uid, watchDebounceMs: 2 });
+  await host.attachmentsSettled();
   try {
     atomicSave(fixture.rootDir, "context/notes.md", "# Notes\n\nOnline edit.\n"); await waitFor(() => revision(fixture) === 1); const first = makeTaskEventStore({ repoId: fixture.repoId, rootDir: fixture.rootDir }).read().events[0]!;
     assert.equal(first.schema, "doc-event/v1"); assert.equal(first.actor.principal.personId, "person-owner"); assert.equal(first.actor.executor, null); assert.equal(typeof first.source === "object" && first.source.kind, "watch_session"); if (first.schema === "doc-event/v1") assert.equal(first.payload.executionId, null);
-    await host.close(); atomicSave(fixture.rootDir, "context/offline.md", "# Offline\n\nSaved while stopped.\n"); host = await openDaemonHost({ daemonId: "watch-offline-two", userRoot: fixture.userRoot, watchOwnerUid: fixture.uid, watchDebounceMs: 2 });
+    await host.close(); atomicSave(fixture.rootDir, "context/offline.md", "# Offline\n\nSaved while stopped.\n"); host = await openDaemonHost({ daemonId: "watch-offline-two", userRoot: fixture.userRoot, watchOwnerUid: fixture.uid, watchDebounceMs: 2 }); await host.attachmentsSettled();
     await waitFor(() => revision(fixture) === 2); assert.equal(git(fixture.rootDir, "diff", "--name-only", "--", "harness"), ""); assert.equal(git(fixture.rootDir, "status", "--porcelain", "-uall").includes("conflict-"), false); assert.equal(readFileSync(path.join(fixture.rootDir, "harness/context/offline.md"), "utf8"), "# Offline\n\nSaved while stopped.\n");
   } finally { await host.close(); fixture.close(); }
 });
 
 test("task progress appends canonically, reports its file, and watcher loopback stays zero-write", async () => {
   const fixture = repoFixture("task-binding"), host = await openDaemonHost({ daemonId: "watch-task-binding", userRoot: fixture.userRoot, watchOwnerUid: fixture.uid, watchDebounceMs: 2 }), auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: fixture.uid, source: "unix-socket-filesystem-owner-boundary" } } as const;
+  await host.attachmentsSettled();
   try { assert.equal((await host.run(fixture.repoId, { kind: "task-create", taskId: "task-doc", title: "Docs" }, auth)).outcome, "applied"); const withoutLease = await host.run(fixture.repoId, { kind: "task-progress-append", taskId: "task-doc", text: "too early", evidence: [] }, auth); assert.equal(withoutLease.code, "progress_lease_required"); assert.equal(revision(fixture), 1); assert.equal((await host.run(fixture.repoId, { kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, auth)).outcome, "applied"); atomicSave(fixture.rootDir, "tasks/task-doc-docs/notes.md", "# Notes\n\nwatch me\n"); await waitFor(() => revision(fixture) === 3); const event = makeTaskEventStore({ repoId: fixture.repoId, rootDir: fixture.rootDir }).read().events[2]; assert.equal(event?.schema, "doc-event/v1"); if (event?.schema === "doc-event/v1") assert.equal(event.payload.executionId, "execution-doc");
     for (const rejected of [{ kind: "task-progress-append", taskId: "task-doc", executionId: "wrong", text: "wrong execution", evidence: [] }, { kind: "task-progress-append", taskId: "task-doc", text: "stale", evidence: [], baseDocumentSha256: "f".repeat(64) }, { kind: "task-progress-append", taskId: "task-doc", text: "bad evidence", evidence: [{ type: "test", path: "../escape", summary: "bad" }] }]) assert.equal((await host.run(fixture.repoId, rejected, auth)).outcome, "op_rejected"); assert.equal(revision(fixture), 3);
     const beforeCanonicalWake = watcherScans(host), progressAction = { kind: "task-progress-append", taskId: "task-doc", text: "Implemented exact progress.", evidence: [{ type: "test", path: "reports/check.txt", summary: "passed" }] }, receipt = await host.run(fixture.repoId, progressAction, auth) as WriteReceipt & { progressPath?: string; eventId?: string; commitSha?: string; worktreeVisible?: boolean }; assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); assert.equal(receipt.progressPath, "tasks/task-doc-docs/progress.md"); assert.match(receipt.eventId ?? "", /^event-/u); assert.match(receipt.commitSha ?? "", /^[0-9a-f]{40}$/u); assert.equal(receipt.worktreeVisible, true); assert.match(receipt.evidence ?? "", /file:tasks\/task-doc-docs\/progress\.md/u); assert.match(readFileSync(path.join(fixture.rootDir, "harness/tasks/task-doc-docs/progress.md"), "utf8"), /Implemented exact progress\..*Evidence: test:reports\/check\.txt:passed/su); const retry = await host.run(fixture.repoId, progressAction, auth); assert.deepEqual([retry.opId, retry.revision], [receipt.opId, receipt.revision]); assert.equal(revision(fixture), 4); assert.equal((readFileSync(path.join(fixture.rootDir, "harness/tasks/task-doc-docs/progress.md"), "utf8").match(/Implemented exact progress/gu) ?? []).length, 1); await waitFor(() => watcherScans(host) > beforeCanonicalWake); assert.equal(revision(fixture), 4); const clean = await host.run(fixture.repoId, { kind: "doc-status", paths: ["tasks/task-doc-docs/progress.md"] }, auth); assert.equal(JSON.parse(clean.evidence!.slice("doc-scan:".length)).rows[0].state, "clean");
@@ -68,6 +90,7 @@ test("task progress appends canonically, reports its file, and watcher loopback 
 
 test("Decision watcher blocks new, frontmatter, and mixed edits but publishes body-only prose", async () => {
   const fixture = repoFixture("decision-regions"), host = await openDaemonHost({ daemonId: "watch-decision-regions", userRoot: fixture.userRoot, watchOwnerUid: fixture.uid, watchDebounceMs: 2 }), auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: fixture.uid, source: "unix-socket-filesystem-owner-boundary" } } as const;
+  await host.attachmentsSettled();
   try { const proposal = { kind: "decision-propose", jsonInput: JSON.stringify({ title: "Watcher Decision", question: "May only prose pass the watcher?", riskTier: "medium", urgency: "medium", vertical: "default", preset: "default", decisionClass: "ordinary", appliesTo: { modules: ["daemon"], productLines: [] }, chosen: [{ id: "CH1", text: "Publish prose" }], rejected: [{ id: "RJ1", text: "Publish frontmatter", whyNot: "Typed events own it" }], claims: [], fulfillments: [], relations: [] }) } as const, proposed = await host.run(fixture.repoId, proposal, auth), decisionId = (JSON.parse(String(proposed.evidence)) as { decisionId: string }).decisionId, logical = `decisions/decision-${decisionId}/decision.md`, canonical = readFileSync(path.join(fixture.rootDir, "harness", logical), "utf8"), rogue = "decisions/decision-dec_ROGUE_E9_ALPHA/decision.md";
     const blocked = async (target: string, body: string) => { const before = watcherScans(host); atomicSave(fixture.rootDir, target, body); await waitFor(() => watcherScans(host) > before); const receipt = await host.run(fixture.repoId, { kind: "doc-status", paths: [target] }, auth), report = JSON.parse(String(receipt.evidence).slice("doc-scan:".length)) as { rows: readonly { state: string }[] }; assert.equal(report.rows[0]?.state, "blocked", target); assert.equal(receipt.detail?.unresolvedTouches[0]?.requiredRoute, "ha decision --help"); };
     await blocked(rogue, "# Rogue Decision\n"); rmSync(path.join(fixture.rootDir, "harness", rogue)); await blocked(logical, canonical.replace("state: proposed", "state: active")); await blocked(logical, canonical.replace("state: proposed", "state: active").replace("# Watcher Decision", "# Watcher Decision\n\nMixed prose"));
@@ -113,6 +136,7 @@ test("SIGKILL after canonical ref advance restarts the watcher and converges wit
 
 test("watch session concurrent editing soak remains single-writer and convergent", async (context) => {
   const fixture = repoFixture("soak"), host = await openDaemonHost({ daemonId: "watch-soak", userRoot: fixture.userRoot, watchOwnerUid: fixture.uid, watchDebounceMs: 1 }), rounds = 24, started = performance.now();
+  await host.attachmentsSettled();
   try { for (let round = 1; round <= rounds; round += 1) { atomicSave(fixture.rootDir, "context/soak.md", `# Soak\n\neditor-a ${round}\n`); atomicSave(fixture.rootDir, "context/soak.md", `# Soak\n\neditor-b ${round}\n`); await waitFor(() => watcherCommits(host) === round); }
     await waitFor(() => git(fixture.rootDir, "diff", "--name-only", "--", "harness") === ""); const elapsedMs = performance.now() - started; context.diagnostic(`watch-soak rounds=${rounds} edits=${rounds * 2} durationMs=${elapsedMs.toFixed(1)}`); assert.equal(revision(fixture), rounds); assert.equal(makeTaskEventStore({ repoId: fixture.repoId, rootDir: fixture.rootDir }).read().events.every((event) => typeof event.source === "object" && event.source.kind === "watch_session"), true);
   } finally { await host.close(); fixture.close(); }

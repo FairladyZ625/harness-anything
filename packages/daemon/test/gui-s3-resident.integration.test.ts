@@ -34,6 +34,7 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
     initRepo(alpha, "alpha", uid); initRepo(beta, "beta", uid); registerDaemonRepo({ canonicalRoot: alpha, repoId: "alpha", userRoot, createConvenienceLinks: false }); registerDaemonRepo({ canonicalRoot: beta, repoId: "beta", userRoot, createConvenienceLinks: false });
     const locked = await openRepoCell({ repoId: workspaceId("beta"), rootDir: canonicalRoot(beta), ownerId: "other-daemon" });
     let launched: Record<string, unknown> | null = null; const host = await openDaemonHost({ daemonId: "gui-s3", userRoot, endpoint, runtimeDiscover: () => [{ installationId: "installation-codex", kindId: "codex", executablePath, version: "1.0.0", observedAt: "2026-08-14T00:00:00.000Z" }], runtimeLaunch: (prepared) => { launched = prepared as unknown as Record<string, unknown>; return { pid: 4242, onOutput: () => undefined, onExit: () => undefined, terminate: () => undefined }; } });
+    await host.attachmentsSettled();
     const transport = createUnixSocketTransportServer({ daemonId: "gui-s3", socketPath: endpoint, createProtocolServer: (authContext, emit) => createJsonRpcProtocolServer({ host, authContext, emit }) }); await transport.start();
     const rpc = (method: string, params: Record<string, unknown>) => requestDaemonJsonRpcAt(endpoint, method, params, 2_000);
     try {

@@ -6,10 +6,13 @@ import { DatabaseSync } from "node:sqlite";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskProjection, registerDaemonRepo } from "../../kernel/src/index.ts";
+import { makeTaskProjection, registerDaemonRepo, unregisterDaemonRepo } from "../../kernel/src/index.ts";
+import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { readDaemonLifecycleRecords } from "../src/lifecycle-log.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
+import { startDaemon } from "../src/runtime.ts";
 
 const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: process.getuid?.() ?? 0, source: "unix-socket-filesystem-owner-boundary" } } as const;
 
@@ -20,7 +23,7 @@ test("a startup-failed repo self-heals on the next command and reports honest st
   registerDaemonRepo({ canonicalRoot: root, repoId: "host-heal", userRoot, createConvenienceLinks: false });
   let clock = "2026-08-18T00:00:00.000Z";
   writeFileSync(lockPath, `${process.pid}\n`); // a live lock holder: the startup open must fail
-  const host = await openDaemonHost({ daemonId: "host-heal", userRoot, now: () => clock });
+  const host = await openDaemonHost({ daemonId: "host-heal", userRoot, now: () => clock }); await host.attachmentsSettled();
   try {
     const latched = host.status().repos.find((repo) => repo.repoId === "host-heal");
     assert.ok(latched, "startup failure must park the repo in the status list");
@@ -43,6 +46,72 @@ test("a startup-failed repo self-heals on the next command and reports honest st
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
+test("startup records each repository attach outcome with duration and ordinal", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-lifecycle-")), userRoot = path.join(parent, "user"), live = path.join(parent, "live"), dead = path.join(parent, "dead"), records: Record<string, unknown>[] = [];
+  rosterRepo(live, "lifecycle-live"); rosterRepo(dead, "lifecycle-dead"); registerDaemonRepo({ canonicalRoot: live, repoId: "lifecycle-live", userRoot, createConvenienceLinks: false });
+  registerDaemonRepo({ canonicalRoot: dead, repoId: "lifecycle-dead", userRoot, createConvenienceLinks: false }); rmSync(dead, { recursive: true, force: true });
+  const host = await openDaemonHost({ daemonId: "host-lifecycle", userRoot, recordLifecycle: (record) => records.push(record) }); await host.attachmentsSettled();
+  try {
+    assert.deepEqual(records.filter((record) => record.event === "repo_attach_started").map((record) => record.repoId).sort(), ["lifecycle-dead", "lifecycle-live"]);
+    const settled = records.filter((record) => record.event === "repo_attach_completed" || record.event === "repo_attach_failed");
+    assert.equal(settled.length, 2); assert.deepEqual(settled.map((record) => record.attachTotal), [2, 2]);
+    assert.deepEqual(settled.map((record) => record.attachIndex), [1, 2]); assert.equal(settled.every((record) => typeof record.durationMs === "number"), true);
+    assert.equal(settled.some((record) => record.event === "repo_attach_completed" && record.repoId === "lifecycle-live"), true);
+    assert.equal(settled.some((record) => record.event === "repo_attach_failed" && record.repoId === "lifecycle-dead" && typeof record.error === "string"), true);
+  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("a request arriving while a registered repo warms parks until background attachment settles", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-warming-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user"); rosterRepo(rootDir, "host-warming"); registerDaemonRepo({ canonicalRoot: rootDir, repoId: "host-warming", userRoot, createConvenienceLinks: false });
+  const host = await openDaemonHost({ daemonId: "host-warming", userRoot });
+  try {
+    assert.equal(host.status().repos.find((repo) => repo.repoId === "host-warming")?.state, "warming");
+    const receipt = await host.run("host-warming", { kind: "task-list" }, auth); assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    assert.equal(host.status().repos.find((repo) => repo.repoId === "host-warming")?.state, "attached");
+  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("a request parked behind a non-settling initial attachment times out as repo_warming", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-warming-timeout-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user"); rosterRepo(rootDir, "host-warming-timeout"); registerDaemonRepo({ canonicalRoot: rootDir, repoId: "host-warming-timeout", userRoot, createConvenienceLinks: false });
+  const host = await openDaemonHost({ daemonId: "host-warming-timeout", userRoot, shutdownRequested: () => true });
+  try {
+    const started = performance.now(), receipt = await host.run("host-warming-timeout", { kind: "task-list" }, auth), elapsedMs = performance.now() - started;
+    assert.equal(receipt.outcome, "op_rejected"); assert.equal(receipt.code, "repo_warming"); assert.ok(elapsedMs >= 4_500, `warming timeout returned too early: ${elapsedMs.toFixed(1)}ms`); assert.ok(elapsedMs < 8_000, `warming timeout exceeded its bounded window: ${elapsedMs.toFixed(1)}ms`);
+  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("a dead warming repository can be unregistered through daemon-level local authority", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-unregister-warming-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user"); rosterRepo(rootDir, "host-unregister-warming"); registerDaemonRepo({ canonicalRoot: rootDir, repoId: "host-unregister-warming", userRoot, createConvenienceLinks: false }); rmSync(rootDir, { recursive: true, force: true });
+  const host = await openDaemonHost({ daemonId: "host-unregister-warming", userRoot });
+  try {
+    const receipt = await host.admin({ kind: "unregister", repoId: "host-unregister-warming" }, auth); assert.equal(receipt.outcome, "applied");
+    await host.attachmentsSettled(); assert.equal(host.status().repos.some((repo) => repo.repoId === "host-unregister-warming"), false);
+  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("production-shaped cold restarts keep socket p95 below ten seconds and report attach separately", async (context) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-restart-budget-")), userRoot = path.join(parent, "user"), liveRoots: string[] = [];
+  try {
+    for (let index = 0; index < 4; index += 1) { const rootDir = path.join(parent, `live-${index}`); liveRoots.push(rootDir); rosterRepo(rootDir, `live-${index}`); for (let directory = 0; directory < 250; directory += 1) mkdirSync(path.join(rootDir, "harness", `directory-${directory}`)); registerDaemonRepo({ canonicalRoot: rootDir, repoId: `live-${index}`, userRoot, createConvenienceLinks: false }); }
+    const deadRoot = path.join(parent, "dead"); rosterRepo(deadRoot, "dead"); registerDaemonRepo({ canonicalRoot: deadRoot, repoId: "dead", userRoot, createConvenienceLinks: false }); rmSync(deadRoot, { recursive: true, force: true });
+    const full = await restartSamples("budget-full", 20, 5); unregisterDaemonRepo("dead", { userRoot, createConvenienceLinks: false }); const liveOnly = await restartSamples("budget-live", 20, 4);
+    context.diagnostic(`restart-budget full=${JSON.stringify(summary(full))}`); context.diagnostic(`restart-budget live-only=${JSON.stringify(summary(liveOnly))}`);
+    assert.ok(p95(full.map((sample) => sample.socketMs)) <= 10_000); assert.ok(p95(liveOnly.map((sample) => sample.socketMs)) <= 10_000);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+
+  async function restartSamples(daemonId: string, count: number, expectedRepos: number): Promise<Array<{ socketMs: number; attachMs: number; maxRepoAttachMs: number }>> {
+    const samples: Array<{ socketMs: number; attachMs: number; maxRepoAttachMs: number }> = [];
+    for (let sample = 0; sample < count; sample += 1) {
+      for (const rootDir of liveRoots) rmSync(path.join(rootDir, ".harness/cache"), { recursive: true, force: true });
+      const before = readDaemonLifecycleRecords(userRoot, daemonId).length, started = performance.now(), daemon = await startDaemon({ userRoot, daemonId }), bound = performance.now(); assert.ok("stop" in daemon);
+      for (;;) { const status = await requestDaemonJsonRpcAt(daemon.endpoint, "daemon.status", {}, 1_000) as { readonly repos: readonly { readonly state: string }[] }; if (status.repos.length === expectedRepos && status.repos.every((repo) => repo.state !== "warming")) break; await new Promise((resolve) => setTimeout(resolve, 2)); }
+      const settled = performance.now(), attachDurations = readDaemonLifecycleRecords(userRoot, daemonId).slice(before).filter((record) => record.event === "repo_attach_completed" || record.event === "repo_attach_failed").map((record) => record.durationMs ?? 0); assert.equal(attachDurations.length, expectedRepos);
+      samples.push({ socketMs: bound - started, attachMs: settled - bound, maxRepoAttachMs: Math.max(...attachDurations) }); await daemon.stop();
+    }
+    return samples;
+  }
+});
+
 test("the host-level re-probe is throttled to one attempt per interval", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-throttle-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user");
   rosterRepo(rootDir, "host-throttle");
@@ -50,7 +119,7 @@ test("the host-level re-probe is throttled to one attempt per interval", async (
   registerDaemonRepo({ canonicalRoot: root, repoId: "host-throttle", userRoot, createConvenienceLinks: false });
   let clock = "2026-08-18T00:00:00.000Z";
   writeFileSync(lockPath, `${process.pid}\n`);
-  const host = await openDaemonHost({ daemonId: "host-throttle", userRoot, now: () => clock });
+  const host = await openDaemonHost({ daemonId: "host-throttle", userRoot, now: () => clock }); await host.attachmentsSettled();
   try {
     const rejected = await host.run("host-throttle", { kind: "task-list" }, auth); // probe 1 fails on the live lock
     assert.equal(rejected.outcome, "op_rejected"); assert.equal(rejected.code, "repo_unavailable");
@@ -69,7 +138,7 @@ test("the host-level re-probe is throttled to one attempt per interval", async (
 test("repository modes close local, center-assignment, and edge command families", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-modes-")), userRoot = path.join(parent, "user"), roots = Object.fromEntries(["local", "center", "edge"].map((name) => [name, path.join(parent, name)]));
   for (const [name, rootDir] of Object.entries(roots)) { rosterRepo(rootDir, name); registerDaemonRepo({ canonicalRoot: rootDir, repoId: name, mode: name === "center" ? "remote-center" : name === "edge" ? "remote-edge" : "local", userRoot, createConvenienceLinks: false }); }
-  const host = await openDaemonHost({ daemonId: "host-modes", userRoot });
+  const host = await openDaemonHost({ daemonId: "host-modes", userRoot }); await host.attachmentsSettled();
   const assignment = (repoId: string) => ({ transportKind: "unix-socket", assignmentBinding: { nodeId: "node-mode", repoId, taskId: "task-mode", executionId: "execution-mode", assignmentId: `assignment-${repoId}`, paths: [], actor: { principal: { personId: "writer" }, executor: null } } } as const);
   try {
     assert.deepEqual(host.status().repos.map(({ repoId, mode }) => [repoId, mode]), [["center", "remote-center"], ["edge", "remote-edge"], ["local", "local"]]);
@@ -119,7 +188,7 @@ test("a dist rebuild after process start rejects writes until the daemon restart
 test("registry mode is authoritative before refresh and refresh replaces a drifted Cell", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-mode-refresh-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user");
   rosterRepo(rootDir, "mode-refresh"); registerDaemonRepo({ canonicalRoot: rootDir, repoId: "mode-refresh", mode: "local", userRoot, createConvenienceLinks: false });
-  const host = await openDaemonHost({ daemonId: "mode-refresh", userRoot });
+  const host = await openDaemonHost({ daemonId: "mode-refresh", userRoot }); await host.attachmentsSettled();
   try {
     const generation = host.status().repos[0]?.generation; registerDaemonRepo({ canonicalRoot: rootDir, repoId: "mode-refresh", mode: "remote-edge", userRoot, createConvenienceLinks: false });
     const denied = await host.run("mode-refresh", { kind: "task-create", taskId: "task_mode_drift", title: "Mode drift" }, auth);
@@ -144,7 +213,7 @@ test("daemon admission rejects a mismatched kernel projection schema and recover
   rosterRepo(rootDir, "schema-admission"); registerDaemonRepo({ canonicalRoot: rootDir, repoId: "schema-admission", userRoot, createConvenienceLinks: false });
   const cache = path.join(rootDir, ".harness/cache/task.sqlite"); makeTaskProjection({ rootDir, eventStore: { readHead: () => null, readBatch: () => ({ sourceRevision: 0, events: [], cursor: null, done: true, accessedItems: 0 }), readContentBlob: () => null } }).list(); const db = new DatabaseSync(cache); db.exec("UPDATE projection_meta SET schema_version = 999 WHERE singleton = 1;"); db.close();
   let clock = "2026-08-18T00:00:00.000Z";
-  const host = await openDaemonHost({ daemonId: "schema-admission", userRoot, now: () => clock });
+  const host = await openDaemonHost({ daemonId: "schema-admission", userRoot, now: () => clock }); await host.attachmentsSettled();
   try {
     const unavailable = host.status().repos.find((repo) => repo.repoId === "schema-admission")!;
     assert.equal(unavailable.state, "unavailable"); assert.equal(unavailable.causeClass, "data-shape"); assert.match(String(unavailable.lastError), /kernel projection schema 999/u);
@@ -188,3 +257,5 @@ async function waitControl(host: Awaited<ReturnType<typeof openDaemonHost>>, ope
   for (let attempt = 0; attempt < 50; attempt += 1) { const receipt = host.controlReceipt(operationId, auth); if (receipt.phase === "settled" || receipt.phase === "failed") return receipt; await new Promise<void>((resolve) => setImmediate(resolve)); }
   assert.fail(`control ${operationId} did not settle`);
 }
+function p95(values: readonly number[]): number { const sorted = [...values].sort((left, right) => left - right); return sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] ?? 0; }
+function summary(samples: readonly { socketMs: number; attachMs: number; maxRepoAttachMs: number }[]) { return { samples: samples.length, socketP95Ms: Number(p95(samples.map((sample) => sample.socketMs)).toFixed(3)), attachP95Ms: Number(p95(samples.map((sample) => sample.attachMs)).toFixed(3)), maxRepoAttachP95Ms: Number(p95(samples.map((sample) => sample.maxRepoAttachMs)).toFixed(3)) }; }

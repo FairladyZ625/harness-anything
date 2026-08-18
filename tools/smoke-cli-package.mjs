@@ -25,7 +25,7 @@ export function runCliPackageSmoke(root = process.cwd()) {
     // What must still hold is that bootstrap fails closed when the daemon CANNOT
     // start. A read-only user root makes every spawned `daemon serve` die writing
     // its pid file, so autostart exhausts its two attempts and reports the
-    // classified bind timeout without touching the project tree. POSIX non-root
+    // classified startup failure without touching the project tree. POSIX non-root
     // only (the package-policy CI job runs ubuntu-latest); root ignores the mode.
     const unstartableSupported = process.platform !== "win32" && process.getuid?.() !== 0;
     let unstartableMs = null;
@@ -35,7 +35,7 @@ export function runCliPackageSmoke(root = process.cwd()) {
         const failClosedStarted = performance.now(), failedStart = runJson(binPath,
           ["--root", projectDir, "--json", "init", "--repo-id", "smoke", "--person-id", "owner", "--display-name", "Owner"], projectDir, env(path.join(deniedRoot, "user"), home));
         unstartableMs = performance.now() - failClosedStarted;
-        if (failedStart.status === 0 || failedStart.receipt?.error?.code !== "daemon_bind_timeout" || existsSync(path.join(projectDir, "harness"))) throw new Error(`unstartable-daemon bootstrap did not fail closed: ${JSON.stringify(failedStart)}`);
+        assertUnstartableDaemonFailedClosed(failedStart, existsSync(path.join(projectDir, "harness")));
         // Bounded, not instant: two attempts x 10s ready wait + 500ms retry gap,
         // plus cold-start slack for the two dying daemon processes.
         if (unstartableMs > 30_000) throw new Error(`unstartable-daemon rejection ${unstartableMs.toFixed(3)}ms exceeded the bounded two-attempt budget`);
@@ -66,6 +66,7 @@ export function runCliPackageSmoke(root = process.cwd()) {
 export function buildCliPackageArtifact(root, options = {}) { const exec = options.execFileSync ?? execFileSync, exists = options.existsSync ?? existsSync;
   exec("npm", ["run", "build", "--workspace", "@harness-anything/cli"], { cwd: root, stdio: "inherit", env: { ...process.env, NPM_CONFIG_IGNORE_SCRIPTS: "false" } });
   const bin = path.join(root, "packages/cli/dist/cli/src/index.js"); if (!exists(bin)) throw new Error(`explicit CLI package build did not produce ${bin}`); }
+export function assertUnstartableDaemonFailedClosed(result, harnessExists) { const detail = JSON.stringify(result); if (result.status === 0) throw new Error(`unstartable-daemon must exit non-zero: ${detail}`); if (result.receipt?.ok !== false) throw new Error(`unstartable-daemon receipt must report ok=false: ${detail}`); const code = result.receipt?.error?.code; if (code !== "daemon_bind_timeout" && code !== "daemon_spawn_permission") throw new Error(`unexpected unstartable-daemon code: ${String(code)}`); if (harnessExists) throw new Error(`unstartable-daemon created harness before failing: ${detail}`); }
 function runJson(command, args, cwd, environment) { const result = run(command, args, cwd, environment); let receipt;
   try { receipt = JSON.parse(result.stdout); } catch { throw new Error(`CLI did not emit JSON: ${result.stdout}${result.stderr}`); } return { ...result, receipt }; }
 function run(command, args, cwd, environment) { const result = spawnSync(command.file, [...command.argsPrefix, ...args], { cwd, encoding: "utf8", env: environment });

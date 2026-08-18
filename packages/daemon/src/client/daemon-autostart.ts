@@ -1,4 +1,6 @@
 import net from "node:net";
+import path from "node:path";
+import { daemonLifecycleLogPath } from "../lifecycle-log.ts";
 import { startDetachedProcessChecked } from "../process-port.ts";
 export interface DaemonLaunchSpec { readonly command: string; readonly args: readonly string[]; readonly env: NodeJS.ProcessEnv }
 export type DaemonAutostartFailureCode = "daemon_spawn_not_found" | "daemon_spawn_permission" | "daemon_start_failed" | "daemon_bind_timeout";
@@ -13,7 +15,7 @@ export async function ensureLocalDaemonRunning(input: { readonly socketPath: str
   readonly readyTimeoutMs?: number; readonly retryDelayMs?: number; readonly probeIntervalMs?: number; readonly probe?: (socketPath: string) => Promise<boolean>;
   readonly spawnDetached?: (launch: DaemonLaunchSpec) => Promise<void> }): Promise<DaemonAutostartResult> {
   const maxAttempts = input.maxAttempts ?? 2, readyTimeoutMs = input.readyTimeoutMs ?? 10_000, retryDelayMs = input.retryDelayMs ?? 500, probeIntervalMs = input.probeIntervalMs ?? 50;
-  const probe = input.probe ?? daemonSocketProbe, spawnDetached = input.spawnDetached ?? ((launch: DaemonLaunchSpec) => startDetachedProcessChecked(launch.command, launch.args, launch.env));
+  const probe = input.probe ?? daemonSocketProbe, spawnDetached = input.spawnDetached ?? ((launch: DaemonLaunchSpec) => startDetachedProcessChecked(launch.command, launch.args, launch.env, daemonLaunchOutputPath(launch)));
   // A freshly started daemon can die between binding its socket and finishing
   // startup; confirm readiness with a second probe before declaring success.
   const ready = async () => { if (!await probe(input.socketPath)) return false; await delay(probeIntervalMs); return probe(input.socketPath); };
@@ -26,6 +28,11 @@ export async function ensureLocalDaemonRunning(input: { readonly socketPath: str
     if (attempt < maxAttempts) await delay(retryDelayMs);
   }
   return { ok: false, code: "daemon_bind_timeout", attempts: maxAttempts, hint: `The daemon did not accept connections at ${input.socketPath} within ${readyTimeoutMs}ms per attempt after ${maxAttempts} start attempts. Run this command directly to see the daemon's own error output: ${launched ? `${launched.command} ${launched.args.join(" ")}` : "the daemon launcher"}.` };
+}
+export function daemonLaunchOutputPath(launch: DaemonLaunchSpec): string | undefined {
+  const daemon = launch.args.indexOf("daemon"), serve = daemon < 0 ? -1 : launch.args.indexOf("serve", daemon + 1), rootAt = launch.args.indexOf("--user-root", serve + 1), idAt = launch.args.indexOf("--daemon-id", serve + 1);
+  if (daemon < 0 || serve !== daemon + 1 || rootAt < 0 || idAt < 0 || !launch.args[rootAt + 1] || !launch.args[idAt + 1]) return undefined;
+  return daemonLifecycleLogPath(path.resolve(launch.args[rootAt + 1]!), launch.args[idAt + 1]!);
 }
 export async function daemonSocketProbe(socketPath: string): Promise<boolean> {
   return new Promise((resolve) => { const socket = net.createConnection(socketPath), finish = (up: boolean) => { socket.destroy(); resolve(up); }; const timer = setTimeout(() => finish(false), 250);

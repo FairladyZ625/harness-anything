@@ -1,11 +1,17 @@
 import { execFileSync, spawn } from "node:child_process";
+import { closeDaemonOutputFd, openDaemonOutputFd } from "./lifecycle-log.ts";
 export const detachedProcessOptions = Object.freeze({ detached: true, stdio: "ignore" as const, windowsHide: true });
-export function startDetachedProcess(command: string, args: readonly string[], env: NodeJS.ProcessEnv): void { const child = spawn(command, [...args], { ...detachedProcessOptions, env }); child.unref(); }
+export function startDetachedProcess(command: string, args: readonly string[], env: NodeJS.ProcessEnv, outputPath?: string): void { const outputFd = outputPath ? openDaemonOutputFd(outputPath) : null;
+  try { const child = spawn(command, [...args], { ...detachedProcessOptions, ...(outputFd === null ? {} : { stdio: ["ignore", outputFd, outputFd] }), env }); child.once("spawn", () => { if (outputFd !== null) closeDaemonOutputFd(outputFd); }); child.once("error", () => { if (outputFd !== null) closeDaemonOutputFd(outputFd); }); child.unref(); }
+  catch (error) { if (outputFd !== null) closeDaemonOutputFd(outputFd); throw error; } }
 // Fire-and-forget spawn cannot tell the caller why the child never came up; this
 // variant resolves once the process exists and rejects with the OS error (ENOENT,
 // EACCES, ...) so autostart callers can classify launcher-level failures.
-export function startDetachedProcessChecked(command: string, args: readonly string[], env: NodeJS.ProcessEnv): Promise<void> {
-  return new Promise((resolve, reject) => { const child = spawn(command, [...args], { ...detachedProcessOptions, env }); const onSpawn = () => { child.removeListener("error", onError); child.unref(); resolve(); }; const onError = (error: Error) => reject(error); child.once("spawn", onSpawn); child.once("error", onError); });
+export function startDetachedProcessChecked(command: string, args: readonly string[], env: NodeJS.ProcessEnv, outputPath?: string): Promise<void> {
+  return new Promise((resolve, reject) => { const outputFd = outputPath ? openDaemonOutputFd(outputPath) : null; let child: ReturnType<typeof spawn>;
+    try { child = spawn(command, [...args], { ...detachedProcessOptions, ...(outputFd === null ? {} : { stdio: ["ignore", outputFd, outputFd] }), env }); }
+    catch (error) { if (outputFd !== null) closeDaemonOutputFd(outputFd); throw error; }
+    const closeParentFd = () => { if (outputFd !== null) closeDaemonOutputFd(outputFd); }; const onSpawn = () => { child.removeListener("error", onError); closeParentFd(); child.unref(); resolve(); }; const onError = (error: Error) => { closeParentFd(); reject(error); }; child.once("spawn", onSpawn); child.once("error", onError); });
 }
 export function terminateProcess(pid: number): void { process.kill(pid, "SIGTERM"); }
 // Long synchronous stretches (workspace replay, batch migration) cannot run
