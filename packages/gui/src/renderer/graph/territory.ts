@@ -1,6 +1,6 @@
 import type { TaskRow, DecisionRow, FactRef, RelationEdge } from "../model/types";
 import type { FactAnchorRow, RelationCoverageRow } from "../../api/renderer-dto";
-import { incomingRelations } from "../model/relation-direction.ts";
+import { activeIncomingRelations, incomingRelations } from "../model/relation-direction.ts";
 import {
   resolveTaskModule,
   resolveFactModule,
@@ -172,8 +172,9 @@ export function classifyFactAnomaly(
   // contradictory:fact.invalidated 标记,或作为 decision --refuted-by--> fact 的 target(规范方向反查)。
   if (fact?.invalidated) return "contradictory";
   if (incomingRelations(factRef, "refuted-by", relations).length > 0) return "contradictory";
-  // superseded:被 supersedes-fact 指向(是 target)。
-  if (incomingRelations(factRef, "supersedes-fact", relations).length > 0) return "superseded";
+  // superseded:被 state=active 的 supersedes-fact 指向(是 target;判据照抄 kernel
+  // fact-liveness,retired/deleted 边是审计历史,不算取代)。
+  if (activeIncomingRelations(factRef, "supersedes-fact", relations).length > 0) return "superseded";
   // low-confidence。
   if (fact?.confidence === "low") return "low-confidence";
   // orphan:无 decision 引用(不在 coveredRefs 且无 evidenced-by 边指向它)。

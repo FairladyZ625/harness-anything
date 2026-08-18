@@ -1,7 +1,7 @@
 import { ArrowSquareOut, Graph, GitBranch, WarningCircle, X } from "@phosphor-icons/react";
 import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../model/types";
 import { normalizeDecisionId } from "../model/triadic";
-import { incomingRelations } from "../model/relation-direction.ts";
+import { activeIncomingRelations, incomingRelations } from "../model/relation-direction.ts";
 import { CopyContextButton } from "./CopyContextButton";
 import { buildEntityJumpContext } from "../model/copy-context";
 import type { RelationCoverageRow } from "../../api/renderer-dto";
@@ -44,7 +44,9 @@ export function FactInspector({
   const task = fact ? tasks.find((candidate) => candidate.taskId === fact.taskId) : undefined;
   const inbound = relations.filter((relation) => relation.to === fullRef);
   const contradictions = incomingRelations(fullRef, "refuted-by", relations);
-  const supersedingRelations = incomingRelations(fullRef, "supersedes-fact", relations);
+  // Kernel fact-liveness criterion: only an active supersedes-fact edge marks the
+  // fact replaced; retired/deleted edges are audit history (see activeIncomingRelations).
+  const supersedingRelations = activeIncomingRelations(fullRef, "supersedes-fact", relations);
   const directlySupportedDecisionIds = incomingRelations(fullRef, "evidenced-by", relations)
     .map((relation) => normalizeDecisionId(relation.from));
   const coveredDecisionIds = coverageRows

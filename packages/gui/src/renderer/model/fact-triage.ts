@@ -2,7 +2,7 @@ import type {
   FactAnchorRow,
   RelationCoverageRow,
 } from "../../api/renderer-dto";
-import { incomingRelations } from "./relation-direction.ts";
+import { activeIncomingRelations, incomingRelations } from "./relation-direction.ts";
 import type { FactRef, RelationEdge } from "./types";
 
 /**
@@ -98,9 +98,11 @@ export function computeFactTriageSignals(
     });
   }
 
-  // Kernel grammar: fact --supersedes-fact--> old fact. Only the
-  // target is stale; the source is the replacement and must not be penalized.
-  const supersedingRefs = incomingRelations(factRef, "supersedes-fact", relations).map((edge) => edge.from);
+  // Kernel grammar: fact --supersedes-fact--> old fact. Only the target is stale;
+  // the source is the replacement and must not be penalized. Kernel criterion
+  // (fact-liveness): the edge must be state "active" — retired/deleted edges are
+  // audit history and do not supersede.
+  const supersedingRefs = activeIncomingRelations(factRef, "supersedes-fact", relations).map((edge) => edge.from);
   if (supersedingRefs.length > 0) {
     signals.push({
       kind: "SUPERSEDED",
