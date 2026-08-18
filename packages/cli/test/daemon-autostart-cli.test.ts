@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
+import { makeTaskEventStore, REPLAY_TASK_GRAPH, taskLifecycleWritePlan, type TaskEventV1 } from "../../kernel/src/index.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -72,6 +73,24 @@ test("semantic sources and agent execution cross the daemon before transport-bou
   }
 });
 
+test("dry-run contract migration prints each manual task once", () => {
+  const fixture = setup(), repoId = "contract-receipt", taskId = "task_legacy_l1";
+  try {
+    seedLegacyTask(fixture.root, repoId, taskId);
+    assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
+    register(fixture.root, fixture.userRoot, repoId);
+    const result = spawnSync(process.execPath, [cli, "--root", fixture.root, "task", "contract", "migrate", "--dry-run", "--task", taskId], { encoding: "utf8", env: cliEnv(fixture.root, fixture.userRoot) });
+    assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+    assert.equal((result.stdout.match(new RegExp(taskId, "gu")) ?? []).length, 1, result.stdout);
+    const receipt = run(fixture.root, fixture.userRoot, ["task", "contract", "migrate", "--dry-run", "--task", taskId]);
+    const evidence = JSON.parse(String(receipt.evidence)) as { report: readonly { taskId: string; status: string; reason: string }[]; manual: readonly { taskId: string; status: string; reason: string }[] };
+    assert.deepEqual(evidence.manual, [evidence.report[0]], "JSON keeps the manual subset for machine consumers");
+  } finally {
+    stop(fixture.root, fixture.userRoot);
+    rmSync(fixture.parent, { recursive: true, force: true });
+  }
+});
+
 test("autostart gives up after two attempts with a classified bind-timeout error", { skip: process.platform === "win32" || process.getuid?.() === 0 ? "requires POSIX non-root permission semantics" : false }, () => {
   const fixture = setup();
   try {
@@ -110,3 +129,7 @@ function waitForDaemonDown(userRoot: string): void { const socketPath = localUse
   throw new Error("previous daemon did not drain before the autostart probe"); }
 function stop(root: string, userRoot: string): void { if (readDaemonPid(userRoot, "default") !== null) spawnSync(process.execPath, [cli, "--root", root, "--json", "daemon", "stop"], { encoding: "utf8", env: cliEnv(root, userRoot) }); }
 function git(root: string, ...args: string[]): string { return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim(); }
+function seedLegacyTask(root: string, repoId: string, taskId: string): void {
+  const actor = { principal: { personId: "owner" }, executor: null } as const, event: TaskEventV1 = { schema: "task-event/v1", eventId: "event-contract-receipt", workspaceRevision: 1, opId: "op-contract-receipt", taskId, type: "task_created", actor, source: "local", occurredAt: "2026-08-18T00:00:00.000Z", payload: { task: { schema: "task/v1", taskId, title: "Legacy contract receipt", taskClass: "standard", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [], presetSnapshotDigest: null } } };
+  makeTaskEventStore({ repoId, rootDir: root }).append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+}
