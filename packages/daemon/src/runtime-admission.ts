@@ -20,22 +20,20 @@ export function staleDistFiles(runtimeFile: string): readonly string[] {
   const markerAt = runtimeFile.indexOf(marker);
   if (markerAt < 0) return [];
   const workspaceRoot = runtimeFile.slice(0, markerAt), distRoot = path.join(workspaceRoot, "packages", "cli", "dist"), stale: string[] = [];
-  for (const [packageName, sourceRoot] of [["cli", path.join(workspaceRoot, "packages", "cli", "src")], ["kernel", path.join(workspaceRoot, "packages", "kernel", "src")], ["daemon", path.join(workspaceRoot, "packages", "daemon", "src")], ["application", path.join(workspaceRoot, "packages", "application", "src")]] as const) {
-    for (const source of walkTs(sourceRoot)) {
-      const relative = path.relative(sourceRoot, source), output = path.join(distRoot, packageName, "src", relative.replace(/\.ts$/u, ".js"));
-      if (!existsSync(output) || statSync(source).mtimeMs > statSync(output).mtimeMs + 1) stale.push(path.relative(workspaceRoot, source));
-    }
+  for (const output of walkJs(distRoot)) {
+    const source = path.join(workspaceRoot, "packages", path.relative(distRoot, output).replace(/\.js$/u, ".ts"));
+    if (existsSync(source) && statSync(source).mtimeMs > statSync(output).mtimeMs) stale.push(path.relative(workspaceRoot, source));
   }
   return stale.sort();
 }
 
-function walkTs(directory: string): readonly string[] {
+function walkJs(directory: string): readonly string[] {
   if (!existsSync(directory)) return [];
   const files: string[] = [];
   for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
     const target = path.join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...walkTs(target));
-    else if (entry.isFile() && entry.name.endsWith(".ts")) files.push(target);
+    if (entry.isDirectory()) files.push(...walkJs(target));
+    else if (entry.isFile() && entry.name.endsWith(".js")) files.push(target);
   }
   return files;
 }

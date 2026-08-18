@@ -99,9 +99,18 @@ test("daemon admission rejects a mismatched kernel projection schema and recover
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
-test("built-daemon admission identifies source files newer than dist output", () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-dist-admission-")), source = path.join(parent, "packages/kernel/src/example.ts"), output = path.join(parent, "packages/cli/dist/kernel/src/example.js"), runtime = path.join(parent, "packages/cli/dist/daemon/src/runtime-admission.js");
-  try { mkdirSync(path.dirname(source), { recursive: true }); mkdirSync(path.dirname(output), { recursive: true }); mkdirSync(path.dirname(runtime), { recursive: true }); writeFileSync(output, "built\n"); writeFileSync(source, "source\n"); writeFileSync(runtime, "runtime\n"); const old = Date.now() / 1_000 - 10; utimesSync(output, old, old); assert.deepEqual(staleDistFiles(runtime), ["packages/kernel/src/example.ts"]); }
+test("built-daemon admission compares only sources represented by emitted dist files", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-dist-admission-")), runtime = path.join(parent, "packages/cli/dist/daemon/src/runtime-admission.js");
+  const staleSource = path.join(parent, "packages/kernel/src/stale.ts"), staleOutput = path.join(parent, "packages/cli/dist/kernel/src/stale.js");
+  const equalSource = path.join(parent, "packages/daemon/src/equal.ts"), equalOutput = path.join(parent, "packages/cli/dist/daemon/src/equal.js");
+  const missingOutputSource = path.join(parent, "packages/kernel/src/not-emitted.ts"), outsideBuildSource = path.join(parent, "packages/application/src/record.ts");
+  try {
+    for (const file of [runtime, staleSource, staleOutput, equalSource, equalOutput, missingOutputSource, outsideBuildSource]) { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, `${path.basename(file)}\n`); }
+    const old = Date.now() / 1_000 - 10, current = old + 5;
+    utimesSync(staleOutput, old, old); utimesSync(staleSource, current, current);
+    utimesSync(equalOutput, current, current); utimesSync(equalSource, current, current);
+    assert.deepEqual(staleDistFiles(runtime), ["packages/kernel/src/stale.ts"]);
+  }
   finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
