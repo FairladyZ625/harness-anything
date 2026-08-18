@@ -33,7 +33,11 @@ export interface FleetLeaseBroker {
   readonly close: () => void;
 }
 type LeaseRow = { readonly assignment: FleetAssignmentRecord; readonly executionId: string | null; readonly expiresAt: string; readonly acquiredAt: string };
-type WaitItem = { readonly opId: string; readonly seq: number; readonly assignment: FleetAssignmentRecord; readonly action: FleetTaskAction; readonly enqueuedAt: string; readonly deadlineAt: string };
+// A queued command keeps the task-document bundle it arrived with, so a later
+// grant re-executes the same combined push (same opId digest) rather than a
+// bare transition that would silently drop the carried documents.
+type WaitItem = { readonly opId: string; readonly seq: number; readonly assignment: FleetAssignmentRecord; readonly action: FleetTaskAction; readonly docs: FleetTaskDocs | null; readonly enqueuedAt: string; readonly deadlineAt: string };
+export interface FleetTaskDocs { readonly docChanges: readonly { readonly path: string; readonly baseBlobSha256: string | null; readonly policyId: string; readonly candidate: { readonly ref: string; readonly sha256: string; readonly size: number; readonly mediaType: string } }[] | null; readonly mirrorBaseCut: number | null }
 type BrokerState = { seq: number; leases: Record<string, LeaseRow>; queue: Record<string, readonly WaitItem[]>; receipts: Record<string, { readonly digest: string; readonly outcome: "applied" | "op_rejected"; readonly code: string | null; readonly revision: number | null; readonly receipt: Readonly<Record<string, unknown>> | null; readonly at: string }> };
 type DomainLease = { readonly executionId: string; readonly sourceJson: string; readonly phase: string; readonly expiresAt: string; readonly assignmentId: string | null };
 type DomainProbe = { readonly available: true; readonly lease: DomainLease | null } | { readonly available: false; readonly lease: null };
@@ -47,7 +51,7 @@ export function openFleetLeaseBroker(options: { readonly stateRoot: string; read
   const taskKey = (repoId: string, taskId: string): string => `${repoId}|${taskId}`, splitKey = (key: string): { readonly repoId: string; readonly taskId: string } => { const at = key.indexOf("|"); return { repoId: key.slice(0, at), taskId: key.slice(at + 1) }; };
   const persist = (): void => writeDurableJson(stateFile, state), auth = (assignment: FleetAssignmentRecord) => ({ transportKind: "fleet-tls" as const, assignmentBinding: assignment });
   const sourceJson = (assignment: FleetAssignmentRecord): string => stableStringify({ kind: "assignment", nodeId: assignment.nodeId, assignmentId: assignment.assignmentId });
-  const digestFor = (assignment: FleetAssignmentRecord, action: FleetTaskAction): string => sha256Text(stableStringify({ assignmentId: assignment.assignmentId, action }));
+  const digestFor = (assignment: FleetAssignmentRecord, action: FleetTaskAction, docs: FleetTaskDocs | null = null): string => sha256Text(stableStringify({ assignmentId: assignment.assignmentId, action, docs }));
   async function withTaskLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
     const previous = taskLocks.get(key) ?? Promise.resolve(); let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; }), tail = previous.then(() => gate);
@@ -100,7 +104,7 @@ export function openFleetLeaseBroker(options: { readonly stateRoot: string; read
           if (head.action.kind === "task-start" && head.action.dryRun !== true) reserveProvisional(key, head.assignment, Number(head.action.ttlMs ?? timers.orphanTimeoutMs));
           persist(); inFlight.add(head.opId);
           let result: FleetTaskResultFields;
-          try { result = await execute(head.assignment, head.action, head.opId, key, head.action.kind === "task-start" && head.action.dryRun !== true); }
+          try { result = await execute(head.assignment, head.action, head.opId, key, head.action.kind === "task-start" && head.action.dryRun !== true, head.docs); }
           catch (error) { consumeKnownError(error); result = { ...failure("op_rejected", "task_execute_failed", "The queued command could not be executed; resubmit it."), opId: head.opId }; if (head.action.kind === "task-start") { delete state.leases[key]; persist(); } }
           finally { inFlight.delete(head.opId); }
           resolvePark(head.opId, result);
@@ -114,13 +118,17 @@ export function openFleetLeaseBroker(options: { readonly stateRoot: string; read
   function recordReceipt(opId: string, digest: string, outcome: "applied" | "op_rejected", code: string | null, revision: number | null, receipt: Readonly<Record<string, unknown>> | null): void { state.receipts[opId] = { digest, outcome, code, revision, receipt, at: options.now() }; for (const stale of Object.keys(state.receipts).slice(0, Math.max(0, Object.keys(state.receipts).length - RECEIPT_RING))) delete state.receipts[stale]; }
   function receiptPayload(receipt: Readonly<Record<string, unknown>> | null): Readonly<Record<string, unknown>> | null { if (!receipt) return null; return Buffer.byteLength(stableStringify(receipt)) > 64 * 1_024 ? { outcome: receipt.outcome, code: receipt.code ?? null, note: "receipt omitted: larger than the frame budget" } : receipt; }
   function failure(outcome: "op_rejected" | "wait_expired", code: string, nextAction: string): FleetTaskResultFields { return { outcome, opId: "", code, revision: null, receipt: { outcome: "op_rejected", code, nextAction }, lease: null, queuePosition: null }; }
-  async function execute(assignment: FleetAssignmentRecord, action: FleetTaskAction, opId: string, key: string | null, preReserved = false): Promise<FleetTaskResultFields> {
-    const digest = digestFor(assignment, action);
+  async function execute(assignment: FleetAssignmentRecord, action: FleetTaskAction, opId: string, key: string | null, preReserved = false, docs: FleetTaskDocs | null = null): Promise<FleetTaskResultFields> {
+    const digest = digestFor(assignment, action, docs);
     const effective: FleetTaskAction = action.kind === "task-start" && action.dryRun !== true && !Number.isSafeInteger(action.ttlMs) ? { ...action, ttlMs: timers.orphanTimeoutMs } : action;
     const ttlMs = Number(effective.ttlMs ?? timers.orphanTimeoutMs), dryRun = action.dryRun === true;
     let reserved = preReserved;
     if (action.kind === "task-start" && !dryRun && key && !reserved) { reserveProvisional(key, assignment, ttlMs); persist(); reserved = true; }
-    const receipt = await options.host.run(assignment.repoId, effective as Parameters<Pick<DaemonHost, "run">["run"]>[1], auth(assignment));
+    // The class-A bundle rides the task action into the cell's serial write
+    // queue as one command, so holder, document base, and lifecycle transition
+    // are adjudicated together and any conflict voids the whole transition.
+    const bundle = docs !== null && docs.docChanges !== null && docs.docChanges.length > 0 ? { ...effective, docChanges: docs.docChanges, ...(docs.mirrorBaseCut !== null ? { mirrorBaseCut: docs.mirrorBaseCut } : {}) } : effective;
+    const receipt = await options.host.run(assignment.repoId, bundle as Parameters<Pick<DaemonHost, "run">["run"]>[1], auth(assignment));
     const applied = receipt.outcome === "applied", record = receipt as unknown as Record<string, unknown>;
     let lease: FleetTaskResultFields["lease"] = null;
     if (!dryRun && key) {
@@ -140,7 +148,8 @@ export function openFleetLeaseBroker(options: { readonly stateRoot: string; read
     if (!(FLEET_TASK_COMMAND_KINDS as readonly string[]).includes(kind)) return { ...failure("op_rejected", "task_command_rejected", "The fleet task channel accepts task-create, task-start, task-progress-append, task-submit, and task-release only."), opId: frame.opId };
     const actionTaskId = typeof action.taskId === "string" ? action.taskId : null, taskId = frame.taskId ?? actionTaskId;
     if (actionTaskId !== null && taskId !== null && actionTaskId !== taskId) return { ...failure("op_rejected", "task_command_rejected", "Lease-bound task commands must carry one consistent taskId."), opId: frame.opId };
-    const digest = digestFor(assignment, action);
+    const docs = frame.docChanges !== null || frame.mirrorBaseCut !== null ? { docChanges: frame.docChanges, mirrorBaseCut: frame.mirrorBaseCut } : null;
+    const digest = digestFor(assignment, action, docs);
     const replay = state.receipts[frame.opId];
     if (replay) return replay.digest === digest ? { outcome: replay.outcome, opId: frame.opId, code: replay.code, revision: replay.revision, receipt: replay.receipt, lease: null, queuePosition: null } : { ...failure("op_rejected", "op_conflict", "This opId was already used for a different command."), opId: frame.opId };
     if (inFlight.has(frame.opId)) return { ...failure("op_rejected", "op_in_flight", "This opId is currently executing; retry the same command to pick up its receipt."), opId: frame.opId };
@@ -150,7 +159,7 @@ export function openFleetLeaseBroker(options: { readonly stateRoot: string; read
     const disposition = await withTaskLock(key, async (): Promise<TaskDisposition> => {
       const queuedElsewhere = Object.entries(state.queue).flatMap(([queuedKey, items]) => items.map((item) => ({ queuedKey, item }))).find(({ item }) => item.opId === frame.opId);
       if (queuedElsewhere) {
-        if (queuedElsewhere.queuedKey !== key || digestFor(queuedElsewhere.item.assignment, queuedElsewhere.item.action) !== digest) return { result: { ...failure("op_rejected", "op_conflict", "This opId is already queued for a different command."), opId: frame.opId } };
+        if (queuedElsewhere.queuedKey !== key || digestFor(queuedElsewhere.item.assignment, queuedElsewhere.item.action, queuedElsewhere.item.docs) !== digest) return { result: { ...failure("op_rejected", "op_conflict", "This opId is already queued for a different command."), opId: frame.opId } };
         if (Date.parse(queuedElsewhere.item.deadlineAt) <= nowMs) { state.queue[key] = (state.queue[key] ?? []).filter((item) => item.opId !== frame.opId); persist(); }
         else return { parked: parkOn(key, queuedElsewhere.item, clientGone) };
       }
@@ -172,19 +181,19 @@ export function openFleetLeaseBroker(options: { readonly stateRoot: string; read
         const heldBySelf = domain && domain.phase !== "released" ? domain.sourceJson === sourceJson(assignment) : row !== null && row.assignment.assignmentId === frame.assignmentId;
         const heldByOther = domain && domain.phase !== "released" ? domain.sourceJson !== sourceJson(assignment) : row !== null && !heldBySelf;
         const queueAhead = (state.queue[key] ?? []).length > 0;
-        if (!heldBySelf && (heldByOther || queueAhead)) return { parked: enqueue(key, assignment, action, frame.opId, nowMs, waitCap(frame.waitMs), clientGone) };
-        if (row === null && action.kind === "task-start" && action.dryRun !== true) { const effectiveTtl = Number.isSafeInteger(action.ttlMs) ? Number(action.ttlMs) : timers.orphanTimeoutMs; reserveProvisional(key, assignment, effectiveTtl); persist(); return { result: await execute(assignment, action, frame.opId, key, true) }; }
-        return { result: await execute(assignment, action, frame.opId, key) };
+        if (!heldBySelf && (heldByOther || queueAhead)) return { parked: enqueue(key, assignment, action, frame.opId, nowMs, waitCap(frame.waitMs), clientGone, docs) };
+        if (row === null && action.kind === "task-start" && action.dryRun !== true) { const effectiveTtl = Number.isSafeInteger(action.ttlMs) ? Number(action.ttlMs) : timers.orphanTimeoutMs; reserveProvisional(key, assignment, effectiveTtl); persist(); return { result: await execute(assignment, action, frame.opId, key, true, docs) }; }
+        return { result: await execute(assignment, action, frame.opId, key, false, docs) };
       } finally { inFlight.delete(frame.opId); }
     });
     void pumpQueue(key);
     return "parked" in disposition ? disposition.parked : disposition.result;
   }
   const waitCap = (waitMs: number): number => Math.max(1, Math.min(waitMs, timers.maxWaitMs));
-  function enqueue(key: string, assignment: FleetAssignmentRecord, action: FleetTaskAction, opId: string, nowMs: number, waitMs: number, clientGone: () => boolean): Promise<FleetTaskResultFields> {
+  function enqueue(key: string, assignment: FleetAssignmentRecord, action: FleetTaskAction, opId: string, nowMs: number, waitMs: number, clientGone: () => boolean, docs: FleetTaskDocs | null = null): Promise<FleetTaskResultFields> {
     const items = state.queue[key] ?? [];
     if (items.length >= timers.maxQueuePerTask) return Promise.resolve({ ...failure("op_rejected", "wait_queue_full", `This task already has ${items.length} waiting commands; retry later.`), opId });
-    const item: WaitItem = { opId, seq: state.seq++, assignment, action, enqueuedAt: options.now(), deadlineAt: new Date(nowMs + waitMs).toISOString() };
+    const item: WaitItem = { opId, seq: state.seq++, assignment, action, docs, enqueuedAt: options.now(), deadlineAt: new Date(nowMs + waitMs).toISOString() };
     state.queue[key] = [...items, item]; persist();
     return parkOn(key, item, clientGone);
   }

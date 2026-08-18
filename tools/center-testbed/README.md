@@ -41,8 +41,10 @@ edge 节点 + 一个 harness 化测试项目 + 腾讯 GitLab 中心仓对接。W
 | `edge-1` / `edge-2` | collaborator 节点 | 各自容器内 daemon（socket 命名空间互相隔离）；`daemon fleet edge sync` 拉取中心投影到 `/data/view`；入口 `/data/workspace/fleet-edge.json` 把该 root 标记为 remote-edge 镜像（凭证不复制，运行时从共享 roster 解析），`ha task ...` 写命令自动改道 center |
 
 语义对齐：center/edge 是同一个 daemon 二进制对不同 repo 的 **mode**，不是不同程序；
-本台已覆盖 M2-B 的自动 task lease（获取/排队/孤儿回收/重启幸存）；A/B 两类同步与其余
-M2 语义仍在后续任务里叠上。
+本台已覆盖 M2-B 的自动 task lease（获取/排队/孤儿回收/重启幸存）与 W3-C 的 A/B 双类
+同步（task 命令自动携带 task 文档 + mirrorBaseCut、显式 `ha doc sync` 轮次、
+`.harness/conflicts` staging 与 resolve/discard-local/overwrite-center 三出口）；
+其余 M2 语义仍在后续任务里叠上。
 
 ## 一键命令
 
@@ -54,6 +56,7 @@ docker compose build            # 首次构建（npm ci + CLI build，几分钟�
 docker compose up -d --wait     # seed 跑完 → center healthy → edges 起来
 bash smoke-read.sh              # 读链路冒烟（edge 拉取 + GitLab 可见性 + 日志）
 bash smoke-write.sh             # 写链路冒烟（自动 lease 五场景，见下）
+bash smoke-sync.sh              # A/B 双类同步冒烟（三冲突场景，见下）
 ```
 
 `docker compose down` 停止；`docker compose down -v` 连卷一起清（彻底重置，含 lease 态）。
@@ -78,6 +81,20 @@ bash smoke-write.sh             # 写链路冒烟（自动 lease 五场景，见
    域内 lease、原持有者写权、等待队列全部幸存，release 仍唤醒队首。
 5. edge-1/edge-2 对同一未持有 task 并发 `task start`，恰一方立即授予、另一方只出现一条
    FIFO 等待行；赢家 release 后输家自动获得 lease。
+
+同步冒烟（`smoke-sync.sh`）通过标准——W3-C A/B 双类同步状态机（design-v2 §3/§4）：
+
+1. **transition 冲突（A 类）**：edge-1 本地改 task_plan.md，中心侧先改同一文档；
+   edge-1 的 `task start` 携带文档整体被拒（mirror_behind_center / base_blob_changed），
+   中心不转换、不产生 lease，分歧落 `~/.harness/conflicts/<id>/{manifest,base/,local/,center/}`；
+   `ha doc conflict discard-local <id>` 恢复中心字节后同一命令重试成功。
+2. **doc 冲突（B 类）**：两个 edge 各改共享文档 `context/shared-notes.md`，先推者赢；
+   后推者的 `ha doc sync --submit` 报 CONFLICT_STAGED（绝不静默覆盖），本地字节保留；
+   第一条出口 discard-local 采纳中心版，第二条分歧用 overwrite-center 以记录中的中心
+   digest 为 expected base 显式覆盖成功。
+3. **pull blocked（§4 场景二）**：edge-1 自身命令在中心 applied，同时另一 edge 改了它本地
+   仍 dirty 的同路径文档；回执同时报告 `canonicalOutcome=applied` 与
+   `mirrorOutcome=pull_blocked`，分歧 staging、本地字节不动。
 
 ## 凭证与安全边界
 
@@ -138,6 +155,7 @@ docker compose exec edge-2 ha --json daemon fleet edge sync --host center --port
 | `entrypoint-edge.mjs` | edge 入口：常驻 daemon + 隔离管理壳注册为 remote-edge + 写 `/data/workspace/fleet-edge.json` |
 | `smoke-edge.mjs` / `smoke-read.sh` | 容器内单边读冒烟 / 宿主机一键读冒烟 |
 | `smoke-write.sh` | 宿主机一键写冒烟（自动 lease 五场景） |
+| `smoke-sync.sh` | 宿主机一键同步冒烟（A/B 双类三冲突场景 + 三人工出口） |
 | `lib/testbed.mjs` | 容器内共享 helper（ha 调用、receipt 解包、daemon 生命周期） |
 
 ## 已知边界

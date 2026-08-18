@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { makeTaskLifecycleService, type TaskLifecycleServiceProof } from "../../application/src/task-lifecycle-service.ts";
-import { allowsTaskStatusMove, blockingOf, canStartExecution, closeoutReadiness, consumeKnownError } from "../../kernel/src/index.ts";
+import { allowsTaskStatusMove, blockingOf, canStartExecution, closeoutReadiness, consumeKnownError, parseDocWriteIntent, type DocClaimRef } from "../../kernel/src/index.ts";
 import { assertCurrentWriter, bindWriterGenerationToken, canonicalGateReceipts, compileCompletionGateWitness, compileTaskLifecycleWrite, completionBlockers, compileTaskProgress, deriveRelationId, explainStatusTransition, isDomainStatus, isLedgerLayoutMigrationEvent, isTaskEvent, isTaskProgressEvent, isTerminalStatus, lifecycleDocumentPaths, makeTaskEventStore, makeTaskProjection, normalizeCommandEnvelope,
   canReclaim, isIndependentFrom, isSameExecution, normalizeTaskLifecycleCommand, readRelationGraphProjection, reduceTaskEvent, reviewDigest, validateRelationRecordsForHost, type ActorIdentity, type CompleteTaskCommand, type CompletionReadinessContext, type EntityRelationRecord, type EventPublicationKillpoint, type ProofFor,
   projectDecisionReadiness, type DaemonRepoMode, type ProjectedExecution, type TaskEventV1, type TaskLifecycleCommand, type TaskProgressEvidence, type TaskProgressEventV1, type TaskV1, VcsCommandError, type WriteReceipt, type WriteSource, type WriterGeneration, admitTaskExecutionWip, hasCloseoutEvidence, taskClasses, taskWipOccupyingStatuses, type DomainStatus, type TaskWipSnapshotEntryV1 } from "../../kernel/src/index.ts";
@@ -10,7 +10,7 @@ import { compileRepoPresetSnapshotUpgrade, compileRepoTaskBootstrap, compileRepo
 import { commandClassForAction, type CanonicalRoot, type DaemonGuiReadMethod, type DaemonGuiReadResultMap, type DaemonTaskSnapshotListResult, type ExecutionEvidenceProjection, type GuiSubmissionV1, type TaskPlacementSupplement, validateGuiSubmission, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
 import { resolveTaskWipLimit } from "./task-wip-settings.ts";
 import { bootstrapRepo, type RepoBootstrapInput, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
-import { isDocAction, listProjectedTaskDocuments, readDocReceipt, readProjectedDocument, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
+import { adjudicateDocIntent, claimBytes, isDocAction, listProjectedTaskDocuments, readDocReceipt, readProjectedDocument, recycleClaims, rejectDocSyncAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts"; import { makeAgentRuntimeStreamHub, type AgentRuntimeAttachSubscription, type AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { makeDecisionActions, makeFactActions } from "./fact-actions.ts";
@@ -142,6 +142,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
     const entering = taskWipEnteringAction(action); if (entering) assertTaskWipCapacity(entering.taskId, entering.nextStatus);
     if (action.kind === "task-create") return createTask(taskCreateAction(rootDir, action), binding);
     if (isDocAction(action.kind)) return runDocAction({ action, binding, workspaceId: input.repoId, rootDir, store, projection, now, killpoint: input.killpoint }); if (action.kind === "task-artifact-add") return runArtifactAdd({ action, binding, workspaceId: input.repoId, rootDir, store, projection, now, killpoint: input.killpoint });
+    if (Array.isArray((action as { readonly docChanges?: unknown }).docChanges)) return runTaskCommandWithDocs(action as RepoTaskAction & { readonly docChanges: Parameters<typeof runTaskCommandWithDocs>[0]["docChanges"] }, binding);
     if (action.kind === "task-progress-append") return appendProgress(action, binding);
     if (action.kind === "task-start" && action.dryRun === true) return previewStart(action, binding);
     if (action.kind === "task-contract-migrate") return migrateTaskContracts(action, binding);
@@ -156,6 +157,37 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
     if (result.outcome === "applied" && result.event && result.proof) return lifecycleReceipt(result.event, result.snapshot, store.currentCommit().sha, result.proof);
     if (result.outcome === "pending") return { outcome: "pending", opId: command.opId, revision: result.revision, evidence: result.evidence, visibility: result.visibility, proof: result.proof, nextAction: result.nextAction ?? "Retry receipt show." };
     return rejected(command.opId, result.code ?? "publication_unknown", result.nextAction ?? "Retry receipt show before resubmitting.");
+  }
+  // Class-A sync (design-v2 §3): one serial cell command carries the lifecycle
+  // intent AND the locally changed task-package documents with their mirror
+  // base cut. Holder, document base, and transition are adjudicated together —
+  // any conflict voids the whole command, so a task can never complete at the
+  // center while its closing documents stay behind on the edge.
+  async function runTaskCommandWithDocs(action: RepoTaskAction & { readonly docChanges: readonly { readonly path: string; readonly baseBlobSha256: string | null; readonly policyId: string; readonly candidate: { readonly ref: string; readonly sha256: string; readonly size: number; readonly mediaType: string } }[]; readonly mirrorBaseCut?: number }, binding: RepoCellBinding): Promise<WriteReceipt> {
+    const { docChanges, mirrorBaseCut, ...taskAction } = action, taskId = requiredCellText(taskAction.taskId, "taskId");
+    const headRevision = store.readHead()?.revision ?? 0, opId = operationId(action, binding, input.repoId, headRevision);
+    if (mirrorBaseCut !== undefined && mirrorBaseCut !== headRevision) return rejected(opId, "mirror_behind_center", `The mirror base cut ${mirrorBaseCut} is behind the center head revision ${headRevision}; rerun ha daemon fleet edge sync, then resubmit the command so its documents ride a current base.`);
+    const lease = projection.currentLease(taskId, now());
+    const intent = parseDocWriteIntent({ schema: "doc-write-intent/v1", executionId: lease?.phase === "held" ? lease.executionId : null, baseLedgerSha: store.currentCommit().sha, changes: docChanges }, input.repoId);
+    const docOpId = operationId({ kind: "doc-submit", executionId: intent.executionId, baseLedgerSha: intent.baseLedgerSha.sha, changes: docChanges }, binding, input.repoId, headRevision);
+    const adjudication = adjudicateDocIntent({ binding, workspaceId: input.repoId, rootDir, store, projection, now }, intent, docChanges.map((change) => claimBytes(rootDir, change.candidate.ref as DocClaimRef)), lease?.phase === "held" ? lease : null, docOpId);
+    if (!adjudication.accepted) return { ...rejectDocSyncAction(opId, adjudication.code, adjudication.detail, adjudication.detail.nextAction), taskId, docSync: { outcome: "not_applied", code: adjudication.code, transition: "blocked" } } as WriteReceipt;
+    const transition = await executeAction(taskAction as RepoTaskAction, binding);
+    if (transition.outcome !== "applied") return { ...transition, taskId, docSync: { outcome: transition.outcome === "pending" ? "deferred" : "not_applied", code: transition.code ?? null, transition: transition.outcome === "pending" ? "pending" : "rejected" }, ...(transition.outcome === "pending" ? { nextAction: `${transition.nextAction ?? ""} The carried documents were not submitted; query the receipt, then rerun the command or run ha doc sync.` } : {}) } as WriteReceipt;
+    // The transition appended first, so the pre-validated document event is
+    // re-sequenced onto the new head before its append: both its workspace
+    // revision and its Git parent (baseLedgerSha) name the post-transition
+    // commit, which is what the event store chains doc events onto. Per-path
+    // bases and region proofs stay valid: lifecycle writes only touch typed-
+    // route files that doc changes can never include (resolveDocRoute denies
+    // them), and re-adjudicating here would wrongly drop task-release bundles
+    // whose lease the transition itself releases.
+    const event = { ...adjudication.decision.event, workspaceRevision: (store.readHead()?.revision ?? 0) + 1, payload: { ...adjudication.decision.event.payload, baseLedgerSha: store.currentCommit() } };
+    const appended = store.append({ event, plan: adjudication.decision.plan, blobs: adjudication.decision.blobs });
+    projection.apply(event, adjudication.decision.plan);
+    input.killpoint?.("after_sqlite_commit");
+    recycleClaims(rootDir, intent);
+    return { ...transition, docSync: { outcome: "applied", revision: appended.revision, commitSha: appended.commitSha.sha, paths: docChanges.map((change) => change.path) } } as WriteReceipt;
   }
   function taskSurfaceWrite(action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt { const taskId = requiredCellText(action.kind === "task-supersede" ? action.oldTaskId : action.taskId, action.kind === "task-supersede" ? "oldTaskId" : "taskId"), current = projection.read(taskId); if (!projectionReady(current) || !current.snapshot.task || !current.packagePath) throw cellCodedError("task_not_found", `Create or import task ${taskId} before running ${action.kind}.`); const snapshot = current.snapshot, original = snapshot.task!, mutation = taskMutation(action, original, snapshot, binding), canonicalAction = withoutDryRun(action), canonicalOpId = operationId(canonicalAction, binding, input.repoId, snapshot.revision); if (action.dryRun === true) return readResult(`preview:${canonicalOpId}`, { taskId, command: action.kind, eventType: mutation.type, mutation: mutation.audit, task: mutation.task }, snapshot.revision, false); const opId = canonicalOpId, existing = store.readEvent(opId); if (existing) return receiptForOperation(opId, binding); const event = { schema: "task-event/v1", eventId: `event-${createHash("sha256").update(opId).digest("hex")}`, workspaceRevision: (store.readHead()?.revision ?? 0) + 1, opId, taskId, type: mutation.type, actor: binding.actor, source: binding.source, occurredAt: now(), payload: mutation.execution ? { task: mutation.task, execution: mutation.execution, releasedLease: mutation.releasedLease, mutation: mutation.audit, documentClaims: [] } : { task: mutation.task, mutation: mutation.audit, documentClaims: [] } } as unknown as TaskEventV1, next = reduceTaskEvent(snapshot, event), paths = lifecycleDocumentPaths(event, current.packagePath), documents = paths.flatMap((target) => { const read = projection.readDocument(target); if (!projectionReady(read)) throw cellCodedError("content_not_ready", `Retry ${action.kind} after document projection ${target} catches up.`); return read.document ? [{ path: target, body: read.document.body, blobSha256: read.document.blobSha256 }] : []; }), compiled = compileTaskLifecycleWrite({ event, snapshot: next, packagePath: current.packagePath, currentDocuments: documents }), appended = store.append(compiled); projection.apply(compiled.event, compiled.plan); input.killpoint?.("after_sqlite_commit"); const receipt = lifecycleReceipt(compiled.event, projection.read(taskId).snapshot, appended.commitSha.sha, receiptProof(appended.revision)); input.killpoint?.("before_response_write"); input.killpoint?.("after_response_write"); return { ...receipt, mode: action.kind === "task-delete" ? "soft" : undefined, report: { command: action.kind, reason: mutation.audit.reason, fields: mutation.audit.fields } } as WriteReceipt; }
   function taskMutation(action: RepoTaskAction, task: TaskV1, snapshot: Snapshot, binding: RepoCellBinding): { readonly type: TaskEventV1["type"]; readonly task: TaskV1; readonly audit: { readonly command: "release" | "amend" | "archive" | "supersede" | "delete" | "reopen" | "contract-migrate" | "relate"; readonly reason: string; readonly fields: readonly string[] }; readonly execution?: Snapshot["executions"][number]; readonly releasedLease?: NonNullable<Snapshot["lease"]> } { const reason = typeof action.reason === "string" && action.reason.trim() ? action.reason.trim() : "Authenticated holder released the lease.", activeLease = snapshot.lease;

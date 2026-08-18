@@ -102,8 +102,14 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
     assert.match(result.detail?.unresolvedTouches[0]?.requiredRoute ?? "", /assignment-one.*inside\.md/u); assert.equal(canonicalSha(scoped.rootDir), before);
     assert.equal(existsSync(path.join(scoped.rootDir, ".harness/doc-sync-claims/scoped")), false);
     writeClaim(scoped.rootDir, "identity", body); const identityBinding = assignmentBinding("scoped", [relativePath]);
+    // W3-C: the assignment's static taskId/executionId labels no longer veto a
+    // task-document write — design-v2 §3 makes the dynamically acquired lease
+    // the task-context authority (decideDocWrite arbitrates holder, execution,
+    // and write channel), and a node-level roster cannot name every task a
+    // W3-B automatic lease will grant. Path scope plus lease arbitration fully
+    // bind this write, so the mislabeled scope no longer rejects it.
     const identity = await scoped.cell.run(remoteAction(scoped.rootDir, relativePath, "identity", body), { ...identityBinding, assignmentScope: { ...identityBinding.assignmentScope!, taskId: "task-other" } });
-    assert.equal(identity.code, "assignment_scope_mismatch"); assert.match(identity.detail?.unresolvedTouches[0]?.reason ?? "", /task or execution/u); assert.equal(canonicalSha(scoped.rootDir), before);
+    assert.equal(identity.outcome, "applied", JSON.stringify(identity).slice(0, 400));
     assert.equal(existsSync(path.join(scoped.rootDir, ".harness/doc-sync-claims/identity")), false);
   } finally { await scoped.close(); }
 });
