@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import type { AgentRuntimeSessionResult } from "../../daemon/src/agent-runtime-contract.ts";
 import type { JsonObject } from "../../daemon/src/protocol/json-rpc-types.ts";
 import { cliCommandDomains, deriveCliCapabilities, firstCliCommand, helpDomain, parseThinCommand, renderThinCapabilities, renderThinHelp, unsupportedCommandHint, type ThinCommand } from "./cli/thin-command.ts";
-import { consumeKnownError, daemonAutostartFailureCode, runCommandThroughDaemon, streamRuntimeThroughDaemon } from "./daemon/client.ts";
+import { consumeKnownError, daemonAutostartFailureCode, relayRuntimeAuthTerminal, runCommandThroughDaemon, streamRuntimeThroughDaemon } from "./daemon/client.ts";
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
   const command = firstCliCommand(argv); if (argv.includes("--version") || argv.includes("-v") || command === "version") return emitMeta("version", argv.includes("--json")); if (command === "capabilities") return emitMeta("capabilities", argv.includes("--json"));
@@ -29,12 +29,13 @@ export function emit(receipt: Record<string, unknown>, json: boolean): void {
   else if (receipt.ok === true || receipt.command === "migrate-import" && typeof receipt.summary === "string") { const summary = contractMigrationDryRunSummary(receipt); console.log(String(summary ?? (receipt.command === "doc-show" ? receipt.evidence : receipt.command === "init" ? [String(receipt.summary), `outcome: ${receipt.outcome ?? "applied"}`, ...["created", "updated", "preserved", "drifted"].map((key) => `${key}: ${JSON.stringify(receipt[key] ?? [])}`), `commit: ${String(receipt.commit ?? "none")}`, `next: ${String(receipt.next ?? "")}`].join("\n") : receipt.summary ?? `${receipt.command ?? "command"}: ${receipt.outcome ?? "applied"}`))); }
   else console.error(`error code=${String((receipt.error as { code?: unknown } | undefined)?.code ?? "unknown")} hint=${String(receipt.nextAction ?? receipt.next ?? "Command failed.")}`);
 }
-function isRuntimeFacadeCommand(command: ThinCommand): boolean { return command.method.startsWith("repo.agentRuntime."); }
+function isRuntimeFacadeCommand(command: ThinCommand): boolean { return command.method.startsWith("repo.agentRuntime.") || command.method.startsWith("repo.runtimeInstance.auth."); }
 async function runRuntimeFacadeCommand(command: ThinCommand, writeActivity: (text: string) => void = (text) => process.stderr.write(text)): Promise<JsonObject> { const action = command.action;
+  if (command.method.startsWith("repo.runtimeInstance.auth.")) return runRuntimeAuthCommand(command, writeActivity);
   if (action.kind === "runtime-status") { const result = await runCommandThroughDaemon(command); return result.ok === true ? { ...result, command: action.kind, summary: renderRuntimeStatus(result) } : result; }
   if (action.kind === "runtime-cancel") { const { noStream: _noStream, ...rpcAction } = action; const result = await runCommandThroughDaemon({ ...command, action: rpcAction }); return result.ok === true ? { ...result, summary: `runtime-cancel: ${String(result.detail ?? "cancelled")}` } : result; }
   if (action.kind === "runtime-wait") return waitForRuntime(command, String(action.runtimeSessionId), !command.json && action.noStream !== true, writeActivity);
-  let prompt: string; try { prompt = typeof action.prompt === "string" ? action.prompt : readFileSync(path.resolve(command.rootDir, String(action.promptFile)), "utf8"); } catch (error) { return runtimeRejected("prompt_file_unreadable", `Could not read --prompt-file: ${error instanceof Error ? error.message : String(error)}`); }
+  let prompt: string; try { prompt = typeof action.prompt === "string" ? action.prompt : readFileSync(path.resolve(command.rootDir, String(action.promptFile)), "utf8"); } catch (error) { return runtimeRejected(action.kind, "prompt_file_unreadable", `Could not read --prompt-file: ${error instanceof Error ? error.message : String(error)}`); }
   const { promptFile: _promptFile, noStream: _noStream, ...spawnAction } = action, spawned = await runCommandThroughDaemon({ ...command, action: { ...spawnAction, prompt, idempotencyKey: action.idempotencyKey ?? `runtime-cli-${randomUUID()}` } }); if (spawned.ok !== true || typeof spawned.runtimeSessionId !== "string") return spawned;
   return waitForRuntime(command, spawned.runtimeSessionId, !command.json && action.noStream !== true, writeActivity, spawned);
 }
@@ -44,8 +45,16 @@ async function waitForRuntime(command: ThinCommand, runtimeSessionId: string, st
   const result = current as unknown as AgentRuntimeSessionResult, outcome = result.session.activity.outcome!, text = result.result?.text ?? "", commandName = spawned ? "runtime-run" : "runtime-wait"; return { ...current, command: commandName, outcome, runtimeSessionId, ...(spawned ? { spawn: spawned } : {}), summary: text || `${commandName}: ${outcome}`, exitCode: outcome === "succeeded" ? 0 : 1 };
 }
 function renderRuntimeFrames(value: unknown, write: (text: string) => void): void { if (!value || typeof value !== "object") return; const record = value as Record<string, unknown>; if (Array.isArray(record.events)) { for (const event of record.events) renderRuntimeFrames(event, write); return; } if (record.type === "activity" && typeof record.content === "string") write(`[${String(record.activity)}] ${record.content}\n`); }
+// Sign-in is interactive by design: the daemon spawns the provider CLI on the instance's isolated
+// state root inside a daemon-owned PTY, and this bridge puts the operator's terminal in front of
+// it. The person completes the provider's own prompts; the CLI never sees or handles credentials.
+async function runRuntimeAuthCommand(command: ThinCommand, writeActivity: (text: string) => void): Promise<JsonObject> { const spawned = await runCommandThroughDaemon({ ...command, action: { ...command.action, idempotencyKey: typeof command.action.idempotencyKey === "string" ? command.action.idempotencyKey : `runtime-auth-${randomUUID()}` } });
+  if (spawned.ok !== true || typeof spawned.sessionId !== "string") return spawned;
+  try { const exitCode = await relayRuntimeAuthTerminal(command, spawned.sessionId, writeActivity); return { ...spawned, command: command.action.kind, exitCode, summary: `${command.action.kind}: provider terminal exited ${exitCode}` }; }
+  catch (error) { return runtimeRejected(command.action.kind, "daemon_disconnect", `The sign-in terminal stream failed: ${error instanceof Error ? error.message : String(error)}. The isolated state root keeps whatever the provider already stored; re-run the command to try again.`); }
+}
 function renderRuntimeStatus(value: JsonObject): string { if (value.session && typeof value.session === "object") { const session = value.session as Record<string, unknown>, activity = session.activity as Record<string, unknown>; return [`session: ${session.runtimeSessionId}`, `instance: ${session.instanceId}`, `provider-session: ${session.providerSessionId ?? "-"}`, `liveness: ${session.liveness}`, `outcome: ${activity.outcome ?? "running"}`, `result: ${activity.resultRef ?? "-"}`].join("\n"); } const sessions = Array.isArray(value.sessions) ? value.sessions as Record<string, unknown>[] : []; return sessions.length ? ["SESSION\tINSTANCE\tLIVENESS\tOUTCOME\tRESULT", ...sessions.map((session) => { const activity = session.activity as Record<string, unknown>; return `${session.runtimeSessionId}\t${session.instanceId}\t${session.liveness}\t${activity.outcome ?? "running"}\t${activity.resultRef ?? "-"}`; })].join("\n") : "No runtime sessions."; }
-function runtimeRejected(code: string, hint: string): JsonObject { return { schema: "command-receipt/v2", ok: false, command: "runtime-run", outcome: "op_rejected", opId: "N/A", origin: "cli", code, evidence: `rejection:${code}`, error: { code, hint }, nextAction: hint }; }
+function runtimeRejected(command: string, code: string, hint: string): JsonObject { return { schema: "command-receipt/v2", ok: false, command, outcome: "op_rejected", opId: "N/A", origin: "cli", code, evidence: `rejection:${code}`, error: { code, hint }, nextAction: hint }; }
 function contractMigrationDryRunSummary(receipt: Record<string, unknown>): string | undefined {
   if (receipt.command !== "task-contract-migrate" || typeof receipt.evidence !== "string") return undefined;
   let payload: unknown; try { payload = JSON.parse(receipt.evidence); } catch (error) { consumeKnownError(error); return undefined; }
