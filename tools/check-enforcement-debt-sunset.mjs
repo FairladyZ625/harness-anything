@@ -21,7 +21,7 @@ const overdue = [];
 let scannedRelations = 0;
 
 for (const decision of readDecisions(decisionsRoot)) {
-  if (decision.state !== "active") continue;
+  if (decision.state !== "in_effect") continue;
   const decisionDate = decision.decidedAt ?? decision.proposedAt;
   if (!decisionDate) continue;
   const ageDays = Math.floor((now.getTime() - decisionDate.getTime()) / 86_400_000);

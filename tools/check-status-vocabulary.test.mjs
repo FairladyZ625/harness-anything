@@ -97,8 +97,8 @@ test("bypass fixture: a daemon wire mirror drifting from the kernel vocabulary i
   // The wire contract cannot import the kernel barrel (CLI eager startup path), so its
   // mirrors are plain data — and the gate must keep them from silently diverging.
   const daemonText = readFileSync(path.join(repoRoot, "packages/daemon/src/protocol/daemon-protocol.contract.ts"), "utf8")
-    .replace('const decisionStateWords = ["proposed", "active", "rejected", "deferred", "superseded", "retired"] as const;',
-      'const decisionStateWords = ["proposed", "active", "rejected", "deferred", "retired"] as const;');
+    .replace('const decisionStateWords = ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired"] as const;',
+      'const decisionStateWords = ["proposed", "in_effect", "rejected", "deferred", "outcome_retired"] as const;');
   const findings = checkDaemonMirrorAgreement(register, daemonText);
   assert.ok(findings.some((finding) => finding.includes("decisionStateWords") && finding.includes("drift")), findings.join("\n"));
 

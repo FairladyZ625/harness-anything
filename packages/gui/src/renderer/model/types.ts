@@ -131,7 +131,7 @@ export interface RelationEdge {
   to: string;
   kind: RelationKind;
   direction?: "directed" | "undirected";
-  state?: "active" | "retired" | "deleted";
+  state?: "active" | "edge_retired" | "deleted";
   /** ⚠️ 同名陷阱消歧：这是「边的来源」标量；entity 顶层的 provenance 是 session 原文溯源数组（见 DecisionRow/TaskRow），同名不同义 */
   provenance: "local-document" | "external-engine";
   /** 强 relation 的 rationale 必填非空（INV-5）；evidenced-by/derives/supersedes 承重边在此给决策卡证据栏展示 */
@@ -152,8 +152,8 @@ export type DecisionState =
   | "rejected"
   | "deferred"
   | "superseded"
-  | "active"
-  | "retired"
+  | "in_effect"
+  | "outcome_retired"
   | "unknown";
 
 export type RiskTier = "low" | "medium" | "high";

@@ -8,7 +8,7 @@ import { sha256Text } from "../../src/integrity/stable-hash.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 const baseLedgerSha = ledgerCommitSha("docs", "a".repeat(40)), currentLedgerSha = baseLedgerSha;
-const lease = { schema: "lease/v1", taskId: "task-owner", executionId: "execution-1", actor, source: "local", phase: "active", expiresAt: "2026-08-12T12:00:00.000Z", ttlMs: 1_800_000, version: 3 } as const;
+const lease = { schema: "lease/v1", taskId: "task-owner", executionId: "execution-1", actor, source: "local", phase: "held", expiresAt: "2026-08-12T12:00:00.000Z", ttlMs: 1_800_000, version: 3 } as const;
 const claim = (body: string) => ({ ref: "doc-sync-claims/candidate", sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/markdown" as const });
 const state = (body: string): DocumentState => ({ path: "context/notes.md", blobSha256: sha256Text(body), body, size: Buffer.byteLength(body), mediaType: "text/markdown", policyId: DOC_POLICY_ID, workspaceRevision: 2 });
 function decide(change: DocWriteChange, document: DocumentState | null, bytes: Uint8Array | null = change.candidate ? Buffer.from(change.candidate.sha256 === sha256Text("# Notes\nA\nB\n") ? "# Notes\nA\nB\n" : "# Notes\nA\n") : null, overrides: Record<string, unknown> = {}) {

@@ -227,7 +227,7 @@ async function proofFor(command: TaskLifecycleCommand, snapshot: Snapshot, bindi
   if (command.type === "CreateReplayTask") return { taskIdUnique: true, actorBinding: command.actor };
   if (command.type === "StartExecution") { const ttlMs = command.ttlMs ?? leaseTtlMs; return { actorBinding: command.actor, reservation: { taskId: command.taskId, executionId: command.executionId, expiresAt: new Date(Date.parse(command.occurredAt) + ttlMs).toISOString(), ttlMs, previousHolder: null, reason: "initial_claim", version: 0 } }; }
   if (command.type === "TransitionTask") return {};
-  if (command.type === "SubmitExecution") { const lease = snapshot.lease; if (!lease || lease.phase !== "active" || lease.executionId !== command.executionId || !isSameExecution(lease.actor, command.actor)) throw cellCodedError("lease_required", "Submit requires the active execution lease bound to this actor.");
+  if (command.type === "SubmitExecution") { const lease = snapshot.lease; if (!lease || lease.phase !== "held" || lease.executionId !== command.executionId || !isSameExecution(lease.actor, command.actor)) throw cellCodedError("lease_required", "Submit requires the active execution lease bound to this actor.");
     return { actorBinding: command.actor, leaseVersion: lease.version, sessionDisposition: "unavailable" };
   }
   if (command.type === "RecordReview") { if (!binding.roles?.includes("$arbiter") || !independentReviewer(command.actor, snapshot)) throw cellCodedError("actor_unauthorized", "Execution Review requires an independent transport-bound arbiter."); return { actorBinding: command.actor, capability: "execution-review@v1", capabilityRef: `transport-reviewer:${command.actor.principal.personId}` }; }

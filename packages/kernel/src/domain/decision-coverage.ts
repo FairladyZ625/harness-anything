@@ -13,7 +13,7 @@ export interface CoverageResult { readonly decisionRef: string; readonly claimRe
 
 /** The one claim-coverage judgment shared by event projection and cold rebuild. */
 export function coverageOf(decisions: readonly CoverageDecision[], facts: readonly { readonly ref: string }[], tasks: readonly CoverageTask[], relations: readonly CoverageRelation[]): readonly CoverageResult[] {
-  const active = relations.filter(({ state }) => state === "active"), live = new Set(facts.filter((fact) => factLiveness(fact, active) === "live").map(({ ref }) => ref)), done = new Set(tasks.filter(({ status }) => status === "done").map(({ ref }) => ref)), bySource = new Map<string, CoverageRelation[]>();
+  const active = relations.filter(({ state }) => state === "active"), live = new Set(facts.filter((fact) => factLiveness(fact, active) === "standing").map(({ ref }) => ref)), done = new Set(tasks.filter(({ status }) => status === "done").map(({ ref }) => ref)), bySource = new Map<string, CoverageRelation[]>();
   for (const edge of active) bySource.set(edge.sourceRef, [...bySource.get(edge.sourceRef) ?? [], edge]);
   const rows: CoverageResult[] = [];
   for (const decision of decisions) for (const claim of decision.claims.filter(({ loadBearing }) => loadBearing)) {

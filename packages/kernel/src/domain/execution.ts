@@ -12,7 +12,7 @@ import type { WriteSource } from "./write-chain.contract.ts";
 
 export const executionStates = ["active", "submitted", "accepted", "changes_requested", "abandoned"] as const;
 export type ExecutionState = (typeof executionStates)[number];
-export const leasePhases = ["reserving", "active", "orphaned", "released"] as const;
+export const leasePhases = ["reserving", "held", "orphaned", "released"] as const;
 export type LeasePhase = (typeof leasePhases)[number];
 
 export const executionV1States = ["active", "submitted", "changes_requested", "accepted"] as const;
@@ -65,7 +65,7 @@ export function validateLeaseV1(value: unknown): readonly ContractValidationIssu
   if (!isNonEmptyString(value.taskId) || !isNonEmptyString(value.executionId) || !isNonEmptyString(value.expiresAt)
     || !Number.isInteger(value.ttlMs) || typeof value.ttlMs !== "number" || value.ttlMs < 1
     || !Number.isInteger(value.version) || typeof value.version !== "number" || value.version < 0
-    || !["reserving", "active", "orphaned", "released"].includes(String(value.phase))
+    || !["reserving", "held", "orphaned", "released"].includes(String(value.phase))
     || validateWriteSource(value.source).length > 0) issues.push({ code: "invalid_lease", message: "lease holder, lifecycle, or version is invalid" });
   issues.push(...validateLeaseHolder({ taskId: value.taskId, executionId: value.executionId, actor: value.actor, source: value.source }));
   return issues;

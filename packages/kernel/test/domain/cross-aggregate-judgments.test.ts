@@ -61,9 +61,9 @@ test("completed tasks retain passed gate badges from their accepted execution cu
 
 test("fact liveness retires the target of the canonical supersedes-fact edge", () => {
   const edges = [{ sourceRef: "fact/task/F-new", targetRef: "fact/task/F-old", relationType: "supersedes-fact", state: "active" }];
-  assert.equal(factLiveness({ ref: "fact/task/F-old" }, edges), "retired");
-  assert.equal(factLiveness({ ref: "fact/task/F-new" }, edges), "live");
-  assert.equal(factLiveness({ ref: "fact/task/F-old" }, [{ ...edges[0]!, state: "retired" }]), "live");
+  assert.equal(factLiveness({ ref: "fact/task/F-old" }, edges), "superseded_fact");
+  assert.equal(factLiveness({ ref: "fact/task/F-new" }, edges), "standing");
+  assert.equal(factLiveness({ ref: "fact/task/F-old" }, [{ ...edges[0]!, state: "edge_retired" }]), "standing");
 });
 
 test("coverage handles transitive evidence, delivered tasks, standing policy, and only live refuters", () => {

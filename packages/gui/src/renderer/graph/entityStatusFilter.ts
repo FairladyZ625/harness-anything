@@ -17,11 +17,11 @@ export const TASK_STATUS_FILTER_OPTIONS: ReadonlyArray<SnapshotStatus> = BOARD_C
 
 export const DECISION_STATE_FILTER_OPTIONS: ReadonlyArray<DecisionState> = [
   "proposed",
-  "active",
+  "in_effect",
   "deferred",
   "rejected",
   "superseded",
-  "retired",
+  "outcome_retired",
 ];
 
 export type TaskStatusFilterKey = SnapshotStatus | OtherStatusBucket;

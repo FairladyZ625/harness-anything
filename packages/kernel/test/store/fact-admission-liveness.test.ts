@@ -7,20 +7,20 @@ import { createFactProjectionTables, FactProjectionError, readFactRow, reduceFac
 
 const actor = { principal: { personId: "fact-admission" }, executor: null } as const;
 
-test("Fact admission accepts superseding a live target", () => {
+test("Fact admission accepts superseding a standing target", () => {
   const db = new DatabaseSync(":memory:");
   try {
     createFactProjectionTables(db);
     reduceFactEvent(db, fact(1, "F-ABCDEFGH"));
     reduceFactEvent(db, fact(2, "F-BCDEFGHJ", "fact/task-fact/F-ABCDEFGH"));
-    assert.equal(readFactRow(db, "task-fact", "F-ABCDEFGH")?.state, "retired");
-    assert.equal(readFactRow(db, "task-fact", "F-BCDEFGHJ")?.state, "live");
+    assert.equal(readFactRow(db, "task-fact", "F-ABCDEFGH")?.state, "superseded_fact");
+    assert.equal(readFactRow(db, "task-fact", "F-BCDEFGHJ")?.state, "standing");
   } finally {
     db.close();
   }
 });
 
-test("Fact admission rejects superseding an already-retired target", () => {
+test("Fact admission rejects superseding an already-superseded target", () => {
   const db = new DatabaseSync(":memory:");
   try {
     createFactProjectionTables(db);
@@ -28,7 +28,7 @@ test("Fact admission rejects superseding an already-retired target", () => {
     reduceFactEvent(db, fact(2, "F-BCDEFGHJ", "fact/task-fact/F-ABCDEFGH"));
     assert.throws(
       () => reduceFactEvent(db, fact(3, "F-CDEFGHJK", "fact/task-fact/F-ABCDEFGH")),
-      (error: unknown) => error instanceof FactProjectionError && error.code === "relation_invalid" && /already retired/u.test(error.message)
+      (error: unknown) => error instanceof FactProjectionError && error.code === "relation_invalid" && /already superseded/u.test(error.message)
     );
   } finally {
     db.close();

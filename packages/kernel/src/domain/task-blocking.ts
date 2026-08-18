@@ -12,7 +12,7 @@ export function blockingOf(tasks: readonly BlockingTask[], relations: readonly B
   const global = projection.state !== undefined && projection.state !== "ready" || Boolean(projection.hardFailWarnings?.length);
   if (global) for (const task of tasks) add(warnings, task.taskId, projection.state === "error" ? "relation query failed" : projection.state === "loading" ? "relation query loading" : projection.hardFailWarnings?.[0] ?? "relation projection hard-fail warning");
   for (const edge of relations.filter(({ relationType }) => relationType === "depends-on")) {
-    if (edge.state === "retired" || edge.state === "deleted") continue;
+    if (edge.state === "edge_retired" || edge.state === "deleted") continue;
     const sourceId = taskId(edge.sourceRef), targetId = taskId(edge.targetRef), known = [sourceId, targetId].filter((id): id is string => Boolean(id && taskById.has(id)));
     if (edge.state !== "active" || edge.direction !== "directed" || !sourceId || !targetId || !taskById.has(sourceId) || !taskById.has(targetId)) {
       const message = !sourceId || !targetId ? `invalid blocking endpoint: ${edge.sourceRef} → ${edge.targetRef}` : !taskById.has(sourceId) || !taskById.has(targetId) ? `blocking endpoint missing from task snapshot: ${!taskById.has(sourceId) ? sourceId : targetId}` : `blocking relation ${edge.relationId} is not active directed`;

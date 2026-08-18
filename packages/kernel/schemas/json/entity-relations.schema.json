@@ -36,7 +36,7 @@
         "direction": { "enum": ["directed", "undirected"] },
         "origin": { "enum": ["declared", "imported_snapshot", "generated", "inferred"] },
         "rationale": { "$ref": "#/$defs/nonBlankString" },
-        "state": { "enum": ["active", "retired", "deleted"] }
+        "state": { "enum": ["active", "edge_retired", "deleted"] }
       }
     }
   }

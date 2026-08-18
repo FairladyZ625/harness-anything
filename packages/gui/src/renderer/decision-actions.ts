@@ -83,7 +83,7 @@ export interface DecisionMutationFeedback {
   readonly receipt?: Pick<ReceiptRecord, "consentId" | "path" | "commitSha" | "documentSha256" | "worktreeVisible">;
 }
 
-const terminalState: Record<DecisionAction, DecisionRow["state"]> = { accept: "active", reject: "rejected", defer: "deferred" };
+const terminalState: Record<DecisionAction, DecisionRow["state"]> = { accept: "in_effect", reject: "rejected", defer: "deferred" };
 
 export function useDecisionActions(repoId: string) {
   const queryClient = useQueryClient();

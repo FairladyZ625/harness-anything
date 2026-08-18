@@ -19,7 +19,7 @@ type TimeRange = "all" | "14d" | "30d";
 type RelationState = "ready" | "loading" | "error";
 // Ended-decision family: retired (human-ended) and superseded (replaced) share the
 // retired bucket; each keeps its own badge and filter option inside the tab.
-const TAB_STATE: Record<PoolTab, DecisionState[]> = { proposed: ["proposed", "rejected", "deferred"], active: ["active"], retired: ["retired", "superseded"] };
+const TAB_STATE: Record<PoolTab, DecisionState[]> = { proposed: ["proposed", "rejected", "deferred"], active: ["in_effect"], retired: ["outcome_retired", "superseded"] };
 const selectClass = "rounded-md border border-border bg-surface px-2 py-1 font-mono text-[12px] text-text-muted outline-none transition-colors duration-100 hover:border-border-strong focus-visible:border-border-strong";
 
 function withinRange(decision: DecisionRow, range: TimeRange) {
@@ -66,7 +66,7 @@ export function DecisionPoolView({ repoId, decisions, facts, relations, coverage
     if (!focusedDecisionId) { handledFocusRef.current = null; return; }
     if (handledFocusRef.current === focusedDecisionId) return;
     const decision = decisions.find((candidate) => candidate.decisionId === focusedDecisionId); if (!decision) return;
-    handledFocusRef.current = focusedDecisionId; setTab(decision.state === "active" ? "active" : TAB_STATE.retired.includes(decision.state) ? "retired" : "proposed");
+    handledFocusRef.current = focusedDecisionId; setTab(decision.state === "in_effect" ? "active" : TAB_STATE.retired.includes(decision.state) ? "retired" : "proposed");
     setStateFilter("all"); setRiskFilter("all"); setUrgencyFilter("all"); setVerticalFilter("all"); setPresetFilter("all"); setProposedByFilter("all"); setTimeRange("all"); setSearch(""); setModuleFilter("all"); setProductLineFilter("all");
     const frame = window.requestAnimationFrame(() => document.getElementById(`decision-card-${focusedDecisionId}`)?.scrollIntoView({ block: "center" }));
     return () => window.cancelAnimationFrame(frame);
@@ -93,7 +93,7 @@ export function DecisionPoolView({ repoId, decisions, facts, relations, coverage
       .filter((decision) => verticalFilter === "all" || decision.vertical === verticalFilter).filter((decision) => presetFilter === "all" || decision.preset === presetFilter)
       .filter((decision) => proposedByFilter === "all" || (proposedByFilter === "unknown" ? !decision.proposedBy : decision.proposedBy?.kind === proposedByFilter)).filter((decision) => withinRange(decision, timeRange));
   }, [decisions, presetFilter, proposedByFilter, remoteEnabled, remoteIds, riskFilter, stateFilter, tab, timeRange, urgencyFilter, verticalFilter]);
-  const counts = { proposed: decisions.filter((decision) => TAB_STATE.proposed.includes(decision.state)).length, active: decisions.filter((decision) => decision.state === "active").length, retired: decisions.filter((decision) => decision.state === "retired").length };
+  const counts = { proposed: decisions.filter((decision) => TAB_STATE.proposed.includes(decision.state)).length, active: decisions.filter((decision) => decision.state === "in_effect").length, retired: decisions.filter((decision) => decision.state === "outcome_retired").length };
 
   return <div className="flex h-full flex-col">
     <header className="flex items-center gap-3 border-b border-border px-4 py-3"><div><h1 className="ui-title font-semibold">{t("renderer.shellConfig.decisionPool")}</h1><span className="font-mono text-[12px] text-text-faint">{t("views.decisionPoolView.subtitle")}</span></div>{onPropose && <button onClick={() => setProposalOpen((value) => !value)} className={`ml-auto inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-[12px] font-semibold text-accent-fg transition-colors duration-100 ${proposalOpen ? "bg-accent/85 hover:bg-accent" : "bg-accent hover:bg-accent/85"}`}><Plus weight="bold" />{t("views.decisionPoolView.proposal")}</button>}</header>
