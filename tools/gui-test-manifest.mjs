@@ -26,6 +26,7 @@ export const guiVitestManifest = [
   "packages/gui/test/overview-dimension-paging.vitest.ts",
   "packages/gui/test/status-census.vitest.ts",
   "packages/gui/test/ledger-timeline.vitest.ts",
+  "packages/gui/test/docTree.vitest.ts",
   "packages/gui/test/system-view-detail.vitest.ts",
   "packages/gui/test/recent-refs.vitest.ts"
 ];

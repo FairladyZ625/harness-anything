@@ -237,5 +237,6 @@
   "components.focusSwitcher.searchEntityPlaceholder": "搜索实体…",
   "components.focusSwitcher.openPalette": "打开命令面板",
   "components.focusSwitcher.noResults": "没有匹配的实体。",
-  "components.focusSwitcher.suggested": "推荐"
+  "components.focusSwitcher.suggested": "推荐",
+  "components.docTree.projectionDidNotReturnDocumentList": "投影未返回文档清单。"
 }

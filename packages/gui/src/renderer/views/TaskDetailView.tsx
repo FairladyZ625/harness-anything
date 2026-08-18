@@ -13,7 +13,7 @@ import type {
   TaskRow,
   RelationEdge,
 } from "../model/types";
-import { isExternal, DOC_GROUPS } from "../model/types";
+import { isExternal } from "../model/types";
 import {
   StatusBadge,
   CloseoutBadge,
@@ -22,9 +22,11 @@ import {
   FreshnessTag,
 } from "../components/badges";
 import { DocReader } from "../components/DocReader";
-import { parseTaskContractDocuments, taskDocumentQuery, useTaskDocumentQuery } from "../task-data";
+import { parseTaskContractDocuments, taskDocumentQuery, useTaskDocumentQuery, useTaskDocumentListQuery } from "../task-data";
+import { mergeProjectedDocuments, buildDocTree } from "../model/docTree";
 import { OUT_LABEL, IN_LABEL } from "../components/taskDetail/constants";
-import { AxisRow, DocPresence } from "../components/taskDetail/widgets";
+import { AxisRow } from "../components/taskDetail/widgets";
+import { DocTree } from "../components/taskDetail/DocTree";
 import { PhaseSteps } from "../components/taskDetail/PhaseSteps";
 import { RelationRow } from "../components/taskDetail/RelationRow";
 import { normalizeTaskId, spawningDecisionOf } from "../model/triadic";
@@ -107,15 +109,19 @@ export function TaskDetailView({
     catch (error) { return { docs: [], issue: error instanceof Error ? error.message : String(error), absent: false }; }
   }, [canonicalPackage, contract.data, contract.error, contract.isError, task.docs, task.packagePath, task.taskId]);
   const documentReads = useQueries({ queries: contractModel.docs.map((entry) => ({ ...taskDocumentQuery(task.projectId, task.taskId, entry.path) })) });
-  const realDocs = useMemo(() => contractModel.docs.map((entry, index) => { const read = documentReads[index];
-    if (!read || read.isPending || read.isError || !read.data || read.data.status !== "ready") return { ...entry, present: false, presence: "unknown" as const };
-    return { ...entry, present: read.data.blobSha256 !== null, presence: read.data.blobSha256 !== null ? "present" as const : "missing" as const };
-  }), [contractModel.docs, documentReads]);
-  // 文档清单只看必读/计划/设计/进度/收口/证据 6 组;其他归入进度(滚动日志)。
-  const docGroups = useMemo(
-    () => DOC_GROUPS.filter((g) => realDocs.some((d) => d.group === g)),
-    [realDocs],
-  );
+  // 任务包文档清单(repo.tasks.documents.list):task-contract 只声明槽位文件,
+  // artifacts/ 子目录里的文件(mission/report/设计稿)只有投影清单里有。
+  const documentList = useTaskDocumentListQuery(task.projectId, canonicalPackage ? task.taskId : null);
+  const realDocs = useMemo(() => {
+    const contractRead = contractModel.docs.map((entry, index) => { const read = documentReads[index];
+      if (!read || read.isPending || read.isError || !read.data || read.data.status !== "ready") return { ...entry, present: false, presence: "unknown" as const };
+      return { ...entry, present: read.data.blobSha256 !== null, presence: read.data.blobSha256 !== null ? "present" as const : "missing" as const };
+    });
+    const projected = documentList.data?.status === "ready" ? documentList.data.documents.map((doc) => doc.path) : [];
+    return mergeProjectedDocuments(contractRead, projected);
+  }, [contractModel.docs, documentReads, documentList.data]);
+  // 文档导航用路径分段树(artifacts/ 及更深子目录可展开),不再按 6 组拍平。
+  const docTree = useMemo(() => buildDocTree(realDocs), [realDocs]);
 
   const [activeDoc, setActiveDoc] = useState(
     () => realDocs[0]?.path ?? task.docs[0]?.path ?? "",
@@ -175,54 +181,18 @@ export function TaskDetailView({
       <div className="flex min-h-0 flex-1">
         {/* 文档目录树 */}
         <nav className="w-56 shrink-0 overflow-y-auto border-r border-border bg-surface p-3">
-          {docGroups.length === 0 ? (
+          {docTree.length === 0 ? (
             <div className="rounded-md border border-dashed border-border px-2 py-3 text-[12px] text-text-faint">
-              {contractModel.issue ? `task-contract ${t("views.taskDetailView.documentReadingFailed")}：${contractModel.issue}` : contractModel.absent ? t("views.taskDetailView.thereNoProjectionDocumentTask") : canonicalPackage && contract.isPending ? `${t("views.taskDetailView.reading")} canonical task-contract…` : t("views.taskDetailView.localLedgerBridgeDidNotReturn")}
+              {contractModel.issue
+                ? `task-contract ${t("views.taskDetailView.documentReadingFailed")}：${contractModel.issue}`
+                : documentList.data?.status === "ready" && documentList.data.documents.length === 0
+                  ? t("views.taskDetailView.thereNoProjectionDocumentTask")
+                  : canonicalPackage && (contract.isPending || documentList.isPending)
+                    ? `${t("views.taskDetailView.reading")} canonical 投影…`
+                    : t("components.docTree.projectionDidNotReturnDocumentList")}
             </div>
           ) : (
-            docGroups.map((g) => {
-              const groupDocs = realDocs.filter((d) => d.group === g);
-              const presentCount = groupDocs.filter((d) => d.present).length;
-              return (
-                <div key={g} className="mb-3">
-                  <div className="flex items-center justify-between px-1 pb-1">
-                    <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-                      {g}
-                    </span>
-                    <span className="font-mono text-[11px] text-text-faint">
-                      {presentCount}/{groupDocs.length}
-                    </span>
-                  </div>
-                  {groupDocs.map((d) => (
-                    <button
-                      key={d.path}
-                      onClick={() => setActiveDoc(d.path)}
-                      className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[13px] ${
-                        activeDoc === d.path
-                          ? "bg-surface-raised text-text"
-                          : "text-text-muted hover:text-text"
-                      }`}
-                    >
-                      <DocPresence doc={d} />
-                      <span className="min-w-0 truncate">{d.title}</span>
-                      {d.required && (
-                        <span className="shrink-0 rounded border border-border px-1 text-[11px] leading-[1.5] text-text-faint">
-                          {t("components.docTree.required")}
-                        </span>
-                      )}
-                      {d.presence === "missing" && d.required && (
-                        <span
-                          className="shrink-0 text-[11px]"
-                          style={{ color: "var(--color-danger)" }}
-                        >
-                          {t("components.docTree.missing")}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              );
-            })
+            <DocTree nodes={docTree} activeDoc={activeDoc} onSelectDoc={setActiveDoc} />
           )}
         </nav>
 

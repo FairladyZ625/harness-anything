@@ -1,0 +1,21 @@
+{
+  "ok": true,
+  "status": "ready",
+  "taskId": "task_01M0A39KE0ABCDEFGHJKMNPQRS",
+  "documents": [
+    {
+      "path": "/absolute/escape.md",
+      "blobSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size": 12,
+      "mediaType": "text/markdown"
+    },
+    {
+      "path": "artifacts/report.md",
+      "blobSha256": "not-a-sha",
+      "size": 12,
+      "mediaType": "text/markdown"
+    }
+  ],
+  "watermark": 3,
+  "sourceRevision": 3
+}

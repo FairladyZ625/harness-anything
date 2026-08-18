@@ -237,5 +237,6 @@
   "components.focusSwitcher.searchEntityPlaceholder": "Search entities…",
   "components.focusSwitcher.openPalette": "Open command palette",
   "components.focusSwitcher.noResults": "No matching entities.",
-  "components.focusSwitcher.suggested": "Suggested"
+  "components.focusSwitcher.suggested": "Suggested",
+  "components.docTree.projectionDidNotReturnDocumentList": "The projection returned no document list."
 }
