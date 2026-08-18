@@ -18,20 +18,25 @@ if [ -z "$previous_head" ]; then
   exit 0
 fi
 
-cli_changed_paths=$(git diff --name-only "$previous_head" HEAD -- \
-  package-lock.json \
-  package.json \
-  packages/cli/package.json \
-  packages/cli/tsconfig.build.json \
-  packages/cli/scripts/copy-assets.mjs \
-  packages/cli/src \
-  packages/kernel/package.json \
-  packages/kernel/src \
-  packages/application/package.json \
-  packages/application/src \
-  packages/domain/package.json \
-  packages/domain/src)
+# CLI triggers are derived from the CLI build program itself: the package roots tsc
+# compiles for packages/cli/tsconfig.build.json (tsconfig include + every followed
+# import), so adding an upstream source dependency extends the trigger list with the
+# code instead of a second hand-maintained copy that drifts stale.
+cli_trigger_roots=$(node_modules/.bin/tsc -p packages/cli/tsconfig.build.json --listFilesOnly \
+  | awk -v root="$repo_root" 'index($0, root "/packages/") == 1 { sub(root "/", ""); split($0, seg, "/"); print seg[1] "/" seg[2] }' | sort -u)
 
+cli_trigger_paths="package-lock.json package.json packages/cli/package.json packages/cli/tsconfig.build.json packages/cli/scripts/copy-assets.mjs packages/preset/assets"
+for cli_root in $cli_trigger_roots; do
+  cli_trigger_paths="$cli_trigger_paths $cli_root $cli_root/package.json"
+done
+
+cli_changed_paths=$(git diff --name-only "$previous_head" HEAD -- $cli_trigger_paths)
+
+# GUI triggers stay an explicit list: the GUI dist is bundled by Vite from relative
+# source imports, and packages/gui's tsconfigs are composite reference projects whose
+# standalone program is not the Vite graph (and errors TS6305 without built outputs),
+# so there is no config to derive from. Keep it aligned with what the renderer bundle
+# reaches: gui + daemon (incl. its preset and kernel/application dependencies).
 gui_changed_paths=$(git diff --name-only "$previous_head" HEAD -- \
   package-lock.json \
   package.json \
@@ -39,8 +44,10 @@ gui_changed_paths=$(git diff --name-only "$previous_head" HEAD -- \
   packages/kernel/src \
   packages/application/package.json \
   packages/application/src \
-  packages/domain/package.json \
-  packages/domain/src \
+  packages/daemon/package.json \
+  packages/daemon/src \
+  packages/preset/package.json \
+  packages/preset/src \
   packages/gui/package.json \
   packages/gui/src)
 

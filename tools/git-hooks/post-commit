@@ -23,13 +23,18 @@ if [ -z "$parent" ]; then
   exit 0
 fi
 
-changed_paths=$(git diff --name-only "$parent" HEAD -- \
-  package-lock.json \
-  package.json \
-  packages/cli/package.json \
-  packages/cli/tsconfig.build.json \
-  packages/cli/scripts/copy-assets.mjs \
-  packages/cli/src)
+# CLI triggers are derived from the CLI build program itself (same derivation as
+# post-merge): the package roots tsc compiles for packages/cli/tsconfig.build.json,
+# so adding an upstream source dependency extends the trigger list with the code.
+cli_trigger_roots=$(node_modules/.bin/tsc -p packages/cli/tsconfig.build.json --listFilesOnly \
+  | awk -v root="$repo_root" 'index($0, root "/packages/") == 1 { sub(root "/", ""); split($0, seg, "/"); print seg[1] "/" seg[2] }' | sort -u)
+
+cli_trigger_paths="package-lock.json package.json packages/cli/package.json packages/cli/tsconfig.build.json packages/cli/scripts/copy-assets.mjs packages/preset/assets"
+for cli_root in $cli_trigger_roots; do
+  cli_trigger_paths="$cli_trigger_paths $cli_root $cli_root/package.json"
+done
+
+changed_paths=$(git diff --name-only "$parent" HEAD -- $cli_trigger_paths)
 
 if [ -z "$changed_paths" ]; then
   echo "post-commit: no CLI source or asset changes; skipping CLI build."
