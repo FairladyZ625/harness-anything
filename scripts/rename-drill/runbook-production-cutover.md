@@ -122,6 +122,10 @@ test "$(git -C harness rev-parse refs/ha/canonical)" = "<manifest.destination.he
 1. **facts.md 采用逐版本 typed 重渲染,而非方案 §2.2 的"末尾一次 current 重渲染"**:追加重渲染 claim 会破坏 §6"事件总数相同"门,且新代际历史 blob 内会残留旧词;演练实测逐版本重渲染全部落位、逐字节可解释。
 2. **`ledger_layout_migrated` 的 `preEventsTreeSha` 按新代际重算**(方案未提及;不重算则新代际内部自相矛盾)。演练先在源上验证该字段==父树 sha 再替换。
 
+## 演练教训(收官材料需引用)
+
+- **改名类任务的本地停止点必须显式包含 integration tier 的受影响文件**:`check:local` fast tier 与 GUI tier 都不跑 integration shards,而 integration 层恰恰是「生产吐新词、断言仍旧词」缺陷的唯一本地捕获面——本轮 PR 五个 shard 红全部属于这一形态,其中还压着两处真生产缺陷(standing-policy coverage 仍判 `active`;migration importer 拒收全部旧词 legacy 源)。停止点写法:改名 diff 触到的实体,按实体 grep 出 integration/store/application 层测试文件清单,`node --test <files>` 显式实跑(不要裸 `--prefix`)。
+
 ## 已知残留(有意不迁,收官材料需点名)
 
 - `.harness/generated/runtime-events/` 约 707 个文件保留旧词:已退役的 runtime-events 平面,无读路径,census 不覆盖;随 `.harness` 整目录封存进旧代际。
