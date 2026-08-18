@@ -3,7 +3,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { cliCommandDomains, deriveCliCapabilities, firstCliCommand, helpDomain, parseThinCommand, renderThinCapabilities, renderThinHelp, unsupportedCommandHint } from "./cli/thin-command.ts";
-import { daemonAutostartFailureCode, runCommandThroughDaemon } from "./daemon/client.ts";
+import { consumeKnownError, daemonAutostartFailureCode, runCommandThroughDaemon } from "./daemon/client.ts";
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
   const command = firstCliCommand(argv); if (argv.includes("--version") || argv.includes("-v") || command === "version") return emitMeta("version", argv.includes("--json")); if (command === "capabilities") return emitMeta("capabilities", argv.includes("--json"));
@@ -23,8 +23,18 @@ async function taskCreateHelpCatalog(argv: readonly string[]): Promise<Array<{ i
 function cliFailure(command: string, code: string, nextAction: string): Record<string, unknown> { return { schema: "command-receipt/v2", ok: false, command, outcome: "rejected", opId: "N/A", origin: "cli", code, evidence: `rejection:${code}`, error: { code, hint: nextAction }, nextAction }; }
 export function emit(receipt: Record<string, unknown>, json: boolean): void {
   if (json) console.log(JSON.stringify(receipt));
-  else if (receipt.ok === true || receipt.command === "migrate-import" && typeof receipt.summary === "string") console.log(String(receipt.command === "doc-show" ? receipt.evidence : receipt.command === "init" ? [String(receipt.summary), `outcome: ${receipt.outcome ?? "applied"}`, ...["created", "updated", "preserved", "drifted"].map((key) => `${key}: ${JSON.stringify(receipt[key] ?? [])}`), `commit: ${String(receipt.commit ?? "none")}`, `next: ${String(receipt.next ?? "")}`].join("\n") : receipt.summary ?? `${receipt.command ?? "command"}: ${receipt.outcome ?? "applied"}`));
+  else if (receipt.ok === true || receipt.command === "migrate-import" && typeof receipt.summary === "string") { const summary = contractMigrationDryRunSummary(receipt); console.log(String(summary ?? (receipt.command === "doc-show" ? receipt.evidence : receipt.command === "init" ? [String(receipt.summary), `outcome: ${receipt.outcome ?? "applied"}`, ...["created", "updated", "preserved", "drifted"].map((key) => `${key}: ${JSON.stringify(receipt[key] ?? [])}`), `commit: ${String(receipt.commit ?? "none")}`, `next: ${String(receipt.next ?? "")}`].join("\n") : receipt.summary ?? `${receipt.command ?? "command"}: ${receipt.outcome ?? "applied"}`))); }
   else console.error(`error code=${String((receipt.error as { code?: unknown } | undefined)?.code ?? "unknown")} hint=${String(receipt.nextAction ?? receipt.next ?? "Command failed.")}`);
 }
+function contractMigrationDryRunSummary(receipt: Record<string, unknown>): string | undefined {
+  if (receipt.command !== "task-contract-migrate" || typeof receipt.evidence !== "string") return undefined;
+  let payload: unknown; try { payload = JSON.parse(receipt.evidence); } catch (error) { consumeKnownError(error); return undefined; }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+  const report = (payload as Record<string, unknown>).report, manual = (payload as Record<string, unknown>).manual;
+  if ((payload as Record<string, unknown>).applied !== false || !Array.isArray(report) || !Array.isArray(manual)) return undefined;
+  const rows = report.map(renderReceiptRow), scalars = Object.entries(payload).filter(([key, value]) => key !== "report" && key !== "manual" && (value === null || typeof value !== "object")).map(([key, value]) => `${key}=${String(value)}`).join("  ");
+  return [`report:\n${rows.length ? rows.join("\n") : "(none)"}`, scalars].filter(Boolean).join("\n");
+}
+function renderReceiptRow(row: unknown): string { return row && typeof row === "object" && !Array.isArray(row) ? Object.values(row).filter((value) => value === null || typeof value !== "object").map((value) => String(value)).join("\t") : String(row); }
 function isCliEntrypoint(): boolean { const invoked = process.argv[1]; if (!invoked) return false; try { return realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url)); } catch { return invoked.endsWith("packages/cli/src/index.ts"); } }
 if (isCliEntrypoint()) process.exitCode = await main();
