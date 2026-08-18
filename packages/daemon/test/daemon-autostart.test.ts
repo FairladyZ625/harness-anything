@@ -12,17 +12,27 @@ function coded(code: string): Error & { code: string } { const error = Object.as
 const launch = (): DaemonLaunchSpec => ({ command: "node", args: ["index.ts", "daemon", "serve", "--user-root", "/tmp/ha-user", "--daemon-id", "default"], env: {} });
 
 test("unreachable daemon is started once and the ready socket is used without a second attempt", async () => {
-  const launches: DaemonLaunchSpec[] = [];
-  const result = await ensureLocalDaemonRunning({ socketPath: "/tmp/ha-autostart.sock", launch: () => { const spec = launch(); launches.push(spec); return spec; },
-    probe: async () => launches.length > 0, spawnDetached: async () => undefined, probeIntervalMs: 1, retryDelayMs: 1, readyTimeoutMs: 50 });
-  assert.equal(result.ok, true); assert.equal(result.attempts, 1); assert.equal(launches.length, 1);
+  let spawns = 0;
+  const result = await ensureLocalDaemonRunning({ socketPath: "/tmp/ha-autostart.sock", launch,
+    probe: async () => spawns > 0, spawnDetached: async () => { spawns += 1; }, probeIntervalMs: 1, readyTimeoutMs: 50 });
+  assert.equal(result.ok, true); assert.equal(result.attempts, 1); assert.equal(spawns, 1);
 });
 
-test("two failed start attempts stop retrying and classify the failure as a bind timeout", async () => {
+test("concurrent callers share one autostart flight and wait for the same socket", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-autostart-flight-")); let spawns = 0, reachable = false;
+  const sharedLaunch = (): DaemonLaunchSpec => ({ command: "node", args: ["index.ts", "daemon", "serve", "--user-root", userRoot, "--daemon-id", "default"], env: {} });
+  try {
+    const results = await Promise.all(Array.from({ length: 12 }, () => ensureLocalDaemonRunning({ socketPath: path.join(userRoot, "daemon.sock"), launch: sharedLaunch,
+      probe: async () => reachable, spawnDetached: async () => { spawns += 1; await new Promise((resolve) => setTimeout(resolve, 20)); reachable = true; }, probeIntervalMs: 1, readyTimeoutMs: 100 })));
+    assert.equal(results.every((result) => result.ok), true); assert.equal(spawns, 1, "one CLI owns the launch; every concurrent follower only waits");
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+test("one failed start attempt stops without spawning a second daemon", async () => {
   let spawns = 0;
   const result = await ensureLocalDaemonRunning({ socketPath: "/tmp/ha-autostart-timeout.sock", launch, probe: async () => false,
-    spawnDetached: async () => { spawns += 1; }, probeIntervalMs: 1, retryDelayMs: 1, readyTimeoutMs: 5 });
-  assert.equal(result.ok, false); assert.equal(result.code, "daemon_bind_timeout"); assert.equal(result.attempts, 2); assert.equal(spawns, 2);
+    spawnDetached: async () => { spawns += 1; }, probeIntervalMs: 1, readyTimeoutMs: 5 });
+  assert.equal(result.ok, false); assert.equal(result.code, "daemon_bind_timeout"); assert.equal(result.attempts, 1); assert.equal(spawns, 1);
   assert.match(result.hint, /did not accept connections/u); assert.match(result.hint, /\/tmp\/ha-autostart-timeout\.sock/u); assert.match(result.hint, /node index\.ts daemon serve/u);
 });
 

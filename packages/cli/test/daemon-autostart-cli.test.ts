@@ -8,7 +8,7 @@ import test from "node:test";
 import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
 import { readDaemonLifecycleRecords } from "../../daemon/src/lifecycle-log.ts";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
-import { makeTaskEventStore, REPLAY_TASK_GRAPH, taskLifecycleWritePlan, type TaskEventV1 } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, registerDaemonRepo, REPLAY_TASK_GRAPH, taskLifecycleWritePlan, type TaskEventV1 } from "../../kernel/src/index.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -39,6 +39,16 @@ test("registered workspace CLI command auto-starts the daemon, retries, and succ
     assert.ok(generationStart >= 0 && bound > generationStart && attach > bound, "the resident socket must bind before the cold registry starts attaching");
     assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "stop"]).ok, true);
   } finally { rmSync(fixture.parent, { recursive: true, force: true }); }
+});
+
+test("receipt show diagnoses a missing daemon without starting one", () => {
+  const fixture = setup();
+  try {
+    registerDaemonRepo({ canonicalRoot: fixture.root, repoId: "diagnostic", userRoot: fixture.userRoot, createConvenienceLinks: false });
+    const result = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "receipt", "show", "op-missing"], { encoding: "utf8", env: cliEnv(fixture.root, fixture.userRoot) });
+    assert.notEqual(result.status, 0); const receipt = JSON.parse(result.stdout) as { error: { code: string } };
+    assert.equal(receipt.error.code, "daemon_unavailable"); assert.equal(readDaemonPid(fixture.userRoot, "default"), null, "a diagnostic read must not autostart the daemon");
+  } finally { stop(fixture.root, fixture.userRoot); rmSync(fixture.parent, { recursive: true, force: true }); }
 });
 
 test("semantic sources and agent execution cross the daemon before transport-bound human review completes", () => {
@@ -126,22 +136,22 @@ test("dry-run contract migration prints each manual task once", () => {
   }
 });
 
-test("autostart gives up after two attempts with a classified bind-timeout error", { skip: process.platform === "win32" || process.getuid?.() === 0 ? "requires POSIX non-root permission semantics" : false }, () => {
+test("autostart fails fast when its single-flight lock cannot be created", { skip: process.platform === "win32" || process.getuid?.() === 0 ? "requires POSIX non-root permission semantics" : false }, () => {
   const fixture = setup();
   try {
     assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     register(fixture.root, fixture.userRoot, "autostart-fail");
     assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "stop"]).ok, true);
     waitForDaemonDown(fixture.userRoot);
-    // A read-only user root makes every spawned `daemon serve` die on its pid write,
-    // so the autostart loop exhausts its two attempts and reports why.
+    // The lock is the first mutating step. A read-only user root must fail there
+    // with the permission cause instead of spawning or waiting for a bind timeout.
     chmodSync(fixture.userRoot, 0o555);
     const result = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "task", "list"], { encoding: "utf8", env: cliEnv(fixture.root, fixture.userRoot) });
     assert.notEqual(result.status, 0);
     const receipt = JSON.parse(result.stdout) as { ok: boolean; error: { code: string; hint: string } };
     assert.equal(receipt.ok, false);
-    assert.equal(receipt.error.code, "daemon_bind_timeout");
-    assert.match(receipt.error.hint, /did not accept connections/u);
+    assert.equal(receipt.error.code, "daemon_spawn_permission");
+    assert.match(receipt.error.hint, /permission was denied/u);
     assert.match(receipt.error.hint, /daemon serve/u);
     assert.equal(readDaemonPid(fixture.userRoot, "default"), null, "no daemon may claim to be resident after failed starts");
   } finally { chmodSync(fixture.userRoot, 0o755); rmSync(fixture.parent, { recursive: true, force: true }); }

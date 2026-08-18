@@ -28,7 +28,7 @@ async function withAutostart(request: () => Promise<JsonObject>, launch: () => D
   }
 }
 export async function runCommandThroughDaemon(command: ThinCommand, onPhase: (receipt: JsonObject) => void = () => undefined, options: { readonly autostart?: boolean } = {}): Promise<JsonObject> {
-  const { requestLocalDaemonJsonRpcForTarget } = await import("../../../daemon/src/client/local-json-rpc-client.ts"), autostart = options.autostart !== false;
+  const { requestLocalDaemonJsonRpcForTarget } = await import("../../../daemon/src/client/local-json-rpc-client.ts"), autostart = options.autostart ?? command.action.kind !== "receipt-show";
   if (command.action.kind === "repo-bootstrap") { const userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), { kind: _kind, ...params } = command.action, socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ repoId: workspaceId("bootstrap"),
     canonicalRoot: canonicalRoot(command.rootDir, true), userRoot, daemonId, socketPath }, "daemon.repo.bootstrap", { rootDir: command.rootDir, ...params }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
   if (command.method.startsWith("daemon.runtimeInstance.")) { const userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), { kind: _kind, ...payload } = command.action, socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ userRoot, daemonId, socketPath }, command.method, { payload: payload as JsonObject }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
