@@ -151,6 +151,10 @@ function headroomFor(measured) {
   return 3500;
 }
 
+// daemon was re-measured at 5a7fc71d: it had grown past the 2000-line tier
+// boundary, so the 500-line headroom it earned at 1660 no longer applied to it
+// (dec_FA1A0041BFD0FFC3D981A2ADC4). Every other module still carries the figure
+// below.
 // The production lines each ceiling was derived from, measured at c00066ba and
 // taken as max(c00066ba, c00066ba merged with #1458) so the result is the same
 // whichever of the two lands first. Only two modules differ between those trees:
@@ -164,7 +168,7 @@ const DECISION_INPUT_LINES = Object.freeze({
   preset: 372,
   cli: 171,
   gui: 18494,
-  daemon: 1660,
+  daemon: 2131,
   fleet: 222,
   "authority-write-path": 0,
   "identity-rbac": 563,
