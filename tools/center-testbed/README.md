@@ -1,8 +1,9 @@
 # PLT-Center Docker 全栈测试台
 
 为 PLT-Center M1-E/M2 验证搭的可一键起停的 Docker 台子：一个中心权威 daemon + 多个
-edge 只读节点 + 一个 harness 化测试项目 + 腾讯 GitLab 中心仓对接。**本台子只搭台，
-不实现 M2 写回/lease/同步业务功能**——那些功能测试在后续任务里跑在这个台上。
+edge 节点 + 一个 harness 化测试项目 + 腾讯 GitLab 中心仓对接。W3-B 起本台同时承载
+**写回冒烟**：edge 的 `ha task create|start|progress append|submit|release` 经 fleet TLS
+自动获取/排队 task lease（`smoke-write.sh`，四场景全真容器）。
 
 拓扑（对照 `harness/tasks/task_856697c1a1b98d751bbe09034f-plt-center` design-v2 的 M1-E/M2 节）：
 
@@ -35,12 +36,13 @@ edge 只读节点 + 一个 harness 化测试项目 + 腾讯 GitLab 中心仓对�
 
 | 容器 | 角色 | 关键内容 |
 | --- | --- | --- |
-| `seed`（跑完即退） | 测试项目工厂 | `ha init` 全新 harness 化小项目；写入真实 task、execution、decision、fact、progress；经 GitLab API 建仓并推 canonical ledger；生成 fleet TLS 证书 + roster（edge 节点凭证与 assignment）写入共享卷 |
-| `center` | 中心权威 daemon | 从 GitLab clone canonical ledger → `daemon repo register` → 冷投影重建 → `daemon fleet center start`（bind 0.0.0.0:7443）。ready 后落 `/data/center-ready` 标记翻转 healthcheck |
-| `edge-1` / `edge-2` | collaborator 只读节点 | 各自容器内 daemon（socket 命名空间互相隔离）；冒烟时经 `daemon fleet edge sync` 拉取中心投影到 `/data/view`，二次 sync 应答 `current`（零传输） |
+| `seed`（跑完即退） | 测试项目工厂 | `ha init` 全新 harness 化小项目；写入真实 task、execution、decision、fact、progress；经 GitLab API 建仓并推 canonical ledger；生成 fleet TLS 证书 + roster（edge 节点凭证与 assignment，每个 edge 独立 principal）写入共享卷；bump 台子 generation 供 center 区分冷/热启动 |
+| `center` | 中心权威 daemon | 冷启动从 GitLab clone canonical ledger → `daemon repo register` → 冷投影重建 → `daemon fleet center start`（bind 0.0.0.0:7443，`--state-root /data/fleet-state` 持久 lease/队列态）；同 generation 重启走**热路径**（不 wipe、不重 clone），lease 表幸存。ready 后落 `/data/center-ready` 标记翻转 healthcheck |
+| `edge-1` / `edge-2` | collaborator 节点 | 各自容器内 daemon（socket 命名空间互相隔离）；`daemon fleet edge sync` 拉取中心投影到 `/data/view`；入口 `/data/workspace/fleet-edge.json` 把该 root 标记为 remote-edge 镜像（凭证不复制，运行时从共享 roster 解析），`ha task ...` 写命令自动改道 center |
 
 语义对齐：center/edge 是同一个 daemon 二进制对不同 repo 的 **mode**，不是不同程序；
-`remote-center` 写仲裁、A/B 同步、lease 等 M2 语义不在本台实现范围。
+本台已覆盖 M2-B 的自动 task lease（获取/排队/孤儿回收/重启幸存）；A/B 两类同步与其余
+M2 语义仍在后续任务里叠上。
 
 ## 一键命令
 
@@ -51,16 +53,29 @@ cd tools/center-testbed
 docker compose build            # 首次构建（npm ci + CLI build，几分钟）
 docker compose up -d --wait     # seed 跑完 → center healthy → edges 起来
 bash smoke-read.sh              # 读链路冒烟（edge 拉取 + GitLab 可见性 + 日志）
+bash smoke-write.sh             # 写链路冒烟（自动 lease 四场景，见下）
 ```
 
-`docker compose down` 停止；`docker compose down -v` 连卷一起清（彻底重置）。
+`docker compose down` 停止；`docker compose down -v` 连卷一起清（彻底重置，含 lease 态）。
 
-冒烟通过标准：
+读冒烟通过标准：
 
 1. 两个 edge 各自打印 `SMOKE PASS: edge-N reads the center ledger projection through fleet TLS`；
 2. edge 视图里能读到 seed 写入的 task/decision/fact 文档内容（逐字断言）；
 3. 第二次 sync 返回 `fleet.replica.current/v1`（幂等，无传输）；
 4. GitLab 上 `root/plt-center-testbed` 可见，`main` HEAD 与 seed 推送的 canonical 一致。
+
+写冒烟（`smoke-write.sh`）通过标准——全部真容器、无 mock：
+
+1. edge-1 在 remote-edge 仓跑 `task create → start → progress append → submit` 最小闭环，
+   无任何显式 lease 命令；center 台账推进，效果自动拉回 edge-1 镜像，edge-2 sync 后视图
+   逐字可见该 progress 条目；
+2. edge-1 持有期间 edge-2 同 task 的 `task start` 在 center FIFO 排队挂起；edge-1 release
+   后 edge-2 **自动**获得 lease 并能继续写入；
+3. 显式 `--ttl-ms` 调短持有期，center reaper 回收孤儿 lease（写 `lease_released` 审计事件、
+   不自动 complete、不回滚），edge-2 可认领；
+4. `docker compose restart center`（热路径）后 `/data/fleet-state/leases.json` 的授予行、
+   域内 lease、原持有者写权、等待队列全部幸存，release 仍唤醒队首。
 
 ## 凭证与安全边界
 
@@ -98,31 +113,35 @@ delta/current 路径。
 
 ## 手动探针（可选）
 
-中心侧经 daemon 写一条 progress 并推回 GitLab，再让 edge sync 观察 delta（本台验收
-之外的能力自证，M2 写回测试将在这个原语上展开）：
+edge 侧直接用产品写入口（与冒烟同一通道，便于手工复现）：
 
 ```bash
-docker compose exec center ha --root /data/workspace --json task progress append <task-id> --text "center-side probe"
-docker compose exec center sh -c 'git -C /data/workspace/harness -c "credential.helper=!f() { echo username=oauth2; echo password=$GITLAB_TOKEN; }; f" push origin refs/heads/main:refs/heads/main refs/ha/canonical:refs/ha/canonical'
-docker compose exec edge-1 ha --json daemon fleet edge sync --host center --port 7443 --ca /data/shared/fleet/fleet.crt --node-id edge-1 --credential edge-1-machine-secret --assignment assignment-edge-1 --view-root /data/view --quota-bytes 268435456
+docker compose exec edge-1 ha --json --root /data/workspace task create --title "probe" --preset standard-task
+docker compose exec edge-1 ha --json --root /data/workspace task start <task-id>
+docker compose exec edge-1 ha --json --root /data/workspace task progress append <task-id> --text "probe"
+docker compose exec edge-2 ha --json daemon fleet edge sync --host center --port 7443 --ca /data/shared/fleet/fleet.crt --node-id edge-2 --credential edge-2-machine-secret --assignment assignment-edge-2 --view-root /data/view --quota-bytes 268435456
 ```
 
-（task-id 等参数见共享卷里的 `/data/shared/testbed-state.json`。）
+（task-id 等参数见共享卷里的 `/data/shared/testbed-state.json`；center 的 lease/队列态在
+`/data/fleet-state/leases.json`。）
 
 ## 文件
 
 | 文件 | 作用 |
 | --- | --- |
 | `Dockerfile` / `Dockerfile.dockerignore` | 基础镜像（node:24-bookworm-slim + 本仓源码 npm ci + CLI build，复用 coldstart 镜像配方） |
-| `docker-compose.yml` | seed → center(healthcheck) → edge-1/edge-2 拓扑与卷/网络 |
-| `bootstrap.mjs` | seed 入口：建项目、写台账、建/推 GitLab、铸 TLS+roster |
-| `entrypoint-center.mjs` | center 入口：clone、register、冷重建、fleet center start |
-| `entrypoint-edge.mjs` | edge 入口：常驻 daemon |
-| `smoke-edge.mjs` / `smoke-read.sh` | 容器内单边冒烟 / 宿主机一键冒烟 |
+| `docker-compose.yml` | seed → center(healthcheck) → edge-1/edge-2 拓扑与卷/网络；center 带 `HARNESS_LEASE_REAP_INTERVAL_MS=2000` |
+| `bootstrap.mjs` | seed 入口：建项目、写台账、建/推 GitLab、铸 TLS+roster（每 edge 独立 principal）、bump generation |
+| `entrypoint-center.mjs` | center 入口：冷启动 clone/register/重建；同 generation 重启走热路径；fleet center start（`--state-root /data/fleet-state`） |
+| `entrypoint-edge.mjs` | edge 入口：常驻 daemon + 写 `/data/workspace/fleet-edge.json`（remote-edge 标记） |
+| `smoke-edge.mjs` / `smoke-read.sh` | 容器内单边读冒烟 / 宿主机一键读冒烟 |
+| `smoke-write.sh` | 宿主机一键写冒烟（自动 lease 四场景） |
 | `lib/testbed.mjs` | 容器内共享 helper（ha 调用、receipt 解包、daemon 生命周期） |
 
 ## 已知边界
 
-- 写回链路（edge → center → GitLab）是 M2 的面，本台只保证读链路与 GitLab 推/拉原语可用。
-- center 冷启动会做投影重建（分钟级属正常）；healthcheck 预算 10 分钟。
+- 读链路（edge pull）、写链路（edge → center 自动 lease → ledger）已验收；center 写后向
+  GitLab 的 canonical 自动推送仍未接（手动探针那类 push 仍需手工），M2-F 的聚合推送是后续面。
+- center 冷启动（首次或 reseed 后）会做投影重建（分钟级属正常）；healthcheck 预算 10 分钟；
+  同 generation 重启走热路径，秒级。
 - GitLab 侧只做建仓/删仓/推拉，不做任何服务器级配置变更。

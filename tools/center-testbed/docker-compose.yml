@@ -38,6 +38,9 @@ services:
     environment:
       <<: *daemon-env
       HARNESS_DAEMON_ID: center
+      # Orphan-lease scan cadence for the write scenarios; the default TTL
+      # stays 24h and scenario-specific leases use an explicit --ttl-ms.
+      HARNESS_LEASE_REAP_INTERVAL_MS: "2000"
     volumes:
       - testbed-shared:/data/shared:ro
       - testbed-center:/data
