@@ -43,7 +43,9 @@ export function FactInspector({
   const fact = facts.find((candidate) => candidate.anchor === anchor);
   const task = fact ? tasks.find((candidate) => candidate.taskId === fact.taskId) : undefined;
   const inbound = relations.filter((relation) => relation.to === fullRef);
-  const contradictions = incomingRelations(fullRef, "refuted-by", relations);
+  // Current contradiction status follows kernel decision coverage: retired/deleted
+  // refuted-by edges remain visible in the incoming audit list, but do not warn here.
+  const contradictions = activeIncomingRelations(fullRef, "refuted-by", relations);
   // Kernel fact-liveness criterion: only an active supersedes-fact edge marks the
   // fact replaced; retired/deleted edges are audit history (see activeIncomingRelations).
   const supersedingRelations = activeIncomingRelations(fullRef, "supersedes-fact", relations);

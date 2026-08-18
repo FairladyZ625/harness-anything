@@ -197,9 +197,20 @@ describe("fact anomaly classification (TERRITORY-001)", () => {
   it("classifies a fact targeted by refuted-by as contradictory", () => {
     const f = fact({ anchor: "task_a/F-contr" });
     const relations: RelationEdge[] = [
-      { from: "decision/dec_1", to: `fact/${f.anchor}`, kind: "refuted-by", provenance: "local-document" },
+      { from: "decision/dec_1", to: `fact/${f.anchor}`, kind: "refuted-by", state: "active", provenance: "local-document" },
     ];
     expect(classifyFactAnomaly(`fact/${f.anchor}`, f, relations, new Set())).toBe("contradictory");
+  });
+
+  it("does not classify a fact as contradictory from a retired or deleted refuted-by edge", () => {
+    const f = fact({ anchor: "task_a/F-contr" });
+    const covered = new Set([`fact/${f.anchor}`]);
+    for (const state of ["retired", "deleted"] as const) {
+      const relations: RelationEdge[] = [
+        { from: "decision/dec_1", to: `fact/${f.anchor}`, kind: "refuted-by", state, provenance: "local-document" },
+      ];
+      expect(classifyFactAnomaly(`fact/${f.anchor}`, f, relations, covered)).toBe("normal");
+    }
   });
 
   it("classifies a fact with invalidated flag as contradictory", () => {

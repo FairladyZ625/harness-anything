@@ -58,8 +58,9 @@ export function computeFactTriageSignals(
 
   // Kernel grammar (canonical direction): decision --refuted-by--> fact. The fact that
   // refutes a decision is the contradictory observation that deserves attention; the
-  // reverse question goes through the domain query, never the retired invalidated-by alias.
-  const refutingDecisionRefs = incomingRelations(factRef, "refuted-by", relations).map((edge) => edge.from);
+  // edge must be active, while retired/deleted edges remain audit history. The reverse
+  // question goes through the domain query, never the retired invalidated-by alias.
+  const refutingDecisionRefs = activeIncomingRelations(factRef, "refuted-by", relations).map((edge) => edge.from);
   if (refutingDecisionRefs.length > 0) {
     signals.push({
       kind: "INVALIDATED",

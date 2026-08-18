@@ -15,12 +15,12 @@ export function incomingRelations(targetRef: string, kind: RelationKind, relatio
 }
 
 /**
- * Kernel parity filter for fact supersession
- * (packages/kernel/src/domain/fact-liveness.ts): only an incoming edge with
+ * Kernel parity filter for current incoming relation semantics
+ * (packages/kernel/src/domain/decision-coverage.ts): only an incoming edge with
  * state "active" carries its relation semantics forward; retired/deleted edges
  * are audit history. Every renderer derivation that treats an incoming edge as
- * current (e.g. "this fact is superseded") must compose this predicate instead
- * of re-deriving the criterion, so the two layers cannot drift.
+ * current (e.g. "this fact is superseded" or contradicted) must compose this
+ * predicate instead of re-deriving the criterion, so the two layers cannot drift.
  */
 export function activeIncomingRelations(targetRef: string, kind: RelationKind, relations: ReadonlyArray<RelationEdge>): ReadonlyArray<RelationEdge> {
   return incomingRelations(targetRef, kind, relations).filter((edge) => edge.state === "active");
