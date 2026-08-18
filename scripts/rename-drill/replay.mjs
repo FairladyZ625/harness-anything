@@ -201,17 +201,17 @@ function transformDecisionFrontmatterValue(key, value, digestMap, where) {
     if (key === "relations" && next.state === "retired") next.state = "edge_retired";
     if (key === "judgmentConsents") {
       if (Object.hasOwn(DECISION_STATE_MAP, next.targetState)) next.targetState = DECISION_STATE_MAP[next.targetState];
-      if (typeof next.machineDigest === "string") next.machineDigest = mapDigest(next.machineDigest, digestMap, where);
+      if (typeof next.machineDigest === "string") next.machineDigest = mapDigest(next.machineDigest, digestMap);
     }
     if (key === "contentPins") {
       if (Object.hasOwn(DECISION_STATE_MAP, next.state)) next.state = DECISION_STATE_MAP[next.state];
-      if (typeof next.digest === "string") next.digest = mapDigest(next.digest, digestMap, where);
+      if (typeof next.digest === "string") next.digest = mapDigest(next.digest, digestMap);
     }
     return next;
   });
 }
 
-function mapDigest(digest, digestMap, where) {
+function mapDigest(digest, digestMap) {
   const mapped = digestMap.get(digest);
   if (mapped !== undefined) { counters.digestsChanged += 1; return mapped; }
   return digest;
@@ -279,7 +279,7 @@ function migrationClaims(payload) {
 // fast-import writer
 // ---------------------------------------------------------------------------
 
-function makeFastImport(repo, ref) {
+function makeFastImport(repo) {
   const child = spawn("git", ["-C", repo, "-c", "core.fsync=none", "fast-import", "--quiet", "--force", "--done", "--cat-blob-fd=3"], { stdio: ["pipe", "inherit", "inherit", "pipe"] });
   let markBuffer = "";
   const markWaiters = [];
@@ -352,8 +352,7 @@ const blobShaRenames = new Map();
 const transformedBlobBodies = new Map();
 const cutMap = [];
 
-const fi = makeFastImport(DEST, "refs/heads/ha-drill-new");
-let previousNewCommitSha = base.sha; // resolved lazily via get-mark only when needed
+const fi = makeFastImport(DEST);
 let previousMark = null;
 let pendingParentResolved = base.sha;
 

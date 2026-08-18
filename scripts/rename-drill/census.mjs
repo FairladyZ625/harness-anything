@@ -128,7 +128,7 @@ function censusRuntimeEvents(workspace) {
       if (statSync(child).isDirectory()) walk(child);
       else {
         files += 1;
-        let body = "";
+        let body;
         try { body = readFileSync(child, "utf8"); } catch { continue; }
         if (/"(?:outcome|phase)"\s*:\s*"rejected"/u.test(body)) rejected += 1;
         if (/"(?:outcome|phase)"\s*:\s*"deferred"/u.test(body)) deferred += 1;
