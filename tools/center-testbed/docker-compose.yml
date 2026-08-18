@@ -1,0 +1,97 @@
+# PLT-Center full-stack testbed. One-shot seed bootstraps the test project and
+# pushes the canonical ledger to GitLab; the center daemon attaches the cloned
+# ledger and serves fleet TLS; two edge daemons replicate read-only views.
+# Requires: export GITLAB_TOKEN=$(cat ~/.harness-secrets-center-testbed-token)
+
+name: plt-center-testbed
+
+x-testbed-image: &testbed-image
+  image: plt-center-testbed/source
+  build:
+    context: ../..
+    dockerfile: tools/center-testbed/Dockerfile
+
+services:
+  seed:
+    <<: *testbed-image
+    container_name: plt-center-seed
+    # people.yaml pins its unix-socket credential to host:<hostname>; the seed
+    # mints it and the center must resolve it, so both share one hostname.
+    hostname: testbed-host
+    command: ["node", "/opt/testbed/bootstrap.mjs"]
+    environment: &daemon-env
+      GITLAB_TOKEN: ${GITLAB_TOKEN:?export GITLAB_TOKEN=$(cat ~/.harness-secrets-center-testbed-token)}
+      # Exec'd `ha` commands must target the same daemon the entrypoint owns.
+      HARNESS_DAEMON_USER_ROOT: /data/daemon-user
+      HARNESS_DAEMON_ID: seed
+      HARNESS_ACTOR: agent:plt-center-testbed
+    volumes:
+      - testbed-shared:/data/shared
+      - testbed-workspace:/data/workspace
+    networks: [fleet]
+
+  center:
+    <<: *testbed-image
+    container_name: plt-center-center
+    hostname: testbed-host
+    command: ["node", "/opt/testbed/entrypoint-center.mjs"]
+    environment:
+      <<: *daemon-env
+      HARNESS_DAEMON_ID: center
+    volumes:
+      - testbed-shared:/data/shared:ro
+      - testbed-center:/data
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "sh", "-c", "test -f /data/center-ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 120
+      start_period: 20s
+    networks: [fleet]
+
+  edge-1:
+    <<: *testbed-image
+    container_name: plt-center-edge-1
+    hostname: testbed-edge-1
+    command: ["node", "/opt/testbed/entrypoint-edge.mjs"]
+    environment:
+      <<: *daemon-env
+      HARNESS_DAEMON_ID: edge-1
+      TESTBED_NODE_ID: edge-1
+    volumes:
+      - testbed-shared:/data/shared:ro
+      - testbed-edge-1:/data
+    depends_on:
+      center:
+        condition: service_healthy
+    networks: [fleet]
+
+  edge-2:
+    <<: *testbed-image
+    container_name: plt-center-edge-2
+    hostname: testbed-edge-2
+    command: ["node", "/opt/testbed/entrypoint-edge.mjs"]
+    environment:
+      <<: *daemon-env
+      HARNESS_DAEMON_ID: edge-2
+      TESTBED_NODE_ID: edge-2
+    volumes:
+      - testbed-shared:/data/shared:ro
+      - testbed-edge-2:/data
+    depends_on:
+      center:
+        condition: service_healthy
+    networks: [fleet]
+
+volumes:
+  testbed-shared:
+  testbed-workspace:
+  testbed-center:
+  testbed-edge-1:
+  testbed-edge-2:
+
+networks:
+  fleet:
