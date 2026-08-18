@@ -6,10 +6,13 @@ import { DatabaseSync } from "node:sqlite";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskProjection, registerDaemonRepo } from "../../kernel/src/index.ts";
+import { makeTaskProjection, registerDaemonRepo, unregisterDaemonRepo } from "../../kernel/src/index.ts";
+import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { readDaemonLifecycleRecords } from "../src/lifecycle-log.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
+import { startDaemon } from "../src/runtime.ts";
 
 const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: process.getuid?.() ?? 0, source: "unix-socket-filesystem-owner-boundary" } } as const;
 
@@ -76,6 +79,29 @@ test("a dead warming repository can be unregistered through daemon-level local a
     const receipt = await host.admin({ kind: "unregister", repoId: "host-unregister-warming" }, auth); assert.equal(receipt.outcome, "applied");
     await host.attachmentsSettled(); assert.equal(host.status().repos.some((repo) => repo.repoId === "host-unregister-warming"), false);
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("production-shaped cold restarts keep socket p95 below ten seconds and report attach separately", async (context) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-restart-budget-")), userRoot = path.join(parent, "user"), liveRoots: string[] = [];
+  try {
+    for (let index = 0; index < 4; index += 1) { const rootDir = path.join(parent, `live-${index}`); liveRoots.push(rootDir); rosterRepo(rootDir, `live-${index}`); for (let directory = 0; directory < 250; directory += 1) mkdirSync(path.join(rootDir, "harness", `directory-${directory}`)); registerDaemonRepo({ canonicalRoot: rootDir, repoId: `live-${index}`, userRoot, createConvenienceLinks: false }); }
+    const deadRoot = path.join(parent, "dead"); rosterRepo(deadRoot, "dead"); registerDaemonRepo({ canonicalRoot: deadRoot, repoId: "dead", userRoot, createConvenienceLinks: false }); rmSync(deadRoot, { recursive: true, force: true });
+    const full = await restartSamples("budget-full", 20, 5); unregisterDaemonRepo("dead", { userRoot, createConvenienceLinks: false }); const liveOnly = await restartSamples("budget-live", 20, 4);
+    context.diagnostic(`restart-budget full=${JSON.stringify(summary(full))}`); context.diagnostic(`restart-budget live-only=${JSON.stringify(summary(liveOnly))}`);
+    assert.ok(p95(full.map((sample) => sample.socketMs)) <= 10_000); assert.ok(p95(liveOnly.map((sample) => sample.socketMs)) <= 10_000);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+
+  async function restartSamples(daemonId: string, count: number, expectedRepos: number): Promise<Array<{ socketMs: number; attachMs: number; maxRepoAttachMs: number }>> {
+    const samples: Array<{ socketMs: number; attachMs: number; maxRepoAttachMs: number }> = [];
+    for (let sample = 0; sample < count; sample += 1) {
+      for (const rootDir of liveRoots) rmSync(path.join(rootDir, ".harness/cache"), { recursive: true, force: true });
+      const before = readDaemonLifecycleRecords(userRoot, daemonId).length, started = performance.now(), daemon = await startDaemon({ userRoot, daemonId }), bound = performance.now(); assert.ok("stop" in daemon);
+      for (;;) { const status = await requestDaemonJsonRpcAt(daemon.endpoint, "daemon.status", {}, 1_000) as { readonly repos: readonly { readonly state: string }[] }; if (status.repos.length === expectedRepos && status.repos.every((repo) => repo.state !== "warming")) break; await new Promise((resolve) => setTimeout(resolve, 2)); }
+      const settled = performance.now(), attachDurations = readDaemonLifecycleRecords(userRoot, daemonId).slice(before).filter((record) => record.event === "repo_attach_completed" || record.event === "repo_attach_failed").map((record) => record.durationMs ?? 0); assert.equal(attachDurations.length, expectedRepos);
+      samples.push({ socketMs: bound - started, attachMs: settled - bound, maxRepoAttachMs: Math.max(...attachDurations) }); await daemon.stop();
+    }
+    return samples;
+  }
 });
 
 test("the host-level re-probe is throttled to one attempt per interval", async () => {
@@ -223,3 +249,5 @@ async function waitControl(host: Awaited<ReturnType<typeof openDaemonHost>>, ope
   for (let attempt = 0; attempt < 50; attempt += 1) { const receipt = host.controlReceipt(operationId, auth); if (receipt.phase === "settled" || receipt.phase === "failed") return receipt; await new Promise<void>((resolve) => setImmediate(resolve)); }
   assert.fail(`control ${operationId} did not settle`);
 }
+function p95(values: readonly number[]): number { const sorted = [...values].sort((left, right) => left - right); return sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] ?? 0; }
+function summary(samples: readonly { socketMs: number; attachMs: number; maxRepoAttachMs: number }[]) { return { samples: samples.length, socketP95Ms: Number(p95(samples.map((sample) => sample.socketMs)).toFixed(3)), attachP95Ms: Number(p95(samples.map((sample) => sample.attachMs)).toFixed(3)), maxRepoAttachP95Ms: Number(p95(samples.map((sample) => sample.maxRepoAttachMs)).toFixed(3)) }; }

@@ -28,7 +28,7 @@ export interface DaemonLifecycleLog { readonly record: (entry: DaemonLifecycleEn
 export type DaemonLifecycleRecorder = DaemonLifecycleLog["record"];
 
 export function daemonLifecycleLogPath(userRoot: string, daemonId: string): string {
-  return path.join(userRoot, "logs", `daemon-${safeRuntimeId(daemonId)}.log`);
+  return path.join(userRoot, "logs", `daemon-${safeLifecycleRuntimeId(daemonId)}.log`);
 }
 
 export function openDaemonLifecycleLog(input: { readonly userRoot: string; readonly daemonId: string; readonly maxBytes?: number; readonly keptFiles?: number; readonly now?: () => Date; readonly pid?: number; readonly onFailure?: (error: unknown) => void }): DaemonLifecycleLog {
@@ -36,10 +36,10 @@ export function openDaemonLifecycleLog(input: { readonly userRoot: string; reado
   let prepared = false, reportedFailure = false;
   return { record: (entry) => {
     try {
-      if (!prepared) { mkdirSync(path.dirname(logPath), { recursive: true }); rotate(logPath, maxBytes, keptFiles); prepared = true; }
+      if (!prepared) { mkdirSync(path.dirname(logPath), { recursive: true }); rotateLifecycleLog(logPath, maxBytes, keptFiles); prepared = true; }
       appendFileSync(logPath, `${JSON.stringify({ schema: DAEMON_LIFECYCLE_LOG_SCHEMA.id, at: now().toISOString(), daemonId: input.daemonId, pid, ...entry } satisfies DaemonLifecycleRecord)}\n`, "utf8");
     } catch (error) {
-      consumeKnownError(error); if (reportedFailure) return; reportedFailure = true; (input.onFailure ?? defaultFailureReporter)(error);
+      consumeKnownError(error); if (reportedFailure) return; reportedFailure = true; (input.onFailure ?? defaultLifecycleFailureReporter)(error);
     }
   } };
 }
@@ -47,7 +47,7 @@ export function openDaemonLifecycleLog(input: { readonly userRoot: string; reado
 // The launcher rotates before opening the fd. The child then owns that inode for its
 // whole lifetime, so a mid-run rename can never strand fatal stderr in an old file.
 export function openDaemonOutputFd(logPath: string, maxBytes = defaultMaxBytes, keptFiles = defaultKeptFiles): number {
-  mkdirSync(path.dirname(logPath), { recursive: true }); rotate(logPath, maxBytes, keptFiles); return openSync(logPath, "a", 0o600);
+  mkdirSync(path.dirname(logPath), { recursive: true }); rotateLifecycleLog(logPath, maxBytes, keptFiles); return openSync(logPath, "a", 0o600);
 }
 
 export function closeDaemonOutputFd(fd: number): void { try { closeSync(fd); } catch (error) { consumeKnownError(error); } }
@@ -64,16 +64,16 @@ export function readDaemonLifecycleRecords(userRoot: string, daemonId: string): 
   return records;
 }
 
-function rotate(logPath: string, maxBytes: number, keptFiles: number): void {
-  if (fileSize(logPath) < maxBytes) return;
+function rotateLifecycleLog(logPath: string, maxBytes: number, keptFiles: number): void {
+  if (logFileSize(logPath) < maxBytes) return;
   if (keptFiles < 1) { rmSync(logPath, { force: true }); return; }
   rmSync(`${logPath}.${keptFiles}`, { force: true });
-  for (let index = keptFiles - 1; index >= 1; index -= 1) if (fileExists(`${logPath}.${index}`)) renameSync(`${logPath}.${index}`, `${logPath}.${index + 1}`);
+  for (let index = keptFiles - 1; index >= 1; index -= 1) if (logFileExists(`${logPath}.${index}`)) renameSync(`${logPath}.${index}`, `${logPath}.${index + 1}`);
   renameSync(logPath, `${logPath}.1`);
 }
-function fileSize(filePath: string): number { try { return statSync(filePath).size; } catch (error) { if (isMissing(error)) return 0; throw error; } }
-function fileExists(filePath: string): boolean { try { statSync(filePath); return true; } catch (error) { if (isMissing(error)) return false; throw error; } }
+function logFileSize(filePath: string): number { try { return statSync(filePath).size; } catch (error) { if (isMissing(error)) return 0; throw error; } }
+function logFileExists(filePath: string): boolean { try { statSync(filePath); return true; } catch (error) { if (isMissing(error)) return false; throw error; } }
 function isMissing(error: unknown): boolean { return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT"; }
 function generation(file: string): number { const suffix = Number(file.slice(file.lastIndexOf(".") + 1)); return Number.isInteger(suffix) ? suffix : 0; }
-function safeRuntimeId(value: string): string { return value.replace(/[^A-Za-z0-9_.-]/gu, "-"); }
-function defaultFailureReporter(error: unknown): void { process.stderr.write(`harness daemon: lifecycle log disabled after write failure: ${error instanceof Error ? error.message : String(error)}\n`); }
+function safeLifecycleRuntimeId(value: string): string { return value.replace(/[^A-Za-z0-9_.-]/gu, "-"); }
+function defaultLifecycleFailureReporter(error: unknown): void { process.stderr.write(`harness daemon: lifecycle log disabled after write failure: ${error instanceof Error ? error.message : String(error)}\n`); }
