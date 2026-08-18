@@ -1,1 +1,1 @@
-{"schema":"command-receipt/v2","ok":false,"command":"repo.tasks.list","outcome":"rejected","opId":"N/A","origin":"daemon","code":"bad","evidence":"rejection:bad","error":{"code":"different"},"nextAction":"retry"}
+{"schema":"command-receipt/v2","ok":false,"command":"repo.tasks.list","outcome":"op_rejected","opId":"N/A","origin":"daemon","code":"bad","evidence":"rejection:bad","error":{"code":"different"},"nextAction":"retry"}

@@ -90,7 +90,7 @@ test("transition service freezes targets and makes create/start idempotent by op
     });
 
     assert.equal(started.outcome, "applied");
-    assert.equal(started.snapshot.lease?.phase, "active");
+    assert.equal(started.snapshot.lease?.phase, "held");
     assert.equal(started.snapshot.executions[0]?.state, "active");
     assert.equal(JSON.stringify(eventStore.read().events).includes("credential"), false);
   } finally {

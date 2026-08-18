@@ -24,7 +24,7 @@ test("local doc submit rejects the retired selection assembler", async () => {
     writeAuthored(fixture.rootDir, relativePath, "# Notes\n");
     const result = await fixture.cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: canonicalSha(fixture.rootDir),
       selections: [{ path: relativePath, baseBlobSha256: null }] }, { actor, source: "local" });
-    assert.equal(result.outcome, "rejected");
+    assert.equal(result.outcome, "op_rejected");
     assert.equal(result.code, "invalid_command");
   } finally { await fixture.close(); }
 });

@@ -19,7 +19,7 @@ test("claim releases its CAS reservation before publication and converges from a
     const converged = await harness.service.read("task-1");
     assert.equal(converged.status, "ready");
     assert.equal(converged.snapshot.executions[0]?.state, "active");
-    assert.equal(converged.snapshot.lease?.phase, "active");
+    assert.equal(converged.snapshot.lease?.phase, "held");
   } finally {
     harness.cleanup();
   }

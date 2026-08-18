@@ -87,15 +87,15 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   { word: "error", entity: "Task", field: "blocking projection availability", meaning: "Relation projection failed; every blocking verdict is unknown.", divergence: "entity-scoped" },
   { word: "covered", entity: "Decision", field: "claim coverage status", meaning: "coverageOf verdict: the claim's declared fulfillment mode is satisfied by live evidence.", divergence: "entity-scoped" },
   { word: "uncovered", entity: "Decision", field: "claim coverage status", meaning: "coverageOf verdict: no satisfying evidence, or fulfillment undeclared (null).", divergence: "entity-scoped" },
-  { word: "live", entity: "FactRecord", field: "liveness", meaning: "factLiveness verdict: no active supersedes-fact edge targets this fact.", divergence: "entity-scoped" },
-  { word: "retired", entity: "FactRecord", field: "liveness", meaning: "factLiveness verdict: an active supersedes-fact edge targets this fact.", divergence: "divergent", resolution: "Same words and meanings as FactRecord.state (authored rows); fact.liveness is the computed single derivation. One meaning, two fields — unify when the authored row field is regenerated from the domain function." },
+  { word: "standing", entity: "FactRecord", field: "liveness", meaning: "factLiveness verdict: no active supersedes-fact edge targets this fact.", divergence: "entity-scoped" },
+  { word: "superseded_fact", entity: "FactRecord", field: "liveness", meaning: "factLiveness verdict: an active supersedes-fact edge targets this fact.", divergence: "entity-scoped" },
   { word: "passed", entity: "TaskCloseout", field: "gate status", meaning: "The matching completion-gate witness on the current cut has result pass.", divergence: "entity-scoped" },
   { word: "failed", entity: "TaskCloseout", field: "gate status", meaning: "A matching witness exists on the current cut but its result is not pass.", divergence: "entity-scoped" },
   { word: "missing", entity: "TaskCloseout", field: "gate status", meaning: "No witness matches the current execution cut.", divergence: "entity-scoped" },
   { word: "unknown", entity: "TaskCloseout", field: "gate status", meaning: "Witness availability could not be read.", divergence: "entity-scoped" },
   // ---- Task.status (execution coordination; the WIP machine) ----
   { word: "planned", entity: "Task", field: "status", meaning: "Task is committed but no execution has opened it yet.", divergence: "entity-scoped" },
-  { word: "active", entity: "Task", field: "status", meaning: "Task is in an open executing state and occupies a WIP slot.", divergence: "divergent", resolution: "One of six unrelated `active` concepts; rename is stored data (task snapshots and events), so this slice registers the meaning instead — CH2 proposal only." },
+  { word: "active", entity: "Task", field: "status", meaning: "Task is in an open executing state and occupies a WIP slot.", divergence: "divergent", resolution: "One of four unrelated `active` concepts (Task/Execution/RelationEdge/Package); rename is stored data (task snapshots and events), so this slice registers the meaning instead — CH2 proposal only." },
   { word: "blocked", entity: "Task", field: "status", meaning: "Task is held by an external condition; still open, still occupies WIP.", divergence: "entity-scoped" },
   { word: "in_review", entity: "Task", field: "status", meaning: "Task is in the review node; review artifacts are required.", divergence: "entity-scoped" },
   { word: "done", entity: "Task", field: "status", meaning: "Task reached its delivery terminal state.", divergence: "entity-scoped" },
@@ -105,12 +105,12 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
 
   // ---- Decision.state (adjudication outcomes; persisted policy) ----
   { word: "proposed", entity: "Decision", field: "state", meaning: "Decision awaits judgment.", divergence: "entity-scoped" },
-  { word: "active", entity: "Decision", field: "state", meaning: "Decision was accepted and its policy is in effect (accept writes active; there is no separate accepted state).", divergence: "divergent", resolution: "Diverges from Task/Execution/Lease/Relation/Package `active`; stored in decision documents and events, so registration only — CH2 proposal (e.g. in_effect) in slice report." },
-  { word: "rejected", entity: "Decision", field: "state", meaning: "Judgment refused the decision; a persistent policy state that feeds later adjudication.", divergence: "divergent", resolution: "Preset-run and write-receipt `rejected` are one-shot operation results; the decision word is stored policy. Receipt/preset renames are public surfaces — CH2 proposal only." },
+  { word: "in_effect", entity: "Decision", field: "state", meaning: "Decision was accepted and its policy is in effect (accept writes in_effect; there is no separate accepted state).", divergence: "entity-scoped" },
+  { word: "rejected", entity: "Decision", field: "state", meaning: "Judgment refused the decision; a persistent policy state that feeds later adjudication.", divergence: "divergent", resolution: "The one-shot operation results are now op_rejected (WriteReceipt/PresetRun); the decision word is stored policy and keeps rejected." },
   { word: "deferred", entity: "Decision", field: "state", meaning: "Judgment postponed; a persistent policy state.", divergence: "entity-scoped" },
   { word: "superseded", entity: "Decision", field: "state", meaning: "A later decision replaced this one (ADR-0020 D1: consumers must preserve this state, never fold it back into proposed).", divergence: "entity-scoped" },
-  { word: "retired", entity: "Decision", field: "state", meaning: "A human ended the decision's standing deliberately.", divergence: "divergent", resolution: "Edge-retired is bookkeeping and fact-retired is derivation; decision-retired is a chosen outcome stored in the ledger (34 live rows at scout time) — CH2 proposal only." },
-  { word: "active", entity: "Decision", field: "judgment targetState", meaning: "Judgment consent target when the action is accept.", divergence: "entity-scoped" },
+  { word: "outcome_retired", entity: "Decision", field: "state", meaning: "A human ended the decision's standing deliberately.", divergence: "entity-scoped" },
+  { word: "in_effect", entity: "Decision", field: "judgment targetState", meaning: "Judgment consent target when the action is accept.", divergence: "entity-scoped" },
   { word: "rejected", entity: "Decision", field: "judgment targetState", meaning: "Judgment consent target when the action is reject.", divergence: "entity-scoped" },
   { word: "deferred", entity: "Decision", field: "judgment targetState", meaning: "Judgment consent target when the action is defer.", divergence: "entity-scoped" },
 
@@ -123,13 +123,13 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
 
   // ---- Lease.phase (the current claim on a task) ----
   { word: "reserving", entity: "Lease", field: "phase", meaning: "Lease write is reserved but not yet activated.", divergence: "entity-scoped" },
-  { word: "active", entity: "Lease", field: "phase", meaning: "The claim is currently held by its execution.", divergence: "divergent", resolution: "Blueprint proposes Lease.active → held; the word is stored in lease events (`phase`), so it is a data migration — CH2 proposal only, not executed." },
+  { word: "held", entity: "Lease", field: "phase", meaning: "The claim is currently held by its execution.", divergence: "entity-scoped" },
   { word: "orphaned", entity: "Lease", field: "phase", meaning: "Holder is unreachable; the lease awaits reclaim.", divergence: "entity-scoped" },
   { word: "released", entity: "Lease", field: "phase", meaning: "Holder handed the lease back; reclaimable.", divergence: "entity-scoped" },
 
   // ---- RelationEdge.state (bookkeeping of an edge) ----
-  { word: "active", entity: "RelationEdge", field: "state", meaning: "Edge is load-bearing (not retired, not deleted).", divergence: "divergent", resolution: "Bookkeeping liveness, unrelated to the five other `active` concepts; stored in relation records — CH2 proposal only." },
-  { word: "retired", entity: "RelationEdge", field: "state", meaning: "Edge was retired in place; kept as audit history.", divergence: "divergent", resolution: "Bookkeeping retirement differs from decision/fact retirement; stored in relation records — CH2 proposal only." },
+  { word: "active", entity: "RelationEdge", field: "state", meaning: "Edge is load-bearing (not edge_retired, not deleted).", divergence: "divergent", resolution: "Bookkeeping liveness, unrelated to the other `active` concepts (Task/Execution/Package); stored in relation records — CH2 proposal only." },
+  { word: "edge_retired", entity: "RelationEdge", field: "state", meaning: "Edge was retired in place; kept as audit history.", divergence: "entity-scoped" },
   { word: "deleted", entity: "RelationEdge", field: "state", meaning: "Edge record removed from the live document.", divergence: "entity-scoped" },
 
   // ---- Package.disposition (task package lifecycle) ----
@@ -138,8 +138,8 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   { word: "tombstoned", entity: "Package", field: "disposition", meaning: "Package deleted with a tombstone marker.", divergence: "entity-scoped" },
 
   // ---- FactRecord.state (per-fact row in facts documents and projections) ----
-  { word: "live", entity: "FactRecord", field: "state", meaning: "Fact has not been superseded; the record is standing.", divergence: "divergent", resolution: "Blueprint proposes Fact.live → standing; the word is stored in authored facts documents (`State: live` rows), so it is a data migration — CH2 proposal only, not executed." },
-  { word: "retired", entity: "FactRecord", field: "state", meaning: "Fact is the target of an active supersedes-fact edge.", divergence: "divergent", resolution: "Derived-then-stored (facts documents write `State: retired`); differs from decision-retired and edge-retired — CH2 proposal only." },
+  { word: "standing", entity: "FactRecord", field: "state", meaning: "Fact has not been superseded; the record is standing.", divergence: "entity-scoped" },
+  { word: "superseded_fact", entity: "FactRecord", field: "state", meaning: "Fact is the target of an active supersedes-fact edge.", divergence: "entity-scoped" },
 
   // ---- Review.verdict ----
   { word: "approved", entity: "Review", field: "verdict", meaning: "Review approved the submission cut.", divergence: "entity-scoped" },
@@ -159,7 +159,7 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   { word: "applied", entity: "WriteReceipt", field: "outcome", meaning: "Write committed at the canonical cut.", divergence: "entity-scoped" },
   { word: "pending", entity: "WriteReceipt", field: "outcome", meaning: "Write not yet settled at the canonical cut.", divergence: "entity-scoped" },
   { word: "indeterminate", entity: "WriteReceipt", field: "outcome", meaning: "Publication outcome could not be determined; query the receipt before retrying.", divergence: "entity-scoped" },
-  { word: "rejected", entity: "WriteReceipt", field: "outcome", meaning: "Write was refused; a one-shot operation result.", divergence: "divergent", resolution: "Operation result, not a persisted policy state like Decision.rejected; receipt outcomes are a public wire surface — CH2 proposal only." },
+  { word: "op_rejected", entity: "WriteReceipt", field: "outcome", meaning: "Write was refused; a one-shot operation result.", divergence: "divergent", resolution: "Same operation-result family as PresetRun.op_rejected; renamed from rejected at the CH3 cutover so the one-shot operation result no longer collides with Decision.rejected." },
 
   // ---- Recovery.state (write-chain recovery batches; runtime-only) ----
   { word: "queued", entity: "Recovery", field: "state", meaning: "Recovery items still queued behind the cursor.", divergence: "entity-scoped" },
@@ -172,7 +172,7 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   { word: "started", entity: "PresetRun", field: "outcome", meaning: "Preset run was launched.", divergence: "entity-scoped" },
   { word: "running", entity: "PresetRun", field: "outcome", meaning: "Preset run is in progress.", divergence: "entity-scoped" },
   { word: "applied", entity: "PresetRun", field: "outcome", meaning: "Preset run applied its outputs.", divergence: "entity-scoped" },
-  { word: "rejected", entity: "PresetRun", field: "outcome", meaning: "Preset run was refused; a one-shot operation result.", divergence: "divergent", resolution: "Same operation-result family as WriteReceipt.rejected; preset receipts are a public surface — CH2 proposal only." },
+  { word: "op_rejected", entity: "PresetRun", field: "outcome", meaning: "Preset run was refused; a one-shot operation result.", divergence: "divergent", resolution: "Same operation-result family as WriteReceipt.op_rejected; renamed from rejected at the CH3 cutover." },
   { word: "failed", entity: "PresetRun", field: "outcome", meaning: "Preset run failed.", divergence: "entity-scoped" },
   { word: "outcome_unknown", entity: "PresetRun", field: "outcome", meaning: "Preset run result could not be observed.", divergence: "entity-scoped" },
   { word: "admitted", entity: "PresetRun", field: "phase", meaning: "Run passed admission checks.", divergence: "entity-scoped" },
@@ -215,26 +215,26 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
   { id: "task.status.review-artifacts", entity: "Task", field: "status", module: "packages/kernel/src/domain/lifecycle-status.ts", anchor: "reviewArtifactStatuses", words: ["in_review", "done"], subsetOf: "task.status", note: "Statuses whose review artifacts are required." },
   { id: "task.status.wip-occupying", entity: "Task", field: "status", module: "packages/kernel/src/domain/task-wip-policy.ts", anchor: "taskWipOccupyingStatuses", words: ["active", "blocked", "in_review"], subsetOf: "task.status", note: "Statuses that occupy a WIP slot." },
   { id: "task.status.replay", entity: "Task", field: "status", module: "packages/kernel/src/domain/task.ts", anchor: "replayTaskStatuses", words: ["planned", "active", "blocked", "in_review", "done", "cancelled"], subsetOf: "task.status", note: "Task/v1 wire validator set; same words, same meanings." },
-  { id: "decision.state", entity: "Decision", field: "state", module: "packages/kernel/src/domain/fact-event.ts", anchor: "decisionStates", words: ["proposed", "active", "rejected", "deferred", "superseded", "retired"] },
-  { id: "decision.judgment.target", entity: "Decision", field: "judgment targetState", module: "packages/kernel/src/domain/fact-event.ts", anchor: "#targetState", words: ["active", "rejected", "deferred"], subsetOf: "decision.state", note: "Consent target states of the three judgment actions." },
+  { id: "decision.state", entity: "Decision", field: "state", module: "packages/kernel/src/domain/fact-event.ts", anchor: "decisionStates", words: ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired"] },
+  { id: "decision.judgment.target", entity: "Decision", field: "judgment targetState", module: "packages/kernel/src/domain/fact-event.ts", anchor: "#targetState", words: ["in_effect", "rejected", "deferred"], subsetOf: "decision.state", note: "Consent target states of the three judgment actions." },
   { id: "execution.state", entity: "Execution", field: "state", module: "packages/kernel/src/domain/execution.ts", anchor: "executionStates", words: ["active", "submitted", "accepted", "changes_requested", "abandoned"] },
   { id: "execution.state.v1", entity: "Execution", field: "state", module: "packages/kernel/src/domain/execution.ts", anchor: "executionV1States", words: ["active", "submitted", "changes_requested", "accepted"], subsetOf: "execution.state", note: "Native execution/v1 subset (archived v0 adds abandoned)." },
-  { id: "lease.phase", entity: "Lease", field: "phase", module: "packages/kernel/src/domain/execution.ts", anchor: "leasePhases", words: ["reserving", "active", "orphaned", "released"] },
-  { id: "relation.state", entity: "RelationEdge", field: "state", module: "packages/kernel/src/domain/entity-relation.ts", anchor: "relationStates", words: ["active", "retired", "deleted"] },
+  { id: "lease.phase", entity: "Lease", field: "phase", module: "packages/kernel/src/domain/execution.ts", anchor: "leasePhases", words: ["reserving", "held", "orphaned", "released"] },
+  { id: "relation.state", entity: "RelationEdge", field: "state", module: "packages/kernel/src/domain/entity-relation.ts", anchor: "relationStates", words: ["active", "edge_retired", "deleted"] },
   { id: "task-blocking.assessment", entity: "Task", field: "blocking state", module: "packages/kernel/src/domain/task-blocking.ts", anchor: "BlockingAssessmentState", words: ["blocked", "clear", "unknown"], note: "Verdict of blockingOf per task; distinct from task.status blocked (a lifecycle state), hence entity-scoped." },
   { id: "decision-coverage.status", entity: "Decision", field: "claim coverage status", module: "packages/kernel/src/domain/decision-coverage.ts", anchor: "#status", words: ["covered", "uncovered"], note: "Verdict of coverageOf per claim; a read-model judgment, not a Decision lifecycle state." },
-  { id: "fact.liveness", entity: "FactRecord", field: "liveness", module: "packages/kernel/src/domain/fact-liveness.ts", anchor: "FactLiveness", words: ["live", "retired"], note: "Single domain derivation of fact liveness (factLiveness); same two words and meanings as fact-record.state, now computed in one place." },
+  { id: "fact.liveness", entity: "FactRecord", field: "liveness", module: "packages/kernel/src/domain/fact-liveness.ts", anchor: "FactLiveness", words: ["standing", "superseded_fact"], note: "Single domain derivation of fact liveness (factLiveness); same two words and meanings as fact-record.state, now computed in one place." },
   { id: "closeout.gate-status", entity: "TaskCloseout", field: "gate status", module: "packages/kernel/src/domain/closeout-readiness.ts", anchor: "CloseoutGateStatus", words: ["passed", "failed", "missing", "unknown"], note: "Per-gate verdict inside closeoutReadiness; the readiness label aggregates these." },
   { id: "task-blocking.availability", entity: "Task", field: "blocking projection availability", module: "packages/kernel/src/domain/task-blocking.ts", anchor: "BlockingAvailabilityState", words: ["ready", "loading", "error"], note: "Relation-projection availability feeding blockingOf; degraded states make every task's blocking unknown." },
   { id: "package.disposition", entity: "Package", field: "disposition", module: "packages/kernel/src/domain/package-disposition.ts", anchor: "packageDispositions", words: ["active", "archived", "tombstoned"] },
   { id: "task-package.disposition", entity: "Package", field: "disposition", module: "packages/kernel/src/domain/task.ts", anchor: "TaskPackageDisposition", words: ["active", "archived", "tombstoned"], subsetOf: "package.disposition", note: "Inline alias of the package disposition vocabulary on Task documents." },
   { id: "task-wip.package-disposition", entity: "Package", field: "disposition", module: "packages/kernel/src/domain/task-wip-policy.ts", anchor: "#packageDisposition", words: ["active", "archived", "tombstoned"], subsetOf: "package.disposition", note: "WIP snapshot entry mirror of the package disposition vocabulary." },
-  { id: "fact-record.state", entity: "FactRecord", field: "state", module: "packages/kernel/src/domain/fact-event.ts", anchor: "#state", words: ["live", "retired"], note: "Per-fact row state in authored facts documents; the SQL projection derives the same two words from active supersedes-fact edges." },
+  { id: "fact-record.state", entity: "FactRecord", field: "state", module: "packages/kernel/src/domain/fact-event.ts", anchor: "#state", words: ["standing", "superseded_fact"], note: "Per-fact row state in authored facts documents; the SQL projection derives the same two words from active supersedes-fact edges." },
   { id: "review.verdict", entity: "Review", field: "verdict", module: "packages/kernel/src/domain/review.ts", anchor: "reviewVerdicts", words: ["approved", "changes_requested", "dismissed"] },
   { id: "runtime.liveness", entity: "RuntimeSession", field: "liveness", module: "packages/kernel/src/domain/agent-runtime.ts", anchor: "runtimeLivenessStates", words: ["live", "stale", "unknown", "exited"] },
   { id: "runtime.outcome", entity: "RuntimeSession", field: "outcome", module: "packages/kernel/src/domain/agent-runtime.ts", anchor: "#outcome", words: ["succeeded", "failed", "unknown"] },
-  { id: "receipt.outcome", entity: "WriteReceipt", field: "outcome", module: "packages/kernel/src/domain/write-chain.contract.ts", anchor: "writeReceiptOutcomes", words: ["applied", "pending", "indeterminate", "rejected"] },
-  { id: "receipt.detail.outcome", entity: "WriteReceipt", field: "outcome", module: "packages/kernel/src/domain/receipt-domain-registry.ts", anchor: "#outcome", words: ["applied", "pending", "indeterminate", "rejected"], subsetOf: "receipt.outcome", note: "The WriteReceipt interface repeats the outcome vocabulary; must stay equal to writeReceiptOutcomes." },
+  { id: "receipt.outcome", entity: "WriteReceipt", field: "outcome", module: "packages/kernel/src/domain/write-chain.contract.ts", anchor: "writeReceiptOutcomes", words: ["applied", "pending", "indeterminate", "op_rejected"] },
+  { id: "receipt.detail.outcome", entity: "WriteReceipt", field: "outcome", module: "packages/kernel/src/domain/receipt-domain-registry.ts", anchor: "#outcome", words: ["applied", "pending", "indeterminate", "op_rejected"], subsetOf: "receipt.outcome", note: "The WriteReceipt interface repeats the outcome vocabulary; must stay equal to writeReceiptOutcomes." },
   { id: "recovery.state", entity: "Recovery", field: "state", module: "packages/kernel/src/domain/write-chain.contract.ts", anchor: "recoveryStates", words: ["queued", "running", "exhausted", "failed", "drained"] },
   { id: "closeout.readiness", entity: "TaskCloseout", field: "readiness", module: "packages/kernel/src/domain/closeout-readiness.ts", anchor: "closeoutReadinesses", words: ["not_required", "missing", "incomplete", "ready", "passed", "failed"] },
   { id: "task.session-disposition", entity: "Task", field: "sessionBinding disposition", module: "packages/kernel/src/domain/task-lifecycle.contract.ts", anchor: "#sessionDisposition", words: ["complete", "partial", "unavailable"], note: "Witness availability, not entity standing." },
@@ -243,7 +243,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
   // GUI model mirrors (renderer may not import kernel runtime values; the gate locks text equality).
   { id: "gui.task.status", entity: "GuiAdapter", field: "status", module: "packages/gui/src/renderer/model/types.ts", anchor: "CanonicalStatus", words: ["planned", "active", "blocked", "in_review", "done", "cancelled"], mirrorOf: "task.status" },
   { id: "gui.task.snapshot-status", entity: "GuiAdapter", field: "status", module: "packages/gui/src/renderer/model/types.ts", anchor: "SnapshotStatus", words: ["planned", "active", "blocked", "in_review", "done", "cancelled", "unknown"], mirrorOf: "task.status", plusWords: ["unknown"] },
-  { id: "gui.decision.state", entity: "GuiAdapter", field: "state", module: "packages/gui/src/renderer/model/types.ts", anchor: "DecisionState", words: ["proposed", "active", "rejected", "deferred", "superseded", "retired", "unknown"], mirrorOf: "decision.state", plusWords: ["unknown"] },
+  { id: "gui.decision.state", entity: "GuiAdapter", field: "state", module: "packages/gui/src/renderer/model/types.ts", anchor: "DecisionState", words: ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired", "unknown"], mirrorOf: "decision.state", plusWords: ["unknown"] },
   { id: "gui.package.disposition", entity: "GuiAdapter", field: "disposition", module: "packages/gui/src/renderer/model/types.ts", anchor: "PackageDisposition", words: ["active", "archived", "tombstoned"], mirrorOf: "package.disposition" },
 
   // Daemon wire-protocol mirrors. The contract sits on the CLI's eager startup path, so
@@ -252,12 +252,12 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
   { id: "daemon.task.status", entity: "DaemonWire", field: "status", module: "packages/daemon/src/protocol/daemon-protocol.contract.ts", anchor: "taskStatusWords", words: ["planned", "active", "blocked", "in_review", "done", "cancelled"], mirrorOf: "task.status" },
   { id: "daemon.execution.state", entity: "DaemonWire", field: "state", module: "packages/daemon/src/protocol/daemon-protocol.contract.ts", anchor: "executionStateWords", words: ["active", "submitted", "accepted", "changes_requested", "abandoned"], mirrorOf: "execution.state" },
   { id: "daemon.execution.state-v1", entity: "DaemonWire", field: "state", module: "packages/daemon/src/protocol/daemon-protocol.contract.ts", anchor: "executionV1StateWords", words: ["active", "submitted", "changes_requested", "accepted"], mirrorOf: "execution.state.v1" },
-  { id: "daemon.lease.phase", entity: "DaemonWire", field: "phase", module: "packages/daemon/src/protocol/daemon-protocol.contract.ts", anchor: "leasePhaseWords", words: ["reserving", "active", "orphaned", "released"], mirrorOf: "lease.phase" },
-  { id: "daemon.relation.state", entity: "DaemonWire", field: "state", module: "packages/daemon/src/protocol/daemon-protocol.contract.ts", anchor: "relationStateWords", words: ["active", "retired", "deleted"], mirrorOf: "relation.state" },
+  { id: "daemon.lease.phase", entity: "DaemonWire", field: "phase", module: "packages/daemon/src/protocol/daemon-protocol.contract.ts", anchor: "leasePhaseWords", words: ["reserving", "held", "orphaned", "released"], mirrorOf: "lease.phase" },
+  { id: "daemon.relation.state", entity: "DaemonWire", field: "state", module: "packages/daemon/src/protocol/daemon-protocol.contract.ts", anchor: "relationStateWords", words: ["active", "edge_retired", "deleted"], mirrorOf: "relation.state" },
   { id: "daemon.package.disposition", entity: "DaemonWire", field: "disposition", module: "packages/daemon/src/protocol/daemon-protocol.contract.ts", anchor: "packageDispositionWords", words: ["active", "archived", "tombstoned"], mirrorOf: "package.disposition" },
   { id: "daemon.review.verdict", entity: "DaemonWire", field: "verdict", module: "packages/daemon/src/protocol/daemon-protocol.contract.ts", anchor: "reviewVerdictWords", words: ["approved", "changes_requested", "dismissed"], mirrorOf: "review.verdict" },
-  { id: "daemon.decision.state", entity: "DaemonWire", field: "state", module: "packages/daemon/src/protocol/daemon-protocol.contract.ts", anchor: "decisionStateWords", words: ["proposed", "active", "rejected", "deferred", "superseded", "retired"], mirrorOf: "decision.state" },
-  { id: "daemon.receipt.outcome", entity: "DaemonWire", field: "outcome", module: "packages/daemon/src/protocol/daemon-protocol.contract.ts", anchor: "receiptOutcomeWords", words: ["applied", "pending", "indeterminate", "rejected"], mirrorOf: "receipt.outcome" }
+  { id: "daemon.decision.state", entity: "DaemonWire", field: "state", module: "packages/daemon/src/protocol/daemon-protocol.contract.ts", anchor: "decisionStateWords", words: ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired"], mirrorOf: "decision.state" },
+  { id: "daemon.receipt.outcome", entity: "DaemonWire", field: "outcome", module: "packages/daemon/src/protocol/daemon-protocol.contract.ts", anchor: "receiptOutcomeWords", words: ["applied", "pending", "indeterminate", "op_rejected"], mirrorOf: "receipt.outcome" }
 ];
 
 export function statusWords(entity: StatusEntity, field?: string): readonly string[] {

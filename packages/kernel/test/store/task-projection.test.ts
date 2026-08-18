@@ -181,7 +181,7 @@ test("lease CAS rejects stale renew/release, marks expiry orphaned, and permits 
 
     const reserving = projection.reserveLease({ ...started.payload.lease, phase: "reserving" }, started.occurredAt);
     const active = projection.activateLease(reserving);
-    assert.equal(active.phase, "active");
+    assert.equal(active.phase, "held");
     assert.throws(() => projection.renewLease({ ...active, version: active.version - 1 }, "2026-08-11T02:00:00.000Z"), /stale/u);
     const renewed = projection.renewLease(active, "2026-08-11T02:00:00.000Z");
     assert.equal(renewed.version, active.version + 1);

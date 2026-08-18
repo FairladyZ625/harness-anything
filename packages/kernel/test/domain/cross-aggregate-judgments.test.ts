@@ -61,16 +61,16 @@ test("completed tasks retain passed gate badges from their accepted execution cu
 
 test("fact liveness retires the target of the canonical supersedes-fact edge", () => {
   const edges = [{ sourceRef: "fact/task/F-new", targetRef: "fact/task/F-old", relationType: "supersedes-fact", state: "active" }];
-  assert.equal(factLiveness({ ref: "fact/task/F-old" }, edges), "retired");
-  assert.equal(factLiveness({ ref: "fact/task/F-new" }, edges), "live");
-  assert.equal(factLiveness({ ref: "fact/task/F-old" }, [{ ...edges[0]!, state: "retired" }]), "live");
+  assert.equal(factLiveness({ ref: "fact/task/F-old" }, edges), "superseded_fact");
+  assert.equal(factLiveness({ ref: "fact/task/F-new" }, edges), "standing");
+  assert.equal(factLiveness({ ref: "fact/task/F-old" }, [{ ...edges[0]!, state: "edge_retired" }]), "standing");
 });
 
 test("coverage handles transitive evidence, delivered tasks, standing policy, and only live refuters", () => {
-  const decisions = [{ ref: "decision/d1", state: "active", decisionClass: "ordinary", appliesTo: { modules: [], productLines: [] }, claims: [
+  const decisions = [{ ref: "decision/d1", state: "in_effect", decisionClass: "ordinary", appliesTo: { modules: [], productLines: [] }, claims: [
     { ref: "decision/d1/C1", loadBearing: true, fulfillment: "evidenced" as const },
     { ref: "decision/d1/C2", loadBearing: true, fulfillment: "delivered" as const }
-  ] }, { ref: "decision/policy", state: "active", decisionClass: "standing_policy", appliesTo: { modules: ["kernel"], productLines: [] }, claims: [{ ref: "decision/policy/C1", loadBearing: true, fulfillment: "standing-policy" as const }] }];
+  ] }, { ref: "decision/policy", state: "in_effect", decisionClass: "standing_policy", appliesTo: { modules: ["kernel"], productLines: [] }, claims: [{ ref: "decision/policy/C1", loadBearing: true, fulfillment: "standing-policy" as const }] }];
   const relations = [
     { relationId: "via", sourceRef: "decision/d1/C1", targetRef: "decision/helper", relationType: "relates", state: "active" },
     { relationId: "evidence", sourceRef: "decision/helper", targetRef: "fact/task/F-live", relationType: "evidenced-by", state: "active" },

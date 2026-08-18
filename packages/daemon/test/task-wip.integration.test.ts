@@ -33,14 +33,14 @@ test("the execution WIP gate hard-rejects at the limit and never holds closeout 
     assert.equal((await cell.run({ kind: "task-transition", taskId: "task_OCC_B", status: "blocked", reason: "Occupying" }, binding)).outcome, "applied");
     // The worktable is now exactly full (2/2): new work is hard-rejected, preview and apply agree.
     const fresh = await cell.run({ kind: "task-start", taskId: "task_FRESH", executionId: "exe_fresh" }, binding);
-    assert.equal(fresh.outcome, "rejected"); assert.equal(fresh.code, "task_wip_limit_reached");
+    assert.equal(fresh.outcome, "op_rejected"); assert.equal(fresh.code, "task_wip_limit_reached");
     assert.match(String(fresh.nextAction), /TASK_WIP_LIMIT_REACHED: Execution worktable is full \(2\/2; HARNESS_TASK_WIP_LIMIT=2\)/u);
     assert.match(String(fresh.nextAction), /task_OCC_A "Occupant A" \(active\)/u);
     const preview = await cell.run({ kind: "task-start", taskId: "task_FRESH", executionId: "exe_fresh", dryRun: true }, binding);
-    assert.equal(preview.outcome, "rejected"); assert.equal(preview.code, "task_wip_limit_reached");
+    assert.equal(preview.outcome, "op_rejected"); assert.equal(preview.code, "task_wip_limit_reached");
     // The same transition surface cannot bypass the gate.
     const sideways = await cell.run({ kind: "task-transition", taskId: "task_FRESH", status: "active", reason: "Bypass" }, binding);
-    assert.equal(sideways.outcome, "rejected"); assert.equal(sideways.code, "invalid_transition");
+    assert.equal(sideways.outcome, "op_rejected"); assert.equal(sideways.code, "invalid_transition");
     // THE DEADLOCK: at a full worktable, starting the closeout backfill must still work.
     const backfill = await cell.run({ kind: "task-start", taskId: "task_BACKFILL", executionId: "exe_backfill" }, binding);
     assert.equal(backfill.outcome, "applied", JSON.stringify(backfill));
@@ -68,19 +68,19 @@ test("the limit is configurable from settings.tasks.wipLimit and overridden by t
     for (const taskId of ["task_ONE", "task_TWO"]) assert.equal((await cell.run({ kind: "task-create", taskId, title: taskId }, binding)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-start", taskId: "task_ONE", executionId: "exe_one" }, binding)).outcome, "applied");
     const project = await cell.run({ kind: "task-start", taskId: "task_TWO", executionId: "exe_two" }, binding);
-    assert.equal(project.outcome, "rejected"); assert.equal(project.code, "task_wip_limit_reached");
+    assert.equal(project.outcome, "op_rejected"); assert.equal(project.code, "task_wip_limit_reached");
     assert.match(String(project.nextAction), /1\/1; settings\.tasks\.wipLimit=1/u);
     process.env[TASK_WIP_LIMIT_ENV] = "3";
     assert.deepEqual(resolveTaskWipLimit(rootDir), { limit: 3, label: TASK_WIP_LIMIT_ENV });
     assert.equal((await cell.run({ kind: "task-start", taskId: "task_TWO", executionId: "exe_two" }, binding)).outcome, "applied");
     process.env[TASK_WIP_LIMIT_ENV] = "0";
     const invalid = await cell.run({ kind: "task-start", taskId: "task_ONE", executionId: "exe_one" }, binding);
-    assert.equal(invalid.outcome, "rejected"); assert.equal(invalid.code, "task_wip_limit_invalid");
+    assert.equal(invalid.outcome, "op_rejected"); assert.equal(invalid.code, "task_wip_limit_invalid");
     assert.match(String(invalid.nextAction), /HARNESS_TASK_WIP_LIMIT must be a positive integer/u);
     writeFileSync(path.join(rootDir, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\nsettings:\n  tasks:\n    wipLimit: 0\n");
     delete process.env[TASK_WIP_LIMIT_ENV];
     const invalidSetting = await cell.run({ kind: "task-start", taskId: "task_ONE", executionId: "exe_one" }, binding);
-    assert.equal(invalidSetting.outcome, "rejected"); assert.equal(invalidSetting.code, "task_wip_limit_invalid");
+    assert.equal(invalidSetting.outcome, "op_rejected"); assert.equal(invalidSetting.code, "task_wip_limit_invalid");
     assert.match(String(invalidSetting.nextAction), /settings\.tasks\.wipLimit must be a positive integer/u);
   } finally {
     if (previous === undefined) delete process.env[TASK_WIP_LIMIT_ENV]; else process.env[TASK_WIP_LIMIT_ENV] = previous;
@@ -135,7 +135,7 @@ test("taskClass=long_running work never occupies the execution worktable, even m
     const fresh = await cell.run({ kind: "task-create", taskId: "task_FRESH", title: "Fresh work" }, binding);
     assert.equal(fresh.outcome, "applied");
     const rejected = await cell.run({ kind: "task-start", taskId: "task_FRESH", executionId: "exe_fresh" }, binding);
-    assert.equal(rejected.outcome, "rejected"); assert.equal(rejected.code, "task_wip_limit_reached");
+    assert.equal(rejected.outcome, "op_rejected"); assert.equal(rejected.code, "task_wip_limit_reached");
     const listed = evidence(await cell.run({ kind: "task-list" }, binding));
     const rows = listed.rows as readonly { readonly taskId: string; readonly status: string; readonly taskClass: string; readonly packageDisposition: string }[];
     const byTask = new Map(rows.map((row) => [row.taskId, row]));

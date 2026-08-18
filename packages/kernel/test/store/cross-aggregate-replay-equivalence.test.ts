@@ -29,6 +29,6 @@ test("warm event projection and cold coverage adapter agree on the same replay i
   } finally { db.close(); }
 });
 
-function fact(factId: string): RelationFactRow { return { schema: "task-fact-row/v1", ref: `fact/task/${factId}`, taskId: "task", factId, statement: factId, source: "fixture", observedAt: "2026-08-18T00:00:00.000Z", confidence: "high", memoryClass: "semantic", memoryTags: [], provenance: [], liveness: "live" }; }
+function fact(factId: string): RelationFactRow { return { schema: "task-fact-row/v1", ref: `fact/task/${factId}`, taskId: "task", factId, statement: factId, source: "fixture", observedAt: "2026-08-18T00:00:00.000Z", confidence: "high", memoryClass: "semantic", memoryTags: [], provenance: [], liveness: "standing" }; }
 function edge(relationId: string, sourceRef: string, targetRef: string, relationType: RelationGraphEdgeRow["relationType"], ownerRef: string): RelationGraphEdgeRow { return { relationId, sourceRef, targetRef, relationType, direction: "directed", strength: "strong", origin: "declared", state: "active", rationale: relationId, ownerRef, sourcePath: "fixture", recordIndex: 0 }; }
 function byRef(left: { readonly ref: string }, right: { readonly ref: string }): number { return left.ref.localeCompare(right.ref); }

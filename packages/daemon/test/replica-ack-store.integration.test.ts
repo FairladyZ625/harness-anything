@@ -15,8 +15,8 @@ test("durable ACK store isolates view keys and commits exact proof with its L1-e
     assert.equal(store.register(key, 5), 5); assert.equal(store.register(key, 9), 5); assert.equal(store.register(other, 7), 7);
     const offer = store.offer(key, { transferId: "transfer-a", fromCut: null, toCut, manifestDigest: digest, kind: "snapshot", issuedAt: "2026-08-14T00:00:00.000Z" });
     assert.deepEqual(store.offer(key, { ...offer, transferId: "replacement-denied" }), offer);
-    assert.equal(store.ack(key, "transfer-a", toCut, "c".repeat(64), "2026-08-14T00:00:01.000Z", "2026-08-13T00:00:00.000Z").outcome, "rejected");
-    assert.equal(store.ack({ ...key, nodeId: "node-b" }, "transfer-a", toCut, digest, "2026-08-14T00:00:01.000Z", "2026-08-13T00:00:00.000Z").outcome, "rejected");
+    assert.equal(store.ack(key, "transfer-a", toCut, "c".repeat(64), "2026-08-14T00:00:01.000Z", "2026-08-13T00:00:00.000Z").outcome, "op_rejected");
+    assert.equal(store.ack({ ...key, nodeId: "node-b" }, "transfer-a", toCut, digest, "2026-08-14T00:00:01.000Z", "2026-08-13T00:00:00.000Z").outcome, "op_rejected");
     assert.equal(store.ack(key, "transfer-a", toCut, digest, "2026-08-14T00:00:01.000Z", "2026-08-13T00:00:00.000Z").outcome, "applied");
     assert.equal(store.proof(key, 8)?.manifestDigest, digest); assert.equal(store.cursor(key)?.revision, 8); assert.equal(store.offerFor(key), null);
     store.close(); store = openReplicaAckStore(root);

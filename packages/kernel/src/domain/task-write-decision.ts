@@ -43,6 +43,6 @@ export function decideTaskLifecycleWrite<C extends TaskLifecycleCommand>(input: 
   }
 }
 function rejectedDecision(opId: string, code: string, detail: string): TaskLifecycleWriteDecision {
-  return Object.freeze({ accepted: false, event: null, frozenPlan: null, receipt: createWriteReceipt({ outcome: "rejected", opId,
+  return Object.freeze({ accepted: false, event: null, frozenPlan: null, receipt: createWriteReceipt({ outcome: "op_rejected", opId,
     visibility: "center", code, origin: "task-lifecycle-contract", evidence: `contract-rejection:${code}`, nextAction: `correct the command or writer proof before retrying: ${detail}` }) });
 }

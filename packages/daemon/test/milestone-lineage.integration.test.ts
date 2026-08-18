@@ -52,7 +52,7 @@ test("an orphan milestone task stops at completion until the prescribed decision
     assert.equal(ci.code, "code_doc_missing", JSON.stringify(ci));
     const reconciled = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed", commitSha, iteration: 0, paths: ["packages/kernel/src/domain/task.ts"] }, binding) as unknown as Record<string, unknown>;
     // RED before the rule: this facade call used to land task_completed. After it, the orphan stops with the named edge and the exact command.
-    assert.deepEqual({ outcome: reconciled.outcome, code: reconciled.code, stoppedAt: reconciled.stoppedAt }, { outcome: "rejected", code: "decision_lineage_missing", stoppedAt: "decision_lineage_missing" }, JSON.stringify(reconciled));
+    assert.deepEqual({ outcome: reconciled.outcome, code: reconciled.code, stoppedAt: reconciled.stoppedAt }, { outcome: "op_rejected", code: "decision_lineage_missing", stoppedAt: "decision_lineage_missing" }, JSON.stringify(reconciled));
     const nextAction = String((reconciled.next as { readonly command: string }[])[0]?.command);
     assert.match(nextAction, new RegExp(`^ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/${taskId} --rationale `, "u"), nextAction);
     assert.equal(makeTaskEventStore({ repoId: "milestone-lineage", rootDir }).read().events.some((event) => event.type === "task_completed"), false, "no completion event may exist while the task is an orphan");

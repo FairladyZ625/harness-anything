@@ -25,13 +25,13 @@ test("an invalid_store latch re-attaches on the next command after the ledger is
     cell = await openRepoCell({ repoId: workspaceId("latch-heal"), rootDir: canonicalRoot(rootDir), ownerId: "latch-heal-two", now: () => clock });
     assert.equal(cell.status().state, "attached"); // the open is lazy; the first ledger read latches
     const latchedList = await cell.run({ kind: "task-list" }, binding);
-    assert.equal(latchedList.outcome, "rejected"); assert.equal(latchedList.code, "invalid_store");
+    assert.equal(latchedList.outcome, "op_rejected"); assert.equal(latchedList.code, "invalid_store");
     assert.match(String(latchedList.nextAction), /events root mixes .* flat\/v1 .* sharded entries; run ha migrate ledger/u);
     assert.equal(cell.status().state, "unavailable"); assert.equal(cell.status().causeClass, "data-shape");
     // The fault persists: the next command re-probes, fails the same judgment, and keeps rejecting.
     clock = "2026-08-18T00:00:06.000Z";
     const stillLatched = await cell.run({ kind: "task-list" }, binding);
-    assert.equal(stillLatched.outcome, "rejected"); assert.equal(stillLatched.code, "repo_unavailable");
+    assert.equal(stillLatched.outcome, "op_rejected"); assert.equal(stillLatched.code, "repo_unavailable");
     assert.match(String(stillLatched.nextAction), /stays latched until its ledger data verifies/u);
     assert.match(String(stillLatched.nextAction), /flat\/v1 .* sharded entries/u);
     assert.equal(cell.status().state, "unavailable");
@@ -60,11 +60,11 @@ test("the latch re-probe is throttled to one attempt per interval", async () => 
     cell = await openRepoCell({ repoId: workspaceId("latch-throttle"), rootDir: canonicalRoot(rootDir), ownerId: "latch-throttle-two", now: () => clock });
     await cell.run({ kind: "task-list" }, binding); // latches on the mixed layout
     const firstProbe = await cell.run({ kind: "task-list" }, binding); // probe 1 fails on the same fault
-    assert.equal(firstProbe.outcome, "rejected"); assert.equal(firstProbe.code, "repo_unavailable");
+    assert.equal(firstProbe.outcome, "op_rejected"); assert.equal(firstProbe.code, "repo_unavailable");
     git(rootDir, "rm", "-q", stray); git(rootDir, "commit", "-qm", "repair: restore pure sharded events root"); git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
     clock = "2026-08-18T00:00:01.000Z"; // inside the throttle window of probe 1
     const throttled = await cell.run({ kind: "task-list" }, binding);
-    assert.equal(throttled.outcome, "rejected"); assert.equal(throttled.code, "repo_unavailable"); // no probe ran: healthy data is not yet re-examined
+    assert.equal(throttled.outcome, "op_rejected"); assert.equal(throttled.code, "repo_unavailable"); // no probe ran: healthy data is not yet re-examined
     assert.equal(cell.status().state, "unavailable");
     clock = "2026-08-18T00:00:06.000Z"; // past the throttle window
     const healed = await cell.run({ kind: "task-list" }, binding);

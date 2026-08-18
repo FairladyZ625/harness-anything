@@ -96,7 +96,7 @@ test("G02 freezes deterministic event bytes and a committed head shape", () => {
 
 test("G02/G07 expose one four-state receipt and bounded recovery contract", async () => {
   const contract = await import("../../../packages/kernel/src/domain/write-chain.contract.ts");
-  assert.deepEqual(contract.writeReceiptOutcomes, ["applied", "pending", "indeterminate", "rejected"]);
+  assert.deepEqual(contract.writeReceiptOutcomes, ["applied", "pending", "indeterminate", "op_rejected"]);
   assert.deepEqual(contract.RECOVERY_BUDGET, { deadline: 100, maxItems: 64, retry: 1 });
   assert.equal(Object.isFrozen(contract.RECOVERY_BUDGET), true);
   const recovery = nextRecoveryBatch(Array.from({ length: 10_000 }, (_, index) => index));
@@ -148,21 +148,21 @@ test("G02/G03 task decision rejects stale writers, conflicting opIds, and unsafe
   assert.equal(legal.accepted && serializeTaskEvent(legal.event), legal.accepted && serializeTaskEvent(decide().event));
 
   const stale = decide({ writerToken: issueWriterGenerationToken({ ...activeWriter, generation: 1 }) });
-  assert.deepEqual([stale.accepted, stale.receipt.outcome, stale.receipt.code], [false, "rejected", "writer_rejected"]);
+  assert.deepEqual([stale.accepted, stale.receipt.outcome, stale.receipt.code], [false, "op_rejected", "writer_rejected"]);
 
   const conflict = decide({ existingOperation: { opId: command.opId, commandDigest: `sha256:${"0".repeat(64)}`,
     event: legal.event, receipt: legal.receipt } });
-  assert.deepEqual([conflict.accepted, conflict.receipt.outcome, conflict.receipt.code], [false, "rejected", "operation_conflict"]);
+  assert.deepEqual([conflict.accepted, conflict.receipt.outcome, conflict.receipt.code], [false, "op_rejected", "operation_conflict"]);
 
   const sourceDrift = decide({ command: { ...command, source: "remote_direct" }, existingOperation: {
     opId: command.opId, commandDigest: command.commandDigest, event: legal.event, receipt: legal.receipt } });
-  assert.deepEqual([sourceDrift.accepted, sourceDrift.receipt.outcome, sourceDrift.receipt.code], [false, "rejected", "invalid_schema"]);
+  assert.deepEqual([sourceDrift.accepted, sourceDrift.receipt.outcome, sourceDrift.receipt.code], [false, "op_rejected", "invalid_schema"]);
 
   const unsafe = { ...normalizeTaskLifecycleCommand({ workspaceId: "workspace-1", actor, source: "local", expectedRevision: 0 }, {
     type: "CreateReplayTask", taskId: "../escape", title: "Unsafe", taskClass: "standard", graph: REPLAY_TASK_GRAPH, completionGateIds: [], presetSnapshotDigest: null
   }), eventId: "event-unsafe", workspaceRevision: 1, occurredAt: "2026-08-11T00:00:00.000Z" };
   const invalidTarget = decide({ command: unsafe });
-  assert.deepEqual([invalidTarget.accepted, invalidTarget.receipt.outcome, invalidTarget.receipt.code], [false, "rejected", "invalid_write_plan"]);
+  assert.deepEqual([invalidTarget.accepted, invalidTarget.receipt.outcome, invalidTarget.receipt.code], [false, "op_rejected", "invalid_write_plan"]);
 });
 
 test("G03 returns an immutable event with stable canonical bytes", () => {

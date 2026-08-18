@@ -24,7 +24,7 @@ export const relationTypes = [
 export const relationStrengths = ["strong", "weak"] as const;
 export const relationDirections = ["directed", "undirected"] as const;
 export const relationOrigins = ["declared", "imported_snapshot", "generated", "inferred"] as const;
-export const relationStates = ["active", "retired", "deleted"] as const;
+export const relationStates = ["active", "edge_retired", "deleted"] as const;
 
 export type RelationType = typeof relationTypes[number];
 export type RelationStrength = typeof relationStrengths[number];

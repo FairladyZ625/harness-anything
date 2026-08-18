@@ -74,11 +74,11 @@ function decisionStateLabel(state: DecisionState | typeof OTHER_STATUS_BUCKET): 
   if (state === OTHER_STATUS_BUCKET) return t("components.graphFilterPanel.statusOther");
   const map: Record<DecisionState, Parameters<typeof t>[0]> = {
     proposed: "components.badges.pendingDecisionApproval",
-    active: "components.badges.takingEffect",
+    in_effect: "components.badges.takingEffect",
     deferred: "components.badges.suspended",
     rejected: "components.badges.rejected",
     superseded: "components.badges.superseded",
-    retired: "components.badges.retired",
+    outcome_retired: "components.badges.retired",
     unknown: "components.badges.unknown",
   };
   const key = map[state];

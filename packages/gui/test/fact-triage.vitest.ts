@@ -349,7 +349,7 @@ describe("fact-triage signal metadata", () => {
 
 describe("cross-entity navigation projection", () => {
   it("uses projected fact liveness instead of recomputing it from renderer edges", () => {
-    const rendered = buildTriadicRendererData({ graph: { ok: true, edges: [{ relationId: "conflict", sourceRef: "fact/task_a/F-new", targetRef: "fact/task_a/F-old", relationType: "supersedes-fact", direction: "directed", strength: "strong", origin: "declared", state: "active", rationale: "backend fixture deliberately conflicts", ownerRef: "fact/task_a/F-new", sourcePath: "event:conflict", recordIndex: 0 }], coverageRows: [], factAnchors: [], facts: [{ schema: "task-fact-row/v1", ref: "fact/task_a/F-old", taskId: "task_a", factId: "F-old", statement: "authoritative live row", source: "fixture", observedAt: "2026-08-18T00:00:00.000Z", confidence: "high", memoryClass: "semantic", memoryTags: [], provenance: [], liveness: "live" }], warnings: [] }, decisions: { ok: true, decisions: [], warnings: [] } });
+    const rendered = buildTriadicRendererData({ graph: { ok: true, edges: [{ relationId: "conflict", sourceRef: "fact/task_a/F-new", targetRef: "fact/task_a/F-old", relationType: "supersedes-fact", direction: "directed", strength: "strong", origin: "declared", state: "active", rationale: "backend fixture deliberately conflicts", ownerRef: "fact/task_a/F-new", sourcePath: "event:conflict", recordIndex: 0 }], coverageRows: [], factAnchors: [], facts: [{ schema: "task-fact-row/v1", ref: "fact/task_a/F-old", taskId: "task_a", factId: "F-old", statement: "authoritative live row", source: "fixture", observedAt: "2026-08-18T00:00:00.000Z", confidence: "high", memoryClass: "semantic", memoryTags: [], provenance: [], liveness: "standing" }], warnings: [] }, decisions: { ok: true, decisions: [], warnings: [] } });
     expect(rendered.facts[0]?.invalidated).toBe(false);
   });
 
@@ -418,7 +418,7 @@ describe("cross-entity navigation projection", () => {
             consentId: "djc_0123456789abcdef0123456789",
             decisionId: "dec_missing",
             action: "accept",
-            targetState: "active",
+            targetState: "in_effect",
             machineDigest: `sha256:${"0".repeat(64)}`,
             actor: { principal: { personId: "arbiter" }, executor: null },
             source: "local",

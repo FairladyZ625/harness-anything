@@ -52,7 +52,7 @@ test("a fresh task admits any execution id", () => {
 
 test("a held lease blocks StartExecution regardless of the execution id", () => {
   const held = started();
-  assert.equal(held.lease?.phase, "active", "fixture precondition: the lease is held");
+  assert.equal(held.lease?.phase, "held", "fixture precondition: the lease is held");
   assert.equal(canStartExecution(held, "execution-1"), false);
   assert.equal(canStartExecution(held, "execution-fresh"), false);
 });

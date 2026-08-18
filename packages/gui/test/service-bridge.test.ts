@@ -76,7 +76,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     const acceptedReceipt = parseDaemonGuiActionResponse("repo.receipt.show", await bridge.invoke("showReceipt", { ...scope, opId: accepted.opId })); assert.equal(acceptedReceipt.outcome, "applied"); assert.equal(acceptedReceipt.consentId, accepted.consentId);
     const shown = parseDaemonGuiActionResponse("repo.decision.show", await bridge.invoke("showDecision", { ...scope, decisionId: proposedEvidence.decisionId, includeBody: true })); assert.equal(shown.ok, true); assert.match(String(shown.evidence), new RegExp(String(accepted.consentId), "u"));
     const afterJudgment = parseDaemonGuiReadResult("repo.decisions.list", await bridge.invoke("getDecisions", scope));
-    const canonicalDecision = afterJudgment.decisions.find((decision) => decision.decisionId === proposedEvidence.decisionId); assert.equal(canonicalDecision?.state, "active"); assert.equal(canonicalDecision?.judgmentConsents[0]?.consentId, accepted.consentId);
+    const canonicalDecision = afterJudgment.decisions.find((decision) => decision.decisionId === proposedEvidence.decisionId); assert.equal(canonicalDecision?.state, "in_effect"); assert.equal(canonicalDecision?.judgmentConsents[0]?.consentId, accepted.consentId);
     const document = parseDaemonGuiReadResult("repo.tasks.document.read", results.get("repo.tasks.document.read"));
     assert.equal(document.body, documentBody); assert.equal(document.path, "notes.md"); assert.equal(document.status, "ready");
     const progress = parseDaemonGuiActionResponse("repo.task.progress.append", await bridge.invoke("appendTaskProgress", { ...scope, taskId: "task-gui-smoke", executionId, text: "Renderer sent typed progress.", evidence: [{ type: "test", path: "packages/gui/test/service-bridge.test.ts", summary: "resident daemon bridge" }], baseDocumentSha256: null }));
@@ -130,7 +130,7 @@ test("GUI renderer bridge drives a resident PTY through spawn attach IO resize d
     const detached = await bridge.invoke("detachTerminal", { ...scope, sessionId, attachmentId: initial!.attachmentId }) as Record<string, unknown>;
     assert.deepEqual({ schema: detached.schema, state: detached.state }, { schema: "terminal-detach-ack/v1", state: "detached" }); stop();
     const rejected = await bridge.invoke("terminateTerminal", { ...scope, sessionId, confirmed: false }) as Record<string, unknown>;
-    assert.equal(rejected.outcome, "rejected");
+    assert.equal(rejected.outcome, "op_rejected");
     const terminated = await bridge.invoke("terminateTerminal", { ...scope, sessionId, confirmed: true }) as Record<string, unknown>;
     assert.deepEqual({ outcome: terminated.outcome, state: terminated.state }, { outcome: "applied", state: "exited" });
   } finally {

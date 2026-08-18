@@ -337,8 +337,8 @@ describe("territory honours the entity-status filter through the row predicates"
 
   it("drops the decisions whose state is filtered off", () => {
     const filter = defaultEntityStatusFilter();
-    filter.decisionStates.delete("retired");
-    const decisions = [dec(), { ...dec(), decisionId: "dec_2", state: "retired" } as DecisionRow];
+    filter.decisionStates.delete("outcome_retired");
+    const decisions = [dec(), { ...dec(), decisionId: "dec_2", state: "outcome_retired" } as DecisionRow];
     const visible = decisions.filter((row) => decisionPassesStateFilter(row, filter));
     expect(visible.map((row) => row.decisionId)).toEqual(["dec_1"]);
   });

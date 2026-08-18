@@ -31,7 +31,7 @@ test("admission rejects missing entrypoint, bad input, missing capability, and i
   try {
     const started = performance.now(), entrypoint = await service.start({ presetId: "user-canary", entrypoint: "absent", inputs: { title: "Canary" }, idempotencyKey: "missing-entry" }), badInput = await service.start({ presetId: "user-canary", entrypoint: "check", inputs: {}, idempotencyKey: "bad-input" }), capability = await missingService.start({ presetId: "user-canary", entrypoint: "check", inputs: { title: "Canary" }, idempotencyKey: "missing-capability" });
     write(path.join(valid.userRoot, "active/user-canary.json"), JSON.stringify({ schema: "preset-active-pointer/v1", presetId: "user-canary", verticalId: "software/coding", digest: "f".repeat(64) })); const shadow = await service.start({ presetId: "user-canary", entrypoint: "check", inputs: { title: "Canary" }, idempotencyKey: "invalid-shadow" });
-    assert.equal(performance.now() - started < 1_000, true); assert.deepEqual([entrypoint.code, badInput.code, capability.code, shadow.code], ["entrypoint_not_found", "invalid_input", "missing_provider", "shadow_invalid"]); assert.equal([entrypoint, badInput, capability, shadow].every(({ outcome, phases }) => outcome === "rejected" && phases.join() === "rejected"), true);
+    assert.equal(performance.now() - started < 1_000, true); assert.deepEqual([entrypoint.code, badInput.code, capability.code, shadow.code], ["entrypoint_not_found", "invalid_input", "missing_provider", "shadow_invalid"]); assert.equal([entrypoint, badInput, capability, shadow].every(({ outcome, phases }) => outcome === "op_rejected" && phases.join() === "op_rejected"), true);
   } finally { await service.close(); await missingService.close(); valid.cleanup(); missing.cleanup(); }
 });
 
@@ -86,5 +86,5 @@ function inheritedScriptPackage() {
   return { rootDir, userRoot, parentObject: path.join(userRoot, "preset-objects", installed.digest), cleanup: () => rmSync(rootDir, { recursive: true, force: true }) };
 }
 function write(target: string, body: string): void { mkdirSync(path.dirname(target), { recursive: true }); writeFileSync(target, body); }
-function terminalOutcome(outcome: string): boolean { return ["applied", "rejected", "failed", "outcome_unknown"].includes(outcome); }
+function terminalOutcome(outcome: string): boolean { return ["applied", "op_rejected", "failed", "outcome_unknown"].includes(outcome); }
 async function waitFor<T>(read: () => T, done: (value: T) => boolean): Promise<T> { let last: T; for (let attempt = 0; attempt < 100; attempt += 1) { last = read(); if (done(last)) return last; await new Promise((resolve) => setTimeout(resolve, 10)); } throw new Error(`terminal preset run not observed: ${JSON.stringify(last!)}`); }

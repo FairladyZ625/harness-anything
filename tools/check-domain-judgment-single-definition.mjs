@@ -45,7 +45,7 @@ export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
   }
   const taskAdapter = read(root, "packages/gui/src/renderer/task-adapter.ts"), triadic = read(root, "packages/gui/src/renderer/triadic-data.ts"), guiTriadic = read(root, "packages/gui/src/renderer/model/triadic.ts");
   if (/function\s+(?:deriveBlocking|closeoutReadiness|gateResults)\s*\(/u.test(taskAdapter)) findings.push("packages/gui/src/renderer/task-adapter.ts: recomputes closeout or blocking judgment");
-  if (!triadic.includes('invalidated: row.liveness === "retired"')) findings.push("packages/gui/src/renderer/triadic-data.ts: must consume projected fact liveness");
+  if (!triadic.includes('invalidated: row.liveness === "superseded_fact"')) findings.push("packages/gui/src/renderer/triadic-data.ts: must consume projected fact liveness");
   if (/function\s+coverageOf\s*\(/u.test(guiTriadic)) findings.push("packages/gui/src/renderer/model/triadic.ts: carries a renderer coverage algorithm");
   return findings;
 }

@@ -115,8 +115,8 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
     currentLease: (taskId, at) => withDatabase(projectionPath, readHead, (db) => effectiveLease(db, taskId, at ?? now())),
     currentLeaseForExecution: (executionId, at) => withDatabase(projectionPath, readHead, (db) => { const row = db.prepare("SELECT task_id FROM lease_cas WHERE json_extract(lease_json, '$.executionId') = ?").get(executionId) as { readonly task_id: string } | undefined; return row ? effectiveLease(db, row.task_id, at ?? now()) : null; }),
     reserveLease: (lease, now) => withDatabase(projectionPath, readHead, (db) => transaction(db, () => reserve(db, lease, now))),
-    activateLease: (lease) => withDatabase(projectionPath, readHead, (db) => transaction(db, () => changeLease(db, lease, "active", lease.expiresAt, now()))),
-    renewLease: (lease, expiresAt) => withDatabase(projectionPath, readHead, (db) => transaction(db, () => changeLease(db, lease, "active", expiresAt, now()))),
+    activateLease: (lease) => withDatabase(projectionPath, readHead, (db) => transaction(db, () => changeLease(db, lease, "held", lease.expiresAt, now()))),
+    renewLease: (lease, expiresAt) => withDatabase(projectionPath, readHead, (db) => transaction(db, () => changeLease(db, lease, "held", expiresAt, now()))),
     releaseLease: (lease) => withDatabase(projectionPath, readHead, (db) => transaction(db, () => changeLease(db, lease, "released", lease.expiresAt, now())))
   };
 }
@@ -338,7 +338,7 @@ function migrationDocument(db: DatabaseSync, path: string): DocumentState | null
 
 function projectProgress(db: DatabaseSync, event: TaskProgressEventV1, eventJson: string, readBlob: EventStreamPort["readContentBlob"]): void {
   const taskId = event.payload.taskId, snapshot = readSnapshot(db, taskId), lease = storedLease(db, taskId), packagePath = queryRows(db, "SELECT package_path FROM task_package WHERE task_id = ?", taskId)[0]?.package_path, claim = event.payload.resultDocumentClaim, previous = queryRows(db, "SELECT value_json FROM document WHERE path = ?", claim.path)[0], base = previous ? JSON.parse(String(previous.value_json)) as DocumentState : null, bytes = readBlob(claim.sha256);
-  if (snapshot.task?.status !== "active" || !packagePath || claim.path !== `${packagePath}/progress.md` || lease?.phase !== "active" || lease.executionId !== event.payload.executionId || canonicalJson(lease.actor) !== canonicalJson(event.actor) || canonicalJson(lease.source) !== canonicalJson(event.source)) throw new Error(`progress event lease mismatch for task ${taskId}`);
+  if (snapshot.task?.status !== "active" || !packagePath || claim.path !== `${packagePath}/progress.md` || lease?.phase !== "held" || lease.executionId !== event.payload.executionId || canonicalJson(lease.actor) !== canonicalJson(event.actor) || canonicalJson(lease.source) !== canonicalJson(event.source)) throw new Error(`progress event lease mismatch for task ${taskId}`);
   if (event.payload.baseDocumentSha256 !== (base?.blobSha256 ?? null) || !bytes || bytes.byteLength !== claim.size) throw new Error(`progress document base or blob mismatch for task ${taskId}`); const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes); if (body !== renderTaskProgressDocument(base?.body ?? null, event.occurredAt, event.payload.text, event.payload.evidence)) throw new Error(`progress append proof mismatch for task ${taskId}`);
   const document: DocumentState = { path: claim.path as DocumentState["path"], blobSha256: claim.sha256, body, size: docByteLength(claim.size), mediaType: claim.mediaType, policyId: claim.policyId, workspaceRevision: event.workspaceRevision }; runSql(db, "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)", event.opId, event.workspaceRevision, taskId, eventJson); runSql(db, "INSERT INTO task_progress(workspace_revision, task_id, execution_id, event_json) VALUES (?, ?, ?, ?)", event.workspaceRevision, taskId, event.payload.executionId, eventJson); runSql(db, "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json", claim.path, event.workspaceRevision, canonicalJson(document));
 }
@@ -351,13 +351,13 @@ function replayClaim(db: DatabaseSync, event: Extract<TaskEventV1, { readonly ty
   const lease = checkedLease(event.payload.lease);
   const reserving = { ...lease, phase: "reserving" as const };
   db.prepare("INSERT INTO lease_cas(task_id, lease_json) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET lease_json=excluded.lease_json").run(event.taskId, canonicalJson(reserving));
-  db.prepare("UPDATE lease_cas SET lease_json = ? WHERE task_id = ?").run(canonicalJson({ ...lease, phase: "active" }), event.taskId);
+  db.prepare("UPDATE lease_cas SET lease_json = ? WHERE task_id = ?").run(canonicalJson({ ...lease, phase: "held" }), event.taskId);
   db.prepare("INSERT INTO lease_interval(task_id, execution_id, acquired_revision, released_revision, holder_json, previous_holder_json, lease_expires_at, reason) VALUES (?, ?, ?, NULL, ?, ?, ?, ?)").run(event.taskId, lease.executionId, event.workspaceRevision, canonicalJson(holder(lease)), event.payload.previousHolder === null ? null : canonicalJson(event.payload.previousHolder), event.payload.leaseExpiresAt, event.payload.reason);
 }
 
 function replayRenew(db: DatabaseSync, event: Extract<TaskEventV1, { readonly type: "lease_renewed" }>): void {
   const current = storedLease(db, event.taskId), renewed = checkedLease(event.payload.lease);
-  const matchesPrevious = current !== null && current.phase === "active" && current.executionId === renewed.executionId
+  const matchesPrevious = current !== null && current.phase === "held" && current.executionId === renewed.executionId
     && canonicalJson(current.actor) === canonicalJson(renewed.actor) && canonicalJson(current.source) === canonicalJson(renewed.source)
     && current.version + 1 === renewed.version;
   if (!matchesPrevious && canonicalJson(current) !== canonicalJson(renewed)) throw new Error(`stale lease renewal event for task ${event.taskId}`);
@@ -406,9 +406,9 @@ function reserve(db: DatabaseSync, lease: LeaseV1, now: string): LeaseV1 {
   return lease;
 }
 
-function changeLease(db: DatabaseSync, expected: LeaseV1, phase: "active" | "released", expiresAt: string, now: string): LeaseV1 {
+function changeLease(db: DatabaseSync, expected: LeaseV1, phase: "held" | "released", expiresAt: string, now: string): LeaseV1 {
   const current = effectiveLease(db, expected.taskId, now);
-  const allowed = phase === "released" ? ["reserving", "active"] : expected.phase === "reserving" ? ["reserving"] : ["active"];
+  const allowed = phase === "released" ? ["reserving", "held"] : expected.phase === "reserving" ? ["reserving"] : ["held"];
   if (current === null || current.executionId !== expected.executionId || canonicalJson(current.actor) !== canonicalJson(expected.actor)
     || canonicalJson(current.source) !== canonicalJson(expected.source) || current.version !== expected.version || !allowed.includes(current.phase)) {
     throw new Error(`stale lease CAS for task ${expected.taskId}`);

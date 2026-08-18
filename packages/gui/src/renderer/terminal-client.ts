@@ -70,7 +70,7 @@ function sessionList(value: unknown): TerminalSessionList {
   return value as unknown as TerminalSessionList;
 }
 function control(value: unknown): TerminalControlReceipt {
-  if (!isRendererRecord(value) || value.schema !== "terminal-control-receipt/v1" || typeof value.operationId !== "string" || !["applied", "rejected"].includes(String(value.outcome))) throw new Error(rendererErrorHint(value, "Terminal control receipt is invalid."));
+  if (!isRendererRecord(value) || value.schema !== "terminal-control-receipt/v1" || typeof value.operationId !== "string" || !["applied", "op_rejected"].includes(String(value.outcome))) throw new Error(rendererErrorHint(value, "Terminal control receipt is invalid."));
   return value as unknown as TerminalControlReceipt;
 }
 function attachValue(value: unknown): TerminalAttachInitial | TerminalStreamFrame {

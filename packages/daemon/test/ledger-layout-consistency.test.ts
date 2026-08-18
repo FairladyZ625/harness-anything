@@ -67,7 +67,7 @@ test("ha migrate ledger runs through a data-shape latch instead of being rejecte
     // A read latches the cell on the mixed layout first — the shape the CLI hits in the field,
     // where the latch message itself routes the operator to ha migrate ledger.
     const latchedTaskList = await cell.run({ kind: "task-list" }, { actor, source: "local" });
-    assert.equal(latchedTaskList.outcome, "rejected");
+    assert.equal(latchedTaskList.outcome, "op_rejected");
     assert.equal(cell.status().state, "unavailable"); assert.equal(cell.status().causeClass, "data-shape");
     const migrated = await cell.run({ kind: "ledger-migrate" }, { actor, source: "local" }) as Record<string, unknown>;
     assert.equal(migrated.outcome, "applied", JSON.stringify(migrated));

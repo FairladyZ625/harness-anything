@@ -69,7 +69,7 @@ export function buildTriadicRendererData(input: {
   const relationRows = input.graph.edges;
   return {
     decisions: adaptDecisionRows(input.decisions.decisions, relationRows, input.graph.coverageRows),
-    facts: input.graph.facts.map((row) => ({ anchor: `${row.taskId}/${row.factId}`, taskId: row.taskId, category: row.memoryClass === "semantic" ? "lesson" : row.memoryClass === "procedural" ? "progress" : "finding", text: row.statement, at: row.observedAt, confidence: row.confidence, source: row.source, provenance: row.provenance, invalidated: row.liveness === "retired" })),
+    facts: input.graph.facts.map((row) => ({ anchor: `${row.taskId}/${row.factId}`, taskId: row.taskId, category: row.memoryClass === "semantic" ? "lesson" : row.memoryClass === "procedural" ? "progress" : "finding", text: row.statement, at: row.observedAt, confidence: row.confidence, source: row.source, provenance: row.provenance, invalidated: row.liveness === "superseded_fact" })),
     relations: adaptRelationRows(relationRows),
     coverageRows: input.graph.coverageRows,
     factAnchors: input.graph.factAnchors,
@@ -190,7 +190,7 @@ function decisionClaim(
  * Kernel decision states pass through; anything else is unknown — never a plausible
  * neighbour (ADR-0020 D1: `superseded` is not "awaiting approval").
  */
-const kernelDecisionStates: ReadonlySet<string> = new Set(["proposed", "rejected", "deferred", "superseded", "active", "retired"]);
+const kernelDecisionStates: ReadonlySet<string> = new Set(["proposed", "rejected", "deferred", "superseded", "in_effect", "outcome_retired"]);
 function decisionState(value: string): DecisionState {
   return kernelDecisionStates.has(value) ? value as DecisionState : "unknown";
 }

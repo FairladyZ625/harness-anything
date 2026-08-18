@@ -19,7 +19,7 @@ type RuntimeReceipt = GuiActionResult & {
 };
 
 export interface RuntimeSpawnSettlement {
-  readonly state: "applied" | "pending" | "rejected";
+  readonly state: "applied" | "pending" | "op_rejected";
   readonly opId: string;
   readonly runtimeSessionId: string | null;
   readonly code?: string;
@@ -50,11 +50,11 @@ export async function submitRuntimeSpawn(
     return { state: "pending", opId: current.opId, runtimeSessionId, code: "projection_not_visible", hint: "Receipt is applied, but the runtime session is not visible in the canonical overview. Keep this opId; do not resubmit." };
   }
   if (pending(current) || current.outcome === "applied") return { state: "pending", opId: current.opId, runtimeSessionId, code: current.code ?? current.outcome, hint: current.nextAction ?? "Keep this opId and poll its receipt; do not resubmit." };
-  return { state: "rejected", opId: current.opId, runtimeSessionId, code: current.error?.code ?? current.code ?? "runtime_spawn_rejected", hint: current.error?.hint ?? current.nextAction ?? "Runtime spawn was rejected." };
+  return { state: "op_rejected", opId: current.opId, runtimeSessionId, code: current.error?.code ?? current.code ?? "runtime_spawn_rejected", hint: current.error?.hint ?? current.nextAction ?? "Runtime spawn was rejected." };
 }
 
 function receipt(value: unknown): RuntimeReceipt {
-  if (!isRendererRecord(value) || value.schema !== "command-receipt/v2" || typeof value.opId !== "string" || !["applied", "pending", "indeterminate", "rejected"].includes(String(value.outcome))) throw new Error(rendererErrorHint(value, "Runtime spawn returned an invalid receipt."));
+  if (!isRendererRecord(value) || value.schema !== "command-receipt/v2" || typeof value.opId !== "string" || !["applied", "pending", "indeterminate", "op_rejected"].includes(String(value.outcome))) throw new Error(rendererErrorHint(value, "Runtime spawn returned an invalid receipt."));
   return value as RuntimeReceipt;
 }
 function pending(value: RuntimeReceipt): boolean { return value.outcome === "pending" || value.outcome === "indeterminate"; }

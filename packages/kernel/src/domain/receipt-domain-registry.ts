@@ -16,11 +16,11 @@ export interface DocSyncReceiptDetail {
 export const receiptDetailRegistry = Object.freeze([{ kind: "doc_sync", validate: validateDocSyncDetail }] as const);
 export type WriteReceiptDetail = DocSyncReceiptDetail;
 export interface WriteReceipt {
-  readonly outcome: "applied" | "pending" | "indeterminate" | "rejected"; readonly opId: string; readonly revision?: number;
+  readonly outcome: "applied" | "pending" | "indeterminate" | "op_rejected"; readonly opId: string; readonly revision?: number;
   readonly code?: string; readonly origin?: string; readonly nextAction?: string; readonly evidence?: string;
   readonly visibility?: ReceiptVisibility; readonly proof?: ReceiptProof; readonly detail?: WriteReceiptDetail;
 }
-export const WRITE_RECEIPT_SCHEMA = Object.freeze({ id: "write-receipt/v1", outcomes: Object.freeze(["applied", "pending", "indeterminate", "rejected"] as const),
+export const WRITE_RECEIPT_SCHEMA = Object.freeze({ id: "write-receipt/v1", outcomes: Object.freeze(["applied", "pending", "indeterminate", "op_rejected"] as const),
   required: Object.freeze(["outcome", "opId"]), optional: Object.freeze(["revision", "code", "origin", "nextAction", "evidence", "visibility", "proof", "detail"]) });
 export function validateWriteReceipt(value: unknown): readonly string[] {
   if (!isReceiptDomainRecord(value)) return ["receipt must be an object"];
@@ -41,7 +41,7 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
   if (value.outcome === "applied" && replica && validProof && (proof.ackCut !== proof.appliedCut || proof.worktreeVisible !== true)) errors.push("replica applied requires worktree visibility and ackCut at the same cut");
   if (value.outcome === "applied" && (!cut(value.revision) || !text(value.evidence))) errors.push("applied requires revision and evidence");
   if (value.outcome === "pending" && (!cut(value.revision) || !text(value.evidence) || !text(value.nextAction))) errors.push("pending requires committed evidence, revision, and nextAction");
-  if (value.outcome === "indeterminate" || value.outcome === "rejected") for (const field of ["code", "origin", "nextAction"] as const) if (!text(value[field])) errors.push(`${field} is required for ${value.outcome}`);
+  if (value.outcome === "indeterminate" || value.outcome === "op_rejected") for (const field of ["code", "origin", "nextAction"] as const) if (!text(value[field])) errors.push(`${field} is required for ${value.outcome}`);
   if (!text(value.evidence) && (value.outcome !== "indeterminate" || value.origin !== "N/A")) errors.push("evidence-free receipt must be N/A indeterminate");
   return errors;
 }
