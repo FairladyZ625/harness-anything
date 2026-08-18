@@ -1,6 +1,6 @@
 export { consumeKnownError } from "./error-consumption.ts";
 export * from "./domain/index.ts";
-export type { AgentDefinitionSnapshot, AgentRuntimeEventV1, RuntimeInstallation, RuntimeSession } from "./domain/agent-runtime.ts";
+export type { AgentDefinitionSnapshot, AgentRuntimeEventV1, RuntimeInstallation, RuntimeResultClaim, RuntimeSession } from "./domain/agent-runtime.ts";
 export { allowsTaskStatusMove, applyTransition, canonicalGateReceipts, canStartExecution, normalizeTaskLifecycleCommand, reviewDigest, validateTaskLifecycleCommandEnvelope } from "./domain/task-lifecycle.contract.ts";
 export { canReclaim, isIndependentFrom, isSameExecution, isSamePerson } from "./domain/actor-domain-services.ts";
 export { compileTaskLifecycleWrite, lifecycleDocumentPaths, taskLifecycleWritePlan } from "./domain/task-lifecycle-publication.ts";
@@ -82,7 +82,7 @@ export {
   makeTaskEventStore,
   makeTaskProjection
 } from "./composition/index.ts";
-export type { CanonicalEventStore, CanonicalWriteBundle, EventPublicationKillpoint, ReplicaProjectionBasis, TaskProjection } from "./composition/index.ts";
+export type { CanonicalContentBlob, CanonicalEventStore, CanonicalWriteBundle, EventPublicationKillpoint, ReplicaProjectionBasis, TaskProjection } from "./composition/index.ts";
 export {
   readDaemonRegistry,
   resolveDaemonRepoByRoot,

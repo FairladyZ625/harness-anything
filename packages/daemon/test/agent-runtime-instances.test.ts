@@ -52,7 +52,7 @@ test("API-key launch preparation uses the witnessed executable and an instance-o
     assert.equal(resolvedReference, "keychain:harness/codex-api");
     assert.deepEqual(launch.installation, observed);
     assert.equal(launch.executablePath, observed.executablePath);
-    assert.deepEqual(launch.args, ["exec", "--model", "gpt-5.6-sol", "-c", "model_provider=\"openai\"", "-c", "model_reasoning_effort=\"xhigh\"", "-"]);
+    assert.deepEqual(launch.args, ["exec", "--json", "--model", "gpt-5.6-sol", "-c", "model_provider=\"openai\"", "-c", "model_reasoning_effort=\"xhigh\"", "-"]);
     assert.deepEqual(launch.env, { PATH: "/runtime/tools", HOME: path.join(stateRoot, "home"), TMPDIR: path.join(stateRoot, "tmp"), XDG_RUNTIME_DIR: path.join(stateRoot, "run"), CODEX_HOME: path.join(stateRoot, "home", ".codex"), OPENAI_API_KEY: "instance-secret", OPENAI_BASE_URL: "https://gateway.example.test/v1" });
     assert.equal(Object.values(launch.env).includes("host-secret"), false);
     assert.equal(Object.values(launch.env).includes("host-token"), false);
@@ -82,7 +82,7 @@ test("subscription launch fails closed without provider-native readiness and nev
     assert.throws(() => store.prepareLaunch("claude-subscription", { cwd: "/workspace/repo", prompt: "Inspect" }), (error: unknown) => codedAs(error, "runtime_subscription_required"));
     assert.equal(credentialCalls, 0);
     ready = true; const launch = store.prepareLaunch("claude-subscription", { cwd: "/workspace/repo", prompt: "Inspect" }), stateRoot = path.join(userRoot, "runtime-instances", "claude-subscription");
-    assert.deepEqual(launch.args, ["-p", "--model", "claude-fable-5", "--effort", "high"]);
+    assert.deepEqual(launch.args, ["-p", "--verbose", "--output-format", "stream-json", "--model", "claude-fable-5", "--effort", "high"]);
     assert.deepEqual(launch.env, { PATH: "/runtime/tools", HOME: path.join(stateRoot, "home"), TMPDIR: path.join(stateRoot, "tmp"), XDG_RUNTIME_DIR: path.join(stateRoot, "run"), CLAUDE_CONFIG_DIR: path.join(stateRoot, "home", ".claude") });
     assert.deepEqual(readinessEnvironment, launch.env);
     assert.equal(credentialCalls, 0);
