@@ -10,7 +10,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   if (argv.length === 0 || argv.includes("--help")) { const domain = helpDomain(argv);
     if (domain !== undefined && !cliCommandDomains().includes(domain)) { emit(cliFailure("help", "unsupported_command", unsupportedCommandHint([domain])), argv.includes("--json")); return 2; }
     const rows = await taskCreateHelpCatalog(argv); console.log(rows.length === 0 && domain === undefined ? renderThinHelp() : renderThinHelp(rows, domain)); return 0; }
-  if (argv.includes("daemon") || argv.includes("gui")) { const { runDaemonControl } = await import("./daemon/control.ts"); return runDaemonControl(argv, emit); }
+  if (command === "daemon" || command === "gui") { const { runDaemonControl } = await import("./daemon/control.ts"); return runDaemonControl(argv, emit); }
   const parsed = parseThinCommand(argv);
   if (!parsed.ok) { emit(cliFailure("parse", parsed.code, parsed.nextAction), parsed.json); return 2; }
   try { const receipt = await runCommandThroughDaemon(parsed.command, (phase) => emit(phase, parsed.command.json)); emit(receipt, parsed.command.json); return Number.isInteger(receipt.exitCode) ? Number(receipt.exitCode) : receipt.ok === true ? 0 : 1; } catch (error) { const autostartCode = daemonAutostartFailureCode(error); emit(cliFailure(parsed.command.action.kind, autostartCode ?? "daemon_unavailable", autostartCode ? error instanceof Error ? error.message : String(error) : `Local daemon request failed. Cause: ${error instanceof Error ? error.message : String(error)}`), parsed.command.json); return 1; }

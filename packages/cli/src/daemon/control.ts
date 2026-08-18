@@ -8,12 +8,14 @@ import { ensureLocalDaemonRunning } from "../../../daemon/src/client/daemon-auto
 import { readDaemonPid, startDaemon } from "../../../daemon/src/runtime.ts";
 import { cliDaemonServeLaunch, consumeKnownError } from "./client.ts";
 import { daemonRepoModeWords } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { firstCliCommandIndex } from "../cli/thin-command.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type ControlFinisher = (receipt: Record<string, unknown>, exitCode: number) => number;
 export async function runDaemonControl(argv: readonly string[], renderReceipt: ReceiptEmitter): Promise<number> {
-  if (argv.includes("gui") && !argv.includes("daemon")) return runGuiLaunch(argv, {}, renderReceipt);
-  const at = argv.indexOf("daemon"), command = argv[at + 1], subcommand = argv[at + 2];
+  const at = firstCliCommandIndex(argv);
+  if (argv[at] === "gui") return runGuiLaunch(argv, {}, renderReceipt);
+  const command = argv[at + 1], subcommand = argv[at + 2];
   const json = argv.includes("--json"), userRoot = path.resolve(daemonOption(argv, "--user-root") ?? daemonUserRoot());
   const daemonId = daemonOption(argv, "--daemon-id") ?? daemonIdFromEnv(), finish: ControlFinisher = (receipt, exitCode) => finishControlReceipt(renderReceipt, receipt, json, exitCode);
   try {

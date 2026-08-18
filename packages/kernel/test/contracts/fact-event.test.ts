@@ -65,3 +65,39 @@ test("Decision outcome embeds an independently verifiable machine-content consen
   const { judgmentConsent: _consent, ...legacy } = accepted.event.payload;
   assert.notDeepEqual(validateDecisionEvent({ ...accepted.event, payload: legacy }), []); assert.notDeepEqual(validateDecisionEvent({ ...accepted.event, payload: { ...legacy, contentPins: [{ digest: consent.machineDigest }] } }), []);
 });
+
+// #1546: the proposal validator answered every shape failure with one sentence, so a rejected packet
+// had to be bisected by hand. Each wrong field must now name itself, and several wrong fields at once
+// must all be named — while the accept/reject verdict stays exactly what it was.
+test("#1546: a rejected Decision proposal names every field that is actually wrong", () => {
+  const payload = decision.event.payload, event = (next: Record<string, unknown>) => ({ ...decision.event, payload: { ...payload, ...next } });
+  assert.deepEqual(validateDecisionEvent(decision.event), []);
+  for (const [next, pattern] of [
+    [{ title: "" }, /^title must be a non-empty string$/u],
+    [{ question: "" }, /^question must be 1\.\.499 code points$/u],
+    [{ riskTier: "urgent" }, /^riskTier must be low, medium, or high$/u],
+    [{ urgency: "someday" }, /^urgency must be low, medium, or high$/u],
+    [{ vertical: "" }, /^vertical must be a non-empty string$/u],
+    [{ decisionClass: "informal" }, /^decisionClass must be ordinary or standing_policy$/u],
+    [{ appliesTo: { modules: ["kernel", "kernel"], productLines: [] } }, /^appliesTo must carry exactly/u],
+    [{ body: 7 }, /^body must be a string$/u],
+    [{ chosen: [] }, /^chosen must be a non-empty array$/u],
+    [{ claims: "none" }, /^claims must be an array$/u],
+    [{ chosen: [{ id: "XX1", text: "Wrong prefix" }] }, /^every chosen entry needs a CH id/u],
+    [{ rejected: [{ id: "RJ1", text: "No reason given", whyNot: "" }] }, /^every rejected entry needs an RJ id/u],
+    [{ claims: [{ id: "C1", text: "Bad flag", loadBearing: "yes" }] }, /^every claim needs a C id/u],
+    [{ fulfillments: [{ claimId: "C1", mode: "wished" }] }, /^every fulfillment needs a claimId and a mode of/u],
+    [{ fulfillments: [{ claimId: "C9", mode: "evidenced" }] }, /^every fulfillment must name a distinct claim/u]
+  ] as const) {
+    const issues = validateDecisionEvent(event(next as Record<string, unknown>));
+    assert.equal(issues.length, 1, `${JSON.stringify(next)} -> ${JSON.stringify(issues)}`);
+    assert.match(issues[0]!, pattern, JSON.stringify(next));
+  }
+  // Several wrong fields at once are all reported, not just the first one the old chain hit.
+  const many = validateDecisionEvent(event({ title: "", riskTier: "urgent", body: 7 }));
+  assert.equal(many.length, 3, JSON.stringify(many));
+  assert.deepEqual([...many].sort(), ["body must be a string", "riskTier must be low, medium, or high", "title must be a non-empty string"]);
+  // A wrong field SET still fails closed as one message naming the exact contract.
+  const { relations: _relations, ...missing } = payload;
+  assert.deepEqual(validateDecisionEvent({ ...decision.event, payload: missing }), ["decision proposal requires exactly: title, question, riskTier, urgency, vertical, preset, appliesTo, decisionClass, chosen, rejected, body, claims, fulfillments, relations"]);
+});
