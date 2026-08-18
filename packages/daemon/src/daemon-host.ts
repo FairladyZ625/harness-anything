@@ -7,6 +7,7 @@ import { makeTransportDerivedIdentityProvider } from "./identity/transport-deriv
 import type { DaemonCommandClass } from "./identity/types.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { openRepoCell, type RepoCell, type RepoCellBinding, type RepoCellStatus, type RepoTaskAction } from "./repo-cell.ts";
+import { yieldToEventLoop } from "./process-port.ts";
 import { startFleetCenterAdmission, syncFleetEdgeMirror, type FleetCenterAdmissionRequest, type FleetEdgeSyncRequest } from "./fleet-center-admission.ts"; import type { FleetTlsCenter } from "./fleet/center.ts";
 import { openDocSyncWatcher, type DocSyncWatcher } from "./doc-sync-watcher.ts";
 import type { AgentRuntimeAttachEvent, AgentRuntimeAttachSubscription, AgentRuntimeNativeSignal, AgentRuntimeWitnessBinding, AgentRuntimeWitnessToken } from "./agent-runtime-stream.ts";
@@ -32,18 +33,24 @@ export interface DaemonHost {
   readonly status: () => { readonly daemonId: string; readonly pid: number; readonly repos: readonly RepoCellStatus[]; readonly summary: string };
   readonly close: () => Promise<void>;
 }
-export async function openDaemonHost(input: { readonly daemonId: string; readonly userRoot: string; readonly endpoint?: string; readonly startedAt?: string; readonly watchOwnerUid?: number; readonly watchDebounceMs?: number; readonly runtimeLaunch?: RuntimeLauncher; readonly runtimeDiscover?: () => readonly RuntimeInstallationWitness[] }): Promise<DaemonHost> {
+export async function openDaemonHost(input: { readonly daemonId: string; readonly userRoot: string; readonly endpoint?: string; readonly startedAt?: string; readonly watchOwnerUid?: number; readonly watchDebounceMs?: number; readonly runtimeLaunch?: RuntimeLauncher; readonly runtimeDiscover?: () => readonly RuntimeInstallationWitness[]; readonly shutdownRequested?: () => boolean }): Promise<DaemonHost> {
   const cells = new Map<string, RepoCell>(), watchers = new Map<string, DocSyncWatcher>(), watchFailures = new Map<string, string>(), ownerUid = input.watchOwnerUid ?? process.getuid?.() ?? 0;
   const unavailable = new Map<string, RepoCellStatus>(), controls = new Map<string, DaemonControlReceipt>(), discover = input.runtimeDiscover ?? (() => discoverRuntimeInstallations()), instances = openRuntimeInstanceStore({ userRoot: input.userRoot, discover }), runtimePorts = { runtimeInstances: instances.listPublic, prepareRuntimeLaunch: instances.prepareLaunch }, startedAt = input.startedAt ?? new Date().toISOString(), initialRegistry = readDaemonRegistry({ userRoot: input.userRoot }); let latestControl: DaemonControlReceipt | null = null; let fleetCenter: FleetTlsCenter | null = null;
   for (const repo of initialRegistry.invalidRepos) if (repo.state !== "disabled") unavailable.set(invalidRepoId(repo), invalidRegistryStatus(repo)); const repos = initialRegistry.repos.filter((repo) => repo.state === "enabled");
-  await Promise.all(repos.map(async (repo) => {
+  // Attach one workspace per event-loop turn: attachment replays synchronously,
+  // and a SIGTERM that lands mid-startup must reach its handler between repos
+  // instead of waiting out the whole registry. Cell bodies are synchronous, so
+  // Promise.all would interleave them on microtasks and never yield at all.
+  for (const repo of repos) {
+    if (input.shutdownRequested?.()) break;
     try { await openRegistered(repo); }
     catch (error) { consumeKnownError(error); unavailable.set(repo.repoId, { repoId: repo.repoId, rootDir: repo.canonicalRoot, state: "unavailable", generation: 0,
       queueDepth: 0, recoveryMs: 0, lastError: daemonErrorMessage(error) }); }
-  }));
+    await yieldToEventLoop();
+  }
   const attach = async (rootDir: string, repoId: string) => { const root = canonicalRoot(rootDir), id = workspaceId(repoId);
     const registered = registerDaemonRepo({ canonicalRoot: root, repoId, userRoot: input.userRoot, createConvenienceLinks: false });
-    if (!cells.has(repoId)) try { const cell = await openRepoCell({ repoId: id, rootDir: root, ownerId: input.daemonId, authoredBranch: registered.repo.authoredBranch, ...runtimePorts, ...(input.runtimeLaunch ? { runtimeLaunch: input.runtimeLaunch } : {}) }); cells.set(repoId, cell); await startWatch(repoId, cell); unavailable.delete(repoId); }
+    if (!cells.has(repoId)) try { const cell = await openRepoCell({ repoId: id, rootDir: root, ownerId: input.daemonId, authoredBranch: registered.repo.authoredBranch, ...(input.shutdownRequested ? { shouldStop: input.shutdownRequested } : {}), ...runtimePorts, ...(input.runtimeLaunch ? { runtimeLaunch: input.runtimeLaunch } : {}) }); cells.set(repoId, cell); await startWatch(repoId, cell); unavailable.delete(repoId); }
     catch (error) { consumeKnownError(error); unavailable.set(repoId, { repoId, rootDir: root, state: "unavailable", generation: 0, queueDepth: 0, recoveryMs: 0, lastError: daemonErrorMessage(error) }); }
     return registered; };
   const point = () => ({ daemonId: input.daemonId, pid: process.pid, startedAt });
@@ -103,7 +110,7 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
   };
   return host;
   async function startWatch(repoId: string, cell: RepoCell): Promise<void> { try { const base = await binding(cell.status().rootDir, { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" } }, "repo-write", true); watchers.set(repoId, openDocSyncWatcher({ rootDir: cell.status().rootDir, personId: base.actor.principal.personId, debounceMs: input.watchDebounceMs, run: (action, attribution) => cell.run(action, attribution ? { ...base, source: { kind: "watch_session", sessionId: attribution.sessionId, path: attribution.path, fingerprint: attribution.fingerprint } } : base) })); watchFailures.delete(repoId); } catch (error) { consumeKnownError(error); watchFailures.set(repoId, error instanceof Error ? error.message : String(error)); } }
-  async function openRegistered(repo: { readonly repoId: string; readonly canonicalRoot: string; readonly authoredBranch: string }): Promise<void> { const cell = await openRepoCell({ repoId: workspaceId(repo.repoId), rootDir: canonicalRoot(repo.canonicalRoot), ownerId: input.daemonId, authoredBranch: repo.authoredBranch, ...runtimePorts, ...(input.runtimeLaunch ? { runtimeLaunch: input.runtimeLaunch } : {}) }); cells.set(repo.repoId, cell); unavailable.delete(repo.repoId); await startWatch(repo.repoId, cell); }
+  async function openRegistered(repo: { readonly repoId: string; readonly canonicalRoot: string; readonly authoredBranch: string }): Promise<void> { const cell = await openRepoCell({ repoId: workspaceId(repo.repoId), rootDir: canonicalRoot(repo.canonicalRoot), ownerId: input.daemonId, authoredBranch: repo.authoredBranch, ...(input.shutdownRequested ? { shouldStop: input.shutdownRequested } : {}), ...runtimePorts, ...(input.runtimeLaunch ? { runtimeLaunch: input.runtimeLaunch } : {}) }); cells.set(repo.repoId, cell); unavailable.delete(repo.repoId); await startWatch(repo.repoId, cell); }
   async function refreshRegistry(): Promise<void> { const registry = readDaemonRegistry({ userRoot: input.userRoot }), enabled = new Map(registry.repos.filter((repo) => repo.state === "enabled").map((repo) => [repo.repoId, repo])), invalid = new Map(registry.invalidRepos.filter((repo) => repo.state !== "disabled").map((repo) => [invalidRepoId(repo), repo])); for (const repoId of [...cells.keys()]) if (!enabled.has(repoId)) { await watchers.get(repoId)?.close(); watchers.delete(repoId); await cells.get(repoId)?.close(); cells.delete(repoId); unavailable.delete(repoId); } for (const repoId of [...unavailable.keys()]) if (!enabled.has(repoId) && !invalid.has(repoId)) unavailable.delete(repoId); for (const repo of invalid.values()) unavailable.set(invalidRepoId(repo), invalidRegistryStatus(repo)); for (const repo of enabled.values()) if (!cells.has(repo.repoId)) try { await openRegistered(repo); } catch (error) { consumeKnownError(error); unavailable.set(repo.repoId, { repoId: repo.repoId, rootDir: repo.canonicalRoot, state: "unavailable", generation: 0, queueDepth: 0, recoveryMs: 0, lastError: daemonErrorMessage(error) }); } }
   function settleControl(pending: DaemonControlReceipt, ok: boolean, error?: unknown): void { const completedAt = new Date().toISOString(), settled: DaemonControlReceipt = { ...pending, ok, outcome: ok ? "pending" : "rejected", phase: ok ? "settled" : "failed", completedAt, after: ok ? point() : null, error: ok ? null : { code: code(error), hint: daemonErrorMessage(error) }, nextAction: ok ? null : "Repair the reported registry or RepoCell error, then request a new refresh." }; controls.set(pending.operationId, settled); latestControl = settled; }
 }

@@ -1,25 +1,34 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
+import { acquireDaemonSingleton, daemonPidPath } from "./daemon-singleton.ts";
 import { openDaemonHost } from "./daemon-host.ts";
 import { createJsonRpcProtocolServer } from "./protocol/json-rpc-server.ts";
 import { openDaemonRequestLog } from "./request-log.ts";
 import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
 
 export interface RunningDaemon { readonly endpoint: string; readonly stop: () => Promise<void> }
-export async function startDaemon(input: { readonly daemonId: string; readonly userRoot: string }): Promise<RunningDaemon> {
-  const endpoint = localUserDaemonEndpoint(input.userRoot, input.daemonId), host = await openDaemonHost({ ...input, endpoint });
-  // One sink for the daemon; the protocol server is created per connection and reports into it.
-  const requestLog = openDaemonRequestLog({ resolveRootDir: (repoId) => host.status().repos.find((repo) => repo.repoId === repoId)?.rootDir });
-  const transport = createUnixSocketTransportServer({ daemonId: input.daemonId, socketPath: endpoint,
-    createProtocolServer: (authContext, emit) => createJsonRpcProtocolServer({ host, authContext, emit, recordRequest: requestLog.record }) });
-  try { await transport.start(); }
-  catch (error) { await host.close(); throw error; }
+export interface DaemonServeDeferred { readonly pid: number | null; readonly endpoint: string; readonly witness: "unix-socket" | "singleton-lock" }
+export type DaemonServeStart = RunningDaemon | DaemonServeDeferred;
+export async function startDaemon(input: { readonly daemonId: string; readonly userRoot: string; readonly shutdownRequested?: () => boolean }): Promise<DaemonServeStart> {
+  const endpoint = localUserDaemonEndpoint(input.userRoot, input.daemonId);
+  // The singleton claim precedes every workspace attachment and the socket
+  // bind, so the socket and the workspace writer locks can only ever share
+  // one holder.
+  const singleton = await acquireDaemonSingleton({ userRoot: input.userRoot, daemonId: input.daemonId, endpoint });
+  if (singleton.claim === "incumbent") return { pid: singleton.pid, endpoint, witness: singleton.witness };
   const pidPath = daemonPidPath(input.userRoot, input.daemonId);
   mkdirSync(path.dirname(pidPath), { recursive: true }); writeFileSync(pidPath, `${process.pid}\n`, "utf8");
-  return { endpoint, stop: async () => { await transport.stop(); await host.close(); rmSync(pidPath, { force: true }); } };
+  let host: Awaited<ReturnType<typeof openDaemonHost>> | undefined, transport: ReturnType<typeof createUnixSocketTransportServer> | undefined;
+  try {
+    host = await openDaemonHost({ ...input, endpoint });
+    // One sink for the daemon; the protocol server is created per connection and reports into it.
+    const requestLog = openDaemonRequestLog({ resolveRootDir: (repoId) => host!.status().repos.find((repo) => repo.repoId === repoId)?.rootDir });
+    transport = createUnixSocketTransportServer({ daemonId: input.daemonId, socketPath: endpoint,
+      createProtocolServer: (authContext, emit) => createJsonRpcProtocolServer({ host: host!, authContext, emit, recordRequest: requestLog.record }) });
+    await transport.start();
+  } catch (error) { await host?.close(); rmSync(pidPath, { force: true }); singleton.release(); throw error; }
+  let stopped = false;
+  return { endpoint, stop: async () => { if (stopped) return; stopped = true; await transport!.stop(); await host!.close(); rmSync(pidPath, { force: true }); singleton.release(); } };
 }
-export function daemonPidPath(userRoot: string, daemonId: string): string { return path.join(userRoot, `daemon-${safeRuntimeId(daemonId)}.pid`); }
-export function readDaemonPid(userRoot: string, daemonId: string): number | null { const file = daemonPidPath(userRoot, daemonId);
-  if (!existsSync(file)) return null; const pid = Number(readFileSync(file, "utf8").trim()); return Number.isInteger(pid) && pid > 0 ? pid : null; }
-function safeRuntimeId(value: string): string { return value.replace(/[^A-Za-z0-9_.-]/gu, "-"); }
+export { daemonPidPath, readDaemonPid } from "./daemon-singleton.ts";

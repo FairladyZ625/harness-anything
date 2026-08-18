@@ -8,5 +8,9 @@ export function startDetachedProcessChecked(command: string, args: readonly stri
   return new Promise((resolve, reject) => { const child = spawn(command, [...args], { ...detachedProcessOptions, env }); const onSpawn = () => { child.removeListener("error", onError); child.unref(); resolve(); }; const onError = (error: Error) => reject(error); child.once("spawn", onSpawn); child.once("error", onError); });
 }
 export function terminateProcess(pid: number): void { process.kill(pid, "SIGTERM"); }
+// Long synchronous stretches (workspace replay, batch migration) cannot run
+// signal handlers; yielding one macrotask turn between bounded segments lets a
+// pending SIGTERM reach its handler at the next safe point.
+export function yieldToEventLoop(): Promise<void> { return new Promise((resolve) => setImmediate(resolve)); }
 export function runProcessText(command: string, args: readonly string[], cwd?: string, env?: NodeJS.ProcessEnv): string { return execFileSync(command, [...args], { cwd, ...(env ? { env } : {}), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); }
 export function makeGitReadinessSource() { return { run: (rootDir: string, args: readonly string[], allowNoMatch = false) => { try { return { ok: true, stdout: runProcessText("git", args, rootDir).trim() }; } catch (error) { const status = typeof error === "object" && error && "status" in error ? Number(error.status) : null; return { ok: allowNoMatch && status === 1, stdout: "" }; } } }; }
