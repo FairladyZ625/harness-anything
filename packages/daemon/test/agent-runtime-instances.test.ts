@@ -144,9 +144,12 @@ test("subscription auth commands use the witnessed executable and instance-only 
   try {
     const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed], env: { PATH: "/runtime/tools", HOME: "/host/home", TMPDIR: "/host/tmp", OPENAI_API_KEY: "host-secret", HTTPS_PROXY: "host-proxy" } });
     store.create({ schemaVersion: 1, instanceId: "codex-sub", name: "Codex Subscription", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "subscription" } });
-    const command = store.prepareAuthCommand("codex-sub", "login"), stateRoot = path.join(userRoot, "runtime-instances", "codex-sub");
+    const stateRoot = path.join(userRoot, "runtime-instances", "codex-sub"), providerConfigDirectory = path.join(stateRoot, "home", ".codex");
+    assert.equal(statSync(providerConfigDirectory).mode & 0o777, 0o700);
+    assert.equal(existsSync(path.join(stateRoot, "home", ".claude")), false);
+    const command = store.prepareAuthCommand("codex-sub", "login");
     assert.equal(command.executablePath, observed.executablePath); assert.deepEqual(command.args, ["login"]); assert.equal(command.cwd, stateRoot);
-    assert.deepEqual(command.env, { PATH: "/runtime/tools", HOME: path.join(stateRoot, "home"), TMPDIR: path.join(stateRoot, "tmp"), XDG_RUNTIME_DIR: path.join(stateRoot, "run"), CODEX_HOME: path.join(stateRoot, "home", ".codex") });
+    assert.deepEqual(command.env, { PATH: "/runtime/tools", HOME: path.join(stateRoot, "home"), TMPDIR: path.join(stateRoot, "tmp"), XDG_RUNTIME_DIR: path.join(stateRoot, "run"), CODEX_HOME: providerConfigDirectory });
     assert.deepEqual(store.prepareAuthCommand("codex-sub", "reauth").args, ["login"]); assert.deepEqual(store.prepareAuthCommand("codex-sub", "logout").args, ["logout"]);
     store.create({ schemaVersion: 1, instanceId: "codex-api", name: "Codex API", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "api-key", credentialRef: "keychain:harness/codex-api" } });
     assert.throws(() => store.prepareAuthCommand("codex-api", "login"), (error: unknown) => codedAs(error, "runtime_auth_mode_mismatch"));
