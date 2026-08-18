@@ -1,8 +1,8 @@
 # CH3 状态词改名——生产切换 Runbook
 
-适用对象:CEO 亲自执行(worker 不碰生产台账)。生产台账 = `/Users/lizeyu/Projects/coding-agent-harness/harness-anything/harness/`,生产 daemon 政体 = `~/.harness-production` 命名空间。
+适用对象:CEO 亲自执行(worker 不碰生产台账)。生产台账 = 生产仓根下的 `harness/`;生产 daemon 政体 = `~/.harness-production` 命名空间。
 
-演练依据:2026-08-18 副本演练(scratch `/Users/lizeyu/Projects/rename-drill-scratch/`),replayer=`scripts/rename-drill/replay.mjs`,全部五条验收在副本上绿。演练用的冻结点为 `176ef9fb`/revision 22871;**生产执行时所有数字必须在冻结后重取,本文数字只是演练参考**。
+演练依据:2026-08-18 副本演练(本机 scratch 副本),replayer=`scripts/rename-drill/replay.mjs`,全部五条验收在副本上绿。演练用的冻结点为 `176ef9fb`/revision 22871;**生产执行时所有数字必须在冻结后重取,本文数字只是演练参考**。
 
 ## 前置条件(全部满足才开始)
 
