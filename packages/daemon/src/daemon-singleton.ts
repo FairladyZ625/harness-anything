@@ -1,7 +1,7 @@
+import net from "node:net";
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "../../kernel/src/index.ts";
-import { daemonSocketProbe } from "./client/daemon-autostart.ts";
 
 // The daemon singleton is one process per (userRoot, daemonId). The claim is a
 // pidfile created with O_EXCL (atomic test-and-set): the second serve reads the
@@ -12,7 +12,16 @@ export interface DaemonSingletonIncumbent { readonly claim: "incumbent"; readonl
 export type DaemonSingletonOutcome = DaemonSingletonHeld | DaemonSingletonIncumbent;
 export function daemonPidPath(userRoot: string, daemonId: string): string { return path.join(userRoot, `daemon-${safeRuntimeId(daemonId)}.pid`); }
 export function daemonSingletonLockPath(userRoot: string, daemonId: string): string { return path.join(userRoot, `daemon-${safeRuntimeId(daemonId)}.singleton.lock`); }
+export function daemonAutostartLockPath(userRoot: string, daemonId: string): string { return path.join(userRoot, `daemon-${safeRuntimeId(daemonId)}.autostart.lock`); }
 export function readDaemonPid(userRoot: string, daemonId: string): number | null { return readPidFile(daemonPidPath(userRoot, daemonId)); }
+export async function acquireDaemonAutostartFlight(input: { readonly userRoot: string; readonly daemonId: string; readonly pid?: number }): Promise<{ readonly owner: boolean; readonly release: () => void }> {
+  const pid = input.pid ?? process.pid, lockPath = daemonAutostartLockPath(input.userRoot, input.daemonId); mkdirSync(input.userRoot, { recursive: true });
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try { writeFileSync(lockPath, `${pid}\n`, { flag: "wx", mode: 0o600 }); return { owner: true, release: () => releaseIfHeld(lockPath, pid) }; }
+    catch (error) { if (!isCode(error, "EEXIST")) throw error; consumeKnownError(error); const owner = await readHolderPid(lockPath); if (owner !== null && processAlive(owner)) return { owner: false, release: () => undefined }; try { unlinkSync(lockPath); } catch (cleanup) { if (!isCode(cleanup, "ENOENT")) throw cleanup; consumeKnownError(cleanup); } }
+  }
+  throw singletonError(`The daemon autostart lock at ${lockPath} could not be claimed after repeated stale-holder replacement.`);
+}
 export async function acquireDaemonSingleton(input: { readonly userRoot: string; readonly daemonId: string; readonly endpoint: string; readonly pid?: number; readonly probe?: (socketPath: string) => Promise<boolean> }): Promise<DaemonSingletonOutcome> {
   const pid = input.pid ?? process.pid, probe = input.probe ?? daemonSocketProbe, lockPath = daemonSingletonLockPath(input.userRoot, input.daemonId);
   mkdirSync(input.userRoot, { recursive: true });
@@ -48,6 +57,11 @@ function readPidFile(target: string): number | null {
 }
 function releaseIfHeld(lockPath: string, pid: number): void { if (readPidFile(lockPath) === pid) try { unlinkSync(lockPath); } catch (error) { if (!isCode(error, "ENOENT")) throw error; consumeKnownError(error); } }
 function processAlive(pid: number): boolean { try { process.kill(pid, 0); return true; } catch (error) { if (!isCode(error, "EPERM")) consumeKnownError(error); return isCode(error, "EPERM"); } }
+export function daemonProcessAlive(pid: number): boolean { return processAlive(pid); }
+export async function daemonSocketProbe(socketPath: string): Promise<boolean> {
+  return new Promise((resolve) => { const socket = net.createConnection(socketPath), finish = (up: boolean) => { socket.destroy(); resolve(up); }; const timer = setTimeout(() => finish(false), 250);
+    socket.once("connect", () => { clearTimeout(timer); finish(true); }); socket.once("error", () => { clearTimeout(timer); finish(false); }); });
+}
 function isCode(error: unknown, code: string): boolean { return typeof error === "object" && error !== null && "code" in error && (error as { readonly code?: unknown }).code === code; }
 function singletonError(text: string): Error { const error = new Error(text) as Error & { code: string }; error.code = "daemon_singleton_lock_failed"; return error; }
 function safeRuntimeId(value: string): string { return value.replace(/[^A-Za-z0-9_.-]/gu, "-"); }

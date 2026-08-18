@@ -47,7 +47,7 @@ test("GUI bridge auto-starts an unreachable daemon, retries the read, and reache
   }
 });
 
-test("GUI bridge reports a classified error after two failed autostart attempts", { skip: process.platform === "win32" || process.getuid?.() === 0 ? "requires POSIX non-root permission semantics" : false }, async () => {
+test("GUI bridge reports the single-flight lock permission failure without spawning", { skip: process.platform === "win32" || process.getuid?.() === 0 ? "requires POSIX non-root permission semantics" : false }, async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-autostart-fail-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user"), daemonId = "gui-autostart-fail";
   const previous = process.env.HARNESS_DAEMON_USER_ROOT, previousId = process.env.HARNESS_DAEMON_ID;
   process.env.HARNESS_DAEMON_USER_ROOT = userRoot; process.env.HARNESS_DAEMON_ID = daemonId;
@@ -57,8 +57,9 @@ test("GUI bridge reports a classified error after two failed autostart attempts"
     await daemon.stop();
     chmodSync(userRoot, 0o555);
     const failure = await createLocalGuiServiceBridge(rootDir).invoke("getTasks", { repoId: "gui-autostart-fail" }) as Failure;
-    assert.equal(failure.ok, false); assert.equal(failure.error?.code, "daemon_bind_timeout");
-    assert.match(failure.error?.hint ?? "", /did not accept connections/u);
+    assert.equal(failure.ok, false); assert.equal(failure.error?.code, "daemon_spawn_permission");
+    assert.match(failure.error?.hint ?? "", /permission was denied/u);
+    assert.equal(readDaemonPid(userRoot, daemonId), null, "the permission failure must happen before any daemon spawn");
   } finally {
     process.env.HARNESS_DAEMON_USER_ROOT = previous; process.env.HARNESS_DAEMON_ID = previousId;
     chmodSync(userRoot, 0o755); await daemon.stop().catch(() => undefined); rmSync(parent, { recursive: true, force: true });
