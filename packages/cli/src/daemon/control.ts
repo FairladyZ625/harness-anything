@@ -7,6 +7,7 @@ import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint } from "../../
 import { ensureLocalDaemonRunning } from "../../../daemon/src/client/daemon-autostart.ts";
 import { readDaemonPid, startDaemon } from "../../../daemon/src/runtime.ts";
 import { cliDaemonServeLaunch, consumeKnownError } from "./client.ts";
+import { daemonRepoModeWords } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type ControlFinisher = (receipt: Record<string, unknown>, exitCode: number) => number;
@@ -17,7 +18,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
   const daemonId = daemonOption(argv, "--daemon-id") ?? daemonIdFromEnv(), finish: ControlFinisher = (receipt, exitCode) => finishControlReceipt(renderReceipt, receipt, json, exitCode);
   try {
     if (command === "fleet") return fleetControl(argv, at, userRoot, daemonId, finish);
-    if (command === "repo" && subcommand === "register") { const root = daemonOption(argv, "--root"), repoId = daemonOption(argv, "--repo-id"); if (!root || !repoId) return finish(daemonFailure("daemon-repo-register", "missing_field", "Add --repo-id and --root."), 2); const result = await requestDaemonJsonRpcAt(localUserDaemonEndpoint(userRoot, daemonId), "daemon.repo.register", { rootDir: path.resolve(root), repoId }, 75); return finish(result, result.ok === true ? 0 : 1); }
+    if (command === "repo" && subcommand === "register") { const root = daemonOption(argv, "--root"), repoId = daemonOption(argv, "--repo-id"), mode = daemonOption(argv, "--mode"); if (!root || !repoId) return finish(daemonFailure("daemon-repo-register", "missing_field", "Add --repo-id and --root."), 2); if (mode !== undefined && !daemonRepoModeWords.includes(mode as (typeof daemonRepoModeWords)[number])) return finish(daemonFailure("daemon-repo-register", "invalid_field", `Use --mode ${daemonRepoModeWords.join(", ")}.`), 2); const result = await requestDaemonJsonRpcAt(localUserDaemonEndpoint(userRoot, daemonId), "daemon.repo.register", { rootDir: path.resolve(root), repoId, ...(mode ? { mode } : {}) }, 75); return finish(result, result.ok === true ? 0 : 1); }
     if (command === "repo" && subcommand === "unregister") { const repoId = daemonOption(argv, "--repo-id"); if (!repoId) return finish(daemonFailure("daemon-repo-unregister", "missing_field", "Add --repo-id."), 2);
       const result = await requestDaemonJsonRpcAt(localUserDaemonEndpoint(userRoot, daemonId), "daemon.repo.unregister", { repoId }, 75); return finish(result, result.ok === true ? 0 : 1); }
     if (command === "serve") return serve(userRoot, daemonId, finish);

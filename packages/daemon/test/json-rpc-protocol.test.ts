@@ -87,6 +87,12 @@ test("task-create and preset RPC descriptors enforce closed payloads and retire 
   assert.equal(parseDaemonRpcParams("repo.task.create", { repo: { repoId: "alpha" }, payload: { ...fullPayload, taskClass: "long_running" } }).ok, true);
 });
 
+test("daemon repo registration derives its closed mode enum at the wire boundary", () => {
+  const base = { rootDir: "/tmp/workspace", repoId: "alpha" };
+  for (const mode of [undefined, "local", "remote-center", "remote-edge"]) assert.equal(parseDaemonRpcParams("daemon.repo.register", { ...base, ...(mode ? { mode } : {}) }).ok, true, String(mode));
+  const invalid = parseDaemonRpcParams("daemon.repo.register", { ...base, mode: "invalid" }); assert.equal(invalid.ok, false); if (!invalid.ok) assert.deepEqual(invalid.errors, ["params.mode must be one of local, remote-center, remote-edge"]);
+});
+
 test("ledger migrate runs through the RepoCell write queue and rebuilds the projection at the migrated cut", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-ledger-layout-migrate-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
@@ -398,11 +404,16 @@ for (const killpoint of ["before_event_write", "after_event_write", "after_head_
         killpoint: (point) => { if (point === killpoint) throw new Error(`crash:${point}`); } });
       const first = await crashed.run(action, { actor, source: "local" });
       assert.equal(first.outcome, "op_rejected"); assert.equal(crashed.status().state, "unavailable");
-      const prePublicationCrash = ["before_event_write", "after_event_write", "after_head_write"].includes(killpoint); assert.equal(makeTaskEventStore({ repoId: "crash", rootDir }).read().revision, prePublicationCrash ? 0 : 1);
+      const prePublicationCrash = ["before_event_write", "after_event_write"].includes(killpoint); assert.equal(makeTaskEventStore({ repoId: "crash", rootDir }).read().revision, ["before_event_write", "after_event_write", "after_head_write"].includes(killpoint) ? 0 : 1);
       await crashed.close(); crashed = undefined;
       recovered = await openRepoCell({ repoId: workspaceId("crash"), rootDir: canonicalRoot(rootDir), ownerId: "generation-two" });
-      const retried = await recovered.run(action, { actor, source: "local" });
-      assert.equal(retried.outcome, "applied", JSON.stringify(retried));
+      const settled = await recovered.run({ kind: "receipt-show", opId: first.opId }, { actor, source: "local" });
+      assert.equal(settled.outcome, prePublicationCrash ? "op_rejected" : "applied", JSON.stringify(settled));
+      if (prePublicationCrash) {
+        const retried = await recovered.run(action, { actor, source: "local" });
+        assert.equal(retried.outcome, "applied", JSON.stringify(retried));
+      }
+      assert.equal(makeTaskEventStore({ repoId: "crash", rootDir }).read().events.filter((event) => event.opId === first.opId).length, 1);
       assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical"), "2");
     } finally { await crashed?.close(); await recovered?.close(); rmSync(rootDir, { recursive: true, force: true }); }
   });
@@ -560,7 +571,8 @@ test("read-only principal cannot write or admin while semantic capabilities pass
     assert.equal((await host.run("rbac", { kind: "task-submit", taskId: "task-rbac", executionId, fromFile: "submission.json" }, auth(ids.writer))).outcome, "applied");
     writeFileSync(path.join(root, "review.json"), JSON.stringify({ verdict: "approved", reason: "checked", evidenceChecked: [], commitSha, iteration: 0 }));
     const review = await host.run("rbac", { kind: "task-review-execution", taskId: "task-rbac", executionId, reviewId: "review-rbac", fromFile: "review.json" }, auth(ids.arbiter)); assert.equal(review.outcome, "applied", JSON.stringify(review));
-    assert.equal((await rpc(host, auth(ids.admin), "daemon.repo.register", { rootDir: second, repoId: "second" })).outcome, "applied");
+    const attached = await rpc(host, auth(ids.admin), "daemon.repo.register", { rootDir: second, repoId: "second", mode: "remote-edge" }); assert.equal(attached.outcome, "applied"); assert.equal((attached.repo as Record<string, unknown>).mode, "remote-edge");
+    const deniedEdgePreset = await rpc(host, auth(ids.writer), "repo.preset.run.start", { repo: { repoId: "second" }, payload: { presetId: "standard-task", entrypoint: "run", idempotencyKey: "edge-preset" } }); assert.equal(deniedEdgePreset.outcome, "op_rejected"); assert.equal(deniedEdgePreset.code, "repo_mode_read_only");
     assert.equal((await rpc(host, auth(ids.reader), "daemon.repo.unregister", { repoId: "second" })).code, "rbac_forbidden");
     assert.equal((await rpc(host, auth(ids.admin), "daemon.repo.unregister", { repoId: "second" })).outcome, "applied");
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }

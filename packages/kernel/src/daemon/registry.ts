@@ -5,13 +5,17 @@ import path from "node:path";
 import { consumeKnownError } from "../error-consumption.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { makeLocalVersionControlSystem, resolveLedgerGitLayout } from "../composition/index.ts";
+import { daemonRepoModes, type DaemonRepoMode } from "./repo-mode.ts";
+
+export { daemonRepoModes } from "./repo-mode.ts";
+export type { DaemonRepoMode } from "./repo-mode.ts";
 
 export const daemonRegistrySchema = "harness-daemon-registry/v1";
 
 export type DaemonRepoState = "enabled" | "disabled";
 
-export interface DaemonRegistryRepo { readonly repoId: string; readonly canonicalRoot: string; readonly displayName: string; readonly authoredBranch: string; readonly state: DaemonRepoState; readonly registeredAt: string }
-export interface InvalidDaemonRegistryRepo { readonly entryIndex: number; readonly repoId?: string; readonly canonicalRoot?: string; readonly displayName?: string; readonly authoredBranch?: string; readonly state?: DaemonRepoState; readonly registeredAt?: string; readonly error: string; readonly raw: unknown }
+export interface DaemonRegistryRepo { readonly repoId: string; readonly canonicalRoot: string; readonly displayName: string; readonly authoredBranch: string; readonly mode: DaemonRepoMode; readonly state: DaemonRepoState; readonly registeredAt: string }
+export interface InvalidDaemonRegistryRepo { readonly entryIndex: number; readonly repoId?: string; readonly canonicalRoot?: string; readonly displayName?: string; readonly authoredBranch?: string; readonly mode?: DaemonRepoMode; readonly state?: DaemonRepoState; readonly registeredAt?: string; readonly error: string; readonly raw: unknown }
 export interface DaemonRegistry { readonly schema: typeof daemonRegistrySchema; readonly repos: ReadonlyArray<DaemonRegistryRepo>; readonly invalidRepos: ReadonlyArray<InvalidDaemonRegistryRepo> }
 
 export interface DaemonRegistryPaths {
@@ -31,6 +35,7 @@ export interface DaemonRegistryRegisterInput extends DaemonRegistryOptions {
   readonly canonicalRoot: string;
   readonly repoId?: string;
   readonly displayName?: string;
+  readonly mode?: DaemonRepoMode;
 }
 
 export interface DaemonRegistryMutationResult<TRepo = DaemonRegistryRepo> { readonly registry: DaemonRegistry; readonly repo: TRepo; readonly registryPath: string; readonly changed: boolean; readonly warnings: ReadonlyArray<string> }
@@ -56,6 +61,7 @@ export function registerDaemonRepo(input: DaemonRegistryRegisterInput): DaemonRe
   const registry = readDaemonRegistry(input);
   const canonicalRoot = canonicalHarnessRoot(input.canonicalRoot);
   const displayName = input.displayName ?? path.basename(canonicalRoot);
+  const requestedMode = input.mode === undefined ? undefined : normalizeRepoMode(input.mode);
   const explicitRepoId = input.repoId ? normalizeExplicitRepoId(input.repoId) : undefined;
   const existingByRoot = registry.repos.find((repo) => repo.canonicalRoot === canonicalRoot);
   const invalidByRoot = registry.invalidRepos.find((repo) => repo.canonicalRoot === canonicalRoot);
@@ -70,6 +76,7 @@ export function registerDaemonRepo(input: DaemonRegistryRegisterInput): DaemonRe
     const repo = {
       ...existingByRoot,
       displayName,
+      mode: requestedMode ?? existingByRoot.mode,
       state: "enabled" as const
     };
     const next = replaceRepo(registry, repo);
@@ -92,6 +99,7 @@ export function registerDaemonRepo(input: DaemonRegistryRegisterInput): DaemonRe
     canonicalRoot,
     displayName,
     authoredBranch: defaultAuthoredBranch(canonicalRoot),
+    mode: requestedMode ?? "local",
     state: "enabled",
     registeredAt: (input.now ?? (() => new Date()))().toISOString()
   };
@@ -146,18 +154,19 @@ function decodeDaemonRegistryRepo(value: unknown, source: string): DaemonRegistr
   const canonicalRoot = typeof value.canonicalRoot === "string" ? path.resolve(value.canonicalRoot) : undefined;
   const displayName = typeof value.displayName === "string" && value.displayName.length > 0 ? value.displayName : undefined;
   const authoredBranch = typeof value.authoredBranch === "string" && validBranch(value.authoredBranch) ? value.authoredBranch : undefined;
+  const mode = value.mode === undefined ? "local" : daemonRepoModes.includes(value.mode as DaemonRepoMode) ? value.mode as DaemonRepoMode : undefined;
   const state = value.state === "enabled" || value.state === "disabled" ? value.state : undefined;
   const registeredAt = typeof value.registeredAt === "string" && value.registeredAt.length > 0 ? value.registeredAt : undefined;
-  const invalid = [["repoId", repoId], ["canonicalRoot", canonicalRoot], ["displayName", displayName], ["authoredBranch", authoredBranch], ["state", state], ["registeredAt", registeredAt]].filter(([, item]) => !item).map(([field]) => field);
+  const invalid = [["repoId", repoId], ["canonicalRoot", canonicalRoot], ["displayName", displayName], ["authoredBranch", authoredBranch], ["mode", mode], ["state", state], ["registeredAt", registeredAt]].filter(([, item]) => !item).map(([field]) => field);
   if (invalid.length) throw new Error(`invalid daemon registry repo entry at ${source}: missing or invalid ${invalid.join(", ")}`);
-  return { repoId: repoId!, canonicalRoot: canonicalRoot!, displayName: displayName!, authoredBranch: authoredBranch!, state: state!, registeredAt: registeredAt! };
+  return { repoId: repoId!, canonicalRoot: canonicalRoot!, displayName: displayName!, authoredBranch: authoredBranch!, mode: mode!, state: state!, registeredAt: registeredAt! };
 }
 
 function invalidDaemonRegistryRepo(value: unknown, entryIndex: number, error: string): InvalidDaemonRegistryRepo {
   if (!isDaemonRegistryRecord(value)) return { entryIndex, error, raw: value };
   let repoId: string | undefined; if (typeof value.repoId === "string") try { repoId = normalizeExplicitRepoId(value.repoId); } catch (cause) { consumeKnownError(cause); repoId = undefined; }
-  const canonicalRoot = typeof value.canonicalRoot === "string" ? path.resolve(value.canonicalRoot) : undefined, displayName = typeof value.displayName === "string" && value.displayName.length > 0 ? value.displayName : undefined, authoredBranch = typeof value.authoredBranch === "string" && validBranch(value.authoredBranch) ? value.authoredBranch : undefined, state = value.state === "enabled" || value.state === "disabled" ? value.state : undefined, registeredAt = typeof value.registeredAt === "string" && value.registeredAt.length > 0 ? value.registeredAt : undefined;
-  return { entryIndex, ...(repoId ? { repoId } : {}), ...(canonicalRoot ? { canonicalRoot } : {}), ...(displayName ? { displayName } : {}), ...(authoredBranch ? { authoredBranch } : {}), ...(state ? { state } : {}), ...(registeredAt ? { registeredAt } : {}), error, raw: value };
+  const canonicalRoot = typeof value.canonicalRoot === "string" ? path.resolve(value.canonicalRoot) : undefined, displayName = typeof value.displayName === "string" && value.displayName.length > 0 ? value.displayName : undefined, authoredBranch = typeof value.authoredBranch === "string" && validBranch(value.authoredBranch) ? value.authoredBranch : undefined, mode = daemonRepoModes.includes(value.mode as DaemonRepoMode) ? value.mode as DaemonRepoMode : undefined, state = value.state === "enabled" || value.state === "disabled" ? value.state : undefined, registeredAt = typeof value.registeredAt === "string" && value.registeredAt.length > 0 ? value.registeredAt : undefined;
+  return { entryIndex, ...(repoId ? { repoId } : {}), ...(canonicalRoot ? { canonicalRoot } : {}), ...(displayName ? { displayName } : {}), ...(authoredBranch ? { authoredBranch } : {}), ...(mode ? { mode } : {}), ...(state ? { state } : {}), ...(registeredAt ? { registeredAt } : {}), error, raw: value };
 }
 
 function writeDaemonRegistry(registry: DaemonRegistry, options: DaemonRegistryOptions): void {
@@ -192,6 +201,11 @@ function normalizeExplicitRepoId(repoId: string): string {
     throw new Error("repoId must use lowercase letters, numbers, and hyphens, and start with a letter");
   }
   return normalized;
+}
+
+function normalizeRepoMode(mode: DaemonRepoMode): DaemonRepoMode {
+  if (!daemonRepoModes.includes(mode)) throw new Error(`mode must be one of ${daemonRepoModes.join(", ")}`);
+  return mode;
 }
 
 function safeRepoId(value: string): string {
@@ -268,6 +282,7 @@ function daemonRepoEquals(left: DaemonRegistryRepo, right: DaemonRegistryRepo): 
     && left.canonicalRoot === right.canonicalRoot
     && left.displayName === right.displayName
     && left.authoredBranch === right.authoredBranch
+    && left.mode === right.mode
     && left.state === right.state
     && left.registeredAt === right.registeredAt;
 }

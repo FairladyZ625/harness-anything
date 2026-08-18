@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -45,11 +45,25 @@ test("daemon registry register realpaths canonical roots and writes registry-onl
     assert.equal(result.repo.repoId, "brain");
     assert.equal(result.repo.canonicalRoot, canonicalRoot);
     assert.equal(result.repo.authoredBranch, "ledger-main");
+    assert.equal(result.repo.mode, "local");
     assert.equal(result.repo.state, "enabled");
     assert.equal(result.repo.registeredAt, "2026-07-07T00:00:00.000Z");
     assert.equal(existsSync(daemonRegistryPaths({ userRoot }).registryPath), true);
     assert.equal(existsSync(daemonRegistryPaths({ userRoot }).reposRoot), false);
     assert.equal(resolveDaemonRepoByRoot(aliasRoot, { userRoot })?.repoId, "brain");
+  });
+});
+
+test("daemon registry persists explicit modes and defaults legacy rows to local", () => {
+  withTempDir((root) => {
+    const userRoot = path.join(root, "user-harness"), canonicalRoot = createHarnessRepo(path.join(root, "project"));
+    const center = registerDaemonRepo({ userRoot, canonicalRoot, repoId: "center", mode: "remote-center", createConvenienceLinks: false });
+    assert.equal(center.repo.mode, "remote-center");
+    assert.equal(readDaemonRegistry({ userRoot }).repos[0]?.mode, "remote-center");
+    const registryPath = daemonRegistryPaths({ userRoot }).registryPath, persisted = JSON.parse(readFileSync(registryPath, "utf8")) as { repos: Record<string, unknown>[] };
+    delete persisted.repos[0]!.mode; writeFileSync(registryPath, `${JSON.stringify(persisted)}\n`, "utf8");
+    assert.equal(readDaemonRegistry({ userRoot }).repos[0]?.mode, "local");
+    assert.throws(() => registerDaemonRepo({ userRoot, canonicalRoot, repoId: "center", mode: "invalid" as never, createConvenienceLinks: false }), /mode must be one of/u);
   });
 });
 

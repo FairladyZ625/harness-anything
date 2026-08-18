@@ -1,6 +1,7 @@
 import type { CanonicalStatus, CloseoutReadiness, PriorityTier, TaskWorkKind } from "../domain/index.ts";
 import type { PackageDisposition } from "../domain/package-disposition.ts";
 import type { HarnessLayoutOverrides } from "../layout/index.ts";
+import type { EventBackedRelationTruth } from "./relation-graph-projection.ts";
 
 export type ProjectionFreshness = "fresh" | "stale-but-usable" | "unavailable-no-cache";
 export type ProjectionSource = "local-document" | "external-engine" | "snapshot-cache";
@@ -138,6 +139,7 @@ export interface TaskProjectionOptions {
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly projectionPath?: string;
   readonly postMerge?: boolean;
+  readonly eventRelationTruth?: EventBackedRelationTruth;
   readonly taskFieldExtensions?: ReadonlyArray<TaskFieldExtensionProjection>;
 }
 

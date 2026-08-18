@@ -77,12 +77,14 @@ test("a publication_indeterminate latch reports the infrastructure class and hea
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-latch-infra-")); let clock = "2026-08-18T00:00:00.000Z"; let cell: RepoCell | undefined;
   try {
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("latch-infra"), rootDir: canonicalRoot(rootDir), ownerId: "latch-infra-one", now: () => clock }); const binding = { actor, source: "local" as const };
-    await cell.run({ kind: "task-create", taskId: "task_infra", title: "Infra" }, binding);
+    const seed = await cell.run({ kind: "task-create", taskId: "task_infra", title: "Infra" }, binding);
     mkdirSync(path.join(rootDir, "harness/context"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/context/notes.md"), "# Notes\n");
     git(rootDir, "commit", "--allow-empty", "-qm", "external advance"); // moves the authored branch off the canonical cut
     const indeterminate = await cell.run({ kind: "doc-submit", paths: ["context/notes.md"] }, binding);
     assert.equal(indeterminate.outcome, "indeterminate"); assert.equal(indeterminate.code, "publication_indeterminate");
     assert.equal(cell.status().state, "unavailable"); assert.equal(cell.status().causeClass, "infrastructure");
+    const receiptWhileLatched = await cell.run({ kind: "receipt-show", opId: seed.opId }, binding);
+    assert.equal(receiptWhileLatched.outcome, "applied", JSON.stringify(receiptWhileLatched));
     // Repair per the embedded recovery command: point the authored branch back at the canonical cut.
     git(rootDir, "update-ref", git(rootDir, "symbolic-ref", "HEAD"), "refs/ha/canonical");
     clock = "2026-08-18T00:00:06.000Z";
@@ -90,6 +92,28 @@ test("a publication_indeterminate latch reports the infrastructure class and hea
     assert.equal(healed.outcome, "applied", JSON.stringify(healed));
     assert.equal(cell.status().state, "attached"); assert.equal(cell.status().causeClass, null);
     assert.equal((await cell.run({ kind: "task-create", taskId: "task_infra_after", title: "After infra heal" }, binding)).outcome, "applied");
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("failed in-process recovery keeps a prepared operation indeterminate for immediate receipt lookup", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-latch-prepared-receipt-")), clock = "2026-08-18T00:00:00.000Z"; let armed = true, cell: RepoCell | undefined;
+  try {
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("latch-prepared-receipt"), rootDir: canonicalRoot(rootDir), ownerId: "latch-prepared-receipt", now: () => clock, killpoint: (point) => { if (armed && point === "after_head_write") { armed = false; throw new Error("prepared publication interruption"); } } }); const binding = { actor, source: "local" as const };
+    const interrupted = await cell.run({ kind: "task-create", taskId: "task_prepared_receipt", title: "Prepared receipt" }, binding);
+    assert.equal(interrupted.outcome, "op_rejected"); assert.equal(cell.status().state, "unavailable");
+    git(rootDir, "commit", "--allow-empty", "-qm", "external advance after prepared publication");
+    const receipt = await cell.run({ kind: "receipt-show", opId: interrupted.opId }, binding);
+    assert.equal(receipt.outcome, "indeterminate", JSON.stringify(receipt)); assert.equal(receipt.code, "publication_indeterminate");
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("a queued write rechecks Cell state after close begins", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cell-close-queue-")); let cell: RepoCell | undefined;
+  try {
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("cell-close-queue"), rootDir: canonicalRoot(rootDir), ownerId: "cell-close-queue" }); const binding = { actor, source: "local" as const };
+    const pending = cell.run({ kind: "task-create", taskId: "task_must_not_publish", title: "Must not publish" }, binding), closing = cell.close();
+    const receipt = await pending; assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt)); assert.equal(receipt.code, "repo_unavailable");
+    await closing; cell = undefined; assert.equal(makeTaskEventStore({ repoId: "cell-close-queue", rootDir }).readHead(), null);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
