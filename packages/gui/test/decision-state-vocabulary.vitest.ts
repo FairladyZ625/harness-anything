@@ -61,7 +61,7 @@ describe("decision state vocabulary (ADR-0020 D1 · blueprint 铁律四)", () =>
   });
 
   it("passes every kernel decision state through unchanged", () => {
-    for (const state of ["proposed", "active", "rejected", "deferred", "superseded", "retired"]) {
+    for (const state of ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired"]) {
       expect(adaptedState(state)).toBe(state);
     }
   });
