@@ -18,6 +18,9 @@ test("registered workspace CLI command auto-starts the daemon, retries, and succ
     register(fixture.root, fixture.userRoot, "autostart");
     assert.equal(run(fixture.root, fixture.userRoot, ["task", "create", "--id", "task-autostart", "--admin", "--title", "Auto"]).outcome, "applied");
     const previousPid = readDaemonPid(fixture.userRoot, "default"); assert.ok(previousPid);
+    // The autostart seam probes first: a live daemon is reused, never respawned.
+    assert.equal(run(fixture.root, fixture.userRoot, ["task", "list"]).outcome, "applied");
+    assert.equal(readDaemonPid(fixture.userRoot, "default"), previousPid, "a reachable daemon must not be replaced by a second spawn");
     assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "stop"]).ok, true);
     waitForDaemonDown(fixture.userRoot);
     // The daemon is gone; a plain CLI command must bring it back and still answer.
