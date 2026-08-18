@@ -1,13 +1,16 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, registerDaemonRepo, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import { openDaemonHost } from "../src/daemon-host.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
 const definition: AgentDefinitionSnapshot = { schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: "codex-review", installationId: "installation-codex", kindId: "codex", providerId: "openai", model: "gpt-5.6-sol", reasoningEffort: "high", baseUrl: "https://api.example.test/", authMode: "api-key" };
@@ -46,4 +49,57 @@ test("runtime spawn maps the GUI Claude kind to a canonical claude-compatible in
       } finally { await cell.close(); }
     } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("daemon ingress preserves executor-scoped task-bound runtime spawn", async (t) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-ingress-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), executablePath = path.join(parent, "codex-stub.mjs"), repoId = "runtime-spawn-ingress", uid = 4301;
+  initIngressRepo(root, uid); registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
+  writeFileSync(executablePath, `#!${process.execPath}\nprocess.exit(0);\n`); chmodSync(executablePath, 0o755);
+  const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" } } as const;
+  const ingressDefinition = { ...definition, authMode: "subscription" as const }, ingressInstallation = { ...installation, executablePath };
+  const host = await openDaemonHost({ daemonId: "runtime-spawn-ingress", userRoot, runtimeDiscover: () => [ingressInstallation], runtimeLaunch: () => ({ pid: 4310, onExit: () => undefined, terminate: () => undefined }) });
+  try {
+    host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: ingressDefinition.instanceId, name: "Codex Review", kindId: ingressDefinition.kindId, installationId: ingressDefinition.installationId, providerId: ingressDefinition.providerId, model: ingressDefinition.model, reasoningEffort: ingressDefinition.reasoningEffort, authMode: ingressDefinition.authMode }, auth);
+    await t.test("matching agent executor writes the task and execution join", async () => {
+      const taskId = "task-runtime-agent", executionId = "exec-runtime-agent", executor = { kind: "agent", id: "codex-worker" } as const;
+      assert.equal((await host.run(repoId, { kind: "task-create", taskId, title: "Agent runtime" }, auth)).outcome, "applied");
+      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId, executor }, auth)).outcome, "applied");
+      const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-root" }, prompt: "Inspect the task", taskId, idempotencyKey: "agent-task-bound", executor } });
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      const events = makeTaskEventStore({ repoId, rootDir: root }).read().events, bound = events.find((event) => event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === receipt.runtimeSessionId);
+      assert.equal(bound?.type, "runtime_session_task_bound"); assert.deepEqual(bound?.actor.executor, executor);
+      assert.deepEqual(bound?.type === "runtime_session_task_bound" && { taskId: bound.payload.taskId, executionId: bound.payload.executionId }, { taskId, executionId });
+      const overview = await host.read(repoId, "repo.agentRuntime.overview", {}, auth), session = overview.sessions.find((candidate) => candidate.runtimeSessionId === receipt.runtimeSessionId);
+      assert.equal(session?.associations.some((association) => association.taskId === taskId && association.executionId === executionId), true);
+    });
+    await t.test("mismatched agent executor remains rejected", async () => {
+      const taskId = "task-runtime-mismatch", executionId = "exec-runtime-mismatch", holder = { kind: "agent", id: "codex-holder" } as const, caller = { kind: "agent", id: "codex-other" } as const;
+      assert.equal((await host.run(repoId, { kind: "task-create", taskId, title: "Mismatched runtime" }, auth)).outcome, "applied");
+      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId, executor: holder }, auth)).outcome, "applied");
+      const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-root" }, prompt: "Wrong executor", taskId, idempotencyKey: "agent-task-mismatch", executor: caller } });
+      assert.equal(receipt.outcome, "op_rejected"); assert.equal(receipt.code, "runtime_task_lease_required");
+    });
+    await t.test("human lease remains task-bindable without an executor", async () => {
+      const taskId = "task-runtime-human", executionId = "exec-runtime-human";
+      assert.equal((await host.run(repoId, { kind: "task-create", taskId, title: "Human runtime" }, auth)).outcome, "applied");
+      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
+      const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-root" }, prompt: "Inspect the human task", taskId, idempotencyKey: "human-task-bound" } });
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      const events = makeTaskEventStore({ repoId, rootDir: root }).read().events, bound = events.find((event) => event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === receipt.runtimeSessionId);
+      assert.equal(bound?.type, "runtime_session_task_bound"); assert.equal(bound?.actor.executor, null);
+      assert.deepEqual(bound?.type === "runtime_session_task_bound" && { taskId: bound.payload.taskId, executionId: bound.payload.executionId }, { taskId, executionId });
+    });
+  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+});
+
+function initIngressRepo(root: string, uid: number): void {
+  mkdirSync(path.join(root, "harness"), { recursive: true }); git(root, "init", "-q"); git(root, "config", "user.name", "Spawn Test"); git(root, "config", "user.email", "spawn@example.invalid");
+  writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nname: runtime-spawn-ingress\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n");
+  writeFileSync(path.join(root, "harness/people.yaml"), `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: "owner", displayName: "Owner", roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(uid) }] }], roles: [{ roleId: "owner", commandClasses: ["repo-read", "repo-write"] }] }, null, 2)}\n`);
+  git(root, "add", "harness"); git(root, "commit", "-qm", "fixture");
+}
+async function rpc(host: Awaited<ReturnType<typeof openDaemonHost>>, auth: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2], method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const server = createJsonRpcProtocolServer({ host, authContext: auth, emit: async () => undefined });
+  try { await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } }); const response = await server.handle({ jsonrpc: "2.0", id: 2, method, params }); assert.ok(response && !Array.isArray(response) && "result" in response); return (response as { result: Record<string, unknown> }).result; }
+  finally { server.close(); }
+}
 function git(root: string, ...args: string[]): void { execFileSync("git", ["-C", root, ...args]); }
