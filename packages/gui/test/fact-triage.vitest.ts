@@ -418,7 +418,7 @@ describe("cross-entity navigation projection", () => {
             consentId: "djc_0123456789abcdef0123456789",
             decisionId: "dec_missing",
             action: "accept",
-            targetState: "active",
+            targetState: "in_effect",
             machineDigest: `sha256:${"0".repeat(64)}`,
             actor: { principal: { personId: "arbiter" }, executor: null },
             source: "local",

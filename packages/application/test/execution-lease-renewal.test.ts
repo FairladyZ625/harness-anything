@@ -23,7 +23,7 @@ test("lease CAS permits only the current holder and version to renew and release
       phase: "reserving", expiresAt: "2026-08-11T01:00:00.000Z", ttlMs: 1_800_000, version: 0 }, "2026-08-11T00:00:00.000Z");
     const active = projection.activateLease(reservation);
 
-    assert.equal(active.phase, "active");
+    assert.equal(active.phase, "held");
     assert.throws(() => projection.reserveLease({ ...reservation, executionId: "execution-2" }, "2026-08-11T00:00:00.000Z"), /conflict/u);
     assert.throws(() => projection.renewLease({ ...active, actor: otherActor }, "2026-08-11T02:00:00.000Z"), /stale/u);
     const renewed = projection.renewLease(active, "2026-08-11T02:00:00.000Z");

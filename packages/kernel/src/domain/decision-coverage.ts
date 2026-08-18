@@ -24,7 +24,7 @@ export function coverageOf(decisions: readonly CoverageDecision[], facts: readon
 }
 
 function coveragePath(decision: CoverageDecision, claimRef: string, mode: CoverageResult["fulfillment"], bySource: ReadonlyMap<string, readonly CoverageRelation[]>, live: ReadonlySet<string>, done: ReadonlySet<string>): { readonly covered: boolean; readonly path: readonly string[]; readonly coveringFactRef?: string } {
-  if (mode === "standing-policy") return { covered: decision.state === "active" && decision.decisionClass === "standing_policy" && decision.appliesTo.modules.length + decision.appliesTo.productLines.length > 0, path: [decision.ref] };
+  if (mode === "standing-policy") return { covered: decision.state === "in_effect" && decision.decisionClass === "standing_policy" && decision.appliesTo.modules.length + decision.appliesTo.productLines.length > 0, path: [decision.ref] };
   if (mode === "delivered") { const edge = [...bySource.get(decision.ref) ?? [], ...bySource.get(claimRef) ?? []].find((candidate) => candidate.relationType === "derives" && done.has(candidate.targetRef)); return { covered: Boolean(edge), path: edge ? [edge.relationId] : [] }; }
   if (mode !== "evidenced") return { covered: false, path: [] };
   const queue: Array<{ readonly ref: string; readonly path: readonly string[] }> = [{ ref: claimRef, path: [] }], seen = new Set<string>();

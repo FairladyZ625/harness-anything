@@ -123,7 +123,7 @@ test("a lapsed lease stays readable through task show and releasable through tas
     assert.equal((await cell.run({ kind: "task-create", taskId: "task_lease", title: "Lease exit" }, holder)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-start", taskId: "task_lease", executionId: "exe_lapse", ttlMs: 60_000 }, holder)).outcome, "applied");
     const held = String((await cell.run({ kind: "task-show", taskId: "task_lease" }, reclaimer) as Record<string, unknown>).summary);
-    assert.match(held, /\nlease: [^\n]*phase=active/u, held);
+    assert.match(held, /\nlease: [^\n]*phase=held/u, held);
     assert.match(held, /\nlease: [^\n]*expiresAt=2026-08-15T02:01:00\.000Z/u, held);
     const earlyReclaim = await cell.run({ kind: "task-release", taskId: "task_lease", reason: "Holder is still active" }, reclaimer);
     assert.equal(earlyReclaim.outcome, "op_rejected", JSON.stringify(earlyReclaim));
