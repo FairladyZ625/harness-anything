@@ -15,6 +15,10 @@ test("GUI S3 contracts reject unknown and secret-like fields recursively", () =>
   assert.notDeepEqual(validateRuntimeSpawnReceipt({ schema: "command-receipt/v2", ok: true, token: "x" }), []);
 });
 
+test("a produced terminal op_rejected receipt passes its validator", () => {
+  assert.deepEqual(validateTerminalControlReceipt({ schema: "terminal-control-receipt/v1", ok: false, outcome: "op_rejected", operationId: "terminal-op-x", sessionId: "s1", daemonGeneration: 1, state: "exited", error: { code: "terminal_exited", hint: "Start a new terminal session." } }), []);
+});
+
 test("every GUI S3 result validator fails closed", () => {
   for (const validate of [validateDaemonControlReceipt, validateCatalogRereadReceipt,
     validateTerminalControlReceipt, validateTerminalInputAck, validateTerminalSessionList,
