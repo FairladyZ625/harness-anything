@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { daemonProtocolCommands, thinCliCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { main, resolveCliVersion } from "../src/index.ts";
-import { deriveCliCapabilities, parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
+import { deriveCliCapabilities, firstCliCommand, firstCliCommandIndex, parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
@@ -283,3 +283,31 @@ test("lifecycle CLI maps submit, Review, consent, reconcile, and completion faca
 
 test("progress append preserves ordered duplicate evidence in its closed daemon action", () => { const parsed = parseThinCommand(["task", "progress", "append", "task-1", "--text", "Exact progress", "--evidence", "test:reports/result.txt:same", "--evidence", "test:reports/result.txt:same"]); assert.equal(parsed.ok, true); if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "task-progress-append", taskId: "task-1", text: "Exact progress", evidence: [{ type: "test", path: "reports/result.txt", summary: "same" }, { type: "test", path: "reports/result.txt", summary: "same" }] }); assert.equal(parseThinCommand(["task", "progress", "append", "task-1", "--text", "x", "--evidence", "bad"]).ok, false); assert.equal(parseThinCommand(["task", "progress", "append", "task-1"]).ok, false); });
 test("artifact add emits only a source-to-destination descriptor", () => { const parsed = parseThinCommand(["task", "artifact", "add", "task-1", "--source", "tmp/result.md", "--destination", "reports/result.md"]); assert.equal(parsed.ok, true); if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "task-artifact-add", taskId: "task-1", source: "tmp/result.md", destination: "reports/result.md" }); });
+
+// A route decided by scanning the whole argv lets a flag *value* spelling a command name hijack it.
+// `daemon` and `gui` are both registered modules in this repository, so `--module daemon` is an
+// ordinary invocation that was impossible to express: it reached daemon control and died there.
+test("the command token is a position, not an argv membership test", () => {
+  for (const [argv, expected] of [
+    [["task", "create", "--title", "T", "--module", "daemon"], "task"],
+    [["task", "create", "--title", "T", "--module", "gui"], "task"],
+    [["task", "list", "--search", "daemon"], "task"],
+    [["daemon", "status"], "daemon"],
+    [["gui"], "gui"],
+    [["--json", "daemon", "status"], "daemon"],
+    [["--root", "/tmp/x", "daemon", "status"], "daemon"],
+    // A global whose value spells a command must not be mistaken for the command itself.
+    [["--repo", "daemon", "task", "list"], "task"],
+    [["--json"], undefined]
+  ] as const) assert.equal(firstCliCommand(argv as readonly string[]), expected, JSON.stringify(argv));
+  assert.equal(firstCliCommandIndex(["--repo", "daemon", "task", "list"]), 2);
+  assert.equal(firstCliCommandIndex(["--json"]), -1);
+});
+
+test("a flag value that spells a command still parses as its real command", () => {
+  for (const value of ["daemon", "gui"]) {
+    const parsed = parseThinCommand(["task", "create", "--title", "Wave", "--module", value]);
+    assert.equal(parsed.ok, true, `--module ${value}`);
+    if (parsed.ok) assert.equal(parsed.command.action.kind, "task-create");
+  }
+});
