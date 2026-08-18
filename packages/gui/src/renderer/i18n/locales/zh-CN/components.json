@@ -1,6 +1,6 @@
 {
   "components.appSidebar.accountSynchronizationV2": "账号与同步 · V2",
-  "components.appSidebar.activeWorkSummary": "进行中 · {totalCount} 个任务中有 {activeCount} 个活跃",
+  "components.appSidebar.taskCensus": "共 {totalCount} 个任务",
   "components.appSidebar.failedReadLedgerBridge": "台账桥读取失败",
   "components.appSidebar.ledgerCatchingUp": "显示 r{watermark} · 正在追赶 r{sourceRevision}",
   "components.appSidebar.ledgerChecking": "显示 r{watermark} · 正在检查台账",
@@ -237,5 +237,6 @@
   "components.focusSwitcher.searchEntityPlaceholder": "搜索实体…",
   "components.focusSwitcher.openPalette": "打开命令面板",
   "components.focusSwitcher.noResults": "没有匹配的实体。",
-  "components.focusSwitcher.suggested": "推荐"
+  "components.focusSwitcher.suggested": "推荐",
+  "components.docTree.projectionDidNotReturnDocumentList": "投影未返回文档清单。"
 }

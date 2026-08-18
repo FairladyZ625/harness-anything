@@ -75,6 +75,11 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
 export function readProjectedDocument(projection: TaskProjection, payload: Readonly<Record<string, unknown>>) { const taskId = requiredDocSyncText(payload.taskId, "taskId"), requested = requiredDocSyncText(payload.path, "path"), task = projection.read(taskId); if (!task.packagePath) throw docSyncError("task_not_found", `Task ${taskId} has no projected package path.`); const read = projection.readDocument(documentPath(`${task.packagePath}/${requested}`));
   return { ok: true as const, status: read.status, taskId, path: requested, body: read.document?.body ?? "", blobSha256: read.document?.blobSha256 ?? null, watermark: read.watermark, sourceRevision: read.sourceRevision }; }
 
+/** GUI read repo.tasks.documents.list: projected documents under one task package, paths relative to the package root. */
+export function listProjectedTaskDocuments(projection: TaskProjection, payload: Readonly<Record<string, unknown>>): import("./protocol/daemon-protocol.contract.ts").DaemonTaskDocumentListResult { const taskId = requiredDocSyncText(payload.taskId, "taskId"), task = projection.read(taskId); if (!task.packagePath) throw docSyncError("task_not_found", `Task ${taskId} has no projected package path.`);
+  const prefix = `${task.packagePath}/`, basis = projection.readReplicaBasis(null), documents = basis.documents.filter((row) => row.path.startsWith(prefix)).map((row) => ({ path: row.path.slice(prefix.length), blobSha256: row.blobSha256, size: row.size, mediaType: row.mediaType })).sort((left, right) => left.path.localeCompare(right.path));
+  return { ok: true, status: task.status, taskId, documents, watermark: basis.watermark, sourceRevision: basis.sourceRevision }; }
+
 function assignmentIntent(input: Input): DocWriteIntent {
   try {
     if (!hasExactDocSyncActionFields(input.action, ["kind", "executionId", "baseLedgerSha", "changes"])) throw new Error("assignment doc submit requires staged claim descriptors");

@@ -31,10 +31,13 @@ export interface EmptyGuiPayload {
 }
 export interface GuiTaskDocumentPayload {
   readonly taskId: string; readonly path: string }
+export interface GuiTaskDocumentListPayload {
+  readonly taskId: string }
 
 export const apiSchemaContracts = [
   { id: "gui.empty/v1", owner: "gui", typeName: "EmptyGuiPayload" },
   { id: "gui.task-document/v1", owner: "gui", typeName: "GuiTaskDocumentPayload" },
+  { id: "gui.task-document-list/v1", owner: "gui", typeName: "GuiTaskDocumentListPayload" },
   { id: "gui.agent-runtime-overview/v1", owner: "gui", typeName: "AgentRuntimeOverviewPayload" }, { id: "gui.agent-runtime-session/v1", owner: "gui", typeName: "AgentRuntimeSessionPayload" }, { id: "gui.agent-runtime-events/v1", owner: "gui", typeName: "AgentRuntimeEventsPayload" }, { id: "gui.agent-runtime-attach/v1", owner: "gui", typeName: "AgentRuntimeAttachPayload" },
   ...daemonGuiActionMethods.map(({ inputSchemaId }) => ({ id: inputSchemaId, owner: "gui" as const, typeName: inputSchemaId })),
   ...daemonGuiReadSchemas.map(({ id }) => ({ id, owner: "daemon" as const, typeName: id })),

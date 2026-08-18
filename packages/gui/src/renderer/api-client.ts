@@ -7,7 +7,7 @@ import type {
   RelationCoverageRow,
   RelationGraphEdgeRow,
   RelationType,
-  TaskDocumentProjectionRead, TaskSnapshotProjectionRow
+  TaskDocumentListProjectionRead, TaskDocumentProjectionRead, TaskSnapshotProjectionRow
 } from "../api/renderer-dto.ts";
 import { isRendererRecord } from "./result-validation.ts";
 
@@ -102,6 +102,7 @@ export const harnessClient = {
   async getDaemonControlReceipt(payload: { readonly operationId: string }): Promise<DaemonControlReceipt> { return readDaemonControlReceipt(await invokeBridge("getDaemonControlReceipt", payload)); },
   async getTasks(payload: RepoScope): Promise<TaskListSuccess> { return readTaskListResult(await invokeBridge("getTasks", payload)); },
   async getTaskDocument(payload: RepoScope & { readonly taskId: string; readonly path: string }): Promise<TaskDocumentProjectionRead> { return readTaskDocumentResult(await invokeBridge("getTaskDocument", payload)); },
+  async getTaskDocuments(payload: RepoScope & { readonly taskId: string }): Promise<TaskDocumentListProjectionRead> { return readTaskDocumentListResult(await invokeBridge("getTaskDocuments", payload)); },
   async getRelationGraph(payload: RepoScope): Promise<RelationGraphSuccess> { return readRelationGraphResult(await invokeBridge("getRelationGraph", payload)); },
   async getDecisions(payload: RepoScope): Promise<DecisionListSuccess> { return readDecisionListResult(await invokeBridge("getDecisions", payload)); },
   async listDecisionControls(payload: RepoScope & { readonly search?: string; readonly state?: string; readonly module?: string; readonly productLine?: string }): Promise<DecisionControlListSuccess> { return readDecisionControlList(await invokeBridge("listDecisions", payload)); },
@@ -123,6 +124,8 @@ async function invokeBridge(method: GuiBridgeMethod, payload: object | null = nu
   if (!bridge || typeof bridge[method] !== "function") throw new Error(`Harness preload bridge is unavailable for ${method}.`);
   return bridge[method](payload);
 }
+
+function readTaskDocumentListResult(value: unknown): TaskDocumentListProjectionRead { const result = value as Partial<TaskDocumentListProjectionRead>; if (!result || result.ok !== true || (result.status !== "ready" && result.status !== "pending") || typeof result.taskId !== "string" || !Array.isArray(result.documents) || result.documents.some((doc) => !isRendererRecord(doc) || typeof doc.path !== "string" || typeof doc.blobSha256 !== "string" || !Number.isInteger(doc.size) || typeof doc.mediaType !== "string") || !Number.isInteger(result.watermark) || !Number.isInteger(result.sourceRevision)) throw new Error(localErrorHint(value, "Task document list bridge returned an invalid result.")); return result as TaskDocumentListProjectionRead; }
 
 function readTaskDocumentResult(value: unknown): TaskDocumentProjectionRead { const result = value as Partial<TaskDocumentProjectionRead>; if (!result || result.ok !== true || (result.status !== "ready" && result.status !== "pending") || typeof result.taskId !== "string" || typeof result.path !== "string" || typeof result.body !== "string" || !Number.isInteger(result.watermark) || !Number.isInteger(result.sourceRevision)) throw new Error(localErrorHint(value, "Task document bridge returned an invalid result.")); return result as TaskDocumentProjectionRead; }
 

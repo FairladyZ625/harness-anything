@@ -40,6 +40,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     for (const contract of daemonGuiReadMethods) {
       const payload = contract.id === "gui.system.read" ? null : contract.id === "gui.control.receipt" ? { operationId: control.operationId }
         : contract.id === "tasks.document.read" ? { ...scope, taskId: "task-gui-smoke", path: "notes.md" }
+        : contract.id === "tasks.documents.list" ? { ...scope, taskId: "task-gui-smoke" }
         : contract.id === "agentRuntime.sessions.read" ? { ...scope, runtimeSessionId: "runtime-gui" }
         : contract.id === "agentRuntime.events.read" ? { ...scope, runtimeSessionId: "runtime-gui", afterCursor: "lifecycle:0" }
         : contract.id === "gui.catalog.preset.read" ? { ...scope, presetId: catalog.defaults.presetId }
@@ -79,6 +80,8 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     const canonicalDecision = afterJudgment.decisions.find((decision) => decision.decisionId === proposedEvidence.decisionId); assert.equal(canonicalDecision?.state, "in_effect"); assert.equal(canonicalDecision?.judgmentConsents[0]?.consentId, accepted.consentId);
     const document = parseDaemonGuiReadResult("repo.tasks.document.read", results.get("repo.tasks.document.read"));
     assert.equal(document.body, documentBody); assert.equal(document.path, "notes.md"); assert.equal(document.status, "ready");
+    const documents = parseDaemonGuiReadResult("repo.tasks.documents.list", results.get("repo.tasks.documents.list"));
+    assert.equal(documents.status, "ready"); assert.ok(documents.documents.some((row) => row.path === "notes.md"), JSON.stringify(documents.documents));
     const progress = parseDaemonGuiActionResponse("repo.task.progress.append", await bridge.invoke("appendTaskProgress", { ...scope, taskId: "task-gui-smoke", executionId, text: "Renderer sent typed progress.", evidence: [{ type: "test", path: "packages/gui/test/service-bridge.test.ts", summary: "resident daemon bridge" }], baseDocumentSha256: null }));
     assert.equal(progress.ok, true, JSON.stringify(progress)); assert.equal(progress.outcome, "applied");
     const commitSha = String(progress.commitSha); assert.match(commitSha, /^[0-9a-f]{40}$/u);
