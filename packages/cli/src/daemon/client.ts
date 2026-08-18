@@ -52,8 +52,10 @@ const readResponseDeadlineMs = (kind: string): number | undefined => { try { ret
 // operator never runs a lease command — acquisition, queueing, and renewal are
 // the center's job (dec_9E7AC30E/CH2).
 const fleetTaskCommandRoute = (kind: string): boolean => (FLEET_TASK_COMMAND_KINDS as readonly string[]).includes(kind);
+// task-create rides its own preset method; the lifecycle commands ride repo.task.run.
+const fleetTaskMethods = ["repo.task.run", "repo.task.create"];
 function fleetTaskRoute(command: ThinCommand): Record<string, unknown> | null {
-  if (command.method !== "repo.task.run" || !fleetTaskCommandRoute(command.action.kind)) return null;
+  if (!fleetTaskMethods.includes(command.method) || !fleetTaskCommandRoute(command.action.kind)) return null;
   const config = readFleetEdgeConfig(command.rootDir);
   if (!config) return null;
   const { executor: _executor, createMode: _createMode, fromFile, ...action } = command.action as Record<string, unknown> & { executor?: unknown; createMode?: unknown; fromFile?: unknown };

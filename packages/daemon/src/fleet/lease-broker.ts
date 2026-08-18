@@ -76,8 +76,9 @@ export function openFleetLeaseBroker(options: { readonly stateRoot: string; read
     const action = frame.action, kind = action.kind;
     if (!(FLEET_TASK_COMMAND_KINDS as readonly string[]).includes(kind)) return { ...failure("op_rejected", "task_command_rejected", "The fleet task channel accepts task-create, task-start, task-progress-append, task-submit, and task-release only."), opId: frame.opId };
     const actionTaskId = typeof action.taskId === "string" ? action.taskId : null, taskId = frame.taskId ?? actionTaskId;
-    if (taskId === null || actionTaskId !== null && actionTaskId !== taskId) return { ...failure("op_rejected", "task_command_rejected", "Lease-bound task commands must carry one consistent taskId."), opId: frame.opId };
+    if (actionTaskId !== null && taskId !== null && actionTaskId !== taskId) return { ...failure("op_rejected", "task_command_rejected", "Lease-bound task commands must carry one consistent taskId."), opId: frame.opId };
     if (kind === "task-create") return execute(assignment, action, frame.opId, null);
+    if (taskId === null) return { ...failure("op_rejected", "task_command_rejected", "Lease-bound task commands must carry one consistent taskId."), opId: frame.opId };
     const key = taskKey(assignment.repoId, taskId), digest = createHash("sha256").update(stableStringify({ assignmentId: assignment.assignmentId, action })).digest("hex"), replay = state.receipts[frame.opId];
     if (replay) return replay.digest === digest ? { outcome: replay.outcome, opId: frame.opId, code: replay.code, revision: replay.revision, receipt: replay.receipt, lease: null, queuePosition: null } : { ...failure("op_rejected", "op_conflict", "This opId was already used for a different command."), opId: frame.opId };
     const queued = (state.queue[key] ?? []).find((item) => item.opId === frame.opId);
