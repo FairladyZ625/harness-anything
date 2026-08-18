@@ -1,12 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
-import { readDaemonLifecycleRecords } from "../../daemon/src/lifecycle-log.ts";
+import { openDaemonLifecycleLog, readDaemonLifecycleRecords } from "../../daemon/src/lifecycle-log.ts";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
 import { makeTaskEventStore, registerDaemonRepo, REPLAY_TASK_GRAPH, taskLifecycleWritePlan, type TaskEventV1 } from "../../kernel/src/index.ts";
 
@@ -49,6 +50,19 @@ test("receipt show diagnoses a missing daemon without starting one", () => {
     assert.notEqual(result.status, 0); const receipt = JSON.parse(result.stdout) as { error: { code: string } };
     assert.equal(receipt.error.code, "daemon_unavailable"); assert.equal(readDaemonPid(fixture.userRoot, "default"), null, "a diagnostic read must not autostart the daemon");
   } finally { stop(fixture.root, fixture.userRoot); rmSync(fixture.parent, { recursive: true, force: true }); }
+});
+
+test("CLI reports lifecycle attach progress and waits through a slow warming repository", async () => {
+  const fixture = setup(), repoId = "slow-warming", socketPath = localUserDaemonEndpoint(fixture.userRoot, "default"), lifecycle = openDaemonLifecycleLog({ userRoot: fixture.userRoot, daemonId: "default" });
+  registerDaemonRepo({ canonicalRoot: fixture.root, repoId, userRoot: fixture.userRoot, createConvenienceLinks: false }); lifecycle.record({ event: "process_start", endpoint: socketPath }); lifecycle.record({ event: "socket_bound", endpoint: socketPath }); lifecycle.record({ event: "repo_attach_started", repoId, attachIndex: 2, attachTotal: 5 });
+  let attached = false, requests = 0; const server = createServer((socket) => { let buffered = ""; socket.on("data", (chunk) => { buffered += String(chunk); for (;;) { const newline = buffered.indexOf("\n"); if (newline < 0) break; const line = buffered.slice(0, newline); buffered = buffered.slice(newline + 1); const request = JSON.parse(line) as { id: number; method: string }; requests += request.method === "protocol.hello" ? 0 : 1; const result = request.method === "protocol.hello" ? { protocolVersion: 1 } : attached ? { schema: "command-receipt/v2", ok: true, command: "task-list", outcome: "applied", summary: "task list: 0" } : { schema: "command-receipt/v2", ok: false, command: "task-list", outcome: "op_rejected", code: "repo_warming", nextAction: "wait for attach" }; socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`); } }); });
+  try {
+    await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(socketPath, resolve); });
+    const completing = setTimeout(() => { attached = true; lifecycle.record({ event: "repo_attach_completed", repoId, attachIndex: 2, attachTotal: 5, durationMs: 1_000 }); }, 1_000);
+    const result = await spawnCli(fixture.root, fixture.userRoot, ["task", "list"]); clearTimeout(completing);
+    assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`); assert.equal((JSON.parse(result.stdout) as { outcome: string }).outcome, "applied"); assert.ok(requests >= 2, "the original command must retry after the warming receipt");
+    assert.match(result.stderr, /daemon is starting; waited \d+s \(repo 2\/5: slow-warming\)/u);
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); rmSync(fixture.parent, { recursive: true, force: true }); }
 });
 
 test("semantic sources and agent execution cross the daemon before transport-bound human review completes", () => {
@@ -179,3 +193,4 @@ function seedLegacyTask(root: string, repoId: string, taskId: string): void {
   const actor = { principal: { personId: "owner" }, executor: null } as const, event: TaskEventV1 = { schema: "task-event/v1", eventId: "event-contract-receipt", workspaceRevision: 1, opId: "op-contract-receipt", taskId, type: "task_created", actor, source: "local", occurredAt: "2026-08-18T00:00:00.000Z", payload: { task: { schema: "task/v1", taskId, title: "Legacy contract receipt", taskClass: "standard", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [], presetSnapshotDigest: null } } };
   makeTaskEventStore({ repoId, rootDir: root }).append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
 }
+function spawnCli(root: string, userRoot: string, args: readonly string[]): Promise<{ status: number | null; stdout: string; stderr: string }> { return new Promise((resolve) => { const child = spawn(process.execPath, [cli, "--root", root, "--json", ...args], { env: cliEnv(root, userRoot), stdio: ["ignore", "pipe", "pipe"] }); let stdout = "", stderr = ""; child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; }); child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; }); child.on("close", (status) => resolve({ status, stdout: stdout.trim(), stderr: stderr.trim() })); }); }

@@ -26,7 +26,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     if (command === "serve") return serve(userRoot, daemonId, finish);
     if (command === "start") { if (!argv.includes("--service")) return finish(daemonFailure("daemon-start", "service_required", "Use `ha daemon start --service` to start the resident daemon; other CLI commands start it on demand."), 2);
       const running = await status(userRoot, daemonId).catch(() => null); if (running?.ok === true) return finish(running, 0);
-      const started = await ensureLocalDaemonRunning({ socketPath: localUserDaemonEndpoint(userRoot, daemonId), launch: () => cliDaemonServeLaunch(userRoot, daemonId) });
+      const started = await ensureLocalDaemonRunning({ socketPath: localUserDaemonEndpoint(userRoot, daemonId), launch: () => cliDaemonServeLaunch(userRoot, daemonId), onProgress: (progress) => process.stderr.write(`${progress.message}\n`) });
       return started.ok ? finish(await status(userRoot, daemonId), 0) : finish(daemonFailure("daemon-start", started.code ?? "daemon_start_failed", started.hint), 1); }
     if (command === "status") { const receipt = await status(userRoot, daemonId); return finish(receipt, 0); }
     if (command === "stop") { const pid = readDaemonPid(userRoot, daemonId); if (pid === null) return finish(daemonFailure("daemon-stop", "daemon_unavailable", "No daemon is running."), 1); terminateProcess(pid); return finish({ ok: true, command: "daemon-stop", pid }, 0); }

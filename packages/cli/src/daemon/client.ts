@@ -8,7 +8,7 @@ export { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalD
   type LocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
 export type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
 
-const autostartFailureCodes = ["daemon_spawn_not_found", "daemon_spawn_permission", "daemon_start_failed", "daemon_bind_timeout"] as const;
+const autostartFailureCodes = ["daemon_spawn_not_found", "daemon_spawn_permission", "daemon_start_failed", "daemon_bind_timeout", "daemon_starting"] as const;
 export function daemonServeEntry(): string { return realpathSync(fileURLToPath(new URL(import.meta.url.endsWith(".js") ? "../index.js" : "../index.ts", import.meta.url))); }
 export function cliDaemonServeLaunch(userRoot: string, daemonId: string, execPath = process.execPath): DaemonLaunchSpec {
   return { command: execPath, args: [daemonServeEntry(), "daemon", "serve", "--user-root", userRoot, "--daemon-id", daemonId], env: process.env };
@@ -22,7 +22,7 @@ async function withAutostart(request: () => Promise<JsonObject>, launch: () => D
     if (!autostart) throw error;
     const { DaemonAutostartError, ensureLocalDaemonRunning, isDaemonUnreachable } = await import("../../../daemon/src/client/daemon-autostart.ts");
     if (!isDaemonUnreachable(error)) throw error;
-    const started = await ensureLocalDaemonRunning({ socketPath, launch });
+    const started = await ensureLocalDaemonRunning({ socketPath, launch, onProgress: (progress) => process.stderr.write(`${progress.message}\n`) });
     if (!started.ok) throw new DaemonAutostartError(started);
     return await request();
   }
@@ -37,10 +37,18 @@ export async function runCommandThroughDaemon(command: ThinCommand, onPhase: (re
   const target = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId });
   const { kind: _kind, ...actionPayload } = command.action, payload = command.method === "repo.script.run" ? Object.fromEntries(Object.entries(actionPayload).filter(([field, value]) => field !== "schema" && (field !== "taskId" || value !== null))) : actionPayload, executor = declaredExecutor();
   const requestPayload = command.method === "repo.task.run" ? { action: executor ? { ...command.action, executor } : command.action } : executor && !["repo.agentRuntime.cancel", "repo.agentRuntime.overview", "repo.agentRuntime.sessions.read", "repo.agentRuntime.events.read", "repo.runtimeInstance.auth.login", "repo.runtimeInstance.auth.reauth", "repo.runtimeInstance.auth.logout"].includes(command.method) ? { ...payload, executor } : payload;
-  let result = await withAutostart(() => requestLocalDaemonJsonRpcForTarget(target, command.method, { repo: { repoId: target.repoId }, payload: requestPayload as JsonObject }, 75, readResponseDeadlineMs(command.action.kind)), () => cliDaemonServeLaunch(target.userRoot, target.daemonId), target.socketPath, autostart);
+  const request = () => requestLocalDaemonJsonRpcForTarget(target, command.method, { repo: { repoId: target.repoId }, payload: requestPayload as JsonObject }, 75, readResponseDeadlineMs(command.action.kind));
+  let result = await withAutostart(request, () => cliDaemonServeLaunch(target.userRoot, target.daemonId), target.socketPath, autostart);
+  result = await settleRepoWarming(result, request, target.userRoot, target.daemonId);
   if (command.action.kind !== "preset-run-start") return result; let observed = 0;
   for (;;) { const phases = Array.isArray(result.phases) ? result.phases.filter((phase): phase is string => typeof phase === "string") : []; for (const phase of phases.slice(observed)) onPhase({ ...result, ok: !["op_rejected", "failed", "outcome_unknown"].includes(phase), command: "preset-run-start", summary: `preset-run-start: ${phase}` }); observed = phases.length; if (["applied", "op_rejected", "failed", "outcome_unknown"].includes(String(result.outcome))) { const ok = result.outcome === "applied"; return { ...result, ok, command: "preset-run-start", summary: `preset-run-start: ${String(result.phase)}`, ...(!ok ? { error: { code: result.code ?? "preset_run_failed", hint: result.nextAction ?? "Inspect the run receipt." } } : {}) }; } await new Promise((resolve) => setTimeout(resolve, 20)); try { result = await requestLocalDaemonJsonRpcForTarget(target, "repo.preset.run.status", { repo: { repoId: target.repoId }, payload: { runId: result.runId } }, 75); } catch (error) { consumeKnownError(error); result = { ...result, outcome: "outcome_unknown", phase: "outcome_unknown", phases: [...phases, "outcome_unknown"], code: "daemon_disconnect", nextAction: "Reconnect and inspect status; do not automatically retry." }; } }
 }
+async function settleRepoWarming(initial: JsonObject, request: () => Promise<JsonObject>, userRoot: string, daemonId: string): Promise<JsonObject> {
+  if (!isRepoWarming(initial)) return initial; const { readDaemonStartProgress } = await import("../../../daemon/src/client/daemon-autostart.ts"), launch = cliDaemonServeLaunch(userRoot, daemonId), startedAt = Date.now(), deadline = startedAt + 60_000; let result = initial, reported = "";
+  while (isRepoWarming(result) && Date.now() < deadline) { const progress = readDaemonStartProgress(launch, Date.now() - startedAt); if (progress) { const key = `${progress.fingerprint}:${Math.floor((Date.now() - startedAt) / 1_000)}`; if (key !== reported) { reported = key; process.stderr.write(`${progress.message}\n`); } } await new Promise((resolve) => setTimeout(resolve, 250)); result = await request(); }
+  return result;
+}
+function isRepoWarming(result: JsonObject): boolean { const error = result.error && typeof result.error === "object" && !Array.isArray(result.error) ? result.error as JsonObject : null; return result.code === "repo_warming" || error?.code === "repo_warming"; }
 export async function streamRuntimeThroughDaemon(command: ThinCommand, runtimeSessionId: string, onValue: (value: unknown) => void): Promise<() => void> { const target = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }), { streamAgentRuntimeAt } = await import("../../../daemon/src/client/local-json-rpc-stream.ts"); return streamAgentRuntimeAt({ socketPath: target.socketPath, repoId: target.repoId, payload: { runtimeSessionId, afterCursor: "stream:0" }, onValue, timeoutMs: 2_000 }); }
 // The sign-in relay stays lazy for the same reason the autostart seam does: the thin dist static
 // import graph stays entry/parser/transport-only, and the tty bridge only loads for an

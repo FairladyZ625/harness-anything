@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DaemonAutostartError, daemonLaunchOutputPath, ensureLocalDaemonRunning, isDaemonUnreachable, type DaemonAutostartResult, type DaemonLaunchSpec } from "../src/client/daemon-autostart.ts";
-import { daemonLifecycleLogPath } from "../src/lifecycle-log.ts";
+import { daemonLifecycleLogPath, openDaemonLifecycleLog } from "../src/lifecycle-log.ts";
 import { startDetachedProcessChecked } from "../src/process-port.ts";
 
 function coded(code: string): Error & { code: string } { const error = Object.assign(new Error(`connect ${code}`), { code }); return error; }
@@ -33,7 +33,16 @@ test("one failed start attempt stops without spawning a second daemon", async ()
   const result = await ensureLocalDaemonRunning({ socketPath: "/tmp/ha-autostart-timeout.sock", launch, probe: async () => false,
     spawnDetached: async () => { spawns += 1; }, probeIntervalMs: 1, readyTimeoutMs: 5 });
   assert.equal(result.ok, false); assert.equal(result.code, "daemon_bind_timeout"); assert.equal(result.attempts, 1); assert.equal(spawns, 1);
-  assert.match(result.hint, /did not accept connections/u); assert.match(result.hint, /\/tmp\/ha-autostart-timeout\.sock/u); assert.match(result.hint, /node index\.ts daemon serve/u);
+  assert.match(result.hint, /Daemon start failed/u); assert.match(result.hint, /\/tmp\/ha-autostart-timeout\.sock/u); assert.doesNotMatch(result.hint, /did not accept connections/u);
+});
+
+test("a live process with lifecycle attach progress reports starting instead of bind timeout", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-autostart-progress-")), progress: string[] = [], spec = (): DaemonLaunchSpec => ({ command: "node", args: ["index.ts", "daemon", "serve", "--user-root", userRoot, "--daemon-id", "progress"], env: {} });
+  try {
+    const result = await ensureLocalDaemonRunning({ socketPath: path.join(userRoot, "daemon.sock"), launch: spec, probe: async () => false, probeIntervalMs: 1, readyTimeoutMs: 5,
+      spawnDetached: async () => { const log = openDaemonLifecycleLog({ userRoot, daemonId: "progress" }); log.record({ event: "process_start" }); log.record({ event: "repo_attach_started", repoId: "repo-c", attachIndex: 3, attachTotal: 5 }); }, onProgress: (entry) => progress.push(entry.message) });
+    assert.equal(result.ok, false); assert.equal(result.code, "daemon_starting"); assert.match(result.hint, /repo 3\/5: repo-c/u); assert.doesNotMatch(result.hint, /bind_timeout|did not accept connections/u); assert.equal(progress.some((message) => /waited 0s \(repo 3\/5: repo-c\)/u.test(message)), true);
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
 
 test("a launcher that is missing fails fast as daemon_spawn_not_found without a second attempt", async () => {
