@@ -125,12 +125,12 @@ expect "$SMOKE_TMP/s2-sync2.json" ok true
 # edge-1 edits locally; edge-2 edits and pushes a different version (same region).
 printf '\n## Edge one notes\n\nOnly on edge one.\n' > "$SMOKE_TMP/s2-e1.txt"
 append_worktree edge-1 "$SHARED" "$SMOKE_TMP/s2-e1.txt"
-docker compose exec -T edge-2 sh -c "printf '\n## Shared notes\n\nRevised by edge two at the center.\n' > /tmp/replace.txt"
+docker compose exec -T edge-2 sh -c "printf '# Shared notes\n\nRevised by edge two at the center.\n' > /tmp/replace.txt"
 docker compose exec -T edge-2 node -e '
   const fs = require("fs");
   const target = process.argv[1];
   const body = fs.readFileSync(target, "utf8");
-  const at = body.indexOf("## Shared notes");
+  const at = body.indexOf("# Shared notes");
   if (at < 0) process.exit(1);
   const replacement = fs.readFileSync("/tmp/replace.txt", "utf8").trim();
   fs.writeFileSync(target, body.slice(0, at) + replacement + "\n");' "/data/view/repos/$REPO_ID/views/edge-2-view/worktree/$SHARED"

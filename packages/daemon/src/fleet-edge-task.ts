@@ -31,8 +31,10 @@ export class FleetEdgeTaskError extends Error { readonly code: string; construct
 export function fleetEdgeCredential(nodeId: string, credential: string | undefined, rosterPath: string | undefined): string { if (credential) return credential; if (!rosterPath) throw new FleetEdgeTaskError("credential_required", "Fleet edge routing needs --credential or --roster-path in the edge config."); const node = readFleetRosterFile(rosterPath).nodes.find((entry) => entry.nodeId === nodeId); if (!node) throw new FleetEdgeTaskError("node_unknown", `Node ${nodeId} is not declared in the fleet roster at ${rosterPath}.`); return node.credential; }
 export function fleetEdgeScopePaths(assignmentId: string, rosterPath: string | undefined): readonly string[] | null { if (!rosterPath) return null; return readFleetRosterFile(rosterPath).assignments.find((entry) => entry.assignmentId === assignmentId)?.paths ?? null; }
 // Same task-package folder mapping the kernel uses for document paths, so the
-// carried set never crosses a task boundary.
-export function fleetTaskIdForDocPath(value: string): string | null { const match = /^tasks\/([^/]+)\//u.exec(value); if (!match) return null; const folder = match[1]!; return /^task_[0-9A-HJKMNP-TV-Z]{26}(?:-|$)/u.test(folder) ? folder.slice(0, 31) : folder; }
+// carried set never crosses a task boundary. The id alphabet is matched case-
+// tolerantly: the kernel's ULID shape is uppercase while derived task ids are
+// lowercase hex, and both appear in real folders.
+export function fleetTaskIdForDocPath(value: string): string | null { const match = /^tasks\/([^/]+)\//u.exec(value); if (!match) return null; const folder = match[1]!; return /^task_[0-9a-z]{26}(?:-|$)/iu.test(folder) ? folder.slice(0, 31) : folder; }
 
 export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Record<string, unknown>> {
   const payload = input.payload, action = payload.action, timers = fleetLeaseTimers();
