@@ -91,9 +91,12 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
   const catalog = openGuiCatalog({ repoId: input.repoId, rootDir, now }), terminal = openTerminalHost({ repoId: input.repoId, rootDir, daemonGeneration: generation, now });
   const run = (action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> => {
     if (state !== "attached") attemptRecovery();
-    if (state !== "attached") return Promise.resolve(rejected(operationId(action, binding, input.repoId, 0), "repo_unavailable", latched()));
+    // ledger-migrate is the repair the data-shape latch message routes the operator to; gating it
+    // behind the attach it exists to restore would deadlock the ledger, so it runs through the latch.
+    const repairsLatch = state !== "attached" && action.kind === "ledger-migrate" && causeClass === "data-shape";
+    if (state !== "attached" && !repairsLatch) return Promise.resolve(rejected(operationId(action, binding, input.repoId, 0), "repo_unavailable", latched()));
     queueDepth += 1;
-    const pending = tail.then(async () => { queueDepth -= 1; assertCurrentWriter(activeWriter, writerToken, input.repoId); return withLayoutAdvisory(withHumanSummary(await executeAction(action, binding))); });
+    const pending = tail.then(async () => { queueDepth -= 1; assertCurrentWriter(activeWriter, writerToken, input.repoId); const receipt = withLayoutAdvisory(withHumanSummary(await executeAction(action, binding))); if (repairsLatch && receipt.outcome === "applied") { state = "attached"; lastError = null; causeClass = null; } return receipt; });
     tail = pending.then(() => undefined, () => undefined); void pending.then(() => replica.kick(), () => replica.kick()); const result = pending.catch((error) => { if (fatalCellError(error)) latchWith(error);
       return failed(errorOperationId(error) ?? operationId(action, binding, input.repoId, 0), error); });
     return result;

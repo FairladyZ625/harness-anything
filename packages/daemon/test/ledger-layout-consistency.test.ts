@@ -58,6 +58,26 @@ test("a mixed ledger is repaired by ha migrate ledger, replays idempotently, and
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+test("ha migrate ledger runs through a data-shape latch instead of being rejected by it", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-ledger-latched-migrate-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    const flatEvents = [flatTaskEvent(1, "task_latched_one")], shardedEvent = flatTaskEvent(2, "task_latched_two");
+    initMixedLedger(rootDir, flatEvents, shardedEvent);
+    cell = await openRepoCell({ repoId: workspaceId("ledger-latched-migrate"), rootDir: canonicalRoot(rootDir), ownerId: "ledger-latched-migrate", now: () => "2026-08-18T00:00:01.000Z" });
+    // A read latches the cell on the mixed layout first — the shape the CLI hits in the field,
+    // where the latch message itself routes the operator to ha migrate ledger.
+    const latchedTaskList = await cell.run({ kind: "task-list" }, { actor, source: "local" });
+    assert.equal(latchedTaskList.outcome, "rejected");
+    assert.equal(cell.status().state, "unavailable"); assert.equal(cell.status().causeClass, "data-shape");
+    const migrated = await cell.run({ kind: "ledger-migrate" }, { actor, source: "local" }) as Record<string, unknown>;
+    assert.equal(migrated.outcome, "applied", JSON.stringify(migrated));
+    assert.equal(cell.status().state, "attached"); assert.equal(cell.status().lastError, null);
+    const listed = await cell.run({ kind: "task-list" }, { actor, source: "local" });
+    assert.equal(listed.outcome, "applied", JSON.stringify(listed));
+    assert.match(String(listed.evidence), /task_latched_two/u);
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
 function flatTaskEvent(revision: number, taskId: string): TaskEventV1 {
   const opId = `op_flat_${String(revision).padStart(5, "0")}`;
   return { schema: "task-event/v1", eventId: `event-flat-${revision}`, workspaceRevision: revision, opId, taskId, type: "task_created", actor, source: "local", occurredAt: "2026-08-18T00:00:00.000Z", payload: { task: { schema: "task/v1", taskId, title: `Flat task ${revision}`, taskClass: "standard", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [], presetSnapshotDigest: null } } } as TaskEventV1;
