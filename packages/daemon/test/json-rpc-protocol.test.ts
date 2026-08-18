@@ -515,7 +515,7 @@ test("bootstrap binds the ledger repository branch independently of the project 
     const initialized = await host.bootstrap({ rootDir, repoId: "branch-bound", personId: "owner", displayName: "Owner" }, auth); assert.equal(initialized.outcome, "applied");
     const ledgerRoot = path.join(rootDir, "harness"), registered = readDaemonRegistry({ userRoot }).repos.find((repo) => repo.repoId === "branch-bound"), ledgerBranch = git(ledgerRoot, "branch", "--show-current"); assert.equal(registered?.authoredBranch, ledgerBranch);
     assert.equal(git(ledgerRoot, "rev-parse", "refs/ha/canonical"), git(ledgerRoot, "rev-parse", `refs/heads/${ledgerBranch}`)); assert.equal(git(rootDir, "branch", "--show-current"), "feature");
-    await host.close(); host = await openDaemonHost({ daemonId: "bootstrap-two", userRoot });
+    await host.close(); host = await openDaemonHost({ daemonId: "bootstrap-two", userRoot }); await host.attachmentsSettled();
     const afterRestart = await host.run("branch-bound", { kind: "task-create", taskId: "task-after-restart", title: "After restart" }, auth); assert.equal(afterRestart.outcome, "applied", JSON.stringify(afterRestart));
     assert.equal(git(ledgerRoot, "rev-parse", "refs/ha/canonical"), git(ledgerRoot, "rev-parse", `refs/heads/${ledgerBranch}`)); assert.equal(git(rootDir, "branch", "--show-current"), "feature");
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
@@ -577,8 +577,7 @@ test("read-only principal cannot write or admin while semantic capabilities pass
     const review = await host.run("rbac", { kind: "task-review-execution", taskId: "task-rbac", executionId, reviewId: "review-rbac", fromFile: "review.json" }, auth(ids.arbiter)); assert.equal(review.outcome, "applied", JSON.stringify(review));
     const attached = await rpc(host, auth(ids.admin), "daemon.repo.register", { rootDir: second, repoId: "second", mode: "remote-edge" }); assert.equal(attached.outcome, "applied"); assert.equal((attached.repo as Record<string, unknown>).mode, "remote-edge");
     const deniedEdgePreset = await rpc(host, auth(ids.writer), "repo.preset.run.start", { repo: { repoId: "second" }, payload: { presetId: "standard-task", entrypoint: "run", idempotencyKey: "edge-preset" } }); assert.equal(deniedEdgePreset.outcome, "op_rejected"); assert.equal(deniedEdgePreset.code, "repo_mode_read_only");
-    assert.equal((await rpc(host, auth(ids.reader), "daemon.repo.unregister", { repoId: "second" })).code, "rbac_forbidden");
-    assert.equal((await rpc(host, auth(ids.admin), "daemon.repo.unregister", { repoId: "second" })).outcome, "applied");
+    assert.equal((await rpc(host, auth(ids.reader), "daemon.repo.unregister", { repoId: "second" })).outcome, "applied", "local daemon ownership, not a repo Cell/roster, authorizes unregister");
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 

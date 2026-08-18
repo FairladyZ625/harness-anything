@@ -35,6 +35,8 @@ test("registered workspace CLI command auto-starts the daemon, retries, and succ
     assert.equal(receipt.ok, true, JSON.stringify(receipt)); assert.equal(receipt.outcome, "applied");
     const restartedPid = readDaemonPid(fixture.userRoot, "default");
     assert.ok(restartedPid, "autostart must leave a resident daemon pid file"); assert.notEqual(restartedPid, previousPid);
+    const restartedLifecycle = readDaemonLifecycleRecords(fixture.userRoot, "default"), generationStart = restartedLifecycle.findLastIndex((record) => record.event === "process_start"), bound = restartedLifecycle.findIndex((record, index) => index > generationStart && record.event === "socket_bound"), attach = restartedLifecycle.findIndex((record, index) => index > generationStart && record.event === "repo_attach_started");
+    assert.ok(generationStart >= 0 && bound > generationStart && attach > bound, "the resident socket must bind before the cold registry starts attaching");
     assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "stop"]).ok, true);
   } finally { rmSync(fixture.parent, { recursive: true, force: true }); }
 });

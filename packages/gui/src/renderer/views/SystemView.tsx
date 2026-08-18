@@ -32,7 +32,7 @@ function ReachabilityBadge() {
 }
 
 /** RepoCell 状态的呈现口径:状态词走 i18n(不把 attached/not_loaded 这类机器枚举直接摊给使用者),颜色与之同源。 */
-const REPO_STATE = { attached: ["text-status-done", "stateAttached"], unavailable: ["text-status-blocked", "stateUnavailable"], not_loaded: ["text-text-muted", "stateNotLoaded"] } as const;
+const REPO_STATE = { warming: ["text-stale", "stateWarming"], attached: ["text-status-done", "stateAttached"], unavailable: ["text-status-blocked", "stateUnavailable"], not_loaded: ["text-text-muted", "stateNotLoaded"] } as const;
 
 /** 全局队列深度:daemon 契约未投影,由各仓队列求和派生(archive 线 service.queue.depth 的等价口径)。 */
 export function totalQueueDepth(repos: ReadonlyArray<Pick<SystemRepoRow, "queueDepth">>): number | null {

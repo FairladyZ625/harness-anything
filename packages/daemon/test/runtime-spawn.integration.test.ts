@@ -57,6 +57,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
   const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" } } as const;
   const ingressDefinition = { ...definition, authMode: "subscription" as const }, ingressInstallation = { ...installation, executablePath };
   const host = await openDaemonHost({ daemonId: "runtime-spawn-ingress", userRoot, runtimeDiscover: () => [ingressInstallation], runtimeLaunch: () => ({ pid: 4310, onOutput: (listener) => { queueMicrotask(() => listener(`${JSON.stringify({ type: "thread.started", thread_id: "provider-task-session" })}\n`)); }, onExit: () => undefined, terminate: () => undefined }) });
+  await host.attachmentsSettled();
   try {
     host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: ingressDefinition.instanceId, name: "Codex Review", kindId: ingressDefinition.kindId, installationId: ingressDefinition.installationId, providerId: ingressDefinition.providerId, model: ingressDefinition.model, reasoningEffort: ingressDefinition.reasoningEffort, authMode: ingressDefinition.authMode }, auth);
     await t.test("matching agent executor writes the task and execution join", async () => {
@@ -96,6 +97,7 @@ test("daemon ingress streams provider JSONL content and returns canonical result
   initIngressRepo(root, uid); registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
   const installations = (["claude", "codex"] as const).map((kindId) => { const executablePath = path.join(parent, `${kindId}-stub.mjs`); writeProviderStub(executablePath, kindId); return { installationId: `installation-${kindId}`, kindId, executablePath, version: "1.0.0", observedAt: "2026-08-19T00:00:00.000Z" } as const; });
   const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" } } as const, host = await openDaemonHost({ daemonId: "runtime-provider-events", userRoot, runtimeDiscover: () => installations });
+  await host.attachmentsSettled();
   try {
     for (const kindId of ["claude", "codex"] as const) host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: `${kindId}-provider`, name: `${kindId} provider`, kindId, installationId: `installation-${kindId}`, providerId: kindId === "claude" ? "anthropic" : "openai", model: `${kindId}-model`, authMode: "subscription" }, auth);
     for (const kindId of ["claude", "codex"] as const) await t.test(kindId, async () => {

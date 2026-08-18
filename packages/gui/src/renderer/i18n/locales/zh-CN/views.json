@@ -209,6 +209,7 @@
   "views.systemView.lockHeld": "持有",
   "views.systemView.lockNotApplicable": "—",
   "views.systemView.stateAttached": "已附着",
+  "views.systemView.stateWarming": "预热中",
   "views.systemView.stateUnavailable": "不可用",
   "views.systemView.stateNotLoaded": "未加载",
   "views.systemView.registrationDisabled": "已停用",

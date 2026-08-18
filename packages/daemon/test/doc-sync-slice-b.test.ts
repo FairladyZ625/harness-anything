@@ -71,7 +71,7 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
 });
 
 test("doc submit returns holder and scope detail for wrong role, another holder, expiry, and assignment scope", async () => {
-  const fixture = rbacFixture(); const host = await openDaemonHost({ daemonId: "doc-rbac", userRoot: fixture.userRoot });
+  const fixture = rbacFixture(); const host = await openDaemonHost({ daemonId: "doc-rbac", userRoot: fixture.userRoot }); await host.attachmentsSettled();
   const auth = (ownerUid: number) => ({ transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" } } as const);
   try {
     await host.admin({ kind: "register", rootDir: fixture.rootDir, repoId: "rbac" }, auth(fixture.ids.admin));

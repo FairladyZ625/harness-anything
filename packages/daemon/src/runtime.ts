@@ -28,7 +28,7 @@ export async function startDaemon(input: { readonly daemonId: string; readonly u
     const requestLog = openDaemonRequestLog({ resolveRootDir: (repoId) => host!.status().repos.find((repo) => repo.repoId === repoId)?.rootDir });
     transport = createUnixSocketTransportServer({ daemonId: input.daemonId, socketPath: endpoint,
       createProtocolServer: (authContext, emit) => createJsonRpcProtocolServer({ host: host!, authContext, emit, recordRequest: requestLog.record }) });
-    await transport.start(); lifecycle.record({ event: "socket_bound", endpoint });
+    await transport.start(); lifecycle.record({ event: "socket_bound", endpoint }); host.startAttachments();
   } catch (error) { lifecycle.record({ event: "process_exit", outcome: "startup_failed", error: error instanceof Error ? error.stack ?? error.message : String(error) }); await host?.close(); rmSync(pidPath, { force: true }); singleton.release(); throw error; }
   let stopped = false;
   return { endpoint, stop: async () => { if (stopped) return; stopped = true; lifecycle.record({ event: "process_exit", outcome: "stop_requested" }); await transport!.stop(); await host!.close(); rmSync(pidPath, { force: true }); singleton.release(); } };

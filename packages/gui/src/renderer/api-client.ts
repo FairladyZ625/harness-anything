@@ -54,7 +54,7 @@ export interface DecisionControlListSuccess {
 export interface RepoScope { readonly repoId: string }
 export interface SystemRepoRow {
   readonly repoId: string; readonly displayName: string; readonly canonicalRoot: string; readonly authoredBranch: string;
-  readonly registrationState: "enabled" | "disabled"; readonly cellState: "attached" | "unavailable" | "not_loaded";
+  readonly registrationState: "enabled" | "disabled"; readonly cellState: "warming" | "attached" | "unavailable" | "not_loaded";
   readonly generation: number | null; readonly queueDepth: number | null; readonly lockState: "held" | "not_applicable" | "unknown";
   readonly recoveryMs: number | null; readonly lastError: string | null; readonly unavailableReason: string | null;
 }
@@ -193,7 +193,7 @@ function readDecisionControlList(value: unknown): DecisionControlListSuccess {
 
 function readSystemStatus(value: unknown): SystemStatusSuccess {
   if (!isRendererRecord(value) || value.schema !== "gui-system-status/v1" || value.ok !== true || typeof value.observedAt !== "string" || !isRendererRecord(value.daemon) || !Array.isArray(value.repos)
-    || value.repos.some((repo) => !isRendererRecord(repo) || typeof repo.repoId !== "string" || typeof repo.displayName !== "string" || !["enabled", "disabled"].includes(String(repo.registrationState)) || !["attached", "unavailable", "not_loaded"].includes(String(repo.cellState)))) throw new Error(localErrorHint(value, "System status bridge returned an invalid result."));
+    || value.repos.some((repo) => !isRendererRecord(repo) || typeof repo.repoId !== "string" || typeof repo.displayName !== "string" || !["enabled", "disabled"].includes(String(repo.registrationState)) || !["warming", "attached", "unavailable", "not_loaded"].includes(String(repo.cellState)))) throw new Error(localErrorHint(value, "System status bridge returned an invalid result."));
   return value as unknown as SystemStatusSuccess;
 }
 function readDaemonControlReceipt(value: unknown): DaemonControlReceipt {

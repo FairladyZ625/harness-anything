@@ -209,6 +209,7 @@
   "views.systemView.lockHeld": "held",
   "views.systemView.lockNotApplicable": "—",
   "views.systemView.stateAttached": "Attached",
+  "views.systemView.stateWarming": "Warming",
   "views.systemView.stateUnavailable": "Unavailable",
   "views.systemView.stateNotLoaded": "Not loaded",
   "views.systemView.registrationDisabled": "Disabled",
