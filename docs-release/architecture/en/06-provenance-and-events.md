@@ -128,6 +128,16 @@ produces a `runtime_session_liveness_changed` event. Runtime liveness and task
 lease/lifecycle remain separate facts; a session event cannot renew a lease or
 complete a task.
 
+When a dispatch is task-bound, the daemon also publishes its terminal work
+artifacts through canonical doc sync. One batch creates
+`artifacts/missions/<dispatch-id>.md`,
+`artifacts/dispatches/<dispatch-id>.json`, and
+`artifacts/reports/<dispatch-id>.md`. If `--prompt-file` already names a
+canonical artifact in that task package, the dispatch record references it
+instead of copying it. Reports come from the provider's structured runtime
+result, never by parsing human-readable terminal output. An unbound runtime run
+has no task package and therefore publishes none of these documents.
+
 ## How the pieces connect
 
 Three separate structures, one spine of accountability:
