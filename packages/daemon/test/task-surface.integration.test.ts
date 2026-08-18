@@ -39,19 +39,19 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
     const unblocked = await cell.run({ kind: "task-transition", taskId: "task_lifecycle", status: "active" }, binding);
     assert.equal(unblocked.outcome, "applied");
     const plannedActivation = await cell.run({ kind: "task-transition", taskId: "task_replacement", status: "active", reason: "Bypass task start" }, binding);
-    assert.equal(plannedActivation.outcome, "rejected"); assert.equal(plannedActivation.code, "invalid_transition");
+    assert.equal(plannedActivation.outcome, "op_rejected"); assert.equal(plannedActivation.code, "invalid_transition");
     assert.equal((await cell.run({ kind: "task-start", taskId: "task_reviewing", executionId: "exe_reviewing" }, binding)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-submit", taskId: "task_reviewing", executionId: "exe_reviewing", submission: { completionClaim: "Status routing is ready for review.", deliverables: ["aggregate status route"], outputs: ["task lifecycle event"], verificationNotes: ["daemon integration"], knownGaps: [], residualRisks: [], commitSha: git(rootDir, "rev-parse", "HEAD") } }, binding)).outcome, "applied");
     const reviewActivation = await cell.run({ kind: "task-transition", taskId: "task_reviewing", status: "active", reason: "Bypass review outcome" }, binding);
-    assert.equal(reviewActivation.outcome, "rejected"); assert.equal(reviewActivation.code, "invalid_transition");
-    assert.equal((await cell.run({ kind: "task-transition", taskId: "task_lifecycle", status: "done", reason: "bypass" }, binding)).outcome, "rejected");
+    assert.equal(reviewActivation.outcome, "op_rejected"); assert.equal(reviewActivation.code, "invalid_transition");
+    assert.equal((await cell.run({ kind: "task-transition", taskId: "task_lifecycle", status: "done", reason: "bypass" }, binding)).outcome, "op_rejected");
     assert.equal((await cell.run({ kind: "task-amend", taskId: "task_lifecycle", patches: [{ field: "title", value: "Lifecycle amended" }, { field: "riskTier", value: "high" }, { field: "moduleKey", value: "daemon" }, { field: "taskClass", value: "milestone" }] }, binding)).outcome, "applied");
-    assert.equal((await cell.run({ kind: "task-amend", taskId: "task_lifecycle", patches: [{ field: "taskClass", value: "container" }] }, binding)).outcome, "rejected");
+    assert.equal((await cell.run({ kind: "task-amend", taskId: "task_lifecycle", patches: [{ field: "taskClass", value: "container" }] }, binding)).outcome, "op_rejected");
     const related = await cell.run({ kind: "task-relate", taskId: "task_lifecycle", target: "task/task_replacement", relationType: "depends-on", rationale: "Replacement establishes the new contract" }, binding); assert.equal(related.outcome, "applied", JSON.stringify(related));
     assert.equal((await cell.run({ kind: "task-archive", taskId: "task_lifecycle", reason: "Scope retired", archivedBy: "person-surface" }, binding)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-reopen", taskId: "task_lifecycle", reason: "Scope restored" }, binding)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-supersede", oldTaskId: "task_lifecycle", byTaskId: "task_replacement", confirm: "task_lifecycle" }, binding)).outcome, "applied");
-    assert.equal((await cell.run({ kind: "task-delete", taskId: "task_replacement", mode: "hard", confirm: "task_replacement", reason: "destructive" }, binding)).outcome, "rejected");
+    assert.equal((await cell.run({ kind: "task-delete", taskId: "task_replacement", mode: "hard", confirm: "task_replacement", reason: "destructive" }, binding)).outcome, "op_rejected");
     assert.equal((await cell.run({ kind: "task-delete", taskId: "task_replacement", mode: "soft", reason: "Duplicate" }, binding)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-reopen", taskId: "task_replacement", reason: "Not a duplicate" }, binding)).outcome, "applied");
     const taskRead = (await cell.run({ kind: "task-show", taskId: "task_lifecycle" }, binding)) as Record<string, unknown>, replacementRead = (await cell.run({ kind: "task-show", taskId: "task_replacement" }, binding)) as Record<string, unknown>;
@@ -66,7 +66,7 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
 test("forced cancellation is audited and terminal tasks require supersede instead of reopen", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-terminal-surface-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("task-terminal-surface"), rootDir: canonicalRoot(rootDir), ownerId: "task-terminal-surface", now: () => "2026-08-15T02:00:00.000Z" }); const binding = { actor, source: "local" as const }; await cell.run({ kind: "task-create", taskId: "task_terminal", title: "Terminal", profileId: "baseline" }, binding);
-    assert.equal((await cell.run({ kind: "task-transition", taskId: "task_terminal", status: "cancelled" }, binding)).outcome, "rejected"); assert.equal((await cell.run({ kind: "task-transition", taskId: "task_terminal", status: "cancelled", force: true, reason: "Audited cancellation after invalid scope" }, binding)).outcome, "applied"); await cell.run({ kind: "task-archive", taskId: "task_terminal", reason: "Retain cancellation audit" }, binding); const reopen = await cell.run({ kind: "task-reopen", taskId: "task_terminal", reason: "More work" }, binding); assert.equal(reopen.outcome, "rejected"); assert.match(String(reopen.nextAction), /supersede/u);
+    assert.equal((await cell.run({ kind: "task-transition", taskId: "task_terminal", status: "cancelled" }, binding)).outcome, "op_rejected"); assert.equal((await cell.run({ kind: "task-transition", taskId: "task_terminal", status: "cancelled", force: true, reason: "Audited cancellation after invalid scope" }, binding)).outcome, "applied"); await cell.run({ kind: "task-archive", taskId: "task_terminal", reason: "Retain cancellation audit" }, binding); const reopen = await cell.run({ kind: "task-reopen", taskId: "task_terminal", reason: "More work" }, binding); assert.equal(reopen.outcome, "op_rejected"); assert.match(String(reopen.nextAction), /supersede/u);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -91,7 +91,7 @@ test("aggregate-authored status events rebuild to the exact hot snapshot", async
 test("batch archive preflights every selected task before publishing any event", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-archive-preflight-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("task-archive-preflight"), rootDir: canonicalRoot(rootDir), ownerId: "task-archive-preflight", now: () => "2026-08-15T02:30:00.000Z" }); const binding = { actor, source: "local" as const }; await cell.run({ kind: "task-create", taskId: "task_archive_valid", title: "Archive valid" }, binding); const before = makeTaskEventStore({ repoId: "task-archive-preflight", rootDir }).read().events.length;
-    const receipt = await cell.run({ kind: "task-archive", taskIds: ["task_archive_valid", "task_archive_missing"], reason: "Batch retirement" }, binding); assert.equal(receipt.outcome, "rejected"); assert.equal(makeTaskEventStore({ repoId: "task-archive-preflight", rootDir }).read().events.length, before); assert.match(String((await cell.run({ kind: "task-show", taskId: "task_archive_valid" }, binding)).evidence), /"packageDisposition":"active"/u);
+    const receipt = await cell.run({ kind: "task-archive", taskIds: ["task_archive_valid", "task_archive_missing"], reason: "Batch retirement" }, binding); assert.equal(receipt.outcome, "op_rejected"); assert.equal(makeTaskEventStore({ repoId: "task-archive-preflight", rootDir }).read().events.length, before); assert.match(String((await cell.run({ kind: "task-show", taskId: "task_archive_valid" }, binding)).evidence), /"packageDisposition":"active"/u);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -108,7 +108,7 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
     const created = await cell.run({ kind: "task-create", taskId: "task_source", idempotencyKey: "stable-create", fromFile: "task-input.json" }, binding) as Record<string, unknown>; assert.equal(created.outcome, "applied"); mkdirSync(path.join(rootDir, "harness/legacy/source"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/legacy/source/old.md"), "# Legacy\n"); writeFileSync(path.join(rootDir, "harness/legacy/index.json"), JSON.stringify({ entries: [{ id: "legacy-1", title: "Legacy Rebuilt", storedPath: "harness/legacy/source/old.md" }] })); const legacy = await cell.run({ kind: "task-create", fromLegacyId: "legacy-1" }, binding) as Record<string, unknown>; assert.equal(legacy.outcome, "applied", JSON.stringify(legacy)); const eventCount = makeTaskEventStore({ repoId: "task-read-surface", rootDir }).read().events.length;
     const reused = await cell.run({ kind: "task-create", title: "Different retry title", idempotencyKey: "stable-create" }, binding) as Record<string, unknown>; assert.equal(reused.taskId, "task_source"); assert.match(String(reused.evidence), /"reused":true/u);
     const startPreview = await cell.run({ kind: "task-start", taskId: "task_source", ttlMs: 60_000, dryRun: true }, binding), relationPreview = await cell.run({ kind: "task-relate", taskId: "task_source", target: "task/task_target", relationType: "depends-on", rationale: "Preview only", dryRun: true }, binding); assert.equal(startPreview.outcome, "applied"); assert.equal(relationPreview.outcome, "applied"); assert.equal(makeTaskEventStore({ repoId: "task-read-surface", rootDir }).read().events.length, eventCount);
-    await cell.run({ kind: "task-relate", taskId: "task_source", target: "task/task_target", relationType: "depends-on", rationale: "Required target" }, binding); assert.equal((await cell.run({ kind: "task-relate", taskId: "task_target", target: "task/task_source", relationType: "depends-on", rationale: "Would cycle" }, binding)).outcome, "rejected");
+    await cell.run({ kind: "task-relate", taskId: "task_source", target: "task/task_target", relationType: "depends-on", rationale: "Required target" }, binding); assert.equal((await cell.run({ kind: "task-relate", taskId: "task_target", target: "task/task_source", relationType: "depends-on", rationale: "Would cycle" }, binding)).outcome, "op_rejected");
     const listed = evidence(await cell.run({ kind: "task-list", status: "planned", module: "daemon", search: "searchable" }, binding)), relations = evidence(await cell.run({ kind: "relation-list", entity: "task/task_source", relationType: "depends-on", state: "active" }, binding)), review = evidence(await cell.run({ kind: "task-review", taskId: "task_source", reviewerId: "reviewer" }, binding)), migration = evidence(await cell.run({ kind: "task-contract-migrate", mode: "dry-run", taskId: "task_source" }, binding)); assert.deepEqual((listed.rows as { taskId: string }[]).map((row) => row.taskId), ["task_source"]); assert.equal((relations.rows as unknown[]).length, 1); assert.equal(review.completionAuthority, false); assert.match(JSON.stringify(migration), /"status":"current"/u);
     const superseded = await cell.run({ kind: "task-supersede", oldTaskId: "task_source", title: "Replacement Surface", slug: "replacement-surface", reason: "Reframed scope" }, binding) as Record<string, unknown>; assert.equal(superseded.outcome, "applied", JSON.stringify(superseded)); assert.equal(typeof superseded.replacementTaskId, "string"); rebuildTaskProjection({ rootDir }); assert.equal(readTaskProjection({ rootDir }).rows.find((row) => row.taskId === "task_source")?.packageDisposition, "archived");
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
@@ -126,7 +126,7 @@ test("a lapsed lease stays readable through task show and releasable through tas
     assert.match(held, /\nlease: [^\n]*phase=active/u, held);
     assert.match(held, /\nlease: [^\n]*expiresAt=2026-08-15T02:01:00\.000Z/u, held);
     const earlyReclaim = await cell.run({ kind: "task-release", taskId: "task_lease", reason: "Holder is still active" }, reclaimer);
-    assert.equal(earlyReclaim.outcome, "rejected", JSON.stringify(earlyReclaim));
+    assert.equal(earlyReclaim.outcome, "op_rejected", JSON.stringify(earlyReclaim));
     assert.equal((earlyReclaim as Record<string, unknown>).code, "lease_conflict", JSON.stringify(earlyReclaim));
     clock = "2026-08-15T03:00:00.000Z";
     const summary = String((await cell.run({ kind: "task-show", taskId: "task_lease" }, reclaimer) as Record<string, unknown>).summary);
@@ -136,13 +136,13 @@ test("a lapsed lease stays readable through task show and releasable through tas
     assert.match(summary, /executions:\n[^\n]*\texe_lapse\t/u, summary);
     // The reporter's bite: the failed append must say when the lease lapsed and name the round to re-enter.
     const bite = await cell.run({ kind: "task-progress-append", taskId: "task_lease", text: "Append after the lease lapsed", evidence: [] }, reclaimer) as Record<string, unknown>;
-    assert.equal(bite.outcome, "rejected", JSON.stringify(bite));
+    assert.equal(bite.outcome, "op_rejected", JSON.stringify(bite));
     assert.equal(bite.code, "progress_lease_required", JSON.stringify(bite));
     assert.match(String(bite.nextAction), /lapsed at 2026-08-15T02:01:00\.000Z/u, JSON.stringify(bite));
     assert.match(String(bite.nextAction), /ha task release task_lease, then re-enter the round with ha task start task_lease --execution-id exe_lapse/u, JSON.stringify(bite));
     const outsider = { actor: { principal: { personId: "person-outsider" }, executor: { kind: "agent" as const, id: "executor-outsider" } }, source: "local" as const };
     const crossPrincipal = await cell.run({ kind: "task-release", taskId: "task_lease", reason: "Different principal" }, outsider);
-    assert.equal(crossPrincipal.outcome, "rejected", JSON.stringify(crossPrincipal));
+    assert.equal(crossPrincipal.outcome, "op_rejected", JSON.stringify(crossPrincipal));
     assert.equal((crossPrincipal as Record<string, unknown>).code, "lease_conflict", JSON.stringify(crossPrincipal));
     const released = await cell.run({ kind: "task-release", taskId: "task_lease", reason: "The holder never came back" }, reclaimer);
     assert.equal(released.outcome, "applied", JSON.stringify(released));
@@ -162,7 +162,7 @@ test("a released round is re-enterable by its own execution and still refuses a 
     assert.equal((await cell.run({ kind: "task-release", taskId: "task_round", reason: "Holder handed the round back" }, binding)).outcome, "applied");
     // Release ends the lease but not the round: the execution is still active, so a *second* execution stays refused.
     const second = await cell.run({ kind: "task-start", taskId: "task_round", executionId: "exe_second" }, binding);
-    assert.equal(second.outcome, "rejected", JSON.stringify(second)); assert.equal(second.code, "invalid_transition");
+    assert.equal(second.outcome, "op_rejected", JSON.stringify(second)); assert.equal(second.code, "invalid_transition");
     // The adjudicated exit: the same execution re-leases the round it never finished.
     const rejoined = await cell.run({ kind: "task-start", taskId: "task_round", executionId: "exe_round" }, binding);
     assert.equal(rejoined.outcome, "applied", JSON.stringify(rejoined));

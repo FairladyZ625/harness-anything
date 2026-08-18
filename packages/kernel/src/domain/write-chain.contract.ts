@@ -28,7 +28,7 @@ export interface WriterGeneration {
   readonly ownerId: string;
 }
 
-export const writeReceiptOutcomes = Object.freeze(["applied", "pending", "indeterminate", "rejected"] as const);
+export const writeReceiptOutcomes = Object.freeze(["applied", "pending", "indeterminate", "op_rejected"] as const);
 export type WriteReceiptOutcome = (typeof writeReceiptOutcomes)[number];
 
 export interface RecoveryBudget {

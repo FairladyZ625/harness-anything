@@ -22,7 +22,7 @@ type ReceiptRecord = GuiActionResult & {
 };
 
 export interface DecisionSettlement {
-  readonly state: "applied" | "pending" | "rejected";
+  readonly state: "applied" | "pending" | "op_rejected";
   readonly opId: string;
   readonly code?: string;
   readonly origin?: string;
@@ -57,7 +57,7 @@ export async function settleDecisionReceipt(
     };
   }
   return {
-    state: "rejected", opId: receipt.opId,
+    state: "op_rejected", opId: receipt.opId,
     code: receipt.error?.code ?? receipt.code ?? "write_rejected",
     ...(receipt.origin ? { origin: receipt.origin } : {}),
     hint: receipt.error?.hint ?? receipt.nextAction ?? "检查 canonical rejection；修正后显式重新提交。",
@@ -111,7 +111,7 @@ export function useDecisionActions(repoId: string) {
     return { decisions, graph };
   };
   const failure = (key: string, kind: DecisionMutationFeedback["kind"], settlement: DecisionSettlement) => publish(key, {
-    state: settlement.state === "rejected" ? "error" : "pending", kind, opId: settlement.opId,
+    state: settlement.state === "op_rejected" ? "error" : "pending", kind, opId: settlement.opId,
     ...(settlement.code ? { code: settlement.code } : {}), ...(settlement.origin ? { origin: settlement.origin } : {}),
     hint: settlement.hint ?? "canonical receipt 尚未 settled；不要重放 mutation。",
   });

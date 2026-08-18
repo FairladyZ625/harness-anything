@@ -86,7 +86,7 @@ test("requests from one connection share a connection id", async () => {
 
 test("a rejected request is recorded with its error code", async () => {
   const rootDir = tempRoot(), host = stubHost(rootDir);
-  const rejecting = { ...host, run: async () => ({ outcome: "rejected" as const, opId: "rejected:task-show", code: "repo_unavailable", nextAction: "Attach the repository." }) } as unknown as DaemonHost;
+  const rejecting = { ...host, run: async () => ({ outcome: "op_rejected" as const, opId: "rejected:task-show", code: "repo_unavailable", nextAction: "Attach the repository." }) } as unknown as DaemonHost;
   const server = openServerWithLog(rootDir, rejecting);
   await handshake(server);
   await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.run", params: { repo: { repoId: "logged" }, payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" } } } });
@@ -96,7 +96,7 @@ test("a rejected request is recorded with its error code", async () => {
   assert.equal(records.length, 1);
   assert.equal(records[0].ok, false);
   assert.equal(records[0].code, "repo_unavailable");
-  assert.equal(records[0].outcome, "rejected");
+  assert.equal(records[0].outcome, "op_rejected");
 });
 
 test("a request that binds no repository is not recorded", async () => {

@@ -28,7 +28,7 @@ export function openDocSyncWatcher(input: { readonly rootDir: string; readonly p
       observations.set(row.path, { fingerprint, count }); if (submitted.get(row.path) === fingerprint) continue; if (count < 2) { pending.add(row.path); continue; }
       metrics.intents += 1; const result = await input.run({ kind: "doc-submit", paths: [row.path] }, { sessionId, personId: input.personId, path: row.path, fingerprint: row.candidateBlobSha256 }); remember(result);
       if (result.outcome === "applied" && !result.opId.startsWith("noop:")) { submitted.set(row.path, fingerprint); metrics.commits += 1; metrics.writes += 1; }
-      else if (result.outcome === "rejected" && (result.code === "base_ledger_changed" || result.code === "base_blob_changed" || result.code === "watch_fingerprint_changed")) { observations.delete(row.path); pending.add(row.path); }
+      else if (result.outcome === "op_rejected" && (result.code === "base_ledger_changed" || result.code === "base_blob_changed" || result.code === "watch_fingerprint_changed")) { observations.delete(row.path); pending.add(row.path); }
       else if (result.outcome !== "applied") state = "blocked";
     }
     for (const pathValue of observations.keys()) if (!seen.has(pathValue)) observations.delete(pathValue);

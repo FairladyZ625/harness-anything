@@ -66,7 +66,7 @@ export interface SystemStatusSuccess {
 }
 export interface BridgeError { readonly code: string; readonly hint: string }
 export interface DaemonControlReceipt {
-  readonly schema: "daemon-control-receipt/v1"; readonly ok: boolean; readonly outcome: "pending" | "rejected";
+  readonly schema: "daemon-control-receipt/v1"; readonly ok: boolean; readonly outcome: "pending" | "op_rejected";
   readonly kind: "refresh" | "restart"; readonly operationId: string; readonly phase: "queued" | "draining" | "starting" | "settled" | "failed";
   readonly requestedAt: string; readonly completedAt: string | null; readonly before: DaemonPoint | null; readonly after: DaemonPoint | null;
   readonly error: BridgeError | null; readonly nextAction: string | null;
@@ -77,7 +77,7 @@ export interface CatalogTemplateRow { readonly templateRef: string; readonly slo
 export interface CatalogAdapterRow { readonly adapterId: string; readonly registered: true; readonly capabilities: ReadonlyArray<string>; readonly writability: "read-only" | "read-write" | "unknown"; readonly defaultProvider: boolean; readonly unavailableReason: string | null }
 export interface CatalogSnapshotSuccess { readonly schema: "gui-catalog-snapshot/v1"; readonly ok: true; readonly status: "ready" | "pending"; readonly repoId: string; readonly observedAt: string; readonly catalogDigest: string; readonly defaults: { readonly verticalId: string; readonly presetId: string; readonly profileId: string | null; readonly locale: string }; readonly presets: ReadonlyArray<CatalogPresetRow>; readonly verticals: ReadonlyArray<CatalogVerticalRow>; readonly templates: ReadonlyArray<CatalogTemplateRow>; readonly adapters: ReadonlyArray<CatalogAdapterRow> }
 export interface CatalogPresetSuccess { readonly schema: "gui-catalog-preset/v1"; readonly ok: true; readonly repoId: string; readonly preset: { readonly id: string; readonly title: string; readonly verticalId: string; readonly version: string | null; readonly extends: string | null; readonly capabilityImports: ReadonlyArray<unknown>; readonly profiles: ReadonlyArray<unknown> }; readonly resolved: { readonly identity: Readonly<Record<string, unknown>>; readonly profile: Readonly<Record<string, unknown>>; readonly templates: ReadonlyArray<unknown>; readonly entrypoints: ReadonlyArray<unknown>; readonly provenance: Readonly<Record<string, unknown>>; readonly digest: string } }
-export interface CatalogRereadReceipt { readonly schema: "catalog-reread-receipt/v1"; readonly ok: boolean; readonly outcome: "applied" | "rejected"; readonly operationId: string; readonly repoId: string; readonly beforeDigest: string; readonly afterDigest: string; readonly observedAt: string; readonly error: BridgeError | null }
+export interface CatalogRereadReceipt { readonly schema: "catalog-reread-receipt/v1"; readonly ok: boolean; readonly outcome: "applied" | "op_rejected"; readonly operationId: string; readonly repoId: string; readonly beforeDigest: string; readonly afterDigest: string; readonly observedAt: string; readonly error: BridgeError | null }
 
 export interface DecisionProposalInput {
   readonly title: string;
@@ -171,7 +171,7 @@ function readDecisionListResult(value: unknown): DecisionListSuccess {
 function readGuiActionResult(value: unknown): GuiActionResult {
   const result = value as Partial<GuiActionResult>;
   if (!result || result.schema !== "command-receipt/v2" || typeof result.ok !== "boolean" || typeof result.command !== "string"
-    || !["applied", "pending", "indeterminate", "rejected"].includes(String(result.outcome)) || typeof result.opId !== "string") {
+    || !["applied", "pending", "indeterminate", "op_rejected"].includes(String(result.outcome)) || typeof result.opId !== "string") {
     throw new Error(localErrorHint(value, "GUI action bridge returned an invalid receipt."));
   }
   return result as GuiActionResult;
@@ -179,7 +179,7 @@ function readGuiActionResult(value: unknown): GuiActionResult {
 
 function readDecisionControlList(value: unknown): DecisionControlListSuccess {
   const receipt = readGuiActionResult(value) as GuiActionResult & { readonly evidence?: string; readonly nextAction?: string; readonly error?: { readonly code?: string; readonly hint?: string } };
-  if (receipt.outcome === "rejected" || receipt.outcome === "indeterminate") throw new Error(`${receipt.error?.code ?? receipt.outcome}: ${receipt.error?.hint ?? receipt.nextAction ?? "Decision list failed."}`);
+  if (receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate") throw new Error(`${receipt.error?.code ?? receipt.outcome}: ${receipt.error?.hint ?? receipt.nextAction ?? "Decision list failed."}`);
   try {
     const evidence = JSON.parse(receipt.evidence ?? "") as { readonly status?: unknown; readonly decisions?: unknown };
     if ((evidence.status !== "ready" && evidence.status !== "pending") || !Array.isArray(evidence.decisions)) throw new Error();
@@ -194,7 +194,7 @@ function readSystemStatus(value: unknown): SystemStatusSuccess {
   return value as unknown as SystemStatusSuccess;
 }
 function readDaemonControlReceipt(value: unknown): DaemonControlReceipt {
-  if (!isRendererRecord(value) || value.schema !== "daemon-control-receipt/v1" || typeof value.ok !== "boolean" || !["pending", "rejected"].includes(String(value.outcome)) || !["refresh", "restart"].includes(String(value.kind)) || typeof value.operationId !== "string" || !["queued", "draining", "starting", "settled", "failed"].includes(String(value.phase))) throw new Error(localErrorHint(value, "Daemon control bridge returned an invalid receipt."));
+  if (!isRendererRecord(value) || value.schema !== "daemon-control-receipt/v1" || typeof value.ok !== "boolean" || !["pending", "op_rejected"].includes(String(value.outcome)) || !["refresh", "restart"].includes(String(value.kind)) || typeof value.operationId !== "string" || !["queued", "draining", "starting", "settled", "failed"].includes(String(value.phase))) throw new Error(localErrorHint(value, "Daemon control bridge returned an invalid receipt."));
   return value as unknown as DaemonControlReceipt;
 }
 function readCatalogSnapshot(value: unknown): CatalogSnapshotSuccess {
@@ -206,7 +206,7 @@ function readCatalogPreset(value: unknown): CatalogPresetSuccess {
   return value as unknown as CatalogPresetSuccess;
 }
 function readCatalogRereadReceipt(value: unknown): CatalogRereadReceipt {
-  if (!isRendererRecord(value) || value.schema !== "catalog-reread-receipt/v1" || typeof value.ok !== "boolean" || !["applied", "rejected"].includes(String(value.outcome)) || typeof value.operationId !== "string" || typeof value.repoId !== "string") throw new Error(localErrorHint(value, "Catalog reread bridge returned an invalid receipt."));
+  if (!isRendererRecord(value) || value.schema !== "catalog-reread-receipt/v1" || typeof value.ok !== "boolean" || !["applied", "op_rejected"].includes(String(value.outcome)) || typeof value.operationId !== "string" || typeof value.repoId !== "string") throw new Error(localErrorHint(value, "Catalog reread bridge returned an invalid receipt."));
   return value as unknown as CatalogRereadReceipt;
 }
 

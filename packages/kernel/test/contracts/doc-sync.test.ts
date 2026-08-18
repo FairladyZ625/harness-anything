@@ -71,7 +71,7 @@ test("mixed body-replaceable rejection produces a valid typed receipt", () => {
     actor, source: "local", occurredAt: "2026-08-12T11:00:00.000Z", currentLedgerSha, lease, documents, claims: [Buffer.from(shorter), Buffer.from(protectedEdit)] });
   assert.equal(result.accepted, false); if (result.accepted) return; assert.equal(result.code, "unresolved_touch"); assert.equal("plan" in result, false);
   for (const difference of result.detail.differences) for (const count of [difference.insertBytes, difference.deleteBytes, difference.replaceBytes]) assert.equal(Number.isSafeInteger(count) && count >= 0, true, JSON.stringify(difference));
-  const receipt = { outcome: "rejected", opId: "doc-op", code: result.code, origin: "doc-sync-contract", evidence: `contract-rejection:${result.code}`, nextAction: result.detail.nextAction, detail: result.detail };
+  const receipt = { outcome: "op_rejected", opId: "doc-op", code: result.code, origin: "doc-sync-contract", evidence: `contract-rejection:${result.code}`, nextAction: result.detail.nextAction, detail: result.detail };
   assert.deepEqual(validateWriteReceipt(receipt), []);
 });
 
@@ -86,7 +86,7 @@ test("stale ledger and stale blob reject the entire batch with current holder an
   const body = "# Notes\nA\n", change = { path: "context/notes.md", baseBlobSha256: sha256Text(body), policyId: DOC_POLICY_ID, candidate: claim(`${body}B\n`) } as const;
   const staleLedger = decide(change, state(body), Buffer.from(`${body}B\n`), { currentLedgerSha: ledgerCommitSha("docs", "b".repeat(40)) }); assert.equal(staleLedger.accepted, false); if (staleLedger.accepted) return;
   assert.equal(staleLedger.code, "base_ledger_changed"); assert.equal(staleLedger.detail.holder?.personId, "person-owner"); assert.equal(staleLedger.detail.paths[0]?.currentBlobSha256, sha256Text(body));
-  assert.deepEqual(validateWriteReceipt({ outcome: "rejected", opId: "doc-op", code: staleLedger.code, origin: "doc-sync-contract", evidence: `contract-rejection:${staleLedger.code}`, nextAction: staleLedger.detail.nextAction, detail: staleLedger.detail }), []);
+  assert.deepEqual(validateWriteReceipt({ outcome: "op_rejected", opId: "doc-op", code: staleLedger.code, origin: "doc-sync-contract", evidence: `contract-rejection:${staleLedger.code}`, nextAction: staleLedger.detail.nextAction, detail: staleLedger.detail }), []);
   const staleBlob = decide({ ...change, baseBlobSha256: "c".repeat(64) }, state(body), Buffer.from(`${body}B\n`)); assert.equal(staleBlob.accepted, false); if (!staleBlob.accepted) { assert.equal(staleBlob.code, "base_blob_changed"); assert.equal(staleBlob.detail.holder?.version, 3); }
 });
 
@@ -125,6 +125,6 @@ test("an upgraded write still runs the full region differ and heading preservati
 
 test("receipt detail registry rejects unregistered or open-ended detail shapes", () => {
   const body = "# Notes\nA\n", rejected = decide({ path: "context/notes.md", baseBlobSha256: sha256Text(body), policyId: DOC_POLICY_ID, candidate: null }, state(body), null); if (rejected.accepted) assert.fail("expected rejection");
-  const receipt = { outcome: "rejected", opId: "doc-op", code: rejected.code, origin: "doc-sync-contract", evidence: `contract-rejection:${rejected.code}`, nextAction: rejected.detail.nextAction, detail: rejected.detail };
+  const receipt = { outcome: "op_rejected", opId: "doc-op", code: rejected.code, origin: "doc-sync-contract", evidence: `contract-rejection:${rejected.code}`, nextAction: rejected.detail.nextAction, detail: rejected.detail };
   assert.deepEqual(validateWriteReceipt(receipt), []); assert.match(validateWriteReceipt({ ...receipt, detail: { ...rejected.detail, legacy: true } }).join("\n"), /registered receipt domain/u);
 });

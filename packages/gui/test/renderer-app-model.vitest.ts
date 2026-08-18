@@ -164,11 +164,11 @@ describe("renderer app model", () => {
 
   it("preserves raw rejection code, hint, and opId", async () => {
     const settled = await settleTaskReceipt({
-      schema: "command-receipt/v2", ok: false, command: "task-submit", outcome: "rejected", opId: "op-rejected",
+      schema: "command-receipt/v2", ok: false, command: "task-submit", outcome: "op_rejected", opId: "op-rejected",
       code: "invalid_submission", origin: "daemon", evidence: "rejection:invalid_submission", nextAction: "Fix the packet.",
       error: { code: "invalid_submission", hint: "Completion claim is required." }
     }, vi.fn());
-    expect(settled).toMatchObject({ state: "rejected", opId: "op-rejected", code: "invalid_submission", hint: "Completion claim is required." });
+    expect(settled).toMatchObject({ state: "op_rejected", opId: "op-rejected", code: "invalid_submission", hint: "Completion claim is required." });
   });
 
   it("settles decision writes once by opId and requires the complete durable worktree proof", async () => {
@@ -190,13 +190,13 @@ describe("renderer app model", () => {
 
   it("preserves decision rejection origin/code/hint/opId and never resolves it as success", async () => {
     const settled = await settleDecisionReceipt({
-      schema: "command-receipt/v2", ok: false, command: "decision-accept", outcome: "rejected", opId: "op-reject",
+      schema: "command-receipt/v2", ok: false, command: "decision-accept", outcome: "op_rejected", opId: "op-reject",
       code: "judgment_only_rationale_required", origin: "daemon", nextAction: "Provide an independent rationale.",
       evidence: "rejection:judgment_only_rationale_required",
       error: { code: "judgment_only_rationale_required", hint: "No reachable claim evidence." },
     }, vi.fn());
 
-    expect(settled).toMatchObject({ state: "rejected", opId: "op-reject", code: "judgment_only_rationale_required", origin: "daemon", hint: "No reachable claim evidence." });
+    expect(settled).toMatchObject({ state: "op_rejected", opId: "op-reject", code: "judgment_only_rationale_required", origin: "daemon", hint: "No reachable claim evidence." });
   });
 
   it("requires an active claim-to-evidence edge for non-judgment-only acceptance", () => {

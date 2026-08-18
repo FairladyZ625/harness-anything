@@ -21,7 +21,7 @@ type ReceiptRecord = GuiActionResult & {
 };
 
 export interface TaskSettlement {
-  readonly state: "applied" | "pending" | "rejected";
+  readonly state: "applied" | "pending" | "op_rejected";
   readonly opId: string;
   readonly code?: string;
   readonly hint?: string;
@@ -46,7 +46,7 @@ export async function settleTaskReceipt(
     return { state: "pending", opId: receipt.opId, code: receipt.outcome === "applied" ? "canonical_not_visible" : receipt.code ?? receipt.outcome,
       hint: receipt.nextAction ?? "用 opId 查询 canonical receipt；不要重放 mutation。", ...(Number.isInteger(receipt.revision) ? { revision: receipt.revision } : {}), receipt };
   }
-  return { state: "rejected", opId: receipt.opId, code: receipt.error?.code ?? receipt.code ?? "write_rejected",
+  return { state: "op_rejected", opId: receipt.opId, code: receipt.error?.code ?? receipt.code ?? "write_rejected",
     hint: receipt.error?.hint ?? receipt.nextAction ?? "Inspect the canonical rejection.", receipt };
 }
 
@@ -77,7 +77,7 @@ export function useTaskActions(repoId: string) {
     return value;
   };
   const reread = async (taskId: string, kind: TaskMutationFeedback["kind"], settlement: TaskSettlement, visible: (data: TaskListSuccess) => boolean): Promise<TaskMutationFeedback> => {
-    if (settlement.state !== "applied") return publish(taskId, { state: settlement.state === "rejected" ? "error" : "pending", kind, opId: settlement.opId, code: settlement.code, hint: settlement.hint ?? "canonical receipt 尚未 settled；不要重放 mutation。" });
+    if (settlement.state !== "applied") return publish(taskId, { state: settlement.state === "op_rejected" ? "error" : "pending", kind, opId: settlement.opId, code: settlement.code, hint: settlement.hint ?? "canonical receipt 尚未 settled；不要重放 mutation。" });
     const data = await queryClient.fetchQuery({ queryKey: taskQueryKeys.list(repoId), queryFn: () => harnessClient.getTasks({ repoId }), staleTime: 0 });
     const revisionVisible = settlement.revision === undefined || data.watermark >= settlement.revision;
     return revisionVisible && visible(data)

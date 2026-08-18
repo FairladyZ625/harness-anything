@@ -15,6 +15,6 @@ describe("Electron main daemon supervisor", () => {
     const supervisor = createDaemonSupervisor({ authorize: async () => ({ ok: false, error: { code: "supervisor_required" } }), restart: async () => { throw new Error("fixture restart failed"); } });
     const pending = await supervisor.request({ kind: "restart", authorityRepoId: "repo-a" });
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(supervisor.receipt(pending.operationId as string)).toMatchObject({ operationId: pending.operationId, outcome: "rejected", phase: "failed", error: { code: "restart_failed", hint: "fixture restart failed" } });
+    expect(supervisor.receipt(pending.operationId as string)).toMatchObject({ operationId: pending.operationId, outcome: "op_rejected", phase: "failed", error: { code: "restart_failed", hint: "fixture restart failed" } });
   });
 });

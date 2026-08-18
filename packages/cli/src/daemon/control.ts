@@ -64,7 +64,7 @@ function deferredServeReceipt(incumbent: { readonly pid: number | null; readonly
 async function status(userRoot: string, daemonId: string): Promise<Record<string, unknown>> { return requestDaemonJsonRpcAt(localUserDaemonEndpoint(userRoot, daemonId), "daemon.status", {}, 75) as Promise<Record<string, unknown>>; }
 function daemonOption(argv: readonly string[], name: string): string | undefined { const at = argv.indexOf(name); return at < 0 ? undefined : argv[at + 1]; }
 function daemonFailure(command: string, errorCode: string, nextAction: string): Record<string, unknown> { return { schema: "command-receipt/v2", ok: false,
-  command, outcome: "rejected", opId: "N/A", origin: "cli", code: errorCode, evidence: `rejection:${errorCode}`,
+  command, outcome: "op_rejected", opId: "N/A", origin: "cli", code: errorCode, evidence: `rejection:${errorCode}`,
   error: { code: errorCode, hint: nextAction }, nextAction }; }
 function finishControlReceipt(renderReceipt: ReceiptEmitter, receipt: Record<string, unknown>, json: boolean, exitCode: number): number { renderReceipt({ schema: "command-receipt/v2", command: "daemon", outcome: receipt.ok === true ? "applied" : "rejected", ...receipt }, json); return exitCode; }
 function code(error: unknown): string { const value = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "daemon_control_failed"; return ["ENOENT", "ECONNREFUSED", "ETIMEDOUT"].includes(value) ? "daemon_unavailable" : value; }

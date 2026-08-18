@@ -106,7 +106,7 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   // ---- Decision.state (adjudication outcomes; persisted policy) ----
   { word: "proposed", entity: "Decision", field: "state", meaning: "Decision awaits judgment.", divergence: "entity-scoped" },
   { word: "in_effect", entity: "Decision", field: "state", meaning: "Decision was accepted and its policy is in effect (accept writes in_effect; there is no separate accepted state).", divergence: "entity-scoped" },
-  { word: "rejected", entity: "Decision", field: "state", meaning: "Judgment refused the decision; a persistent policy state that feeds later adjudication.", divergence: "divergent", resolution: "Preset-run and write-receipt `rejected` are one-shot operation results; the decision word is stored policy. Receipt/preset renames are public surfaces — CH2 proposal only." },
+  { word: "rejected", entity: "Decision", field: "state", meaning: "Judgment refused the decision; a persistent policy state that feeds later adjudication.", divergence: "divergent", resolution: "The one-shot operation results are now op_rejected (WriteReceipt/PresetRun); the decision word is stored policy and keeps rejected." },
   { word: "deferred", entity: "Decision", field: "state", meaning: "Judgment postponed; a persistent policy state.", divergence: "entity-scoped" },
   { word: "superseded", entity: "Decision", field: "state", meaning: "A later decision replaced this one (ADR-0020 D1: consumers must preserve this state, never fold it back into proposed).", divergence: "entity-scoped" },
   { word: "outcome_retired", entity: "Decision", field: "state", meaning: "A human ended the decision's standing deliberately.", divergence: "entity-scoped" },
@@ -159,7 +159,7 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   { word: "applied", entity: "WriteReceipt", field: "outcome", meaning: "Write committed at the canonical cut.", divergence: "entity-scoped" },
   { word: "pending", entity: "WriteReceipt", field: "outcome", meaning: "Write not yet settled at the canonical cut.", divergence: "entity-scoped" },
   { word: "indeterminate", entity: "WriteReceipt", field: "outcome", meaning: "Publication outcome could not be determined; query the receipt before retrying.", divergence: "entity-scoped" },
-  { word: "rejected", entity: "WriteReceipt", field: "outcome", meaning: "Write was refused; a one-shot operation result.", divergence: "divergent", resolution: "Operation result, not a persisted policy state like Decision.rejected; receipt outcomes are a public wire surface — CH2 proposal only." },
+  { word: "op_rejected", entity: "WriteReceipt", field: "outcome", meaning: "Write was refused; a one-shot operation result.", divergence: "divergent", resolution: "Same operation-result family as PresetRun.op_rejected; renamed from rejected at the CH3 cutover so the one-shot operation result no longer collides with Decision.rejected." },
 
   // ---- Recovery.state (write-chain recovery batches; runtime-only) ----
   { word: "queued", entity: "Recovery", field: "state", meaning: "Recovery items still queued behind the cursor.", divergence: "entity-scoped" },
@@ -172,7 +172,7 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   { word: "started", entity: "PresetRun", field: "outcome", meaning: "Preset run was launched.", divergence: "entity-scoped" },
   { word: "running", entity: "PresetRun", field: "outcome", meaning: "Preset run is in progress.", divergence: "entity-scoped" },
   { word: "applied", entity: "PresetRun", field: "outcome", meaning: "Preset run applied its outputs.", divergence: "entity-scoped" },
-  { word: "rejected", entity: "PresetRun", field: "outcome", meaning: "Preset run was refused; a one-shot operation result.", divergence: "divergent", resolution: "Same operation-result family as WriteReceipt.rejected; preset receipts are a public surface — CH2 proposal only." },
+  { word: "op_rejected", entity: "PresetRun", field: "outcome", meaning: "Preset run was refused; a one-shot operation result.", divergence: "divergent", resolution: "Same operation-result family as WriteReceipt.op_rejected; renamed from rejected at the CH3 cutover." },
   { word: "failed", entity: "PresetRun", field: "outcome", meaning: "Preset run failed.", divergence: "entity-scoped" },
   { word: "outcome_unknown", entity: "PresetRun", field: "outcome", meaning: "Preset run result could not be observed.", divergence: "entity-scoped" },
   { word: "admitted", entity: "PresetRun", field: "phase", meaning: "Run passed admission checks.", divergence: "entity-scoped" },
@@ -233,8 +233,8 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
   { id: "review.verdict", entity: "Review", field: "verdict", module: "packages/kernel/src/domain/review.ts", anchor: "reviewVerdicts", words: ["approved", "changes_requested", "dismissed"] },
   { id: "runtime.liveness", entity: "RuntimeSession", field: "liveness", module: "packages/kernel/src/domain/agent-runtime.ts", anchor: "runtimeLivenessStates", words: ["live", "stale", "unknown", "exited"] },
   { id: "runtime.outcome", entity: "RuntimeSession", field: "outcome", module: "packages/kernel/src/domain/agent-runtime.ts", anchor: "#outcome", words: ["succeeded", "failed", "unknown"] },
-  { id: "receipt.outcome", entity: "WriteReceipt", field: "outcome", module: "packages/kernel/src/domain/write-chain.contract.ts", anchor: "writeReceiptOutcomes", words: ["applied", "pending", "indeterminate", "rejected"] },
-  { id: "receipt.detail.outcome", entity: "WriteReceipt", field: "outcome", module: "packages/kernel/src/domain/receipt-domain-registry.ts", anchor: "#outcome", words: ["applied", "pending", "indeterminate", "rejected"], subsetOf: "receipt.outcome", note: "The WriteReceipt interface repeats the outcome vocabulary; must stay equal to writeReceiptOutcomes." },
+  { id: "receipt.outcome", entity: "WriteReceipt", field: "outcome", module: "packages/kernel/src/domain/write-chain.contract.ts", anchor: "writeReceiptOutcomes", words: ["applied", "pending", "indeterminate", "op_rejected"] },
+  { id: "receipt.detail.outcome", entity: "WriteReceipt", field: "outcome", module: "packages/kernel/src/domain/receipt-domain-registry.ts", anchor: "#outcome", words: ["applied", "pending", "indeterminate", "op_rejected"], subsetOf: "receipt.outcome", note: "The WriteReceipt interface repeats the outcome vocabulary; must stay equal to writeReceiptOutcomes." },
   { id: "recovery.state", entity: "Recovery", field: "state", module: "packages/kernel/src/domain/write-chain.contract.ts", anchor: "recoveryStates", words: ["queued", "running", "exhausted", "failed", "drained"] },
   { id: "closeout.readiness", entity: "TaskCloseout", field: "readiness", module: "packages/kernel/src/domain/closeout-readiness.ts", anchor: "closeoutReadinesses", words: ["not_required", "missing", "incomplete", "ready", "passed", "failed"] },
   { id: "task.session-disposition", entity: "Task", field: "sessionBinding disposition", module: "packages/kernel/src/domain/task-lifecycle.contract.ts", anchor: "#sessionDisposition", words: ["complete", "partial", "unavailable"], note: "Witness availability, not entity standing." },
@@ -257,7 +257,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
   { id: "daemon.package.disposition", entity: "DaemonWire", field: "disposition", module: "packages/daemon/src/protocol/daemon-protocol.contract.ts", anchor: "packageDispositionWords", words: ["active", "archived", "tombstoned"], mirrorOf: "package.disposition" },
   { id: "daemon.review.verdict", entity: "DaemonWire", field: "verdict", module: "packages/daemon/src/protocol/daemon-protocol.contract.ts", anchor: "reviewVerdictWords", words: ["approved", "changes_requested", "dismissed"], mirrorOf: "review.verdict" },
   { id: "daemon.decision.state", entity: "DaemonWire", field: "state", module: "packages/daemon/src/protocol/daemon-protocol.contract.ts", anchor: "decisionStateWords", words: ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired"], mirrorOf: "decision.state" },
-  { id: "daemon.receipt.outcome", entity: "DaemonWire", field: "outcome", module: "packages/daemon/src/protocol/daemon-protocol.contract.ts", anchor: "receiptOutcomeWords", words: ["applied", "pending", "indeterminate", "rejected"], mirrorOf: "receipt.outcome" }
+  { id: "daemon.receipt.outcome", entity: "DaemonWire", field: "outcome", module: "packages/daemon/src/protocol/daemon-protocol.contract.ts", anchor: "receiptOutcomeWords", words: ["applied", "pending", "indeterminate", "op_rejected"], mirrorOf: "receipt.outcome" }
 ];
 
 export function statusWords(entity: StatusEntity, field?: string): readonly string[] {

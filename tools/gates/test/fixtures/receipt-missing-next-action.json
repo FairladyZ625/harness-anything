@@ -1,5 +1,5 @@
 {
-  "outcome": "rejected",
+  "outcome": "op_rejected",
   "opId": "op_01KZQ944F7RH6E0153Q3Q86Y63",
   "code": "registry_missing",
   "origin": "registry"

@@ -130,7 +130,7 @@ test("GUI renderer bridge drives a resident PTY through spawn attach IO resize d
     const detached = await bridge.invoke("detachTerminal", { ...scope, sessionId, attachmentId: initial!.attachmentId }) as Record<string, unknown>;
     assert.deepEqual({ schema: detached.schema, state: detached.state }, { schema: "terminal-detach-ack/v1", state: "detached" }); stop();
     const rejected = await bridge.invoke("terminateTerminal", { ...scope, sessionId, confirmed: false }) as Record<string, unknown>;
-    assert.equal(rejected.outcome, "rejected");
+    assert.equal(rejected.outcome, "op_rejected");
     const terminated = await bridge.invoke("terminateTerminal", { ...scope, sessionId, confirmed: true }) as Record<string, unknown>;
     assert.deepEqual({ outcome: terminated.outcome, state: terminated.state }, { outcome: "applied", state: "exited" });
   } finally {
