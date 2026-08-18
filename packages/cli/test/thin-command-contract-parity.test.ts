@@ -25,6 +25,16 @@ test("all 82 public commands expose the canonical structured input facet", () =>
   for (const id of ["task-show", "receipt-show", "doc-materialize", "preset-upgrade", "ledger-migrate", "daemon-start", "daemon-status", "daemon-stop"]) assert.deepEqual(daemonProtocolCommands.find((command) => command.id === id)?.inputs, [], id);
 });
 
+test("daemon-effective rebuilds keep their declared positional in usage", () => {
+  // #1544: effectiveDaemonOwnedProtocolCommands rebuilds task-start and repo-bootstrap by spreading an
+  // already-built command into a second defineCliCommand call. Both declare a required positional
+  // (<task-id> / --repo-id etc.), and the rebuild must not silently drop it from the rendered usage.
+  const taskStart = daemonProtocolCommands.find((command) => command.id === "task-start");
+  assert.ok(taskStart); assert.match(taskStart.usage, /task start <task-id>/u);
+  const repoBootstrap = daemonProtocolCommands.find((command) => command.id === "repo-bootstrap");
+  assert.ok(repoBootstrap); assert.match(repoBootstrap.usage, /--repo-id <repo-id>/u);
+});
+
 test("frozen public-parser mutations kill every canonical input facet", () => {
   for (const mutation of frozenMutations) {
     const command = daemonProtocolCommands.find((candidate) => candidate.id === mutation.commandId); assert.ok(command, mutation.commandId);

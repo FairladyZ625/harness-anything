@@ -15,7 +15,9 @@ function normalizedFilename(filename) {
 
 function catchFingerprint(filename, node, sourceText) {
   const location = `${node.loc.start.line}:${node.loc.start.column + 1}`;
-  return `${normalizedFilename(filename)}:${location}#${createHash("sha256").update(sourceText).digest("hex")}`;
+  // Baselines are generated from LF sources; hashing a CRLF checkout's raw text would
+  // never match them, failing lint on every Windows (core.autocrlf=true) checkout.
+  return `${normalizedFilename(filename)}:${location}#${createHash("sha256").update(sourceText.replaceAll("\r\n", "\n")).digest("hex")}`;
 }
 
 function calleeName(callee) {

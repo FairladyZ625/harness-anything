@@ -113,6 +113,19 @@ test("task lifecycle and read surfaces parse every F03 F04 F05 leaf into closed 
   const bareReinstate = parseThinCommand(["task", "transition", "task-1", "planned"]);
   assert.equal(bareReinstate.ok, false);
   if (!bareReinstate.ok) { assert.equal(bareReinstate.code, "missing_field"); assert.match(bareReinstate.nextAction, /--reason/u); }
+  // G-cancel-hint: each missing piece of an audited cancellation is named on its own, never told to add a flag already present.
+  const cancelReasonOnly = parseThinCommand(["task", "transition", "task-1", "cancelled", "--reason", "Superseded"]);
+  assert.equal(cancelReasonOnly.ok, false);
+  if (!cancelReasonOnly.ok) { assert.match(cancelReasonOnly.nextAction, /--force/u); assert.doesNotMatch(cancelReasonOnly.nextAction, /add --reason/u); }
+  const cancelForceOnly = parseThinCommand(["task", "transition", "task-1", "cancelled", "--force"]);
+  assert.equal(cancelForceOnly.ok, false);
+  if (!cancelForceOnly.ok) { assert.equal(cancelForceOnly.code, "missing_field"); assert.match(cancelForceOnly.nextAction, /--reason/u); }
+  const cancelBare = parseThinCommand(["task", "transition", "task-1", "cancelled"]);
+  assert.equal(cancelBare.ok, false);
+  if (!cancelBare.ok) assert.match(cancelBare.nextAction, /--force/u);
+  const forceOutsideCancel = parseThinCommand(["task", "transition", "task-1", "active", "--force"]);
+  assert.equal(forceOutsideCancel.ok, false);
+  if (!forceOutsideCancel.ok) assert.doesNotMatch(forceOutsideCancel.nextAction, /add --reason/u);
   assert.equal(parseThinCommand(["task", "delete", "--hard", "task-1", "--confirm", "task-1"]).ok, true);
   assert.equal(parseThinCommand(["task", "contract", "migrate", "--apply", "--dry-run"]).ok, false);
   assert.equal(parseThinCommand(["task", "supersede", "task-1", "--by", "task-2"]).ok, false);
