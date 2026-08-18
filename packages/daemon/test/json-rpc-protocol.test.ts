@@ -7,7 +7,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { eventObjectTarget, makeTaskEventStore, makeTaskProjection, readDaemonRegistry, REPLAY_TASK_GRAPH, serializeCanonicalEvent, serializeEventHead, sha256Text, type AgentRuntimeEventV1, type FrozenWritePlan, type TaskEventV1 } from "../../kernel/src/index.ts";
+import { eventObjectTarget, makeTaskEventStore, makeTaskProjection, readDaemonRegistry, REPLAY_TASK_GRAPH, serializeCanonicalEvent, serializeEventHead, sha256Text, taskLifecycleWritePlan, type AgentRuntimeEventV1, type FrozenWritePlan, type TaskEventV1 } from "../../kernel/src/index.ts";
 import { projectDecisionReadiness, reviewDigest } from "../../kernel/src/index.ts";
 import { actionForDaemonMethod, canonicalRoot, commandClassForAction, daemonGuiActionMethods, daemonProtocolCommands, parseDaemonRpcParams, validateDaemonDecisionList, validateDaemonGuiCommandReceipt, validateDaemonRelationGraph, validateDaemonTaskSnapshotList, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
@@ -366,21 +366,29 @@ for (const killpoint of ["before_event_write", "after_event_write", "after_head_
   });
 }
 
-test("every latched RepoCell exit declares the latch, the recovery command, and the cause identically", async () => {
+test("every latched RepoCell exit declares the latch and the cause identically while the fault persists", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-latch-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   const reason = (error: unknown): string => error instanceof Error ? error.message : String(error);
   try {
-    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("latch"), rootDir: canonicalRoot(rootDir), ownerId: "latch-generation", killpoint: (point) => { if (point === "after_sqlite_commit") throw new Error("crash:after_sqlite_commit"); } });
-    const crash = await cell.run({ kind: "task-create", taskId: "task-latch", title: "Latch" }, { actor, source: "local" });
-    assert.equal(crash.outcome, "rejected"); assert.equal(cell.status().state, "unavailable");
-    assert.equal(String(crash.nextAction ?? ""), "crash:after_sqlite_commit");
-    const write = await cell.run({ kind: "task-create", taskId: "task-after-latch", title: "After latch" }, { actor, source: "local" });
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("latch"), rootDir: canonicalRoot(rootDir), ownerId: "latch-one" }); const binding = { actor, source: "local" as const };
+    await cell.run({ kind: "task-create", taskId: "task-latch", title: "Latch" }, binding);
+    await cell.close(); cell = undefined;
+    // A lagging append plus a flat entry in the sharded events root latches the first ledger read
+    // (see repo-cell-latch-recovery.test.ts); the fault persists, so the latch must keep declaring.
+    const lagging: TaskEventV1 = { schema: "task-event/v1", eventId: "event-task-lagging", workspaceRevision: 2, opId: "op-task-lagging", taskId: "task-lagging", type: "task_created", actor, source: "local", occurredAt: "2026-08-18T00:00:00.000Z", payload: { task: { schema: "task/v1", taskId: "task-lagging", title: "Lagging", taskClass: "standard", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [], presetSnapshotDigest: null } } };
+    makeTaskEventStore({ repoId: "latch", rootDir }).append({ event: lagging, plan: taskLifecycleWritePlan(lagging), blobs: [] });
+    writeFileSync(path.join(rootDir, "harness/events/migration-stray.json"), "{}\n"); git(rootDir, "add", "harness/events/migration-stray.json"); git(rootDir, "commit", "-qm", "corrupt: flat entry in sharded events root"); git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
+    cell = await openRepoCell({ repoId: workspaceId("latch"), rootDir: canonicalRoot(rootDir), ownerId: "latch-two" });
+    const first = await cell.run({ kind: "task-list" }, binding);
+    assert.equal(first.outcome, "rejected"); assert.equal(first.code, "invalid_store"); assert.equal(cell.status().state, "unavailable");
+    assert.match(String(first.nextAction ?? ""), /events root contains non-sharded entry/u);
+    const write = await cell.run({ kind: "task-create", taskId: "task-after-latch", title: "After latch" }, binding);
     const declared = String(write.nextAction ?? ""), latched = cell;
-    const reads = await Promise.all([latched.read("repo.tasks.list"), latched.spawnRuntime({}, { actor, source: "local" }), latched.attach("runtime-session", ""), latched.verifyReadiness()].map((pending) => pending.then(() => "resolved without reporting the latch", reason)));
+    const reads = await Promise.all([latched.read("repo.tasks.list"), latched.spawnRuntime({}, binding), latched.attach("runtime-session", ""), latched.verifyReadiness()].map((pending) => pending.then(() => "resolved without reporting the latch", reason)));
     for (const observed of reads) assert.equal(observed, declared);
-    assert.match(declared, /stays latched until the daemon re-attaches/u);
-    assert.match(declared, /run ha daemon stop/u);
-    assert.match(declared, /Cause: crash:after_sqlite_commit$/u);
+    assert.match(declared, /stays latched until its ledger data verifies/u);
+    assert.match(declared, /re-probes the ledger and re-attaches automatically/u);
+    assert.match(declared, /Cause: events root contains non-sharded entry migration-stray\.json$/u);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
