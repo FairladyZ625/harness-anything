@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, makeTaskProjection, serializeCanonicalEvent } from "../../kernel/src/index.ts";
+import { DOC_POLICY_ID, MIGRATION_DOCUMENT_POLICY_ID, MIGRATION_IMPORT_SOURCE, migrationImportWritePlan, sha256Text, type CanonicalWriteBundle, type MigrationImportEventV1 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { readDocReceipt } from "../src/doc-sync-actions.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
@@ -62,6 +63,39 @@ test("artifact unknown settlement returns the canonical DocEvent receipt id with
   finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+test("an authored edit of a migrated governance standard upgrades its policy in the same write event", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-upgrade-")); initRepo(rootDir);
+  const standard = "governance/standards/doc-library-standard.md", legacy = "# Docs Library\n\nfact 用 invalidate。\n", repoId = workspaceId("upgrade"), binding = { actor, source: "local" as const };
+  makeTaskEventStore({ repoId, rootDir }).append(standardMigration(1, standard, legacy));
+  const cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "upgrade-daemon" });
+  try {
+    write(rootDir, standard, `${legacy}fact 退场用 supersedes-fact。\n`);
+    const dry = await cell.run({ kind: "doc-dry-run", paths: [standard] }, binding);
+    assert.deepEqual(rows(dry.evidence).map((row) => [row.path, row.state]), [[standard, "eligible"]]);
+    const applied = await cell.run({ kind: "doc-submit", paths: [standard] }, binding);
+    assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+    const upgraded = makeTaskEventStore({ repoId, rootDir }).readEvent(applied.opId);
+    assert.equal(upgraded?.schema, "doc-event/v1");
+    if (upgraded?.schema === "doc-event/v1") assert.deepEqual(upgraded.payload.changes[0]?.policyUpgrade, { from: MIGRATION_DOCUMENT_POLICY_ID, to: DOC_POLICY_ID });
+
+    const secondBody = `${legacy}fact 退场用 supersedes-fact。\n删前先查 relation 入边。\n`;
+    write(rootDir, standard, secondBody);
+    const second = await cell.run({ kind: "doc-submit", paths: [standard] }, binding);
+    assert.equal(second.outcome, "applied", JSON.stringify(second));
+    const native = makeTaskEventStore({ repoId, rootDir }).readEvent(second.opId);
+    if (native?.schema === "doc-event/v1") assert.equal("policyUpgrade" in native.payload.changes[0]!, false);
+
+    write(rootDir, standard, `${secondBody}hand edit outside doc sync\n`); git(rootDir, "add", "harness"); git(rootDir, "commit", "-qm", "manual ledger advance");
+    const refused = await cell.run({ kind: "doc-submit", paths: [standard] }, binding);
+    assert.equal(refused.outcome, "indeterminate"); assert.equal(refused.code, "publication_indeterminate");
+  } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+function standardMigration(revision: number, target: string, body: string): CanonicalWriteBundle {
+  const opId = `op-migration-${revision}`;
+  const migration: MigrationImportEventV1 = { schema: "migration-import-event/v1", eventId: `event-${opId}`, workspaceRevision: revision, opId, type: "entity_migrated", actor, source: MIGRATION_IMPORT_SOURCE, occurredAt: "2026-08-11T00:00:00.000Z", payload: { migratedFrom: target, generation: "v0", entity: { kind: "repo-document", nodeKind: "file", documentClaim: { path: target, sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/markdown", policyId: MIGRATION_DOCUMENT_POLICY_ID }, referencedContentClaims: [] } } };
+  return { event: migration, plan: migrationImportWritePlan(migration), blobs: [{ sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/markdown", body }] };
+}
 function rows(evidence: string | undefined): readonly { readonly path: string; readonly state: string }[] { assert.match(evidence ?? "", /^doc-scan:/u); return (JSON.parse((evidence ?? "").slice("doc-scan:".length)) as { rows: readonly { path: string; state: string }[] }).rows; }
 function materializeReport(evidence: string | undefined): { readonly changed: readonly string[]; readonly conflicts: readonly string[] } { assert.match(evidence ?? "", /^doc-materialize:/u); return JSON.parse((evidence ?? "").slice("doc-materialize:".length)) as { changed: readonly string[]; conflicts: readonly string[] }; }
 function write(rootDir: string, target: string, body: string): void { const file = path.join(rootDir, "harness", target); mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, body); }
