@@ -1,0 +1,9 @@
+# Some bytes in this repository are the assertion, not a rendering of it: preset asset bodies are
+# published to users verbatim, and test fixtures are hashed and compared against digests recorded
+# in production. A checkout that converts line endings rewrites them and every digest derived from
+# them changes -- the same mechanism as #1588 in the ledger, one layer up.
+#
+# Source stays convertible on purpose. A Windows contributor gets CRLF sources like any other, and
+# the crlf-checkout lane keeps the teeth it needs to find the next defect in this class.
+packages/preset/assets/** -text
+packages/*/test/fixtures/** -text
