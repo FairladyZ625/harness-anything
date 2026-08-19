@@ -7,7 +7,7 @@ export type AgentCatalogRow = Omit<AgentDeclarationV1, "instructions"> & { reado
 export type SquadCatalogRow = Omit<SquadDeclarationV1, "roster"> & { readonly layer: "user"; readonly source: string; readonly validity: "valid" | "blocked"; readonly issues: readonly { readonly code: string; readonly message: string }[] };
 export interface AgentEntityGuiRow { readonly id: string; readonly name: string; readonly runtimeType: string; readonly layer: string; readonly validity: "valid" | "blocked"; readonly issues: readonly { readonly code: string; readonly message: string }[] }
 export interface SquadEntityGuiRow { readonly id: string; readonly name: string; readonly leader: string; readonly workers: readonly string[]; readonly layer: string; readonly validity: "valid" | "blocked"; readonly issues: readonly { readonly code: string; readonly message: string }[] }
-export interface AgentEntityGuiDetail { readonly id: string; readonly name: string; readonly runtimeType: string; readonly instructions: string; readonly skills: readonly string[]; readonly prompts: readonly string[]; readonly preset: string | null }
+export interface AgentEntityGuiDetail { readonly id: string; readonly name: string; readonly runtimeType: string; readonly instructions: string; readonly model: string | null; readonly skills: readonly string[]; readonly prompts: readonly string[]; readonly preset: string | null }
 export interface SquadEntityGuiDetail { readonly id: string; readonly name: string; readonly leader: string; readonly workers: readonly string[]; readonly roster: string }
 export type AgentEntityGuiRead =
   | { readonly schema: "agent-entity-catalog/v1"; readonly ok: true; readonly agents: readonly AgentEntityGuiRow[] }
@@ -20,6 +20,7 @@ const manifestName = { agent: "agent.json", squad: "squad.json" } as const;
 export function runAgentEntityAction(input: { readonly rootDir: string; readonly action: Readonly<Record<string, unknown>> & { readonly kind: string } }): unknown {
   const action = input.action, kind = entityKind(action.kind);
   if (action.kind.endsWith("-validate")) return validateEntityPackage({ source: requiredEntityText(action.packageSource, "packageSource"), kind });
+  if (action.kind.endsWith("-install") && action.declaration !== undefined) return installEntityDeclaration({ declaration: action.declaration, kind, rootDir: input.rootDir, dryRun: action.dryRun === true });
   if (action.kind.endsWith("-install")) return installEntityPackage({ source: requiredEntityText(action.packageSource, "packageSource"), kind, rootDir: input.rootDir, dryRun: action.dryRun === true });
   if (action.kind === "agent-list") return { schema: "agent-list/v1", agents: listStoredEntities(input.rootDir, "agent") };
   if (action.kind === "squad-list") return { schema: "squad-list/v1", squads: listStoredEntities(input.rootDir, "squad") };
@@ -29,7 +30,7 @@ export function readAgentEntityGuiProjection<const K extends "agent-list" | "squ
   const action = input.kind.endsWith("-inspect") ? { kind: input.kind, [input.kind === "agent-inspect" ? "agentId" : "squadId"]: requiredEntityText(input.entityId, "entityId") } : { kind: input.kind }, evidence = agentEntityRecord(runAgentEntityAction({ rootDir: input.rootDir, action }));
   if (input.kind === "agent-list") return { schema: "agent-entity-catalog/v1", ok: true, agents: Array.isArray(evidence.agents) ? evidence.agents.map(agentEntityRecord).map(agentEntityRow) : [] } as never;
   if (input.kind === "squad-list") return { schema: "squad-entity-catalog/v1", ok: true, squads: Array.isArray(evidence.squads) ? evidence.squads.map(agentEntityRecord).map(squadEntityRow) : [] } as never;
-  if (input.kind === "agent-inspect") { const agent = agentEntityRecord(evidence.agent); return { schema: "agent-entity-detail/v1", ok: true, agent: { id: entityText(agent.id), name: entityText(agent.name), runtimeType: entityText(agent.runtime_type), instructions: entityText(agent.instructions), skills: entitySkillIds(agent.skills), prompts: entityStrings(agent.prompts), preset: agent.preset === undefined ? null : entityText(agent.preset) } } as never; }
+  if (input.kind === "agent-inspect") { const agent = agentEntityRecord(evidence.agent); return { schema: "agent-entity-detail/v1", ok: true, agent: { id: entityText(agent.id), name: entityText(agent.name), runtimeType: entityText(agent.runtime_type), instructions: entityText(agent.instructions), model: agent.model === undefined ? null : entityText(agent.model), skills: entitySkillIds(agent.skills), prompts: entityStrings(agent.prompts), preset: agent.preset === undefined ? null : entityText(agent.preset) } } as never; }
   const squad = agentEntityRecord(evidence.squad); return { schema: "squad-entity-detail/v1", ok: true, squad: { id: entityText(squad.id), name: entityText(squad.name), leader: entityText(squad.leader), workers: entityStrings(squad.workers), roster: entityText(squad.roster) } } as never;
 }
 export function readAgentDeclaration(input: { readonly rootDir: string; readonly agentId: string }): AgentDeclarationV1 { return parseAgentDeclarationV1(readStoredDeclaration(input.rootDir, "agent", input.agentId)); }
@@ -61,7 +62,12 @@ export function validateEntityPackage(input: { readonly source: string; readonly
 export function installEntityPackage(input: { readonly source: string; readonly kind: AgentEntityKind; readonly rootDir: string; readonly dryRun?: boolean }) {
   const source = path.resolve(input.source), decoded = decodeSourcePackage(source, input.kind);
   if ("issues" in decoded) throw entityError(decoded.issues[0]?.code ?? "invalid_entity_package", decoded.issues[0]?.message ?? "Entity package is invalid.");
-  const declaration = decoded.declaration, body = `${JSON.stringify(declaration, null, 2)}\n`, target = entityPath(input.rootDir, input.kind, declaration.id), changed = !existsSync(target) || readFileSync(target, "utf8") !== body, report = { schema: `${input.kind}-install-report/v1` as const, entityId: declaration.id, mode: input.dryRun ? "dry-run" as const : "apply" as const, changed, source, issues: [] as readonly unknown[] };
+  return installEntityDeclaration({ declaration: decoded.declaration, kind: input.kind, rootDir: input.rootDir, dryRun: input.dryRun, source });
+}
+export function installEntityDeclaration(input: { readonly declaration: unknown; readonly kind: AgentEntityKind; readonly rootDir: string; readonly dryRun?: boolean; readonly source?: string }) {
+  const issues = input.kind === "agent" ? validateAgentDeclarationV1(input.declaration) : validateSquadDeclarationV1(input.declaration);
+  if (issues.length) throw entityErrorWithIssues("invalid_manifest", issues);
+  const declaration = input.declaration as AgentDeclarationV1 & SquadDeclarationV1, body = `${JSON.stringify(declaration, null, 2)}\n`, target = entityPath(input.rootDir, input.kind, declaration.id), changed = !existsSync(target) || readFileSync(target, "utf8") !== body, source = input.source ?? `gui:${input.kind}:${declaration.id}`, report = { schema: `${input.kind}-install-report/v1` as const, entityId: declaration.id, mode: input.dryRun ? "dry-run" as const : "apply" as const, changed, source, issues: [] as readonly unknown[] };
   if (input.dryRun) return report;
   const store = path.dirname(target), temporary = path.join(store, `.install-${declaration.id}-${process.hrtime.bigint().toString(36)}`);
   mkdirSync(store, { recursive: true });
@@ -107,3 +113,4 @@ function entityStore(rootDir: string, kind: AgentEntityKind): string { return pa
 function entityKind(actionKind: string): AgentEntityKind { if (!/^(?:agent|squad)-(?:list|inspect|validate|install)$/u.test(actionKind)) throw entityError("unsupported_command", `No entity lifecycle contract exists for ${actionKind}.`); return actionKind.startsWith("agent-") ? "agent" : "squad"; }
 function requiredEntityText(value: unknown, field: string): string { if (typeof value !== "string" || !value.trim()) throw entityError("invalid_command", `${field} is required.`); return value; }
 function entityError(code: string, message: string): Error & { readonly code: string } { return Object.assign(new Error(message), { code }); }
+function entityErrorWithIssues(code: string, issues: readonly string[]): Error & { readonly code: string; readonly issues: readonly { readonly code: string; readonly message: string }[] } { return Object.assign(new Error(issues.join("; ")), { code, issues: issues.map((message) => ({ code, message })) }); }
