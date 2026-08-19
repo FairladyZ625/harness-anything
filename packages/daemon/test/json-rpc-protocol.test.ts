@@ -37,7 +37,7 @@ test("descriptor-derived RBAC preserves every preset, runtime, doc-sync, Fact, a
     "task-start": "repo-write",
     "task-progress-append": "repo-write",
     "task-artifact-add": "repo-write",
-    "task-submit": "repo-write",
+    "task-submit": "repo-write", "task-declare-executor": "repo-write",
     "task-review-execution": "arbiter",
     "task-review-consent": "repo-write",
     "task-code-doc-reconcile": "repo-write",
