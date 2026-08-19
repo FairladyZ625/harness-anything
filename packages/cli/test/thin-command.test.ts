@@ -269,6 +269,11 @@ test("Agent and Squad declaration commands route through the daemon entity lifec
   const cases: ReadonlyArray<readonly [readonly string[], string]> = [[["agent", "list"], "agent-list"], [["agent", "inspect", "terra"], "agent-inspect"], [["agent", "validate", "--source", "terra"], "agent-validate"], [["agent", "install", "--source", "terra", "--dry-run"], "agent-install"], [["squad", "list"], "squad-list"], [["squad", "inspect", "core-squad"], "squad-inspect"], [["squad", "validate", "--source", "core-squad"], "squad-validate"], [["squad", "install", "--source", "core-squad"], "squad-install"]];
   for (const [argv, kind] of cases) { const parsed = parseThinCommand([...argv]); assert.equal(parsed.ok, true, JSON.stringify(argv)); if (parsed.ok) { assert.equal(parsed.command.method, "repo.task.run"); assert.equal(parsed.command.action.kind, kind); } }
 });
+test("runtime instance create leaves installation discovery to the daemon when omitted", () => {
+  const parsed = parseThinCommand(["runtime", "instance", "create", "--id", "codex-auto", "--name", "Codex Auto", "--kind", "codex", "--provider", "openai", "--model", "gpt-5.6-sol", "--auth", "subscription"]);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed)); if (parsed.ok) assert.equal("installationId" in parsed.command.action, false);
+});
+
 test("runtime instance auth commands parse into repo-scoped interactive sign-in actions", () => {
   const login = parseThinCommand(["runtime", "instance", "login", "worker", "--repo", "alpha", "--idempotency-key", "sign-in-once"]), logout = parseThinCommand(["runtime", "instance", "logout", "worker"]);
   for (const parsed of [login, logout]) assert.equal(parsed.ok, true, JSON.stringify(parsed));
