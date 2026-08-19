@@ -88,7 +88,7 @@ export function decideDocWrite(input: DocWriteDecisionInput): DocWriteDecision {
     blobs.push({ sha256: change.candidate.sha256, size: change.candidate.size, mediaType: change.candidate.mediaType, body });
   }
   if (deletions.length) return reject("deletion_forbidden", "restore the document and submit prose changes with a new opId");
-  if (unresolvedTouches.length) return reject("unresolved_touch", "resolve denied, ambiguous, heading, or machine-owned touches before resubmitting");
+  if (unresolvedTouches.length) return reject("unresolved_touch", unresolvedTouches.some(({ reason }) => reason === "claim is not canonical LF text") ? "convert the claim to LF line endings, then resubmit the same document with a new opId" : "resolve denied, ambiguous, heading, or machine-owned touches before resubmitting");
   const event: DocEventV1 = { schema: "doc-event/v1", eventId: input.eventId, workspaceRevision: input.workspaceRevision, opId: input.opId,
     type: "documents_written", actor: input.actor, source: input.source, occurredAt: input.occurredAt, payload: { executionId: input.intent.executionId, baseLedgerSha: input.intent.baseLedgerSha, changes } };
   return { accepted: true, event, blobs, plan: docSyncWritePlan(event) };
