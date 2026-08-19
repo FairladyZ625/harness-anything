@@ -27,8 +27,11 @@ export function defaultUnixSocketPath(daemonId: string, uid = process.getuid?.()
 }
 
 export function createUnixSocketTransportServer(options: UnixSocketTransportOptions): UnixSocketTransportServer {
+  const sockets = new Set<net.Socket>();
   const endpoint = options.socketPath ?? defaultUnixSocketPath(options.daemonId);
   const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
     // Windows endpoints are named pipes, which have no filesystem owner to
     // stat: statSync raises EBUSY on \\.\pipe\*. Fall back to the process uid,
     // the convention defaultUnixSocketPath already uses where getuid is absent.
@@ -70,6 +73,12 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
       });
     },
     stop: async () => {
+      // server.close() waits for every accepted socket. A stream subscription
+      // or long JSON-RPC request is allowed to outlive the daemon only until
+      // shutdown starts; destroy those sockets first so the close callback is
+      // not held behind an unbounded request queue (notably on Windows named
+      // pipes, where half-close delivery is asynchronous).
+      for (const socket of sockets) socket.destroy();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
       });

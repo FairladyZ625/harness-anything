@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -32,9 +32,9 @@ if (args[0] === "login") {
 process.exit(9);
 `;
 test("daemon ingress spawns interactive sign-in terminals on the isolated state root", async (t) => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-auth-ingress-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), executablePath = path.join(parent, "codex-signin-stub"), repoId = "runtime-auth-ingress", uid = 4321;
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-auth-ingress-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), executablePath = path.join(parent, process.platform === "win32" ? "codex-signin-stub.cmd" : "codex-signin-stub"), scriptPath = process.platform === "win32" ? `${executablePath}.mjs` : executablePath, repoId = "runtime-auth-ingress", uid = 4321;
   const installation: RuntimeInstallationWitness = { installationId: "installation-codex-signin", kindId: "codex", executablePath, version: "1.0.0", observedAt: "2026-08-19T00:00:00.000Z" };
-  writeStub(executablePath, stubBody);
+  writeStub(scriptPath, executablePath, stubBody);
   initIngressRepo(root, uid); registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
   const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" } } as const;
   const host = await openDaemonHost({ daemonId: "runtime-auth-ingress", userRoot, runtimeDiscover: () => [installation] });
@@ -81,7 +81,15 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
     });
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
-function writeStub(target: string, body: string): void { writeFileSync(target, body, { mode: 0o755 }); }
+function writeStub(scriptPath: string, executablePath: string, body: string): void {
+  writeFileSync(scriptPath, body, { mode: 0o755 });
+  if (process.platform === "win32") {
+    // CreateProcess does not execute an extensionless shebang file. Keep the
+    // provider script identical, but route the Windows fixture through the
+    // supported .cmd shim used by the runtime-discovery tests.
+    writeFileSync(executablePath, `@echo off\r\n"${process.execPath}" "%~dp0${path.basename(scriptPath)}" %*\r\n`);
+  } else chmodSync(scriptPath, 0o755);
+}
 function initIngressRepo(root: string, uid: number): void {
   mkdirSync(path.join(root, "harness"), { recursive: true }); git(root, "init", "-q"); git(root, "config", "user.name", "Sign-in Test"); git(root, "config", "user.email", "signin@example.invalid");
   writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nname: runtime-auth-ingress\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n");

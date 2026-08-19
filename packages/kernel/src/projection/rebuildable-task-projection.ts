@@ -95,13 +95,10 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
   if (localRuntimeStateFileSystem.exists(projectionPath)) withDatabase(projectionPath, readHead, (db) => transaction(db, () => {
     if (markRuntimeSessionsUnknown(db) > 0) refreshStateDigestAtSourceCut(db, readHead()?.revision ?? 0);
   }));
-  const resolvedProjectionPath = path.resolve(projectionPath);
   const closeProjection = () => { hotAppliedHead = null; closeDatabase(projectionPath, readHead); };
-  const registeredClosers = projectionClosers.get(resolvedProjectionPath) ?? new Set<() => void>();
-  registeredClosers.add(closeProjection); projectionClosers.set(resolvedProjectionPath, registeredClosers);
   return {
     path: projectionPath,
-    close: () => { closeProjection(); registeredClosers.delete(closeProjection); if (registeredClosers.size === 0) projectionClosers.delete(resolvedProjectionPath); },
+    close: closeProjection,
     apply: (event, plan) => { if (isDocEvent(event)) assertDocSyncWritePlan(event, plan as FrozenWritePlan<"DocSyncSubmit">); if (isTaskEvent(event) && ((event.payload.documentClaims?.length ?? 0) > 0 || (event.payload.carriedDocumentClaims?.length ?? 0) > 0)) assertTaskLifecycleWritePlan(event, plan); if (isTaskBootstrapEvent(event)) assertTaskBootstrapWritePlan(event, plan as FrozenWritePlan<"TaskBootstrap">); if (isPresetSnapshotUpgradeEvent(event)) assertPresetSnapshotUpgradeWritePlan(event, plan as FrozenWritePlan<"PresetSnapshotUpgrade">); if (isTaskProgressEvent(event)) assertTaskProgressWritePlan(event, plan); if (isFactEvent(event)) assertFactWritePlan(event, plan); if (isDecisionEvent(event)) assertDecisionWritePlan(event, plan); if (isMigrationImportEvent(event)) assertMigrationImportWritePlan(event, plan); if (isLedgerLayoutMigrationEvent(event)) assertLedgerLayoutMigrationWritePlan(event, plan); const receipt = withDatabase(projectionPath, readHead, (db) => reduceBatch(db, [event], limit, options.eventStore.readContentBlob, readHead()?.revision ?? 0)); if (!observedSourceHead) hotAppliedHead = { revision: event.workspaceRevision, eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(event))}` }; return receipt; },
     rebuild: () => { hotAppliedHead = null; closeDatabase(projectionPath, readHead); return rebuildProjection(projectionPath, readHead, options.eventStore, limit); },
     readStateDigest: () => withDatabase(projectionPath, readHead, readStateDigest),
@@ -212,9 +209,17 @@ function projectionDatabaseOwner(projectionPath: string, readHead: EventStreamPo
   if (owners === undefined) { owners = new Map(); projectionDatabaseOwners.set(readHead, owners); }
   const known = owners.get(projectionPath);
   if (known !== undefined) return known;
+  const resolvedProjectionPath = path.resolve(projectionPath);
   let db: DatabaseSync | null = null, fingerprint: string | null = null;
-  const close = () => { db?.close(); db = null; fingerprint = null; };
-  const open = () => { localRuntimeStateFileSystem.mkdirp(path.dirname(projectionPath)); db = openDatabase(projectionPath); configureDatabase(db); fingerprint = projectionFileFingerprint(projectionPath); };
+  let unregister = (): void => undefined;
+  const register = (): void => {
+    if (projectionClosers.get(resolvedProjectionPath)?.has(close)) return;
+    const registeredClosers = projectionClosers.get(resolvedProjectionPath) ?? new Set<() => void>();
+    registeredClosers.add(close); projectionClosers.set(resolvedProjectionPath, registeredClosers);
+    unregister = () => { registeredClosers.delete(close); if (registeredClosers.size === 0) projectionClosers.delete(resolvedProjectionPath); unregister = () => undefined; };
+  };
+  const close = () => { db?.close(); db = null; fingerprint = null; unregister(); };
+  const open = () => { register(); localRuntimeStateFileSystem.mkdirp(path.dirname(projectionPath)); db = openDatabase(projectionPath); configureDatabase(db); fingerprint = projectionFileFingerprint(projectionPath); };
   const discard = () => { close(); localRuntimeStateFileSystem.remove(projectionPath); };
   const initialize = () => {
     open();

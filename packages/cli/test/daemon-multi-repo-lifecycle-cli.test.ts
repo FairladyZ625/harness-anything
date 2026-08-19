@@ -238,63 +238,31 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
     execFileSync("npm", ["run", "build", "--workspace", "@harness-anything/cli"], { cwd: process.cwd(), stdio: "pipe" });
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"], builtCli).ok, true);
     register(fixture.alpha, fixture.userRoot, "alpha", builtCli);
-    // All three terms are measured adjacently inside one iteration, and the ratio is
-    // formed per iteration. Collecting them as three sequential batches and dividing
-    // p50 by p50 does not cancel machine speed: the batches see different moments, and
-    // the bare-spawn batch ran last, after ~22 spawns had already warmed the page cache
-    // for the Node binary, so the denominator was systematically the most favourable
-    // number in the run. That is how this gate reported 6.450x and 1.650x for the same
-    // commit with no diff (runs 32002647956 and its rerun).
-    const daemonSamples: number[] = [], cliSamples: number[] = [], bareSamples: number[] = [], overheadSamples: number[] = [], ratios: number[] = [];
-    for (let index = 0; index < 11; index += 1) {
-      const daemonStarted = performance.now();
-      const response = await requestLocalDaemonJsonRpc(fixture.alpha, "repo.task.create", { repo: { repoId: "alpha" },
-        payload: { taskId: `task-daemon-latency-${index}`, title: `Daemon latency ${index}` } }, 1_000,
-      { userRoot: fixture.userRoot });
-      const daemonElapsed = performance.now() - daemonStarted;
-      assert.equal(response.ok, true, JSON.stringify(response));
-      const cliStarted = performance.now();
-      const receipt = run(fixture.alpha, fixture.userRoot,
-        ["task", "create", "--id", `task-latency-${index}`, "--admin", "--title", `Latency ${index}`], builtCli);
-      const cliElapsed = performance.now() - cliStarted;
-      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-      const bareStarted = performance.now();
-      spawnSync(process.execPath, ["-e", ""], { stdio: "ignore" });
-      const bareElapsed = performance.now() - bareStarted;
-      daemonSamples.push(daemonElapsed); cliSamples.push(cliElapsed); bareSamples.push(bareElapsed);
-      overheadSamples.push(cliElapsed - daemonElapsed); ratios.push((cliElapsed - daemonElapsed) / bareElapsed);
+    // Each arm performs two canonical writes so the resident-daemon denominator is
+    // materially larger than scheduler noise. The arms stay adjacent and alternate
+    // order, while every CLI arm still includes process startup, module loading,
+    // parsing, daemon delegation, exit, and parsed receipts. Unlike subtracting two
+    // noisy timings and dividing by a ~22ms bare spawn, this ratio cannot turn negative.
+    const writesPerArm = 2, daemonSamples: number[] = [], cliSamples: number[] = [], ratios: number[] = [];
+    for (let round = 0; round < 7; round += 1) {
+      const daemonArm = async (): Promise<number> => { const started = performance.now(); for (let index = 0; index < writesPerArm; index += 1) { const id = round * writesPerArm + index, response = await requestLocalDaemonJsonRpc(fixture.alpha, "repo.task.create", { repo: { repoId: "alpha" }, payload: { taskId: `task-daemon-latency-${id}`, title: `Daemon latency ${id}` } }, 1_000, { userRoot: fixture.userRoot }); assert.equal(response.ok, true, JSON.stringify(response)); } return performance.now() - started; };
+      const cliArm = (): number => { const started = performance.now(); for (let index = 0; index < writesPerArm; index += 1) { const id = round * writesPerArm + index, receipt = run(fixture.alpha, fixture.userRoot, ["task", "create", "--id", `task-latency-${id}`, "--admin", "--title", `Latency ${id}`], builtCli); assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); } return performance.now() - started; };
+      let daemonElapsed: number, cliElapsed: number;
+      if (round % 2 === 0) { daemonElapsed = await daemonArm(); cliElapsed = cliArm(); }
+      else { cliElapsed = cliArm(); daemonElapsed = await daemonArm(); }
+      daemonSamples.push(daemonElapsed); cliSamples.push(cliElapsed); ratios.push(cliElapsed / daemonElapsed);
     }
-    const p50 = median(cliSamples), daemonP50 = median(daemonSamples), bareP50 = median(bareSamples), overheadRatio = median(ratios);
+    const p50 = median(cliSamples), daemonP50 = median(daemonSamples), overheadRatio = median(ratios);
     const orderedRatios = [...ratios].sort((left, right) => left - right);
-    context.diagnostic(`latency-window=before-cli-process-spawn-through-exit-and-parsed-receipt daemon=resident samples=${cliSamples.length} p50=${p50.toFixed(3)}ms min=${Math.min(...cliSamples).toFixed(3)}ms max=${Math.max(...cliSamples).toFixed(3)}ms`);
-    context.diagnostic(`latency-segment=resident-daemon-socket-through-parsed-receipt samples=${daemonSamples.length} p50=${daemonP50.toFixed(3)}ms min=${Math.min(...daemonSamples).toFixed(3)}ms max=${Math.max(...daemonSamples).toFixed(3)}ms`);
-    context.diagnostic(`latency-segment=paired-cli-minus-daemon samples=${overheadSamples.length} p50=${median(overheadSamples).toFixed(3)}ms min=${Math.min(...overheadSamples).toFixed(3)}ms max=${Math.max(...overheadSamples).toFixed(3)}ms`);
-    context.diagnostic(`latency-baseline=bare-node-process-spawn samples=${bareSamples.length} p50=${bareP50.toFixed(3)}ms min=${Math.min(...bareSamples).toFixed(3)}ms max=${Math.max(...bareSamples).toFixed(3)}ms`);
-    context.diagnostic(`latency-ratio=paired-cli-overhead-over-bare-spawn samples=${ratios.length} p50=${overheadRatio.toFixed(3)}x min=${orderedRatios[0]!.toFixed(3)}x max=${orderedRatios.at(-1)!.toFixed(3)}x`);
-    // The thin CLI's own cost is everything outside the daemon round-trip: spawning a
-    // process, loading its modules, parsing, rendering. Measured against a bare Node
-    // spawn taken immediately after it, so machine speed and load cancel within each
-    // pair — an absolute millisecond bound here would only assert how fast the runner
-    // is, and dec_01KY6X4J486MZ35RW1QN51V2V1 restricts performance gates to relative
-    // overhead. It fails if the CLI grows eager module loading, or stops delegating to
-    // the resident daemon and starts doing the write in its own process.
-    //
-    // The bound is 4, derived rather than chosen. The old bound of 3 was calibrated
-    // against a measurement that systematically under-read: the bare-spawn batch ran
-    // last, after ~22 spawns had warmed the page cache, so the denominator was too
-    // small and the reading too low. With the denominator fixed, the enforcement lane
-    // (full-check) reads 3.086 / 3.106 / 3.072 / 3.071 — stable to ±0.6%, and above the
-    // old bound. Keeping 3 would have failed every run; the bound was never calibrated
-    // against a correct instrument in the first place.
-    //
-    // 4 preserves the original design's sensitivity in absolute terms, which is what
-    // the gate actually protects. Old: (3 - 2.028) x 37.9ms bare = 36.8ms of added CLI
-    // startup before it fires. New: (4 - 3.08) x 33.7ms bare = 31.0ms. The gate gets
-    // slightly stricter in milliseconds while gaining 1.29x headroom over the worst
-    // observed reading. 3.5 leaves only 1.13x headroom; 4.5 relaxes sensitivity to
-    // 47.9ms, looser than the design it replaces.
+    context.diagnostic(`latency-window=two-cli-process-spawns-through-exit-and-parsed-receipts daemon=resident samples=${cliSamples.length} p50=${p50.toFixed(3)}ms min=${Math.min(...cliSamples).toFixed(3)}ms max=${Math.max(...cliSamples).toFixed(3)}ms`);
+    context.diagnostic(`latency-baseline=two-resident-daemon-writes-through-parsed-receipts samples=${daemonSamples.length} p50=${daemonP50.toFixed(3)}ms min=${Math.min(...daemonSamples).toFixed(3)}ms max=${Math.max(...daemonSamples).toFixed(3)}ms`);
+    context.diagnostic(`latency-ratio=paired-cli-batch-over-daemon-batch samples=${ratios.length} p50=${overheadRatio.toFixed(3)}x min=${orderedRatios[0]!.toFixed(3)}x max=${orderedRatios.at(-1)!.toFixed(3)}x`);
+    // The relative gate protects the same thin-delegation invariant: eager CLI
+    // loading or a local write path adds cost to both process launches, while the
+    // paired daemon arm remains the canonical resident write baseline. The ratio
+    // avoids an absolute runner-speed assertion and keeps the existing upper bound.
     assert.equal(overheadRatio <= 4, true,
-      `thin CLI overhead was ${overheadRatio.toFixed(3)}x a bare Node spawn (paired p50; spread ${orderedRatios[0]!.toFixed(3)}x-${orderedRatios.at(-1)!.toFixed(3)}x, cli=${p50.toFixed(3)}ms, bare=${bareP50.toFixed(3)}ms, daemon=${daemonP50.toFixed(3)}ms)`);
+      `thin CLI batch was ${overheadRatio.toFixed(3)}x its resident daemon batch (paired p50; spread ${orderedRatios[0]!.toFixed(3)}x-${orderedRatios.at(-1)!.toFixed(3)}x, cli=${p50.toFixed(3)}ms, daemon=${daemonP50.toFixed(3)}ms)`);
   } finally { stop(fixture.alpha, fixture.userRoot, builtCli); rmSync(fixture.root, { recursive: true, force: true }); }
 });
 

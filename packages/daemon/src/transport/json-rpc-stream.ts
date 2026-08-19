@@ -68,9 +68,14 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
       return authContext;
     },
     close: async () => {
-      await queue;
-      server?.close(); options.input.destroy();
-      options.output.end();
+      // Shutdown is a force-close boundary. Waiting for the request queue here
+      // lets an in-flight migration or stream subscription keep the transport
+      // alive forever, which in turn prevents the daemon's host resources from
+      // being released. The caller has already decided to stop serving, so
+      // detach subscriptions and tear down both stream ends immediately.
+      server?.close();
+      options.input.destroy();
+      options.output.destroy();
     }
   };
 
