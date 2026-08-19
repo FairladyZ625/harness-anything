@@ -276,9 +276,9 @@ test("runtime instance auth commands parse into repo-scoped interactive sign-in 
   assert.equal(parseThinCommand(["runtime", "instance", "login"]).ok, false); assert.equal(parseThinCommand(["runtime", "instance", "login", "worker", "--prompt", "x"]).ok, false); assert.equal(parseThinCommand(["runtime", "instance", "reauth", "worker"]).ok, false); const shown = parseThinCommand(["runtime", "instance", "show", "worker", "--repo", "alpha", "--probe"]); assert.equal(shown.ok === true && shown.command.repoId, undefined); if (shown.ok) assert.equal(shown.command.action.probe, true);
 });
 
-test("migration import parser accepts repeated explicit conflict resolutions", () => {
-  const parsed = parseThinCommand(["migrate", "import", "--source", "../legacy", "--resolve", "harness/people.yaml=source", "--resolve", "harness/AGENTS.md=destination", "--dry-run", "--json"]);
-  assert.equal(parsed.ok, true); if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "migrate-import", sourceRoot: "../legacy", resolutions: ["harness/people.yaml=source", "harness/AGENTS.md=destination"], dryRun: true });
+test("migration import parser accepts ordered sources and repeated explicit conflict resolutions", () => {
+  const parsed = parseThinCommand(["migrate", "import", "--source", "../alice", "--source", "../bob", "--resolve", "harness/people.yaml=source", "--resolve", "harness/AGENTS.md=destination", "--dry-run", "--json"]);
+  assert.equal(parsed.ok, true); if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "migrate-import", sourceRoots: ["../alice", "../bob"], resolutions: ["harness/people.yaml=source", "harness/AGENTS.md=destination"], dryRun: true });
   assert.equal(parseThinCommand(["migrate", "import"]).ok, false);
   assert.equal(parseThinCommand(["migrate", "import", "--source", "a", "--resolve", "harness/people.yaml=automatic"]).ok, false);
   assert.equal(parseThinCommand(["migrate", "import", "--source", "a", "--force"]).ok, false);
