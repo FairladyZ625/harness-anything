@@ -16,6 +16,7 @@ import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, re
 import path from "node:path";
 import { consumeKnownError, sha256Text, stableStringify } from "../../kernel/src/index.ts";
 import type { DaemonHost } from "./daemon-host.ts";
+import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { FLEET_TASK_COMMAND_KINDS, type FleetFrameV1, type FleetTaskAction } from "./fleet/contract.ts";
 import type { FleetAssignmentRecord } from "./fleet/center.ts";
 
@@ -45,11 +46,11 @@ type ParkRegistration = { readonly settle: (result: FleetTaskResultFields) => vo
 type TaskDisposition = { readonly result: FleetTaskResultFields } | { readonly parked: Promise<FleetTaskResultFields> };
 const RECEIPT_RING = 512;
 
-export function openFleetLeaseBroker(options: { readonly stateRoot: string; readonly host: Pick<DaemonHost, "run">; readonly resolveAssignment: (assignmentId: string) => FleetAssignmentRecord | null | Promise<FleetAssignmentRecord | null>; readonly now: () => string; readonly env?: NodeJS.ProcessEnv }): FleetLeaseBroker {
+export function openFleetLeaseBroker(options: { readonly stateRoot: string; readonly host: Pick<DaemonHost, "run">; readonly resolveAssignment: (assignmentId: string) => FleetAssignmentRecord | null | Promise<FleetAssignmentRecord | null>; readonly now: () => string; readonly env?: NodeJS.ProcessEnv; readonly auth?: (assignment: FleetAssignmentRecord) => DaemonAuthenticationContext }): FleetLeaseBroker {
   const timers = fleetLeaseTimers(options.env), stateFile = path.join(options.stateRoot, "leases.json"), state = loadBrokerState(stateFile);
   const parks = new Map<string, ParkRegistration>(), inFlight = new Set<string>(), pumping = new Set<string>(), taskLocks = new Map<string, Promise<void>>();
   const taskKey = (repoId: string, taskId: string): string => `${repoId}|${taskId}`, splitKey = (key: string): { readonly repoId: string; readonly taskId: string } => { const at = key.indexOf("|"); return { repoId: key.slice(0, at), taskId: key.slice(at + 1) }; };
-  const persist = (): void => writeDurableJson(stateFile, state), auth = (assignment: FleetAssignmentRecord) => ({ transportKind: "fleet-tls" as const, assignmentBinding: assignment });
+  const persist = (): void => writeDurableJson(stateFile, state), auth = options.auth ?? ((assignment: FleetAssignmentRecord) => ({ transportKind: "fleet-tls" as const, assignmentBinding: assignment }));
   const sourceJson = (assignment: FleetAssignmentRecord): string => stableStringify({ kind: "assignment", nodeId: assignment.nodeId, assignmentId: assignment.assignmentId });
   const digestFor = (assignment: FleetAssignmentRecord, action: FleetTaskAction, docs: FleetTaskDocs | null = null): string => sha256Text(stableStringify({ assignmentId: assignment.assignmentId, action, docs }));
   async function withTaskLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
@@ -128,7 +129,13 @@ export function openFleetLeaseBroker(options: { readonly stateRoot: string; read
     // queue as one command, so holder, document base, and lifecycle transition
     // are adjudicated together and any conflict voids the whole transition.
     const bundle = docs !== null && docs.docChanges !== null && docs.docChanges.length > 0 ? { ...effective, docChanges: docs.docChanges, ...(docs.mirrorBaseCut !== null ? { mirrorBaseCut: docs.mirrorBaseCut } : {}) } : effective;
-    const receipt = await options.host.run(assignment.repoId, bundle as Parameters<Pick<DaemonHost, "run">["run"]>[1], auth(assignment));
+    let receipt: Awaited<ReturnType<Pick<DaemonHost, "run">["run"]>>;
+    try { receipt = await options.host.run(assignment.repoId, bundle as Parameters<Pick<DaemonHost, "run">["run"]>[1], auth(assignment)); }
+    catch (error) {
+      consumeKnownError(error);
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "writer_epoch_stale") return { outcome: "op_rejected", opId, code: "writer_epoch_stale", revision: null, receipt: { outcome: "op_rejected", code: "writer_epoch_stale", nextAction: "Query the receipt or reacquire the current writer epoch before retrying." }, lease: null, queuePosition: null };
+      throw error;
+    }
     const applied = receipt.outcome === "applied", record = receipt as unknown as Record<string, unknown>;
     let lease: FleetTaskResultFields["lease"] = null;
     if (!dryRun && key) {

@@ -9,8 +9,9 @@ import { registerDaemonRepo } from "../../kernel/src/index.ts";
 import { openDaemonHost, type DaemonHost } from "../src/daemon-host.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
-import { runFleetTaskCommandClient } from "../src/fleet/edge.ts";
+import { runFleetTaskCommandClient, runFleetUploadClient } from "../src/fleet/edge.ts";
 import { fleetLeaseTimers } from "../src/lease-broker.ts";
+import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { randomUUID } from "node:crypto";
 
 const replicaQuota = 64 * 1024 * 1024;
@@ -124,6 +125,41 @@ test("center restart preserves the grant mirror, the domain lease, and FIFO orde
   const granted = await waiting;
   assert.equal(granted.outcome, "applied");
   assert.equal(granted.lease?.assignmentId, "assignment-node-two");
+});
+
+test("a stale center writer epoch is rejected at append and produces no canonical write", { timeout: 30_000 }, async (t) => {
+  const fixture = await leaseFixture(); t.after(() => fixture.close());
+  const created = await fixture.command("node-one", { kind: "task-create", title: "Epoch fence" });
+  const taskId = String((created.receipt as Record<string, unknown>).taskId);
+  assert.equal((await fixture.command("node-one", { kind: "task-start", taskId })).outcome, "applied");
+  const oldEpoch = (JSON.parse(readFileSync(path.join(fixture.stateRoot, "writer-epochs.json"), "utf8")) as { repos: Record<string, { epoch: number }> }).repos["lease-repo"]!.epoch;
+  const replacement = await fixture.openCenter(fixture.host);
+  const before = fixture.commitCount();
+  // The stale endpoint must not adopt the replacement's epoch merely because
+  // assignment admission can read the shared state row. Its own append guard
+  // remains bound to the epoch it acquired at startup.
+  const staleAuto = await fixture.command("node-one", { kind: "task-progress-append", taskId, text: "stale endpoint must not adopt successor epoch" });
+  assert.equal(staleAuto.outcome, "op_rejected");
+  assert.equal(staleAuto.code, "writer_epoch_stale");
+  assert.equal((staleAuto.receipt as Record<string, unknown>)?.code, "operation_not_published");
+  assert.equal(fixture.commitCount(), before, "automatic assignment admission must not let a stale endpoint append");
+  const stale = await runFleetTaskCommandClient({ port: fixture.center.port, ca: readFileSync(path.join(fixture.root, "tls.crt")), servername: "localhost", nodeId: "node-one", credential: "secret-node-one", assignmentId: "assignment-node-one", writerEpoch: oldEpoch, opId: randomUUID(), repoId: "lease-repo", taskId, action: { kind: "task-progress-append", taskId, text: "stale writer must not append" }, waitMs: 5_000 });
+  assert.equal(stale.outcome, "op_rejected");
+  assert.equal(stale.code, "writer_epoch_stale");
+  assert.equal(fixture.commitCount(), before, "the stale center must produce zero canonical commits");
+  const fresh = await fixture.commandOn(replacement, "node-one", { kind: "task-progress-append", taskId, text: "fresh epoch append" });
+  assert.equal(fresh.outcome, "applied");
+});
+
+test("stale task rejection disposes carried document claims", { timeout: 30_000 }, async (t) => {
+  const fixture = await leaseFixture(); t.after(() => fixture.close());
+  const peer = { port: fixture.center.port, ca: readFileSync(path.join(fixture.root, "tls.crt")), servername: "localhost", nodeId: "node-one", credential: "secret-node-one", assignmentId: "assignment-node-one" }, pathValue = fixture.assignmentFor("node-one").paths[0]!;
+  const descriptors = await runFleetUploadClient({ ...peer, changes: [{ path: pathValue, body: "stale candidate\n" }] });
+  const oldEpoch = (JSON.parse(readFileSync(path.join(fixture.stateRoot, "writer-epochs.json"), "utf8")) as { repos: Record<string, { epoch: number }> }).repos["lease-repo"]!.epoch;
+  const authority = openPersistentWriterEpoch({ stateRoot: fixture.stateRoot, holderId: "claim-successor" }); authority.acquire("lease-repo");
+  const result = await runFleetTaskCommandClient({ ...peer, writerEpoch: oldEpoch, opId: randomUUID(), repoId: "lease-repo", taskId: "task-seeded", action: { kind: "task-progress-append", taskId: "task-seeded", text: "never execute" } as never, waitMs: 1_000, docChanges: descriptors.map((candidate) => ({ path: pathValue, baseBlobSha256: null, policyId: "markdown-body-replaceable/v1", candidate })) });
+  const state = JSON.parse(readFileSync(path.join(fixture.stateRoot, "state.json"), "utf8")) as { uploads: Record<string, unknown> };
+  assert.equal(result.code, "writer_epoch_stale"); assert.equal(Object.keys(state.uploads).length, 0); authority.close();
 });
 
 test("opId replay returns the stored receipt; a different action under the same opId conflicts", { timeout: 30_000 }, async (t) => {
