@@ -128,6 +128,19 @@ produces a `runtime_session_liveness_changed` event. Runtime liveness and task
 lease/lifecycle remain separate facts; a session event cannot renew a lease or
 complete a task.
 
+The daemon does retain a provider's structured event stream locally at
+`.harness/runtime/dispatches/<dispatch-id>.jsonl`. This is operational evidence,
+not database or canonical-event content: the header relates the dispatch to its
+task, runtime session, and local stream reference, while the remaining JSONL
+records are parsed only when someone asks to inspect them. Before a record is
+written, recursively named secret-bearing fields and recognizable bearer/token
+values are replaced with `[REDACTED]`; credentials, executable paths, and
+provider environment values never become stream content. `ha task dispatches
+<task-id>` combines an in-flight local record with terminal task artifacts, and
+the terminal dispatch artifact retains the stream reference plus provider
+session identifier. Thus `ha runtime run --resume-dispatch <dispatch-id>
+--prompt "…"` resumes without exposing or requiring a provider session id.
+
 When a dispatch is task-bound, the daemon also publishes its terminal work
 artifacts through canonical doc sync. One batch creates
 `artifacts/missions/<dispatch-id>.md`,

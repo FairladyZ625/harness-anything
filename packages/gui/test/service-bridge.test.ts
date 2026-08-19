@@ -40,7 +40,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     for (const contract of daemonGuiReadMethods) {
       const payload = contract.id === "gui.system.read" ? null : contract.id === "gui.control.receipt" ? { operationId: control.operationId }
         : contract.id === "tasks.document.read" ? { ...scope, taskId: "task-gui-smoke", path: "notes.md" }
-        : contract.id === "tasks.documents.list" ? { ...scope, taskId: "task-gui-smoke" }
+        : contract.id === "tasks.documents.list" || contract.id === "task.dispatches" ? { ...scope, taskId: "task-gui-smoke" }
         : contract.id === "agentRuntime.sessions.read" ? { ...scope, runtimeSessionId: "runtime-gui" }
         : contract.id === "agentRuntime.events.read" ? { ...scope, runtimeSessionId: "runtime-gui", afterCursor: "lifecycle:0" }
         : contract.id === "gui.catalog.preset.read" ? { ...scope, presetId: catalog.defaults.presetId }

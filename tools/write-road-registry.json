@@ -33,6 +33,7 @@
     "packages/daemon/src/agent-entities.ts",
     "packages/daemon/src/agent-runtime-instances.ts",
     "packages/daemon/src/daemon-singleton.ts",
+    "packages/daemon/src/dispatch-stream.ts",
     "packages/daemon/src/doc-sync-actions.ts",
     "packages/daemon/src/doc-sync-candidate-scanner.ts",
     "packages/daemon/src/fleet/center.ts",
