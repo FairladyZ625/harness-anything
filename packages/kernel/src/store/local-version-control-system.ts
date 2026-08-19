@@ -162,6 +162,12 @@ export function normalizeLocalPath(inputPath: string): string {
   return path.join(realpathSync.native(current), ...pendingSegments);
 }
 
+// #1588: this port exists to move exact bytes, so no git invocation it makes may run the
+// end-of-line filter. Pinning core.autocrlf in the ledger's local config is not enough —
+// local config does not survive a clone, so a fresh checkout on a machine whose global
+// setting is `true` silently converts authored files back to CRLF. Injecting it per call
+// travels with the code instead of with somebody's remembering to configure the repo.
+const byteFaithfulGit = Object.freeze(["-c", "core.autocrlf=false", "-c", "core.eol=lf"]);
 function runGit(repoRoot: string, ...args: ReadonlyArray<string>): string {
   return runGitAs(repoRoot, undefined, ...args);
 }
@@ -169,7 +175,7 @@ function runGit(repoRoot: string, ...args: ReadonlyArray<string>): string {
 function runGitAs(repoRoot: string, author: VcsCommitAuthor | undefined, ...args: ReadonlyArray<string>): string {
   localGitProcesses += 1;
   try {
-    return execFileSync("git", ["-C", repoRoot, ...args], {
+    return execFileSync("git", ["-C", repoRoot, ...byteFaithfulGit, ...args], {
       encoding: "utf8",
       maxBuffer: gitMaxBuffer,
       stdio: ["ignore", "pipe", "pipe"],
@@ -218,7 +224,7 @@ function commandErrorSignal(error: unknown): string | undefined {
 export function localGitText(repoRoot: string, ...args: readonly string[]): string { return runGit(repoRoot, ...args); }
 function localGitBytes(repoRoot: string, args: readonly string[], input?: Uint8Array): Buffer {
   localGitProcesses += 1;
-  try { return execFileSync("git", ["-C", repoRoot, ...args], { input, encoding: "buffer", maxBuffer: gitMaxBuffer, stdio: [input ? "pipe" : "ignore", "pipe", "pipe"], windowsHide: true }); }
+  try { return execFileSync("git", ["-C", repoRoot, ...byteFaithfulGit, ...args], { input, encoding: "buffer", maxBuffer: gitMaxBuffer, stdio: [input ? "pipe" : "ignore", "pipe", "pipe"], windowsHide: true }); }
   catch (error) { throw new VcsCommandError({ command: args[0] ?? "command", cwd: repoRoot, exitCode: commandErrorCode(error), signal: commandErrorSignal(error), stderrSummary: commandErrorSummary(error) }); }
 }
 export const localGitObjectRefStore = Object.freeze({
@@ -243,7 +249,7 @@ function removeNode(target: string): void { try { unlinkSync(target); } catch (e
 function gitBlobOid(body: string): string { const bytes = Buffer.from(body); return createHash("sha1").update(`blob ${bytes.byteLength}\0`).update(bytes).digest("hex"); }
 function hashVcsBytes(algorithm: "sha256", body: string | Uint8Array): string { return createHash(algorithm).update(body).digest("hex"); }
 function checkoutDetachedSymlink(repoRoot: string, relative: string, body: string): void { const rawGitDir = runGit(repoRoot, "rev-parse", "--git-dir").trim(), gitDir = path.isAbsolute(rawGitDir) ? rawGitDir : path.join(repoRoot, rawGitDir), index = path.join(gitDir, `ha-symlink-index-${process.pid}-${hashVcsBytes("sha256", relative).slice(0, 8)}`), env = { ...process.env, GIT_INDEX_FILE: index }; removeNode(index); try { runGitWithEnvironment(repoRoot, env, ["read-tree", "--empty"]); const oid = runGitWithEnvironment(repoRoot, env, ["hash-object", "-w", "--stdin"], Buffer.from(body)).trim(); runGitWithEnvironment(repoRoot, env, ["update-index", "--add", "--cacheinfo", `120000,${oid},${relative}`]); runGitWithEnvironment(repoRoot, env, ["checkout-index", "--force", "--", relative]); } finally { removeNode(index); } }
-function runGitWithEnvironment(repoRoot: string, env: NodeJS.ProcessEnv, args: readonly string[], input?: Uint8Array): string { localGitProcesses += 1; try { return execFileSync("git", ["-C", repoRoot, ...args], { env, input, encoding: "utf8", maxBuffer: gitMaxBuffer, stdio: [input ? "pipe" : "ignore", "pipe", "pipe"], windowsHide: true }); } catch (error) { throw new VcsCommandError({ command: args[0] ?? "command", cwd: repoRoot, exitCode: commandErrorCode(error), signal: commandErrorSignal(error), stderrSummary: commandErrorSummary(error) }); } }
+function runGitWithEnvironment(repoRoot: string, env: NodeJS.ProcessEnv, args: readonly string[], input?: Uint8Array): string { localGitProcesses += 1; try { return execFileSync("git", ["-C", repoRoot, ...byteFaithfulGit, ...args], { env, input, encoding: "utf8", maxBuffer: gitMaxBuffer, stdio: [input ? "pipe" : "ignore", "pipe", "pipe"], windowsHide: true }); } catch (error) { throw new VcsCommandError({ command: args[0] ?? "command", cwd: repoRoot, exitCode: commandErrorCode(error), signal: commandErrorSignal(error), stderrSummary: commandErrorSummary(error) }); } }
 function ensureConflictExclude(repoRoot: string): void { const raw = runGit(repoRoot, "rev-parse", "--git-path", "info/exclude").trim(), target = path.isAbsolute(raw) ? raw : path.join(repoRoot, raw), marker = "*.conflict-*\n"; mkdirSync(path.dirname(target), { recursive: true }); const current = existsSync(target) ? readFileSync(target, "utf8") : ""; if (!current.split(/\r?\n/u).includes("*.conflict-*")) writeFileSync(target, `${current}${current && !current.endsWith("\n") ? "\n" : ""}${marker}`); }
 function durableWrite(target: string, body: Uint8Array): void { const directory = path.dirname(target), temporary = `${target}.tmp-${process.pid}`; mkdirSync(directory, { recursive: true }); const descriptor = openSync(temporary, "w", 0o600); try { writeFileSync(descriptor, body); fsyncSync(descriptor); } finally { closeSync(descriptor); } renameSync(temporary, target); if (process.platform === "win32") return; const parent = openSync(directory, "r"); try { fsyncSync(parent); } finally { closeSync(parent); } }
 
