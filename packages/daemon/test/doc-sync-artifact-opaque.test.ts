@@ -62,7 +62,7 @@ test("artifact add still rejects escapes, symlinked path segments, non-LF, and n
     assert.equal((await cell.run({ kind: "task-create", taskId: "task-guards", title: "Guards" }, binding)).outcome, "applied");
     const packagePath = "tasks/task-guards-guards", artifactsDir = path.join(rootDir, "harness", packagePath, "artifacts");
     writeFileSync(path.join(rootDir, "incoming.mjs"), "export const one = 1;\n");
-    const escape = await cell.run({ kind: "task-artifact-add", taskId: "task-guards", source: "incoming.mjs", destination: "../escape.mjs" }, binding) as Record<string, unknown>;
+    const escape = await cell.run({ kind: "task-artifact-add", taskId: "task-guards", source: "incoming.mjs", destination: "../escape.md" }, binding) as Record<string, unknown>;
     assert.equal(escape.code, "invalid_artifact_path");
     writeFileSync(path.join(rootDir, "outside.mjs"), "export const two = 2;\n");
     mkdirSync(artifactsDir, { recursive: true });
