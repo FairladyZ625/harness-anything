@@ -7,6 +7,7 @@ import test from "node:test";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import { type TaskCreatedEvent } from "../../src/domain/task-lifecycle.contract.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
+import { localWalFileSystem } from "../../src/local/local-layout-file-system.ts";
 import { makeTaskEventStore as makeGitEventStore } from "../../src/store/task-event-store.ts";
 import { makeWalShadowEventStore } from "../../src/store/wal-shadow-event-store.ts";
 import { openWalEventLog } from "../../src/store/wal-event-log.ts";
@@ -77,6 +78,34 @@ test("S3 discards a torn WAL tail and keeps the Git-equivalence audit", async ()
     assert.deepEqual(reopened.records().map((record) => record.revision), [1]);
     assert.equal(readFileSync(segment, "utf8").endsWith("\n"), true);
     assert.equal(reopened.audit(store.read().events, store.read().revision).status, "equivalent");
+  });
+});
+
+test("WAL shadow failure never changes the authoritative Git receipt", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeWalShadowEventStore({ repoId: "wal-shadow-failure", rootDir });
+    const first = taskCreated(1);
+    store.append({ event: first, plan: taskLifecycleWritePlan(first), blobs: [] });
+    const originalAppend = localWalFileSystem.append;
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    localWalFileSystem.append = () => {
+      throw new Error("simulated WAL I/O failure");
+    };
+    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+    try {
+      const event = taskCreated(2);
+      const receipt = store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+      assert.equal(receipt.status, "applied");
+      assert.equal(receipt.revision, 2);
+      assert.deepEqual(store.read().events.map((candidate) => candidate.workspaceRevision), [1, 2]);
+    } finally {
+      localWalFileSystem.append = originalAppend;
+      console.warn = originalWarn;
+    }
+    assert.equal(warnings.some((warning) => warning.includes("WAL append failed")), true);
+    assert.deepEqual(openWalEventLog(rootDir).records().map((record) => record.revision), [1, 2]);
   });
 });
 
