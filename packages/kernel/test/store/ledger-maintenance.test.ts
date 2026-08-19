@@ -20,12 +20,12 @@ function ledger(rootDir: string): string {
 
 /** Shadows `git version` with an older release while delegating every other subcommand to the real binary. */
 function withStubbedGitVersion<T>(rootDir: string, version: string, fn: () => T): T {
-  const binDir = path.join(rootDir, "stub-bin"), shim = path.join(binDir, "git"), real = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+  const binDir = path.join(rootDir, "stub-bin"), windows = process.platform === "win32", shim = path.join(binDir, windows ? "git.cmd" : "git"), real = execFileSync(windows ? "where" : "which", ["git"], { encoding: "utf8" }).trim().split(/\r?\n/u)[0]!;
   mkdirSync(binDir, { recursive: true });
-  writeFileSync(shim, `#!/bin/sh\nfor a in "$@"; do if [ "$a" = "version" ]; then echo "git version ${version}"; exit 0; fi; done\nexec ${real} "$@"\n`, "utf8");
-  chmodSync(shim, 0o755);
+  writeFileSync(shim, windows ? `@echo off\r\nfor %%A in (%*) do if /I "%%~A"=="version" (echo git version ${version}& exit /b 0)\r\n"${real}" %*\r\n` : `#!/bin/sh\nfor a in "$@"; do if [ "$a" = "version" ]; then echo "git version ${version}"; exit 0; fi; done\nexec ${real} "$@"\n`, "utf8");
+  if (!windows) chmodSync(shim, 0o755);
   const previous = process.env.PATH;
-  process.env.PATH = `${binDir}:${previous ?? ""}`;
+  process.env.PATH = `${binDir}${path.delimiter}${previous ?? ""}`;
   try {
     return fn();
   } finally {

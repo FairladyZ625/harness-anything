@@ -30,7 +30,7 @@ test("daemon registry register realpaths canonical roots and writes registry-onl
     const userRoot = path.join(root, "user-harness");
     const canonicalRoot = createHarnessRepo(path.join(root, "real-project"));
     const aliasRoot = path.join(root, "alias-project");
-    symlinkSync(canonicalRoot, aliasRoot, "dir");
+    symlinkSync(canonicalRoot, aliasRoot, process.platform === "win32" ? "junction" : "dir");
 
     const result = registerDaemonRepo({
       userRoot,
