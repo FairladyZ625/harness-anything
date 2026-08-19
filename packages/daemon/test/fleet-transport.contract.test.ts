@@ -10,6 +10,8 @@ const frames = [
   { schema: "fleet.session.ready/v1", messageId: "m2", inReplyTo: "m1", sessionId: "s1", maxFrameBytes: FLEET_FRAME_BYTES, chunkBytes: FLEET_CHUNK_BYTES },
   { schema: "fleet.assignment.get/v1", messageId: "m3", assignmentId: "a1" },
   { schema: "fleet.assignment.result/v1", messageId: "m4", inReplyTo: "m3", assignmentId: "a1", repoId: "repo", taskId: "task", executionId: "exec", paths: ["tasks/task/a.md"], baseLedgerSha: "a".repeat(40), expiresAt: "2099-01-01T00:00:00.000Z", writerEpoch: 1 },
+  { schema: "fleet.receipt.get/v1", messageId: "m4-receipt-get", assignmentId: "a1", opId: "op1" },
+  { schema: "fleet.receipt.result/v1", messageId: "m4-receipt-result", inReplyTo: "m4-receipt-get", opId: "op1", receipt: { outcome: "op_rejected", code: "operation_not_published" } },
   { schema: "fleet.upload.begin/v1", messageId: "m5", assignmentId: "a1", content: blob },
   { schema: "fleet.upload.ready/v1", messageId: "m6", inReplyTo: "m5", uploadId: "u1", resumeOffset: 0, status: "receiving" },
   { schema: "fleet.upload.chunk/v1", messageId: "m7", uploadId: "u1", offset: 0, dataBase64: "YWJj" },
@@ -38,34 +40,36 @@ test("Fleet transport union round-trips every closed wire variant", () => {
   assert.equal(FLEET_KEY_SEND_WINDOW_BYTES, 256 * 1024);
   assert.equal(FLEET_SESSION_SEND_WINDOW_BYTES, 512 * 1024);
   for (const frame of frames) assert.deepEqual(parseFleetFrame(serializeFleetFrame(frame)), frame, frame.schema);
+  const taskCommand = frames.find((frame) => frame.schema === "fleet.task.command/v1")!;
   for (const action of [
     { kind: "task-create", title: "Fleet task", riskTier: "high", registerModule: { key: "kernel", title: "Kernel", prefix: "task", scope: "repo" }, surfaces: ["ha task start"], relations: [{ type: "depends-on", target: "task/task_parent", rationale: "ordered" }] },
     { kind: "task-start", taskId: "task_abc", executionId: "exe_abc", ttlMs: 60_000, dryRun: true },
     { kind: "task-progress-append", taskId: "task_abc", executionId: "exe_abc", text: "progress", evidence: [{ type: "test", path: "reports/result.txt", summary: "pass" }], baseDocumentSha256: null },
     { kind: "task-submit", taskId: "task_abc", executionId: "exe_abc", submission: { completionClaim: "complete", deliverables: [] } },
     { kind: "task-release", taskId: "task_abc", reason: "handoff" }
-  ]) assert.deepEqual(parseFleetFrame({ ...frames[23], taskId: "task_abc", action }).action, action);
+  ]) assert.deepEqual(parseFleetFrame({ ...taskCommand, taskId: "task_abc", action }).action, action);
 });
 
 test("Fleet codec rejects unknown provenance, nested fields, malformed values, and limits", () => {
+  const taskCommand = frames.find((frame) => frame.schema === "fleet.task.command/v1")!, snapshotPage = frames.find((frame) => frame.schema === "fleet.snapshot.page/v1")!, snapshotChunk = frames.find((frame) => frame.schema === "fleet.snapshot.chunk/v1")!, snapshotCurrent = frames.find((frame) => frame.schema === "fleet.replica.current/v1")!;
   const spoofFields = ["actor", "executor", "root", "canonicalRoot", "workspaceId", "expectedRevision", "eventId", "occurredAt", "gitCredential", "credential", "createMode"];
   for (const invalid of [
-    { ...frames[4], actor: { principal: { personId: "spoof" } } },
-    { ...frames[4], content: { ...blob, extra: true } },
-    { ...frames[14], entries: Array.from({ length: 129 }, (_, index) => ({ path: `tasks/task/${index}.md`, blob })) },
-    { ...frames[15], dataBase64: Buffer.alloc(FLEET_CHUNK_BYTES + 1).toString("base64") },
-    { ...frames[14], entries: [{ path: "../escape", blob }] },
-    { ...frames[10], cut: { ...cut, commitSha: "a".repeat(40) } },
-    { ...frames[23], action: { kind: "task-start", taskId: "task_abc", actor: { principal: { personId: "spoof" } } } },
-    { ...frames[23], action: { kind: "host-run", command: "anything" } },
-    { ...frames[23], action: { kind: "task-start", taskId: "task_abc", verb: "start" } },
-    { ...frames[23], action: { kind: "task-create", title: "t", createMode: "admin" } },
-    { ...frames[23], action: { kind: "task-release", taskId: "task_abc", ttlMs: 1 } },
-    { ...frames[23], action: { kind: "task-start", taskId: "task_abc", ttlMs: "forever" } },
-    { ...frames[23], action: { kind: "task-create", title: "t", riskTier: "critical" } },
-    { ...frames[23], action: { kind: "task-create", title: "t", registerModule: { key: "m", title: "M", prefix: "m", scope: "repo", actor: "spoof" } } },
-    { ...frames[23], action: { kind: "task-submit", taskId: "task_abc", submission: "not-an-object" } },
-    ...spoofFields.map((field) => ({ ...frames[23], action: { kind: "task-start", taskId: "task_abc", [field]: field === "actor" ? { principal: { personId: "spoof" } } : "spoof" } })),
+    { ...frames[6], actor: { principal: { personId: "spoof" } } },
+    { ...frames[6], content: { ...blob, extra: true } },
+    { ...snapshotPage, entries: Array.from({ length: 129 }, (_, index) => ({ path: `tasks/task/${index}.md`, blob })) },
+    { ...snapshotChunk, dataBase64: Buffer.alloc(FLEET_CHUNK_BYTES + 1).toString("base64") },
+    { ...snapshotPage, entries: [{ path: "../escape", blob }] },
+    { ...snapshotCurrent, cut: { ...cut, commitSha: "a".repeat(40) } },
+    { ...taskCommand, action: { kind: "task-start", taskId: "task_abc", actor: { principal: { personId: "spoof" } } } },
+    { ...taskCommand, action: { kind: "host-run", command: "anything" } },
+    { ...taskCommand, action: { kind: "task-start", taskId: "task_abc", verb: "start" } },
+    { ...taskCommand, action: { kind: "task-create", title: "t", createMode: "admin" } },
+    { ...taskCommand, action: { kind: "task-release", taskId: "task_abc", ttlMs: 1 } },
+    { ...taskCommand, action: { kind: "task-start", taskId: "task_abc", ttlMs: "forever" } },
+    { ...taskCommand, action: { kind: "task-create", title: "t", riskTier: "critical" } },
+    { ...taskCommand, action: { kind: "task-create", title: "t", registerModule: { key: "m", title: "M", prefix: "m", scope: "repo", actor: "spoof" } } },
+    { ...taskCommand, action: { kind: "task-submit", taskId: "task_abc", submission: "not-an-object" } },
+    ...spoofFields.map((field) => ({ ...taskCommand, action: { kind: "task-start", taskId: "task_abc", [field]: field === "actor" ? { principal: { personId: "spoof" } } : "spoof" } })),
     { ...frames[0], schema: "fleet.unknown/v1" }
   ]) assert.throws(() => parseFleetFrame(invalid), FleetContractError);
   assert.throws(() => parseFleetFrame(`{"schema":"fleet.session.hello/v1","messageId":"m","protocolVersion":1,"nodeId":"n","credential":"${"x".repeat(FLEET_FRAME_BYTES)}"}`), /frame exceeds/u);

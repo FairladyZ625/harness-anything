@@ -16,4 +16,5 @@ export interface DaemonAuthenticationContext {
   /** Center-only admission context; never accepted from a client payload. */
   readonly writerEpoch?: number;
   readonly assertWriterEpoch?: () => void;
+  readonly withWriterEpochFence?: <T>(operation: () => T) => T;
 }
