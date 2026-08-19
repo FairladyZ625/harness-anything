@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { availableParallelism } from "node:os";
-import { resolve } from "node:path";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
-import { collectSlowTests, formatSlowTestSummary, parseRunnerArgs, resolveTestConcurrency, selectTestFiles } from "./node-test-runner-lib.mjs";
+import { collectSlowTests, filterTestFilesByPrefixes, formatSlowTestSummary, parseRunnerArgs, resolveTestConcurrency, selectTestFiles } from "./node-test-runner-lib.mjs";
 import { discoverTestTierManifest, testTierNames } from "./test-tier-manifest.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
+const DEFAULT_TEST_FILE_TIMEOUT_MS = 900_000;
+const PROCESS_TREE_KILL_GRACE_MS = 1_000;
 
 // Reuse type-strip/compile output across the test host and every CLI
 // subprocess it spawns (integration tests cold-start `node src/index.ts` per
@@ -41,6 +45,7 @@ if (selection.errors.length > 0) {
 if (options.shard !== undefined) {
   selection.files = selectIntegrationShardFiles(options.shard, selection.files);
 }
+selection.files = filterTestFilesByPrefixes(selection.files, options.prefixes);
 
 if (selection.files.length === 0) {
   console.log(`No node test files found for tier ${options.tier}.`);
@@ -56,48 +61,149 @@ if (options.list) {
 
 // Cap process fan-out so full runs don't exhaust memory on developer laptops.
 // --concurrency wins; else HARNESS_TEST_CONCURRENCY; else, off CI, a
-// laptop-friendly default derived from cores; in CI, node's own default.
+// fixed per-session budget; in CI, node's own default.
 const concurrency = resolveTestConcurrency({
   flagConcurrency: options.concurrency,
   envConcurrency: process.env.HARNESS_TEST_CONCURRENCY,
-  isCi: Boolean(process.env.CI),
-  availableParallelism: availableParallelism()
+  isCi: Boolean(process.env.CI)
 });
 const concurrencyArgs =
   concurrency && Number.isInteger(concurrency) && concurrency > 0 ? [`--test-concurrency=${concurrency}`] : [];
-
-const child = spawn(process.execPath, ["--test", ...concurrencyArgs, ...selection.files], {
+const fileTimeoutMs = positiveIntegerOrDefault(process.env.HARNESS_TEST_FILE_TIMEOUT_MS, DEFAULT_TEST_FILE_TIMEOUT_MS);
+const activityRoot = mkdtempSync(join(tmpdir(), "ha-node-test-watchdog-"));
+const activityPath = join(activityRoot, "activity.jsonl");
+const reporterUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-file-activity-reporter.mjs")).href;
+const child = spawn(process.execPath, [
+  "--test",
+  "--test-reporter=spec",
+  "--test-reporter-destination=stdout",
+  `--test-reporter=${reporterUrl}`,
+  `--test-reporter-destination=${activityPath}`,
+  ...concurrencyArgs,
+  ...selection.files
+], {
   cwd: repoRoot,
-  stdio: ["inherit", "pipe", "pipe"]
+  detached: process.platform !== "win32",
+  stdio: ["inherit", "pipe", "pipe"],
+  windowsHide: true
 });
 
 let output = "";
+let activityOffset = 0;
+let activityTail = "";
+let timedOutFiles = [];
+let termination = Promise.resolve();
+const activeFiles = new Map();
+const removeSignalForwarding = installSignalForwarding(child);
+const watchdog = setInterval(() => {
+  refreshActivity();
+  if (timedOutFiles.length > 0) return;
+  const now = Date.now();
+  const overdue = [...activeFiles].filter(([, startedAt]) => now - startedAt >= fileTimeoutMs).map(([file]) => file);
+  if (overdue.length === 0) return;
+  timedOutFiles = overdue;
+  console.error(`[node-test-watchdog] test file exceeded ${fileTimeoutMs}ms: ${overdue.join(", ")}`);
+  termination = terminateProcessTree(child);
+}, Math.min(1_000, Math.max(25, Math.floor(fileTimeoutMs / 4))));
 
 child.stdout.on("data", (chunk) => {
   const text = chunk.toString();
   output += text;
   process.stdout.write(text);
 });
-
 child.stderr.on("data", (chunk) => {
   const text = chunk.toString();
   output += text;
   process.stderr.write(text);
 });
 
-child.on("error", (error) => {
-  console.error(error.message);
-  process.exit(1);
+const exitCode = await new Promise((resolveRun) => {
+  let settled = false;
+  const finish = (code) => {
+    if (settled) return;
+    settled = true;
+    clearInterval(watchdog);
+    removeSignalForwarding();
+    void termination.then(() => {
+      rmSync(activityRoot, { recursive: true, force: true });
+      resolveRun(code);
+    });
+  };
+  child.once("error", (error) => {
+    console.error(error.message);
+    finish(1);
+  });
+  child.once("close", (code, signal) => {
+    if (signal !== null && timedOutFiles.length === 0) console.error(`node --test terminated by signal ${signal}`);
+    finish(timedOutFiles.length > 0 || signal !== null ? 1 : code ?? 1);
+  });
 });
+const slowTests = collectSlowTests(output, options.slowThresholdMs);
+console.log(formatSlowTestSummary(slowTests, options.slowThresholdMs, options.slowLimit));
+process.exit(exitCode);
 
-child.on("close", (code, signal) => {
-  if (signal !== null) {
-    console.error(`node --test terminated by signal ${signal}`);
-    process.exit(1);
+function positiveIntegerOrDefault(value, fallback) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function refreshActivity() {
+  if (!existsSync(activityPath)) return;
+  const source = readFileSync(activityPath, "utf8");
+  if (source.length < activityOffset) {
+    activityOffset = 0;
+    activityTail = "";
+    activeFiles.clear();
   }
+  const lines = `${activityTail}${source.slice(activityOffset)}`.split(/\r?\n/u);
+  activityOffset = source.length;
+  activityTail = lines.pop() ?? "";
+  for (const line of lines) {
+    if (!line) continue;
+    const event = JSON.parse(line);
+    if (event.state === "started" && typeof event.file === "string" && Number.isFinite(event.at)) activeFiles.set(event.file, event.at);
+    if (event.state === "finished" && typeof event.file === "string") activeFiles.delete(event.file);
+  }
+}
 
-  const slowTests = collectSlowTests(output, options.slowThresholdMs);
-  console.log(formatSlowTestSummary(slowTests, options.slowThresholdMs, options.slowLimit));
+async function terminateProcessTree(child) {
+  if (child.pid === undefined) return;
+  if (process.platform === "win32") {
+    const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+    await new Promise((resolveKiller) => {
+      killer.once("close", resolveKiller);
+      killer.once("error", resolveKiller);
+    });
+    if (child.exitCode === null) child.kill("SIGKILL");
+    return;
+  }
+  signalProcessGroup(child.pid, "SIGTERM");
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, PROCESS_TREE_KILL_GRACE_MS));
+  signalProcessGroup(child.pid, "SIGKILL");
+}
 
-  process.exit(code ?? 1);
-});
+function signalProcessGroup(pid, signal) {
+  try {
+    process.kill(-pid, signal);
+  } catch (error) {
+    if (error?.code !== "ESRCH") throw error;
+  }
+}
+
+function installSignalForwarding(child) {
+  const handlers = new Map();
+  const remove = () => {
+    for (const [signal, handler] of handlers) process.off(signal, handler);
+  };
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+    const handler = async () => {
+      remove();
+      if (process.platform === "win32") await terminateProcessTree(child);
+      else if (child.pid !== undefined) signalProcessGroup(child.pid, signal);
+      process.kill(process.pid, signal);
+    };
+    handlers.set(signal, handler);
+    process.once(signal, handler);
+  }
+  return remove;
+}

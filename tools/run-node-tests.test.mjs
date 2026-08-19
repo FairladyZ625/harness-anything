@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
-import { collectSlowTests, formatSlowTestSummary, parseCompletedTestLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, validateManifest } from "./node-test-runner-lib.mjs";
+import { collectSlowTests, filterTestFilesByPrefixes, formatSlowTestSummary, parseCompletedTestLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, validateManifest } from "./node-test-runner-lib.mjs";
 import { deriveTestTierManifest, discoverTestTierManifest, parseTestTierMarker, testTierNames } from "./test-tier-manifest.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
@@ -15,7 +15,8 @@ test("parseRunnerArgs accepts tier and slow summary options", () => {
     slowThresholdMs: 250,
     slowLimit: 3,
     concurrency: undefined,
-    shard: undefined
+    shard: undefined,
+    prefixes: []
   });
 });
 
@@ -34,6 +35,45 @@ test("parseRunnerArgs accepts integration shards only for the integration tier",
 test("parseRunnerArgs rejects unknown tiers and options", () => {
   assert.throws(() => parseRunnerArgs(["--tier", "unit"], testTierNames), /unknown test tier/u);
   assert.throws(() => parseRunnerArgs(["--bogus"], testTierNames), /unknown run-node-tests option/u);
+});
+
+test("parseRunnerArgs accepts safe repository-relative test prefixes", () => {
+  assert.deepEqual(parseRunnerArgs(["--prefix", "tools", "--prefix=packages/kernel/"], testTierNames).prefixes, [
+    "tools/",
+    "packages/kernel/"
+  ]);
+  assert.throws(() => parseRunnerArgs(["--prefix", "../outside"], testTierNames), /repository-relative/u);
+});
+
+test("filterTestFilesByPrefixes keeps only selected repository paths", () => {
+  assert.deepEqual(filterTestFilesByPrefixes([
+    "tools/a.test.mjs",
+    "packages/kernel/b.test.ts",
+    "packages/gui/c.test.ts"
+  ], ["tools/", "packages/kernel/"]), ["tools/a.test.mjs", "packages/kernel/b.test.ts"]);
+});
+
+test("runner watchdog fails and names a file whose process keeps an open handle", () => {
+  const childEnv = {
+    ...process.env,
+    HARNESS_RUNNER_OPEN_HANDLE_FIXTURE: "1",
+    HARNESS_TEST_FILE_TIMEOUT_MS: "250"
+  };
+  delete childEnv.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, [
+    "tools/run-node-tests.mjs",
+    "--tier", "fast",
+    "--prefix", "tools/test-fixtures/runner-watchdog"
+  ], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: childEnv,
+    timeout: 10_000
+  });
+  const output = `${result.stdout}\n${result.stderr}`;
+  assert.equal(result.error, undefined, output);
+  assert.equal(result.status, 1, output);
+  assert.match(output, /\[node-test-watchdog\] test file exceeded 250ms: tools\/test-fixtures\/runner-watchdog\/open-handle\.test\.mjs/u);
 });
 
 test("resolveTestConcurrency prefers the explicit flag over env and defaults", () => {
@@ -70,25 +110,9 @@ test("resolveTestConcurrency keeps node's default in CI with no explicit signal"
   );
 });
 
-test("resolveTestConcurrency caps the non-CI default to min(6, max(2, cores-2))", () => {
-  // 16 cores -> min(6, 14) = 6
+test("resolveTestConcurrency uses a fixed local per-session budget of two", () => {
   assert.equal(
-    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: false, availableParallelism: 16 }),
-    6
-  );
-  // 4 cores -> min(6, max(2, 2)) = 2
-  assert.equal(
-    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: false, availableParallelism: 4 }),
-    2
-  );
-  // 8 cores -> min(6, max(2, 6)) = 6
-  assert.equal(
-    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: false, availableParallelism: 8 }),
-    6
-  );
-  // 1 core -> floor at 2
-  assert.equal(
-    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: false, availableParallelism: 1 }),
+    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: false }),
     2
   );
 });
