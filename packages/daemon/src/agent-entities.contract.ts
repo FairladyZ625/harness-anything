@@ -2,8 +2,7 @@
 // an Agent consumes presets, so it cannot also be catalogued as one. This contract owns their persisted
 // declaration form; packages/daemon/src/agent-entities.ts owns the store and command actions.
 export interface AgentSkillDeclarationV1 { readonly id: string; readonly path: string }
-export type AgentSkillReferenceV1 = AgentSkillDeclarationV1 | string;
-export interface AgentDeclarationV1 { readonly id: string; readonly name: string; readonly instructions: string; readonly runtime_type: string; readonly model?: string; readonly skills?: readonly AgentSkillReferenceV1[]; readonly prompts?: readonly string[]; readonly preset?: string }
+export interface AgentDeclarationV1 { readonly id: string; readonly name: string; readonly instructions: string; readonly runtime_type: string; readonly model?: string; readonly skills?: readonly AgentSkillDeclarationV1[]; readonly prompts?: readonly string[]; readonly preset?: string }
 export interface SquadDeclarationV1 { readonly id: string; readonly name: string; readonly leader: string; readonly workers: readonly string[]; readonly roster: string }
 export type AgentEntityKind = "agent" | "squad";
 type EntityContractSchema<T> = Readonly<{ readonly id: string; readonly required: readonly string[] }> & { readonly Type: T }; function entitySchema<T>(id: string, required: readonly string[]): EntityContractSchema<T> { return Object.freeze({ id, required: Object.freeze(required) }) as EntityContractSchema<T>; }
@@ -25,7 +24,7 @@ export function validateAgentDeclarationV1(value: unknown): readonly string[] {
   if (Object.hasOwn(value, "instructions") && !entityNonEmpty(value.instructions)) errors.push('agent declaration field "instructions" must be a non-empty string.');
   if (Object.hasOwn(value, "runtime_type") && (typeof value.runtime_type !== "string" || !isRuntimeTypeIdentifier(value.runtime_type))) errors.push('agent declaration field "runtime_type" must be a non-empty lowercase runtime identifier such as claude, codex, or opencode.');
   if (value.model !== undefined && !entityNonEmpty(value.model)) errors.push('agent declaration field "model" must be a non-empty string.');
-  if (value.skills !== undefined && !agentSkills(value.skills)) errors.push('agent declaration field "skills" must be an array of non-empty ids or unique {id, path} references; paths must be relative to the project authored root.');
+  if (value.skills !== undefined && !agentSkills(value.skills)) errors.push('agent declaration field "skills" must be an array of unique {id, path} references; path must be relative to the project authored root.');
   if (value.prompts !== undefined && !nonEmptyStrings(value.prompts)) errors.push('agent declaration field "prompts" must be an array of non-empty strings.');
   if (value.preset !== undefined && !entityNonEmpty(value.preset)) errors.push('agent declaration field "preset" must be a non-empty preset id.');
   return errors;
@@ -51,7 +50,7 @@ function serializeEntity(value: unknown, validate: (input: unknown) => readonly 
 function isEntityRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }
 export function entityNonEmpty(value: unknown): value is string { return typeof value === "string" && value.trim().length > 0; }
 function nonEmptyStrings(value: unknown): boolean { return Array.isArray(value) && value.every(entityNonEmpty); }
-function agentSkills(value: unknown): value is readonly AgentSkillReferenceV1[] { return Array.isArray(value) && (value.every(entitySlug) && new Set(value).size === value.length || value.every((item) => isEntityRecord(item) && Object.keys(item).every((key) => ["id", "path"].includes(key)) && Object.keys(item).length === 2 && entitySlug(item.id) && typeof item.path === "string" && item.path.length > 0 && !pathOutsideDeclarationRoot(item.path)) && new Set(value.map((item) => (item as AgentSkillDeclarationV1).id)).size === value.length); }
+function agentSkills(value: unknown): value is readonly AgentSkillDeclarationV1[] { return Array.isArray(value) && value.every((item) => isEntityRecord(item) && Object.keys(item).every((key) => ["id", "path"].includes(key)) && Object.keys(item).length === 2 && entitySlug(item.id) && typeof item.path === "string" && item.path.length > 0 && !pathOutsideDeclarationRoot(item.path)) && new Set(value.map((item) => (item as AgentSkillDeclarationV1).id)).size === value.length; }
 function pathOutsideDeclarationRoot(value: string): boolean { return value.startsWith("/") || value.split(/[\\/]+/u).includes(".."); }
 export function entitySlug(value: unknown): value is string { return typeof value === "string" && /^[a-z0-9][a-z0-9-]{0,63}$/u.test(value); }
 // GUI read envelopes for the identity layers. These validators live in this pure contract
