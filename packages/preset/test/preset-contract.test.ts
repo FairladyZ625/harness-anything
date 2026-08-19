@@ -25,6 +25,15 @@ test("preset contract accepts only the closed v3 wire shape", () => {
   assert.deepEqual(presetContract.schemas.map((schema) => schema.id), ["preset-manifest/v3", "preset-document/v1", "preset-snapshot/v1", "preset-run-receipt/v1"]);
 });
 
+test("preset v3 carries closed Agent and Squad declarations without credentials", () => {
+  const agent = { ...manifest, id: "terra", title: "Terra", kind: "agent", outputShape: "agent-identity", agent: { id: "terra", name: "Terra", instructions: "Review the mission precisely.", runtime_type: "codex", skills: ["review"], prompts: ["prompt://review"], preset: "standard-task" } } as const;
+  const squad = { ...manifest, id: "core-squad", title: "Core Squad", kind: "squad", outputShape: "squad-roster", squad: { id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: "# Core Squad\n\nTerra leads review." } } as const;
+  assert.deepEqual(validatePresetManifestV3(agent), []); assert.deepEqual(validatePresetManifestV3(squad), []);
+  assert.match(validatePresetManifestV3({ ...agent, agent: { ...agent.agent, runtime_type: "glm" } }).join("\n"), /agent declaration/u);
+  assert.match(validatePresetManifestV3({ ...agent, agent: { ...agent.agent, token: "forbidden" } }).join("\n"), /agent declaration/u);
+  assert.match(validatePresetManifestV3({ ...squad, squad: { ...squad.squad, workers: ["terra", "terra"] } }).join("\n"), /squad declaration/u);
+});
+
 test("preset snapshot codec rejects nested field deletion and unknown aliases", () => {
   const hash = "a".repeat(64), snapshot = { schema: "preset-snapshot/v1", identity: { id: "standard-task", version: "3.0.0", verticalId: "software/coding", layer: "bundled" }, profile: { id: "baseline", outputShape: "repository-diff", completionGateIds: ["ci"] }, guidance: { description: "Standard", whenToUse: "Ordinary work", bodySha256: hash }, scaffold: { baseVersion: "software-coding/v1", overlayDigest: null, resolvedSelectionDigest: `sha256:${hash}` }, templates: [{ slot: "task.plan", path: "task_plan.md", templateRef: "template://planning/task-plan@1", locale: "en-US", owner: "doc-sync", requiredAnchors: ["## Goal"], content: { sha256: hash, size: 1, mediaType: "text/markdown" } }], entrypoints: {}, provenance: { manifestSha256: hash, packageSha256: hash, verticalSha256: hash, templateCatalogSha256: hash, resolverVersion: "1", ancestry: ["standard-task"] }, digest: `sha256:${hash}` };
   assert.deepEqual(validatePresetSnapshotV1(snapshot), []);
