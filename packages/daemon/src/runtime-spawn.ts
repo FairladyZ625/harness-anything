@@ -11,7 +11,7 @@ import { archiveRuntimeDispatch } from "./doc-sync-actions.ts";
 export interface RuntimeProcess { readonly pid: number; readonly onOutput: (listener: (chunk: string) => void) => void; readonly onExit: (listener: (code: number | null) => void) => void; readonly terminate: () => void }
 export type RuntimeLauncher = (input: PreparedRuntimeLaunch) => RuntimeProcess;
 type RuntimeBinding = { readonly actor: ActorIdentity; readonly source: WriteSource };
-type RuntimeAgent = { readonly id: string; readonly name: string; readonly instructions: string; readonly runtime_type: RuntimeInstanceKind };
+type RuntimeAgent = { readonly id: string; readonly name: string; readonly instructions: string; readonly runtime_type: string };
 type ActiveRuntime = { readonly process: RuntimeProcess; readonly dispatchId: string; readonly runtimeSessionId: string; readonly dispatchOpId: string; readonly instanceId: string; readonly kindId: RuntimeInstanceKind; readonly agent: RuntimeAgent | null; readonly binding: RuntimeBinding; readonly task: { readonly taskId: string; readonly executionId: string } | null; readonly cwd: string; readonly prompt: string; readonly promptSource?: string; readonly model: string; readonly reasoningEffort: string | null; readonly startedAt: string; buffer: string; providerSessionId: string | null; resumeProviderSessionId: string | null; finalText: string | null; providerOutcome: "succeeded" | "failed" | null; protocolError: boolean; cancelRequested: boolean; cancelBinding: RuntimeBinding | null };
 type ProviderFrame = { readonly providerSessionId?: string; readonly signals?: readonly AgentRuntimeNativeSignal[]; readonly finalText?: string; readonly outcome?: "succeeded" | "failed" };
 const resultMediaType = "text/plain; charset=utf-8" as const;

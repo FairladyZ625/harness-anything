@@ -261,11 +261,10 @@ test("runtime work commands parse into closed daemon facade actions", () => {
   assert.equal(parseThinCommand(["runtime", "run", "worker"]).ok, false); assert.equal(parseThinCommand(["runtime", "run", "worker", "--prompt", "one", "--prompt-file", "two"]).ok, false); assert.equal(parseThinCommand(["runtime", "status", "runtime-1", "--task", "task-1"]).ok, false); assert.equal(parseThinCommand(["runtime", "status", "--wait"]).ok, false); assert.equal(parseThinCommand(["runtime", "status", "runtime-1", "--no-stream"]).ok, false); assert.equal(parseThinCommand(["runtime", "wait", "runtime-1"]).ok, false);
 });
 
-test("Agent and Squad declaration commands route through preset lifecycle methods", () => {
-  const cases = [["agent", "list"], ["agent", "inspect", "terra"], ["agent", "validate", "--source", "terra"], ["agent", "install", "--source", "terra", "--dry-run"], ["squad", "list"], ["squad", "inspect", "core-squad"], ["squad", "validate", "--source", "core-squad"], ["squad", "install", "--source", "core-squad"]];
-  for (const argv of cases) { const parsed = parseThinCommand(argv); assert.equal(parsed.ok, true, JSON.stringify(parsed)); if (parsed.ok) assert.match(parsed.command.method, /^repo\.(?:agent|squad)\./u); }
+test("Agent and Squad declaration commands route through the daemon entity lifecycle", () => {
+  const cases: ReadonlyArray<readonly [readonly string[], string]> = [[["agent", "list"], "agent-list"], [["agent", "inspect", "terra"], "agent-inspect"], [["agent", "validate", "--source", "terra"], "agent-validate"], [["agent", "install", "--source", "terra", "--dry-run"], "agent-install"], [["squad", "list"], "squad-list"], [["squad", "inspect", "core-squad"], "squad-inspect"], [["squad", "validate", "--source", "core-squad"], "squad-validate"], [["squad", "install", "--source", "core-squad"], "squad-install"]];
+  for (const [argv, kind] of cases) { const parsed = parseThinCommand([...argv]); assert.equal(parsed.ok, true, JSON.stringify(argv)); if (parsed.ok) { assert.equal(parsed.command.method, "repo.task.run"); assert.equal(parsed.command.action.kind, kind); } }
 });
-
 test("runtime instance auth commands parse into repo-scoped interactive sign-in actions", () => {
   const login = parseThinCommand(["runtime", "instance", "login", "worker", "--repo", "alpha", "--idempotency-key", "sign-in-once"]), logout = parseThinCommand(["runtime", "instance", "logout", "worker"]);
   for (const parsed of [login, logout]) assert.equal(parsed.ok, true, JSON.stringify(parsed));

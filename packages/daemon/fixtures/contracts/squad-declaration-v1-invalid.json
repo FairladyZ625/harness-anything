@@ -1,0 +1,1 @@
+{ "schema": "squad-declaration/v1", "id": "core-squad", "name": "Core Squad", "leader": "fable", "workers": ["terra", "terra"], "roster": "Terra leads." }

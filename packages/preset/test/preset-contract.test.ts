@@ -25,15 +25,14 @@ test("preset contract accepts only the closed v3 wire shape", () => {
   assert.deepEqual(presetContract.schemas.map((schema) => schema.id), ["preset-manifest/v3", "preset-document/v1", "preset-snapshot/v1", "preset-run-receipt/v1"]);
 });
 
-test("preset v3 carries closed Agent and Squad declarations without task-shape fields or credentials", () => {
-  const common = { schema: "preset-manifest/v3", vertical: "software/coding", version: "1.0.0" } as const;
-  const agent = { ...common, id: "terra", title: "Terra", kind: "agent", agent: { id: "terra", name: "Terra", instructions: "Review the mission precisely.", runtime_type: "codex", skills: ["review"], prompts: ["prompt://review"], preset: "standard-task" } } as const;
-  const squad = { ...common, id: "core-squad", title: "Core Squad", kind: "squad", squad: { id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: "# Core Squad\n\nTerra leads review." } } as const;
-  assert.deepEqual(validatePresetManifestV3(agent), []); assert.deepEqual(validatePresetManifestV3(squad), []);
-  assert.match(validatePresetManifestV3({ ...agent, agent: { ...agent.agent, runtime_type: "glm" } }).join("\n"), /agent\.runtime_type.*claude.*codex/u);
-  assert.match(validatePresetManifestV3({ ...agent, agent: { ...agent.agent, token: "forbidden" } }).join("\n"), /agent\.token.*unknown/u);
-  assert.match(validatePresetManifestV3({ ...squad, squad: { ...squad.squad, workers: ["terra", "terra"] } }).join("\n"), /squad\.workers.*unique/u);
-  assert.match(validatePresetManifestV3({ ...agent, outputShape: "repository-diff" }).join("\n"), /outputShape.*task-shape.*not valid/u);
+test("preset v3 rejects identity kinds and identity fields now that Agent and Squad are standalone entities", () => {
+  const common = { schema: "preset-manifest/v3", vertical: "software/coding", version: "1.0.0", outputShape: "repository-diff", kernelVersionRange: { min: "1.0.0" }, capabilityImports: [], profiles: [{ id: "baseline", title: "Baseline", completionGates: [], templateSelections: [] }], defaultProfile: "baseline" } as const;
+  const task = { ...common, id: "standard-task", title: "Standard Task", kind: "template-content" } as const;
+  assert.deepEqual(validatePresetManifestV3(task), []);
+  assert.match(validatePresetManifestV3({ ...task, kind: "agent" }).join("\n"), /kind.*must be one of template-content, process-action/u);
+  assert.match(validatePresetManifestV3({ ...task, kind: "squad" }).join("\n"), /kind.*must be one of template-content, process-action/u);
+  assert.match(validatePresetManifestV3({ ...task, agent: { id: "terra", name: "Terra", instructions: "Review.", runtime_type: "claude" } }).join("\n"), /unknown field "agent"/u);
+  assert.match(validatePresetManifestV3({ ...task, squad: { id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: "Terra leads." } }).join("\n"), /unknown field "squad"/u);
 });
 
 test("preset snapshot codec rejects nested field deletion and unknown aliases", () => {
