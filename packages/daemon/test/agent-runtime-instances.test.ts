@@ -125,11 +125,21 @@ test("runtime instance command receipts expose readiness metadata without creden
     const created = store.command({ kind: "runtime-instance-create", instanceId: "codex-safe", name: "Codex Safe", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", authMode: "api-key", credentialRef: "keychain:harness/codex-safe" });
     assert.deepEqual(created.instance, { schemaVersion: 2, instanceId: "codex-safe", name: "Codex Safe", kindId: "codex", installationId: observed.installationId, providerId: "openai", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, codex: { reasoningEffort: null, baseUrl: null, baseUrlConfigured: false, wire_api: null, requires_openai_auth: null, http_headers: null }, authMode: "api-key", authState: "configured", authReadiness: { status: "not-ready", code: "runtime_auth_not_checked", hint: "Authentication has not been verified in this daemon generation." }, isolationState: "enforced" });
     const listed = store.command({ kind: "runtime-instance-list" }), shown = store.command({ kind: "runtime-instance-show", instanceId: "codex-safe" });
-    assert.deepEqual(listed.installations, [{ installationId: observed.installationId, kindId: "codex", version: observed.version, observedAt: observed.observedAt }]); assert.equal(listed.summary, "ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS\ncodex-safe\tCodex Safe\tcodex\tgpt-5.6-sol\tenabled\tapi-key\tnot-checked");
+    assert.deepEqual(listed.installations, [{ installationId: observed.installationId, kindId: "codex", version: observed.version, observedAt: observed.observedAt }]); assert.equal(listed.summary, `ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS\ncodex-safe\tCodex Safe\tcodex\tgpt-5.6-sol\tenabled\tapi-key\tnot-checked\n\nINSTALLATION\tKIND\tVERSION\tOBSERVED AT\n${observed.installationId}\tcodex\t${observed.version}\t${observed.observedAt}`);
     assert.deepEqual(shown.instance, created.instance);
     for (const receipt of [created, listed, shown]) { assert.doesNotMatch(JSON.stringify(receipt), /credentialRef|keychain:|instance-secret|executablePath|\/opt\/runtime-test/u); assert.equal(receipt.schema, "command-receipt/v2"); assert.equal(receipt.ok, true); }
     assert.equal(store.command({ kind: "runtime-instance-delete", instanceId: "codex-safe" }).deletedInstanceId, "codex-safe");
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+test("runtime instance create filters auto-resolution by kind and rejects same-kind ambiguity", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-installation-resolution-")), ambiguousRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-installation-ambiguous-")), claude = { ...observed, installationId: "claude-first", kindId: "claude" as const, executablePath: "/opt/runtime-test/claude", version: "claude 1.0.0" }, codex = { ...observed, installationId: "codex-first", version: "codex 1.0.0" }, secondClaude = { ...claude, installationId: "claude-second", version: "claude 2.0.0" };
+  try {
+    const automatic = openRuntimeInstanceStore({ userRoot, discover: () => [claude, codex] }), created = automatic.command({ kind: "runtime-instance-create", instanceId: "claude-auto", name: "Claude Auto", kindId: "claude", providerId: "anthropic", model: "claude-fable-5", authMode: "subscription" });
+    assert.equal((created.instance as Record<string, unknown>).installationId, claude.installationId);
+    const ambiguous = openRuntimeInstanceStore({ userRoot: ambiguousRoot, discover: () => [claude, codex, secondClaude] });
+    assert.throws(() => ambiguous.command({ kind: "runtime-instance-create", instanceId: "claude-ambiguous", name: "Claude Ambiguous", kindId: "claude", providerId: "anthropic", model: "claude-fable-5", authMode: "subscription" }), (error: unknown) => codedAs(error, "runtime_installation_ambiguous") && error instanceof Error && error.message.includes(claude.installationId) && error.message.includes(secondClaude.installationId));
+  } finally { rmSync(userRoot, { recursive: true, force: true }); rmSync(ambiguousRoot, { recursive: true, force: true }); }
 });
 
 test("runtime instance command adapter rejects ambiguous or unknown auth modes", () => {
