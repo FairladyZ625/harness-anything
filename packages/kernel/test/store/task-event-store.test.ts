@@ -337,3 +337,20 @@ function repoLinkBundle(target: string, body: string): CanonicalWriteBundle { co
 function repoFileBundle(target: string, body: string, destinationBody: string): CanonicalWriteBundle { const hash = sha256Text(body), migration: MigrationImportEventV1 = { schema: "migration-import-event/v1", eventId: "event-file", workspaceRevision: 1, opId: "op-file", type: "entity_migrated", actor: event.actor, source: "migration-import/v1", occurredAt: event.occurredAt, payload: { migratedFrom: target, generation: "v0", entity: { kind: "repo-document", nodeKind: "file", documentClaim: { path: target, sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", policyId: MIGRATION_DOCUMENT_POLICY_ID }, referencedContentClaims: [], destinationPreimage: { nodeKind: "file", sha256: sha256Text(destinationBody), size: Buffer.byteLength(destinationBody) } } } }; return { event: migration, plan: migrationImportWritePlan(migration), blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }] }; }
 function snapshot(rootDir: string): unknown { const files = ["harness/context/user.md", "dirty.txt"]; return { status: git(rootDir, "status", "--porcelain", "-uall"), index: git(rootDir, "ls-files", "-s"), bytes: files.map((file) => readFileSync(path.join(rootDir, file)).toString("hex")) }; }
 function git(rootDir: string, ...args: readonly string[]): string { return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); }
+
+// #1587: the predicate passing is not the same as the predicate being wired into publication.
+// This drives a real append, so removing the assertion from assertBundle turns it red — the
+// unit test over assertPublishableOpId alone stayed green when the call site was deleted.
+test("#1587: publishing an event whose opId cannot be a filename is refused, and nothing is written", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeTaskEventStore({ repoId: "test-repo", rootDir }), before = store.currentCommit();
+    const unportable = { ...event, opId: "runtime-spawn-abcdef:installation" } as typeof event;
+    assert.throws(() => store.append({ event: unportable, plan: taskLifecycleWritePlan(unportable), blobs: [] }), /cannot be a filename/u);
+    assert.deepEqual(store.currentCommit(), before);
+    assert.equal(store.readEvent(unportable.opId), null);
+    // The legal spelling of the same publication still goes through.
+    const portable = { ...event, opId: "runtime-spawn-abcdef-installation" } as typeof event;
+    assert.equal(store.append({ event: portable, plan: taskLifecycleWritePlan(portable), blobs: [] }).commitSha.sha.length, 40);
+  });
+});
