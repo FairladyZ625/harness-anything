@@ -140,6 +140,10 @@ provider environment values never become stream content. `ha task dispatches
 the terminal dispatch artifact retains the stream reference plus provider
 session identifier. Thus `ha runtime run --resume-dispatch <dispatch-id>
 --prompt "…"` resumes without exposing or requiring a provider session id.
+When a leader supplies `--agent <leader-id> --to <worker-id>`, the same
+dispatch artifact records `squadId`, worker `agentId`, and
+`delegatedByAgentId`; the target must be that leader's roster member and its
+open `runtime_type` must match the closed instance kind.
 
 When a dispatch is task-bound, the daemon also publishes its terminal work
 artifacts through canonical doc sync. One batch creates

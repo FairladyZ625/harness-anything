@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { runAgentEntityAction } from "../src/agent-entities.ts";
+import { resolveSquadDispatchTarget, runAgentEntityAction } from "../src/agent-entities.ts";
 import { validateAgentDeclarationV1 } from "../src/agent-entities.contract.ts";
 
 const agent = { schema: "agent-declaration/v1", id: "terra", name: "Terra", instructions: "Review precisely.", runtime_type: "codex", skills: ["review"], prompts: ["prompt://review"], preset: "standard-task" }, squad = { schema: "squad-declaration/v1", id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: "# Core Squad\n\nTerra leads review." };
@@ -53,6 +53,20 @@ test("entity validation names every malformed manifest and refuses squads that r
     writeEntity(source, "orphan-squad", "squad", { ...squad, id: "orphan-squad", leader: "ghost" });
     run({ rootDir, kind: "squad-install", packageSource: path.join(source, "orphan-squad") });
     assert.throws(() => run({ rootDir, kind: "squad-inspect", squadId: "orphan-squad" }), (error: unknown) => (error as { code?: string }).code === "squad_agent_not_found");
+  } finally { rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("Squad dispatch resolution selects one declared worker and rejects outsiders or ambiguous lineage", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-dispatch-")), source = path.join(rootDir, "source"), fable = { ...agent, id: "fable", name: "Fable" }, luna = { ...agent, id: "luna", name: "Luna" }, outsider = { ...agent, id: "outsider", name: "Outsider" };
+  try {
+    for (const declaration of [fable, luna, outsider]) { writeEntity(source, declaration.id, "agent", declaration); run({ rootDir, kind: "agent-install", packageSource: path.join(source, declaration.id) }); }
+    writeEntity(source, "core-squad", "squad", { ...squad, leader: "fable", workers: ["luna"] }); run({ rootDir, kind: "squad-install", packageSource: path.join(source, "core-squad") });
+    assert.deepEqual(resolveSquadDispatchTarget({ rootDir, leaderId: "fable", workerId: "luna" }), { squadId: "core-squad", leader: fable, worker: luna });
+    assert.throws(() => resolveSquadDispatchTarget({ rootDir, leaderId: "fable", workerId: "outsider" }), (error: unknown) => (error as { code?: string }).code === "squad_member_not_found");
+    writeEntity(source, "other-squad", "squad", { ...squad, id: "other-squad", name: "Other Squad", leader: "fable", workers: ["luna"] }); run({ rootDir, kind: "squad-install", packageSource: path.join(source, "other-squad") });
+    assert.throws(() => resolveSquadDispatchTarget({ rootDir, leaderId: "fable", workerId: "luna" }), (error: unknown) => (error as { code?: string }).code === "squad_member_ambiguous");
+    writeFileSync(path.join(rootDir, ".harness/squads/broken.json"), "{not-json\n");
+    assert.throws(() => resolveSquadDispatchTarget({ rootDir, leaderId: "fable", workerId: "luna" }), (error: unknown) => (error as { code?: string }).code === "invalid_squad_roster");
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 
