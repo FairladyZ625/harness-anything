@@ -29,6 +29,26 @@ test("task/doc reducers share one SQLite transaction and L2 rebuild restores exa
   });
 });
 
+test("headless direct apply is instance-local and never preserves an ahead cache across reopen", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const event = lifecycleFixture().events[0]!, headlessStore = () => ({ readHead: () => null, readBatch: () => ({ sourceRevision: 0, events: [], cursor: null, done: true, accessedItems: 0 }), readContentBlob: () => null });
+    const live = makeTaskProjection({ rootDir, eventStore: headlessStore() });
+    live.apply(event, taskLifecycleWritePlan(event));
+    const hot = live.read(event.taskId);
+    assert.deepEqual({ status: hot.status, watermark: hot.watermark, sourceRevision: hot.sourceRevision }, { status: "pending", watermark: 1, sourceRevision: 0 });
+    assert.equal(hot.snapshot.task?.taskId, event.taskId);
+    assert.equal(live.rebuild().watermark, 0);
+    assert.equal(live.read(event.taskId).snapshot.task, null);
+    live.apply(event, taskLifecycleWritePlan(event));
+    live.close();
+
+    const reopened = makeTaskProjection({ rootDir, eventStore: headlessStore() }), cold = reopened.read(event.taskId);
+    assert.deepEqual({ status: cold.status, watermark: cold.watermark, sourceRevision: cold.sourceRevision }, { status: "ready", watermark: 0, sourceRevision: 0 });
+    assert.equal(cold.snapshot.task, null);
+    assert.equal(reopened.readOperation(event.opId), null);
+  });
+});
+
 test("cold projection reuses one batch tree scan and its verified blob prefetch", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir); const writer = makeTaskEventStore({ repoId: "batch-prefetch", rootDir }), count = 128;

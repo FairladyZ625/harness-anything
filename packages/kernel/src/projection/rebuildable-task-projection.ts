@@ -81,16 +81,25 @@ export function defaultLifecycleTaskProjectionPath(rootDir: string): string { re
 export function makeTaskProjection(options: { readonly rootDir: string; readonly eventStore: EventStreamPort;
   readonly projectionPath?: string; readonly catchUpLimit?: number; readonly now?: () => string }): TaskProjection {
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
-  const limit = options.catchUpLimit ?? 64, now = options.now ?? (() => new Date().toISOString()), sourceReadHead = options.eventStore.readHead, readHead = () => sourceReadHead();
+  const limit = options.catchUpLimit ?? 64, now = options.now ?? (() => new Date().toISOString()), sourceReadHead = options.eventStore.readHead;
+  let observedSourceHead = false, hotAppliedHead: ReturnType<EventStreamPort["readHead"]> = null;
+  // `apply` is the synchronous projection of a just-published event. A headless in-memory
+  // source may not expose that event through readHead, but only this live instance may retain it.
+  // Once a real source head has been seen, a later null/lower head remains a history regression.
+  const readHead = () => {
+    const sourceHead = sourceReadHead();
+    if (sourceHead !== null) { observedSourceHead = true; return sourceHead; }
+    return observedSourceHead ? null : hotAppliedHead;
+  };
   if (!Number.isInteger(limit) || limit < 1 || limit > 64) throw new Error("task projection catch-up limit must be between 1 and 64");
   if (localRuntimeStateFileSystem.exists(projectionPath)) withDatabase(projectionPath, readHead, (db) => transaction(db, () => {
     if (markRuntimeSessionsUnknown(db) > 0) refreshStateDigestAtSourceCut(db, readHead()?.revision ?? 0);
   }));
   return {
     path: projectionPath,
-    close: () => closeDatabase(projectionPath, readHead),
-    apply: (event, plan) => { if (isDocEvent(event)) assertDocSyncWritePlan(event, plan as FrozenWritePlan<"DocSyncSubmit">); if (isTaskEvent(event) && ((event.payload.documentClaims?.length ?? 0) > 0 || (event.payload.carriedDocumentClaims?.length ?? 0) > 0)) assertTaskLifecycleWritePlan(event, plan); if (isTaskBootstrapEvent(event)) assertTaskBootstrapWritePlan(event, plan as FrozenWritePlan<"TaskBootstrap">); if (isPresetSnapshotUpgradeEvent(event)) assertPresetSnapshotUpgradeWritePlan(event, plan as FrozenWritePlan<"PresetSnapshotUpgrade">); if (isTaskProgressEvent(event)) assertTaskProgressWritePlan(event, plan); if (isFactEvent(event)) assertFactWritePlan(event, plan); if (isDecisionEvent(event)) assertDecisionWritePlan(event, plan); if (isMigrationImportEvent(event)) assertMigrationImportWritePlan(event, plan); if (isLedgerLayoutMigrationEvent(event)) assertLedgerLayoutMigrationWritePlan(event, plan); return withDatabase(projectionPath, readHead, (db) => reduceBatch(db, [event], limit, options.eventStore.readContentBlob, readHead()?.revision ?? 0)); },
-    rebuild: () => rebuildProjection(projectionPath, readHead, options.eventStore, limit),
+    close: () => { hotAppliedHead = null; closeDatabase(projectionPath, readHead); },
+    apply: (event, plan) => { if (isDocEvent(event)) assertDocSyncWritePlan(event, plan as FrozenWritePlan<"DocSyncSubmit">); if (isTaskEvent(event) && ((event.payload.documentClaims?.length ?? 0) > 0 || (event.payload.carriedDocumentClaims?.length ?? 0) > 0)) assertTaskLifecycleWritePlan(event, plan); if (isTaskBootstrapEvent(event)) assertTaskBootstrapWritePlan(event, plan as FrozenWritePlan<"TaskBootstrap">); if (isPresetSnapshotUpgradeEvent(event)) assertPresetSnapshotUpgradeWritePlan(event, plan as FrozenWritePlan<"PresetSnapshotUpgrade">); if (isTaskProgressEvent(event)) assertTaskProgressWritePlan(event, plan); if (isFactEvent(event)) assertFactWritePlan(event, plan); if (isDecisionEvent(event)) assertDecisionWritePlan(event, plan); if (isMigrationImportEvent(event)) assertMigrationImportWritePlan(event, plan); if (isLedgerLayoutMigrationEvent(event)) assertLedgerLayoutMigrationWritePlan(event, plan); const receipt = withDatabase(projectionPath, readHead, (db) => reduceBatch(db, [event], limit, options.eventStore.readContentBlob, readHead()?.revision ?? 0)); if (!observedSourceHead) hotAppliedHead = { revision: event.workspaceRevision, eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(event))}` }; return receipt; },
+    rebuild: () => { hotAppliedHead = null; closeDatabase(projectionPath, readHead); return rebuildProjection(projectionPath, readHead, options.eventStore, limit); },
     readStateDigest: () => withDatabase(projectionPath, readHead, readStateDigest),
     read: (taskId) => readProjection(projectionPath, readHead, options.eventStore, taskId, limit, now),
     list: () => listProjection(projectionPath, readHead, options.eventStore, limit, now),
