@@ -150,6 +150,7 @@
         "crlf-checkout",
         "windows-first-run",
         "integration-shard",
+        "windows-integration-shard",
         "boundaries",
         "package-policy",
         "supply-chain",
@@ -556,6 +557,7 @@
             "crlf-checkout",
             "windows-first-run",
             "integration-shard",
+            "windows-integration-shard",
             "boundaries",
             "package-policy",
             "supply-chain",
@@ -1011,7 +1013,8 @@
       ],
       "consumerScope": [
         "all disk-discovered node:test suites whose first-line harness-test-tier marker is integration",
-        "deterministically derived integration shard execution sets"
+        "deterministically derived integration shard execution sets",
+        "the same integration shard execution sets run on windows-latest; the ubuntu arm is the positive control (dec_9B75595FC45E01DDFD0938FE95/CH2)"
       ],
       "githubContext": {
         "requiredContexts": [
@@ -1023,7 +1026,8 @@
           "integration-shard (6)"
         ],
         "workflowJobs": [
-          "integration-shard"
+          "integration-shard",
+          "windows-integration-shard"
         ],
         "nodeVersions": [
           24
@@ -1054,7 +1058,8 @@
         },
         "rewriteCi": {
           "pullRequestJobs": [
-            "integration-shard"
+            "integration-shard",
+            "windows-integration-shard"
           ],
           "nonPullRequestJobs": []
         },
