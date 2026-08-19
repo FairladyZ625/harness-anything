@@ -5,6 +5,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpath
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { safePath } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { runCommandThroughDaemon } from "../src/daemon/client.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -31,6 +33,19 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     const listed = run(root, env, ["runtime", "status"]), sessions = listed.sessions as Array<Record<string, unknown>>; assert.equal(sessions.length, 5); assert.match(streamed.stderr, /\[message\] live:stream prompt/u, JSON.stringify(sessions)); const detail = run(root, env, ["runtime", "status", String(resumed.runtimeSessionId)]); assert.equal((detail.result as Record<string, unknown>).text, "resumed:provider-cli-session:second turn"); const waited = run(root, env, ["runtime", "status", String(resumed.runtimeSessionId), "--wait", "--no-stream"]); assert.equal(waited.command, "runtime-status"); assert.equal(waited.summary, "resumed:provider-cli-session:second turn");
     const detached = run(root, env, ["runtime", "run", "cli-worker", "--prompt", "hold", "--task", taskId, "--detach"]), detachedDispatchId = String(detached.dispatchId), detachedSessionId = String(detached.runtimeSessionId), running = run(root, env, ["task", "dispatches", taskId]); assert.equal(detached.outcome, "running"); assert.equal((running.dispatches as Array<Record<string, unknown>>).find((row) => row.dispatchId === detachedDispatchId)?.status, "running");
     assert.equal(run(root, env, ["runtime", "cancel", detachedSessionId]).detail, "cancelled"); assert.equal(run(root, env, ["runtime", "cancel", detachedSessionId]).detail, "already-exited"); const cancelled = await eventually(() => run(root, env, ["task", "dispatches", taskId])), cancelledRow = (cancelled.dispatches as Array<Record<string, unknown>>).find((row) => row.dispatchId === detachedDispatchId)!; assert.equal(cancelledRow.status, "cancelled"); assert.equal((JSON.parse(readFileSync(path.join(artifactRoot, "dispatches", `${detachedDispatchId}.json`), "utf8")) as Record<string, unknown>).outcome, "cancelled"); assert.equal(readFileSync(path.join(artifactRoot, "reports", `${detachedDispatchId}.md`), "utf8"), "live:hold"); const resumedDispatch = run(root, env, ["runtime", "run", "--resume-dispatch", detachedDispatchId, "--prompt", "follow up", "--no-stream"]); assert.equal((resumedDispatch.result as Record<string, unknown>).text, "resumed:provider-cli-session:follow up");
+    // #1572: with HARNESS_ACTOR declared, the daemon request log is the server-side proof that executor
+    // attribution still arrives — inside the action for repo.task.run writes (task start) and at payload
+    // level for preset methods (task create) — while nothing is ever rejected for an undeclared executor.
+    const requests = readFileSync(path.join(root, ".harness", "requests", "requests.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.deepEqual(requests.find((entry) => entry.method === "repo.task.run" && entry.command === "task-start")?.executor, { kind: "agent", id: "runtime-cli-test" });
+    assert.deepEqual(requests.find((entry) => entry.method === "repo.task.create")?.executor, { kind: "agent", id: "runtime-cli-test" });
+    assert.equal(requests.some((entry) => entry.code === "invalid_request"), false, JSON.stringify(requests.filter((entry) => entry.code === "invalid_request")));
+    // A contracted read method with no CLI argv (repo.tasks.documents.list declares a closed payload
+    // without executor) stands in for "the next new command": with an explicit HARNESS_ACTOR, injection
+    // must follow the daemon-declared surface, so the real daemon accepts the request instead of
+    // rejecting an undeclared executor.
+    const probe = await runCommandThroughDaemon({ rootDir: safePath(root), repoId: "runtime-cli", json: true, method: "repo.tasks.documents.list", action: { kind: "task-documents-list", taskId } }, undefined, { env: { ...env, HARNESS_ACTOR: "agent:injection-probe" } });
+    assert.equal(probe.ok, true, JSON.stringify(probe));
   } finally { runMaybe(root, env, ["daemon", "stop"]); rmSync(parent, { recursive: true, force: true }); }
 });
 

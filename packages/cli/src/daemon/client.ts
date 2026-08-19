@@ -1,5 +1,5 @@
 import { realpathSync, readFileSync } from "node:fs"; import path from "node:path"; import { fileURLToPath } from "node:url";
-import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts"; import { canonicalRoot, commandClassForAction, workspaceId } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts"; import { canonicalRoot, commandClassForAction, daemonMethodAcceptsPayloadExecutor, workspaceId } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, readRegisteredRepos, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
 import type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
@@ -27,18 +27,21 @@ async function withAutostart(request: () => Promise<JsonObject>, launch: () => D
     return await request();
   }
 }
-export async function runCommandThroughDaemon(command: ThinCommand, onPhase: (receipt: JsonObject) => void = () => undefined, options: { readonly autostart?: boolean } = {}): Promise<JsonObject> {
-  const { requestLocalDaemonJsonRpcForTarget } = await import("../../../daemon/src/client/local-json-rpc-client.ts"), autostart = options.autostart ?? command.action.kind !== "receipt-show";
-  if (command.action.kind === "repo-bootstrap") { const userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), { kind: _kind, ...params } = command.action, socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ repoId: workspaceId("bootstrap"),
+export async function runCommandThroughDaemon(command: ThinCommand, onPhase: (receipt: JsonObject) => void = () => undefined, options: { readonly autostart?: boolean; readonly env?: NodeJS.ProcessEnv } = {}): Promise<JsonObject> {
+  const { requestLocalDaemonJsonRpcForTarget } = await import("../../../daemon/src/client/local-json-rpc-client.ts"), autostart = options.autostart ?? command.action.kind !== "receipt-show", env = options.env ?? process.env;
+  if (command.action.kind === "repo-bootstrap") { const userRoot = daemonUserRoot(env), daemonId = daemonIdFromEnv(env), { kind: _kind, ...params } = command.action, socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ repoId: workspaceId("bootstrap"),
     canonicalRoot: canonicalRoot(command.rootDir, true), userRoot, daemonId, socketPath }, "daemon.repo.bootstrap", { rootDir: command.rootDir, ...params }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
-  if (command.method.startsWith("daemon.runtimeInstance.")) { const userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), { kind: _kind, ...payload } = command.action, socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ userRoot, daemonId, socketPath }, command.method, { payload: payload as JsonObject }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
-  const fleetTask = await fleetTaskRoute(command);
-  if (fleetTask) { const userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ userRoot, daemonId, socketPath }, "daemon.fleet.task.run", { payload: fleetTask as JsonObject }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
-  const fleetDoc = await fleetDocRoute(command);
-  if (fleetDoc) { const userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv(), socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ userRoot, daemonId, socketPath }, fleetDoc.method, { payload: fleetDoc.payload as JsonObject }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
-  const target = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId });
-  const { kind: _kind, ...actionPayload } = command.action, payload = command.method === "repo.script.run" ? Object.fromEntries(Object.entries(actionPayload).filter(([field, value]) => field !== "schema" && (field !== "taskId" || value !== null))) : actionPayload, executor = declaredExecutor();
-  const requestPayload = command.method === "repo.task.run" ? { action: executor ? { ...command.action, executor } : command.action } : executor && !["repo.agentRuntime.cancel", "repo.agentRuntime.overview", "repo.task.dispatches", "repo.agentRuntime.sessions.read", "repo.agentRuntime.events.read", "repo.runtimeInstance.auth.login", "repo.runtimeInstance.auth.logout"].includes(command.method) ? { ...payload, executor } : payload;
+  if (command.method.startsWith("daemon.runtimeInstance.")) { const userRoot = daemonUserRoot(env), daemonId = daemonIdFromEnv(env), { kind: _kind, ...payload } = command.action, socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ userRoot, daemonId, socketPath }, command.method, { payload: payload as JsonObject }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
+  const fleetTask = await fleetTaskRoute(command, env);
+  if (fleetTask) { const userRoot = daemonUserRoot(env), daemonId = daemonIdFromEnv(env), socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ userRoot, daemonId, socketPath }, "daemon.fleet.task.run", { payload: fleetTask as JsonObject }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
+  const fleetDoc = await fleetDocRoute(command, env);
+  if (fleetDoc) { const userRoot = daemonUserRoot(env), daemonId = daemonIdFromEnv(env), socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ userRoot, daemonId, socketPath }, fleetDoc.method, { payload: fleetDoc.payload as JsonObject }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
+  const target = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId, env });
+  const { kind: _kind, ...actionPayload } = command.action, payload = command.method === "repo.script.run" ? Object.fromEntries(Object.entries(actionPayload).filter(([field, value]) => field !== "schema" && (field !== "taskId" || value !== null))) : actionPayload, executor = declaredExecutor(env);
+  // repo.task.run carries the executor inside its open action envelope; every other method takes
+  // payload.executor exactly where the daemon contract declares the field (daemonMethodAcceptsPayloadExecutor),
+  // so a newly contracted command needs no CLI-side list edit to stay un-injected.
+  const requestPayload = command.method === "repo.task.run" ? { action: executor ? { ...command.action, executor } : command.action } : executor && daemonMethodAcceptsPayloadExecutor(command.method) ? { ...payload, executor } : payload;
   const request = () => requestLocalDaemonJsonRpcForTarget(target, command.method, { repo: { repoId: target.repoId }, payload: requestPayload as JsonObject }, 75, readResponseDeadlineMs(command.action.kind));
   let result = await withAutostart(request, () => cliDaemonServeLaunch(target.userRoot, target.daemonId), target.socketPath, autostart);
   result = await settleRepoWarming(result, request, target.userRoot, target.daemonId);
