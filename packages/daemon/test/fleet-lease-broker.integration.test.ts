@@ -80,9 +80,9 @@ test("orphan reaper releases an expired fleet lease so another node can claim th
   const fixture = await leaseFixture(); t.after(() => fixture.close());
   const created = await fixture.command("node-one", { kind: "task-create", title: "Orphan reap" });
   const taskId = String((created.receipt as Record<string, unknown>).taskId);
-  const started = await fixture.command("node-one", { kind: "task-start", taskId, ttlMs: 600 });
+  const started = await fixture.command("node-one", { kind: "task-start", taskId, ttlMs: 2_000 });
   assert.equal(started.outcome, "applied");
-  await new Promise((resolve) => setTimeout(resolve, 1_400));
+  await waitUntil(() => fixture.center.status().leases.leases.length === 0, "the reaper must clear the expired grant");
   assert.equal(fixture.center.status().leases.leases.length, 0, "the reaper must clear the expired grant");
   // task-start can only apply when the domain lease is gone, so this claim is
   // itself the proof that the reaper released the canonical lease record.
@@ -220,13 +220,13 @@ test("crash window restart: a domain lease whose mirror row was lost is rebuilt,
 });
 
 test("a failed orphan release keeps the mirror row and the reaper retries it", { timeout: 30_000 }, async (t) => {
-  let releaseFails = true;
-  const fixture = await leaseFixture((run) => (repoId, action, auth) => action.kind === "task-release" && releaseFails ? Promise.reject(new Error("simulated release infrastructure failure")) : run(repoId, action, auth));
+  let releaseFails = true, releaseAttempts = 0;
+  const fixture = await leaseFixture((run) => (repoId, action, auth) => { if (action.kind === "task-release") releaseAttempts += 1; return action.kind === "task-release" && releaseFails ? Promise.reject(new Error("simulated release infrastructure failure")) : run(repoId, action, auth); });
   t.after(() => fixture.close());
   const created = await fixture.command("node-one", { kind: "task-create", title: "Reaper retry" });
   const taskId = String((created.receipt as Record<string, unknown>).taskId);
-  assert.equal((await fixture.command("node-one", { kind: "task-start", taskId, ttlMs: 500 })).outcome, "applied");
-  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  assert.equal((await fixture.command("node-one", { kind: "task-start", taskId, ttlMs: 2_000 })).outcome, "applied");
+  await waitUntil(() => releaseAttempts > 0, "the reaper must attempt the simulated failed release");
   const retained = fixture.center.status().leases.leases;
   assert.equal(retained.length, 1, "a failed release must keep the mirror row for the next sweep");
   assert.equal(retained[0]?.assignmentId, "assignment-node-one");
@@ -239,14 +239,14 @@ test("a failed orphan release keeps the mirror row and the reaper retries it", {
 });
 
 test("a rejected domain probe cannot erase the mirror or wake a waiter", { timeout: 30_000 }, async (t) => {
-  let rejectProbe = false;
-  const fixture = await leaseFixture((run) => async (repoId, action, auth) => action.kind === "task-show" && rejectProbe ? { outcome: "op_rejected", opId: "probe-unavailable", code: "repo_unavailable", nextAction: "retry the canonical read" } : run(repoId, action, auth));
+  let rejectProbe = false, rejectedProbes = 0;
+  const fixture = await leaseFixture((run) => async (repoId, action, auth) => { if (action.kind === "task-show" && rejectProbe) { rejectedProbes += 1; return { outcome: "op_rejected", opId: "probe-unavailable", code: "repo_unavailable", nextAction: "retry the canonical read" }; } return run(repoId, action, auth); });
   t.after(() => fixture.close());
   const created = await fixture.command("node-one", { kind: "task-create", title: "Probe fail closed" });
   const taskId = String((created.receipt as Record<string, unknown>).taskId);
-  assert.equal((await fixture.command("node-one", { kind: "task-start", taskId, ttlMs: 500 })).outcome, "applied");
+  assert.equal((await fixture.command("node-one", { kind: "task-start", taskId, ttlMs: 2_000 })).outcome, "applied");
   rejectProbe = true;
-  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  await waitUntil(() => rejectedProbes > 0, "the reaper must observe the rejected domain probe");
   assert.equal(fixture.center.status().leases.leases[0]?.assignmentId, "assignment-node-one", "an unavailable canonical read preserves the coordination mirror");
   rejectProbe = false;
   for (let index = 0; index < 20 && fixture.center.status().leases.leases.length > 0; index += 1) await new Promise((resolve) => setTimeout(resolve, 200));
@@ -367,3 +367,11 @@ test("an in-flight opId is deduplicated and the wait default is thirty minutes",
   const codes = [first, second].map((result) => `${result.outcome}:${result.code}`).sort();
   assert.deepEqual(codes, ["applied:null", "op_rejected:op_in_flight"]);
 });
+
+async function waitUntil(predicate: () => boolean, message: string): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  assert.fail(message);
+}
