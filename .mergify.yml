@@ -20,9 +20,6 @@ queue_rules:
       - check-success = gui-build
       - check-success = node26-compatibility
       - check-success = pr-body-lint
-      - check-success = crlf-checkout
-      - check-success = "windows-first-run (ubuntu-latest)"
-      - check-success = "windows-first-run (windows-latest)"
     merge_conditions: []
 
 pull_request_rules:

@@ -29,7 +29,7 @@ function git(repo, ...args) { spawnSync("git", args, { cwd: repo, encoding: "utf
  * they silently stop being the bytes that were written (#1525, #1588). */
 function carriageReturns(file) { return (readFileSync(file, "utf8").match(/\r/gu) ?? []).length; }
 
-export function evaluateWindowsFirstRun(rootDir) {
+export function evaluateWindowsFirstRun(rootDir, { stopSettleMs = STOP_SETTLE_MS } = {}) {
   const discovered = cliEntrypoints(rootDir);
   if (discovered.errors.length > 0) return { ok: false, errors: discovered.errors, checks: [] };
   const entry = discovered.entries[0];
@@ -89,11 +89,11 @@ export function evaluateWindowsFirstRun(rootDir) {
     record("stop reports the stop it performed", stopped.status === 0,
       `exit ${stopped.status} ${stopped.stderr.trim() || JSON.stringify(stopped.receipt)}`);
 
-    const deadline = Date.now() + STOP_SETTLE_MS;
+    const deadline = Date.now() + stopSettleMs;
     let after = step(["daemon", "status"]);
     while (after.status === 0 && Date.now() < deadline) after = step(["daemon", "status"]);
     record("status reports the daemon gone after stop", after.status !== 0,
-      `daemon still answering ${STOP_SETTLE_MS}ms after a successful stop`);
+      `daemon still answering ${stopSettleMs}ms after a successful stop`);
   } finally {
     harness(entry, repo, env, ["daemon", "stop"]);
     rmSync(root, { recursive: true, force: true });

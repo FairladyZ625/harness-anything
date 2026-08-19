@@ -174,7 +174,9 @@ function runCommand(label, command) {
   const result = spawnSync(command, {
     cwd: repoRoot,
     env: process.env,
-    shell: "/bin/sh",
+    // The runner has to start before it can report anything, so a hardcoded POSIX shell made
+    // every Windows lane fail at "spawnSync /bin/sh ENOENT" with no gate output at all.
+    shell: true,
     stdio: "inherit"
   });
   const elapsedS = ((Date.now() - started) / 1000).toFixed(1);
