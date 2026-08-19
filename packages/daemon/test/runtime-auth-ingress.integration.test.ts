@@ -43,20 +43,20 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
     host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: "codex-signin", name: "Codex Sign-in", kindId: "codex", installationId: installation.installationId, providerId: "openai", model: "gpt-5.6-sol", authMode: "subscription" }, auth);
     host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: "codex-keyed", name: "Codex Keyed", kindId: "codex", installationId: installation.installationId, providerId: "openai", model: "gpt-5.6-sol", authMode: "api-key", credentialRef: "credential:v1:codex-keyed" }, auth);
     await t.test("before sign-in the readiness probe reports the subscription gap", async () => {
-      const status = await rpc(host, auth, "daemon.runtimeInstance.status", { payload: { instanceId: "codex-signin" } });
-      assert.deepEqual(status.authReadiness, { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in this instance state root." });
+      const shown = await rpc(host, auth, "daemon.runtimeInstance.show", { payload: { instanceId: "codex-signin", probe: true } });
+      assert.deepEqual((shown.instance as Record<string, unknown>).authReadiness, { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in this instance state root." });
     });
     await t.test("api-key instances cannot use provider-native sign-in and unknown operations are refused", async () => {
       const mismatch = await rpc(host, auth, "repo.runtimeInstance.auth.login", { repo: { repoId }, payload: { instanceId: "codex-keyed", idempotencyKey: "keyed-login-once" } });
       assert.equal(mismatch.ok, false); assert.equal(mismatch.code, "runtime_auth_mode_mismatch");
-      await assert.rejects(host.runtimeInstanceAuth(repoId, "repo.runtimeInstance.auth.reset", { instanceId: "codex-signin", idempotencyKey: "reset-once" }, auth), (error: unknown) => error instanceof Error && "code" in error && error.code === "unsupported_command");
+      await assert.rejects(host.runtimeInstanceAuth(repoId, "repo.runtimeInstance.auth.reauth", { instanceId: "codex-signin", idempotencyKey: "reauth-once" }, auth), (error: unknown) => error instanceof Error && "code" in error && error.code === "unsupported_command");
     });
-    for (const [action, token] of [["login", "first-operator-token"], ["reauth", "second-operator-token"]] as const) {
-      await t.test(`${action} runs the prompted flow on a daemon-owned PTY`, async () => {
-        const spawned = await rpc(host, auth, `repo.runtimeInstance.auth.${action}`, { repo: { repoId }, payload: { instanceId: "codex-signin", idempotencyKey: `${action}-once` } });
+    for (const [idempotencyKey, token] of [["login-first-once", "first-operator-token"], ["login-refresh-once", "second-operator-token"]] as const) {
+      await t.test("login runs the prompted flow on a daemon-owned PTY", async () => {
+        const spawned = await rpc(host, auth, "repo.runtimeInstance.auth.login", { repo: { repoId }, payload: { instanceId: "codex-signin", idempotencyKey } });
         assert.equal(spawned.ok, true, JSON.stringify(spawned)); assert.equal(spawned.outcome, "applied"); assert.match(String(spawned.sessionId), /^terminal_/u); assert.equal(spawned.state, "running");
         assert.equal(JSON.stringify(spawned).includes(token), false);
-        const replay = await rpc(host, auth, `repo.runtimeInstance.auth.${action}`, { repo: { repoId }, payload: { instanceId: "codex-signin", idempotencyKey: `${action}-once` } });
+        const replay = await rpc(host, auth, "repo.runtimeInstance.auth.login", { repo: { repoId }, payload: { instanceId: "codex-signin", idempotencyKey } });
         assert.equal(replay.sessionId, spawned.sessionId);
         const frames: Record<string, unknown>[] = [], attached = await rpcTerminalAttach(host, auth, repoId, String(spawned.sessionId), frames);
         try { await eventually(async () => frames.some((frame) => typeof frame.utf8 === "string" && frame.utf8.includes("Paste the operator sign-in token:")));
@@ -66,8 +66,8 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
           await eventually(async () => frames.some((frame) => frame.kind === "exit"));
         } finally { attached.close(); }
         assert.equal(JSON.parse(readFileSync(authFile, "utf8")).token, token);
-        const status = await rpc(host, auth, "daemon.runtimeInstance.status", { payload: { instanceId: "codex-signin" } });
-        assert.deepEqual(status.authReadiness, { status: "ready", code: null, hint: null });
+        const shown = await rpc(host, auth, "daemon.runtimeInstance.show", { payload: { instanceId: "codex-signin", probe: true } });
+        assert.deepEqual((shown.instance as Record<string, unknown>).authReadiness, { status: "ready", code: null, hint: null });
       });
     }
     await t.test("logout clears the isolated credentials and readiness reverts", async () => {
@@ -76,8 +76,8 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
       const frames: Record<string, unknown>[] = [], attached = await rpcTerminalAttach(host, auth, repoId, String(spawned.sessionId), frames);
       try { await eventually(async () => frames.some((frame) => frame.kind === "exit")); } finally { attached.close(); }
       assert.equal(frames.some((frame) => typeof frame.utf8 === "string" && frame.utf8.includes("Signed out.")), true);
-      const status = await rpc(host, auth, "daemon.runtimeInstance.status", { payload: { instanceId: "codex-signin" } });
-      assert.equal((status.authReadiness as Record<string, unknown>).code, "runtime_subscription_required");
+      const shown = await rpc(host, auth, "daemon.runtimeInstance.show", { payload: { instanceId: "codex-signin", probe: true } });
+      assert.equal(((shown.instance as Record<string, unknown>).authReadiness as Record<string, unknown>).code, "runtime_subscription_required");
     });
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
