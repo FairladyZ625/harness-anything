@@ -3,13 +3,31 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, REPLAY_TASK_GRAPH, taskLifecycleWritePlan, type TaskEventV1 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell, type RepoCell } from "../src/repo-cell.ts";
+import { causeClassOf, openRepoCell, type RepoCell } from "../src/repo-cell.ts";
+import { recoveryCommandPolicy } from "../src/recovery-state.ts";
 
 const actor = { principal: { personId: "person-latch" }, executor: null } as const;
+
+test("projection recovery names and carries the reachable rebuild command", () => {
+  assert.equal(causeClassOf(new Error("lifecycle document projection mismatch for INDEX.md")), "projection");
+  assert.equal(causeClassOf(new Error("kernel projection schema 999 is newer than daemon schema 3")), "data-shape");
+  assert.deepEqual(recoveryCommandPolicy("projection-rebuild", "projection"), { causes: ["projection"], settlesLatch: true });
+  assert.equal(recoveryCommandPolicy("projection-rebuild", "data-shape"), null);
+  assert.equal(recoveryCommandPolicy("projection-rebuild", "infrastructure"), null);
+  assert.deepEqual(recoveryCommandPolicy("ledger-migrate", "data-shape"), { causes: ["data-shape"], settlesLatch: true });
+  assert.deepEqual(recoveryCommandPolicy("receipt-show", "infrastructure"), { causes: ["data-shape", "infrastructure"], settlesLatch: false });
+});
+
+test("projection rebuild is executable from a projection latch and settles it", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-latch-projection-rebuild-")); let cell: RepoCell | undefined;
+  try { initRepo(rootDir); const binding = { actor, source: "local" as const }; cell = await openRepoCell({ repoId: workspaceId("latch-projection-rebuild"), rootDir: canonicalRoot(rootDir), ownerId: "latch-projection-rebuild-one" }); assert.equal((await cell.run({ kind: "task-create", taskId: "task_projection_rebuild", title: "Projection rebuild" }, binding)).outcome, "applied"); await cell.close(); cell = undefined; const cache = path.join(rootDir, ".harness/cache/task.sqlite"), db = new DatabaseSync(cache), original = String((db.prepare("SELECT snapshot_json FROM task_snapshot WHERE task_id = ?").get("task_projection_rebuild") as { readonly snapshot_json: string }).snapshot_json); db.prepare("UPDATE task_snapshot SET snapshot_json = ? WHERE task_id = ?").run("{broken", "task_projection_rebuild"); db.close(); cell = await openRepoCell({ repoId: workspaceId("latch-projection-rebuild"), rootDir: canonicalRoot(rootDir), ownerId: "latch-projection-rebuild-two" }); const latched = await cell.run({ kind: "task-list" }, binding); assert.equal(latched.outcome, "op_rejected"); assert.equal(cell.status().state, "unavailable"); assert.equal(cell.status().causeClass, "projection"); const blocked = await cell.run({ kind: "task-list" }, binding); assert.equal(blocked.code, "repo_unavailable"); assert.match(String(blocked.nextAction), /ha daemon projection rebuild/u); const rebuilt = await cell.run({ kind: "projection-rebuild" }, binding); assert.equal(rebuilt.outcome, "applied", JSON.stringify(rebuilt)); assert.equal(cell.status().state, "attached"); await cell.close(); cell = undefined; const repaired = new DatabaseSync(cache); repaired.prepare("UPDATE task_snapshot SET snapshot_json = ? WHERE task_id = ?").run(original, "task_projection_rebuild"); repaired.close(); cell = await openRepoCell({ repoId: workspaceId("latch-projection-rebuild"), rootDir: canonicalRoot(rootDir), ownerId: "latch-projection-rebuild-three" }); assert.equal((await cell.run({ kind: "task-list" }, binding)).outcome, "applied");
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
 
 test("an invalid_store latch re-attaches on the next command after the ledger is repaired", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-latch-heal-")); let clock = "2026-08-18T00:00:00.000Z"; let cell: RepoCell | undefined;
