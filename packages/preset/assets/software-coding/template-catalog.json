@@ -282,6 +282,20 @@
       ]
     },
     {
+      "id": "repository/gitattributes",
+      "version": "1",
+      "documentKind": "repository-machine-file",
+      "slot": "repository.gitattributes",
+      "materializeAs": "{{paths.authoredRoot}}/.gitattributes",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["* -text"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["* -text"], "bodyPath": "templates/repository.gitattributes/zh-CN.txt" },
+        { "locale": "en-US", "anchors": ["* -text"], "bodyPath": "templates/repository.gitattributes/en-US.txt" }
+      ]
+    },
+    {
       "id": "repository/agent-base",
       "version": "1",
       "documentKind": "repository-seeded-doc",

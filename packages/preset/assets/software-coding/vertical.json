@@ -88,6 +88,7 @@
       { "slot": "repository.milestones.index", "templateRef": "template://repository/milestones-index@1", "materializeAs": "{{paths.milestonesRoot}}/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.walls.manifest", "templateRef": "template://repository/walls-manifest@1", "materializeAs": "{{paths.governanceRoot}}/walls/walls.json", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.walls.runner", "templateRef": "template://repository/walls-runner@1", "materializeAs": "{{paths.governanceRoot}}/walls/run-walls.mjs", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "repository.gitattributes", "templateRef": "template://repository/gitattributes@1", "materializeAs": "{{paths.authoredRoot}}/.gitattributes", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.claude.entry", "templateRef": "template://repository/claude-entry@1", "materializeAs": "{{paths.rootDir}}/CLAUDE.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
     ],
     "agentsEntry": {

@@ -1,0 +1,8 @@
+# Byte fidelity is the ledger's core invariant: what was published must read back
+# identically on every machine that clones this repository.
+#
+# Local git config cannot carry that. `core.autocrlf=false` set at init lives in
+# .git/config, which no clone inherits, so a checkout on a host whose global setting
+# is `true` converts authored files to CRLF and the invariant breaks silently.
+# This file is committed, so it travels with the clone and the conversion never runs.
+* -text
