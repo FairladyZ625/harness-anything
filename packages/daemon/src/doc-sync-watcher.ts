@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import path from "node:path";
-import { consumeKnownError } from "../../kernel/src/index.ts";
-import { resolveHarnessLayout, type WriteReceipt } from "../../kernel/src/index.ts";
+import { classifyTextualArtifactPath, consumeKnownError, resolveHarnessLayout, type WriteReceipt } from "../../kernel/src/index.ts";
 
 const fullScan = "*";
 export interface WatchAttribution { readonly sessionId: string; readonly personId: string; readonly path: string; readonly fingerprint: string }
@@ -65,4 +64,5 @@ export function openDocSyncWatcher(input: { readonly rootDir: string; readonly p
 }
 
 function parseScan(receipt: WriteReceipt): { readonly baseLedgerSha: string; readonly rows: readonly ScanRow[] } | null { if (receipt.outcome !== "applied" || !receipt.evidence?.startsWith("doc-scan:")) return null; try { const value = JSON.parse(receipt.evidence.slice("doc-scan:".length)) as { baseLedgerSha?: unknown; rows?: unknown }; if (typeof value.baseLedgerSha !== "string" || !Array.isArray(value.rows)) return null; return { baseLedgerSha: value.baseLedgerSha, rows: value.rows as readonly ScanRow[] }; } catch (error) { consumeKnownError(error); return null; } }
-function normalize(value: string): string | null { const normalized = value.split(path.sep).join("/").replace(/^\.\//u, ""); return normalized && !normalized.startsWith("/") && !normalized.split("/").includes("..") && (normalized.endsWith(".md") || normalized.endsWith(".txt") || normalized.endsWith(".json")) && !normalized.includes(".conflict-") ? normalized : null; }
+export function normalizeDocSyncWatchPath(value: string): string | null { const normalized = value.split(path.sep).join("/").replace(/^\.\//u, ""); return normalized && !normalized.startsWith("/") && !normalized.split("/").includes("..") && classifyTextualArtifactPath(normalized) !== null && !normalized.includes(".conflict-") ? normalized : null; }
+function normalize(value: string): string | null { return normalizeDocSyncWatchPath(value); }

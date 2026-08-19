@@ -1,7 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import docSyncContract, { DOC_POLICY_ID, decideDocWrite, docRegionPolicyRegistry, documentPath, ledgerCommitSha, parseDocWriteIntent, resolveDocRoute, serializeDocEvent, serializeDocWriteIntent, validateDocEvent, validateDocWriteIntent, type DocWriteChange, type DocumentState } from "../../src/domain/doc-sync.contract.ts";
+import { classifyTextualArtifactPath, OPAQUE_TEXTUAL_MEDIA_TYPE, OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
+import docSyncContract, { DOC_POLICY_ID, decideDocWrite, docRegionPolicyRegistry, documentPath, ledgerCommitSha, parseDocWriteIntent, resolveDocRoute, serializeDocEvent, serializeDocWriteIntent, validateDocEvent, validateDocWriteIntent, verifyDocEventChange, type DocWriteChange, type DocumentState } from "../../src/domain/doc-sync.contract.ts";
 import { MIGRATION_DOCUMENT_POLICY_ID } from "../../src/domain/migration-import-event.ts";
 import { validateWriteReceipt, validateWriteSource } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
@@ -10,6 +11,7 @@ const actor = { principal: { personId: "person-owner" }, executor: { kind: "agen
 const baseLedgerSha = ledgerCommitSha("docs", "a".repeat(40)), currentLedgerSha = baseLedgerSha;
 const lease = { schema: "lease/v1", taskId: "task-owner", executionId: "execution-1", actor, source: "local", phase: "held", expiresAt: "2026-08-12T12:00:00.000Z", ttlMs: 1_800_000, version: 3 } as const;
 const claim = (body: string) => ({ ref: "doc-sync-claims/candidate", sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/markdown" as const });
+const opaqueClaim = (body: string) => ({ ref: "doc-sync-claims/candidate", sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: OPAQUE_TEXTUAL_MEDIA_TYPE });
 const state = (body: string): DocumentState => ({ path: "context/notes.md", blobSha256: sha256Text(body), body, size: Buffer.byteLength(body), mediaType: "text/markdown", policyId: DOC_POLICY_ID, workspaceRevision: 2 });
 function decide(change: DocWriteChange, document: DocumentState | null, bytes: Uint8Array | null = change.candidate ? Buffer.from(change.candidate.sha256 === sha256Text("# Notes\nA\nB\n") ? "# Notes\nA\nB\n" : "# Notes\nA\n") : null, overrides: Record<string, unknown> = {}) {
   return decideDocWrite({ intent: { schema: "doc-write-intent/v1", executionId: "execution-1", baseLedgerSha, changes: [change] }, opId: "doc-op", eventId: "doc-event", workspaceRevision: 3, actor, source: "local", occurredAt: "2026-08-12T11:00:00.000Z", currentLedgerSha, lease, documents: [document], claims: [bytes], ...overrides });
@@ -41,6 +43,13 @@ test("default prose route is open while typed internal routes are denied", () =>
   assert.throws(() => documentPath("../outside.md"));
 });
 
+test("textual artifact classification keeps prose extensions canonical and scopes opaque content to artifacts", () => {
+  assert.deepEqual(classifyTextualArtifactPath("artifacts/summary.md"), { kind: "canonical-prose", mediaType: "text/markdown", policyId: DOC_POLICY_ID });
+  assert.deepEqual(classifyTextualArtifactPath("artifacts/notes.txt"), { kind: "canonical-prose", mediaType: "text/plain", policyId: DOC_POLICY_ID });
+  for (const target of ["artifacts/report.html", "artifacts/scripts/build.mjs", "artifacts/data.json", "artifacts/NOTICE", "artifacts/.metadata"]) assert.deepEqual(classifyTextualArtifactPath(target), { kind: "opaque-textual", mediaType: OPAQUE_TEXTUAL_MEDIA_TYPE, policyId: OPAQUE_TEXTUAL_POLICY_ID }, target);
+  assert.equal(classifyTextualArtifactPath("context/report.html"), null);
+});
+
 test("prose policy accepts body replacement while freezing region proofs and content target", () => {
   const base = "# Notes\nOriginal sentence.\n", candidate = "# Notes\nReplacement sentence.\n", result = decide({ path: "context/notes.md", baseBlobSha256: sha256Text(base), policyId: DOC_POLICY_ID, candidate: claim(candidate) }, state(base), Buffer.from(candidate));
   assert.equal(result.accepted, true); if (!result.accepted) return;
@@ -54,6 +63,18 @@ test("body-replaceable policy accepts shorter prose and emits a valid canonical 
   const base = "# Notes\nA much longer original sentence.\n", candidate = "# Notes\nShort.\n", result = decide({ path: "context/notes.md", baseBlobSha256: sha256Text(base), policyId: DOC_POLICY_ID, candidate: claim(candidate) }, state(base), Buffer.from(candidate));
   assert.equal(result.accepted, true); if (!result.accepted) return;
   assert.doesNotThrow(() => serializeDocEvent(result.event));
+});
+
+test("opaque textual policy is a whole-file CAS with no markdown parsing or region proofs", () => {
+  const base = "---\nnot: frontmatter\n# Same\n# Same\nThis entire legacy payload is deliberately removed.\n", candidate = "<script/>\n", document: DocumentState = { ...state(base), path: documentPath("tasks/task-owner/artifacts/scripts/report.mjs"), mediaType: OPAQUE_TEXTUAL_MEDIA_TYPE, policyId: OPAQUE_TEXTUAL_POLICY_ID };
+  const result = decide({ path: document.path, baseBlobSha256: sha256Text(base), policyId: OPAQUE_TEXTUAL_POLICY_ID, candidate: opaqueClaim(candidate) }, document, Buffer.from(candidate));
+  assert.equal(result.accepted, true, JSON.stringify(result)); if (!result.accepted) return;
+  const change = result.event.payload.changes[0]!;
+  assert.deepEqual(change.regionProofs, []);
+  assert.deepEqual(validateDocEvent(JSON.parse(JSON.stringify(result.event))), []);
+  assert.equal(verifyDocEventChange(change, base, candidate), true);
+  assert.deepEqual(validateDocEvent({ ...result.event, payload: { ...result.event.payload, changes: [{ ...change, regionProofs: [{ regionId: "prose/*", policyId: DOC_POLICY_ID, codecId: "markdown-regions/v1", baseSha256: sha256Text(base), candidateSha256: sha256Text(candidate), insertBytes: 0 }] }] } }), ["doc event change is invalid"]);
+  assert.deepEqual(validateDocEvent({ ...result.event, payload: { ...result.event.payload, changes: [{ ...change, policyId: DOC_POLICY_ID, regionProofs: [{ regionId: "prose/*", policyId: DOC_POLICY_ID, codecId: "markdown-regions/v1", baseSha256: sha256Text(base), candidateSha256: sha256Text(candidate), insertBytes: 0 }] }] } }), ["doc event change is invalid"]);
 });
 
 test("mixed body-replaceable rejection produces a valid typed receipt", () => {
@@ -98,6 +119,13 @@ test("claim mismatch, deletion, heading rename, machine touch, and ambiguous hea
     const current = candidate.startsWith("---") ? "---\nowner: owner\n---\n# Notes\nA\n" : base, rejected = decide({ path: "context/notes.md", baseBlobSha256: sha256Text(current), policyId: DOC_POLICY_ID, candidate: claim(candidate) }, state(current), Buffer.from(candidate));
     assert.equal(rejected.accepted, false, candidate); if (!rejected.accepted) { assert.equal(rejected.code, "unresolved_touch"); assert.equal(rejected.detail.unresolvedTouches.length > 0, true); }
   }
+});
+
+test("prose regression controls still reject deletion, duplicate headings, and base-region reordering", () => {
+  const base = "# One\nA\n# Two\nB\n", prose = { path: "context/notes.md", baseBlobSha256: sha256Text(base), policyId: DOC_POLICY_ID, candidate: claim(base) } as const;
+  const deletion = decide({ ...prose, candidate: null }, state(base), null); assert.equal(deletion.accepted, false); if (!deletion.accepted) assert.equal(deletion.code, "deletion_forbidden");
+  const duplicate = "# Same\nA\n# Same\nB\n", duplicateResult = decide({ ...prose, candidate: claim(duplicate) }, state(base), Buffer.from(duplicate)); assert.equal(duplicateResult.accepted, false); if (!duplicateResult.accepted) assert.equal(duplicateResult.detail.unresolvedTouches[0]?.reason, "duplicate heading anchor");
+  const reordered = "# Two\nB\n# One\nA\n", reorderedResult = decide({ ...prose, candidate: claim(reordered) }, state(base), Buffer.from(reordered)); assert.equal(reorderedResult.accepted, false); if (!reorderedResult.accepted) assert.match(reorderedResult.detail.unresolvedTouches[0]?.reason ?? "", /base region is missing or reordered/u);
 });
 
 test("the first authored write on a migrated document upgrades its policy one-way with from/to recorded", () => {
