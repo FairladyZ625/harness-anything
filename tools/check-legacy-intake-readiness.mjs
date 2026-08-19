@@ -343,23 +343,32 @@ function chunkGitCheckIgnoreInput(files, maxInputBytes) {
 }
 
 async function collectFiles(directory) {
-  let entries;
-  try {
-    entries = await readdir(directory, { withFileTypes: true });
-  } catch (error) {
-    if (error?.code === "ENOENT") return [];
-    throw error;
-  }
-
+  const root = directory;
   const files = [];
-  for (const entry of entries) {
-    const full = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      if (ignoredDirectoryNames.has(entry.name)) continue;
-      files.push(...await collectFiles(full));
-    } else if (entry.isFile() && (sourceFilePattern.test(entry.name) || entry.name.endsWith(".md") || entry.name.endsWith(".yml") || entry.name.endsWith(".yaml") || entry.name === "package.json")) {
-      files.push(full);
+  let directories = [directory];
+  while (directories.length > 0) {
+    const nestedDirectories = [];
+    for (const current of directories) {
+      let entries;
+      try {
+        entries = await readdir(current, { withFileTypes: true });
+      } catch (error) {
+        if (error?.code === "ENOENT") continue;
+        throw error;
+      }
+
+      for (const entry of entries) {
+        const full = path.join(current, entry.name);
+        if (entry.isDirectory()) {
+          if (!ignoredDirectoryNames.has(entry.name)) nestedDirectories.push(full);
+        } else if (entry.isFile() && (sourceFilePattern.test(entry.name) || entry.name.endsWith(".md") || entry.name.endsWith(".yml") || entry.name.endsWith(".yaml") || entry.name === "package.json")) {
+          files.push(full);
+        }
+      }
     }
+
+    const ignoredDirectories = collectGitIgnoredFiles(root, nestedDirectories.map((full) => relative(root, full)));
+    directories = nestedDirectories.filter((full) => !ignoredDirectories.has(relative(root, full)));
   }
   return files;
 }
