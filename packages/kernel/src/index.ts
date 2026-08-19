@@ -14,14 +14,14 @@ export { assertTaskBootstrapWritePlan, isTaskBootstrapEvent, taskBootstrapClaims
 export type { InitialDocumentClaim, PresetSnapshotClaim, TaskBootstrapBlob, TaskBootstrapEventV1, TaskDocumentOwner } from "./domain/task-bootstrap-event.ts";
 export { presetSnapshotUpgradeWritePlan, validatePresetSnapshotUpgradeEvent } from "./domain/preset-snapshot-upgrade-event.ts";
 export type { PresetSnapshotUpgradeBundle, PresetSnapshotUpgradeEventV1 } from "./domain/preset-snapshot-upgrade-event.ts";
-export { compileTaskProgress, isTaskProgressEvent } from "./domain/task-progress-event.ts";
+export { compileTaskProgress, isTaskProgressEvent, taskProgressWritePlan } from "./domain/task-progress-event.ts";
 export type { TaskProgressEvidence, TaskProgressEventV1 } from "./domain/task-progress-event.ts";
 export { assertCurrentWriter, bindWriterGenerationToken, createWriteReceipt, normalizeCommandEnvelope, serializeEventHead, WRITE_RECEIPT_SCHEMA } from "./domain/write-chain.contract.ts";
 export type { ActorIdentity, DocSyncReceiptDetail, FrozenWritePlan, WriteOperationReceipt, WriteReceipt, WriteSource, WriteTarget, WriterGeneration, WriterGenerationToken } from "./domain/write-chain.contract.ts";
 export { parseVerticalScriptAction, parseVerticalScriptPlan, parseVerticalScriptResult } from "./domain/vertical-script-action.ts"; export type { VerticalScriptActionV1, VerticalScriptChangeV1, VerticalScriptPlanV1, VerticalScriptResultV1 } from "./domain/vertical-script-action.ts";
 export { DOC_POLICY_ID, decideDocWrite, docSyncWritePlan, documentPath, isDocEvent, isTaskEvent, parseDocWriteIntent, resolveDocRoute } from "./domain/doc-sync.contract.ts";
 export { parseCanonicalEvent, serializeCanonicalEvent } from "./domain/doc-sync.contract.ts";
-export type { CanonicalEventV1, DocClaimRef, DocEventV1, DocWriteIntent, LedgerCommitSha } from "./domain/doc-sync.contract.ts";
+export type { CanonicalEventV1, DocClaimRef, DocEventChange, DocEventV1, DocWriteIntent, LedgerCommitSha } from "./domain/doc-sync.contract.ts";
 export { MIGRATION_DOCUMENT_POLICY_ID, MIGRATION_IMPORT_SOURCE, migrationImportWritePlan, validateMigrationImportEvent } from "./domain/migration-import-event.ts";
 export type { MigrationDestinationPreimage, MigrationDocumentClaim, MigrationImportEventV1 } from "./domain/migration-import-event.ts";
 export type { ArchivedExecutionV0, ExecutionV1, ProjectedExecution } from "./domain/execution.ts";

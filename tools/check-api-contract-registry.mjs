@@ -12,6 +12,15 @@ const expectedMethods = Object.freeze([
   { method: "daemon.repo.unregister", requiresRepo: false },
   { method: "repo.task.run", requiresRepo: true }
 ]);
+// The fleet channel is part of the same closed RPC surface: every daemon-side
+// fleet handler must be declared here with a validated params shape.
+const expectedFleetMethods = Object.freeze([
+  { method: "daemon.fleet.center.start" },
+  { method: "daemon.fleet.edge.sync" },
+  { method: "daemon.fleet.task.run" },
+  { method: "daemon.fleet.doc.sync" },
+  { method: "daemon.fleet.conflict.exit" }
+]);
 const retiredAuthorities = [
   "packages/application/src/task-write-route-policy.ts",
   "packages/cli/src/cli/parsers/capabilities.ts",
@@ -36,6 +45,10 @@ export function evaluateApiContractRegistry(root = process.cwd()) {
     const methods = collectMethodContracts(registry, registryPath, violations);
     if (JSON.stringify(methods) !== JSON.stringify(expectedMethods)) {
       violations.push(`${registryPath}: method catalog must equal ${JSON.stringify(expectedMethods)}; found ${JSON.stringify(methods)}`);
+    }
+    const fleetMethods = collectMethodContracts(registry, registryPath, violations, "fleetProtocolMethods");
+    if (JSON.stringify(fleetMethods) !== JSON.stringify(expectedFleetMethods)) {
+      violations.push(`${registryPath}: fleet method catalog must equal ${JSON.stringify(expectedFleetMethods)}; found ${JSON.stringify(fleetMethods)}`);
     }
     if (/apiRouteContracts|capabilit|notifications?|admin\.(?:people|rbac)/u.test(registry)) {
       violations.push(`${registryPath}: retired GUI/API capability authority must not feed the W3 daemon protocol`);
@@ -68,24 +81,25 @@ export function evaluateApiContractRegistry(root = process.cwd()) {
   return violations;
 }
 
-function collectMethodContracts(source, relativePath, violations) {
+function collectMethodContracts(source, relativePath, violations, variableName = "daemonProtocolMethods") {
   const file = ts.createSourceFile(relativePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   let initializer;
   for (const statement of file.statements) {
     if (!ts.isVariableStatement(statement)) continue;
     for (const declaration of statement.declarationList.declarations) {
-      if (ts.isIdentifier(declaration.name) && declaration.name.text === "daemonProtocolMethods") initializer = declaration.initializer;
+      if (ts.isIdentifier(declaration.name) && declaration.name.text === variableName) initializer = declaration.initializer;
     }
   }
   if (initializer && ts.isCallExpression(initializer) && ts.isPropertyAccessExpression(initializer.expression)
     && initializer.expression.expression.getText(file) === "Object" && initializer.expression.name.text === "freeze") initializer = initializer.arguments[0];
   if (initializer && (ts.isAsExpression(initializer) || ts.isSatisfiesExpression(initializer))) initializer = initializer.expression;
   if (!initializer || !ts.isArrayLiteralExpression(initializer)) {
-    violations.push(`${relativePath}: daemonProtocolMethods must be one frozen contract array literal`);
+    violations.push(`${relativePath}: ${variableName} must be one frozen contract array literal`);
     return [];
   }
   return initializer.elements.flatMap((element) => {
     if (!ts.isObjectLiteralExpression(element)) { violations.push(`${relativePath}: method entries must be object literals`); return []; }
+    if (variableName === "fleetProtocolMethods" && !element.properties.some((property) => ts.isPropertyAssignment(property) && property.name.getText(file).replace(/["']/gu, "") === "params")) { violations.push(`${relativePath}: fleet method entries must declare a validated params shape`); return []; }
     const values = Object.fromEntries(element.properties.flatMap((property) => {
       if (!ts.isPropertyAssignment(property)) return [];
       const name = property.name.getText(file).replace(/["']/gu, "");
@@ -94,7 +108,7 @@ function collectMethodContracts(source, relativePath, violations) {
       if (property.initializer.kind === ts.SyntaxKind.FalseKeyword) return [[name, false]];
       return [];
     }));
-    return [{ method: values.method, requiresRepo: values.requiresRepo }];
+    return variableName === "fleetProtocolMethods" ? [{ method: values.method }] : [{ method: values.method, requiresRepo: values.requiresRepo }];
   });
 }
 

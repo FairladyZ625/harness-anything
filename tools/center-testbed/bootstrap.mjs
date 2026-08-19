@@ -75,7 +75,12 @@ function seedLedger() {
 
   ha("fact-record", env, [...root, "fact", "record", "--task", task.taskId, "--statement", "The testbed bootstrap wrote a task, a decision, and a fact into the canonical center ledger before pushing it to GitLab.", "--source", "tools/center-testbed/bootstrap.mjs", "--confidence", "high"]);
   ha("progress-append", env, [...root, "task", "progress", "append", task.taskId, "--text", "Seed bootstrap finished: ledger content ready for the center daemon to attach and republish."]);
-  log("writes", "task, execution, decision, fact, and progress entries committed to the ledger");
+  // Class-B surface: one shared prose document both edges may edit through
+  // explicit `ha doc sync` rounds (and conflict over).
+  mkdirSync(path.join(workspace, "harness", "context"), { recursive: true });
+  writeFileSync(path.join(workspace, "harness", "context", "shared-notes.md"), "# Shared notes\n\nSeeded baseline for the class-B sync scenarios.\n");
+  ha("doc-sync-submit", env, [...root, "doc", "sync", "--submit", "--path", "context/shared-notes.md"]);
+  log("writes", "task, execution, decision, fact, progress, and the shared class-B document committed to the ledger");
 
   mustRun("wrapper", "git", ["-C", workspace, "add", "-A"], { env: harnessEnv() });
   mustRun("wrapper", "git", ["-C", workspace, "-c", `user.name=${TESTBED.gitAuthor.name}`, "-c", `user.email=${TESTBED.gitAuthor.email}`, "commit", "-q", "-m", "Testbed project wrapper"], { env: harnessEnv() });
@@ -142,11 +147,13 @@ function mintFleetMaterial(seed) {
     schema: "fleet-roster/v1",
     nodes: edges.map((nodeId) => ({ nodeId, credential: `${nodeId}-machine-secret` })),
     // Distinct principals per edge: the write scenarios need two real
-    // collaborators whose domain leases genuinely conflict.
+    // collaborators whose domain leases genuinely conflict. Path scope grants
+    // every task package (W3-B acquires leases per task dynamically, so a
+    // static roster cannot name them) plus the shared class-B document.
     assignments: edges.map((nodeId) => ({
       assignmentId: `assignment-${nodeId}`, nodeId, repoId: TESTBED.repoId, taskId: seed.taskId, executionId: seed.executionId,
       viewId: `${nodeId}-view`, personId: `testbed-${nodeId}`, executorId: `testbed-agent-${nodeId}`, expiresAt,
-      paths: [`${seed.packagePath}/task_plan.md`, seed.decisionPath]
+      paths: ["tasks", "context/shared-notes.md"]
     }))
   };
   const rosterStaging = path.join(sharedFleet, "roster.json.staging");

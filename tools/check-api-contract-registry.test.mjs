@@ -22,6 +22,18 @@ test("W3 API registry rejects repo routing that is not repo-scoped", () => withF
   assert.match(evaluateApiContractRegistry(root).join("\n"), /method catalog must equal/u);
 }));
 
+test("W3 API registry rejects an undeclared fleet RPC method", () => withFixture((root) => {
+  const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts");
+  writeFileSync(file, validRegistry().replace('  { id: "daemon.fleet.doc.sync"', '  { id: "daemon.fleet.compat.run", phase: "Fleet-Wiring", method: "daemon.fleet.compat.run", requiresRepo: false, params: shape({ payload: shape({}) }) },\n  { id: "daemon.fleet.doc.sync"'));
+  assert.match(evaluateApiContractRegistry(root).join("\n"), /fleet method catalog must equal/u);
+}));
+
+test("W3 API registry rejects a fleet method without a validated params shape", () => withFixture((root) => {
+  const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts");
+  writeFileSync(file, validRegistry().replace(', params: shape({ payload: shape({ conflictId: "string" }) })', ""));
+  assert.match(evaluateApiContractRegistry(root).join("\n"), /fleet method entries must declare a validated params shape/u);
+}));
+
 test("W3 API registry rejects restoration of the retired task route authority", () => withFixture((root) => {
   write(root, "packages/application/src/task-write-route-policy.ts", "export const restored = true;\n");
   assert.match(evaluateApiContractRegistry(root).join("\n"), /W3-retired API\/capability authority/u);
@@ -40,6 +52,6 @@ function withFixture(run) { const root = mkdtempSync(path.join(tmpdir(), "w3-api
   run(root);
 } finally { rmSync(root, { recursive: true, force: true }); } }
 function write(root, relative, body) { const file = path.join(root, relative); mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, body); }
-function validRegistry() { return `export const daemonProtocolMethods = Object.freeze([\n  { method: "protocol.hello", requiresRepo: false },\n  { method: "daemon.status", requiresRepo: false },\n  { method: "daemon.repo.bootstrap", requiresRepo: false },\n  { method: "daemon.repo.register", requiresRepo: false },\n  { method: "daemon.repo.unregister", requiresRepo: false },\n  { method: "repo.task.run", requiresRepo: true }\n]);\n`; }
+function validRegistry() { return `export const daemonProtocolMethods = Object.freeze([\n  { method: "protocol.hello", requiresRepo: false },\n  { method: "daemon.status", requiresRepo: false },\n  { method: "daemon.repo.bootstrap", requiresRepo: false },\n  { method: "daemon.repo.register", requiresRepo: false },\n  { method: "daemon.repo.unregister", requiresRepo: false },\n  { method: "repo.task.run", requiresRepo: true }\n]);\nexport const fleetProtocolMethods = Object.freeze([\n  { id: "daemon.fleet.center.start", phase: "Fleet-Wiring", method: "daemon.fleet.center.start", requiresRepo: false, params: shape({ payload: shape({ port: "number" }) }) },\n  { id: "daemon.fleet.edge.sync", phase: "Fleet-Wiring", method: "daemon.fleet.edge.sync", requiresRepo: false, params: shape({ payload: shape({ host: "string" }) }) },\n  { id: "daemon.fleet.task.run", phase: "Fleet-Wiring", method: "daemon.fleet.task.run", requiresRepo: false, params: shape({ payload: shape({ action: "json" }) }) },\n  { id: "daemon.fleet.doc.sync", phase: "Fleet-Wiring", method: "daemon.fleet.doc.sync", requiresRepo: false, params: shape({ payload: shape({ workspaceRoot: "string" }) }) },\n  { id: "daemon.fleet.conflict.exit", phase: "Fleet-Wiring", method: "daemon.fleet.conflict.exit", requiresRepo: false, params: shape({ payload: shape({ conflictId: "string" }) }) }\n]);\n`; }
 function validServer() { return `jsonRpcMethodContracts.some(() => true); request.method === "protocol.hello"; if (!handshaken) fail(); request.method === "daemon.status"; request.method === "daemon.repo.bootstrap"; request.method === "daemon.repo.register"; request.method === "daemon.repo.unregister"; options.host.run(repo, action, options.authContext);\n`; }
 function validHost() { return `const cells = new Map<string, RepoCell>(); auth.assignmentBinding; ({ kind: "assignment" }); makeTransportDerivedIdentityProvider(); ["actor", "root", "canonicalRoot", "source", "workspaceId", "expectedRevision", "eventId", "occurredAt"];\n`; }

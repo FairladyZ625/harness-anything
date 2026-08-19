@@ -155,6 +155,9 @@ function headroomFor(measured) {
 // boundary, so the 500-line headroom it earned at 1660 no longer applied to it
 // (dec_FA1A0041BFD0FFC3D981A2ADC4). Every other module still carries the figure
 // below.
+// doc-sync and cli were re-measured at 4a7c77a2 after W3-C landed the dual-class
+// sync surface there (dec_D989FB5E67364051D3F564AC82): doc-sync 350 -> 572 and
+// cli 171 -> 377, both past what their old derivations covered.
 // The production lines each ceiling was derived from, measured at c00066ba and
 // taken as max(c00066ba, c00066ba merged with #1458) so the result is the same
 // whichever of the two lands first. Only two modules differ between those trees:
@@ -164,9 +167,9 @@ const DECISION_INPUT_LINES = Object.freeze({
   kernel: 7962,
   "task-lifecycle": 375,
   "write-contract": 292,
-  "doc-sync": 350,
+  "doc-sync": 572,
   preset: 372,
-  cli: 171,
+  cli: 377,
   gui: 18494,
   daemon: 2131,
   fleet: 222,

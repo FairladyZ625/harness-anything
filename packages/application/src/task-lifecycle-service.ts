@@ -1,6 +1,6 @@
 // @slice-activation P4 W2 is composed by tests; W3 owns daemon and production publication cutover.
 import { applyTransition, canonicalizeContractValue, compileTaskLifecycleWrite, eventObjectTarget, isSameExecution, isSamePerson, lifecycleDocumentPaths, taskLifecycleWritePlan, validateTaskLifecycleCommandEnvelope,
-  type ExecutionV1, type FrozenWritePlan, type ProofFor, type TaskEventV1, type TaskLifecycleCommand, type TaskLifecycleSnapshot,
+  type DocEventChange, type ExecutionV1, type FrozenWritePlan, type ProofFor, type TaskEventV1, type TaskLifecycleCommand, type TaskLifecycleSnapshot,
   type WriteOperationReceipt, type WriteTarget } from "../../kernel/src/index.ts";
 
 export class TaskLifecycleOperationConflict extends Error {
@@ -22,25 +22,32 @@ type StartCommand = Extract<TaskLifecycleCommand, { readonly type: "StartExecuti
 type RequestedReservation = Pick<Lease, "taskId" | "executionId" | "expiresAt" | "ttlMs"> & Partial<Pick<ProofFor<StartCommand>["reservation"], "previousHolder" | "reason" | "version">>;
 export type TaskLifecycleServiceProof<C extends TaskLifecycleCommand> = C extends StartCommand ? { readonly actorBinding: C["actor"]; readonly reservation: RequestedReservation } : ProofFor<C>;
 export interface TaskLeaseRenewInput { readonly taskId: string; readonly executionId: string; readonly actor: TaskLifecycleCommand["actor"]; readonly source: TaskLifecycleCommand["source"]; readonly expectedVersion: number; readonly expiresAt: string; readonly opId: string; readonly eventId: string; readonly workspaceRevision: number; readonly occurredAt: string }
-export interface TaskLifecycleService { readonly execute: <C extends TaskLifecycleCommand>(command: C, proof: TaskLifecycleServiceProof<C>) => Promise<WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot>>; readonly read: (taskId: string) => Promise<TaskLifecycleServiceRead>; readonly renewLease: (input: TaskLeaseRenewInput) => Promise<Lease> }
+export interface TaskCarriedDocuments { readonly changes: readonly DocEventChange[]; readonly blobs: readonly { readonly sha256: string; readonly size: number; readonly mediaType: string; readonly body: string }[] }
+export interface TaskLifecycleService { readonly execute: <C extends TaskLifecycleCommand>(command: C, proof: TaskLifecycleServiceProof<C>) => Promise<WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot>>; readonly executeWithDocuments: <C extends TaskLifecycleCommand>(command: C, proof: TaskLifecycleServiceProof<C>, documents: TaskCarriedDocuments) => Promise<WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot>>; readonly read: (taskId: string) => Promise<TaskLifecycleServiceRead>; readonly renewLease: (input: TaskLeaseRenewInput) => Promise<Lease> }
 
 export function makeTaskLifecycleService(options: { readonly eventStore: EventStorePort; readonly projection: ProjectionPort; readonly killpoint?: (point: TaskLifecycleKillpoint) => void }): TaskLifecycleService {
   const read = async (taskId: string) => options.projection.read(taskId);
-  return { read, renewLease: async (input) => renewTaskLease(options, read, input), execute: async <C extends TaskLifecycleCommand>(command: C, proof: TaskLifecycleServiceProof<C>) => {
+  const executeInternal = async <C extends TaskLifecycleCommand>(command: C, proof: TaskLifecycleServiceProof<C>, carried: TaskCarriedDocuments | null): Promise<WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot>> => {
     const issues = validateTaskLifecycleCommandEnvelope(command);
     if (issues.length > 0) throw new TaskLifecycleOperationConflict(`invalid normalized command envelope: ${issues.map((issue) => issue.message).join("; ")}`);
     const existing = options.eventStore.readTaskEvent(command.opId);
     if (existing !== null) {
-      if (!eventMatchesOperation(existing, command, proof as ProofFor<C>)) throw new TaskLifecycleOperationConflict(`opId ${command.opId} already has a different payload`);
+      if (!eventMatchesOperation(existing, command, proof as ProofFor<C>, carried)) throw new TaskLifecycleOperationConflict(`opId ${command.opId} already has a different payload`);
       const plan = taskLifecycleWritePlan(existing); if (options.projection.readTaskOperation(command.opId) === null) options.projection.apply(existing, plan);
       return receiptFromRead(await read(command.taskId), existing, plan);
     }
     const current = await read(command.taskId);
     if (current.status !== "ready" && (command.type !== "CreateReplayTask" || current.snapshot.task !== null)) return { outcome: "indeterminate", opId: command.opId, code: "operation_not_published", origin: "N/A", snapshot: current.snapshot, frozenPlan: Object.freeze({ commandType: command.type, targets: Object.freeze([]) }) as unknown as FrozenWritePlan, nextAction: "retry task lifecycle read: projection catch-up is pending" };
     const claim = command.type === "StartExecution" ? planClaim(options.projection, command, proof as TaskLifecycleServiceProof<StartCommand>) : null;
-    const transition = applyTransition(current.snapshot, command, (claim?.proof ?? proof) as ProofFor<C>), paths = current.packagePath ? lifecycleDocumentPaths(transition.event, current.packagePath) : [], compiled = compileTaskLifecycleWrite({ event: transition.event, snapshot: transition.snapshot, packagePath: current.packagePath, currentDocuments: paths.flatMap((path) => { const document = options.projection.readDocument(path).document; return document ? [document] : []; }) }), { event, plan } = compiled;
-    if (claim !== null) options.projection.reserveLease(claim.reserving, command.occurredAt); try { plannedPublication(plan, event, () => options.eventStore.append(compiled)); }
+    const transition = applyTransition(current.snapshot, command, (claim?.proof ?? proof) as ProofFor<C>), paths = current.packagePath ? lifecycleDocumentPaths(transition.event, current.packagePath) : [], compiled = compileTaskLifecycleWrite({ event: transition.event, snapshot: transition.snapshot, packagePath: current.packagePath, currentDocuments: paths.flatMap((path) => { const document = options.projection.readDocument(path).document; return document ? [document] : []; }) });
+    const event = carried === null ? compiled.event : { ...compiled.event, payload: { ...compiled.event.payload, carriedDocumentClaims: carried.changes } } as TaskEventV1;
+    const plan = carried === null ? compiled.plan : taskLifecycleWritePlan(event), blobs = carried === null ? compiled.blobs : [...compiled.blobs, ...carried.blobs];
+    if (claim !== null) options.projection.reserveLease(claim.reserving, command.occurredAt); try { plannedPublication(plan, event, () => options.eventStore.append({ event, plan, blobs })); }
     catch (error) { if (claim !== null) releaseReservation(options.projection, claim.reserving); throw error; }
+    // The canonical event and all carried blobs are durable at this point; a
+    // crash before projection application must be recoverable by replaying the
+    // one event, so expose the killpoint before the projection transaction.
+    options.killpoint?.("after_sqlite_commit");
     if (claim !== null) try {
       const active = options.projection.activateLease(claim.reserving);
       if (json(active) !== json(claim.active)) throw new TaskLifecycleOperationConflict("lease activation did not match the L1 event");
@@ -49,9 +56,14 @@ export function makeTaskLifecycleService(options: { readonly eventStore: EventSt
     try { applied = planned(plan, projectionTarget(command.taskId), () => options.projection.apply(event, plan)); }
     catch (error) { return pendingReceipt(await read(command.taskId), plan, command.opId, message(error), event); }
     if (applied.metrics.reducedItems === 0) return pendingReceipt({ ...current, sourceRevision: event.workspaceRevision }, plan, command.opId, "projection catch-up is pending", event);
-    options.killpoint?.("after_sqlite_commit"); options.killpoint?.("before_response_write");
+    options.killpoint?.("before_response_write");
     const receipt = receiptFromRead(await read(command.taskId), event, plan); options.killpoint?.("after_response_write"); return receipt;
-  } };
+    // `append` receives the augmented event/plan/blobs as one canonical
+    // publication. Keeping this call below the preparation makes the
+    // transition and carried documents share one Git commit and one recovery
+    // identity.
+  };
+  return { read, renewLease: async (input) => renewTaskLease(options, read, input), execute: async <C extends TaskLifecycleCommand>(command: C, proof: TaskLifecycleServiceProof<C>) => executeInternal(command, proof, null), executeWithDocuments: async <C extends TaskLifecycleCommand>(command: C, proof: TaskLifecycleServiceProof<C>, documents: TaskCarriedDocuments) => executeInternal(command, proof, documents) };
 }
 
 async function renewTaskLease(options: { readonly eventStore: EventStorePort; readonly projection: ProjectionPort }, read: (taskId: string) => Promise<TaskLifecycleServiceRead>, input: TaskLeaseRenewInput): Promise<Lease> {
@@ -100,14 +112,14 @@ export function assertWriteTargetDeclared(plan: FrozenWritePlan, target: WriteTa
 }
 function receiptFromRead(read: TaskLifecycleServiceRead, event: TaskEventV1, plan: FrozenWritePlan): WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot> {
   return read.status === "ready" && read.watermark >= event.workspaceRevision ? { outcome: "applied", opId: event.opId, event, revision: event.workspaceRevision,
-    evidence: `event-object:${event.opId};files:${(event.payload.documentClaims ?? []).map((claim) => claim.path).join(",")}`, visibility: "center", proof: { committedRevision: event.workspaceRevision, appliedCut: event.workspaceRevision, durable: true, canonicalVisible: true, worktreeVisible: true }, snapshot: read.snapshot, frozenPlan: plan }
+    evidence: `event-object:${event.opId};files:${[...(event.payload.documentClaims ?? []), ...(event.payload.carriedDocumentClaims ?? [])].map((claim) => claim.path).join(",")}`, visibility: "center", proof: { committedRevision: event.workspaceRevision, appliedCut: event.workspaceRevision, durable: true, canonicalVisible: true, worktreeVisible: true }, snapshot: read.snapshot, frozenPlan: plan }
     : pendingReceipt(read, plan, event.opId, "projection catch-up is pending", event);
 }
 function pendingReceipt(read: TaskLifecycleServiceRead, plan: FrozenWritePlan, opId: string, reason: string, event: TaskEventV1): WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot> {
   const revision = event.workspaceRevision; return { outcome: "pending", opId, event, revision, evidence: `event-object:${opId}`,
     visibility: "center", proof: { committedRevision: revision, appliedCut: read.watermark, durable: true, canonicalVisible: false, worktreeVisible: true }, snapshot: read.snapshot, frozenPlan: plan, nextAction: `retry task lifecycle read: ${reason}` };
 }
-function eventMatchesOperation<C extends TaskLifecycleCommand>(event: TaskEventV1, command: C, proof: ProofFor<C>): boolean { return json(operationIdentityFromEvent(event)) === json(operationIdentityFromCommand(command, proof)); }
+function eventMatchesOperation<C extends TaskLifecycleCommand>(event: TaskEventV1, command: C, proof: ProofFor<C>, carried: TaskCarriedDocuments | null): boolean { return json(operationIdentityFromEvent(event)) === json(operationIdentityFromCommand(command, proof)) && json(event.payload.carriedDocumentClaims ?? null) === json(carried?.changes ?? null); }
 function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C, proof: ProofFor<C>): unknown {
   const common = { type: command.type, taskId: command.taskId, eventId: command.eventId, workspaceRevision: command.workspaceRevision, actor: command.actor, source: command.source, occurredAt: command.occurredAt };
   if (command.type === "CreateReplayTask") return { ...common, title: command.title, taskClass: command.taskClass, graph: command.graph, completionGateIds: command.completionGateIds, presetSnapshotDigest: command.presetSnapshotDigest };
