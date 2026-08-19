@@ -28,12 +28,9 @@ Required pull request checks must cover:
 - package policy
 - GUI build smoke
 - Node 26 compatibility for typecheck plus fast and contract tests
-Platform coverage runs on every pull request but is **not yet required**:
-`crlf-checkout`, and `windows-first-run` on `ubuntu-latest` and `windows-latest`.
-Requiring a context that has never passed would block every merge including the
-one that makes it pass. The promotion condition is the `windows-latest` arm
-green on `main`; at that point all three move into the ruleset, the Mergify
-queue and the required list above, together.
+Platform coverage is required: `crlf-checkout`, and `windows-first-run` on
+`ubuntu-latest` and `windows-latest`. They landed advisory in #1597 because the
+`windows-latest` arm had never passed, and were promoted once it did on `main`.
 
 They are platform coverage and were added after a run of Windows
 defects reached users through a fully green pull request. They divide that
@@ -73,6 +70,9 @@ The active GitHub ruleset enforcement for `main` requires these status contexts:
 - gui-build
 - node26-compatibility
 - pr-body-lint
+- crlf-checkout
+- windows-first-run (ubuntu-latest)
+- windows-first-run (windows-latest)
 
 The Mergify GitHub App must be installed from
 https://github.com/marketplace/mergify before maintainers rely on the queue.
@@ -96,6 +96,9 @@ against the queued pull request's predicted merge state.
 - gui-build
 - node26-compatibility
 - pr-body-lint
+- crlf-checkout
+- windows-first-run (ubuntu-latest)
+- windows-first-run (windows-latest)
 
 The `pr-body-lint` job checks human-authored pull request bodies against the
 repository template. It narrowly skips Mergify synthetic queue verification pull

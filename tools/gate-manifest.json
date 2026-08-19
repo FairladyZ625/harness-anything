@@ -179,7 +179,10 @@
         "supply-chain",
         "gui-build",
         "node26-compatibility",
-        "pr-body-lint"
+        "pr-body-lint",
+        "crlf-checkout",
+        "windows-first-run (ubuntu-latest)",
+        "windows-first-run (windows-latest)"
       ],
       "enforceAdmins": false
     }
@@ -500,7 +503,10 @@
           "package-policy",
           "supply-chain",
           "gui-build",
-          "node26-compatibility"
+          "node26-compatibility",
+          "crlf-checkout",
+          "windows-first-run (ubuntu-latest)",
+          "windows-first-run (windows-latest)"
         ],
         "workflowJobs": [
           "pr-body-lint",
@@ -574,7 +580,10 @@
             "package-policy",
             "supply-chain",
             "gui-build",
-            "node26-compatibility"
+            "node26-compatibility",
+            "crlf-checkout",
+            "windows-first-run (ubuntu-latest)",
+            "windows-first-run (windows-latest)"
           ]
         },
         "classes": [
@@ -690,7 +699,8 @@
       ],
       "githubContext": {
         "requiredContexts": [
-          "boundaries"
+          "boundaries",
+          "crlf-checkout"
         ],
         "workflowJobs": [
           "boundaries",
@@ -734,7 +744,8 @@
         "branchProtection": {
           "required": true,
           "contexts": [
-            "boundaries"
+            "boundaries",
+            "crlf-checkout"
           ]
         },
         "classes": [
@@ -836,7 +847,8 @@
       "githubContext": {
         "requiredContexts": [
           "fast-contract",
-          "node26-compatibility"
+          "node26-compatibility",
+          "crlf-checkout"
         ],
         "workflowJobs": [
           "fast-contract",
@@ -881,7 +893,8 @@
           "required": true,
           "contexts": [
             "fast-contract",
-            "node26-compatibility"
+            "node26-compatibility",
+            "crlf-checkout"
           ]
         },
         "classes": [
@@ -919,7 +932,8 @@
       "githubContext": {
         "requiredContexts": [
           "fast-contract",
-          "node26-compatibility"
+          "node26-compatibility",
+          "crlf-checkout"
         ],
         "workflowJobs": [
           "fast-contract",
@@ -965,7 +979,8 @@
           "required": true,
           "contexts": [
             "fast-contract",
-            "node26-compatibility"
+            "node26-compatibility",
+            "crlf-checkout"
           ]
         },
         "classes": [
@@ -4355,8 +4370,8 @@
       "id": "windows-first-run",
       "command": "npm run harness:windows-first-run",
       "category": "smoke",
-      "tier": "pr-advisory",
-      "tierReason": "Runs on every pull request but is not yet a required context: the windows-latest arm has never been green, and requiring a context that cannot pass would block every merge including the one that fixes it. Promotion condition: the windows-latest arm green on main.",
+      "tier": "pr-required",
+      "tierReason": null,
       "authoritySource": [
         "tools/gates/windows-first-run.mjs",
         ".github/workflows/rewrite-ci.yml"
@@ -4365,7 +4380,10 @@
         "First-run product path on every supported platform: init, resident daemon, task and fact publication, ledger clone fidelity, and daemon stop"
       ],
       "githubContext": {
-        "requiredContexts": [],
+        "requiredContexts": [
+          "windows-first-run (ubuntu-latest)",
+          "windows-first-run (windows-latest)"
+        ],
         "workflowJobs": [
           "windows-first-run"
         ],
@@ -4404,8 +4422,11 @@
           ]
         },
         "branchProtection": {
-          "required": false,
-          "contexts": []
+          "required": true,
+          "contexts": [
+            "windows-first-run (ubuntu-latest)",
+            "windows-first-run (windows-latest)"
+          ]
         },
         "classes": [
           "local",
