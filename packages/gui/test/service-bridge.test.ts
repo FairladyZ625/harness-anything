@@ -120,7 +120,7 @@ test("GUI entity write channel validates then installs an Agent and preserves a 
   const previous = { userRoot: process.env.HARNESS_DAEMON_USER_ROOT, daemonId: process.env.HARNESS_DAEMON_ID, repoId: process.env.HARNESS_DAEMON_REPO_ID };
   Object.assign(process.env, fixture.env);
   try {
-    const bridge = createLocalGuiServiceBridge(fixture.rootDir), scope = { repoId: fixture.repoId }, agentDeclaration = { schema: "agent-declaration/v1", id: "gui-created-agent", name: "GUI Created Agent", instructions: "Keep the roster intact.\nSecond line.", runtime_type: "any", model: "gpt-5.6-terra", skills: ["review"], prompts: ["prompt://gui"], preset: "standard-task" };
+    const bridge = createLocalGuiServiceBridge(fixture.rootDir), scope = { repoId: fixture.repoId }, agentDeclaration = { schema: "agent-declaration/v1", id: "gui-created-agent", name: "GUI Created Agent", instructions: "Keep the roster intact.\nSecond line.", runtime_type: "any", model: "gpt-5.6-terra", skills: [{ id: "review", path: "skills/review" }], prompts: ["prompt://gui"], preset: "standard-task" };
     const agentReceipt = parseDaemonGuiActionResponse("repo.agent.entity.write", await bridge.invoke("saveAgent", { ...scope, declaration: agentDeclaration }));
     assert.equal(agentReceipt.ok, true, JSON.stringify(agentReceipt)); assert.equal(agentReceipt.outcome, "applied");
     const roster = "## GUI Squad\n\n  GUI Created Agent\n\n";

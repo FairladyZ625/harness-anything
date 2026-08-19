@@ -149,7 +149,7 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.receipt.show", { opId: "op_A" }],
     ["repo.gui.catalog.reread", {}],
     ["repo.agentRuntime.spawn", { runtimeInstanceId: "instance-codex", cwd: { scope: "repo-root" }, prompt: "Inspect", taskId: null, idempotencyKey: "runtime-once" }],
-    ["repo.agent.entity.write", { declaration: { schema: "agent-declaration/v1", id: "gui-created-agent", name: "GUI Created Agent", instructions: "Keep the roster intact.\nSecond line.", runtime_type: "any", model: "gpt-5.6-terra", skills: ["review"], prompts: ["prompt://gui"], preset: "standard-task" } }],
+    ["repo.agent.entity.write", { declaration: { schema: "agent-declaration/v1", id: "gui-created-agent", name: "GUI Created Agent", instructions: "Keep the roster intact.\nSecond line.", runtime_type: "any", model: "gpt-5.6-terra", skills: [{ id: "review", path: "skills/review" }], prompts: ["prompt://gui"], preset: "standard-task" } }],
     ["repo.squad.entity.write", { declaration: { schema: "squad-declaration/v1", id: "gui-created-squad", name: "GUI Created Squad", leader: "gui-created-agent", workers: ["gui-created-agent"], roster: "## GUI Squad\n\n  GUI Created Agent\n\n" } }],
     ["repo.agentRuntime.cancel", { runtimeSessionId: "runtime-session-a" }],
     ["repo.terminal.spawn", { idempotencyKey: "terminal-once", name: "Shell", cwd: { scope: "repo-root" }, shellProfileId: "default" }],
