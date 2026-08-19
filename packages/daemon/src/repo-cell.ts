@@ -20,6 +20,7 @@ import type { FleetAssignmentScope } from "./fleet/contract.ts";
 import { openReplicaCutSource, type ReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import { runVerticalScriptAction } from "./vertical-script-actions.ts";
 import { makeRuntimeSpawner, type RuntimeLauncher } from "./runtime-spawn.ts";
+import type { ResolvedAgentSkill } from "./agent-skills.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -44,7 +45,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
   readonly authoredBranch?: string;
   readonly runtimeLaunch?: RuntimeLauncher;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
-  readonly prepareRuntimeLaunch?: (instanceId: string, request: { readonly cwd: string; readonly prompt: string; readonly model?: string; readonly providerSessionId?: string }) => PreparedRuntimeLaunch;
+  readonly prepareRuntimeLaunch?: (instanceId: string, request: { readonly cwd: string; readonly prompt: string; readonly model?: string; readonly effort?: string; readonly providerSessionId?: string; readonly skillRoot?: string; readonly skills?: readonly ResolvedAgentSkill[] }) => PreparedRuntimeLaunch;
   readonly bootstrap?: RepoBootstrapInput; readonly onBootstrap?: (receipt: RepoBootstrapReceipt) => void;
   readonly now?: () => string; readonly runtimeFile?: string; readonly killpoint?: (point: EventPublicationKillpoint) => void; readonly shouldStop?: () => boolean }): Promise<RepoCell> {
   const rootDir = input.rootDir, mode = input.mode ?? "local", now = input.now ?? (() => new Date().toISOString()), runtimeAdmission = makeDaemonRuntimeAdmissionGuard({ ...(input.runtimeFile ? { runtimeFile: input.runtimeFile } : {}), nowMs: () => Date.parse(now()) }); runtimeAdmission.assert(rootDir, true); const lock = await acquireWorkspaceLock(rootDir), generation = Date.now() * 1_000 + process.pid % 1_000;

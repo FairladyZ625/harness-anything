@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { parseThinCommand } from "../../cli/src/cli/thin-command.ts";
 import { discoverRuntimeInstallations, openRuntimeInstanceStore, type RuntimeAuthReadiness, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import { resolveAgentSkills } from "../src/agent-skills.ts";
 import { daemonProtocolCommands } from "../src/protocol/daemon-protocol.contract.ts";
 
 const observed: RuntimeInstallationWitness = { installationId: "codex-installation-test", kindId: "codex", executablePath: "/opt/runtime-test/codex", version: "0.146.1", observedAt: "2026-08-15T00:00:00.000Z" };
@@ -62,6 +63,11 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
     assert.equal(launch.prompt, "Inspect"); assert.equal(launch.cwd, "/workspace/repo");
     assert.equal(statSync(path.join(userRoot, "runtime-instances.json")).mode & 0o777, 0o600); for (const directory of [stateRoot, ...["home", "tmp", "run"].map((name) => path.join(stateRoot, name))]) assert.equal(statSync(directory).mode & 0o777, 0o700, directory);
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+test("runtime kinds receive the same declared skill through their distinct native discovery mounts", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-skill-mounts-")), rootDir = path.join(parent, "repo"), skillDir = path.join(rootDir, "harness", "skills", "probe"), userRoot = path.join(parent, "user"), installations = (["codex", "claude", "agy"] as const).map((kindId) => ({ installationId: `${kindId}-skills`, kindId, executablePath: `/opt/runtime-test/${kindId}`, version: "1.0.0", observedAt: "2026-08-20T00:00:00.000Z" }));
+  try { mkdirSync(skillDir, { recursive: true }); writeFileSync(path.join(skillDir, "SKILL.md"), "---\nname: probe\ndescription: Probe\n---\nPROVIDER_SKILL\n"); const skills = resolveAgentSkills({ rootDir, skills: [{ id: "probe", path: "skills/probe" }] }), store = openRuntimeInstanceStore({ userRoot, discover: () => installations, subscriptionReady: () => ({ status: "ready", code: null, hint: null }) }); for (const installation of installations) store.create({ schemaVersion: 2, instanceId: `${installation.kindId}-skills`, name: `${installation.kindId} skills`, kindId: installation.kindId, installationId: installation.installationId, providerId: installation.kindId, models: ["skill-model"], defaultModel: "skill-model", enabled: true, ...(installation.kindId === "codex" ? { codex: {} } : installation.kindId === "claude" ? { claude: {} } : { agy: {} }), auth: { mode: "subscription" } }); const launches = installations.map((installation) => ({ kindId: installation.kindId, launch: store.prepareLaunch(`${installation.kindId}-skills`, { cwd: rootDir, prompt: "Use probe", skillRoot: skills[0]!.rootDir, skills }) })); const codex = launches.find(({ kindId }) => kindId === "codex")!.launch, claude = launches.find(({ kindId }) => kindId === "claude")!.launch, agy = launches.find(({ kindId }) => kindId === "agy")!.launch, claudePlugin = claude.args[claude.args.indexOf("--plugin-dir") + 1]!, agyWorkspace = agy.args[agy.args.indexOf("--add-dir") + 1]!; assert.equal(readFileSync(path.join(codex.env.CODEX_HOME!, "skills", "probe", "SKILL.md"), "utf8").includes("PROVIDER_SKILL"), true); assert.equal(readFileSync(path.join(claudePlugin, "skills", "probe", "SKILL.md"), "utf8").includes("PROVIDER_SKILL"), true); assert.equal(readFileSync(path.join(agyWorkspace, ".agents", "skills", "probe", "SKILL.md"), "utf8").includes("PROVIDER_SKILL"), true); assert.equal(claude.args[claude.args.indexOf("--plugin-dir")], "--plugin-dir"); assert.equal(agy.args[agy.args.indexOf("--add-dir")], "--add-dir"); } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
 test("API-key launch fails closed on a missing key or installation without checking subscription auth", () => {

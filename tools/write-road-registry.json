@@ -31,6 +31,7 @@
   ],
   "physicalWriteFiles": [
     "packages/daemon/src/agent-entities.ts",
+    "packages/daemon/src/agent-skills.ts",
     "packages/daemon/src/agent-runtime-instances.ts",
     "packages/daemon/src/daemon-singleton.ts",
     "packages/daemon/src/dispatch-stream.ts",
