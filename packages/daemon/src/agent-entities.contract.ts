@@ -49,6 +49,49 @@ function isEntityRecord(value: unknown): value is Record<string, unknown> { retu
 export function entityNonEmpty(value: unknown): value is string { return typeof value === "string" && value.trim().length > 0; }
 function nonEmptyStrings(value: unknown): boolean { return Array.isArray(value) && value.every(entityNonEmpty); }
 export function entitySlug(value: unknown): value is string { return typeof value === "string" && /^[a-z0-9][a-z0-9-]{0,63}$/u.test(value); }
+// GUI read envelopes for the identity layers. These validators live in this pure contract
+// module (no runtime imports) because the schema-closure gate imports them from a checkout
+// with no installed dependencies; packages/daemon/src/agent-entities.ts keeps the reads.
+const entityWireSecretKeys = /(?:^|[-_])(?:api[-_]?key|credential|passphrase|password|secret|token)(?:$|[-_])/iu;
+const entityIssueRow = (value: unknown): readonly string[] => isEntityRecord(value) && entityNonEmpty(value.code) && entityNonEmpty(value.message) ? [] : ["issues entries must carry non-empty code and message strings."];
+function entityReadEnvelopeErrors(value: unknown, schema: string, fields: readonly string[]): readonly string[] {
+  if (!isEntityRecord(value)) return [`${schema} must be a JSON object.`];
+  const errors: string[] = [];
+  if (value.schema !== schema) errors.push(`${schema} must declare its own schema id.`);
+  if (value.ok !== true) errors.push(`${schema} must carry ok=true like every GUI read result.`);
+  for (const field of Object.keys(value).filter((field) => !fields.includes(field))) errors.push(`${schema} field "${field}" is unknown; remove it.`);
+  for (const field of fields.filter((field) => !Object.hasOwn(value, field))) errors.push(`${schema} is missing required field "${field}".`);
+  if (Object.keys(value).some((field) => entityWireSecretKeys.test(field))) errors.push(`${schema} carries a forbidden credential-shaped key.`);
+  return errors;
+}
+function entityReadRowErrors(value: unknown, fields: readonly string[], prefix: string): readonly string[] {
+  if (!isEntityRecord(value)) return [`${prefix} must be a JSON object.`];
+  const errors: string[] = [];
+  for (const field of Object.keys(value).filter((field) => !fields.includes(field))) errors.push(`${prefix} field "${field}" is unknown; remove it.`);
+  for (const field of fields.filter((field) => !Object.hasOwn(value, field))) errors.push(`${prefix} is missing required field "${field}".`);
+  if (Object.keys(value).some((field) => entityWireSecretKeys.test(field))) errors.push(`${prefix} carries a forbidden credential-shaped key.`);
+  return errors;
+}
+const agentCatalogRowFields = Object.freeze(["id", "name", "runtimeType", "layer", "validity", "issues"]), squadCatalogRowFields = Object.freeze(["id", "name", "leader", "workers", "layer", "validity", "issues"]), agentDetailFields = Object.freeze(["id", "name", "runtimeType", "instructions", "skills", "prompts", "preset"]), squadDetailFields = Object.freeze(["id", "name", "leader", "workers", "roster"]);
+function catalogErrors(value: unknown, schema: string, field: "agents" | "squads", rowFields: readonly string[], rowChecks: (row: Record<string, unknown>) => readonly string[]): readonly string[] {
+  const errors = [...entityReadEnvelopeErrors(value, schema, ["schema", "ok", field])];
+  if (!isEntityRecord(value) || !Array.isArray(value[field])) return [...errors, `${schema} field "${field}" must be an array.`];
+  value[field].forEach((row, index) => errors.push(...entityReadRowErrors(row, rowFields, `${field}[${index}]`), ...(isEntityRecord(row) ? rowChecks(row) : []), ...(isEntityRecord(row) && Array.isArray(row.issues) ? row.issues.flatMap(entityIssueRow) : [`${field}[${index}] field "issues" must be an array.`])));
+  return errors;
+}
+function detailErrors(value: unknown, schema: string, field: "agent" | "squad", detailFields: readonly string[], rowChecks: (row: Record<string, unknown>) => readonly string[]): readonly string[] {
+  const errors = [...entityReadEnvelopeErrors(value, schema, ["schema", "ok", field])];
+  if (!isEntityRecord(value) || !isEntityRecord(value[field])) return [...errors, `${schema} field "${field}" must be an object.`];
+  return [...errors, ...entityReadRowErrors(value[field], detailFields, field), ...rowChecks(value[field] as Record<string, unknown>)];
+}
+const catalogRowChecks = (row: Record<string, unknown>): readonly string[] => [!(entityNonEmpty(row.id) && entityNonEmpty(row.name)) ? ["catalog rows need non-empty id and name."] : [], row.validity !== undefined && !["valid", "blocked"].includes(String(row.validity)) ? ["catalog row validity must be valid or blocked."] : []].flat();
+const agentDetailChecks = (row: Record<string, unknown>): readonly string[] => [!(entityNonEmpty(row.id) && entityNonEmpty(row.name) && entityNonEmpty(row.runtimeType) && entityNonEmpty(row.instructions)) ? ["agent detail needs non-empty id, name, runtimeType, and instructions."] : [], row.skills !== undefined && !nonEmptyStrings(row.skills) ? ["agent detail skills must be an array of non-empty strings."] : [], row.prompts !== undefined && !nonEmptyStrings(row.prompts) ? ["agent detail prompts must be an array of non-empty strings."] : [], row.preset !== null && row.preset !== undefined && !entityNonEmpty(row.preset) ? ["agent detail preset must be null or a non-empty preset id."] : []].flat();
+const squadDetailChecks = (row: Record<string, unknown>): readonly string[] => [!(entityNonEmpty(row.id) && entityNonEmpty(row.name) && entitySlug(row.leader) && entityNonEmpty(row.roster)) ? ["squad detail needs non-empty id, name, roster, and a slug leader."] : [], !Array.isArray(row.workers) || !nonEmptyStrings(row.workers) || !row.workers.every(entitySlug) ? ["squad detail workers must be an array of agent slugs."] : []].flat();
+export function validateAgentEntityCatalog(value: unknown): readonly string[] { return catalogErrors(value, "agent-entity-catalog/v1", "agents", agentCatalogRowFields, catalogRowChecks); }
+export function validateSquadEntityCatalog(value: unknown): readonly string[] { return catalogErrors(value, "squad-entity-catalog/v1", "squads", squadCatalogRowFields, catalogRowChecks); }
+export function validateAgentEntityDetail(value: unknown): readonly string[] { return detailErrors(value, "agent-entity-detail/v1", "agent", agentDetailFields, agentDetailChecks); }
+export function validateSquadEntityDetail(value: unknown): readonly string[] { return detailErrors(value, "squad-entity-detail/v1", "squad", squadDetailFields, squadDetailChecks); }
+export const serializeAgentEntityCatalog = (value: unknown): string => serializeEntity(value, validateAgentEntityCatalog), serializeSquadEntityCatalog = (value: unknown): string => serializeEntity(value, validateSquadEntityCatalog), serializeAgentEntityDetail = (value: unknown): string => serializeEntity(value, validateAgentEntityDetail), serializeSquadEntityDetail = (value: unknown): string => serializeEntity(value, validateSquadEntityDetail);
 const schemaDeclaration = (id: string, name: string, fixture: string) => ({ id, schema: `packages/daemon/src/agent-entities.contract.ts#${name}_SCHEMA`, parser: `packages/daemon/src/agent-entities.contract.ts#validate${name.split("_").map((part) => part[0]! + part.slice(1).toLowerCase()).join("")}`, writer: `packages/daemon/src/agent-entities.contract.ts#serialize${name.split("_").map((part) => part[0]! + part.slice(1).toLowerCase()).join("")}`, error: "packages/daemon/src/agent-entities.contract.ts#AgentEntityContractError", negativeFixtures: Object.freeze([`packages/daemon/fixtures/contracts/${fixture}`]) });
 export const agentEntitySchemas = Object.freeze([schemaDeclaration("agent-declaration/v1", "AGENT_DECLARATION_V1", "agent-declaration-v1-invalid.json"), schemaDeclaration("squad-declaration/v1", "SQUAD_DECLARATION_V1", "squad-declaration-v1-invalid.json")]);
 export default Object.freeze({ id: "agent-entities-v1", phases: Object.freeze(["Agent-Entities-A"]), commands: Object.freeze([]), methods: Object.freeze([]), gates: Object.freeze([]), guards: Object.freeze([]), schemas: agentEntitySchemas });

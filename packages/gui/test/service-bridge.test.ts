@@ -21,7 +21,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     repoId: process.env.HARNESS_DAEMON_REPO_ID };
   Object.assign(process.env, fixture.env);
   try {
-    writeTriadicLedger(fixture.rootDir);
+    writeTriadicLedger(fixture.rootDir); seedEntityDeclarations(fixture.rootDir);
     const bridge = createLocalGuiServiceBridge(fixture.rootDir), executionId = "execution-gui-bridge", scope = { repoId: fixture.repoId };
     const started = parseDaemonGuiActionResponse("repo.task.start", await bridge.invoke("startTask", { ...scope, taskId: "task-gui-smoke", executionId }));
     assert.equal(started.ok, true, JSON.stringify(started)); assert.equal(started.outcome, "applied");
@@ -43,6 +43,8 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
         : contract.id === "tasks.documents.list" || contract.id === "task.dispatches" ? { ...scope, taskId: "task-gui-smoke" }
         : contract.id === "agentRuntime.sessions.read" ? { ...scope, runtimeSessionId: "runtime-gui" }
         : contract.id === "agentRuntime.events.read" ? { ...scope, runtimeSessionId: "runtime-gui", afterCursor: "lifecycle:0" }
+        : contract.id === "agent.entity.read" ? { ...scope, agentId: "terra" }
+        : contract.id === "squad.entity.read" ? { ...scope, squadId: "core-squad" }
         : contract.id === "gui.catalog.preset.read" ? { ...scope, presetId: catalog.defaults.presetId }
         : scope;
       const result = await bridge.invoke(contract.guiBridgeMethod, payload);
@@ -52,6 +54,15 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       results.set(contract.method, result);
     }
     assert.deepEqual([...results.keys()], daemonGuiReadMethods.map(({ method }) => method));
+    const agentCatalog = parseDaemonGuiReadResult("repo.agent.entities.list", results.get("repo.agent.entities.list"));
+    assert.equal(agentCatalog.ok, true); assert.deepEqual(agentCatalog.agents.map(({ id }) => id), ["terra"]);
+    assert.deepEqual(agentCatalog.agents[0] && { runtimeType: agentCatalog.agents[0].runtimeType, layer: agentCatalog.agents[0].layer, validity: agentCatalog.agents[0].validity }, { runtimeType: "codex", layer: "user", validity: "valid" });
+    const agentDetail = parseDaemonGuiReadResult("repo.agent.entity.read", results.get("repo.agent.entity.read"));
+    assert.equal(agentDetail.ok, true); assert.deepEqual(agentDetail.agent && { id: agentDetail.agent.id, instructions: agentDetail.agent.instructions }, { id: "terra", instructions: "Review precisely." });
+    const squadCatalog = parseDaemonGuiReadResult("repo.squad.entities.list", results.get("repo.squad.entities.list"));
+    assert.equal(squadCatalog.ok, true); assert.deepEqual(squadCatalog.squads.map(({ id }) => id), ["core-squad"]);
+    const squadDetail = parseDaemonGuiReadResult("repo.squad.entity.read", results.get("repo.squad.entity.read"));
+    assert.equal(squadDetail.ok, true); assert.deepEqual(squadDetail.squad && { leader: squadDetail.squad.leader, workers: squadDetail.squad.workers }, { leader: "terra", workers: ["terra"] });
     const tasks = parseDaemonGuiReadResult("repo.tasks.list", results.get("repo.tasks.list"));
     assert.deepEqual(tasks.rows.map(({ taskId }) => taskId), ["task-gui-smoke"]);
     assert.equal(tasks.rows[0]?.snapshot.task?.title, "Resident GUI task");
@@ -207,3 +218,4 @@ function seedRuntime(rootDir: string, repoId: string): void { const store = make
   ] as const; for (const [index, [type, payload]] of values.entries()) { const revision = base + index + 1, event = { schema: "agent-runtime-event/v1", eventId: `event-runtime-gui-${revision}`, workspaceRevision: revision, opId: `op-runtime-gui-${revision}`, actor: { principal: { personId: "person-gui" }, executor: null }, source: "local", occurredAt: `2026-08-13T00:00:0${index}.000Z`, type, payload } as AgentRuntimeEventV1; store.append({ event, plan: runtimeWritePlan(event), blobs: [] }); }
   seedTriadicEvents(rootDir, repoId); }
 function runtimeWritePlan(event: AgentRuntimeEventV1): FrozenWritePlan { return Object.freeze({ commandType: event.type, targets: Object.freeze([{ kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" }, { kind: "event_head", path: "harness/events/head.json", operation: "replace" }, { kind: "projection_invalidation", projection: "agent-runtime/v1", key: event.opId }].map((target) => Object.freeze(target))) }) as FrozenWritePlan; }
+function seedEntityDeclarations(rootDir: string): void { const agent = { schema: "agent-declaration/v1", id: "terra", name: "Terra", instructions: "Review precisely.", runtime_type: "codex", skills: ["review"], prompts: ["prompt://review"], preset: "standard-task" }, squad = { schema: "squad-declaration/v1", id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: "# Core Squad\n\nTerra leads review." }; for (const declaration of [agent, squad]) { const store = path.join(rootDir, ".harness", "schema" in declaration && declaration.schema === "agent-declaration/v1" ? "agents" : "squads"); mkdirSync(store, { recursive: true }); writeFileSync(path.join(store, `${declaration.id}.json`), `${JSON.stringify(declaration, null, 2)}\n`); } }

@@ -1,0 +1,12 @@
+{
+  "schema": "agent-entity-detail/v1",
+  "agent": {
+    "id": "terra",
+    "name": "Terra",
+    "runtimeType": "codex",
+    "instructions": "Review precisely.",
+    "skills": ["review"],
+    "prompts": ["prompt://review"],
+    "preset": null
+  }
+}

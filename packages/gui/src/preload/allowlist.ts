@@ -1,4 +1,5 @@
 import { daemonGuiActionMethods, daemonGuiReadMethods, daemonGuiStreamFacets } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { containsSecretLikeKey } from "../api/entity-payload-hygiene.ts";
 export const HARNESS_PRELOAD_API = "harness";
 export const localMainPreloadMethods = ["listRuntimeInstances", "showRuntimeInstance", "createRuntimeInstance", "updateRuntimeInstance", "deleteRuntimeInstance", "validateRuntimeInstanceAuth", "signInRuntimeInstance", "reauthRuntimeInstance", "signOutRuntimeInstance"] as const;
 export type PreloadApiMethod = (typeof daemonGuiReadMethods)[number]["guiBridgeMethod"] | (typeof daemonGuiActionMethods)[number]["guiBridgeMethod"] | (typeof daemonGuiStreamFacets)[number]["guiBridgeMethod"] | (typeof localMainPreloadMethods)[number];
@@ -55,8 +56,8 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
 // api-key mode; main stores it in the native vault and the daemon receives just an
 // opaque reference. Every other secret-like key name — at any depth, on any
 // method, including `apiKey` nested inside a kind config — stays rejected.
-function containsSecretLikeKey(value: unknown, exemptTopLevelApiKey = false): boolean { if (Array.isArray(value)) return value.some((item) => containsSecretLikeKey(item)); if (!isPreloadPayloadRecord(value)) return false; return Object.entries(value).some(([key, nested]) => (isSecretLikeKey(key) && !(exemptTopLevelApiKey && key === "apiKey")) || containsSecretLikeKey(nested)); }
-function isSecretLikeKey(key: string): boolean { return /(?:secret|token|password|passphrase)/iu.test(key) || /^(?:api[-_]?key|credential(?:ref|value))$/iu.test(key); }
+// (containsSecretLikeKey itself lives in api/entity-payload-hygiene.ts, shared with
+// the renderer read clients so the credential vocabulary stays out of renderer source.)
 function validRuntimeKindConfig(value: Record<string, unknown>): boolean { const field = value.kindId === "codex" ? "codex" : "claude", other = field === "codex" ? "claude" : "codex", config = value[field]; if (value[other] !== undefined || !isPreloadPayloadRecord(config)) return false; if (field === "claude") return closed(config, ["baseUrl"]) && (config.baseUrl === undefined || typeof config.baseUrl === "string"); return closed(config, ["reasoningEffort", "baseUrl", "wireApi", "requiresOpenAiAuth", "httpHeaders"]) && (config.reasoningEffort === undefined || typeof config.reasoningEffort === "string") && (config.baseUrl === undefined || typeof config.baseUrl === "string") && (config.wireApi === undefined || typeof config.wireApi === "string") && (config.requiresOpenAiAuth === undefined || typeof config.requiresOpenAiAuth === "boolean") && (config.httpHeaders === undefined || isPreloadPayloadRecord(config.httpHeaders) && Object.values(config.httpHeaders).every((item) => typeof item === "string")); }
 function exactStrings(value: unknown, fields: readonly string[]): boolean { return isPreloadPayloadRecord(value) && Object.keys(value).length === fields.length && fields.every((field) => typeof value[field] === "string" && String(value[field]).length > 0); }
 function closed(value: Record<string, unknown>, fields: readonly string[]): boolean { return Object.keys(value).every((key) => fields.includes(key)); }

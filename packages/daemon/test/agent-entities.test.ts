@@ -64,12 +64,13 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
     writeEntity(source, "terra", "agent", agent); writeEntity(source, "core-squad", "squad", squad);
     run({ rootDir, kind: "agent-install", packageSource: path.join(source, "terra") }); run({ rootDir, kind: "squad-install", packageSource: path.join(source, "core-squad") });
     const agentRows = readAgentEntityGuiProjection({ rootDir, kind: "agent-list" }), squadRows = readAgentEntityGuiProjection({ rootDir, kind: "squad-list" });
-    assert.equal(agentRows.schema, "agent-entity-catalog/v1");
+    assert.equal(agentRows.schema, "agent-entity-catalog/v1"); assert.equal(agentRows.ok, true);
     assert.deepEqual(agentRows.agents.map(({ id, runtimeType, layer, validity }) => ({ id, runtimeType, layer, validity })), [{ id: "terra", runtimeType: "codex", layer: "user", validity: "valid" }]);
     assert.deepEqual(Object.keys(agentRows.agents[0]!).sort(), ["id", "issues", "layer", "name", "runtimeType", "validity"]);
-    assert.equal(squadRows.schema, "squad-entity-catalog/v1");
+    assert.equal(squadRows.schema, "squad-entity-catalog/v1"); assert.equal(squadRows.ok, true);
     assert.deepEqual(squadRows.squads.map(({ id, leader, workers }) => ({ id, leader, workers })), [{ id: "core-squad", leader: "terra", workers: ["terra"] }]);
     const agentDetail = readAgentEntityGuiProjection({ rootDir, kind: "agent-inspect", entityId: "terra" }), squadDetail = readAgentEntityGuiProjection({ rootDir, kind: "squad-inspect", entityId: "core-squad" });
+    assert.equal(agentDetail.ok, true); assert.equal(squadDetail.ok, true);
     assert.deepEqual(agentDetail.agent, { id: "terra", name: "Terra", runtimeType: "codex", instructions: "Review precisely.", skills: ["review"], prompts: ["prompt://review"], preset: "standard-task" });
     assert.deepEqual(squadDetail.squad, { id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: squad.roster });
     assert.throws(() => readAgentEntityGuiProjection({ rootDir, kind: "agent-inspect", entityId: "unknown" }), (error: unknown) => (error as { code?: string }).code === "agent_not_found");

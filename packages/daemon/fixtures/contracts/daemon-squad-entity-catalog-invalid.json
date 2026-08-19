@@ -1,0 +1,15 @@
+{
+  "schema": "squad-entity-catalog/v1",
+  "ok": true,
+  "squads": [
+    {
+      "id": "core-squad",
+      "name": "Core Squad",
+      "leader": "terra",
+      "workers": ["terra"],
+      "layer": "user",
+      "validity": "sideways",
+      "issues": []
+    }
+  ]
+}

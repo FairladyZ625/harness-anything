@@ -10,10 +10,10 @@ export interface SquadEntityGuiRow { readonly id: string; readonly name: string;
 export interface AgentEntityGuiDetail { readonly id: string; readonly name: string; readonly runtimeType: string; readonly instructions: string; readonly skills: readonly string[]; readonly prompts: readonly string[]; readonly preset: string | null }
 export interface SquadEntityGuiDetail { readonly id: string; readonly name: string; readonly leader: string; readonly workers: readonly string[]; readonly roster: string }
 export type AgentEntityGuiRead =
-  | { readonly schema: "agent-entity-catalog/v1"; readonly agents: readonly AgentEntityGuiRow[] }
-  | { readonly schema: "squad-entity-catalog/v1"; readonly squads: readonly SquadEntityGuiRow[] }
-  | { readonly schema: "agent-entity-detail/v1"; readonly agent: AgentEntityGuiDetail }
-  | { readonly schema: "squad-entity-detail/v1"; readonly squad: SquadEntityGuiDetail };
+  | { readonly schema: "agent-entity-catalog/v1"; readonly ok: true; readonly agents: readonly AgentEntityGuiRow[] }
+  | { readonly schema: "squad-entity-catalog/v1"; readonly ok: true; readonly squads: readonly SquadEntityGuiRow[] }
+  | { readonly schema: "agent-entity-detail/v1"; readonly ok: true; readonly agent: AgentEntityGuiDetail }
+  | { readonly schema: "squad-entity-detail/v1"; readonly ok: true; readonly squad: SquadEntityGuiDetail };
 export interface EntityValidationReport { readonly schema: "entity-validate-report/v1"; readonly valid: boolean; readonly source: string; readonly kind?: AgentEntityKind; readonly entity?: { readonly id: string }; readonly issues: readonly { readonly code: string; readonly message: string }[] }
 
 const manifestName = { agent: "agent.json", squad: "squad.json" } as const;
@@ -27,10 +27,10 @@ export function runAgentEntityAction(input: { readonly rootDir: string; readonly
 }
 export function readAgentEntityGuiProjection<const K extends "agent-list" | "squad-list" | "agent-inspect" | "squad-inspect">(input: { readonly rootDir: string; readonly kind: K; readonly entityId?: string }): K extends "agent-list" ? Extract<AgentEntityGuiRead, { readonly schema: "agent-entity-catalog/v1" }> : K extends "squad-list" ? Extract<AgentEntityGuiRead, { readonly schema: "squad-entity-catalog/v1" }> : K extends "agent-inspect" ? Extract<AgentEntityGuiRead, { readonly schema: "agent-entity-detail/v1" }> : Extract<AgentEntityGuiRead, { readonly schema: "squad-entity-detail/v1" }> {
   const action = input.kind.endsWith("-inspect") ? { kind: input.kind, [input.kind === "agent-inspect" ? "agentId" : "squadId"]: requiredEntityText(input.entityId, "entityId") } : { kind: input.kind }, evidence = agentEntityRecord(runAgentEntityAction({ rootDir: input.rootDir, action }));
-  if (input.kind === "agent-list") return { schema: "agent-entity-catalog/v1", agents: Array.isArray(evidence.agents) ? evidence.agents.map(agentEntityRecord).map(agentEntityRow) : [] } as never;
-  if (input.kind === "squad-list") return { schema: "squad-entity-catalog/v1", squads: Array.isArray(evidence.squads) ? evidence.squads.map(agentEntityRecord).map(squadEntityRow) : [] } as never;
-  if (input.kind === "agent-inspect") { const agent = agentEntityRecord(evidence.agent); return { schema: "agent-entity-detail/v1", agent: { id: entityText(agent.id), name: entityText(agent.name), runtimeType: entityText(agent.runtime_type), instructions: entityText(agent.instructions), skills: entityStrings(agent.skills), prompts: entityStrings(agent.prompts), preset: agent.preset === undefined ? null : entityText(agent.preset) } } as never; }
-  const squad = agentEntityRecord(evidence.squad); return { schema: "squad-entity-detail/v1", squad: { id: entityText(squad.id), name: entityText(squad.name), leader: entityText(squad.leader), workers: entityStrings(squad.workers), roster: entityText(squad.roster) } } as never;
+  if (input.kind === "agent-list") return { schema: "agent-entity-catalog/v1", ok: true, agents: Array.isArray(evidence.agents) ? evidence.agents.map(agentEntityRecord).map(agentEntityRow) : [] } as never;
+  if (input.kind === "squad-list") return { schema: "squad-entity-catalog/v1", ok: true, squads: Array.isArray(evidence.squads) ? evidence.squads.map(agentEntityRecord).map(squadEntityRow) : [] } as never;
+  if (input.kind === "agent-inspect") { const agent = agentEntityRecord(evidence.agent); return { schema: "agent-entity-detail/v1", ok: true, agent: { id: entityText(agent.id), name: entityText(agent.name), runtimeType: entityText(agent.runtime_type), instructions: entityText(agent.instructions), skills: entityStrings(agent.skills), prompts: entityStrings(agent.prompts), preset: agent.preset === undefined ? null : entityText(agent.preset) } } as never; }
+  const squad = agentEntityRecord(evidence.squad); return { schema: "squad-entity-detail/v1", ok: true, squad: { id: entityText(squad.id), name: entityText(squad.name), leader: entityText(squad.leader), workers: entityStrings(squad.workers), roster: entityText(squad.roster) } } as never;
 }
 export function readAgentDeclaration(input: { readonly rootDir: string; readonly agentId: string }): AgentDeclarationV1 { return parseAgentDeclarationV1(readStoredDeclaration(input.rootDir, "agent", input.agentId)); }
 export function readSquadDeclaration(input: { readonly rootDir: string; readonly squadId: string }): SquadDeclarationV1 {
