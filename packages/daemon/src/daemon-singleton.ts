@@ -58,6 +58,12 @@ function readPidFile(target: string): number | null {
 function releaseIfHeld(lockPath: string, pid: number): void { if (readPidFile(lockPath) === pid) try { unlinkSync(lockPath); } catch (error) { if (!isCode(error, "ENOENT")) throw error; consumeKnownError(error); } }
 function processAlive(pid: number): boolean { try { process.kill(pid, 0); return true; } catch (error) { if (!isCode(error, "EPERM")) consumeKnownError(error); return isCode(error, "EPERM"); } }
 export function daemonProcessAlive(pid: number): boolean { return processAlive(pid); }
+/** A daemon removes its own pid file on the way out, but only when it gets to run shutdown.
+ * Windows has no signals: process.kill terminates unconditionally and no handler runs, so the
+ * file outlives the process and whoever killed it has to clear the bookkeeping (#1565). */
+export function releaseDaemonPidFile(userRoot: string, daemonId: string, pid: number): void {
+  releaseIfHeld(daemonPidPath(userRoot, daemonId), pid);
+}
 export async function daemonSocketProbe(socketPath: string): Promise<boolean> {
   return new Promise((resolve) => { const socket = net.createConnection(socketPath), finish = (up: boolean) => { socket.destroy(); resolve(up); }; const timer = setTimeout(() => finish(false), 250);
     socket.once("connect", () => { clearTimeout(timer); finish(true); }); socket.once("error", () => { clearTimeout(timer); finish(false); }); });
