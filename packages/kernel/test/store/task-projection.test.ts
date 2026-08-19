@@ -90,10 +90,14 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
       releasedRevision: interval.releasedRevision,
       reason: interval.reason
     })), [{ executionId: "execution-1", acquiredRevision: 2, releasedRevision: 3, reason: "initial_claim" }]);
+    const incrementalStateDigest = projection.readStateDigest();
+    if (incrementalStateDigest === null) assert.fail("a source-complete incremental projection must persist its state digest");
 
     rmSync(projection.path, { force: true });
     const rebuilt = projection.rebuild();
     assert.equal(rebuilt.watermark, 6);
+    assert.equal(rebuilt.stateDigest, incrementalStateDigest);
+    assert.equal(projection.readStateDigest(), incrementalStateDigest);
     assert.equal(rebuilt.metrics.reducedItems, 6);
     assert.equal(rebuilt.metrics.maxBatchItems <= 64, true);
     assert.deepEqual(projection.read("task-1").snapshot, first.snapshot);

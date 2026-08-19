@@ -34,7 +34,7 @@ function assertCurrentProcessBuild(baseline: RuntimeBuildBaseline | null): void 
 
 function assertProjectionSchema(rootDir: string): void {
   const projectionPath = defaultLifecycleTaskProjectionPath(rootDir), observed = readTaskProjectionSchemaVersion(projectionPath);
-  if (observed !== null && observed !== taskProjectionSchemaVersion) throw new DaemonAdmissionError("kernel_schema_mismatch", `kernel projection schema ${observed} does not match daemon schema ${taskProjectionSchemaVersion}; stop the daemon, remove ${projectionPath}, then restart so the projection is rebuilt.`);
+  if (observed !== null && observed > taskProjectionSchemaVersion) throw new DaemonAdmissionError("kernel_schema_mismatch", `kernel projection schema ${observed} is newer than daemon schema ${taskProjectionSchemaVersion}; run a daemon build that understands the cache before reopening ${projectionPath}.`);
 }
 
 function readBuildId(markerPath: string): string | null {

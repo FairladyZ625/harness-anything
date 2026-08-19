@@ -21,6 +21,7 @@ test("descriptor-derived RBAC preserves every preset, runtime, doc-sync, Fact, a
   const expected = {
     "migrate-import": "repo-write",
     "ledger-migrate": "repo-write",
+    "projection-rebuild": "repo-write",
     "task-create": "repo-write",
     "preset-list": "repo-read",
     "preset-inspect": "repo-read",
@@ -93,12 +94,24 @@ test("daemon repo registration derives its closed mode enum at the wire boundary
   const invalid = parseDaemonRpcParams("daemon.repo.register", { ...base, mode: "invalid" }); assert.equal(invalid.ok, false); if (!invalid.ok) assert.deepEqual(invalid.errors, ["params.mode must be one of local, remote-center, remote-edge"]);
 });
 
-test("ledger migrate runs through the RepoCell write queue and rebuilds the projection at the migrated cut", async () => {
+test("ledger migrate runs through the RepoCell write queue and reports its bounded projection catch-up", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-ledger-layout-migrate-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir); const flatEvent: TaskEventV1 = { schema: "task-event/v1", eventId: "event-flat-ledger", workspaceRevision: 1, opId: "migration-flat-ledger", taskId: "task_flat_ledger", type: "task_created", actor, source: "local", occurredAt: "2026-08-16T00:00:00.000Z", payload: { task: { schema: "task/v1", taskId: "task_flat_ledger", title: "Flat ledger", taskClass: "standard", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [], presetSnapshotDigest: null } } }, eventBody = serializeCanonicalEvent(flatEvent), eventsRoot = path.join(rootDir, "harness/events"); mkdirSync(eventsRoot, { recursive: true }); writeFileSync(path.join(eventsRoot, `${flatEvent.opId}.json`), eventBody); writeFileSync(path.join(eventsRoot, "head.json"), serializeEventHead({ revision: 1, opId: flatEvent.opId, eventDigest: `sha256:${sha256Text(eventBody)}` })); git(rootDir, "add", "harness/events"); git(rootDir, "commit", "--quiet", "-m", "flat ledger fixture");
     cell = await openRepoCell({ repoId: workspaceId("ledger-layout-migrate"), rootDir: canonicalRoot(rootDir), ownerId: "ledger-layout-migrate", now: () => "2026-08-16T00:00:01.000Z" }); const receipt = await cell.run({ kind: "ledger-migrate" }, { actor, source: "local" }) as Record<string, unknown>; assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); assert.equal(receipt.revision, 2); assert.equal(receipt.commitSha, git(rootDir, "rev-parse", "HEAD")); assert.deepEqual(git(rootDir, "ls-tree", "--name-only", "HEAD:harness/events").split("\n").filter((name) => name.endsWith(".json")), ["head.json"]); const projected = await cell.read("repo.tasks.list"); assert.equal(projected.status, "ready"); assert.equal(projected.watermark, 2); assert.equal(projected.rows.some(({ taskId }) => taskId === flatEvent.taskId), true);
     const repeated = await cell.run({ kind: "ledger-migrate" }, { actor, source: "local" }) as Record<string, unknown>; assert.equal(repeated.commitSha, receipt.commitSha); assert.equal(git(rootDir, "rev-list", "--count", "HEAD"), "3");
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("explicit projection rebuild is a local repair action with a source-complete digest", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-projection-rebuild-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("projection-rebuild"), rootDir: canonicalRoot(rootDir), ownerId: "projection-rebuild" });
+    await cell.run({ kind: "task-create", taskId: "task_projection_rebuild", title: "Projection rebuild" }, { actor, source: "local" });
+    const receipt = await cell.run({ kind: "projection-rebuild" }, { actor, source: "local" }) as Record<string, unknown>;
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); assert.equal(receipt.revision, 1); assert.equal((receipt.proof as { readonly committedRevision: number; readonly appliedCut: number }).appliedCut, 1);
+    const evidence = JSON.parse(String(receipt.evidence)) as { readonly stateDigest: string; readonly metrics: { readonly reducedItems: number } };
+    assert.match(evidence.stateDigest, /^sha256:[0-9a-f]{64}$/u); assert.equal(evidence.metrics.reducedItems, 1);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 

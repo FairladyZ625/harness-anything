@@ -22,6 +22,9 @@ test("daemon control renders status and registry mutation facts without json", (
     const status = runText(fixture, ["daemon", "status"]);
     assert.equal(status.status, 0, status.stderr); assert.match(status.stdout, /pid=\d+/u); assert.match(status.stdout, /repos=1/u);
 
+    const rebuilt = runText(fixture, ["daemon", "projection", "rebuild"]);
+    assert.equal(rebuilt.status, 0, rebuilt.stderr); assert.match(rebuilt.stdout, /stateDigest=sha256:[0-9a-f]{64}/u);
+
     const unregistered = runText(fixture, ["daemon", "repo", "unregister", "--repo-id", "receipt"]);
     assert.equal(unregistered.status, 0, unregistered.stderr); assert.match(unregistered.stdout, /repoId=receipt/u); assert.match(unregistered.stdout, /changed=true/u);
 

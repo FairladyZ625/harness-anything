@@ -4,9 +4,11 @@ import { execFileSync } from "node:child_process";
 import test from "node:test";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
 import { makeTaskEventStore, type CanonicalEventStore } from "../../src/store/task-event-store.ts";
+import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { compileFactWrite, type FactEventDraftV1 } from "../../src/domain/fact-event.ts";
+import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
 // Two ledgers at the same revision with different content is exactly the shape a genesis replay
@@ -50,6 +52,19 @@ test("event relation truth cannot cross a same-revision ledger identity", async 
   }); });
 });
 
+test("a cache ahead of a replacement source history is discarded before staged events can apply", async () => {
+  await withTempStoreAsync(async (rootA) => { await withTempStoreAsync(async (rootB) => {
+    const storeA = seedTaskLedger(rootA, "history-a", 6), storeB = seedTaskLedger(rootB, "history-b", 2), projectionA = makeTaskProjection({ rootDir: rootA, eventStore: storeA });
+    assert.equal(projectionA.read("task-1").watermark, 6);
+
+    const projectionB = makeTaskProjection({ rootDir: rootB, eventStore: storeB, projectionPath: projectionA.path });
+    const recovered = projectionB.read("task-1");
+    assert.deepEqual({ status: recovered.status, watermark: recovered.watermark, sourceRevision: recovered.sourceRevision }, { status: "ready", watermark: 2, sourceRevision: 2 });
+    assert.equal(recovered.snapshot.task?.status, "active");
+    assert.equal(projectionB.readOperation(lifecycleFixture().events[2]!.opId), null);
+  }); });
+});
+
 function seedLedger(rootDir: string, name: string, body: string): CanonicalEventStore {
   git(rootDir, "init", "--quiet");
   git(rootDir, "config", "user.name", "Identity Test");
@@ -69,6 +84,13 @@ function seedLedger(rootDir: string, name: string, body: string): CanonicalEvent
 function seedFactLedger(rootDir: string): CanonicalEventStore {
   git(rootDir, "init", "--quiet"); git(rootDir, "config", "user.name", "Identity Test"); git(rootDir, "config", "user.email", "identity-test@example.invalid"); git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
   const eventStore = makeTaskEventStore({ repoId: "relation-source", rootDir }), event: FactEventDraftV1 = { schema: "fact-event/v1", eventId: "event-relation-source", workspaceRevision: 1, opId: "op-relation-source", taskId: "task-identity", factId: "F-12345678", type: "fact_recorded", actor: { principal: { personId: "person-1" }, executor: null }, source: "local", occurredAt: "2026-08-18T00:00:00.000Z", payload: { statement: "Identity-bound fact", evidenceSource: "fixture", observedAt: "2026-08-18T00:00:00.000Z", confidence: "high", memoryClass: "semantic", memoryTags: [], provenance: [{ runtime: "human", sessionId: "identity", boundAt: "2026-08-18T00:00:00.000Z" }] } }, compiled = compileFactWrite({ event, packagePath: "tasks/task-identity-identity", currentFacts: [] }); eventStore.append(compiled); return eventStore;
+}
+
+function seedTaskLedger(rootDir: string, name: string, count: number): CanonicalEventStore {
+  git(rootDir, "init", "--quiet"); git(rootDir, "config", "user.name", "Identity Test"); git(rootDir, "config", "user.email", "identity-test@example.invalid"); git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
+  const store = makeTaskEventStore({ repoId: name, rootDir });
+  for (const event of lifecycleFixture().events.slice(0, count)) store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+  return store;
 }
 
 function git(rootDir: string, ...args: readonly string[]): string {
