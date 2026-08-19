@@ -93,7 +93,8 @@
         "check-legacy-intake-readiness",
         "check-supply-chain",
         "smoke-legacy-intake",
-        "smoke-cli-package"
+        "smoke-cli-package",
+        "windows-first-run"
       ],
       "checkPr": [
         "typecheck",
@@ -146,6 +147,8 @@
         "pr-body-lint",
         "typecheck",
         "fast-contract",
+        "crlf-checkout",
+        "windows-first-run",
         "integration-shard",
         "boundaries",
         "package-policy",
@@ -176,7 +179,10 @@
         "supply-chain",
         "gui-build",
         "node26-compatibility",
-        "pr-body-lint"
+        "pr-body-lint",
+        "crlf-checkout",
+        "windows-first-run (ubuntu-latest)",
+        "windows-first-run (windows-latest)"
       ],
       "enforceAdmins": false
     }
@@ -497,12 +503,17 @@
           "package-policy",
           "supply-chain",
           "gui-build",
-          "node26-compatibility"
+          "node26-compatibility",
+          "crlf-checkout",
+          "windows-first-run (ubuntu-latest)",
+          "windows-first-run (windows-latest)"
         ],
         "workflowJobs": [
           "pr-body-lint",
           "typecheck",
           "fast-contract",
+          "crlf-checkout",
+          "windows-first-run",
           "integration-shard",
           "boundaries",
           "package-policy",
@@ -542,6 +553,8 @@
             "pr-body-lint",
             "typecheck",
             "fast-contract",
+            "crlf-checkout",
+            "windows-first-run",
             "integration-shard",
             "boundaries",
             "package-policy",
@@ -567,7 +580,10 @@
             "package-policy",
             "supply-chain",
             "gui-build",
-            "node26-compatibility"
+            "node26-compatibility",
+            "crlf-checkout",
+            "windows-first-run (ubuntu-latest)",
+            "windows-first-run (windows-latest)"
           ]
         },
         "classes": [
@@ -683,10 +699,12 @@
       ],
       "githubContext": {
         "requiredContexts": [
-          "boundaries"
+          "boundaries",
+          "crlf-checkout"
         ],
         "workflowJobs": [
-          "boundaries"
+          "boundaries",
+          "crlf-checkout"
         ],
         "nodeVersions": [
           24
@@ -716,7 +734,8 @@
         },
         "rewriteCi": {
           "pullRequestJobs": [
-            "boundaries"
+            "boundaries",
+            "crlf-checkout"
           ],
           "nonPullRequestJobs": [
             "full-check"
@@ -725,7 +744,8 @@
         "branchProtection": {
           "required": true,
           "contexts": [
-            "boundaries"
+            "boundaries",
+            "crlf-checkout"
           ]
         },
         "classes": [
@@ -827,11 +847,13 @@
       "githubContext": {
         "requiredContexts": [
           "fast-contract",
-          "node26-compatibility"
+          "node26-compatibility",
+          "crlf-checkout"
         ],
         "workflowJobs": [
           "fast-contract",
-          "node26-compatibility"
+          "node26-compatibility",
+          "crlf-checkout"
         ],
         "nodeVersions": [
           24,
@@ -862,7 +884,8 @@
         "rewriteCi": {
           "pullRequestJobs": [
             "fast-contract",
-            "node26-compatibility"
+            "node26-compatibility",
+            "crlf-checkout"
           ],
           "nonPullRequestJobs": []
         },
@@ -870,7 +893,8 @@
           "required": true,
           "contexts": [
             "fast-contract",
-            "node26-compatibility"
+            "node26-compatibility",
+            "crlf-checkout"
           ]
         },
         "classes": [
@@ -908,11 +932,13 @@
       "githubContext": {
         "requiredContexts": [
           "fast-contract",
-          "node26-compatibility"
+          "node26-compatibility",
+          "crlf-checkout"
         ],
         "workflowJobs": [
           "fast-contract",
-          "node26-compatibility"
+          "node26-compatibility",
+          "crlf-checkout"
         ],
         "nodeVersions": [
           24,
@@ -944,7 +970,8 @@
         "rewriteCi": {
           "pullRequestJobs": [
             "fast-contract",
-            "node26-compatibility"
+            "node26-compatibility",
+            "crlf-checkout"
           ],
           "nonPullRequestJobs": []
         },
@@ -952,7 +979,8 @@
           "required": true,
           "contexts": [
             "fast-contract",
-            "node26-compatibility"
+            "node26-compatibility",
+            "crlf-checkout"
           ]
         },
         "classes": [
@@ -4335,6 +4363,82 @@
         "status": "covered",
         "evidence": [
           "tools/smoke-cli-package.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "windows-first-run",
+      "command": "npm run harness:windows-first-run",
+      "category": "smoke",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "tools/gates/windows-first-run.mjs",
+        ".github/workflows/rewrite-ci.yml"
+      ],
+      "consumerScope": [
+        "First-run product path on every supported platform: init, resident daemon, task and fact publication, ledger clone fidelity, and daemon stop"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "windows-first-run (ubuntu-latest)",
+          "windows-first-run (windows-latest)"
+        ],
+        "workflowJobs": [
+          "windows-first-run"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "The first-run path is fixed by the gate script. A platform that cannot run it is a defect, not an entry to allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/windows-first-run.mjs",
+          "package.json:scripts.harness:windows-first-run",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": false,
+          "script": "harness:windows-first-run"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "windows-first-run"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "windows-first-run (ubuntu-latest)",
+            "windows-first-run (windows-latest)"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "Under an induced global core.autocrlf=true the clone-fidelity check fails with the #1588 signature; the gate is green with the setting unset."
         ]
       }
     },

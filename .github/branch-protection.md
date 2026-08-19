@@ -28,6 +28,18 @@ Required pull request checks must cover:
 - package policy
 - GUI build smoke
 - Node 26 compatibility for typecheck plus fast and contract tests
+- lint plus fast and contract tests on a checkout that converts line endings
+- the first-run product path on Linux and on Windows
+
+The last two are platform coverage and were added after a run of Windows
+defects reached users through a fully green pull request. They divide that
+class in two. Four of those defects (#1525, #1526, #1538, #1588) were
+line-ending defects that reproduce on any host told to convert, so
+`crlf-checkout` catches them on a Linux runner. The rest needed a Windows
+process, so `windows-first-run` runs the product -- initialize, hold a resident
+daemon, publish, clone, stop -- rather than asserting that it refuses cleanly.
+Its `ubuntu-latest` arm is the positive control: when only the Windows arm is
+red, the platform is the difference.
 
 The full aggregate `npm run check` matrix runs on `main`, scheduled nightly, and
 manual workflow dispatch. It remains the release-grade gate and still covers
@@ -57,6 +69,9 @@ The active GitHub ruleset enforcement for `main` requires these status contexts:
 - gui-build
 - node26-compatibility
 - pr-body-lint
+- crlf-checkout
+- windows-first-run (ubuntu-latest)
+- windows-first-run (windows-latest)
 
 The Mergify GitHub App must be installed from
 https://github.com/marketplace/mergify before maintainers rely on the queue.
@@ -80,6 +95,9 @@ against the queued pull request's predicted merge state.
 - gui-build
 - node26-compatibility
 - pr-body-lint
+- crlf-checkout
+- windows-first-run (ubuntu-latest)
+- windows-first-run (windows-latest)
 
 The `pr-body-lint` job checks human-authored pull request bodies against the
 repository template. It narrowly skips Mergify synthetic queue verification pull

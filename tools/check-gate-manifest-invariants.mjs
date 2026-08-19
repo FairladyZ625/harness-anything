@@ -9,7 +9,11 @@ const POSITIVE_CONTROL_STATUSES = new Set(["covered", "documented-gap", "not-app
 const INFRASTRUCTURE_COMMANDS = new Set([
   "npm ci",
   "git diff --check",
-  "sudo apt-get update && sudo apt-get install -y xvfb"
+  "sudo apt-get update && sudo apt-get install -y xvfb",
+  // Building the packaged bin and configuring the checkout are properties of the runner, not
+  // gates: no manifest gate can declare them because they run before any gate does.
+  "npm run build -w @harness-anything/cli",
+  "git config --global core.autocrlf true"
 ]);
 
 export function checkGateManifestInvariants(root = DEFAULT_ROOT) {
