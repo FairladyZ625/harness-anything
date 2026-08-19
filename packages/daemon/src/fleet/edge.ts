@@ -3,6 +3,7 @@ import path from "node:path";
 import { connect, type TLSSocket } from "node:tls";
 import { consumeKnownError } from "../../../kernel/src/index.ts";
 import { sha256Bytes } from "../../../kernel/src/index.ts";
+import { writeFileDurably } from "../durable-file.ts";
 import { FLEET_CHUNK_BYTES, FLEET_SESSION_SEND_WINDOW_BYTES, FleetUtf8LineDecoder, fleetManifestDigest, parseFleetFrame, serializeFleetFrame, type FleetCut, type FleetDeltaChange, type FleetDescriptor, type FleetEntry, type FleetFrameV1, type FleetTaskAction } from "./contract.ts";
 
 type Begin = Extract<FleetFrameV1, { schema: "fleet.snapshot.begin/v1" | "fleet.delta.begin/v1" }>; type Finish = Extract<FleetFrameV1, { schema: "fleet.snapshot.finish/v1" | "fleet.delta.finish/v1" }>;
@@ -56,6 +57,6 @@ function peerFor(socket: TLSSocket, timeoutMs: number) { let closed: Error | nul
   // response timeout (adversarial F4).
   socket.on("close", () => { const error = closed ?? new Error("Fleet connection closed"); closed = error; settleWaiters(error); });
   return { next: () => { if (queue.length) return Promise.resolve(queue.shift()!); if (closed) return Promise.reject(closed); return new Promise<FleetFrameV1>((resolve, reject) => { const timer = setTimeout(() => { const at = waiting.findIndex((waiter) => waiter.timer === timer); if (at >= 0) waiting.splice(at, 1); reject(new Error("Fleet response timeout")); }, timeoutMs); waiting.push({ resolve, reject, timer }); }); }, close: () => socket.destroy() }; }
-function exactJson(file: string, value: unknown): void { if (existsSync(file)) { if (JSON.stringify(readJson(file)) !== JSON.stringify(value)) throw new Error("transfer replay mismatch"); return; } writeEdgeDurableJson(file, value); } function writeEdgeDurableJson(file: string, value: unknown): void { mkdirSync(path.dirname(file), { recursive: true }); const temp = `${file}.${process.pid}.tmp`, fd = openSync(temp, "w"); try { writeFileSync(fd, `${JSON.stringify(value)}\n`); fsyncSync(fd); } finally { closeSync(fd); } renameSync(temp, file); if (process.platform === "win32") return; const dir = openSync(path.dirname(file), "r"); try { fsyncSync(dir); } finally { closeSync(dir); } }
+function exactJson(file: string, value: unknown): void { if (existsSync(file)) { if (JSON.stringify(readJson(file)) !== JSON.stringify(value)) throw new Error("transfer replay mismatch"); return; } writeEdgeDurableJson(file, value); } function writeEdgeDurableJson(file: string, value: unknown): void { writeFileDurably(file, `${JSON.stringify(value)}\n`); }
 function readJson<T>(file: string): T | null { return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) as T : null; }
 function diskUsage(root: string): number { if (!existsSync(root)) return 0; const stat = statSync(root); return stat.isDirectory() ? readdirSync(root).reduce((sum, name) => sum + diskUsage(path.join(root, name)), 0) : stat.size; }

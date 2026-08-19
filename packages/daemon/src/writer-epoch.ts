@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "../../kernel/src/index.ts";
+import { writeFileDurably } from "./durable-file.ts";
 
 export interface WriterEpochLease { readonly repoId: string; readonly holderId: string; readonly epoch: number; readonly version: number; readonly issuedAt: string }
 export interface PersistentWriterEpoch {
@@ -75,4 +76,4 @@ function withLock<T>(file: string, operation: () => T): T {
 }
 function appendHistory(file: string, lease: WriterEpochLease): void { const fd = openSync(file, "a", 0o600); try { writeFileSync(fd, `${JSON.stringify(lease)}\n`); fsyncSync(fd); } finally { closeSync(fd); } }
 function historyFloor(file: string, repoId: string): number { if (!existsSync(file)) return 0; const rows = readFileSync(file, "utf8").split(/\r?\n/u).filter(Boolean); let floor = 0; for (const line of rows) { try { const row = JSON.parse(line) as Partial<WriterEpochLease>; if (row.repoId === repoId && typeof row.epoch === "number" && Number.isSafeInteger(row.epoch)) floor = Math.max(floor, row.epoch); } catch (error) { consumeKnownError(error); } } return floor; }
-function writeWriterEpochState(file: string, value: unknown): void { const temp = `${file}.${process.pid}.${randomUUID()}.tmp`, fd = openSync(temp, "w", 0o600); try { writeFileSync(fd, `${JSON.stringify(value)}\n`); fsyncSync(fd); } finally { closeSync(fd); } renameSync(temp, file); const dir = openSync(path.dirname(file), "r"); try { fsyncSync(dir); } finally { closeSync(dir); } }
+function writeWriterEpochState(file: string, value: unknown): void { writeFileDurably(file, `${JSON.stringify(value)}\n`, 0o600); }
