@@ -43,16 +43,16 @@ test("default prose route is open while typed internal routes are denied", () =>
   assert.throws(() => documentPath("../outside.md"));
 });
 
-test("textual artifact classification keeps prose extensions canonical and scopes opaque content to artifacts", () => {
-  assert.deepEqual(classifyTextualArtifactPath("artifacts/summary.md"), { kind: "canonical-prose", mediaType: "text/markdown", policyId: DOC_POLICY_ID });
-  assert.deepEqual(classifyTextualArtifactPath("artifacts/notes.txt"), { kind: "canonical-prose", mediaType: "text/plain", policyId: DOC_POLICY_ID });
-  for (const [target, mediaType] of [["artifacts/report.html", "text/html"], ["artifacts/report.htm", "text/html"], ["artifacts/scripts/build.mjs", "text/javascript"], ["artifacts/scripts/build.js", "text/javascript"], ["artifacts/data.json", "application/json"], ["artifacts/styles/main.css", "text/css"], ["artifacts/data.yaml", "application/yaml"], ["artifacts/data.yml", "application/yaml"], ["artifacts/data.csv", "text/csv"], ["artifacts/unknown.foo", OPAQUE_TEXTUAL_MEDIA_TYPE], ["artifacts/NOTICE", OPAQUE_TEXTUAL_MEDIA_TYPE], ["artifacts/.metadata", OPAQUE_TEXTUAL_MEDIA_TYPE]] as const) assert.deepEqual(classifyTextualArtifactPath(target), { kind: "opaque-textual", mediaType, policyId: OPAQUE_TEXTUAL_POLICY_ID }, target);
+test("textual artifacts are opaque by location while preserving their media type", () => {
+  for (const [target, mediaType] of [["artifacts/summary.md", "text/markdown"], ["artifacts/notes.txt", "text/plain"], ["artifacts/report.html", "text/html"], ["artifacts/report.htm", "text/html"], ["artifacts/scripts/build.mjs", "text/javascript"], ["artifacts/scripts/build.js", "text/javascript"], ["artifacts/data.json", "application/json"], ["artifacts/styles/main.css", "text/css"], ["artifacts/data.yaml", "application/yaml"], ["artifacts/data.yml", "application/yaml"], ["artifacts/data.csv", "text/csv"], ["artifacts/unknown.foo", OPAQUE_TEXTUAL_MEDIA_TYPE], ["artifacts/NOTICE", OPAQUE_TEXTUAL_MEDIA_TYPE], ["artifacts/.metadata", OPAQUE_TEXTUAL_MEDIA_TYPE]] as const) assert.deepEqual(classifyTextualArtifactPath(target), { kind: "opaque-textual", mediaType, policyId: OPAQUE_TEXTUAL_POLICY_ID }, target);
+  assert.deepEqual(classifyTextualArtifactPath("context/report.md"), { kind: "canonical-prose", mediaType: "text/markdown", policyId: DOC_POLICY_ID });
+  assert.deepEqual(classifyTextualArtifactPath("context/notes.txt"), { kind: "canonical-prose", mediaType: "text/plain", policyId: DOC_POLICY_ID });
   assert.equal(classifyTextualArtifactPath("context/report.html"), null);
 });
 
 test("doc content claims accept only the supported opaque textual media types", () => {
   const base = { schema: "doc-write-intent/v1", executionId: "execution-1", baseLedgerSha: baseLedgerSha.sha, changes: [{ path: "tasks/task-owner/artifacts/report.json", baseBlobSha256: null, policyId: OPAQUE_TEXTUAL_POLICY_ID, candidate: opaqueClaim("{}\n", "application/json") }] };
-  assert.deepEqual(validateDocWriteIntent(base), []);
+  for (const mediaType of ["application/json", "text/markdown", "text/plain"] as const) assert.deepEqual(validateDocWriteIntent({ ...base, changes: [{ ...base.changes[0]!, candidate: { ...base.changes[0]!.candidate, mediaType } }] }), [], mediaType);
   assert.match(validateDocWriteIntent({ ...base, changes: [{ ...base.changes[0]!, candidate: { ...base.changes[0]!.candidate, mediaType: "application/octet-stream" } }] }).join("\n"), /claim/iu);
 });
 
@@ -81,6 +81,17 @@ test("opaque textual policy is a whole-file CAS with no markdown parsing or regi
   assert.equal(verifyDocEventChange(change, base, candidate), true);
   assert.deepEqual(validateDocEvent({ ...result.event, payload: { ...result.event.payload, changes: [{ ...change, regionProofs: [{ regionId: "prose/*", policyId: DOC_POLICY_ID, codecId: "markdown-regions/v1", baseSha256: sha256Text(base), candidateSha256: sha256Text(candidate), insertBytes: 0 }] }] } }), ["doc event change is invalid"]);
   assert.deepEqual(validateDocEvent({ ...result.event, payload: { ...result.event.payload, changes: [{ ...change, policyId: DOC_POLICY_ID, regionProofs: [{ regionId: "prose/*", policyId: DOC_POLICY_ID, codecId: "markdown-regions/v1", baseSha256: sha256Text(base), candidateSha256: sha256Text(candidate), insertBytes: 0 }] }] } }), ["doc event change is invalid"]);
+});
+
+test("an opaque artifact write reclassifies an existing prose record without a policy upgrade", () => {
+  const base = "---\ntitle: Legacy report\n---\n\n# Same\n\n# Same\n", candidate = "---\ntitle: Rewritten report\n---\n\n# Same\n\n# Same\n\nAll bytes are opaque.\n", path = documentPath("tasks/task-owner/artifacts/report.md"), document: DocumentState = { ...state(base), path, policyId: DOC_POLICY_ID };
+  const result = decide({ path, baseBlobSha256: sha256Text(base), policyId: OPAQUE_TEXTUAL_POLICY_ID, candidate: opaqueClaim(candidate, "text/markdown") }, document, Buffer.from(candidate));
+  assert.equal(result.accepted, true, JSON.stringify(result)); if (!result.accepted) return;
+  const change = result.event.payload.changes[0]!;
+  assert.equal(change.policyId, OPAQUE_TEXTUAL_POLICY_ID);
+  assert.equal(change.candidate.mediaType, "text/markdown");
+  assert.deepEqual(change.regionProofs, []);
+  assert.equal("policyUpgrade" in change, false);
 });
 
 test("mixed body-replaceable rejection produces a valid typed receipt", () => {

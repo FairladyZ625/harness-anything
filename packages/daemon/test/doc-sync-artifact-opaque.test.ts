@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, sha256Bytes } from "../../kernel/src/index.ts";
+import { decideDocWrite, docSyncWritePlan, makeTaskEventStore, parseDocWriteIntent, sha256Bytes } from "../../kernel/src/index.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 
@@ -13,7 +13,7 @@ const PROSE_POLICY_ID = "markdown-body-replaceable/v1", OPAQUE_POLICY_ID = "opaq
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 const reviewerBinding = { actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent", id: "arbiter" } }, source: "local" as const, roles: ["$arbiter"] } as const;
 
-test("artifact add admits .mjs/.html/.json into artifacts/ subdirectories with byte fidelity", async () => {
+test("artifact add treats every artifacts/ path as opaque while preserving media type and bytes", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-opaque-")); initRepo(rootDir);
   const repoId = workspaceId("artifact-opaque"), cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-opaque" }), binding = { actor, source: "local" as const };
   try {
@@ -22,7 +22,12 @@ test("artifact add admits .mjs/.html/.json into artifacts/ subdirectories with b
       { source: "tool.mjs", destination: "scripts/tool.mjs", mediaType: "text/javascript", body: "export const render = (rows) => rows.map((row) => `${row.id}: ${row.label} — UTF-8 报告\n`).join(\"\");\n" },
       { source: "page.html", destination: "reports/page.html", mediaType: "text/html", body: "<!doctype html>\n<html lang=\"zh\">\n<meta charset=\"utf-8\">\n<title>Dossier — 报告</title>\n<p>byte-fidelity ✓</p>\n" },
       { source: "payload.json", destination: "data/payload.json", mediaType: "application/json", body: "{\n  \"label\": \"报告 — dossier\",\n  \"rows\": [{ \"id\": 1, \"ok\": true }]\n}\n" },
-      { source: "style.css", destination: "artifacts/reports/assets/style.css", mediaType: "text/css", body: "body { font-family: sans-serif; content: \"报告 ✓\"; }\n" }
+      { source: "style.css", destination: "artifacts/reports/assets/style.css", mediaType: "text/css", body: "body { font-family: sans-serif; content: \"报告 ✓\"; }\n" },
+      { source: "report.md", destination: "reports/report.md", mediaType: "text/markdown", body: "---\ntitle: Opaque report\n---\n\n# Same\n\n# Same\n\nByte-preserved frontmatter.\n" },
+      { source: "notes.txt", destination: "reports/notes.txt", mediaType: "text/plain", body: "plain-text artifact\n" },
+      { source: "windows.md", destination: "reports/windows.md", mediaType: "text/markdown", body: "---\r\ntitle: CRLF report\r\n---\r\n\r\n# Windows\r\n" },
+      { source: "script.ts", destination: "scripts/script.ts", mediaType: "text/x-harness-opaque", body: "export const typed: number = 1;\n" },
+      { source: "view.tsx", destination: "scripts/view.tsx", mediaType: "text/x-harness-opaque", body: "export const View = () => <main>artifact</main>;\n" }
     ];
     const packagePath = "tasks/task-opaque-opaque-artifacts";
     for (const { source, destination, mediaType, body } of cases) {
@@ -55,7 +60,7 @@ test("artifact add admits .mjs/.html/.json into artifacts/ subdirectories with b
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
-test("artifact add still rejects escapes, symlinked path segments, non-LF, and non-UTF-8 sources", async () => {
+test("artifact add still rejects escapes, symlinked path segments, and non-UTF-8 sources", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-guards-")); initRepo(rootDir);
   const cell = await openRepoCell({ repoId: workspaceId("artifact-guards"), rootDir: canonicalRoot(rootDir), ownerId: "artifact-guards" }), binding = { actor, source: "local" as const };
   try {
@@ -69,58 +74,63 @@ test("artifact add still rejects escapes, symlinked path segments, non-LF, and n
     symlinkSync(path.join(rootDir), path.join(artifactsDir, "linked"));
     const viaSymlink = await cell.run({ kind: "task-artifact-add", taskId: "task-guards", source: "outside.mjs", destination: "linked/escape.mjs" }, binding) as Record<string, unknown>;
     assert.equal(viaSymlink.code, "invalid_artifact_path");
-    writeFileSync(path.join(rootDir, "crlf.mjs"), "export const three = 3;\r\n");
-    assert.equal((await cell.run({ kind: "task-artifact-add", taskId: "task-guards", source: "crlf.mjs", destination: "scripts/crlf.mjs" }, binding) as Record<string, unknown>).code, "artifact_invalid_lf");
     writeFileSync(path.join(rootDir, "logo.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00, 0x0a]));
     assert.equal((await cell.run({ kind: "task-artifact-add", taskId: "task-guards", source: "logo.png", destination: "img/logo.png" }, binding) as Record<string, unknown>).code, "artifact_invalid_utf8");
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
-test("prose artifacts keep the markdown policy, region proofs, and every region protection", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-prose-")); initRepo(rootDir);
-  const repoId = workspaceId("artifact-prose"), cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-prose" }), binding = { actor, source: "local" as const };
+test("a historical prose artifact is rewritten as opaque without a policy upgrade", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-policy-reclassify-")); initRepo(rootDir);
+  const repoId = workspaceId("artifact-policy-reclassify"), binding = { actor, source: "local" as const };
+  let cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-policy-reclassify" });
+  try {
+    assert.equal((await cell.run({ kind: "task-create", taskId: "task-reclassify", title: "Reclassify" }, binding)).outcome, "applied");
+    await cell.close();
+    const packagePath = "tasks/task-reclassify-reclassify", report = `${packagePath}/artifacts/report.md`, legacy = "# Legacy\n\n## Same\n\nfirst\n";
+    const store = makeTaskEventStore({ repoId, rootDir }), bytes = Buffer.from(legacy), sha = sha256Bytes(bytes), base = store.currentCommit();
+    const historic = decideDocWrite({ intent: parseDocWriteIntent({ schema: "doc-write-intent/v1", executionId: null, baseLedgerSha: base.sha, changes: [{ path: report, baseBlobSha256: null, policyId: PROSE_POLICY_ID, candidate: { ref: `doc-sync-claims/${sha}`, sha256: sha, size: bytes.byteLength, mediaType: "text/markdown" } }] }, repoId), opId: "op_historical_prose_artifact", eventId: "event-historical-prose-artifact", workspaceRevision: store.read().revision + 1, actor, source: "local", occurredAt: "2026-08-19T00:00:00.000Z", currentLedgerSha: base, lease: null, documents: [null], claims: [bytes] });
+    assert.equal(historic.accepted, true, JSON.stringify(historic));
+    if (!historic.accepted) return;
+    store.append({ event: historic.event, plan: docSyncWritePlan(historic.event), blobs: historic.blobs });
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-policy-reclassify-next" });
+    const rewritten = "---\ntitle: Rewritten report\n---\n\n# Same\n\n# Same\n\nopaque rewrite\n";
+    write(rootDir, report, rewritten);
+    const submitted = await cell.run({ kind: "doc-submit", paths: [report] }, binding) as Record<string, unknown>;
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(submitted.opId));
+    assert.equal(event?.schema, "doc-event/v1");
+    if (event?.schema !== "doc-event/v1") return;
+    const change = event.payload.changes[0]!;
+    assert.equal(change.policyId, OPAQUE_POLICY_ID);
+    assert.equal(change.candidate.mediaType, "text/markdown");
+    assert.deepEqual(change.regionProofs, []);
+    assert.equal("policyUpgrade" in change, false);
+    assert.equal(readFileSync(path.join(rootDir, "harness", ...report.split("/"))).equals(Buffer.from(rewritten)), true);
+  } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("task_plan.md and closeout.md retain prose policy, proofs, and deletion protection", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-prose-")); initRepo(rootDir);
+  const repoId = workspaceId("task-prose"), cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "task-prose" }), binding = { actor, source: "local" as const };
   try {
     assert.equal((await cell.run({ kind: "task-create", taskId: "task-prose", title: "Prose" }, binding)).outcome, "applied");
-    const packagePath = "tasks/task-prose-prose", report = `${packagePath}/artifacts/report.md`;
-    writeFileSync(path.join(rootDir, "report.md"), "# Report\n\n## Base\n\nfirst\n");
-    writeFileSync(path.join(rootDir, "notes.txt"), "notes\n");
-    writeFileSync(path.join(rootDir, "frontmatter.md"), "---\ntitle: Report\n---\n\n# Report\n");
-    const reportAdded = await cell.run({ kind: "task-artifact-add", taskId: "task-prose", source: "report.md", destination: "report.md" }, binding) as Record<string, unknown>;
-    assert.equal(reportAdded.outcome, "applied", JSON.stringify(reportAdded));
-    const notesAdded = await cell.run({ kind: "task-artifact-add", taskId: "task-prose", source: "notes.txt", destination: "notes.txt" }, binding) as Record<string, unknown>;
-    assert.equal(notesAdded.outcome, "applied", JSON.stringify(notesAdded));
-    for (const [opId, mediaType] of [[reportAdded.opId, "text/markdown"], [notesAdded.opId, "text/plain"]] as const) {
-      const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(opId));
-      assert.equal(event?.schema, "doc-event/v1");
-      if (event?.schema !== "doc-event/v1") continue;
-      const change = event.payload.changes[0]!;
-      assert.equal(change.policyId, PROSE_POLICY_ID);
-      assert.equal(change.candidate.mediaType, mediaType);
-      assert.ok(change.regionProofs.length > 0, "prose artifacts must carry region proofs");
+    const packagePath = "tasks/task-prose-prose", prosePaths = [`${packagePath}/task_plan.md`, `${packagePath}/closeout.md`];
+    for (const logical of prosePaths) write(rootDir, logical, `${readFileSync(path.join(rootDir, "harness", logical), "utf8")}\n## Extension\n\nCanonical prose update.\n`);
+    const submitted = await cell.run({ kind: "doc-submit", paths: prosePaths }, binding) as Record<string, unknown>;
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(submitted.opId));
+    assert.equal(event?.schema, "doc-event/v1");
+    if (event?.schema !== "doc-event/v1") return;
+    for (const change of event.payload.changes) {
+      assert.equal(change.policyId, PROSE_POLICY_ID, change.path);
+      assert.ok(change.regionProofs.length > 0, `${change.path}: prose must carry region proofs`);
     }
-    // The markdown differ still refuses to let artifact add introduce a machine-owned frontmatter region.
-    const frontmatter = await cell.run({ kind: "task-artifact-add", taskId: "task-prose", source: "frontmatter.md", destination: "frontmatter.md" }, binding) as Record<string, unknown>;
-    assert.equal(frontmatter.outcome, "op_rejected", JSON.stringify(frontmatter));
-    assert.equal(frontmatter.code, "unresolved_touch");
-    assert.equal((frontmatter.detail as { unresolvedTouches: readonly { reason: string }[] }).unresolvedTouches[0]?.reason, "new machine region is forbidden");
-
-    // Additive prose growth through the doc-sync scanner keeps working.
-    write(rootDir, report, "# Report\n\n## Base\n\nfirst\n\n## Added\n\nmore\n");
-    assert.equal((await cell.run({ kind: "doc-submit", paths: [report] }, binding)).outcome, "applied");
-
-    // Positive controls: each prose region protection must still reject.
-    write(rootDir, report, "# Report\n\n## Base\n\nfirst\n");
-    assert.deepEqual(await blockedRow(cell, report), [report, "base region is missing or reordered"]);
-    write(rootDir, report, "# Report\n\n## Base\n\nfirst\n\n## Added\n\nmore\n\n## Added\n\nagain\n");
-    assert.deepEqual(await blockedRow(cell, report), [report, "duplicate heading anchor"]);
-    write(rootDir, report, "# Report\n\n## Added\n\nmore\n\n## Base\n\nfirst\n");
-    const reordered = await blockedRow(cell, report);
-    assert.equal(reordered[0], report);
-    assert.match(String(reordered[1]), /base region is missing or reordered/u);
-    const rejected = await cell.run({ kind: "doc-submit", paths: [report] }, binding) as Record<string, unknown>;
-    assert.equal(rejected.outcome, "op_rejected");
-    assert.equal(rejected.code, "preview_blocked");
-    assert.match(String((rejected.detail as { unresolvedTouches: readonly { reason: string }[] }).unresolvedTouches[0]?.reason), /base region is missing or reordered/u);
+    for (const logical of prosePaths) {
+      write(rootDir, logical, "# Removed\n");
+      const blocked = await blockedRow(cell, logical);
+      assert.equal(blocked[0], logical);
+      assert.match(String(blocked[1]), /missing|forbidden/u);
+    }
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 

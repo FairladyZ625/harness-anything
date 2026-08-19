@@ -14,7 +14,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, DOC_POLICY_ID } from "../../kernel/src/index.ts";
+import { classifyTextualArtifactPath, consumeKnownError, DOC_POLICY_ID } from "../../kernel/src/index.ts";
 import { FleetRemoteError, runFleetReplicaPullClient, runFleetTaskCommandClient, runFleetUploadClient } from "./fleet/edge.ts";
 import type { FleetDescriptor } from "./fleet/contract.ts";
 import { readFleetRosterFile } from "./fleet-center-admission.ts";
@@ -117,7 +117,7 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
     const candidates = scanFleetMirrorWorktree(view).changes.filter((change) => change.path.startsWith(`${packagePath}/`) && (scope === null || scope.some((allowed) => change.path === allowed || change.path.startsWith(`${allowed}/`))));
     if (candidates.length === 0) return null;
     const descriptors = await runFleetUploadClient({ ...peer, timeoutMs: 60_000, changes: candidates.map((change) => ({ path: change.path, body: Buffer.from(change.bytes), mediaType: change.mediaType })) });
-    return { docChanges: candidates.map((change, index) => ({ path: change.path, baseBlobSha256: change.baseBlobSha256, policyId: DOC_POLICY_ID, candidate: descriptors[index]! })), mirrorBaseCut: { revision: view.revision, headDigest: view.headDigest } };
+    return { docChanges: candidates.map((change, index) => ({ path: change.path, baseBlobSha256: change.baseBlobSha256, policyId: classifyTextualArtifactPath(change.path)?.policyId ?? DOC_POLICY_ID, candidate: descriptors[index]! })), mirrorBaseCut: { revision: view.revision, headDigest: view.headDigest } };
   }
 }
 function conflictNextAction(staged: readonly FleetStagedConflict[], fallback: string): string { return staged.length > 0 ? `The command was rejected and its divergence is staged at ${staged[0]!.dir}; exit explicitly with ha doc conflict resolve|discard-local|overwrite-center ${staged[0]!.conflictId}.` : fallback; }
