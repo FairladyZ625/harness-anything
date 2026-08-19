@@ -1,7 +1,7 @@
 // Agent and Squad are independent runtime-identity entities, not preset kinds (dec_ED69804189CF05E6D1A8615283D):
 // an Agent consumes presets, so it cannot also be catalogued as one. This contract owns their persisted
 // declaration form; packages/daemon/src/agent-entities.ts owns the store and command actions.
-export interface AgentDeclarationV1 { readonly id: string; readonly name: string; readonly instructions: string; readonly runtime_type: string; readonly skills?: readonly string[]; readonly prompts?: readonly string[]; readonly preset?: string }
+export interface AgentDeclarationV1 { readonly id: string; readonly name: string; readonly instructions: string; readonly runtime_type: string; readonly model?: string; readonly skills?: readonly string[]; readonly prompts?: readonly string[]; readonly preset?: string }
 export interface SquadDeclarationV1 { readonly id: string; readonly name: string; readonly leader: string; readonly workers: readonly string[]; readonly roster: string }
 export type AgentEntityKind = "agent" | "squad";
 type EntityContractSchema<T> = Readonly<{ readonly id: string; readonly required: readonly string[] }> & { readonly Type: T }; function entitySchema<T>(id: string, required: readonly string[]): EntityContractSchema<T> { return Object.freeze({ id, required: Object.freeze(required) }) as EntityContractSchema<T>; }
@@ -14,7 +14,7 @@ const runtimeTypeIdentifier = /^[a-z0-9][a-z0-9-]{0,63}$/u;
 export function isRuntimeTypeIdentifier(value: string): boolean { return runtimeTypeIdentifier.test(value); }
 export function validateAgentDeclarationV1(value: unknown): readonly string[] {
   if (!isEntityRecord(value)) return ["agent declaration must be a JSON object; expected agent-declaration/v1."];
-  const errors: string[] = [], fields = [...AGENT_DECLARATION_V1_SCHEMA.required, "skills", "prompts", "preset"];
+  const errors: string[] = [], fields = [...AGENT_DECLARATION_V1_SCHEMA.required, "model", "skills", "prompts", "preset"];
   for (const field of Object.keys(value).filter((field) => !fields.includes(field))) errors.push(`agent declaration field "${field}" is unknown; remove it.`);
   for (const field of AGENT_DECLARATION_V1_SCHEMA.required) if (!Object.hasOwn(value, field)) errors.push(`agent declaration is missing required field "${field}"; expected id, name, instructions, and runtime_type.`);
   if (value.schema !== "agent-declaration/v1") errors.push('agent declaration field "schema" must equal "agent-declaration/v1".');
@@ -22,6 +22,7 @@ export function validateAgentDeclarationV1(value: unknown): readonly string[] {
   if (Object.hasOwn(value, "name") && !entityNonEmpty(value.name)) errors.push('agent declaration field "name" must be a non-empty string.');
   if (Object.hasOwn(value, "instructions") && !entityNonEmpty(value.instructions)) errors.push('agent declaration field "instructions" must be a non-empty string.');
   if (Object.hasOwn(value, "runtime_type") && (typeof value.runtime_type !== "string" || !isRuntimeTypeIdentifier(value.runtime_type))) errors.push('agent declaration field "runtime_type" must be a non-empty lowercase runtime identifier such as claude, codex, or opencode.');
+  if (value.model !== undefined && !entityNonEmpty(value.model)) errors.push('agent declaration field "model" must be a non-empty string.');
   if (value.skills !== undefined && !nonEmptyStrings(value.skills)) errors.push('agent declaration field "skills" must be an array of non-empty strings.');
   if (value.prompts !== undefined && !nonEmptyStrings(value.prompts)) errors.push('agent declaration field "prompts" must be an array of non-empty strings.');
   if (value.preset !== undefined && !entityNonEmpty(value.preset)) errors.push('agent declaration field "preset" must be a non-empty preset id.');
