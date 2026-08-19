@@ -53,7 +53,7 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
     assert.equal(resolvedReference, "keychain:harness/codex-api");
     assert.deepEqual(launch.installation, observed);
     assert.equal(launch.executablePath, observed.executablePath);
-    assert.deepEqual(launch.args, ["exec", "--json", "--model", "gpt-5.6-sol", "-"]);
+    assert.deepEqual(launch.args, ["exec", "--json", "--sandbox", "workspace-write", "--config", "sandbox_workspace_write.exclude_tmpdir_env_var=true", "--config", "sandbox_workspace_write.exclude_slash_tmp=true", "--model", "gpt-5.6-sol", "-"]);
     assert.deepEqual(launch.env, { PATH: "/runtime/tools", HOME: path.join(stateRoot, "home"), TMPDIR: path.join(stateRoot, "tmp"), XDG_RUNTIME_DIR: path.join(stateRoot, "run"), CODEX_HOME: path.join(stateRoot, "home", ".codex") });
     const codexConfig = path.join(launch.env.CODEX_HOME!, "config.toml"), text = readFileSync(codexConfig, "utf8"); assert.equal(statSync(codexConfig).mode & 0o777, 0o600); assert.equal(text, `model_provider = "codex_local_access"\nmodel_reasoning_effort = "xhigh"\n\n[model_providers."codex_local_access"]\nname = "codex_local_access"\nbase_url = "http://127.0.0.1:1/v1"\nwire_api = "responses"\nrequires_openai_auth = true\nhttp_headers = { "X-Harness-Probe" = "present", "X-Static-Route" = "sidecar" }\nexperimental_bearer_token = "instance-secret"\n`); assert.match(text, /experimental_bearer_token = "instance-secret"/u); assert.doesNotMatch(JSON.stringify(launch), /instance-secret/u);
     assert.equal(Object.values(launch.env).includes("host-secret"), false);
@@ -84,7 +84,7 @@ test("subscription launch fails closed without provider-native readiness and nev
     assert.throws(() => store.prepareLaunch("claude-subscription", { cwd: "/workspace/repo", prompt: "Inspect" }), (error: unknown) => codedAs(error, "runtime_subscription_required"));
     assert.equal(credentialCalls, 0);
     ready = true; const launch = store.prepareLaunch("claude-subscription", { cwd: "/workspace/repo", prompt: "Inspect" }), stateRoot = path.join(userRoot, "runtime-instances", "claude-subscription");
-    assert.deepEqual(launch.args, ["-p", "--verbose", "--output-format", "stream-json", "--model", "claude-fable-5"]);
+    assert.deepEqual(launch.args, ["-p", "--verbose", "--output-format", "stream-json", "--permission-mode", "acceptEdits", "--model", "claude-fable-5"]);
     assert.deepEqual(launch.env, { PATH: "/runtime/tools", HOME: path.join(stateRoot, "home"), TMPDIR: path.join(stateRoot, "tmp"), XDG_RUNTIME_DIR: path.join(stateRoot, "run"), CLAUDE_CONFIG_DIR: path.join(stateRoot, "home", ".claude") });
     assert.deepEqual(readinessEnvironment, launch.env);
     assert.equal(credentialCalls, 0);
