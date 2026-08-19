@@ -1497,8 +1497,9 @@
       "tier": "pr-required",
       "tierReason": null,
       "authoritySource": [
-        "packages/cli/src/cli/command-registry.ts",
-        "packages/cli/src/cli/help.ts",
+        "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+        "packages/preset/src/preset-command-contract.ts",
+        "packages/cli/src/cli/thin-command.ts",
         "tools/check-cli-help-contract.mjs"
       ],
       "consumerScope": [
