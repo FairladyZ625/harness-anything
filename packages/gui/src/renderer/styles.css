@@ -3,7 +3,7 @@
 @import "@fontsource-variable/geist-mono";
 
 /*
- * Harness GUI 暗色 token（OKLch）
+ * Harness GUI 暗色变量（OKLch）
  * 三轴视觉通道分配：
  *   coordinationStatus → 颜色徽章（六色等亮度系）
  *   closeoutReadiness  → 图标 + 中性底；仅 ready 点亮 accent
@@ -99,7 +99,7 @@ html[data-theme="light"] {
 }
 
 /*
- * 字阶 token（CJK 底线：中文 ≥12px；micro 仅 mono id）
+ * 字阶变量（CJK 底线：中文 ≥12px；micro 仅 mono id）
  * micro:11 / meta:12 / body:14 / title:16 / heading:20 / prose:15
  */
 html {
