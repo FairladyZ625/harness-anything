@@ -180,7 +180,12 @@ function memoryFactStore(initial: ReturnType<typeof factBacklog>): CanonicalEven
   const events = [...initial.events], contents = new Map(initial.contents);
   return { readHead: () => events.length ? { revision: events.length } : null, readBatch: (cursor: string | null, maxItems: number) => {
     const start = cursor === null ? 0 : Number(cursor), batch = events.slice(start, start + maxItems), next = start + batch.length;
-    return { sourceRevision: events.length, events: batch, cursor: String(next), done: next === events.length, accessedItems: batch.length };
+    return { sourceRevision: events.length, events: batch, cursor: String(next), done: next === events.length, accessedItems: batch.length,
+      prefetchContent: (requested: readonly CanonicalEventV1[]) => new Map(requested.flatMap((event) => {
+        const claim = (event as FactEventV1).payload.factsDocumentClaim, body = contents.get(claim.sha256) ?? null;
+        if (body === null || body.byteLength !== claim.size) throw new Error(`fixture content ${claim.sha256} is not exact`);
+        return [[claim.sha256, body] as const];
+      })) };
   }, readContentBlob: (sha256: string) => contents.get(sha256) ?? null, readEvent: (opId: string) => events.find((event) => event.opId === opId) ?? null,
   append: ((bundleValue: CanonicalWriteBundle) => { const event = bundleValue.event as FactEventV1; events.push(event); for (const blob of bundleValue.blobs) contents.set(blob.sha256, Buffer.from(blob.body)); return { revision: event.workspaceRevision, commitSha: { sha: "0".repeat(40) } }; }) } as unknown as CanonicalEventStore;
 }

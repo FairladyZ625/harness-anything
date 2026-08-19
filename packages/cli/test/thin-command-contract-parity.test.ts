@@ -16,13 +16,13 @@ const frozenMutations = Object.freeze([
 ] as const);
 
 test("all public commands expose the canonical structured input facet", () => {
-  assert.equal(daemonProtocolCommands.length, 102);
+  assert.equal(daemonProtocolCommands.length, 103);
   for (const command of daemonProtocolCommands) {
     assert.equal(Object.hasOwn(command, "inputs"), true, `${command.id}: explicit inputs`);
     assert.deepEqual(deriveThinCliInputs(command), command.inputs, command.id);
     assert.equal(command.inputs.every((input) => input.name.startsWith("--") && Object.hasOwn(input, "required") && Object.hasOwn(input, "error")), true, command.id);
   }
-  for (const id of ["task-show", "receipt-show", "doc-materialize", "preset-upgrade", "ledger-migrate", "daemon-start", "daemon-status", "daemon-stop"]) assert.deepEqual(daemonProtocolCommands.find((command) => command.id === id)?.inputs, [], id);
+  for (const id of ["task-show", "receipt-show", "doc-materialize", "preset-upgrade", "ledger-migrate", "daemon-projection-rebuild", "daemon-start", "daemon-status", "daemon-stop"]) assert.deepEqual(daemonProtocolCommands.find((command) => command.id === id)?.inputs, [], id);
 });
 
 test("daemon-effective rebuilds keep their declared positional in usage", () => {

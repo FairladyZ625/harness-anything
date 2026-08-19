@@ -3,7 +3,7 @@ import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint } from "../../../daemon/src/client/local-daemon-target.ts"; import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts"; import { detachedProcessOptions, terminateProcess } from "../../../daemon/src/process-port.ts"; import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
+import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts"; import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts"; import { detachedProcessOptions, terminateProcess } from "../../../daemon/src/process-port.ts"; import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
 import { ensureLocalDaemonRunning } from "../../../daemon/src/client/daemon-autostart.ts";
 import { readDaemonPid, startDaemon } from "../../../daemon/src/runtime.ts";
 import { daemonProcessAlive, releaseDaemonPidFile } from "../../../daemon/src/daemon-singleton.ts";
@@ -20,6 +20,13 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
   const json = argv.includes("--json"), userRoot = path.resolve(daemonOption(argv, "--user-root") ?? daemonUserRoot());
   const daemonId = daemonOption(argv, "--daemon-id") ?? daemonIdFromEnv(), finish: ControlFinisher = (receipt, exitCode) => finishControlReceipt(renderReceipt, receipt, json, exitCode);
   try {
+    if (command === "projection" && subcommand === "rebuild") {
+      const suppliedRoot = daemonOption(argv, "--root");
+      if (argv.includes("--root") && (!suppliedRoot || suppliedRoot.startsWith("-"))) return finish(daemonFailure("daemon-projection-rebuild", "missing_field", "Add a workspace path after --root."), 2);
+      const target = resolveLocalDaemonTarget({ rootDir: path.resolve(suppliedRoot ?? process.cwd()), repoIdOverride: daemonOption(argv, "--repo"), userRoot, daemonId });
+      const result = await requestDaemonJsonRpcAt(target.socketPath, "repo.task.run", { repo: { repoId: target.repoId }, payload: { action: { kind: "projection-rebuild" } } }, 75);
+      return finish(result, result.ok === true ? 0 : 1);
+    }
     if (command === "fleet") return fleetControl(argv, at, userRoot, daemonId, finish);
     if (command === "repo" && subcommand === "register") { const root = daemonOption(argv, "--root"), repoId = daemonOption(argv, "--repo-id"), mode = daemonOption(argv, "--mode"); if (!root || !repoId) return finish(daemonFailure("daemon-repo-register", "missing_field", "Add --repo-id and --root."), 2); if (mode !== undefined && !daemonRepoModeWords.includes(mode as (typeof daemonRepoModeWords)[number])) return finish(daemonFailure("daemon-repo-register", "invalid_field", `Use --mode ${daemonRepoModeWords.join(", ")}.`), 2); const result = await requestDaemonJsonRpcAt(localUserDaemonEndpoint(userRoot, daemonId), "daemon.repo.register", { rootDir: path.resolve(root), repoId, ...(mode ? { mode } : {}) }, 75); return finish(result, result.ok === true ? 0 : 1); }
     if (command === "repo" && subcommand === "unregister") { const repoId = daemonOption(argv, "--repo-id"); if (!repoId) return finish(daemonFailure("daemon-repo-unregister", "missing_field", "Add --repo-id."), 2);
@@ -31,7 +38,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       return started.ok ? finish(await status(userRoot, daemonId), 0) : finish(daemonFailure("daemon-start", started.code ?? "daemon_start_failed", started.hint), 1); }
     if (command === "status") { const receipt = await status(userRoot, daemonId); return finish(receipt, 0); }
     if (command === "stop") { const pid = readDaemonPid(userRoot, daemonId); if (pid === null) return finish(daemonFailure("daemon-stop", "daemon_unavailable", "No daemon is running."), 1); signalStop(pid); const stopped = await waitForDaemonStop(userRoot, daemonId, pid); return stopped ? finish({ ok: true, command: "daemon-stop", pid }, 0) : finish(daemonFailure("daemon-stop", "daemon_stop_timeout", `Daemon pid ${pid} did not finish stopping within 5s; inspect its lifecycle log before sending another signal.`), 1); }
-    return finish(daemonFailure("daemon", "unsupported_command", "Use daemon repo register|unregister, fleet center start, fleet edge sync, start --service, status, or stop."), 2);
+    return finish(daemonFailure("daemon", "unsupported_command", "Use daemon projection rebuild, daemon repo register|unregister, fleet center start, fleet edge sync, start --service, status, or stop."), 2);
   } catch (error) { return finish(daemonFailure(`daemon-${command ?? "unknown"}`, code(error), message(error)), 1); }
 }
 async function fleetControl(argv: readonly string[], at: number, userRoot: string, daemonId: string, finish: ControlFinisher): Promise<number> {

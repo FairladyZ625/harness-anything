@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 
-export const taskProjectionSchemaVersion = 2;
+export const taskProjectionSchemaVersion = 3;
 
 export function readTaskProjectionSchemaVersion(projectionPath: string): number | null {
   if (!localRuntimeStateFileSystem.exists(projectionPath)) return null;
