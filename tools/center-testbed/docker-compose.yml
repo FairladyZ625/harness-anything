@@ -1,7 +1,13 @@
 # PLT-Center full-stack testbed. One-shot seed bootstraps the test project and
 # pushes the canonical ledger to GitLab; the center daemon attaches the cloned
-# ledger and serves fleet TLS; two edge daemons replicate read-only views.
+# ledger and serves fleet TLS; edge daemons replicate read-only views and write
+# through the fleet channel. edge-1..3 start by default; edge-4..10 carry the
+# `scale` profile and only start for the W4 phase-3 acceptance run
+# (`docker compose --profile scale up -d --wait`). The seed mints roster
+# entries for all ten nodes either way, so scaling up never reseeds.
 # Requires: export GITLAB_TOKEN=$(cat ~/.harness-secrets-center-testbed-token)
+# (left unset, `up` still parses — seed/center then fail fast with their own
+# message — so `ps`/`logs`/`down` keep working without the token present).
 
 name: plt-center-testbed
 
@@ -20,7 +26,7 @@ services:
     hostname: testbed-host
     command: ["node", "/opt/testbed/bootstrap.mjs"]
     environment: &daemon-env
-      GITLAB_TOKEN: ${GITLAB_TOKEN:?export GITLAB_TOKEN=$(cat ~/.harness-secrets-center-testbed-token)}
+      GITLAB_TOKEN: ${GITLAB_TOKEN:-}
       # Exec'd `ha` commands must target the same daemon the entrypoint owns.
       HARNESS_DAEMON_USER_ROOT: /data/daemon-user
       HARNESS_DAEMON_ID: seed
@@ -51,11 +57,18 @@ services:
       test: ["CMD", "sh", "-c", "test -f /data/center-ready"]
       interval: 5s
       timeout: 3s
-      retries: 120
-      start_period: 20s
+      # Cold boots re-clone from GitLab and rebuild the projection; that is
+      # minute-level by design, and a loaded host can legitimately need well
+      # over ten minutes. Budget 24 minutes so a slow cold start does not
+      # surface as an opaque "starting" stall (W4 runbook fix).
+      retries: 288
+      start_period: 30s
     networks: [fleet]
 
-  edge-1:
+  # One service per edge node: the per-node daemon id and named volume cannot
+  # be shared, so the fleet size is enumerated here (3 default + 7 behind the
+  # `scale` profile, matching the roster the seed mints).
+  edge-1: &edge-node
     <<: *testbed-image
     container_name: plt-center-edge-1
     hostname: testbed-edge-1
@@ -73,10 +86,9 @@ services:
     networks: [fleet]
 
   edge-2:
-    <<: *testbed-image
+    <<: *edge-node
     container_name: plt-center-edge-2
     hostname: testbed-edge-2
-    command: ["node", "/opt/testbed/entrypoint-edge.mjs"]
     environment:
       <<: *daemon-env
       HARNESS_DAEMON_ID: edge-2
@@ -84,10 +96,109 @@ services:
     volumes:
       - testbed-shared:/data/shared:ro
       - testbed-edge-2:/data
-    depends_on:
-      center:
-        condition: service_healthy
-    networks: [fleet]
+
+  edge-3:
+    <<: *edge-node
+    container_name: plt-center-edge-3
+    hostname: testbed-edge-3
+    environment:
+      <<: *daemon-env
+      HARNESS_DAEMON_ID: edge-3
+      TESTBED_NODE_ID: edge-3
+    volumes:
+      - testbed-shared:/data/shared:ro
+      - testbed-edge-3:/data
+
+  edge-4:
+    <<: *edge-node
+    container_name: plt-center-edge-4
+    hostname: testbed-edge-4
+    profiles: [scale]
+    environment:
+      <<: *daemon-env
+      HARNESS_DAEMON_ID: edge-4
+      TESTBED_NODE_ID: edge-4
+    volumes:
+      - testbed-shared:/data/shared:ro
+      - testbed-edge-4:/data
+
+  edge-5:
+    <<: *edge-node
+    container_name: plt-center-edge-5
+    hostname: testbed-edge-5
+    profiles: [scale]
+    environment:
+      <<: *daemon-env
+      HARNESS_DAEMON_ID: edge-5
+      TESTBED_NODE_ID: edge-5
+    volumes:
+      - testbed-shared:/data/shared:ro
+      - testbed-edge-5:/data
+
+  edge-6:
+    <<: *edge-node
+    container_name: plt-center-edge-6
+    hostname: testbed-edge-6
+    profiles: [scale]
+    environment:
+      <<: *daemon-env
+      HARNESS_DAEMON_ID: edge-6
+      TESTBED_NODE_ID: edge-6
+    volumes:
+      - testbed-shared:/data/shared:ro
+      - testbed-edge-6:/data
+
+  edge-7:
+    <<: *edge-node
+    container_name: plt-center-edge-7
+    hostname: testbed-edge-7
+    profiles: [scale]
+    environment:
+      <<: *daemon-env
+      HARNESS_DAEMON_ID: edge-7
+      TESTBED_NODE_ID: edge-7
+    volumes:
+      - testbed-shared:/data/shared:ro
+      - testbed-edge-7:/data
+
+  edge-8:
+    <<: *edge-node
+    container_name: plt-center-edge-8
+    hostname: testbed-edge-8
+    profiles: [scale]
+    environment:
+      <<: *daemon-env
+      HARNESS_DAEMON_ID: edge-8
+      TESTBED_NODE_ID: edge-8
+    volumes:
+      - testbed-shared:/data/shared:ro
+      - testbed-edge-8:/data
+
+  edge-9:
+    <<: *edge-node
+    container_name: plt-center-edge-9
+    hostname: testbed-edge-9
+    profiles: [scale]
+    environment:
+      <<: *daemon-env
+      HARNESS_DAEMON_ID: edge-9
+      TESTBED_NODE_ID: edge-9
+    volumes:
+      - testbed-shared:/data/shared:ro
+      - testbed-edge-9:/data
+
+  edge-10:
+    <<: *edge-node
+    container_name: plt-center-edge-10
+    hostname: testbed-edge-10
+    profiles: [scale]
+    environment:
+      <<: *daemon-env
+      HARNESS_DAEMON_ID: edge-10
+      TESTBED_NODE_ID: edge-10
+    volumes:
+      - testbed-shared:/data/shared:ro
+      - testbed-edge-10:/data
 
 volumes:
   testbed-shared:
@@ -95,6 +206,14 @@ volumes:
   testbed-center:
   testbed-edge-1:
   testbed-edge-2:
+  testbed-edge-3:
+  testbed-edge-4:
+  testbed-edge-5:
+  testbed-edge-6:
+  testbed-edge-7:
+  testbed-edge-8:
+  testbed-edge-9:
+  testbed-edge-10:
 
 networks:
   fleet:

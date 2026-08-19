@@ -12,7 +12,10 @@ import { TESTBED, fail, fleetEnv, gitCredentialArgs, ha, harnessEnv, log, mustRu
 const workspace = "/data/workspace";
 const userRoot = "/data/daemon-user";
 const sharedFleet = path.join(TESTBED.sharedRoot, "fleet");
-const edges = ["edge-1", "edge-2"];
+// The roster covers every edge the compose topology can start: edge-1..3 boot
+// by default, edge-4..10 only under the `scale` profile (W4 phase 3). Minting
+// all credentials up front keeps scaling up from reseeding the ledger.
+const edges = Array.from({ length: 10 }, (_, index) => `edge-${index + 1}`);
 const taskTitle = "Prove the center ledger read chain";
 
 await main();
