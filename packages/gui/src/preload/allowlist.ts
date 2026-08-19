@@ -1,19 +1,14 @@
 import { daemonGuiActionMethods, daemonGuiReadMethods, daemonGuiStreamFacets } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 export const HARNESS_PRELOAD_API = "harness";
-export const localMainPreloadMethods = ["listRuntimeInstances", "showRuntimeInstance", "createRuntimeInstance", "deleteRuntimeInstance", "validateRuntimeInstanceAuth", "signInRuntimeInstance", "reauthRuntimeInstance", "signOutRuntimeInstance"] as const;
+export const localMainPreloadMethods = ["listRuntimeInstances", "showRuntimeInstance", "createRuntimeInstance", "updateRuntimeInstance", "deleteRuntimeInstance", "validateRuntimeInstanceAuth", "signInRuntimeInstance", "reauthRuntimeInstance", "signOutRuntimeInstance"] as const;
 export type PreloadApiMethod = (typeof daemonGuiReadMethods)[number]["guiBridgeMethod"] | (typeof daemonGuiActionMethods)[number]["guiBridgeMethod"] | (typeof daemonGuiStreamFacets)[number]["guiBridgeMethod"] | (typeof localMainPreloadMethods)[number];
 const daemonGuiFacets: ReadonlyArray<{ readonly guiBridgeMethod: PreloadApiMethod }> = [...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonGuiStreamFacets];
 const localMainFacets: ReadonlyArray<{ readonly guiBridgeMethod: PreloadApiMethod }> = localMainPreloadMethods.map((guiBridgeMethod) => ({ guiBridgeMethod }));
-const repoScopedMethods: ReadonlySet<string> = new Set<string>(
-  [...[...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonGuiStreamFacets]
-    .filter(({ requiresRepo }) => requiresRepo)
-    .map(({ guiBridgeMethod }) => guiBridgeMethod), "signInRuntimeInstance", "reauthRuntimeInstance", "signOutRuntimeInstance"],
-);
-const emptyRepoMethods: ReadonlySet<string> = new Set(
-  [...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonGuiStreamFacets]
-    .filter(({ requiresRepo, inputSchemaId }) => requiresRepo && inputSchemaId === "gui.empty/v1")
-    .map(({ guiBridgeMethod }) => guiBridgeMethod),
-);
+type PreloadFacet = { readonly guiBridgeMethod: string; readonly requiresRepo?: boolean; readonly inputSchemaId: string };
+export function deriveRepoScopedMethods(facets: readonly PreloadFacet[]): ReadonlySet<string> { return new Set(facets.filter(({ requiresRepo }) => requiresRepo).map(({ guiBridgeMethod }) => guiBridgeMethod)); }
+export function deriveEmptyRepoMethods(facets: readonly PreloadFacet[]): ReadonlySet<string> { return new Set(facets.filter(({ requiresRepo, inputSchemaId }) => requiresRepo && inputSchemaId === "gui.empty/v1").map(({ guiBridgeMethod }) => guiBridgeMethod)); }
+const repoScopedMethods: ReadonlySet<string> = deriveRepoScopedMethods([...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonGuiStreamFacets]);
+const emptyRepoMethods: ReadonlySet<string> = deriveEmptyRepoMethods([...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonGuiStreamFacets]);
 export interface PreloadApiCapability {
   readonly method: PreloadApiMethod;
   readonly status: "shipped";
@@ -38,6 +33,7 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
     throw new Error("Preload payload must be an object or null.");
   }
   if (containsSecretLikeKey(payload)) throw new Error("Preload payload contains a forbidden secret-like key.");
+  if (["signInRuntimeInstance", "reauthRuntimeInstance", "signOutRuntimeInstance"].includes(method)) { if (!isPreloadPayloadRecord(payload) || typeof payload.repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(payload.repoId)) throw new Error(`Preload ${method} payload requires an exact repoId.`); return true; }
   if (repoScopedMethods.has(method as PreloadApiMethod)) {
     if (!isPreloadPayloadRecord(payload) || typeof payload.repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(payload.repoId)) {
       throw new Error(`Preload ${method} payload requires an exact repoId.`);
@@ -49,6 +45,7 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
   if (method === "getSystemStatus" && isPreloadPayloadRecord(payload) && Object.keys(payload).length > 0) throw new Error("Preload getSystemStatus fields are not allowed.");
   if (method === "listRuntimeInstances" && payload !== null && (!isPreloadPayloadRecord(payload) || Object.keys(payload).length > 0)) throw new Error("Runtime instance list fields are not allowed.");
   if (["showRuntimeInstance", "deleteRuntimeInstance", "validateRuntimeInstanceAuth"].includes(method) && !exactStrings(payload, ["instanceId"])) throw new Error(`Preload ${method} request is invalid.`);
+  if (method === "updateRuntimeInstance" && (!isPreloadPayloadRecord(payload) || Object.keys(payload).length !== 2 || typeof payload.instanceId !== "string" || !payload.instanceId || typeof payload.enabled !== "boolean")) throw new Error("Preload updateRuntimeInstance request is invalid.");
   if (["signInRuntimeInstance", "reauthRuntimeInstance", "signOutRuntimeInstance"].includes(method) && !exactStrings(payload, ["repoId", "instanceId", "idempotencyKey"])) throw new Error(`Preload ${method} request is invalid.`);
   if (method === "createRuntimeInstance" && (!isPreloadPayloadRecord(payload) || !closed(payload, ["instanceId", "name", "kindId", "installationId", "providerId", "model", "claude", "codex", "authMode"]) || !["claude", "codex"].includes(String(payload.kindId)) || !["subscription", "api-key"].includes(String(payload.authMode)) || !["instanceId", "name", "kindId", "installationId", "providerId", "model", "authMode"].every((key) => typeof payload[key] === "string" && String(payload[key]).length > 0) || !validRuntimeKindConfig(payload))) throw new Error("Runtime instance create request is invalid.");
   return true;

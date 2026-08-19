@@ -4,7 +4,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AgentRuntimeProjection } from "../src/renderer/views/agent-runtime-view.tsx";
 import { RuntimeControlPanel } from "../src/renderer/components/RuntimeControlPanel.tsx";
-import { RuntimeInstanceManagerPanel } from "../src/renderer/components/RuntimeInstanceManagerPanel.tsx";
+import { InstanceDetail, RuntimeInstanceManagerPanel, visibleRuntimeInstances } from "../src/renderer/components/RuntimeInstanceManagerPanel.tsx";
+import { EntityLayersRows } from "../src/renderer/components/EntityLayersPanel.tsx";
 import { openAgentRuntimePane } from "../src/renderer/agent-runtime-client.ts";
 import { submitRuntimeSpawn } from "../src/renderer/runtime-control.ts";
 
@@ -32,5 +33,20 @@ describe("agent runtime renderer", () => {
     const markup = renderToStaticMarkup(createElement(RuntimeInstanceManagerPanel, { instances: [notReady], installations: [installation], busy: false, feedback: null, onRefresh: async () => undefined, onCreate: async () => undefined, onShow: async () => undefined, onDelete: async () => undefined, onValidate: async () => undefined, onSubscriptionAction: async () => undefined }));
     expect(markup).toContain("Runtime instances"); expect(markup).toContain("runtime_credential_unavailable"); expect(markup).toContain("The configured runtime API credential is unavailable."); expect(markup).toContain("API key · native prompt");
     expect(markup).not.toMatch(/type="password"|name="(?:apiKey|credentialRef|token|secret)"|executablePath|\/opt\/runtime-test/u);
+  });
+  it("renders the three identity layers and keeps kind-specific fields separated", () => {
+    const codex = { schemaVersion: 2, instanceId: "w4c-verify-codex", name: "W4c 修复后对照实例", kindId: "codex", installationId: "codex-install", providerId: "openai", models: ["gpt-5.6-terra"], defaultModel: "gpt-5.6-terra", enabled: true, authMode: "subscription", authState: "configured", authReadiness: { status: "ready", code: null, hint: null }, isolationState: "enforced", codex: { reasoningEffort: "high", baseUrl: "https://api.example.test", baseUrlConfigured: true, wire_api: "responses", requires_openai_auth: true, http_headers: { "x-client": "harness" } } } as const;
+    const claude = { ...codex, instanceId: "claude-one", name: "Claude one", kindId: "claude", claude: { baseUrl: "https://claude.example.test" } } as const;
+    const markup = renderToStaticMarkup(createElement(RuntimeInstanceManagerPanel, { instances: [codex, claude] as never, installations: [], busy: false, feedback: null, onRefresh: async () => undefined, onCreate: async () => undefined, onShow: async () => undefined, onDelete: async () => undefined, onValidate: async () => undefined, onSetEnabled: async () => undefined, onSubscriptionAction: async () => undefined }));
+    const codexDetail = renderToStaticMarkup(createElement(InstanceDetail, { detail: codex as never, onClose: () => undefined })); const claudeDetail = renderToStaticMarkup(createElement(InstanceDetail, { detail: claude as never, onClose: () => undefined }));
+    expect(codexDetail).toContain("codex.reasoningEffort"); expect(codexDetail).toContain("codex.http_headers"); expect(codexDetail).not.toContain("claude.baseUrl"); expect(claudeDetail).toContain("claude.baseUrl"); expect(claudeDetail).not.toContain("codex.reasoningEffort"); expect(markup).toContain("W4c 修复后对照实例");
+    const identities = renderToStaticMarkup(createElement(EntityLayersRows, { agents: [{ id: "fable", name: "fable", runtimeType: "claude", layer: "user", validity: "valid", issues: [] }, { id: "luna", name: "luna", runtimeType: "codex", layer: "user", validity: "valid", issues: [] }, { id: "sol", name: "sol", runtimeType: "codex", layer: "user", validity: "valid", issues: [] }, { id: "terra", name: "terra", runtimeType: "codex", layer: "user", validity: "valid", issues: [] }], squads: [{ id: "core-squad", name: "Core Squad", leader: "fable", workers: ["luna", "sol", "terra"], layer: "user", validity: "valid", issues: [] }] }));
+    for (const text of ["fable", "luna", "sol", "terra", "Core Squad", "leader=fable"]) expect(identities).toContain(text);
+  });
+  it("hides disabled instances by default while retaining them in all mode", () => {
+    const enabled = { ...instance, instanceId: "enabled-instance", enabled: true } as const;
+    const disabled = { ...instance, instanceId: "disabled-instance", enabled: false } as const;
+    expect(visibleRuntimeInstances([enabled, disabled], false).map((row) => row.instanceId)).toEqual(["enabled-instance"]);
+    expect(visibleRuntimeInstances([enabled, disabled], true).map((row) => row.instanceId)).toEqual(["enabled-instance", "disabled-instance"]);
   });
 });
