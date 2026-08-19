@@ -169,6 +169,10 @@ jobs:
         run: git config --global core.autocrlf true
       - uses: actions/checkout@v4
         if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        with:
+          # The fast tier holds a ratchet that resolves its baseline from Git history, so a
+          # shallow checkout fails it for a reason that has nothing to do with line endings.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         with:
