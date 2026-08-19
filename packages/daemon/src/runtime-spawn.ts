@@ -9,13 +9,13 @@ import type { PreparedRuntimeLaunch, RuntimeInstanceKind } from "./agent-runtime
 import { archiveRuntimeDispatch } from "./doc-sync-actions.ts";
 import { openDispatchStream, readDispatchStream, scrubProviderValue, type DispatchStreamWriter } from "./dispatch-stream.ts";
 import type { SquadDispatchTarget } from "./agent-entities.ts";
-import type { AgentSkillDeclarationV1 } from "./agent-entities.contract.ts";
+import type { AgentSkillReferenceV1 } from "./agent-entities.contract.ts";
 import { resolveAgentSkillRoot, resolveAgentSkills, type ResolvedAgentSkill } from "./agent-skills.ts";
 
 export interface RuntimeProcess { readonly pid: number; readonly onOutput: (listener: (chunk: string) => void) => void; readonly onErrorOutput: (listener: (chunk: string) => void) => void; readonly onExit: (listener: (code: number | null) => void) => void; readonly terminate: () => void }
 export type RuntimeLauncher = (input: PreparedRuntimeLaunch) => RuntimeProcess;
 type RuntimeBinding = { readonly actor: ActorIdentity; readonly source: WriteSource };
-type RuntimeAgent = { readonly id: string; readonly name: string; readonly instructions: string; readonly runtime_type: string; readonly model?: string; readonly skills?: readonly AgentSkillDeclarationV1[] };
+type RuntimeAgent = { readonly id: string; readonly name: string; readonly instructions: string; readonly runtime_type: string; readonly model?: string; readonly skills?: readonly AgentSkillReferenceV1[] };
 type ActiveRuntime = { readonly process: RuntimeProcess; readonly dispatchId: string; readonly runtimeSessionId: string; readonly dispatchOpId: string; readonly instanceId: string; readonly kindId: RuntimeInstanceKind; readonly agent: RuntimeAgent | null; readonly delegatedBy: RuntimeAgent | null; readonly squadId: string | null; readonly binding: RuntimeBinding; readonly task: { readonly taskId: string; readonly executionId: string } | null; readonly cwd: string; readonly prompt: string; readonly promptSource?: string; readonly model: string; readonly reasoningEffort: string | null; readonly startedAt: string; readonly stream: DispatchStreamWriter; buffer: string; stdoutObserved: boolean; errorBuffer: string; errorOverflowed: boolean; providerSessionId: string | null; resumeProviderSessionId: string | null; finalText: string | null; failureText: string | null; providerOutcome: "succeeded" | "failed" | "unknown" | null; writeItemObserved: boolean; planObserved: boolean; planIncomplete: boolean; protocolError: boolean; cancelRequested: boolean; cancelBinding: RuntimeBinding | null };
 type ProviderFrame = { readonly providerSessionId?: string; readonly signals?: readonly AgentRuntimeNativeSignal[]; readonly finalText?: string; readonly failureText?: string; readonly outcome?: "succeeded" | "failed" | "unknown"; readonly writeItemObserved?: boolean; readonly planObserved?: boolean; readonly planIncomplete?: boolean };
 const resultMediaType = "text/plain; charset=utf-8" as const, providerErrorLimit = 64 * 1024;
