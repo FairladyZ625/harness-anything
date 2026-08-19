@@ -246,6 +246,16 @@ test("agy uses the operator environment, OAuth-only auth, and a closed effort en
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
 
+test("agy subscription probes report an unavailable operator environment", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-agy-subscription-probe-")), executablePath = path.join(userRoot, "agy-models.mjs"), agy: RuntimeInstallationWitness = { installationId: "agy-rejected-status", kindId: "agy", executablePath, version: "1.1.15", observedAt: "2026-08-19T00:00:00.000Z" };
+  try {
+    writeFileSync(executablePath, `#!${process.execPath}\nprocess.exit(7);\n`, { mode: 0o755 });
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [agy] });
+    store.create({ schemaVersion: 1, instanceId: "agy-subscription", name: "AGY Subscription", kindId: "agy", installationId: agy.installationId, providerId: "google", model: "gemini-3.1-pro-low", auth: { mode: "subscription" } });
+    assert.deepEqual(store.authStatus("agy-subscription"), { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in the operator environment." });
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
 test("runtime auth readiness is explicit, safe, and never falls back across modes", () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-auth-readiness-"));
   try {
