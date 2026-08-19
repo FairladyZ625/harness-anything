@@ -34,3 +34,28 @@ test("repo and empty scopes are derived when a GUI contract grows", () => {
   assert.equal(deriveEmptyRepoMethods(facets).has("futureRepoRead"), true);
   assert.equal(deriveEmptyRepoMethods(facets).has("futureRepoReadWithInput"), false);
 });
+
+// The Agent/Squad detail reads are contract-derived with their own input schema:
+// they must stay payload-open (repoId + entity id) while true empty-schema reads
+// stay closed to repoId only. Replayed against the real contract facets, not
+// synthetic ones, so a derivation regression cannot hide behind a fixture.
+test("Agent and Squad detail payload paths stay open on the real contract", () => {
+  assert.equal(assertPreloadPayload("showAgent", { repoId: "repo-a", agentId: "fable" }), true);
+  assert.equal(assertPreloadPayload("showSquad", { repoId: "repo-a", squadId: "core-squad" }), true);
+  assert.equal(assertPreloadPayload("listAgents", { repoId: "repo-a" }), true);
+  assert.equal(assertPreloadPayload("listSquads", { repoId: "repo-a" }), true);
+  assert.throws(() => assertPreloadPayload("listAgents", { repoId: "repo-a", agentId: "fable" }), /not allowed/u);
+});
+
+// The only tolerated secret payload is the user-typed create-form key, and only
+// on createRuntimeInstance in api-key mode: nowhere else, never nested, never on
+// a subscription create.
+test("the create-form API key carve-out is a single method and a single field", () => {
+  const create = (overrides: Record<string, unknown>): Record<string, unknown> => ({ instanceId: "codex-sidecar", name: "Codex sidecar", kindId: "codex", installationId: "codex-install", providerId: "codex_local_access", model: "gpt-5.6-terra", codex: { baseUrl: "http://localhost:50818/v1", wireApi: "responses", requiresOpenAiAuth: true }, authMode: "api-key", apiKey: "sk-typed-by-user", ...overrides });
+  assert.equal(assertPreloadPayload("createRuntimeInstance", create()), true);
+  assert.throws(() => assertPreloadPayload("createRuntimeInstance", create({ authMode: "subscription" })), /invalid/u);
+  assert.throws(() => assertPreloadPayload("createRuntimeInstance", create({ apiKey: "  " })), /invalid/u);
+  assert.throws(() => assertPreloadPayload("createRuntimeInstance", create({ codex: { apiKey: "nested-forbidden" } })), /secret-like key/u);
+  assert.throws(() => assertPreloadPayload("showRuntimeInstance", { instanceId: "codex-sidecar", apiKey: "wrong-method" }), /secret-like key/u);
+  assert.throws(() => assertPreloadPayload("spawnAgentRuntime", { repoId: "repo-a", nested: { apiKey: "wrong-path" } }), /secret-like key/u);
+});
