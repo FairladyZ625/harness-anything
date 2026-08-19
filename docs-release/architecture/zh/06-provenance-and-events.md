@@ -81,6 +81,15 @@ heartbeat tick、stdout/stderr、transcript 正文、tool call 与 token/cost st
 `runtime_session_liveness_changed` 时才增长日志。runtime liveness 与 task lease/lifecycle 始终是两组
 独立事实;session event 不能续租 lease,也不能完成 task。
 
+daemon 会在本机 `.harness/runtime/dispatches/<dispatch-id>.jsonl` 留下 provider 的结构化事件流。
+它是 operational evidence,不是数据库或 canonical event 内容：首行只关联 dispatch、task、runtime
+session 与本地流引用，后续 JSONL 在需要查看时才解析。每条记录在写入前都会递归删除带敏感语义的
+字段，并把可识别的 bearer/token 值替换为 `[REDACTED]`；credential、executable path 与 provider
+环境值绝不会进入流文件。`ha task dispatches <task-id>` 合并正在运行的本地记录与已结束的 task
+artifact；终态 dispatch artifact 保留流引用和 provider session id。因此
+`ha runtime run --resume-dispatch <dispatch-id> --prompt "…"` 可以续跑，不必暴露或手工查找
+provider session id。
+
 派活绑定 task 时,daemon 还会通过 canonical doc sync 发布终态工作产物。一次批量写入创建
 `artifacts/missions/<dispatch-id>.md`、`artifacts/dispatches/<dispatch-id>.json` 与
 `artifacts/reports/<dispatch-id>.md`。如果 `--prompt-file` 已指向该任务包里的 canonical artifact,

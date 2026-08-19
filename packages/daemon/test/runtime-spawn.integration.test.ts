@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -92,7 +92,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
-test("daemon ingress streams provider JSONL content and returns canonical results for both runtime kinds", async (t) => {
+test("daemon ingress persists scrubbed provider JSONL while returning canonical results for both runtime kinds", async (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-provider-events-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), repoId = "runtime-provider-events", uid = 4302;
   initIngressRepo(root, uid); registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
   const installations = (["claude", "codex"] as const).map((kindId) => { const executablePath = path.join(parent, `${kindId}-stub.mjs`); writeProviderStub(executablePath, kindId); return { installationId: `installation-${kindId}`, kindId, executablePath, version: "1.0.0", observedAt: "2026-08-19T00:00:00.000Z" } as const; });
@@ -107,6 +107,8 @@ test("daemon ingress streams provider JSONL content and returns canonical result
         const read = await eventuallyValue(async () => { const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", { repo: { repoId }, payload: { runtimeSessionId: receipt.runtimeSessionId } }); return value.result ? value : null; });
         assert.equal((read.session as Record<string, unknown>).providerSessionId, `${kindId}-provider-session`); assert.deepEqual((read.session as { activity: unknown }).activity, { lastObservedAt: (read.session as { activity: { lastObservedAt: string } }).activity.lastObservedAt, outcome: "succeeded", exitCode: 0, resultRef: (read.result as Record<string, unknown>).ref });
         assert.deepEqual(read.result, { ref: (read.result as Record<string, unknown>).ref, text: `${kindId} final result` }); assert.match(String((read.result as Record<string, unknown>).ref), /^artifact:runtime-result\/sha256\/[0-9a-f]{64}$/u);
+        const streamPath = path.join(root, ".harness", "runtime", "dispatches", `${receipt.dispatchId}.jsonl`), stream = await eventuallyValue(() => { try { return readFileSync(streamPath, "utf8"); } catch { return null; } });
+        assert.match(stream, /"kind":"provider_event"/u); if (kindId === "codex") { assert.doesNotMatch(stream, /credentialRef|executablePath|apiToken|sk-provider-secret|\/provider\/private/u); }
         const outcome = makeTaskEventStore({ repoId, rootDir: root }).read().events.find((event) => event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === receipt.runtimeSessionId); assert.equal(outcome?.type, "runtime_session_outcome_observed");
         if (outcome?.type === "runtime_session_outcome_observed") assert.equal(Buffer.from(makeTaskEventStore({ repoId, rootDir: root }).readContentBlob(outcome.payload.result.sha256)!).toString("utf8"), `${kindId} final result`);
       } finally { attached.close(); }
@@ -168,7 +170,7 @@ async function eventually(check: () => boolean | Promise<boolean>): Promise<void
 async function eventuallyValue<T>(read: () => T | null | Promise<T | null>): Promise<T> { for (let attempt = 0; attempt < 100; attempt += 1) { const value = await read(); if (value !== null) return value; await new Promise((resolve) => setTimeout(resolve, 10)); } throw new Error("runtime provider event did not arrive"); }
 function writeProviderStub(target: string, kindId: "claude" | "codex"): void { const lines = kindId === "claude"
   ? [{ type: "system", subtype: "init", session_id: "claude-provider-session" }, { type: "assistant", session_id: "claude-provider-session", message: { content: [{ type: "text", text: "claude live content" }] } }, { type: "result", subtype: "success", is_error: false, session_id: "claude-provider-session", result: "claude final result" }]
-  : [{ type: "thread.started", thread_id: "codex-provider-session" }, { type: "item.completed", item: { id: "item-1", type: "agent_message", text: "codex live content" } }, { type: "item.completed", item: { id: "item-2", type: "agent_message", text: "codex final result" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; const structuredFlag = kindId === "claude" ? `process.argv.includes("--output-format") && process.argv.includes("stream-json") && process.argv.includes("--verbose")` : `process.argv[2] === "exec" && process.argv.includes("--json")`;
+  : [{ type: "thread.started", thread_id: "codex-provider-session" }, { type: "item.completed", item: { id: "item-1", type: "agent_message", text: "codex live content", credentialRef: "credential-secret", executablePath: "/provider/private", apiToken: "sk-provider-secret" } }, { type: "item.completed", item: { id: "item-2", type: "agent_message", text: "codex final result" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; const structuredFlag = kindId === "claude" ? `process.argv.includes("--output-format") && process.argv.includes("stream-json") && process.argv.includes("--verbose")` : `process.argv[2] === "exec" && process.argv.includes("--json")`;
   writeFileSync(target, `#!${process.execPath}\nconst auth = process.argv[2] === "auth" || process.argv[2] === "login";\nif (auth) process.exit(0);\nif (!(${structuredFlag})) process.exit(9);\nconst lines = ${JSON.stringify(lines)};\nlines.forEach((line, index) => setTimeout(() => console.log(JSON.stringify(line)), index * 40));\n`); chmodSync(target, 0o755); }
 function installationFixture(kindId: "claude" | "codex", executablePath: string): RuntimeInstallationWitness { return { installationId: `installation-${kindId}`, kindId, executablePath, version: "1.0.0", observedAt: "2026-08-19T00:00:00.000Z" }; }
 function git(root: string, ...args: string[]): void { execFileSync("git", ["-C", root, ...args]); }

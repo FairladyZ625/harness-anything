@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "status": "ready",
+  "taskId": "task_01M0A39KE0ABCDEFGHJKMNPQRS",
+  "dispatches": [
+    {
+      "dispatchId": "",
+      "taskId": "task_01M0A39KE0ABCDEFGHJKMNPQRS",
+      "executionId": "exec_01M0A39KE0ABCDEFGHJKMNPQRS",
+      "runtimeSessionId": "runtime_01M0A39KE0ABCDEFGHJKMNPQRS",
+      "instanceId": "w4c-verify-codex",
+      "providerSessionId": null,
+      "eventStreamRef": null,
+      "startedAt": "2026-08-19T00:00:00.000Z",
+      "endedAt": null,
+      "outcome": null,
+      "status": "running"
+    }
+  ],
+  "watermark": 1,
+  "sourceRevision": 1
+}
