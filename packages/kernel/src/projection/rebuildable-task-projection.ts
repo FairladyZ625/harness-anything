@@ -25,10 +25,12 @@ interface EventStreamPort {
   readonly readHead: () => { readonly revision: number; readonly eventDigest: `sha256:${string}` } | null;
   readonly readBatch: (cursor: string | null, maxItems: number) => {
     readonly sourceRevision: number; readonly events: readonly CanonicalEventV1[]; readonly cursor: string | null;
-    readonly done: boolean; readonly accessedItems: number;
+    readonly done: boolean; readonly accessedItems: number; readonly prefetchContent?: EventContentPrefetch;
   };
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
 }
+type EventContentPrefetch = (events: readonly CanonicalEventV1[]) => ReadonlyMap<string, Uint8Array | null>;
+const batchContentPrefetchers = new WeakMap<EventStreamPort, EventContentPrefetch>();
 export type TaskProjectionWarning = "projection_missing";
 export interface TaskProjectionRead {
   readonly status: "ready" | "pending"; readonly snapshot: TaskLifecycleSnapshot; readonly packagePath: string | null; readonly watermark: number;
@@ -57,7 +59,7 @@ export interface DecisionProjectionRead { readonly status: "ready" | "pending"; 
 export interface DecisionProjectionListRead { readonly status: "ready" | "pending"; readonly decisions: readonly DecisionProjectionRow[]; readonly watermark: number; readonly sourceRevision: number }
 export interface DecisionGraphProjectionRead { readonly status: "ready" | "pending"; readonly edges: ReturnType<typeof readDecisionGraphRows>["edges"]; readonly decisionAnchors: ReturnType<typeof readDecisionGraphRows>["decisionAnchors"]; readonly coverageRows: ReturnType<typeof readDecisionGraphRows>["coverageRows"]; readonly watermark: number; readonly sourceRevision: number }
 export interface TaskProjection {
-  readonly path: string; readonly apply: (event: CanonicalEventV1, plan?: FrozenWritePlan) => ProjectionApplyReceipt; readonly rebuild: () => ProjectionRebuildReceipt;
+  readonly path: string; readonly close: () => void; readonly apply: (event: CanonicalEventV1, plan?: FrozenWritePlan) => ProjectionApplyReceipt; readonly rebuild: () => ProjectionRebuildReceipt;
   readonly readStateDigest: () => `sha256:${string}` | null;
   readonly read: (taskId: string) => TaskProjectionRead; readonly list: () => TaskProjectionListRead; readonly readOperation: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
   readonly readRelationTruth: () => EventBackedRelationTruth;
@@ -79,18 +81,19 @@ export function defaultLifecycleTaskProjectionPath(rootDir: string): string { re
 export function makeTaskProjection(options: { readonly rootDir: string; readonly eventStore: EventStreamPort;
   readonly projectionPath?: string; readonly catchUpLimit?: number; readonly now?: () => string }): TaskProjection {
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
-  const limit = options.catchUpLimit ?? 64, now = options.now ?? (() => new Date().toISOString()), readHead = options.eventStore.readHead;
+  const limit = options.catchUpLimit ?? 64, now = options.now ?? (() => new Date().toISOString()), sourceReadHead = options.eventStore.readHead, readHead = () => sourceReadHead();
   if (!Number.isInteger(limit) || limit < 1 || limit > 64) throw new Error("task projection catch-up limit must be between 1 and 64");
   if (localRuntimeStateFileSystem.exists(projectionPath)) withDatabase(projectionPath, readHead, (db) => transaction(db, () => {
     if (markRuntimeSessionsUnknown(db) > 0) refreshStateDigestAtSourceCut(db, readHead()?.revision ?? 0);
   }));
   return {
     path: projectionPath,
+    close: () => closeDatabase(projectionPath, readHead),
     apply: (event, plan) => { if (isDocEvent(event)) assertDocSyncWritePlan(event, plan as FrozenWritePlan<"DocSyncSubmit">); if (isTaskEvent(event) && ((event.payload.documentClaims?.length ?? 0) > 0 || (event.payload.carriedDocumentClaims?.length ?? 0) > 0)) assertTaskLifecycleWritePlan(event, plan); if (isTaskBootstrapEvent(event)) assertTaskBootstrapWritePlan(event, plan as FrozenWritePlan<"TaskBootstrap">); if (isPresetSnapshotUpgradeEvent(event)) assertPresetSnapshotUpgradeWritePlan(event, plan as FrozenWritePlan<"PresetSnapshotUpgrade">); if (isTaskProgressEvent(event)) assertTaskProgressWritePlan(event, plan); if (isFactEvent(event)) assertFactWritePlan(event, plan); if (isDecisionEvent(event)) assertDecisionWritePlan(event, plan); if (isMigrationImportEvent(event)) assertMigrationImportWritePlan(event, plan); if (isLedgerLayoutMigrationEvent(event)) assertLedgerLayoutMigrationWritePlan(event, plan); return withDatabase(projectionPath, readHead, (db) => reduceBatch(db, [event], limit, options.eventStore.readContentBlob, readHead()?.revision ?? 0)); },
-    rebuild: () => rebuildProjection(projectionPath, options.eventStore, limit),
+    rebuild: () => rebuildProjection(projectionPath, readHead, options.eventStore, limit),
     readStateDigest: () => withDatabase(projectionPath, readHead, readStateDigest),
-    read: (taskId) => readProjection(projectionPath, options.eventStore, taskId, limit, now),
-    list: () => listProjection(projectionPath, options.eventStore, limit, now),
+    read: (taskId) => readProjection(projectionPath, readHead, options.eventStore, taskId, limit, now),
+    list: () => listProjection(projectionPath, readHead, options.eventStore, limit, now),
     readOperation: (opId) => withDatabase(projectionPath, readHead, (db) => {
       const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as { readonly event_json: string } | undefined;
       return row === undefined ? null : { event: parseEventJson(row.event_json), watermark: watermark(db) };
@@ -100,10 +103,10 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
     readTaskCompletion: (taskId, executionId) => withDatabase(projectionPath, readHead, (db) => { catchUpRound(db, options.eventStore, limit); const row = queryRows(db, "SELECT event_json FROM event_index WHERE task_id = ? AND json_extract(event_json, '$.schema') = 'task-event/v1' AND json_extract(event_json, '$.type') = 'task_completed' AND json_extract(event_json, '$.payload.execution.executionId') = ? ORDER BY workspace_revision DESC LIMIT 1", taskId, executionId)[0]; if (!row) return null; const event = parseEventJson(String(row.event_json)); return isTaskEvent(event) ? event : null; }),
     readRuntimeDispatch: (runtimeSessionIdValue, definitionSnapshotRef) => withDatabase(projectionPath, readHead, (db) => { const row = queryRows(db, "SELECT event_json FROM event_index WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND json_extract(event_json, '$.payload.definitionSnapshotRef') = ? ORDER BY workspace_revision LIMIT 1", runtimeSessionIdValue, definitionSnapshotRef)[0]; if (!row) return null; const event = parseEventJson(String(row.event_json)); return isAgentRuntimeEvent(event) ? event : null; }),
     readRuntimeSessionEvents: (runtimeSessionIdValue, afterRevision, limit) => withDatabase(projectionPath, readHead, (db) => { if (!Number.isSafeInteger(afterRevision) || afterRevision < 0 || !Number.isSafeInteger(limit) || limit < 1) throw new Error("runtime session event page requires a non-negative revision and a positive limit"); return queryRows(db, "SELECT event_json FROM event_index WHERE workspace_revision > ? AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? ORDER BY workspace_revision LIMIT ?", afterRevision, runtimeSessionIdValue, limit).map((row) => parseEventJson(String(row.event_json))).filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event)); }),
-    readDocument: (documentPath) => readDocument(projectionPath, options.eventStore, documentPath, limit),
+    readDocument: (documentPath) => readDocument(projectionPath, readHead, options.eventStore, documentPath, limit),
     readReplicaBasis: (afterRevision) => { if (afterRevision !== null && (!Number.isSafeInteger(afterRevision) || afterRevision < 0)) throw new Error("replica basis revision must be a non-negative integer or null"); const sourceRevision = options.eventStore.readHead()?.revision ?? 0; return withDatabase(projectionPath, readHead, (db) => transaction(db, () => { const current = watermark(db), head = current === 0 ? undefined : queryRows(db, "SELECT event_json FROM event_index WHERE workspace_revision = ?", current)[0], rows = afterRevision === null ? [] : queryRows(db, "SELECT event_json FROM event_index WHERE workspace_revision > ? AND workspace_revision <= ? ORDER BY workspace_revision LIMIT 64", afterRevision, current), documents = queryRows(db, "SELECT path, json_extract(value_json, '$.blobSha256') AS blob_sha256, json_extract(value_json, '$.size') AS size, json_extract(value_json, '$.mediaType') AS media_type FROM document ORDER BY path"); return { watermark: current, sourceRevision, headEvent: head ? parseEventJson(String(head.event_json)) : null, events: rows.map((row) => parseEventJson(String(row.event_json))), documents: documents.map((row) => ({ path: String(row.path), blobSha256: String(row.blob_sha256), size: Number(row.size), mediaType: String(row.media_type) })) }; })); },
     taskIdForDocumentPath: (documentPath) => withDatabase(projectionPath, readHead, (db) => (db.prepare("SELECT task_id FROM task_package WHERE ? = package_path OR substr(?, 1, length(package_path) + 1) = package_path || '/' ORDER BY length(package_path) DESC LIMIT 1").get(documentPath, documentPath) as { readonly task_id: string } | undefined)?.task_id ?? null),
-    readPresetSnapshot: (digest) => readPresetSnapshot(projectionPath, options.eventStore, digest, limit),
+    readPresetSnapshot: (digest) => readPresetSnapshot(projectionPath, readHead, options.eventStore, digest, limit),
     readProgress: (taskId) => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db), rows = queryRows(db, "SELECT event_json FROM task_progress WHERE task_id = ? ORDER BY workspace_revision", taskId); return { status: current === round.sourceRevision ? "ready" : "pending", rows: rows.map((row) => parseEventJson(String(row.event_json)) as TaskProgressEventV1), watermark: current, sourceRevision: round.sourceRevision }; }),
     admitFact: (event) => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit); if (round.watermark !== round.sourceRevision) throw new FactProjectionError("content_not_ready", `Fact admission requires projection revision ${round.sourceRevision}; current watermark is ${round.watermark}.`); assertFactAdmission(db, event); }),
     readFact: (taskId, factId) => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", fact: readFactRow(db, taskId, factId), watermark: current, sourceRevision: round.sourceRevision }; }),
@@ -126,9 +129,9 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
   };
 }
 
-function listProjection(projectionPath: string, eventStore: EventStreamPort, limit: number, now: () => string): TaskProjectionListRead {
+function listProjection(projectionPath: string, readHead: EventStreamPort["readHead"], eventStore: EventStreamPort, limit: number, now: () => string): TaskProjectionListRead {
   const existed = localRuntimeStateFileSystem.exists(projectionPath);
-  return withDatabase(projectionPath, eventStore.readHead, (db) => {
+  return withDatabase(projectionPath, readHead, (db) => {
     const round = catchUpRound(db, eventStore, limit), current = watermark(db), at = now();
     const rows = db.prepare("SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path, COALESCE(task_generation.generation, 'v1') AS generation, task_snapshot.workspace_revision AS workspace_revision, event_index.event_json AS event_json FROM task_snapshot LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id) JOIN event_index ON event_index.workspace_revision = task_snapshot.workspace_revision ORDER BY task_snapshot.task_id").all() as unknown as readonly { readonly task_id: string; readonly package_path: string | null; readonly generation: "v0" | "v1"; readonly workspace_revision: number; readonly event_json: string }[];
     return { status: current === round.sourceRevision ? "ready" : "pending", rows: rows.map((row) => ({ taskId: row.task_id, packagePath: row.package_path, generation: row.generation, workspaceRevision: row.workspace_revision,
@@ -137,15 +140,15 @@ function listProjection(projectionPath: string, eventStore: EventStreamPort, lim
   });
 }
 
-function readDocument(projectionPath: string, eventStore: EventStreamPort, documentPath: string, limit: number): DocumentProjectionRead {
-  return withDatabase(projectionPath, eventStore.readHead, (db) => { const round = catchUpRound(db, eventStore, limit), current = watermark(db), row = db.prepare("SELECT value_json FROM document WHERE path = ?").get(documentPath) as { readonly value_json: string } | undefined;
+function readDocument(projectionPath: string, readHead: EventStreamPort["readHead"], eventStore: EventStreamPort, documentPath: string, limit: number): DocumentProjectionRead {
+  return withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, eventStore, limit), current = watermark(db), row = db.prepare("SELECT value_json FROM document WHERE path = ?").get(documentPath) as { readonly value_json: string } | undefined;
     return { status: current === round.sourceRevision ? "ready" : "pending", document: row ? JSON.parse(row.value_json) as DocumentState : null, watermark: current, sourceRevision: round.sourceRevision }; });
 }
-function readPresetSnapshot(projectionPath: string, eventStore: EventStreamPort, digest: string, limit: number): PresetSnapshotProjectionRead { return withDatabase(projectionPath, eventStore.readHead, (db) => { const round = catchUpRound(db, eventStore, limit), current = watermark(db), row = db.prepare("SELECT value_json FROM preset_snapshot WHERE digest = ?").get(digest) as { readonly value_json: string } | undefined; return { status: current === round.sourceRevision ? "ready" : "pending", snapshot: row ? JSON.parse(row.value_json) : null, watermark: current, sourceRevision: round.sourceRevision }; }); }
+function readPresetSnapshot(projectionPath: string, readHead: EventStreamPort["readHead"], eventStore: EventStreamPort, digest: string, limit: number): PresetSnapshotProjectionRead { return withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, eventStore, limit), current = watermark(db), row = db.prepare("SELECT value_json FROM preset_snapshot WHERE digest = ?").get(digest) as { readonly value_json: string } | undefined; return { status: current === round.sourceRevision ? "ready" : "pending", snapshot: row ? JSON.parse(row.value_json) : null, watermark: current, sourceRevision: round.sourceRevision }; }); }
 
-function readProjection(projectionPath: string, eventStore: EventStreamPort, taskId: string, limit: number, now: () => string): TaskProjectionRead {
+function readProjection(projectionPath: string, readHead: EventStreamPort["readHead"], eventStore: EventStreamPort, taskId: string, limit: number, now: () => string): TaskProjectionRead {
   const existed = localRuntimeStateFileSystem.exists(projectionPath);
-  return withDatabase(projectionPath, eventStore.readHead, (db) => {
+  return withDatabase(projectionPath, readHead, (db) => {
     const round = catchUpRound(db, eventStore, limit);
     const current = watermark(db);
     return { status: current === round.sourceRevision ? "ready" : "pending", snapshot: readSnapshot(db, taskId, now()), packagePath: (db.prepare("SELECT package_path FROM task_package WHERE task_id = ?").get(taskId) as { readonly package_path: string } | undefined)?.package_path ?? null, watermark: current,
@@ -154,43 +157,58 @@ function readProjection(projectionPath: string, eventStore: EventStreamPort, tas
   });
 }
 
-function rebuildProjection(projectionPath: string, eventStore: EventStreamPort, limit: number): ProjectionRebuildReceipt {
-  localRuntimeStateFileSystem.remove(projectionPath);
+function rebuildProjection(projectionPath: string, readHead: EventStreamPort["readHead"], eventStore: EventStreamPort, limit: number): ProjectionRebuildReceipt {
+  discardDatabase(projectionPath, readHead);
   let transactions = 0, reducedItems = 0, maxBatchItems = 0;
   for (;;) {
-    const round = withDatabase(projectionPath, eventStore.readHead, (db) => catchUpRound(db, eventStore, limit));
+    const round = withDatabase(projectionPath, readHead, (db) => catchUpRound(db, eventStore, limit));
     transactions += round.sqliteTransactions;
     reducedItems += round.reducedItems;
     maxBatchItems = Math.max(maxBatchItems, round.accessedItems);
     if (round.watermark === round.sourceRevision) break;
   }
-  const result = withDatabase(projectionPath, eventStore.readHead, (db) => transaction(db, () => {
+  const result = withDatabase(projectionPath, readHead, (db) => transaction(db, () => {
     markRuntimeSessionsUnknown(db);
-    const current = watermark(db), digest = refreshStateDigestAtSourceCut(db, eventStore.readHead()?.revision ?? 0);
+    const current = watermark(db), digest = refreshStateDigestAtSourceCut(db, readHead()?.revision ?? 0);
     if (digest === null) throw new Error("projection rebuild did not reach a source-complete state digest");
     return { current, digest };
   })); transactions += 1;
   return { watermark: result.current, stateDigest: result.digest, metrics: { sqliteTransactions: transactions, reducedItems, maxBatchItems } };
 }
 
-function withDatabase<A>(projectionPath: string, readHead: EventStreamPort["readHead"], use: (db: DatabaseSync) => A): A {
-  localRuntimeStateFileSystem.mkdirp(path.dirname(projectionPath));
-  let db = openDatabase(projectionPath);
-  const discardCache = () => {
-    db.close();
-    localRuntimeStateFileSystem.remove(projectionPath);
-    db = openDatabase(projectionPath);
-    configureDatabase(db);
+interface ProjectionDatabaseOwner { readonly use: <A>(operation: (db: DatabaseSync) => A) => A; readonly discard: () => void; readonly close: () => void; }
+const projectionDatabaseOwners = new WeakMap<EventStreamPort["readHead"], Map<string, ProjectionDatabaseOwner>>();
+
+function withDatabase<A>(projectionPath: string, readHead: EventStreamPort["readHead"], use: (db: DatabaseSync) => A): A { return projectionDatabaseOwner(projectionPath, readHead).use(use); }
+function discardDatabase(projectionPath: string, readHead: EventStreamPort["readHead"]): void { projectionDatabaseOwner(projectionPath, readHead).discard(); }
+function closeDatabase(projectionPath: string, readHead: EventStreamPort["readHead"]): void { const owners = projectionDatabaseOwners.get(readHead), owner = owners?.get(projectionPath); owner?.close(); owners?.delete(projectionPath); }
+
+function projectionDatabaseOwner(projectionPath: string, readHead: EventStreamPort["readHead"]): ProjectionDatabaseOwner {
+  let owners = projectionDatabaseOwners.get(readHead);
+  if (owners === undefined) { owners = new Map(); projectionDatabaseOwners.set(readHead, owners); }
+  const known = owners.get(projectionPath);
+  if (known !== undefined) return known;
+  let db: DatabaseSync | null = null, fingerprint: string | null = null;
+  const close = () => { db?.close(); db = null; fingerprint = null; };
+  const open = () => { localRuntimeStateFileSystem.mkdirp(path.dirname(projectionPath)); db = openDatabase(projectionPath); configureDatabase(db); fingerprint = projectionFileFingerprint(projectionPath); };
+  const discard = () => { close(); localRuntimeStateFileSystem.remove(projectionPath); };
+  const initialize = () => {
+    open();
+    if (projectionSchemaVersion(db!) !== null && projectionSchemaVersion(db!) !== taskProjectionSchemaVersion) { discard(); open(); }
+    createTables(db!);
   };
-  try {
-    configureDatabase(db);
-    const existingVersion = projectionSchemaVersion(db);
-    if (existingVersion !== null && existingVersion !== taskProjectionSchemaVersion) discardCache();
-    createTables(db);
-    if (!matchesLedgerIdentity(db, readHead())) { discardCache(); createTables(db); }
-    return use(db);
-  } finally { db.close(); }
+  const use = <A>(operation: (database: DatabaseSync) => A): A => {
+    if (db !== null && fingerprint !== projectionFileFingerprint(projectionPath)) close();
+    if (db === null) initialize();
+    if (!matchesLedgerIdentity(db!, readHead())) { discard(); initialize(); }
+    return operation(db!);
+  };
+  const owner = { use, discard, close };
+  owners.set(projectionPath, owner);
+  return owner;
 }
+
+function projectionFileFingerprint(projectionPath: string): string | null { return localRuntimeStateFileSystem.fileIdentity(projectionPath); }
 
 // The cache is only fresh for the ledger it was scanned from. Revision alone cannot tell two
 // ledgers apart (a genesis replay rewrites every event while keeping the revision), so the meta
@@ -263,6 +281,7 @@ function catchUpRound(db: DatabaseSync, eventStore: EventStreamPort, limit: numb
   };
   const shouldScan = state.scan_cursor !== null || state.scanned_revision < sourceRevision;
   const batch = shouldScan ? eventStore.readBatch(state.scan_cursor, limit) : null;
+  if (batch?.prefetchContent !== undefined) batchContentPrefetchers.set(eventStore, batch.prefetchContent);
   const hasDeferred = db.prepare("SELECT 1 AS present FROM event_source WHERE workspace_revision = ?").get(watermark(db) + 1) !== undefined;
   if (batch === null && !hasDeferred) {
     const current = watermark(db);
@@ -271,17 +290,38 @@ function catchUpRound(db: DatabaseSync, eventStore: EventStreamPort, limit: numb
     if (digest === null) throw new Error("projection digest refresh lost its source-complete cut");
     return { sourceRevision, watermark: current, reducedItems: 0, accessedItems: 0, sqliteTransactions: 1 };
   }
+  const replayEvents = readyDeferredEvents(db, batch?.events ?? [], limit);
+  let prefetch = batch?.prefetchContent ?? batchContentPrefetchers.get(eventStore);
+  if (prefetch === undefined && hasDeferred) {
+    prefetch = eventStore.readBatch(null, 1).prefetchContent;
+    if (prefetch !== undefined) batchContentPrefetchers.set(eventStore, prefetch);
+  }
+  if (replayEvents.length > 0 && prefetch === undefined) throw new Error("event stream must provide a verified batch content prefetch");
+  const prefetchedContent = replayEvents.length ? prefetch!(replayEvents) : new Map<string, Uint8Array | null>();
   const reducedItems = transaction(db, () => {
     if (batch !== null) {
       for (const event of batch.events) stageEvent(db, event);
       if (batch.done) runSql(db, "UPDATE projection_meta SET scan_cursor = NULL, scanned_revision = ?, head_digest = ? WHERE singleton = 1", batch.sourceRevision, head?.eventDigest ?? null);
       else runSql(db, "UPDATE projection_meta SET scan_cursor = ? WHERE singleton = 1", batch.cursor);
     }
-    const reduced = drainDeferred(db, limit, eventStore.readContentBlob);
+    const reduced = drainDeferred(db, limit, (sha256) => prefetchedContent.get(sha256) ?? null);
     refreshStateDigestAtSourceCut(db, sourceRevision);
     return reduced;
   });
   return { sourceRevision, watermark: watermark(db), reducedItems, accessedItems: batch?.accessedItems ?? 0, sqliteTransactions: 1 };
+}
+
+function readyDeferredEvents(db: DatabaseSync, batch: readonly CanonicalEventV1[], limit: number): readonly CanonicalEventV1[] {
+  const current = watermark(db), candidates = new Map<number, CanonicalEventV1>();
+  for (const row of queryRows(db, "SELECT workspace_revision, event_json FROM event_source WHERE workspace_revision > ? AND workspace_revision <= ? ORDER BY workspace_revision", current, current + limit)) candidates.set(Number(row.workspace_revision), parseEventJson(String(row.event_json)));
+  for (const event of batch) if (event.workspaceRevision <= current + limit) candidates.set(event.workspaceRevision, event);
+  const ready: CanonicalEventV1[] = [];
+  for (let revision = current + 1; revision <= current + limit; revision += 1) {
+    const event = candidates.get(revision);
+    if (event === undefined) break;
+    ready.push(event);
+  }
+  return ready;
 }
 
 function stageEvent(db: DatabaseSync, event: CanonicalEventV1): void {

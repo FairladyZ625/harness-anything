@@ -6,7 +6,8 @@ import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
-import { makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
+import { makeTaskEventStore, type CanonicalEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
+import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
 import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, decideDocWrite, parseDocWriteIntent, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
@@ -23,7 +24,43 @@ test("task/doc reducers share one SQLite transaction and L2 rebuild restores exa
     const plan = docSyncWritePlan(event); eventStore.append({ event, plan, blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }] }); assert.throws(() => projection.apply(event), /write plan/iu);
     assert.deepEqual(projection.apply(event, plan).metrics, { sqliteTransactions: 1, reducedItems: 1 });
     const first = projection.readDocument("context/notes.md"); assert.equal(first.status, "ready"); assert.equal(first.document?.body, body); assert.equal(first.document?.blobSha256, hash); assert.equal(projection.readOperation(event.opId)?.event.schema, "doc-event/v1");
+    rmSync(projection.path, { force: true }); const reopened = projection.readDocument("context/notes.md"); assert.equal(reopened.status, "ready"); assert.deepEqual(reopened.document, first.document);
     rmSync(projection.path, { force: true }); const rebuilt = projection.rebuild(); assert.equal(rebuilt.watermark, 1); assert.deepEqual(projection.readDocument("context/notes.md").document, first.document);
+  });
+});
+
+test("cold projection reuses one batch tree scan and its verified blob prefetch", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir); const writer = makeTaskEventStore({ repoId: "batch-prefetch", rootDir }), count = 128;
+    for (let revision = 1; revision <= count; revision += 1) writer.append(batchDocumentBundle(writer, revision));
+    const reader = makeTaskEventStore({ repoId: "batch-prefetch", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: reader, catchUpLimit: 64 }), before = localGitObjectRefStore.processCount();
+    let read = projection.readDocument(batchDocumentPath(count));
+    for (let round = 1; read.status === "pending" && round < 4; round += 1) read = projection.readDocument(batchDocumentPath(count));
+    assert.equal(read.status, "ready"); assert.equal(read.document?.body, batchDocumentBody(count));
+    const processes = localGitObjectRefStore.processCount() - before;
+    assert.equal(processes <= 7, true, `cold projection opened ${processes} Git processes for ${count} claimed blobs across two batches`);
+  });
+});
+
+test("a fresh projection prefetches deferred staged content in one batch before replay", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir); const writer = makeTaskEventStore({ repoId: "deferred-prefetch", rootDir });
+    writer.append(batchDocumentBundle(writer, 1, "resume-op-6"));
+    writer.append(batchDocumentBundle(writer, 2, "resume-op-48"));
+
+    const first = makeTaskProjection({ rootDir, eventStore: makeTaskEventStore({ repoId: "deferred-prefetch", rootDir }), catchUpLimit: 1 });
+    assert.equal(first.readDocument(batchDocumentPath(1)).status, "pending");
+    first.close();
+
+    const second = makeTaskProjection({ rootDir, eventStore: makeTaskEventStore({ repoId: "deferred-prefetch", rootDir }), catchUpLimit: 1 });
+    assert.equal(second.readDocument(batchDocumentPath(1)).watermark, 1);
+    second.close();
+
+    const third = makeTaskProjection({ rootDir, eventStore: makeTaskEventStore({ repoId: "deferred-prefetch", rootDir }), catchUpLimit: 1 });
+    const resumed = third.readDocument(batchDocumentPath(2));
+    assert.equal(resumed.status, "ready");
+    assert.equal(resumed.document?.body, batchDocumentBody(2));
+    third.close();
   });
 });
 
@@ -255,6 +292,18 @@ test("a lapsed reservation stops being a lease while a lapsed active lease stays
 });
 
 function taskBundle(event: TaskEventV1): CanonicalWriteBundle { return { event, plan: taskLifecycleWritePlan(event), blobs: [] }; }
+
+function batchDocumentBundle(store: CanonicalEventStore, revision: number, opId = `batch-op-${String(revision).padStart(4, "0")}`): CanonicalWriteBundle {
+  const body = batchDocumentBody(revision), sha256 = sha256Text(body), path = batchDocumentPath(revision);
+  const event: DocEventV1 = { schema: "doc-event/v1", eventId: `batch-event-${revision}`, workspaceRevision: revision, opId,
+    type: "documents_written", actor: { principal: { personId: "person-1" }, executor: null }, source: "local", occurredAt: "2026-08-19T00:00:00.000Z",
+    payload: { executionId: null, baseLedgerSha: store.currentCommit(), changes: [{ path, baseBlobSha256: null, candidate: { sha256, size: Buffer.byteLength(body), mediaType: "text/markdown" }, policyId: DOC_POLICY_ID,
+      regionProofs: [{ regionId: `heading/batch ${revision}`, policyId: DOC_POLICY_ID, codecId: DOC_CODEC_ID, baseSha256: sha256Text(""), candidateSha256: sha256, insertBytes: Buffer.byteLength(body) }] }] } };
+  return { event, plan: docSyncWritePlan(event), blobs: [{ sha256, size: Buffer.byteLength(body), mediaType: "text/markdown", body }] };
+}
+
+function batchDocumentPath(revision: number): string { return `context/batch-${String(revision).padStart(4, "0")}.md`; }
+function batchDocumentBody(revision: number): string { return `# Batch ${revision}\n`; }
 
 function initRepo(rootDir: string): void {
   git(rootDir, "init", "--quiet");

@@ -44,6 +44,10 @@ export const localRuntimeStateFileSystem = {
     }
   },
   exists: (inputPath: string) => existsSync(inputPath),
+  fileIdentity: (inputPath: string) => {
+    const stat = statSync(inputPath, { throwIfNoEntry: false });
+    return stat === undefined ? null : `${stat.dev}:${stat.ino}`;
+  },
   mkdirp: (inputPath: string) => mkdirSync(inputPath, { recursive: true }),
   modifiedAtMs: (inputPath: string) => statSync(inputPath).mtimeMs,
   readText: (inputPath: string) => readFileSync(inputPath, "utf8"),
