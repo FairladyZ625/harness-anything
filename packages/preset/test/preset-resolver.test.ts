@@ -42,6 +42,19 @@ test("resolver distinguishes unavailable verticals from unavailable presets", as
   } finally { fixture.cleanup(); }
 });
 
+test("resolver rejects a production-installed preset outside the canonical vertical", async () => {
+  const fixture = makeFixture(), sourceRoot = path.join(path.dirname(fixture.bundledRoot), "user-source");
+  try {
+    writePackage(sourceRoot, "ops-other", { vertical: "ops/other" }); installPresetPackage({ source: path.join(sourceRoot, "ops-other"), userRoot: fixture.userRoot });
+    const result = await createCanonicalPresetResolver({ bundledRoot: fixture.bundledRoot, userRoot: fixture.userRoot, assetsRoot: fixture.assetsRoot }).resolve({ presetId: "ops-other", verticalId: "ops/other", locale: "en-US", purpose: "inspect" });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.code, "missing_vertical");
+      assert.match(result.error.hint, /Available vertical ids: software\/coding\./u);
+    }
+  } finally { fixture.cleanup(); }
+});
+
 test("an invalid user package shadows the bundled package without fallback", async () => {
   const fixture = makeFixture();
   try {
@@ -271,6 +284,7 @@ test("repository init plan consumes the declaration and composes package-local A
   try {
     const vertical = JSON.parse(readFileSync(new URL("../assets/software-coding/vertical.json", import.meta.url), "utf8")) as { repositoryScaffold: { seededDocs: Array<{ slot: string }>; agentsEntry: { repoSpecificsAnchor: string } } }, expectedSlots = [...vertical.repositoryScaffold.seededDocs.map(({ slot }) => slot), "repository.agent.entry"].sort();
     for (const locale of ["en-US", "zh-CN"]) { const plan = compileRepositoryScaffold({ rootDir, verticalId: "software/coding", locale }), agents = plan.documents.find(({ slot }) => slot === "repository.agent.entry"); assert.deepEqual(plan.documents.map(({ slot }) => slot).sort(), expectedSlots); assert.equal(agents?.path, "AGENTS.md"); assert.match(agents?.body ?? "", /## Context Loading/u); assert.match(agents?.body ?? "", /## Harness CLI \(software\/coding\)/u); assert.match(agents?.body ?? "", /## Repository Specifics/u); assert.equal(agents?.requiredAnchors.includes(vertical.repositoryScaffold.agentsEntry.repoSpecificsAnchor), true); assert.equal(plan.documents.some(({ path: target }) => target.includes("harness/standards/") || target.includes("architecture-manifest.json")), false); }
+    assert.throws(() => compileRepositoryScaffold({ rootDir, verticalId: "software-coding", locale: "en-US" }), (error: unknown) => (error as { code?: string; message?: string }).code === "missing_vertical" && /Available vertical ids: software\/coding\./u.test((error as { message?: string }).message ?? ""));
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 
