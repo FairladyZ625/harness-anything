@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -19,13 +19,13 @@ test("real CLI performs machine runtime instance CRUD through an isolated reside
     assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);
     const initial = run(root, env, ["runtime", "instance", "list"]), installations = initial.installations as Array<{ installationId: string; kindId: "claude" | "codex"; version: string }>;
     const installation = installations.find(({ kindId, version }) => kindId === "codex" && version === `codex ${fixtureVersion}`); assert.ok(installation, JSON.stringify(initial));
-    const created = run(root, env, ["runtime", "instance", "create", "--id", "cli-isolated", "--name", "CLI Isolated", "--kind", installation.kindId, "--installation", installation.installationId, "--provider", installation.kindId === "codex" ? "openai" : "anthropic", "--model", "runtime-test-model", "--base-url", "https://gateway.example.test/v1", "--auth", "api-key", "--credential-ref", "keychain:harness/cli-isolated"]);
+    const created = run(root, env, ["runtime", "instance", "create", "--id", "cli-isolated", "--name", "CLI Isolated", "--kind", installation.kindId, "--installation", installation.installationId, "--provider", "codex_local_access", "--model", "runtime-test-model", "--effort", "high", "--base-url", "http://127.0.0.1:1/v1", "--wire-api", "responses", "--requires-openai-auth", "--http-header", "X-Harness-Probe=present", "--auth", "api-key", "--credential-ref", "keychain:harness/cli-isolated"]);
     assert.equal((created.instance as Record<string, unknown>).isolationState, "enforced");
     const shown = run(root, env, ["runtime", "instance", "show", "cli-isolated"]), probed = run(root, env, ["runtime", "instance", "show", "cli-isolated", "--probe"]), listed = run(root, env, ["runtime", "instance", "list"]);
     assert.deepEqual(shown.instance, created.instance); assert.equal((listed.instances as Array<Record<string, unknown>>).length, 1);
     assert.equal(((probed.instance as Record<string, unknown>).authReadiness as Record<string, unknown>).status, "not-ready"); assert.equal(listed.summary, "ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS\ncli-isolated\tCLI Isolated\tcodex\truntime-test-model\tenabled\tapi-key\tnot-ready");
     for (const receipt of [created, shown, probed, listed]) assert.doesNotMatch(JSON.stringify(receipt), /credentialRef|keychain:|executablePath/u);
-    const target = path.join(userRoot, "runtime-instances.json"), stateRoot = path.join(userRoot, "runtime-instances", "cli-isolated"); assert.equal(statSync(target).mode & 0o777, 0o600); for (const directory of [stateRoot, "home", "tmp", "run"].map((entry) => entry === stateRoot ? entry : path.join(stateRoot, entry))) assert.equal(statSync(directory).mode & 0o777, 0o700, directory);
+    const target = path.join(userRoot, "runtime-instances.json"), stateRoot = path.join(userRoot, "runtime-instances", "cli-isolated"), codexConfig = path.join(stateRoot, "home", ".codex", "config.toml"); assert.equal(statSync(target).mode & 0o777, 0o600); for (const directory of [stateRoot, "home", "tmp", "run"].map((entry) => entry === stateRoot ? entry : path.join(stateRoot, entry))) assert.equal(statSync(directory).mode & 0o777, 0o700, directory); const persisted = readFileSync(codexConfig, "utf8"); assert.match(persisted, /wire_api = "responses"/u); assert.match(persisted, /requires_openai_auth = true/u); assert.match(persisted, /http_headers = \{ "X-Harness-Probe" = "present" \}/u); assert.doesNotMatch(`${readFileSync(target, "utf8")}\n${persisted}`, /Bearer |instance-secret|OPENAI_API_KEY/u);
     assert.equal(run(root, env, ["runtime", "instance", "delete", "cli-isolated"]).deletedInstanceId, "cli-isolated"); assert.equal(existsSync(stateRoot), false);
     const missing = runMaybe(root, env, ["runtime", "instance", "show", "cli-isolated"]); assert.notEqual(missing.status, 0); assert.equal((missing.receipt.error as Record<string, unknown>).code, "runtime_instance_not_found");
   } finally { runMaybe(root, env, ["daemon", "stop"]); rmSync(root, { recursive: true, force: true }); }
