@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { daemonProtocolCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { DAEMON_RPC_SCHEMA, daemonMethodAcceptsPayloadExecutor, daemonProtocolCommands, validateDaemonRpcCall } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { deriveThinCliInputs, parseThinCommand } from "../src/cli/thin-command.ts";
 
 const frozenMutations = Object.freeze([
@@ -33,6 +33,32 @@ test("daemon-effective rebuilds keep their declared positional in usage", () => 
   assert.ok(taskStart); assert.match(taskStart.usage, /task start <task-id>/u);
   const repoBootstrap = daemonProtocolCommands.find((command) => command.id === "repo-bootstrap");
   assert.ok(repoBootstrap); assert.match(repoBootstrap.usage, /--repo-id <repo-id>/u);
+});
+
+// #1572: the CLI executor-injection surface is derived from the daemon shapes (daemonMethodAcceptsPayloadExecutor),
+// not a hand-copied method list. This register reconciles both directions: the reviewed surface below, and the
+// real wire validator — wherever injection may happen, validateDaemonRpcCall must accept the field, and wherever
+// a payload envelope exists without the declaration, the validator must reject the field. A newly contracted
+// command therefore needs no CLI edit to stay un-injected, and removing a declaration from an injected method
+// fails here instead of silently dropping attribution.
+const reviewedExecutorSurface = Object.freeze(["repo.task.create", "repo.preset.list", "repo.preset.inspect", "repo.preset.check", "repo.preset.validate", "repo.preset.install", "repo.preset.seed", "repo.preset.audit", "repo.preset.uninstall", "repo.preset.upgrade", "repo.vertical.validate", "repo.template.list", "repo.template.render", "repo.script.list", "repo.script.inspect", "repo.script.run", "repo.preset.run.start", "repo.preset.run.status", "repo.agentRuntime.spawn"] as const);
+const agent = Object.freeze({ kind: "agent", id: "parity-probe" });
+const payloadShapeOf = (params: (typeof DAEMON_RPC_SCHEMA.methods)[number]["params"]) => { const payload = params.fields.payload; return typeof payload === "object" && payload !== null && "fields" in payload ? payload : null; };
+
+test("executor injection follows the daemon-declared surface exactly", () => {
+  for (const { method, params } of DAEMON_RPC_SCHEMA.methods) {
+    const accepts = daemonMethodAcceptsPayloadExecutor(method), payload = payloadShapeOf(params);
+    const errors = validateDaemonRpcCall({ method, params: { repo: { repoId: "parity" }, payload: { executor: agent } } });
+    const executorRejected = errors.some((error) => error.includes("params.payload.executor is not allowed"));
+    assert.equal(accepts, reviewedExecutorSurface.includes(method), `${method}: derived surface matches the reviewed register`);
+    if (accepts) assert.equal(executorRejected, false, `${method}: the validator must accept a declared payload executor`);
+    else if (payload && !payload.open) assert.equal(executorRejected, true, `${method}: an undeclared payload executor must be rejected`);
+    else if (!payload) assert.equal(errors.some((error) => error.includes("params.payload is not allowed")), true, `${method}: carries no payload envelope at all`);
+  }
+  // repo.task.run is the one structural exception: the executor rides inside the open action envelope.
+  assert.deepEqual(validateDaemonRpcCall({ method: "repo.task.run", params: { repo: { repoId: "parity" }, payload: { action: { kind: "task-list", executor: agent } } } }), []);
+  assert.equal(daemonMethodAcceptsPayloadExecutor("repo.task.run"), false);
+  assert.equal(daemonMethodAcceptsPayloadExecutor("repo.not.contracted"), false);
 });
 
 test("frozen public-parser mutations kill every canonical input facet", () => {
