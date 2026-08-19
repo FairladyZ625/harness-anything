@@ -8,7 +8,7 @@ import { deriveCliCapabilities, firstCliCommand, firstCliCommandIndex, parseThin
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 100);
+  assert.equal(thinCliCommands.length, 101);
   for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))].filter((value): value is string => value !== undefined).sort()) assert.match(help, new RegExp(`^  ${domain} \\(`, "mu"));
   assert.doesNotMatch(help, /ha task start <task-id>/u);
   const taskHelp = renderThinHelp([], "task");
@@ -45,7 +45,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     preset: ["preset-audit", "preset-check", "preset-inspect", "preset-install", "preset-list", "preset-seed", "preset-uninstall", "preset-upgrade", "preset-validate"],
     receipt: ["receipt-show"],
     relation: ["relation-list"],
-    runtime: ["runtime-cancel", "runtime-instance-create", "runtime-instance-delete", "runtime-instance-list", "runtime-instance-login", "runtime-instance-logout", "runtime-instance-show", "runtime-run", "runtime-status"],
+    runtime: ["runtime-cancel", "runtime-instance-create", "runtime-instance-delete", "runtime-instance-list", "runtime-instance-login", "runtime-instance-logout", "runtime-instance-show", "runtime-instance-update", "runtime-run", "runtime-status"],
     script: ["preset-run-start", "script-inspect", "script-list", "script-run"],
     squad: ["squad-inspect", "squad-install", "squad-list", "squad-validate"],
     task: ["task-amend", "task-archive", "task-artifact-add", "task-code-doc-reconcile", "task-complete", "task-contract-migrate", "task-create", "task-declare-executor", "task-delete", "task-dispatches", "task-list", "task-progress-append", "task-relate", "task-release", "task-reopen", "task-review", "task-review-consent", "task-review-execution", "task-show", "task-start", "task-submit", "task-supersede", "task-transition"],
