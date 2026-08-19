@@ -25,13 +25,15 @@ test("preset contract accepts only the closed v3 wire shape", () => {
   assert.deepEqual(presetContract.schemas.map((schema) => schema.id), ["preset-manifest/v3", "preset-document/v1", "preset-snapshot/v1", "preset-run-receipt/v1"]);
 });
 
-test("preset v3 carries closed Agent and Squad declarations without credentials", () => {
-  const agent = { ...manifest, id: "terra", title: "Terra", kind: "agent", outputShape: "agent-identity", agent: { id: "terra", name: "Terra", instructions: "Review the mission precisely.", runtime_type: "codex", skills: ["review"], prompts: ["prompt://review"], preset: "standard-task" } } as const;
-  const squad = { ...manifest, id: "core-squad", title: "Core Squad", kind: "squad", outputShape: "squad-roster", squad: { id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: "# Core Squad\n\nTerra leads review." } } as const;
+test("preset v3 carries closed Agent and Squad declarations without task-shape fields or credentials", () => {
+  const common = { schema: "preset-manifest/v3", vertical: "software/coding", version: "1.0.0" } as const;
+  const agent = { ...common, id: "terra", title: "Terra", kind: "agent", agent: { id: "terra", name: "Terra", instructions: "Review the mission precisely.", runtime_type: "codex", skills: ["review"], prompts: ["prompt://review"], preset: "standard-task" } } as const;
+  const squad = { ...common, id: "core-squad", title: "Core Squad", kind: "squad", squad: { id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: "# Core Squad\n\nTerra leads review." } } as const;
   assert.deepEqual(validatePresetManifestV3(agent), []); assert.deepEqual(validatePresetManifestV3(squad), []);
-  assert.match(validatePresetManifestV3({ ...agent, agent: { ...agent.agent, runtime_type: "glm" } }).join("\n"), /agent declaration/u);
-  assert.match(validatePresetManifestV3({ ...agent, agent: { ...agent.agent, token: "forbidden" } }).join("\n"), /agent declaration/u);
-  assert.match(validatePresetManifestV3({ ...squad, squad: { ...squad.squad, workers: ["terra", "terra"] } }).join("\n"), /squad declaration/u);
+  assert.match(validatePresetManifestV3({ ...agent, agent: { ...agent.agent, runtime_type: "glm" } }).join("\n"), /agent\.runtime_type.*claude.*codex/u);
+  assert.match(validatePresetManifestV3({ ...agent, agent: { ...agent.agent, token: "forbidden" } }).join("\n"), /agent\.token.*unknown/u);
+  assert.match(validatePresetManifestV3({ ...squad, squad: { ...squad.squad, workers: ["terra", "terra"] } }).join("\n"), /squad\.workers.*unique/u);
+  assert.match(validatePresetManifestV3({ ...agent, outputShape: "repository-diff" }).join("\n"), /outputShape.*task-shape.*not valid/u);
 });
 
 test("preset snapshot codec rejects nested field deletion and unknown aliases", () => {
