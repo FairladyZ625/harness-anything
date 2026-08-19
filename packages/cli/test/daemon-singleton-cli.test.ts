@@ -11,6 +11,27 @@ import { daemonPidPath, readDaemonPid } from "../../daemon/src/runtime.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
+// #1565: on Windows nothing delivers SIGTERM -- process.kill terminates unconditionally and the
+// daemon's shutdown never runs, so its pid file outlives it. `daemon stop` waited on that file and
+// reported daemon_stop_timeout for a daemon that had already stopped. SIGKILL reproduces the same
+// condition here: the handler does not run, and the file is left behind exactly as on Windows.
+test("#1565: a daemon whose shutdown never ran still yields a successful stop receipt", async () => {
+  const fixture = setup();
+  try {
+    assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
+    const pid = readDaemonPid(fixture.userRoot, "default");
+    assert.ok(pid, "the resident daemon must have published a pid");
+    process.kill(pid as number, "SIGKILL");
+    await waitForProcessExit(pid as number, 5_000);
+    assert.equal(existsSync(daemonPidPath(fixture.userRoot, "default")), true, "an ungraceful exit leaves the pid file behind");
+
+    const stopped = run(fixture.root, fixture.userRoot, ["daemon", "stop"]);
+    assert.equal(stopped.ok, true, JSON.stringify(stopped));
+    assert.notEqual(stopped.code, "daemon_stop_timeout");
+    assert.equal(existsSync(daemonPidPath(fixture.userRoot, "default")), false, "stop must clear the bookkeeping it outlived");
+  } finally { rmSync(fixture.parent, { recursive: true, force: true }); }
+});
+
 test("two concurrent daemon serves yield exactly one resident daemon and one deferral receipt", async () => {
   const fixture = setup();
   try {
