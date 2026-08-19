@@ -76,6 +76,21 @@ test("runner watchdog fails and names a file whose process keeps an open handle"
   assert.match(output, /\[node-test-watchdog\] test file exceeded 250ms: tools\/test-fixtures\/runner-watchdog\/open-handle\.test\.mjs/u);
 });
 
+test("a --prefix that selects nothing fails instead of reporting a clean run", () => {
+  const childEnv = { ...process.env };
+  delete childEnv.NODE_TEST_CONTEXT;
+  for (const prefix of ["packages/does-not-exist", "tools/run-node-tests.test.mjs"]) {
+    const result = spawnSync(process.execPath, [
+      "tools/run-node-tests.mjs",
+      "--tier", "fast",
+      "--prefix", prefix
+    ], { cwd: repoRoot, encoding: "utf8", env: childEnv, timeout: 30_000 });
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.equal(result.status, 1, output);
+    assert.match(output, /No test file in tier fast starts with any of/u);
+  }
+});
+
 test("resolveTestConcurrency prefers the explicit flag over env and defaults", () => {
   assert.equal(
     resolveTestConcurrency({ flagConcurrency: 3, envConcurrency: "8", isCi: false, availableParallelism: 16 }),

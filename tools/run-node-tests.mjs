@@ -45,7 +45,17 @@ if (selection.errors.length > 0) {
 if (options.shard !== undefined) {
   selection.files = selectIntegrationShardFiles(options.shard, selection.files);
 }
+const beforePrefixes = selection.files.length;
 selection.files = filterTestFilesByPrefixes(selection.files, options.prefixes);
+
+// A prefix that selects nothing is a typo, not an empty tier. Exiting 0 here
+// would report "ran clean" for a run that executed no assertions at all.
+if (options.prefixes.length > 0 && selection.files.length === 0) {
+  console.error(
+    `No test file in tier ${options.tier} starts with any of: ${options.prefixes.join(", ")} (${beforePrefixes} files were available before filtering).`
+  );
+  process.exit(1);
+}
 
 if (selection.files.length === 0) {
   console.log(`No node test files found for tier ${options.tier}.`);
