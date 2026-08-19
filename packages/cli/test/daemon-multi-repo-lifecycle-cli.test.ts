@@ -47,8 +47,12 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "status", "--path", docPath]).outcome, "applied");
     assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--execution-id", "exec-doc", "--path", docPath]).outcome, "applied");
     assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", docPath]).evidence, docBody);
+    const blockedPath = "context/other-session.md", eligiblePath = "context/this-session.md", blockedFile = path.join(fixture.alpha, "harness", blockedPath); mkdirSync(path.dirname(blockedFile), { recursive: true });
+    writeFileSync(blockedFile, "# Stable\n"); assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", blockedPath]).outcome, "applied");
+    writeFileSync(blockedFile, "# Renamed\n"); writeFileSync(path.join(fixture.alpha, "harness", eligiblePath), "# Eligible\n");
+    const partial = run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit"]); assert.equal(partial.outcome, "applied", JSON.stringify(partial)); assert.match(String(partial.summary), /doc-submit: applied[\s\S]*context\/this-session\.md[\s\S]*skipped:[\s\S]*context\/other-session\.md\tblocked\tbase region is missing or reordered/u);
     for (const root of [fixture.alpha, fixture.beta]) {
-      assert.equal(git(root, "rev-list", "--count", "refs/ha/canonical"), root === fixture.alpha ? "9" : "2");
+      assert.equal(git(root, "rev-list", "--count", "refs/ha/canonical"), root === fixture.alpha ? "11" : "2");
       assert.equal(git(root, "ls-tree", "--name-only", "refs/ha/canonical", "harness/events").includes("harness/events"), true);
       assert.equal(existsSync(path.join(root, ".harness/cache/task.sqlite")), true);
       assert.equal(existsSync(path.join(root, ".harness/write-journal")), false);

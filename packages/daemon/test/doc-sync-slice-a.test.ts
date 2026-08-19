@@ -26,6 +26,43 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+test("implicit submit applies eligible prose and reports an unrelated blocked row as skipped", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-partial-blocked-")); initRepo(rootDir); const repoId = workspaceId("partial-blocked"), cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "partial-blocked-daemon" }), binding = { actor, source: "local" as const };
+  try {
+    write(rootDir, "context/blocked.md", "# Stable\n\nbase\n"); assert.equal((await cell.run({ kind: "doc-submit", paths: ["context/blocked.md"] }, binding)).outcome, "applied");
+    write(rootDir, "context/blocked.md", "# Renamed\n\nbase\n"); write(rootDir, "context/eligible.md", "# Eligible\n\nship me\n");
+    const submitted = await cell.run({ kind: "doc-submit", paths: [] }, binding) as Record<string, unknown>;
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    assert.match(String(submitted.summary), /doc-submit: applied[\s\S]*context\/eligible\.md[\s\S]*skipped:[\s\S]*context\/blocked\.md\tblocked\tbase region is missing or reordered/u);
+    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(submitted.opId)); assert.equal(event?.schema, "doc-event/v1"); if (event?.schema === "doc-event/v1") assert.deepEqual(event.payload.changes.map((change) => change.path), ["context/eligible.md"]);
+    assert.equal(readFileSync(path.join(rootDir, "harness/context/eligible.md"), "utf8"), "# Eligible\n\nship me\n"); assert.equal(readFileSync(path.join(rootDir, "harness/context/blocked.md"), "utf8"), "# Renamed\n\nbase\n");
+    const settledHead = git(rootDir, "rev-parse", "HEAD"), skippedOnly = await cell.run({ kind: "doc-submit", paths: [] }, binding) as Record<string, unknown>; assert.equal(skippedOnly.outcome, "applied", JSON.stringify(skippedOnly)); assert.match(String(skippedOnly.summary), /doc-submit: applied\napplied:\n\(none\)\nskipped:\ncontext\/blocked\.md\tblocked/u); assert.equal(git(rootDir, "rev-parse", "HEAD"), settledHead, "a skipped-only implicit submit must not publish an event");
+  } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("implicit submit applies eligible prose and reports an unrelated deletion as skipped", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-partial-deletion-")); initRepo(rootDir); const repoId = workspaceId("partial-deletion"), cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "partial-deletion-daemon" }), binding = { actor, source: "local" as const };
+  try {
+    write(rootDir, "context/deleted.md", "# Retained\n"); assert.equal((await cell.run({ kind: "doc-submit", paths: ["context/deleted.md"] }, binding)).outcome, "applied");
+    rmSync(path.join(rootDir, "harness/context/deleted.md")); write(rootDir, "context/eligible.md", "# Eligible\n");
+    const submitted = await cell.run({ kind: "doc-submit", paths: [] }, binding) as Record<string, unknown>;
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    assert.match(String(submitted.summary), /doc-submit: applied[\s\S]*context\/eligible\.md[\s\S]*skipped:[\s\S]*context\/deleted\.md\tdeletion\tcanonical document is missing from the worktree/u);
+    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(submitted.opId)); assert.equal(event?.schema, "doc-event/v1"); if (event?.schema === "doc-event/v1") assert.deepEqual(event.payload.changes.map((change) => change.path), ["context/eligible.md"]);
+    assert.equal(existsSync(path.join(rootDir, "harness/context/deleted.md")), false); assert.equal(readFileSync(path.join(rootDir, "harness/context/eligible.md"), "utf8"), "# Eligible\n");
+  } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("authored CRLF prose is canonicalized on scanner read and submitted as LF", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-crlf-")); initRepo(rootDir); const repoId = workspaceId("crlf"), cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "crlf-daemon" }), binding = { actor, source: "local" as const }, logical = "context/crlf.md", canonical = "# CRLF\n\naccepted\n";
+  try {
+    write(rootDir, logical, canonical.replace(/\n/gu, "\r\n"));
+    const submitted = await cell.run({ kind: "doc-submit", paths: [logical] }, binding); assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(submitted.opId); assert.equal(event?.schema, "doc-event/v1"); if (event?.schema === "doc-event/v1") { assert.equal(event.payload.changes[0]?.candidate.sha256, sha256Text(canonical)); assert.equal(event.payload.changes[0]?.candidate.size, Buffer.byteLength(canonical)); }
+    assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), canonical);
+  } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
 test("scanner and watcher share the textual artifact classifier", () => {
   const opaque = "tasks/task-one/artifacts/scripts/report.mjs", prose = "tasks/task-one/artifacts/report.md";
   assert.equal(normalizeDocSyncWatchPath(opaque), opaque);

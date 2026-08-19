@@ -138,6 +138,11 @@ test("claim mismatch, deletion, heading rename, machine touch, and ambiguous hea
   }
 });
 
+test("direct CRLF claims name the line-ending repair when the contract rejects them", () => {
+  const crlf = "# Notes" + String.fromCharCode(13) + "\nA" + String.fromCharCode(13) + "\n", result = decide({ path: "context/notes.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: claim(crlf) }, null, Buffer.from(crlf));
+  assert.equal(result.accepted, false); if (!result.accepted) { assert.equal(result.code, "unresolved_touch"); assert.equal(result.detail.unresolvedTouches[0]?.reason, "claim is not canonical LF text"); assert.match(result.detail.nextAction, /LF line endings.*resubmit/u); }
+});
+
 test("prose regression controls still reject deletion, duplicate headings, and base-region reordering", () => {
   const base = "# One\nA\n# Two\nB\n", prose = { path: "context/notes.md", baseBlobSha256: sha256Text(base), policyId: DOC_POLICY_ID, candidate: claim(base) } as const;
   const deletion = decide({ ...prose, candidate: null }, state(base), null); assert.equal(deletion.accepted, false); if (!deletion.accepted) assert.equal(deletion.code, "deletion_forbidden");

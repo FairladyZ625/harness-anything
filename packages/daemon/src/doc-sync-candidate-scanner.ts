@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { classifyTextualArtifactPath, decideDocWrite, documentPath, parseDocWriteIntent, resolveDocRoute, resolveHarnessLayout, resolveLedgerGitLayout, sha256Bytes,
+import { classifyTextualArtifactPath, decideDocWrite, DOC_POLICY_ID, documentPath, parseDocWriteIntent, resolveDocRoute, resolveHarnessLayout, resolveLedgerGitLayout, sha256Bytes,
   type ActorIdentity, type CanonicalEventStore, type DocWriteIntent, type LedgerCommitSha, type TaskProjection, type WriteSource } from "../../kernel/src/index.ts";
 
 export type DocCandidateState = "clean" | "eligible" | "blocked" | "deletion" | "conflict";
@@ -14,8 +14,7 @@ export function scanDocCandidates(input: { readonly rootDir: string; readonly wo
   const layout = resolveHarnessLayout(input.rootDir), ledger = resolveLedgerGitLayout(input.rootDir), selected = input.selection?.map((value) => documentPath(value)), candidates = selected?.length ? [...new Set(selected)] : dirtyPaths(ledger.rootDir, ledger.authoredPrefix), paths = candidates.filter((value) => selected?.length || classifyTextualArtifactPath(value) !== null || !resolveDocRoute(documentPath(value)).allowed).sort(), baseLedgerSha = input.store.currentCommit(), execution = executionBinding(paths, input.executionId, input.projection, input.now), rows = paths.map((logical) => scanOne(logical));
   return { baseLedgerSha, executionId: execution.id, lease: execution.lease, rows };
   function scanOne(logical: string): ScannedDocCandidate {
-    const route = resolveDocRoute(documentPath(logical)), target = path.join(layout.authoredRoot, ...logical.split("/")), projected = input.projection.readDocument(documentPath(logical)), conflicts = conflictsFor(logical), safe = directFile(layout.authoredRoot, logical), bytes = safe && existsSync(target) ? readFileSync(target) : null, base = projected.document?.blobSha256 ?? null, candidate = bytes === null ? null : sha256Bytes(bytes);
-    const classification = classifyTextualArtifactPath(logical);
+    const route = resolveDocRoute(documentPath(logical)), target = path.join(layout.authoredRoot, ...logical.split("/")), projected = input.projection.readDocument(documentPath(logical)), conflicts = conflictsFor(logical), safe = directFile(layout.authoredRoot, logical), classification = classifyTextualArtifactPath(logical), rawBytes = safe && existsSync(target) ? readFileSync(target) : null, bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, classification?.policyId), base = projected.document?.blobSha256 ?? null, candidate = bytes === null ? null : sha256Bytes(bytes);
     if (!route.allowed) return safe && candidate !== null && candidate === base ? scannedCandidateRow("clean", null, bytes, base, candidate, classification?.mediaType ?? null) : scannedCandidateRow("blocked", safe ? `path is owned by ${route.requiredRoute}` : "path contains a symbolic link or is not a regular file", bytes, base, candidate, null, null, route.requiredRoute);
     if (classification === null) return scannedCandidateRow("blocked", "path is not a supported textual document", null, projected.document?.blobSha256 ?? null, null);
     if (projected.watermark !== projected.sourceRevision) return scannedCandidateRow("blocked", "canonical projection is pending", null, projected.document?.blobSha256 ?? null, null);
@@ -38,3 +37,4 @@ function conflictLogicalPaths(authoredRoot: string): string[] { const found: str
 function gitNames(repoRoot: string, args: readonly string[]): string[] { return execFileSync("git", ["-C", repoRoot, ...args], { encoding: "utf8", windowsHide: true }).split("\0").filter(Boolean); }
 function relative(root: string, target: string): string { return path.relative(root, target).split(path.sep).join("/"); }
 function directFile(authoredRoot: string, logical: string): boolean { let target = authoredRoot; if (existsSync(target) && lstatSync(target).isSymbolicLink()) return false; for (const segment of logical.split("/")) { target = path.join(target, segment); if (existsSync(target) && lstatSync(target).isSymbolicLink()) return false; } return !existsSync(target) || lstatSync(target).isFile(); }
+function canonicalProseBytes(bytes: Uint8Array, policyId: string | undefined): Uint8Array { if (policyId !== DOC_POLICY_ID || !bytes.includes(13)) return bytes; try { return Buffer.from(new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/\r\n?/gu, "\n")); } catch { return bytes; } }
