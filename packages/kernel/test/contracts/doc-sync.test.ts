@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { classifyTextualArtifactPath, OPAQUE_TEXTUAL_MEDIA_TYPE, OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
-import docSyncContract, { DOC_POLICY_ID, decideDocWrite, docRegionPolicyRegistry, documentPath, ledgerCommitSha, parseDocWriteIntent, resolveDocRoute, serializeDocEvent, serializeDocWriteIntent, validateDocEvent, validateDocWriteIntent, verifyDocEventChange, type DocWriteChange, type DocumentState } from "../../src/domain/doc-sync.contract.ts";
+import docSyncContract, { DOC_POLICY_ID, decideDocWrite, docRegionPolicyRegistry, documentPath, ledgerCommitSha, parseDocWriteIntent, resolveDocRoute, serializeDocEvent, serializeDocWriteIntent, validateDocEvent, validateDocWriteIntent, verifyDocEventChange, type ContentClaim, type DocWriteChange, type DocumentState } from "../../src/domain/doc-sync.contract.ts";
 import { MIGRATION_DOCUMENT_POLICY_ID } from "../../src/domain/migration-import-event.ts";
 import { validateWriteReceipt, validateWriteSource } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
@@ -11,7 +11,7 @@ const actor = { principal: { personId: "person-owner" }, executor: { kind: "agen
 const baseLedgerSha = ledgerCommitSha("docs", "a".repeat(40)), currentLedgerSha = baseLedgerSha;
 const lease = { schema: "lease/v1", taskId: "task-owner", executionId: "execution-1", actor, source: "local", phase: "held", expiresAt: "2026-08-12T12:00:00.000Z", ttlMs: 1_800_000, version: 3 } as const;
 const claim = (body: string) => ({ ref: "doc-sync-claims/candidate", sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/markdown" as const });
-const opaqueClaim = (body: string) => ({ ref: "doc-sync-claims/candidate", sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: OPAQUE_TEXTUAL_MEDIA_TYPE });
+const opaqueClaim = (body: string, mediaType: ContentClaim["mediaType"] = OPAQUE_TEXTUAL_MEDIA_TYPE) => ({ ref: "doc-sync-claims/candidate", sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType });
 const state = (body: string): DocumentState => ({ path: "context/notes.md", blobSha256: sha256Text(body), body, size: Buffer.byteLength(body), mediaType: "text/markdown", policyId: DOC_POLICY_ID, workspaceRevision: 2 });
 function decide(change: DocWriteChange, document: DocumentState | null, bytes: Uint8Array | null = change.candidate ? Buffer.from(change.candidate.sha256 === sha256Text("# Notes\nA\nB\n") ? "# Notes\nA\nB\n" : "# Notes\nA\n") : null, overrides: Record<string, unknown> = {}) {
   return decideDocWrite({ intent: { schema: "doc-write-intent/v1", executionId: "execution-1", baseLedgerSha, changes: [change] }, opId: "doc-op", eventId: "doc-event", workspaceRevision: 3, actor, source: "local", occurredAt: "2026-08-12T11:00:00.000Z", currentLedgerSha, lease, documents: [document], claims: [bytes], ...overrides });
@@ -46,8 +46,14 @@ test("default prose route is open while typed internal routes are denied", () =>
 test("textual artifact classification keeps prose extensions canonical and scopes opaque content to artifacts", () => {
   assert.deepEqual(classifyTextualArtifactPath("artifacts/summary.md"), { kind: "canonical-prose", mediaType: "text/markdown", policyId: DOC_POLICY_ID });
   assert.deepEqual(classifyTextualArtifactPath("artifacts/notes.txt"), { kind: "canonical-prose", mediaType: "text/plain", policyId: DOC_POLICY_ID });
-  for (const target of ["artifacts/report.html", "artifacts/scripts/build.mjs", "artifacts/data.json", "artifacts/NOTICE", "artifacts/.metadata"]) assert.deepEqual(classifyTextualArtifactPath(target), { kind: "opaque-textual", mediaType: OPAQUE_TEXTUAL_MEDIA_TYPE, policyId: OPAQUE_TEXTUAL_POLICY_ID }, target);
+  for (const [target, mediaType] of [["artifacts/report.html", "text/html"], ["artifacts/report.htm", "text/html"], ["artifacts/scripts/build.mjs", "text/javascript"], ["artifacts/scripts/build.js", "text/javascript"], ["artifacts/data.json", "application/json"], ["artifacts/styles/main.css", "text/css"], ["artifacts/data.yaml", "application/yaml"], ["artifacts/data.yml", "application/yaml"], ["artifacts/data.csv", "text/csv"], ["artifacts/unknown.foo", OPAQUE_TEXTUAL_MEDIA_TYPE], ["artifacts/NOTICE", OPAQUE_TEXTUAL_MEDIA_TYPE], ["artifacts/.metadata", OPAQUE_TEXTUAL_MEDIA_TYPE]] as const) assert.deepEqual(classifyTextualArtifactPath(target), { kind: "opaque-textual", mediaType, policyId: OPAQUE_TEXTUAL_POLICY_ID }, target);
   assert.equal(classifyTextualArtifactPath("context/report.html"), null);
+});
+
+test("doc content claims accept only the supported opaque textual media types", () => {
+  const base = { schema: "doc-write-intent/v1", executionId: "execution-1", baseLedgerSha: baseLedgerSha.sha, changes: [{ path: "tasks/task-owner/artifacts/report.json", baseBlobSha256: null, policyId: OPAQUE_TEXTUAL_POLICY_ID, candidate: opaqueClaim("{}\n", "application/json") }] };
+  assert.deepEqual(validateDocWriteIntent(base), []);
+  assert.match(validateDocWriteIntent({ ...base, changes: [{ ...base.changes[0]!, candidate: { ...base.changes[0]!.candidate, mediaType: "application/octet-stream" } }] }).join("\n"), /claim/iu);
 });
 
 test("prose policy accepts body replacement while freezing region proofs and content target", () => {
@@ -66,8 +72,8 @@ test("body-replaceable policy accepts shorter prose and emits a valid canonical 
 });
 
 test("opaque textual policy is a whole-file CAS with no markdown parsing or region proofs", () => {
-  const base = "---\nnot: frontmatter\n# Same\n# Same\nThis entire legacy payload is deliberately removed.\n", candidate = "<script/>\n", document: DocumentState = { ...state(base), path: documentPath("tasks/task-owner/artifacts/scripts/report.mjs"), mediaType: OPAQUE_TEXTUAL_MEDIA_TYPE, policyId: OPAQUE_TEXTUAL_POLICY_ID };
-  const result = decide({ path: document.path, baseBlobSha256: sha256Text(base), policyId: OPAQUE_TEXTUAL_POLICY_ID, candidate: opaqueClaim(candidate) }, document, Buffer.from(candidate));
+  const base = "---\nnot: frontmatter\n# Same\n# Same\nThis entire legacy payload is deliberately removed.\n", candidate = "<script/>\n", document: DocumentState = { ...state(base), path: documentPath("tasks/task-owner/artifacts/scripts/report.mjs"), mediaType: "text/javascript", policyId: OPAQUE_TEXTUAL_POLICY_ID };
+  const result = decide({ path: document.path, baseBlobSha256: sha256Text(base), policyId: OPAQUE_TEXTUAL_POLICY_ID, candidate: opaqueClaim(candidate, "text/javascript") }, document, Buffer.from(candidate));
   assert.equal(result.accepted, true, JSON.stringify(result)); if (!result.accepted) return;
   const change = result.event.payload.changes[0]!;
   assert.deepEqual(change.regionProofs, []);

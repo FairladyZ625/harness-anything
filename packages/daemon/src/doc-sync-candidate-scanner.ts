@@ -5,7 +5,8 @@ import { classifyTextualArtifactPath, decideDocWrite, documentPath, parseDocWrit
   type ActorIdentity, type CanonicalEventStore, type DocWriteIntent, type LedgerCommitSha, type TaskProjection, type WriteSource } from "../../kernel/src/index.ts";
 
 export type DocCandidateState = "clean" | "eligible" | "blocked" | "deletion" | "conflict";
-export interface DocCandidateRow { readonly path: string; readonly state: DocCandidateState; readonly reason: string | null; readonly baseBlobSha256: string | null; readonly candidateBlobSha256: string | null; readonly size: number | null; readonly mediaType: "text/markdown" | "text/plain" | "text/x-harness-opaque" | null; readonly conflicts: readonly string[] }
+type TextualArtifactMediaType = NonNullable<ReturnType<typeof classifyTextualArtifactPath>>["mediaType"];
+export interface DocCandidateRow { readonly path: string; readonly state: DocCandidateState; readonly reason: string | null; readonly baseBlobSha256: string | null; readonly candidateBlobSha256: string | null; readonly size: number | null; readonly mediaType: TextualArtifactMediaType | null; readonly conflicts: readonly string[] }
 export interface ScannedDocCandidate extends DocCandidateRow { readonly bytes: Uint8Array | null; readonly rejectionCode: string | null; readonly requiredRoute: string | null }
 export interface DocCandidateScan { readonly baseLedgerSha: LedgerCommitSha; readonly executionId: string | null; readonly lease: ReturnType<TaskProjection["currentLeaseForExecution"]>; readonly rows: readonly ScannedDocCandidate[] }
 

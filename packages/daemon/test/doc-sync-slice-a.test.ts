@@ -13,7 +13,7 @@ import { openRepoCell } from "../src/repo-cell.ts";
 import { normalizeDocSyncWatchPath } from "../src/doc-sync-watcher.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
-const opaqueTextualMediaType = "text/x-harness-opaque";
+const opaqueTextualMediaType = "application/json";
 
 test("status, dry-run, and submit share the repeatable-path scanner and automatic base", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-scanner-")); initRepo(rootDir); const cell = await openRepoCell({ repoId: workspaceId("scanner"), rootDir: canonicalRoot(rootDir), ownerId: "scanner-daemon" }), binding = { actor, source: "local" as const };
@@ -31,7 +31,7 @@ test("scanner and watcher share the textual artifact classifier", () => {
   assert.equal(normalizeDocSyncWatchPath(opaque), opaque);
   assert.equal(normalizeDocSyncWatchPath(prose), prose);
   assert.equal(normalizeDocSyncWatchPath("context/ignored.json"), null);
-  assert.deepEqual(classifyTextualArtifactPath(opaque), { kind: "opaque-textual", mediaType: opaqueTextualMediaType, policyId: "opaque-textual-whole-file/v1" });
+  assert.deepEqual(classifyTextualArtifactPath(opaque), { kind: "opaque-textual", mediaType: "text/javascript", policyId: "opaque-textual-whole-file/v1" });
 });
 
 test("a committed DocEvent reports pending with its stable receipt id until L2 reaches the event cut", async () => {
