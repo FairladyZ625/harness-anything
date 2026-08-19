@@ -30,6 +30,7 @@
     }
   ],
   "physicalWriteFiles": [
+    "packages/daemon/src/agent-entities.ts",
     "packages/daemon/src/agent-runtime-instances.ts",
     "packages/daemon/src/daemon-singleton.ts",
     "packages/daemon/src/doc-sync-actions.ts",

@@ -8,5 +8,3 @@ export { createPresetProcessService, recoverPresetRunStatus } from "./preset-pro
 export type { PresetProcessService, PresetProcessServiceOptions, PresetRunStartInput } from "./preset-process-service.ts";
 export { acceptBuiltinVerticalScriptPlan, prepareBuiltinVerticalScriptExecution } from "./vertical-script.ts";
 export type { PreparedBuiltinVerticalScript } from "./vertical-script.ts";
-export { installIdentityPackage, listAgentDeclarations, listSquadDeclarations, readAgentDeclaration, readSquadDeclaration, validateIdentityPackage } from "./agent-squad.ts";
-export type { AgentCatalogRow, SquadCatalogRow } from "./agent-squad.ts";
