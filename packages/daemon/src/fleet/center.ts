@@ -7,7 +7,7 @@ import { resolveHarnessLayout, sha256Bytes, type WriteReceipt } from "../../../k
 import type { DaemonHost } from "../daemon-host.ts";
 import { FLEET_CHUNK_BYTES, FLEET_FRAME_BYTES, FLEET_KEY_SEND_WINDOW_BYTES, FLEET_SESSION_SEND_WINDOW_BYTES, FleetUtf8LineDecoder, fleetManifestDigest, parseFleetFrame, serializeFleetFrame, type FleetAssignmentBinding, type FleetBlob, type FleetCut, type FleetDescriptor, type FleetEntry, type FleetFrameV1 } from "./contract.ts";
 import { openFleetLeaseBroker, type FleetLeaseBroker } from "../lease-broker.ts";
-import { openPersistentWriterEpoch, type PersistentWriterEpoch } from "./writer-epoch.ts";
+import { openPersistentWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
 import { openReplicaAckStore, type ReplicaAckStore, type ReplicaDeliveryKey, type ReplicaOffer } from "./replica-ack-store.ts";
 import type { ReplicaCutSource, SnapshotCut } from "./replica-cut-store.ts";
 

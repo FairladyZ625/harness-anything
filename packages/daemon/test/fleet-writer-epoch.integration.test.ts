@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openRepoCell } from "../src/repo-cell.ts";
-import { openPersistentWriterEpoch } from "../src/fleet/writer-epoch.ts";
+import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 
 function probeGit(repo: string, ...args: string[]): string { return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim(); }
 function probeRepo(root: string): string { const repo = path.join(root, "repo"); mkdirSync(path.join(repo, "harness"), { recursive: true }); probeGit(repo, "init", "-q"); probeGit(repo, "config", "user.name", "W3A Probe"); probeGit(repo, "config", "user.email", "w3a@example.invalid"); probeGit(repo, "commit", "--allow-empty", "-qm", "base"); writeFileSync(path.join(repo, "harness", "harness.yaml"), "schema: harness-anything/v1\nname: probe\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n"); probeGit(repo, "add", "harness"); probeGit(repo, "commit", "-qm", "harness"); return repo; }
@@ -39,7 +39,7 @@ test("persistent writer epochs allocate monotonically and fence a stale holder",
 test("concurrent processes allocate unique epochs through the same critical section", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-race-"));
   try {
-    const source = path.resolve("packages/daemon/src/fleet/writer-epoch.ts"), results = await Promise.all(Array.from({ length: 12 }, (_value, index) => childEpoch(source, root, `worker-${index}`)));
+    const source = path.resolve("packages/daemon/src/writer-epoch.ts"), results = await Promise.all(Array.from({ length: 12 }, (_value, index) => childEpoch(source, root, `worker-${index}`)));
     const epochs = results.map((result) => result.lease!.epoch).sort((left, right) => left - right);
     assert.deepEqual(epochs, Array.from({ length: 12 }, (_value, index) => index + 1));
     assert.equal(new Set(results.map((result) => result.lease!.holderId)).size, 12);

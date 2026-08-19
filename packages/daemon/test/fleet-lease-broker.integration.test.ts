@@ -11,7 +11,7 @@ import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { runFleetTaskCommandClient, runFleetUploadClient } from "../src/fleet/edge.ts";
 import { fleetLeaseTimers } from "../src/lease-broker.ts";
-import { openPersistentWriterEpoch } from "../src/fleet/writer-epoch.ts";
+import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { randomUUID } from "node:crypto";
 
 const replicaQuota = 64 * 1024 * 1024;

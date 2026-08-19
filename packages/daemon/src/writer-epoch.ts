@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError } from "../../../kernel/src/index.ts";
+import { consumeKnownError } from "../../kernel/src/index.ts";
 
 export interface WriterEpochLease { readonly repoId: string; readonly holderId: string; readonly epoch: number; readonly version: number; readonly issuedAt: string }
 export interface PersistentWriterEpoch {
@@ -42,7 +42,7 @@ function readState(file: string): EpochState {
   if (!existsSync(file)) return { schema, repos: {} };
   let value: unknown;
   try { value = JSON.parse(readFileSync(file, "utf8")); } catch (error) { throw new WriterEpochError("writer_epoch_invalid", `writer epoch state is unreadable: ${error instanceof Error ? error.message : String(error)}`); }
-  if (!value || typeof value !== "object" || Array.isArray(value) || (value as { schema?: unknown }).schema !== schema || !isRecord((value as { repos?: unknown }).repos)) throw new WriterEpochError("writer_epoch_invalid", "writer epoch state has an invalid durable shape");
+  if (!value || typeof value !== "object" || Array.isArray(value) || (value as { schema?: unknown }).schema !== schema || !isEpochRecord((value as { repos?: unknown }).repos)) throw new WriterEpochError("writer_epoch_invalid", "writer epoch state has an invalid durable shape");
   const repos: Record<string, WriterEpochLease> = {};
   for (const [repoId, raw] of Object.entries((value as { repos: Record<string, unknown> }).repos)) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new WriterEpochError("writer_epoch_invalid", `writer epoch row ${repoId} is invalid`);
@@ -52,7 +52,7 @@ function readState(file: string): EpochState {
   }
   return { schema, repos };
 }
-function isRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }
+function isEpochRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }
 function withLock<T>(file: string, operation: () => T): T {
   mkdirSync(path.dirname(file), { recursive: true });
   let fd: number | undefined;

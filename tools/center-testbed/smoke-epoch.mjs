@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { runFleetTaskCommandClient } from "/opt/harness-anything/packages/daemon/src/fleet/edge.ts";
 import { readFleetRosterFile } from "/opt/harness-anything/packages/daemon/src/fleet-center-admission.ts";
-import { openPersistentWriterEpoch } from "/opt/harness-anything/packages/daemon/src/fleet/writer-epoch.ts";
+import { openPersistentWriterEpoch } from "/opt/harness-anything/packages/daemon/src/writer-epoch.ts";
 
 const workspace = "/data/workspace";
 const stateRoot = "/data/fleet-state";
