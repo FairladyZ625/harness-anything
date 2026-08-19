@@ -89,6 +89,9 @@ session 与本地流引用，后续 JSONL 在需要查看时才解析。每条�
 artifact；终态 dispatch artifact 保留流引用和 provider session id。因此
 `ha runtime run --resume-dispatch <dispatch-id> --prompt "…"` 可以续跑，不必暴露或手工查找
 provider session id。
+leader 使用 `--agent <leader-id> --to <worker-id>` 时，同一条 dispatch artifact 还会记录声明的
+`squadId`、worker `agentId` 与 `delegatedByAgentId`；目标必须属于该 leader 的 roster，且开放的
+`runtime_type` 必须与封闭的实例 kind 一致。
 
 派活绑定 task 时,daemon 还会通过 canonical doc sync 发布终态工作产物。一次批量写入创建
 `artifacts/missions/<dispatch-id>.md`、`artifacts/dispatches/<dispatch-id>.json` 与

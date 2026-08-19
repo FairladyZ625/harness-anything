@@ -22,6 +22,21 @@ export function readSquadDeclaration(input: { readonly rootDir: string; readonly
   if (missing.length) throw entityError("squad_agent_not_found", `Squad ${squad.id} references unavailable agents: ${[...new Set(missing)].join(", ")}.`);
   return squad;
 }
+export interface SquadDispatchTarget { readonly squadId: string; readonly leader: AgentDeclarationV1; readonly worker: AgentDeclarationV1 }
+export function resolveSquadDispatchTarget(input: { readonly rootDir: string; readonly leaderId: string; readonly workerId: string }): SquadDispatchTarget {
+  const store = entityStore(input.rootDir, "squad"), matches: SquadDispatchTarget[] = [], invalid: string[] = [];
+  if (existsSync(store) && lstatSync(store).isDirectory()) for (const entry of readdirSync(store, { withFileTypes: true }).filter((candidate) => candidate.isFile() && !candidate.isSymbolicLink() && candidate.name.endsWith(".json"))) {
+    const squadId = entry.name.replace(/\.json$/u, ""); let squad: SquadDeclarationV1;
+    try { squad = parseSquadDeclarationV1(readStoredDeclaration(input.rootDir, "squad", squadId)); } catch (error) { consumeKnownError(error); invalid.push(squadId); continue; }
+    if (squad.leader !== input.leaderId || !squad.workers.includes(input.workerId)) continue;
+    const leader = readAgentDeclaration({ rootDir: input.rootDir, agentId: squad.leader }), worker = readAgentDeclaration({ rootDir: input.rootDir, agentId: input.workerId });
+    readSquadDeclaration({ rootDir: input.rootDir, squadId }); matches.push({ squadId, leader, worker });
+  }
+  if (invalid.length) throw entityError("invalid_squad_roster", `Squad roster resolution is blocked by invalid declarations: ${invalid.join(", ")}.`);
+  if (matches.length === 0) throw entityError("squad_member_not_found", `Agent ${input.workerId} is not a declared worker for leader ${input.leaderId}.`);
+  if (matches.length > 1) throw entityError("squad_member_ambiguous", `Agent ${input.workerId} is declared in multiple squads for leader ${input.leaderId}: ${matches.map(({ squadId }) => squadId).join(", ")}.`);
+  return matches[0]!;
+}
 export function validateEntityPackage(input: { readonly source: string; readonly kind: AgentEntityKind }): EntityValidationReport {
   const source = path.resolve(input.source), decoded = decodeSourcePackage(source, input.kind);
   if ("issues" in decoded) return { schema: "entity-validate-report/v1", valid: false, source, issues: decoded.issues };

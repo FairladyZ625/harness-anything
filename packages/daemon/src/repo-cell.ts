@@ -12,7 +12,7 @@ import { resolveTaskWipLimit } from "./task-wip-settings.ts";
 import { bootstrapRepo, type RepoBootstrapInput, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { adjudicateDocIntent, claimBytes, isDocAction, listProjectedTaskDocuments, readDocReceipt, readProjectedDocument, recycleClaims, rejectDocSyncAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
-import { readAgentDeclaration, runAgentEntityAction } from "./agent-entities.ts";
+import { readAgentDeclaration, resolveSquadDispatchTarget, runAgentEntityAction } from "./agent-entities.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts"; import { makeAgentRuntimeStreamHub, type AgentRuntimeAttachSubscription, type AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { makeDecisionActions, makeFactActions } from "./fact-actions.ts";
 import { distillPromotionAction, prepareDistillCandidate } from "./distill-actions.ts";
@@ -95,7 +95,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
     } catch (error) { consumeKnownError(error); candidate?.replica.close(); if (candidate) recoveryUncertain = true; lastError = cellErrorMessage(error); causeClass = causeClassOf(error); }
   };
   const schedule = (work: () => void): void => { queueDepth += 1; const pending = tail.then(() => { queueDepth -= 1; if (state === "attached") work(); }); tail = pending.then(() => undefined, () => undefined); void pending.then(() => replica.kick(), () => replica.kick()); };
-  const runtimeSpawner = makeRuntimeSpawner({ repoId: input.repoId, rootDir, daemonGeneration: generation, store: () => store, projection: () => projection, stream: runtimeStream, now, schedule, prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore, resolveAgent: (agentId) => readAgentDeclaration({ rootDir, agentId }), ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}) });
+  const runtimeSpawner = makeRuntimeSpawner({ repoId: input.repoId, rootDir, daemonGeneration: generation, store: () => store, projection: () => projection, stream: runtimeStream, now, schedule, prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore, resolveAgent: (agentId) => readAgentDeclaration({ rootDir, agentId }), resolveSquadDispatchTarget: (leaderId, workerId) => resolveSquadDispatchTarget({ rootDir, leaderId, workerId }), ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}) });
   const catalog = openGuiCatalog({ repoId: input.repoId, rootDir, now }), terminalHost = openTerminalHost({ repoId: input.repoId, rootDir, daemonGeneration: generation, now });
   const admitTerminalWrite = (binding: RepoCellBinding): void => { const admission = admitRepoMode(mode, "repo-write", binding.source); if (!admission.ok) throw cellCodedError(admission.code, admission.nextAction); if (state !== "attached") attemptRecovery(); if (state !== "attached") throw cellCodedError("repo_unavailable", latched()); recheckRuntime(); };
   const terminal: RepoCellTerminal = { list: terminalHost.list, attach: terminalHost.attach, detach: terminalHost.detach, close: terminalHost.close,
