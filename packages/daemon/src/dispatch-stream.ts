@@ -6,7 +6,7 @@ const streamSchema = "runtime-dispatch-stream/v1" as const;
 const forbiddenKey = /(?:token|credential|password|secret|authorization|executablepath|api[-_ ]?key|private[-_ ]?key|cookie)/iu;
 const bearer = /\bBearer\s+[^\s,;]+/giu;
 const knownToken = /\b(?:sk|rk|ghp|github_pat|xox[baprs])[-_A-Za-z0-9]{8,}\b/giu;
-const sensitiveAssignment = /\b(?:credentialRef|executablePath|apiToken|accessToken)\s*[:=]\s*[^\s,;}]+/giu;
+const sensitiveAssignment = /\b(?:authorization|cookie|credential(?:Ref)?|executablePath|api[-_ ]?key|accessToken|apiToken|password|private[-_ ]?key|secret|token)\s*[:=]\s*[^\s,;}]+/giu;
 
 export interface DispatchStreamHeader {
   readonly schema: typeof streamSchema;
