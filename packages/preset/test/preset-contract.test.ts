@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import presetContract, { parsePresetManifestV3, validatePresetManifestV3, validatePresetRunReceiptV1, validatePresetSnapshotV1 } from "../src/preset.contract.ts";
+import { parameterRelationHint, regexLength } from "../src/preset-command-contract.ts";
 import { decodePresetPackageV3, validateBuiltinVertical } from "../src/preset-resolver.ts";
 
 const manifest = {
@@ -23,6 +24,11 @@ test("preset contract accepts only the closed v3 wire shape", () => {
   assert.match(validatePresetManifestV3({ ...manifest, schema: "preset-manifest/v2" }).join("\n"), /v3/u);
   assert.match(validatePresetManifestV3({ ...manifest, fallback: true }).join("\n"), /unknown/u);
   assert.deepEqual(presetContract.schemas.map((schema) => schema.id), ["preset-manifest/v3", "preset-document/v1", "preset-snapshot/v1", "preset-run-receipt/v1"]);
+});
+
+test("CLI help derives length only from a full single-atom quantifier", () => {
+  assert.deepEqual(regexLength("^[\\s\\S]{1,199}$"), [1, 199]); assert.deepEqual(regexLength("^\\d{4}$"), [4, 4]); assert.deepEqual(regexLength("^.{2,5}$"), [2, 5]); assert.equal(parameterRelationHint("Use exactly one of --dry-run or --apply."), true);
+  for (const regex of ["^[0-9]{4}-[0-9]{2}$", "^F-[0-9A-HJKMNP-TV-Z]{8}$", "^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$", "^sha256:[0-9a-f]{64}$"]) assert.equal(regexLength(regex), undefined, regex);
 });
 
 test("preset v3 rejects identity kinds and identity fields now that Agent and Squad are standalone entities", () => {
