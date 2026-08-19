@@ -5,6 +5,15 @@ import { entitySlug, parseAgentDeclarationV1, parseSquadDeclarationV1, validateA
 
 export type AgentCatalogRow = Omit<AgentDeclarationV1, "instructions"> & { readonly layer: "user"; readonly source: string; readonly validity: "valid" | "blocked"; readonly issues: readonly { readonly code: string; readonly message: string }[] };
 export type SquadCatalogRow = Omit<SquadDeclarationV1, "roster"> & { readonly layer: "user"; readonly source: string; readonly validity: "valid" | "blocked"; readonly issues: readonly { readonly code: string; readonly message: string }[] };
+export interface AgentEntityGuiRow { readonly id: string; readonly name: string; readonly runtimeType: string; readonly layer: string; readonly validity: "valid" | "blocked"; readonly issues: readonly { readonly code: string; readonly message: string }[] }
+export interface SquadEntityGuiRow { readonly id: string; readonly name: string; readonly leader: string; readonly workers: readonly string[]; readonly layer: string; readonly validity: "valid" | "blocked"; readonly issues: readonly { readonly code: string; readonly message: string }[] }
+export interface AgentEntityGuiDetail { readonly id: string; readonly name: string; readonly runtimeType: string; readonly instructions: string; readonly skills: readonly string[]; readonly prompts: readonly string[]; readonly preset: string | null }
+export interface SquadEntityGuiDetail { readonly id: string; readonly name: string; readonly leader: string; readonly workers: readonly string[]; readonly roster: string }
+export type AgentEntityGuiRead =
+  | { readonly schema: "agent-entity-catalog/v1"; readonly ok: true; readonly agents: readonly AgentEntityGuiRow[] }
+  | { readonly schema: "squad-entity-catalog/v1"; readonly ok: true; readonly squads: readonly SquadEntityGuiRow[] }
+  | { readonly schema: "agent-entity-detail/v1"; readonly ok: true; readonly agent: AgentEntityGuiDetail }
+  | { readonly schema: "squad-entity-detail/v1"; readonly ok: true; readonly squad: SquadEntityGuiDetail };
 export interface EntityValidationReport { readonly schema: "entity-validate-report/v1"; readonly valid: boolean; readonly source: string; readonly kind?: AgentEntityKind; readonly entity?: { readonly id: string }; readonly issues: readonly { readonly code: string; readonly message: string }[] }
 
 const manifestName = { agent: "agent.json", squad: "squad.json" } as const;
@@ -15,6 +24,13 @@ export function runAgentEntityAction(input: { readonly rootDir: string; readonly
   if (action.kind === "agent-list") return { schema: "agent-list/v1", agents: listStoredEntities(input.rootDir, "agent") };
   if (action.kind === "squad-list") return { schema: "squad-list/v1", squads: listStoredEntities(input.rootDir, "squad") };
   return kind === "agent" ? { schema: "agent-inspection/v1", agent: readAgentDeclaration({ rootDir: input.rootDir, agentId: requiredEntityText(action.agentId, "agentId") }) } : { schema: "squad-inspection/v1", squad: readSquadDeclaration({ rootDir: input.rootDir, squadId: requiredEntityText(action.squadId, "squadId") }) };
+}
+export function readAgentEntityGuiProjection<const K extends "agent-list" | "squad-list" | "agent-inspect" | "squad-inspect">(input: { readonly rootDir: string; readonly kind: K; readonly entityId?: string }): K extends "agent-list" ? Extract<AgentEntityGuiRead, { readonly schema: "agent-entity-catalog/v1" }> : K extends "squad-list" ? Extract<AgentEntityGuiRead, { readonly schema: "squad-entity-catalog/v1" }> : K extends "agent-inspect" ? Extract<AgentEntityGuiRead, { readonly schema: "agent-entity-detail/v1" }> : Extract<AgentEntityGuiRead, { readonly schema: "squad-entity-detail/v1" }> {
+  const action = input.kind.endsWith("-inspect") ? { kind: input.kind, [input.kind === "agent-inspect" ? "agentId" : "squadId"]: requiredEntityText(input.entityId, "entityId") } : { kind: input.kind }, evidence = agentEntityRecord(runAgentEntityAction({ rootDir: input.rootDir, action }));
+  if (input.kind === "agent-list") return { schema: "agent-entity-catalog/v1", ok: true, agents: Array.isArray(evidence.agents) ? evidence.agents.map(agentEntityRecord).map(agentEntityRow) : [] } as never;
+  if (input.kind === "squad-list") return { schema: "squad-entity-catalog/v1", ok: true, squads: Array.isArray(evidence.squads) ? evidence.squads.map(agentEntityRecord).map(squadEntityRow) : [] } as never;
+  if (input.kind === "agent-inspect") { const agent = agentEntityRecord(evidence.agent); return { schema: "agent-entity-detail/v1", ok: true, agent: { id: entityText(agent.id), name: entityText(agent.name), runtimeType: entityText(agent.runtime_type), instructions: entityText(agent.instructions), skills: entityStrings(agent.skills), prompts: entityStrings(agent.prompts), preset: agent.preset === undefined ? null : entityText(agent.preset) } } as never; }
+  const squad = agentEntityRecord(evidence.squad); return { schema: "squad-entity-detail/v1", ok: true, squad: { id: entityText(squad.id), name: entityText(squad.name), leader: entityText(squad.leader), workers: entityStrings(squad.workers), roster: entityText(squad.roster) } } as never;
 }
 export function readAgentDeclaration(input: { readonly rootDir: string; readonly agentId: string }): AgentDeclarationV1 { return parseAgentDeclarationV1(readStoredDeclaration(input.rootDir, "agent", input.agentId)); }
 export function readSquadDeclaration(input: { readonly rootDir: string; readonly squadId: string }): SquadDeclarationV1 {
@@ -64,6 +80,12 @@ function listStoredEntities(rootDir: string, kind: AgentEntityKind): readonly (A
     return { ...row, layer: "user" as const, source, validity: "valid" as const, issues: [] as const };
   }).sort((left, right) => left.id.localeCompare(right.id));
 }
+function agentEntityRow(value: Record<string, unknown>): AgentEntityGuiRow { return { id: entityText(value.id), name: entityText(value.name), runtimeType: entityText(value.runtime_type), layer: entityText(value.layer), validity: value.validity === "blocked" ? "blocked" : "valid", issues: entityIssues(value.issues) }; }
+function squadEntityRow(value: Record<string, unknown>): SquadEntityGuiRow { return { id: entityText(value.id), name: entityText(value.name), leader: entityText(value.leader), workers: entityStrings(value.workers), layer: entityText(value.layer), validity: value.validity === "blocked" ? "blocked" : "valid", issues: entityIssues(value.issues) }; }
+function entityIssues(value: unknown): readonly { readonly code: string; readonly message: string }[] { return Array.isArray(value) ? value.map(agentEntityRecord).filter((issue) => issue.code || issue.message).map((issue) => ({ code: entityText(issue.code), message: entityText(issue.message) })) : []; }
+function entityStrings(value: unknown): readonly string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []; }
+function entityText(value: unknown): string { return typeof value === "string" ? value : ""; }
+function agentEntityRecord(value: unknown): Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function blockedRow(kind: AgentEntityKind, id: string, source: string, code: string, message: string): AgentCatalogRow & SquadCatalogRow { return { id, name: id, ...(kind === "agent" ? { runtime_type: "" } : { leader: "", workers: [] }), layer: "user", source, validity: "blocked", issues: [{ code, message }] } as unknown as AgentCatalogRow & SquadCatalogRow; }
 function decodeSourcePackage(source: string, kind: AgentEntityKind): { readonly declaration: AgentDeclarationV1 & SquadDeclarationV1 } | { readonly issues: readonly { readonly code: string; readonly message: string }[] } {
   if (!existsSync(source) || !lstatSync(source).isDirectory() || lstatSync(source).isSymbolicLink()) return { issues: [{ code: "invalid_package", message: `Entity package ${source} is not a regular directory.` }] };

@@ -1,0 +1,11 @@
+{
+  "schema": "squad-entity-detail/v1",
+  "ok": true,
+  "squad": {
+    "id": "core-squad",
+    "name": "Core Squad",
+    "leader": "NOT-A-SLUG",
+    "workers": ["terra"],
+    "roster": "# Core Squad"
+  }
+}

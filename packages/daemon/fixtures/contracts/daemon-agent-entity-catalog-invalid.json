@@ -1,0 +1,15 @@
+{
+  "schema": "agent-entity-catalog/v1",
+  "ok": true,
+  "agents": [
+    {
+      "id": "terra",
+      "name": "Terra",
+      "runtimeType": "codex",
+      "layer": "user",
+      "validity": "valid",
+      "issues": [],
+      "credentialValue": "sk-should-never-ride-the-wire"
+    }
+  ]
+}

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { resolveSquadDispatchTarget, runAgentEntityAction } from "../src/agent-entities.ts";
+import { readAgentEntityGuiProjection, resolveSquadDispatchTarget, runAgentEntityAction } from "../src/agent-entities.ts";
 import { validateAgentDeclarationV1 } from "../src/agent-entities.contract.ts";
 
 const agent = { schema: "agent-declaration/v1", id: "terra", name: "Terra", instructions: "Review precisely.", runtime_type: "codex", skills: ["review"], prompts: ["prompt://review"], preset: "standard-task" }, squad = { schema: "squad-declaration/v1", id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: "# Core Squad\n\nTerra leads review." };
@@ -53,6 +53,27 @@ test("entity validation names every malformed manifest and refuses squads that r
     writeEntity(source, "orphan-squad", "squad", { ...squad, id: "orphan-squad", leader: "ghost" });
     run({ rootDir, kind: "squad-install", packageSource: path.join(source, "orphan-squad") });
     assert.throws(() => run({ rootDir, kind: "squad-inspect", squadId: "orphan-squad" }), (error: unknown) => (error as { code?: string }).code === "squad_agent_not_found");
+  } finally { rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+// The GUI read contract (repo.agent.entities.list / repo.agent.entity.read and
+// the squad twins) consumes exactly this closed projection; keep its shape fixed.
+test("the GUI entity projection lists closed rows and reads closed declarations", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-entities-gui-")), source = path.join(rootDir, "source");
+  try {
+    writeEntity(source, "terra", "agent", agent); writeEntity(source, "core-squad", "squad", squad);
+    run({ rootDir, kind: "agent-install", packageSource: path.join(source, "terra") }); run({ rootDir, kind: "squad-install", packageSource: path.join(source, "core-squad") });
+    const agentRows = readAgentEntityGuiProjection({ rootDir, kind: "agent-list" }), squadRows = readAgentEntityGuiProjection({ rootDir, kind: "squad-list" });
+    assert.equal(agentRows.schema, "agent-entity-catalog/v1"); assert.equal(agentRows.ok, true);
+    assert.deepEqual(agentRows.agents.map(({ id, runtimeType, layer, validity }) => ({ id, runtimeType, layer, validity })), [{ id: "terra", runtimeType: "codex", layer: "user", validity: "valid" }]);
+    assert.deepEqual(Object.keys(agentRows.agents[0]!).sort(), ["id", "issues", "layer", "name", "runtimeType", "validity"]);
+    assert.equal(squadRows.schema, "squad-entity-catalog/v1"); assert.equal(squadRows.ok, true);
+    assert.deepEqual(squadRows.squads.map(({ id, leader, workers }) => ({ id, leader, workers })), [{ id: "core-squad", leader: "terra", workers: ["terra"] }]);
+    const agentDetail = readAgentEntityGuiProjection({ rootDir, kind: "agent-inspect", entityId: "terra" }), squadDetail = readAgentEntityGuiProjection({ rootDir, kind: "squad-inspect", entityId: "core-squad" });
+    assert.equal(agentDetail.ok, true); assert.equal(squadDetail.ok, true);
+    assert.deepEqual(agentDetail.agent, { id: "terra", name: "Terra", runtimeType: "codex", instructions: "Review precisely.", skills: ["review"], prompts: ["prompt://review"], preset: "standard-task" });
+    assert.deepEqual(squadDetail.squad, { id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: squad.roster });
+    assert.throws(() => readAgentEntityGuiProjection({ rootDir, kind: "agent-inspect", entityId: "unknown" }), (error: unknown) => (error as { code?: string }).code === "agent_not_found");
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 

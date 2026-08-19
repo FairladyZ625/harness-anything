@@ -6,16 +6,18 @@ import type { GuiServiceBridge } from "../api/service-bridge.ts";
 import { consumeKnownError } from "../api/error-consumption.ts";
 import { createDaemonSupervisor } from "./daemon-supervisor.ts";
 import { daemonServeLaunch, type PackagedRuntime } from "./daemon-serve-launch.ts";
-import { createRuntimeInstanceCredentialController, type NativeCredentialBroker } from "./secure-credential-broker.ts";
+import { createRuntimeInstanceCredentialController } from "./secure-credential-broker.ts";
+import type { CredentialPort } from "../../../daemon/src/agent-runtime-credential-port.ts";
 
 type Target = { readonly repoId: string; readonly socketPath: string; readonly userRoot: string; readonly daemonId: string };
-export function addLocalMainControls(input: { readonly bridge: GuiServiceBridge; readonly target: (repoId?: string) => Promise<Target>; readonly packaged?: PackagedRuntime; readonly credentialBroker?: NativeCredentialBroker }): GuiServiceBridge {
+export function addLocalMainControls(input: { readonly bridge: GuiServiceBridge; readonly target: (repoId?: string) => Promise<Target>; readonly packaged?: PackagedRuntime; readonly credentialPort?: CredentialPort }): GuiServiceBridge {
   const supervisor = createDaemonSupervisor({ authorize: async (payload) => asRecord(await input.bridge.invoke("requestDaemonControl", payload)), restart: async (repoId) => restartResidentDaemon(await input.target(repoId), input.packaged) });
-  const runtimeRpc = async (operation: string, payload: Record<string, unknown>) => requestDaemonJsonRpcAt((await input.target()).socketPath, `daemon.runtimeInstance.${operation}`, { payload } as never, ["create", "list", "status"].includes(operation) ? 12_000 : 2_000), credentialController = createRuntimeInstanceCredentialController({ ...(input.credentialBroker ? { broker: input.credentialBroker } : {}), create: (payload) => runtimeRpc("create", payload) });
+  const runtimeRpc = async (operation: string, payload: Record<string, unknown>) => requestDaemonJsonRpcAt((await input.target()).socketPath, `daemon.runtimeInstance.${operation}`, { payload } as never, ["create", "list", "status"].includes(operation) ? 12_000 : 2_000), credentialController = createRuntimeInstanceCredentialController({ ...(input.credentialPort ? { port: input.credentialPort } : {}), create: (payload) => runtimeRpc("create", payload) });
   return { stream: input.bridge.stream, invoke: async (method, payload) => {
-    if (method === "listRuntimeInstances") { const listed = asRecord(await runtimeRpc("list", {})), rows = Array.isArray(listed.instances) ? listed.instances.map(asRecord) : []; if (listed.ok !== true) return listed; const checked = await Promise.all(rows.map(async (instance) => asRecord(await runtimeRpc("status", { instanceId: instance.instanceId })))); return { ...listed, instances: rows.map((instance, index) => ({ ...instance, ...(asRecord(checked[index]).authReadiness ? { authReadiness: asRecord(checked[index]).authReadiness } : {}) })) }; }
+    if (method === "listRuntimeInstances") { const listed = asRecord(await runtimeRpc("list", { all: true })), rows = Array.isArray(listed.instances) ? listed.instances.map(asRecord) : []; if (listed.ok !== true) return listed; const checked = await Promise.all(rows.map(async (instance) => asRecord(await runtimeRpc("status", { instanceId: instance.instanceId })))); return { ...listed, instances: rows.map((instance, index) => ({ ...instance, ...(asRecord(checked[index]).authReadiness ? { authReadiness: asRecord(checked[index]).authReadiness } : {}) })) }; }
     if (method === "showRuntimeInstance") return runtimeRpc("show", asRecord(payload));
     if (method === "createRuntimeInstance") return credentialController.create(asRecord(payload) as never);
+    if (method === "updateRuntimeInstance") return runtimeRpc("update", asRecord(payload));
     if (method === "deleteRuntimeInstance") return runtimeRpc("delete", asRecord(payload));
     if (method === "validateRuntimeInstanceAuth") return runtimeRpc("status", asRecord(payload));
     const authAction = method === "signInRuntimeInstance" ? "login" : method === "reauthRuntimeInstance" ? "reauth" : method === "signOutRuntimeInstance" ? "logout" : null;
