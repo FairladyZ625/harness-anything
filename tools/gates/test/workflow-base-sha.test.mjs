@@ -6,12 +6,17 @@ import test from "node:test";
 
 const workflowPath = path.join(process.cwd(), ".github/workflows/rebuild-gates.yml");
 
+// The patterns below are written against LF. A Windows contributor's checkout has CRLF and they
+// would miss the blocks entirely, reporting a missing trigger that is right there -- #1526's
+// shape, one layer up. The workflow's bytes are not load-bearing, so the reader normalizes.
+const readWorkflow = () => readFileSync(workflowPath, "utf8").replaceAll("\r\n", "\n");
+
 // The rename landed: the trunk is "main" and the triggers name only it.
 // Drop the retired name from this list the moment the rename lands.
 const TRUNK_BRANCHES = ['- "main"'];
 
 test("push trigger covers only trunk branches — feature branches gate through pull_request runs, whose diff is the full PR; a feature-branch push run would re-evaluate walls against the narrow event.before diff and mint contradictory conclusions on the same head SHA (dec_01KZTQ1KRG17545YMSFKXJGEPN)", () => {
-  const workflow = readFileSync(workflowPath, "utf8");
+  const workflow = readWorkflow();
   const pushBlock = workflow.match(/\n {2}push:\n {4}branches:\n((?: {6}- .*\n)+)/u);
   assert.ok(pushBlock, "rebuild-gates must keep an explicit push trigger for post-merge trunk gating");
   assert.deepEqual(
@@ -22,7 +27,7 @@ test("push trigger covers only trunk branches — feature branches gate through 
 });
 
 test("diff-based gates guard BASE_SHA against the zero SHA of a first branch push", () => {
-  const workflow = readFileSync(workflowPath, "utf8");
+  const workflow = readWorkflow();
   for (const gate of ["tools/gates/test-selection.mjs", "tools/gates/line-budget.mjs"]) {
     const invocation = workflow.indexOf(`node ${gate} --base "$BASE_SHA"`);
     assert.notEqual(invocation, -1, `${gate} must be invoked with --base "$BASE_SHA"`);

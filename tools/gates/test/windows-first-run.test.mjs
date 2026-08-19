@@ -20,6 +20,10 @@ const STUB = [
   "const emit = (value, code = 0) => { console.log(JSON.stringify(value)); process.exit(code); };",
   "if (rest[0] === 'init') {",
   "  mkdirSync(ledger, { recursive: true }); writeFileSync(config, 'name: firstrun\\n');",
+  // Bootstrap seeds harness/.gitattributes so a clone carries the ledger's line-ending rule
+  // (#1588). The stub seeds it too: without it this fixture measures the developer's git
+  // config instead of the gate, and fails on any host that converts.
+  "  writeFileSync(path.join(ledger, '.gitattributes'), '* -text\\n');",
   "  git('init', '-q'); git('config', 'user.email', 'g@h.invalid'); git('config', 'user.name', 'G');",
   "  git('add', '-A'); git('commit', '-qm', 'base');",
   "  if (process.env.STUB_CRLF_AFTER_COMMIT) writeFileSync(config, 'name: firstrun\\r\\n');",
