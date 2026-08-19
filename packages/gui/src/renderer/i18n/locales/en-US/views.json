@@ -310,5 +310,8 @@
   "views.adaptersView.default": "default",
   "views.adaptersView.unknownNotProjected": "unknown / not projected",
   "views.overviewView.timelineEmpty": "No tasks or decisions in the projection yet.",
-  "views.overviewView.timelineCreatedUnknown": "created time unknown"
+  "views.overviewView.timelineCreatedUnknown": "created time unknown",
+  "views.agentRuntimeView.resultText": "Result",
+  "views.agentRuntimeView.cancel": "Cancel session",
+  "views.agentRuntimeView.cancelling": "Cancelling…"
 }

@@ -310,5 +310,8 @@
   "views.adaptersView.default": "默认",
   "views.adaptersView.unknownNotProjected": "未知 / 未投影",
   "views.overviewView.timelineEmpty": "投影里还没有任务或决策。",
-  "views.overviewView.timelineCreatedUnknown": "创建时间未知"
+  "views.overviewView.timelineCreatedUnknown": "创建时间未知",
+  "views.agentRuntimeView.resultText": "结果",
+  "views.agentRuntimeView.cancel": "取消会话",
+  "views.agentRuntimeView.cancelling": "取消中…"
 }

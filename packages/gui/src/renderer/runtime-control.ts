@@ -4,6 +4,9 @@ import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 
 export interface RuntimeSpawnInput {
   readonly runtimeInstanceId: string;
+  readonly agentId?: string;
+  readonly targetAgentId?: string;
+  readonly model?: string;
   readonly effort?: string;
   readonly cwd: { readonly scope: "repo-root" } | { readonly scope: "repo-relative"; readonly path: string };
   readonly prompt: string;
@@ -13,6 +16,7 @@ export interface RuntimeSpawnInput {
 
 type RuntimeReceipt = GuiActionResult & {
   readonly runtimeSessionId?: string | null;
+  readonly dispatchId?: string | null;
   readonly proof?: { readonly durable?: boolean; readonly canonicalVisible?: boolean };
   readonly error?: { readonly code?: string; readonly hint?: string };
   readonly code?: string;
@@ -23,6 +27,7 @@ export interface RuntimeSpawnSettlement {
   readonly state: "applied" | "pending" | "op_rejected";
   readonly opId: string;
   readonly runtimeSessionId: string | null;
+  readonly dispatchId: string | null;
   readonly code?: string;
   readonly hint: string;
 }
@@ -37,21 +42,22 @@ export async function submitRuntimeSpawn(
   },
   pause: () => Promise<void> = () => new Promise((resolve) => window.setTimeout(resolve, 250)),
 ): Promise<RuntimeSpawnSettlement> {
-  const initial = receipt(await deps.spawn(input)); let runtimeSessionId = initial.runtimeSessionId ?? null;
+  const initial = receipt(await deps.spawn(input)); let runtimeSessionId = initial.runtimeSessionId ?? null, dispatchId = initial.dispatchId ?? null;
   let current = initial;
-  if (pending(current)) deps.onPending?.(pendingSettlement(current, runtimeSessionId));
+  if (pending(current)) deps.onPending?.(pendingSettlement(current, runtimeSessionId, dispatchId));
   for (let attempt = 0; attempt < 80 && pending(current); attempt += 1) {
     await pause(); current = receipt(await deps.showReceipt(current.opId));
     runtimeSessionId = current.runtimeSessionId ?? runtimeSessionId;
-    if (pending(current)) deps.onPending?.(pendingSettlement(current, runtimeSessionId));
+    dispatchId = current.dispatchId ?? dispatchId;
+    if (pending(current)) deps.onPending?.(pendingSettlement(current, runtimeSessionId, dispatchId));
   }
   if (current.outcome === "applied" && current.proof?.durable === true && current.proof.canonicalVisible === true && runtimeSessionId) {
     const overview = await deps.overview();
-    if (overview.status === "ready" && overview.sessions.some((session) => session.runtimeSessionId === runtimeSessionId)) return { state: "applied", opId: current.opId, runtimeSessionId, hint: "Canonical runtime session is visible." };
-    return { state: "pending", opId: current.opId, runtimeSessionId, code: "projection_not_visible", hint: "Receipt is applied, but the runtime session is not visible in the canonical overview. Keep this opId; do not resubmit." };
+    if (overview.status === "ready" && overview.sessions.some((session) => session.runtimeSessionId === runtimeSessionId)) return { state: "applied", opId: current.opId, runtimeSessionId, dispatchId, hint: "Canonical runtime session is visible." };
+    return { state: "pending", opId: current.opId, runtimeSessionId, dispatchId, code: "projection_not_visible", hint: "Receipt is applied, but the runtime session is not visible in the canonical overview. Keep this opId; do not resubmit." };
   }
-  if (pending(current) || current.outcome === "applied") return { state: "pending", opId: current.opId, runtimeSessionId, code: current.code ?? current.outcome, hint: current.nextAction ?? "Keep this opId and poll its receipt; do not resubmit." };
-  return { state: "op_rejected", opId: current.opId, runtimeSessionId, code: current.error?.code ?? current.code ?? "runtime_spawn_rejected", hint: current.error?.hint ?? current.nextAction ?? "Runtime spawn was rejected." };
+  if (pending(current) || current.outcome === "applied") return { state: "pending", opId: current.opId, runtimeSessionId, dispatchId, code: current.code ?? current.outcome, hint: current.nextAction ?? "Keep this opId and poll its receipt; do not resubmit." };
+  return { state: "op_rejected", opId: current.opId, runtimeSessionId, dispatchId, code: current.error?.code ?? current.code ?? "runtime_spawn_rejected", hint: current.error?.hint ?? current.nextAction ?? "Runtime spawn was rejected." };
 }
 
 function receipt(value: unknown): RuntimeReceipt {
@@ -59,4 +65,4 @@ function receipt(value: unknown): RuntimeReceipt {
   return value as RuntimeReceipt;
 }
 function pending(value: RuntimeReceipt): boolean { return value.outcome === "pending" || value.outcome === "indeterminate"; }
-function pendingSettlement(value: RuntimeReceipt, runtimeSessionId: string | null): RuntimeSpawnSettlement { return { state: "pending", opId: value.opId, runtimeSessionId, code: value.code ?? value.outcome, hint: value.nextAction ?? "Keep this opId and poll its receipt; do not resubmit." }; }
+function pendingSettlement(value: RuntimeReceipt, runtimeSessionId: string | null, dispatchId: string | null): RuntimeSpawnSettlement { return { state: "pending", opId: value.opId, runtimeSessionId, dispatchId, code: value.code ?? value.outcome, hint: value.nextAction ?? "Keep this opId and poll its receipt; do not resubmit." }; }
