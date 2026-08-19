@@ -25,6 +25,23 @@ test("canonical resolver decodes one complete bundled package into a content-add
   } finally { fixture.cleanup(); }
 });
 
+test("resolver distinguishes unavailable verticals from unavailable presets", async () => {
+  const fixture = makeFixture();
+  try {
+    const resolver = createCanonicalPresetResolver({ bundledRoot: fixture.bundledRoot, userRoot: fixture.userRoot, assetsRoot: fixture.assetsRoot });
+    const missingVertical = await resolver.resolve({ presetId: "standard-task", verticalId: "software-coding", locale: "en-US", purpose: "inspect" });
+    assert.equal(missingVertical.ok, false);
+    if (!missingVertical.ok) {
+      assert.equal(missingVertical.error.code, "missing_vertical");
+      assert.match(missingVertical.error.hint, /Available vertical ids: software\/coding\./u);
+    }
+
+    const missingPreset = await resolver.resolve({ presetId: "not-installed", verticalId: "software/coding", locale: "en-US", purpose: "inspect" });
+    assert.equal(missingPreset.ok, false);
+    if (!missingPreset.ok) assert.equal(missingPreset.error.code, "preset_not_found");
+  } finally { fixture.cleanup(); }
+});
+
 test("an invalid user package shadows the bundled package without fallback", async () => {
   const fixture = makeFixture();
   try {

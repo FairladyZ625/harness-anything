@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -89,6 +89,22 @@ test("Legacy Intake readiness ignores git-ignored self-host harness files", asyn
     const violations = await evaluateLegacyIntakeReadiness(root);
 
     assert.deepEqual(violations, []);
+  });
+});
+
+test("Legacy Intake readiness skips git-ignored directories before traversal", async () => {
+  await withFixtureRepo(async (root) => {
+    runGit(root, "init");
+    writeFileSync(path.join(root, ".gitignore"), "/ignored/\n", "utf8");
+    const ignored = path.join(root, "ignored");
+    mkdirSync(ignored);
+    writeFileSync(path.join(ignored, "legacy.md"), "scripts/kernel/task\n");
+    chmodSync(ignored, 0o000);
+    try {
+      assert.deepEqual(await evaluateLegacyIntakeReadiness(root), []);
+    } finally {
+      chmodSync(ignored, 0o700);
+    }
   });
 });
 
