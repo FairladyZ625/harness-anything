@@ -12,13 +12,14 @@
 // Every grant decision and its domain write runs behind a per-task gate, so an
 // asynchronous domain probe can never act on a stale mirror snapshot and a
 // concurrent first-grab queues instead of racing the winner.
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError, sha256Text, stableStringify } from "../../kernel/src/index.ts";
 import type { DaemonHost } from "./daemon-host.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { FLEET_TASK_COMMAND_KINDS, type FleetFrameV1, type FleetTaskAction } from "./fleet/contract.ts";
 import type { FleetAssignmentRecord } from "./fleet/center.ts";
+import { writeFileDurably } from "./durable-file.ts";
 
 export interface FleetLeaseTimers { readonly orphanTimeoutMs: number; readonly reapIntervalMs: number; readonly maxWaitMs: number; readonly maxQueuePerTask: number }
 export function fleetLeaseTimers(env: NodeJS.ProcessEnv = process.env): FleetLeaseTimers {
@@ -234,4 +235,4 @@ export function openFleetLeaseBroker(options: { readonly stateRoot: string; read
   };
 }
 function loadBrokerState(file: string): BrokerState { if (!existsSync(file)) return { seq: 0, leases: {}, queue: {}, receipts: {} }; const value = JSON.parse(readFileSync(file, "utf8")) as BrokerState & Record<string, unknown>; if (value.schema !== "fleet-lease-state/v1" || typeof value.seq !== "number" || value.leases === null || typeof value.leases !== "object" || value.queue === null || typeof value.queue !== "object" || value.receipts === null || typeof value.receipts !== "object") throw new Error("Fleet lease broker state contains an unrecognized shape"); return { seq: value.seq, leases: value.leases, queue: value.queue, receipts: value.receipts }; }
-function writeDurableJson(file: string, value: unknown): void { mkdirSync(path.dirname(file), { recursive: true }); const temp = `${file}.${process.pid}.tmp`, fd = openSync(temp, "w"); try { writeFileSync(fd, `${JSON.stringify({ schema: "fleet-lease-state/v1", ...(value as object) })}\n`); fsyncSync(fd); } finally { closeSync(fd); } renameSync(temp, file); const dir = openSync(path.dirname(file), "r"); try { fsyncSync(dir); } finally { closeSync(dir); } }
+function writeDurableJson(file: string, value: unknown): void { writeFileDurably(file, `${JSON.stringify({ schema: "fleet-lease-state/v1", ...(value as object) })}\n`); }
