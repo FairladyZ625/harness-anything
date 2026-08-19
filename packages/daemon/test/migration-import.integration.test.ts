@@ -44,7 +44,7 @@ test("non-UTF-8 attachments stay explicit in authored coverage as owner-excluded
   } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }
 });
 
-test("a migrated symbolic link preserves its target text and remains a link without dereferencing", async () => {
+test("a migrated symbolic link preserves its target text and remains a link without dereferencing", { skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false }, async () => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-symbolic-link-")), source = path.join(scratch, "legacy"), destination = path.join(scratch, "new"), linkTarget = "../missing.md"; let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     symbolicLinkFixture(source, linkTarget); initRepo(destination); cell = await openRepoCell({ repoId: workspaceId("migration-symbolic-link-target"), rootDir: canonicalRoot(destination), ownerId: "migration-daemon", now: () => "2026-06-01T00:00:00.000Z" });
@@ -89,7 +89,7 @@ test("destination resolution keeps the visible target and explicitly accounts fo
   } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }
 });
 
-test("source resolution replaces a committed symbolic link without dereferencing or hiding its preimage", async () => {
+test("source resolution replaces a committed symbolic link without dereferencing or hiding its preimage", { skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false }, async () => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-link-resolution-")), source = path.join(scratch, "legacy"), destination = path.join(scratch, "new"), sourceTarget = "../legacy.md", destinationTarget = "../initialized.md"; let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { symbolicLinkFixture(source, sourceTarget); initRepo(destination); const directory = path.join(destination, "harness/field-notes"), target = path.join(directory, "latest.md"); mkdirSync(directory, { recursive: true }); symlinkSync(destinationTarget, target); git(destination, "add", "."); git(destination, "commit", "-qm", "initialized link"); cell = await openRepoCell({ repoId: workspaceId("migration-link-resolution"), rootDir: canonicalRoot(destination), ownerId: "migration-daemon", now: () => "2026-06-01T00:00:00.000Z" });
     const result = await cell.run({ kind: "migrate-import", sourceRoots: sources(source), resolutions: ["harness/field-notes/latest.md=source"] }, { actor, source: "local" }) as Record<string, unknown>; assert.equal(result.exitCode, 0, JSON.stringify(result)); assert.equal(readlinkSync(target), sourceTarget); assert.equal(readdirSync(directory).some((name) => name.includes(".conflict-")), false); assert.match(String(result.summary), /resolved: source; kept source kind=symbolic-link[\s\S]*source link target="\.\.\/legacy\.md"[\s\S]*destination link target="\.\.\/initialized\.md"/u);
@@ -97,7 +97,7 @@ test("source resolution replaces a committed symbolic link without dereferencing
   } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }
 });
 
-test("source resolution can replace a committed destination link with a regular file", async () => {
+test("source resolution can replace a committed destination link with a regular file", { skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false }, async () => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-file-over-link-")), source = path.join(scratch, "legacy"), destination = path.join(scratch, "new"), destinationTarget = "../initialized.md"; let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { unfamiliarDocumentFixture(source); initRepo(destination); const directory = path.join(destination, "harness/field-notes/2024"), target = path.join(directory, "xyz.md"); mkdirSync(directory, { recursive: true }); symlinkSync(destinationTarget, target); git(destination, "add", "."); git(destination, "commit", "-qm", "initialized link"); cell = await openRepoCell({ repoId: workspaceId("migration-file-over-link"), rootDir: canonicalRoot(destination), ownerId: "migration-daemon", now: () => "2026-06-01T00:00:00.000Z" });
     const result = await cell.run({ kind: "migrate-import", sourceRoots: sources(source), resolutions: ["harness/field-notes/2024/xyz.md=source"] }, { actor, source: "local" }) as Record<string, unknown>; assert.equal(result.exitCode, 0, JSON.stringify(result)); assert.equal(lstatSync(target).isFile(), true); assert.equal(readFileSync(target, "utf8"), "# Field observation\n\nUnknown directories are ordinary authored content.\n"); assert.equal(readdirSync(directory).some((name) => name.includes(".conflict-")), false);

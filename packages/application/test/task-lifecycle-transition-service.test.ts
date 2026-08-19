@@ -94,7 +94,7 @@ test("transition service freezes targets and makes create/start idempotent by op
     assert.equal(started.snapshot.executions[0]?.state, "active");
     assert.equal(JSON.stringify(eventStore.read().events).includes("credential"), false);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
 
@@ -118,7 +118,7 @@ test("transition service publishes aggregate-authored task status idempotently",
     assert.equal(unblocked.snapshot.task?.status, "active"); assert.equal(unblocked.event?.type, "task_transitioned"); assert.equal(unblocked.event?.payload.mutation.reason, "Explicit lifecycle transition to active"); assert.deepEqual(retried, unblocked);
     assert.equal(eventStore.read().events.filter((event) => event.schema === "task-event/v1").length, 3);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
 
@@ -394,7 +394,7 @@ test("SQLite/response killpoints reconstruct the exact applied receipt by opId w
       assert.deepEqual(second, first, point);
       assert.equal(projection.readOperation(create.opId)?.event.opId, create.opId);
       assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical").trim(), commitCount);
-    } finally { rmSync(rootDir, { recursive: true, force: true }); }
+    } finally { rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }); }
   }
 });
 
@@ -413,7 +413,7 @@ test("lease broker capacity ceiling rejects concurrent exhaustion and release re
     projection.releaseLease(projection.currentLease("task-cap-0")!);
     assert.equal(projection.reserveLease(lease("recovered"), "2026-08-11T00:00:00.000Z").taskId, "task-recovered");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
 

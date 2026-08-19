@@ -11,7 +11,7 @@ export function withTempStore<T>(fn: (rootDir: string) => T): T {
   try {
     return fn(rootDir);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 }
 
@@ -20,7 +20,7 @@ export async function withTempStoreAsync<T>(fn: (rootDir: string) => Promise<T>)
   try {
     return await fn(rootDir);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 }
 

@@ -169,7 +169,7 @@ for (const killpoint of ["before_event_write", "after_event_write", "after_head_
 }
 
 for (const killpoint of ["before_event_write", "after_event_write", "after_head_write", "after_git_commit", "before_worktree_rename", "after_worktree_rename"] as const) {
-  test(`SIGKILL recovery handles ${killpoint} without duplicate publication`, async () => {
+  test(`SIGKILL recovery handles ${killpoint} without duplicate publication`, { skip: process.platform === "win32" ? "requires POSIX SIGKILL kill-point semantics" : false }, async () => {
     await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const moduleUrl = new URL("../../src/store/task-event-store.ts", import.meta.url).href, child = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", [
         `import { makeTaskEventStore } from ${JSON.stringify(moduleUrl)};`,
         `import { taskLifecycleWritePlan } from ${JSON.stringify(new URL("../../src/domain/task-lifecycle-publication.ts", import.meta.url).href)};`,

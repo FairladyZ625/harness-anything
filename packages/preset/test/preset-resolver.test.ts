@@ -67,7 +67,7 @@ test("an invalid user package shadows the bundled package without fallback", asy
   } finally { fixture.cleanup(); }
 });
 
-test("a symbolic-link active pointer blocks the bundled package", async () => {
+test("a symbolic-link active pointer blocks the bundled package", { skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false }, async () => {
   const fixture = makeFixture();
   try {
     write(path.join(path.dirname(fixture.userRoot), "outside-pointer.json"), JSON.stringify({ schema: "preset-active-pointer/v1" })); mkdirSync(path.join(fixture.userRoot, "active"), { recursive: true }); symlinkSync(path.join(path.dirname(fixture.userRoot), "outside-pointer.json"), path.join(fixture.userRoot, "active/standard-task.json"));
@@ -75,7 +75,7 @@ test("a symbolic-link active pointer blocks the bundled package", async () => {
   } finally { fixture.cleanup(); }
 });
 
-test("a symbolic-link pointer blocks the same preset id in every vertical", async () => {
+test("a symbolic-link pointer blocks the same preset id in every vertical", { skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false }, async () => {
   const fixture = makeFixture();
   try {
     writePackage(fixture.bundledRoot, "other-task", { vertical: "other/vertical" }); write(path.join(path.dirname(fixture.userRoot), "outside-pointer.json"), "{}"); mkdirSync(path.join(fixture.userRoot, "active"), { recursive: true }); symlinkSync(path.join(path.dirname(fixture.userRoot), "outside-pointer.json"), path.join(fixture.userRoot, "active/other-task.json"));
@@ -87,7 +87,7 @@ test("a symbolic-link pointer blocks the same preset id in every vertical", asyn
 test("a symbolic-link active inventory root fails closed", async () => {
   const fixture = makeFixture(), outsideActive = path.join(path.dirname(fixture.userRoot), "outside-active");
   try {
-    mkdirSync(outsideActive, { recursive: true }); rmSync(path.join(fixture.userRoot, "active"), { recursive: true, force: true }); symlinkSync(outsideActive, path.join(fixture.userRoot, "active"));
+    mkdirSync(outsideActive, { recursive: true }); rmSync(path.join(fixture.userRoot, "active"), { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }); symlinkSync(outsideActive, path.join(fixture.userRoot, "active"), process.platform === "win32" ? "junction" : "dir");
     const result = await createCanonicalPresetResolver({ bundledRoot: fixture.bundledRoot, userRoot: fixture.userRoot, assetsRoot: fixture.assetsRoot }).resolve({ presetId: "standard-task", verticalId: "software/coding", locale: "en-US", purpose: "inspect" });
     assert.equal(result.ok, false); if (!result.ok) assert.equal(result.error.code, "invalid_pointer_root");
     assert.throws(() => installPresetPackage({ source: path.join(fixture.bundledRoot, "standard-task"), userRoot: fixture.userRoot }), (error: unknown) => (error as { code?: string }).code === "invalid_install_root"); assert.equal(existsSync(path.join(outsideActive, "standard-task.json")), false);
@@ -104,7 +104,7 @@ test("an invalid pointer preserves its declared vertical and blocks that bundled
   } finally { fixture.cleanup(); }
 });
 
-test("package decoder rejects symlinks and missing PRESET or script files", () => {
+test("package decoder rejects symlinks and missing PRESET or script files", { skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false }, () => {
   const fixture = makeFixture();
   try {
     const complete = path.join(fixture.bundledRoot, "standard-task"), missingDocument = path.join(path.dirname(fixture.bundledRoot), "missing-document"), missingScript = path.join(path.dirname(fixture.bundledRoot), "missing-script");
