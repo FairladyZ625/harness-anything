@@ -59,6 +59,27 @@ test("G03 rejects an unsafe target before freezing the write plan", () => {
   }, ["CreateReplayTask"]), (error) => error instanceof WriteChainContractError && error.code === "invalid_write_plan");
 });
 
+test("G03 derives exact local WAL declarations from canonical targets", () => {
+  const plan = freezeDeclaredWritePlan({
+    commandType: "CreateReplayTask",
+    targets: [
+      { kind: "event_file", path: "harness/events/op-1.json", operation: "create" },
+      { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
+      { kind: "projection_invalidation", projection: "task-lifecycle/v1", key: "task-1" },
+      { kind: "content_blob", sha256: "a".repeat(64), size: 4, mediaType: "text/plain" }
+    ]
+  }, ["CreateReplayTask"]);
+  assert.deepEqual(plan.targets.filter((target) => target.kind === "local_wal_file"), [
+    { kind: "local_wal_file", path: ".harness/wal/seg-000000.log", operation: "append" },
+    { kind: "local_wal_file", path: ".harness/wal/head.json", operation: "replace" },
+    { kind: "local_wal_file", path: `.harness/wal/objects/${"a".repeat(64)}`, operation: "replace" }
+  ]);
+  assert.throws(() => freezeDeclaredWritePlan({
+    commandType: "CreateReplayTask",
+    targets: [...plan.targets, { kind: "local_wal_file", path: `.harness/wal/objects/${"b".repeat(64)}`, operation: "replace" }]
+  }, ["CreateReplayTask"]), /local WAL targets must exactly derive/u);
+});
+
 test("G02 rejects invalid or payload-reported command sources", () => {
   const binding = { workspaceId: "workspace-1", actor, expectedRevision: 0 };
   assert.throws(() => normalizeCommandEnvelope({ ...binding, source: "peer_env", command: { type: "CreateReplayTask" } }), WriteChainContractError);
