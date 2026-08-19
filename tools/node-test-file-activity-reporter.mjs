@@ -13,10 +13,14 @@ export default async function* reportTestActivity(source) {
     }
     // test:start is emitted late (after the test completes), so it cannot name a test that never
     // returns. test:dequeue is the point a test begins running, which is exactly the one that hung.
-    if (event.type !== "test:dequeue") continue;
+    // A stalled file has two very different causes with the same symptom: a test that never
+    // returns, or a file whose tests all finished and whose process will not exit. Counting entries
+    // against completions tells the watchdog which one it is, and they need opposite fixes.
+    if (event.type !== "test:dequeue" && event.type !== "test:pass" && event.type !== "test:fail") continue;
     const owner = subtestOwner(event);
     if (owner === null) continue;
-    yield `${JSON.stringify({ state: "progress", file: owner, name: event.data.name, at: Date.now() })}\n`;
+    const state = event.type === "test:dequeue" ? "progress" : "test-finished";
+    yield `${JSON.stringify({ state, file: owner, name: event.data.name, at: Date.now() })}\n`;
   }
 }
 

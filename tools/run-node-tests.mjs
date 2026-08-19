@@ -102,6 +102,7 @@ let output = "";
 let activityOffset = 0;
 let activityTail = "";
 const lastTestByFile = new Map();
+const openTestsByFile = new Map();
 let timedOutFiles = [];
 let termination = Promise.resolve();
 const activeFiles = new Map();
@@ -169,7 +170,11 @@ function repoRelativeTestFile(file) {
 // reporter prints none of them. Name the test that started and never returned.
 function stalledFileReport(file) {
   const last = lastTestByFile.get(file);
-  return last === undefined ? file : `${file} (last test entered: ${last})`;
+  if (last === undefined) return file;
+  const open = openTestsByFile.get(file) ?? 0;
+  return open > 0
+    ? `${file} (hung inside: ${last})`
+    : `${file} (every test finished, last was ${last}; the process did not exit -- look for an open handle, not a slow test)`;
 }
 
 function refreshActivity() {
@@ -187,8 +192,16 @@ function refreshActivity() {
     if (!line) continue;
     const event = JSON.parse(line);
     if (event.state === "started" && typeof event.file === "string" && Number.isFinite(event.at)) activeFiles.set(event.file, event.at);
-    if (event.state === "progress" && typeof event.file === "string" && typeof event.name === "string") lastTestByFile.set(repoRelativeTestFile(event.file), event.name);
-    if (event.state === "finished" && typeof event.file === "string") { activeFiles.delete(event.file); lastTestByFile.delete(event.file); }
+    if (event.state === "progress" && typeof event.file === "string" && typeof event.name === "string") {
+      const owner = repoRelativeTestFile(event.file);
+      lastTestByFile.set(owner, event.name);
+      openTestsByFile.set(owner, (openTestsByFile.get(owner) ?? 0) + 1);
+    }
+    if (event.state === "test-finished" && typeof event.file === "string") {
+      const owner = repoRelativeTestFile(event.file);
+      openTestsByFile.set(owner, (openTestsByFile.get(owner) ?? 0) - 1);
+    }
+    if (event.state === "finished" && typeof event.file === "string") { activeFiles.delete(event.file); lastTestByFile.delete(event.file); openTestsByFile.delete(event.file); }
   }
 }
 

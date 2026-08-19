@@ -212,7 +212,10 @@ function closeProjectionHandlesAt(resolvedProjectionPath: string): void {
 
 function withDatabase<A>(projectionPath: string, readHead: EventStreamPort["readHead"], use: (db: DatabaseSync) => A): A { return projectionDatabaseOwner(projectionPath, readHead).use(use); }
 function discardDatabase(projectionPath: string, readHead: EventStreamPort["readHead"]): void { projectionDatabaseOwner(projectionPath, readHead).discard(); }
-function closeDatabase(projectionPath: string, readHead: EventStreamPort["readHead"]): void { const owners = projectionDatabaseOwners.get(readHead), owner = owners?.get(projectionPath); owner?.close(); owners?.delete(projectionPath); }
+// close() shares discard()'s invariant: callers close a projection so they can remove its file, and
+// a handle held by any other owner blocks that on Windows. Closing only the caller's owner made
+// `projection.close(); rm(projection.path)` -- the documented teardown -- fail there.
+function closeDatabase(projectionPath: string, readHead: EventStreamPort["readHead"]): void { const owners = projectionDatabaseOwners.get(readHead); closeProjectionHandlesAt(path.resolve(projectionPath)); owners?.delete(projectionPath); }
 
 function projectionDatabaseOwner(projectionPath: string, readHead: EventStreamPort["readHead"]): ProjectionDatabaseOwner {
   let owners = projectionDatabaseOwners.get(readHead);
