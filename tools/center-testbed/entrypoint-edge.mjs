@@ -17,6 +17,12 @@ const nodeId = process.env.TESTBED_NODE_ID;
 
 if (!nodeId) fail("env", "TESTBED_NODE_ID is required (set per edge service in docker-compose.yml).");
 if (existsSync(userRoot)) rmSync(userRoot, { recursive: true, force: true });
+// A hard-killed daemon leaves the workspace writer lock behind, and a fresh
+// container PID namespace can recycle the recorded pid, which defeats the
+// stale-lock liveness heuristic. Nothing in this new namespace can hold the
+// lock, so clear it before the daemon and init re-attach.
+const writerLock = `${workspace}.harness-anything-writer.lock`;
+if (existsSync(writerLock)) rmSync(writerLock, { force: true });
 // The mirror root must exist before any consumer (sync, smoke) walks it; on a
 // fresh named volume /data/view is absent and a first-run generation check
 // would otherwise ENOENT.

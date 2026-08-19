@@ -31,6 +31,12 @@ async function main() {
   rmSync(readyMarker, { force: true });
   const state = JSON.parse(readFileSync(TESTBED.stateFile, "utf8"));
   const warm = warmBoot(state);
+  // Same rationale as the edge entrypoint: a hard-killed daemon leaves the
+  // workspace writer lock behind and a fresh container PID namespace can
+  // recycle the recorded pid, defeating the stale-lock heuristic. Cold boots
+  // wipe the whole /data volume anyway; only warm boots need this.
+  const writerLock = `${workspace}.harness-anything-writer.lock`;
+  if (warm && existsSync(writerLock)) rmSync(writerLock, { force: true });
 
   const daemon = startDaemon("center", userRoot, "center");
   forwardSignals(daemon);

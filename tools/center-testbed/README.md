@@ -48,19 +48,45 @@ edge 节点 + 一个 harness 化测试项目 + 腾讯 GitLab 中心仓对接。W
 
 ## 一键命令
 
+W4 多 collaborator 并发验收（三阶段 + mixed-mode，fresh clone 一条命令起，自带建栈）：
+
+```bash
+cd tools/center-testbed
+bash acceptance-w4.sh           # 全部：起栈 → 阶段一冒烟基线 → 3 edge 并发 →
+                                 # 10 edge 规模+杀 edge+重启 center → mixed-mode 隔离
+```
+
+`acceptance-w4.sh` 从环境变量或 `W4_TOKEN_FILE`（默认 `~/.harness-secrets-center-testbed-token`）
+解析 GitLab token，不需要先手动 export；产物（每个阶段的回执、校验报告、冒烟日志）落在
+`W4_OUT`（默认 mktemp 目录），结束打印结构化 PASS 摘要。可用旋钮：`W4_PHASE3_MS`
+（阶段三并发窗口毫秒，默认 240000）、`W4_VICTIM`（被杀 edge，默认 edge-10）、
+`W4_SKIP_BUILD=1`（跳过镜像重建，仅调试用）。
+
+单场景冒烟（老流程，仍然支持）：
+
 ```bash
 export GITLAB_TOKEN=$(cat ~/.harness-secrets-center-testbed-token)
 
 cd tools/center-testbed
 docker compose build            # 首次构建（npm ci + CLI build，几分钟）
-docker compose up -d --wait     # seed 跑完 → center healthy → edges 起来
+docker compose up -d --wait     # seed 跑完 → center healthy → edge-1..3 起来
 bash smoke-read.sh              # 读链路冒烟（edge 拉取 + GitLab 可见性 + 日志）
 bash smoke-write.sh             # 写链路冒烟（自动 lease 五场景，见下）
 bash smoke-epoch.sh              # W3-A 双 center writer epoch fencing（旧进程零写入）
 bash smoke-sync.sh              # A/B 双类同步冒烟（三冲突场景，见下）
 ```
 
-`docker compose down` 停止；`docker compose down -v` 连卷一起清（彻底重置，含 lease 态）。
+### GITLAB_TOKEN 与冷启动（复验会话踩过的两个坑）
+
+- **token 传递**：token 只需要出现在 seed/center 两个容器的运行时环境里。compose 文件现在
+  用 `${GITLAB_TOKEN:-}` 解析——没 export 时 `docker compose ps/logs/down` 照常可用，
+  `up` 会在 seed/center 启动时以各自的明确报错失败（而不是 compose 层一串插值错误）。
+  验收脚本与人工冒烟都遵循同一约定：优先环境变量，缺省读 token 文件（`W4_TOKEN_FILE` 可覆盖）。
+- **center health 卡 starting**：center 冷启动（首次或 reseed 后）要重新 clone GitLab 并做
+  投影重建，分钟级属正常；healthcheck 预算已放宽到 24 分钟（`retries: 288`），期间
+  `docker inspect` 显示 `starting` 不代表挂了。真超时再看 `docker compose logs center`
+  （clone/register/projection/fleet 各步都有 `[testbed:center]` 日志行）。同一 generation 的
+  重启走热路径，秒级翻绿。
 
 读冒烟通过标准：
 
@@ -96,6 +122,27 @@ bash smoke-sync.sh              # A/B 双类同步冒烟（三冲突场景，见
 3. **pull blocked（§4 场景二）**：edge-1 自身命令在中心 applied，同时另一 edge 改了它本地
    仍 dirty 的同路径文档；回执同时报告 `canonicalOutcome=applied` 与
    `mirrorOutcome=pull_blocked`，分歧 staging、本地字节不动。
+
+W4 多 collaborator 并发验收（`acceptance-w4.sh`，判据全部机械）：
+
+1. **阶段一（单远程写者基线）**：fresh 栈上 `smoke-write.sh` 五场景 + `smoke-sync.sh`
+   三场景全绿。
+2. **阶段二（3 edge 并发）**：三 edge 对同一 task（lease 队列轮流持有）与各自 task 混合并发写，
+   外加一次三 edge 同时整文覆盖共享文档（恰一者 applied、两者 CONFLICT_STAGED 且本地字节
+   staged，败者字节绝不出现在 canonical）。
+3. **阶段三（10 edge 规模 + 故障）**：edge-4..10 经 `scale` profile 拉起后持续并发数分钟；
+   期间重启 center 一次（热路径：lease/queue 幸存、原持有者继续写、写者自动重连）并杀死一个
+   正持有短 TTL lease 的 edge（reaper 回收、FIFO 队首接管、`lease_released` 审计事件在案）。
+4. **机械三断言（每阶段收口都跑）**：
+   - 无 lost update：每个 applied receipt 的 event 在 canonical 里**恰一次**（eventId 身份匹配，
+     无 eventId 的回执退回 opId）；
+   - 无重复 revision：canonical 事件流的 `workspaceRevision` 恰为 1..head，无洞无重；
+   - 收敛：全部 edge 各自 fleet sync 后 `current.json` 的 `cut.headDigest` 与 canonical
+     `events/head.json` 的 sha256 **逐字节相等**。
+5. **mixed-mode 故障隔离**：同一 center daemon 同时服务 local 模式仓（canonical）与
+   remote-edge 模式仓；人为移走后者的 `.git` 再重挂（unregister+register 触发 host 级
+   latch，读返回 `repo_unavailable`），期间 local 仓读、写、fleet 通道写、edge sync 全部
+   照常；修回 `.git` 后被 latch 的仓在探测节流（5s）内自愈回 attached。
 
 ## 凭证与安全边界
 
@@ -150,10 +197,13 @@ docker compose exec edge-2 ha --json daemon fleet edge sync --host center --port
 | 文件 | 作用 |
 | --- | --- |
 | `Dockerfile` / `Dockerfile.dockerignore` | 基础镜像（node:24-bookworm-slim + 本仓源码 npm ci + CLI build，复用 coldstart 镜像配方） |
-| `docker-compose.yml` | seed → center(healthcheck) → edge-1/edge-2 拓扑与卷/网络；center 带 `HARNESS_LEASE_REAP_INTERVAL_MS=2000` |
-| `bootstrap.mjs` | seed 入口：建项目、写台账、建/推 GitLab、铸 TLS+roster（每 edge 独立 principal）、bump generation |
+| `docker-compose.yml` | seed → center(healthcheck) → edge 拓扑与卷/网络；edge-1..3 默认启动，edge-4..10 挂 `scale` profile（W4 阶段三）；center 带 `HARNESS_LEASE_REAP_INTERVAL_MS=2000` |
+| `bootstrap.mjs` | seed 入口：建项目、写台账、建/推 GitLab、铸 TLS+roster（10 个 edge 各自独立 principal）、bump generation |
 | `entrypoint-center.mjs` | center 入口：冷启动 clone/register/重建；同 generation 重启走热路径；fleet center start（`--state-root /data/fleet-state`） |
 | `entrypoint-edge.mjs` | edge 入口：常驻 daemon + 隔离管理壳注册为 remote-edge + 写 `/data/workspace/fleet-edge.json` |
+| `acceptance-w4.sh` | W4 三阶段+mixed-mode 一键验收（fresh clone 一条命令，token 自动解析） |
+| `acceptance-w4-worker.mjs` | edge 容器内并发写者：own/shared 两模式，走真实 fleet 写链路，JSONL 回执流 |
+| `acceptance-w4-verify.mjs` | center 容器内机械断言：逐回执 canonical 恰一次、revision 1..N 严格无缝、headDigest 真值 |
 | `smoke-edge.mjs` / `smoke-read.sh` | 容器内单边读冒烟 / 宿主机一键读冒烟 |
 | `smoke-write.sh` | 宿主机一键写冒烟（自动 lease 五场景） |
 | `smoke-epoch.sh` / `smoke-epoch.mjs` | 宿主机/中心容器双进程 writer epoch fencing 冒烟 |
@@ -164,6 +214,6 @@ docker compose exec edge-2 ha --json daemon fleet edge sync --host center --port
 
 - 读链路（edge pull）、写链路（edge → center 自动 lease → ledger）已验收；center 写后向
   GitLab 的 canonical 自动推送仍未接（手动探针那类 push 仍需手工），M2-F 的聚合推送是后续面。
-- center 冷启动（首次或 reseed 后）会做投影重建（分钟级属正常）；healthcheck 预算 10 分钟；
-  同 generation 重启走热路径，秒级。
+- center 冷启动（首次或 reseed 后）会做投影重建（分钟级属正常）；healthcheck 预算 24 分钟
+  （见上文「冷启动」段）；同 generation 重启走热路径，秒级。
 - GitLab 侧只做建仓/删仓/推拉，不做任何服务器级配置变更。
