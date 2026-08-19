@@ -193,11 +193,21 @@ const projectionClosers = new Map<string, Set<() => void>>();
 /** Test fixtures can close all projection databases before removing a temporary repository. */
 export function closeTaskProjectionsUnder(rootDir: string): void {
   const resolvedRoot = path.resolve(rootDir), prefix = `${resolvedRoot}${path.sep}`;
-  for (const [projectionPath, closers] of projectionClosers) {
+  for (const projectionPath of [...projectionClosers.keys()]) {
     if (projectionPath !== resolvedRoot && !projectionPath.startsWith(prefix)) continue;
-    for (const close of [...closers]) close();
-    closers.clear(); projectionClosers.delete(projectionPath);
+    closeProjectionHandlesAt(projectionPath);
   }
+}
+
+// Owners are keyed by readHead identity, so one projection file can be open under several owners
+// at once. Deleting it while any handle is still open is invisible on POSIX -- unlink detaches the
+// name and the open handles keep working -- and EPERM on Windows, so a discard has to close every
+// handle on the path rather than only the caller's. Each owner reopens on its next use.
+function closeProjectionHandlesAt(resolvedProjectionPath: string): void {
+  const closers = projectionClosers.get(resolvedProjectionPath);
+  if (closers === undefined) return;
+  for (const close of [...closers]) close();
+  closers.clear(); projectionClosers.delete(resolvedProjectionPath);
 }
 
 function withDatabase<A>(projectionPath: string, readHead: EventStreamPort["readHead"], use: (db: DatabaseSync) => A): A { return projectionDatabaseOwner(projectionPath, readHead).use(use); }
@@ -220,7 +230,7 @@ function projectionDatabaseOwner(projectionPath: string, readHead: EventStreamPo
   };
   const close = () => { db?.close(); db = null; fingerprint = null; unregister(); };
   const open = () => { register(); localRuntimeStateFileSystem.mkdirp(path.dirname(projectionPath)); db = openDatabase(projectionPath); configureDatabase(db); fingerprint = projectionFileFingerprint(projectionPath); };
-  const discard = () => { close(); localRuntimeStateFileSystem.remove(projectionPath); };
+  const discard = () => { closeProjectionHandlesAt(resolvedProjectionPath); localRuntimeStateFileSystem.remove(projectionPath); };
   const initialize = () => {
     open();
     if (projectionSchemaVersion(db!) !== null && projectionSchemaVersion(db!) !== taskProjectionSchemaVersion) { discard(); open(); }
