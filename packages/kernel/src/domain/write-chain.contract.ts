@@ -1,4 +1,4 @@
-import { stablePayloadHash } from "../integrity/stable-hash.ts";
+import { stablePayloadHash, stableStringify } from "../integrity/stable-hash.ts";
 import { validateWriteReceipt, type WriteReceipt } from "./receipt-domain-registry.ts";
 export { receiptDetailRegistry, validateWriteReceipt, WRITE_RECEIPT_SCHEMA } from "./receipt-domain-registry.ts";
 export type { DocSyncReceiptDetail, ReceiptProof, ReceiptVisibility, WriteReceipt, WriteReceiptDetail } from "./receipt-domain-registry.ts";
@@ -85,7 +85,8 @@ export type WriteTarget =
   | { readonly kind: "event_head"; readonly path: string; readonly operation: "replace" } | { readonly kind: "authored_file"; readonly path: string; readonly operation: "replace"; readonly sha256: string; readonly size: number; readonly mediaType: string }
   | { readonly kind: "projection_invalidation"; readonly projection: string; readonly key: string }
   | { readonly kind: "lease_sqlite"; readonly table: "lease_cas"; readonly taskId: string; readonly operation: "reserve" | "activate" | "release" }
-  | { readonly kind: "content_blob"; readonly sha256: string; readonly size: number; readonly mediaType: string };
+  | { readonly kind: "content_blob"; readonly sha256: string; readonly size: number; readonly mediaType: string }
+  | { readonly kind: "local_wal_file"; readonly path: string; readonly operation: "append" | "replace" };
 export interface WritePlan<C extends string = string> { readonly commandType: C; readonly targets: readonly WriteTarget[] }
 declare const frozenWritePlanBrand: unique symbol;
 export type FrozenWritePlan<C extends string = string> = Readonly<WritePlan<C>> & { readonly [frozenWritePlanBrand]: true };
@@ -197,9 +198,32 @@ function safeIdentity(value: unknown): value is string {
 
 function targetKey(target: WriteTarget): string {
   return target.kind === "event_file" || target.kind === "event_head" ? `${target.kind}:${target.path}`
+    : target.kind === "local_wal_file" ? `${target.kind}:${target.path}`
     : target.kind === "projection_invalidation" ? `${target.kind}:${target.projection}:${target.key}`
     : target.kind === "lease_sqlite" ? `${target.kind}:${target.table}:${target.taskId}:${target.operation}`
     : `${target.kind}:${target.sha256}`;
+}
+
+const WAL_SEGMENT_PATH = ".harness/wal/seg-000000.log";
+const WAL_HEAD_PATH = ".harness/wal/head.json";
+
+function localWalWriteTargets(targets: readonly WriteTarget[]): readonly WriteTarget[] {
+  const blobs = targets.filter((target): target is Extract<WriteTarget, { readonly kind: "content_blob" }> => target.kind === "content_blob");
+  return [
+    { kind: "local_wal_file", path: WAL_SEGMENT_PATH, operation: "append" },
+    { kind: "local_wal_file", path: WAL_HEAD_PATH, operation: "replace" },
+    ...blobs.map((blob) => ({ kind: "local_wal_file" as const, path: `.harness/wal/objects/${blob.sha256}`, operation: "replace" as const })),
+  ];
+}
+
+function localWalTargetShape(targets: readonly WriteTarget[]): string {
+  return stableStringify(targets.map(stableStringify).sort());
+}
+
+function validLocalWalTarget(target: Extract<WriteTarget, { readonly kind: "local_wal_file" }>): boolean {
+  return target.path === WAL_SEGMENT_PATH && target.operation === "append"
+    || target.path === WAL_HEAD_PATH && target.operation === "replace"
+    || /^\.harness\/wal\/objects\/[0-9a-f]{64}$/u.test(target.path) && target.operation === "replace";
 }
 
 export function validateDeclaredWritePlan(plan: WritePlan, commandTypes: readonly string[]): readonly string[] {
@@ -220,15 +244,26 @@ export function validateDeclaredWritePlan(plan: WritePlan, commandTypes: readonl
     if (target.kind === "lease_sqlite" && (target.table !== "lease_cas" || !safeIdentity(target.taskId)
       || !["reserve", "activate", "release"].includes(target.operation))) errors.push("lease target is invalid");
     if (target.kind === "content_blob" && (!/^[0-9a-f]{64}$/u.test(target.sha256) || !Number.isInteger(target.size) || target.size < 0 || !isNonEmptyString(target.mediaType))) errors.push("content blob target is invalid");
+    if (target.kind === "local_wal_file" && !validLocalWalTarget(target)) errors.push("local WAL target is invalid");
   }
   return errors;
 }
 
 export function freezeDeclaredWritePlan<C extends string>(plan: WritePlan<C>, commandTypes: readonly string[]): FrozenWritePlan<C> {
-  const errors = validateDeclaredWritePlan(plan, commandTypes);
+  const suppliedWalTargets = plan.targets.filter((target): target is Extract<WriteTarget, { readonly kind: "local_wal_file" }> => target.kind === "local_wal_file");
+  const nonWalTargets = plan.targets.filter((target) => target.kind !== "local_wal_file");
+  const derivedWalTargets = localWalWriteTargets(nonWalTargets);
+  const resolvedPlan = { commandType: plan.commandType, targets: [...nonWalTargets, ...derivedWalTargets] };
+  const errors = [
+    ...validateDeclaredWritePlan(plan, commandTypes),
+    ...(suppliedWalTargets.length > 0 && localWalTargetShape(suppliedWalTargets) !== localWalTargetShape(derivedWalTargets)
+      ? ["local WAL targets must exactly derive from event and content targets"]
+      : []),
+    ...validateDeclaredWritePlan(resolvedPlan, commandTypes),
+  ];
   if (errors.length > 0) throw new WriteChainContractError("invalid_write_plan", errors.join("; "));
-  return Object.freeze({ commandType: plan.commandType,
-    targets: Object.freeze(plan.targets.map((target) => Object.freeze({ ...target }))) }) as FrozenWritePlan<C>;
+  return Object.freeze({ commandType: resolvedPlan.commandType,
+    targets: Object.freeze(resolvedPlan.targets.map((target) => Object.freeze({ ...target }))) }) as FrozenWritePlan<C>;
 }
 
 export function isFrozenWritePlan(plan: WritePlan): boolean {

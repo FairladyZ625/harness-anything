@@ -56,6 +56,34 @@ export const localRuntimeStateFileSystem = {
   writeText: (inputPath: string, value: string) => writeFileSync(inputPath, value, "utf8")
 };
 
+// S3 writes this Git-first shadow through the OS page cache; S4 owns any future
+// WAL-durability boundary when a WAL append becomes an acknowledged write.
+export const localWalFileSystem = {
+  exists: (inputPath: string) => existsSync(inputPath),
+  mkdirp: (inputPath: string) => mkdirSync(inputPath, { recursive: true }),
+  readText: (inputPath: string) => readFileSync(inputPath, "utf8"),
+  append: (inputPath: string, body: string): void => {
+    mkdirSync(path.dirname(inputPath), { recursive: true });
+    const descriptor = openSync(inputPath, "a", 0o600);
+    try {
+      writeSync(descriptor, body, null, "utf8");
+    } finally {
+      closeSync(descriptor);
+    }
+  },
+  replace: (inputPath: string, body: string): void => {
+    mkdirSync(path.dirname(inputPath), { recursive: true });
+    const temporary = `${inputPath}.${process.pid}.tmp`;
+    const descriptor = openSync(temporary, "w", 0o600);
+    try {
+      writeSync(descriptor, body, null, "utf8");
+    } finally {
+      closeSync(descriptor);
+    }
+    renameSync(temporary, inputPath);
+  }
+};
+
 function isExclusiveCreateConflict(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST";
 }
