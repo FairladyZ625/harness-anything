@@ -6,7 +6,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, registerDaemonRepo, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
-import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
@@ -54,6 +54,19 @@ test("runtime spawn maps the GUI Claude kind to a canonical claude-compatible in
         assert.equal(receipt.outcome, "applied"); assert.equal(executablePath, "/opt/witnessed/claude");
       } finally { await cell.close(); }
     } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Codex API-key bearer remains confined to the private provider config", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-bearer-confidentiality-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), secret = "api-key-only-in-private-config", installation = { ...definition, installationId: "installation-codex-private", executablePath: "/opt/witnessed/codex-private", version: "1.0.0", observedAt: "2026-08-19T00:00:00.000Z" } as RuntimeInstallationWitness;
+  try {
+    mkdirSync(root); git(root, "init", "-q"); git(root, "config", "user.name", "Spawn Test"); git(root, "config", "user.email", "spawn@example.invalid"); git(root, "commit", "--allow-empty", "-qm", "base");
+    const instances = openRuntimeInstanceStore({ userRoot, discover: () => [installation], resolveCredential: () => secret }); instances.create({ schemaVersion: 2, instanceId: "codex-private", name: "Codex Private", kindId: "codex", installationId: installation.installationId, providerId: "codex_local_access", models: [definition.model], defaultModel: definition.model, enabled: true, codex: { baseUrl: "http://127.0.0.1:50818/v1", wireApi: "responses", requiresOpenAiAuth: true }, auth: { mode: "api-key", credentialRef: "credential:v1:codex-private" } });
+    const cell = await openRepoCell({ repoId: workspaceId("runtime-bearer-confidentiality"), rootDir: canonicalRoot(root), ownerId: "spawn-test", runtimeInstances: instances.listPublic, prepareRuntimeLaunch: instances.prepareLaunch, runtimeLaunch: (prepared) => { assert.doesNotMatch(JSON.stringify(prepared), new RegExp(secret, "u")); return { pid: 456, onOutput: (listener) => { queueMicrotask(() => listener(`${JSON.stringify({ type: "thread.started", thread_id: "private-provider-session" })}\n${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "private final result" } })}\n${JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })}\n`)); }, onErrorOutput: () => undefined, onExit: (listener) => { queueMicrotask(() => listener(0)); }, terminate: () => undefined }; } });
+    try {
+      const receipt = await cell.spawnRuntime({ runtimeInstanceId: "codex-private", cwd: { scope: "repo-root" }, prompt: "Inspect", taskId: null, idempotencyKey: "private-bearer" }, { actor: { principal: { personId: "person-spawn" }, executor: null }, source: "local" }), read = await eventuallyValue(async () => { const value = await cell.read("repo.agentRuntime.sessions.read", { runtimeSessionId: receipt.runtimeSessionId }); return value.result ? value : null; }), events = makeTaskEventStore({ repoId: "runtime-bearer-confidentiality", rootDir: root }).read().events, stream = readFileSync(path.join(root, ".harness", "runtime", "dispatches", `${receipt.dispatchId}.jsonl`), "utf8"), config = readFileSync(path.join(userRoot, "runtime-instances", "codex-private", "home", ".codex", "config.toml"), "utf8");
+      assert.match(config, new RegExp(`experimental_bearer_token = ${JSON.stringify(secret)}`, "u")); for (const value of [receipt, read, events, stream]) assert.doesNotMatch(JSON.stringify(value), new RegExp(secret, "u"));
+    } finally { await cell.close(); }
+  } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
 test("daemon ingress preserves executor-scoped task-bound runtime spawn", async (t) => {
