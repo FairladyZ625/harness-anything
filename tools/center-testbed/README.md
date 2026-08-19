@@ -56,6 +56,7 @@ docker compose build            # 首次构建（npm ci + CLI build，几分钟�
 docker compose up -d --wait     # seed 跑完 → center healthy → edges 起来
 bash smoke-read.sh              # 读链路冒烟（edge 拉取 + GitLab 可见性 + 日志）
 bash smoke-write.sh             # 写链路冒烟（自动 lease 五场景，见下）
+bash smoke-epoch.sh              # W3-A 双 center writer epoch fencing（旧进程零写入）
 bash smoke-sync.sh              # A/B 双类同步冒烟（三冲突场景，见下）
 ```
 
@@ -155,6 +156,7 @@ docker compose exec edge-2 ha --json daemon fleet edge sync --host center --port
 | `entrypoint-edge.mjs` | edge 入口：常驻 daemon + 隔离管理壳注册为 remote-edge + 写 `/data/workspace/fleet-edge.json` |
 | `smoke-edge.mjs` / `smoke-read.sh` | 容器内单边读冒烟 / 宿主机一键读冒烟 |
 | `smoke-write.sh` | 宿主机一键写冒烟（自动 lease 五场景） |
+| `smoke-epoch.sh` / `smoke-epoch.mjs` | 宿主机/中心容器双进程 writer epoch fencing 冒烟 |
 | `smoke-sync.sh` | 宿主机一键同步冒烟（A/B 双类三冲突场景 + 三人工出口） |
 | `lib/testbed.mjs` | 容器内共享 helper（ha 调用、receipt 解包、daemon 生命周期） |
 
