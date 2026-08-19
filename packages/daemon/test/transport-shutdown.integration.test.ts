@@ -1,0 +1,87 @@
+// harness-test-tier: integration
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import net from "node:net";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+import type { JsonRpcRequest } from "../src/protocol/json-rpc-types.ts";
+import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
+
+// The daemon stops its transport before its host, so a request still executing
+// when stop() begins can land its write and never reply -- the outcome-unknown
+// failure mode. The transport therefore drains in-flight requests, but under a
+// deadline: an unbounded wait is what made Windows integration runs sit at the
+// 900s watchdog when a client held a stream subscription open.
+function drainProbeTransport(endpoint: string, handle: JsonRpcProtocolServerHandle) {
+  return createUnixSocketTransportServer({
+    daemonId: "drain-probe",
+    socketPath: endpoint,
+    createProtocolServer: () => ({ handle, close: () => {} })
+  });
+}
+type JsonRpcProtocolServerHandle = (message: JsonRpcRequest | readonly JsonRpcRequest[]) => Promise<{ readonly jsonrpc: "2.0"; readonly id: unknown; readonly result: unknown } | undefined>;
+
+test("stopping the transport still delivers the reply to a request already in flight", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ha-transport-drain-"));
+  const endpoint = path.join(dir, "probe.sock");
+  let releaseHandler: () => void = () => {};
+  let handlerEntered: () => void = () => {};
+  const entered = new Promise<void>((resolve) => { handlerEntered = resolve; });
+  const blocked = new Promise<void>((resolve) => { releaseHandler = resolve; });
+  const transport = drainProbeTransport(endpoint, async (message) => {
+    handlerEntered();
+    await blocked;
+    const request = Array.isArray(message) ? message[0] : message as JsonRpcRequest;
+    return { jsonrpc: "2.0", id: request.id ?? null, result: { drained: true } };
+  });
+  await transport.start();
+  try {
+    const client = net.createConnection(endpoint);
+    // Resolve on the first complete frame, or on close if the reply never
+    // arrives -- otherwise the assertion races the socket's read event and
+    // reports an empty buffer whether or not the reply was actually sent.
+    let settleReceived: (value: string) => void = () => {};
+    const replied = new Promise<string>((resolve) => { settleReceived = resolve; });
+    let received = "";
+    client.on("data", (chunk: Buffer) => { received += chunk.toString("utf8"); if (received.includes("\n")) settleReceived(received); });
+    client.on("close", () => settleReceived(received));
+    await new Promise<void>((resolve) => client.once("connect", resolve));
+    client.write(`${JSON.stringify({ jsonrpc: "2.0", id: 7, method: "daemon.ping", params: {} })}\n`);
+    await entered;
+    const stopping = transport.stop();
+    releaseHandler();
+    await stopping;
+    assert.match(await replied, /"drained":true/u, `in-flight request lost its reply across transport stop: ${JSON.stringify(received)}`);
+    client.destroy();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("transport stop stays bounded when an in-flight request never completes", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ha-transport-hang-"));
+  const endpoint = path.join(dir, "probe.sock");
+  let handlerEntered: () => void = () => {};
+  const entered = new Promise<void>((resolve) => { handlerEntered = resolve; });
+  const transport = drainProbeTransport(endpoint, async () => {
+    handlerEntered();
+    await new Promise<void>(() => {});
+    return undefined;
+  });
+  await transport.start();
+  try {
+    const client = net.createConnection(endpoint);
+    client.on("data", () => {});
+    await new Promise<void>((resolve) => client.once("connect", resolve));
+    client.write(`${JSON.stringify({ jsonrpc: "2.0", id: 8, method: "daemon.ping", params: {} })}\n`);
+    await entered;
+    const startedAt = Date.now();
+    await transport.stop();
+    const elapsedMs = Date.now() - startedAt;
+    assert.ok(elapsedMs < 30_000, `transport stop waited ${elapsedMs}ms on a request that never completes`);
+    client.destroy();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
