@@ -1,4 +1,4 @@
-import { presetCommands, presetMethods } from "./preset-command-contract.ts"; export { presetCommands, presetMethods, type RpcShape } from "./preset-command-contract.ts";
+import { presetCommands, presetMethods } from "./preset-command-contract.ts"; export { consentJsonFields, decisionProposalJsonFields, presetCommands, presetMethods, reviewJsonFields, taskCreateJsonFields, taskSubmissionJsonFields, type RpcShape } from "./preset-command-contract.ts";
 export type PresetLayer = "bundled" | "user"; export type PresetPurpose = "inspect" | "task-create" | "script-run"; export type PresetKind = "template-content" | "process-action";
 export interface CapabilityRefV1 { readonly id: string; readonly kind: "checker" | "scaffold" | "projection" | "command" | "template" | "raw-fs"; readonly version: string }
 export interface TypedInputV1 { readonly name: string; readonly type: "string" | "number" | "boolean" | "json"; readonly required: boolean }
