@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { parseThinCommand } from "../../cli/src/cli/thin-command.ts";
-import { discoverRuntimeInstallations, openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import { discoverRuntimeInstallations, openRuntimeInstanceStore, type RuntimeAuthReadiness, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { daemonProtocolCommands } from "../src/protocol/daemon-protocol.contract.ts";
 
 const observed: RuntimeInstallationWitness = { installationId: "codex-installation-test", kindId: "codex", executablePath: "/opt/runtime-test/codex", version: "0.146.1", observedAt: "2026-08-15T00:00:00.000Z" };
@@ -68,7 +68,7 @@ test("API-key launch fails closed on a missing key or installation without check
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-api-fail-closed-"));
   try {
     let installationPresent = true, subscriptionChecks = 0;
-    const store = openRuntimeInstanceStore({ userRoot, discover: () => installationPresent ? [observed] : [], resolveCredential: () => { throw new Error("missing key"); }, subscriptionReady: () => { subscriptionChecks += 1; return true; } });
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => installationPresent ? [observed] : [], resolveCredential: () => { throw new Error("missing key"); }, subscriptionReady: () => { subscriptionChecks += 1; return { status: "ready", code: null, hint: null }; } });
     store.create({ schemaVersion: 1, instanceId: "codex-closed", name: "Codex Closed", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "api-key", credentialRef: "keychain:harness/missing" } });
     assert.throws(() => store.prepareLaunch("codex-closed", { cwd: "/workspace/repo", prompt: "Inspect" }), (error: unknown) => codedAs(error, "runtime_credential_unavailable")); assert.equal(subscriptionChecks, 0);
     installationPresent = false; assert.throws(() => store.prepareLaunch("codex-closed", { cwd: "/workspace/repo", prompt: "Inspect" }), (error: unknown) => codedAs(error, "runtime_installation_not_found")); assert.equal(subscriptionChecks, 0);
@@ -79,7 +79,7 @@ test("subscription launch fails closed without provider-native readiness and nev
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-subscription-isolation-")), claude: RuntimeInstallationWitness = { ...observed, installationId: "claude-installation-test", kindId: "claude", executablePath: "/opt/runtime-test/claude" };
   try {
     let ready = false, credentialCalls = 0, readinessEnvironment: NodeJS.ProcessEnv | undefined;
-    const store = openRuntimeInstanceStore({ userRoot, discover: () => [claude], env: { PATH: "/runtime/tools", HOME: "/host/home", ANTHROPIC_API_KEY: "host-secret", ANTHROPIC_AUTH_TOKEN: "host-oauth" }, resolveCredential: () => { credentialCalls += 1; return "fallback-secret"; }, subscriptionReady: ({ env }) => { readinessEnvironment = env; return ready; } });
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [claude], env: { PATH: "/runtime/tools", HOME: "/host/home", ANTHROPIC_API_KEY: "host-secret", ANTHROPIC_AUTH_TOKEN: "host-oauth" }, resolveCredential: () => { credentialCalls += 1; return "fallback-secret"; }, subscriptionReady: ({ env }) => { readinessEnvironment = env; return ready ? { status: "ready", code: null, hint: null } : { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in this instance state root." }; } });
     store.create({ schemaVersion: 2, instanceId: "claude-subscription", name: "Claude Subscription", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, claude: {}, auth: { mode: "subscription" } });
     assert.throws(() => store.prepareLaunch("claude-subscription", { cwd: "/workspace/repo", prompt: "Inspect" }), (error: unknown) => codedAs(error, "runtime_subscription_required"));
     assert.equal(credentialCalls, 0);
@@ -214,7 +214,7 @@ test("runtime auth readiness is explicit, safe, and never falls back across mode
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-auth-readiness-"));
   try {
     let subscriptionReady = false, credentialCalls = 0, subscriptionCalls = 0;
-    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed], resolveCredential: () => { credentialCalls += 1; throw new Error("missing"); }, subscriptionReady: () => { subscriptionCalls += 1; return subscriptionReady; } });
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed], resolveCredential: () => { credentialCalls += 1; throw new Error("missing"); }, subscriptionReady: () => { subscriptionCalls += 1; return subscriptionReady ? { status: "ready", code: null, hint: null } : { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in this instance state root." }; } });
     store.create({ schemaVersion: 1, instanceId: "codex-sub", name: "Codex Subscription", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "subscription" } });
     assert.deepEqual(store.authStatus("codex-sub"), { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in this instance state root." });
     assert.equal(credentialCalls, 0); assert.equal(subscriptionCalls, 1);
@@ -226,6 +226,21 @@ test("runtime auth readiness is explicit, safe, and never falls back across mode
     assert.equal(subscriptionCalls, 2);
     const receipt = store.command({ kind: "runtime-instance-show", instanceId: "codex-api", probe: true });
     assert.doesNotMatch(JSON.stringify(receipt), /credentialRef|keychain:|executablePath|\/opt\/runtime-test/u);
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+test("subscription probes distinguish authenticated, unauthenticated, and inconclusive states", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-auth-probe-state-"));
+  try {
+    let probe: RuntimeAuthReadiness = { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in this instance state root." };
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed], subscriptionReady: () => probe });
+    store.create({ schemaVersion: 1, instanceId: "codex-probe", name: "Codex Probe", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "subscription" } });
+    const unchecked = store.command({ kind: "runtime-instance-show", instanceId: "codex-probe" }).instance as Record<string, unknown>; assert.equal(unchecked.authState, "unknown"); assert.equal((unchecked.authReadiness as Record<string, unknown>).code, "runtime_auth_not_checked");
+    const unauthenticated = store.command({ kind: "runtime-instance-show", instanceId: "codex-probe", probe: true }).instance as Record<string, unknown>; assert.equal(unauthenticated.authState, "unauthenticated"); assert.equal((unauthenticated.authReadiness as Record<string, unknown>).code, "runtime_subscription_required");
+    probe = { status: "not-ready", code: "runtime_auth_probe_failed", hint: "Provider authentication probe could not determine readiness." };
+    const inconclusive = store.command({ kind: "runtime-instance-show", instanceId: "codex-probe", probe: true }).instance as Record<string, unknown>; assert.equal(inconclusive.authState, "unknown"); assert.equal((inconclusive.authReadiness as Record<string, unknown>).code, "runtime_auth_probe_failed");
+    probe = { status: "ready", code: null, hint: null };
+    const authenticated = store.command({ kind: "runtime-instance-show", instanceId: "codex-probe", probe: true }).instance as Record<string, unknown>; assert.equal(authenticated.authState, "authenticated");
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
 
