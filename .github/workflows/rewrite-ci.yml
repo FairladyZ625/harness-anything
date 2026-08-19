@@ -153,6 +153,67 @@ jobs:
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job fast-contract --exclude mergify-queue-metadata-edit-noop
 
+  crlf-checkout:
+    # Four of the reported Windows defects (#1525, #1526, #1538, #1588) are line-ending defects,
+    # not platform defects: they reproduce anywhere git is told to convert. Catching them costs a
+    # Linux runner and one config line, so they should never again be found by a person on Windows.
+    if: github.event_name == 'pull_request'
+    needs: metadata-source-proof
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reuse same-SHA source validation
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source == 'true' }}
+        run: echo "Reusing successful source validation for the same head SHA."
+      - name: Convert line endings on checkout the way a Windows host does
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        run: git config --global core.autocrlf true
+      - uses: actions/checkout@v4
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        with:
+          # The fast tier holds a ratchet that resolves its baseline from Git history, so a
+          # shallow checkout fails it for a reason that has nothing to do with line endings.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        with:
+          node-version: 24
+          cache: npm
+      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        run: npm ci
+      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        run: node tools/run-manifest-gates.mjs --workflow-job crlf-checkout --exclude mergify-queue-metadata-edit-noop
+
+  windows-first-run:
+    # platform-smoke asserts the CLI boots and refuses on a cold machine -- every command it runs
+    # is expected to fail. That is why it stayed green through #1524, #1527, #1565 and #1586. This
+    # job runs the product instead: init, resident daemon, publish, clone, stop. The ubuntu arm is
+    # the positive control, so a red windows arm is attributable to the platform and nothing else.
+    if: github.event_name == 'pull_request'
+    needs: metadata-source-proof
+    name: windows-first-run (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Reuse same-SHA source validation
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source == 'true' }}
+        run: echo "Reusing successful source validation for the same head SHA."
+      - uses: actions/checkout@v4
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+      - uses: actions/setup-node@v4
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        with:
+          node-version: 24
+          cache: npm
+      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        run: npm ci
+      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        run: npm run build -w @harness-anything/cli
+      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        run: node tools/run-manifest-gates.mjs --workflow-job windows-first-run --exclude mergify-queue-metadata-edit-noop
+
   integration-shard:
     if: github.event_name == 'pull_request'
     needs: metadata-source-proof

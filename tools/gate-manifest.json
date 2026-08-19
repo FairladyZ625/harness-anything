@@ -93,7 +93,8 @@
         "check-legacy-intake-readiness",
         "check-supply-chain",
         "smoke-legacy-intake",
-        "smoke-cli-package"
+        "smoke-cli-package",
+        "windows-first-run"
       ],
       "checkPr": [
         "typecheck",
@@ -146,6 +147,8 @@
         "pr-body-lint",
         "typecheck",
         "fast-contract",
+        "crlf-checkout",
+        "windows-first-run",
         "integration-shard",
         "boundaries",
         "package-policy",
@@ -503,6 +506,8 @@
           "pr-body-lint",
           "typecheck",
           "fast-contract",
+          "crlf-checkout",
+          "windows-first-run",
           "integration-shard",
           "boundaries",
           "package-policy",
@@ -542,6 +547,8 @@
             "pr-body-lint",
             "typecheck",
             "fast-contract",
+            "crlf-checkout",
+            "windows-first-run",
             "integration-shard",
             "boundaries",
             "package-policy",
@@ -686,7 +693,8 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries"
+          "boundaries",
+          "crlf-checkout"
         ],
         "nodeVersions": [
           24
@@ -716,7 +724,8 @@
         },
         "rewriteCi": {
           "pullRequestJobs": [
-            "boundaries"
+            "boundaries",
+            "crlf-checkout"
           ],
           "nonPullRequestJobs": [
             "full-check"
@@ -831,7 +840,8 @@
         ],
         "workflowJobs": [
           "fast-contract",
-          "node26-compatibility"
+          "node26-compatibility",
+          "crlf-checkout"
         ],
         "nodeVersions": [
           24,
@@ -862,7 +872,8 @@
         "rewriteCi": {
           "pullRequestJobs": [
             "fast-contract",
-            "node26-compatibility"
+            "node26-compatibility",
+            "crlf-checkout"
           ],
           "nonPullRequestJobs": []
         },
@@ -912,7 +923,8 @@
         ],
         "workflowJobs": [
           "fast-contract",
-          "node26-compatibility"
+          "node26-compatibility",
+          "crlf-checkout"
         ],
         "nodeVersions": [
           24,
@@ -944,7 +956,8 @@
         "rewriteCi": {
           "pullRequestJobs": [
             "fast-contract",
-            "node26-compatibility"
+            "node26-compatibility",
+            "crlf-checkout"
           ],
           "nonPullRequestJobs": []
         },
@@ -4335,6 +4348,76 @@
         "status": "covered",
         "evidence": [
           "tools/smoke-cli-package.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "windows-first-run",
+      "command": "npm run harness:windows-first-run",
+      "category": "smoke",
+      "tier": "pr-advisory",
+      "tierReason": "Runs on every pull request but is not yet a required context: the windows-latest arm has never been green, and requiring a context that cannot pass would block every merge including the one that fixes it. Promotion condition: the windows-latest arm green on main.",
+      "authoritySource": [
+        "tools/gates/windows-first-run.mjs",
+        ".github/workflows/rewrite-ci.yml"
+      ],
+      "consumerScope": [
+        "First-run product path on every supported platform: init, resident daemon, task and fact publication, ledger clone fidelity, and daemon stop"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "windows-first-run"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "The first-run path is fixed by the gate script. A platform that cannot run it is a defect, not an entry to allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/windows-first-run.mjs",
+          "package.json:scripts.harness:windows-first-run",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": false,
+          "script": "harness:windows-first-run"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "windows-first-run"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "Under an induced global core.autocrlf=true the clone-fidelity check fails with the #1588 signature; the gate is green with the setting unset."
         ]
       }
     },

@@ -22,7 +22,12 @@ const INFRASTRUCTURE_RUN_COMMANDS = new Set([
   "npm ci",
   "git diff --check",
   "mkdir -p artifacts/gui-e2e",
-  "sudo apt-get update && sudo apt-get install -y xvfb"
+  "sudo apt-get update && sudo apt-get install -y xvfb",
+  // The first-run gate exercises the packaged bin, so the bin has to exist before it runs.
+  "npm run build -w @harness-anything/cli",
+  // Setting the checkout to convert line endings is the crlf-checkout job's whole point; it is
+  // a property of the checkout, not a gate command, so no manifest gate can declare it.
+  "git config --global core.autocrlf true"
 ]);
 
 export function checkGateSurface(root = DEFAULT_ROOT) {

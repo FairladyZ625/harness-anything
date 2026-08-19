@@ -28,6 +28,22 @@ Required pull request checks must cover:
 - package policy
 - GUI build smoke
 - Node 26 compatibility for typecheck plus fast and contract tests
+Platform coverage runs on every pull request but is **not yet required**:
+`crlf-checkout`, and `windows-first-run` on `ubuntu-latest` and `windows-latest`.
+Requiring a context that has never passed would block every merge including the
+one that makes it pass. The promotion condition is the `windows-latest` arm
+green on `main`; at that point all three move into the ruleset, the Mergify
+queue and the required list above, together.
+
+They are platform coverage and were added after a run of Windows
+defects reached users through a fully green pull request. They divide that
+class in two. Four of those defects (#1525, #1526, #1538, #1588) were
+line-ending defects that reproduce on any host told to convert, so
+`crlf-checkout` catches them on a Linux runner. The rest needed a Windows
+process, so `windows-first-run` runs the product -- initialize, hold a resident
+daemon, publish, clone, stop -- rather than asserting that it refuses cleanly.
+Its `ubuntu-latest` arm is the positive control: when only the Windows arm is
+red, the platform is the difference.
 
 The full aggregate `npm run check` matrix runs on `main`, scheduled nightly, and
 manual workflow dispatch. It remains the release-grade gate and still covers
