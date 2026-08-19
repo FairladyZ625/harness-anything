@@ -24,11 +24,13 @@ test("#1565: a daemon whose shutdown never ran still yields a successful stop re
     process.kill(pid as number, "SIGKILL");
     await waitForProcessExit(pid as number, 5_000);
     assert.equal(existsSync(daemonPidPath(fixture.userRoot, "default")), true, "an ungraceful exit leaves the pid file behind");
+    assert.equal(existsSync(daemonSingletonLockPath(fixture.userRoot, "default")), true, "an ungraceful exit leaves the singleton lock behind");
 
     const stopped = run(fixture.root, fixture.userRoot, ["daemon", "stop"]);
     assert.equal(stopped.ok, true, JSON.stringify(stopped));
     assert.notEqual(stopped.code, "daemon_stop_timeout");
     assert.equal(existsSync(daemonPidPath(fixture.userRoot, "default")), false, "stop must clear the bookkeeping it outlived");
+    assert.equal(existsSync(daemonSingletonLockPath(fixture.userRoot, "default")), false, "stop must clear the singleton lock it outlived");
   } finally { rmSync(fixture.parent, { recursive: true, force: true }); }
 });
 

@@ -83,8 +83,8 @@ test("aggregate-authored status events rebuild to the exact hot snapshot", async
     assert.ok(hot); await cell.close(); cell = undefined;
     const store = makeTaskEventStore({ repoId: "task-status-replay", rootDir }), replay = makeTaskProjection({ rootDir, eventStore: store });
     assert.deepEqual(store.read().events.filter((event) => event.schema === "task-event/v1").map((event) => event.type), ["task_transitioned", "task_transitioned", "task_transitioned", "task_transitioned"]);
-    rmSync(replay.path, { force: true }); const rebuilt = replay.rebuild(), cold = replay.read("task_status_replay").snapshot;
-    assert.equal(rebuilt.watermark, store.readHead()?.revision); assert.deepEqual(cold, hot);
+    replay.close(); rmSync(replay.path, { force: true }); const rebuilt = replay.rebuild(), cold = replay.read("task_status_replay").snapshot;
+    assert.equal(rebuilt.watermark, store.readHead()?.revision); assert.deepEqual(cold, hot); replay.close();
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -182,8 +182,8 @@ test("a released round is re-enterable by its own execution and still refuses a 
     // Replay is the real contract: a cold rebuild from the event log must not grow a duplicate execution.
     await cell.close(); cell = undefined;
     const store = makeTaskEventStore({ repoId: "task-round-reenter", rootDir }), replay = makeTaskProjection({ rootDir, eventStore: store });
-    rmSync(replay.path, { force: true }); replay.rebuild();
-    assert.deepEqual(replay.read("task_round").snapshot.executions.map((row) => `${row.executionId}/${row.state}`), ["exe_round/active"]);
+    replay.close(); rmSync(replay.path, { force: true }); replay.rebuild();
+    assert.deepEqual(replay.read("task_round").snapshot.executions.map((row) => `${row.executionId}/${row.state}`), ["exe_round/active"]); replay.close();
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 

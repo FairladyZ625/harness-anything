@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { acquireDaemonSingleton, daemonSingletonLockPath } from "../src/daemon-singleton.ts";
+import { acquireDaemonSingleton, daemonSingletonLockPath, releaseDaemonSingletonLock } from "../src/daemon-singleton.ts";
 
 const endpoint = "/tmp/ha-singleton-probe.sock";
 
@@ -42,6 +42,17 @@ test("a dead holder pid is replaced so a crashed daemon never wedges the slot", 
     assert.equal(held.claim, "acquired");
     assert.equal(readFileSync(daemonSingletonLockPath(userRoot, "default"), "utf8"), "5252\n");
     held.release();
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+test("external cleanup removes only the dead holder's singleton lock", () => {
+  const userRoot = fixture();
+  try {
+    writeFileSync(daemonSingletonLockPath(userRoot, "default"), "4242\n", "utf8");
+    releaseDaemonSingletonLock(userRoot, "default", 5252);
+    assert.equal(existsSync(daemonSingletonLockPath(userRoot, "default")), true, "a replacement holder must not lose its lock");
+    releaseDaemonSingletonLock(userRoot, "default", 4242);
+    assert.equal(existsSync(daemonSingletonLockPath(userRoot, "default")), false);
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
 

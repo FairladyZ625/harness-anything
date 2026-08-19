@@ -211,7 +211,7 @@ test("remote-edge Cell terminal side effects require Cell-level mode admission",
 test("daemon admission rejects a mismatched kernel projection schema and recovers after rebuild", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-schema-admission-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user");
   rosterRepo(rootDir, "schema-admission"); registerDaemonRepo({ canonicalRoot: rootDir, repoId: "schema-admission", userRoot, createConvenienceLinks: false });
-  const cache = path.join(rootDir, ".harness/cache/task.sqlite"); makeTaskProjection({ rootDir, eventStore: { readHead: () => null, readBatch: () => ({ sourceRevision: 0, events: [], cursor: null, done: true, accessedItems: 0 }), readContentBlob: () => null } }).list(); const db = new DatabaseSync(cache); db.exec("UPDATE projection_meta SET schema_version = 999 WHERE singleton = 1;"); db.close();
+  const cache = path.join(rootDir, ".harness/cache/task.sqlite"); const projection = makeTaskProjection({ rootDir, eventStore: { readHead: () => null, readBatch: () => ({ sourceRevision: 0, events: [], cursor: null, done: true, accessedItems: 0 }), readContentBlob: () => null } }); projection.list(); projection.close(); const db = new DatabaseSync(cache); db.exec("UPDATE projection_meta SET schema_version = 999 WHERE singleton = 1;"); db.close();
   let clock = "2026-08-18T00:00:00.000Z";
   const host = await openDaemonHost({ daemonId: "schema-admission", userRoot, now: () => clock }); await host.attachmentsSettled();
   try {

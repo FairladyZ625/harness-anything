@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts"; import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts"; import { detachedProcessOptions, terminateProcess } from "../../../daemon/src/process-port.ts"; import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
 import { ensureLocalDaemonRunning } from "../../../daemon/src/client/daemon-autostart.ts";
 import { readDaemonPid, startDaemon } from "../../../daemon/src/runtime.ts";
-import { daemonProcessAlive, releaseDaemonPidFile } from "../../../daemon/src/daemon-singleton.ts";
+import { daemonProcessAlive, releaseDaemonPidFile, releaseDaemonSingletonLock } from "../../../daemon/src/daemon-singleton.ts";
 import { cliDaemonServeLaunch, consumeKnownError } from "./client.ts";
 import { daemonRepoModeWords } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { firstCliCommandIndex } from "../cli/thin-command.ts";
@@ -88,7 +88,7 @@ async function waitForDaemonStop(userRoot: string, daemonId: string, pid: number
   const endpoint = localUserDaemonEndpoint(userRoot, daemonId);
   for (const deadline = Date.now() + 5_000; Date.now() < deadline;) {
     if (readDaemonPid(userRoot, daemonId) === null && !existsSync(endpoint)) return true;
-    if (!daemonProcessAlive(pid)) { releaseDaemonPidFile(userRoot, daemonId, pid); return true; }
+    if (!daemonProcessAlive(pid)) { releaseDaemonPidFile(userRoot, daemonId, pid); releaseDaemonSingletonLock(userRoot, daemonId, pid); return true; }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   return false;

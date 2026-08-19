@@ -95,9 +95,13 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
   if (localRuntimeStateFileSystem.exists(projectionPath)) withDatabase(projectionPath, readHead, (db) => transaction(db, () => {
     if (markRuntimeSessionsUnknown(db) > 0) refreshStateDigestAtSourceCut(db, readHead()?.revision ?? 0);
   }));
+  const resolvedProjectionPath = path.resolve(projectionPath);
+  const closeProjection = () => { hotAppliedHead = null; closeDatabase(projectionPath, readHead); };
+  const registeredClosers = projectionClosers.get(resolvedProjectionPath) ?? new Set<() => void>();
+  registeredClosers.add(closeProjection); projectionClosers.set(resolvedProjectionPath, registeredClosers);
   return {
     path: projectionPath,
-    close: () => { hotAppliedHead = null; closeDatabase(projectionPath, readHead); },
+    close: () => { closeProjection(); registeredClosers.delete(closeProjection); if (registeredClosers.size === 0) projectionClosers.delete(resolvedProjectionPath); },
     apply: (event, plan) => { if (isDocEvent(event)) assertDocSyncWritePlan(event, plan as FrozenWritePlan<"DocSyncSubmit">); if (isTaskEvent(event) && ((event.payload.documentClaims?.length ?? 0) > 0 || (event.payload.carriedDocumentClaims?.length ?? 0) > 0)) assertTaskLifecycleWritePlan(event, plan); if (isTaskBootstrapEvent(event)) assertTaskBootstrapWritePlan(event, plan as FrozenWritePlan<"TaskBootstrap">); if (isPresetSnapshotUpgradeEvent(event)) assertPresetSnapshotUpgradeWritePlan(event, plan as FrozenWritePlan<"PresetSnapshotUpgrade">); if (isTaskProgressEvent(event)) assertTaskProgressWritePlan(event, plan); if (isFactEvent(event)) assertFactWritePlan(event, plan); if (isDecisionEvent(event)) assertDecisionWritePlan(event, plan); if (isMigrationImportEvent(event)) assertMigrationImportWritePlan(event, plan); if (isLedgerLayoutMigrationEvent(event)) assertLedgerLayoutMigrationWritePlan(event, plan); const receipt = withDatabase(projectionPath, readHead, (db) => reduceBatch(db, [event], limit, options.eventStore.readContentBlob, readHead()?.revision ?? 0)); if (!observedSourceHead) hotAppliedHead = { revision: event.workspaceRevision, eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(event))}` }; return receipt; },
     rebuild: () => { hotAppliedHead = null; closeDatabase(projectionPath, readHead); return rebuildProjection(projectionPath, readHead, options.eventStore, limit); },
     readStateDigest: () => withDatabase(projectionPath, readHead, readStateDigest),
@@ -187,6 +191,17 @@ function rebuildProjection(projectionPath: string, readHead: EventStreamPort["re
 
 interface ProjectionDatabaseOwner { readonly use: <A>(operation: (db: DatabaseSync) => A) => A; readonly discard: () => void; readonly close: () => void; }
 const projectionDatabaseOwners = new WeakMap<EventStreamPort["readHead"], Map<string, ProjectionDatabaseOwner>>();
+const projectionClosers = new Map<string, Set<() => void>>();
+
+/** Test fixtures can close all projection databases before removing a temporary repository. */
+export function closeTaskProjectionsUnder(rootDir: string): void {
+  const resolvedRoot = path.resolve(rootDir), prefix = `${resolvedRoot}${path.sep}`;
+  for (const [projectionPath, closers] of projectionClosers) {
+    if (projectionPath !== resolvedRoot && !projectionPath.startsWith(prefix)) continue;
+    for (const close of [...closers]) close();
+    closers.clear(); projectionClosers.delete(projectionPath);
+  }
+}
 
 function withDatabase<A>(projectionPath: string, readHead: EventStreamPort["readHead"], use: (db: DatabaseSync) => A): A { return projectionDatabaseOwner(projectionPath, readHead).use(use); }
 function discardDatabase(projectionPath: string, readHead: EventStreamPort["readHead"]): void { projectionDatabaseOwner(projectionPath, readHead).discard(); }

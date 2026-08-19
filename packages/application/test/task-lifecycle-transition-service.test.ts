@@ -65,10 +65,11 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
 
 test("transition service freezes targets and makes create/start idempotent by opId payload", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-service-"));
+  let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
-    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
+    projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const service = makeTaskLifecycleService({ eventStore, projection });
     const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: "task-1", title: "Replay task", taskClass: "standard" as const, graph: replayGraph,
       completionGateIds: [], presetSnapshotDigest: null }, { eventId: "event-create", workspaceRevision: 1, occurredAt: "2026-08-11T00:00:00.000Z" });
@@ -94,16 +95,17 @@ test("transition service freezes targets and makes create/start idempotent by op
     assert.equal(started.snapshot.executions[0]?.state, "active");
     assert.equal(JSON.stringify(eventStore.read().events).includes("credential"), false);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    projection?.close(); rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
 
 test("transition service publishes aggregate-authored task status idempotently", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-status-service-"));
+  let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
-    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
+    projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const service = makeTaskLifecycleService({ eventStore, projection });
     const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: "task-1", title: "Status task", taskClass: "standard" as const, graph: replayGraph,
       completionGateIds: [], presetSnapshotDigest: null }, { eventId: "event-create", workspaceRevision: 1, occurredAt: "2026-08-11T00:00:00.000Z" });
@@ -118,7 +120,7 @@ test("transition service publishes aggregate-authored task status idempotently",
     assert.equal(unblocked.snapshot.task?.status, "active"); assert.equal(unblocked.event?.type, "task_transitioned"); assert.equal(unblocked.event?.payload.mutation.reason, "Explicit lifecycle transition to active"); assert.deepEqual(retried, unblocked);
     assert.equal(eventStore.read().events.filter((event) => event.schema === "task-event/v1").length, 3);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    projection?.close(); rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
 
@@ -170,10 +172,11 @@ test("reinstate rolls a cancelled task back to planned, active, or in_review wit
 
 test("second distinct task create uses aggregate revision zero in a non-empty workspace", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-two-tasks-"));
+  let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
-    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
+    projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const service = makeTaskLifecycleService({ eventStore, projection });
     const create = (taskId: string, title: string, revision: number) => command(rootDir, {
       type: "CreateReplayTask" as const, taskId, title, taskClass: "standard" as const, graph: replayGraph, completionGateIds: [], presetSnapshotDigest: null
@@ -185,7 +188,7 @@ test("second distinct task create uses aggregate revision zero in a non-empty wo
     assert.equal(eventStore.read().events.length, 2);
     await assert.rejects(() => service.execute(create("task-2", "Duplicate task", 3), { taskIdUnique: true, actorBinding: actor }));
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    projection?.close(); rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
@@ -313,6 +316,7 @@ async function independentWrite(rootDir: string, revision: number, label: string
     graph: replayGraph, completionGateIds: [], presetSnapshotDigest: null }, { eventId: `event-new-${label}`, workspaceRevision: revision,
     occurredAt: "2026-08-12T00:00:00.000Z" }, 0);
   const receipt = await service.execute(create, { taskIdUnique: true, actorBinding: actor });
+  projection.close();
   return { elapsedMs: performance.now() - started, storeInitMs: storeReady - started, ...phase,
     outcome: receipt.outcome, published: eventStore.readEvent(create.opId) };
 }
@@ -367,10 +371,11 @@ test("second lifecycle claim uses monotonic lease CAS", async () => {
 test("SQLite/response killpoints reconstruct the exact applied receipt by opId without another commit", async () => {
   for (const point of ["after_sqlite_commit", "before_response_write", "after_response_write"] as const) {
     const rootDir = mkdtempSync(path.join(tmpdir(), `ha-response-${point}-`));
+    let projection: ReturnType<typeof makeTaskProjection> | undefined;
     try {
       initRepo(rootDir);
       const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
-      const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
+      projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
       let armed = true;
       const interrupted = makeTaskLifecycleService({ eventStore, projection, killpoint: (candidate) => {
         if (armed && candidate === point) { armed = false; throw new Error(`killpoint:${point}`); }
@@ -394,16 +399,17 @@ test("SQLite/response killpoints reconstruct the exact applied receipt by opId w
       assert.deepEqual(second, first, point);
       assert.equal(projection.readOperation(create.opId)?.event.opId, create.opId);
       assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical").trim(), commitCount);
-    } finally { rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }); }
+    } finally { projection?.close(); rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }); }
   }
 });
 
 test("lease broker capacity ceiling rejects concurrent exhaustion and release restores availability", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lease-capacity-"));
+  let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
-    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
+    projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const lease = (id: string) => ({ schema: "lease/v1" as const, taskId: `task-${id}`, executionId: `execution-${id}`, actor, source: "local" as const,
       phase: "reserving" as const, expiresAt: "2026-08-11T01:00:00.000Z", ttlMs: 1_800_000, version: 0 });
     for (let index = 0; index < TASK_LEASE_BROKER_CONTRACT.capacity; index += 1) {
@@ -413,7 +419,7 @@ test("lease broker capacity ceiling rejects concurrent exhaustion and release re
     projection.releaseLease(projection.currentLease("task-cap-0")!);
     assert.equal(projection.reserveLease(lease("recovered"), "2026-08-11T00:00:00.000Z").taskId, "task-recovered");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    projection?.close(); rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
 
