@@ -61,7 +61,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
   const host = await openDaemonHost({ daemonId: "runtime-spawn-ingress", userRoot, runtimeDiscover: () => [ingressInstallation], runtimeLaunch: () => ({ pid: 4310, onOutput: (listener) => { queueMicrotask(() => listener(`${JSON.stringify({ type: "thread.started", thread_id: "provider-task-session" })}\n`)); }, onExit: () => undefined, terminate: () => undefined }) });
   await host.attachmentsSettled();
   try {
-    host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: ingressDefinition.instanceId, name: "Codex Review", kindId: ingressDefinition.kindId, installationId: ingressDefinition.installationId, providerId: ingressDefinition.providerId, model: ingressDefinition.model, reasoningEffort: ingressDefinition.reasoningEffort, authMode: ingressDefinition.authMode }, auth);
+    host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: ingressDefinition.instanceId, name: "Codex Review", kindId: ingressDefinition.kindId, installationId: ingressDefinition.installationId, providerId: ingressDefinition.providerId, model: ingressDefinition.model, codex: { reasoningEffort: ingressDefinition.reasoningEffort }, authMode: ingressDefinition.authMode }, auth);
     await t.test("matching agent executor writes the task and execution join", async () => {
       const taskId = "task-runtime-agent", executionId = "exec-runtime-agent", executor = { kind: "agent", id: "codex-worker" } as const;
       assert.equal((await host.run(repoId, { kind: "task-create", taskId, title: "Agent runtime" }, auth)).outcome, "applied");
