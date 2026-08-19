@@ -9,6 +9,7 @@ export type { CommandFailureReceipt, CommandReceipt, CommandReceiptEnvelope } fr
 export { makeTaskLifecycleService, TaskLifecycleOperationConflict } from "./task-lifecycle-service.ts";
 export type {
   TaskLifecycleKillpoint,
+  TaskCarriedDocuments,
   TaskLeaseRenewInput,
   TaskLifecycleServiceProof,
   TaskLifecycleService,

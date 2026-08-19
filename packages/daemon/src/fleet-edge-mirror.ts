@@ -3,8 +3,10 @@
 // worktree, dirty detection against the mirrored cut, and the conflict staging
 // area under <workspace>/.harness/conflicts. Conflicts are staged, never
 // merged: base/, local/, and center/ bytes land side by side and every record
-// names its three explicit human exits.
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+// names its three explicit human exits. An unresolved divergence is a
+// PERSISTENT gate — the marker keeps the last common base for diverged paths
+// and re-detected divergence reuses its record instead of self-healing.
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { consumeKnownError, documentPath, resolveDocRoute, resolveHarnessLayout, sha256Bytes } from "../../kernel/src/index.ts";
@@ -18,9 +20,68 @@ export interface FleetConflictPathRow { readonly path: string; readonly baseBlob
 export interface FleetConflictRecord { readonly schema: "fleet-conflict/v1"; readonly conflictId: string; readonly kind: "task-docs" | "shared-docs" | "pull-blocked"; readonly trigger: FleetConflictTrigger; readonly code: string; readonly repoId: string; readonly taskId: string | null; readonly executionId: string | null; readonly mirrorBaseRevision: number | null; readonly centerRevision: number | null; readonly createdAt: string; readonly paths: readonly FleetConflictPathRow[]; readonly state: "staged" | "resolved"; readonly resolvedVia: string | null; readonly exits: readonly string[] }
 export interface FleetStagedConflict { readonly conflictId: string; readonly paths: readonly string[]; readonly dir: string }
 export interface FleetMirrorApplyResult { readonly outcome: "applied" | "pull_blocked" | "no_view"; readonly fromRevision: number | null; readonly toRevision: number | null; readonly dirtyPaths: readonly string[]; readonly conflicts: readonly FleetStagedConflict[] }
-const mirrorMarker = ".mirror-cut.json", conflictPrefix = "cflt-";
+const mirrorMarker = ".mirror-cut.json", mirrorBaseCache = ".mirror-base-cache", conflictPrefix = "cflt-";
 
 export class FleetMirrorError extends Error { readonly code: string; constructor(code: string, message: string) { super(message); this.name = "FleetMirrorError"; this.code = code; } }
+
+// One edge daemon mutates one view's worktree at a time: A auto-pulls, B sync
+// rounds, and conflict exits serialize on this in-process chain so overlapping
+// rounds cannot interleave marker writes, worktree copies, or staging.
+const mirrorLocks = new Map<string, Promise<void>>();
+export function withFleetMirrorLock<T>(viewRoot: string, repoId: string, operation: () => Promise<T>): Promise<T> {
+  const key = `${path.resolve(viewRoot)}\0${repoId}`;
+  const previous = mirrorLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; }), tail = previous.then(() => gate);
+  mirrorLocks.set(key, tail);
+  return previous.then(async () => {
+    const releaseFile = await acquireFleetMirrorFileLock(viewRoot, repoId);
+    try { return await operation(); }
+    finally { releaseFile(); }
+  }).finally(() => { release(); if (mirrorLocks.get(key) === tail) mirrorLocks.delete(key); });
+}
+
+// The in-process promise tail above is not sufficient when two edge daemons
+// point at the same local replica/worktree. The lock-file layer makes the
+// round fence visible across processes as well; dead owners are reclaimed by
+// PID liveness before a waiter enters its round.
+async function acquireFleetMirrorFileLock(viewRoot: string, repoId: string): Promise<() => void> {
+  const lockPath = path.join(viewRoot, "repos", repoId, ".mirror-round.lock"), token = `${process.pid}:${randomBytes(9).toString("hex")}`;
+  mkdirSync(path.dirname(lockPath), { recursive: true });
+  for (;;) {
+    try {
+      const fd = openSync(lockPath, "wx", 0o600);
+      try { writeFileSync(fd, `${token}\n`, "utf8"); fsyncSync(fd); }
+      finally { closeSync(fd); }
+      return () => {
+        try { if (readFileSync(lockPath, "utf8").trim() === token) unlinkSync(lockPath); }
+        catch (error) { if (fleetMirrorErrorCode(error) === "ENOENT") return; consumeKnownError(error); throw error; }
+      };
+    } catch (error) {
+      if (fleetMirrorErrorCode(error) !== "EEXIST") { consumeKnownError(error); throw error; }
+      if (fleetMirrorLockIsStale(lockPath)) {
+        try { unlinkSync(lockPath); }
+        catch (cleanup) { if (fleetMirrorErrorCode(cleanup) === "ENOENT") continue; consumeKnownError(cleanup); throw cleanup; }
+        continue;
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+    }
+  }
+}
+function fleetMirrorLockIsStale(lockPath: string): boolean {
+  let raw: string;
+  try { raw = readFileSync(lockPath, "utf8").trim(); }
+  catch (error) { return fleetMirrorErrorCode(error) !== "ENOENT"; }
+  // A competing process may observe the file in the tiny interval between its
+  // exclusive create and synchronous token write. Do not steal that newborn
+  // lock; a malformed lock only becomes reclaimable after that grace window.
+  if (!/^\d+:[0-9a-f]+$/u.test(raw)) return Date.now() - statSync(lockPath).mtimeMs > 1_000;
+  const pid = Number(raw.split(":", 1)[0]);
+  if (!Number.isSafeInteger(pid) || pid < 1) return true;
+  try { process.kill(pid, 0); return false; }
+  catch (error) { return fleetMirrorErrorCode(error) === "ESRCH"; }
+}
+function fleetMirrorErrorCode(error: unknown): string | null { return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : null; }
 
 // One node mirrors one repo through one view; when several view directories
 // exist the highest current cut wins so a stale view never shadows a live one.
@@ -45,6 +106,17 @@ export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?:
 // task routes (INDEX.md, progress.md, executions/, ...) are never candidates —
 // typed events own them — and locally deleted documents are reported blocked
 // because canonical documents cannot be deleted through doc sync.
+// Pre-pull base caching (F3): while the marker cut is still the view's
+// CURRENT cut it is guaranteed on disk, so caching the base bytes of every
+// dirty path at scan time — before the pull that can collect that cut — keeps
+// base/ stageable no matter how many revisions the next pull jumps.
+export function cacheFleetMirrorDirtyBases(viewRoot: string, repoId: string): void {
+  const view = locateFleetMirrorView(viewRoot, repoId);
+  if (view === null || !existsSync(view.worktreeRoot)) return;
+  const dirty = scanFleetMirrorWorktree(view).changes.map((change) => change.path);
+  if (dirty.length > 0) fleetMirrorRefreshBaseCache(view, dirty);
+}
+
 export function scanFleetMirrorWorktree(view: FleetMirrorView, selection?: readonly string[]): FleetMirrorScan {
   if (!existsSync(view.worktreeRoot)) return { changes: [], cleanCount: 0, blocked: [] };
   const wanted = selection === undefined ? null : new Set(selection), changes: FleetMirrorDirtyFile[] = [], blocked: { readonly path: string; readonly reason: string }[] = [];
@@ -67,41 +139,54 @@ export function scanFleetMirrorWorktree(view: FleetMirrorView, selection?: reado
 
 // Project the freshest replica cut into the worktree. Clean files follow the
 // center; locally changed files are preserved untouched; a path that diverged
-// on BOTH sides is never merged — it is staged into the conflict area with
-// base/local/center bytes and blocks the pull (PULL_BLOCKED, design §4).
+// on BOTH sides (including center-deleted × locally-modified) is never merged —
+// it is staged into the conflict area with base/local/center bytes and blocks
+// the pull (PULL_BLOCKED, design §4). The marker records, per path, the LAST
+// COMMON BASE: diverged and dirty paths keep their base digest so the
+// divergence keeps re-detecting until an explicit exit resolves it, while
+// converged paths adopt the center digest as the new base.
 export function applyFleetMirrorCut(viewRoot: string, repoId: string, workspaceRoot: string, trigger: FleetConflictTrigger, context: { readonly viewId?: string; readonly taskId?: string | null; readonly executionId?: string | null; readonly kind?: FleetConflictRecord["kind"]; readonly code?: string } = {}): FleetMirrorApplyResult {
   const view = locateFleetMirrorView(viewRoot, repoId, context.viewId);
   if (view === null) return { outcome: "no_view", fromRevision: null, toRevision: null, dirtyPaths: [], conflicts: [] };
-  // The marker carries its own base digests: the replica view retains only the
-  // current and previous cut, so a pull that jumps several revisions can drop
-  // the cut this worktree was materialized from. Without embedded digests the
-  // old base is unknowable and every changed path would look like divergence.
   const marker = fleetMirrorReadJson<{ revision: number; manifestDigest: string; blobs: Record<string, string> }>(path.join(view.worktreeRoot, mirrorMarker));
-  const oldShaOf = (logical: string): string | null => marker?.blobs?.[logical] ?? null;
+  const baseOf = marker?.blobs ?? {};
   mkdirSync(view.worktreeRoot, { recursive: true });
-  const rows: FleetConflictPathRow[] = [], stage: { readonly path: string; readonly base: Uint8Array | null; readonly local: Uint8Array | null; readonly center: Uint8Array | null }[] = [], dirtyPaths: string[] = [];
+  const rows: FleetConflictPathRow[] = [], stage: { readonly path: string; readonly base: Uint8Array | null; readonly local: Uint8Array | null; readonly center: Uint8Array | null }[] = [], dirtyPaths: string[] = [], nextBlobs: Record<string, string> = {};
+  const localBytesOf = (logical: string): Buffer | null => { const file = path.join(view.worktreeRoot, ...logical.split("/")); return existsSync(file) ? readFileSync(file) : null; };
   for (const [logical, blob] of view.entries) {
-    const worktreeFile = path.join(view.worktreeRoot, ...logical.split("/")), localBytes = existsSync(worktreeFile) ? readFileSync(worktreeFile) : null, localSha = localBytes === null ? null : sha256Bytes(localBytes), oldSha = oldShaOf(logical);
-    if (localSha === blob.sha256) continue; // already at the center bytes
+    const localBytes = localBytesOf(logical), localSha = localBytes === null ? null : sha256Bytes(localBytes), oldSha = baseOf[logical] ?? null;
+    if (localSha === blob.sha256) { nextBlobs[logical] = blob.sha256; continue; } // converged: new common base
     const localDirty = localSha !== null && localSha !== oldSha, localDeleted = localSha === null && oldSha !== null, centerChanged = blob.sha256 !== oldSha;
     if (localDirty || localDeleted) {
       dirtyPaths.push(logical);
-      // Stage only true divergence — both sides moved the same path. A locally
-      // deleted document the center still holds stays a reported dirty path;
-      // it is un-pushable by contract and never blocks an unchanged path.
-      if (centerChanged) { rows.push({ path: logical, baseBlobSha256: oldSha, localBlobSha256: localSha, centerBlobSha256: blob.sha256 }); stage.push({ path: logical, base: oldSha === null || marker === null ? null : fleetMirrorCutFile(view.viewDir, marker.revision, logical), local: localBytes, center: fleetMirrorCutFile(view.viewDir, view.revision, logical) }); }
+      if (oldSha !== null) nextBlobs[logical] = oldSha; // keep the last common base
+      if (centerChanged) { rows.push({ path: logical, baseBlobSha256: oldSha, localBlobSha256: localSha, centerBlobSha256: blob.sha256 }); stage.push({ path: logical, base: fleetMirrorBaseBytes(view, marker?.revision ?? null, logical), local: localBytes, center: fleetMirrorCutFile(view.viewDir, view.revision, logical) }); }
       continue;
     }
-    mkdirSync(path.dirname(worktreeFile), { recursive: true });
     const centerBytes = fleetMirrorCutFile(view.viewDir, view.revision, logical);
-    if (centerBytes !== null) fleetMirrorWriteBytes(worktreeFile, centerBytes);
+    mkdirSync(path.dirname(path.join(view.worktreeRoot, ...logical.split("/"))), { recursive: true });
+    if (centerBytes !== null) fleetMirrorWriteBytes(path.join(view.worktreeRoot, ...logical.split("/")), centerBytes);
+    nextBlobs[logical] = blob.sha256;
   }
-  for (const logical of fleetMirrorWorktreePaths(view.worktreeRoot)) if (!view.entries.has(logical) && fleetMirrorProsePath(logical)) dirtyPaths.push(logical);
-  const conflicts = rows.length === 0 ? [] : [stageFleetConflict(workspaceRoot, {
-    record: { schema: "fleet-conflict/v1", conflictId: `${conflictPrefix}${randomBytes(9).toString("hex")}`, kind: context.kind ?? "pull-blocked", trigger, code: context.code ?? "pull_blocked", repoId, taskId: context.taskId ?? null, executionId: context.executionId ?? null, mirrorBaseRevision: marker?.revision ?? null, centerRevision: view.revision, createdAt: new Date().toISOString(), paths: rows },
-    files: stage
-  })];
-  fleetMirrorWriteJson(path.join(view.worktreeRoot, mirrorMarker), { revision: view.revision, manifestDigest: view.manifestDigest, blobs: Object.fromEntries([...view.entries].map(([logical, blob]) => [logical, blob.sha256])) });
+  // Center deletions: a locally untouched path follows the deletion; a locally
+  // modified path is a three-way divergence (center side absent by design).
+  for (const logical of Object.keys(baseOf)) {
+    if (view.entries.has(logical)) continue;
+    const localBytes = localBytesOf(logical), localSha = localBytes === null ? null : sha256Bytes(localBytes), oldSha = baseOf[logical]!;
+    if (localSha === null || localSha === oldSha) { rmSync(path.join(view.worktreeRoot, ...logical.split("/")), { force: true }); continue; }
+    dirtyPaths.push(logical);
+    nextBlobs[logical] = oldSha;
+    rows.push({ path: logical, baseBlobSha256: oldSha, localBlobSha256: localSha, centerBlobSha256: null });
+    stage.push({ path: logical, base: fleetMirrorBaseBytes(view, marker?.revision ?? null, logical), local: localBytes, center: null });
+  }
+  for (const logical of fleetMirrorWorktreePaths(view.worktreeRoot)) if (!view.entries.has(logical) && baseOf[logical] === undefined && fleetMirrorProsePath(logical)) dirtyPaths.push(logical);
+  // Cache base bytes for every dirty/diverged path while they are still
+  // obtainable: the replica view retains only two cuts, so a later pull that
+  // jumps several revisions can collect the base cut before the divergence is
+  // detected (F3).
+  fleetMirrorRefreshBaseCache(view, dirtyPaths);
+  const conflicts = fleetStageOrReuseDivergence(workspaceRoot, repoId, view, marker?.revision ?? null, trigger, context, rows, stage);
+  fleetMirrorWriteJson(path.join(view.worktreeRoot, mirrorMarker), { revision: view.revision, manifestDigest: view.manifestDigest, blobs: nextBlobs });
   return { outcome: conflicts.length > 0 ? "pull_blocked" : "applied", fromRevision: marker?.revision ?? null, toRevision: view.revision, dirtyPaths: [...new Set(dirtyPaths)].sort(), conflicts };
 }
 
@@ -120,6 +205,20 @@ export function readFleetConflictRecord(workspaceRoot: string, conflictId: strin
   return record;
 }
 
+// The unresolved-conflict gate (design §4: 冲突未处理前同一路径的新状态转换
+// 继续阻塞). Rounds and task commands consult this before pushing.
+export function readFleetUnresolvedConflicts(workspaceRoot: string, repoId?: string): readonly FleetConflictRecord[] {
+  const root = fleetMirrorConflictRoot(workspaceRoot);
+  if (!existsSync(root)) return [];
+  const records: FleetConflictRecord[] = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !entry.name.startsWith(conflictPrefix)) continue;
+    const record = fleetMirrorReadJson<FleetConflictRecord>(path.join(root, entry.name, "manifest.json"));
+    if (record !== null && record.schema === "fleet-conflict/v1" && record.state === "staged" && (repoId === undefined || record.repoId === repoId)) records.push(record);
+  }
+  return records;
+}
+
 export function settleFleetConflictRecord(workspaceRoot: string, conflictId: string, via: string): FleetConflictRecord {
   const record = readFleetConflictRecord(workspaceRoot, conflictId);
   if (record.state === "resolved") return record;
@@ -136,20 +235,59 @@ export function fleetConflictSideFile(workspaceRoot: string, conflictId: string,
 
 // The discard-local exit: restore one staged path in the mirror worktree to
 // the recorded center bytes. A center side that never had the document
-// removes the local file instead.
+// removes the local file instead. The next materialize converges the path and
+// adopts the center digest as the new common base.
 export function restoreFleetConflictCenterBytes(workspaceRoot: string, conflictId: string, view: FleetMirrorView, row: FleetConflictPathRow): void {
   const source = fleetConflictSideFile(workspaceRoot, conflictId, row.path, "center"), target = path.join(view.worktreeRoot, ...row.path.split("/"));
   if (source !== null) { mkdirSync(path.dirname(target), { recursive: true }); fleetMirrorWriteBytes(target, readFileSync(source)); }
   else rmSync(target, { force: true });
 }
 
+// A re-detected divergence reuses its unresolved record instead of staging a
+// duplicate; an unresolved record whose every row is subsumed by the fresh
+// staging is superseded so one divergence always has exactly one live record.
+function fleetStageOrReuseDivergence(workspaceRoot: string, repoId: string, view: FleetMirrorView, markerRevision: number | null, trigger: FleetConflictTrigger, context: { readonly taskId?: string | null; readonly executionId?: string | null; readonly kind?: FleetConflictRecord["kind"]; readonly code?: string }, rows: readonly FleetConflictPathRow[], stage: readonly { readonly path: string; readonly base: Uint8Array | null; readonly local: Uint8Array | null; readonly center: Uint8Array | null }[]): readonly FleetStagedConflict[] {
+  if (rows.length === 0) return [];
+  const signature = (row: FleetConflictPathRow): string => `${row.path}\0${row.localBlobSha256 ?? ""}\0${row.centerBlobSha256 ?? ""}`;
+  const fresh = new Set(rows.map(signature));
+  for (const record of readFleetUnresolvedConflicts(workspaceRoot, repoId)) {
+    const signatures = record.paths.map(signature);
+    if (signatures.length === fresh.size && signatures.every((value) => fresh.has(value))) return [{ conflictId: record.conflictId, paths: record.paths.map((row) => row.path), dir: path.join(fleetMirrorConflictRoot(workspaceRoot), record.conflictId) }];
+  }
+  for (const record of readFleetUnresolvedConflicts(workspaceRoot, repoId)) if (record.paths.every((row) => fresh.has(signature(row)))) settleFleetConflictRecord(workspaceRoot, record.conflictId, "superseded");
+  return [stageFleetConflict(workspaceRoot, {
+    record: { schema: "fleet-conflict/v1", conflictId: `${conflictPrefix}${randomBytes(9).toString("hex")}`, kind: context.kind ?? "pull-blocked", trigger, code: context.code ?? "pull_blocked", repoId, taskId: context.taskId ?? null, executionId: context.executionId ?? null, mirrorBaseRevision: markerRevision, centerRevision: view.revision, createdAt: new Date().toISOString(), paths: rows },
+    files: stage
+  })];
+}
+
+// Base bytes for staging come from the marker's cut while retained, else from
+// the dirty-base cache written by earlier materializations.
+function fleetMirrorBaseBytes(view: FleetMirrorView, markerRevision: number | null, logical: string): Uint8Array | null {
+  if (markerRevision !== null) { const fromCut = fleetMirrorCutFile(view.viewDir, markerRevision, logical); if (fromCut !== null) return fromCut; }
+  const cached = path.join(view.worktreeRoot, mirrorBaseCache, ...logical.split("/"));
+  return existsSync(cached) ? readFileSync(cached) : null;
+}
+function fleetMirrorRefreshBaseCache(view: FleetMirrorView, dirtyPaths: readonly string[]): void {
+  const cacheRoot = path.join(view.worktreeRoot, mirrorBaseCache);
+  const keep = new Set(dirtyPaths);
+  const markerRevision = locateFleetMirrorMarkerRevision(view);
+  for (const logical of keep) {
+    const bytes = (markerRevision === null ? null : fleetMirrorCutFile(view.viewDir, markerRevision, logical)) ?? (() => { const cached = path.join(cacheRoot, ...logical.split("/")); return existsSync(cached) ? readFileSync(cached) : null; })();
+    if (bytes === null) continue;
+    const target = path.join(cacheRoot, ...logical.split("/"));
+    if (!existsSync(target) || !readFileSync(target).equals(bytes)) { mkdirSync(path.dirname(target), { recursive: true }); fleetMirrorWriteBytes(target, bytes); }
+  }
+  if (existsSync(cacheRoot)) for (const stale of fleetMirrorWorktreePaths(cacheRoot)) if (!keep.has(stale)) rmSync(path.join(cacheRoot, ...stale.split("/")), { force: true });
+}
+function locateFleetMirrorMarkerRevision(view: FleetMirrorView): number | null { const marker = fleetMirrorReadJson<{ revision: number }>(path.join(view.worktreeRoot, mirrorMarker)); return marker?.revision ?? null; }
 function fleetMirrorConflictRoot(workspaceRoot: string): string { return path.join(resolveHarnessLayout(workspaceRoot).localRoot, "conflicts"); }
 function fleetMirrorCutEntries(viewDir: string, revision: number): ReadonlyMap<string, FleetMirrorBlob> | null { const manifest = fleetMirrorReadJson<{ entries: { path: string; blob: FleetMirrorBlob }[] }>(path.join(viewDir, "cuts", String(revision), "manifest.json")); return manifest === null ? null : new Map(manifest.entries.map((entry) => [entry.path, entry.blob])); }
 function fleetMirrorCutFile(viewDir: string, revision: number, logical: string): Buffer | null { const file = path.join(viewDir, "cuts", String(revision), "files", ...logical.split("/")); return existsSync(file) && statSync(file).isFile() ? readFileSync(file) : null; }
-function fleetMirrorWorktreePaths(worktreeRoot: string): string[] { const found: string[] = []; if (!existsSync(worktreeRoot)) return found; const visit = (directory: string): void => { for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) { const target = path.join(directory, entry.name); if (entry.isDirectory()) visit(target); else if (entry.isFile()) { const logical = path.relative(worktreeRoot, target).split(path.sep).join("/"); if (!logical.startsWith("..") && !path.isAbsolute(logical)) found.push(logical); } } }; visit(worktreeRoot); return found; }
+function fleetMirrorWorktreePaths(worktreeRoot: string): string[] { const found: string[] = []; if (!existsSync(worktreeRoot)) return found; const visit = (directory: string, depth: number): void => { for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) { const target = path.join(directory, entry.name); if (entry.isDirectory()) { if (depth === 0 && entry.name.startsWith(".mirror-")) continue; visit(target, depth + 1); } else if (entry.isFile()) { const logical = path.relative(worktreeRoot, target).split(path.sep).join("/"); if (!logical.startsWith("..") && !path.isAbsolute(logical)) found.push(logical); } } }; visit(worktreeRoot, 0); return found; }
 function fleetMirrorProsePath(value: string): boolean { return value.endsWith(".md") || value.endsWith(".txt"); }
 function fleetMirrorRoute(logical: string): { readonly allowed: boolean; readonly requiredRoute: string } | null { try { return resolveDocRoute(documentPath(logical)); } catch (error) { consumeKnownError(error); return null; } }
-function fleetMirrorAssertLogical(value: string): void { if (value.startsWith("/") || value.split("/").some((part) => part === "" || part === "." || part === ".." || part === mirrorMarker)) throw new FleetMirrorError("unsafe_conflict_path", "A staged document path is not a safe relative path."); }
+function fleetMirrorAssertLogical(value: string): void { if (value.startsWith("/") || value.split("/").some((part) => part === "" || part === "." || part === ".." || part.startsWith(".mirror-"))) throw new FleetMirrorError("unsafe_conflict_path", "A staged document path is not a safe relative path."); }
 function fleetMirrorWriteBytes(file: string, bytes: Uint8Array): void { mkdirSync(path.dirname(file), { recursive: true }); const temp = `${file}.${process.pid}.tmp`, fd = openSync(temp, "w"); try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); } renameSync(temp, file); }
 function fleetMirrorWriteJson(file: string, value: unknown): void { fleetMirrorWriteBytes(file, Buffer.from(`${JSON.stringify(value, null, 2)}\n`)); }
 function fleetMirrorReadJson<T>(file: string): T | null { if (!existsSync(file) || !statSync(file).isFile()) return null; try { return JSON.parse(readFileSync(file, "utf8")) as T; } catch (error) { consumeKnownError(error); return null; } }

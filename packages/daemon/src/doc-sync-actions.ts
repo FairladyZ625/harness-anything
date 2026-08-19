@@ -52,8 +52,14 @@ function publishDocIntent(input: Input, intent: DocWriteIntent, claims: readonly
 // proofs). Both the standalone doc submit and the class-A task bundle consume
 // the same verdict, so a carried document set can never pass a weaker check
 // than an explicit `ha doc sync` submission.
+//
+// Task-package documents have exactly ONE fleet entry: the lease-brokered task
+// command (design §3 — 绕过自动入口的提交直接拒绝). A fleet doc submit that
+// touches a task package without naming the held execution is refused here;
+// the local repo-prose channel keeps its pre-start edit flow.
+export type DocIntentChannel = "doc-submit" | "task-command";
 export type DocIntentAdjudication = { readonly accepted: false; readonly code: string; readonly detail: DocSyncReceiptDetail } | { readonly accepted: true; readonly decision: { readonly event: DocEventV1; readonly plan: ReturnType<typeof docSyncWritePlan>; readonly blobs: readonly { readonly sha256: string; readonly size: number; readonly mediaType: string; readonly body: string }[] } };
-export function adjudicateDocIntent(input: Omit<Input, "action">, intent: DocWriteIntent, claims: readonly (Uint8Array | null)[], lease: ReturnType<TaskProjection["currentLeaseForExecution"]>, opId: string): DocIntentAdjudication {
+export function adjudicateDocIntent(input: Omit<Input, "action"> & { readonly taskDocumentChannel?: DocIntentChannel }, intent: DocWriteIntent, claims: readonly (Uint8Array | null)[], lease: ReturnType<TaskProjection["currentLeaseForExecution"]>, opId: string): DocIntentAdjudication {
   const documents = intent.changes.map((change) => input.projection.readDocument(change.path));
   if (documents.some((read) => read.watermark !== read.sourceRevision)) { const pending = detail(intent, input.store.currentCommit(), "projection_pending", lease); return { accepted: false, code: "projection_pending", detail: { ...pending, nextAction: `run ha receipt show ${opId} after the canonical projection catches up` } }; }
   const admission = admissionRejection(input, intent, lease);
@@ -110,13 +116,26 @@ function scannerSubmit(input: Input): DocCandidateScan { const fields = Object.h
 function scanReceipt(input: Input, scan: DocCandidateScan): WriteReceipt { const revision = input.store.readHead()?.revision ?? 0, report = publicScan(scan); return { outcome: "applied", opId: `scan:${input.action.kind}:${scan.baseLedgerSha.sha}`, revision, evidence: `doc-scan:${stableStringify(report)}`, visibility: "center", proof: proof(revision, revision, true, scan.rows.every((row) => row.state === "clean")), detail: scanDetail(input, scan, input.action.kind) }; }
 function scanDetail(input: Input, scan: DocCandidateScan, code: string): DocSyncReceiptDetail { const hasConflict = scan.rows.some((row) => row.conflicts.length); return { kind: "doc_sync", code, baseLedgerSha: scan.baseLedgerSha.sha, currentLedgerSha: input.store.currentCommit().sha, paths: scan.rows.map((row) => ({ path: row.path, baseBlobSha256: row.baseBlobSha256, currentBlobSha256: row.baseBlobSha256, candidateBlobSha256: row.candidateBlobSha256 })), holder: holder(scan.lease), differences: [], unresolvedTouches: scan.rows.filter((row) => row.state === "blocked" || row.state === "conflict").map((row) => touch(row.path, row.state === "conflict" ? "local-conflict-resolution" : row.requiredRoute ?? resolveDocRoute(documentPath(row.path)).requiredRoute, row.state === "conflict" ? `${row.reason}: ${row.conflicts.join(", ")}` : row.reason ?? "candidate is blocked")), deletions: scan.rows.filter((row) => row.state === "deletion" && row.baseBlobSha256).map((row) => ({ path: row.path, baseBlobSha256: row.baseBlobSha256!, source: "intent" as const })), nextAction: hasConflict ? "merge the listed conflict scratch into the canonical file, run ha doc sync --dry-run --path <path> for a fresh base, then save to submit a new opId" : scan.rows.some((row) => row.state === "blocked" || row.state === "deletion") ? "resolve blocked candidates and run ha doc status" : "submit this selection against the reported automatic base" }; }
 function noOp(input: Input, scan: DocCandidateScan): WriteReceipt { const revision = input.store.readHead()?.revision ?? 0; return { outcome: "applied", opId: `noop:${scan.baseLedgerSha.sha}`, revision, evidence: "doc-sync:no-op", visibility: "center", proof: proof(revision, revision, true, true), detail: scanDetail(input, scan, "no_op") }; }
-function admissionRejection(input: Pick<Input, "binding" | "workspaceId" | "store">, intent: DocWriteIntent, lease: ReturnType<TaskProjection["currentLeaseForExecution"]>): { readonly code: string; readonly detail: DocSyncReceiptDetail } | null {
+function admissionRejection(input: Pick<Input, "binding" | "workspaceId" | "store" | "projection"> & { readonly taskDocumentChannel?: DocIntentChannel }, intent: DocWriteIntent, lease: ReturnType<TaskProjection["currentLeaseForExecution"]>): { readonly code: string; readonly detail: DocSyncReceiptDetail } | null {
   if (input.binding.docWriteAllowed === false) { const rejected = detail(intent, input.store.currentCommit(), "rbac_forbidden", lease, intent.changes.map((change) => touch(change.path, "repo-write", "principal lacks repo-write")));
     return { code: "rbac_forbidden", detail: { ...rejected, nextAction: "use a repo-write principal holding the active execution lease" } }; }
   // Task-context authority is the dynamically acquired execution lease
-  // (decideDocWrite re-checks the holder here); the assignment scope gates only
+  // (decideDocWrite re-checks the holder); the assignment scope gates only
   // which paths a node may touch, so a W3-B lease on any task rides the same
-  // path-scoped admission as shared-surface prose.
+  // path-scoped admission as shared-surface prose. The one exception is the
+  // fleet doc-submit channel: task-package documents over fleet ingress must
+  // ride the lease-brokered task command (class A); an explicit submit that
+  // names the currently held execution keeps decideDocWrite's holder check as
+  // its authority, while a channel-less (null execution) submit is refused.
+  if ((input.taskDocumentChannel ?? "doc-submit") === "doc-submit" && typeof input.binding.source === "object" && input.binding.source.kind === "assignment") {
+    // Fleet assignment ingress treats the whole authored `tasks/<package>/`
+    // namespace as class A, including a package that has not projected yet.
+    // Relying only on taskIdForDocumentPath would leave a ghost package as an
+    // unheld shared-surface write path.
+    const taskTouches = intent.changes.filter((change) => intent.executionId === null && (input.projection.taskIdForDocumentPath(change.path) !== null || isTaskPackagePath(change.path)));
+    if (taskTouches.length > 0) { const rejected = detail(intent, input.store.currentCommit(), "task_docs_require_task_command", lease, taskTouches.map((change) => touch(change.path, "task-command", "task-context documents ride the lease-brokered task command; the doc-submit channel cannot write them without naming the held execution")));
+      return { code: "task_docs_require_task_command", detail: { ...rejected, nextAction: "run the task command (it carries its task documents automatically), or submit with the held --execution-id as the current holder" } }; }
+  }
   const touches = scopeTouches(input, intent.changes.map((change) => change.path)); if (!touches.length) return null;
   const rejected = detail(intent, input.store.currentCommit(), "assignment_scope_mismatch", lease, touches); return { code: "assignment_scope_mismatch", detail: { ...rejected, nextAction: "submit only paths in the authenticated assignment scope" } };
 }
@@ -129,6 +148,7 @@ function readDetail(input: Input, paths: readonly string[], current: LedgerCommi
 function detail(intent: DocWriteIntent, current: LedgerCommitSha, code: string, lease: ReturnType<TaskProjection["currentLeaseForExecution"]>, unresolvedTouches: DocSyncReceiptDetail["unresolvedTouches"] = []): DocSyncReceiptDetail { return { kind: "doc_sync", code,
   baseLedgerSha: intent.baseLedgerSha.sha, currentLedgerSha: current.sha, paths: intent.changes.map((change) => ({ path: change.path, baseBlobSha256: change.baseBlobSha256, currentBlobSha256: null, candidateBlobSha256: change.candidate?.sha256 ?? null })), holder: holder(lease), differences: [], unresolvedTouches, deletions: [], nextAction: "run ha doc status, then ha doc sync --dry-run --path <path> and resubmit with a new opId" }; }
 function touch(pathValue: string, requiredRoute: string, reason: string): DocSyncReceiptDetail["unresolvedTouches"][number] { return { path: pathValue, regionId: null, anchor: null, reason, requiredRoute, policy: DOC_POLICY_ID }; }
+function isTaskPackagePath(value: string): boolean { const parts = value.split("/"); return parts.length >= 3 && parts[0] === "tasks" && parts[1]!.length > 0; }
 function holder(lease: ReturnType<TaskProjection["currentLeaseForExecution"]>): DocSyncReceiptDetail["holder"] { return lease && { taskId: lease.taskId, executionId: lease.executionId, personId: lease.actor.principal.personId, executorId: lease.actor.executor?.id ?? null, source: lease.source, expiresAt: lease.expiresAt, version: lease.version }; }
 export function claimBytes(rootDir: string, ref: DocClaimRef): Uint8Array | null { const target = claimFile(rootDir, ref); return target && lstatSync(target).isFile() ? readFileSync(target) : null; }
 function claimFile(rootDir: string, ref: string): string | null { let target = resolveHarnessLayout(rootDir).localRoot; if (existsSync(target) && lstatSync(target).isSymbolicLink()) return null;

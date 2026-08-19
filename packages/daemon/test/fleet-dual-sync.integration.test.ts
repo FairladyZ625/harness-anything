@@ -13,11 +13,11 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { registerDaemonRepo, sha256Bytes } from "../../kernel/src/index.ts";
+import { registerDaemonRepo, serializeEventHead, sha256Bytes, sha256Text } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
-import { runFleetEdgeConflictExit, runFleetEdgeDocSync } from "../src/fleet-edge-doc-sync.ts";
-import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { runFleetEdgeConflictExit, runFleetEdgeDocSync, settlePushRejection } from "../src/fleet-edge-doc-sync.ts";
+import { locateFleetMirrorView, readFleetUnresolvedConflicts } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { runFleetWriteClient } from "../src/fleet/edge.ts";
 
@@ -38,7 +38,7 @@ async function dualSyncFixture() {
   await host.attachmentsSettled();
   // Scope covers every task package plus one shared-surface document: tasks/
   // paths are lease-arbitrated (class A), context/ is the class-B surface.
-  const assignment = (nodeId: NodeId): FleetAssignmentRecord => ({ nodeId, assignmentId: `assignment-${nodeId}`, repoId: "dual-repo", taskId: "task-seeded", executionId: "exe-seeded", paths: ["tasks", "context/shared-notes.md"], viewId: `${nodeId}-view`, expiresAt: "2099-01-01T00:00:00.000Z", actor: { principal: { personId: `person-${nodeId}` }, executor: { kind: "agent", id: `agent-${nodeId}` } } });
+  const assignment = (nodeId: NodeId): FleetAssignmentRecord => ({ nodeId, assignmentId: `assignment-${nodeId}`, repoId: "dual-repo", taskId: "task-seeded", executionId: "exe-seeded", paths: ["tasks", "context/shared-notes.md", "context/other-notes.md"], viewId: `${nodeId}-view`, expiresAt: "2099-01-01T00:00:00.000Z", actor: { principal: { personId: `person-${nodeId}` }, executor: { kind: "agent", id: `agent-${nodeId}` } } });
   const byId = new Map(nodes.map((nodeId) => [assignment(nodeId).assignmentId, assignment(nodeId)]));
   const center: FleetTlsCenter = await listenFleetTls({ host, stateRoot, key, cert, replicaDiskQuotaBytes: replicaQuota, authenticate: (nodeId, credential) => credential === `secret-${nodeId}`, resolveAssignment: (assignmentId) => byId.get(assignmentId) ?? null });
   const edgeRoot = (nodeId: NodeId): string => path.join(root, `${nodeId}-edge`), workspace = (nodeId: NodeId): string => path.join(root, `${nodeId}-workspace`);
@@ -53,7 +53,7 @@ async function dualSyncFixture() {
   const writeWorktree = (nodeId: NodeId, logical: string, body: string): void => { const target = worktree(nodeId, logical); mkdirSync(path.dirname(target), { recursive: true }); writeFileSync(target, body); };
   const conflictsRoot = (nodeId: NodeId): string => path.join(workspace(nodeId), ".harness", "conflicts");
   const createTask = async (nodeId: NodeId, taskId: string, title: string): Promise<{ readonly taskId: string; readonly packagePath: string }> => { const receipt = await edgeTask(nodeId, { kind: "task-create", taskId, title }); assert.equal(receipt.ok, true, `task create failed: ${JSON.stringify(receipt).slice(0, 400)}`); return { taskId: String(receipt.taskId), packagePath: String(receipt.packagePath) }; };
-  return { root, repo, host, center, edgeTask, edgeDocSync, conflictExit, rawWrite, view, worktree, writeWorktree, conflictsRoot, createTask, git, close: async () => { await center.close(); await host.close(); rmSync(root, { recursive: true, force: true }); } };
+  return { root, repo, host, center, channel, edgeTask, edgeDocSync, conflictExit, rawWrite, view, worktree, writeWorktree, conflictsRoot, createTask, git, close: async () => { await center.close(); await host.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 type Fixture = Awaited<ReturnType<typeof dualSyncFixture>>;
 
@@ -74,15 +74,37 @@ test("class A: a task command carries local task documents, and the effect lands
   assert.match(peerPlan, /Edge owner notes/u, "the second edge must see the carried document through its mirror");
 });
 
+test("F10: a hyphen-prefix sibling package never rides another task's class-A command", { timeout: 60_000 }, async (t) => {
+  const fixture: Fixture = await dualSyncFixture(); t.after(() => fixture.close());
+  const target = await fixture.createTask("node-one", "task-direct", "Direct");
+  const sibling = await fixture.createTask("node-one", "task-direct-other", "Sibling");
+  const siblingPlan = `${sibling.packagePath}/task_plan.md`, original = readFileSync(fixture.worktree("node-one", siblingPlan), "utf8");
+  fixture.writeWorktree("node-one", siblingPlan, `${original}\nSibling-only local note.\n`);
+  const started = await fixture.edgeTask("node-one", { kind: "task-start", taskId: target.taskId, executionId: "exe-prefix-target" });
+  assert.equal(started.ok, true, JSON.stringify(started).slice(0, 500));
+  assert.equal((started as { readonly docSync?: unknown }).docSync, undefined, "the target command must not attach the sibling's dirty document");
+  assert.match(readFileSync(fixture.worktree("node-one", siblingPlan), "utf8"), /Sibling-only local note/u);
+  // Refresh the peer through a real task command: it must not observe the
+  // sibling note because it was not carried under the target's lease.
+  assert.equal((await fixture.edgeTask("node-two", { kind: "task-create", taskId: "task-prefix-observer", title: "Observer" })).ok, true);
+  assert.doesNotMatch(readFileSync(fixture.worktree("node-two", siblingPlan), "utf8"), /Sibling-only local note/u);
+});
+
 test("class A: a base conflict voids the whole transition and stages base/local/center", { timeout: 60_000 }, async (t) => {
   const fixture: Fixture = await dualSyncFixture(); t.after(() => fixture.close());
   const created = await fixture.createTask("node-one", "task_CCCC000000000000000000000C", "Base conflict");
   const planPath = `${created.packagePath}/task_plan.md`, original = readFileSync(fixture.worktree("node-one", planPath), "utf8");
   // Another collaborator rewrites the plan at the center while this edge is
-  // still based on the original cut (no lease held yet: pre-start prose).
+  // still based on the original cut. F1: the channel-less doc submit is
+  // refused outright; the collaborator must hold the lease and name it.
   const centerVersion = `${original}\n## Rewritten at the center\n\nThe center moved this document first.\n`;
-  const pushed = await fixture.rawWrite("node-two", [{ path: planPath, body: centerVersion, baseBlobSha256: sha256Bytes(Buffer.from(original)) }]);
+  const refused = await fixture.rawWrite("node-two", [{ path: planPath, body: centerVersion, baseBlobSha256: sha256Bytes(Buffer.from(original)) }]);
+  assert.equal(refused.center.outcome, "op_rejected");
+  assert.equal(refused.center.code, "task_docs_require_task_command");
+  assert.equal((await fixture.edgeTask("node-two", { kind: "task-start", taskId: created.taskId, executionId: "exe-center-writer" })).ok, true);
+  const pushed = await fixture.rawWrite("node-two", [{ path: planPath, body: centerVersion, baseBlobSha256: sha256Bytes(Buffer.from(original)) }], "exe-center-writer");
   assert.equal(pushed.center.outcome, "applied");
+  assert.equal((await fixture.edgeTask("node-two", { kind: "task-release", taskId: created.taskId, reason: "center-side rewrite done" })).ok, true);
   const localVersion = `${original}\n## Edge owner notes\n\nLocal edit based on the stale cut.\n`;
   fixture.writeWorktree("node-one", planPath, localVersion);
   const started = await fixture.edgeTask("node-one", { kind: "task-start", taskId: created.taskId, executionId: "exe-a-conflict" });
@@ -107,8 +129,8 @@ test("class A: a base conflict voids the whole transition and stages base/local/
   // whose declared per-path base no longer matches the projection is refused
   // with base_blob_changed and the transition never runs.
   const auth = { transportKind: "fleet-tls" as const, assignmentBinding: { nodeId: "node-one", assignmentId: "assignment-node-one", repoId: "dual-repo", taskId: created.taskId, executionId: "exe-seeded", paths: ["tasks"], actor: { principal: { personId: "person-node-one" }, executor: { kind: "agent" as const, id: "agent-node-one" } } } };
-  const headRevision = JSON.parse(fixture.git("show", "refs/ha/canonical:harness/events/head.json")).revision;
-  const probe = await fixture.host.run("dual-repo", { kind: "task-start", taskId: created.taskId, executionId: "exe-a-probe", mirrorBaseCut: headRevision, docChanges: [{ path: planPath, baseBlobSha256: sha256Bytes(Buffer.from(localVersion)), policyId: "markdown-body-replaceable/v1", candidate: { ref: `doc-sync-claims/${sha256Bytes(Buffer.from(centerVersion))}`, sha256: sha256Bytes(Buffer.from(centerVersion)), size: Buffer.byteLength(centerVersion), mediaType: "text/markdown" } }] }, auth);
+  const head = JSON.parse(fixture.git("show", "refs/ha/canonical:harness/events/head.json")) as { revision: number; opId: string; eventDigest: string };
+  const probe = await fixture.host.run("dual-repo", { kind: "task-start", taskId: created.taskId, executionId: "exe-a-probe", mirrorBaseCut: { revision: head.revision, headDigest: `sha256:${sha256Text(serializeEventHead(head))}` }, docChanges: [{ path: planPath, baseBlobSha256: sha256Bytes(Buffer.from(localVersion)), policyId: "markdown-body-replaceable/v1", candidate: { ref: `doc-sync-claims/${sha256Bytes(Buffer.from(centerVersion))}`, sha256: sha256Bytes(Buffer.from(centerVersion)), size: Buffer.byteLength(centerVersion), mediaType: "text/markdown" } }] }, auth);
   assert.equal(probe.outcome, "op_rejected");
   assert.equal(probe.code, "base_blob_changed");
   assert.equal(fixture.center.status().leases.leases.filter((row) => row.taskId === created.taskId).length, 0, "the probe transition must not apply either");
@@ -250,6 +272,126 @@ test("pull-blocked is reported on the dual axis instead of masquerading as synce
   const manifest = JSON.parse(readFileSync(path.join(fixture.conflictsRoot("node-one"), conflicts[0]!, "manifest.json"), "utf8")) as { readonly paths: readonly { readonly path: string }[] };
   assert.deepEqual(manifest.paths.map((row) => row.path), [planB]);
   assert.match(readFileSync(fixture.worktree("node-one", planB), "utf8"), /Node one local notes/u, "the local bytes must survive untouched");
+});
+
+test("F4: an unresolved conflict gates this task's later commands at the edge", { timeout: 60_000 }, async (t) => {
+  const fixture: Fixture = await dualSyncFixture(); t.after(() => fixture.close());
+  const created = await fixture.createTask("node-one", "task_IIII000000000000000000000I", "Gate task");
+  const planPath = `${created.packagePath}/task_plan.md`, original = readFileSync(fixture.worktree("node-one", planPath), "utf8");
+  // Diverge the plan: center rewrite (holder channel) vs local edit.
+  assert.equal((await fixture.edgeTask("node-one", { kind: "task-start", taskId: created.taskId, executionId: "exe-gate-a" })).ok, true);
+  await fixture.rawWrite("node-one", [{ path: planPath, body: `${original}\n## Center version\n`, baseBlobSha256: sha256Bytes(Buffer.from(original)) }], "exe-gate-a");
+  assert.equal((await fixture.edgeTask("node-one", { kind: "task-release", taskId: created.taskId, reason: "handing over" })).ok, true);
+  fixture.writeWorktree("node-one", planPath, `${original}\n## Local version\n`);
+  // A second node takes the lease and moves the plan; edge-one's local edit diverges.
+  const takeover = await fixture.edgeTask("node-two", { kind: "task-start", taskId: created.taskId });
+  assert.equal(takeover.ok, true, JSON.stringify(takeover).slice(0, 500));
+  const centerNow = `${original}\n## Center version\n`;
+  const moved = await fixture.rawWrite("node-two", [{ path: planPath, body: `${centerNow}\n## Center moved again\n`, baseBlobSha256: sha256Bytes(Buffer.from(centerNow)) }], "exe-gate-a");
+  assert.equal(moved.center.outcome, "applied", JSON.stringify(moved.center));
+  assert.equal((await fixture.edgeTask("node-two", { kind: "task-release", taskId: created.taskId, reason: "gate scenario" })).ok, true);
+  const diverged = await fixture.edgeDocSync("node-one", { paths: [planPath] });
+  assert.equal(diverged.ok, false, JSON.stringify(diverged).slice(0, 400));
+  assert.equal((diverged as { readonly syncState?: string }).syncState, "CONFLICT_STAGED");
+  // The unresolved record gates this task's commands BEFORE any upload: no
+  // center round-trip, no ledger movement.
+  const beforeGate = Number(fixture.git("rev-list", "--count", "refs/ha/canonical"));
+  const gated = await fixture.edgeTask("node-one", { kind: "task-start", taskId: created.taskId, executionId: "exe-gate-c" });
+  assert.equal(gated.ok, false);
+  assert.equal((gated as { readonly code?: string }).code, "conflict_open");
+  assert.equal(Number(fixture.git("rev-list", "--count", "refs/ha/canonical")), beforeGate, "the gate must refuse without touching the center");
+  // Another task is unaffected: its commands stay canonically admissible even
+  // while this task's conflict is open (the mirror may still report the other
+  // task's divergence on the dual axis — that is the honest outcome).
+  const other = await fixture.edgeTask("node-one", { kind: "task-create", taskId: "task_JJJJ000000000000000000000J", title: "Unaffected task" });
+  assert.equal((other as { readonly canonicalOutcome?: string }).canonicalOutcome, "applied", JSON.stringify(other).slice(0, 400));
+  const otherStart = await fixture.edgeTask("node-one", { kind: "task-start", taskId: "task_JJJJ000000000000000000000J", executionId: "exe-gate-other" });
+  assert.equal((otherStart as { readonly canonicalOutcome?: string }).canonicalOutcome, "applied", JSON.stringify(otherStart).slice(0, 400));
+  // discard-local lifts the gate.
+  const record = readFleetUnresolvedConflicts(path.join(fixture.root, "node-one-workspace"), "dual-repo")[0]!;
+  const discarded = await fixture.conflictExit("node-one", "discard-local", record.conflictId);
+  assert.equal(discarded.ok, true, JSON.stringify(discarded).slice(0, 400));
+  const ungated = await fixture.edgeTask("node-one", { kind: "task-start", taskId: created.taskId });
+  assert.equal((ungated as { readonly canonicalOutcome?: string }).canonicalOutcome, "applied", JSON.stringify(ungated).slice(0, 400));
+});
+
+test("F5/F6: a rejected push settles honestly and overwrite-center is idempotent across a crash after the append", { timeout: 60_000 }, async (t) => {
+  const fixture: Fixture = await dualSyncFixture(); t.after(() => fixture.close());
+  const shared = "context/shared-notes.md";
+  await fixture.rawWrite("node-one", [{ path: shared, body: "# Shared\n\nbaseline.\n" }]);
+  assert.equal((await fixture.edgeDocSync("node-one", { paths: [shared] })).ok, true);
+  const baseline = "# Shared\n\nbaseline.\n";
+  // Keep both edits within the existing # Shared region. That creates a
+  // legitimate shared-prose divergence and also lets the fixture emulate the
+  // already-appended overwrite bytes without violating the heading policy.
+  fixture.writeWorktree("node-one", shared, `${baseline}\nEdge one wins.\n`);
+  await fixture.rawWrite("node-two", [{ path: shared, body: `${baseline}\nCenter moved.\n`, baseBlobSha256: sha256Bytes(Buffer.from(baseline)) }]);
+  // settlePushRejection with a diverged mirror stages base/local/center and reports blocked.
+  const peer = { hostname: "127.0.0.1", port: fixture.center.port, ca: readFileSync(path.join(fixture.root, "tls.crt")), servername: "localhost", nodeId: "node-one", credential: "secret-node-one", assignmentId: "assignment-node-one" };
+  const diverged = await settlePushRejection({ ...fixture.channel("node-one") }, peer, 30_000, "base_blob_changed");
+  assert.equal(diverged.blocked, true);
+  assert.equal(diverged.conflicts.length, 1, "a same-path move must stage its record, not strand the operator");
+  const record = diverged.conflicts[0]!;
+  const manifest = JSON.parse(readFileSync(path.join(record.dir, "manifest.json"), "utf8")) as { readonly paths: readonly { readonly path: string }[] };
+  assert.deepEqual(manifest.paths.map((row) => row.path), [shared]);
+  // settlePushRejection with a NON-diverged mirror reports an honest
+  // CENTER_REJECTED (blocked=false, nothing staged) instead of claiming
+  // CONFLICT_STAGED with no record (F5).
+  // Use the peer's clean mirror for the ledger-only rejection branch. The
+  // node-one view intentionally still carries the unresolved same-path
+  // conflict above; reusing it would test the persistent gate, not the
+  // CENTER_REJECTED-without-staging outcome.
+  assert.equal((await fixture.edgeDocSync("node-two", { paths: [shared] })).ok, true);
+  const peerTwo = { hostname: "127.0.0.1", port: fixture.center.port, ca: readFileSync(path.join(fixture.root, "tls.crt")), servername: "localhost", nodeId: "node-two", credential: "secret-node-two", assignmentId: "assignment-node-two" };
+  const clean = await settlePushRejection({ ...fixture.channel("node-two"), paths: [] }, peerTwo, 30_000, "base_ledger_changed");
+  assert.equal(clean.blocked, false);
+  assert.deepEqual(clean.conflicts, []);
+  // F6 idempotency: simulate a crash after the center append by pushing the
+  // staged local bytes directly (holder-less shared channel), then retrying
+  // the exit — it must settle without a second push.
+  const settledRecord = readFleetUnresolvedConflicts(path.join(fixture.root, "node-one-workspace"), "dual-repo").find((entry) => entry.paths.some((row) => row.path === shared))!;
+  // The simulated crash happens after the center append has committed the
+  // staged local bytes verbatim. A retry must recognize that digest and close
+  // the record without appending a second event.
+  const stagedLocal = `${baseline}\nEdge one wins.\n`;
+  const manual = await fixture.rawWrite("node-one", [{ path: shared, body: stagedLocal, baseBlobSha256: sha256Bytes(Buffer.from(`${baseline}\nCenter moved.\n`)) }]);
+  assert.equal(manual.center.outcome, "applied", JSON.stringify(manual.center));
+  const commitsAfterAppend = Number(fixture.git("rev-list", "--count", "refs/ha/canonical"));
+  const idempotent = await fixture.conflictExit("node-one", "overwrite-center", settledRecord.conflictId);
+  assert.equal(idempotent.ok, true, JSON.stringify(idempotent).slice(0, 400));
+  assert.equal((idempotent as { readonly idempotent?: boolean }).idempotent, true);
+  const after = JSON.parse(readFileSync(path.join(fixture.root, "node-one-workspace", ".harness", "conflicts", settledRecord.conflictId, "manifest.json"), "utf8")) as { readonly state: string };
+  assert.equal(after.state, "resolved");
+  assert.equal(Number(fixture.git("rev-list", "--count", "refs/ha/canonical")), commitsAfterAppend, "the idempotent retry must not append a second doc event");
+});
+
+test("F6: an idempotent overwrite reports a newly pull-blocked mirror instead of masking it", { timeout: 60_000 }, async (t) => {
+  const fixture: Fixture = await dualSyncFixture(); t.after(() => fixture.close());
+  const shared = "context/shared-notes.md", other = "context/other-notes.md";
+  const sharedBase = "# Shared\n\nbaseline.\n", otherBase = "# Other\n\nbaseline.\n";
+  assert.equal((await fixture.rawWrite("node-one", [{ path: shared, body: sharedBase }])).center.outcome, "applied");
+  assert.equal((await fixture.rawWrite("node-one", [{ path: other, body: otherBase }])).center.outcome, "applied");
+  assert.equal((await fixture.edgeDocSync("node-one")).ok, true);
+  const sharedLocal = `${sharedBase}\nedge wins.\n`;
+  fixture.writeWorktree("node-one", shared, sharedLocal);
+  assert.equal((await fixture.rawWrite("node-two", [{ path: shared, body: `${sharedBase}\ncenter moved.\n`, baseBlobSha256: sha256Bytes(Buffer.from(sharedBase)) }])).center.outcome, "applied");
+  const peer = { hostname: "127.0.0.1", port: fixture.center.port, ca: readFileSync(path.join(fixture.root, "tls.crt")), servername: "localhost", nodeId: "node-one", credential: "secret-node-one", assignmentId: "assignment-node-one" };
+  const staged = await settlePushRejection({ ...fixture.channel("node-one") }, peer, 30_000, "base_blob_changed");
+  assert.equal(staged.blocked, true);
+  const original = staged.conflicts[0]!;
+  // A different path diverges after the original record exists. The simulated
+  // crashed overwrite then makes only the original path canonical.
+  fixture.writeWorktree("node-one", other, `${otherBase}\nedge-local.\n`);
+  assert.equal((await fixture.rawWrite("node-two", [{ path: other, body: `${otherBase}\ncenter-new.\n`, baseBlobSha256: sha256Bytes(Buffer.from(otherBase)) }])).center.outcome, "applied");
+  assert.equal((await fixture.rawWrite("node-one", [{ path: shared, body: sharedLocal, baseBlobSha256: sha256Bytes(Buffer.from(`${sharedBase}\ncenter moved.\n`)) }])).center.outcome, "applied");
+  const retried = await fixture.conflictExit("node-one", "overwrite-center", original.conflictId);
+  assert.equal(retried.ok, false, JSON.stringify(retried).slice(0, 600));
+  assert.equal((retried as { readonly idempotent?: boolean }).idempotent, true);
+  assert.equal((retried as { readonly canonicalOutcome?: string }).canonicalOutcome, "applied");
+  assert.equal((retried as { readonly mirrorOutcome?: string }).mirrorOutcome, "pull_blocked");
+  const originalState = JSON.parse(readFileSync(path.join(original.dir, "manifest.json"), "utf8")) as { readonly state: string };
+  assert.equal(originalState.state, "resolved", "the already-canonical overwrite itself is settled");
+  assert.ok(readFleetUnresolvedConflicts(path.join(fixture.root, "node-one-workspace"), "dual-repo").some((record) => record.paths.some((row) => row.path === other)), "the unrelated divergence must remain staged and visible");
 });
 
 test("class A submit carries the closing documents in the same serial command", { timeout: 60_000 }, async (t) => {
