@@ -54,8 +54,8 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
     assert.deepEqual(launch.installation, observed);
     assert.equal(launch.executablePath, observed.executablePath);
     assert.deepEqual(launch.args, ["exec", "--json", "--model", "gpt-5.6-sol", "-"]);
-    assert.deepEqual(launch.env, { PATH: "/runtime/tools", HOME: path.join(stateRoot, "home"), TMPDIR: path.join(stateRoot, "tmp"), XDG_RUNTIME_DIR: path.join(stateRoot, "run"), CODEX_HOME: path.join(stateRoot, "home", ".codex"), OPENAI_API_KEY: "instance-secret" });
-    const codexConfig = path.join(launch.env.CODEX_HOME!, "config.toml"), text = readFileSync(codexConfig, "utf8"); assert.equal(statSync(codexConfig).mode & 0o777, 0o600); assert.equal(text, `model_provider = "codex_local_access"\nmodel_reasoning_effort = "xhigh"\n\n[model_providers."codex_local_access"]\nname = "codex_local_access"\nbase_url = "http://127.0.0.1:1/v1"\nwire_api = "responses"\nrequires_openai_auth = true\nhttp_headers = { "X-Harness-Probe" = "present", "X-Static-Route" = "sidecar" }\n`); assert.doesNotMatch(text, /instance-secret|OPENAI_API_KEY|credential|token|authorization/iu);
+    assert.deepEqual(launch.env, { PATH: "/runtime/tools", HOME: path.join(stateRoot, "home"), TMPDIR: path.join(stateRoot, "tmp"), XDG_RUNTIME_DIR: path.join(stateRoot, "run"), CODEX_HOME: path.join(stateRoot, "home", ".codex") });
+    const codexConfig = path.join(launch.env.CODEX_HOME!, "config.toml"), text = readFileSync(codexConfig, "utf8"); assert.equal(statSync(codexConfig).mode & 0o777, 0o600); assert.equal(text, `model_provider = "codex_local_access"\nmodel_reasoning_effort = "xhigh"\n\n[model_providers."codex_local_access"]\nname = "codex_local_access"\nbase_url = "http://127.0.0.1:1/v1"\nwire_api = "responses"\nrequires_openai_auth = true\nhttp_headers = { "X-Harness-Probe" = "present", "X-Static-Route" = "sidecar" }\nexperimental_bearer_token = "instance-secret"\n`); assert.match(text, /experimental_bearer_token = "instance-secret"/u); assert.doesNotMatch(JSON.stringify(launch), /instance-secret/u);
     assert.equal(Object.values(launch.env).includes("host-secret"), false);
     assert.equal(Object.values(launch.env).includes("host-token"), false);
     assert.equal(Object.values(launch.env).includes("http://host-proxy"), false);
@@ -88,6 +88,17 @@ test("subscription launch fails closed without provider-native readiness and nev
     assert.deepEqual(launch.env, { PATH: "/runtime/tools", HOME: path.join(stateRoot, "home"), TMPDIR: path.join(stateRoot, "tmp"), XDG_RUNTIME_DIR: path.join(stateRoot, "run"), CLAUDE_CONFIG_DIR: path.join(stateRoot, "home", ".claude") });
     assert.deepEqual(readinessEnvironment, launch.env);
     assert.equal(credentialCalls, 0);
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+test("subscription probes distinguish a rejected status command from an unspawnable executable", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-subscription-probe-")), rejectedPath = path.join(userRoot, "rejected-status.mjs"), rejected = { ...observed, installationId: "codex-rejected-status", executablePath: rejectedPath }, unspawnable = { ...observed, installationId: "codex-unspawnable-status", executablePath: path.join(userRoot, "missing-status") };
+  try {
+    writeFileSync(rejectedPath, `#!${process.execPath}\nprocess.exit(7);\n`, { mode: 0o755 });
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [rejected, unspawnable] });
+    for (const installation of [rejected, unspawnable]) store.create({ schemaVersion: 1, instanceId: installation.installationId, name: installation.installationId, kindId: "codex", installationId: installation.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "subscription" } });
+    assert.equal(store.authStatus(rejected.installationId).code, "runtime_subscription_required");
+    assert.equal(store.authStatus(unspawnable.installationId).code, "runtime_auth_probe_failed");
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
 
@@ -272,7 +283,8 @@ test("win32 instances derive USERPROFILE/TEMP/APPDATA isolation without POSIX va
     const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed], platform: "win32", env: { PATH: "C:\\runtime\\tools", HOME: "C:\\host\\home", TMPDIR: "C:\\host\\tmp", SYSTEMROOT: "C:\\Windows", SYSTEMDRIVE: "C:", COMSPEC: "C:\\Windows\\system32\\cmd.exe", PATHEXT: ".COM;.EXE;.CMD", OPENAI_API_KEY: "host-secret" }, resolveCredential: () => "instance-secret" });
     store.create({ schemaVersion: 1, instanceId: "codex-win", name: "Codex Windows", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "api-key", credentialRef: "credential:v1:codex-win" } });
     const launch = store.prepareLaunch("codex-win", { cwd: "/workspace/repo", prompt: "Inspect" }), stateRoot = path.join(userRoot, "runtime-instances", "codex-win");
-    assert.deepEqual(launch.env, { PATH: "C:\\runtime\\tools", PATHEXT: ".COM;.EXE;.CMD", SYSTEMROOT: "C:\\Windows", SYSTEMDRIVE: "C:", COMSPEC: "C:\\Windows\\system32\\cmd.exe", USERPROFILE: path.join(stateRoot, "home"), TEMP: path.join(stateRoot, "tmp"), TMP: path.join(stateRoot, "tmp"), APPDATA: path.join(stateRoot, "home", "AppData", "Roaming"), LOCALAPPDATA: path.join(stateRoot, "home", "AppData", "Local"), CODEX_HOME: path.join(stateRoot, "home", ".codex"), OPENAI_API_KEY: "instance-secret" });
+    assert.deepEqual(launch.env, { PATH: "C:\\runtime\\tools", PATHEXT: ".COM;.EXE;.CMD", SYSTEMROOT: "C:\\Windows", SYSTEMDRIVE: "C:", COMSPEC: "C:\\Windows\\system32\\cmd.exe", USERPROFILE: path.join(stateRoot, "home"), TEMP: path.join(stateRoot, "tmp"), TMP: path.join(stateRoot, "tmp"), APPDATA: path.join(stateRoot, "home", "AppData", "Roaming"), LOCALAPPDATA: path.join(stateRoot, "home", "AppData", "Local"), CODEX_HOME: path.join(stateRoot, "home", ".codex") });
+    assert.match(readFileSync(path.join(launch.env.CODEX_HOME!, "config.toml"), "utf8"), /experimental_bearer_token = "instance-secret"/u);
     assert.equal("HOME" in launch.env, false); assert.equal("TMPDIR" in launch.env, false); assert.equal("XDG_RUNTIME_DIR" in launch.env, false);
     assert.equal(Object.values(launch.env).includes("host-secret"), false);
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
@@ -297,7 +309,7 @@ test("two same-binary same-model instances never share state roots or credential
     for (const [suffix, reference] of [["a", "credential:v1:codex-a"], ["b", "credential:v1:codex-b"]] as const) store.create({ schemaVersion: 1, instanceId: `codex-pair-${suffix}`, name: `Codex Pair ${suffix}`, kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "api-key", credentialRef: reference } });
     const launchA = store.prepareLaunch("codex-pair-a", { cwd: "/workspace/repo", prompt: "A" }), launchB = store.prepareLaunch("codex-pair-b", { cwd: "/workspace/repo", prompt: "B" }), rootA = path.join(userRoot, "runtime-instances", "codex-pair-a"), rootB = path.join(userRoot, "runtime-instances", "codex-pair-b");
     assert.notEqual(rootA, rootB); assert.notEqual(launchA.env.HOME, launchB.env.HOME); assert.notEqual(launchA.env.TMPDIR, launchB.env.TMPDIR);
-    assert.equal(launchA.env.OPENAI_API_KEY, "secret-a"); assert.equal(launchB.env.OPENAI_API_KEY, "secret-b");
+    assert.match(readFileSync(path.join(launchA.env.CODEX_HOME!, "config.toml"), "utf8"), /experimental_bearer_token = "secret-a"/u); assert.match(readFileSync(path.join(launchB.env.CODEX_HOME!, "config.toml"), "utf8"), /experimental_bearer_token = "secret-b"/u);
     assert.equal(Object.values(launchA.env).includes("secret-b"), false); assert.equal(Object.values(launchB.env).includes("secret-a"), false);
     assert.equal(JSON.stringify(launchA).includes("secret-b"), false); assert.equal(JSON.stringify(launchB).includes("secret-a"), false);
     store.create({ schemaVersion: 1, instanceId: "codex-pair-c", name: "Codex Pair C", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "api-key", credentialRef: "credential:v1:not-in-vault" } });
