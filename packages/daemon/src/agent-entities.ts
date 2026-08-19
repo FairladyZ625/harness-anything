@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError, resolveHarnessLayout } from "../../kernel/src/index.ts";
 import { entitySlug, parseAgentDeclarationV1, parseSquadDeclarationV1, validateAgentDeclarationV1, validateSquadDeclarationV1, type AgentDeclarationV1, type AgentEntityKind, type SquadDeclarationV1 } from "./agent-entities.contract.ts";
@@ -17,11 +17,11 @@ export type AgentEntityGuiRead =
 export interface EntityValidationReport { readonly schema: "entity-validate-report/v1"; readonly valid: boolean; readonly source: string; readonly kind?: AgentEntityKind; readonly entity?: { readonly id: string }; readonly issues: readonly { readonly code: string; readonly message: string }[] }
 
 const manifestName = { agent: "agent.json", squad: "squad.json" } as const;
-export function runAgentEntityAction(input: { readonly rootDir: string; readonly action: Readonly<Record<string, unknown>> & { readonly kind: string } }): unknown {
+export function runAgentEntityAction(input: { readonly rootDir: string; readonly action: Readonly<Record<string, unknown>> & { readonly kind: string }; readonly runtimeInstances?: readonly { readonly kindId: string; readonly models: readonly string[]; readonly enabled: boolean }[] }): unknown {
   const action = input.action, kind = entityKind(action.kind);
-  if (action.kind.endsWith("-validate")) return validateEntityPackage({ source: requiredEntityText(action.packageSource, "packageSource"), kind });
-  if (action.kind.endsWith("-install") && action.declaration !== undefined) return installEntityDeclaration({ declaration: action.declaration, kind, rootDir: input.rootDir, dryRun: action.dryRun === true });
-  if (action.kind.endsWith("-install")) return installEntityPackage({ source: requiredEntityText(action.packageSource, "packageSource"), kind, rootDir: input.rootDir, dryRun: action.dryRun === true });
+  if (action.kind.endsWith("-validate")) return validateEntityDeclarationSource({ source: declarationSource(action), kind });
+  if (action.kind.endsWith("-install") && action.declaration !== undefined && action.generatedOnly !== true) return installEntityDeclaration({ declaration: action.declaration, kind, rootDir: input.rootDir, dryRun: action.dryRun === true });
+  if (action.kind.endsWith("-install")) return installEntityDeclarationSource({ source: declarationSource(action), kind, rootDir: input.rootDir, dryRun: action.dryRun === true, generatedOnly: action.generatedOnly === true, validated: action.validated === true, runtimeInstances: input.runtimeInstances });
   if (action.kind === "agent-list") return { schema: "agent-list/v1", agents: listStoredEntities(input.rootDir, "agent") };
   if (action.kind === "squad-list") return { schema: "squad-list/v1", squads: listStoredEntities(input.rootDir, "squad") };
   return kind === "agent" ? { schema: "agent-inspection/v1", agent: readAgentDeclaration({ rootDir: input.rootDir, agentId: requiredEntityText(action.agentId, "agentId") }) } : { schema: "squad-inspection/v1", squad: readSquadDeclaration({ rootDir: input.rootDir, squadId: requiredEntityText(action.squadId, "squadId") }) };
@@ -54,26 +54,34 @@ export function resolveSquadDispatchTarget(input: { readonly rootDir: string; re
   if (matches.length > 1) throw entityError("squad_member_ambiguous", `Agent ${input.workerId} is declared in multiple squads for leader ${input.leaderId}: ${matches.map(({ squadId }) => squadId).join(", ")}.`);
   return matches[0]!;
 }
-export function validateEntityPackage(input: { readonly source: string; readonly kind: AgentEntityKind }): EntityValidationReport {
-  const source = path.resolve(input.source), decoded = decodeSourcePackage(source, input.kind);
+export function validateEntityPackage(input: { readonly source: string; readonly kind: AgentEntityKind }): EntityValidationReport { const source = path.resolve(input.source), decoded = decodeSourcePackage(source, input.kind); return validateEntityDeclarationSource({ source: "issues" in decoded ? { ...decoded, source } : { ...decoded, source }, kind: input.kind }); }
+function validateEntityDeclarationSource(input: { readonly source: { readonly declaration: AgentDeclarationV1 & SquadDeclarationV1 } | { readonly issues: readonly { readonly code: string; readonly message: string }[]; readonly source?: string }; readonly kind: AgentEntityKind }): EntityValidationReport {
+  const source = "source" in input.source && input.source.source ? input.source.source : "runtime-result", decoded = input.source;
   if ("issues" in decoded) return { schema: "entity-validate-report/v1", valid: false, source, issues: decoded.issues };
   return { schema: "entity-validate-report/v1", valid: true, source, kind: input.kind, entity: { id: decoded.declaration.id }, issues: [] };
 }
-export function installEntityPackage(input: { readonly source: string; readonly kind: AgentEntityKind; readonly rootDir: string; readonly dryRun?: boolean }) {
-  const source = path.resolve(input.source), decoded = decodeSourcePackage(source, input.kind);
+export function installEntityPackage(input: { readonly source: string; readonly kind: AgentEntityKind; readonly rootDir: string; readonly dryRun?: boolean; readonly generatedOnly?: boolean; readonly validated?: boolean; readonly runtimeInstances?: readonly { readonly kindId: string; readonly models: readonly string[]; readonly enabled: boolean }[] }) { const source = path.resolve(input.source), decoded = decodeSourcePackage(source, input.kind); return installEntityDeclarationSource({ source: "issues" in decoded ? { ...decoded, source } : { ...decoded, source }, kind: input.kind, rootDir: input.rootDir, dryRun: input.dryRun, generatedOnly: input.generatedOnly, validated: input.validated, runtimeInstances: input.runtimeInstances }); }
+function installEntityDeclarationSource(input: { readonly source: { readonly declaration: AgentDeclarationV1 & SquadDeclarationV1; readonly source?: string } | { readonly issues: readonly { readonly code: string; readonly message: string }[]; readonly source?: string }; readonly kind: AgentEntityKind; readonly rootDir: string; readonly dryRun?: boolean; readonly generatedOnly?: boolean; readonly validated?: boolean; readonly runtimeInstances?: readonly { readonly kindId: string; readonly models: readonly string[]; readonly enabled: boolean }[] }) {
+  const source = input.source.source ?? "runtime-result", decoded = input.source;
   if ("issues" in decoded) throw entityError(decoded.issues[0]?.code ?? "invalid_entity_package", decoded.issues[0]?.message ?? "Entity package is invalid.");
-  return installEntityDeclaration({ declaration: decoded.declaration, kind: input.kind, rootDir: input.rootDir, dryRun: input.dryRun, source });
+  if (input.generatedOnly && input.validated !== true) throw entityError("agent_validation_required", "Generated Agent output must pass ha agent validate before install; rerun ha agent create so the harness can validate the structured declaration.");
+  const declaration = decoded.declaration, target = entityPath(input.rootDir, input.kind, declaration.id);
+  if (input.generatedOnly && existsSync(target)) throw generatedAgentConflict(declaration.id);
+  if (input.generatedOnly && input.kind === "agent") admitGeneratedAgent(decoded.declaration as AgentDeclarationV1, input.runtimeInstances);
+  const body = `${JSON.stringify(declaration, null, 2)}\n`, changed = !existsSync(target) || readFileSync(target, "utf8") !== body, report = { schema: `${input.kind}-install-report/v1` as const, entityId: declaration.id, mode: input.dryRun ? "dry-run" as const : "apply" as const, changed, source, generated: input.generatedOnly === true, issues: [] as readonly unknown[] };
+  if (input.dryRun) return report;
+  const store = path.dirname(target), temporary = path.join(store, `.install-${declaration.id}-${process.hrtime.bigint().toString(36)}`);
+  mkdirSync(store, { recursive: true });
+  try { writeFileSync(temporary, body, { mode: 0o644 }); if (input.generatedOnly) try { linkSync(temporary, target); } catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") throw generatedAgentConflict(declaration.id); throw error; } else renameSync(temporary, target); } finally { if (existsSync(temporary)) rmSync(temporary, { force: true }); }
+  return report;
 }
 export function installEntityDeclaration(input: { readonly declaration: unknown; readonly kind: AgentEntityKind; readonly rootDir: string; readonly dryRun?: boolean; readonly source?: string }) {
   const issues = input.kind === "agent" ? validateAgentDeclarationV1(input.declaration) : validateSquadDeclarationV1(input.declaration);
   if (issues.length) throw entityErrorWithIssues("invalid_manifest", issues);
-  const declaration = input.declaration as AgentDeclarationV1 & SquadDeclarationV1, body = `${JSON.stringify(declaration, null, 2)}\n`, target = entityPath(input.rootDir, input.kind, declaration.id), changed = !existsSync(target) || readFileSync(target, "utf8") !== body, source = input.source ?? `gui:${input.kind}:${declaration.id}`, report = { schema: `${input.kind}-install-report/v1` as const, entityId: declaration.id, mode: input.dryRun ? "dry-run" as const : "apply" as const, changed, source, issues: [] as readonly unknown[] };
-  if (input.dryRun) return report;
-  const store = path.dirname(target), temporary = path.join(store, `.install-${declaration.id}-${process.hrtime.bigint().toString(36)}`);
-  mkdirSync(store, { recursive: true });
-  try { writeFileSync(temporary, body, { mode: 0o644 }); renameSync(temporary, target); } finally { if (existsSync(temporary)) rmSync(temporary, { force: true }); }
-  return report;
+  const declaration = input.declaration as AgentDeclarationV1 & SquadDeclarationV1;
+  return installEntityDeclarationSource({ source: { declaration, source: input.source ?? `gui:${input.kind}:${declaration.id}` }, kind: input.kind, rootDir: input.rootDir, dryRun: input.dryRun });
 }
+function declarationSource(action: Readonly<Record<string, unknown>>): { readonly declaration: AgentDeclarationV1 & SquadDeclarationV1; readonly source?: string } | { readonly issues: readonly { readonly code: string; readonly message: string }[]; readonly source?: string } { if (Object.hasOwn(action, "declaration")) return decodeDeclaration(action.declaration, entityKind(String(action.kind)), typeof action.declarationSource === "string" ? action.declarationSource : "runtime-result"); const source = path.resolve(requiredEntityText(action.packageSource, "packageSource")), decoded = decodeSourcePackage(source, entityKind(String(action.kind))); return "issues" in decoded ? { ...decoded, source } : { ...decoded, source }; }
 function listStoredEntities(rootDir: string, kind: AgentEntityKind): readonly (AgentCatalogRow | SquadCatalogRow)[] {
   const store = entityStore(rootDir, kind);
   if (!existsSync(store) || !lstatSync(store).isDirectory()) return [];
@@ -102,6 +110,7 @@ function decodeSourcePackage(source: string, kind: AgentEntityKind): { readonly 
   const issues = kind === "agent" ? validateAgentDeclarationV1(value) : validateSquadDeclarationV1(value);
   return issues.length ? { issues: issues.map((message) => ({ code: "invalid_manifest", message })) } : { declaration: value as AgentDeclarationV1 & SquadDeclarationV1 };
 }
+function decodeDeclaration(value: unknown, kind: AgentEntityKind, source: string): { readonly declaration: AgentDeclarationV1 & SquadDeclarationV1; readonly source: string } | { readonly issues: readonly { readonly code: string; readonly message: string }[]; readonly source: string } { if (value === null || typeof value !== "object" || Array.isArray(value)) return { issues: [{ code: "invalid_manifest", message: `${kind}-declaration/v1 output must be one JSON object.` }], source }; const issues = kind === "agent" ? validateAgentDeclarationV1(value) : validateSquadDeclarationV1(value); return issues.length ? { issues: issues.map((message) => ({ code: "invalid_manifest", message })), source } : { declaration: value as AgentDeclarationV1 & SquadDeclarationV1, source }; }
 function readStoredDeclaration(rootDir: string, kind: AgentEntityKind, id: string): unknown {
   if (!entitySlug(id)) throw entityError(`${kind}_not_found`, `${id} is not a valid ${kind} id.`);
   const target = entityPath(rootDir, kind, id);
@@ -114,3 +123,5 @@ function entityKind(actionKind: string): AgentEntityKind { if (!/^(?:agent|squad
 function requiredEntityText(value: unknown, field: string): string { if (typeof value !== "string" || !value.trim()) throw entityError("invalid_command", `${field} is required.`); return value; }
 function entityError(code: string, message: string): Error & { readonly code: string } { return Object.assign(new Error(message), { code }); }
 function entityErrorWithIssues(code: string, issues: readonly string[]): Error & { readonly code: string; readonly issues: readonly { readonly code: string; readonly message: string }[] } { return Object.assign(new Error(issues.join("; ")), { code, issues: issues.map((message) => ({ code, message })) }); }
+function generatedAgentConflict(id: string): Error & { readonly code: string } { return entityError("agent_id_conflict", `Agent ${id} already exists; run ha agent inspect ${id}, choose a different id, and retry ha agent create.`); }
+function admitGeneratedAgent(agent: AgentDeclarationV1, runtimeInstances: readonly { readonly kindId: string; readonly models: readonly string[]; readonly enabled: boolean }[] | undefined): void { const available = (runtimeInstances ?? []).filter((instance) => instance.enabled), compatible = available.filter((instance) => agent.runtime_type === "any" || instance.kindId === agent.runtime_type); if (compatible.length === 0) throw entityError("agent_runtime_type_unavailable", `Agent ${agent.id} requires runtime_type ${agent.runtime_type}, but no enabled instance provides it; run ha runtime instance list, change runtime_type to any or a listed kind, and retry ha agent create.`); if (agent.model !== undefined && !compatible.some((instance) => instance.models.includes(agent.model!))) throw entityError("agent_model_unavailable", `Agent ${agent.id} requests model ${agent.model}, but no compatible enabled instance supports it; run ha runtime instance list, remove model to use the instance default or choose a listed model, and retry ha agent create.`); }
