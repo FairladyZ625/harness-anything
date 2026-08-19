@@ -101,6 +101,7 @@ const child = spawn(process.execPath, [
 let output = "";
 let activityOffset = 0;
 let activityTail = "";
+const lastTestByFile = new Map();
 let timedOutFiles = [];
 let termination = Promise.resolve();
 const activeFiles = new Map();
@@ -112,7 +113,7 @@ const watchdog = setInterval(() => {
   const overdue = [...activeFiles].filter(([, startedAt]) => now - startedAt >= fileTimeoutMs).map(([file]) => file);
   if (overdue.length === 0) return;
   timedOutFiles = overdue;
-  console.error(`[node-test-watchdog] test file exceeded ${fileTimeoutMs}ms: ${overdue.join(", ")}`);
+  console.error(`[node-test-watchdog] test file exceeded ${fileTimeoutMs}ms: ${overdue.map(stalledFileReport).join(", ")}`);
   termination = terminateProcessTree(child);
 }, Math.min(1_000, Math.max(25, Math.floor(fileTimeoutMs / 4))));
 
@@ -157,6 +158,20 @@ function positiveIntegerOrDefault(value, fallback) {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+// Subtest events carry an absolute path while file-level events carry the repo-relative name the
+// watchdog keys on. Without this the two never join and the report silently loses the test name.
+function repoRelativeTestFile(file) {
+  const root = `${repoRoot.replaceAll("\\", "/")}/`;
+  return file.startsWith(root) ? file.slice(root.length) : file;
+}
+
+// Naming the file is not enough to route a fix: a stalled file has several tests and the spec
+// reporter prints none of them. Name the test that started and never returned.
+function stalledFileReport(file) {
+  const last = lastTestByFile.get(file);
+  return last === undefined ? file : `${file} (last test entered: ${last})`;
+}
+
 function refreshActivity() {
   if (!existsSync(activityPath)) return;
   const source = readFileSync(activityPath, "utf8");
@@ -172,7 +187,8 @@ function refreshActivity() {
     if (!line) continue;
     const event = JSON.parse(line);
     if (event.state === "started" && typeof event.file === "string" && Number.isFinite(event.at)) activeFiles.set(event.file, event.at);
-    if (event.state === "finished" && typeof event.file === "string") activeFiles.delete(event.file);
+    if (event.state === "progress" && typeof event.file === "string" && typeof event.name === "string") lastTestByFile.set(repoRelativeTestFile(event.file), event.name);
+    if (event.state === "finished" && typeof event.file === "string") { activeFiles.delete(event.file); lastTestByFile.delete(event.file); }
   }
 }
 
