@@ -81,6 +81,12 @@ heartbeat tick、stdout/stderr、transcript 正文、tool call 与 token/cost st
 `runtime_session_liveness_changed` 时才增长日志。runtime liveness 与 task lease/lifecycle 始终是两组
 独立事实;session event 不能续租 lease,也不能完成 task。
 
+派活绑定 task 时,daemon 还会通过 canonical doc sync 发布终态工作产物。一次批量写入创建
+`artifacts/missions/<dispatch-id>.md`、`artifacts/dispatches/<dispatch-id>.json` 与
+`artifacts/reports/<dispatch-id>.md`。如果 `--prompt-file` 已指向该任务包里的 canonical artifact,
+dispatch 记录会直接引用它而不复制。report 来自 provider 的结构化 runtime result,绝不解析人类可读
+的终端输出。未绑定 task 的 runtime run 没有任务包,因此不会发布这些文档。
+
 ## 各部分如何相连
 
 三种彼此独立的结构,一条问责的主干:
