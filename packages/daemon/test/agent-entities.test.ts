@@ -1,13 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { readAgentEntityGuiProjection, resolveSquadDispatchTarget, runAgentEntityAction } from "../src/agent-entities.ts";
+import { resolveAgentSkills } from "../src/agent-skills.ts";
 import { validateAgentDeclarationV1 } from "../src/agent-entities.contract.ts";
 
-const agent = { schema: "agent-declaration/v1", id: "terra", name: "Terra", instructions: "Review precisely.", runtime_type: "codex", model: "gpt-5.6-terra", skills: ["review"], prompts: ["prompt://review"], preset: "standard-task" }, squad = { schema: "squad-declaration/v1", id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: "# Core Squad\n\nTerra leads review." };
+const agent = { schema: "agent-declaration/v1", id: "terra", name: "Terra", instructions: "Review precisely.", runtime_type: "codex", model: "gpt-5.6-terra", skills: [{ id: "review", path: "skills/review" }], prompts: ["prompt://review"], preset: "standard-task" }, squad = { schema: "squad-declaration/v1", id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: "# Core Squad\n\nTerra leads review." };
 
 test("Agent and Squad entities install, list, inspect, and reinstall through their own store outside the preset system", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-entities-")), source = path.join(rootDir, "source");
@@ -44,6 +45,17 @@ test("runtime_type is an open identifier: third-party runtimes validate while tr
 test("agent model is optional but must be non-empty when declared", () => {
   assert.deepEqual(validateAgentDeclarationV1({ ...agent, model: undefined }), []);
   for (const model of ["", " ", 42, []]) assert.match(validateAgentDeclarationV1({ ...agent, model }).join("\n"), /model.*non-empty string/u);
+});
+
+test("Agent skills are references under the authored root and fail closed with repairable errors", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-skills-")), skillDir = path.join(rootDir, "harness", "skills", "review");
+  try {
+    mkdirSync(skillDir, { recursive: true }); writeFileSync(path.join(skillDir, "SKILL.md"), "---\nname: review\ndescription: Review\n---\nReview carefully.\n");
+    const resolved = resolveAgentSkills({ rootDir, skills: [{ id: "review", path: "skills/review" }] }); assert.deepEqual(resolved.map(({ id, sourceDir, skillFile }) => ({ id, sourceDir, skillFile })), [{ id: "review", sourceDir: realpathSync(skillDir), skillFile: path.join(realpathSync(skillDir), "SKILL.md") }]);
+    assert.throws(() => resolveAgentSkills({ rootDir, skills: [{ id: "missing", path: "skills/missing" }] }), (error: unknown) => (error as { code?: string; message?: string }).code === "agent_skill_not_found" && /create that directory.*SKILL\.md/u.test(String((error as Error).message)));
+    mkdirSync(path.join(rootDir, "harness", "skills", "broken"), { recursive: true }); assert.throws(() => resolveAgentSkills({ rootDir, skills: [{ id: "broken", path: "skills/broken" }] }), (error: unknown) => (error as { code?: string; message?: string }).code === "agent_skill_manifest_missing" && /add SKILL\.md/u.test(String((error as Error).message)));
+    assert.throws(() => resolveAgentSkills({ rootDir, skills: [{ id: "escape", path: "../outside" }] }), (error: unknown) => (error as { code?: string; message?: string }).code === "agent_skill_path_outside_root" && /set path to a relative directory/u.test(String((error as Error).message)));
+  } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 
 test("entity validation names every malformed manifest and refuses squads that reference missing agents", () => {
