@@ -7,7 +7,7 @@ import test from "node:test";
 import { readAgentEntityGuiProjection, resolveSquadDispatchTarget, runAgentEntityAction } from "../src/agent-entities.ts";
 import { validateAgentDeclarationV1 } from "../src/agent-entities.contract.ts";
 
-const agent = { schema: "agent-declaration/v1", id: "terra", name: "Terra", instructions: "Review precisely.", runtime_type: "codex", skills: ["review"], prompts: ["prompt://review"], preset: "standard-task" }, squad = { schema: "squad-declaration/v1", id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: "# Core Squad\n\nTerra leads review." };
+const agent = { schema: "agent-declaration/v1", id: "terra", name: "Terra", instructions: "Review precisely.", runtime_type: "codex", model: "gpt-5.6-terra", skills: ["review"], prompts: ["prompt://review"], preset: "standard-task" }, squad = { schema: "squad-declaration/v1", id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: "# Core Squad\n\nTerra leads review." };
 
 test("Agent and Squad entities install, list, inspect, and reinstall through their own store outside the preset system", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-entities-")), source = path.join(rootDir, "source");
@@ -31,7 +31,7 @@ test("Agent and Squad entities install, list, inspect, and reinstall through the
 test("runtime_type is an open identifier: third-party runtimes validate while traversal and whitespace stay rejected", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-runtime-type-")), source = path.join(rootDir, "source");
   try {
-    for (const runtime_type of ["opencode", "dsh", "grok", "kiro", "glm"]) assert.deepEqual(validateAgentDeclarationV1({ ...agent, id: "worker", runtime_type }), [], runtime_type);
+    for (const runtime_type of ["any", "opencode", "dsh", "grok", "kiro", "glm"]) assert.deepEqual(validateAgentDeclarationV1({ ...agent, id: "worker", runtime_type }), [], runtime_type);
     for (const runtime_type of ["../etc/passwd", "claude codex", " ", "Claude", "claude/../../bin", ""]) assert.match(validateAgentDeclarationV1({ ...agent, id: "worker", runtime_type }).join("\n"), /runtime_type.*lowercase runtime identifier/u, runtime_type);
     const opencode = { ...agent, id: "opencode-worker", name: "Opencode Worker", runtime_type: "opencode" }; writeEntity(source, "opencode-worker", "agent", opencode);
     const report = run({ rootDir, kind: "agent-validate", packageSource: path.join(source, "opencode-worker") }) as { valid: boolean; entity?: { id: string } };
@@ -39,6 +39,11 @@ test("runtime_type is an open identifier: third-party runtimes validate while tr
     run({ rootDir, kind: "agent-install", packageSource: path.join(source, "opencode-worker") });
     assert.equal((run({ rootDir, kind: "agent-inspect", agentId: "opencode-worker" }) as { agent: { runtime_type: string } }).agent.runtime_type, "opencode");
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("agent model is optional but must be non-empty when declared", () => {
+  assert.deepEqual(validateAgentDeclarationV1({ ...agent, model: undefined }), []);
+  for (const model of ["", " ", 42, []]) assert.match(validateAgentDeclarationV1({ ...agent, model }).join("\n"), /model.*non-empty string/u);
 });
 
 test("entity validation names every malformed manifest and refuses squads that reference missing agents", () => {
