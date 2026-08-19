@@ -269,6 +269,18 @@ test("generic list, inspect, check, install, and uninstall actions share the can
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+test("Agent and Squad packages reuse preset validation, installation, listing, and editable roster text", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-squad-")), source = path.join(rootDir, "source"), agent = { id: "terra", name: "Terra", instructions: "Review precisely.", runtime_type: "codex", skills: ["review"], prompts: ["prompt://review"], preset: "standard-task" }, squad = { id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: "# Core Squad\n\nTerra leads review." };
+  try {
+    writePackage(source, "terra", { kind: "agent", outputShape: "agent-identity", agent }); writePackage(source, "core-squad", { kind: "squad", outputShape: "squad-roster", squad });
+    assert.equal((await runPresetAction({ rootDir, action: { kind: "agent-validate", packageSource: path.join(source, "terra") } }) as { valid: boolean }).valid, true); assert.equal((await runPresetAction({ rootDir, action: { kind: "squad-validate", packageSource: path.join(source, "core-squad") } }) as { valid: boolean }).valid, true);
+    await runPresetAction({ rootDir, action: { kind: "agent-install", packageSource: path.join(source, "terra") } }); await runPresetAction({ rootDir, action: { kind: "squad-install", packageSource: path.join(source, "core-squad") } });
+    assert.deepEqual((await runPresetAction({ rootDir, action: { kind: "agent-list" } }) as { agents: Array<{ id: string; runtime_type: string }> }).agents.map(({ id, runtime_type }) => ({ id, runtime_type })), [{ id: "terra", runtime_type: "codex" }]); assert.deepEqual((await runPresetAction({ rootDir, action: { kind: "squad-list" } }) as { squads: Array<{ id: string; leader: string }> }).squads.map(({ id, leader }) => ({ id, leader })), [{ id: "core-squad", leader: "terra" }]);
+    assert.deepEqual((await runPresetAction({ rootDir, action: { kind: "agent-inspect", agentId: "terra" } }) as { agent: unknown }).agent, agent); assert.equal((await runPresetAction({ rootDir, action: { kind: "squad-inspect", squadId: "core-squad" } }) as { squad: { roster: string } }).squad.roster, squad.roster);
+    const edited = { ...squad, roster: "# Core Squad\n\nTerra leads; humans can edit this roster." }; writePackage(source, "core-squad", { kind: "squad", outputShape: "squad-roster", squad: edited }); await runPresetAction({ rootDir, action: { kind: "squad-install", packageSource: path.join(source, "core-squad") } }); assert.equal((await runPresetAction({ rootDir, action: { kind: "squad-inspect", squadId: "core-squad" } }) as { squad: { roster: string } }).squad.roster, edited.roster);
+  } finally { rmSync(rootDir, { recursive: true, force: true }); }
+});
+
 test("builtin vertical validation is closed while custom verticals stay explicitly unavailable", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-vertical-validate-"));
   try {
