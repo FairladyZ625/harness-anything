@@ -8,7 +8,7 @@ import { deriveCliCapabilities, firstCliCommand, firstCliCommandIndex, parseThin
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 101);
+  assert.equal(thinCliCommands.length, 102);
   for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))].filter((value): value is string => value !== undefined).sort()) assert.match(help, new RegExp(`^  ${domain} \\(`, "mu"));
   assert.doesNotMatch(help, /ha task start <task-id>/u);
   const taskHelp = renderThinHelp([], "task");
@@ -45,7 +45,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     preset: ["preset-audit", "preset-check", "preset-inspect", "preset-install", "preset-list", "preset-seed", "preset-uninstall", "preset-upgrade", "preset-validate"],
     receipt: ["receipt-show"],
     relation: ["relation-list"],
-    runtime: ["runtime-cancel", "runtime-instance-create", "runtime-instance-delete", "runtime-instance-list", "runtime-instance-login", "runtime-instance-logout", "runtime-instance-show", "runtime-instance-update", "runtime-run", "runtime-status"],
+    runtime: ["runtime-batch", "runtime-cancel", "runtime-instance-create", "runtime-instance-delete", "runtime-instance-list", "runtime-instance-login", "runtime-instance-logout", "runtime-instance-show", "runtime-instance-update", "runtime-run", "runtime-status"],
     script: ["preset-run-start", "script-inspect", "script-list", "script-run"],
     squad: ["squad-inspect", "squad-install", "squad-list", "squad-validate"],
     task: ["task-amend", "task-archive", "task-artifact-add", "task-code-doc-reconcile", "task-complete", "task-contract-migrate", "task-create", "task-declare-executor", "task-delete", "task-dispatches", "task-list", "task-progress-append", "task-relate", "task-release", "task-reopen", "task-review", "task-review-consent", "task-review-execution", "task-show", "task-start", "task-submit", "task-supersede", "task-transition"],
@@ -250,10 +250,11 @@ test("thin parser exposes daemon-backed workspace bootstrap", () => {
 });
 
 test("runtime work commands parse into closed daemon facade actions", () => {
-  const run = parseThinCommand(["runtime", "run", "worker", "--agent", "fable", "--to", "terra", "--prompt", "Inspect", "--cwd", "packages/cli", "--task", "task-1", "--resume", "provider-1", "--idempotency-key", "once", "--no-stream"]), file = parseThinCommand(["runtime", "run", "worker", "--prompt-file", "prompt.txt"]), detached = parseThinCommand(["runtime", "run", "worker", "--prompt", "Inspect", "--detach"]), resumed = parseThinCommand(["runtime", "run", "--resume-dispatch", "dispatch_0123456789abcdef01234567", "--prompt", "Continue"]), dispatches = parseThinCommand(["task", "dispatches", "task-1"]), list = parseThinCommand(["runtime", "status", "--task", "task-1"]), show = parseThinCommand(["runtime", "status", "runtime-1"]), wait = parseThinCommand(["runtime", "status", "runtime-1", "--wait", "--no-stream"]), cancel = parseThinCommand(["runtime", "cancel", "runtime-1"]);
-  for (const parsed of [run, file, detached, resumed, dispatches, list, show, wait, cancel]) assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  const run = parseThinCommand(["runtime", "run", "worker", "--agent", "fable", "--to", "terra", "--prompt", "Inspect", "--cwd", "packages/cli", "--task", "task-1", "--resume", "provider-1", "--idempotency-key", "once", "--no-stream"]), file = parseThinCommand(["runtime", "run", "worker", "--prompt-file", "prompt.txt"]), batch = parseThinCommand(["runtime", "batch", "dispatches.json"]), detached = parseThinCommand(["runtime", "run", "worker", "--prompt", "Inspect", "--detach"]), resumed = parseThinCommand(["runtime", "run", "--resume-dispatch", "dispatch_0123456789abcdef01234567", "--prompt", "Continue"]), dispatches = parseThinCommand(["task", "dispatches", "task-1"]), list = parseThinCommand(["runtime", "status", "--task", "task-1"]), show = parseThinCommand(["runtime", "status", "runtime-1"]), wait = parseThinCommand(["runtime", "status", "runtime-1", "--wait", "--no-stream"]), cancel = parseThinCommand(["runtime", "cancel", "runtime-1"]);
+  for (const parsed of [run, file, batch, detached, resumed, dispatches, list, show, wait, cancel]) assert.equal(parsed.ok, true, JSON.stringify(parsed));
   if (run.ok) assert.deepEqual(run.command.action, { kind: "runtime-run", runtimeInstanceId: "worker", agentId: "fable", targetAgentId: "terra", prompt: "Inspect", cwd: { scope: "repo-relative", path: "packages/cli" }, taskId: "task-1", providerSessionId: "provider-1", idempotencyKey: "once", noStream: true });
   if (file.ok) assert.deepEqual(file.command.action, { kind: "runtime-run", runtimeInstanceId: "worker", promptFile: "prompt.txt", cwd: { scope: "repo-root" }, taskId: null });
+  if (batch.ok) assert.deepEqual(batch.command.action, { kind: "runtime-batch", batchFile: "dispatches.json" });
   if (detached.ok) assert.deepEqual(detached.command.action, { kind: "runtime-run", runtimeInstanceId: "worker", prompt: "Inspect", cwd: { scope: "repo-root" }, taskId: null, detach: true });
   if (resumed.ok) assert.deepEqual(resumed.command.action, { kind: "runtime-run", dispatchId: "dispatch_0123456789abcdef01234567", prompt: "Continue", cwd: { scope: "repo-root" }, taskId: null });
   if (dispatches.ok) assert.deepEqual({ method: dispatches.command.method, action: dispatches.command.action }, { method: "repo.task.dispatches", action: { kind: "task-dispatches", taskId: "task-1" } });
@@ -261,7 +262,7 @@ test("runtime work commands parse into closed daemon facade actions", () => {
   if (show.ok) assert.deepEqual({ method: show.command.method, action: show.command.action }, { method: "repo.agentRuntime.sessions.read", action: { kind: "runtime-status", runtimeSessionId: "runtime-1" } });
   if (wait.ok) assert.deepEqual(wait.command.action, { kind: "runtime-status", runtimeSessionId: "runtime-1", wait: true, noStream: true });
   if (cancel.ok) assert.deepEqual(cancel.command.action, { kind: "runtime-cancel", runtimeSessionId: "runtime-1" });
-  assert.equal(parseThinCommand(["runtime", "run", "worker"]).ok, false); assert.equal(parseThinCommand(["runtime", "run", "worker", "--prompt", "one", "--prompt-file", "two"]).ok, false); assert.equal(parseThinCommand(["runtime", "run", "worker", "--to", "terra", "--prompt", "Inspect"]).ok, false); assert.equal(parseThinCommand(["runtime", "status", "runtime-1", "--task", "task-1"]).ok, false); assert.equal(parseThinCommand(["runtime", "status", "--wait"]).ok, false); assert.equal(parseThinCommand(["runtime", "status", "runtime-1", "--no-stream"]).ok, false); assert.equal(parseThinCommand(["runtime", "wait", "runtime-1"]).ok, false);
+  assert.equal(parseThinCommand(["runtime", "run", "worker"]).ok, false); assert.equal(parseThinCommand(["runtime", "batch"]).ok, false); assert.equal(parseThinCommand(["runtime", "batch", "dispatches.json", "--detach"]).ok, false); assert.equal(parseThinCommand(["runtime", "run", "worker", "--prompt", "one", "--prompt-file", "two"]).ok, false); assert.equal(parseThinCommand(["runtime", "run", "worker", "--to", "terra", "--prompt", "Inspect"]).ok, false); assert.equal(parseThinCommand(["runtime", "status", "runtime-1", "--task", "task-1"]).ok, false); assert.equal(parseThinCommand(["runtime", "status", "--wait"]).ok, false); assert.equal(parseThinCommand(["runtime", "status", "runtime-1", "--no-stream"]).ok, false); assert.equal(parseThinCommand(["runtime", "wait", "runtime-1"]).ok, false);
 });
 
 test("Agent and Squad declaration commands route through the daemon entity lifecycle", () => {
