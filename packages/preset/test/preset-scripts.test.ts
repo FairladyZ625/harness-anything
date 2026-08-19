@@ -25,8 +25,11 @@ test("task create materializes preset scripts into artifacts/scripts as byte-ide
       assert.equal(status.isSymbolicLink(), false, `${name} must be a copy, not a symbolic link`);
       assert.deepEqual(readFileSync(target), readFileSync(path.join(fixture.presetRoot, "scripts", name)), `${name} must be byte-identical to the preset package file`);
     }
-    const contract = JSON.parse(readFileSync(path.join(packageDir, "task-contract.json"), "utf8")) as { documents: { path: string; owner: string }[] };
+    const contract = JSON.parse(readFileSync(path.join(packageDir, "task-contract.json"), "utf8")) as { documents: { path: string; owner: string; mediaType: string }[] };
     assert.deepEqual(contract.documents.filter(({ path: target }) => target.startsWith("artifacts/scripts/")).map(({ path: target }) => target), ["artifacts/scripts/check-env.mjs", "artifacts/scripts/sum.mjs"]);
+    // Materialized scripts must claim the media type doc-sync's classifier derives for the same
+    // path, so the projection does not disagree with the scanner about what the file is.
+    assert.deepEqual(bootstrap.event.payload.initialDocumentClaims.filter(({ path: target }) => target.includes("/artifacts/scripts/")).map(({ mediaType }) => mediaType), ["text/javascript", "text/javascript"]);
     const run = spawnSync(process.execPath, [path.join(scriptsDir, "check-env.mjs")], { encoding: "utf8" });
     assert.equal(run.status, 0, `node must execute the copied script: ${run.stderr}`);
     assert.match(run.stdout, /preset-script-ok/u);
