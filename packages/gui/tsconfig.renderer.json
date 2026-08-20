@@ -15,6 +15,7 @@
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "strict": true,
     "skipLibCheck": true,
+    "disableSourceOfProjectReferenceRedirect": true,
     "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "types": [],
