@@ -21,16 +21,16 @@ export async function startDaemon(input: { readonly daemonId: string; readonly u
   const pidPath = daemonPidPath(input.userRoot, input.daemonId);
   mkdirSync(path.dirname(pidPath), { recursive: true }); writeFileSync(pidPath, `${process.pid}\n`, "utf8");
   const lifecycle = openDaemonLifecycleLog({ userRoot: input.userRoot, daemonId: input.daemonId }); lifecycle.record({ event: "process_start", endpoint });
-  let host: Awaited<ReturnType<typeof openDaemonHost>> | undefined, transport: ReturnType<typeof createUnixSocketTransportServer> | undefined;
+  let host: Awaited<ReturnType<typeof openDaemonHost>> | undefined, transport: ReturnType<typeof createUnixSocketTransportServer> | undefined, stopped = false;
+  const stop = async () => { if (stopped) return; stopped = true; lifecycle.record({ event: "process_exit", outcome: "stop_requested" }); await transport!.stop(); await host!.close(); rmSync(pidPath, { force: true }); singleton.release(); };
   try {
     host = await openDaemonHost({ ...input, endpoint, recordLifecycle: lifecycle.record });
     // One sink for the daemon; the protocol server is created per connection and reports into it.
     const requestLog = openDaemonRequestLog({ resolveRootDir: (repoId) => host!.status().repos.find((repo) => repo.repoId === repoId)?.rootDir });
     transport = createUnixSocketTransportServer({ daemonId: input.daemonId, socketPath: endpoint,
-      createProtocolServer: (authContext, emit) => createJsonRpcProtocolServer({ host: host!, authContext, emit, recordRequest: requestLog.record }) });
+      createProtocolServer: (authContext, emit) => createJsonRpcProtocolServer({ host: host!, authContext, emit, recordRequest: requestLog.record, requestShutdown: input.requestShutdown ?? (() => { void stop(); }) }) });
     await transport.start(); lifecycle.record({ event: "socket_bound", endpoint }); host.startAttachments();
   } catch (error) { lifecycle.record({ event: "process_exit", outcome: "startup_failed", error: error instanceof Error ? error.stack ?? error.message : String(error) }); await host?.close(); rmSync(pidPath, { force: true }); singleton.release(); throw error; }
-  let stopped = false;
-  return { endpoint, stop: async () => { if (stopped) return; stopped = true; lifecycle.record({ event: "process_exit", outcome: "stop_requested" }); await transport!.stop(); await host!.close(); rmSync(pidPath, { force: true }); singleton.release(); } };
+  return { endpoint, stop };
 }
 export { daemonPidPath, readDaemonPid } from "./daemon-singleton.ts";

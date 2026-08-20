@@ -565,6 +565,16 @@ test("JSON-RPC failure receipt carries formal operation identity and origin", as
   assert.ok(malformed && !Array.isArray(malformed) && "result" in malformed); if (malformed && !Array.isArray(malformed) && "result" in malformed) assert.equal((malformed.result as Record<string, unknown>).code, "invalid_request");
 });
 
+test("local daemon stop acknowledges the control request and triggers shutdown", async () => {
+  let shutdowns = 0;
+  const host = { status: () => ({ daemonId: "stop-test", pid: process.pid, repos: [] }) } as never;
+  const server = createJsonRpcProtocolServer({ host, authContext: { transportKind: "unix-socket" }, emit: async () => undefined, requestShutdown: () => { shutdowns += 1; } });
+  await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } });
+  const response = await server.handle({ jsonrpc: "2.0", id: 2, method: "daemon.stop", params: {} });
+  assert.ok(response && !Array.isArray(response) && "result" in response); if (response && !Array.isArray(response) && "result" in response) assert.deepEqual(response.result, { ok: true, command: "daemon-stop", pid: process.pid });
+  assert.equal(shutdowns, 1);
+});
+
 test("read-only principal cannot write or admin while semantic capabilities pass", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-rbac-surfaces-")), root = path.join(parent, "repo"), second = path.join(parent, "second"), userRoot = path.join(parent, "user");
   const ids = { reader: 4101, writer: 4102, arbiter: 4103, admin: 4104 }; [root, second].forEach((repo) => rbacRepo(repo, ids));

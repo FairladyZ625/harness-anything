@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, type FSWatcher } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
@@ -26,12 +27,22 @@ test("filesystem watching keeps one live recursive root watch and rearms Linux a
   for (const platform of ["darwin", "linux"] as const) {
     const calls: Array<{ target: string; recursive: boolean }> = [], actions: Array<{ kind: string; paths: readonly string[] }> = [], notifications: Array<(event: string, filename: string | Buffer | null) => void> = []; let closes = 0;
     const watcher = openDocSyncWatcher({ rootDir: process.cwd(), personId: "capacity", platform, startupScan: false, debounceMs: 1, pollMs: 60_000,
-      watchPath: (target, options, listener) => { calls.push({ target, recursive: options.recursive }); notifications.push(listener); const fake = { on: () => fake, close: () => { closes += 1; } } as unknown as FSWatcher; return fake; },
+      watchPath: (target, options, listener) => { calls.push({ target, recursive: options.recursive }); notifications.push(listener); const fake = new EventEmitter() as EventEmitter & { close: () => void }; fake.close = () => { closes += 1; fake.emit("close"); }; return fake as unknown as FSWatcher; },
       run: async (action) => { actions.push(action); return scan("a".repeat(40), []); } });
     try { assert.equal(calls.length, 1); assert.equal(calls[0]?.recursive, true); notifications[0]?.("rename", path.join("context", "notes.md")); await watcher.flush(); await new Promise((resolve) => setImmediate(resolve)); assert.deepEqual(actions, [{ kind: "doc-dry-run", paths: ["context/notes.md"] }]); assert.equal(calls.length, platform === "linux" ? 2 : 1); assert.equal(closes, platform === "linux" ? 1 : 0); notifications.at(-1)?.("change", path.join(".git", "HEAD")); await watcher.flush(); await new Promise((resolve) => setImmediate(resolve)); assert.equal(actions.length, 1); assert.equal(calls.length, platform === "linux" ? 2 : 1); }
     finally { await watcher.close(); }
     assert.equal(closes, platform === "linux" ? 2 : 1);
   }
+});
+
+test("close waits until the filesystem watcher releases its handle", async () => {
+  const fake = new EventEmitter() as EventEmitter & { close: () => void }; let closeCalled = false;
+  fake.close = () => { closeCalled = true; };
+  const watcher = openDocSyncWatcher({ rootDir: process.cwd(), personId: "close-handle", startupScan: false,
+    watchPath: () => fake as unknown as FSWatcher, run: async () => scan("a".repeat(40), []) });
+  let settled = false; const closing = watcher.close().then(() => { settled = true; });
+  await new Promise((resolve) => setImmediate(resolve)); assert.equal(closeCalled, true); assert.equal(settled, false);
+  fake.emit("close"); await closing; assert.equal(settled, true);
 });
 
 test("Linux recursive root watch observes a deep atomic rename without waiting for reconciliation", { skip: process.platform !== "linux" }, async () => {

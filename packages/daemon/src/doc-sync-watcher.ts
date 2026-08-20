@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { once } from "node:events";
 import { watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { classifyTextualArtifactPath, consumeKnownError, resolveHarnessLayout, type WriteReceipt } from "../../kernel/src/index.ts";
@@ -59,7 +60,7 @@ export function openDocSyncWatcher(input: { readonly rootDir: string; readonly p
   }
   if (input.startupScan !== false) wake();
   return { wake, overflow: () => wake(), flush: async () => { if (timer) { clearTimeout(timer); timer = null; } enqueue(true); await tail; }, status: () => ({ sessionId, personId: input.personId, state, pendingPaths: [...pending].sort(), lastReceipt, metrics: { ...metrics } }),
-    close: async () => { if (state === "closed") return; state = "closed"; if (timer) clearTimeout(timer); timer = null; if (pollTimer) clearInterval(pollTimer); pollTimer = null; filesystemWatcher?.close(); filesystemWatcher = null; await tail; } };
+    close: async () => { if (state === "closed") return; state = "closed"; if (timer) clearTimeout(timer); timer = null; if (pollTimer) clearInterval(pollTimer); pollTimer = null; const watcher = filesystemWatcher, closed = watcher ? once(watcher, "close") : null; filesystemWatcher = null; watcher?.close(); if (closed) await closed; await tail; } };
   function remember(receipt: WriteReceipt): void { const nextAction = receipt.nextAction ?? receipt.detail?.nextAction; lastReceipt = { outcome: receipt.outcome, opId: receipt.opId, ...(receipt.code ? { code: receipt.code } : {}), ...(nextAction ? { nextAction } : {}) }; }
 }
 
