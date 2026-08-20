@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
@@ -46,6 +46,23 @@ test("headless direct apply is instance-local and never preserves an ahead cache
     assert.deepEqual({ status: cold.status, watermark: cold.watermark, sourceRevision: cold.sourceRevision }, { status: "ready", watermark: 0, sourceRevision: 0 });
     assert.equal(cold.snapshot.task, null);
     assert.equal(reopened.readOperation(event.opId), null);
+  });
+});
+
+test("closing a projection through a filesystem alias releases every handle on its database", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const aliasRoot = `${rootDir}-alias`;
+    symlinkSync(rootDir, aliasRoot, process.platform === "win32" ? "junction" : "dir");
+    const source = () => ({ readHead: () => null, readBatch: () => ({ sourceRevision: 0, events: [], cursor: null, done: true, accessedItems: 0 }), readContentBlob: () => null });
+    try {
+      const canonical = makeTaskProjection({ rootDir, eventStore: source() });
+      const aliased = makeTaskProjection({ rootDir: aliasRoot, eventStore: source() });
+      canonical.read("missing"); aliased.read("missing");
+      aliased.close();
+      rmSync(canonical.path, { force: true });
+    } finally {
+      rmSync(aliasRoot, { recursive: true, force: true });
+    }
   });
 });
 

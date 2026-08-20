@@ -268,6 +268,8 @@ test("10,000 old events do not block a new write", async (context) => {
 function seedOldEvents(rootDir: string, count: number): void {
   mkdirSync(rootDir, { recursive: true });
   initRepo(rootDir);
+  git(rootDir, "config", "gc.auto", "0");
+  git(rootDir, "config", "maintenance.auto", "false");
   const eventsRoot = path.join(rootDir, "harness/events");
   mkdirSync(eventsRoot, { recursive: true });
   let last = oldTaskEvent(1);
