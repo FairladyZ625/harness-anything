@@ -41,7 +41,7 @@ export interface DaemonConnLog {
   readonly connectionOpened: (conn: string, transport: string) => string;
   readonly connectionClosed: (conn: string) => void;
   readonly request: (entry: DaemonTrafficLogEntry) => void;
-  // Awaits queued appends so buffered lines survive daemon shutdown.
+  // Awaits queued appends and closes the file handle so shutdown leaks no descriptor; a later append reopens.
   readonly settle: () => Promise<void>;
 }
 
@@ -65,7 +65,7 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
     connectionOpened: (conn, transport) => { const seq = nextSeq += 1; seqByConnId.set(conn, seq); openedAt.set(seq, Date.parse(now().toISOString())); active += 1; append({ event: "conn_open", conn: connLabel(seq), transport, active }); return connLabel(seq); },
     connectionClosed: (conn) => { const seq = seqByConnId.get(conn); if (seq === undefined) return; const started = openedAt.get(seq) ?? Date.parse(now().toISOString()), closed = Date.parse(now().toISOString()), requests = requestsByConn.get(seq) ?? 0; seqByConnId.delete(conn); openedAt.delete(seq); requestsByConn.delete(seq); active -= 1; append({ event: "conn_close", conn: connLabel(seq), active, durationMs: closed - started, requests }); },
     request: (entry) => { const seq = seqOf(entry.conn); if (seq !== null) requestsByConn.set(seq, (requestsByConn.get(seq) ?? 0) + 1); append({ event: "request", conn: entry.conn, transport: entry.transport, method: entry.method, at: new Date(entry.startedAt).toISOString(), atEnd: new Date(entry.startedAt + entry.durationMs).toISOString(), durationMs: entry.durationMs, ok: entry.ok, code: entry.code }); },
-    settle: async () => { await chain; }
+    settle: async () => { await chain; await closeHandle(); }
   };
   async function writeLine(line: string): Promise<void> {
     try {
