@@ -45,7 +45,7 @@ export interface DaemonConnLog {
   readonly settle: () => Promise<void>;
 }
 
-export function daemonConnLogFileStem(daemonId: string): string { return `daemon-${safeRuntimeId(daemonId)}-conn-`; }
+export function daemonConnLogFileStem(daemonId: string): string { return `daemon-${safeConnRuntimeId(daemonId)}-conn-`; }
 
 export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog {
   const logDir = path.join(options.userRoot, "logs"), stem = daemonConnLogFileStem(options.daemonId),
@@ -80,7 +80,7 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
       bytes += (await handle!.write(line)).bytesWritten;
     } catch (error) {
       // Keep attempting later lines but report only the first failure, mirroring lifecycle-log.
-      consumeKnownError(error); if (!reportedFailure) { reportedFailure = true; (options.onFailure ?? defaultFailureReporter)(error); }
+      consumeKnownError(error); if (!reportedFailure) { reportedFailure = true; (options.onFailure ?? defaultConnFailureReporter)(error); }
       await closeHandle();
     }
   }
@@ -91,13 +91,13 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
     const days = new Set(names.flatMap((name) => pattern.exec(name)?.[1] ?? [])), keep = [...days].sort().slice(-keptDays);
     for (const name of names) { const day = pattern.exec(name)?.[1]; if (day !== undefined && !keep.includes(day)) await rm(path.join(logDir, name), { force: true }); }
   }
-  async function renameIfExists(from: string, to: string): Promise<void> { try { await rename(from, to); } catch (error) { if (!isMissing(error)) throw error; consumeKnownError(error); } }
+  async function renameIfExists(from: string, to: string): Promise<void> { try { await rename(from, to); } catch (error) { if (!isConnFileMissing(error)) throw error; consumeKnownError(error); } }
 }
 
 function seqOf(conn: string): number | null { const seq = /^c-(\d+)$/u.exec(conn)?.[1]; return seq === undefined ? null : Number(seq); }
 function connLabel(seq: number): string { return `c-${seq}`; }
 function dayStamp(at: Date): string { return at.toISOString().slice(0, 10).replaceAll("-", ""); }
-function safeRuntimeId(value: string): string { return value.replace(/[^A-Za-z0-9_.-]/gu, "-"); }
-function isMissing(error: unknown): boolean { return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT"; }
+function safeConnRuntimeId(value: string): string { return value.replace(/[^A-Za-z0-9_.-]/gu, "-"); }
+function isConnFileMissing(error: unknown): boolean { return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT"; }
 function escapeRegExp(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"); }
-function defaultFailureReporter(error: unknown): void { process.stderr.write(`harness daemon: conn log write failure: ${error instanceof Error ? error.message : String(error)}\n`); }
+function defaultConnFailureReporter(error: unknown): void { process.stderr.write(`harness daemon: conn log write failure: ${error instanceof Error ? error.message : String(error)}\n`); }
