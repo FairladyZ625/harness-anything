@@ -4,6 +4,7 @@
     "id": "terra",
     "name": "Terra",
     "runtimeType": "codex",
+    "role": "worker",
     "instructions": "Review precisely.",
     "skills": ["review"],
     "prompts": ["prompt://review"],
