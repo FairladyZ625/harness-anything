@@ -41,7 +41,8 @@ export interface DaemonConnLog {
   readonly connectionOpened: (conn: string, transport: string) => string;
   readonly connectionClosed: (conn: string) => void;
   readonly request: (entry: DaemonTrafficLogEntry) => void;
-  // Awaits queued appends and closes the file handle so shutdown leaks no descriptor; a later append reopens.
+  // Drains queued appends (looping until no racing line extends the chain) and closes the handle on
+  // the write chain itself, so shutdown leaks no descriptor; a later append transparently reopens.
   readonly settle: () => Promise<void>;
 }
 
@@ -65,7 +66,7 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
     connectionOpened: (conn, transport) => { const seq = nextSeq += 1; seqByConnId.set(conn, seq); openedAt.set(seq, Date.parse(now().toISOString())); active += 1; append({ event: "conn_open", conn: connLabel(seq), transport, active }); return connLabel(seq); },
     connectionClosed: (conn) => { const seq = seqByConnId.get(conn); if (seq === undefined) return; const started = openedAt.get(seq) ?? Date.parse(now().toISOString()), closed = Date.parse(now().toISOString()), requests = requestsByConn.get(seq) ?? 0; seqByConnId.delete(conn); openedAt.delete(seq); requestsByConn.delete(seq); active -= 1; append({ event: "conn_close", conn: connLabel(seq), active, durationMs: closed - started, requests }); },
     request: (entry) => { const seq = seqOf(entry.conn); if (seq !== null) requestsByConn.set(seq, (requestsByConn.get(seq) ?? 0) + 1); append({ event: "request", conn: entry.conn, transport: entry.transport, method: entry.method, at: new Date(entry.startedAt).toISOString(), atEnd: new Date(entry.startedAt + entry.durationMs).toISOString(), durationMs: entry.durationMs, ok: entry.ok, code: entry.code }); },
-    settle: async () => { await chain; await closeHandle(); }
+    settle: async () => { let tail: Promise<void>; do { tail = chain; await tail; } while (tail !== chain); chain = chain.then(() => closeHandle()); await chain; }
   };
   async function writeLine(line: string): Promise<void> {
     try {
