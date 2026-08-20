@@ -266,6 +266,18 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
     }
     const p50 = median(cliSamples), daemonP50 = median(daemonSamples), bareP50 = median(bareSamples), overheadRatio = median(ratios);
     const orderedRatios = [...ratios].sort((left, right) => left - right);
+    // Calibration only: these diagnostics do not change the verdict. The asserted metric
+    // subtracts a daemon round trip the CLI subprocess never made — the test process made
+    // its own — so cli-minus-daemon is not a decomposition and goes negative. These lines
+    // emit the candidate replacements on every run so a metric can be chosen from real
+    // readings rather than from four scraped log lines. Governance task task_182bb1c6068a1c36ca11c68185.
+    const spawnRatios = cliSamples.map((value, sample) => value / bareSamples[sample]!),
+      unavoidableRatios = cliSamples.map((value, sample) => value / (bareSamples[sample]! + daemonSamples[sample]!)),
+      incoherent = cliSamples.filter((value, sample) => value <= daemonSamples[sample]!).length;
+    const spread = (values: readonly number[]) => { const ordered = [...values].sort((left, right) => left - right); return `p50=${median(values).toFixed(3)}x min=${ordered[0]!.toFixed(3)}x max=${ordered.at(-1)!.toFixed(3)}x`; };
+    context.diagnostic(`calibration-candidate=cli-over-bare-spawn samples=${spawnRatios.length} ${spread(spawnRatios)}`);
+    context.diagnostic(`calibration-candidate=cli-over-bare-plus-daemon samples=${unavoidableRatios.length} ${spread(unavoidableRatios)}`);
+    context.diagnostic(`calibration-incoherent-samples=cli-not-greater-than-daemon count=${incoherent} of=${cliSamples.length}`);
     context.diagnostic(`latency-window=before-cli-process-spawn-through-exit-and-parsed-receipt daemon=resident samples=${cliSamples.length} p50=${p50.toFixed(3)}ms min=${Math.min(...cliSamples).toFixed(3)}ms max=${Math.max(...cliSamples).toFixed(3)}ms`);
     context.diagnostic(`latency-segment=resident-daemon-socket-through-parsed-receipt samples=${daemonSamples.length} p50=${daemonP50.toFixed(3)}ms min=${Math.min(...daemonSamples).toFixed(3)}ms max=${Math.max(...daemonSamples).toFixed(3)}ms`);
     context.diagnostic(`latency-segment=paired-cli-minus-daemon samples=${overheadSamples.length} p50=${median(overheadSamples).toFixed(3)}ms min=${Math.min(...overheadSamples).toFixed(3)}ms max=${Math.max(...overheadSamples).toFixed(3)}ms`);
