@@ -83,16 +83,23 @@ const fileTimeoutMs = positiveIntegerOrDefault(process.env.HARNESS_TEST_FILE_TIM
 const activityRoot = mkdtempSync(join(tmpdir(), "ha-node-test-watchdog-"));
 const activityPath = join(activityRoot, "activity.jsonl");
 const reporterUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-file-activity-reporter.mjs")).href;
+// Arm the stall report inside each test child before the watchdog kills it from outside. The
+// watchdog can say which test never returned; only the child itself can say which handle it is
+// still holding, and a remote runner offers no second chance to ask.
+const stallReportUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-stall-report.mjs")).href;
+const stallReportMs = Math.max(1_000, Math.floor(fileTimeoutMs * 0.9));
 const child = spawn(process.execPath, [
   "--test",
   "--test-reporter=spec",
   "--test-reporter-destination=stdout",
   `--test-reporter=${reporterUrl}`,
   `--test-reporter-destination=${activityPath}`,
+  `--import=${stallReportUrl}`,
   ...concurrencyArgs,
   ...selection.files
 ], {
   cwd: repoRoot,
+  env: { ...process.env, HARNESS_TEST_STALL_REPORT_MS: String(stallReportMs) },
   detached: process.platform !== "win32",
   stdio: ["inherit", "pipe", "pipe"],
   windowsHide: true
