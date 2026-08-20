@@ -1,0 +1,8 @@
+{
+  "decisionId": "dec_4BA57B8082D26A05FBD9C70166",
+  "scope": "module:daemon",
+  "kind": "line-budget",
+  "limit": 6244,
+  "expiry": "2027-08-31T00:00:00Z",
+  "signature": "1c15cec3a23712492aef31fdc31d2d729b9d8c66873eb188d898379c802300ac"
+}
