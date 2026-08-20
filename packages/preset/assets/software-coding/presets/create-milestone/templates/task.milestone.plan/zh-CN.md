@@ -36,6 +36,22 @@ Task Contract: harness-task v1
 - 结构化表：`harness/milestones/dossier-data.md`
 - Charter decision：`dec_*`，由 CEO 裁决后填写；本 preset 只校验存在，不代创建。
 
+## Required Reading
+
+按顺序列出 charter decision、milestone map、相邻 milestone 与承重代码/契约，并标明哪一份是冲突时的最终权威。
+
+## Entry Conditions
+
+列出进入本 milestone 前必须已成立的产品裁决、使用方承诺与前置能力；未满足时不得启动对应波次。
+
+## Dependencies
+
+列出跨 task、跨波次与外部使用方的依赖/交接，给出 owner、就绪证据与下游接收方。
+
+## Execution Surface
+
+声明各波次使用的仓库、worktree、分支/base 与写入边界。具体绝对 `cwd` 由每次派工参数注入。
+
 ## PR/merge Operations
 
 - 全局 merge-health 运维台账：`task_01KWYKCPG5FZA3AFVX9R8XX3B7`（Authority: `decision/dec_mrat6152`）。
@@ -66,6 +82,14 @@ Task Contract: harness-task v1
 - 阅读 create-milestone `PRESET.md`、`harness.yaml` 和相邻 milestone；在配置的 milestones root 下创建或更新 overview、index、summary 与状态视图。
 - 用 root task fan out 子任务，保持任务映射表与 task tree 同步。
 - 校验链接、必需章节、重复行与状态一致性；运行相关仓库检查并记录 evidence。
+
+## Deliverable Contract
+
+写明 milestone 最终产物、落点、接收者、第一个使用方，以及每个波次必须回交的 task 级产物与状态。
+
+## Evidence Protocol
+
+写明使用证明、阴性对照、变异检查与 reviewer 拒收条件；不得用汇总性的「已通过」代替实际 runner 输出和消费证据。
 
 ## Verification
 

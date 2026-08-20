@@ -115,9 +115,7 @@ function writeValidRuntimeReleaseFixture(root, options = {}) {
     "packages/cli/package.json",
     "packages/gui/package.json",
     "packages/adapters/local/package.json",
-    "packages/adapters/multica/package.json",
-    "packages/adapters/github-issues/package.json",
-    "packages/adapters/linear/package.json"
+    "packages/adapters/multica/package.json"
   ]) {
     const packageJson = packagePath === "packages/cli/package.json"
       ? { name: "@harness-anything/cli", version: "0.1.0", publishConfig: { access: "public" } }

@@ -95,7 +95,7 @@ describe("agent dispatch flow", () => {
     expect(submitted).toEqual([]);
   });
   it("exposes the dispatch entry on agent and squad rows but not on blocked declarations", () => {
-    const markup = renderToStaticMarkup(createElement(EntityLayersRows, { agents: [{ id: "terra", name: "terra", runtimeType: "codex", layer: "user", validity: "valid", issues: [] }, { id: "broken", name: "broken", runtimeType: "codex", layer: "user", validity: "blocked", issues: [] }], squads: [{ id: "core-squad", name: "Core Squad", leader: "fable", workers: ["luna"], layer: "user", validity: "valid", issues: [] }], onDispatchAgent: () => undefined, onDispatchSquad: () => undefined }));
+    const markup = renderToStaticMarkup(createElement(EntityLayersRows, { agents: [{ id: "terra", name: "terra", runtimeType: "codex", role: "worker", layer: "user", validity: "valid", issues: [] }, { id: "broken", name: "broken", runtimeType: "codex", role: "worker", layer: "user", validity: "blocked", issues: [] }], squads: [{ id: "core-squad", name: "Core Squad", leader: "fable", workers: ["luna"], layer: "user", validity: "valid", issues: [] }], onDispatchAgent: () => undefined, onDispatchSquad: () => undefined }));
     expect(markup).toContain('data-testid="dispatch-entry-terra"');
     expect(markup).toContain('data-testid="squad-dispatch-entry-core-squad"');
     expect(markup).not.toContain('data-testid="dispatch-entry-broken"');

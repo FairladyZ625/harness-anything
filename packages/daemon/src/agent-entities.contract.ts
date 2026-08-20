@@ -2,7 +2,8 @@
 // an Agent consumes presets, so it cannot also be catalogued as one. This contract owns their persisted
 // declaration form; packages/daemon/src/agent-entities.ts owns the store and command actions.
 export interface AgentSkillDeclarationV1 { readonly id: string; readonly path: string }
-export interface AgentDeclarationV1 { readonly id: string; readonly name: string; readonly instructions: string; readonly runtime_type: string; readonly model?: string; readonly skills?: readonly AgentSkillDeclarationV1[]; readonly prompts?: readonly string[]; readonly preset?: string }
+export type AgentRole = "worker" | "commander";
+export interface AgentDeclarationV1 { readonly id: string; readonly name: string; readonly instructions: string; readonly runtime_type: string; readonly role?: AgentRole; readonly model?: string; readonly skills?: readonly AgentSkillDeclarationV1[]; readonly prompts?: readonly string[]; readonly preset?: string }
 export interface SquadDeclarationV1 { readonly id: string; readonly name: string; readonly leader: string; readonly workers: readonly string[]; readonly roster: string }
 export type AgentEntityKind = "agent" | "squad";
 type EntityContractSchema<T> = Readonly<{ readonly id: string; readonly required: readonly string[] }> & { readonly Type: T }; function entitySchema<T>(id: string, required: readonly string[]): EntityContractSchema<T> { return Object.freeze({ id, required: Object.freeze(required) }) as EntityContractSchema<T>; }
@@ -15,7 +16,7 @@ const runtimeTypeIdentifier = /^[a-z0-9][a-z0-9-]{0,63}$/u;
 export function isRuntimeTypeIdentifier(value: string): boolean { return runtimeTypeIdentifier.test(value); }
 export function validateAgentDeclarationV1(value: unknown): readonly string[] {
   if (!isEntityRecord(value)) return ["agent declaration must be a JSON object; expected agent-declaration/v1."];
-  const errors: string[] = [], fields = [...AGENT_DECLARATION_V1_SCHEMA.required, "model", "skills", "prompts", "preset"];
+  const errors: string[] = [], fields = [...AGENT_DECLARATION_V1_SCHEMA.required, "role", "model", "skills", "prompts", "preset"];
   for (const field of Object.keys(value).filter((field) => !fields.includes(field))) errors.push(`agent declaration field "${field}" is unknown; remove it.`);
   for (const field of AGENT_DECLARATION_V1_SCHEMA.required) if (!Object.hasOwn(value, field)) errors.push(`agent declaration is missing required field "${field}"; expected id, name, instructions, and runtime_type.`);
   if (value.schema !== "agent-declaration/v1") errors.push('agent declaration field "schema" must equal "agent-declaration/v1".');
@@ -23,6 +24,7 @@ export function validateAgentDeclarationV1(value: unknown): readonly string[] {
   if (Object.hasOwn(value, "name") && !entityNonEmpty(value.name)) errors.push('agent declaration field "name" must be a non-empty string.');
   if (Object.hasOwn(value, "instructions") && !entityNonEmpty(value.instructions)) errors.push('agent declaration field "instructions" must be a non-empty string.');
   if (Object.hasOwn(value, "runtime_type") && (typeof value.runtime_type !== "string" || !isRuntimeTypeIdentifier(value.runtime_type))) errors.push('agent declaration field "runtime_type" must be a non-empty lowercase runtime identifier such as claude, codex, or opencode.');
+  if (value.role !== undefined && !["worker", "commander"].includes(String(value.role))) errors.push('agent declaration field "role" must be worker or commander.');
   if (value.model !== undefined && !entityNonEmpty(value.model)) errors.push('agent declaration field "model" must be a non-empty string.');
   if (value.skills !== undefined && !agentSkills(value.skills)) errors.push('agent declaration field "skills" must be an array of unique {id, path} references; path must be relative to the project authored root.');
   if (value.prompts !== undefined && !nonEmptyStrings(value.prompts)) errors.push('agent declaration field "prompts" must be an array of non-empty strings.');
@@ -76,7 +78,7 @@ function entityReadRowErrors(value: unknown, fields: readonly string[], prefix: 
   if (Object.keys(value).some((field) => entityWireSecretKeys.test(field))) errors.push(`${prefix} carries a forbidden credential-shaped key.`);
   return errors;
 }
-const agentCatalogRowFields = Object.freeze(["id", "name", "runtimeType", "layer", "validity", "issues"]), squadCatalogRowFields = Object.freeze(["id", "name", "leader", "workers", "layer", "validity", "issues"]), agentDetailFields = Object.freeze(["id", "name", "runtimeType", "instructions", "model", "skills", "prompts", "preset"]), squadDetailFields = Object.freeze(["id", "name", "leader", "workers", "roster"]);
+const agentCatalogRowFields = Object.freeze(["id", "name", "runtimeType", "role", "layer", "validity", "issues"]), squadCatalogRowFields = Object.freeze(["id", "name", "leader", "workers", "layer", "validity", "issues"]), agentDetailFields = Object.freeze(["id", "name", "runtimeType", "role", "instructions", "model", "skills", "prompts", "preset"]), squadDetailFields = Object.freeze(["id", "name", "leader", "workers", "roster"]);
 function catalogErrors(value: unknown, schema: string, field: "agents" | "squads", rowFields: readonly string[], rowChecks: (row: Record<string, unknown>) => readonly string[]): readonly string[] {
   const errors = [...entityReadEnvelopeErrors(value, schema, ["schema", "ok", field])];
   if (!isEntityRecord(value) || !Array.isArray(value[field])) return [...errors, `${schema} field "${field}" must be an array.`];
@@ -89,9 +91,10 @@ function detailErrors(value: unknown, schema: string, field: "agent" | "squad", 
   return [...errors, ...entityReadRowErrors(value[field], detailFields, field), ...rowChecks(value[field] as Record<string, unknown>)];
 }
 const catalogRowChecks = (row: Record<string, unknown>): readonly string[] => [!(entityNonEmpty(row.id) && entityNonEmpty(row.name)) ? ["catalog rows need non-empty id and name."] : [], row.validity !== undefined && !["valid", "blocked"].includes(String(row.validity)) ? ["catalog row validity must be valid or blocked."] : []].flat();
-const agentDetailChecks = (row: Record<string, unknown>): readonly string[] => [!(entityNonEmpty(row.id) && entityNonEmpty(row.name) && entityNonEmpty(row.runtimeType) && entityNonEmpty(row.instructions)) ? ["agent detail needs non-empty id, name, runtimeType, and instructions."] : [], row.model !== null && row.model !== undefined && !entityNonEmpty(row.model) ? ["agent detail model must be null or a non-empty model id."] : [], row.skills !== undefined && !nonEmptyStrings(row.skills) ? ["agent detail skills must be an array of non-empty strings."] : [], row.prompts !== undefined && !nonEmptyStrings(row.prompts) ? ["agent detail prompts must be an array of non-empty strings."] : [], row.preset !== null && row.preset !== undefined && !entityNonEmpty(row.preset) ? ["agent detail preset must be null or a non-empty preset id."] : []].flat();
+const agentCatalogRowChecks = (row: Record<string, unknown>): readonly string[] => [...catalogRowChecks(row), !["worker", "commander"].includes(String(row.role)) ? "agent catalog row role must be worker or commander." : []].flat();
+const agentDetailChecks = (row: Record<string, unknown>): readonly string[] => [!(entityNonEmpty(row.id) && entityNonEmpty(row.name) && entityNonEmpty(row.runtimeType) && ["worker", "commander"].includes(String(row.role)) && entityNonEmpty(row.instructions)) ? ["agent detail needs non-empty id, name, runtimeType, role, and instructions."] : [], row.model !== null && row.model !== undefined && !entityNonEmpty(row.model) ? ["agent detail model must be null or a non-empty model id."] : [], row.skills !== undefined && !nonEmptyStrings(row.skills) ? ["agent detail skills must be an array of non-empty strings."] : [], row.prompts !== undefined && !nonEmptyStrings(row.prompts) ? ["agent detail prompts must be an array of non-empty strings."] : [], row.preset !== null && row.preset !== undefined && !entityNonEmpty(row.preset) ? ["agent detail preset must be null or a non-empty preset id."] : []].flat();
 const squadDetailChecks = (row: Record<string, unknown>): readonly string[] => [!(entityNonEmpty(row.id) && entityNonEmpty(row.name) && entitySlug(row.leader) && entityNonEmpty(row.roster)) ? ["squad detail needs non-empty id, name, roster, and a slug leader."] : [], !Array.isArray(row.workers) || !nonEmptyStrings(row.workers) || !row.workers.every(entitySlug) ? ["squad detail workers must be an array of agent slugs."] : []].flat();
-export function validateAgentEntityCatalog(value: unknown): readonly string[] { return catalogErrors(value, "agent-entity-catalog/v1", "agents", agentCatalogRowFields, catalogRowChecks); }
+export function validateAgentEntityCatalog(value: unknown): readonly string[] { return catalogErrors(value, "agent-entity-catalog/v1", "agents", agentCatalogRowFields, agentCatalogRowChecks); }
 export function validateSquadEntityCatalog(value: unknown): readonly string[] { return catalogErrors(value, "squad-entity-catalog/v1", "squads", squadCatalogRowFields, catalogRowChecks); }
 export function validateAgentEntityDetail(value: unknown): readonly string[] { return detailErrors(value, "agent-entity-detail/v1", "agent", agentDetailFields, agentDetailChecks); }
 export function validateSquadEntityDetail(value: unknown): readonly string[] { return detailErrors(value, "squad-entity-detail/v1", "squad", squadDetailFields, squadDetailChecks); }

@@ -172,7 +172,7 @@ test("whole-package install publishes only the old or new active pointer", async
 test("all twelve bundled packages resolve through one valid catalog", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-preset-builtins-"));
   try {
-    const resolver = createCanonicalPresetResolver({ userRoot: root }), common = { verticalId: "software/coding", profileId: "baseline", locale: "en-US", purpose: "task-create" } as const, listed = await resolver.list({ verticalId: "software/coding" });
+    const runtime = createRuntime({ userRoot: root }), resolver = runtime.resolver, common = { verticalId: "software/coding", profileId: "baseline", locale: "en-US", purpose: "task-create" } as const, listed = await resolver.list({ verticalId: "software/coding" });
     assert.deepEqual(listed.map(({ id, validity, errorCode }) => ({ id, validity, errorCode })), [
       { id: "architecture-rot-audit", validity: "valid", errorCode: undefined },
       { id: "code-impact-analysis", validity: "valid", errorCode: undefined },
@@ -195,6 +195,8 @@ test("all twelve bundled packages resolve through one valid catalog", async () =
     assert.deepEqual(milestone.snapshot.templates.map(({ slot, path: target, templateRef }) => ({ slot, target, templateRef })), [
       { slot: "task.plan", target: "task_plan.md", templateRef: "template://planning/milestone-task-plan@1" }, { slot: "task.closeout", target: "closeout.md", templateRef: "template://planning/closeout@1" }, { slot: "task.artifacts.keep", target: "artifacts/.gitkeep", templateRef: "template://planning/keep-file@1" }
     ]);
+    const skeletonAnchors = ["## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Deliverable Contract", "## Evidence Protocol"];
+    for (const locale of ["en-US", "zh-CN"] as const) for (const presetId of ["standard-task", "create-milestone"]) { const resolved = runtime.resolveInternal({ ...common, locale, presetId }), template = resolved.snapshot.templates.find(({ slot }) => slot === "task.plan"), plan = resolved.documents.find(({ slot }) => slot === "task.plan")?.body ?? ""; for (const anchor of skeletonAnchors) { assert.equal(template?.requiredAnchors.includes(anchor), true, `${presetId}:${locale}:${anchor}:contract`); assert.match(plan, new RegExp(anchor, "u"), `${presetId}:${locale}:${anchor}:body`); } }
     const matrix = [
       ["standard-task", "repository-diff", ["ci", "code-doc-reconciliation"], ["task.plan", "task.closeout", "task.artifacts.keep"]],
       ["docs-task", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
@@ -247,7 +249,7 @@ test("module locale, required anchors, and body digests close through the canoni
 });
 
 test("project task scaffold replaces and adds prose while base ownership, anchors, and portable paths fail closed", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-task-scaffold-")), scaffold = path.join(root, "governance/task-scaffold.json"), template = "# Project Plan\n\n## Brief\n\nB\n\n## Goal\n\nG\n\n## Context\n\nC\n\n## Constraints\n\nC\n\n## Checkpoint\n\nC\n\n## CI/Gate Authority Stop Condition\n\nS\n\n## Implementation Plan\n\nP\n\n## Verification\n\nV\n";
+  const root = mkdtempSync(path.join(tmpdir(), "ha-task-scaffold-")), scaffold = path.join(root, "governance/task-scaffold.json"), template = "# Project Plan\n\n## Brief\n\nB\n\n## Goal\n\nG\n\n## Context\n\nC\n\n## Required Reading\n\nR\n\n## Entry Conditions\n\nE\n\n## Dependencies\n\nD\n\n## Execution Surface\n\nE\n\n## Constraints\n\nC\n\n## Checkpoint\n\nC\n\n## CI/Gate Authority Stop Condition\n\nS\n\n## Implementation Plan\n\nP\n\n## Deliverable Contract\n\nD\n\n## Evidence Protocol\n\nE\n\n## Verification\n\nV\n";
   try {
     write(path.join(root, "templates/plan.md"), template); write(path.join(root, "templates/notes.md"), "# Notes\n\n## Project Notes\n\nCustom.\n"); const valid = { schema: "task-scaffold/v1", replaceTemplate: [{ slot: "task.plan", template: "templates/plan.md" }], addDocument: [{ slot: "project.notes", path: "notes.md", template: "templates/notes.md", requiredAnchors: ["## Project Notes"] }] }; write(scaffold, JSON.stringify(valid));
     const resolve = () => createCanonicalPresetResolver({ userRoot: path.join(root, "user"), projectRoot: root, projectScaffold: scaffold }).resolve({ presetId: "code-impact-analysis", verticalId: "software/coding", profileId: "baseline", locale: "en-US", purpose: "task-create" }); const applied = await resolve(); assert.equal(applied.ok, true); if (applied.ok) { assert.equal(applied.snapshot.templates.length, 5); assert.equal(applied.snapshot.templates[0]?.owner, "doc-sync"); assert.equal(applied.snapshot.templates[0]?.templateRef, "project://templates/plan.md"); assert.deepEqual(applied.snapshot.templates.slice(-2).map(({ slot }) => slot), ["project.notes", "task.code.impact.analysis"]); assert.match(String(applied.snapshot.scaffold.overlayDigest), /^sha256:/u); }

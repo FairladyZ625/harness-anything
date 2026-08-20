@@ -73,9 +73,16 @@ async function requestWithSocket(socket: net.Socket, method: string, params: Jso
   finally { client.close(); }
 }
 // A daemon that never answers leaves the caller with no output and no error, so a caller that knows its request is
-// cheap can name a deadline and get a classified failure instead of an open-ended wait.
+// cheap can name a deadline and get a classified failure instead of an open-ended wait. The hint is forked by what
+// the silent method actually was: a silent protocol.hello means the daemon never finished startup (repository
+// attach or a startup wedge), because no workspace write can be holding a handshake that precedes every command.
 function responseDeadline(method: string, responseTimeoutMs: number): Promise<never> {
-  return new Promise((_resolve, reject) => { setTimeout(() => reject(Object.assign(new Error(`the daemon did not answer ${method} within ${responseTimeoutMs / 1_000}s; a long write is holding the workspace queue. Run ha daemon status, wait for it to finish, then retry.`), { code: "daemon_response_timeout" })), responseTimeoutMs).unref(); });
+  return new Promise((_resolve, reject) => { setTimeout(() => reject(Object.assign(new Error(responseTimeoutHint(method, responseTimeoutMs)), { code: "daemon_response_timeout" })), responseTimeoutMs).unref(); });
+}
+function responseTimeoutHint(method: string, responseTimeoutMs: number): string {
+  const waited = `${responseTimeoutMs / 1_000}s`;
+  if (method === "protocol.hello") return `the daemon did not answer ${method} within ${waited}; it accepted the connection but never completed its startup handshake, so it is still starting (repository attach) or wedged during startup — this is not a long write. Inspect the daemon lifecycle log, then retry.`;
+  return `the daemon did not answer ${method} within ${waited}; a long write may be holding the workspace queue, or the daemon wedged during startup. Run ha daemon status, wait for it to finish, then retry.`;
 }
 
 function connectSocket(socketPath: string, timeoutMs: number): Promise<net.Socket> {
