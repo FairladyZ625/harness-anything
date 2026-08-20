@@ -3,7 +3,7 @@ import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts"; import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts"; import { detachedProcessOptions, terminateProcess } from "../../../daemon/src/process-port.ts"; import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
+import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts"; import { requestDaemonJsonRpcAt, requestDaemonShutdownAt } from "../../../daemon/src/client/local-json-rpc-client.ts"; import { detachedProcessOptions, terminateProcess } from "../../../daemon/src/process-port.ts"; import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
 import { ensureLocalDaemonRunning } from "../../../daemon/src/client/daemon-autostart.ts";
 import { readDaemonPid, startDaemon } from "../../../daemon/src/runtime.ts";
 import { daemonProcessAlive, releaseDaemonPidFile, releaseDaemonSingletonLock } from "../../../daemon/src/daemon-singleton.ts";
@@ -75,11 +75,12 @@ function deferredServeReceipt(incumbent: { readonly pid: number | null; readonly
 async function status(userRoot: string, daemonId: string): Promise<Record<string, unknown>> { return requestDaemonJsonRpcAt(localUserDaemonEndpoint(userRoot, daemonId), "daemon.status", {}, 75) as Promise<Record<string, unknown>>; }
 async function requestCooperativeStop(userRoot: string, daemonId: string, pid: number): Promise<void> {
   try {
-    const receipt = await requestDaemonJsonRpcAt(localUserDaemonEndpoint(userRoot, daemonId), "daemon.stop", {}, 75, 1_000);
-    if (receipt.ok === true) return;
+    await requestDaemonShutdownAt(localUserDaemonEndpoint(userRoot, daemonId), 75);
+    return;
   } catch (error) { consumeKnownError(error); }
-  // A pre-control-protocol daemon or one that never reached socket bind cannot receive a request.
-  // Preserve the old signal path only for that compatibility/startup gap; healthy daemons clean up themselves.
+  // Only a daemon that never reached socket bind cannot receive the queued shutdown. A connected
+  // daemon gets hello and stop in one write, so slow startup work cannot turn a response timeout
+  // into an ungraceful Windows termination that strands its workspace writer lock.
   signalStop(pid);
 }
 // A daemon that exited between reading its pid file and being signalled is stopped, which is what

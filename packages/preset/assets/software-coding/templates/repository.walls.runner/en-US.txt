@@ -13,7 +13,7 @@ function runWall(wall) {
   let stdout = "";
   let exitCode = 0;
   try {
-    stdout = execSync(wall.cmd, { cwd: repoRoot, shell: "/bin/bash", timeout: 60_000, stdio: ["ignore", "pipe", "pipe"] }).toString();
+    stdout = execSync(wall.cmd, { cwd: repoRoot, timeout: 60_000, stdio: ["ignore", "pipe", "pipe"] }).toString();
   } catch (error) {
     stdout = error.stdout?.toString() ?? "";
     exitCode = typeof error.status === "number" ? error.status : 1;

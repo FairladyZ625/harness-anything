@@ -32,6 +32,19 @@ export async function requestDaemonJsonRpcAt(socketPath: string, method: string,
   return requestWithSocket(await connectSocket(socketPath, timeoutMs), method, params, responseTimeoutMs);
 }
 
+export async function requestDaemonShutdownAt(socketPath: string, timeoutMs = 75): Promise<void> {
+  const socket = await connectSocket(socketPath, timeoutMs);
+  const payload = [
+    { jsonrpc: "2.0", method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } } satisfies JsonRpcRequest,
+    { jsonrpc: "2.0", method: "daemon.stop", params: {} } satisfies JsonRpcRequest
+  ].map((request) => JSON.stringify(request)).join("\n") + "\n";
+  await new Promise<void>((resolve, reject) => {
+    const fail = (error: Error) => reject(error);
+    socket.once("error", fail);
+    socket.end(payload, () => { socket.off("error", fail); resolve(); });
+  });
+}
+
 export class JsonRpcLineClient {
   private nextId = 1;
   private readonly input: Readable;
