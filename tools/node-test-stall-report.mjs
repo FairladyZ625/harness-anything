@@ -3,6 +3,8 @@
 // a remote Windows runner there is no way to attach a debugger and ask. Node already knows: the
 // diagnostic report lists every live libuv handle. Print the ones that keep a process alive shortly
 // before the watchdog kills it, so one CI round answers "waiting on what" instead of one more guess.
+import { isMainThread, threadId } from "node:worker_threads";
+
 const delayMs = Number.parseInt(process.env.HARNESS_TEST_STALL_REPORT_MS ?? "", 10);
 
 if (Number.isInteger(delayMs) && delayMs > 0) {
@@ -14,15 +16,34 @@ if (Number.isInteger(delayMs) && delayMs > 0) {
       console.error(`[stall-report] could not collect a diagnostic report: ${String(error)}`);
       return;
     }
+    // pid joins a worker thread's report to the process it is holding open, and
+    // the thread label says which side of that process is stuck. Without both,
+    // two reports from the same stalled process are indistinguishable from two
+    // unrelated processes that happened to stall at the same moment.
+    const who = `pid=${process.pid} thread=${threadLabel()}`;
     const handles = Array.isArray(report.libuv) ? report.libuv.filter(isWaitWorthy) : [];
-    console.error(`[stall-report] ${process.argv[1] ?? "test child"} still running after ${delayMs}ms; ${handles.length} active handle(s)`);
+    console.error(`[stall-report] ${process.argv[1] ?? "test child"} ${who} still running after ${delayMs}ms; ${handles.length} active handle(s)`);
     for (const handle of handles) {
       console.error(`[stall-report]   ${describeHandle(handle)}`);
+    }
+    // A live worker thread keeps its process alive but owns a separate event
+    // loop, so its handles never appear in the list above -- a main thread with
+    // zero handles that still cannot exit is exactly this case. The report
+    // carries each worker's own libuv list; print it from here rather than
+    // relying on the preload having run inside the worker.
+    for (const worker of Array.isArray(report.workers) ? report.workers : []) {
+      const workerHandles = Array.isArray(worker.libuv) ? worker.libuv.filter(isWaitWorthy) : [];
+      console.error(`[stall-report]   worker thread still alive; ${workerHandles.length} active handle(s)`);
+      for (const handle of workerHandles) console.error(`[stall-report]     ${describeHandle(handle)}`);
     }
   }, delayMs);
   // The report is only interesting for a process that is stuck, and a stuck process has other
   // handles holding it open. Never let this timer be the reason a healthy process cannot exit.
   timer.unref?.();
+}
+
+function threadLabel() {
+  try { return isMainThread ? "main" : `worker:${threadId}`; } catch { return "unknown"; }
 }
 
 // Deny known loop plumbing rather than allowing known resources: an unfamiliar handle type is
