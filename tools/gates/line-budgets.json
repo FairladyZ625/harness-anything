@@ -13,7 +13,7 @@
     "authority-write-path": 0,
     "identity-rbac": 1063,
     "agent-runtime": 520,
-    "decision-fact": 480,
+    "decision-fact": 540,
     "test-infra": 0
   }
 }
