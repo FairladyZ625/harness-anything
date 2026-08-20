@@ -7,6 +7,7 @@ import ts from "typescript";
 const expectedMethods = Object.freeze([
   { method: "protocol.hello", requiresRepo: false },
   { method: "daemon.status", requiresRepo: false },
+  { method: "daemon.stop", requiresRepo: false },
   { method: "daemon.repo.bootstrap", requiresRepo: false },
   { method: "daemon.repo.register", requiresRepo: false },
   { method: "daemon.repo.unregister", requiresRepo: false },
@@ -56,7 +57,7 @@ export function evaluateApiContractRegistry(root = process.cwd()) {
   }
   if (server) {
     for (const token of ["jsonRpcMethodContracts.some", "request.method === \"protocol.hello\"", "if (!handshaken)",
-      "request.method === \"daemon.status\"", "request.method === \"daemon.repo.bootstrap\"",
+      "request.method === \"daemon.status\"", "request.method === \"daemon.stop\"", "request.method === \"daemon.repo.bootstrap\"",
       "request.method === \"daemon.repo.register\"", "request.method === \"daemon.repo.unregister\""]) {
       if (!server.includes(token)) violations.push(`${serverPath}: missing protocol closure token ${token}`);
     }

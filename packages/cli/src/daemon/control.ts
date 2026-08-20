@@ -37,7 +37,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       const started = await ensureLocalDaemonRunning({ socketPath: localUserDaemonEndpoint(userRoot, daemonId), launch: () => cliDaemonServeLaunch(userRoot, daemonId), onProgress: (progress) => process.stderr.write(`${progress.message}\n`) });
       return started.ok ? finish(await status(userRoot, daemonId), 0) : finish(daemonFailure("daemon-start", started.code ?? "daemon_start_failed", started.hint), 1); }
     if (command === "status") { const receipt = await status(userRoot, daemonId); return finish(receipt, 0); }
-    if (command === "stop") { const pid = readDaemonPid(userRoot, daemonId); if (pid === null) return finish(daemonFailure("daemon-stop", "daemon_unavailable", "No daemon is running."), 1); signalStop(pid); const stopped = await waitForDaemonStop(userRoot, daemonId, pid); return stopped ? finish({ ok: true, command: "daemon-stop", pid }, 0) : finish(daemonFailure("daemon-stop", "daemon_stop_timeout", `Daemon pid ${pid} did not finish stopping within 5s; inspect its lifecycle log before sending another signal.`), 1); }
+    if (command === "stop") { const pid = readDaemonPid(userRoot, daemonId); if (pid === null) return finish(daemonFailure("daemon-stop", "daemon_unavailable", "No daemon is running."), 1); await requestCooperativeStop(userRoot, daemonId, pid); const stopped = await waitForDaemonStop(userRoot, daemonId, pid); return stopped ? finish({ ok: true, command: "daemon-stop", pid }, 0) : finish(daemonFailure("daemon-stop", "daemon_stop_timeout", `Daemon pid ${pid} did not finish stopping within 5s; inspect its lifecycle log before sending another signal.`), 1); }
     return finish(daemonFailure("daemon", "unsupported_command", "Use daemon projection rebuild, daemon repo register|unregister, fleet center start, fleet edge sync, start --service, status, or stop."), 2);
   } catch (error) { return finish(daemonFailure(`daemon-${command ?? "unknown"}`, code(error), message(error)), 1); }
 }
@@ -73,6 +73,15 @@ function deferredServeReceipt(incumbent: { readonly pid: number | null; readonly
   return { ok: true, command: "daemon-serve", outcome: "deferred", incumbent: { pid: incumbent.pid, endpoint: incumbent.endpoint }, summary: `daemon serve deferred: ${witness}; this process did not bind the socket or take any workspace writer lock.`, nextAction: "Use the resident daemon (ha daemon status) or stop it first (ha daemon stop)." };
 }
 async function status(userRoot: string, daemonId: string): Promise<Record<string, unknown>> { return requestDaemonJsonRpcAt(localUserDaemonEndpoint(userRoot, daemonId), "daemon.status", {}, 75) as Promise<Record<string, unknown>>; }
+async function requestCooperativeStop(userRoot: string, daemonId: string, pid: number): Promise<void> {
+  try {
+    const receipt = await requestDaemonJsonRpcAt(localUserDaemonEndpoint(userRoot, daemonId), "daemon.stop", {}, 75, 1_000);
+    if (receipt.ok === true) return;
+  } catch (error) { consumeKnownError(error); }
+  // A pre-control-protocol daemon or one that never reached socket bind cannot receive a request.
+  // Preserve the old signal path only for that compatibility/startup gap; healthy daemons clean up themselves.
+  signalStop(pid);
+}
 // A daemon that exited between reading its pid file and being signalled is stopped, which is what
 // the caller asked for. Reporting the failed signal instead would answer a question nobody asked.
 function signalStop(pid: number): void {
