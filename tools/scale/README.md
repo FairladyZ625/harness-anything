@@ -44,7 +44,16 @@ conditions, both rounds, a human table, and numeric repair priorities.
 * B3: fsync hot write plus one instrumented `git hash-object --stdin` process
   per sample; this is an explicit subprocess proxy for the current
   commit-per-event path.
-* B5: ten repetitions each of task list, fact search, and relation graph.
+* B5: the real daemon read path. `tools/scale/b5-real.mjs` synthesizes a
+  canonical event ledger from the fixture's entity counts (tasks + relations +
+  decisions + facts, compiled with the real kernel write compilers), replays it
+  through the real task projection cold catch-up, and then measures the daemon
+  read model: unparameterized task list / relation graph / Fact FTS search plus
+  the narrow and paged variants (status filter, time window, keyset pages).
+  Rounds x 10 samples per query; p50/p95 reported. The report also carries a
+  sha256 digest of the serialized unparameterized results so the same fixture
+  can prove result-set equivalence across code changes. `--source-root` points
+  the harness at another checkout (e.g. the pre-change baseline) for A/B runs.
 * B6: total files, event files, and event directory fan-out.
 
 The harness records load average and free memory before/after each round. The
