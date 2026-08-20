@@ -19,6 +19,12 @@ test("preload exposes only the approved API methods", () => {
   assert.throws(() => assertPreloadPayload("getTasks", {}), /repoId/u);
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "" }), /repoId/u);
   assert.equal(assertPreloadPayload("getTasks", { repoId: "repo-a" }), true);
+  assert.equal(assertPreloadPayload("getTasks", { repoId: "repo-a", status: "active", limit: 50 }), true);
+  assert.equal(assertPreloadPayload("getRelationGraph", { repoId: "repo-a", updatedAfter: "2026-08-01T00:00:00.000Z", cursor: "eAo" }), true);
+  assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", limit: 0 }), /query facets are invalid/u);
+  assert.throws(() => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", updatedBefore: "not-a-date" }), /query facets are invalid/u);
+  assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", status: "edge_retired" }), /query facets are invalid/u);
+  assert.throws(() => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", status: "blocked" }), /query facets are invalid/u);
   assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "codex-review", enabled: false }), true);
   assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "codex-review", permissionMode: "read-only" }), true);
   assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "claude-review", isolationState: "enforced" }), true);

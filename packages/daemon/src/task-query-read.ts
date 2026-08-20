@@ -1,0 +1,79 @@
+import { createHash } from "node:crypto";
+import path from "node:path";
+import { blockingOf, closeoutReadiness, readRelationGraphProjection, type ProjectedExecution, type TaskProjection, type TaskProjectionListQuery, type TaskRelationProjectionRead, type TaskRelationQuery } from "../../kernel/src/index.ts";
+import type { CanonicalRoot } from "./protocol/daemon-protocol.contract.ts";
+import type { DaemonTaskSnapshotListResult, ExecutionEvidenceProjection, TaskPlacementSupplement } from "./protocol/daemon-protocol.contract.ts";
+
+/**
+ * The daemon's task query read model. Extracted verbatim from repo-cell so the
+ * wide queries (task snapshot list, triadic relation graph) have one importable
+ * real implementation — the daemon serves it, and scale measurement exercises
+ * the same functions instead of a fixture proxy. The closeout/blocking domain
+ * judgments stay injected by repo-cell so the serving surface keeps consuming
+ * the canonical kernel definitions directly.
+ */
+export interface TaskQueryReadModel {
+  readonly relationGraph: () => DaemonGuiReadResultForRelationGraph;
+  readonly relationGraphPage: (query: TaskRelationQuery) => DaemonGuiReadResultForRelationGraph;
+  readonly guiTasks: (query?: TaskProjectionListQuery) => DaemonTaskSnapshotListResult;
+}
+export interface TaskQueryJudgments { readonly closeout: typeof closeoutReadiness; readonly blocking: typeof blockingOf }
+type DaemonGuiReadResultForRelationGraph = import("./protocol/daemon-protocol.contract.ts").DaemonGuiReadResultMap["repo.triadic.relationGraph"];
+export function makeTaskQueryReadModel(input: { readonly rootDir: CanonicalRoot; readonly projection: TaskProjection; readonly judgments: TaskQueryJudgments }): TaskQueryReadModel {
+  const { rootDir, projection, judgments } = input, closeout = judgments.closeout, blocking = judgments.blocking;
+  function relationGraph(): DaemonGuiReadResultForRelationGraph { return relationGraphFrom(readRelationGraphProjection({ rootDir })); }
+  function relationGraphFrom(materialized: ReturnType<typeof readRelationGraphProjection>): DaemonGuiReadResultForRelationGraph {
+    const decisions = projection.readDecisionGraph(), facts = projection.readFactGraph(), taskRelations = projection.readTaskRelations(), eventTruthReady = decisions.status === "ready" && facts.status === "ready" && taskRelations.status === "ready";
+    if (!eventTruthReady) {
+      const warning = { code: "relation_truth_unavailable" as const, source: "generated-cache" as const, severity: "hard-fail" as const, message: "Event-backed relation truth has not reached the canonical source revision.", repairHint: "Retry after the rebuild projection catches up." };
+      return { ok: true, ...withoutTaskRows(materialized), warnings: materialized.warnings.some(({ code }) => code === warning.code) ? materialized.warnings : [...materialized.warnings, warning] };
+    }
+    const eventCoverage = decisions.coverageRows.map((row) => ({ ...row, fulfillment: row.fulfillment === "standing_policy" ? "standing-policy" as const : row.fulfillment }));
+    const eventFacts = facts.facts.map((row) => ({ schema: "task-fact-row/v1" as const, ref: row.ref, taskId: row.taskId, factId: row.factId, statement: row.statement, source: row.evidenceSource, observedAt: row.observedAt, confidence: row.confidence, memoryClass: row.memoryClass, memoryTags: row.memoryTags, provenance: row.provenance, liveness: row.state }));
+    return { ok: true, edges: mergeRows(materialized.edges, [...taskRelations.rows, ...decisions.edges, ...facts.edges], (row) => row.relationId), coverageRows: mergeRows(materialized.coverageRows, eventCoverage, (row) => row.claimRef), factAnchors: mergeRows(materialized.factAnchors, facts.factAnchors, (row) => row.factRef), facts: mergeRows(materialized.facts, eventFacts, (row) => row.ref),
+      // #1542: the merge above already answers this read from event-backed truth, so an
+      // unmaterialized `projections.sqlite` generated cache is not a gap in what was served
+      // and must not stand as a permanent hard-fail warning on every otherwise-healthy read.
+      warnings: materialized.warnings.filter((warning) => !(warning.source === "generated-cache" && warning.code === "relation_truth_unavailable")) };
+  }
+  function guiTasks(query: TaskProjectionListQuery = {}): DaemonTaskSnapshotListResult {
+    const lifecycle = projection.list(query), narrow = hasNarrowFacet(query), materialized = narrow ? null : readRelationGraphProjection({ rootDir }), l2 = new Map((materialized?.taskRows ?? []).map((row) => [row.taskId, row])), graph = narrow ? null : relationGraphFrom(materialized!), graphWarnings = graph?.warnings ?? [], hardWarnings = graphWarnings.filter(({ severity }) => severity === "hard-fail").map(({ message }) => message), context = narrow ? narrowTaskContext(lifecycle.rows.map(({ taskId }) => taskId)) : null, edges = context?.decisionEdges ?? projection.readDecisionGraph().edges, activeDerives = new Map<string, typeof edges>();
+    for (const edge of edges) if (edge.state === "active" && edge.direction === "directed" && edge.relationType === "derives") activeDerives.set(edge.targetRef, [...activeDerives.get(edge.targetRef) ?? [], edge]);
+    const blockingTasks = context?.taskStatuses ?? lifecycle.rows.flatMap((row) => row.snapshot.task ? [{ taskId: row.taskId, status: row.snapshot.task.status }] : []);
+    const blockingEdges = context?.blockingEdges ?? graph!.edges;
+    const blockingRows = new Map(blocking(blockingTasks, blockingEdges, { state: hardWarnings.length ? "error" : "ready", hardFailWarnings: hardWarnings }).map((row) => [row.taskId, row]));
+    const decisions = context?.decisions ?? new Map(projection.listDecisions({}).decisions.map((row) => [row.decisionId, row]));
+    return { ok: true, ...lifecycle, rows: lifecycle.rows.map((row) => { const source = l2.get(row.taskId), task = row.snapshot.task, metadata = task?.metadata, disposition = task?.packageDisposition ?? source?.packageDisposition ?? "active", derived = activeDerives.get(`task/${row.taskId}`) ?? [], scopes = derived.flatMap((edge) => { const id = /^decision\/([^/]+)/u.exec(edge.sourceRef)?.[1]; return id ? [decisions.get(id)] : []; }).filter((value) => value !== undefined), origin: TaskPlacementSupplement["origin"] = source?.source === "external-engine" ? "external" : disposition !== "active" ? "archival" : "native", placement: TaskPlacementSupplement = { moduleKeys: [...new Set([metadata?.moduleKey, source?.moduleKey, ...scopes.flatMap((scope) => scope.appliesTo.modules)].filter((value): value is string => !!value))].sort(), productLines: [...new Set(scopes.flatMap((scope) => scope.appliesTo.productLines))].sort(), parentTaskId: metadata?.parentTaskId ?? source?.parentTaskId ?? null, origin, engine: source?.lifecycleEngine ?? "kernel/task-lifecycle/v1", packageDisposition: disposition, provenance: [...(source ? [{ kind: "l2" as const, ref: source.sourcePath }] : [{ kind: "canonical-event" as const, ref: `task/${row.taskId}` }]), ...derived.map((edge) => ({ kind: "decision-relation" as const, ref: edge.relationId }))] }, snapshotAvailability = { consents: "known" as const, codeDocWitnesses: "known" as const, gateWitnesses: "known" as const }; return { ...row, snapshotAvailability, closeoutAssessment: closeout(row.snapshot, snapshotAvailability), blockingAssessment: blockingRows.get(row.taskId) ?? { taskId: row.taskId, state: "unknown", blockers: [], warnings: ["task snapshot missing from blocking judgment"] }, placement, executionEvidence: row.snapshot.executions.map((execution) => projectExecutionEvidence(row.taskId, execution, origin)) }; }) };
+  }
+  function narrowTaskContext(taskIds: readonly string[]) {
+    const blockingEdges = new Map<string, TaskRelationProjectionRead["rows"][number]>(), decisionEdges = new Map<string, TaskRelationProjectionRead["rows"][number]>(), statusIds = new Set(taskIds), queue = taskIds.map((taskId) => `task/${taskId}`), visited = new Set<string>();
+    while (queue.length) {
+      const sourceRef = queue.shift()!;
+      if (visited.has(sourceRef)) continue;
+      visited.add(sourceRef);
+      for (const edge of projection.readRelationQuery({ source: sourceRef }).rows) if (edge.relationType === "depends-on") { blockingEdges.set(edge.relationId, edge); const targetId = /^task\/([^/]+)$/u.exec(edge.targetRef)?.[1]; if (targetId) { statusIds.add(targetId); queue.push(edge.targetRef); } }
+    }
+    for (const taskId of taskIds) for (const edge of projection.readRelationQuery({ target: `task/${taskId}` }).rows) if (edge.relationType === "derives") decisionEdges.set(edge.relationId, edge);
+    const decisions = new Map<string, NonNullable<ReturnType<typeof projection.readDecision>["decision"]>>();
+    for (const edge of decisionEdges.values()) { const decisionId = /^decision\/([^/]+)/u.exec(edge.sourceRef)?.[1]; if (decisionId && !decisions.has(decisionId)) { const row = projection.readDecision(decisionId).decision; if (row) decisions.set(decisionId, row); } }
+    const taskStatuses = projection.readTaskStatuses([...statusIds]).rows.flatMap((row) => row.status === null ? [] : [{ taskId: row.taskId, status: row.status }]);
+    return { blockingEdges: [...blockingEdges.values()], decisionEdges: [...decisionEdges.values()], decisions, taskStatuses };
+  }
+  /**
+   * Narrow relation graph read: one indexed page of converged event-backed
+   * edges plus only the fact anchors and rows those edges touch, and coverage
+   * rows restricted to the decisions the page references. Explicitly scoped to
+   * event-backed truth — authored-L1 edges that exist only in the unmaterialized
+   * markdown-side cache appear in the unparameterized converged read, not here.
+   */
+  function relationGraphPage(query: TaskRelationQuery): DaemonGuiReadResultForRelationGraph {
+    const page: TaskRelationProjectionRead = projection.readRelationQuery(query), refs = new Set(page.rows.flatMap((edge) => [edge.sourceRef, edge.targetRef])), factRefs = [...refs].filter((ref) => ref.startsWith("fact/")), facts = projection.searchFacts({ refs: factRefs }), factAnchors = projection.readFactAnchors(factRefs), decisionRefs = [...refs].filter((ref) => ref.startsWith("decision/")), decisions = decisionRefs.length === 0 ? { coverageRows: [] } : projection.readDecisionGraph(), coverageRows = decisions.coverageRows.filter((row) => decisionRefs.some((ref) => row.decisionRef === ref || row.claimRef === ref));
+    return { ok: true, edges: page.rows, coverageRows: coverageRows.map((row) => ({ ...row, fulfillment: row.fulfillment === "standing_policy" ? "standing-policy" as const : row.fulfillment })), factAnchors: factAnchors.rows, facts: facts.facts.map((row) => ({ schema: "task-fact-row/v1" as const, ref: row.ref, taskId: row.taskId, factId: row.factId, statement: row.statement, source: row.evidenceSource, observedAt: row.observedAt, confidence: row.confidence, memoryClass: row.memoryClass, memoryTags: row.memoryTags, provenance: row.provenance, liveness: row.state })), warnings: [], ...(page.page ? { page: page.page } : {}) };
+  }
+  return Object.freeze({ relationGraph, relationGraphPage, guiTasks });
+}
+function mergeRows<A>(materialized: readonly A[], eventRows: readonly A[], key: (row: A) => string): readonly A[] { const rows = new Map(materialized.map((row) => [key(row), row])); for (const row of eventRows) rows.set(key(row), row); return [...rows.values()].sort((left, right) => key(left).localeCompare(key(right))); }
+function hasNarrowFacet(query: TaskProjectionListQuery): boolean { return query.status !== undefined || query.updatedAfter !== undefined || query.updatedBefore !== undefined || query.limit !== undefined || query.cursor !== undefined; }
+function withoutTaskRows(value: ReturnType<typeof readRelationGraphProjection>): Omit<ReturnType<typeof readRelationGraphProjection>, "taskRows"> { const { taskRows: _taskRows, ...rest } = value; return rest; }
+function evidenceSubstrate(locator: string): "repository-path" | "uri" | "canonical-event" | "opaque" { if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(locator)) return "uri"; if (locator.startsWith("event:")) return "canonical-event"; if (!path.isAbsolute(locator) && !locator.split("/").includes("..") && /^[A-Za-z0-9._/-]+$/u.test(locator)) return "repository-path"; return "opaque"; }
+function projectExecutionEvidence(taskId: string, execution: ProjectedExecution, taskOrigin: TaskPlacementSupplement["origin"]): ExecutionEvidenceProjection { if (execution.schema === "archived-execution/v1") return { executionId: execution.executionId, origin: "archival", outputs: execution.outputs.map((output, index) => ({ evidenceId: `evidence_${createHash("sha256").update(`${taskId}\0${execution.executionId}\0${index}\0${output.migratedFrom}`).digest("hex").slice(0, 24)}`, locator: output.locator, substrate: output.substrate, checkerReceiptRef: output.checkerReceiptRef, checkerResult: output.checkerResult })) }; return { executionId: execution.executionId, origin: taskOrigin === "archival" ? "archival" : "native", outputs: (execution.submission?.outputs ?? []).map((locator, index) => ({ evidenceId: `evidence_${createHash("sha256").update(`${taskId}\0${execution.executionId}\0${index}\0${locator}`).digest("hex").slice(0, 24)}`, locator, substrate: evidenceSubstrate(locator), checkerReceiptRef: null, checkerResult: "unknown" })) }; }

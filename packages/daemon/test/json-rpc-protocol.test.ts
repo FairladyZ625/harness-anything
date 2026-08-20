@@ -124,8 +124,22 @@ test("replay receipts report the current canonical cut instead of scanning for f
 test("relation graph contract accepts the materialized ledger row schema and rejects malformed rows", () => {
   const payload = { ok: true, edges: [{ relationId: "rel_real", sourceRef: "decision/dec_REAL/C1", targetRef: "fact/task_REAL/F-REAL", relationType: "evidenced-by", direction: "directed", strength: "strong", origin: "declared", state: "active", rationale: "Observed.", ownerRef: "decision/dec_REAL", sourcePath: "harness/decisions/decision-dec_REAL/decision.md", recordIndex: 0 }], coverageRows: [{ decisionRef: "decision/dec_REAL", claimRef: "decision/dec_REAL/C1", status: "covered", fulfillment: "standing-policy", relationPath: ["rel_real"] }], factAnchors: [{ factRef: "fact/task_REAL/F-REAL", taskId: "task_REAL", factId: "F-REAL", sourcePath: "harness/tasks/task_REAL/facts.md" }], facts: [{ schema: "task-fact-row/v1", ref: "fact/task_REAL/F-REAL", taskId: "task_REAL", factId: "F-REAL", statement: "Real observation.", source: "harness/tasks/task_REAL/facts.md", observedAt: "2026-08-14T00:00:00.000Z", confidence: "high", memoryClass: "semantic", memoryTags: [], provenance: [], liveness: "standing" }], warnings: [] };
   assert.deepEqual(validateDaemonRelationGraph(payload), []);
+  assert.deepEqual(validateDaemonRelationGraph({ ...payload, page: { limit: 25, cursor: null, nextCursor: "WyJyZWxfcmVhbCJd" } }), []);
+  assert.deepEqual(validateDaemonRelationGraph({ ...payload, page: { limit: 0, cursor: null, nextCursor: null } }), ["daemon relation graph is invalid"]);
   assert.deepEqual(validateDaemonRelationGraph({ ...payload, coverageRows: [{ ...payload.coverageRows[0], fulfillment: "standing_policy" }] }), ["daemon relation graph is invalid"]);
   const { observedAt: _observedAt, ...missingObservedAt } = payload.facts[0]; assert.deepEqual(validateDaemonRelationGraph({ ...payload, facts: [missingObservedAt] }), ["daemon relation graph is invalid"]);
+});
+
+test("wide GUI read contracts accept only their explicit narrow and page facets", () => {
+  const task = (payload: Record<string, unknown>) => parseDaemonRpcParams("repo.tasks.list", { repo: { repoId: "alpha" }, payload });
+  const graph = (payload: Record<string, unknown>) => parseDaemonRpcParams("repo.triadic.relationGraph", { repo: { repoId: "alpha" }, payload });
+  assert.equal(task({ status: "blocked", updatedAfter: "2026-08-01T00:00:00.000Z", updatedBefore: "2026-08-31T00:00:00.000Z", limit: 25, cursor: "WyJ0YXNrLTEiXQ" }).ok, true);
+  assert.equal(graph({ status: "edge_retired", limit: 25 }).ok, true);
+  assert.equal(task({ status: "edge_retired" }).ok, false);
+  assert.equal(graph({ status: "blocked" }).ok, false);
+  assert.equal(task({ limit: 0 }).ok, false);
+  assert.equal(graph({ updatedAfter: "later", updatedBefore: "earlier" }).ok, false);
+  assert.equal(task({ unexpected: true }).ok, false);
 });
 
 test("preset process RPC enforces object inputs and keeps status closed", () => {
@@ -174,6 +188,8 @@ test("GUI command receipts and task supplements reject unknown, missing, and mis
   assert.deepEqual(validateDaemonTaskSnapshotList(old), []); assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...old, rows: [{ ...old.rows[0]!, unknown: true }] }), []); const { placement: _placement, ...withoutPlacement } = old.rows[0]!; assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...old, rows: [withoutPlacement] }), []); assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...old, rows: [{ ...old.rows[0]!, executionEvidence: [{ executionId: 1, origin: "native", outputs: [] }] }] }), []);
   const metadata = { idempotencyKey: null, parentTaskId: null, workKind: "feat", riskTier: "medium", urgency: "high", verticalId: "software/coding", presetId: "standard-task", profileId: "default", moduleKey: "daemon", slug: "current-task", surfaces: ["cli"], longRunning: false, fromLegacyId: null }, relation = { relation_id: "rel_0123456789abcdef", source: "task/task-current", target: "task/task-old", type: "depends-on", strength: "strong", direction: "directed", origin: "declared", rationale: "Required first", state: "active" }, currentTask = { schema: "task/v1", taskId: "task-current", title: "Current task", taskClass: "standard", status: "blocked", graph: {}, currentNode: "implementation", iteration: 0, createdBy: { principal: { personId: "person-owner" }, executor: null }, completionGateIds: [], presetSnapshotDigest: null, metadata, relations: [relation], packageDisposition: "archived", supersededBy: "task-next", contractVersion: 1 }, current = { ...old, rows: [{ ...old.rows[0]!, taskId: "task-current", snapshot: { ...old.rows[0]!.snapshot, task: currentTask } }] };
   assert.deepEqual(validateDaemonTaskSnapshotList(current), []); assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...current, rows: [{ ...current.rows[0]!, snapshot: { ...current.rows[0]!.snapshot, task: { ...currentTask, metadata: { ...metadata, unknown: true } } } }] }), []);
+  assert.deepEqual(validateDaemonTaskSnapshotList({ ...current, page: { limit: 25, cursor: null, nextCursor: "WyJ0YXNrLWN1cnJlbnQiXQ" } }), []);
+  assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...current, page: { limit: 501, cursor: null, nextCursor: null } }), []);
 });
 
 test("repo-bound ledger commit rejects cross-repo SHA", () => {

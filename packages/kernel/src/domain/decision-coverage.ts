@@ -1,5 +1,3 @@
-import { factLiveness } from "./fact-liveness.ts";
-
 export interface CoverageDecision {
   readonly ref: string;
   readonly state: string;
@@ -13,11 +11,14 @@ export interface CoverageResult { readonly decisionRef: string; readonly claimRe
 
 /** The one claim-coverage judgment shared by event projection and cold rebuild. */
 export function coverageOf(decisions: readonly CoverageDecision[], facts: readonly { readonly ref: string }[], tasks: readonly CoverageTask[], relations: readonly CoverageRelation[]): readonly CoverageResult[] {
-  const active = relations.filter(({ state }) => state === "active"), live = new Set(facts.filter((fact) => factLiveness(fact, active) === "standing").map(({ ref }) => ref)), done = new Set(tasks.filter(({ status }) => status === "done").map(({ ref }) => ref)), bySource = new Map<string, CoverageRelation[]>();
-  for (const edge of active) bySource.set(edge.sourceRef, [...bySource.get(edge.sourceRef) ?? [], edge]);
+  const active = relations.filter(({ state }) => state === "active"), superseded = new Set(active.filter(({ relationType }) => relationType === "supersedes-fact").map(({ targetRef }) => targetRef)), live = new Set(facts.filter(({ ref }) => !superseded.has(ref)).map(({ ref }) => ref)), done = new Set(tasks.filter(({ status }) => status === "done").map(({ ref }) => ref)), bySource = new Map<string, CoverageRelation[]>(), refutingBySource = new Map<string, { readonly edge: CoverageRelation; readonly index: number }[]>();
+  for (const [index, edge] of active.entries()) {
+    bySource.set(edge.sourceRef, [...bySource.get(edge.sourceRef) ?? [], edge]);
+    if (edge.relationType === "refuted-by") refutingBySource.set(edge.sourceRef, [...refutingBySource.get(edge.sourceRef) ?? [], { edge, index }]);
+  }
   const rows: CoverageResult[] = [];
   for (const decision of decisions) for (const claim of decision.claims.filter(({ loadBearing }) => loadBearing)) {
-    const fulfillment = claim.fulfillment === "standing_policy" ? "standing-policy" : claim.fulfillment, refutingFactRefs = active.filter((edge) => edge.relationType === "refuted-by" && (edge.sourceRef === decision.ref || edge.sourceRef === claim.ref) && live.has(edge.targetRef)).map(({ targetRef }) => targetRef), result = coveragePath(decision, claim.ref, fulfillment, bySource, live, done);
+    const fulfillment = claim.fulfillment === "standing_policy" ? "standing-policy" : claim.fulfillment, sources = decision.ref === claim.ref ? [decision.ref] : [decision.ref, claim.ref], refutingFactRefs = sources.flatMap((source) => refutingBySource.get(source) ?? []).sort((left, right) => left.index - right.index).filter(({ edge }) => live.has(edge.targetRef)).map(({ edge }) => edge.targetRef), result = coveragePath(decision, claim.ref, fulfillment, bySource, live, done);
     rows.push({ decisionRef: decision.ref, claimRef: claim.ref, status: refutingFactRefs.length === 0 && result.covered ? "covered" : "uncovered", fulfillment, ...(result.coveringFactRef ? { coveringFactRef: result.coveringFactRef } : {}), refutingFactRefs, relationPath: result.path });
   }
   return rows;

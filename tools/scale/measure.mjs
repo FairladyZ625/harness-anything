@@ -3,29 +3,33 @@
 /**
  * Scale fixture measurement harness for B2/B3/B5/B6.
  *
- * This intentionally measures the file-backed fixture directly. B2 is a
- * replay-shaped reducer (not a claim that it is the daemon's private
- * implementation), B3's git count is an instrumented hash-object subprocess
- * proxy, and B5 queries use the same authored files/events that a cold reader
- * has to inspect. The report keeps those boundaries explicit.
+ * This intentionally measures the file-backed fixture directly for B2 (a
+ * replay-shaped reducer, not a claim that it is the daemon's private
+ * implementation) and B3 (an instrumented hash-object subprocess proxy).
+ * B5 instead builds a canonical event ledger from the fixture's entity counts
+ * and measures the daemon's real read model through the real task projection
+ * cold catch-up (tools/scale/b5-real.mjs); the report keeps those boundaries
+ * explicit.
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, openSync, closeSync, fsyncSync, unlinkSync } from "node:fs";
-import { join, resolve, relative, basename } from "node:path";
+import { join, resolve, relative } from "node:path";
 import { availableParallelism, cpus, freemem, loadavg, totalmem } from "node:os";
 import { spawnSync } from "node:child_process";
 import { performance } from "node:perf_hooks";
+import { measureB5Real } from "./b5-real.mjs";
 
 function parseArgs(argv) {
-  const result = { fixtures: [], rounds: 2, jsonOut: null, markdownOut: null, hotSamples: 100, sections: new Set(["b2", "b3", "b5", "b6"]) };
+  const result = { fixtures: [], rounds: 2, jsonOut: null, markdownOut: null, reportFile: null, hotSamples: 100, sections: new Set(["b2", "b3", "b5", "b6"]) };
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
-    if (key === "--help" || key === "-h") { console.log("Usage: node tools/scale/measure.mjs --fixtures PATH[,PATH] [--rounds 2] [--json-out PATH] [--markdown-out PATH]"); process.exit(0); }
+    if (key === "--help" || key === "-h") { console.log("Usage: node tools/scale/measure.mjs --fixtures PATH[,PATH] [--rounds 2] [--json-out PATH] [--markdown-out PATH] [--report-file PATH]"); process.exit(0); }
     const value = argv[++i];
     if (key === "--fixtures" || key === "--fixture") result.fixtures.push(...value.split(",").filter(Boolean));
     else if (key === "--rounds") result.rounds = Number(value);
     else if (key === "--json-out") result.jsonOut = value;
     else if (key === "--markdown-out") result.markdownOut = value;
+    else if (key === "--report-file") result.reportFile = value;
     else if (key === "--hot-samples") result.hotSamples = Number(value);
     else if (key === "--sections") result.sections = new Set(value.split(",").filter(Boolean));
     else throw new Error(`Unknown option: ${key}`);
@@ -110,27 +114,6 @@ function hotWrite(fixture, paths, samples) {
   return { samples, gitSubprocesses: subprocesses, gitSubprocessesPerEvent: subprocesses / samples, hotWriteLatencyMs: stats(latencies), instrument: "one git hash-object subprocess per sampled event; commit-per-event is a proxy, not daemon internals" };
 }
 
-function queryMeasurements(fixture, files) {
-  const taskIndexes = files.filter((path) => path.endsWith("/INDEX.md") && path.includes(`${join("harness", "tasks")}/`));
-  const factFiles = files.filter((path) => path.endsWith("/fact.md"));
-  const events = eventPaths(fixture, files);
-  const taskLatencies = [], factLatencies = [], graphLatencies = [];
-  for (let round = 0; round < 10; round += 1) {
-    let start = performance.now();
-    const taskRows = taskIndexes.map((path) => { const text = readFileSync(path, "utf8"); return { path, title: text.match(/^# (.+)$/m)?.[1] ?? basename(path) }; });
-    taskLatencies.push(elapsed(start));
-    start = performance.now();
-    const matches = factFiles.filter((path) => readFileSync(path, "utf8").includes("fixture fact")).length;
-    factLatencies.push(elapsed(start));
-    start = performance.now();
-    const edges = [];
-    for (const path of events) { const event = JSON.parse(readFileSync(path, "utf8")); if (event.payload?.relation) edges.push([event.payload.relation, event.taskId]); }
-    graphLatencies.push(elapsed(start));
-    if (round === 9 && (taskRows.length === 0 || matches < 0 || edges.length < 0)) throw new Error("query sentinel failed");
-  }
-  return { taskList: { rows: taskIndexes.length, ...stats(taskLatencies) }, factSearch: { files: factFiles.length, ...stats(factLatencies) }, relationGraph: { events: events.length, ...stats(graphLatencies) } };
-}
-
 function distribution(fixture, files) {
   const top = new Map();
   const eventDirs = new Map();
@@ -153,11 +136,13 @@ async function measureFixture(fixture, rounds, hotSamples, sections) {
     const before = loadSnapshot();
     const b2 = sections.has("b2") ? await rebuild(root, files) : null;
     const b3 = sections.has("b3") ? hotWrite(root, events, hotSamples) : null;
-    const b5 = sections.has("b5") ? queryMeasurements(root, files) : null;
     const after = loadSnapshot();
-    roundResults.push({ round: round + 1, loadBefore: before, loadAfter: after, b2, b3, b5, b6: sections.has("b6") ? distribution(root, files) : null });
+    roundResults.push({ round: round + 1, loadBefore: before, loadAfter: after, b2, b3, b6: sections.has("b6") ? distribution(root, files) : null });
   }
-  return { fixture: root, metadata: meta, rounds: roundResults };
+  // B5 runs once per fixture: the canonical ledger build is expensive, and the
+  // real read model is sampled inside measureB5Real (rounds x 10 samples/query).
+  const b5Real = sections.has("b5") ? await measureB5Real({ fixture: root, rounds }) : null;
+  return { fixture: root, metadata: meta, rounds: roundResults, b5Real };
 }
 
 function average(results, section, field) {
@@ -174,20 +159,25 @@ function fmt(value, digits = 2) { return typeof value === "number" ? value.toFix
 
 function markdown(report) {
   const lines = [];
-  lines.push("# PLT-Scale W1 基线测量（B2/B3/B5/B6）", "", `生成时间：${report.generatedAt}`, "", "## 测量口径", "", "- 每个 fixture 连续测量两遍；每遍记录开始/结束时的 loadavg、CPU 与可用内存。运行期间同机存在其他 worker，故数值只作同机对比，不作跨机器绝对 SLO。", "- B2 是事件 JSON 全量扫描 + 内存 reducer 的冷启动近似，报告 wall clock 与采样到的 RSS 峰值；不是 daemon 私有实现的直接调用。", "- B3 热写使用 fsync 文件写 + 每个样本一个 `git hash-object --stdin` 子进程，子进程数是可复核的 instrument proxy，不冒充 commit 内部计数。", "- B5 在 authored task/fact 文件和事件上执行 task list、fact search、relation graph 宽查询，各 10 次取 p50/p95。", "- B6 统计实际文件数、events 两位十六进制目录 fan-out。", "");
+  lines.push("# PLT-Scale W1 基线测量（B2/B3/B5/B6）", "", `生成时间：${report.generatedAt}`, "", "## 测量口径", "", "- 每个 fixture 连续测量两遍；每遍记录开始/结束时的 loadavg、CPU 与可用内存。运行期间同机存在其他 worker，故数值只作同机对比，不作跨机器绝对 SLO。", "- B2 是事件 JSON 全量扫描 + 内存 reducer 的冷启动近似，报告 wall clock 与采样到的 RSS 峰值；不是 daemon 私有实现的直接调用。", "- B3 热写使用 fsync 文件写 + 每个样本一个 `git hash-object --stdin` 子进程，子进程数是可复核的 instrument proxy，不冒充 commit 内部计数。", "- B5 从 fixture 实体数合成 canonical 事件账本，经真实 task 投影冷追平后，用 daemon 读模型实测 task list / fact search / relation graph（无参 + 窄查询 + 分页），每查询每轮 10 次取 p50/p95（tools/scale/b5-real.mjs）。", "- B6 统计实际文件数、events 两位十六进制目录 fan-out。", "");
   lines.push("## 结果摘要", "", "| 档位（主 task 数） | 事件数 | B2 冷重建 ms（两遍均值） | B2 RSS 峰值 MB（最大） | B3 git 子进程/样本 | B3 热写 p95 ms（均值） | B5 task p95 ms | B5 fact p95 ms | B5 graph p95 ms | B6 文件数 |", "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|");
   for (const item of report.fixtures) {
     const rounds = item.rounds;
     const peakRss = meanRound(rounds, (r) => r.b2?.peakRssMb);
-    lines.push(`| ${item.metadata.primaryTaskCount.toLocaleString()} | ${item.metadata.eventCount.toLocaleString()} | ${fmt(average(item, "b2", "wallClockMs"), 1)} | ${fmt(peakRss, 1)} | ${fmt(average(item, "b3", "gitSubprocessesPerEvent"), 1)} | ${fmt(meanRound(rounds, (r) => r.b3?.hotWriteLatencyMs.p95Ms))} | ${fmt(meanRound(rounds, (r) => r.b5?.taskList.p95Ms))} | ${fmt(meanRound(rounds, (r) => r.b5?.factSearch.p95Ms))} | ${fmt(meanRound(rounds, (r) => r.b5?.relationGraph.p95Ms))} | ${rounds[0].b6?.totalFiles?.toLocaleString() ?? "—"} |`);
+    lines.push(`| ${item.metadata.primaryTaskCount.toLocaleString()} | ${item.metadata.eventCount.toLocaleString()} | ${fmt(average(item, "b2", "wallClockMs"), 1)} | ${fmt(peakRss, 1)} | ${fmt(average(item, "b3", "gitSubprocessesPerEvent"), 1)} | ${fmt(meanRound(rounds, (r) => r.b3?.hotWriteLatencyMs.p95Ms))} | ${fmt(item.b5Real?.measurements.taskList?.p95Ms)} | ${fmt(item.b5Real?.measurements.factSearch?.p95Ms)} | ${fmt(item.b5Real?.measurements.relationGraph?.p95Ms)} | ${rounds[0].b6?.totalFiles?.toLocaleString() ?? "—"} |`);
   }
   lines.push("", "## 分档明细", "");
   for (const item of report.fixtures) {
-    lines.push(`### ${item.metadata.primaryTaskCount.toLocaleString()} tasks`, "", `fixture: \`${item.fixture}\`; seed: \`${item.metadata.seed}\`; facts: ${item.metadata.factCount.toLocaleString()}; decisions: ${item.metadata.decisionCount.toLocaleString()}; events: ${item.metadata.eventCount.toLocaleString()}.`, "", "| 轮次 | load1 前/后 | B2 ms | B2 RSS MB | B3 git 子进程 | B3 hot p50/p95 ms | B5 task p95 | B5 fact p95 | B5 graph p95 | B6 文件数 |", "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|");
-    for (const round of item.rounds) lines.push(`| ${round.round} | ${round.loadBefore.load1}/${round.loadAfter.load1} | ${fmt(round.b2?.wallClockMs, 1)} | ${fmt(round.b2?.peakRssMb, 1)} | ${round.b3?.gitSubprocesses ?? "—"} | ${fmt(round.b3?.hotWriteLatencyMs.p50Ms)}/${fmt(round.b3?.hotWriteLatencyMs.p95Ms)} | ${fmt(round.b5?.taskList.p95Ms)} | ${fmt(round.b5?.factSearch.p95Ms)} | ${fmt(round.b5?.relationGraph.p95Ms)} | ${round.b6?.totalFiles?.toLocaleString() ?? "—"} |`);
+    lines.push(`### ${item.metadata.primaryTaskCount.toLocaleString()} tasks`, "", `fixture: \`${item.fixture}\`; seed: \`${item.metadata.seed}\`; facts: ${item.metadata.factCount.toLocaleString()}; decisions: ${item.metadata.decisionCount.toLocaleString()}; events: ${item.metadata.eventCount.toLocaleString()}.`, "");
+    if (item.b5Real) {
+      lines.push("", `B5 real path: ledger build ${fmt(item.b5Real.ledger.buildMs, 0)}ms for ${item.b5Real.ledger.events.toLocaleString()} canonical events; narrow supported: ${item.b5Real.ledger.narrowSupported}; unparameterized digest \`${item.b5Real.unparameterizedResultDigest}\`.`, "", "| B5 real query | p50 ms | p95 ms |", "|---|---:|---:|");
+      for (const [label, value] of Object.entries(item.b5Real.measurements)) if (value) lines.push(`| ${label} | ${fmt(value.p50Ms)} | ${fmt(value.p95Ms)} |`);
+    }
+    lines.push("", "| 轮次 | load1 前/后 | B2 ms | B2 RSS MB | B3 git 子进程 | B3 hot p50/p95 ms | B5 task p95 | B5 fact p95 | B5 graph p95 | B6 文件数 |", "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|");
+    for (const round of item.rounds) lines.push(`| ${round.round} | ${round.loadBefore.load1}/${round.loadAfter.load1} | ${fmt(round.b2?.wallClockMs, 1)} | ${fmt(round.b2?.peakRssMb, 1)} | ${round.b3?.gitSubprocesses ?? "—"} | ${fmt(round.b3?.hotWriteLatencyMs.p50Ms)}/${fmt(round.b3?.hotWriteLatencyMs.p95Ms)} | ${round.round === 1 ? fmt(item.b5Real?.measurements.taskList?.p95Ms) : "—"} | ${round.round === 1 ? fmt(item.b5Real?.measurements.factSearch?.p95Ms) : "—"} | ${round.round === 1 ? fmt(item.b5Real?.measurements.relationGraph?.p95Ms) : "—"} | ${round.b6?.totalFiles?.toLocaleString() ?? "—"} |`);
     lines.push("", `events fan-out: ${item.rounds[0].b6 ? JSON.stringify(item.rounds[0].b6.eventFilesPerDirectory) : "—"}; top-level distribution: \`${item.rounds[0].b6 ? JSON.stringify(item.rounds[0].b6.topLevelFiles) : "—"}\``, "");
   }
-  lines.push("## 按数字排的修复优先级", "", "1. **B2 投影冷重建**：优先消除全历史逐事件重放；以本表 B2 墙钟/RSS 随事件数的增长率为第一设计输入，目标是 watermark 增量追平与持久投影。", "2. **B3 写路径 git 耦合**：每个样本都产生一个可计数 git 子进程，且热写 p95 随仓增大上升；优先把权威 append log 与 git 审计物化拆开，再讨论语言替换。", "3. **B5 宽查询**：task list、fact search、relation graph 都是文件/事件全扫，p95 随 N 增长；优先增加分页/索引窄面。", "4. **B6 小文件/目录 fan-out**：events 目录被固定分成 256 桶，文件数线性增长；与 B3 一起评估分段 append/pack，避免单事件单文件。", "", "## 限制与外推", "", "- 生成器默认每 task 2.5 个事件文件，保持 1e5 档可在普通开发机运行；scale thesis 的生产假设是 25 事件/task（约高 10 倍），故事件线性结果可按事件密度乘数外推，绝对值不能直接当生产预测。", "- 本轮未修改产品代码，也没有将 fixture 放入版本库；fixture 位于 gitignore 的 `tmp/scale-fixtures/`。", "- 若某轮 load1 接近 CPU 并行度，优先重跑该档；同机 worker 负载已在每轮 JSON 中留证。", "");
+  lines.push("## 按数字排的修复优先级", "", "1. **B2 投影冷重建**：优先消除全历史逐事件重放；以本表 B2 墙钟/RSS 随事件数的增长率为第一设计输入，目标是 watermark 增量追平与持久投影。", "2. **B3 写路径 git 耦合**：每个样本都产生一个可计数 git 子进程，且热写 p95 随仓增大上升；优先把权威 append log 与 git 审计物化拆开，再讨论语言替换。", "3. **B5 宽读与窄读**：无参 task/relation/fact 结果保留兼容性；显式状态/时间窗/分页走索引窄面，继续观察窄面与宽面 p95 随 N 的增长率。", "4. **B6 小文件/目录 fan-out**：events 目录被固定分成 256 桶，文件数线性增长；与 B3 一起评估分段 append/pack，避免单事件单文件。", "", "## 限制与外推", "", "- 生成器默认每 task 2.5 个事件文件，保持 1e5 档可在普通开发机运行；scale thesis 的生产假设是 25 事件/task（约高 10 倍），故事件线性结果可按事件密度乘数外推，绝对值不能直接当生产预测。", "- 本轮未修改产品代码，也没有将 fixture 放入版本库；fixture 位于 gitignore 的 `tmp/scale-fixtures/`。", "- 若某轮 load1 接近 CPU 并行度，优先重跑该档；同机 worker 负载已在每轮 JSON 中留证。", "", "## 与 CEO 授权五点的差距清单", "", "- [x] 读 API/协议/GUI 三面接线与无参 digest 证据进入 B5。", "- [x] 真实 projection/read-model 查询路径已替代旧文件扫描 proxy。", "- [x] 分页拼接与等价 digest 证据由定向测试和 B5 输出提供。", "- [ ] test-tier manifest、定向测试与 `npm run check:local`：仓库总收口时执行。", "- [ ] 本地 commit 身份核验，且不 push/不开 PR：仓库总收口时执行。", "");
   return lines.join("\n");
 }
 
@@ -198,8 +188,9 @@ async function main() {
   const json = JSON.stringify(report, null, 2) + "\n";
   if (options.jsonOut) { mkdirSync(join(resolve(options.jsonOut), ".."), { recursive: true }); writeFileSync(resolve(options.jsonOut), json); }
   const md = markdown(report);
-  if (options.markdownOut) { mkdirSync(join(resolve(options.markdownOut), ".."), { recursive: true }); writeFileSync(resolve(options.markdownOut), md + "\n"); }
-  console.log(options.markdownOut ? `Wrote ${resolve(options.markdownOut)}` : json);
+  const reportPath = options.reportFile ?? options.markdownOut;
+  if (reportPath) { mkdirSync(join(resolve(reportPath), ".."), { recursive: true }); writeFileSync(resolve(reportPath), md + "\n"); }
+  console.log(reportPath ? `Wrote ${resolve(reportPath)}` : json);
 }
 
 try { await main(); } catch (error) { console.error(error instanceof Error ? error.stack : String(error)); process.exitCode = 1; }
