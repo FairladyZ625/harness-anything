@@ -47,6 +47,10 @@ test("agent model is optional but must be non-empty when declared", () => {
   for (const model of ["", " ", 42, []]) assert.match(validateAgentDeclarationV1({ ...agent, model }).join("\n"), /model.*non-empty string/u);
 });
 
+test("Agent skills only accept unique exact {id, path} declarations", () => {
+  for (const skills of [["review"], [{ id: "review" }], [{ id: "review", path: "skills/review" }, { id: "review", path: "skills/another-review" }]]) assert.match(validateAgentDeclarationV1({ ...agent, skills }).join("\n"), /skills.*unique \{id, path\}/u, JSON.stringify(skills));
+});
+
 test("Agent skills are references under the authored root and fail closed with repairable errors", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-skills-")), skillDir = path.join(rootDir, "harness", "skills", "review");
   try {
