@@ -332,11 +332,13 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
     // load1/parallelism read 4.225x-4.969x; 6.0x is the observed maximum plus 1.031x
     // (20.8%) safety margin. A temporary second real daemon write in the timed arm read
     // 10.494x (9.589x-11.478x), so the margin still rejects a 2x write-path regression.
-    // The acknowledged WAL is now the durability boundary, so the shadow probe must
-    // cost roughly one explicit fsync rather than accidentally falling back to page cache.
+    // The acknowledged WAL is now the durability boundary, so the shadow probe must cost
+    // the same order as an explicit fsync rather than falling back to page cache: a real
+    // fallback reads ~0.03x, while implementation differences on slow CI disks have read
+    // as low as 0.462x, so the floor sits at 0.25x to separate the two regimes.
     assert.equal(startupRatio <= 6, true,
       `thin CLI write was ${startupRatio.toFixed(3)}x a compiled CLI help no-op (paired round p50; spread ${orderedRatios[0]!.toFixed(3)}x-${orderedRatios.at(-1)!.toFixed(3)}x, write=${p50.toFixed(3)}ms, noop=${noopP50.toFixed(3)}ms)`);
-    assert.equal(shadowProbe.ratio >= 0.5 && shadowProbe.ratio <= 2.5, true,
+    assert.equal(shadowProbe.ratio >= 0.25 && shadowProbe.ratio <= 2.5, true,
       `durable WAL append was ${shadowProbe.ratio.toFixed(3)}x an explicit fsync append (WAL p50=${median(shadowProbe.shadow).toFixed(3)}ms, fsync p50=${median(shadowProbe.fsync).toFixed(3)}ms)`);
   } finally { stop(fixture.alpha, fixture.userRoot, builtCli); rmSync(fixture.root, { recursive: true, force: true }); }
 });
