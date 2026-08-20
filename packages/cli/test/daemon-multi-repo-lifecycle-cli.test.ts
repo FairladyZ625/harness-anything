@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { availableParallelism, hostname, loadavg, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rpc-client.ts";
@@ -238,38 +238,44 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
     execFileSync("npm", ["run", "build", "--workspace", "@harness-anything/cli"], { cwd: process.cwd(), stdio: "pipe" });
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"], builtCli).ok, true);
     register(fixture.alpha, fixture.userRoot, "alpha", builtCli);
-    // All three terms are measured adjacently inside one iteration, and the ratio is
-    // formed per iteration. Collecting them as three sequential batches and dividing
-    // p50 by p50 does not cancel machine speed: the batches see different moments, and
-    // the bare-spawn batch ran last, after ~22 spawns had already warmed the page cache
-    // for the Node binary, so the denominator was systematically the most favourable
-    // number in the run. That is how this gate reported 6.450x and 1.650x for the same
-    // commit with no diff (runs 32002647956 and its rerun).
-    const daemonSamples: number[] = [], cliSamples: number[] = [], bareSamples: number[] = [], ratios: number[] = [];
-    for (let index = 0; index < 11; index += 1) {
-      const daemonStarted = performance.now();
-      const response = await requestLocalDaemonJsonRpc(fixture.alpha, "repo.task.create", { repo: { repoId: "alpha" },
-        payload: { taskId: `task-daemon-latency-${index}`, title: `Daemon latency ${index}` } }, 1_000,
-      { userRoot: fixture.userRoot });
-      const daemonElapsed = performance.now() - daemonStarted;
-      assert.equal(response.ok, true, JSON.stringify(response));
-      const cliStarted = performance.now();
-      const receipt = run(fixture.alpha, fixture.userRoot,
-        ["task", "create", "--id", `task-latency-${index}`, "--admin", "--title", `Latency ${index}`], builtCli);
-      const cliElapsed = performance.now() - cliStarted;
-      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-      const bareStarted = performance.now();
-      spawnSync(process.execPath, ["-e", ""], { stdio: "ignore" });
-      const bareElapsed = performance.now() - bareStarted;
-      daemonSamples.push(daemonElapsed); cliSamples.push(cliElapsed); bareSamples.push(bareElapsed);
-      ratios.push(cliElapsed / bareElapsed);
+    // Measure adjacent CLI/bare pairs, but aggregate each arm in a short batch and
+    // alternate which arm runs first. A single scheduler pause then affects one sample,
+    // not the round's p50; taking the median of round ratios makes the gate insensitive
+    // to the busy-runner shape that produced the historical false reds. The bare spawn
+    // remains a real cost paid by every CLI invocation, so an added synchronous write
+    // cost (for example the shadow fsync regression) still moves the numerator.
+    const rounds = 5, samplesPerRound = 3, cliSamples: number[] = [], bareSamples: number[] = [], ratios: number[] = [], loadSamples: number[] = [];
+    for (let round = 0; round < rounds; round += 1) {
+      const cliRound: number[] = [], bareRound: number[] = [];
+      for (let sample = 0; sample < samplesPerRound; sample += 1) {
+        const index = round * samplesPerRound + sample;
+        const measureCli = (): void => {
+          const started = performance.now();
+          const receipt = run(fixture.alpha, fixture.userRoot,
+            ["task", "create", "--id", `task-latency-${index}`, "--admin", "--title", `Latency ${index}`], builtCli);
+          assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+          const elapsed = performance.now() - started;
+          cliSamples.push(elapsed); cliRound.push(elapsed);
+        };
+        const measureBare = (): void => {
+          const started = performance.now();
+          spawnSync(process.execPath, ["-e", ""], { stdio: "ignore" });
+          const elapsed = performance.now() - started;
+          bareSamples.push(elapsed); bareRound.push(elapsed);
+        };
+        if ((round + sample) % 2 === 0) { measureCli(); measureBare(); }
+        else { measureBare(); measureCli(); }
+      }
+      ratios.push(median(cliRound) / median(bareRound));
+      loadSamples.push(loadavg()[0] / availableParallelism());
     }
-    const p50 = median(cliSamples), daemonP50 = median(daemonSamples), bareP50 = median(bareSamples), startupRatio = median(ratios);
+    const p50 = median(cliSamples), bareP50 = median(bareSamples), startupRatio = median(ratios);
     const orderedRatios = [...ratios].sort((left, right) => left - right);
-    context.diagnostic(`latency-window=before-cli-process-spawn-through-exit-and-parsed-receipt daemon=resident samples=${cliSamples.length} p50=${p50.toFixed(3)}ms min=${Math.min(...cliSamples).toFixed(3)}ms max=${Math.max(...cliSamples).toFixed(3)}ms`);
-    context.diagnostic(`latency-segment=resident-daemon-socket-through-parsed-receipt samples=${daemonSamples.length} p50=${daemonP50.toFixed(3)}ms min=${Math.min(...daemonSamples).toFixed(3)}ms max=${Math.max(...daemonSamples).toFixed(3)}ms`);
+    context.diagnostic(`latency-window=before-cli-process-spawn-through-exit-and-parsed-receipt samples=${cliSamples.length} p50=${p50.toFixed(3)}ms min=${Math.min(...cliSamples).toFixed(3)}ms max=${Math.max(...cliSamples).toFixed(3)}ms`);
     context.diagnostic(`latency-baseline=bare-node-process-spawn samples=${bareSamples.length} p50=${bareP50.toFixed(3)}ms min=${Math.min(...bareSamples).toFixed(3)}ms max=${Math.max(...bareSamples).toFixed(3)}ms`);
-    context.diagnostic(`latency-ratio=paired-cli-over-bare-spawn samples=${ratios.length} p50=${startupRatio.toFixed(3)}x min=${orderedRatios[0]!.toFixed(3)}x max=${orderedRatios.at(-1)!.toFixed(3)}x`);
+    context.diagnostic(`latency-ratio=paired-round-cli-over-bare-spawn rounds=${ratios.length} samples-per-round=${samplesPerRound} p50=${startupRatio.toFixed(3)}x min=${orderedRatios[0]!.toFixed(3)}x max=${orderedRatios.at(-1)!.toFixed(3)}x load1-per-parallelism=${loadSamples.map((value) => value.toFixed(2)).join(",")}`);
+    const shadowProbe = JSON.parse(execFileSync(process.execPath, [path.resolve("tools/measure-p50-shadow-append.mjs")], { encoding: "utf8" })) as { shadow: number[]; fsync: number[]; ratio: number };
+    context.diagnostic(`latency-probe=shadow-append-vs-explicit-fsync samples=${shadowProbe.shadow.length} shadow-p50=${median(shadowProbe.shadow).toFixed(3)}ms fsync-p50=${median(shadowProbe.fsync).toFixed(3)}ms ratio=${shadowProbe.ratio.toFixed(3)}x`);
     // A CLI invocation costs a bare Node spawn plus the CLI's own work: loading its
     // modules, parsing, one daemon round trip, rendering. Measured against a bare spawn
     // taken immediately after it, so machine speed and load cancel within each pair — an
@@ -288,31 +294,12 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
     // not defined. Governance task task_182bb1c6068a1c36ca11c68185.
     //
     // Both terms here are real: a bare spawn is a cost every CLI run pays, so the ratio
-    // cannot go negative and cannot fall below 1. Five calibration runs on this lane, emitted
-    // from codex/gate-calibration alongside the old metric, show why this one and not
-    // cli/(bare+daemon) — which keeps the same bogus term and inherits its noise:
-    //
-    //   metric              run1   run2   run3   run4   run5   cross-run spread
-    //   (cli-daemon)/bare   4.111  3.169  4.404  4.627  4.371  46.0%
-    //   cli/bare            6.730  6.858  7.016  7.442  7.150  10.6%
-    //   cli/(bare+daemon)   1.860  1.460  1.942  1.937  1.892  33.0%
-    //
-    // Run 2 was the noisiest internally — incoherent samples where cli <= daemon went 1/11 to
-    // 2/11 and the old metric's per-sample range widened to -23.781x..11.631x — and cli/bare
-    // barely moved while the old metric crossed its own bound: same branch, same content,
-    // 3.169 passed and 4.627 failed. cli/(bare+daemon) bottomed out at 0.231x on that run.
-    //
-    // The bound is 8.6, derived rather than chosen, preserving the old design's stated intent.
-    // The old comment protected absolute added startup: (4 - 3.08) x 33.7ms bare = 31.0ms.
-    // Added cost X moves this ratio by X/bare; at the observed bare median of 26.285ms,
-    // 31.0ms of sensitivity needs 31.0/26.285 = 1.179 of headroom above the worst observed
-    // reading, so 7.442 + 1.179 = 8.6. That leaves (8.6 - 7.442) x 26.285ms = 30.4ms of added
-    // startup before it fires — the same order as the 31.0ms it replaces — and 1.156x headroom
-    // over the worst reading, tighter than the old 1.29x. The tighter headroom is affordable
-    // because this metric moves 10.6% between runs where the old one moved 46.0%; measured
-    // against its own noise it is the safer of the two.
+    // cannot go negative. The 8.6x bound is unchanged from main; batching and
+    // alternating arms provide the load headroom instead of another threshold increase.
     assert.equal(startupRatio <= 8.6, true,
-      `thin CLI startup was ${startupRatio.toFixed(3)}x a bare Node spawn (paired p50; spread ${orderedRatios[0]!.toFixed(3)}x-${orderedRatios.at(-1)!.toFixed(3)}x, cli=${p50.toFixed(3)}ms, bare=${bareP50.toFixed(3)}ms, daemon=${daemonP50.toFixed(3)}ms)`);
+      `thin CLI startup was ${startupRatio.toFixed(3)}x a bare Node spawn (paired round p50; spread ${orderedRatios[0]!.toFixed(3)}x-${orderedRatios.at(-1)!.toFixed(3)}x, cli=${p50.toFixed(3)}ms, bare=${bareP50.toFixed(3)}ms)`);
+    assert.equal(shadowProbe.ratio <= 0.5, true,
+      `shadow append was ${shadowProbe.ratio.toFixed(3)}x an explicit fsync append (shadow p50=${median(shadowProbe.shadow).toFixed(3)}ms, fsync p50=${median(shadowProbe.fsync).toFixed(3)}ms)`);
   } finally { stop(fixture.alpha, fixture.userRoot, builtCli); rmSync(fixture.root, { recursive: true, force: true }); }
 });
 
