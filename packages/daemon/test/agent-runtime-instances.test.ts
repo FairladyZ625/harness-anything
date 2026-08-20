@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -286,9 +286,96 @@ test("claude isolation defaults to the operator environment and stays enforced o
     store.create({ schemaVersion: 2, instanceId: "claude-enforced", name: "Claude Enforced", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, isolationState: "enforced", claude: {}, auth: { mode: "api-key", credentialRef: "credential:v1:claude-enforced" } });
     const isolated = store.prepareLaunch("claude-enforced", { cwd: "/workspace/repo", prompt: "Isolate" }), stateRoot = path.join(userRoot, "runtime-instances", "claude-enforced");
     assert.deepEqual(isolated.env, { PATH: "/runtime/tools", HOME: path.join(stateRoot, "home"), TMPDIR: path.join(stateRoot, "tmp"), XDG_RUNTIME_DIR: path.join(stateRoot, "run"), CLAUDE_CONFIG_DIR: path.join(stateRoot, "home", ".claude"), ANTHROPIC_API_KEY: "instance-secret" });
-    assert.throws(() => store.command({ kind: "runtime-instance-create", instanceId: "codex-operator", name: "Codex Operator", kindId: "codex", providerId: "openai", models: ["gpt-5.6-sol"], isolationState: "operator-environment", authMode: "subscription" }), (error: unknown) => codedAs(error, "invalid_runtime_isolation"));
+    const codexOperator = store.command({ kind: "runtime-instance-create", instanceId: "codex-operator", name: "Codex Operator", kindId: "codex", providerId: "openai", models: ["gpt-5.6-sol"], isolationState: "operator-environment", authMode: "subscription" }).instance as { readonly isolationState: string };
+    assert.equal(codexOperator.isolationState, "operator-environment");
+    assert.deepEqual(store.prepareLaunch("codex-operator", { cwd: "/workspace/repo", prompt: "Reuse the operator ChatGPT login" }).env, operatorEnv);
+    assert.equal(existsSync(path.join(userRoot, "runtime-instances", "codex-operator", "home")), false);
+    assert.throws(() => store.command({ kind: "runtime-instance-create", instanceId: "codex-operator-key", name: "Codex Operator Key", kindId: "codex", providerId: "openai", models: ["gpt-5.6-sol"], isolationState: "operator-environment", authMode: "api-key", credentialRef: "credential:v1:codex-operator-key" }), (error: unknown) => codedAs(error, "invalid_runtime_isolation"));
+    store.create({ schemaVersion: 2, instanceId: "codex-keyed-enforced", name: "Codex Keyed Enforced", kindId: "codex", installationId: observed.installationId, providerId: "openai", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, codex: {}, auth: { mode: "api-key", credentialRef: "credential:v1:codex-keyed-enforced" } });
+    assert.throws(() => store.command({ kind: "runtime-instance-update", instanceId: "codex-keyed-enforced", isolationState: "operator-environment" }), (error: unknown) => codedAs(error, "invalid_runtime_isolation"));
     assert.throws(() => store.command({ kind: "runtime-instance-create", instanceId: "agy-enforced", name: "AGY Enforced", kindId: "agy", providerId: "google", models: ["gemini-3.1-pro-low"], isolationState: "enforced", authMode: "subscription" }), (error: unknown) => codedAs(error, "invalid_runtime_isolation"));
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+test("enforced instances link the operator's shared provider auth while generated config stays in the state root", { skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false }, () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-shared-auth-")), operatorHome = path.join(parent, "operator"), userRoot = path.join(parent, "user"), claude = { ...observed, installationId: "claude-shared-auth", kindId: "claude" as const, executablePath: "/opt/runtime-test/claude" };
+  try {
+    mkdirSync(path.join(operatorHome, ".codex"), { recursive: true }); writeFileSync(path.join(operatorHome, ".codex", "auth.json"), `{"tokens":"operator-login"}`, { mode: 0o600 });
+    mkdirSync(path.join(operatorHome, ".claude"), { recursive: true }); writeFileSync(path.join(operatorHome, ".claude", ".credentials.json"), `{"oauth":"operator-login"}`, { mode: 0o600 });
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed, claude], env: { HOME: operatorHome, PATH: "/runtime/tools" }, subscriptionReady: () => ({ status: "ready", code: null, hint: null }) });
+    store.create({ schemaVersion: 2, instanceId: "codex-shared-auth", name: "Codex Shared Auth", kindId: "codex", installationId: observed.installationId, providerId: "openai", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, codex: {}, auth: { mode: "subscription" } });
+    const launch = store.prepareLaunch("codex-shared-auth", { cwd: "/workspace/repo", prompt: "Reuse the operator login" }), stateRoot = path.join(userRoot, "runtime-instances", "codex-shared-auth"), linkedAuth = path.join(stateRoot, "home", ".codex", "auth.json");
+    assert.equal(lstatSync(linkedAuth).isSymbolicLink(), true); assert.equal(readlinkSync(linkedAuth), path.join(operatorHome, ".codex", "auth.json"));
+    assert.equal(existsSync(path.join(stateRoot, "home", ".codex", "config.toml")), true); assert.equal(existsSync(path.join(operatorHome, ".codex", "config.toml")), false);
+    assert.equal(existsSync(path.join(operatorHome, ".codex", "skills")), false);
+    writeFileSync(linkedAuth, `{"tokens":"refreshed-through-the-instance"}`, { mode: 0o600 }); assert.equal(readFileSync(path.join(operatorHome, ".codex", "auth.json"), "utf8"), `{"tokens":"refreshed-through-the-instance"}`);
+    store.create({ schemaVersion: 2, instanceId: "claude-shared-auth", name: "Claude Shared Auth", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, isolationState: "enforced", claude: {}, auth: { mode: "subscription" } });
+    const login = store.prepareAuthCommand("claude-shared-auth", "login"), claudeCredentials = path.join(userRoot, "runtime-instances", "claude-shared-auth", "home", ".claude", ".credentials.json");
+    assert.equal(lstatSync(claudeCredentials).isSymbolicLink(), true); assert.equal(readlinkSync(claudeCredentials), path.join(operatorHome, ".claude", ".credentials.json"));
+    for (const receipt of [launch, login]) assert.doesNotMatch(JSON.stringify(receipt), /operator-login/u);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("api-key instances never receive the operator's shared provider credentials", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-api-key-no-shared-auth-")), operatorHome = path.join(parent, "operator"), userRoot = path.join(parent, "user"), claude = { ...observed, installationId: "claude-api-key-no-shared-auth", kindId: "claude" as const, executablePath: "/opt/runtime-test/claude" };
+  try {
+    mkdirSync(path.join(operatorHome, ".codex"), { recursive: true }); writeFileSync(path.join(operatorHome, ".codex", "auth.json"), `{"tokens":"operator-login"}`, { mode: 0o600 });
+    mkdirSync(path.join(operatorHome, ".claude"), { recursive: true }); writeFileSync(path.join(operatorHome, ".claude", ".credentials.json"), `{"oauth":"operator-login"}`, { mode: 0o600 });
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed, claude], env: { HOME: operatorHome, PATH: "/runtime/tools" }, resolveCredential: () => "instance-secret" });
+    store.create({ schemaVersion: 2, instanceId: "codex-api-key-isolated", name: "Codex API Key Isolated", kindId: "codex", installationId: observed.installationId, providerId: "codex_local_access", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, codex: { baseUrl: "http://127.0.0.1:1/v1" }, auth: { mode: "api-key", credentialRef: "credential:v1:codex-api-key-isolated" } });
+    const codexLaunch = store.prepareLaunch("codex-api-key-isolated", { cwd: "/workspace/repo", prompt: "Route through the broker key only" });
+    assert.equal(existsSync(path.join(userRoot, "runtime-instances", "codex-api-key-isolated", "home", ".codex", "auth.json")), false);
+    assert.match(readFileSync(path.join(codexLaunch.env.CODEX_HOME!, "config.toml"), "utf8"), /experimental_bearer_token = "instance-secret"/u);
+    assert.equal(existsSync(path.join(operatorHome, ".codex", "config.toml")), false);
+    store.create({ schemaVersion: 2, instanceId: "claude-api-key-isolated", name: "Claude API Key Isolated", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, isolationState: "enforced", claude: {}, auth: { mode: "api-key", credentialRef: "credential:v1:claude-api-key-isolated" } });
+    const claudeLaunch = store.prepareLaunch("claude-api-key-isolated", { cwd: "/workspace/repo", prompt: "Route through the broker key only" });
+    assert.equal(existsSync(path.join(userRoot, "runtime-instances", "claude-api-key-isolated", "home", ".claude", ".credentials.json")), false);
+    assert.equal(claudeLaunch.env.ANTHROPIC_API_KEY, "instance-secret");
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("a stale auth copy or wrong-target link is dropped and re-linked on the next ensure", { skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false }, () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-auth-refresh-")), operatorHome = path.join(parent, "operator"), userRoot = path.join(parent, "user");
+  try {
+    const operatorAuth = path.join(operatorHome, ".codex", "auth.json"); mkdirSync(path.dirname(operatorAuth), { recursive: true }); writeFileSync(operatorAuth, `{"tokens":"v1"}`, { mode: 0o600 });
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed], env: { HOME: operatorHome, PATH: "/runtime/tools" }, subscriptionReady: () => ({ status: "ready", code: null, hint: null }) });
+    store.create({ schemaVersion: 2, instanceId: "codex-auth-refresh", name: "Codex Auth Refresh", kindId: "codex", installationId: observed.installationId, providerId: "openai", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, codex: {}, auth: { mode: "subscription" } });
+    const instanceAuth = path.join(userRoot, "runtime-instances", "codex-auth-refresh", "home", ".codex", "auth.json");
+    rmSync(instanceAuth); writeFileSync(instanceAuth, `{"tokens":"stale-copy"}`, { mode: 0o600 });
+    writeFileSync(operatorAuth, `{"tokens":"v2"}`, { mode: 0o600 });
+    store.authStatus("codex-auth-refresh");
+    assert.equal(lstatSync(instanceAuth).isSymbolicLink(), true); assert.equal(readFileSync(instanceAuth, "utf8"), `{"tokens":"v2"}`);
+    rmSync(instanceAuth); symlinkSync(`${operatorAuth}.bak`, instanceAuth);
+    store.authStatus("codex-auth-refresh");
+    assert.equal(readlinkSync(instanceAuth), operatorAuth);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("a missing operator auth file links nothing and leaves an instance-local login in place", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-auth-absent-")), operatorHome = path.join(parent, "operator"), userRoot = path.join(parent, "user");
+  try {
+    mkdirSync(operatorHome, { recursive: true });
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed], env: { HOME: operatorHome, PATH: "/runtime/tools" }, subscriptionReady: () => ({ status: "ready", code: null, hint: null }) });
+    store.create({ schemaVersion: 2, instanceId: "codex-auth-absent", name: "Codex Auth Absent", kindId: "codex", installationId: observed.installationId, providerId: "openai", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, codex: {}, auth: { mode: "subscription" } });
+    const instanceAuth = path.join(userRoot, "runtime-instances", "codex-auth-absent", "home", ".codex", "auth.json");
+    assert.equal(existsSync(instanceAuth), false);
+    writeFileSync(instanceAuth, `{"tokens":"instance-local-login"}`, { mode: 0o600 });
+    store.authStatus("codex-auth-absent");
+    assert.equal(lstatSync(instanceAuth).isSymbolicLink(), false); assert.equal(readFileSync(instanceAuth, "utf8"), `{"tokens":"instance-local-login"}`);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("operator-environment codex mounts no skills and fails closed where harness would write into the operator home", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-codex-operator-skills-")), rootDir = path.join(parent, "repo"), skillDir = path.join(rootDir, "harness", "skills", "probe"), userRoot = path.join(parent, "user"), operatorEnv = { HOME: path.join(parent, "operator"), PATH: "/runtime/tools" };
+  try {
+    mkdirSync(skillDir, { recursive: true }); writeFileSync(path.join(skillDir, "SKILL.md"), "---\nname: probe\ndescription: Probe\n---\nPROVIDER_SKILL\n");
+    const skills = resolveAgentSkills({ rootDir, skills: [{ id: "probe", path: "skills/probe" }] }), store = openRuntimeInstanceStore({ userRoot, discover: () => [observed], env: operatorEnv, subscriptionReady: () => ({ status: "ready", code: null, hint: null }) });
+    store.create({ schemaVersion: 2, instanceId: "codex-operator-skills", name: "Codex Operator Skills", kindId: "codex", installationId: observed.installationId, providerId: "openai", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, isolationState: "operator-environment", codex: {}, auth: { mode: "subscription" } });
+    const launch = store.prepareLaunch("codex-operator-skills", { cwd: rootDir, prompt: "Plain dispatch" });
+    assert.deepEqual(launch.env, operatorEnv); assert.equal(launch.env.CODEX_HOME, undefined);
+    assert.equal(existsSync(path.join(userRoot, "runtime-instances", "codex-operator-skills", "home")), false);
+    assert.throws(() => store.prepareLaunch("codex-operator-skills", { cwd: rootDir, prompt: "Skilled dispatch", skillRoot: skills[0]!.rootDir, skills }), (error: unknown) => codedAs(error, "runtime_skill_isolation_required"));
+  } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
 test("create takes repeated models with an optional explicit default and dispatches any of them", () => {

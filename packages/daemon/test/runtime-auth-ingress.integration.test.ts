@@ -37,7 +37,7 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
   writeStub(executablePath, stubBody);
   initIngressRepo(root, uid); registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
   const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" } } as const;
-  const host = await openDaemonHost({ daemonId: "runtime-auth-ingress", userRoot, runtimeDiscover: () => [installation] });
+  const host = await openDaemonHost({ daemonId: "runtime-auth-ingress", userRoot, runtimeDiscover: () => [installation], runtimeEnv: { HOME: path.join(parent, "operator-home"), PATH: process.env.PATH ?? "" } });
   const stateRoot = path.join(userRoot, "runtime-instances", "codex-signin"), authFile = path.join(stateRoot, "home", ".codex", "auth.json");
   try {
     host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: "codex-signin", name: "Codex Sign-in", kindId: "codex", installationId: installation.installationId, providerId: "openai", models: ["gpt-5.6-sol"], authMode: "subscription" }, auth);
