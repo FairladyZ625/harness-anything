@@ -24,11 +24,13 @@ test("#1565: a daemon whose shutdown never ran still yields a successful stop re
     process.kill(pid as number, "SIGKILL");
     await waitForProcessExit(pid as number, 5_000);
     assert.equal(existsSync(daemonPidPath(fixture.userRoot, "default")), true, "an ungraceful exit leaves the pid file behind");
+    assert.equal(existsSync(daemonSingletonLockPath(fixture.userRoot, "default")), true, "an ungraceful exit leaves the singleton lock behind");
 
     const stopped = run(fixture.root, fixture.userRoot, ["daemon", "stop"]);
     assert.equal(stopped.ok, true, JSON.stringify(stopped));
     assert.notEqual(stopped.code, "daemon_stop_timeout");
     assert.equal(existsSync(daemonPidPath(fixture.userRoot, "default")), false, "stop must clear the bookkeeping it outlived");
+    assert.equal(existsSync(daemonSingletonLockPath(fixture.userRoot, "default")), false, "stop must clear the singleton lock it outlived");
   } finally { rmSync(fixture.parent, { recursive: true, force: true }); }
 });
 
@@ -57,7 +59,7 @@ test("two concurrent daemon serves yield exactly one resident daemon and one def
   } finally { stop(fixture.userRoot); cleanup(fixture.parent); }
 });
 
-test("SIGTERM during a long migration replay exits the daemon in bounded time and releases every lock", async () => {
+test("platform stop during a long migration replay exits the daemon in bounded time and releases every lock", async () => {
   const fixture = setup(), legacyRoot = path.join(fixture.parent, "legacy");
   try {
     legacyFixture(legacyRoot, 150);
@@ -68,16 +70,17 @@ test("SIGTERM during a long migration replay exits the daemon in bounded time an
     await waitForImportProgress(fixture.root, 3);
     const pid = readDaemonPid(fixture.userRoot, "default");
     assert.ok(pid, "a resident daemon pid file must exist mid-replay");
-    const termAt = Date.now();
-    process.kill(pid, "SIGTERM");
+    const stopAt = Date.now();
+    if (process.platform === "win32") assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "stop"]).ok, true, "Windows must request cooperative cleanup instead of terminating past it");
+    else process.kill(pid, "SIGTERM");
     await waitForProcessExit(pid, 20_000);
-    const exitMs = Date.now() - termAt;
+    const exitMs = Date.now() - stopAt;
     assert.ok(exitMs < 20_000, `daemon must exit in bounded time, took ${exitMs}ms`);
     const migrationResult = await closeOf(migration);
     assert.notEqual(migrationResult.code, 0, "an interrupted migration must not report success");
-    assert.equal(existsSync(daemonSingletonLockPath(fixture.userRoot, "default")), false, "SIGTERM exit must release the singleton lock");
-    assert.equal(existsSync(`${fixture.root}.harness-anything-writer.lock`), false, "SIGTERM exit must release the workspace writer lock");
-    assert.equal(existsSync(localUserDaemonEndpoint(fixture.userRoot, "default")), false, "SIGTERM exit must remove the socket");
+    assert.equal(existsSync(daemonSingletonLockPath(fixture.userRoot, "default")), false, "stop exit must release the singleton lock");
+    assert.equal(existsSync(`${fixture.root}.harness-anything-writer.lock`), false, "stop exit must release the workspace writer lock");
+    assert.equal(existsSync(localUserDaemonEndpoint(fixture.userRoot, "default")), false, "stop exit must remove the socket");
 
     // A clean restart takes the slot back over: no wedge, no stale incumbent.
     assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);

@@ -27,6 +27,7 @@ export function defaultUnixSocketPath(daemonId: string, uid = process.getuid?.()
 }
 
 export function createUnixSocketTransportServer(options: UnixSocketTransportOptions): UnixSocketTransportServer {
+  const connections = new Set<DaemonTransportConnection>();
   const endpoint = options.socketPath ?? defaultUnixSocketPath(options.daemonId);
   const server = net.createServer((socket) => {
     // Windows endpoints are named pipes, which have no filesystem owner to
@@ -50,30 +51,46 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
       authContext,
       createProtocolServer: options.createProtocolServer
     });
+    connections.add(connection);
     options.onConnection?.(connection);
-    socket.once("close", () => options.onConnectionClosed?.(connection));
+    socket.once("close", () => {
+      connections.delete(connection);
+      options.onConnectionClosed?.(connection);
+    });
   });
 
   return {
     kind: "unix-socket",
     endpoint,
     start: async () => {
-      mkdirSync(path.dirname(endpoint), { recursive: true, mode: 0o700 });
-      rmSync(endpoint, { force: true });
+      // A named pipe is not a filesystem node. In particular, path.dirname()
+      // treats its Windows spelling as a relative path on POSIX, while on
+      // Windows mkdir/rm/chmod against \\.\pipe itself are invalid.
+      if (process.platform !== "win32") {
+        mkdirSync(path.dirname(endpoint), { recursive: true, mode: 0o700 });
+        rmSync(endpoint, { force: true });
+      }
       await new Promise<void>((resolve, reject) => {
         server.once("error", reject);
         server.listen(endpoint, () => {
           server.off("error", reject);
-          chmodSync(endpoint, 0o600);
+          if (process.platform !== "win32") chmodSync(endpoint, 0o600);
           resolve();
         });
       });
     },
     stop: async () => {
+      // server.close() waits for every accepted socket, and a client holding
+      // a stream subscription never disconnects on its own. Closing each
+      // connection bounds the wait on in-flight requests -- so a write already
+      // running still gets its receipt -- and then tears the socket down, so
+      // the close callback is not held behind an unbounded request queue
+      // (notably on Windows named pipes, where half-close delivery is async).
+      await Promise.all([...connections].map((connection) => connection.close()));
       await new Promise<void>((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
       });
-      rmSync(endpoint, { force: true });
+      if (process.platform !== "win32") rmSync(endpoint, { force: true });
     }
   };
 }

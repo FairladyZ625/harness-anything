@@ -74,7 +74,7 @@ export function lifecycleHarness() {
     eventStore,
     projection: realProjection,
     service,
-    cleanup: () => rmSync(rootDir, { recursive: true, force: true }),
+    cleanup: () => { realProjection.close(); rmSync(rootDir, { recursive: true, force: true }); },
     kill: (point: TaskLifecycleKillpoint | EventPublicationKillpoint) => { killAt = point; },
     failNextProjection: () => { failProjection = true; },
     create: (opId = "op-create") => {

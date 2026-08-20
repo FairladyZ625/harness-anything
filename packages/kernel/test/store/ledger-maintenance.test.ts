@@ -27,6 +27,8 @@ function withStubbedGitVersion<T>(rootDir: string, version: string, fn: () => T)
   const previous = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previous ?? ""}`;
   try {
+    const observed = windows ? execFileSync("cmd.exe", ["/d", "/s", "/c", "git version"], { encoding: "utf8" }).trim() : execFileSync("git", ["version"], { encoding: "utf8" }).trim();
+    if (observed !== `git version ${version}`) throw new Error(`git version fixture did not intercept the probe: ${observed}`);
     return fn();
   } finally {
     process.env.PATH = previous;

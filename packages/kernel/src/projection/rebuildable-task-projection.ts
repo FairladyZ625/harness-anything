@@ -8,7 +8,7 @@ import { assertMigrationImportWritePlan, type MigrationDocumentClaim, type Migra
 import { assertLedgerLayoutMigrationWritePlan, isLedgerLayoutMigrationEvent } from "../domain/ledger-layout-migration-event.ts";
 import { TASK_LEASE_BROKER_CONTRACT, validateLeaseV1, type LeaseHolder, type LeaseV1 } from "../domain/execution.ts";
 import { canonicalizeContractValue } from "../domain/task.ts";
-import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
+import { localEventFileSystem, localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { isAgentRuntimeEvent, markRuntimeSessionUnknown, reduceRuntimeInstallation, reduceRuntimeSession, runtimeSessionId, type AgentRuntimeEventV1, type RuntimeInstallation, type RuntimeSession } from "../domain/agent-runtime.ts";
 import { assertTaskBootstrapWritePlan, isTaskBootstrapEvent, taskBootstrapPackagePath } from "../domain/task-bootstrap-event.ts";
 import { assertTaskProgressWritePlan, isTaskProgressEvent, renderTaskProgressDocument, type TaskProgressEventV1 } from "../domain/task-progress-event.ts";
@@ -95,9 +95,10 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
   if (localRuntimeStateFileSystem.exists(projectionPath)) withDatabase(projectionPath, readHead, (db) => transaction(db, () => {
     if (markRuntimeSessionsUnknown(db) > 0) refreshStateDigestAtSourceCut(db, readHead()?.revision ?? 0);
   }));
+  const closeProjection = () => { hotAppliedHead = null; closeDatabase(projectionPath, readHead); };
   return {
     path: projectionPath,
-    close: () => { hotAppliedHead = null; closeDatabase(projectionPath, readHead); },
+    close: closeProjection,
     apply: (event, plan) => { if (isDocEvent(event)) assertDocSyncWritePlan(event, plan as FrozenWritePlan<"DocSyncSubmit">); if (isTaskEvent(event) && ((event.payload.documentClaims?.length ?? 0) > 0 || (event.payload.carriedDocumentClaims?.length ?? 0) > 0)) assertTaskLifecycleWritePlan(event, plan); if (isTaskBootstrapEvent(event)) assertTaskBootstrapWritePlan(event, plan as FrozenWritePlan<"TaskBootstrap">); if (isPresetSnapshotUpgradeEvent(event)) assertPresetSnapshotUpgradeWritePlan(event, plan as FrozenWritePlan<"PresetSnapshotUpgrade">); if (isTaskProgressEvent(event)) assertTaskProgressWritePlan(event, plan); if (isFactEvent(event)) assertFactWritePlan(event, plan); if (isDecisionEvent(event)) assertDecisionWritePlan(event, plan); if (isMigrationImportEvent(event)) assertMigrationImportWritePlan(event, plan); if (isLedgerLayoutMigrationEvent(event)) assertLedgerLayoutMigrationWritePlan(event, plan); const receipt = withDatabase(projectionPath, readHead, (db) => reduceBatch(db, [event], limit, options.eventStore.readContentBlob, readHead()?.revision ?? 0)); if (!observedSourceHead) hotAppliedHead = { revision: event.workspaceRevision, eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(event))}` }; return receipt; },
     rebuild: () => { hotAppliedHead = null; closeDatabase(projectionPath, readHead); return rebuildProjection(projectionPath, readHead, options.eventStore, limit); },
     readStateDigest: () => withDatabase(projectionPath, readHead, readStateDigest),
@@ -187,20 +188,52 @@ function rebuildProjection(projectionPath: string, readHead: EventStreamPort["re
 
 interface ProjectionDatabaseOwner { readonly use: <A>(operation: (db: DatabaseSync) => A) => A; readonly discard: () => void; readonly close: () => void; }
 const projectionDatabaseOwners = new WeakMap<EventStreamPort["readHead"], Map<string, ProjectionDatabaseOwner>>();
+const projectionClosers = new Map<string, Set<() => void>>();
+
+/** Test fixtures can close all projection databases before removing a temporary repository. */
+export function closeTaskProjectionsUnder(rootDir: string): void {
+  const resolvedRoot = canonicalProjectionPath(rootDir), prefix = `${resolvedRoot}${path.sep}`;
+  for (const projectionPath of [...projectionClosers.keys()]) {
+    if (projectionPath !== resolvedRoot && !projectionPath.startsWith(prefix)) continue;
+    closeProjectionHandlesAt(projectionPath);
+  }
+}
+
+// Owners are keyed by readHead identity, so one projection file can be open under several owners
+// at once. Deleting it while any handle is still open is invisible on POSIX -- unlink detaches the
+// name and the open handles keep working -- and EPERM on Windows, so a discard has to close every
+// handle on the path rather than only the caller's. Each owner reopens on its next use.
+function closeProjectionHandlesAt(resolvedProjectionPath: string): void {
+  const closers = projectionClosers.get(resolvedProjectionPath);
+  if (closers === undefined) return;
+  for (const close of [...closers]) close();
+  closers.clear(); projectionClosers.delete(resolvedProjectionPath);
+}
 
 function withDatabase<A>(projectionPath: string, readHead: EventStreamPort["readHead"], use: (db: DatabaseSync) => A): A { return projectionDatabaseOwner(projectionPath, readHead).use(use); }
 function discardDatabase(projectionPath: string, readHead: EventStreamPort["readHead"]): void { projectionDatabaseOwner(projectionPath, readHead).discard(); }
-function closeDatabase(projectionPath: string, readHead: EventStreamPort["readHead"]): void { const owners = projectionDatabaseOwners.get(readHead), owner = owners?.get(projectionPath); owner?.close(); owners?.delete(projectionPath); }
+// close() shares discard()'s invariant: callers close a projection so they can remove its file, and
+// a handle held by any other owner blocks that on Windows. Closing only the caller's owner made
+// `projection.close(); rm(projection.path)` -- the documented teardown -- fail there.
+function closeDatabase(projectionPath: string, readHead: EventStreamPort["readHead"]): void { const owners = projectionDatabaseOwners.get(readHead); closeProjectionHandlesAt(canonicalProjectionPath(projectionPath)); owners?.delete(projectionPath); }
 
 function projectionDatabaseOwner(projectionPath: string, readHead: EventStreamPort["readHead"]): ProjectionDatabaseOwner {
   let owners = projectionDatabaseOwners.get(readHead);
   if (owners === undefined) { owners = new Map(); projectionDatabaseOwners.set(readHead, owners); }
   const known = owners.get(projectionPath);
   if (known !== undefined) return known;
+  const resolvedProjectionPath = canonicalProjectionPath(projectionPath);
   let db: DatabaseSync | null = null, fingerprint: string | null = null;
-  const close = () => { db?.close(); db = null; fingerprint = null; };
-  const open = () => { localRuntimeStateFileSystem.mkdirp(path.dirname(projectionPath)); db = openDatabase(projectionPath); configureDatabase(db); fingerprint = projectionFileFingerprint(projectionPath); };
-  const discard = () => { close(); localRuntimeStateFileSystem.remove(projectionPath); };
+  let unregister = (): void => undefined;
+  const register = (): void => {
+    if (projectionClosers.get(resolvedProjectionPath)?.has(close)) return;
+    const registeredClosers = projectionClosers.get(resolvedProjectionPath) ?? new Set<() => void>();
+    registeredClosers.add(close); projectionClosers.set(resolvedProjectionPath, registeredClosers);
+    unregister = () => { registeredClosers.delete(close); if (registeredClosers.size === 0) projectionClosers.delete(resolvedProjectionPath); unregister = () => undefined; };
+  };
+  const close = () => { db?.close(); db = null; fingerprint = null; unregister(); };
+  const open = () => { register(); localRuntimeStateFileSystem.mkdirp(path.dirname(projectionPath)); db = openDatabase(projectionPath); configureDatabase(db); fingerprint = projectionFileFingerprint(projectionPath); };
+  const discard = () => { closeProjectionHandlesAt(resolvedProjectionPath); localRuntimeStateFileSystem.remove(projectionPath); };
   const initialize = () => {
     open();
     if (projectionSchemaVersion(db!) !== null && projectionSchemaVersion(db!) !== taskProjectionSchemaVersion) { discard(); open(); }
@@ -215,6 +248,11 @@ function projectionDatabaseOwner(projectionPath: string, readHead: EventStreamPo
   const owner = { use, discard, close };
   owners.set(projectionPath, owner);
   return owner;
+}
+function canonicalProjectionPath(inputPath: string): string {
+  const resolved = path.resolve(inputPath), pending: string[] = []; let current = resolved;
+  while (!localRuntimeStateFileSystem.exists(current)) { const parent = path.dirname(current); if (parent === current) return resolved; pending.unshift(path.basename(current)); current = parent; }
+  return path.join(localEventFileSystem.realpath(current), ...pending);
 }
 
 function projectionFileFingerprint(projectionPath: string): string | null { return localRuntimeStateFileSystem.fileIdentity(projectionPath); }

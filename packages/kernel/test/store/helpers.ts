@@ -5,12 +5,14 @@ import { Effect } from "effect";
 import type { Exit } from "effect";
 import { taskEntityId } from "../../src/domain/index.ts";
 import type { WriteOp } from "../../src/ports/index.ts";
+import { closeTaskProjectionsUnder } from "../../src/projection/rebuildable-task-projection.ts";
 
 export function withTempStore<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-kernel-store-"));
   try {
     return fn(rootDir);
   } finally {
+    closeTaskProjectionsUnder(rootDir);
     rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 }
@@ -20,6 +22,7 @@ export async function withTempStoreAsync<T>(fn: (rootDir: string) => Promise<T>)
   try {
     return await fn(rootDir);
   } finally {
+    closeTaskProjectionsUnder(rootDir);
     rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 }

@@ -239,6 +239,39 @@ jobs:
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job integration-shard --shard ${{ matrix.shard }} --exclude mergify-queue-metadata-edit-noop
 
+  windows-integration-shard:
+    # The integration tier is where every POSIX host assumption lives: symlinks, deletable open
+    # files, `which` and `#!/bin/sh` shims, SIGKILL kill points. #1607 fixed seven such fixtures
+    # and none of their Windows branches had ever been executed anywhere. The positive control is
+    # the ubuntu integration-shard job above, which runs the identical gate, so a red arm here is
+    # attributable to the platform.
+    # dec_630DB4EB94D3CB0B2459C8ABE2 (2026-08-20): Windows is demoted off the PR merge path.
+    # The full matrix runs on the nightly schedule (and manual dispatch) only; windows-first-run
+    # remains the per-PR smoke. This lane is never promoted to a required context.
+    if: github.event_name != 'pull_request' && github.event_name != 'push'
+    needs: metadata-source-proof
+    name: windows-integration-shard (${{ matrix.shard }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - name: Reuse same-SHA source validation
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source == 'true' }}
+        run: echo "Reusing successful source validation for the same head SHA."
+      - uses: actions/checkout@v4
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+      - uses: actions/setup-node@v4
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        with:
+          node-version: 24
+          cache: npm
+      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        run: npm ci
+      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        run: node tools/run-manifest-gates.mjs --workflow-job windows-integration-shard --shard ${{ matrix.shard }} --exclude mergify-queue-metadata-edit-noop
+
   boundaries:
     if: github.event_name == 'pull_request'
     needs: metadata-source-proof

@@ -10,7 +10,7 @@ import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, typ
 import { currentDaemonProtocolVersion } from "./version.ts";
 export interface JsonRpcProtocolServer { readonly handle: (message: JsonRpcRequest | JsonRpcRequest[]) => Promise<JsonRpcResponse | JsonRpcResponse[] | undefined>; readonly close: () => void }
 interface ObservedRequest { readonly repoId: string; readonly command: string; readonly executor: DaemonRequestLogEntry["executor"] }
-export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost; readonly authContext: DaemonAuthenticationContext; readonly emit: (method: string, params: JsonObject) => Promise<void>; readonly recordRequest?: (entry: DaemonRequestLogEntry) => void }): JsonRpcProtocolServer {
+export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost; readonly authContext: DaemonAuthenticationContext; readonly emit: (method: string, params: JsonObject) => Promise<void>; readonly recordRequest?: (entry: DaemonRequestLogEntry) => void; readonly requestShutdown?: () => void }): JsonRpcProtocolServer {
   let handshaken = false;
   // Every client — CLI, GUI, fleet — converges on this server, and every dispatched response is
   // built by the reply() below, so one hook there observes the whole request surface.
@@ -32,6 +32,11 @@ export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost
     }
     if (!handshaken) return reply(daemonProtocolError(request.method, "hello_required", "Call protocol.hello first.") as unknown as JsonObject);
     if (request.method === "daemon.status") return reply({ ok: true, ...options.host.status() } as unknown as JsonObject);
+    if (request.method === "daemon.stop") {
+      if (options.authContext.transportKind !== "unix-socket" || options.authContext.assignmentBinding) return reply(daemonProtocolError("daemon-stop", "local_transport_required", "Stop is available only through the local session token.") as unknown as JsonObject);
+      if (!options.requestShutdown) return reply(daemonProtocolError("daemon-stop", "shutdown_unavailable", "This daemon composition has no shutdown owner.") as unknown as JsonObject);
+      const response = reply({ ok: true, command: "daemon-stop", pid: process.pid }); options.requestShutdown(); return response;
+    }
     if (request.method === "daemon.repo.bootstrap") {
       try { return reply(await options.host.bootstrap(params as unknown as Parameters<DaemonHost["bootstrap"]>[0], options.authContext) as JsonObject); }
       catch (error) { return reply(daemonProtocolError("init", rpcServerErrorCode(error), error instanceof Error ? error.message : String(error)) as unknown as JsonObject); }

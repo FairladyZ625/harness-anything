@@ -11,11 +11,14 @@ export function runCliPackageSmoke(root = process.cwd()) {
   const projectDir = path.join(consumerDir, "workspace"), userRoot = path.join(consumerDir, "daemon-user"), home = path.join(consumerDir, "home");
   let binPath, started = false;
   try {
+    // npm is npm.cmd on Windows and Node will not execute a .cmd directly; a shell resolves the
+    // shim. Every argument below is a literal or a path this script built.
+    const windowsShell = process.platform === "win32";
     mkdirSync(packDir, { recursive: true }); mkdirSync(consumerDir, { recursive: true }); mkdirSync(projectDir); mkdirSync(home);
     const packed = JSON.parse(execFileSync("npm", ["pack", "--workspace", "@harness-anything/cli", "--pack-destination", packDir, "--json"],
-      { cwd: root, encoding: "utf8", env: { ...process.env, NPM_CONFIG_IGNORE_SCRIPTS: "true" } }))[0];
+      { cwd: root, encoding: "utf8", env: { ...process.env, NPM_CONFIG_IGNORE_SCRIPTS: "true" }, shell: windowsShell }))[0];
     const tarball = path.join(packDir, packed?.filename ?? ""); if (!packed?.filename || !existsSync(tarball)) throw new Error("npm pack did not produce the CLI tarball");
-    execFileSync("npm", ["install", "--prefix", consumerDir, "--no-audit", "--no-fund", tarball], { cwd: root, stdio: "inherit" });
+    execFileSync("npm", ["install", "--prefix", consumerDir, "--no-audit", "--no-fund", tarball], { cwd: root, stdio: "inherit", shell: windowsShell });
     binPath = resolveBinCommand(consumerDir, "harness-anything"); const alias = resolveBinCommand(consumerDir, "ha");
     for (const command of [binPath, alias]) { const help = run(command, ["--help"], projectDir, env(userRoot, home));
       if (help.status !== 0 || !help.stdout.includes("ha daemon start --service") || !help.stdout.includes("capabilities [--json]") || !help.stdout.includes("--version")) throw new Error(`unexpected packaged help: ${help.stdout}${help.stderr}`);

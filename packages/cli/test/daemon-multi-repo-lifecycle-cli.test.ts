@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { availableParallelism, hostname, loadavg, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -91,7 +91,22 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     assert.equal(initialized.summary, "initialized harness at harness/harness.yaml"); assert.deepEqual((initialized.configureVerify as { ok: boolean; steps: string[] }).steps, ["publication-readback", "canonical-layout", "daemon-l2-readiness", "task-bootstrap-dry-run"]); assert.equal((initialized.configureVerify as { ok: boolean }).ok, true); assert.deepEqual((initialized.publication as { changedPaths: string[] }).changedPaths, (initialized.created as string[]).filter((target) => target.startsWith("harness/"))); assert.equal(git(ledgerRoot, "ls-tree", "-r", "--name-only", "HEAD").split("\n").some((target) => target.startsWith("tasks/") || target.startsWith("events/")), false); assert.equal(makeTaskEventStore({ rootDir: fixture.repo, repoId: "fresh" }).read().revision, 0);
     const repeated = run(fixture.repo, fixture.userRoot, ["init", "--repo-id", "fresh", "--person-id", "owner", "--display-name", "Owner", "--add-npm-scripts"]); assert.equal(repeated.outcome, "noop"); assert.equal(repeated.commit, null); assert.deepEqual(repeated.created, []); assert.deepEqual(repeated.updated, []); assert.deepEqual(repeated.preserved, initialized.created); assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "1");
     const walls = spawnSync(process.execPath, [path.join(fixture.repo, "harness/governance/walls/run-walls.mjs")], { cwd: fixture.repo, encoding: "utf8" }); assert.equal(walls.status, 0, walls.stderr); assert.match(walls.stdout, /WALLS pass=0 red=0 expected=0 notice=0 info=0 total=0/u); assert.equal(existsSync(path.join(fixture.repo, "harness/governance/walls/reports")), false);
-    const wallsPath = path.join(fixture.repo, "harness/governance/walls/walls.json"); writeFileSync(wallsPath, `${JSON.stringify({ schema: "walls/v1", walls: [{ id: "red", state: "guarding", cmd: "printf ''", expect: "hits>=1" }, { id: "notice", state: "known-issue", cmd: "printf 'fixed\\n'", expect: "hits>=1" }] }, null, 2)}\n`); const actionableWalls = spawnSync(process.execPath, [path.join(fixture.repo, "harness/governance/walls/run-walls.mjs")], { cwd: fixture.repo, encoding: "utf8" }); assert.equal(actionableWalls.status, 1, actionableWalls.stderr); assert.match(actionableWalls.stdout, /RED\s+red/u); assert.match(actionableWalls.stdout, /NOTICE\s+notice/u); assert.match(actionableWalls.stdout, /WALLS pass=0 red=1 expected=0 notice=1 info=0 total=2/u); assert.match(actionableWalls.stdout, /report: .*\/reports\/walls-/u); const reportsRoot = path.join(fixture.repo, "harness/governance/walls/reports"); assert.equal(existsSync(reportsRoot), true); assert.equal(execFileSync("find", [reportsRoot, "-type", "f"], { encoding: "utf8" }).trim().split("\n").length, 1);
+    const wallsPath = path.join(fixture.repo, "harness/governance/walls/walls.json");
+    writeFileSync(wallsPath, JSON.stringify({ schema: "walls/v1", walls: [
+      { id: "red", state: "guarding", cmd: "node -e \"process.exit(0)\"", expect: "hits>=1" },
+      { id: "notice", state: "known-issue", cmd: "node -e \"console.log('fixed')\"", expect: "hits>=1" }
+    ] }, null, 2) + "\n");
+    const actionableWalls = spawnSync(process.execPath, [path.join(fixture.repo, "harness/governance/walls/run-walls.mjs")], { cwd: fixture.repo, encoding: "utf8" });
+    assert.equal(actionableWalls.status, 1, actionableWalls.stderr);
+    assert.match(actionableWalls.stdout, /RED\s+red/u);
+    assert.match(actionableWalls.stdout, /NOTICE\s+notice/u);
+    assert.match(actionableWalls.stdout, /WALLS pass=0 red=1 expected=0 notice=1 info=0 total=2/u);
+    assert.match(actionableWalls.stdout, /report: .*[/\\]reports[/\\]walls-/u);
+    const reportsRoot = path.join(fixture.repo, "harness/governance/walls/reports");
+    assert.equal(existsSync(reportsRoot), true);
+    const reports = readdirSync(reportsRoot, { withFileTypes: true });
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0]?.isFile(), true);
     assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "1");
     const textReceipt = spawnSync(process.execPath, [cli, "--root", fixture.repo, "init", "--repo-id", "fresh", "--person-id", "owner", "--display-name", "Owner", "--add-npm-scripts"], { encoding: "utf8", env: { ...process.env, HOME: path.join(fixture.repo, ".home"), GIT_CONFIG_GLOBAL: "/dev/null", HARNESS_DAEMON_USER_ROOT: fixture.userRoot } }); assert.equal(textReceipt.status, 0, textReceipt.stderr); assert.match(textReceipt.stdout, /^initialized harness at harness\/harness\.yaml\noutcome: noop\ncreated: \[\]\nupdated: \[\]\npreserved: \["harness\/harness.yaml"/u); assert.match(textReceipt.stdout, /drifted: \[\]\ncommit: none\nnext: ha daemon repo register --repo-id fresh --root/u); assert.match(textReceipt.stdout, /daemon status/u);
     assert.equal(run(fixture.repo, fixture.userRoot,
@@ -235,7 +250,10 @@ test("one invalid registry entry stays visible and removable without blocking he
 test("resident daemon CLI write p50 includes process startup through parsed receipt", async (context) => {
   const fixture = setup();
   try {
-    execFileSync("npm", ["run", "build", "--workspace", "@harness-anything/cli"], { cwd: process.cwd(), stdio: "pipe" });
+    // npm is npm.cmd on Windows, and Node refuses to execute a .cmd directly, so this failed
+    // with ENOENT before the measurement even started -- a launcher defect wearing a
+    // performance test's clothes. A shell resolves the shim; the arguments here are literals.
+    execFileSync("npm", ["run", "build", "--workspace", "@harness-anything/cli"], { cwd: process.cwd(), stdio: "pipe", shell: process.platform === "win32" });
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"], builtCli).ok, true);
     register(fixture.alpha, fixture.userRoot, "alpha", builtCli);
     // Warm two short rounds before measuring. GitHub's runner has a cold page/cache

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { hostname, tmpdir } from "node:os";
 import net from "node:net";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { registerDaemonRepo } from "../../kernel/src/index.ts";
@@ -15,9 +15,10 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
+import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 test("a caller that names a response deadline gets a classified failure instead of an open-ended silent socket", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "daemon-response-deadline-")), endpoint = path.join(root, "quiet.sock");
+  const root = mkdtempSync(path.join(tmpdir(), "daemon-response-deadline-")), endpoint = localEndpoint(root, "quiet.sock");
   const server = net.createServer((socket) => { socket.on("data", (chunk) => { for (const line of String(chunk).split("\n").filter(Boolean)) { const request = JSON.parse(line) as { readonly id: number; readonly method: string };
     if (request.method === "protocol.hello") socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true } })}\n`); } }); });
   await new Promise<void>((resolve) => server.listen(endpoint, resolve));
@@ -45,7 +46,7 @@ test("a silent protocol.hello is reported as a startup wedge, never as a long wr
 });
 
 test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/control, secret rejection, and real PTY", async () => {
-    const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-s3-resident-")), userRoot = path.join(parent, "user"), alpha = path.join(parent, "alpha"), beta = path.join(parent, "beta"), endpoint = path.join(parent, "daemon.sock"), executablePath = path.join(parent, "runtime-stub.mjs"), uid = process.getuid?.() ?? 0; writeFileSync(executablePath, `#!${process.execPath}\nif (process.argv[2] === "--version") console.log("resident-runtime-stub 1.0.0");\nprocess.exit(0);\n`); chmodSync(executablePath, 0o755);
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-s3-resident-")), userRoot = path.join(parent, "user"), alpha = path.join(parent, "alpha"), beta = path.join(parent, "beta"), endpoint = localEndpoint(parent, "daemon.sock"), executablePath = writeProviderExecutable(path.join(parent, "runtime-stub.mjs"), `if (process.argv[2] === "--version") console.log("resident-runtime-stub 1.0.0");\nprocess.exit(0);\n`), uid = process.getuid?.() ?? 0;
     initRepo(alpha, "alpha", uid); initRepo(beta, "beta", uid); registerDaemonRepo({ canonicalRoot: alpha, repoId: "alpha", userRoot, createConvenienceLinks: false }); registerDaemonRepo({ canonicalRoot: beta, repoId: "beta", userRoot, createConvenienceLinks: false });
     const locked = await openRepoCell({ repoId: workspaceId("beta"), rootDir: canonicalRoot(beta), ownerId: "other-daemon" });
     let launched: Record<string, unknown> | null = null; const host = await openDaemonHost({ daemonId: "gui-s3", userRoot, endpoint, runtimeDiscover: () => [{ installationId: "installation-codex", kindId: "codex", executablePath, version: "1.0.0", observedAt: "2026-08-14T00:00:00.000Z" }], runtimeLaunch: (prepared) => { launched = prepared as unknown as Record<string, unknown>; return { pid: 4242, onOutput: () => undefined, onErrorOutput: () => undefined, onExit: () => undefined, terminate: () => undefined }; } });
@@ -72,12 +73,14 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
       assert.equal((await rpc("repo.terminal.resize", { repo: { repoId: "alpha" }, payload: { sessionId: terminal.sessionId, cols: 101, rows: 32 } })).state, "running");
       // `echo` is a shell builtin in both the POSIX profiles and PowerShell, so this
       // round-trip exercises the terminal bridge without depending on shell syntax.
-      await rpc("repo.terminal.input", { repo: { repoId: "alpha" }, payload: { sessionId: terminal.sessionId, clientSeq: 1, utf8: "echo __S3_RESIDENT_PTY__\n" } }); await eventually(() => frames.some((frame) => frame.kind === "output" && String(frame.utf8).includes("__S3_RESIDENT_PTY__")));
+      await rpc("repo.terminal.input", { repo: { repoId: "alpha" }, payload: { sessionId: terminal.sessionId, clientSeq: 1, utf8: "echo __S3_RESIDENT_PTY__\r" } }); await eventually(() => terminalOutput(frames).includes("__S3_RESIDENT_PTY__"));
       assert.equal((await rpc("repo.terminal.detach", { repo: { repoId: "alpha" }, payload: { sessionId: terminal.sessionId, attachmentId } })).state, "detached"); detachStream(); assert.equal((await rpc("repo.terminal.terminate", { repo: { repoId: "alpha" }, payload: { sessionId: terminal.sessionId, confirmed: true } })).state, "exited");
     } finally { await transport.stop(); await host.close(); await locked.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
 async function waitReceipt(rpc: (method: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>, operationId: string): Promise<Record<string, unknown>> { for (let attempt = 0; attempt < 50; attempt += 1) { const receipt = await rpc("daemon.gui.control.receipt", { payload: { operationId } }); if (receipt.phase === "settled" || receipt.phase === "failed") return receipt; await new Promise((resolve) => setTimeout(resolve, 10)); } throw new Error(`control receipt did not settle: ${operationId}`); }
 async function eventually(predicate: () => boolean): Promise<void> { for (let attempt = 0; attempt < 50; attempt += 1) { if (predicate()) return; await new Promise((resolve) => setTimeout(resolve, 20)); } throw new Error("resident PTY output did not arrive"); }
+function terminalOutput(frames: readonly Record<string, unknown>[]): string { return frames.filter((frame) => frame.kind === "output" && typeof frame.utf8 === "string").map((frame) => frame.utf8).join(""); }
+function localEndpoint(parent: string, name: string): string { return process.platform === "win32" ? `\\\\.\\pipe\\harness-anything-${process.pid}-${Date.now()}-${name}` : path.join(parent, name); }
 function initRepo(root: string, repoId: string, uid: number): void { mkdirSync(path.join(root, "harness"), { recursive: true }); git(root, "init", "-q"); git(root, "config", "user.name", "S3 Resident"); git(root, "config", "user.email", "s3@example.invalid"); writeFileSync(path.join(root, "harness/harness.yaml"), `schema: harness-anything/v1\nname: ${repoId}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n`); writeFileSync(path.join(root, "harness/people.yaml"), `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: "owner", displayName: "Owner", roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(uid) }] }], roles: [{ roleId: "owner", commandClasses: ["repo-read", "repo-write", "admin", "arbiter"] }] }, null, 2)}\n`); git(root, "add", "harness"); git(root, "commit", "-qm", "fixture"); }
 function git(root: string, ...args: string[]): void { execFileSync("git", ["-C", root, ...args], { stdio: "ignore" }); }

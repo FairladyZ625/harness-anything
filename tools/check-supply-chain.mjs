@@ -36,7 +36,13 @@ function run(command) {
   const result = spawnSync(binary, args, {
     cwd: root,
     encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
+    // npm ships as npm.cmd on Windows, and Node has refused to execute .cmd
+    // directly since CVE-2024-27980. Without a shell every npm command here
+    // fails to launch, and the gate reports that as "audit failed" -- a launch
+    // error wearing the costume of a real finding. No argument below contains a
+    // space, so the shell re-parse cannot change what npm receives.
+    shell: process.platform === "win32"
   });
 
   if (result.status !== 0) {

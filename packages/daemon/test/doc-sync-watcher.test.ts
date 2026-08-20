@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, type FSWatcher } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
@@ -26,12 +27,22 @@ test("filesystem watching keeps one live recursive root watch and rearms Linux a
   for (const platform of ["darwin", "linux"] as const) {
     const calls: Array<{ target: string; recursive: boolean }> = [], actions: Array<{ kind: string; paths: readonly string[] }> = [], notifications: Array<(event: string, filename: string | Buffer | null) => void> = []; let closes = 0;
     const watcher = openDocSyncWatcher({ rootDir: process.cwd(), personId: "capacity", platform, startupScan: false, debounceMs: 1, pollMs: 60_000,
-      watchPath: (target, options, listener) => { calls.push({ target, recursive: options.recursive }); notifications.push(listener); const fake = { on: () => fake, close: () => { closes += 1; } } as unknown as FSWatcher; return fake; },
+      watchPath: (target, options, listener) => { calls.push({ target, recursive: options.recursive }); notifications.push(listener); const fake = new EventEmitter() as EventEmitter & { close: () => void }; fake.close = () => { closes += 1; fake.emit("close"); }; return fake as unknown as FSWatcher; },
       run: async (action) => { actions.push(action); return scan("a".repeat(40), []); } });
     try { assert.equal(calls.length, 1); assert.equal(calls[0]?.recursive, true); notifications[0]?.("rename", path.join("context", "notes.md")); await watcher.flush(); await new Promise((resolve) => setImmediate(resolve)); assert.deepEqual(actions, [{ kind: "doc-dry-run", paths: ["context/notes.md"] }]); assert.equal(calls.length, platform === "linux" ? 2 : 1); assert.equal(closes, platform === "linux" ? 1 : 0); notifications.at(-1)?.("change", path.join(".git", "HEAD")); await watcher.flush(); await new Promise((resolve) => setImmediate(resolve)); assert.equal(actions.length, 1); assert.equal(calls.length, platform === "linux" ? 2 : 1); }
     finally { await watcher.close(); }
     assert.equal(closes, platform === "linux" ? 2 : 1);
   }
+});
+
+test("close waits until the filesystem watcher releases its handle", async () => {
+  const fake = new EventEmitter() as EventEmitter & { close: () => void }; let closeCalled = false;
+  fake.close = () => { closeCalled = true; };
+  const watcher = openDocSyncWatcher({ rootDir: process.cwd(), personId: "close-handle", startupScan: false,
+    watchPath: () => fake as unknown as FSWatcher, run: async () => scan("a".repeat(40), []) });
+  let settled = false; const closing = watcher.close().then(() => { settled = true; });
+  await new Promise((resolve) => setImmediate(resolve)); assert.equal(closeCalled, true); assert.equal(settled, false);
+  fake.emit("close"); await closing; assert.equal(settled, true);
 });
 
 test("Linux recursive root watch observes a deep atomic rename without waiting for reconciliation", { skip: process.platform !== "linux" }, async () => {
@@ -129,7 +140,8 @@ test("canonical publication preserves a concurrent local copy and status gives t
 
 test("SIGKILL after canonical ref advance restarts the watcher and converges without a duplicate", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-watch-kill-")); initRepo(rootDir); atomicSave(rootDir, "context/kill.md", "# Kill\n\nrecover me\n"); const repoCellUrl = new URL("../src/repo-cell.ts", import.meta.url).href, watcherUrl = new URL("../src/doc-sync-watcher.ts", import.meta.url).href, protocolUrl = new URL("../src/protocol/daemon-protocol.contract.ts", import.meta.url).href;
-  try { const child = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", [`import { openRepoCell } from ${JSON.stringify(repoCellUrl)};`, `import { openDocSyncWatcher } from ${JSON.stringify(watcherUrl)};`, `import { canonicalRoot, workspaceId } from ${JSON.stringify(protocolUrl)};`, "const actor={principal:{personId:'person-owner'},executor:null};", "const cell=await openRepoCell({repoId:workspaceId('watch-kill'),rootDir:canonicalRoot(process.env.HA_WATCH_ROOT),ownerId:'killed',killpoint:(point)=>{if(point==='after_git_commit')process.kill(process.pid,'SIGKILL')}});", "const watcher=openDocSyncWatcher({rootDir:process.env.HA_WATCH_ROOT,personId:'person-owner',watchFilesystem:false,debounceMs:1,run:(action,attribution)=>cell.run(action,attribution?{actor,source:{kind:'watch_session',sessionId:attribution.sessionId,path:attribution.path,fingerprint:attribution.fingerprint}}:{actor,source:'local'})});", "await watcher.flush();"].join("\n")], { encoding: "utf8", env: { ...process.env, HA_WATCH_ROOT: rootDir } }); assert.equal(child.signal, "SIGKILL", child.stderr);
+  try { const child = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", [`import { openRepoCell } from ${JSON.stringify(repoCellUrl)};`, `import { openDocSyncWatcher } from ${JSON.stringify(watcherUrl)};`, `import { canonicalRoot, workspaceId } from ${JSON.stringify(protocolUrl)};`, "const actor={principal:{personId:'person-owner'},executor:null};", "const cell=await openRepoCell({repoId:workspaceId('watch-kill'),rootDir:canonicalRoot(process.env.HA_WATCH_ROOT),ownerId:'killed',killpoint:(point)=>{if(point==='after_git_commit')process.kill(process.pid,'SIGKILL')}});", "const watcher=openDocSyncWatcher({rootDir:process.env.HA_WATCH_ROOT,personId:'person-owner',watchFilesystem:false,debounceMs:1,run:(action,attribution)=>cell.run(action,attribution?{actor,source:{kind:'watch_session',sessionId:attribution.sessionId,path:attribution.path,fingerprint:attribution.fingerprint}}:{actor,source:'local'})});", "await watcher.flush();"].join("\n")], { encoding: "utf8", env: { ...process.env, HA_WATCH_ROOT: rootDir } }); // Windows has no signals: process.kill terminates the process outright, so the parent sees signal null with a non-zero status. Assert abnormal termination in each platform's own terms rather than dropping the assertion.
+    if (process.platform === "win32") assert.ok(child.signal === null && child.status !== 0, `expected the killpoint to terminate the child abnormally, got status=${child.status} signal=${child.signal}: ${child.stderr}`); else assert.equal(child.signal, "SIGKILL", child.stderr);
     const cell = await openRepoCell({ repoId: workspaceId("watch-kill"), rootDir: canonicalRoot(rootDir), ownerId: "restarted" }); try { const watcher = openDocSyncWatcher({ rootDir, personId: "person-owner", watchFilesystem: false, debounceMs: 1, run: (action, attribution) => cell.run(action, attribution ? { actor: { principal: { personId: "person-owner" }, executor: null }, source: { kind: "watch_session", sessionId: attribution.sessionId, path: attribution.path, fingerprint: attribution.fingerprint } } : { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" }) }); await watcher.flush(); assert.equal(makeTaskEventStore({ repoId: "watch-kill", rootDir }).read().revision, 1); assert.deepEqual(watcher.status().metrics, { scans: 1, intents: 0, commits: 0, writes: 0 }); assert.equal(git(rootDir, "for-each-ref", "--format=%(refname)", "refs/ha-event-prepared/"), ""); await watcher.close(); } finally { await cell.close(); }
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });

@@ -13,13 +13,14 @@ const actor = { principal: { personId: "person-fact" }, executor: { kind: "agent
 
 test("recorded Fact is durable and immediately searchable through the canonical projection", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-service-"));
+  let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
     git(rootDir, "init", "--quiet");
     git(rootDir, "config", "user.name", "Fact Test");
     git(rootDir, "config", "user.email", "fact@example.invalid");
     git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "base");
     const store = makeTaskEventStore({ repoId: "fact-test", rootDir });
-    const projection = makeTaskProjection({ rootDir, eventStore: store });
+    projection = makeTaskProjection({ rootDir, eventStore: store });
     const service = makeFactService({ eventStore: store, projection });
     const draft: FactEventDraftV1 = {
       schema: "fact-event/v1", eventId: "event-fact-1", workspaceRevision: 1, opId: "op-fact-1",
@@ -38,6 +39,7 @@ test("recorded Fact is durable and immediately searchable through the canonical 
     assert.deepEqual(service.search({ query: "SQLite", taskId: "task-fact" }).facts, [recorded.fact]);
     assert.deepEqual(service.show("task-fact", "F-ABCDEFGH").fact, recorded.fact);
   } finally {
+    projection?.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
@@ -60,7 +62,7 @@ test("Fact identity is task-local and supersedes only a known live Fact", () => 
     assert.throws(() => recordFact(service, projection, factEvent(4, "task-a", "F-CDEFGHJK", { factRef: "fact/task-a/F-ABCDEFGH", rationale: "Cannot retire twice." })), (error: unknown) => code(error) === "relation_invalid");
     assert.throws(() => recordFact(service, projection, factEvent(4, "task-a", "F-DEFGHJKM", { factRef: "fact/task-a/F-12345678", rationale: "Missing target." })), (error: unknown) => code(error) === "entity_not_found");
     assert.throws(() => recordFact(service, projection, factEvent(4, "task-a", "F-BCDEFGHJ")), (error: unknown) => code(error) === "invalid_transition");
-    const factsPath = "tasks/task-a-fixture/facts.md", before = { facts: service.search({ taskId: "task-a" }).facts, document: projection.readDocument(factsPath).document }; rmSync(projection.path, { force: true }); projection.rebuild(); assert.deepEqual({ facts: service.search({ taskId: "task-a" }).facts, document: projection.readDocument(factsPath).document }, before);
+    const factsPath = "tasks/task-a-fixture/facts.md", before = { facts: service.search({ taskId: "task-a" }).facts, document: projection.readDocument(factsPath).document }; projection.close(); rmSync(projection.path, { force: true }); projection.rebuild(); assert.deepEqual({ facts: service.search({ taskId: "task-a" }).facts, document: projection.readDocument(factsPath).document }, before);
   });
 });
 
@@ -75,16 +77,17 @@ test("search catches up a Fact committed to L1 before the projection transaction
 
 test("Fact admission never appends against a projection more than one catch-up round behind", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-backlog-"));
+  let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
     const backlog = factBacklog(65, "task-backlog");
-    const store = memoryFactStore(backlog), projection = makeTaskProjection({ rootDir, eventStore: store }), service = makeFactService({ eventStore: store, projection });
+    const store = memoryFactStore(backlog); projection = makeTaskProjection({ rootDir, eventStore: store }); const service = makeFactService({ eventStore: store, projection });
     const collision = factEvent(66, "task-backlog", "F-00000065"), first = projection.searchFacts({ taskId: "task-backlog" });
     assert.equal(first.status, "pending");
     assert.equal(store.readHead()?.revision, 65, "pending admission must not append");
     assert.equal(service.show("task-backlog", "F-00000065").fact.factId, "F-00000065");
     assert.throws(() => service.record(compile(projection, collision)), (error: unknown) => code(error) === "invalid_transition");
     assert.equal(store.readHead()?.revision, 65, "collision must be found before append");
-  } finally { rmSync(rootDir, { recursive: true, force: true }); }
+  } finally { projection?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
 test("Decision transition matrix, transport arbiter, claims, relation retirement, and replay are canonical", () => {
@@ -98,13 +101,13 @@ test("Decision transition matrix, transport arbiter, claims, relation retirement
     assert.throws(() => recordDecision(service, projection, decisionEvent(2, "decision_accepted", actor)), (error: unknown) => code(error) === "invalid_transition"); const accepted = recordDecision(service, projection, decisionEvent(2, "decision_accepted")); assert.equal(accepted.decision.state, "in_effect"); assert.deepEqual(accepted.decision.judgmentConsents.map(({ action, targetState, actor: consentActor, source }) => ({ action, targetState, actor: consentActor, source })), [{ action: "accept", targetState: "in_effect", actor: { principal: { personId: "person-arbiter" }, executor: null }, source: "local" }]);
     recordDecision(service, projection, decisionEvent(3, "decision_claim_declared")); recordDecision(service, projection, decisionEvent(4, "decision_claim_fulfillment_declared")); assert.deepEqual(projection.readDecisionGraph().decisionAnchors[0]?.anchorRefs, ["decision/dec_FIXTURE", "decision/dec_FIXTURE/C1", "decision/dec_FIXTURE/CH1", "decision/dec_FIXTURE/RJ1"]); const relation = relationRecord("decision/dec_FIXTURE/C1", "decision/dec_FIXTURE/CH1", "supports"), relationId = relation.relation_id; recordDecision(service, projection, decisionEvent(5, "decision_related", undefined, relation)); assert.throws(() => recordDecision(service, projection, decisionEvent(6, "decision_related", undefined, relation)), (error: unknown) => code(error) === "relation_invalid"); assert.equal(store.readHead()?.revision, 5, "deterministic relation collision is zero-write"); recordDecision(service, projection, decisionEvent(6, "decision_relation_retired", undefined, relationId));
     const edge = projection.readDecisionGraph().edges[0]!; assert.equal(edge.state, "edge_retired"); assert.equal(edge.retiredRevision, 6); assert.equal(recordDecision(service, projection, decisionEvent(7, "decision_retired")).decision.state, "outcome_retired"); assert.throws(() => recordDecision(service, projection, decisionEvent(8, "decision_deferred")), (error: unknown) => code(error) === "invalid_transition");
-    const path = "decisions/decision-dec_FIXTURE/decision.md", before = { decision: service.show("dec_FIXTURE").decision, graph: projection.readDecisionGraph(), document: projection.readDocument(path).document }; rmSync(projection.path, { force: true }); projection.rebuild(); assert.deepEqual({ decision: service.show("dec_FIXTURE").decision, graph: projection.readDecisionGraph(), document: projection.readDocument(path).document }, before);
+    const path = "decisions/decision-dec_FIXTURE/decision.md", before = { decision: service.show("dec_FIXTURE").decision, graph: projection.readDecisionGraph(), document: projection.readDocument(path).document }; projection.close(); rmSync(projection.path, { force: true }); projection.rebuild(); assert.deepEqual({ decision: service.show("dec_FIXTURE").decision, graph: projection.readDecisionGraph(), document: projection.readDocument(path).document }, before);
   });
   for (const [terminal, state] of [["decision_accepted", "in_effect"], ["decision_rejected", "rejected"], ["decision_deferred", "deferred"]] as const) withDecisionFixture(({ service, projection }) => { recordDecision(service, projection, decisionEvent(1, "decision_proposed")); assert.throws(() => recordDecision(service, projection, { ...decisionEvent(2, "decision_proposed"), eventId: "event-duplicate", opId: "op-duplicate" }), /base must agree/u); assert.equal(recordDecision(service, projection, decisionEvent(2, terminal)).decision.state, state); for (const illegal of ["decision_accepted", "decision_rejected", "decision_deferred"] as const) assert.throws(() => recordDecision(service, projection, decisionEvent(3, illegal)), (error: unknown) => code(error) === "invalid_transition", `${state} -> ${illegal}`); if (state === "in_effect") { assert.equal(recordDecision(service, projection, decisionEvent(3, "decision_retired")).decision.state, "outcome_retired"); assert.throws(() => recordDecision(service, projection, decisionEvent(4, "decision_retired")), (error: unknown) => code(error) === "invalid_transition"); } else assert.throws(() => recordDecision(service, projection, decisionEvent(3, "decision_retired")), (error: unknown) => code(error) === "invalid_transition", `${state} -> retired`); });
 });
 
 test("Decision proposal publishes initial prose, claim fulfillment, and relation in one rebuildable revision", () => {
-  withDecisionFixture(({ service, projection, store }) => { const relation = relationRecord("decision/dec_FIXTURE/C1", "decision/dec_FIXTURE/CH1", "supports"), proposal = decisionEvent(1, "decision_proposed") as Extract<DecisionEventDraftV1, { readonly type: "decision_proposed" }>, draft = { ...proposal, payload: { ...proposal.payload, body: "# Canonical Decision\n\n初始正文。\n", claims: [{ id: "C1", text: "The initial packet is atomic.", loadBearing: true }], fulfillments: [{ claimId: "C1", mode: "evidenced" as const }], relations: [relation] } } as const; const result = recordDecision(service, projection, draft); assert.equal(store.readHead()?.revision, 1); assert.deepEqual(result.decision.claims, [{ id: "C1", text: "The initial packet is atomic.", loadBearing: true, fulfillment: "evidenced" }]); assert.equal(projection.readDecisionGraph().edges[0]?.relationId, relation.relation_id); assert.equal(result.decision.body?.body, "# Canonical Decision\n\n初始正文。\n"); const before = { decision: result.decision, graph: projection.readDecisionGraph(), document: projection.readDocument(result.path).document }; rmSync(projection.path, { force: true }); projection.rebuild(); assert.deepEqual({ decision: service.show("dec_FIXTURE").decision, graph: projection.readDecisionGraph(), document: projection.readDocument(result.path).document }, before); });
+  withDecisionFixture(({ service, projection, store }) => { const relation = relationRecord("decision/dec_FIXTURE/C1", "decision/dec_FIXTURE/CH1", "supports"), proposal = decisionEvent(1, "decision_proposed") as Extract<DecisionEventDraftV1, { readonly type: "decision_proposed" }>, draft = { ...proposal, payload: { ...proposal.payload, body: "# Canonical Decision\n\n初始正文。\n", claims: [{ id: "C1", text: "The initial packet is atomic.", loadBearing: true }], fulfillments: [{ claimId: "C1", mode: "evidenced" as const }], relations: [relation] } } as const; const result = recordDecision(service, projection, draft); assert.equal(store.readHead()?.revision, 1); assert.deepEqual(result.decision.claims, [{ id: "C1", text: "The initial packet is atomic.", loadBearing: true, fulfillment: "evidenced" }]); assert.equal(projection.readDecisionGraph().edges[0]?.relationId, relation.relation_id); assert.equal(result.decision.body?.body, "# Canonical Decision\n\n初始正文。\n"); const before = { decision: result.decision, graph: projection.readDecisionGraph(), document: projection.readDocument(result.path).document }; projection.close(); rmSync(projection.path, { force: true }); projection.rebuild(); assert.deepEqual({ decision: service.show("dec_FIXTURE").decision, graph: projection.readDecisionGraph(), document: projection.readDocument(result.path).document }, before); });
 });
 
 test("Decision accept requires explicit evidence or judgment-only, while human CEO self-judgment remains valid", () => {
@@ -127,9 +130,10 @@ test("Decision read catches up an L1-only authored proposal without a body-null 
 
 test("Decision coverage replays all fulfillment modes, refutation, and exact task_completed basis", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-coverage-"));
+  let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
     git(rootDir, "init", "--quiet"); git(rootDir, "config", "user.name", "Coverage Test"); git(rootDir, "config", "user.email", "coverage@example.invalid"); git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "base");
-    const store = makeTaskEventStore({ repoId: "coverage-test", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store });
+    const store = makeTaskEventStore({ repoId: "coverage-test", rootDir }); projection = makeTaskProjection({ rootDir, eventStore: store });
     for (const event of lifecycleFixture().events) { const compiled = bundle(event); store.append(compiled); projection.apply(event, compiled.plan); }
     const factService = makeFactService({ eventStore: store, projection }), decisionService = makeDecisionService({ eventStore: store, projection });
     recordFact(factService, projection, factEvent(7, "task-1", "F-ABCDEFGH")); recordFact(factService, projection, factEvent(8, "task-1", "F-BCDEFGHJ"));
@@ -147,16 +151,17 @@ test("Decision coverage replays all fulfillment modes, refutation, and exact tas
     assert.equal(byDecision.get("decision/dec_DELIVERED")?.status, "covered", "task_completed is the delivered truth source"); assert.equal(byDecision.get("decision/dec_DELIVERED")?.fulfillment, "delivered");
     assert.equal(byDecision.get("decision/dec_EVIDENCED")?.status, "uncovered"); assert.deepEqual(byDecision.get("decision/dec_EVIDENCED")?.refutingFactRefs, ["fact/task-1/F-BCDEFGHJ"]);
     assert.equal(graph.coverageRows.every((row) => row.basisRevision === graph.watermark), true);
-  } finally { rmSync(rootDir, { recursive: true, force: true }); }
+  } finally { projection?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
 function withFixture(run: (fixture: { readonly store: ReturnType<typeof makeTaskEventStore>; readonly projection: ReturnType<typeof makeTaskProjection>; readonly service: ReturnType<typeof makeFactService> }) => void): void {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-service-"));
+  let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try { git(rootDir, "init", "--quiet"); git(rootDir, "config", "user.name", "Fact Test"); git(rootDir, "config", "user.email", "fact@example.invalid"); git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "base");
-    const store = makeTaskEventStore({ repoId: "fact-test", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store }); run({ store, projection, service: makeFactService({ eventStore: store, projection }) });
-  } finally { rmSync(rootDir, { recursive: true, force: true }); }
+    const store = makeTaskEventStore({ repoId: "fact-test", rootDir }); projection = makeTaskProjection({ rootDir, eventStore: store }); run({ store, projection, service: makeFactService({ eventStore: store, projection }) });
+  } finally { projection?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 }
-function withDecisionFixture(run: (fixture: { readonly store: ReturnType<typeof makeTaskEventStore>; readonly projection: ReturnType<typeof makeTaskProjection>; readonly service: ReturnType<typeof makeDecisionService> }) => void): void { const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-service-")); try { git(rootDir, "init", "--quiet"); git(rootDir, "config", "user.name", "Decision Test"); git(rootDir, "config", "user.email", "decision@example.invalid"); git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "base"); const store = makeTaskEventStore({ repoId: "decision-test", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store }); run({ store, projection, service: makeDecisionService({ eventStore: store, projection }) }); } finally { rmSync(rootDir, { recursive: true, force: true }); } }
+function withDecisionFixture(run: (fixture: { readonly store: ReturnType<typeof makeTaskEventStore>; readonly projection: ReturnType<typeof makeTaskProjection>; readonly service: ReturnType<typeof makeDecisionService> }) => void): void { const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-service-")); let projection: ReturnType<typeof makeTaskProjection> | undefined; try { git(rootDir, "init", "--quiet"); git(rootDir, "config", "user.name", "Decision Test"); git(rootDir, "config", "user.email", "decision@example.invalid"); git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "base"); const store = makeTaskEventStore({ repoId: "decision-test", rootDir }); projection = makeTaskProjection({ rootDir, eventStore: store }); run({ store, projection, service: makeDecisionService({ eventStore: store, projection }) }); } finally { projection?.close(); rmSync(rootDir, { recursive: true, force: true }); } }
 function decisionEvent(revision: number, type: DecisionEventDraftV1["type"], eventActor = { principal: { personId: "person-arbiter" }, executor: null } as const, extra?: unknown): DecisionEventDraftV1 { const base = { schema: "decision-event/v1" as const, eventId: `event-decision-${revision}`, workspaceRevision: revision, opId: `op-decision-${revision}`, decisionId: "dec_FIXTURE", actor: type === "decision_proposed" ? actor : eventActor, source: "local" as const, occurredAt: new Date(Date.UTC(2026, 7, 13, 1, 0, revision)).toISOString() }; if (type === "decision_proposed") return { ...base, type, payload: { title: "Canonical Decision", question: "Should this Decision be event-backed?", riskTier: "medium", urgency: "medium", vertical: "default", preset: "default", appliesTo: { modules: ["kernel"], productLines: [] }, decisionClass: "ordinary", chosen: [{ id: "CH1", text: "Use events", rationale: "Replayable" }], rejected: [{ id: "RJ1", text: "Use markdown", whyNot: "Not canonical" }], body: "\n# Canonical Decision\n", claims: [], fulfillments: [], relations: [] } }; if (type === "decision_accepted") return { ...base, type, payload: { rationale: "Independent approval.", judgmentOnlyRationale: "Explicit judgment-only acceptance." } }; if (type === "decision_rejected" || type === "decision_deferred" || type === "decision_retired") return { ...base, type, payload: { reason: "Recorded outcome." } }; if (type === "decision_claim_declared") return { ...base, type, payload: { claimId: "C1", text: "The event is deterministic.", loadBearing: true } }; if (type === "decision_claim_fulfillment_declared") return { ...base, type, payload: { claimId: "C1", mode: "evidenced" } }; if (type === "decision_related") return { ...base, type, payload: { relation: extra as never } }; return { ...base, type, payload: { relationId: String(extra), reason: "The edge is no longer current." } }; }
 function decisionAt(revision: number, decisionId: string, type: DecisionEventDraftV1["type"], payload: unknown, eventActor: DecisionEventDraftV1["actor"]): DecisionEventDraftV1 { return { schema: "decision-event/v1", eventId: `event-${decisionId}-${revision}`, workspaceRevision: revision, opId: `op-${decisionId}-${revision}`, decisionId, type, actor: eventActor, source: "local", occurredAt: new Date(Date.UTC(2026, 7, 13, 2, 0, revision)).toISOString(), payload } as DecisionEventDraftV1; }
 function relationRecord(source: string, target: string, type: "supports" | "produces" | "evidenced-by") { const identity = { source, target, type, direction: "directed" as const }; return { relation_id: deriveRelationId(identity), ...identity, strength: "strong" as const, origin: "declared" as const, rationale: "Canonical Decision relation.", state: "active" as const }; }

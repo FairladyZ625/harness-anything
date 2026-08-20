@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
@@ -24,8 +24,8 @@ test("task/doc reducers share one SQLite transaction and L2 rebuild restores exa
     const plan = docSyncWritePlan(event); eventStore.append({ event, plan, blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }] }); assert.throws(() => projection.apply(event), /write plan/iu);
     assert.deepEqual(projection.apply(event, plan).metrics, { sqliteTransactions: 1, reducedItems: 1 });
     const first = projection.readDocument("context/notes.md"); assert.equal(first.status, "ready"); assert.equal(first.document?.body, body); assert.equal(first.document?.blobSha256, hash); assert.equal(projection.readOperation(event.opId)?.event.schema, "doc-event/v1");
-    rmSync(projection.path, { force: true }); const reopened = projection.readDocument("context/notes.md"); assert.equal(reopened.status, "ready"); assert.deepEqual(reopened.document, first.document);
-    rmSync(projection.path, { force: true }); const rebuilt = projection.rebuild(); assert.equal(rebuilt.watermark, 1); assert.deepEqual(projection.readDocument("context/notes.md").document, first.document);
+    projection.close(); rmSync(projection.path, { force: true }); const reopened = projection.readDocument("context/notes.md"); assert.equal(reopened.status, "ready"); assert.deepEqual(reopened.document, first.document);
+    projection.close(); rmSync(projection.path, { force: true }); const rebuilt = projection.rebuild(); assert.equal(rebuilt.watermark, 1); assert.deepEqual(projection.readDocument("context/notes.md").document, first.document);
   });
 });
 
@@ -46,6 +46,23 @@ test("headless direct apply is instance-local and never preserves an ahead cache
     assert.deepEqual({ status: cold.status, watermark: cold.watermark, sourceRevision: cold.sourceRevision }, { status: "ready", watermark: 0, sourceRevision: 0 });
     assert.equal(cold.snapshot.task, null);
     assert.equal(reopened.readOperation(event.opId), null);
+  });
+});
+
+test("closing a projection through a filesystem alias releases every handle on its database", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const aliasRoot = `${rootDir}-alias`;
+    symlinkSync(rootDir, aliasRoot, process.platform === "win32" ? "junction" : "dir");
+    const source = () => ({ readHead: () => null, readBatch: () => ({ sourceRevision: 0, events: [], cursor: null, done: true, accessedItems: 0 }), readContentBlob: () => null });
+    try {
+      const canonical = makeTaskProjection({ rootDir, eventStore: source() });
+      const aliased = makeTaskProjection({ rootDir: aliasRoot, eventStore: source() });
+      canonical.read("missing"); aliased.read("missing");
+      aliased.close();
+      rmSync(canonical.path, { force: true });
+    } finally {
+      rmSync(aliasRoot, { recursive: true, force: true });
+    }
   });
 });
 
@@ -117,7 +134,7 @@ test("a migration policy upgrade replays identically in cold rebuild", async () 
     assert.equal(warm.status, "ready");
     assert.equal(warm.document?.policyId, DOC_POLICY_ID);
     assert.equal(warm.document?.body, authored);
-    rmSync(projection.path, { force: true });
+    projection.close(); rmSync(projection.path, { force: true });
     const rebuilt = projection.rebuild();
     assert.equal(rebuilt.watermark, 2);
     assert.deepEqual(projection.readDocument(standard).document, warm.document);
@@ -150,7 +167,7 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
     const incrementalStateDigest = projection.readStateDigest();
     if (incrementalStateDigest === null) assert.fail("a source-complete incremental projection must persist its state digest");
 
-    rmSync(projection.path, { force: true });
+    projection.close(); rmSync(projection.path, { force: true });
     const rebuilt = projection.rebuild();
     assert.equal(rebuilt.watermark, 6);
     assert.equal(rebuilt.stateDigest, incrementalStateDigest);
@@ -276,7 +293,7 @@ test("renewed lease survives database rebuild", async () => {
     const beforeLease = projection.currentLease("task-1");
     const beforeIntervals = projection.readLeaseIntervals("task-1");
 
-    rmSync(projection.path, { force: true });
+    projection.close(); rmSync(projection.path, { force: true });
     const rebuilt = projection.rebuild();
 
     assert.equal(rebuilt.watermark, 3);

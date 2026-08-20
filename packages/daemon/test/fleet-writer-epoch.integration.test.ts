@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 
@@ -13,7 +14,7 @@ function probeRepo(root: string): string { const repo = path.join(root, "repo");
 const probeBinding = (assertWriterEpoch: () => void) => ({ actor: { principal: { personId: "writer" }, executor: { kind: "agent" as const, id: "probe" } }, source: { kind: "assignment" as const, nodeId: "node", assignmentId: "assignment" }, assertWriterEpoch });
 
 function childEpoch(source: string, root: string, holderId: string): Promise<{ readonly code: number | null; readonly lease: { readonly epoch: number; readonly holderId: string } | null }> {
-  const code = `import { openPersistentWriterEpoch } from ${JSON.stringify(source)}; const [root, holder] = process.argv.slice(1); const authority = openPersistentWriterEpoch({ stateRoot: root, holderId: holder }); console.log(JSON.stringify(authority.acquire("repo")));`;
+  const code = `import { openPersistentWriterEpoch } from ${JSON.stringify(pathToFileURL(source).href)}; const [root, holder] = process.argv.slice(1); const authority = openPersistentWriterEpoch({ stateRoot: root, holderId: holder }); console.log(JSON.stringify(authority.acquire("repo")));`;
   return new Promise((resolve, reject) => { const child = spawn(process.execPath, ["--input-type=module", "-e", code, root, holderId], { stdio: ["ignore", "pipe", "pipe"] }); let stdout = "", stderr = ""; child.stdout.on("data", (chunk) => { stdout += chunk; }); child.stderr.on("data", (chunk) => { stderr += chunk; }); child.on("error", reject); child.on("close", (exitCode) => { if (exitCode !== 0) return reject(new Error(stderr)); resolve({ code: exitCode, lease: JSON.parse(stdout.trim()) }); }); });
 }
 

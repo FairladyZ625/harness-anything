@@ -83,16 +83,23 @@ const fileTimeoutMs = positiveIntegerOrDefault(process.env.HARNESS_TEST_FILE_TIM
 const activityRoot = mkdtempSync(join(tmpdir(), "ha-node-test-watchdog-"));
 const activityPath = join(activityRoot, "activity.jsonl");
 const reporterUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-file-activity-reporter.mjs")).href;
+// Arm the stall report inside each test child before the watchdog kills it from outside. The
+// watchdog can say which test never returned; only the child itself can say which handle it is
+// still holding, and a remote runner offers no second chance to ask.
+const stallReportUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-stall-report.mjs")).href;
+const stallReportMs = Math.max(1_000, Math.floor(fileTimeoutMs * 0.9));
 const child = spawn(process.execPath, [
   "--test",
   "--test-reporter=spec",
   "--test-reporter-destination=stdout",
   `--test-reporter=${reporterUrl}`,
   `--test-reporter-destination=${activityPath}`,
+  `--import=${stallReportUrl}`,
   ...concurrencyArgs,
   ...selection.files
 ], {
   cwd: repoRoot,
+  env: { ...process.env, HARNESS_TEST_STALL_REPORT_MS: String(stallReportMs) },
   detached: process.platform !== "win32",
   stdio: ["inherit", "pipe", "pipe"],
   windowsHide: true
@@ -101,6 +108,8 @@ const child = spawn(process.execPath, [
 let output = "";
 let activityOffset = 0;
 let activityTail = "";
+const lastTestByFile = new Map();
+const openTestsByFile = new Map();
 let timedOutFiles = [];
 let termination = Promise.resolve();
 const activeFiles = new Map();
@@ -112,7 +121,7 @@ const watchdog = setInterval(() => {
   const overdue = [...activeFiles].filter(([, startedAt]) => now - startedAt >= fileTimeoutMs).map(([file]) => file);
   if (overdue.length === 0) return;
   timedOutFiles = overdue;
-  console.error(`[node-test-watchdog] test file exceeded ${fileTimeoutMs}ms: ${overdue.join(", ")}`);
+  console.error(`[node-test-watchdog] test file exceeded ${fileTimeoutMs}ms: ${overdue.map(stalledFileReport).join(", ")}`);
   termination = terminateProcessTree(child);
 }, Math.min(1_000, Math.max(25, Math.floor(fileTimeoutMs / 4))));
 
@@ -157,6 +166,24 @@ function positiveIntegerOrDefault(value, fallback) {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+// Subtest events carry an absolute path while file-level events carry the repo-relative name the
+// watchdog keys on. Without this the two never join and the report silently loses the test name.
+function repoRelativeTestFile(file) {
+  const root = `${repoRoot.replaceAll("\\", "/")}/`;
+  return file.startsWith(root) ? file.slice(root.length) : file;
+}
+
+// Naming the file is not enough to route a fix: a stalled file has several tests and the spec
+// reporter prints none of them. Name the test that started and never returned.
+function stalledFileReport(file) {
+  const last = lastTestByFile.get(file);
+  if (last === undefined) return file;
+  const open = openTestsByFile.get(file) ?? 0;
+  return open > 0
+    ? `${file} (hung inside: ${last})`
+    : `${file} (every test finished, last was ${last}; the process did not exit -- look for an open handle, not a slow test)`;
+}
+
 function refreshActivity() {
   if (!existsSync(activityPath)) return;
   const source = readFileSync(activityPath, "utf8");
@@ -172,7 +199,16 @@ function refreshActivity() {
     if (!line) continue;
     const event = JSON.parse(line);
     if (event.state === "started" && typeof event.file === "string" && Number.isFinite(event.at)) activeFiles.set(event.file, event.at);
-    if (event.state === "finished" && typeof event.file === "string") activeFiles.delete(event.file);
+    if (event.state === "progress" && typeof event.file === "string" && typeof event.name === "string") {
+      const owner = repoRelativeTestFile(event.file);
+      lastTestByFile.set(owner, event.name);
+      openTestsByFile.set(owner, (openTestsByFile.get(owner) ?? 0) + 1);
+    }
+    if (event.state === "test-finished" && typeof event.file === "string") {
+      const owner = repoRelativeTestFile(event.file);
+      openTestsByFile.set(owner, (openTestsByFile.get(owner) ?? 0) - 1);
+    }
+    if (event.state === "finished" && typeof event.file === "string") { activeFiles.delete(event.file); lastTestByFile.delete(event.file); openTestsByFile.delete(event.file); }
   }
 }
 

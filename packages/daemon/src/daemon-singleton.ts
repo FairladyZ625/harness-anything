@@ -64,6 +64,14 @@ export function daemonProcessAlive(pid: number): boolean { return processAlive(p
 export function releaseDaemonPidFile(userRoot: string, daemonId: string, pid: number): void {
   releaseIfHeld(daemonPidPath(userRoot, daemonId), pid);
 }
+/**
+ * External stop control clears a singleton lock left by a process that could
+ * not run its shutdown handler (Windows process termination). Compare the
+ * recorded PID before unlinking so a replacement daemon cannot lose its lock.
+ */
+export function releaseDaemonSingletonLock(userRoot: string, daemonId: string, pid: number): void {
+  releaseIfHeld(daemonSingletonLockPath(userRoot, daemonId), pid);
+}
 export async function daemonSocketProbe(socketPath: string): Promise<boolean> {
   return new Promise((resolve) => { const socket = net.createConnection(socketPath), finish = (up: boolean) => { socket.destroy(); resolve(up); }; const timer = setTimeout(() => finish(false), 250);
     socket.once("connect", () => { clearTimeout(timer); finish(true); }); socket.once("error", () => { clearTimeout(timer); finish(false); }); });

@@ -3,10 +3,10 @@ import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts"; import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts"; import { detachedProcessOptions, terminateProcess } from "../../../daemon/src/process-port.ts"; import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
+import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts"; import { requestDaemonJsonRpcAt, requestDaemonShutdownAt } from "../../../daemon/src/client/local-json-rpc-client.ts"; import { detachedProcessOptions, terminateProcess } from "../../../daemon/src/process-port.ts"; import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
 import { ensureLocalDaemonRunning } from "../../../daemon/src/client/daemon-autostart.ts";
 import { readDaemonPid, startDaemon } from "../../../daemon/src/runtime.ts";
-import { daemonProcessAlive, releaseDaemonPidFile } from "../../../daemon/src/daemon-singleton.ts";
+import { daemonProcessAlive, releaseDaemonPidFile, releaseDaemonSingletonLock } from "../../../daemon/src/daemon-singleton.ts";
 import { cliDaemonServeLaunch, consumeKnownError } from "./client.ts";
 import { daemonRepoModeWords } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { firstCliCommandIndex } from "../cli/thin-command.ts";
@@ -37,7 +37,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       const started = await ensureLocalDaemonRunning({ socketPath: localUserDaemonEndpoint(userRoot, daemonId), launch: () => cliDaemonServeLaunch(userRoot, daemonId), onProgress: (progress) => process.stderr.write(`${progress.message}\n`) });
       return started.ok ? finish(await status(userRoot, daemonId), 0) : finish(daemonFailure("daemon-start", started.code ?? "daemon_start_failed", started.hint), 1); }
     if (command === "status") { const receipt = await status(userRoot, daemonId); return finish(receipt, 0); }
-    if (command === "stop") { const pid = readDaemonPid(userRoot, daemonId); if (pid === null) return finish(daemonFailure("daemon-stop", "daemon_unavailable", "No daemon is running."), 1); signalStop(pid); const stopped = await waitForDaemonStop(userRoot, daemonId, pid); return stopped ? finish({ ok: true, command: "daemon-stop", pid }, 0) : finish(daemonFailure("daemon-stop", "daemon_stop_timeout", `Daemon pid ${pid} did not finish stopping within 5s; inspect its lifecycle log before sending another signal.`), 1); }
+    if (command === "stop") { const pid = readDaemonPid(userRoot, daemonId); if (pid === null) return finish(daemonFailure("daemon-stop", "daemon_unavailable", "No daemon is running."), 1); await requestCooperativeStop(userRoot, daemonId, pid); const stopped = await waitForDaemonStop(userRoot, daemonId, pid); return stopped ? finish({ ok: true, command: "daemon-stop", pid }, 0) : finish(daemonFailure("daemon-stop", "daemon_stop_timeout", `Daemon pid ${pid} did not finish stopping within 5s; inspect its lifecycle log before sending another signal.`), 1); }
     return finish(daemonFailure("daemon", "unsupported_command", "Use daemon projection rebuild, daemon repo register|unregister, fleet center start, fleet edge sync, start --service, status, or stop."), 2);
   } catch (error) { return finish(daemonFailure(`daemon-${command ?? "unknown"}`, code(error), message(error)), 1); }
 }
@@ -73,6 +73,16 @@ function deferredServeReceipt(incumbent: { readonly pid: number | null; readonly
   return { ok: true, command: "daemon-serve", outcome: "deferred", incumbent: { pid: incumbent.pid, endpoint: incumbent.endpoint }, summary: `daemon serve deferred: ${witness}; this process did not bind the socket or take any workspace writer lock.`, nextAction: "Use the resident daemon (ha daemon status) or stop it first (ha daemon stop)." };
 }
 async function status(userRoot: string, daemonId: string): Promise<Record<string, unknown>> { return requestDaemonJsonRpcAt(localUserDaemonEndpoint(userRoot, daemonId), "daemon.status", {}, 75) as Promise<Record<string, unknown>>; }
+async function requestCooperativeStop(userRoot: string, daemonId: string, pid: number): Promise<void> {
+  try {
+    await requestDaemonShutdownAt(localUserDaemonEndpoint(userRoot, daemonId), 75);
+    return;
+  } catch (error) { consumeKnownError(error); }
+  // Only a daemon that never reached socket bind cannot receive the queued shutdown. A connected
+  // daemon gets hello and stop in one write, so slow startup work cannot turn a response timeout
+  // into an ungraceful Windows termination that strands its workspace writer lock.
+  signalStop(pid);
+}
 // A daemon that exited between reading its pid file and being signalled is stopped, which is what
 // the caller asked for. Reporting the failed signal instead would answer a question nobody asked.
 function signalStop(pid: number): void {
@@ -88,7 +98,7 @@ async function waitForDaemonStop(userRoot: string, daemonId: string, pid: number
   const endpoint = localUserDaemonEndpoint(userRoot, daemonId);
   for (const deadline = Date.now() + 5_000; Date.now() < deadline;) {
     if (readDaemonPid(userRoot, daemonId) === null && !existsSync(endpoint)) return true;
-    if (!daemonProcessAlive(pid)) { releaseDaemonPidFile(userRoot, daemonId, pid); return true; }
+    if (!daemonProcessAlive(pid)) { releaseDaemonPidFile(userRoot, daemonId, pid); releaseDaemonSingletonLock(userRoot, daemonId, pid); return true; }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   return false;
