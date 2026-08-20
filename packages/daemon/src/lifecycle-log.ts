@@ -6,7 +6,7 @@ export const DAEMON_LIFECYCLE_LOG_SCHEMA = Object.freeze({ id: "daemon-lifecycle
 const defaultMaxBytes = 4 * 1024 * 1024;
 const defaultKeptFiles = 4;
 
-export type DaemonLifecycleEvent = "process_start" | "socket_bound" | "process_exit" | "repo_attach_started" | "repo_attach_completed" | "repo_attach_failed";
+export type DaemonLifecycleEvent = "process_start" | "socket_bound" | "process_exit" | "repo_attach_started" | "repo_attach_completed" | "repo_attach_failed" | "repo_attach_timed_out" | "repo_registry_pruned" | "attachments_settled";
 export interface DaemonLifecycleEntry {
   readonly event: DaemonLifecycleEvent;
   readonly repoId?: string;
@@ -17,6 +17,10 @@ export interface DaemonLifecycleEntry {
   readonly endpoint?: string;
   readonly outcome?: string;
   readonly error?: string;
+  readonly registeredAt?: string;
+  readonly attached?: number;
+  readonly unavailable?: number;
+  readonly pruned?: number;
 }
 export interface DaemonLifecycleRecord extends DaemonLifecycleEntry {
   readonly schema: string;

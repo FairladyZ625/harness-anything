@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { DaemonAutostartError, daemonLaunchOutputPath, ensureLocalDaemonRunning, isDaemonUnreachable, type DaemonAutostartResult, type DaemonLaunchSpec } from "../src/client/daemon-autostart.ts";
+import { DaemonAutostartError, daemonLaunchOutputPath, ensureLocalDaemonRunning, isDaemonUnreachable, readDaemonStartProgress, type DaemonAutostartResult, type DaemonLaunchSpec } from "../src/client/daemon-autostart.ts";
 import { daemonLifecycleLogPath, openDaemonLifecycleLog } from "../src/lifecycle-log.ts";
 import { startDetachedProcessChecked } from "../src/process-port.ts";
 
@@ -85,6 +85,29 @@ test("daemon launch output path is derived from the explicit serve target", () =
   const userRoot = path.join(tmpdir(), "ha-output-target");
   assert.equal(daemonLaunchOutputPath({ command: "node", args: ["index.js", "daemon", "serve", "--user-root", userRoot, "--daemon-id", "blue"], env: {} }), daemonLifecycleLogPath(userRoot, "blue"));
   assert.equal(daemonLaunchOutputPath({ command: "node", args: ["index.js", "task", "list"], env: {} }), undefined);
+});
+
+test("start progress stages report the last repository, attach timeouts, prunes, and settled startup", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-autostart-stages-"));
+  try {
+    const log = openDaemonLifecycleLog({ userRoot, daemonId: "stages" }), spec = (): DaemonLaunchSpec => ({ command: "node", args: ["index.ts", "daemon", "serve", "--user-root", userRoot, "--daemon-id", "stages"], env: {} });
+    log.record({ event: "process_start" }); log.record({ event: "socket_bound" });
+    log.record({ event: "repo_attach_started", repoId: "kty-web", attachIndex: 5, attachTotal: 5 });
+    log.record({ event: "repo_attach_completed", repoId: "kty-web", attachIndex: 5, attachTotal: 5 });
+    const completed = readDaemonStartProgress(spec(), 61_000);
+    assert.match(completed?.message ?? "", /all 5 repositories attached; daemon completing startup/u);
+    assert.doesNotMatch(completed?.message ?? "", /preparing the next repository/u);
+    log.record({ event: "repo_attach_started", repoId: "probe-zombie", attachIndex: 6, attachTotal: 8 });
+    log.record({ event: "repo_attach_timed_out", repoId: "probe-zombie", attachIndex: 6, attachTotal: 8, durationMs: 60_000 });
+    const timedOut = readDaemonStartProgress(spec(), 62_000);
+    assert.match(timedOut?.message ?? "", /repository attach exceeded its budget; daemon moved on/u);
+    log.record({ event: "repo_registry_pruned", repoId: "probe-zombie", rootDir: "/private/tmp/gone" });
+    const pruned = readDaemonStartProgress(spec(), 63_000);
+    assert.match(pruned?.message ?? "", /retired a stale registry entry whose root no longer exists/u);
+    log.record({ event: "attachments_settled", attachTotal: 8, attached: 5, unavailable: 1, pruned: 1 });
+    const settled = readDaemonStartProgress(spec(), 64_000);
+    assert.match(settled?.message ?? "", /all repositories settled \(1 unavailable\) \(1 pruned\); daemon completing startup after attach/u);
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
 
 test("detached stdout, stderr, and a fatal stack land in the daemon output log", async () => {
