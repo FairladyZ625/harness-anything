@@ -8,8 +8,10 @@ const localMainFacets: ReadonlyArray<{ readonly guiBridgeMethod: PreloadApiMetho
 type PreloadFacet = { readonly guiBridgeMethod: string; readonly requiresRepo?: boolean; readonly inputSchemaId: string };
 export function deriveRepoScopedMethods(facets: readonly PreloadFacet[]): ReadonlySet<string> { return new Set(facets.filter(({ requiresRepo }) => requiresRepo).map(({ guiBridgeMethod }) => guiBridgeMethod)); }
 export function deriveEmptyRepoMethods(facets: readonly PreloadFacet[]): ReadonlySet<string> { return new Set(facets.filter(({ requiresRepo, inputSchemaId }) => requiresRepo && inputSchemaId === "gui.empty/v1").map(({ guiBridgeMethod }) => guiBridgeMethod)); }
+export function deriveQueryRepoMethods(facets: readonly PreloadFacet[]): ReadonlySet<string> { return new Set(facets.filter(({ requiresRepo, inputSchemaId }) => requiresRepo && (inputSchemaId === "gui.task-query/v1" || inputSchemaId === "gui.relation-query/v1")).map(({ guiBridgeMethod }) => guiBridgeMethod)); }
 const repoScopedMethods: ReadonlySet<string> = deriveRepoScopedMethods([...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonGuiStreamFacets]);
 const emptyRepoMethods: ReadonlySet<string> = deriveEmptyRepoMethods([...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonGuiStreamFacets]);
+const queryRepoMethods: ReadonlySet<string> = deriveQueryRepoMethods([...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonGuiStreamFacets]);
 export interface PreloadApiCapability {
   readonly method: PreloadApiMethod;
   readonly status: "shipped";
@@ -40,6 +42,10 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
       throw new Error(`Preload ${method} payload requires an exact repoId.`);
     }
     if (emptyRepoMethods.has(method) && Object.keys(payload).some((key) => key !== "repoId")) throw new Error(`Preload ${method} fields are not allowed.`);
+    if (queryRepoMethods.has(method as PreloadApiMethod)) {
+      if (!closed(payload, ["repoId", "status", "updatedAfter", "updatedBefore", "limit", "cursor"])) throw new Error(`Preload ${method} fields are not allowed.`);
+      if (!validQueryPayload(method, payload)) throw new Error(`Preload ${method} query facets are invalid.`);
+    }
   } else if (isPreloadPayloadRecord(payload) && Object.hasOwn(payload, "repoId")) {
     throw new Error(`Preload ${method} payload: repoId is not allowed.`);
   }
@@ -62,4 +68,7 @@ function validRuntimeKindConfig(value: Record<string, unknown>): boolean { const
 function validRuntimeInstanceUpdate(value: unknown): boolean { return isPreloadPayloadRecord(value) && closed(value, ["instanceId", "enabled", "permissionMode", "isolationState"]) && typeof value.instanceId === "string" && value.instanceId.length > 0 && [value.enabled, value.permissionMode, value.isolationState].some((field) => field !== undefined) && (value.enabled === undefined || typeof value.enabled === "boolean") && (value.permissionMode === undefined || ["bypass", "workspace-write", "read-only"].includes(String(value.permissionMode))) && (value.isolationState === undefined || ["enforced", "operator-environment"].includes(String(value.isolationState))); }
 function exactStrings(value: unknown, fields: readonly string[]): boolean { return isPreloadPayloadRecord(value) && Object.keys(value).length === fields.length && fields.every((field) => typeof value[field] === "string" && String(value[field]).length > 0); }
 function closed(value: Record<string, unknown>, fields: readonly string[]): boolean { return Object.keys(value).every((key) => fields.includes(key)); }
+// The wide task reads accept exactly the optional narrow/paged facets the daemon
+// validates; unknown keys were already rejected above, so this constrains the values.
+function validQueryPayload(method: string, value: Record<string, unknown>): boolean { const after = value.updatedAfter, before = value.updatedBefore, states = method === "getTasks" ? ["planned", "active", "blocked", "in_review", "done", "cancelled"] : ["active", "edge_retired", "deleted"]; return (value.status === undefined || typeof value.status === "string" && states.includes(value.status)) && [after, before].every((item) => item === undefined || typeof item === "string" && Number.isFinite(Date.parse(item))) && !(typeof after === "string" && typeof before === "string" && after > before) && (value.limit === undefined || Number.isSafeInteger(value.limit) && Number(value.limit) >= 1 && Number(value.limit) <= 500) && (value.cursor === undefined || typeof value.cursor === "string" && value.cursor.length > 0); }
 function isPreloadPayloadRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }

@@ -108,8 +108,8 @@ test("task lifecycle and read surfaces parse every F03 F04 F05 leaf into closed 
     [["task", "reopen", "task-1", "--reason", "Needed again"], { kind: "task-reopen", taskId: "task-1", reason: "Needed again" }],
     [["task", "contract", "migrate", "--dry-run", "--task", "task-1"], { kind: "task-contract-migrate", mode: "dry-run", taskId: "task-1" }],
     [["task", "review", "task-1", "--reviewer", "reviewer-1"], { kind: "task-review", taskId: "task-1", reviewerId: "reviewer-1" }],
-    [["task", "list", "--status", "blocked", "--module", "kernel", "--search", "surface"], { kind: "task-list", status: "blocked", module: "kernel", search: "surface" }],
-    [["relation", "list", "--entity", "task/task-1", "--type", "depends-on", "--state", "active"], { kind: "relation-list", entity: "task/task-1", relationType: "depends-on", state: "active" }],
+    [["task", "list", "--status", "blocked", "--module", "kernel", "--search", "surface", "--updated-after", "2026-08-01T00:00:00.000Z", "--updated-before", "2026-08-31T00:00:00.000Z", "--limit", "25", "--cursor", "cursor-a"], { kind: "task-list", status: "blocked", module: "kernel", search: "surface", updatedAfter: "2026-08-01T00:00:00.000Z", updatedBefore: "2026-08-31T00:00:00.000Z", limit: 25, cursor: "cursor-a" }],
+    [["relation", "list", "--entity", "task/task-1", "--type", "depends-on", "--state", "active", "--updated-after", "2026-08-01T00:00:00.000Z", "--updated-before", "2026-08-31T00:00:00.000Z", "--limit", "25", "--cursor", "cursor-a"], { kind: "relation-list", entity: "task/task-1", relationType: "depends-on", state: "active", updatedAfter: "2026-08-01T00:00:00.000Z", updatedBefore: "2026-08-31T00:00:00.000Z", limit: 25, cursor: "cursor-a" }],
     [["task", "relate", "task-1", "depends-on", "task-2", "--rationale", "Must land first", "--dry-run"], { kind: "task-relate", taskId: "task-1", target: "task/task-2", relationType: "depends-on", rationale: "Must land first", dryRun: true }]
   ] as const;
   for (const [argv, expected] of cases) { const parsed = parseThinCommand(argv); assert.equal(parsed.ok, true, `${argv.join(" ")}: ${JSON.stringify(parsed)}`); if (parsed.ok) assert.deepEqual(parsed.command.action, expected); }
@@ -161,6 +161,12 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
   const excessiveRationale = parseThinCommand(["fact", "record", "--task", "task-1", "--statement", "Observed", "--source", "test",
     "--supersedes", "fact/task-1/F-ABCDEFGH", "--rationale", "x".repeat(200)]);
   assert.equal(excessiveRationale.ok ? "ok" : excessiveRationale.code, "invalid_field");
+});
+
+test("Fact search CLI forwards observed-time windows and keyset pagination", () => {
+  const parsed = parseThinCommand(["fact", "search", "observation", "--task", "task-1", "--observed-after", "2026-08-01T00:00:00.000Z", "--observed-before", "2026-08-31T00:00:00.000Z", "--limit", "25", "--cursor", "cursor-a"]);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "fact-search", query: "observation", taskId: "task-1", observedAfter: "2026-08-01T00:00:00.000Z", observedBefore: "2026-08-31T00:00:00.000Z", limit: 25, cursor: "cursor-a" });
 });
 
 test("Decision CLI maps every canonical command and keeps the five local error codes closed", () => {

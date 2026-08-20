@@ -49,6 +49,14 @@ export function readTaskRelationRows(db: DatabaseSync): readonly TaskRelationPro
   return (db.prepare("SELECT relation_id, source_ref, target_ref, relation_type, direction, strength, origin, state, rationale, owner_ref, source_path, record_index FROM task_relation ORDER BY relation_id").all() as unknown as readonly Record<string, unknown>[]).map(taskRelationRow);
 }
 
+/** Cheap id+status pairs from the maintained columns — the blocking judgment's task input
+ * without materializing any snapshot JSON. */
+export function readTaskStatusRows(db: DatabaseSync, taskIds?: readonly string[]): readonly { readonly taskId: string; readonly status: string | null }[] {
+  if (taskIds?.length === 0) return [];
+  const sql = taskIds === undefined ? "SELECT task_id, status FROM task_snapshot ORDER BY task_id" : `SELECT task_id, status FROM task_snapshot WHERE task_id IN (${taskIds.map(() => "?").join(",")}) ORDER BY task_id`;
+  return (db.prepare(sql).all(...taskIds ?? []) as unknown as readonly { readonly task_id: string; readonly status: string | null }[]).map((row) => ({ taskId: row.task_id, status: row.status }));
+}
+
 /** Indexed narrow page over the task snapshot table; order matches the unparameterized list (task id asc). */
 export function listTaskRowsNarrow(db: DatabaseSync, query: TaskProjectionListQuery): { readonly rows: readonly NarrowTaskRow[]; readonly page: ProjectionPage | null } {
   const values: (string | number)[] = [], where: string[] = [];

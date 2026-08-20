@@ -28,6 +28,7 @@ export interface TaskListSuccess {
   readonly watermark: number;
   readonly sourceRevision: number;
   readonly warnings: ReadonlyArray<string>;
+  readonly page?: QueryPage;
 }
 
 export interface RelationGraphSuccess {
@@ -36,6 +37,14 @@ export interface RelationGraphSuccess {
   readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
   readonly factAnchors: ReadonlyArray<FactAnchorRow>; readonly facts: ReadonlyArray<RelationFactRow>;
   readonly warnings: ReadonlyArray<ProjectionWarning>;
+  readonly page?: QueryPage;
+}
+
+export interface QueryPage { readonly limit: number; readonly cursor: string | null; readonly nextCursor: string | null }
+
+/** Optional narrow/paged facets for the wide task reads; omitting them keeps the full result. */
+export interface TaskQueryFacets {
+  readonly status?: string; readonly updatedAfter?: string; readonly updatedBefore?: string; readonly limit?: number; readonly cursor?: string;
 }
 
 export interface DecisionListSuccess {
@@ -100,11 +109,11 @@ export const harnessClient = {
   async getSystemStatus(): Promise<SystemStatusSuccess> { return readSystemStatus(await invokeBridge("getSystemStatus")); },
   async requestDaemonControl(payload: { readonly kind: "refresh" | "restart"; readonly authorityRepoId: string; readonly reason?: string }): Promise<DaemonControlReceipt> { return readDaemonControlReceipt(await invokeBridge("requestDaemonControl", payload)); },
   async getDaemonControlReceipt(payload: { readonly operationId: string }): Promise<DaemonControlReceipt> { return readDaemonControlReceipt(await invokeBridge("getDaemonControlReceipt", payload)); },
-  async getTasks(payload: RepoScope): Promise<TaskListSuccess> { return readTaskListResult(await invokeBridge("getTasks", payload)); },
+  async getTasks(payload: RepoScope & TaskQueryFacets): Promise<TaskListSuccess> { return readTaskListResult(await invokeBridge("getTasks", payload)); },
   async getTaskDocument(payload: RepoScope & { readonly taskId: string; readonly path: string }): Promise<TaskDocumentProjectionRead> { return readTaskDocumentResult(await invokeBridge("getTaskDocument", payload)); },
   async getTaskDocuments(payload: RepoScope & { readonly taskId: string }): Promise<TaskDocumentListProjectionRead> { return readTaskDocumentListResult(await invokeBridge("getTaskDocuments", payload)); },
   async getTaskDispatches(payload: RepoScope & { readonly taskId: string }): Promise<TaskDispatchesRead> { return readTaskDispatchesResult(await invokeBridge("getTaskDispatches", payload)); },
-  async getRelationGraph(payload: RepoScope): Promise<RelationGraphSuccess> { return readRelationGraphResult(await invokeBridge("getRelationGraph", payload)); },
+  async getRelationGraph(payload: RepoScope & TaskQueryFacets): Promise<RelationGraphSuccess> { return readRelationGraphResult(await invokeBridge("getRelationGraph", payload)); },
   async getDecisions(payload: RepoScope): Promise<DecisionListSuccess> { return readDecisionListResult(await invokeBridge("getDecisions", payload)); },
   async listDecisionControls(payload: RepoScope & { readonly search?: string; readonly state?: string; readonly module?: string; readonly productLine?: string }): Promise<DecisionControlListSuccess> { return readDecisionControlList(await invokeBridge("listDecisions", payload)); },
   async showDecision(payload: RepoScope & { readonly decisionId: string; readonly includeBody?: boolean }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("showDecision", payload)); },
@@ -135,7 +144,7 @@ function readTaskDocumentResult(value: unknown): TaskDocumentProjectionRead { co
 function readTaskListResult(value: unknown): TaskListSuccess {
   const result = value as Partial<TaskListSuccess>;
   if (!result || result.ok !== true || !Array.isArray(result.rows) || !result.rows.every(isTaskSnapshotProjectionRow)
-    || (result.status !== "ready" && result.status !== "pending") || !Number.isInteger(result.watermark) || !Number.isInteger(result.sourceRevision)) {
+    || (result.status !== "ready" && result.status !== "pending") || !Number.isInteger(result.watermark) || !Number.isInteger(result.sourceRevision) || result.page !== undefined && !isQueryPage(result.page)) {
     throw new Error(localErrorHint(value, "Task list bridge returned an invalid result."));
   }
   return {
@@ -144,13 +153,14 @@ function readTaskListResult(value: unknown): TaskListSuccess {
     rows: result.rows,
     watermark: result.watermark as number,
     sourceRevision: result.sourceRevision as number,
-    warnings: Array.isArray(result.warnings) ? result.warnings.filter((warning): warning is string => typeof warning === "string") : []
+    warnings: Array.isArray(result.warnings) ? result.warnings.filter((warning): warning is string => typeof warning === "string") : [],
+    ...(result.page ? { page: result.page } : {})
   };
 }
 
 function readRelationGraphResult(value: unknown): RelationGraphSuccess {
   const result = value as Partial<RelationGraphSuccess>;
-  if (!result || result.ok !== true || !Array.isArray(result.edges) || !Array.isArray(result.coverageRows) || !Array.isArray(result.factAnchors) || !Array.isArray(result.facts)) {
+  if (!result || result.ok !== true || !Array.isArray(result.edges) || !Array.isArray(result.coverageRows) || !Array.isArray(result.factAnchors) || !Array.isArray(result.facts) || result.page !== undefined && !isQueryPage(result.page)) {
     throw new Error(localErrorHint(value, "Relation graph bridge returned an invalid result."));
   }
   return {
@@ -158,8 +168,15 @@ function readRelationGraphResult(value: unknown): RelationGraphSuccess {
     edges: result.edges.filter(isRelationGraphEdgeRow),
     coverageRows: result.coverageRows.filter(isRelationCoverageRow),
     factAnchors: result.factAnchors.filter(isFactAnchorRow), facts: result.facts,
-    warnings: Array.isArray(result.warnings) ? result.warnings : []
+    warnings: Array.isArray(result.warnings) ? result.warnings : [],
+    ...(result.page ? { page: result.page } : {})
   };
+}
+
+function isQueryPage(value: unknown): value is QueryPage {
+  return isRendererRecord(value) && typeof value.limit === "number" && Number.isSafeInteger(value.limit) && value.limit >= 1 && value.limit <= 500
+    && (value.cursor === null || typeof value.cursor === "string")
+    && (value.nextCursor === null || typeof value.nextCursor === "string");
 }
 
 function readDecisionListResult(value: unknown): DecisionListSuccess {

@@ -29,6 +29,13 @@ export interface ApiSchemaContract {
 export interface EmptyGuiPayload {
   readonly kind?: "empty";
 }
+/** Optional narrow/paged facets for the wide task reads; absent fields keep the full-result contract. */
+export interface GuiTaskQueryPayload {
+  readonly status?: string; readonly updatedAfter?: string; readonly updatedBefore?: string; readonly limit?: number; readonly cursor?: string;
+}
+export interface GuiRelationQueryPayload {
+  readonly status?: string; readonly updatedAfter?: string; readonly updatedBefore?: string; readonly limit?: number; readonly cursor?: string
+}
 export interface GuiTaskDocumentPayload {
   readonly taskId: string; readonly path: string }
 export interface GuiTaskDocumentListPayload {
@@ -36,6 +43,8 @@ export interface GuiTaskDocumentListPayload {
 
 export const apiSchemaContracts = [
   { id: "gui.empty/v1", owner: "gui", typeName: "EmptyGuiPayload" },
+  { id: "gui.task-query/v1", owner: "gui", typeName: "GuiTaskQueryPayload" },
+  { id: "gui.relation-query/v1", owner: "gui", typeName: "GuiRelationQueryPayload" },
   { id: "gui.task-document/v1", owner: "gui", typeName: "GuiTaskDocumentPayload" },
   { id: "gui.task-document-list/v1", owner: "gui", typeName: "GuiTaskDocumentListPayload" },
   { id: "gui.agent-runtime-overview/v1", owner: "gui", typeName: "AgentRuntimeOverviewPayload" }, { id: "gui.agent-runtime-session/v1", owner: "gui", typeName: "AgentRuntimeSessionPayload" }, { id: "gui.agent-runtime-events/v1", owner: "gui", typeName: "AgentRuntimeEventsPayload" }, { id: "gui.agent-runtime-attach/v1", owner: "gui", typeName: "AgentRuntimeAttachPayload" },

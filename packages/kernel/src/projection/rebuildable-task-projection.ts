@@ -20,7 +20,7 @@ import { sha256Text } from "../integrity/stable-hash.ts";
 import { assertDecisionAdmission, assertFactAdmission, createFactProjectionTables, FactProjectionError, listDecisionRows, readDecisionDocumentState, readDecisionGraphRows, readDecisionRow, readFactAnchorRows, readFactGraphRows, readFactRow, reduceDecisionEvent, reduceFactEvent, refreshDecisionDocumentSearch, searchFactRows, searchFactRowsPage, type DecisionListFilters, type DecisionProjectionRow, type FactProjectionRow, type FactSearchFilters, type FactSearchPage } from "./fact-event-projection.ts";
 import type { EventBackedRelationTruth } from "./relation-graph-projection.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
-import { createTaskRelationProjectionTable, listTaskRowsNarrow, readTaskRelationPage, readTaskRelationRows, refreshTaskRelationProjection, type ProjectionPage, type TaskProjectionListQuery, type TaskRelationProjectionRow, type TaskRelationQuery } from "./task-query-projection.ts";
+import { createTaskRelationProjectionTable, listTaskRowsNarrow, readTaskRelationPage, readTaskRelationRows, readTaskStatusRows, refreshTaskRelationProjection, type ProjectionPage, type TaskProjectionListQuery, type TaskRelationProjectionRow, type TaskRelationQuery } from "./task-query-projection.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 
 interface EventStreamPort {
@@ -65,7 +65,7 @@ export interface DecisionGraphProjectionRead { readonly status: "ready" | "pendi
 export interface TaskProjection {
   readonly path: string; readonly close: () => void; readonly apply: (event: CanonicalEventV1, plan?: FrozenWritePlan) => ProjectionApplyReceipt; readonly rebuild: () => ProjectionRebuildReceipt;
   readonly readStateDigest: () => `sha256:${string}` | null;
-  readonly read: (taskId: string) => TaskProjectionRead; readonly list: (query?: TaskProjectionListQuery) => TaskProjectionListRead; readonly readTaskRelations: () => TaskRelationProjectionRead; readonly readRelationQuery: (query?: TaskRelationQuery) => TaskRelationProjectionRead; readonly readOperation: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
+  readonly read: (taskId: string) => TaskProjectionRead; readonly list: (query?: TaskProjectionListQuery) => TaskProjectionListRead; readonly readTaskRelations: () => TaskRelationProjectionRead; readonly readTaskStatuses: (taskIds?: readonly string[]) => { readonly status: "ready" | "pending"; readonly rows: readonly { readonly taskId: string; readonly status: string | null }[]; readonly watermark: number; readonly sourceRevision: number }; readonly readRelationQuery: (query?: TaskRelationQuery) => TaskRelationProjectionRead; readonly readOperation: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
   readonly readRelationTruth: () => EventBackedRelationTruth;
   readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null; readonly readDocument: (path: string) => DocumentProjectionRead; readonly readReplicaBasis: (afterRevision: number | null) => ReplicaProjectionBasis; readonly taskIdForDocumentPath: (path: string) => string | null;
   readonly readTaskCompletion: (taskId: string, executionId: string) => TaskEventV1 | null;
@@ -95,7 +95,7 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
     if (sourceHead !== null) { observedSourceHead = true; return sourceHead; }
     return observedSourceHead ? null : hotAppliedHead;
   };
-  if (!Number.isInteger(limit) || limit < 1 || limit > 64) throw new Error("task projection catch-up limit must be between 1 and 64");
+  if (!Number.isInteger(limit) || limit < 1 || limit > 4096) throw new Error("task projection catch-up limit must be between 1 and 4096");
   if (localRuntimeStateFileSystem.exists(projectionPath)) withDatabase(projectionPath, readHead, (db) => transaction(db, () => {
     if (markRuntimeSessionsUnknown(db) > 0) refreshStateDigestAtSourceCut(db, readHead()?.revision ?? 0);
   }));
@@ -109,6 +109,7 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
     read: (taskId) => readProjection(projectionPath, readHead, options.eventStore, taskId, limit, now),
     list: (query) => listProjection(projectionPath, readHead, options.eventStore, limit, now, query),
     readTaskRelations: () => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", rows: readTaskRelationRows(db), watermark: current, sourceRevision: round.sourceRevision }; }),
+    readTaskStatuses: (taskIds) => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", rows: readTaskStatusRows(db, taskIds), watermark: current, sourceRevision: round.sourceRevision }; }),
     readRelationQuery: (query) => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db), page = readTaskRelationPage(db, query ?? {}); return { status: current === round.sourceRevision ? "ready" : "pending", rows: page.rows, watermark: current, sourceRevision: round.sourceRevision, ...(page.page ? { page: page.page } : {}) }; }),
     readOperation: (opId) => withDatabase(projectionPath, readHead, (db) => {
       const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as { readonly event_json: string } | undefined;
