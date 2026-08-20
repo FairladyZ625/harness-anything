@@ -1,55 +1,84 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { AgentRuntimeInstanceDto } from "../../../../daemon/src/agent-runtime-contract.ts";
 import { compatibleDispatchInstances, dispatchExecutorRef, type DispatchRequest, type DispatchSubject } from "../dispatch-flow.ts";
 import { t } from "../i18n/index.tsx";
+import { Avatar, Badge, Btn, Chip, Hint, KindDot, LiveDot, Modal, SegCtl, TextInput } from "./runtime/parts.tsx";
 
-// The dispatch modal from the Agent Runtime prototype: who → which task → what mission →
-// where it runs, in that order. The dialog only authors the request; the workspace owns
-// lease acquisition, the daemon spawn, and the settlement shown afterwards.
+// The dispatch modal from the Agent Runtime prototype, in the order the design argues for:
+// who → which task → what mission → where it runs. The dialog only authors the request;
+// the workspace owns lease acquisition, the daemon spawn, and the settlement afterwards.
 export interface DispatchDialogTaskOption { readonly taskId: string; readonly title: string; readonly heldLease: boolean }
 export interface DispatchDialogProps {
-  readonly subject: DispatchSubject;
-  readonly instances: readonly AgentRuntimeInstanceDto[];
-  readonly tasks: readonly DispatchDialogTaskOption[];
-  readonly prompts: readonly string[];
-  readonly busy: boolean;
-  readonly notice: string | null;
-  readonly onCancel: () => void;
-  readonly onSubmit: (request: DispatchRequest) => void;
+  readonly subject: DispatchSubject; readonly instances: readonly AgentRuntimeInstanceDto[]; readonly tasks: readonly DispatchDialogTaskOption[]; readonly prompts: readonly string[];
+  readonly initialMission?: string; readonly busy: boolean; readonly notice: string | null; readonly onCancel: () => void; readonly onSubmit: (request: DispatchRequest) => void;
 }
-export function DispatchDialog({ subject, instances, tasks, prompts, busy, notice, onCancel, onSubmit }: DispatchDialogProps) {
-  const [taskId, setTaskId] = useState(""), [missionTitle, setMissionTitle] = useState(""), [mission, setMission] = useState(""), [workerId, setWorkerId] = useState(subject.kind === "squad" ? subject.workers[0]?.agentId ?? "" : ""), [runtimeMode, setRuntimeMode] = useState<"auto" | "manual">("auto"), [runtimeInstanceId, setRuntimeInstanceId] = useState(""), [cwdScope, setCwdScope] = useState<"repo-root" | "repo-relative">("repo-root"), [cwdPath, setCwdPath] = useState(""), [model, setModel] = useState(""), [effort, setEffort] = useState("");
-  const probe = useMemo(() => ({ subject, workerId }), [subject, workerId]), executor = dispatchExecutorRef(probe), runtimeType = executor?.runtimeType ?? "", compatible = useMemo(() => compatibleDispatchInstances(runtimeType, instances), [runtimeType, instances]);
-  const instance = runtimeMode === "manual" ? compatible.find((row) => row.instanceId === runtimeInstanceId) ?? null : compatible[0] ?? null, task = tasks.find((row) => row.taskId === taskId) ?? null;
-  const dispatchable = Boolean(instance && task && mission.trim()) && (subject.kind === "agent" || Boolean(workerId)) && (cwdScope === "repo-root" || cwdPath.trim().length > 0);
-  const submit = (event: FormEvent) => { event.preventDefault(); if (!dispatchable || busy) return; onSubmit({ subject, ...(subject.kind === "squad" ? { workerId } : {}), runtimeInstanceId: instance!.instanceId, mission: mission.trim(), cwd: cwdScope === "repo-root" ? { scope: "repo-root" } : { scope: "repo-relative", path: cwdPath.trim() }, taskId: task!.taskId, ...(model ? { model } : {}), ...(effort && (instance!.kindId === "codex" || instance!.kindId === "agy") ? { effort } : {}), idempotencyKey: `gui-dispatch-${crypto.randomUUID()}` }); };
-  return <div role="dialog" aria-modal="true" aria-label={t("components.dispatchDialog.title")} data-testid="dispatch-dialog" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6"><form onSubmit={submit} className="flex max-h-[86dvh] w-[720px] max-w-full flex-col overflow-hidden rounded-lg border border-border-strong bg-surface-raised shadow-xl">
-    <header className="flex items-center gap-3 border-b border-border px-4 py-3"><h2 className="ui-heading font-semibold">{t("components.dispatchDialog.title")}</h2><span className="text-[11px] text-text-faint">{t("components.dispatchDialog.orderHint")}</span><span className="flex-1"/><button type="button" onClick={onCancel} className="rounded border border-border px-2 py-0.5 text-[12px] text-text-muted hover:border-border-strong">✕</button></header>
-    <div className="flex-1 overflow-y-auto px-4 py-3">
-      <fieldset className="mb-3 rounded border border-border px-3 py-2"><legend className="px-1 font-mono text-[10px] uppercase text-text-faint">① {t("components.dispatchDialog.who")}</legend>
-        <div className="flex flex-wrap items-center gap-2 text-[12px]"><b>{subject.kind === "agent" ? subject.agent.agentName : subject.squadName}</b><code className="text-[10px] text-text-faint">{subject.kind === "agent" ? subject.agent.agentId : subject.squadId}</code><span className="text-[11px] text-text-faint">{subject.kind === "agent" ? t("components.dispatchDialog.runtimeConstraint", { kind: subject.agent.runtimeType }) : t("components.dispatchDialog.squadRouting")}</span></div>
-        {subject.kind === "squad" && <label className="mt-2 grid gap-1 text-[11px] text-text-muted">{t("components.dispatchDialog.worker")}<select data-testid="dispatch-worker" value={workerId} onChange={(event) => setWorkerId(event.target.value)} className="rounded border border-border bg-surface px-2 py-1.5 text-sm text-text">{subject.workers.map((worker) => <option key={worker.agentId} value={worker.agentId}>{worker.agentName} · {worker.runtimeType}</option>)}</select></label>}
-        {prompts.length > 0 && <p className="mt-2 font-mono text-[10px] text-text-faint">{t("components.dispatchDialog.promptRefs")}: {prompts.join(", ")}</p>}
-      </fieldset>
-      <fieldset className="mb-3 rounded border border-border px-3 py-2"><legend className="px-1 font-mono text-[10px] uppercase text-text-faint">② {t("components.dispatchDialog.task")}</legend>
-        <label className="grid gap-1 text-[11px] text-text-muted">{t("components.dispatchDialog.taskSelect")}<select data-testid="dispatch-task" value={taskId} onChange={(event) => setTaskId(event.target.value)} className="rounded border border-border bg-surface px-2 py-1.5 text-sm text-text">{tasks.length ? tasks.map((option) => <option key={option.taskId} value={option.taskId}>{option.taskId} · {option.title}{option.heldLease ? "" : ` · ${t("components.dispatchDialog.leaseFree")}`}</option>) : <option value="">{t("components.dispatchDialog.noTasks")}</option>}</select></label>
-        <p className="mt-2 text-[11px] text-text-faint">{task && !task.heldLease ? t("components.dispatchDialog.leaseAutoAcquire") : t("components.dispatchDialog.leaseHeld")}</p>
-      </fieldset>
-      <fieldset className="mb-3 rounded border border-border px-3 py-2"><legend className="px-1 font-mono text-[10px] uppercase text-text-faint">③ {t("components.dispatchDialog.mission")}</legend>
-        <label className="grid gap-1 text-[11px] text-text-muted">{t("components.dispatchDialog.missionTitle")}<input value={missionTitle} onChange={(event) => setMissionTitle(event.target.value)} placeholder={t("components.dispatchDialog.missionTitlePlaceholder")} className="rounded border border-border bg-surface px-2 py-1.5 text-sm text-text"/></label>
-        <label className="mt-2 grid gap-1 text-[11px] text-text-muted">{t("components.dispatchDialog.missionBody")}<textarea data-testid="dispatch-mission" value={mission} onChange={(event) => setMission(event.target.value)} rows={5} placeholder={t("components.dispatchDialog.missionPlaceholder")} className="resize-y rounded border border-border bg-surface px-2 py-1.5 font-mono text-[12px] text-text"/></label>
-        <p className="mt-2 text-[11px] text-text-faint">{t("components.dispatchDialog.missionFiling")}</p>
-      </fieldset>
-      <fieldset className="rounded border border-border px-3 py-2"><legend className="px-1 font-mono text-[10px] uppercase text-text-faint">④ {t("components.dispatchDialog.where")}</legend>
-        <div className="flex flex-wrap items-center gap-2 text-[12px]"><div className="inline-flex overflow-hidden rounded border border-border">{(["auto", "manual"] as const).map((mode, index) => <button key={mode} type="button" onClick={() => setRuntimeMode(mode)} className={`px-2 py-1 text-[11px] ${index === 1 ? "border-l border-border" : ""} ${runtimeMode === mode ? "bg-surface-raised font-semibold text-text" : "text-text-muted"}`}>{mode === "auto" ? t("components.dispatchDialog.runtimeAuto") : t("components.dispatchDialog.runtimeManual")}</button>)}</div><span className="text-[11px] text-text-faint">{t("components.dispatchDialog.compatibleCount", { count: String(compatible.length) })}</span></div>
-        {runtimeMode === "manual" && <label className="mt-2 grid gap-1 text-[11px] text-text-muted">{t("components.dispatchDialog.instance")}<select value={runtimeInstanceId} onChange={(event) => setRuntimeInstanceId(event.target.value)} className="rounded border border-border bg-surface px-2 py-1.5 text-sm text-text">{compatible.length ? compatible.map((row) => <option key={row.instanceId} value={row.instanceId}>{row.name} · {row.defaultModel}</option>) : <option value="">{t("components.dispatchDialog.noCompatibleInstance")}</option>}</select></label>}
-        {instance && <div className="mt-2 grid gap-2 sm:grid-cols-2"><label className="grid gap-1 text-[11px] text-text-muted">{t("components.dispatchDialog.model")}<select value={model} onChange={(event) => setModel(event.target.value)} className="rounded border border-border bg-surface px-2 py-1.5 text-sm text-text"><option value="">{instance.defaultModel}</option>{instance.models.filter((entry) => entry !== instance.defaultModel).map((entry) => <option key={entry} value={entry}>{entry}</option>)}</select></label>{(instance.kindId === "codex" || instance.kindId === "agy") && <label className="grid gap-1 text-[11px] text-text-muted">{t("components.dispatchDialog.effort")}<input value={effort} onChange={(event) => setEffort(event.target.value)} placeholder={instance.kindId === "codex" ? instance.codex.reasoningEffort ?? "optional" : instance.agy.effort ?? "optional"} className="rounded border border-border bg-surface px-2 py-1.5 font-mono text-sm text-text"/></label>}</div>}
-        <div className="mt-2 grid gap-2 sm:grid-cols-[170px_minmax(0,1fr)]"><label className="grid gap-1 text-[11px] text-text-muted">{t("components.dispatchDialog.cwdScope")}<select value={cwdScope} onChange={(event) => setCwdScope(event.target.value as "repo-root" | "repo-relative")} className="rounded border border-border bg-surface px-2 py-1.5 text-sm text-text"><option value="repo-root">{t("components.dispatchDialog.cwdRoot")}</option><option value="repo-relative">{t("components.dispatchDialog.cwdRelative")}</option></select></label>{cwdScope === "repo-relative" && <label className="grid gap-1 text-[11px] text-text-muted">{t("components.dispatchDialog.cwdPath")}<input value={cwdPath} onChange={(event) => setCwdPath(event.target.value)} placeholder="packages/gui" className="rounded border border-border bg-surface px-2 py-1.5 font-mono text-sm text-text"/></label>}</div>
-      </fieldset>
-    </div>
-    <footer className="border-t border-border px-4 py-3">
-      <p className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-text-faint"><span>{t("components.dispatchDialog.produces")}</span><code className="rounded border border-border px-1.5 py-0.5">artifacts/missions/&lt;dispatchId&gt;.md</code><code className="rounded border border-border px-1.5 py-0.5">artifacts/dispatches/&lt;dispatchId&gt;.json</code><code className="rounded border border-border px-1.5 py-0.5">artifacts/reports/&lt;dispatchId&gt;.md</code></p>
-      <div className="flex items-center gap-2">{notice && <span role="status" className="min-w-0 flex-1 truncate font-mono text-[11px] text-status-warning">{notice}</span>}<span className="flex-1"/><button type="button" onClick={onCancel} className="rounded border border-border px-3 py-1.5 text-[13px] text-text-muted hover:border-border-strong">{t("components.dispatchDialog.cancel")}</button><button type="submit" disabled={!dispatchable || busy} data-testid="dispatch-submit" className="rounded bg-accent px-3 py-1.5 text-[13px] font-semibold text-on-accent disabled:cursor-not-allowed disabled:opacity-50">{busy ? t("components.dispatchDialog.dispatching") : t("components.dispatchDialog.dispatch")}</button></div>
-    </footer>
-  </form></div>;
+type StepKey = "who" | "task" | "mission" | "where";
+export function DispatchDialog({ subject, instances, tasks, prompts, initialMission = "", busy, notice, onCancel, onSubmit }: DispatchDialogProps) {
+  const [open, setOpen] = useState<StepKey>(initialMission ? "mission" : "task");
+  const [taskId, setTaskId] = useState(""), [missionTitle, setMissionTitle] = useState(""), [mission, setMission] = useState(initialMission);
+  const [workerId, setWorkerId] = useState(subject.kind === "squad" ? subject.workers[0]?.agentId ?? "" : "");
+  const [runtimeMode, setRuntimeMode] = useState<"auto" | "manual">("auto"), [runtimeInstanceId, setRuntimeInstanceId] = useState("");
+  const [cwdScope, setCwdScope] = useState<"repo-root" | "repo-relative">("repo-root"), [cwdPath, setCwdPath] = useState(""), [model, setModel] = useState(""), [effort, setEffort] = useState("");
+  const executor = dispatchExecutorRef(useMemo(() => ({ subject, workerId }), [subject, workerId])), runtimeType = executor?.runtimeType ?? "";
+  const compatible = useMemo(() => compatibleDispatchInstances(runtimeType, instances), [runtimeType, instances]);
+  const instance = runtimeMode === "manual" ? compatible.find((row) => row.instanceId === runtimeInstanceId) ?? null : compatible[0] ?? null;
+  const task = tasks.find((row) => row.taskId === taskId) ?? null;
+  const ready = Boolean(instance && task && mission.trim()) && (subject.kind === "agent" || Boolean(workerId)) && (cwdScope === "repo-root" || cwdPath.trim().length > 0);
+  const submit = () => { if (!ready || busy) return; onSubmit({ subject, ...(subject.kind === "squad" ? { workerId } : {}), runtimeInstanceId: instance!.instanceId, mission: mission.trim(), cwd: cwdScope === "repo-root" ? { scope: "repo-root" } : { scope: "repo-relative", path: cwdPath.trim() }, taskId: task!.taskId, ...(model ? { model } : {}), ...(effort && (instance!.kindId === "codex" || instance!.kindId === "agy") ? { effort } : {}), idempotencyKey: `gui-dispatch-${crypto.randomUUID()}` }); };
+  return <Modal testId="dispatch-dialog" wide title={t("agentRuntime.dispatchTitle")} hint={t("agentRuntime.dispatchOrderHint")} onClose={onCancel} footer={<>
+    <p className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px] text-text-faint"><span>{t("agentRuntime.produces")}</span><Chip tone="mono">artifacts/missions/&lt;dispatchId&gt;.md</Chip><Chip tone="mono">artifacts/dispatches/&lt;dispatchId&gt;.json</Chip><Chip tone="mono">artifacts/reports/&lt;dispatchId&gt;.md</Chip></p>
+    <div className="flex items-center gap-2">{notice && <span role="status" className="min-w-0 flex-1 truncate font-mono text-[11px] text-stale">{notice}</span>}<span className="flex-1" /><Btn onClick={onCancel}>{t("agentRuntime.cancel")}</Btn><Btn variant="primary" testId="dispatch-submit" disabled={!ready || busy} onClick={submit}>{busy ? t("agentRuntime.dispatching") : t("agentRuntime.dispatchNow")}</Btn></div>
+  </>}>
+    <Step no="①" step="who" title={t("agentRuntime.stepWho")} hint={t("agentRuntime.stepWhoHint")} current={subject.kind === "agent" ? subject.agent.agentName : subject.squadName} open={open} onOpen={setOpen} locked>
+      <div className="flex flex-wrap items-center gap-2 text-[12px]">
+        {subject.kind === "agent" ? <><Avatar id={subject.agent.agentId} /><b>{subject.agent.agentName}</b><Badge>{subject.agent.agentId}</Badge><Hint>{t("agentRuntime.runtimeConstraintIs", { kind: subject.agent.runtimeType || "any" })}</Hint></>
+          : <><KindDot kind="any" /><b>{subject.squadName}</b><Badge>{subject.squadId}</Badge><Hint>{t("agentRuntime.squadRouting", { count: subject.workers.length })}</Hint>{subject.workers.map((worker) => <Chip key={worker.agentId} tone="mono">{worker.agentId}</Chip>)}</>}
+      </div>
+      {subject.kind === "squad" && <label className="mt-2 grid gap-1 text-[11px] text-text-muted">{t("agentRuntime.worker")}<select data-testid="dispatch-worker" value={workerId} onChange={(event) => setWorkerId(event.target.value)} className="control">{subject.workers.map((worker) => <option key={worker.agentId} value={worker.agentId}>{worker.agentName} · {worker.runtimeType || "any"}</option>)}</select></label>}
+      <p className="mt-2 text-[11px] text-text-faint">{t("agentRuntime.twoAxes")}</p>
+    </Step>
+
+    <Step no="②" step="task" title={t("agentRuntime.stepTask")} hint={t("agentRuntime.stepTaskHint")} current={task?.title ?? null} open={open} onOpen={setOpen}>
+      {tasks.length === 0 ? <p className="text-[11px] text-text-faint">{t("agentRuntime.noTasks")}</p> : tasks.map((option) => <button key={option.taskId} type="button" data-testid={`dispatch-task-${option.taskId}`} onClick={() => { setTaskId(option.taskId); setOpen("mission"); }} className={`mb-1.5 flex w-full items-center gap-2 rounded border px-2.5 py-1.5 text-left ${option.taskId === taskId ? "border-accent bg-accent/[0.08]" : "border-border hover:border-border-strong"}`}>
+        <LiveDot state={option.heldLease ? "failed" : "live"} tip={option.heldLease ? t("agentRuntime.leaseHeld") : t("agentRuntime.leaseFree")} />
+        <span className="min-w-0"><span className="block truncate text-[12px]">{option.title}</span><span className="block truncate font-mono text-[10px] text-text-faint">{option.taskId}</span></span>
+        <span className="ml-auto shrink-0 font-mono text-[10px] text-text-faint">{option.heldLease ? t("agentRuntime.leaseHeld") : t("agentRuntime.leaseFree")}</span>
+      </button>)}
+      <p className="mt-1 text-[11px] text-text-faint">{t("agentRuntime.leaseAutoAcquire")}</p>
+    </Step>
+
+    <Step no="③" step="mission" title={t("agentRuntime.stepMission")} hint={t("agentRuntime.stepMissionHint")} current={missionTitle || (mission ? mission.slice(0, 40) : null)} open={open} onOpen={setOpen}>
+      <label className="grid gap-1 text-[11px] text-text-muted">{t("agentRuntime.missionTitle")}<input value={missionTitle} onChange={(event) => setMissionTitle(event.target.value)} placeholder={t("agentRuntime.missionTitlePlaceholder")} className="control" /></label>
+      <label className="mt-2 grid gap-1 text-[11px] text-text-muted">{t("agentRuntime.missionBody")}<textarea data-testid="dispatch-mission" value={mission} onChange={(event) => setMission(event.target.value)} rows={6} placeholder={t("agentRuntime.missionPlaceholder")} className="resize-y rounded border border-border-strong bg-surface px-2 py-1.5 font-mono text-[11.5px] text-text outline-none focus-visible:border-accent" /></label>
+      {prompts.length > 0 && <div className="mt-2"><Hint>{t("agentRuntime.usePredefinedPrompt")}</Hint><div className="mt-1 flex flex-wrap gap-1.5">{prompts.map((prompt, index) => <Chip key={index} tone="link" onClick={() => setMission(prompt)}>{prompt.slice(0, 42)}{prompt.length > 42 ? "…" : ""}</Chip>)}</div></div>}
+      <p className="mt-2 text-[11px] text-text-faint">{t("agentRuntime.missionFiling")}</p>
+    </Step>
+
+    <Step no="④" step="where" title={t("agentRuntime.stepWhere")} hint={t("agentRuntime.stepWhereHint")} current={runtimeMode === "auto" ? t("agentRuntime.autoCompatible", { count: compatible.length }) : instance?.name ?? null} open={open} onOpen={setOpen}>
+      <div className="flex flex-wrap items-center gap-2">
+        <SegCtl label={t("agentRuntime.stepWhere")} value={runtimeMode} onChange={setRuntimeMode} options={[{ value: "auto" as const, label: t("agentRuntime.runtimeAuto") }, { value: "manual" as const, label: t("agentRuntime.runtimeManual") }]} />
+        <Hint>{t("agentRuntime.compatibleCount", { count: compatible.length })}</Hint>
+      </div>
+      {runtimeMode === "manual" && <label className="mt-2 grid gap-1 text-[11px] text-text-muted">{t("agentRuntime.instance")}<select data-testid="dispatch-instance" value={runtimeInstanceId} onChange={(event) => setRuntimeInstanceId(event.target.value)} className="control">{compatible.length ? compatible.map((row) => <option key={row.instanceId} value={row.instanceId}>{row.name} · {row.defaultModel}</option>) : <option value="">{t("agentRuntime.noCompatibleInstance")}</option>}</select></label>}
+      {instance && <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        <label className="grid gap-1 text-[11px] text-text-muted">{t("agentRuntime.model")}<select value={model} onChange={(event) => setModel(event.target.value)} className="control"><option value="">{instance.defaultModel}</option>{instance.models.filter((entry) => entry !== instance.defaultModel).map((entry) => <option key={entry} value={entry}>{entry}</option>)}</select></label>
+        {(instance.kindId === "codex" || instance.kindId === "agy") && <label className="grid gap-1 text-[11px] text-text-muted">{t("agentRuntime.effort")}<input value={effort} onChange={(event) => setEffort(event.target.value)} placeholder={instance.kindId === "codex" ? instance.codex.reasoningEffort ?? t("agentRuntime.providerDefault") : instance.agy.effort ?? t("agentRuntime.providerDefault")} className="control" /></label>}
+      </div>}
+      <div className="mt-2 grid gap-2 sm:grid-cols-[180px_minmax(0,1fr)]">
+        <label className="grid gap-1 text-[11px] text-text-muted">{t("agentRuntime.cwdScope")}<select value={cwdScope} onChange={(event) => setCwdScope(event.target.value as "repo-root" | "repo-relative")} className="control"><option value="repo-root">{t("agentRuntime.cwdRoot")}</option><option value="repo-relative">{t("agentRuntime.cwdRelative")}</option></select></label>
+        {cwdScope === "repo-relative" && <div className="grid gap-1 text-[11px] text-text-muted">{t("agentRuntime.cwdPath")}<TextInput label={t("agentRuntime.cwdPath")} mono value={cwdPath} onChange={setCwdPath} placeholder="packages/gui" /></div>}
+      </div>
+    </Step>
+  </Modal>;
+}
+function Step({ no, step, title, hint, current, open, locked = false, onOpen, children }: { readonly no: string; readonly step: StepKey; readonly title: string; readonly hint: string; readonly current: string | null; readonly open: StepKey; readonly locked?: boolean; readonly onOpen: (step: StepKey) => void; readonly children: ReactNode }) {
+  const expanded = open === step || locked;
+  return <section className="mb-2.5 rounded-lg border border-border bg-surface">
+    <button type="button" aria-expanded={expanded} onClick={() => onOpen(step)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left">
+      <span className={`flex size-[18px] shrink-0 items-center justify-center rounded-full border font-mono text-[10px] ${locked ? "border-transparent bg-accent text-accent-fg" : "border-border-strong text-text-muted"}`}>{no}</span>
+      <b className="text-[12px] font-[650]">{title}</b><Hint>{hint}</Hint>
+      {current && <span className={`ml-auto max-w-[46%] truncate text-[11px] ${expanded ? "text-text-muted" : "text-accent"}`}>{current}</span>}
+    </button>
+    {expanded && <div className="border-t border-border px-3 py-2.5">{children}</div>}
+  </section>;
 }

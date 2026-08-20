@@ -1,42 +1,100 @@
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { agentRuntimeClient } from "../agent-runtime-client.ts";
 import { agentEntityClient } from "../agent-entity-client.ts";
-import { runtimeCommandClient } from "../runtime-command-client.ts";
-import { submitRuntimeSpawn, type RuntimeSpawnInput, type RuntimeSpawnSettlement } from "../runtime-control.ts";
-import type { AgentEntityRow, SquadEntityRow } from "../agent-entity-client.ts";
 import type { DispatchRequest, DispatchSubject } from "../dispatch-flow.ts";
-import { buildDispatchSpawnInput } from "../dispatch-flow.ts";
-import { createGuiExecutionId } from "../task-actions.ts";
-import { harnessClient } from "../api-client.ts";
-import { RuntimeControlPanel } from "../components/RuntimeControlPanel.tsx";
-import { RuntimeInstanceManager } from "../components/RuntimeInstanceManager.tsx";
-import { EntityLayersPanel } from "../components/EntityLayersPanel.tsx";
-import { DispatchDialog } from "../components/DispatchDialog.tsx";
-import { OrchestrationPanel } from "../components/OrchestrationPanel.tsx";
-import { AgentRuntimeView } from "./agent-runtime-view.tsx";
+import { runtimeDockLiveCount } from "../runtime-panorama.ts";
 import { t } from "../i18n/index.tsx";
+import { DispatchDialog } from "../components/DispatchDialog.tsx";
+import { AgentCard, agentDeclarationFrom, agentDraftFrom } from "../components/runtime/AgentCard.tsx";
+import { NewEntityDialog, type NewEntityRequest } from "../components/runtime/NewEntityDialog.tsx";
+import { NewRuntimeDialog } from "../components/runtime/NewRuntimeDialog.tsx";
+import { OrchestrationCard } from "../components/runtime/OrchestrationCard.tsx";
+import { Badge, Btn, CapDot, Empty, Hint } from "../components/runtime/parts.tsx";
+import { RuntimeCard } from "../components/runtime/RuntimeCard.tsx";
+import { RuntimeInspector } from "../components/runtime/RuntimeInspector.tsx";
+import { orchestrationEntries, RuntimeRail } from "../components/runtime/RuntimeRail.tsx";
+import { SessionsDock } from "../components/runtime/SessionsDock.tsx";
+import { SquadCard, squadDeclarationFrom, squadDraftFrom } from "../components/runtime/SquadCard.tsx";
+import { useAgentDetail, useRuntimeWorkspace, useSquadDetail, type RuntimeSelection } from "../components/runtime/useRuntimeWorkspace.ts";
 
 type TaskOption = { readonly taskId: string; readonly title: string; readonly heldLease: boolean };
-type DialogState = { readonly subject: DispatchSubject; readonly prompts: readonly string[] };
+type Dialog = { readonly kind: "new-runtime" } | { readonly kind: "new-entity"; readonly entity: "agent" | "squad" } | { readonly kind: "dispatch"; readonly subject: DispatchSubject; readonly prompts: readonly string[]; readonly mission: string };
+
+// The Agent Runtime configuration plane: rail (carrier → identity → organisation →
+// orchestration) · detail card · inspector · sessions dock, exactly the four regions the
+// design prototype argues for. Selection is the only cross-region state.
 export function RuntimeWorkspace({ repoId, tasks }: { readonly repoId: string; readonly tasks: readonly TaskOption[] }) {
-  const queryClient = useQueryClient(), key = ["runtime-control", repoId, "overview"] as const, overview = useQuery({ queryKey: key, queryFn: () => agentRuntimeClient.overview(repoId), staleTime: 3_000 });
-  const [busy, setBusy] = useState(false), [settlement, setSettlement] = useState<RuntimeSpawnSettlement | null>(null), [revision, setRevision] = useState(0), [error, setError] = useState<string | null>(null), [dialog, setDialog] = useState<DialogState | null>(null), [focus, setFocus] = useState<{ readonly sessionId: string; readonly nonce: number } | null>(null);
-  const reread = async () => { await queryClient.fetchQuery({ queryKey: key, queryFn: () => agentRuntimeClient.overview(repoId), staleTime: 0 }); setRevision((value) => value + 1); };
-  const spawn = async (input: RuntimeSpawnInput) => { if (busy) return; setBusy(true); setSettlement(null); setError(null); try { const result = await submitRuntimeSpawn(input, { spawn: (payload) => runtimeCommandClient.spawn(repoId, payload), showReceipt: (opId) => runtimeCommandClient.showReceipt(repoId, opId), overview: () => agentRuntimeClient.overview(repoId), onPending: setSettlement }); setSettlement(result); await reread(); } catch (cause) { consumeKnownError(cause); setError(message(cause)); } finally { setBusy(false); } };
-  // The prototype's "派出时将自动获取执行租约": a task-bound dispatch spawns first, and only a
-  // runtime_task_lease_required rejection triggers one lease acquisition and one resubmit with
-  // the same idempotency key — the first attempt wrote no ledger event, so the retry is not a
-  // duplicate dispatch.
-  const dispatch = async (request: DispatchRequest) => { if (busy) return; setBusy(true); setError(null); try { const result = await submitRuntimeSpawn(buildDispatchSpawnInput(request, overview.data?.instances ?? []), { spawn: (payload) => leaseAwareSpawn(repoId, payload), showReceipt: (opId) => runtimeCommandClient.showReceipt(repoId, opId), overview: () => agentRuntimeClient.overview(repoId), onPending: setSettlement }); setSettlement(result); if (result.runtimeSessionId) setFocus({ sessionId: result.runtimeSessionId, nonce: Date.now() }); setDialog(null); await queryClient.invalidateQueries({ queryKey: ["orchestration-dispatches", repoId] }); await queryClient.invalidateQueries({ queryKey: ["orchestration-documents", repoId] }); await reread(); } catch (cause) { consumeKnownError(cause); setError(message(cause)); } finally { setBusy(false); } };
-  const openAgentDialog = async (agent: AgentEntityRow) => { setDialog({ subject: { kind: "agent", agent: { agentId: agent.id, agentName: agent.name, runtimeType: agent.runtimeType } }, prompts: [] }); try { const detail = await agentEntityClient.showAgent(repoId, agent.id); setDialog((current) => current?.subject.kind === "agent" && current.subject.agent.agentId === agent.id ? { ...current, prompts: detail.prompts } : current); } catch (cause) { consumeKnownError(cause); } };
-  const openSquadDialog = async (squad: SquadEntityRow) => { setDialog({ subject: { kind: "squad", squadId: squad.id, squadName: squad.name, leader: { agentId: squad.leader, agentName: squad.leader, runtimeType: "" }, workers: squad.workers.map((worker) => ({ agentId: worker, agentName: worker, runtimeType: "" })) }, prompts: [] }); try { const agents = await agentEntityClient.listAgents(repoId), detail = await agentEntityClient.showSquad(repoId, squad.id), byId = new Map(agents.map((agent) => [agent.id, agent])); setDialog((current) => current?.subject.kind === "squad" && current.subject.squadId === squad.id ? { ...current, subject: { ...current.subject, leader: { agentId: detail.leader, agentName: byId.get(detail.leader)?.name ?? detail.leader, runtimeType: byId.get(detail.leader)?.runtimeType ?? "" }, workers: detail.workers.map((worker) => ({ agentId: worker, agentName: byId.get(worker)?.name ?? worker, runtimeType: byId.get(worker)?.runtimeType ?? "" })) } } : current); } catch (cause) { consumeKnownError(cause); } };
-  if (overview.isError) return <section className="p-6 text-status-blocked">{t("views.agentRuntimeView.runtimeReadFailed", { error: message(overview.error) })}</section>;
-  if (!overview.data) return <section className="p-6 text-text-faint">{t("views.agentRuntimeView.loadingRuntimeProjection")}</section>;
-  const runtimeInstances = overview.data.instances;
-  return <div className="flex min-h-0 flex-1 flex-col overflow-hidden"><div className="max-h-[62dvh] shrink-0 overflow-y-auto"><RuntimeInstanceManager repoId={repoId}/><EntityLayersPanel repoId={repoId} onDispatchAgent={(agent) => { void openAgentDialog(agent); }} onDispatchSquad={(squad) => { void openSquadDialog(squad); }}/>{error && <p role="alert" className="border-b border-border bg-status-blocked/10 px-4 py-2 text-xs text-status-blocked">{error}</p>}<RuntimeControlPanel overview={overview.data} tasks={tasks} busy={busy} settlement={settlement} onSpawn={spawn}/><OrchestrationPanel repoId={repoId} tasks={tasks} revision={revision} onFocusSession={(sessionId) => setFocus({ sessionId, nonce: Date.now() })}/></div><AgentRuntimeView key={`${repoId}:${revision}`} repoId={repoId} tasks={tasks} focus={focus}/>{dialog && <DispatchDialog subject={dialog.subject} instances={runtimeInstances} tasks={tasks} prompts={dialog.prompts} busy={busy} notice={settlement?.state === "pending" ? settlement.hint : null} onCancel={() => setDialog(null)} onSubmit={(request) => { void dispatch(request); }}/>}</div>;
+  const workspace = useRuntimeWorkspace(repoId, tasks);
+  const [selection, setSelection] = useState<RuntimeSelection | null>(null), [segments, setSegments] = useState<Readonly<Record<string, boolean>>>({ runtimes: true, agents: true, squads: true, orchestration: true });
+  const [dialog, setDialog] = useState<Dialog | null>(null), [dockOpen, setDockOpen] = useState(false), [dockSelected, setDockSelected] = useState<string | null>(null), [inspector, setInspector] = useState(true), [revision, setRevision] = useState(0);
+  const instances = workspace.machine.data?.instances ?? [], installations = workspace.machine.data?.installations ?? [], agents = workspace.agents.data ?? [], squads = workspace.squads.data ?? [];
+  const current: RuntimeSelection | null = selection ?? (instances[0] ? { type: "runtime", id: instances[0].instanceId } : agents[0] ? { type: "agent", id: agents[0].id } : null);
+  const agentDetail = useAgentDetail(repoId, current?.type === "agent" ? current.id : null), squadDetail = useSquadDetail(repoId, current?.type === "squad" ? current.id : null);
+  const liveByInstance = new Map<string, number>(); for (const row of workspace.dockRows) if (row.status === "running") liveByInstance.set(row.instanceId, (liveByInstance.get(row.instanceId) ?? 0) + 1);
+  const focusSession = (runtimeSessionId: string) => { setDockSelected(runtimeSessionId); setDockOpen(true); };
+
+  const openAgentDispatch = async (agentId: string, mission: string) => {
+    const row = agents.find((agent) => agent.id === agentId); if (!row) return;
+    setDialog({ kind: "dispatch", subject: { kind: "agent", agent: { agentId: row.id, agentName: row.name, runtimeType: row.runtimeType } }, prompts: [], mission });
+    const detail = await agentEntityClient.showAgent(repoId, agentId);
+    setDialog((value) => value?.kind === "dispatch" && value.subject.kind === "agent" && value.subject.agent.agentId === agentId ? { ...value, prompts: detail.prompts } : value);
+  };
+  const openSquadDispatch = async (squadId: string) => {
+    const detail = await agentEntityClient.showSquad(repoId, squadId), byId = new Map(agents.map((agent) => [agent.id, agent]));
+    const ref = (id: string) => ({ agentId: id, agentName: byId.get(id)?.name ?? id, runtimeType: byId.get(id)?.runtimeType ?? "" });
+    setDialog({ kind: "dispatch", subject: { kind: "squad", squadId, squadName: detail.name, leader: ref(detail.leader), workers: detail.workers.map(ref) }, prompts: [], mission: "" });
+  };
+  const createEntity = async (request: NewEntityRequest) => {
+    if (request.kind === "agent") {
+      const draft = request.templateId ? agentDraftFrom(await agentEntityClient.showAgent(repoId, request.templateId)) : { name: request.name, role: "worker" as const, runtimeType: "any", model: "", preset: "", instructions: t("agentRuntime.blankInstructions"), prompts: [] };
+      await workspace.saveAgent(agentDeclarationFrom(request.id, { ...draft, name: request.name }));
+      setSelection({ type: "agent", id: request.id });
+    } else {
+      const draft = request.templateId ? squadDraftFrom(await agentEntityClient.showSquad(repoId, request.templateId)) : { name: request.name, leader: agents.find((agent) => agent.role === "commander")?.id ?? agents[0]?.id ?? "", workers: [], roster: t("agentRuntime.blankRoster") };
+      await workspace.saveSquad(squadDeclarationFrom(request.id, { ...draft, name: request.name }));
+      setSelection({ type: "squad", id: request.id });
+    }
+    setDialog(null);
+  };
+  const dispatch = async (request: DispatchRequest) => { const settled = await workspace.dispatch(request); setDialog(null); setRevision((value) => value + 1); if (settled?.runtimeSessionId) focusSession(settled.runtimeSessionId); };
+
+  if (workspace.machine.isError || workspace.overview.isError) return <section className="p-6 text-status-blocked">{t("agentRuntime.readFailed", { error: String((workspace.machine.error ?? workspace.overview.error) as unknown) })}</section>;
+  if (!workspace.machine.data || !workspace.overview.data) return <section className="p-6 text-text-faint">{t("agentRuntime.loading")}</section>;
+  return <section data-testid="runtime-workspace" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <header className="flex h-[42px] shrink-0 items-center gap-3 border-b border-border bg-surface-raised px-3.5">
+      <b className="text-[13px] tracking-[0.02em]">{t("agentRuntime.title")}</b><span className="truncate font-mono text-[10.5px] text-text-faint">{t("agentRuntime.subtitle")}</span>
+      <span className="flex-1" />
+      <span className="flex items-center gap-2.5 whitespace-nowrap text-[11px] text-text-muted"><span className="flex items-center gap-1"><CapDot size={10} state="full" tip={t("agentRuntime.legendReadyTip")} />{t("agentRuntime.legendReady")}</span><span className="flex items-center gap-1"><CapDot size={10} state="part" tip={t("agentRuntime.legendPartialTip")} />{t("agentRuntime.legendPartial")}</span><span className="flex items-center gap-1"><CapDot size={10} state="none" tip={t("agentRuntime.legendBlockedTip")} />{t("agentRuntime.legendBlocked")}</span></span>
+      <Badge status={runtimeDockLiveCount(workspace.dockRows) > 0 ? "active" : "planned"}>{t("agentRuntime.liveSessions", { count: runtimeDockLiveCount(workspace.dockRows) })}</Badge>
+      <Btn size="sm" variant="ghost" onClick={() => setInspector(!inspector)} tip={t("agentRuntime.toggleInspector")}>▐</Btn>
+    </header>
+    {(workspace.error ?? workspace.feedback) && <p role="status" onClick={workspace.clearFeedback} className={`shrink-0 border-b border-border px-3.5 py-1.5 font-mono text-[11px] ${workspace.error ? "bg-status-blocked/10 text-status-blocked" : "text-text-muted"}`}>{workspace.error ?? workspace.feedback}</p>}
+    <div className="flex min-h-0 flex-1">
+      <RuntimeRail instances={instances} agents={agents} squads={squads} orchestration={orchestrationEntries(workspace.dockRows)} selection={current} open={segments} liveByInstance={liveByInstance}
+        onToggle={(segment) => setSegments((value) => ({ ...value, [segment]: !(value[segment] ?? true) }))} onSelect={setSelection} onNew={(segment) => setDialog(segment === "runtimes" ? { kind: "new-runtime" } : { kind: "new-entity", entity: segment === "agents" ? "agent" : "squad" })} />
+      <main className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6">
+        {current === null ? <Empty>{t("agentRuntime.emptyWorkspace")}</Empty>
+          : current.type === "runtime" ? (instances.find((instance) => instance.instanceId === current.id)
+            ? <RuntimeCard instance={instances.find((instance) => instance.instanceId === current.id)!} agents={agents} liveSessions={liveByInstance.get(current.id) ?? 0} busy={workspace.busy}
+                onSelectAgent={(agentId) => setSelection({ type: "agent", id: agentId })} onAuth={(action) => void workspace.authInstance(current.id, action)} onValidate={() => void workspace.validateInstance(current.id)}
+                onSetEnabled={(enabled) => void workspace.setInstanceEnabled(current.id, enabled)} onUpdate={(input) => void workspace.updateInstance(input)} onDelete={() => { void workspace.deleteInstance(current.id); setSelection(null); }} />
+            : <Empty>{t("agentRuntime.notFound")}</Empty>)
+          : current.type === "agent" ? (agentDetail.data
+            ? <AgentCard detail={agentDetail.data} row={agents.find((agent) => agent.id === current.id) ?? null} squads={squads} instances={instances} busy={workspace.busy}
+                onSave={(declaration) => void workspace.saveAgent(declaration)} onDispatch={(mission) => void openAgentDispatch(current.id, mission)}
+                onSelectSquad={(squadId) => setSelection({ type: "squad", id: squadId })} onSelectRuntime={(instanceId) => setSelection({ type: "runtime", id: instanceId })} />
+            : <Empty>{t("agentRuntime.loading")}</Empty>)
+          : current.type === "squad" ? (squadDetail.data
+            ? <SquadCard detail={squadDetail.data} row={squads.find((squad) => squad.id === current.id) ?? null} agents={agents} busy={workspace.busy}
+                onSave={(declaration) => void workspace.saveSquad(declaration)} onLaunch={() => void openSquadDispatch(current.id)} onSelectAgent={(agentId) => setSelection({ type: "agent", id: agentId })} />
+            : <Empty>{t("agentRuntime.loading")}</Empty>)
+          : <OrchestrationCard repoId={repoId} taskId={current.id} taskTitle={tasks.find((task) => task.taskId === current.id)?.title ?? current.id} revision={revision} onFocusSession={focusSession} />}
+      </main>
+      {inspector && <RuntimeInspector selection={current} instances={instances} agents={agents} squads={squads} rows={workspace.dockRows} onSelect={setSelection} onSelectSession={focusSession} />}
+    </div>
+    <SessionsDock repoId={repoId} rows={workspace.dockRows} open={dockOpen} selectedId={dockSelected} busy={workspace.busy} onToggle={() => setDockOpen(!dockOpen)} onSelect={focusSession} onCancel={(runtimeSessionId) => void workspace.cancelSession(runtimeSessionId)} />
+    {dialog?.kind === "new-runtime" && <NewRuntimeDialog installations={installations} busy={workspace.busy} onCancel={() => setDialog(null)} onCreate={(input) => { void workspace.createInstance(input).then(() => { setDialog(null); setSelection({ type: "runtime", id: input.instanceId }); }); }} />}
+    {dialog?.kind === "new-entity" && <NewEntityDialog kind={dialog.entity} agents={agents} squads={squads} busy={workspace.busy} taken={dialog.entity === "agent" ? agents.map((agent) => agent.id) : squads.map((squad) => squad.id)} onCancel={() => setDialog(null)} onCreate={(request) => void createEntity(request)} />}
+    {dialog?.kind === "dispatch" && <DispatchDialog subject={dialog.subject} instances={workspace.overview.data.instances} tasks={tasks} prompts={dialog.prompts} initialMission={dialog.mission} busy={workspace.busy} notice={workspace.settlement?.state === "pending" ? workspace.settlement.hint : null} onCancel={() => setDialog(null)} onSubmit={(request) => void dispatch(request)} />}
+    {workspace.settlement && <p role="status" className="shrink-0 border-t border-border px-3.5 py-1 font-mono text-[10.5px] text-text-faint"><Hint>{workspace.settlement.state} · {workspace.settlement.opId} · {workspace.settlement.hint}</Hint></p>}
+  </section>;
 }
-async function leaseAwareSpawn(repoId: string, input: RuntimeSpawnInput): Promise<unknown> { const first = await runtimeCommandClient.spawn(repoId, input); if (input.taskId === null || !rejectedWith(first, "runtime_task_lease_required")) return first; const started = await harnessClient.startTask({ repoId, taskId: input.taskId, executionId: createGuiExecutionId() }); return started.outcome === "applied" || started.outcome === "pending" ? runtimeCommandClient.spawn(repoId, input) : first; }
-function rejectedWith(value: unknown, code: string): boolean { return typeof value === "object" && value !== null && (value as { readonly outcome?: unknown }).outcome === "op_rejected" && String((value as { readonly code?: unknown }).code ?? ((value as { readonly error?: { readonly code?: unknown } }).error?.code)) === code; }
-function message(value: unknown): string { return value instanceof Error ? value.message : String(value); }
-function consumeKnownError(value: unknown): void { void value; }

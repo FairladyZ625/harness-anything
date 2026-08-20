@@ -243,6 +243,48 @@ html[data-theme="light"] ::selection {
   margin-right: 0.4rem;
 }
 
+/*
+ * Agent Runtime 配置平面（原型 agent-runtime-prototype.html 的视觉语言）
+ * 只有这些形状在 Tailwind 工具类里表达不动，或需要成对出现才有意义，才落到这里。
+ */
+[data-tip] { position: relative; }
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%);
+  background: var(--color-surface-raised); color: var(--color-text);
+  border: 1px solid var(--color-border-strong); border-radius: 4px;
+  padding: 5px 8px; font-size: 11px; line-height: 1.4; white-space: normal;
+  width: max-content; max-width: 300px; box-shadow: 0 4px 14px oklch(0 0 0 / 0.3);
+  opacity: 0; pointer-events: none; z-index: 300; transition: opacity .1s .25s;
+}
+[data-tip]:hover::after { opacity: 1; }
+.rt-tip-end[data-tip]::after { left: auto; right: 0; transform: none; }
+
+.rt-instr {
+  width: 100%; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.55;
+  min-height: 320px; padding: 12px; border-radius: 4px;
+  background: var(--color-surface); border: 1px solid var(--color-border-strong); color: var(--color-text);
+}
+.rt-instr:focus-visible { border-color: var(--color-accent); }
+.rt-pre {
+  font-family: var(--font-mono); font-size: 10.8px; line-height: 1.6;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: 4px; padding: 10px 12px; white-space: pre; overflow-x: auto; color: var(--color-text-muted);
+}
+.rt-node rect { fill: var(--color-surface); stroke: var(--color-border-strong); }
+.rt-node text { font-size: 11px; fill: var(--color-text); }
+.rt-node .rt-node-sub { font-size: 9px; fill: var(--color-text-faint); font-family: var(--font-mono); }
+.rt-node-cmd rect { stroke: var(--color-status-in-review); stroke-width: 1.5; }
+.rt-node-sel rect { stroke: var(--color-accent); stroke-width: 1.5; }
+.rt-edge { stroke: var(--color-border-strong); fill: none; }
+.rt-pulse {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--color-status-done);
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-status-done) 45%, transparent);
+  animation: rt-breathe 1.8s ease-out infinite;
+}
+@keyframes rt-breathe { 70%, 100% { box-shadow: 0 0 0 6px transparent; } }
+@media (prefers-reduced-motion: reduce) { .rt-pulse { animation: none; } }
+
 .control {
   min-height: 1.75rem;
   border: 1px solid var(--color-border);
