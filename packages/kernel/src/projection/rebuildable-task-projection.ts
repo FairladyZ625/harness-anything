@@ -17,10 +17,10 @@ import { assertDecisionWritePlan, assertFactWritePlan, renderDecisionDocument, r
 import { assertTaskLifecycleWritePlan, lifecycleDocumentPaths } from "../domain/task-lifecycle-publication.ts";
 import { slugifyTaskTitle } from "../layout/index.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
-import { assertDecisionAdmission, assertFactAdmission, createFactProjectionTables, FactProjectionError, listDecisionRows, readDecisionDocumentState, readDecisionGraphRows, readDecisionRow, readFactAnchorRows, readFactGraphRows, readFactRow, reduceDecisionEvent, reduceFactEvent, refreshDecisionDocumentSearch, searchFactRows, searchFactRowsPage, type DecisionListFilters, type DecisionProjectionRow, type FactProjectionRow, type FactSearchFilters, type FactSearchPage } from "./fact-event-projection.ts";
+import { assertDecisionAdmission, assertFactAdmission, createFactProjectionTables, FactProjectionError, listDecisionRows, readDecisionDocumentState, readDecisionGraphRows, readDecisionRow, readFactAnchorRows, readFactGraphRows, readFactRow, reduceDecisionEvent, reduceFactEvent, refreshDecisionDocumentSearch, searchFactRows, searchFactRowsPage, type DecisionListFilters, type FactSearchFilters } from "./fact-event-projection.ts";
 import type { EventBackedRelationTruth } from "./relation-graph-projection.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
-import { createTaskRelationProjectionTable, listTaskRowsNarrow, readTaskRelationPage, readTaskRelationRows, readTaskStatusRows, refreshTaskRelationProjection, type ProjectionPage, type TaskProjectionListQuery, type TaskRelationProjectionRow, type TaskRelationQuery } from "./task-query-projection.ts";
+import { createTaskRelationProjectionTable, listTaskRowsNarrow, readTaskRelationPage, readTaskRelationRows, readTaskStatusRows, refreshTaskRelationProjection, type TaskProjectionListQuery, type TaskRelationQuery } from "./task-query-projection.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 
 interface EventStreamPort {
@@ -33,35 +33,7 @@ interface EventStreamPort {
 }
 type EventContentPrefetch = (events: readonly CanonicalEventV1[]) => ReadonlyMap<string, Uint8Array | null>;
 const batchContentPrefetchers = new WeakMap<EventStreamPort, EventContentPrefetch>();
-export type TaskProjectionWarning = "projection_missing";
-export interface TaskProjectionRead {
-  readonly status: "ready" | "pending"; readonly snapshot: TaskLifecycleSnapshot; readonly packagePath: string | null; readonly watermark: number;
-  readonly sourceRevision: number; readonly warnings: readonly TaskProjectionWarning[];
-  readonly catchUp: { readonly maxItems: number; readonly reducedItems: number; readonly sqliteTransactions: 0 | 1 };
-}
-export interface TaskProjectionListRow { readonly taskId: string; readonly packagePath: string | null; readonly generation: "v0" | "v1"; readonly workspaceRevision: number; readonly updatedAt: string; readonly snapshot: TaskLifecycleSnapshot }
-export interface TaskProjectionListRead { readonly status: "ready" | "pending"; readonly rows: readonly TaskProjectionListRow[]; readonly watermark: number; readonly sourceRevision: number; readonly warnings: readonly TaskProjectionWarning[]; readonly page?: ProjectionPage }
-export interface TaskRelationProjectionRead { readonly status: "ready" | "pending"; readonly rows: readonly TaskRelationProjectionRow[]; readonly watermark: number; readonly sourceRevision: number; readonly page?: ProjectionPage }
-export interface ProjectionApplyReceipt { readonly metrics: { readonly sqliteTransactions: 1; readonly reducedItems: number } }
-export interface ProjectionRebuildReceipt {
-  readonly watermark: number; readonly stateDigest: `sha256:${string}`; readonly metrics: { readonly sqliteTransactions: number; readonly reducedItems: number; readonly maxBatchItems: number };
-}
-export interface LeaseInterval {
-  readonly taskId: string; readonly executionId: string; readonly holder: LeaseHolder; readonly previousHolder: LeaseHolder | null;
-  readonly acquiredRevision: number; readonly releasedRevision: number | null; readonly leaseExpiresAt: string; readonly reason: LeaseChangeReason;
-}
-export interface DocumentProjectionRead { readonly status: "ready" | "pending"; readonly document: DocumentState | null; readonly watermark: number; readonly sourceRevision: number }
-export interface ReplicaProjectionDocument { readonly path: string; readonly blobSha256: string; readonly size: number; readonly mediaType: string }
-export interface ReplicaProjectionBasis { readonly watermark: number; readonly sourceRevision: number; readonly headEvent: CanonicalEventV1 | null; readonly events: readonly CanonicalEventV1[]; readonly documents: readonly ReplicaProjectionDocument[] }
-export interface PresetSnapshotProjectionRead { readonly status: "ready" | "pending"; readonly snapshot: unknown | null; readonly watermark: number; readonly sourceRevision: number }
-export interface FactProjectionRead { readonly status: "ready" | "pending"; readonly fact: FactProjectionRow | null; readonly watermark: number; readonly sourceRevision: number }
-export interface TaskProgressProjectionRead { readonly status: "ready" | "pending"; readonly rows: readonly TaskProgressEventV1[]; readonly watermark: number; readonly sourceRevision: number }
-export interface FactProjectionSearchRead { readonly status: "ready" | "pending"; readonly facts: readonly FactProjectionRow[]; readonly watermark: number; readonly sourceRevision: number; readonly page?: FactSearchPage }
-export interface FactAnchorProjectionRead { readonly status: "ready" | "pending"; readonly rows: ReturnType<typeof readFactAnchorRows>; readonly watermark: number; readonly sourceRevision: number }
-export interface FactGraphProjectionRead { readonly status: "ready" | "pending"; readonly edges: ReturnType<typeof readFactGraphRows>["edges"]; readonly factAnchors: ReturnType<typeof readFactGraphRows>["factAnchors"]; readonly facts: readonly FactProjectionRow[]; readonly watermark: number; readonly sourceRevision: number }
-export interface DecisionProjectionRead { readonly status: "ready" | "pending"; readonly decision: DecisionProjectionRow | null; readonly watermark: number; readonly sourceRevision: number }
-export interface DecisionProjectionListRead { readonly status: "ready" | "pending"; readonly decisions: readonly DecisionProjectionRow[]; readonly watermark: number; readonly sourceRevision: number }
-export interface DecisionGraphProjectionRead { readonly status: "ready" | "pending"; readonly edges: ReturnType<typeof readDecisionGraphRows>["edges"]; readonly decisionAnchors: ReturnType<typeof readDecisionGraphRows>["decisionAnchors"]; readonly coverageRows: ReturnType<typeof readDecisionGraphRows>["coverageRows"]; readonly watermark: number; readonly sourceRevision: number }
+export * from "./projection-reads.ts"; import type { DocumentProjectionRead, FactAnchorProjectionRead, FactGraphProjectionRead, FactProjectionRead, FactProjectionSearchRead, DecisionProjectionRead, DecisionProjectionListRead, DecisionGraphProjectionRead, LeaseInterval, PresetSnapshotProjectionRead, ProjectionApplyReceipt, ProjectionRebuildReceipt, ReplicaProjectionBasis, TaskProgressProjectionRead, TaskProjectionListRead, TaskProjectionRead, TaskRelationProjectionRead } from "./projection-reads.ts";
 export interface TaskProjection {
   readonly path: string; readonly close: () => void; readonly apply: (event: CanonicalEventV1, plan?: FrozenWritePlan) => ProjectionApplyReceipt; readonly rebuild: () => ProjectionRebuildReceipt;
   readonly readStateDigest: () => `sha256:${string}` | null;
