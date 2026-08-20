@@ -11,7 +11,7 @@ import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
 export interface RunningDaemon { readonly endpoint: string; readonly stop: () => Promise<void> }
 export interface DaemonServeDeferred { readonly pid: number | null; readonly endpoint: string; readonly witness: "unix-socket" | "singleton-lock" }
 export type DaemonServeStart = RunningDaemon | DaemonServeDeferred;
-export async function startDaemon(input: { readonly daemonId: string; readonly userRoot: string; readonly shutdownRequested?: () => boolean }): Promise<DaemonServeStart> {
+export async function startDaemon(input: { readonly daemonId: string; readonly userRoot: string; readonly runtimeFile?: string; readonly shutdownRequested?: () => boolean; readonly requestShutdown?: () => void }): Promise<DaemonServeStart> {
   const endpoint = localUserDaemonEndpoint(input.userRoot, input.daemonId);
   // The singleton claim precedes every workspace attachment and the socket
   // bind, so the socket and the workspace writer locks can only ever share
