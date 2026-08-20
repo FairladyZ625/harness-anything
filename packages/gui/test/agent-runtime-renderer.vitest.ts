@@ -87,4 +87,20 @@ describe("agent runtime renderer", () => {
     expect(visibleRuntimeInstances([enabled, disabled], false).map((row) => row.instanceId)).toEqual(["enabled-instance"]);
     expect(visibleRuntimeInstances([enabled, disabled], true).map((row) => row.instanceId)).toEqual(["enabled-instance", "disabled-instance"]);
   });
+  it("edits only the permission and isolation fields supported by each runtime kind", () => {
+    const onUpdate = async () => undefined, codex = renderToStaticMarkup(createElement(InstanceDetail, { detail: instance, onUpdate, onClose: () => undefined }));
+    const claude = renderToStaticMarkup(createElement(InstanceDetail, { detail: { ...instance, instanceId: "claude-one", kindId: "claude", isolationState: "operator-environment", claude: { baseUrl: null } } as never, onUpdate, onClose: () => undefined }));
+    const agy = renderToStaticMarkup(createElement(InstanceDetail, { detail: { ...instance, instanceId: "agy-one", kindId: "agy", permissionMode: undefined, isolationState: "operator-environment", agy: { effort: null } } as never, onUpdate, onClose: () => undefined }));
+    expect(codex).toContain('data-testid="runtime-instance-permission-mode"'); expect(codex).not.toContain('data-testid="runtime-instance-isolation"');
+    expect(claude).toContain('data-testid="runtime-instance-permission-mode"'); expect(claude).toContain('data-testid="runtime-instance-isolation"'); expect(agy).not.toContain('data-testid="runtime-instance-permissions"');
+  });
+  it("joins task titles and squad delegation into a repository runtime panorama", async () => {
+    const { joinRuntimePanorama, runtimePanoramaDelegation } = await import("../src/renderer/runtime-panorama.ts");
+    const row = { dispatchId: "dispatch-1", taskId: "task-runtime", executionId: "execution-1", runtimeSessionId: "runtime-1", instanceId: "codex-review", agentId: "luna", agentName: "Luna", delegatedByAgentId: "fable", delegatedByAgentName: "Fable", squadId: "core-squad", providerSessionId: null, eventStreamRef: null, startedAt: "2026-08-20T00:00:00.000Z", endedAt: null, outcome: null, status: "running" } as const;
+    const panorama = joinRuntimePanorama([{ taskId: "task-runtime", title: "Review the runtime" }], [row, { ...row, dispatchId: "dispatch-2", runtimeSessionId: "runtime-2", startedAt: "2026-08-19T00:00:00.000Z", endedAt: "2026-08-19T01:00:00.000Z", outcome: "succeeded", status: "succeeded" }], new Map([["core-squad", { id: "core-squad", name: "Core Squad", leader: "fable", workers: ["luna"], roster: "fable » luna" }]]));
+    expect(panorama[0]).toMatchObject({ taskTitle: "Review the runtime", instanceId: "codex-review", startedAt: row.startedAt, status: "running" });
+    expect(runtimePanoramaDelegation(panorama[0]!)).toBe("Fable → Luna");
+    const markup = renderToStaticMarkup(createElement(AgentRuntimeProjection, { overview: { ok: true, status: "ready", installations: [], instances: [], sessions: [], watermark: 4, sourceRevision: 4 }, panorama, selectedId: null, detail: null, frames: [], attachStatus: "detached", onSelect: () => undefined, onClose: () => undefined }));
+    for (const text of ["Runtime panorama", "Review the runtime", "Core Squad", "Fable → Luna", "2026-08-20T00:00:00.000Z", "Recently ended"]) expect(markup).toContain(text);
+  });
 });
