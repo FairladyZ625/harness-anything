@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "../../daemon/src/repo-cell.ts";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
