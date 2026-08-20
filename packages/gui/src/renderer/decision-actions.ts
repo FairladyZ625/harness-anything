@@ -15,7 +15,7 @@ type ReceiptRecord = GuiActionResult & {
   readonly error?: { readonly code?: string; readonly hint?: string };
   readonly proof?: { readonly committedRevision?: number; readonly appliedCut?: number; readonly durable?: boolean; readonly canonicalVisible?: boolean; readonly worktreeVisible?: boolean | null };
   readonly path?: string;
-  readonly commitSha?: string;
+  readonly commitSha?: string | null;
   readonly documentSha256?: string;
   readonly worktreeVisible?: boolean;
   readonly consentId?: string | null;
@@ -39,8 +39,10 @@ export async function settleDecisionReceipt(
     receipt = await showReceipt({ opId: receipt.opId }) as ReceiptRecord;
   }
   const proof = receipt.proof;
+  const validCommitIdentity = receipt.commitSha === null
+    || typeof receipt.commitSha === "string" && receipt.commitSha.length > 0;
   const completeDecisionReceipt = typeof receipt.path === "string" && receipt.path.length > 0
-    && typeof receipt.commitSha === "string" && receipt.commitSha.length > 0
+    && validCommitIdentity
     && typeof receipt.documentSha256 === "string" && receipt.documentSha256.length > 0
     && receipt.worktreeVisible === true;
   if (receipt.outcome === "applied" && completeDecisionReceipt && proof?.durable === true
