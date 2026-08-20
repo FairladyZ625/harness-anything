@@ -1,3 +1,4 @@
+import enAgentRuntime from "./locales/en-US/agentRuntime.json" with { type: "json" };
 import enComponents from "./locales/en-US/components.json" with { type: "json" };
 import enGraph from "./locales/en-US/graph.json" with { type: "json" };
 import enModel from "./locales/en-US/model.json" with { type: "json" };
@@ -5,6 +6,7 @@ import enRenderer from "./locales/en-US/renderer.json" with { type: "json" };
 import enRebuild from "./locales/en-US/rebuild.json" with { type: "json" };
 import enTerminal from "./locales/en-US/terminal.json" with { type: "json" };
 import enViews from "./locales/en-US/views.json" with { type: "json" };
+import zhAgentRuntime from "./locales/zh-CN/agentRuntime.json" with { type: "json" };
 import zhComponents from "./locales/zh-CN/components.json" with { type: "json" };
 import zhGraph from "./locales/zh-CN/graph.json" with { type: "json" };
 import zhModel from "./locales/zh-CN/model.json" with { type: "json" };
@@ -14,6 +16,7 @@ import zhTerminal from "./locales/zh-CN/terminal.json" with { type: "json" };
 import zhViews from "./locales/zh-CN/views.json" with { type: "json" };
 
 const enUS = {
+  ...enAgentRuntime,
   ...enComponents,
   ...enGraph,
   ...enModel,
@@ -26,6 +29,7 @@ const enUS = {
 export type MessageKey = keyof typeof enUS;
 
 const zhCN = {
+  ...zhAgentRuntime,
   ...zhComponents,
   ...zhGraph,
   ...zhModel,
