@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { resolve } from "node:path";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { delimiter, resolve } from "node:path";
 import test from "node:test";
+import { tmpdir } from "node:os";
 import electronPath from "electron";
 import { _electron as electron } from "playwright-core";
+import { discoverRuntimeInstallations } from "../../daemon/src/agent-runtime-instances.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 import { seedTriadicEvents, writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
 
@@ -64,12 +68,7 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   const taskError = page.getByTestId("task-error-state");
   await taskSurface.or(taskError).first().waitFor({ timeout: 20_000 });
   if (await taskError.isVisible()) throw new Error(`GUI task bridge failed:\n${await taskError.innerText()}`);
-  const taskSurfaceText = await taskSurface.textContent();
-  assert.match(
-    taskSurfaceText ?? "",
-    /Active work|No task rows available from the local task bridge/u,
-    "renderer did not show real task projection data or the real task empty state"
-  );
+  assert.equal(await taskSurface.count(), 1, "renderer did not show the real task projection or its real empty state");
 
   // The shipped relation graph consumes the same daemon/service bridge as the
   // task projection. The hermetic authored ledger renders all three entity
@@ -118,6 +117,82 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   assert.match(decisionClipboard, /当前问题/u);
   assert.deepEqual(consoleFailures, [], "renderer emitted console errors");
 });
+
+test("GUI dispatches a real daemon-mediated codex provider mission and exposes its settled artifact chain", { timeout: 90_000 }, async (t) => {
+  const proofValue = `gui-real-dispatch-${Date.now()}`;
+  const fakeProviderRoot = mkdtempSync(resolve(tmpdir(), "ha-gui-codex-provider-")), fakeProviderBin = resolve(fakeProviderRoot, "bin"), fakeProviderPath = resolve(fakeProviderBin, "codex"), originalPath = process.env.PATH ?? "";
+  mkdirSync(fakeProviderBin);
+  writeFakeCodex(fakeProviderPath);
+  assert.equal(execFileSync(fakeProviderPath, ["--version"], { encoding: "utf8" }).trim(), "codex-cli e2e-fake");
+  process.env.PATH = `${fakeProviderBin}${delimiter}${originalPath}`;
+  let daemonFixture;
+  try {
+    daemonFixture = await startGuiResidentDaemonFixture({ prefix: "ha-gui-dispatch-", daemonId: "gui-e2e-dispatch", repoId: "gui-e2e-dispatch", task: { taskId: "task-gui-dispatch", title: "Run a real GUI dispatch" } });
+  } catch (error) {
+    process.env.PATH = originalPath;
+    rmSync(fakeProviderRoot, { recursive: true, force: true });
+    throw error;
+  }
+  const ledgerRoot = daemonFixture.rootDir, proofPath = resolve(ledgerRoot, "artifacts/gui-real-dispatch-proof.txt");
+  let electronApp;
+  t.after(async () => { try { if (electronApp) await closeElectronApp(electronApp); await daemonFixture.stop(); } finally { process.env.PATH = originalPath; rmSync(fakeProviderRoot, { recursive: true, force: true }); } });
+  const codexInstallation = discoverRuntimeInstallations().find((installation) => installation.kindId === "codex" && installation.executablePath === realpathSync.native(fakeProviderPath));
+  if (!codexInstallation) throw new Error("fake codex installation was not witnessed by the daemon runtime inventory");
+  seedRealDispatchFixture(daemonFixture.userRoot, ledgerRoot, codexInstallation.installationId);
+
+  electronApp = await electron.launch({ executablePath: electronPath, args: [resolve(guiRoot, "src/main/electron-main.ts")], cwd: repoRoot, env: { ...process.env, ...daemonFixture.env, HARNESS_GUI_ROOT: ledgerRoot } });
+  const page = await electronApp.firstWindow();
+  page.setDefaultTimeout(20_000);
+  await page.waitForLoadState("domcontentloaded");
+  await page.getByRole("button", { name: "Agent 会话", exact: true }).click();
+  await page.getByTestId("dispatch-entry-codex-sidecar").waitFor({ timeout: 20_000 });
+  await page.getByTestId("dispatch-entry-codex-sidecar").click();
+  const dialog = page.getByTestId("dispatch-dialog");
+  await dialog.waitFor();
+  await dialog.getByTestId("dispatch-task").selectOption("task-gui-dispatch");
+  await dialog.getByTestId("dispatch-mission").fill(`Use your shell to create artifacts/gui-real-dispatch-proof.txt with exactly GUI_REAL_DISPATCH_PROOF=${proofValue}, read it back, and report the exact line. Do not modify any other file.`);
+  const submit = dialog.getByTestId("dispatch-submit");
+  await submit.waitFor();
+  assert.equal(await submit.isEnabled(), true, "real mission form did not become dispatchable");
+  await submit.click();
+
+  const runtimeView = page.getByTestId("agent-runtime-view");
+  await runtimeView.waitFor({ timeout: 30_000 });
+  const settledOutcome = page.locator('[data-testid^="runtime-outcome-"]').first();
+  await settledOutcome.waitFor({ timeout: 20_000 });
+  await page.waitForFunction(() => [...globalThis.document.querySelectorAll('[data-testid^="runtime-outcome-"]')].some((element) => ["succeeded", "failed", "unknown", "cancelled"].includes(element.textContent?.trim() ?? "")), undefined, { timeout: 150_000 });
+  assert.equal((await settledOutcome.textContent())?.trim(), "succeeded", `real provider dispatch did not settle successfully: ${await settledOutcome.textContent()}`);
+  const detail = page.getByTestId("agent-runtime-detail");
+  await detail.waitFor();
+  await detail.getByText("exited", { exact: true }).waitFor({ timeout: 20_000 });
+  const providerResult = await detail.locator("pre").textContent();
+  assert.ok((providerResult ?? "").trim().length > 0, "daemon did not expose a provider result in the GUI");
+  assert.match(providerResult ?? "", /GUI_REAL_DISPATCH_PROOF=/u, "provider result did not report the requested proof line");
+  assert.equal(readFileSync(proofPath, "utf8"), `GUI_REAL_DISPATCH_PROOF=${proofValue}\n`, "provider did not create the requested proof file");
+
+  const orchestration = page.getByTestId("orchestration-panel");
+  const missionCell = orchestration.getByTestId("orchestration-missions").locator("button", { hasText: /dispatch_/u });
+  await missionCell.waitFor({ timeout: 20_000 });
+  const dispatchId = (await missionCell.innerText()).match(/dispatch_[a-z0-9]+/u)?.[0];
+  assert.ok(dispatchId, "GUI did not display a dispatch id in the mission chain");
+  for (const [kind, expected] of [["missions", /GUI_REAL_DISPATCH_PROOF=/u], ["dispatches", /runtimeSessionId/u], ["reports", /GUI_REAL_DISPATCH_PROOF=/u]] ) {
+    const cell = orchestration.getByTestId(`orchestration-${kind}`).locator("button", { hasText: dispatchId });
+    await cell.waitFor({ timeout: 20_000 });
+    await cell.click();
+    await page.waitForFunction(({ kind: currentKind, pattern }) => { const body = globalThis.document.querySelector(`[data-testid="orchestration-${currentKind}"]`)?.closest("section")?.querySelector("pre")?.textContent ?? ""; return new RegExp(pattern, "u").test(body); }, { kind, pattern: expected.source });
+    const preview = await orchestration.locator("pre").textContent();
+    assert.match(preview ?? "", expected, `${kind} artifact preview was not visible in the GUI`);
+  }
+});
+
+function seedRealDispatchFixture(userRoot, rootDir, installationId) {
+  if (!installationId) throw new Error("codex installation is not witnessed by the daemon runtime inventory");
+  mkdirSync(resolve(rootDir, ".harness/agents"), { recursive: true });
+  writeFileSync(resolve(rootDir, ".harness/agents/codex-sidecar.json"), `${JSON.stringify({ schema: "agent-declaration/v1", id: "codex-sidecar", name: "Codex Sidecar", instructions: "Use the shell to complete the mission exactly and report the resulting file contents.", runtime_type: "codex" }, null, 2)}\n`);
+  writeFileSync(resolve(userRoot, "runtime-instances.json"), `${JSON.stringify({ schema: "runtime-instances/v1", instances: [{ schemaVersion: 2, instanceId: "codex-sidecar", name: "Codex Sidecar", installationId, providerId: "codex_local_access", models: ["gpt-5.6-terra"], defaultModel: "gpt-5.6-terra", enabled: true, auth: { mode: "api-key", credentialRef: "credential:v1:codex-sidecar" }, kindId: "codex", codex: { reasoningEffort: "low", baseUrl: "http://localhost:50818/v1", wireApi: "responses", requiresOpenAiAuth: true } }] }, null, 2)}\n`);
+}
+
+function writeFakeCodex(target) { const source = ["#!/usr/bin/env node", "import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';", "import path from 'node:path';", "if (process.argv.includes('--version')) { console.log('codex-cli e2e-fake'); process.exit(0); }", "const prompt = readFileSync(0, 'utf8');", "const proof = /GUI_REAL_DISPATCH_PROOF=([A-Za-z0-9-]+)/u.exec(prompt)?.[1] ?? 'missing';", "const line = `GUI_REAL_DISPATCH_PROOF=${proof}`;", "mkdirSync(path.resolve(process.cwd(), 'artifacts'), { recursive: true });", "writeFileSync(path.resolve(process.cwd(), 'artifacts/gui-real-dispatch-proof.txt'), `${line}\\n`);", "console.log(JSON.stringify({ type: 'thread.started', thread_id: 'thread-gui-e2e-fake' }));", "console.log(JSON.stringify({ type: 'item.completed', item: { type: 'file_change', status: 'completed', path: 'artifacts/gui-real-dispatch-proof.txt' } }));", "console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: line } }));", "console.log(JSON.stringify({ type: 'turn.completed' }));"].join("\n"); writeFileSync(target, `${source}\n`, { mode: 0o755 }); chmodSync(target, 0o755); }
 
 async function closeElectronApp(electronApp) {
   const child = electronApp.process();

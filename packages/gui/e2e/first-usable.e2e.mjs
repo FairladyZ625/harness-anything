@@ -52,12 +52,11 @@ test("Overview is first-usable only with real interactive projection content", {
   if (await taskError.isVisible()) throw new Error(`GUI task bridge failed:\n${await taskError.innerText()}`);
 
   // 总览默认视图:真实 proposed decision 出现(事件台账派生,非 mock)。
-  await page.getByText("Expose the triadic projection to the GUI").waitFor({ timeout: 20_000 });
-  const taskSummary = await taskSurface.textContent();
-  assert.match(taskSummary ?? "", /Active work/u, "overview must be backed by real task rows before counting as usable");
+  await page.getByRole("button", { name: /dec_gui_smoke.*Expose the triadic projection to the GUI/u }).waitFor({ timeout: 20_000 });
+  await page.getByTestId("real-task-summary").waitFor({ timeout: 20_000 });
 
   // 总览 → 看板下钻是交互面:active 状态块可点,落到看板泳道。
-  const activeTile = page.locator("button", { hasText: "active" }).first();
+  const activeTile = page.getByTestId("overview-status-active");
   await activeTile.waitFor();
   await activeTile.click();
   await page.getByText("Render the real triadic projection").first().waitFor({ timeout: 10_000 });
