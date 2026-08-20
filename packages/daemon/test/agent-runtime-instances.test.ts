@@ -316,6 +316,24 @@ test("enforced instances link the operator's shared provider auth while generate
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
+test("api-key instances never receive the operator's shared provider credentials", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-api-key-no-shared-auth-")), operatorHome = path.join(parent, "operator"), userRoot = path.join(parent, "user"), claude = { ...observed, installationId: "claude-api-key-no-shared-auth", kindId: "claude" as const, executablePath: "/opt/runtime-test/claude" };
+  try {
+    mkdirSync(path.join(operatorHome, ".codex"), { recursive: true }); writeFileSync(path.join(operatorHome, ".codex", "auth.json"), `{"tokens":"operator-login"}`, { mode: 0o600 });
+    mkdirSync(path.join(operatorHome, ".claude"), { recursive: true }); writeFileSync(path.join(operatorHome, ".claude", ".credentials.json"), `{"oauth":"operator-login"}`, { mode: 0o600 });
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed, claude], env: { HOME: operatorHome, PATH: "/runtime/tools" }, resolveCredential: () => "instance-secret" });
+    store.create({ schemaVersion: 2, instanceId: "codex-api-key-isolated", name: "Codex API Key Isolated", kindId: "codex", installationId: observed.installationId, providerId: "codex_local_access", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, codex: { baseUrl: "http://127.0.0.1:1/v1" }, auth: { mode: "api-key", credentialRef: "credential:v1:codex-api-key-isolated" } });
+    const codexLaunch = store.prepareLaunch("codex-api-key-isolated", { cwd: "/workspace/repo", prompt: "Route through the broker key only" });
+    assert.equal(existsSync(path.join(userRoot, "runtime-instances", "codex-api-key-isolated", "home", ".codex", "auth.json")), false);
+    assert.match(readFileSync(path.join(codexLaunch.env.CODEX_HOME!, "config.toml"), "utf8"), /experimental_bearer_token = "instance-secret"/u);
+    assert.equal(existsSync(path.join(operatorHome, ".codex", "config.toml")), false);
+    store.create({ schemaVersion: 2, instanceId: "claude-api-key-isolated", name: "Claude API Key Isolated", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, isolationState: "enforced", claude: {}, auth: { mode: "api-key", credentialRef: "credential:v1:claude-api-key-isolated" } });
+    const claudeLaunch = store.prepareLaunch("claude-api-key-isolated", { cwd: "/workspace/repo", prompt: "Route through the broker key only" });
+    assert.equal(existsSync(path.join(userRoot, "runtime-instances", "claude-api-key-isolated", "home", ".claude", ".credentials.json")), false);
+    assert.equal(claudeLaunch.env.ANTHROPIC_API_KEY, "instance-secret");
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
 test("a stale auth copy or wrong-target link is dropped and re-linked on the next ensure", { skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false }, () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-auth-refresh-")), operatorHome = path.join(parent, "operator"), userRoot = path.join(parent, "user");
   try {
