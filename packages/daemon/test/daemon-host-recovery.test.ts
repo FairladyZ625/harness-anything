@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskProjection, registerDaemonRepo, unregisterDaemonRepo } from "../../kernel/src/index.ts";
+import { makeTaskProjection, readDaemonRegistry, registerDaemonRepo } from "../../kernel/src/index.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { readDaemonLifecycleRecords } from "../src/lifecycle-log.ts";
@@ -47,18 +47,23 @@ test("a startup-failed repo self-heals on the next command and reports honest st
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
-test("startup records each repository attach outcome with duration and ordinal", async () => {
+test("startup retires a registered root that no longer exists and records the attach outcomes that remain", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-lifecycle-")), userRoot = path.join(parent, "user"), live = path.join(parent, "live"), dead = path.join(parent, "dead"), records: Record<string, unknown>[] = [];
   rosterRepo(live, "lifecycle-live"); rosterRepo(dead, "lifecycle-dead"); registerDaemonRepo({ canonicalRoot: live, repoId: "lifecycle-live", userRoot, createConvenienceLinks: false });
-  registerDaemonRepo({ canonicalRoot: dead, repoId: "lifecycle-dead", userRoot, createConvenienceLinks: false }); rmSync(dead, { recursive: true, force: true });
+  const deadRow = registerDaemonRepo({ canonicalRoot: dead, repoId: "lifecycle-dead", userRoot, createConvenienceLinks: false }).repo; rmSync(dead, { recursive: true, force: true });
   const host = await openDaemonHost({ daemonId: "host-lifecycle", userRoot, recordLifecycle: (record) => records.push(record) }); await host.attachmentsSettled();
   try {
-    assert.deepEqual(records.filter((record) => record.event === "repo_attach_started").map((record) => record.repoId).sort(), ["lifecycle-dead", "lifecycle-live"]);
-    const settled = records.filter((record) => record.event === "repo_attach_completed" || record.event === "repo_attach_failed");
-    assert.equal(settled.length, 2); assert.deepEqual(settled.map((record) => record.attachTotal), [2, 2]);
-    assert.deepEqual(settled.map((record) => record.attachIndex), [1, 2]); assert.equal(settled.every((record) => typeof record.durationMs === "number"), true);
-    assert.equal(settled.some((record) => record.event === "repo_attach_completed" && record.repoId === "lifecycle-live"), true);
-    assert.equal(settled.some((record) => record.event === "repo_attach_failed" && record.repoId === "lifecycle-dead" && typeof record.error === "string"), true);
+    const pruned = records.filter((record) => record.event === "repo_registry_pruned");
+    assert.equal(pruned.length, 1); assert.equal(pruned[0]?.repoId, "lifecycle-dead"); assert.equal(pruned[0]?.rootDir, deadRow.canonicalRoot);
+    assert.equal(typeof pruned[0]?.registeredAt, "string");
+    assert.deepEqual(records.filter((record) => record.event === "repo_attach_started").map((record) => record.repoId), ["lifecycle-live"]);
+    const settled = records.filter((record) => record.event === "repo_attach_completed");
+    assert.equal(settled.length, 1); assert.equal(settled[0]?.repoId, "lifecycle-live");
+    assert.equal(settled[0]?.attachTotal, 2); assert.equal(settled[0]?.attachIndex, 2); assert.equal(typeof settled[0]?.durationMs, "number");
+    const summary = records.find((record) => record.event === "attachments_settled");
+    assert.equal(summary?.attachTotal, 2); assert.equal(summary?.attached, 1); assert.equal(summary?.unavailable, 0); assert.equal(summary?.pruned, 1);
+    const registry = readDaemonRegistry({ userRoot }), row = registry.repos.find((repo) => repo.repoId === "lifecycle-dead");
+    assert.equal(row?.state, "disabled"); assert.equal(host.status().repos.some((repo) => repo.repoId === "lifecycle-dead"), false);
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
@@ -81,8 +86,7 @@ test("a request parked behind a non-settling initial attachment times out as rep
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
-test("a dead warming repository can be unregistered through daemon-level local authority", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-unregister-warming-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user"); rosterRepo(rootDir, "host-unregister-warming"); registerDaemonRepo({ canonicalRoot: rootDir, repoId: "host-unregister-warming", userRoot, createConvenienceLinks: false }); rmSync(rootDir, { recursive: true, force: true });
+test("a dead warming repository can be unregistered through daemon-level local authority", async () => {  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-unregister-warming-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user"); rosterRepo(rootDir, "host-unregister-warming"); registerDaemonRepo({ canonicalRoot: rootDir, repoId: "host-unregister-warming", userRoot, createConvenienceLinks: false }); rmSync(rootDir, { recursive: true, force: true });
   const host = await openDaemonHost({ daemonId: "host-unregister-warming", userRoot });
   try {
     const receipt = await host.admin({ kind: "unregister", repoId: "host-unregister-warming" }, auth); assert.equal(receipt.outcome, "applied");
@@ -90,23 +94,50 @@ test("a dead warming repository can be unregistered through daemon-level local a
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
+test("a repository whose open never settles is bounded by an attach budget while the rest attach and serve", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-attach-budget-")), userRoot = path.join(parent, "user"), hung = path.join(parent, "aaa-hung"), live = path.join(parent, "zzz-live"), records: Record<string, unknown>[] = [];
+  rosterRepo(hung, "aaa-hung"); rosterRepo(live, "zzz-live");
+  registerDaemonRepo({ canonicalRoot: hung, repoId: "aaa-hung", userRoot, createConvenienceLinks: false });
+  registerDaemonRepo({ canonicalRoot: live, repoId: "zzz-live", userRoot, createConvenienceLinks: false });
+  const hungOpens: Array<(cell: Awaited<ReturnType<typeof openRepoCell>>) => void> = [];
+  const openCell: typeof openRepoCell = async (cellInput) => cellInput.repoId === workspaceId("aaa-hung")
+    ? new Promise((resolve) => { hungOpens.push(resolve); })
+    : openRepoCell(cellInput);
+  const host = await openDaemonHost({ daemonId: "attach-budget", userRoot, attachTimeoutMs: 150, openCell, recordLifecycle: (record) => records.push(record) });
+  try {
+    await host.attachmentsSettled();
+    assert.equal(records.some((record) => record.event === "repo_attach_timed_out" && record.repoId === "aaa-hung" && record.durationMs === 150), true);
+    assert.equal(records.some((record) => record.event === "attachments_settled" && record.attached === 1 && record.unavailable === 1), true);
+    const latched = host.status().repos.find((repo) => repo.repoId === "aaa-hung")!;
+    assert.equal(latched.state, "unavailable"); assert.match(String(latched.lastError), /did not finish attaching within 150ms/u);
+    assert.equal((await host.run("aaa-hung", { kind: "task-list" }, auth)).code, "repo_unavailable");
+    assert.equal((await host.run("zzz-live", { kind: "task-list" }, auth)).outcome, "applied");
+    hungOpens[0]!(await openRepoCell({ repoId: workspaceId("aaa-hung"), rootDir: canonicalRoot(hung), ownerId: "attach-budget" }));
+    for (let attempt = 0; attempt < 100 && host.status().repos.find((repo) => repo.repoId === "aaa-hung")?.state !== "attached"; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(host.status().repos.find((repo) => repo.repoId === "aaa-hung")?.state, "attached", "a late open completion must heal the timed-out latch");
+  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+});
+
 test("production-shaped cold restarts keep socket p95 below ten seconds and report attach separately", async (context) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-restart-budget-")), userRoot = path.join(parent, "user"), liveRoots: string[] = [];
   try {
     for (let index = 0; index < 4; index += 1) { const rootDir = path.join(parent, `live-${index}`); liveRoots.push(rootDir); rosterRepo(rootDir, `live-${index}`); for (let directory = 0; directory < 250; directory += 1) mkdirSync(path.join(rootDir, "harness", `directory-${directory}`)); registerDaemonRepo({ canonicalRoot: rootDir, repoId: `live-${index}`, userRoot, createConvenienceLinks: false }); }
-    const deadRoot = path.join(parent, "dead"); rosterRepo(deadRoot, "dead"); registerDaemonRepo({ canonicalRoot: deadRoot, repoId: "dead", userRoot, createConvenienceLinks: false }); rmSync(deadRoot, { recursive: true, force: true });
-    const full = await restartSamples("budget-full", 20, 5); unregisterDaemonRepo("dead", { userRoot, createConvenienceLinks: false }); const liveOnly = await restartSamples("budget-live", 20, 4);
+    const deadRoot = path.join(parent, "dead");
+    const withDeadEntry = () => { rosterRepo(deadRoot, "dead"); registerDaemonRepo({ canonicalRoot: deadRoot, repoId: "dead", userRoot, createConvenienceLinks: false }); rmSync(deadRoot, { recursive: true, force: true }); };
+    const full = await restartSamples("budget-full", 20, withDeadEntry, 4, true); const liveOnly = await restartSamples("budget-live", 20, () => undefined, 4, false);
     context.diagnostic(`restart-budget full=${JSON.stringify(summary(full))}`); context.diagnostic(`restart-budget live-only=${JSON.stringify(summary(liveOnly))}`);
     assert.ok(p95(full.map((sample) => sample.socketMs)) <= 10_000); assert.ok(p95(liveOnly.map((sample) => sample.socketMs)) <= 10_000);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 
-  async function restartSamples(daemonId: string, count: number, expectedRepos: number): Promise<Array<{ socketMs: number; attachMs: number; maxRepoAttachMs: number }>> {
+  async function restartSamples(daemonId: string, count: number, prepare: () => void, expectedRepos: number, expectPrune: boolean): Promise<Array<{ socketMs: number; attachMs: number; maxRepoAttachMs: number }>> {
     const samples: Array<{ socketMs: number; attachMs: number; maxRepoAttachMs: number }> = [];
     for (let sample = 0; sample < count; sample += 1) {
+      prepare();
       for (const rootDir of liveRoots) rmSync(path.join(rootDir, ".harness/cache"), { recursive: true, force: true });
       const before = readDaemonLifecycleRecords(userRoot, daemonId).length, started = performance.now(), daemon = await startDaemon({ userRoot, daemonId }), bound = performance.now(); assert.ok("stop" in daemon);
       for (;;) { const status = await requestDaemonJsonRpcAt(daemon.endpoint, "daemon.status", {}, 1_000) as { readonly repos: readonly { readonly state: string }[] }; if (status.repos.length === expectedRepos && status.repos.every((repo) => repo.state !== "warming")) break; await new Promise((resolve) => setTimeout(resolve, 2)); }
-      const settled = performance.now(), attachDurations = readDaemonLifecycleRecords(userRoot, daemonId).slice(before).filter((record) => record.event === "repo_attach_completed" || record.event === "repo_attach_failed").map((record) => record.durationMs ?? 0); assert.equal(attachDurations.length, expectedRepos);
+      const settled = performance.now(), generation = readDaemonLifecycleRecords(userRoot, daemonId).slice(before), attachDurations = generation.filter((record) => record.event === "repo_attach_completed" || record.event === "repo_attach_failed").map((record) => record.durationMs ?? 0); assert.equal(attachDurations.length, expectedRepos);
+      assert.equal(generation.some((record) => record.event === "repo_registry_pruned" && record.repoId === "dead"), expectPrune);
       samples.push({ socketMs: bound - started, attachMs: settled - bound, maxRepoAttachMs: Math.max(...attachDurations) }); await daemon.stop();
     }
     return samples;

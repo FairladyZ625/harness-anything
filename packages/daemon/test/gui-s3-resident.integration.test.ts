@@ -29,6 +29,21 @@ test("a caller that names a response deadline gets a classified failure instead 
   } finally { server.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
+test("a silent protocol.hello is reported as a startup wedge, never as a long write holding the queue", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "daemon-hello-deadline-")), endpoint = path.join(root, "silent.sock");
+  const server = net.createServer(() => { /* accepts connections but never answers */ });
+  await new Promise<void>((resolve) => server.listen(endpoint, resolve));
+  try {
+    await assert.rejects(() => requestDaemonJsonRpcAt(endpoint, "repo.task.run", {}, 2_000, 250), (error: unknown) => {
+      assert.equal((error as { readonly code?: string }).code, "daemon_response_timeout");
+      assert.match(String(error), /did not answer protocol\.hello within 0\.25s/u);
+      assert.match(String(error), /still starting \(repository attach\) or wedged during startup/u);
+      assert.doesNotMatch(String(error), /long write is holding the workspace queue/u);
+      return true;
+    });
+  } finally { server.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
 test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/control, secret rejection, and real PTY", async () => {
     const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-s3-resident-")), userRoot = path.join(parent, "user"), alpha = path.join(parent, "alpha"), beta = path.join(parent, "beta"), endpoint = path.join(parent, "daemon.sock"), executablePath = path.join(parent, "runtime-stub.mjs"), uid = process.getuid?.() ?? 0; writeFileSync(executablePath, `#!${process.execPath}\nif (process.argv[2] === "--version") console.log("resident-runtime-stub 1.0.0");\nprocess.exit(0);\n`); chmodSync(executablePath, 0o755);
     initRepo(alpha, "alpha", uid); initRepo(beta, "beta", uid); registerDaemonRepo({ canonicalRoot: alpha, repoId: "alpha", userRoot, createConvenienceLinks: false }); registerDaemonRepo({ canonicalRoot: beta, repoId: "beta", userRoot, createConvenienceLinks: false });
