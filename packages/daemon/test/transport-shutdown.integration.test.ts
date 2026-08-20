@@ -6,6 +6,7 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { requestDaemonShutdownAt } from "../src/client/local-json-rpc-client.ts";
 import type { JsonRpcRequest } from "../src/protocol/json-rpc-types.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 
@@ -66,6 +67,37 @@ test("stopping the transport still delivers the reply to a request already in fl
     assert.match(await replied, /"drained":true/u, `in-flight request lost its reply across transport stop: ${JSON.stringify(received)}`);
     client.destroy();
   } finally {
+    cleanup();
+  }
+});
+
+test("a cooperative shutdown queues stop without waiting for the hello response", async () => {
+  const { endpoint, cleanup } = probeEndpoint("ha-shutdown-queue-");
+  let releaseHello: () => void = () => {};
+  let helloEntered: () => void = () => {};
+  let stopObserved: () => void = () => {};
+  const hello = new Promise<void>((resolve) => { helloEntered = resolve; });
+  const blocked = new Promise<void>((resolve) => { releaseHello = resolve; });
+  const stopped = new Promise<void>((resolve) => { stopObserved = resolve; });
+  const methods: string[] = [];
+  const transport = drainProbeTransport(endpoint, async (message) => {
+    const request = Array.isArray(message) ? message[0] : message as JsonRpcRequest;
+    methods.push(request.method);
+    if (request.method === "protocol.hello") { helloEntered(); await blocked; }
+    if (request.method === "daemon.stop") stopObserved();
+    return request.id === undefined ? undefined : { jsonrpc: "2.0", id: request.id, result: { ok: true } };
+  });
+  await transport.start();
+  try {
+    await requestDaemonShutdownAt(endpoint, 2_000);
+    await hello;
+    assert.deepEqual(methods, ["protocol.hello"]);
+    releaseHello();
+    await stopped;
+    assert.deepEqual(methods, ["protocol.hello", "daemon.stop"]);
+  } finally {
+    releaseHello();
+    await transport.stop();
     cleanup();
   }
 });

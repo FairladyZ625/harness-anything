@@ -80,7 +80,8 @@ test("bypass fixture: the GUI decision mirror losing a kernel word is refused", 
   // This is the slice-5 defect shape itself: the kernel vocabulary has a word the
   // mirror does not know (superseded), which used to display as awaiting approval.
   const guiModel = readFileSync(path.join(repoRoot, GUI_MODEL), "utf8")
-    .replace('  | "superseded"\n', "");
+    .replace(/\r?\n/gu, "\r\n")
+    .replace(/  \| "superseded"\r?\n/u, "");
   const guiAdapter = readFileSync(path.join(repoRoot, GUI_ADAPTER), "utf8");
   const findings = checkGuiMirrorAgreement(register, guiModel, guiAdapter);
   assert.ok(findings.some((finding) => finding.includes("DecisionState") && finding.includes("superseded")), findings.join("\n"));
