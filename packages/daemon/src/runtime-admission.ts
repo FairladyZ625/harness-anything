@@ -29,7 +29,7 @@ function runtimeBuildBaseline(runtimeFile: string): RuntimeBuildBaseline | null 
 function assertCurrentProcessBuild(baseline: RuntimeBuildBaseline | null): void {
   if (baseline === null) return;
   const currentBuildId = readBuildId(baseline.markerPath);
-  if (baseline.loadedBuildId === null || currentBuildId !== baseline.loadedBuildId) throw new DaemonAdmissionError("daemon_build_stale", `daemon process loaded dist build ${baseline.loadedBuildId ?? "without a build id"}, but current dist build is ${currentBuildId ?? "missing"}; finish npm run build -w @harness-anything/cli, then stop and restart the resident daemon before retrying.`);
+  if (baseline.loadedBuildId === null || currentBuildId !== baseline.loadedBuildId) throw new DaemonAdmissionError("daemon_build_stale", `daemon process loaded dist build ${baseline.loadedBuildId ?? "without a build id"}, but current dist build is ${currentBuildId ?? "missing"}; the resident daemon is shutting down so the next command can autostart the current build.`);
 }
 
 function assertProjectionSchema(rootDir: string): void {
