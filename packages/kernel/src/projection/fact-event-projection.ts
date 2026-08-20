@@ -34,7 +34,8 @@ export interface FactRelationEdgeRow {
   readonly direction: "directed"; readonly strength: "strong"; readonly origin: "declared"; readonly state: "active";
   readonly rationale: string; readonly ownerRef: string; readonly sourcePath: string; readonly recordIndex: 0;
 }
-export interface FactSearchFilters { readonly query?: string; readonly taskId?: string; readonly confidence?: FactConfidence; readonly memoryClass?: FactMemoryClass }
+export interface FactSearchFilters { readonly query?: string; readonly taskId?: string; readonly refs?: readonly string[]; readonly confidence?: FactConfidence; readonly memoryClass?: FactMemoryClass; readonly observedAfter?: string; readonly observedBefore?: string; readonly limit?: number; readonly cursor?: string }
+export interface FactSearchPage { readonly limit: number; readonly cursor: string | null; readonly nextCursor: string | null }
 export interface DecisionBodyRow { readonly path: string; readonly blobSha256: string; readonly size: number; readonly mediaType: string; readonly body: string; readonly workspaceRevision: number }
 export interface DecisionProjectionRow { readonly schema: "decision-row/v1"; readonly decisionId: string; readonly legacyId?: string; readonly path: string; readonly state: DecisionState; readonly title: string; readonly question: string; readonly riskTier: "low" | "medium" | "high"; readonly urgency: "low" | "medium" | "high"; readonly vertical: string; readonly preset: string; readonly decisionClass: "ordinary" | "standing_policy"; readonly appliesTo: { readonly modules: readonly string[]; readonly productLines: readonly string[] }; readonly proposer: ActorIdentity; readonly arbiter: ActorIdentity | null; readonly proposedAt: string; readonly decidedAt: string | null; readonly workspaceRevision: number; readonly chosen: readonly { readonly id: string; readonly text: string; readonly rationale?: string }[]; readonly rejected: readonly { readonly id: string; readonly text: string; readonly whyNot: string }[]; readonly claims: readonly { readonly id: string; readonly text: string; readonly loadBearing: boolean; readonly fulfillment: DecisionFulfillmentMode | null }[]; readonly judgmentConsents: readonly DecisionJudgmentConsentV1[]; readonly amendments?: readonly DecisionAmendmentV1[]; readonly contentPins?: readonly DecisionContentPinV1[]; readonly body: DecisionBodyRow | null; readonly readiness?: DecisionReadinessProjection }
 export interface DecisionListFilters { readonly search?: string; readonly legacyId?: string; readonly legacyRange?: { readonly start: number; readonly end: number }; readonly state?: DecisionState; readonly module?: string; readonly productLine?: string }
@@ -54,8 +55,13 @@ export function createFactProjectionTables(db: DatabaseSync): void {
     CREATE VIRTUAL TABLE IF NOT EXISTS fact_fts USING fts5(task_id UNINDEXED, fact_id UNINDEXED, statement, evidence_source,
       tokenize='unicode61 remove_diacritics 2');
     CREATE INDEX IF NOT EXISTS fact_filter ON fact(task_id, confidence, memory_class, observed_at);
+    CREATE INDEX IF NOT EXISTS fact_observed_page ON fact(observed_at DESC, task_id ASC, fact_id ASC);
+    CREATE INDEX IF NOT EXISTS fact_confidence_page ON fact(confidence, observed_at DESC, task_id ASC, fact_id ASC);
+    CREATE INDEX IF NOT EXISTS fact_memory_class_page ON fact(memory_class, observed_at DESC, task_id ASC, fact_id ASC);
     CREATE INDEX IF NOT EXISTS relation_edge_source ON relation_edge(source_ref, state);
     CREATE INDEX IF NOT EXISTS relation_edge_target ON relation_edge(target_ref, state);
+    CREATE INDEX IF NOT EXISTS relation_edge_type_target ON relation_edge(relation_type, target_ref, state);
+    CREATE INDEX IF NOT EXISTS relation_edge_state_page ON relation_edge(state, relation_id);
     CREATE TABLE IF NOT EXISTS decision (decision_id TEXT PRIMARY KEY, state TEXT NOT NULL, title TEXT NOT NULL, question TEXT NOT NULL, risk_tier TEXT NOT NULL, urgency TEXT NOT NULL, vertical TEXT NOT NULL, preset TEXT NOT NULL, decision_class TEXT NOT NULL, applies_json TEXT NOT NULL, proposer_json TEXT NOT NULL, arbiter_json TEXT, proposed_at TEXT NOT NULL, decided_at TEXT, workspace_revision INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS decision_option (decision_id TEXT NOT NULL, kind TEXT NOT NULL, option_id TEXT NOT NULL, position INTEGER NOT NULL, text TEXT NOT NULL, rationale TEXT, workspace_revision INTEGER NOT NULL, PRIMARY KEY(decision_id, kind, option_id));
     CREATE TABLE IF NOT EXISTS decision_claim (decision_id TEXT NOT NULL, claim_id TEXT NOT NULL, position INTEGER NOT NULL, text TEXT NOT NULL, load_bearing INTEGER NOT NULL, fulfillment TEXT, declared_revision INTEGER NOT NULL, fulfilled_revision INTEGER, PRIMARY KEY(decision_id, claim_id));
@@ -127,7 +133,7 @@ export function assertFactAdmission(db: DatabaseSync, event: FactEventV1): void 
   if (!supersedes) return;
   const target = db.prepare("SELECT ref FROM fact WHERE ref = ?").get(supersedes.factRef) as { readonly ref: string } | undefined;
   if (!target) throw new FactProjectionError("entity_not_found", `Superseded endpoint ${supersedes.factRef} does not exist.`);
-  if (factLiveness(target, livenessRelations(db)) === "superseded_fact")
+  if (factLiveness(target, livenessRelations(db, [target.ref])) === "superseded_fact")
     throw new FactProjectionError("relation_invalid", `Superseded endpoint ${supersedes.factRef} is already superseded.`);
 }
 
@@ -154,21 +160,42 @@ export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
 
 const factRowSelect = "SELECT row_json FROM fact";
 interface FactRecord { readonly row_json: string }
-function livenessRelations(db: DatabaseSync): readonly { readonly targetRef: string; readonly relationType: string; readonly state: string }[] { return db.prepare("SELECT target_ref AS targetRef, relation_type AS relationType, state FROM relation_edge ORDER BY relation_id").all() as unknown as readonly { readonly targetRef: string; readonly relationType: string; readonly state: string }[]; }
-function decodeFactRow(record: FactRecord, relations: ReturnType<typeof livenessRelations>): FactProjectionRow { const row = JSON.parse(record.row_json) as Omit<FactProjectionRow, "state">; return { ...row, state: factLiveness(row, relations) }; }
-function listFactRows(db: DatabaseSync, where: string, values: readonly string[]): readonly FactProjectionRow[] { const relations = livenessRelations(db); return (db.prepare(`${factRowSelect}${where} ORDER BY observed_at DESC, task_id, fact_id`).all(...values) as unknown as readonly FactRecord[]).map((row) => decodeFactRow(row, relations)); }
+// Liveness only ever consults the incoming supersedes-fact edges of the facts being
+// decoded, so the fetch is narrowed to those targets (indexed by relation_edge_target)
+// instead of scanning the whole edge table per read.
+function livenessRelations(db: DatabaseSync, targetRefs?: readonly string[]): readonly { readonly targetRef: string; readonly relationType: string; readonly state: string }[] { if (targetRefs !== undefined && targetRefs.length === 0) return []; const where = targetRefs === undefined ? "" : ` WHERE target_ref IN (${targetRefs.map(() => "?").join(",")})`; return db.prepare(`SELECT target_ref AS targetRef, relation_type AS relationType, state FROM relation_edge${where} ORDER BY relation_id`).all(...(targetRefs ?? [])) as unknown as readonly { readonly targetRef: string; readonly relationType: string; readonly state: string }[]; }
+function decodeFactRows(db: DatabaseSync, records: readonly FactRecord[]): readonly FactProjectionRow[] { const raw = records.map((record) => JSON.parse(record.row_json) as Omit<FactProjectionRow, "state">), relations = livenessRelations(db, raw.map((row) => row.ref)); return raw.map((row) => ({ ...row, state: factLiveness(row, relations) })); }
+function listFactRows(db: DatabaseSync, where: string, values: readonly string[]): readonly FactProjectionRow[] { return decodeFactRows(db, db.prepare(`${factRowSelect}${where} ORDER BY observed_at DESC, task_id, fact_id`).all(...values) as unknown as readonly FactRecord[]); }
 export function readFactRow(db: DatabaseSync, taskId: string, factId: string): FactProjectionRow | null {
   const record = db.prepare(`${factRowSelect} WHERE task_id = ? AND fact_id = ?`).get(taskId, factId) as FactRecord | undefined;
-  return record ? decodeFactRow(record, livenessRelations(db)) : null;
+  return record ? decodeFactRows(db, [record])[0] ?? null : null;
 }
 
 export function searchFactRows(db: DatabaseSync, filters: FactSearchFilters): readonly FactProjectionRow[] {
+  return searchFactRowsPage(db, { ...filters, limit: undefined, cursor: undefined }).rows;
+}
+
+/** Paged variant of the Fact search: the unparameterized filters keep returning every match;
+ * an explicit limit/cursor pages over the same (observed_at DESC, task_id, fact_id) order. */
+export function searchFactRowsPage(db: DatabaseSync, filters: FactSearchFilters): { readonly rows: readonly FactProjectionRow[]; readonly page?: FactSearchPage } {
   const where: string[] = [], values: Array<string> = [];
   if (filters.query?.trim()) { where.push("fact.rowid IN (SELECT rowid FROM fact_fts WHERE fact_fts MATCH ?)"); values.push(ftsQuery(filters.query)); }
   if (filters.taskId) { where.push("fact.task_id = ?"); values.push(filters.taskId); }
+  if (filters.refs !== undefined) { if (filters.refs.length === 0) where.push("0"); else { where.push(`fact.ref IN (${filters.refs.map(() => "?").join(",")})`); values.push(...filters.refs); } }
   if (filters.confidence) { where.push("fact.confidence = ?"); values.push(filters.confidence); }
   if (filters.memoryClass) { where.push("fact.memory_class = ?"); values.push(filters.memoryClass); }
-  return listFactRows(db, where.length ? ` WHERE ${where.join(" AND ")}` : "", values);
+  if (filters.observedAfter) { where.push("fact.observed_at >= ?"); values.push(filters.observedAfter); }
+  if (filters.observedBefore) { where.push("fact.observed_at <= ?"); values.push(filters.observedBefore); }
+  const paged = filters.limit !== undefined || filters.cursor !== undefined;
+  if (filters.cursor !== undefined) { const cursor = decodeFactCursor(filters.cursor); where.push("(fact.observed_at < ? OR fact.observed_at = ? AND fact.task_id || '/' || fact.fact_id > ?)"); values.push(cursor[0]!, cursor[0]!, cursor[1]!); }
+  const pageLimit = filters.limit === undefined ? (paged ? 100 : null) : checkedFactPageLimit(filters.limit);
+  const sql = `${factRowSelect}${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY observed_at DESC, task_id, fact_id${pageLimit === null ? "" : " LIMIT ?"}`;
+  if (pageLimit !== null) values.push(String(pageLimit + 1));
+  const records = db.prepare(sql).all(...values) as unknown as readonly FactRecord[];
+  const visible = pageLimit === null ? records : records.slice(0, pageLimit), rows = decodeFactRows(db, visible);
+  if (pageLimit === null) return { rows };
+  const hasMore = records.length > pageLimit, last = rows.at(-1);
+  return { rows, page: { limit: pageLimit, cursor: filters.cursor ?? null, nextCursor: hasMore && last ? encodeFactCursor([last.observedAt, `${last.taskId}/${last.factId}`]) : null } };
 }
 
 export function readFactGraphRows(db: DatabaseSync): { readonly edges: readonly FactRelationEdgeRow[]; readonly factAnchors: readonly FactAnchorRow[]; readonly facts: readonly FactProjectionRow[] } {
@@ -178,5 +205,8 @@ export function readFactGraphRows(db: DatabaseSync): { readonly edges: readonly 
   return { edges, factAnchors, facts: listFactRows(db, "", []) };
 }
 
-export function readFactAnchorRows(db: DatabaseSync): readonly FactAnchorRow[] { return (db.prepare("SELECT ref, task_id, fact_id, op_id FROM fact ORDER BY ref").all() as unknown as readonly { readonly ref: string; readonly task_id: string; readonly fact_id: string; readonly op_id: string }[]).map((row) => ({ factRef: row.ref, taskId: row.task_id, factId: row.fact_id, sourcePath: `event:${row.op_id}` })); }
+export function readFactAnchorRows(db: DatabaseSync, refs?: readonly string[]): readonly FactAnchorRow[] { if (refs !== undefined && refs.length === 0) return []; const where = refs === undefined ? "" : ` WHERE ref IN (${refs.map(() => "?").join(",")})`; return (db.prepare(`SELECT ref, task_id, fact_id, op_id FROM fact${where} ORDER BY ref`).all(...(refs ?? [])) as unknown as readonly { readonly ref: string; readonly task_id: string; readonly fact_id: string; readonly op_id: string }[]).map((row) => ({ factRef: row.ref, taskId: row.task_id, factId: row.fact_id, sourcePath: `event:${row.op_id}` })); }
 function ftsQuery(value: string): string { return `"${value.trim().replaceAll('"', '""')}"`; }
+function checkedFactPageLimit(value: number): number { if (!Number.isSafeInteger(value) || value < 1 || value > 500) throw new Error("fact query page limit must be an integer between 1 and 500"); return value; }
+function encodeFactCursor(parts: readonly string[]): string { return Buffer.from(JSON.stringify(parts), "utf8").toString("base64url"); }
+function decodeFactCursor(value: string): readonly [string, string] { let parsed: unknown; try { parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")); } catch { throw new Error("fact query cursor is invalid"); } if (!Array.isArray(parsed) || parsed.length !== 2 || parsed.some((part) => typeof part !== "string" || part.length === 0)) throw new Error("fact query cursor is invalid"); return [parsed[0] as string, parsed[1] as string]; }

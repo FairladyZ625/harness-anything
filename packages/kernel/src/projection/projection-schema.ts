@@ -1,7 +1,14 @@
 import { DatabaseSync } from "node:sqlite";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 
-export const taskProjectionSchemaVersion = 3;
+// Version 4 adds the indexed narrow-query surface over the task snapshot
+// (`status` generated column + `updated_at` + covering indexes) and the
+// task-owned relation edge projection table. A version mismatch takes the
+// existing discard-and-replay path in rebuildable-task-projection.ts, so after
+// rollout each machine cold-rebuilds task.sqlite once on its first read —
+// known-safe since S2 bounded the 1e5 cold catch-up, and typical repos are far
+// smaller. No event-shape or write-path change is involved.
+export const taskProjectionSchemaVersion = 4;
 
 export function readTaskProjectionSchemaVersion(projectionPath: string): number | null {
   if (!localRuntimeStateFileSystem.exists(projectionPath)) return null;

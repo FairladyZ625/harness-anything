@@ -83,7 +83,7 @@ export {
   makeTaskEventStore,
   makeTaskProjection
 } from "./composition/index.ts";
-export type { CanonicalContentBlob, CanonicalEventStore, CanonicalWriteBundle, EventPublicationKillpoint, ReplicaProjectionBasis, TaskProjection } from "./composition/index.ts";
+export type { CanonicalContentBlob, CanonicalEventStore, CanonicalWriteBundle, EventPublicationKillpoint, ProjectionPage, ReplicaProjectionBasis, TaskProjection, TaskProjectionListQuery, TaskRelationProjectionRead, TaskRelationQuery } from "./composition/index.ts";
 export {
   readDaemonRegistry,
   resolveDaemonRepoByRoot,
