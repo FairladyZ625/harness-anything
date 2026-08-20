@@ -281,6 +281,10 @@ test("Agent and Squad declaration commands route through the daemon entity lifec
 test("runtime instance create leaves installation discovery to the daemon when omitted", () => {
   const parsed = parseThinCommand(["runtime", "instance", "create", "--id", "codex-auto", "--name", "Codex Auto", "--kind", "codex", "--provider", "openai", "--model", "gpt-5.6-sol", "--auth", "subscription"]);
   assert.equal(parsed.ok, true, JSON.stringify(parsed)); if (parsed.ok) assert.equal("installationId" in parsed.command.action, false);
+  const multi = parseThinCommand(["runtime", "instance", "create", "--id", "claude-multi", "--name", "Claude Multi", "--kind", "claude", "--provider", "anthropic", "--model", "claude-fable-5", "--model", "claude-opus", "--default-model", "claude-opus", "--permission-mode", "workspace-write", "--isolation", "enforced", "--auth", "subscription"]);
+  assert.equal(multi.ok, true, JSON.stringify(multi)); if (multi.ok) assert.deepEqual(multi.command.action, { kind: "runtime-instance-create", instanceId: "claude-multi", name: "Claude Multi", kindId: "claude", providerId: "anthropic", models: ["claude-fable-5", "claude-opus"], defaultModel: "claude-opus", permissionMode: "workspace-write", isolationState: "enforced", claude: {}, authMode: "subscription" });
+  assert.equal(parseThinCommand(["runtime", "instance", "create", "--id", "bad", "--name", "Bad", "--kind", "codex", "--provider", "openai", "--permission-mode", "turbo", "--model", "gpt", "--auth", "subscription"]).ok, false);
+  assert.equal(parseThinCommand(["runtime", "instance", "create", "--id", "bad", "--name", "Bad", "--kind", "codex", "--provider", "openai", "--auth", "subscription"]).ok, false);
 });
 
 test("runtime instance auth commands parse into repo-scoped interactive sign-in actions", () => {
