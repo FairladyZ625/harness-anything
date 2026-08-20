@@ -245,7 +245,7 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
     // for the Node binary, so the denominator was systematically the most favourable
     // number in the run. That is how this gate reported 6.450x and 1.650x for the same
     // commit with no diff (runs 32002647956 and its rerun).
-    const daemonSamples: number[] = [], cliSamples: number[] = [], bareSamples: number[] = [], overheadSamples: number[] = [], ratios: number[] = [];
+    const daemonSamples: number[] = [], cliSamples: number[] = [], bareSamples: number[] = [], ratios: number[] = [];
     for (let index = 0; index < 11; index += 1) {
       const daemonStarted = performance.now();
       const response = await requestLocalDaemonJsonRpc(fixture.alpha, "repo.task.create", { repo: { repoId: "alpha" },
@@ -262,39 +262,57 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
       spawnSync(process.execPath, ["-e", ""], { stdio: "ignore" });
       const bareElapsed = performance.now() - bareStarted;
       daemonSamples.push(daemonElapsed); cliSamples.push(cliElapsed); bareSamples.push(bareElapsed);
-      overheadSamples.push(cliElapsed - daemonElapsed); ratios.push((cliElapsed - daemonElapsed) / bareElapsed);
+      ratios.push(cliElapsed / bareElapsed);
     }
-    const p50 = median(cliSamples), daemonP50 = median(daemonSamples), bareP50 = median(bareSamples), overheadRatio = median(ratios);
+    const p50 = median(cliSamples), daemonP50 = median(daemonSamples), bareP50 = median(bareSamples), startupRatio = median(ratios);
     const orderedRatios = [...ratios].sort((left, right) => left - right);
     context.diagnostic(`latency-window=before-cli-process-spawn-through-exit-and-parsed-receipt daemon=resident samples=${cliSamples.length} p50=${p50.toFixed(3)}ms min=${Math.min(...cliSamples).toFixed(3)}ms max=${Math.max(...cliSamples).toFixed(3)}ms`);
     context.diagnostic(`latency-segment=resident-daemon-socket-through-parsed-receipt samples=${daemonSamples.length} p50=${daemonP50.toFixed(3)}ms min=${Math.min(...daemonSamples).toFixed(3)}ms max=${Math.max(...daemonSamples).toFixed(3)}ms`);
-    context.diagnostic(`latency-segment=paired-cli-minus-daemon samples=${overheadSamples.length} p50=${median(overheadSamples).toFixed(3)}ms min=${Math.min(...overheadSamples).toFixed(3)}ms max=${Math.max(...overheadSamples).toFixed(3)}ms`);
     context.diagnostic(`latency-baseline=bare-node-process-spawn samples=${bareSamples.length} p50=${bareP50.toFixed(3)}ms min=${Math.min(...bareSamples).toFixed(3)}ms max=${Math.max(...bareSamples).toFixed(3)}ms`);
-    context.diagnostic(`latency-ratio=paired-cli-overhead-over-bare-spawn samples=${ratios.length} p50=${overheadRatio.toFixed(3)}x min=${orderedRatios[0]!.toFixed(3)}x max=${orderedRatios.at(-1)!.toFixed(3)}x`);
-    // The thin CLI's own cost is everything outside the daemon round-trip: spawning a
-    // process, loading its modules, parsing, rendering. Measured against a bare Node
-    // spawn taken immediately after it, so machine speed and load cancel within each
-    // pair — an absolute millisecond bound here would only assert how fast the runner
-    // is, and dec_01KY6X4J486MZ35RW1QN51V2V1 restricts performance gates to relative
-    // overhead. It fails if the CLI grows eager module loading, or stops delegating to
-    // the resident daemon and starts doing the write in its own process.
+    context.diagnostic(`latency-ratio=paired-cli-over-bare-spawn samples=${ratios.length} p50=${startupRatio.toFixed(3)}x min=${orderedRatios[0]!.toFixed(3)}x max=${orderedRatios.at(-1)!.toFixed(3)}x`);
+    // A CLI invocation costs a bare Node spawn plus the CLI's own work: loading its
+    // modules, parsing, one daemon round trip, rendering. Measured against a bare spawn
+    // taken immediately after it, so machine speed and load cancel within each pair — an
+    // absolute millisecond bound would only assert how fast the runner is, and
+    // dec_01KY6X4J486MZ35RW1QN51V2V1 restricts performance gates to relative overhead. It
+    // fails if the CLI grows eager module loading, or stops delegating to the resident
+    // daemon and starts doing the write in its own process.
     //
-    // The bound is 4, derived rather than chosen. The old bound of 3 was calibrated
-    // against a measurement that systematically under-read: the bare-spawn batch ran
-    // last, after ~22 spawns had warmed the page cache, so the denominator was too
-    // small and the reading too low. With the denominator fixed, the enforcement lane
-    // (full-check) reads 3.086 / 3.106 / 3.072 / 3.071 — stable to ±0.6%, and above the
-    // old bound. Keeping 3 would have failed every run; the bound was never calibrated
-    // against a correct instrument in the first place.
+    // This used to subtract daemonElapsed first, on the reading that the daemon round trip
+    // is not the CLI's own cost. That subtraction was never valid: daemonElapsed times a
+    // round trip THIS TEST PROCESS makes, not the one the CLI subprocess makes. Subtracting
+    // one operation's duration from an unrelated operation's duration is not a decomposition,
+    // and when the test process's own call ran slow it exceeded the entire CLI run — every
+    // observed run reported negative per-sample ratios, on passing runs as well as failing
+    // ones. Neither raising the bound nor re-running could help: the asserted quantity was
+    // not defined. Governance task task_182bb1c6068a1c36ca11c68185.
     //
-    // 4 preserves the original design's sensitivity in absolute terms, which is what
-    // the gate actually protects. Old: (3 - 2.028) x 37.9ms bare = 36.8ms of added CLI
-    // startup before it fires. New: (4 - 3.08) x 33.7ms bare = 31.0ms. The gate gets
-    // slightly stricter in milliseconds while gaining 1.29x headroom over the worst
-    // observed reading. 3.5 leaves only 1.13x headroom; 4.5 relaxes sensitivity to
-    // 47.9ms, looser than the design it replaces.
-    assert.equal(overheadRatio <= 4, true,
-      `thin CLI overhead was ${overheadRatio.toFixed(3)}x a bare Node spawn (paired p50; spread ${orderedRatios[0]!.toFixed(3)}x-${orderedRatios.at(-1)!.toFixed(3)}x, cli=${p50.toFixed(3)}ms, bare=${bareP50.toFixed(3)}ms, daemon=${daemonP50.toFixed(3)}ms)`);
+    // Both terms here are real: a bare spawn is a cost every CLI run pays, so the ratio
+    // cannot go negative and cannot fall below 1. Five calibration runs on this lane, emitted
+    // from codex/gate-calibration alongside the old metric, show why this one and not
+    // cli/(bare+daemon) — which keeps the same bogus term and inherits its noise:
+    //
+    //   metric              run1   run2   run3   run4   run5   cross-run spread
+    //   (cli-daemon)/bare   4.111  3.169  4.404  4.627  4.371  46.0%
+    //   cli/bare            6.730  6.858  7.016  7.442  7.150  10.6%
+    //   cli/(bare+daemon)   1.860  1.460  1.942  1.937  1.892  33.0%
+    //
+    // Run 2 was the noisiest internally — incoherent samples where cli <= daemon went 1/11 to
+    // 2/11 and the old metric's per-sample range widened to -23.781x..11.631x — and cli/bare
+    // barely moved while the old metric crossed its own bound: same branch, same content,
+    // 3.169 passed and 4.627 failed. cli/(bare+daemon) bottomed out at 0.231x on that run.
+    //
+    // The bound is 8.6, derived rather than chosen, preserving the old design's stated intent.
+    // The old comment protected absolute added startup: (4 - 3.08) x 33.7ms bare = 31.0ms.
+    // Added cost X moves this ratio by X/bare; at the observed bare median of 26.285ms,
+    // 31.0ms of sensitivity needs 31.0/26.285 = 1.179 of headroom above the worst observed
+    // reading, so 7.442 + 1.179 = 8.6. That leaves (8.6 - 7.442) x 26.285ms = 30.4ms of added
+    // startup before it fires — the same order as the 31.0ms it replaces — and 1.156x headroom
+    // over the worst reading, tighter than the old 1.29x. The tighter headroom is affordable
+    // because this metric moves 10.6% between runs where the old one moved 46.0%; measured
+    // against its own noise it is the safer of the two.
+    assert.equal(startupRatio <= 8.6, true,
+      `thin CLI startup was ${startupRatio.toFixed(3)}x a bare Node spawn (paired p50; spread ${orderedRatios[0]!.toFixed(3)}x-${orderedRatios.at(-1)!.toFixed(3)}x, cli=${p50.toFixed(3)}ms, bare=${bareP50.toFixed(3)}ms, daemon=${daemonP50.toFixed(3)}ms)`);
   } finally { stop(fixture.alpha, fixture.userRoot, builtCli); rmSync(fixture.root, { recursive: true, force: true }); }
 });
 
