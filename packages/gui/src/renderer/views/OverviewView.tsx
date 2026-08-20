@@ -236,6 +236,7 @@ export function OverviewView({
             {(["active", "blocked", "in_review"] as SnapshotStatus[]).map((status) => (
               <button
                 key={status}
+                data-testid={`overview-status-${status}`}
                 onClick={() => onDrill("__all__", status, dimension)}
                 title="按当前维度下钻该状态"
                 className="rounded-md border border-border bg-surface-raised px-3 py-2 text-left hover:border-border-strong"

@@ -52,6 +52,7 @@ export interface WalEventLog {
   readonly readEvent: (opId: string) => CanonicalEventV1 | null;
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
   readonly checkpoint: (throughRevision: number) => void;
+  readonly reseed: (events: readonly CanonicalEventV1[]) => void;
   readonly audit: (
     gitEvents: readonly CanonicalEventV1[],
     gitRevision: number,
@@ -228,6 +229,44 @@ export function openWalEventLog(rootDir: string): WalEventLog {
           },
     );
   };
+  const reseed = (events: readonly CanonicalEventV1[]): void => {
+    ensureRoot();
+    const records: WalEventRecord[] = [];
+    for (const event of events) {
+      const eventBytes = serializeCanonicalEvent(event);
+      const previous = records.at(-1);
+      records.push({
+        schema: WAL_SCHEMA,
+        revision: event.workspaceRevision,
+        opId: event.opId,
+        event,
+        blobs: [],
+        eventDigest: `sha256:${sha256Text(eventBytes)}`,
+        previousDigest: previous?.eventDigest ?? null,
+      });
+    }
+    const body = records.map((record) => `${stableStringify(record)}\n`).join("");
+    fileSystem.replace(segmentPath, body);
+    cached = records;
+    const last = records.at(-1);
+    writeHead(
+      last === undefined
+        ? {
+            schema: "harness-wal-head/v1",
+            revision: 0,
+            lastSegment: null,
+            lastOffset: 0,
+            headDigest: null,
+          }
+        : {
+            schema: "harness-wal-head/v1",
+            revision: last.revision,
+            lastSegment: WAL_SEGMENT,
+            lastOffset: Buffer.byteLength(body),
+            headDigest: last.eventDigest,
+          },
+    );
+  };
   return {
     rootDir: walRoot,
     head: readHead,
@@ -241,6 +280,7 @@ export function openWalEventLog(rootDir: string): WalEventLog {
       return null;
     },
     checkpoint,
+    reseed,
     audit: (gitEvents, gitRevision) =>
       auditRecords(readRecords(), gitEvents, gitRevision),
   };
@@ -303,7 +343,7 @@ function auditRecords(
       };
   }
   const lastRevision = records.at(-1)?.revision ?? 0;
-  const equivalent = lastRevision <= gitRevision;
+  const equivalent = lastRevision === 0 || lastRevision === gitRevision;
   return {
     status: equivalent ? "equivalent" : "diverged",
     walRevision: lastRevision,
@@ -311,6 +351,6 @@ function auditRecords(
     compared: records.length,
     divergence: equivalent
       ? null
-      : `WAL revision ${lastRevision} is ahead of Git revision ${gitRevision}`,
+      : `WAL revision ${lastRevision} does not reach Git revision ${gitRevision}`,
   };
 }

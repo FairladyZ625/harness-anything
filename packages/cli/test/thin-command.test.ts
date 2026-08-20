@@ -8,7 +8,7 @@ import { deriveCliCapabilities, firstCliCommand, firstCliCommandIndex, parseThin
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 104);
+  assert.equal(thinCliCommands.length, 105);
   for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))].filter((value): value is string => value !== undefined).sort()) assert.match(help, new RegExp(`^  ${domain} \\(`, "mu"));
   assert.doesNotMatch(help, /ha task start <task-id>/u);
   const taskHelp = renderThinHelp([], "task");
@@ -34,7 +34,7 @@ test("an unknown command domain reports unknown with the available set instead o
 
 test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(deriveCliCapabilities(), {
-    agent: ["agent-inspect", "agent-install", "agent-list", "agent-validate"],
+    agent: ["agent-create", "agent-inspect", "agent-install", "agent-list", "agent-validate"],
     daemon: ["daemon-fleet-center-start", "daemon-fleet-edge-sync", "daemon-projection-rebuild", "daemon-repo-register", "daemon-repo-unregister", "daemon-start", "daemon-status", "daemon-stop"],
     decision: ["decision-accept", "decision-amend", "decision-claim-add", "decision-claim-fulfill", "decision-defer", "decision-list", "decision-propose", "decision-reckon", "decision-reject", "decision-relate", "decision-relation-replace", "decision-relation-retire", "decision-repin", "decision-retire", "decision-show", "decision-supersede", "decision-transition", "decision-validate", "decision-verify"],
     distill: ["distill-candidate", "distill-promote"],
@@ -267,13 +267,25 @@ test("runtime work commands parse into closed daemon facade actions", () => {
   assert.equal(parseThinCommand(["runtime", "run", "worker"]).ok, false); assert.equal(parseThinCommand(["runtime", "batch"]).ok, false); assert.equal(parseThinCommand(["runtime", "batch", "dispatches.json", "--detach"]).ok, false); assert.equal(parseThinCommand(["runtime", "run", "worker", "--prompt", "one", "--prompt-file", "two"]).ok, false); assert.equal(parseThinCommand(["runtime", "run", "worker", "--to", "terra", "--prompt", "Inspect"]).ok, false); assert.equal(parseThinCommand(["runtime", "status", "runtime-1", "--task", "task-1"]).ok, false); assert.equal(parseThinCommand(["runtime", "status", "--wait"]).ok, false); assert.equal(parseThinCommand(["runtime", "status", "runtime-1", "--no-stream"]).ok, false); assert.equal(parseThinCommand(["runtime", "wait", "runtime-1"]).ok, false);
 });
 
+test("squad run derives the runtime prompt input union", () => {
+  const promptFile = parseThinCommand(["squad", "run", "core-squad", "--instance", "worker", "--prompt-file", "mission.md", "--cwd", "work", "--task", "task-1"]), prompt = parseThinCommand(["squad", "run", "core-squad", "--instance", "worker", "--prompt", "mission", "--cwd", "work", "--task", "task-1"]), both = parseThinCommand(["squad", "run", "core-squad", "--instance", "worker", "--prompt", "mission", "--prompt-file", "mission.md", "--cwd", "work", "--task", "task-1"]);
+  assert.equal(promptFile.ok, true); if (promptFile.ok) assert.equal(promptFile.command.action.promptFile, "mission.md");
+  assert.equal(prompt.ok, true); if (prompt.ok) assert.equal(prompt.command.action.prompt, "mission");
+  assert.equal(both.ok, false);
+});
+
 test("Agent and Squad declaration commands route through the daemon entity lifecycle", () => {
   const cases: ReadonlyArray<readonly [readonly string[], string]> = [[["agent", "list"], "agent-list"], [["agent", "inspect", "terra"], "agent-inspect"], [["agent", "validate", "--source", "terra"], "agent-validate"], [["agent", "install", "--source", "terra", "--dry-run"], "agent-install"], [["squad", "list"], "squad-list"], [["squad", "inspect", "core-squad"], "squad-inspect"], [["squad", "validate", "--source", "core-squad"], "squad-validate"], [["squad", "install", "--source", "core-squad"], "squad-install"]];
   for (const [argv, kind] of cases) { const parsed = parseThinCommand([...argv]); assert.equal(parsed.ok, true, JSON.stringify(argv)); if (parsed.ok) { assert.equal(parsed.command.method, "repo.task.run"); assert.equal(parsed.command.action.kind, kind); } }
+  const create = parseThinCommand(["agent", "create", "codex-sidecar", "--agent", "meta", "--prompt", "Design a worker", "--task", "task-1"]); assert.equal(create.ok, true, JSON.stringify(create)); if (create.ok) assert.deepEqual({ method: create.command.method, action: create.command.action }, { method: "repo.agentRuntime.spawn", action: { kind: "agent-create", runtimeInstanceId: "codex-sidecar", agentId: "meta", prompt: "Design a worker", taskId: "task-1", cwd: { scope: "repo-root" } } });
 });
 test("runtime instance create leaves installation discovery to the daemon when omitted", () => {
   const parsed = parseThinCommand(["runtime", "instance", "create", "--id", "codex-auto", "--name", "Codex Auto", "--kind", "codex", "--provider", "openai", "--model", "gpt-5.6-sol", "--auth", "subscription"]);
   assert.equal(parsed.ok, true, JSON.stringify(parsed)); if (parsed.ok) assert.equal("installationId" in parsed.command.action, false);
+  const multi = parseThinCommand(["runtime", "instance", "create", "--id", "claude-multi", "--name", "Claude Multi", "--kind", "claude", "--provider", "anthropic", "--model", "claude-fable-5", "--model", "claude-opus", "--default-model", "claude-opus", "--permission-mode", "workspace-write", "--isolation", "enforced", "--auth", "subscription"]);
+  assert.equal(multi.ok, true, JSON.stringify(multi)); if (multi.ok) assert.deepEqual(multi.command.action, { kind: "runtime-instance-create", instanceId: "claude-multi", name: "Claude Multi", kindId: "claude", providerId: "anthropic", models: ["claude-fable-5", "claude-opus"], defaultModel: "claude-opus", permissionMode: "workspace-write", isolationState: "enforced", claude: {}, authMode: "subscription" });
+  assert.equal(parseThinCommand(["runtime", "instance", "create", "--id", "bad", "--name", "Bad", "--kind", "codex", "--provider", "openai", "--permission-mode", "turbo", "--model", "gpt", "--auth", "subscription"]).ok, false);
+  assert.equal(parseThinCommand(["runtime", "instance", "create", "--id", "bad", "--name", "Bad", "--kind", "codex", "--provider", "openai", "--auth", "subscription"]).ok, false);
 });
 
 test("runtime instance auth commands parse into repo-scoped interactive sign-in actions", () => {

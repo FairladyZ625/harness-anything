@@ -37,11 +37,11 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
   writeStub(scriptPath, executablePath, stubBody);
   initIngressRepo(root, uid); registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
   const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" } } as const;
-  const host = await openDaemonHost({ daemonId: "runtime-auth-ingress", userRoot, runtimeDiscover: () => [installation] });
+  const host = await openDaemonHost({ daemonId: "runtime-auth-ingress", userRoot, runtimeDiscover: () => [installation], runtimeEnv: { HOME: path.join(parent, "operator-home"), PATH: process.env.PATH ?? "" } });
   const stateRoot = path.join(userRoot, "runtime-instances", "codex-signin"), authFile = path.join(stateRoot, "home", ".codex", "auth.json");
   try {
-    host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: "codex-signin", name: "Codex Sign-in", kindId: "codex", installationId: installation.installationId, providerId: "openai", model: "gpt-5.6-sol", authMode: "subscription" }, auth);
-    host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: "codex-keyed", name: "Codex Keyed", kindId: "codex", installationId: installation.installationId, providerId: "openai", model: "gpt-5.6-sol", authMode: "api-key", credentialRef: "credential:v1:codex-keyed" }, auth);
+    host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: "codex-signin", name: "Codex Sign-in", kindId: "codex", installationId: installation.installationId, providerId: "openai", models: ["gpt-5.6-sol"], authMode: "subscription" }, auth);
+    host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: "codex-keyed", name: "Codex Keyed", kindId: "codex", installationId: installation.installationId, providerId: "openai", models: ["gpt-5.6-sol"], authMode: "api-key", credentialRef: "credential:v1:codex-keyed" }, auth);
     await t.test("before sign-in the readiness probe reports the subscription gap", async () => {
       const shown = await rpc(host, auth, "daemon.runtimeInstance.show", { payload: { instanceId: "codex-signin", probe: true } });
       assert.deepEqual((shown.instance as Record<string, unknown>).authReadiness, { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in this instance state root." });

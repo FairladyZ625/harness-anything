@@ -115,6 +115,24 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
   }
 });
 
+test("GUI entity write channel validates then installs an Agent and preserves a Squad roster", async () => {
+  const fixture = await startGuiResidentDaemonFixture({ task: { taskId: "task-gui-entity-write", title: "Entity write" } });
+  const previous = { userRoot: process.env.HARNESS_DAEMON_USER_ROOT, daemonId: process.env.HARNESS_DAEMON_ID, repoId: process.env.HARNESS_DAEMON_REPO_ID };
+  Object.assign(process.env, fixture.env);
+  try {
+    const bridge = createLocalGuiServiceBridge(fixture.rootDir), scope = { repoId: fixture.repoId }, agentDeclaration = { schema: "agent-declaration/v1", id: "gui-created-agent", name: "GUI Created Agent", instructions: "Keep the roster intact.\nSecond line.", runtime_type: "any", model: "gpt-5.6-terra", skills: [{ id: "review", path: "skills/review" }], prompts: ["prompt://gui"], preset: "standard-task" };
+    const agentReceipt = parseDaemonGuiActionResponse("repo.agent.entity.write", await bridge.invoke("saveAgent", { ...scope, declaration: agentDeclaration }));
+    assert.equal(agentReceipt.ok, true, JSON.stringify(agentReceipt)); assert.equal(agentReceipt.outcome, "applied");
+    const roster = "## GUI Squad\n\n  GUI Created Agent\n\n";
+    const squadReceipt = parseDaemonGuiActionResponse("repo.squad.entity.write", await bridge.invoke("saveSquad", { ...scope, declaration: { schema: "squad-declaration/v1", id: "gui-created-squad", name: "GUI Created Squad", leader: "gui-created-agent", workers: ["gui-created-agent"], roster } }));
+    assert.equal(squadReceipt.ok, true, JSON.stringify(squadReceipt)); assert.equal(squadReceipt.outcome, "applied");
+    const listed = parseDaemonGuiReadResult("repo.agent.entities.list", await bridge.invoke("listAgents", scope)); assert.ok(listed.agents.some(({ id }) => id === "gui-created-agent"));
+    const shownAgent = parseDaemonGuiReadResult("repo.agent.entity.read", await bridge.invoke("showAgent", { ...scope, agentId: "gui-created-agent" })); assert.equal(shownAgent.agent.model, "gpt-5.6-terra");
+    const shown = parseDaemonGuiReadResult("repo.squad.entity.read", await bridge.invoke("showSquad", { ...scope, squadId: "gui-created-squad" })); assert.equal(shown.squad.roster, roster);
+    const rejected = parseDaemonGuiActionResponse("repo.agent.entity.write", await bridge.invoke("saveAgent", { ...scope, declaration: { ...agentDeclaration, id: "Bad ID" } })); assert.equal(rejected.outcome, "op_rejected");
+  } finally { await fixture.stop(); restoreEnv("HARNESS_DAEMON_USER_ROOT", previous.userRoot); restoreEnv("HARNESS_DAEMON_ID", previous.daemonId); restoreEnv("HARNESS_DAEMON_REPO_ID", previous.repoId); }
+});
+
 test("GUI contract rejects any shipped bridge method missing from the daemon protocol", () => {
   const daemonMethods = new Set(jsonRpcMethodContracts.map(({ method }) => method));
   const missing = apiRouteContracts.filter(({ guiBridgeMethod }) => guiBridgeMethod !== undefined)

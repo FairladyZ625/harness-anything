@@ -62,7 +62,7 @@ async function serve(userRoot: string, daemonId: string, finish: ControlFinisher
   const requestStop = () => { parked?.(); stopping ??= (async () => { if (daemon && "stop" in daemon) await daemon.stop(); })(); };
   process.once("SIGTERM", requestStop); process.once("SIGINT", requestStop);
   try {
-    daemon = await startDaemon({ userRoot, daemonId, shutdownRequested: () => stopping !== null });
+    daemon = await startDaemon({ userRoot, daemonId, shutdownRequested: () => stopping !== null, requestShutdown: requestStop });
     if (!("stop" in daemon)) return finish(deferredServeReceipt(daemon, userRoot), 0);
     if (stopping === null) { await idle; await stopping; } else await daemon.stop();
     return 0;

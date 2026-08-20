@@ -6,7 +6,7 @@ import { createRuntimeInstanceCredentialController } from "../src/main/secure-cr
 // keychain. The secret below is an obvious stand-in so a leak in any assertion
 // output is unmissable.
 const secret = "sk-test-secret-must-never-leave-main";
-const base = { instanceId: "codex-sidecar", name: "Codex sidecar", kindId: "codex" as const, installationId: "codex-install", providerId: "codex_local_access", model: "gpt-5.6-terra", codex: { baseUrl: "http://localhost:50818/v1", wireApi: "responses", requiresOpenAiAuth: true } };
+const base = { instanceId: "codex-sidecar", name: "Codex sidecar", kindId: "codex" as const, installationId: "codex-install", providerId: "codex_local_access", models: ["gpt-5.6-terra"], permissionMode: "bypass", codex: { baseUrl: "http://localhost:50818/v1", wireApi: "responses", requiresOpenAiAuth: true } };
 const appliedReceipt = (instance: Record<string, unknown> = {}) => ({ schema: "command-receipt/v2", ok: true, command: "runtime-instance-create", outcome: "applied", opId: "runtime-instance-create:1", instance: { instanceId: "codex-sidecar", authMode: "api-key", authState: "configured", ...instance }, evidence: JSON.stringify({ instanceId: "codex-sidecar", authMode: "api-key" }), summary: "runtime-instance-create: codex-sidecar", nextAction: null });
 
 describe("main-only runtime instance credential controller", () => {

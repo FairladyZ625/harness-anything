@@ -8,7 +8,7 @@ import test from "node:test";
 import { MIGRATION_DOCUMENT_POLICY_ID, MIGRATION_IMPORT_SOURCE, makeTaskEventStore, migrationImportWritePlan, sha256Text, type ActorIdentity, type ArchivedExecutionV0 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
-import { resolveTaskWipLimit, TASK_WIP_LIMIT_ENV } from "../src/task-wip-settings.ts";
+import { resolveTaskRootThreshold, resolveTaskWipLimit, TASK_ROOT_THRESHOLD_ENV, TASK_ROOT_THRESHOLD_SETTING, TASK_WIP_LIMIT_ENV } from "../src/task-wip-settings.ts";
 
 const actor: ActorIdentity = { principal: { personId: "person-wip" }, executor: null } as const;
 type Cell = Awaited<ReturnType<typeof openRepoCell>>;
@@ -84,6 +84,42 @@ test("the limit is configurable from settings.tasks.wipLimit and overridden by t
     assert.match(String(invalidSetting.nextAction), /settings\.tasks\.wipLimit must be a positive integer/u);
   } finally {
     if (previous === undefined) delete process.env[TASK_WIP_LIMIT_ENV]; else process.env[TASK_WIP_LIMIT_ENV] = previous;
+    await cell?.close(); rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a standard task becomes a visible structure-derived root without rewriting taskClass", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-root-derive-"));
+  const previousLimit = process.env[TASK_WIP_LIMIT_ENV], previousThreshold = process.env[TASK_ROOT_THRESHOLD_ENV];
+  process.env[TASK_WIP_LIMIT_ENV] = "1"; delete process.env[TASK_ROOT_THRESHOLD_ENV];
+  let cell: Cell | undefined;
+  try {
+    initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\nsettings:\n  tasks:\n    wipLimit: 1\n    rootThreshold: 3\n");
+    cell = await openRepoCell({ repoId: workspaceId("task-root-derive"), rootDir: canonicalRoot(rootDir), ownerId: "task-root-derive", now: () => "2026-08-20T00:00:00.000Z" });
+    const binding = { actor, source: "local" as const };
+    for (const [taskId, title] of [["task_ROOT_3", "Three children"], ["task_ROOT_2", "Two children"], ["task_ROOT_4", "Four children"]] as const) assert.equal((await cell.run({ kind: "task-create", taskId, title }, binding)).outcome, "applied");
+    for (const [parentTaskId, count] of [["task_ROOT_3", 3], ["task_ROOT_2", 2], ["task_ROOT_4", 4]] as const) for (let index = 0; index < count; index++) assert.equal((await cell.run({ kind: "task-create", taskId: `${parentTaskId}_CHILD_${index}`, title: `Child ${index}`, parentTaskId }, binding)).outcome, "applied");
+    assert.deepEqual(resolveTaskRootThreshold(rootDir), { threshold: 3, label: TASK_ROOT_THRESHOLD_SETTING });
+    assert.equal((await cell.run({ kind: "task-start", taskId: "task_ROOT_2", executionId: "exe_root_2" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-start", taskId: "task_ROOT_3", executionId: "exe_root_3" }, binding)).outcome, "applied", "3 children derives root and does not consume the existing slot");
+    const shown = evidence(await cell.run({ kind: "task-show", taskId: "task_ROOT_3" }, binding));
+    assert.equal((shown.task as { readonly taskClass: string }).taskClass, "standard", "derived root never writes taskClass");
+    assert.deepEqual(shown.rootAssessment, { isRoot: true, reason: "derived", directChildCount: 3, threshold: 3 });
+    process.env[TASK_ROOT_THRESHOLD_ENV] = "5";
+    assert.deepEqual(resolveTaskRootThreshold(rootDir), { threshold: 5, label: TASK_ROOT_THRESHOLD_ENV });
+    const four = await cell.run({ kind: "task-start", taskId: "task_ROOT_4", executionId: "exe_root_4" }, binding);
+    assert.equal(four.outcome, "op_rejected", "4 children occupies again after threshold is raised to 5");
+    assert.match(String(four.nextAction), /Occupancy composition: 2 leaf tasks occupying; 0 declared roots and 0 derived roots excluded\./u);
+    process.env[TASK_ROOT_THRESHOLD_ENV] = "invalid";
+    const invalid = await cell.run({ kind: "task-start", taskId: "task_ROOT_4", executionId: "exe_root_4" }, binding);
+    assert.equal(invalid.outcome, "op_rejected"); assert.equal(invalid.code, "task_root_threshold_invalid");
+    delete process.env[TASK_ROOT_THRESHOLD_ENV];
+    writeFileSync(path.join(rootDir, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\nsettings:\n  tasks:\n    wipLimit: 1\n    rootThreshold: 0\n");
+    const invalidSetting = await cell.run({ kind: "task-start", taskId: "task_ROOT_4", executionId: "exe_root_4" }, binding);
+    assert.equal(invalidSetting.outcome, "op_rejected"); assert.equal(invalidSetting.code, "task_root_threshold_invalid");
+  } finally {
+    if (previousLimit === undefined) delete process.env[TASK_WIP_LIMIT_ENV]; else process.env[TASK_WIP_LIMIT_ENV] = previousLimit;
+    if (previousThreshold === undefined) delete process.env[TASK_ROOT_THRESHOLD_ENV]; else process.env[TASK_ROOT_THRESHOLD_ENV] = previousThreshold;
     await cell?.close(); rmSync(rootDir, { recursive: true, force: true });
   }
 });

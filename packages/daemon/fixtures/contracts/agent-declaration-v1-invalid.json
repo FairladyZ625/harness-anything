@@ -1,1 +1,1 @@
-{ "schema": "agent-declaration/v1", "id": "opencode-worker", "name": "Opencode Worker", "instructions": "Build carefully.", "runtime_type": "../etc/passwd" }
+{ "schema": "agent-declaration/v1", "id": "opencode-worker", "name": "Opencode Worker", "instructions": "Build carefully.", "runtime_type": "opencode", "skills": ["review"] }

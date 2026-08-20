@@ -13,6 +13,7 @@ import { readDaemonLifecycleRecords } from "../src/lifecycle-log.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { startDaemon } from "../src/runtime.ts";
+import { readDaemonPid } from "../src/daemon-singleton.ts";
 
 const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: process.getuid?.() ?? 0, source: "unix-socket-filesystem-owner-boundary" } } as const;
 
@@ -183,6 +184,21 @@ test("a dist rebuild after process start rejects writes until the daemon restart
     const rejected = await cell.run({ kind: "task-create", taskId: "task_after_rebuild", title: "After rebuild" }, writerBinding);
     assert.equal(rejected.outcome, "op_rejected"); assert.equal(rejected.code, "daemon_build_stale"); assert.equal(cell.status().state, "unavailable");
   } finally { await cell?.close(); rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("a stale daemon drains through the existing stop path and the next daemon admits the new build", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-stale-daemon-exit-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user"), runtimeRoot = path.join(parent, "runtime"), runtimeFile = builtRuntime(runtimeRoot, "build-a");
+  rosterRepo(rootDir, "stale-daemon-exit"); registerDaemonRepo({ canonicalRoot: rootDir, repoId: "stale-daemon-exit", userRoot, createConvenienceLinks: false });
+  let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined, shutdowns = 0;
+  try {
+    daemon = await startDaemon({ userRoot, daemonId: "stale-daemon-exit", runtimeFile, requestShutdown: () => { shutdowns += 1; if (daemon && "stop" in daemon) void daemon.stop(); } }); assert.ok("stop" in daemon);
+    await new Promise((resolve) => setImmediate(resolve)); writeFileSync(path.join(runtimeRoot, "packages/cli/dist/build-id.txt"), "build-b\n");
+    const rejected = await requestDaemonJsonRpcAt(daemon.endpoint, "repo.task.create", { repo: { repoId: "stale-daemon-exit" }, payload: { taskId: "task_after_stale", title: "Must not run" } }) as { readonly code?: string; readonly outcome?: string };
+    assert.equal(rejected.code, "daemon_build_stale"); assert.equal(rejected.outcome, "op_rejected"); assert.equal(shutdowns, 1);
+    for (let attempt = 0; attempt < 100 && readDaemonPid(userRoot, "stale-daemon-exit") !== null; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(readDaemonPid(userRoot, "stale-daemon-exit"), null);
+    const restarted = await startDaemon({ userRoot, daemonId: "stale-daemon-exit", runtimeFile }); assert.ok("stop" in restarted); await restarted.stop();
+  } finally { if (daemon && "stop" in daemon) await daemon.stop(); rmSync(parent, { recursive: true, force: true }); }
 });
 
 test("registry mode is authoritative before refresh and refresh replaces a drifted Cell", async () => {
