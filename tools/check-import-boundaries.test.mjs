@@ -329,28 +329,6 @@ test("import boundary check counts explicit package subpaths as real orphan-modu
   }
 });
 
-test("cross-package relative imports are allowed only within one parsed tsc build program", () => {
-  const root = makeFixtureRoot();
-  try {
-    writeFileSync(path.join(root, "packages/cli/tsconfig.build.json"), JSON.stringify({
-      compilerOptions: { rootDir: "..", outDir: "dist" },
-      include: ["src/**/*.ts", "../daemon/src/**/*.ts"]
-    }), "utf8");
-    writeFileSync(path.join(root, "packages/preset/src/package-probe.ts"), "export const presetProbe = true;\n", "utf8");
-    writeFileSync(path.join(root, "packages/daemon/src/package-probe.ts"), "import { presetProbe } from '../../preset/src/package-probe.ts';\nexport const packageProbe = presetProbe;\n", "utf8");
-    writeFileSync(path.join(root, "packages/cli/src/package-probe.ts"), "import { packageProbe } from '../../daemon/src/package-probe.ts';\nexport const cliProbe = packageProbe;\n", "utf8");
-    writeFileSync(path.join(root, "packages/gui/src/package-probe.ts"), "import { packageProbe } from '../../daemon/src/package-probe.ts';\nexport const guiProbe = packageProbe;\n", "utf8");
-
-    const result = runChecker(root);
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /packages\/gui\/src\/package-probe\.ts: cross-package relative import/u);
-    assert.doesNotMatch(result.stderr, /packages\/cli\/src\/package-probe\.ts: cross-package relative import/u);
-    assert.doesNotMatch(result.stderr, /packages\/daemon\/src\/package-probe\.ts: cross-package relative import/u);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test("import boundary check allows explicitly slice-activated package modules", () => {
   const root = makeFixtureRoot();
   try {

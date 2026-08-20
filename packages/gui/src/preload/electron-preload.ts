@@ -7,7 +7,7 @@ import {
   type PreloadApiMethod
 } from "./allowlist.ts";
 import { agentRuntimePreloadApi } from "./agent-runtime-preload.ts";
-import { daemonGuiStreamFacets } from "@harness-anything/daemon/protocol/daemon-protocol.contract";
+import { daemonGuiStreamFacets } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 const streamMethods: ReadonlySet<string> = new Set(daemonGuiStreamFacets.map(({ guiBridgeMethod }) => guiBridgeMethod));
 const exposedApi = Object.fromEntries(preloadAllowlist.filter((method) => !streamMethods.has(method)).map((method) => [
   method,

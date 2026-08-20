@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ActorIdentity, RuntimeSession, WriteSource } from "@harness-anything/kernel";
+import type { ActorIdentity, RuntimeSession, WriteSource } from "../../kernel/src/index.ts";
 import { serialize } from "./agent-runtime-contract.ts";
 
 export type AgentRuntimeActivity = "thinking" | "tool" | "message";

@@ -1,5 +1,5 @@
 import type { SquadEntityDetail } from "./agent-entity-client.ts";
-import type { TaskDispatchRow } from "@harness-anything/daemon/protocol/daemon-protocol.contract";
+import type { TaskDispatchRow } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 
 export type RuntimePanoramaTask = { readonly taskId: string; readonly title: string };
 export type RuntimePanoramaRow = TaskDispatchRow & { readonly taskTitle: string; readonly squad: SquadEntityDetail | null };

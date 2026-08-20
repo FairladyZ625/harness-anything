@@ -1,6 +1,6 @@
 import type { PreloadApiMethod } from "../preload/allowlist.ts";
 import { apiRouteContracts, type ApiRouteContract } from "./api-contract-registry.ts";
-import type { DaemonGuiActionMethod, DaemonGuiReadMethod } from "@harness-anything/daemon/protocol/daemon-protocol.contract";
+import type { DaemonGuiActionMethod, DaemonGuiReadMethod } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 export interface GuiServiceBridge { readonly invoke: (method: string, payload: unknown) => Promise<unknown>; readonly stream: (method: string, payload: unknown, emit: (value: unknown) => void) => Promise<() => void>; }
 type JsonObject = { readonly [key: string]: JsonValue };
 type JsonValue = string | number | boolean | null | JsonObject | ReadonlyArray<JsonValue>;

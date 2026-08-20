@@ -1,4 +1,4 @@
-import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/agent-runtime-contract";
+import type { AgentRuntimeOverviewResult } from "../../../daemon/src/agent-runtime-contract.ts";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 

@@ -1,13 +1,13 @@
-import { readDaemonPid } from "@harness-anything/daemon/runtime";
-import { startDetachedProcess, terminateProcess } from "@harness-anything/daemon/process-port";
-import { daemonLifecycleLogPath } from "@harness-anything/daemon/lifecycle-log";
-import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/client/local-json-rpc-client";
+import { readDaemonPid } from "../../../daemon/src/runtime.ts";
+import { startDetachedProcess, terminateProcess } from "../../../daemon/src/process-port.ts";
+import { daemonLifecycleLogPath } from "../../../daemon/src/lifecycle-log.ts";
+import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts";
 import type { GuiServiceBridge } from "../api/service-bridge.ts";
 import { consumeKnownError } from "../api/error-consumption.ts";
 import { createDaemonSupervisor } from "./daemon-supervisor.ts";
 import { daemonServeLaunch, type PackagedRuntime } from "./daemon-serve-launch.ts";
 import { createRuntimeInstanceCredentialController } from "./secure-credential-broker.ts";
-import type { CredentialPort } from "@harness-anything/daemon/agent-runtime-credential-port";
+import type { CredentialPort } from "../../../daemon/src/agent-runtime-credential-port.ts";
 
 type Target = { readonly repoId: string; readonly socketPath: string; readonly userRoot: string; readonly daemonId: string };
 export function addLocalMainControls(input: { readonly bridge: GuiServiceBridge; readonly target: (repoId?: string) => Promise<Target>; readonly packaged?: PackagedRuntime; readonly credentialPort?: CredentialPort }): GuiServiceBridge {

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { accessSync, chmodSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "../../kernel/src/index.ts";
-import type { AgentDefinitionSnapshot } from "@harness-anything/kernel";
+import type { AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
 import { credentialPort, isCredentialReferenceText } from "./agent-runtime-credential-port.ts";
 import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
 import { materializeAgentSkills, type ResolvedAgentSkill, type RuntimeSkillMount } from "./agent-skills.ts";

@@ -1,5 +1,5 @@
-import type { RuntimeInstanceSummary } from "@harness-anything/daemon/agent-runtime-instances";
-import type { TerminalControlReceipt } from "@harness-anything/daemon/gui-s3-control";
+import type { RuntimeInstanceSummary } from "../../../daemon/src/agent-runtime-instances.ts";
+import type { TerminalControlReceipt } from "../../../daemon/src/gui-s3-control.ts";
 export interface RuntimeInstallationRow { readonly installationId: string; readonly kindId: "claude" | "codex" | "agy"; readonly version: string; readonly observedAt: string }
 export interface RuntimeInstanceCatalog { readonly instances: readonly RuntimeInstanceSummary[]; readonly installations: readonly RuntimeInstallationRow[] }
 export type RuntimeInstanceUpdateInput = { readonly instanceId: string; readonly enabled?: boolean; readonly permissionMode?: "bypass" | "workspace-write" | "read-only"; readonly isolationState?: "enforced" | "operator-environment" };

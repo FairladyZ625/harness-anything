@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
-import type { RuntimeInstanceSummary } from "@harness-anything/daemon/agent-runtime-instances";
-import { runtimeIsolationState, runtimePermissionMode } from "@harness-anything/daemon/runtime-permissions";
+import type { RuntimeInstanceSummary } from "../../../../daemon/src/agent-runtime-instances.ts";
+import { runtimeIsolationState, runtimePermissionMode } from "../../../../daemon/src/runtime-permissions.ts";
 import type { RuntimeInstallationRow, RuntimeInstanceCreateInput, RuntimeInstanceUpdateInput } from "../runtime-instance-client.ts";
 import { t } from "../i18n/index.tsx";
 

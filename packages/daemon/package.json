@@ -5,29 +5,11 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./agent-entities": { "types": "./dist/agent-entities.d.ts", "default": "./src/agent-entities.ts" },
-    "./agent-entities.contract": { "types": "./dist/agent-entities.contract.d.ts", "default": "./src/agent-entities.contract.ts" },
-    "./agent-runtime-contract": { "types": "./dist/agent-runtime-contract.d.ts", "default": "./src/agent-runtime-contract.ts" },
-    "./agent-runtime-credential-port": { "types": "./dist/agent-runtime-credential-port.d.ts", "default": "./src/agent-runtime-credential-port.ts" },
-    "./agent-runtime-instances": { "types": "./dist/agent-runtime-instances.d.ts", "default": "./src/agent-runtime-instances.ts" },
-    "./agent-runtime-stream": { "types": "./dist/agent-runtime-stream.d.ts", "default": "./src/agent-runtime-stream.ts" },
-    "./client/daemon-autostart": { "types": "./dist/client/daemon-autostart.d.ts", "default": "./src/client/daemon-autostart.ts" },
-    "./client/local-daemon-target": { "types": "./dist/client/local-daemon-target.d.ts", "default": "./src/client/local-daemon-target.ts" },
-    "./client/local-json-rpc-client": { "types": "./dist/client/local-json-rpc-client.d.ts", "default": "./src/client/local-json-rpc-client.ts" },
-    "./client/local-json-rpc-stream": { "types": "./dist/client/local-json-rpc-stream.d.ts", "default": "./src/client/local-json-rpc-stream.ts" },
-    "./gui-s3-control": { "types": "./dist/gui-s3-control.d.ts", "default": "./src/gui-s3-control.ts" },
-    "./lifecycle-log": { "types": "./dist/lifecycle-log.d.ts", "default": "./src/lifecycle-log.ts" },
-    "./process-port": { "types": "./dist/process-port.d.ts", "default": "./src/process-port.ts" },
-    "./protocol/daemon-protocol.contract": { "types": "./dist/protocol/daemon-protocol.contract.d.ts", "default": "./src/protocol/daemon-protocol.contract.ts" },
-    "./protocol/gui-result-validation": { "types": "./dist/protocol/gui-result-validation.d.ts", "default": "./src/protocol/gui-result-validation.ts" },
-    "./runtime": { "types": "./dist/runtime.d.ts", "default": "./src/runtime.ts" },
-    "./runtime-permissions": { "types": "./dist/runtime-permissions.d.ts", "default": "./src/runtime-permissions.ts" }
+    ".": "./src/index.ts"
   },
   "dependencies": {
     "@harness-anything/adapter-local": "0.0.0",
     "@harness-anything/adapter-multica": "0.0.0",
-    "@harness-anything/kernel": "0.0.0",
     "node-pty": "1.1.0"
   }
 }

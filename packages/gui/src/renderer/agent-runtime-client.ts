@@ -1,6 +1,6 @@
-import type { AgentRuntimeEventsResult, AgentRuntimeOverviewResult, AgentRuntimeSessionResult } from "@harness-anything/daemon/agent-runtime-contract";
-import type { AgentRuntimeAttachEvent, AgentRuntimeAttachResult } from "@harness-anything/daemon/agent-runtime-stream";
-import type { DaemonGuiReadPayloadMap, DaemonGuiStreamPayloadMap } from "@harness-anything/daemon/protocol/daemon-protocol.contract";
+import type { AgentRuntimeEventsResult, AgentRuntimeOverviewResult, AgentRuntimeSessionResult } from "../../../daemon/src/agent-runtime-contract.ts";
+import type { AgentRuntimeAttachEvent, AgentRuntimeAttachResult } from "../../../daemon/src/agent-runtime-stream.ts";
+import type { DaemonGuiReadPayloadMap, DaemonGuiStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 
 type RuntimeBridge = { readonly getAgentRuntimeOverview: (payload: DaemonGuiReadPayloadMap["repo.agentRuntime.overview"]) => Promise<unknown>; readonly getAgentRuntimeSession: (payload: DaemonGuiReadPayloadMap["repo.agentRuntime.sessions.read"]) => Promise<unknown>; readonly getAgentRuntimeEvents: (payload: DaemonGuiReadPayloadMap["repo.agentRuntime.events.read"]) => Promise<unknown>; readonly attachAgentRuntime: (payload: DaemonGuiStreamPayloadMap["repo.agentRuntime.attach"], onValue: (value: unknown) => void) => () => void }; type RepoScope = { readonly repoId: string };

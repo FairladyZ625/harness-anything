@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import type { AgentDeclarationV1, SquadDeclarationV1 } from "@harness-anything/daemon/agent-entities.contract";
+import type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../../daemon/src/agent-entities.contract.ts";
 import type { AgentEntityDetail, SquadEntityDetail, EntitySaveResult } from "../agent-entity-client.ts";
 import { agentEntityClient } from "../agent-entity-client.ts";
 import { t } from "../i18n/index.tsx";

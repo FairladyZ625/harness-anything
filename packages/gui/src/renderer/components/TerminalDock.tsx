@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { TerminalSessionRow } from "@harness-anything/daemon/gui-s3-control";
+import type { TerminalSessionRow } from "../../../../daemon/src/gui-s3-control.ts";
 import { closeTerminalTab, reconcileTerminalGeneration, reduceTerminalStream, requestTerminalTermination, type TerminalTab } from "../terminal-model.ts";
 import { terminalClient, terminalQueryKeys, type TerminalAttachInitial, type TerminalSpawnInput } from "../terminal-client.ts";
 import { useDockResize } from "./terminal/dock-resize.ts";

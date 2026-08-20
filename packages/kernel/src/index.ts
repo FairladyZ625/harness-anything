@@ -67,9 +67,6 @@ export * from "./projection/post-merge-checks.ts";
 export { detectRelationGraphCycles, readRelationGraphAuthoredSourceKinds, validateRelationGraphRecords } from "./projection/relation-graph-projection.ts"; export type { FactAnchorRow, RelationCoverageRow, RelationFactRow, RelationGraphEdgeRow, RelationGraphProjection, RelationRecordEntry, RelationRecordValidationIssue } from "./projection/relation-graph-projection.ts";
 export { projectDecisionReadiness } from "./projection/decision-readiness-projection.ts";
 export type { DecisionListFilters, DecisionProjectionRow, FactProjectionRow, FactSearchFilters } from "./projection/fact-event-projection.ts";
-export type { ProjectionWarning } from "./projection/types.ts";
-export type { CloseoutAssessment } from "./domain/closeout-readiness.ts";
-export type { BlockingAssessment } from "./domain/task-blocking.ts";
 export { buildColdCoverage, readColdRebuildSource } from "./projection/cold-rebuild-source.ts";
 export type { ColdDecisionProjectionRow, ColdRebuildIssue } from "./projection/cold-rebuild-source.ts";
 export { readMarkdownSource, taskEntryToRow } from "./projection/sqlite-task-source.ts";
@@ -79,7 +76,6 @@ export * from "./publish/index.ts";
 export * from "./projection/sqlite-task-projection.ts";
 export { readTaskProjectionSchemaVersion, taskProjectionSchemaVersion } from "./projection/projection-schema.ts";
 export { defaultLifecycleTaskProjectionPath } from "./projection/rebuildable-task-projection.ts";
-export type { TaskProjectionListRow, TaskProjectionWarning } from "./projection/rebuildable-task-projection.ts";
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export {

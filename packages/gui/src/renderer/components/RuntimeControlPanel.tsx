@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
-import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/agent-runtime-contract";
+import type { AgentRuntimeOverviewResult } from "../../../../daemon/src/agent-runtime-contract.ts";
 import type { RuntimeSpawnInput, RuntimeSpawnSettlement } from "../runtime-control.ts";
 import { t } from "../i18n/index.tsx";
 

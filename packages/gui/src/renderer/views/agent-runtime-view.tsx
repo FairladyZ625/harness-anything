@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { consumeKnownError } from "../../api/error-consumption.ts";
-import type { AgentRuntimeOverviewResult, AgentRuntimeSessionDto } from "@harness-anything/daemon/agent-runtime-contract";
-import type { AgentRuntimeAttachEvent } from "@harness-anything/daemon/agent-runtime-stream";
+import type { AgentRuntimeOverviewResult, AgentRuntimeSessionDto } from "../../../../daemon/src/agent-runtime-contract.ts";
+import type { AgentRuntimeAttachEvent } from "../../../../daemon/src/agent-runtime-stream.ts";
 import { agentRuntimeClient, openAgentRuntimePane } from "../agent-runtime-client.ts";
 import { agentEntityClient } from "../agent-entity-client.ts";
 import { harnessClient } from "../api-client.ts";
