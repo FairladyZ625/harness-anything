@@ -21,6 +21,7 @@ export function writeTriadicLedger(rootDir) {
 
 export function seedTriadicEvents(rootDir, repoId) {
   const store = makeTaskEventStore({ rootDir, repoId }), projection = makeTaskProjection({ rootDir, eventStore: store }), factService = makeFactService({ eventStore: store, projection }), decisionService = makeDecisionService({ eventStore: store, projection }), actor = { principal: { personId: "person-gui" }, executor: null };
+  try {
   const append = (type, decisionId, payload) => { const revision = (store.readHead()?.revision ?? 0) + 1, event = { schema: "decision-event/v1", eventId: `event-${type}-${revision}`, workspaceRevision: revision, opId: `op-${type}-${revision}`, decisionId, type, actor, source: "local", occurredAt: `2026-08-13T00:00:${String(revision).padStart(2, "0")}.000Z`, payload }, read = projection.readDecision(decisionId), path = `decisions/decision-${decisionId}/decision.md`, document = projection.readDocument(path).document, relations = projection.readDecisionGraph().edges.filter((edge) => edge.ownerRef === `decision/${decisionId}`).map((edge) => ({ relation_id: edge.relationId, source: edge.sourceRef, target: edge.targetRef, type: edge.relationType, strength: edge.strength, direction: edge.direction, origin: edge.origin, rationale: edge.rationale, state: edge.state })); decisionService.record(compileDecisionWrite({ event, currentDecision: read.decision, currentRelations: relations, currentDocument: document })); };
   const revision = (store.readHead()?.revision ?? 0) + 1, fact = { schema: "fact-event/v1", eventId: `event-fact-gui-${revision}`, workspaceRevision: revision, opId: `op-fact-gui-${revision}`, taskId: "task-gui-smoke", factId: "F-ABCDEFGH", type: "fact_recorded", actor, source: "local", occurredAt: "2026-08-13T00:00:20.000Z", payload: { statement: "The GUI renderer received event-backed triadic rows.", evidenceSource: "GUI integration", observedAt: "2026-08-13T00:00:20.000Z", confidence: "low", memoryClass: "semantic", memoryTags: ["pattern"], provenance: [{ runtime: "codex", sessionId: "fg-p1-07-e2e", boundAt: "2026-08-13T00:00:20.000Z" }] } };
   const packagePath = projection.read("task-gui-smoke").packagePath;
@@ -31,5 +32,8 @@ export function seedTriadicEvents(rootDir, repoId) {
   for (const relation of [{ source: "decision/dec_gui_smoke", target: "task/task-gui-smoke", type: "derives", rationale: "Decision derived the GUI task" }, { source: "decision/dec_gui_smoke/C1", target: "fact/task-gui-smoke/F-ABCDEFGH", type: "evidenced-by", rationale: "Fact evidences the public projection" }]) {
     const identity = { ...relation, direction: "directed" };
     append("decision_related", "dec_gui_smoke", { relation: { relation_id: deriveRelationId(identity), ...identity, strength: "strong", origin: "declared", state: "active" } });
+  }
+  } finally {
+    projection.close();
   }
 }
