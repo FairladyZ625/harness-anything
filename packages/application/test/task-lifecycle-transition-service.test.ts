@@ -386,6 +386,7 @@ test("SQLite/response killpoints reconstruct the exact applied receipt by opId w
         completionGateIds: [], presetSnapshotDigest: null }, { eventId: "event-create", workspaceRevision: 1, occurredAt: "2026-08-11T00:00:00.000Z" });
       const proof = { taskIdUnique: true as const, actorBinding: actor };
       await assert.rejects(interrupted.execute(create, proof), new RegExp(`killpoint:${point}`, "u"));
+      await eventStore.drain();
       const commitCount = git(rootDir, "rev-list", "--count", "refs/ha/canonical").trim();
       const published = eventStore.readTaskEvent(create.opId);
       if (published === null) throw new Error(`${point} did not publish an event`);

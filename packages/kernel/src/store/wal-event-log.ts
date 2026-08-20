@@ -228,6 +228,12 @@ export function openWalEventLog(rootDir: string): WalEventLog {
             headDigest: last.eventDigest,
           },
     );
+    const referenced = new Set(
+      remaining.flatMap((record) => record.blobs.map((blob) => blob.sha256)),
+    );
+    if (fileSystem.exists(objectsRoot))
+      for (const name of fileSystem.readNames(objectsRoot))
+        if (!referenced.has(name)) fileSystem.remove(path.join(objectsRoot, name));
   };
   const reseed = (events: readonly CanonicalEventV1[]): void => {
     ensureRoot();

@@ -4,12 +4,13 @@ import test from "node:test";
 import { FLEET_CHUNK_BYTES, FLEET_FRAME_BYTES, FLEET_KEY_SEND_WINDOW_BYTES, FLEET_SESSION_SEND_WINDOW_BYTES, FleetContractError, FleetUtf8LineDecoder, parseFleetFrame, serializeFleetFrame } from "../src/fleet/contract.ts";
 
 const cut = { revision: 7, headDigest: `sha256:${"b".repeat(64)}` } as const;
+const ledgerCut = { repoId: "repo", ...cut } as const;
 const blob = { sha256: "c".repeat(64), size: 3, mediaType: "text/markdown" } as const;
 const frames = [
   { schema: "fleet.session.hello/v1", messageId: "m1", protocolVersion: 1, nodeId: "node-1", credential: "secret" },
   { schema: "fleet.session.ready/v1", messageId: "m2", inReplyTo: "m1", sessionId: "s1", maxFrameBytes: FLEET_FRAME_BYTES, chunkBytes: FLEET_CHUNK_BYTES },
   { schema: "fleet.assignment.get/v1", messageId: "m3", assignmentId: "a1" },
-  { schema: "fleet.assignment.result/v1", messageId: "m4", inReplyTo: "m3", assignmentId: "a1", repoId: "repo", taskId: "task", executionId: "exec", paths: ["tasks/task/a.md"], baseLedgerSha: "a".repeat(40), expiresAt: "2099-01-01T00:00:00.000Z", writerEpoch: 1 },
+  { schema: "fleet.assignment.result/v1", messageId: "m4", inReplyTo: "m3", assignmentId: "a1", repoId: "repo", taskId: "task", executionId: "exec", paths: ["tasks/task/a.md"], baseLedgerSha: ledgerCut, expiresAt: "2099-01-01T00:00:00.000Z", writerEpoch: 1 },
   { schema: "fleet.receipt.get/v1", messageId: "m4-receipt-get", assignmentId: "a1", opId: "op1" },
   { schema: "fleet.receipt.result/v1", messageId: "m4-receipt-result", inReplyTo: "m4-receipt-get", opId: "op1", receipt: { outcome: "op_rejected", code: "operation_not_published" } },
   { schema: "fleet.upload.begin/v1", messageId: "m5", assignmentId: "a1", content: blob },
@@ -17,7 +18,7 @@ const frames = [
   { schema: "fleet.upload.chunk/v1", messageId: "m7", uploadId: "u1", offset: 0, dataBase64: "YWJj" },
   { schema: "fleet.upload.finish/v1", messageId: "m8", uploadId: "u1" },
   { schema: "fleet.upload.result/v1", messageId: "m9", inReplyTo: "m8", status: "staged", descriptor: { ref: "doc-sync-claims/u1", ...blob } },
-  { schema: "fleet.doc.submit/v1", messageId: "m10", assignmentId: "a1", executionId: null, writerEpoch: 1, baseLedgerSha: "a".repeat(40), changes: [{ path: "tasks/task/a.md", baseBlobSha256: null, policyId: "markdown-body-replaceable/v1", candidate: { ref: "doc-sync-claims/u1", ...blob } }] },
+  { schema: "fleet.doc.submit/v1", messageId: "m10", assignmentId: "a1", executionId: null, writerEpoch: 1, baseLedgerSha: ledgerCut, changes: [{ path: "tasks/task/a.md", baseBlobSha256: null, policyId: "markdown-body-replaceable/v1", candidate: { ref: "doc-sync-claims/u1", ...blob } }] },
   { schema: "fleet.doc.result/v1", messageId: "m11", inReplyTo: "m10", outcome: "applied", opId: "op1", revision: 7, code: null },
   { schema: "fleet.replica.pull/v1", messageId: "m11-pull", assignmentId: "a1" },
   { schema: "fleet.replica.current/v1", messageId: "m11-current", inReplyTo: "m11-pull", repoId: "repo", viewId: "v1", cut, manifestDigest: "d".repeat(64) },

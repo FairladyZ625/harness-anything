@@ -87,8 +87,8 @@ test("a historical prose artifact is rewritten as opaque without a policy upgrad
     assert.equal((await cell.run({ kind: "task-create", taskId: "task-reclassify", title: "Reclassify" }, binding)).outcome, "applied");
     await cell.close();
     const packagePath = "tasks/task-reclassify-reclassify", report = `${packagePath}/artifacts/report.md`, legacy = "# Legacy\n\n## Same\n\nfirst\n";
-    const store = makeTaskEventStore({ repoId, rootDir }), bytes = Buffer.from(legacy), sha = sha256Bytes(bytes), base = store.currentCommit();
-    const historic = decideDocWrite({ intent: parseDocWriteIntent({ schema: "doc-write-intent/v1", executionId: null, baseLedgerSha: base.sha, changes: [{ path: report, baseBlobSha256: null, policyId: PROSE_POLICY_ID, candidate: { ref: `doc-sync-claims/${sha}`, sha256: sha, size: bytes.byteLength, mediaType: "text/markdown" } }] }, repoId), opId: "op_historical_prose_artifact", eventId: "event-historical-prose-artifact", workspaceRevision: store.read().revision + 1, actor, source: "local", occurredAt: "2026-08-19T00:00:00.000Z", currentLedgerSha: base, lease: null, documents: [null], claims: [bytes] });
+    const store = makeTaskEventStore({ repoId, rootDir }), bytes = Buffer.from(legacy), sha = sha256Bytes(bytes), base = store.currentCut();
+    const historic = decideDocWrite({ intent: parseDocWriteIntent({ schema: "doc-write-intent/v1", executionId: null, baseLedgerSha: base, changes: [{ path: report, baseBlobSha256: null, policyId: PROSE_POLICY_ID, candidate: { ref: `doc-sync-claims/${sha}`, sha256: sha, size: bytes.byteLength, mediaType: "text/markdown" } }] }, repoId), opId: "op_historical_prose_artifact", eventId: "event-historical-prose-artifact", workspaceRevision: store.read().revision + 1, actor, source: "local", occurredAt: "2026-08-19T00:00:00.000Z", currentLedgerSha: base, lease: null, documents: [null], claims: [bytes] });
     assert.equal(historic.accepted, true, JSON.stringify(historic));
     if (!historic.accepted) return;
     store.append({ event: historic.event, plan: docSyncWritePlan(historic.event), blobs: historic.blobs });
@@ -136,7 +136,8 @@ test("task_plan.md and closeout.md retain prose policy, proofs, and deletion pro
 
 test("completion preflight publishes a dirty opaque artifact and completes with canonical opaque artifacts in place", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-complete-")); initRepo(rootDir);
-  const repoId = workspaceId("artifact-complete"), cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-complete" }), binding = { actor, source: "local" as const };
+  const repoId = workspaceId("artifact-complete"), binding = { actor, source: "local" as const };
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | null = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-complete" });
   const taskId = "task-complete", executionId = "exe-complete";
   try {
     assert.equal((await cell.run({ kind: "task-create", taskId, title: "Complete" }, binding)).outcome, "applied");
@@ -148,11 +149,15 @@ test("completion preflight publishes a dirty opaque artifact and completes with 
     const commitSha = await reachGreenInReview(cell, rootDir, taskId, executionId, packagePath);
     const completed = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed", commitSha, iteration: 0, paths: ["packages/kernel/src/domain/task.ts"] }, binding) as Record<string, unknown>;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
+    assert.equal(completed.commitSha, null);
     const store = makeTaskEventStore({ repoId, rootDir });
     assert.equal(store.read().events.some((event) => event.schema === "doc-event/v1" && event.payload.changes.some((change) => change.path === manual)), true, "completion must publish the dirty opaque artifact");
-    assert.equal(git(rootDir, "status", "--porcelain", "-uall").includes("manual.html"), false, "the dirty opaque artifact must be settled in the ledger");
     assert.equal(store.read().events.some((event) => event.type === "task_completed"), true);
-  } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
+    assert.equal(readFileSync(path.join(rootDir, "harness", manual), "utf8"), "<!doctype html>\n<title>Manual report</title>\n");
+    await cell.close();
+    cell = null;
+    assert.equal(git(rootDir, "status", "--porcelain", "-uall").includes("manual.html"), false, "close must drain the pending cut into Git");
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
 async function reachGreenInReview(cell: Awaited<ReturnType<typeof openRepoCell>>, rootDir: string, taskId: string, executionId: string, packagePath: string): Promise<string> {

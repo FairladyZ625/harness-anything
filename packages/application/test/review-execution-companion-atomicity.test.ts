@@ -9,9 +9,9 @@ test("changes_requested records Review, return edge, Execution closure, and Task
     await harness.create();
     await harness.start("execution-1");
     await harness.submit("execution-1");
-    harness.kill("after_git_commit");
-    await assert.rejects(harness.review("execution-1", "anti_entropy", "changes_requested"), /killpoint:after_git_commit/u);
-    assert.equal(harness.eventStore.recover().status, "already_committed");
+    harness.kill("after_event_write");
+    await assert.rejects(harness.review("execution-1", "anti_entropy", "changes_requested"), /killpoint:after_event_write/u);
+    assert.equal(harness.eventStore.recover().status, "committed");
     const snapshot = (await harness.service.read("task-1")).snapshot;
     assert.equal(snapshot.reviews.at(-1)?.verdict, "changes_requested");
     assert.equal(snapshot.edgesTaken.at(-1)?.on, "changes_requested");

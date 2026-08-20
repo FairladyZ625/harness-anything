@@ -21,9 +21,10 @@ test("a flat ledger keeps working end to end, advertises migration, and migrates
     assert.equal(listed.rows.some(({ taskId }) => taskId === flatEvent.taskId), true);
     const archived = await cell.run({ kind: "task-archive", taskId: flatEvent.taskId, reason: "flat layout drill" }, { actor, source: "local" }) as Record<string, unknown>;
     assert.equal(archived.outcome, "applied", JSON.stringify(archived));
+    assert.equal(archived.commitSha, null);
     assert.equal(String(archived.summary).includes("ha migrate ledger"), true);
     assert.deepEqual(listTree(rootDir, "harness/events").filter((name) => /^[0-9a-f]{2}$/u.test(name)), []);
-    assert.equal(listTree(rootDir, "harness/events").filter((name) => name.endsWith(".json")).length, 3);
+    assert.equal(listTree(rootDir, "harness/events").filter((name) => name.endsWith(".json")).length, 2);
     const migrated = await cell.run({ kind: "ledger-migrate" }, { actor, source: "local" }) as Record<string, unknown>;
     assert.equal(migrated.outcome, "applied", JSON.stringify(migrated));
     assert.deepEqual(listTree(rootDir, "harness/events").filter((name) => name.endsWith(".json")), ["head.json"]);

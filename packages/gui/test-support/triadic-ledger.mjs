@@ -35,5 +35,6 @@ export function seedTriadicEvents(rootDir, repoId) {
   }
   } finally {
     projection.close();
+    void store.drain();
   }
 }

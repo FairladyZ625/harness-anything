@@ -1,7 +1,7 @@
 import { closeSync, cpSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { connect, type TLSSocket } from "node:tls";
-import { consumeKnownError } from "../../../kernel/src/index.ts";
+import { consumeKnownError, type LedgerCutIdentity } from "../../../kernel/src/index.ts";
 import { sha256Bytes } from "../../../kernel/src/index.ts";
 import { writeFileDurably } from "../durable-file.ts";
 import { FLEET_CHUNK_BYTES, FLEET_SESSION_SEND_WINDOW_BYTES, FleetUtf8LineDecoder, fleetManifestDigest, parseFleetFrame, serializeFleetFrame, type FleetCut, type FleetDeltaChange, type FleetDescriptor, type FleetEntry, type FleetFrameV1, type FleetTaskAction } from "./contract.ts";
@@ -11,7 +11,7 @@ type Current = { cut: FleetCut; manifestDigest: string }; type Manifest = Curren
 export interface FleetEdgeView { readonly receive: (frame: FleetFrameV1) => FleetFrameV1 | null; readonly current: (repoId: string, viewId: string) => Current | null }
 export interface FleetEdgeChange { readonly path: string; readonly body: string | Buffer; readonly baseBlobSha256?: string | null; readonly policyId?: string; readonly mediaType?: string }
 interface FleetPeerOptions { readonly hostname?: string; readonly port: number; readonly ca: string | Buffer; readonly servername?: string; readonly nodeId: string; readonly credential: string; readonly assignmentId: string; readonly timeoutMs?: number; readonly onFrame?: (frame: FleetFrameV1) => void }
-export interface FleetWriteClientOptions extends FleetPeerOptions { readonly changes: readonly FleetEdgeChange[]; readonly baseLedgerSha?: string; readonly executionId?: string | null; readonly channel: "collaborator" | "replica" }
+export interface FleetWriteClientOptions extends FleetPeerOptions { readonly changes: readonly FleetEdgeChange[]; readonly baseLedgerSha?: LedgerCutIdentity; readonly executionId?: string | null; readonly channel: "collaborator" | "replica" }
 export interface FleetWriteClientResult { readonly descriptors: readonly FleetDescriptor[]; readonly center: Extract<FleetFrameV1, { schema: "fleet.doc.result/v1" }> }
 export interface FleetReplicaPullClientOptions extends FleetPeerOptions { readonly viewRoot: string; readonly diskQuotaBytes: number; readonly beforeAck?: (frame: Extract<FleetFrameV1, { schema: "fleet.ack/v1" }>) => void; readonly edgeKillpoint?: (point: "after_page" | "after_chunk" | "before_current_rename") => void }
 export interface FleetReplicaPullClientResult { readonly replica: Extract<FleetFrameV1, { schema: "fleet.ack.result/v1" }> | Extract<FleetFrameV1, { schema: "fleet.replica.current/v1" }>; readonly current: Current }

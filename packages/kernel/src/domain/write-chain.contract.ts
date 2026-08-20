@@ -1,7 +1,7 @@
 import { stablePayloadHash, stableStringify } from "../integrity/stable-hash.ts";
 import { validateWriteReceipt, type WriteReceipt } from "./receipt-domain-registry.ts";
 export { receiptDetailRegistry, validateWriteReceipt, WRITE_RECEIPT_SCHEMA } from "./receipt-domain-registry.ts";
-export type { DocSyncReceiptDetail, ReceiptProof, ReceiptVisibility, WriteReceipt, WriteReceiptDetail } from "./receipt-domain-registry.ts";
+export type { DocSyncReceiptDetail, LedgerCutIdentity, ReceiptProof, ReceiptVisibility, WriteReceipt, WriteReceiptDetail } from "./receipt-domain-registry.ts";
 
 export interface ActorIdentity {
   readonly principal: { readonly personId: string };

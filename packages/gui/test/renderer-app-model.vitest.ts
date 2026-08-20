@@ -188,6 +188,18 @@ describe("renderer app model", () => {
     });
   });
 
+  it("renders an applied decision receipt while its Git commit identity is pending", async () => {
+    const showReceipt = vi.fn();
+    const settled = await settleDecisionReceipt(decisionReceipt({ commitSha: null }), showReceipt);
+
+    expect(showReceipt).not.toHaveBeenCalled();
+    expect(settled).toMatchObject({
+      state: "applied",
+      opId: "op-applied",
+      receipt: { commitSha: null, worktreeVisible: true },
+    });
+  });
+
   it("preserves decision rejection origin/code/hint/opId and never resolves it as success", async () => {
     const settled = await settleDecisionReceipt({
       schema: "command-receipt/v2", ok: false, command: "decision-accept", outcome: "op_rejected", opId: "op-reject",

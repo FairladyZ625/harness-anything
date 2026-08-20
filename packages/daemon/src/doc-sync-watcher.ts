@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { watch, type FSWatcher } from "node:fs";
 import path from "node:path";
-import { classifyTextualArtifactPath, consumeKnownError, resolveHarnessLayout, type WriteReceipt } from "../../kernel/src/index.ts";
+import { classifyTextualArtifactPath, consumeKnownError, resolveHarnessLayout, stableStringify, type LedgerCutIdentity, type WriteReceipt } from "../../kernel/src/index.ts";
 
 const fullScan = "*";
 export interface WatchAttribution { readonly sessionId: string; readonly personId: string; readonly path: string; readonly fingerprint: string }
@@ -25,7 +25,7 @@ export function openDocSyncWatcher(input: { readonly rootDir: string; readonly p
     if (!report) { state = "blocked"; return; } state = report.rows.some((row) => row.state === "blocked" || row.state === "deletion" || row.state === "conflict") ? "blocked" : "active"; const seen = new Set(report.rows.map((row) => row.path));
     for (const row of report.rows) {
       if (row.state !== "eligible" || row.candidateBlobSha256 === null) { observations.delete(row.path); if (row.state === "blocked" && row.reason === "canonical projection is pending") pending.add(row.path); continue; }
-      const fingerprint = `${report.baseLedgerSha}:${row.candidateBlobSha256}`, previous = observations.get(row.path), count = previous?.fingerprint === fingerprint ? previous.count + 1 : 1;
+      const fingerprint = `${stableStringify(report.baseLedgerSha)}:${row.candidateBlobSha256}`, previous = observations.get(row.path), count = previous?.fingerprint === fingerprint ? previous.count + 1 : 1;
       observations.set(row.path, { fingerprint, count }); if (submitted.get(row.path) === fingerprint) continue; if (count < 2) { pending.add(row.path); continue; }
       metrics.intents += 1; const result = await input.run({ kind: "doc-submit", paths: [row.path] }, { sessionId, personId: input.personId, path: row.path, fingerprint: row.candidateBlobSha256 }); remember(result);
       if (result.outcome === "applied" && !result.opId.startsWith("noop:")) { submitted.set(row.path, fingerprint); metrics.commits += 1; metrics.writes += 1; }
@@ -64,6 +64,6 @@ export function openDocSyncWatcher(input: { readonly rootDir: string; readonly p
   function remember(receipt: WriteReceipt): void { const nextAction = receipt.nextAction ?? receipt.detail?.nextAction; lastReceipt = { outcome: receipt.outcome, opId: receipt.opId, ...(receipt.code ? { code: receipt.code } : {}), ...(nextAction ? { nextAction } : {}) }; }
 }
 
-function parseScan(receipt: WriteReceipt): { readonly baseLedgerSha: string; readonly rows: readonly ScanRow[] } | null { if (receipt.outcome !== "applied" || !receipt.evidence?.startsWith("doc-scan:")) return null; try { const value = JSON.parse(receipt.evidence.slice("doc-scan:".length)) as { baseLedgerSha?: unknown; rows?: unknown }; if (typeof value.baseLedgerSha !== "string" || !Array.isArray(value.rows)) return null; return { baseLedgerSha: value.baseLedgerSha, rows: value.rows as readonly ScanRow[] }; } catch (error) { consumeKnownError(error); return null; } }
+function parseScan(receipt: WriteReceipt): { readonly baseLedgerSha: LedgerCutIdentity; readonly rows: readonly ScanRow[] } | null { if (receipt.outcome !== "applied" || !receipt.evidence?.startsWith("doc-scan:")) return null; try { const value = JSON.parse(receipt.evidence.slice("doc-scan:".length)) as { baseLedgerSha?: unknown; rows?: unknown }, cut = value.baseLedgerSha as Partial<LedgerCutIdentity> | undefined; if (!cut || typeof cut.repoId !== "string" || !Number.isSafeInteger(cut.revision) || typeof cut.headDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(cut.headDigest) || !Array.isArray(value.rows)) return null; return { baseLedgerSha: cut as LedgerCutIdentity, rows: value.rows as readonly ScanRow[] }; } catch (error) { consumeKnownError(error); return null; } }
 export function normalizeDocSyncWatchPath(value: string): string | null { const normalized = value.split(path.sep).join("/").replace(/^\.\//u, ""); return normalized && !normalized.startsWith("/") && !normalized.split("/").includes("..") && classifyTextualArtifactPath(normalized) !== null && !normalized.includes(".conflict-") ? normalized : null; }
 function normalize(value: string): string | null { return normalizeDocSyncWatchPath(value); }

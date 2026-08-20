@@ -49,7 +49,7 @@ test("a migrated symbolic link preserves its target text and remains a link with
   try {
     symbolicLinkFixture(source, linkTarget); initRepo(destination); cell = await openRepoCell({ repoId: workspaceId("migration-symbolic-link-target"), rootDir: canonicalRoot(destination), ownerId: "migration-daemon", now: () => "2026-06-01T00:00:00.000Z" });
     const result = await cell.run({ kind: "migrate-import", sourceRoots: sources(source) }, { actor, source: "local" }) as Record<string, unknown>, target = path.join(destination, "harness/field-notes/latest.md");
-    assert.equal(result.exitCode, 0, JSON.stringify(result)); assert.equal(result.outcome, "applied"); assert.equal(lstatSync(target).isSymbolicLink(), true); assert.equal(readlinkSync(target), linkTarget); assert.match(git(destination, "ls-tree", "HEAD", "--", "harness/field-notes/latest.md"), /^120000 blob /u);
+    assert.equal(result.exitCode, 0, JSON.stringify(result)); assert.equal(result.outcome, "applied"); assert.equal(lstatSync(target).isSymbolicLink(), true); assert.equal(readlinkSync(target), linkTarget); assert.equal(result.commitSha, undefined); await cell.close(); cell = undefined; assert.match(git(destination, "ls-tree", "HEAD", "--", "harness/field-notes/latest.md"), /^120000 blob /u);
     const store = makeTaskEventStore({ repoId: "migration-symbolic-link-target", rootDir: destination }), event = store.read().events.find((candidate) => candidate.schema === "migration-import-event/v1" && candidate.payload.migratedFrom === "field-notes/latest.md")!; assert.equal(event.payload.entity.kind, "repo-document"); assert.equal((event.payload.entity as { readonly nodeKind?: string }).nodeKind, "symbolic-link"); assert.equal((event.payload.entity as { readonly documentClaim: { readonly sha256: string } }).documentClaim.sha256, sha256Text(linkTarget));
     rmSync(target); store.materialize(); assert.equal(lstatSync(target).isSymbolicLink(), true); assert.equal(readlinkSync(target), linkTarget);
   } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }
@@ -223,7 +223,7 @@ test("a destination roster and a source roster both survive the migration withou
     assert.deepEqual(roster.people.map(({ personId }) => personId), ["person_zeyu", "person_dingwen"]);
     assert.equal(roster.people[0]!.primaryEmail, "lizeyu990625@gmail.com");
     assert.deepEqual([...roster.people[0]!.credentials], [...bootstrapPerson.credentials]);
-    assert.equal(git(destination, "status", "--porcelain", "--", "harness"), "");
+    await cell.close(); cell = undefined; assert.equal(git(destination, "status", "--porcelain", "--", "harness"), "");
     const event = makeTaskEventStore({ repoId: "migration-people-union", rootDir: destination }).read().events.find((candidate) => candidate.schema === "migration-import-event/v1" && candidate.payload.migratedFrom === "people.yaml")!;
     assert.deepEqual((event.payload.entity as { readonly destinationPreimage?: unknown }).destinationPreimage, { nodeKind: "file", sha256: sha256Text(bootstrapRoster()), size: Buffer.byteLength(bootstrapRoster()) });
   } finally { await cell?.close(); rmSync(scratch, { recursive: true, force: true }); }

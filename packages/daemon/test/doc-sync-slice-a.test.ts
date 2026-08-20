@@ -20,8 +20,8 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
   try { write(rootDir, "context/a.md", "# A\n\nfirst\n"); write(rootDir, "context/b.md", "# B\n\nsecond\n"); write(rootDir, "tasks/task-one/progress.md", "# Progress\n"); write(rootDir, "tasks/task-one/artifacts/data.json", "{}\n"); write(rootDir, "context/ignored.json", "{}\n"); const before = git(rootDir, "rev-parse", "HEAD"), status = await cell.run({ kind: "doc-status", paths: [] }, binding), statusRows = rows(status.evidence);
     assert.deepEqual(statusRows.map((row) => [row.path, row.state]), [["context/a.md", "eligible"], ["context/b.md", "eligible"], ["tasks/task-one/artifacts/data.json", "eligible"], ["tasks/task-one/progress.md", "blocked"]]); assert.equal(statusRows.find((row) => row.path.endsWith("artifacts/data.json"))?.mediaType, opaqueTextualMediaType); assert.equal(git(rootDir, "rev-parse", "HEAD"), before);
     const dry = await cell.run({ kind: "doc-dry-run", paths: ["context/a.md", "context/b.md"] }, binding); assert.deepEqual(rows(dry.evidence), statusRows.slice(0, 2)); assert.equal(git(rootDir, "rev-parse", "HEAD"), before);
-    const submitted = await cell.run({ kind: "doc-submit", paths: ["context/a.md"] }, binding); assert.equal(submitted.outcome, "applied", JSON.stringify(submitted)); const event = makeTaskEventStore({ repoId: "scanner", rootDir }).readEvent(submitted.opId); assert.equal(event?.schema, "doc-event/v1"); if (event?.schema === "doc-event/v1") { assert.equal(event.payload.baseLedgerSha.sha, before); assert.equal(event.payload.executionId, null); assert.deepEqual(event.payload.changes.map((change) => change.path), ["context/a.md"]); }
-    assert.deepEqual(git(rootDir, "status", "--porcelain", "-uall").split("\n").filter((line) => line.includes(" harness/")).sort(), ["?? harness/context/b.md", "?? harness/context/ignored.json", "?? harness/tasks/task-one/artifacts/data.json", "?? harness/tasks/task-one/progress.md"]);
+    const submitted = await cell.run({ kind: "doc-submit", paths: ["context/a.md"] }, binding); assert.equal(submitted.outcome, "applied", JSON.stringify(submitted)); assert.equal(submitted.commitSha, null); const event = makeTaskEventStore({ repoId: "scanner", rootDir }).readEvent(submitted.opId); assert.equal(event?.schema, "doc-event/v1"); if (event?.schema === "doc-event/v1") { assert.deepEqual(event.payload.baseLedgerSha, (JSON.parse(status.evidence!.slice("doc-scan:".length)) as { baseLedgerSha: unknown }).baseLedgerSha); assert.equal(event.payload.executionId, null); assert.deepEqual(event.payload.changes.map((change) => change.path), ["context/a.md"]); }
+    assert.deepEqual(git(rootDir, "status", "--porcelain", "-uall").split("\n").filter((line) => line.includes(" harness/")).sort(), ["?? harness/context/a.md", "?? harness/context/b.md", "?? harness/context/ignored.json", "?? harness/tasks/task-one/artifacts/data.json", "?? harness/tasks/task-one/progress.md"]);
     write(rootDir, "context/a.md", "# Renamed\n\nfirst\n"); const acceptedCut = git(rootDir, "rev-parse", "HEAD"), blocked = await cell.run({ kind: "doc-dry-run", paths: ["context/a.md"] }, binding); assert.equal(rows(blocked.evidence)[0]?.state, "blocked"); const rejected = await cell.run({ kind: "doc-submit", paths: ["context/a.md"] }, binding); assert.equal(rejected.outcome, "op_rejected"); assert.equal(rejected.code, "preview_blocked"); assert.equal(git(rootDir, "rev-parse", "HEAD"), acceptedCut);
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
@@ -91,9 +91,9 @@ test("materialize preserves a divergent local edit in one ignored deterministic 
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
-test("an authored branch advanced outside the daemon returns indeterminate with an executable recovery command", async () => {
+test("an authored branch advanced outside the daemon remains an ancestor of the asynchronously materialized cut", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-diverged-")); initRepo(rootDir); const cell = await openRepoCell({ repoId: workspaceId("diverged"), rootDir: canonicalRoot(rootDir), ownerId: "diverged-daemon" }), binding = { actor, source: "local" as const };
-  try { write(rootDir, "context/notes.md", "# Notes\n"); git(rootDir, "add", "harness/context/notes.md"); git(rootDir, "commit", "-qm", "external advance"); const result = await cell.run({ kind: "doc-submit", paths: ["context/notes.md"] }, binding); assert.equal(result.outcome, "indeterminate"); assert.equal(result.code, "publication_indeterminate"); assert.match(result.nextAction ?? "", /update-ref refs\/heads\/\S+ [0-9a-f]{40}/u); assert.match(result.nextAction ?? "", /ha daemon stop/u); assert.equal(cell.status().state, "unavailable"); }
+  try { write(rootDir, "context/notes.md", "# Notes\n"); git(rootDir, "add", "harness/context/notes.md"); git(rootDir, "commit", "-qm", "external advance"); const external = git(rootDir, "rev-parse", "HEAD"), result = await cell.run({ kind: "doc-submit", paths: ["context/notes.md"] }, binding); assert.equal(result.outcome, "applied"); assert.equal(result.commitSha, null); assert.equal(cell.status().state, "attached"); await cell.close(); assert.equal(git(rootDir, "merge-base", "--is-ancestor", external, "HEAD") === "", true); assert.equal(git(rootDir, "log", "-1", "--format=%s"), "harness WAL flush 1-1"); }
   finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -133,8 +133,8 @@ test("an authored edit of a migrated governance standard upgrades its policy in 
     if (native?.schema === "doc-event/v1") assert.equal("policyUpgrade" in native.payload.changes[0]!, false);
 
     write(rootDir, standard, `${secondBody}hand edit outside doc sync\n`); git(rootDir, "add", "harness"); git(rootDir, "commit", "-qm", "manual ledger advance");
-    const refused = await cell.run({ kind: "doc-submit", paths: [standard] }, binding);
-    assert.equal(refused.outcome, "indeterminate"); assert.equal(refused.code, "publication_indeterminate");
+    const accepted = await cell.run({ kind: "doc-submit", paths: [standard] }, binding);
+    assert.equal(accepted.outcome, "applied"); assert.equal(accepted.commitSha, null);
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 

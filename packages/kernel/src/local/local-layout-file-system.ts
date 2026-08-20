@@ -56,17 +56,20 @@ export const localRuntimeStateFileSystem = {
   writeText: (inputPath: string, value: string) => writeFileSync(inputPath, value, "utf8")
 };
 
-// S3 writes this Git-first shadow through the OS page cache; S4 owns any future
-// WAL-durability boundary when a WAL append becomes an acknowledged write.
+// An acknowledged write is durable only after its WAL segment, head, and content
+// objects have crossed this fsync boundary.
 export const localWalFileSystem = {
   exists: (inputPath: string) => existsSync(inputPath),
   mkdirp: (inputPath: string) => mkdirSync(inputPath, { recursive: true }),
+  readNames: (inputPath: string) => readdirSync(inputPath),
   readText: (inputPath: string) => readFileSync(inputPath, "utf8"),
+  remove: (inputPath: string): void => rmSync(inputPath, { force: true }),
   append: (inputPath: string, body: string): void => {
     mkdirSync(path.dirname(inputPath), { recursive: true });
     const descriptor = openSync(inputPath, "a", 0o600);
     try {
       writeSync(descriptor, body, null, "utf8");
+      fsyncSync(descriptor);
     } finally {
       closeSync(descriptor);
     }
@@ -77,10 +80,19 @@ export const localWalFileSystem = {
     const descriptor = openSync(temporary, "w", 0o600);
     try {
       writeSync(descriptor, body, null, "utf8");
+      fsyncSync(descriptor);
     } finally {
       closeSync(descriptor);
     }
     renameSync(temporary, inputPath);
+    if (process.platform !== "win32") {
+      const directory = openSync(path.dirname(inputPath), "r");
+      try {
+        fsyncSync(directory);
+      } finally {
+        closeSync(directory);
+      }
+    }
   }
 };
 
