@@ -165,7 +165,7 @@ interface FactRecord { readonly row_json: string }
 // Liveness only ever consults the incoming supersedes-fact edges of the facts being
 // decoded, so the fetch is narrowed to those targets (indexed by relation_edge_target)
 // instead of scanning the whole edge table per read.
-function livenessRelations(db: DatabaseSync, targetRefs?: readonly string[]): readonly { readonly targetRef: string; readonly relationType: string; readonly state: string }[] { if (targetRefs !== undefined && targetRefs.length === 0) return []; const where = targetRefs === undefined ? "" : ` WHERE target_ref IN (${targetRefs.map(() => "?").join(",")})`; return db.prepare(`SELECT target_ref AS targetRef, relation_type AS relationType, state FROM relation_edge${where} ORDER BY relation_id`).all(...(targetRefs ?? [])) as unknown as readonly { readonly targetRef: string; readonly relationType: string; readonly state: string }[]; }
+function livenessRelations(db: DatabaseSync, targetRefs?: readonly string[]): readonly { readonly targetRef: string; readonly relationType: string; readonly state: string }[] { if (targetRefs !== undefined && targetRefs.length === 0) return []; const scoped = targetRefs !== undefined && targetRefs.length <= 900; const where = scoped ? ` WHERE target_ref IN (${targetRefs.map(() => "?").join(",")})` : ""; return db.prepare(`SELECT target_ref AS targetRef, relation_type AS relationType, state FROM relation_edge${where} ORDER BY relation_id`).all(...(scoped ? targetRefs : [])) as unknown as readonly { readonly targetRef: string; readonly relationType: string; readonly state: string }[]; }
 function decodeFactRows(db: DatabaseSync, records: readonly FactRecord[]): readonly FactProjectionRow[] { const raw = records.map((record) => JSON.parse(record.row_json) as Omit<FactProjectionRow, "state">), relations = livenessRelations(db, raw.map((row) => row.ref)); return raw.map((row) => ({ ...row, state: factLiveness(row, relations) })); }
 function listFactRows(db: DatabaseSync, where: string, values: readonly string[]): readonly FactProjectionRow[] { return decodeFactRows(db, db.prepare(`${factRowSelect}${where} ORDER BY observed_at DESC, task_id, fact_id`).all(...values) as unknown as readonly FactRecord[]); }
 export function readFactRow(db: DatabaseSync, taskId: string, factId: string): FactProjectionRow | null {
@@ -181,9 +181,11 @@ export function searchFactRows(db: DatabaseSync, filters: FactSearchFilters): re
  * an explicit limit/cursor pages over the same (observed_at DESC, task_id, fact_id) order. */
 export function searchFactRowsPage(db: DatabaseSync, filters: FactSearchFilters): { readonly rows: readonly FactProjectionRow[]; readonly page?: FactSearchPage } {
   const where: string[] = [], values: Array<string> = [];
+  // A ref list above SQLite's parameter budget filters in memory after the decode instead of in SQL.
+  const memoryRefs = filters.refs !== undefined && filters.refs.length > 900 ? new Set(filters.refs) : null;
   if (filters.query?.trim()) { where.push("fact.rowid IN (SELECT rowid FROM fact_fts WHERE fact_fts MATCH ?)"); values.push(ftsQuery(filters.query)); }
   if (filters.taskId) { where.push("fact.task_id = ?"); values.push(filters.taskId); }
-  if (filters.refs !== undefined) { if (filters.refs.length === 0) where.push("0"); else { where.push(`fact.ref IN (${filters.refs.map(() => "?").join(",")})`); values.push(...filters.refs); } }
+  if (filters.refs !== undefined && memoryRefs === null) { if (filters.refs.length === 0) where.push("0"); else { where.push(`fact.ref IN (${filters.refs.map(() => "?").join(",")})`); values.push(...filters.refs); } }
   if (filters.confidence) { where.push("fact.confidence = ?"); values.push(filters.confidence); }
   if (filters.memoryClass) { where.push("fact.memory_class = ?"); values.push(filters.memoryClass); }
   if (filters.observedAfter) { where.push("fact.observed_at >= ?"); values.push(filters.observedAfter); }
@@ -194,7 +196,8 @@ export function searchFactRowsPage(db: DatabaseSync, filters: FactSearchFilters)
   const sql = `${factRowSelect}${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY observed_at DESC, task_id, fact_id${pageLimit === null ? "" : " LIMIT ?"}`;
   if (pageLimit !== null) values.push(String(pageLimit + 1));
   const records = db.prepare(sql).all(...values) as unknown as readonly FactRecord[];
-  const visible = pageLimit === null ? records : records.slice(0, pageLimit), rows = decodeFactRows(db, visible);
+  const visible = pageLimit === null ? records : records.slice(0, pageLimit), decoded = decodeFactRows(db, visible);
+  const rows = memoryRefs === null ? decoded : decoded.filter((row) => memoryRefs.has(row.ref));
   if (pageLimit === null) return { rows };
   const hasMore = records.length > pageLimit, last = rows.at(-1);
   return { rows, page: { limit: pageLimit, cursor: filters.cursor ?? null, nextCursor: hasMore && last ? encodeFactCursor([last.observedAt, `${last.taskId}/${last.factId}`]) : null } };
@@ -207,7 +210,7 @@ export function readFactGraphRows(db: DatabaseSync): { readonly edges: readonly 
   return { edges, factAnchors, facts: listFactRows(db, "", []) };
 }
 
-export function readFactAnchorRows(db: DatabaseSync, refs?: readonly string[]): readonly FactAnchorRow[] { if (refs !== undefined && refs.length === 0) return []; const where = refs === undefined ? "" : ` WHERE ref IN (${refs.map(() => "?").join(",")})`; return (db.prepare(`SELECT ref, task_id, fact_id, op_id FROM fact${where} ORDER BY ref`).all(...(refs ?? [])) as unknown as readonly { readonly ref: string; readonly task_id: string; readonly fact_id: string; readonly op_id: string }[]).map((row) => ({ factRef: row.ref, taskId: row.task_id, factId: row.fact_id, sourcePath: `event:${row.op_id}` })); }
+export function readFactAnchorRows(db: DatabaseSync, refs?: readonly string[]): readonly FactAnchorRow[] { if (refs !== undefined && refs.length === 0) return []; const scoped = refs !== undefined && refs.length <= 900; const where = scoped ? ` WHERE ref IN (${refs.map(() => "?").join(",")})` : ""; const memoryRefs = refs !== undefined && !scoped ? new Set(refs) : null; const rows = (db.prepare(`SELECT ref, task_id, fact_id, op_id FROM fact${where} ORDER BY ref`).all(...(scoped ? refs : [])) as unknown as readonly { readonly ref: string; readonly task_id: string; readonly fact_id: string; readonly op_id: string }[]).map((row) => ({ factRef: row.ref, taskId: row.task_id, factId: row.fact_id, sourcePath: `event:${row.op_id}` })); return memoryRefs === null ? rows : rows.filter((row) => memoryRefs.has(row.factRef)); }
 function ftsQuery(value: string): string { return `"${value.trim().replaceAll('"', '""')}"`; }
 function checkedFactPageLimit(value: number): number { if (!Number.isSafeInteger(value) || value < 1 || value > 500) throw new Error("fact query page limit must be an integer between 1 and 500"); return value; }
 function encodeFactCursor(parts: readonly string[]): string { return Buffer.from(JSON.stringify(parts), "utf8").toString("base64url"); }

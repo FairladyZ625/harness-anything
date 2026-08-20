@@ -53,8 +53,12 @@ export function readTaskRelationRows(db: DatabaseSync): readonly TaskRelationPro
  * without materializing any snapshot JSON. */
 export function readTaskStatusRows(db: DatabaseSync, taskIds?: readonly string[]): readonly { readonly taskId: string; readonly status: string | null }[] {
   if (taskIds?.length === 0) return [];
-  const sql = taskIds === undefined ? "SELECT task_id, status FROM task_snapshot ORDER BY task_id" : `SELECT task_id, status FROM task_snapshot WHERE task_id IN (${taskIds.map(() => "?").join(",")}) ORDER BY task_id`;
-  return (db.prepare(sql).all(...taskIds ?? []) as unknown as readonly { readonly task_id: string; readonly status: string | null }[]).map((row) => ({ taskId: row.task_id, status: row.status }));
+  // An id list above SQLite's parameter budget reads every row and filters in memory instead.
+  const scoped = taskIds !== undefined && taskIds.length <= 900;
+  const memoryIds = taskIds !== undefined && !scoped ? new Set(taskIds) : null;
+  const sql = scoped ? `SELECT task_id, status FROM task_snapshot WHERE task_id IN (${taskIds.map(() => "?").join(",")}) ORDER BY task_id` : "SELECT task_id, status FROM task_snapshot ORDER BY task_id";
+  const rows = (db.prepare(sql).all(...(scoped ? taskIds : [])) as unknown as readonly { readonly task_id: string; readonly status: string | null }[]).map((row) => ({ taskId: row.task_id, status: row.status }));
+  return memoryIds === null ? rows : rows.filter((row) => memoryIds.has(row.taskId));
 }
 
 /** Indexed narrow page over the task snapshot table; order matches the unparameterized list (task id asc). */
