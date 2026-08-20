@@ -48,6 +48,21 @@ test("opening a settled event store does not scan event or content trees", async
   });
 });
 
+test("resident publication avoids redundant Git reads and leaves no prepared ref", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeTaskEventStore({ repoId: "resident-budget", rootDir });
+    store.append(bundle(eventAt(1)));
+    const receipt = store.append(bundle(eventAt(2)));
+    assert.equal(receipt.metrics.gitProcesses, 4);
+    assert.equal(
+      git(rootDir, "for-each-ref", "--format=%(refname)", "refs/ha-event-prepared/")
+        .trim(),
+      "",
+    );
+  });
+});
+
 test("reading the whole event stream validates every content blob in batches instead of one Git process per blob", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir); const count = 40, writer = makeTaskEventStore({ repoId: "stream-budget", rootDir });
