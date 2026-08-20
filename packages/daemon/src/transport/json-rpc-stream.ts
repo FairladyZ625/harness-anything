@@ -31,7 +31,7 @@ export interface JsonRpcStreamOptions {
   readonly output: Writable;
   readonly transportKind: DaemonTransportKind;
   readonly authContext: DaemonAuthenticationContext;
-  readonly createProtocolServer: (authContext: DaemonAuthenticationContext, emit: (method: string, params: Record<string, unknown>) => Promise<void>) => JsonRpcProtocolServer;
+  readonly createProtocolServer: (authContext: DaemonAuthenticationContext, emit: (method: string, params: Record<string, unknown>) => Promise<void>, connectionId: string) => JsonRpcProtocolServer;
   readonly authenticateFirstFrame?: (
     frame: unknown,
     authContext: DaemonAuthenticationContext
@@ -56,7 +56,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
   const reader = createJsonLineFrameReader();
   const connectionId = options.connectionId ?? randomUUID();
   let authContext = options.authContext;
-  let server = options.authenticateFirstFrame ? undefined : options.createProtocolServer(authContext, emit);
+  let server = options.authenticateFirstFrame ? undefined : options.createProtocolServer(authContext, emit, connectionId);
   let waitingForAuthentication = options.authenticateFirstFrame !== undefined;
   let queue = Promise.resolve();
 
@@ -117,7 +117,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
         return;
       }
       authContext = result.authContext ?? authContext;
-      server = options.createProtocolServer(authContext, emit);
+      server = options.createProtocolServer(authContext, emit, connectionId);
       waitingForAuthentication = false;
       if (!result.forwardFrame) return;
     }

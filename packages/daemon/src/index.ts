@@ -14,6 +14,7 @@ export { currentDaemonProtocolVersion } from "./protocol/version.ts";
 export type { JsonObject, JsonRpcRequest, JsonRpcResponse, JsonValue } from "./protocol/json-rpc-types.ts";
 export { openRepoCell, type RepoCell, type RepoCellBinding, type RepoCellStatus, type RepoTaskAction } from "./repo-cell.ts";
 export { DAEMON_REQUEST_LOG_SCHEMA, daemonRequestLogPath, openDaemonRequestLog, type DaemonRequestLog, type DaemonRequestLogEntry, type DaemonRequestLogRecord } from "./request-log.ts";
+export { DAEMON_CONN_LOG_SCHEMA, daemonConnLogFileStem, openDaemonConnLog, type DaemonConnLog, type DaemonConnLogOptions, type DaemonTrafficLogEntry } from "./conn-log.ts";
 export { daemonPidPath, readDaemonPid, startDaemon, type RunningDaemon } from "./runtime.ts";
 export type { DaemonAuthenticationContext, DaemonTransportKind } from "./transport/auth-context.ts";
 export { createJsonLineFrameReader, encodeJsonLineFrame, isJsonRpcRequestLike } from "./transport/frame-codec.ts";
