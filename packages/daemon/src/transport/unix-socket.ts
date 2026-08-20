@@ -1,4 +1,5 @@
 // @slice-activation PLT-Daemon W3 transport adapters exported for daemon composition roots.
+import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, chmodSync, statSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -10,7 +11,7 @@ import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
 export interface UnixSocketTransportOptions {
   readonly daemonId: string;
   readonly socketPath?: string;
-  readonly createProtocolServer: (authContext: DaemonAuthenticationContext, emit: (method: string, params: Record<string, unknown>) => Promise<void>) => JsonRpcProtocolServer;
+  readonly createProtocolServer: (authContext: DaemonAuthenticationContext, emit: (method: string, params: Record<string, unknown>) => Promise<void>, connectionId: string) => JsonRpcProtocolServer;
   readonly onConnection?: (connection: DaemonTransportConnection) => void;
   readonly onConnectionClosed?: (connection: DaemonTransportConnection) => void;
 }
@@ -44,11 +45,15 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
         source: "unix-socket-filesystem-owner-boundary"
       }
     };
+    // One id per accepted socket, minted before the stream server exists so the transport
+    // connection, its protocol server, and any per-connection log share a single correlation key.
+    const connectionId = randomUUID();
     const connection = serveJsonRpcStream({
       input: socket,
       output: socket,
       transportKind: "unix-socket",
       authContext,
+      connectionId,
       createProtocolServer: options.createProtocolServer
     });
     connections.add(connection);

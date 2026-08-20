@@ -178,7 +178,7 @@ const DECISION_INPUT_LINES = Object.freeze({
   preset: 372,
   cli: 377,
   gui: 18494,
-  daemon: 2131,
+  daemon: 4244, // re-measured under dec_4BA57B8082D26A05FBD9C70166 (conn-log v1 lands the connection-level observability)
   fleet: 222,
   "authority-write-path": 0,
   "identity-rbac": 563,
