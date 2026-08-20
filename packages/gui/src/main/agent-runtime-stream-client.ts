@@ -1,1 +1,1 @@
-export { streamAgentRuntimeAt, streamDaemonFacetAt, type AgentRuntimeStreamValue } from "../../../daemon/src/client/local-json-rpc-stream.ts";
+export { streamAgentRuntimeAt, streamDaemonFacetAt, type AgentRuntimeStreamValue } from "@harness-anything/daemon/client/local-json-rpc-stream";

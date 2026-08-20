@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
+import type { DaemonLaunchSpec } from "@harness-anything/daemon/client/daemon-autostart";
 
 export interface DaemonServeTarget { readonly userRoot: string; readonly daemonId: string }
 export interface PackagedRuntime { readonly resourcesPath: string }

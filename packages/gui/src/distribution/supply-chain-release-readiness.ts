@@ -91,9 +91,7 @@ export interface SupplyChainReleaseReadinessPolicy {
     "packages/cli/package.json",
     "packages/gui/package.json",
     "packages/adapters/local/package.json",
-    "packages/adapters/multica/package.json",
-    "packages/adapters/github-issues/package.json",
-    "packages/adapters/linear/package.json"
+    "packages/adapters/multica/package.json"
   ];
   readonly auditCommands: readonly [AuditCommandContract, AuditCommandContract];
   readonly sbom: SbomContract;
@@ -137,9 +135,7 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
     "packages/cli/package.json",
     "packages/gui/package.json",
     "packages/adapters/local/package.json",
-    "packages/adapters/multica/package.json",
-    "packages/adapters/github-issues/package.json",
-    "packages/adapters/linear/package.json"
+    "packages/adapters/multica/package.json"
   ],
   auditCommands: [
     {

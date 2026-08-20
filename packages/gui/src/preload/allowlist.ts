@@ -1,4 +1,4 @@
-import { daemonGuiActionMethods, daemonGuiReadMethods, daemonGuiStreamFacets } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonGuiActionMethods, daemonGuiReadMethods, daemonGuiStreamFacets } from "@harness-anything/daemon/protocol/daemon-protocol.contract";
 import { containsSecretLikeKey } from "../api/entity-payload-hygiene.ts";
 export const HARNESS_PRELOAD_API = "harness";
 export const localMainPreloadMethods = ["listRuntimeInstances", "showRuntimeInstance", "createRuntimeInstance", "updateRuntimeInstance", "deleteRuntimeInstance", "validateRuntimeInstanceAuth", "signInRuntimeInstance", "reauthRuntimeInstance", "signOutRuntimeInstance"] as const;

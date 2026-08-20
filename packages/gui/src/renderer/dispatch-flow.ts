@@ -1,5 +1,5 @@
-import { runtimeTypeMatchesKind, type AgentRuntimeInstanceDto } from "../../../daemon/src/agent-runtime-contract.ts";
-import type { TaskDispatchRow, TaskDocumentListEntryRow } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { runtimeTypeMatchesKind, type AgentRuntimeInstanceDto } from "@harness-anything/daemon/agent-runtime-contract";
+import type { TaskDispatchRow, TaskDocumentListEntryRow } from "@harness-anything/daemon/protocol/daemon-protocol.contract";
 import type { RuntimeSpawnInput } from "./runtime-control.ts";
 
 // Dispatch flow for the Orchestration surface: one Agent or one Squad is selected in the

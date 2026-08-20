@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,7 +14,7 @@ test("import boundary check rejects application imports from adapters", () => {
   const root = makeFixtureRoot();
   try {
     writeFileSync(path.join(root, "packages/application/src/index.ts"), [
-      "import { makeLocalLifecycleEngine } from '../../adapters/local/src/index.ts';",
+      "import { makeLocalLifecycleEngine } from '@harness-anything/adapter-local';",
       "export const engine = makeLocalLifecycleEngine;"
     ].join("\n"), "utf8");
     writeFileSync(path.join(root, "packages/adapters/local/src/index.ts"), [
@@ -100,7 +100,7 @@ test("import boundary check allows application imports from kernel public contra
   const root = makeFixtureRoot();
   try {
     writeFileSync(path.join(root, "packages/application/src/index.ts"), [
-      "import type { DomainStatus } from '../../kernel/src/index.ts';",
+      "import type { DomainStatus } from '@harness-anything/kernel';",
       "export const status: DomainStatus = 'planned';"
     ].join("\n"), "utf8");
     writeFileSync(path.join(root, "packages/kernel/src/index.ts"), [
@@ -133,7 +133,7 @@ test("import boundary check confines kernel store imports to the kernel composit
       "export const service = makeStore;"
     ].join("\n"), "utf8");
     writeFileSync(path.join(root, "packages/application/src/index.ts"), [
-      "import { makeStore } from '../../kernel/src/index.ts';",
+      "import { makeStore } from '@harness-anything/kernel';",
       "export const appStore = makeStore;"
     ].join("\n"), "utf8");
     writeFileSync(path.join(root, "packages/kernel/src/store/index.ts"), [
@@ -159,11 +159,11 @@ test("import boundary check restricts GUI adapter imports to local composition r
     mkdirSync(path.join(root, "packages/gui/src/api"), { recursive: true });
     mkdirSync(path.join(root, "packages/gui/src/main"), { recursive: true });
     writeFileSync(path.join(root, "packages/gui/src/api/service-bridge.ts"), [
-      "import { makeLocalLifecycleEngine } from '../../../adapters/local/src/index.ts';",
+      "import { makeLocalLifecycleEngine } from '@harness-anything/adapter-local';",
       "export const bridge = makeLocalLifecycleEngine;"
     ].join("\n"), "utf8");
     writeFileSync(path.join(root, "packages/gui/src/main/local-composition-root.ts"), [
-      "import { makeLocalLifecycleEngine } from '../../../adapters/local/src/index.ts';",
+      "import { makeLocalLifecycleEngine } from '@harness-anything/adapter-local';",
       "export const bridge = makeLocalLifecycleEngine;"
     ].join("\n"), "utf8");
     writeLocalAdapter(root);
@@ -182,15 +182,15 @@ test("import boundary check blocks new CLI adapter imports outside allowlisted d
   try {
     mkdirSync(path.join(root, "packages/cli/src/commands"), { recursive: true });
     writeFileSync(path.join(root, "packages/cli/src/index.ts"), [
-      "import { makeLocalLifecycleEngine } from '../../adapters/local/src/index.ts';",
+      "import { makeLocalLifecycleEngine } from '@harness-anything/adapter-local';",
       "export const engine = makeLocalLifecycleEngine;"
     ].join("\n"), "utf8");
     writeFileSync(path.join(root, "packages/cli/src/commands/lifecycle.ts"), [
-      "import { makeLocalLifecycleEngine } from '../../../adapters/local/src/index.ts';",
+      "import { makeLocalLifecycleEngine } from '@harness-anything/adapter-local';",
       "export const engine = makeLocalLifecycleEngine;"
     ].join("\n"), "utf8");
     writeFileSync(path.join(root, "packages/cli/src/commands/new-command.ts"), [
-      "import { makeLocalLifecycleEngine } from '../../../adapters/local/src/index.ts';",
+      "import { makeLocalLifecycleEngine } from '@harness-anything/adapter-local';",
       "export const engine = makeLocalLifecycleEngine;"
     ].join("\n"), "utf8");
     writeLocalAdapter(root);
@@ -261,7 +261,7 @@ test("import boundary check counts matching package barrel imports as real consu
       "export const orphanGate = true;"
     ].join("\n"), "utf8");
     writeFileSync(path.join(root, "packages/cli/src/commands/check.ts"), [
-      "import { liveGate } from '../../../application/src/index.ts';",
+      "import { liveGate } from '@harness-anything/application';",
       "export const checked = liveGate;"
     ].join("\n"), "utf8");
 
@@ -297,6 +297,60 @@ test("import boundary check treats tools imports as real package module consumer
   }
 });
 
+test("package-form mutations cover every import-boundary rule class", async (context) => {
+  const mutations = [
+    ["domain upper kernel layer", "packages/kernel/src/domain/package-probe.ts", "@harness-anything/kernel/ports/package-probe", "packages/kernel/src/ports/package-probe.ts", /domain layer imports upper kernel layer/u],
+    ["ports implementation layer", "packages/kernel/src/ports/package-probe.ts", "@harness-anything/kernel/application/package-probe", "packages/kernel/src/application/package-probe.ts", /ports layer imports implementation\/controller layer/u],
+    ["global kernel store boundary", "packages/daemon/src/package-probe.ts", "@harness-anything/kernel/store/package-probe", "packages/kernel/src/store/package-probe.ts", /store implementation is internal to the kernel/u],
+    ["application kernel store boundary", "packages/application/src/package-probe.ts", "@harness-anything/kernel/store/package-probe", "packages/kernel/src/store/package-probe.ts", /application layer imports store\/adapter\/controller implementation/u],
+    ["GUI kernel store boundary", "packages/gui/src/package-probe.ts", "@harness-anything/kernel/store/package-probe", "packages/kernel/src/store/package-probe.ts", /GUI imports store or external adapter implementation/u],
+    ["CLI kernel store boundary", "packages/cli/src/package-probe.ts", "@harness-anything/kernel/store/package-probe", "packages/kernel/src/store/package-probe.ts", /CLI imports GUI, adapter, or store implementation/u],
+    ["domain legacy runtime", "packages/kernel/src/domain/package-probe.ts", "@harness-anything/scripts/kernel/task/package-probe", null, /domain layer imports legacy runtime/u],
+    ["domain IO runtime", "packages/kernel/src/domain/package-probe.ts", "node:fs", null, /domain layer imports IO\/runtime module/u],
+    ["ports controller package", "packages/kernel/src/ports/package-probe.ts", "@harness-anything/cli", null, /ports layer imports implementation\/controller layer/u],
+    ["CLI GUI package", "packages/cli/src/package-probe.ts", "@harness-anything/gui", null, /CLI imports GUI, adapter, or store implementation/u],
+    ["production old runtime package", "packages/daemon/src/package-probe.ts", "@harness-anything/scripts/kernel/task/package-probe", null, /production package imports old runtime/u]
+  ];
+  for (const mutation of mutations) await context.test(mutation[0], () => assertPackageMutation(...mutation.slice(1)));
+});
+
+test("import boundary check counts explicit package subpaths as real orphan-module consumers", () => {
+  const root = makeFixtureRoot();
+  try {
+    addPackageExport(root, "packages/application", "./live-gate", "./src/live-gate.ts");
+    writeFileSync(path.join(root, "packages/application/src/index.ts"), "export { liveGate } from './live-gate.ts';\n", "utf8");
+    writeFileSync(path.join(root, "packages/application/src/live-gate.ts"), "export const liveGate = true;\n", "utf8");
+    writeFileSync(path.join(root, "packages/daemon/src/package-consumer.ts"), "import { liveGate } from '@harness-anything/application/live-gate';\nexport const consumed = liveGate;\n", "utf8");
+
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("cross-package relative imports are allowed only within one parsed tsc build program", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFileSync(path.join(root, "packages/cli/tsconfig.build.json"), JSON.stringify({
+      compilerOptions: { rootDir: "..", outDir: "dist" },
+      include: ["src/**/*.ts", "../daemon/src/**/*.ts"]
+    }), "utf8");
+    writeFileSync(path.join(root, "packages/preset/src/package-probe.ts"), "export const presetProbe = true;\n", "utf8");
+    writeFileSync(path.join(root, "packages/daemon/src/package-probe.ts"), "import { presetProbe } from '../../preset/src/package-probe.ts';\nexport const packageProbe = presetProbe;\n", "utf8");
+    writeFileSync(path.join(root, "packages/cli/src/package-probe.ts"), "import { packageProbe } from '../../daemon/src/package-probe.ts';\nexport const cliProbe = packageProbe;\n", "utf8");
+    writeFileSync(path.join(root, "packages/gui/src/package-probe.ts"), "import { packageProbe } from '../../daemon/src/package-probe.ts';\nexport const guiProbe = packageProbe;\n", "utf8");
+
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /packages\/gui\/src\/package-probe\.ts: cross-package relative import/u);
+    assert.doesNotMatch(result.stderr, /packages\/cli\/src\/package-probe\.ts: cross-package relative import/u);
+    assert.doesNotMatch(result.stderr, /packages\/daemon\/src\/package-probe\.ts: cross-package relative import/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("import boundary check allows explicitly slice-activated package modules", () => {
   const root = makeFixtureRoot();
   try {
@@ -318,14 +372,48 @@ test("import boundary check allows explicitly slice-activated package modules", 
 
 function makeFixtureRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-import-boundary-"));
-  for (const dir of [
-    "packages/application/src",
-    "packages/adapters/local/src",
-    "packages/kernel/src"
+  for (const [packageRoot, name] of [
+    ["packages/application", "@harness-anything/application"],
+    ["packages/adapters/local", "@harness-anything/adapter-local"],
+    ["packages/kernel", "@harness-anything/kernel"],
+    ["packages/daemon", "@harness-anything/daemon"],
+    ["packages/preset", "@harness-anything/preset"],
+    ["packages/cli", "@harness-anything/cli"],
+    ["packages/gui", "@harness-anything/gui"]
   ]) {
-    mkdirSync(path.join(root, dir), { recursive: true });
+    mkdirSync(path.join(root, packageRoot, "src"), { recursive: true });
+    writeFileSync(path.join(root, packageRoot, "package.json"), JSON.stringify({
+      name,
+      type: "module",
+      exports: { ".": "./src/index.ts" }
+    }), "utf8");
   }
   return root;
+}
+
+function addPackageExport(root, packageRoot, exportKey, target) {
+  const packagePath = path.join(root, packageRoot, "package.json");
+  const packageJson = JSON.parse(readFileSync(packagePath, "utf8"));
+  packageJson.exports[exportKey] = target;
+  writeFileSync(packagePath, JSON.stringify(packageJson), "utf8");
+}
+
+function assertPackageMutation(importer, specifier, target, reason) {
+  const root = makeFixtureRoot();
+  try {
+    if (target !== null) {
+      addPackageExport(root, "packages/kernel", specifier.replace("@harness-anything/kernel", "."), target.replace("packages/kernel/", "./"));
+      mkdirSync(path.dirname(path.join(root, target)), { recursive: true });
+      writeFileSync(path.join(root, target), "export const packageProbe = true;\n", "utf8");
+    }
+    mkdirSync(path.dirname(path.join(root, importer)), { recursive: true });
+    writeFileSync(path.join(root, importer), `import { packageProbe } from '${specifier}';\nexport const observed = packageProbe;\n`, "utf8");
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, reason);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 
 function writeLocalAdapter(root) {

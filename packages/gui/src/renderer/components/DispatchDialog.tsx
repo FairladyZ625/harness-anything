@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
-import type { AgentRuntimeInstanceDto } from "../../../../daemon/src/agent-runtime-contract.ts";
+import type { AgentRuntimeInstanceDto } from "@harness-anything/daemon/agent-runtime-contract";
 import { compatibleDispatchInstances, dispatchExecutorRef, type DispatchRequest, type DispatchSubject } from "../dispatch-flow.ts";
 import { t } from "../i18n/index.tsx";
 

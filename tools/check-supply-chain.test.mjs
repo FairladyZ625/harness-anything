@@ -242,9 +242,7 @@ function writeValidSupplyChainFixture(root, options = {}) {
     "packages/cli/package.json",
     "packages/gui/package.json",
     "packages/adapters/local/package.json",
-    "packages/adapters/multica/package.json",
-    "packages/adapters/github-issues/package.json",
-    "packages/adapters/linear/package.json"
+    "packages/adapters/multica/package.json"
   ]) {
     workspacePackages[packagePath] = { name: packagePath, version: "0.0.0", private: true, license: "AGPL-3.0-or-later" };
   }

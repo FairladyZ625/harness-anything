@@ -9,9 +9,7 @@ const expectedPackages = new Map([
   ["packages/cli/package.json", "@harness-anything/cli"],
   ["packages/gui/package.json", "@harness-anything/gui"],
   ["packages/adapters/local/package.json", "@harness-anything/adapter-local"],
-  ["packages/adapters/multica/package.json", "@harness-anything/adapter-multica"],
-  ["packages/adapters/github-issues/package.json", "@harness-anything/adapter-github-issues"],
-  ["packages/adapters/linear/package.json", "@harness-anything/adapter-linear"]
+  ["packages/adapters/multica/package.json", "@harness-anything/adapter-multica"]
 ]);
 
 const violations = [];
@@ -54,9 +52,7 @@ for (const relativePath of [
   "packages/cli/.git",
   "packages/gui/.git",
   "packages/adapters/local/.git",
-  "packages/adapters/multica/.git",
-  "packages/adapters/github-issues/.git",
-  "packages/adapters/linear/.git"
+  "packages/adapters/multica/.git"
 ]) {
   if (existsSync(path.join(root, relativePath))) record(`package-level Git repository is forbidden: ${relativePath}`);
 }

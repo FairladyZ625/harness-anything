@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { credentialPort, type CredentialPort } from "../../../daemon/src/agent-runtime-credential-port.ts";
+import { credentialPort, type CredentialPort } from "@harness-anything/daemon/agent-runtime-credential-port";
 
 // GUI 创作面凭据通道(产品决策:本地工具,用户想放 key 就让他放)。用户在创建
 // 表单里亲手输入 API key,主进程把它存进本机凭据库(macOS keychain / Linux

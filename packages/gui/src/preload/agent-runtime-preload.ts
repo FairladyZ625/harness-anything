@@ -1,4 +1,4 @@
-import { daemonGuiStreamFacets, type DaemonGuiStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts"; import { assertPreloadPayload } from "./allowlist.ts";
+import { daemonGuiStreamFacets, type DaemonGuiStreamPayloadMap } from "@harness-anything/daemon/protocol/daemon-protocol.contract"; import { assertPreloadPayload } from "./allowlist.ts";
 let sequence = 0; export type AgentRuntimePreloadStream = (payload: DaemonGuiStreamPayloadMap["repo.agentRuntime.attach"], onValue: (value: unknown) => void) => () => void; export type TerminalPreloadStream = (payload: DaemonGuiStreamPayloadMap["repo.terminal.attach"], onValue: (value: unknown) => void) => () => void;
 interface RendererIpc { readonly on: (channel: string, listener: (event: unknown, value: unknown) => void) => void; readonly send: (channel: string, value: unknown) => void; readonly removeListener: (channel: string, listener: (event: unknown, value: unknown) => void) => void }
 export function agentRuntimePreloadApi(ipc: RendererIpc): { readonly attachAgentRuntime: AgentRuntimePreloadStream; readonly attachTerminal: TerminalPreloadStream } {

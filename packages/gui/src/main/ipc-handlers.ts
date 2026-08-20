@@ -1,5 +1,5 @@
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
-import { daemonGuiStreamFacets } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonGuiStreamFacets } from "@harness-anything/daemon/protocol/daemon-protocol.contract";
 import { assertPreloadPayload, preloadAllowlist } from "../preload/allowlist.ts";
 import type { GuiServiceBridge } from "../api/service-bridge.ts";
 import { evaluateIpcSender, type IpcSenderIdentity, type IpcWebContentsTrustPolicy } from "./security-policy.ts";

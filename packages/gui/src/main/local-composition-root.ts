@@ -1,6 +1,6 @@
 import path from "node:path";
-import { daemonProtocolError, isDaemonGuiActionMethod, type DaemonGuiStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts"; import { parseDaemonGuiActionResponse, parseDaemonGuiReadResponse, parseDaemonGuiReadResult } from "../../../daemon/src/protocol/gui-result-validation.ts";
-import { ensureLocalDaemonRunning, isDaemonUnreachable } from "../../../daemon/src/client/daemon-autostart.ts";
+import { daemonProtocolError, isDaemonGuiActionMethod, type DaemonGuiStreamPayloadMap } from "@harness-anything/daemon/protocol/daemon-protocol.contract"; import { parseDaemonGuiActionResponse, parseDaemonGuiReadResponse, parseDaemonGuiReadResult } from "@harness-anything/daemon/protocol/gui-result-validation";
+import { ensureLocalDaemonRunning, isDaemonUnreachable } from "@harness-anything/daemon/client/daemon-autostart";
 import { validateProjectPath } from "../api/local-api.ts";
 import { createGuiServiceBridgeForDaemon, type GuiServiceBridge, type ShippedGuiRoute } from "../api/service-bridge.ts";
 import { daemonServeLaunch, type PackagedRuntime } from "./daemon-serve-launch.ts";
@@ -42,4 +42,4 @@ function repoPayload(value: unknown): { readonly repoId: string; readonly payloa
   return { repoId, payload };
 }
 function globalTarget(daemon: DaemonClient): { readonly socketPath: string; readonly userRoot: string; readonly daemonId: string } { const userRoot = daemon.daemonUserRoot(), daemonId = daemon.daemonIdFromEnv(); return { socketPath: daemon.localUserDaemonEndpoint(userRoot, daemonId), userRoot, daemonId }; }
-async function loadClient(): Promise<DaemonClient> { client ??= import("../../../daemon/src/client/local-json-rpc-client.ts") as Promise<DaemonClient>; return client; }
+async function loadClient(): Promise<DaemonClient> { client ??= import("@harness-anything/daemon/client/local-json-rpc-client") as Promise<DaemonClient>; return client; }

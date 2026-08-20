@@ -1,5 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import ts from "typescript";
 import { entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
 
 const root = process.cwd();
@@ -15,6 +16,9 @@ const guiAdapterCompositionRoots = new Set(entryValues(allowlist.guiAdapterCompo
 const cliAdapterCompositionRoots = new Set(entryValues(allowlist.cliAdapterCompositionRoots));
 const kernelStoreCompositionRoots = new Set(entryValues(allowlist.kernelStoreCompositionRoots));
 const cliAdapterKnownDebt = new Set(entryValues(allowlist.cliAdapterKnownDebt));
+const workspacePackages = await loadWorkspacePackages(path.join(root, "packages"));
+const workspacePackagesByName = new Map(workspacePackages.map((workspacePackage) => [workspacePackage.name, workspacePackage]));
+const workspaceBuildPrograms = loadWorkspaceBuildPrograms(workspacePackages);
 
 async function walk(dir) {
   let entries;
@@ -38,6 +42,57 @@ async function walk(dir) {
   return files;
 }
 
+async function loadWorkspacePackages(packagesRoot) {
+  const packageFiles = [];
+  async function discover(dir) {
+    let entries;
+    try { entries = await readdir(dir, { withFileTypes: true }); }
+    catch (error) { if (error?.code === "ENOENT") return; throw error; }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory() && !["node_modules", "dist", "out"].includes(entry.name)) await discover(full);
+      else if (entry.name === "package.json") packageFiles.push(full);
+    }
+  }
+  await discover(packagesRoot);
+  const packages = [];
+  for (const packageFile of packageFiles) {
+    const packageJson = JSON.parse(await readFile(packageFile, "utf8"));
+    if (typeof packageJson.name !== "string" || packageJson.name.length === 0) continue;
+    const packageRoot = path.dirname(packageFile);
+    packages.push({ name: packageJson.name, root: packageRoot, rootRelative: relative(packageRoot), exports: packageJson.exports });
+  }
+  return packages.sort((left, right) => right.root.length - left.root.length);
+}
+
+function loadWorkspaceBuildPrograms(packages) {
+  const programs = [];
+  for (const workspacePackage of packages) {
+    const configFile = path.join(workspacePackage.root, "tsconfig.build.json");
+    if (!ts.sys.fileExists(configFile)) continue;
+    const configResult = ts.readConfigFile(configFile, ts.sys.readFile);
+    assertValidTsConfig(configFile, configResult.error ? [configResult.error] : []);
+    const parsed = ts.parseJsonConfigFileContent(configResult.config, ts.sys, workspacePackage.root, undefined, configFile);
+    assertValidTsConfig(configFile, parsed.errors);
+    const program = ts.createProgram({
+      rootNames: parsed.fileNames,
+      options: parsed.options,
+      projectReferences: parsed.projectReferences
+    });
+    programs.push({
+      config: relative(configFile),
+      files: new Set(program.getSourceFiles().map((source) => path.resolve(source.fileName)))
+    });
+  }
+  return programs;
+}
+
+function assertValidTsConfig(configFile, diagnostics) {
+  if (diagnostics.length === 0) return;
+  const host = { getCanonicalFileName: (file) => file, getCurrentDirectory: () => root, getNewLine: () => "\n" };
+  throw new Error(`${relative(configFile)} could not define a tsc build program:\n${ts.formatDiagnostics(diagnostics, host)}`);
+}
+
 function relative(file) {
   return path.relative(root, file).split(path.sep).join("/");
 }
@@ -47,15 +102,32 @@ function record(file, reason) {
 }
 
 function resolveImport(file, specifier) {
-  if (!specifier.startsWith(".")) return specifier;
-  const resolved = path.normalize(path.join(path.dirname(file), specifier));
-  return relative(resolved);
+  if (specifier.startsWith(".")) return relative(path.normalize(path.join(path.dirname(file), specifier)));
+  return resolveWorkspacePackageImport(specifier) ?? specifier;
+}
+
+function resolveWorkspacePackageImport(specifier) {
+  const segments = specifier.split("/"), packageSegmentCount = specifier.startsWith("@") ? 2 : 1;
+  const workspacePackage = workspacePackagesByName.get(segments.slice(0, packageSegmentCount).join("/"));
+  if (!workspacePackage) return null;
+  const packageSubpath = segments.slice(packageSegmentCount).join("/"), exportKey = packageSubpath ? `./${packageSubpath}` : ".";
+  const target = exportTarget(workspacePackage.exports?.[exportKey] ?? (exportKey === "." && typeof workspacePackage.exports === "string" ? workspacePackage.exports : undefined));
+  return target?.startsWith("./") ? relative(path.normalize(path.join(workspacePackage.root, target))) : null;
+}
+
+function exportTarget(entry) {
+  if (typeof entry === "string") return entry;
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+  for (const condition of ["default", "import", "node"]) {
+    const target = exportTarget(entry[condition]);
+    if (target !== null) return target;
+  }
+  return null;
 }
 
 function resolveImportFile(file, specifier, knownFiles) {
-  if (!specifier.startsWith(".")) return null;
-  const base = path.normalize(path.join(path.dirname(file), specifier));
-  const baseRel = relative(base);
+  const baseRel = resolveImport(file, specifier);
+  if (baseRel === specifier && !specifier.startsWith(".")) return null;
   const candidates = [
     baseRel,
     `${baseRel}.ts`,
@@ -72,6 +144,23 @@ function resolveImportFile(file, specifier, knownFiles) {
     `${baseRel}/index.mjs`
   ];
   return candidates.find((candidate) => knownFiles.has(candidate)) ?? null;
+}
+
+function workspacePackageForFile(file) {
+  const absolute = path.resolve(file);
+  return workspacePackages.find((workspacePackage) => absolute === workspacePackage.root || absolute.startsWith(`${workspacePackage.root}${path.sep}`)) ?? null;
+}
+
+function isForbiddenCrossPackageRelativeImport(file, specifier) {
+  if (!specifier.startsWith(".")) return false;
+  const targetRelative = resolveImportFile(file, specifier, knownImportFiles);
+  if (!targetRelative) return false;
+  const sourcePackage = workspacePackageForFile(file), target = path.join(root, targetRelative);
+  const targetPackage = workspacePackageForFile(target);
+  if (!sourcePackage || !relative(file).startsWith(`${sourcePackage.rootRelative}/src/`)) return false;
+  if (!targetPackage || targetPackage === sourcePackage || !relative(target).startsWith(`${targetPackage.rootRelative}/src/`)) return false;
+  const importer = path.resolve(file), imported = path.resolve(target);
+  return !workspaceBuildPrograms.some((program) => program.files.has(importer) && program.files.has(imported));
 }
 
 function importedPathViolates(file, specifier, isForbidden) {
@@ -228,6 +317,11 @@ for (const file of packageSourceFiles) {
     }
 
     const imports = [...text.matchAll(importPattern)].map((match) => match[1] ?? match[2] ?? match[3]);
+    for (const specifier of imports) {
+      if (isForbiddenCrossPackageRelativeImport(file, specifier)) {
+        record(file, `cross-package relative import ${specifier} crosses a tsc build-program boundary`);
+      }
+    }
     if (rel.startsWith("packages/kernel/src/domain/")) {
       for (const specifier of imports) {
         if (/^(?:node:)?(?:fs|process|child_process|path|os|crypto|sqlite|better-sqlite3)$/.test(specifier)) {

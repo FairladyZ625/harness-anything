@@ -1,5 +1,5 @@
-import type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../daemon/src/agent-entities.contract.ts";
-import type { AgentEntityGuiDetail as AgentEntityDetail, AgentEntityGuiRead as AgentEntityRead, AgentEntityGuiRow as AgentEntityRow, SquadEntityGuiDetail as SquadEntityDetail, SquadEntityGuiRow as SquadEntityRow } from "../../../daemon/src/agent-entities.ts";
+import type { AgentDeclarationV1, SquadDeclarationV1 } from "@harness-anything/daemon/agent-entities.contract";
+import type { AgentEntityGuiDetail as AgentEntityDetail, AgentEntityGuiRead as AgentEntityRead, AgentEntityGuiRow as AgentEntityRow, SquadEntityGuiDetail as SquadEntityDetail, SquadEntityGuiRow as SquadEntityRow } from "@harness-anything/daemon/agent-entities";
 import { containsSecretLikeKey, entityRecord } from "../api/entity-payload-hygiene.ts";
 export type { AgentEntityDetail, AgentEntityRead, AgentEntityRow, SquadEntityDetail, SquadEntityRow };
 export type EntitySaveResult = { readonly outcome: "applied" | "pending" | "op_rejected"; readonly opId?: string; readonly error?: { readonly code?: string; readonly hint?: string } };
