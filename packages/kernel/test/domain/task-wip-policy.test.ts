@@ -4,7 +4,7 @@ import test from "node:test";
 import { DEFAULT_TASK_WIP_LIMIT, admitTaskExecutionWip, parseTaskWipLimit } from "../../src/index.ts";
 import { enteringExecutionWip, hasCloseoutEvidence, isExecutionWipTask, type TaskWipSnapshotEntryV1 } from "../../src/domain/task-wip-policy.ts";
 
-const entry = (overrides: Partial<TaskWipSnapshotEntryV1> = {}): TaskWipSnapshotEntryV1 => ({ taskId: "task_X", title: "X", status: "active", taskClass: "standard", packageDisposition: "active", hasCloseoutEvidence: false, ...overrides });
+const entry = (overrides: Partial<TaskWipSnapshotEntryV1> = {}): TaskWipSnapshotEntryV1 => ({ taskId: "task_X", title: "X", status: "active", taskClass: "standard", packageDisposition: "active", hasCloseoutEvidence: false, directChildCount: 0, ...overrides });
 
 test("the default limit is 30 and the count admits work below it", () => {
   assert.equal(DEFAULT_TASK_WIP_LIMIT, 30);
@@ -46,6 +46,15 @@ test("only occupying statuses on active standard packages count; ideas, containe
     const admission = admitTaskExecutionWip({ limit: 30, limitLabel: "settings.tasks.wipLimit", tasks: [...full, extra], activatingTaskId: extra.taskId, nextStatus: "active" });
     assert.equal(admission.ok, true, `${extra.taskId} never enters the worktable, so the gate must not hold it`);
   }
+});
+
+test("structure-derived roots do not occupy WIP, preserve the declared taskClass, and honor both threshold boundaries", () => {
+  const threeChildren = entry({ directChildCount: 3 });
+  assert.equal(isExecutionWipTask(threeChildren), false, "3 direct children reaches the default threshold and derives root");
+  assert.equal(threeChildren.taskClass, "standard", "derivation never rewrites the operator declaration");
+  assert.equal(isExecutionWipTask(entry({ directChildCount: 2 })), true, "2 direct children remains a leaf at the default threshold");
+  assert.equal(isExecutionWipTask(entry({ directChildCount: 4 }), 5), true, "4 direct children remains a leaf when threshold is raised to 5");
+  assert.equal(isExecutionWipTask(entry({ directChildCount: 5 }), 5), false, "5 direct children reaches the configured threshold");
 });
 
 test("entering the worktable is the only gated move; re-entering an occupied slot adds nothing", () => {
