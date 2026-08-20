@@ -267,6 +267,13 @@ test("runtime work commands parse into closed daemon facade actions", () => {
   assert.equal(parseThinCommand(["runtime", "run", "worker"]).ok, false); assert.equal(parseThinCommand(["runtime", "batch"]).ok, false); assert.equal(parseThinCommand(["runtime", "batch", "dispatches.json", "--detach"]).ok, false); assert.equal(parseThinCommand(["runtime", "run", "worker", "--prompt", "one", "--prompt-file", "two"]).ok, false); assert.equal(parseThinCommand(["runtime", "run", "worker", "--to", "terra", "--prompt", "Inspect"]).ok, false); assert.equal(parseThinCommand(["runtime", "status", "runtime-1", "--task", "task-1"]).ok, false); assert.equal(parseThinCommand(["runtime", "status", "--wait"]).ok, false); assert.equal(parseThinCommand(["runtime", "status", "runtime-1", "--no-stream"]).ok, false); assert.equal(parseThinCommand(["runtime", "wait", "runtime-1"]).ok, false);
 });
 
+test("squad run derives the runtime prompt input union", () => {
+  const promptFile = parseThinCommand(["squad", "run", "core-squad", "--instance", "worker", "--prompt-file", "mission.md", "--cwd", "work", "--task", "task-1"]), prompt = parseThinCommand(["squad", "run", "core-squad", "--instance", "worker", "--prompt", "mission", "--cwd", "work", "--task", "task-1"]), both = parseThinCommand(["squad", "run", "core-squad", "--instance", "worker", "--prompt", "mission", "--prompt-file", "mission.md", "--cwd", "work", "--task", "task-1"]);
+  assert.equal(promptFile.ok, true); if (promptFile.ok) assert.equal(promptFile.command.action.promptFile, "mission.md");
+  assert.equal(prompt.ok, true); if (prompt.ok) assert.equal(prompt.command.action.prompt, "mission");
+  assert.equal(both.ok, false);
+});
+
 test("Agent and Squad declaration commands route through the daemon entity lifecycle", () => {
   const cases: ReadonlyArray<readonly [readonly string[], string]> = [[["agent", "list"], "agent-list"], [["agent", "inspect", "terra"], "agent-inspect"], [["agent", "validate", "--source", "terra"], "agent-validate"], [["agent", "install", "--source", "terra", "--dry-run"], "agent-install"], [["squad", "list"], "squad-list"], [["squad", "inspect", "core-squad"], "squad-inspect"], [["squad", "validate", "--source", "core-squad"], "squad-validate"], [["squad", "install", "--source", "core-squad"], "squad-install"]];
   for (const [argv, kind] of cases) { const parsed = parseThinCommand([...argv]); assert.equal(parsed.ok, true, JSON.stringify(argv)); if (parsed.ok) { assert.equal(parsed.command.method, "repo.task.run"); assert.equal(parsed.command.action.kind, kind); } }
