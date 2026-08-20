@@ -235,7 +235,10 @@ test("one invalid registry entry stays visible and removable without blocking he
 test("resident daemon CLI write p50 includes process startup through parsed receipt", async (context) => {
   const fixture = setup();
   try {
-    execFileSync("npm", ["run", "build", "--workspace", "@harness-anything/cli"], { cwd: process.cwd(), stdio: "pipe" });
+    // npm is npm.cmd on Windows, and Node refuses to execute a .cmd directly, so this failed
+    // with ENOENT before the measurement even started -- a launcher defect wearing a
+    // performance test's clothes. A shell resolves the shim; the arguments here are literals.
+    execFileSync("npm", ["run", "build", "--workspace", "@harness-anything/cli"], { cwd: process.cwd(), stdio: "pipe", shell: process.platform === "win32" });
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"], builtCli).ok, true);
     register(fixture.alpha, fixture.userRoot, "alpha", builtCli);
     // All three terms are measured adjacently inside one iteration, and the ratio is

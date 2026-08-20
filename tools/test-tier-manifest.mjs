@@ -2,7 +2,10 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 const testFilePattern = /\.(test|spec)\.(?:mjs|js|ts)$/u;
-const ignoredDirectoryNames = new Set(["node_modules", "dist", "out", "coverage", ".git"]);
+// app-node_modules is the GUI packaging output: gitignored, full of vendored third-party test
+// files, and present on any machine that has built the GUI. Walking it makes check:local red
+// with "test tier marker missing" for a file nobody in this repository wrote.
+const ignoredDirectoryNames = new Set(["node_modules", "app-node_modules", "dist", "out", "coverage", ".git"]);
 const markerPattern = /^\s*\/\/\s*harness-test-tier:\s*(\S+)\s*$/u;
 
 export const testTierNames = Object.freeze(["fast", "contract", "integration"]);
