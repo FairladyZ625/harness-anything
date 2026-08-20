@@ -4,8 +4,9 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { buildDispatchSpawnInput, compatibleDispatchInstances, dispatchChainFromDocuments, dispatchOutcomeView, type DispatchRequest, type DispatchSubject } from "../src/renderer/dispatch-flow.ts";
 import { DispatchDialog } from "../src/renderer/components/DispatchDialog.tsx";
-import { EntityLayersRows } from "../src/renderer/components/EntityLayersPanel.tsx";
-import { AgentRuntimeProjection } from "../src/renderer/views/agent-runtime-view.tsx";
+import { AgentCard } from "../src/renderer/components/runtime/AgentCard.tsx";
+import { SessionsDock } from "../src/renderer/components/runtime/SessionsDock.tsx";
+import { runtimeDockRows } from "../src/renderer/runtime-panorama.ts";
 import { runtimeCommandClient } from "../src/renderer/runtime-command-client.ts";
 import { submitRuntimeSpawn } from "../src/renderer/runtime-control.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
@@ -81,8 +82,13 @@ describe("agent dispatch flow", () => {
   });
   it("renders the prototype dispatch modal: who, task, mission, runtime, and what it produces", () => {
     const markup = renderToStaticMarkup(createElement(DispatchDialog, { subject: agentSubject, instances: [codexInstance, claudeInstance], tasks: [{ taskId: "task-dispatch", title: "Dispatch task", heldLease: true }], prompts: ["prompt://review"], busy: false, notice: null, onCancel: () => undefined, onSubmit: () => undefined }));
-    for (const text of ["Dispatch — Agent × Runtime × Task → Session", "terra", "codex", "task-dispatch", "prompt://review", "artifacts/missions/&lt;dispatchId&gt;.md", "artifacts/dispatches/&lt;dispatchId&gt;.json", "artifacts/reports/&lt;dispatchId&gt;.md", "Dispatch"]) expect(markup).toContain(text);
+    for (const text of ["Dispatch — Agent × Runtime × Task → Session", "Who", "Which task", "What to say", "Where it runs", "terra", "codex", "task-dispatch", "artifacts/missions/&lt;dispatchId&gt;.md", "artifacts/dispatches/&lt;dispatchId&gt;.json", "artifacts/reports/&lt;dispatchId&gt;.md", "Dispatch"]) expect(markup).toContain(text);
     expect(markup).toContain("disabled");
+  });
+  it("opens on the mission step and offers the agent's predefined prompts when entered from one", () => {
+    const markup = renderToStaticMarkup(createElement(DispatchDialog, { subject: agentSubject, instances: [codexInstance], tasks: [{ taskId: "task-dispatch", title: "Dispatch task", heldLease: false }], prompts: ["prompt://review"], initialMission: "prompt://review", busy: false, notice: null, onCancel: () => undefined, onSubmit: () => undefined }));
+    expect(markup).toContain("prompt://review");
+    expect(markup).toContain('data-testid="dispatch-mission"');
   });
   it("renders the squad dialog with leader-to-worker routing and a worker selector", () => {
     const markup = renderToStaticMarkup(createElement(DispatchDialog, { subject: squadSubject, instances: [codexInstance, claudeInstance], tasks: [{ taskId: "task-dispatch", title: "Dispatch task", heldLease: false }], prompts: [], busy: false, notice: null, onCancel: () => undefined, onSubmit: () => undefined }));
@@ -94,23 +100,18 @@ describe("agent dispatch flow", () => {
     expect(markup).toContain('data-testid="dispatch-submit"');
     expect(submitted).toEqual([]);
   });
-  it("exposes the dispatch entry on agent and squad rows but not on blocked declarations", () => {
-    const markup = renderToStaticMarkup(createElement(EntityLayersRows, { agents: [{ id: "terra", name: "terra", runtimeType: "codex", role: "worker", layer: "user", validity: "valid", issues: [] }, { id: "broken", name: "broken", runtimeType: "codex", role: "worker", layer: "user", validity: "blocked", issues: [] }], squads: [{ id: "core-squad", name: "Core Squad", leader: "fable", workers: ["luna"], layer: "user", validity: "valid", issues: [] }], onDispatchAgent: () => undefined, onDispatchSquad: () => undefined }));
-    expect(markup).toContain('data-testid="dispatch-entry-terra"');
-    expect(markup).toContain('data-testid="squad-dispatch-entry-core-squad"');
-    expect(markup).not.toContain('data-testid="dispatch-entry-broken"');
+  it("exposes the dispatch entry on a valid agent card but not on a blocked declaration", () => {
+    const card = (validity: "valid" | "blocked") => renderToStaticMarkup(createElement(AgentCard, { detail: { id: "terra", name: "terra", runtimeType: "codex", role: "worker", instructions: "Work the mission.", model: null, skills: [], prompts: [], preset: null }, row: { id: "terra", name: "terra", runtimeType: "codex", role: "worker", layer: "user", validity, issues: [] }, squads: [], instances: [codexInstance], busy: false, onSave: () => undefined, onDispatch: () => undefined, onSelectSquad: () => undefined, onSelectRuntime: () => undefined }));
+    expect(card("valid")).toContain('data-testid="dispatch-entry-terra"');
+    expect(card("blocked")).not.toContain('data-testid="dispatch-entry-terra"');
+    expect(card("blocked")).toContain("declaration is blocked");
   });
-  it("renders the four terminal outcome states as distinct session badges", () => {
-    const sessions = (["succeeded", "failed", "unknown", "cancelled", null] as const).map((outcome, index) => ({ ...sessionBase, runtimeSessionId: `runtime-${index}`, liveness: outcome === null ? "live" : "exited", activity: { ...sessionBase.activity, outcome } }));
-    const markup = renderToStaticMarkup(createElement(AgentRuntimeProjection, { overview: { ok: true, status: "ready", installations: [], instances: [], sessions, watermark: 4, sourceRevision: 4 }, selectedId: "runtime-0", detail: sessions[0]!, resultText: "Provider final report text.", frames: [], attachStatus: "attached", onSelect: () => undefined, onClose: () => undefined }));
-    for (const text of ["succeeded", "failed", "unknown", "cancelled", "running", "Provider final report text."]) expect(markup).toContain(text);
-  });
-  it("shows the cancel control only while a session is live", () => {
-    const live = { ...sessionBase, liveness: "live" } as never;
-    const withLive = renderToStaticMarkup(createElement(AgentRuntimeProjection, { overview: { ok: true, status: "ready", installations: [], instances: [], sessions: [live], watermark: 4, sourceRevision: 4 }, selectedId: "runtime-dispatch", detail: live, frames: [], attachStatus: "attached", onCancel: () => undefined, onSelect: () => undefined, onClose: () => undefined }));
-    expect(withLive).toContain('data-testid="agent-runtime-cancel"');
-    const exited = renderToStaticMarkup(createElement(AgentRuntimeProjection, { overview: { ok: true, status: "ready", installations: [], instances: [], sessions: [sessionBase], watermark: 4, sourceRevision: 4 }, selectedId: "runtime-dispatch", detail: sessionBase, frames: [], attachStatus: "attached", onCancel: () => undefined, onSelect: () => undefined, onClose: () => undefined }));
-    expect(exited).not.toContain('data-testid="agent-runtime-cancel"');
+  it("renders the five terminal dispatch states as distinct dock rows", () => {
+    const base = { dispatchId: "d", taskId: "task-dispatch", executionId: "e", runtimeSessionId: "r", instanceId: "w4c-verify-codex", agentId: "terra", agentName: "terra", providerSessionId: null, eventStreamRef: null, startedAt: "2026-08-20T02:00:00.000Z", endedAt: null, outcome: null, status: "running", taskTitle: "Dispatch task", squad: null } as const;
+    const rows = runtimeDockRows((["running", "succeeded", "failed", "unknown", "cancelled"] as const).map((status, index) => ({ ...base, dispatchId: `d-${index}`, runtimeSessionId: `runtime-${index}`, status, outcome: status === "running" ? null : status })), []);
+    const markup = renderToStaticMarkup(createElement(SessionsDock, { repoId: "repo-a", rows, open: true, selectedId: null, busy: false, onToggle: () => undefined, onSelect: () => undefined, onCancel: () => undefined }));
+    for (const status of ["running", "succeeded", "failed", "unknown", "cancelled"]) expect(markup).toContain(`>${status}<`);
+    for (let index = 0; index < 5; index += 1) expect(markup).toContain(`data-testid="runtime-outcome-runtime-${index}"`);
   });
   it("cancels through the daemon GUI channel method with the exact session id", async () => {
     const cancelAgentRuntime = vi.fn(async () => ({ schema: "command-receipt/v2", ok: true, command: "runtime-cancel", outcome: "applied", opId: "runtime-cancel-1" }));

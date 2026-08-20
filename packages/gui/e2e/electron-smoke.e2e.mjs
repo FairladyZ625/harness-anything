@@ -145,24 +145,26 @@ test("GUI dispatches a real daemon-mediated codex provider mission and exposes i
   page.setDefaultTimeout(20_000);
   await page.waitForLoadState("domcontentloaded");
   await page.getByRole("button", { name: "Agent 会话", exact: true }).click();
+  await page.getByTestId("rail-agent-codex-sidecar").waitFor({ timeout: 20_000 });
+  await page.getByTestId("rail-agent-codex-sidecar").click();
   await page.getByTestId("dispatch-entry-codex-sidecar").waitFor({ timeout: 20_000 });
   await page.getByTestId("dispatch-entry-codex-sidecar").click();
   const dialog = page.getByTestId("dispatch-dialog");
   await dialog.waitFor();
-  await dialog.getByTestId("dispatch-task").selectOption("task-gui-dispatch");
+  await dialog.getByTestId("dispatch-task-task-gui-dispatch").click();
   await dialog.getByTestId("dispatch-mission").fill(`Use your shell to create artifacts/gui-real-dispatch-proof.txt with exactly GUI_REAL_DISPATCH_PROOF=${proofValue}, read it back, and report the exact line. Do not modify any other file.`);
   const submit = dialog.getByTestId("dispatch-submit");
   await submit.waitFor();
   assert.equal(await submit.isEnabled(), true, "real mission form did not become dispatchable");
   await submit.click();
 
-  const runtimeView = page.getByTestId("agent-runtime-view");
-  await runtimeView.waitFor({ timeout: 30_000 });
+  const dock = page.getByTestId("sessions-dock");
+  await dock.waitFor({ timeout: 30_000 });
   const settledOutcome = page.locator('[data-testid^="runtime-outcome-"]').first();
   await settledOutcome.waitFor({ timeout: 20_000 });
   await page.waitForFunction(() => [...globalThis.document.querySelectorAll('[data-testid^="runtime-outcome-"]')].some((element) => ["succeeded", "failed", "unknown", "cancelled"].includes(element.textContent?.trim() ?? "")), undefined, { timeout: 150_000 });
   assert.equal((await settledOutcome.textContent())?.trim(), "succeeded", `real provider dispatch did not settle successfully: ${await settledOutcome.textContent()}`);
-  const detail = page.getByTestId("agent-runtime-detail");
+  const detail = page.getByTestId("session-detail");
   await detail.waitFor();
   await detail.getByText("exited", { exact: true }).waitFor({ timeout: 20_000 });
   const providerResult = await detail.locator("pre").textContent();
@@ -170,6 +172,8 @@ test("GUI dispatches a real daemon-mediated codex provider mission and exposes i
   assert.match(providerResult ?? "", /GUI_REAL_DISPATCH_PROOF=/u, "provider result did not report the requested proof line");
   assert.equal(readFileSync(proofPath, "utf8"), `GUI_REAL_DISPATCH_PROOF=${proofValue}\n`, "provider did not create the requested proof file");
 
+  await page.getByTestId("rail-orchestration-task-gui-dispatch").waitFor({ timeout: 20_000 });
+  await page.getByTestId("rail-orchestration-task-gui-dispatch").click();
   const orchestration = page.getByTestId("orchestration-panel");
   const missionCell = orchestration.getByTestId("orchestration-missions").locator("button", { hasText: /dispatch_/u });
   await missionCell.waitFor({ timeout: 20_000 });
@@ -179,8 +183,8 @@ test("GUI dispatches a real daemon-mediated codex provider mission and exposes i
     const cell = orchestration.getByTestId(`orchestration-${kind}`).locator("button", { hasText: dispatchId });
     await cell.waitFor({ timeout: 20_000 });
     await cell.click();
-    await page.waitForFunction(({ kind: currentKind, pattern }) => { const body = globalThis.document.querySelector(`[data-testid="orchestration-${currentKind}"]`)?.closest("section")?.querySelector("pre")?.textContent ?? ""; return new RegExp(pattern, "u").test(body); }, { kind, pattern: expected.source });
-    const preview = await orchestration.locator("pre").textContent();
+    await page.waitForFunction((pattern) => new RegExp(pattern, "u").test(globalThis.document.querySelector('[data-testid="orchestration-preview"]')?.textContent ?? ""), expected.source);
+    const preview = await orchestration.getByTestId("orchestration-preview").textContent();
     assert.match(preview ?? "", expected, `${kind} artifact preview was not visible in the GUI`);
   }
 });
