@@ -16,7 +16,6 @@ export function runtimeIsolationState(value: unknown, kindId: RuntimePermissionK
   if (value === undefined) return kindId === "codex" ? "enforced" : "operator-environment";
   if (typeof value !== "string" || !["enforced", "operator-environment"].includes(value)) throw permissionError("invalid_runtime_isolation", "Runtime isolation must be enforced or operator-environment.");
   if (kindId === "agy" && value !== "operator-environment") throw permissionError("invalid_runtime_isolation", "agy runtime instances always reuse the operator environment.");
-  if (kindId === "codex" && value !== "enforced") throw permissionError("invalid_runtime_isolation", "codex runtime instances always use enforced isolation; CODEX_HOME is redirected per instance for provider config, auth, and skill mounts.");
   return value as RuntimeIsolationState;
 }
 
