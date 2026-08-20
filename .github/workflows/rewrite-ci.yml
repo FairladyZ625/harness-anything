@@ -244,9 +244,11 @@ jobs:
     # files, `which` and `#!/bin/sh` shims, SIGKILL kill points. #1607 fixed seven such fixtures
     # and none of their Windows branches had ever been executed anywhere. The positive control is
     # the ubuntu integration-shard job above, which runs the identical gate, so a red arm here is
-    # attributable to the platform. Not yet a required context: dec_9B75595FC45E01DDFD0938FE95/CH4
-    # promotes a lane only after it is green on main.
-    if: github.event_name == 'pull_request'
+    # attributable to the platform.
+    # dec_630DB4EB94D3CB0B2459C8ABE2 (2026-08-20): Windows is demoted off the PR merge path.
+    # The full matrix runs on the nightly schedule (and manual dispatch) only; windows-first-run
+    # remains the per-PR smoke. This lane is never promoted to a required context.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     needs: metadata-source-proof
     name: windows-integration-shard (${{ matrix.shard }})
     runs-on: windows-latest
