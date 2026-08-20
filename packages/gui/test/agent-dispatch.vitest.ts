@@ -12,7 +12,7 @@ import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 beforeAll(() => setActiveLocale("en-US"));
 
-const codexInstance = { schemaVersion: 2, instanceId: "w4c-verify-codex", name: "Codex Verify", kindId: "codex", installationId: "codex-install", providerId: "openai", models: ["gpt-5.6-terra"], defaultModel: "gpt-5.6-terra", enabled: true, codex: { reasoningEffort: "high", baseUrl: null, baseUrlConfigured: false, wire_api: null, requires_openai_auth: null, http_headers: null }, authMode: "subscription", authState: "authenticated", authReadiness: { status: "ready", code: null, hint: null }, isolationState: "enforced" } as const;
+const codexInstance = { schemaVersion: 2, instanceId: "w4c-verify-codex", name: "Codex Verify", kindId: "codex", installationId: "codex-install", providerId: "openai", models: ["gpt-5.6-terra"], defaultModel: "gpt-5.6-terra", enabled: true, permissionMode: "bypass", codex: { reasoningEffort: "high", baseUrl: null, baseUrlConfigured: false, wire_api: null, requires_openai_auth: null, http_headers: null }, authMode: "subscription", authState: "authenticated", authReadiness: { status: "ready", code: null, hint: null }, isolationState: "enforced" } as const;
 const claudeInstance = { ...codexInstance, instanceId: "claude-one", name: "Claude One", kindId: "claude", claude: { baseUrl: null, baseUrlConfigured: false } } as never;
 const agyInstance = { ...codexInstance, instanceId: "agy-one", name: "Agy One", kindId: "agy", agy: { effort: "high" } } as never;
 const agentSubject: DispatchSubject = { kind: "agent", agent: { agentId: "terra", agentName: "terra", runtimeType: "codex" } };

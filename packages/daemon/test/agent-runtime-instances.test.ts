@@ -15,7 +15,7 @@ test("machine runtime instance CRUD binds a witnessed installation and enforces 
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-instance-store-"));
   try {
     const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed] }), config = { schemaVersion: 1 as const, instanceId: "codex-review", name: "Codex Review", kindId: "codex" as const, installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", reasoningEffort: "high", baseUrl: "https://api.openai.com/v1", auth: { mode: "api-key" as const, credentialRef: "keychain:harness/codex-review" } };
-    const normalized = { schemaVersion: 2 as const, instanceId: config.instanceId, name: config.name, installationId: config.installationId, providerId: config.providerId, models: [config.model], defaultModel: config.model, enabled: true, auth: config.auth, kindId: config.kindId, codex: { reasoningEffort: config.reasoningEffort, baseUrl: config.baseUrl } };
+    const normalized = { schemaVersion: 2 as const, instanceId: config.instanceId, name: config.name, installationId: config.installationId, providerId: config.providerId, models: [config.model], defaultModel: config.model, enabled: true, permissionMode: "bypass" as const, isolationState: "enforced" as const, auth: config.auth, kindId: config.kindId, codex: { reasoningEffort: config.reasoningEffort, baseUrl: config.baseUrl } };
     assert.deepEqual(store.create(config), normalized);
     assert.deepEqual(store.list(), [normalized]);
     assert.deepEqual(store.read(config.instanceId), normalized);
@@ -54,7 +54,7 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
     assert.equal(resolvedReference, "keychain:harness/codex-api");
     assert.deepEqual(launch.installation, observed);
     assert.equal(launch.executablePath, observed.executablePath);
-    assert.deepEqual(launch.args, ["exec", "--json", "--sandbox", "workspace-write", "--config", "sandbox_workspace_write.exclude_tmpdir_env_var=true", "--config", "sandbox_workspace_write.exclude_slash_tmp=true", "--model", "gpt-5.6-sol", "-"]);
+    assert.deepEqual(launch.args, ["exec", "--json", "--sandbox", "danger-full-access", "--model", "gpt-5.6-sol", "-"]);
     assert.deepEqual(launch.env, { PATH: "/runtime/tools", HOME: path.join(stateRoot, "home"), TMPDIR: path.join(stateRoot, "tmp"), XDG_RUNTIME_DIR: path.join(stateRoot, "run"), CODEX_HOME: path.join(stateRoot, "home", ".codex") });
     const codexConfig = path.join(launch.env.CODEX_HOME!, "config.toml"), text = readFileSync(codexConfig, "utf8"); assert.equal(statSync(codexConfig).mode & 0o777, 0o600); assert.equal(text, `model_provider = "codex_local_access"\nmodel_reasoning_effort = "xhigh"\n\n[model_providers."codex_local_access"]\nname = "codex_local_access"\nbase_url = "http://127.0.0.1:1/v1"\nwire_api = "responses"\nrequires_openai_auth = true\nhttp_headers = { "X-Harness-Probe" = "present", "X-Static-Route" = "sidecar" }\nexperimental_bearer_token = "instance-secret"\n`); assert.match(text, /experimental_bearer_token = "instance-secret"/u); assert.doesNotMatch(JSON.stringify(launch), /instance-secret/u);
     assert.equal(Object.values(launch.env).includes("host-secret"), false);
@@ -86,11 +86,11 @@ test("subscription launch fails closed without provider-native readiness and nev
   try {
     let ready = false, credentialCalls = 0, readinessEnvironment: NodeJS.ProcessEnv | undefined;
     const store = openRuntimeInstanceStore({ userRoot, discover: () => [claude], env: { PATH: "/runtime/tools", HOME: "/host/home", ANTHROPIC_API_KEY: "host-secret", ANTHROPIC_AUTH_TOKEN: "host-oauth" }, resolveCredential: () => { credentialCalls += 1; return "fallback-secret"; }, subscriptionReady: ({ env }) => { readinessEnvironment = env; return ready ? { status: "ready", code: null, hint: null } : { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in this instance state root." }; } });
-    store.create({ schemaVersion: 2, instanceId: "claude-subscription", name: "Claude Subscription", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, claude: {}, auth: { mode: "subscription" } });
+    store.create({ schemaVersion: 2, instanceId: "claude-subscription", name: "Claude Subscription", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, isolationState: "enforced", claude: {}, auth: { mode: "subscription" } });
     assert.throws(() => store.prepareLaunch("claude-subscription", { cwd: "/workspace/repo", prompt: "Inspect" }), (error: unknown) => codedAs(error, "runtime_subscription_required"));
     assert.equal(credentialCalls, 0);
     ready = true; const launch = store.prepareLaunch("claude-subscription", { cwd: "/workspace/repo", prompt: "Inspect" }), stateRoot = path.join(userRoot, "runtime-instances", "claude-subscription");
-    assert.deepEqual(launch.args, ["-p", "--verbose", "--output-format", "stream-json", "--permission-mode", "acceptEdits", "--model", "claude-fable-5"]);
+    assert.deepEqual(launch.args, ["-p", "--verbose", "--output-format", "stream-json", "--permission-mode", "bypassPermissions", "--model", "claude-fable-5"]);
     assert.deepEqual(launch.env, { PATH: "/runtime/tools", HOME: path.join(stateRoot, "home"), TMPDIR: path.join(stateRoot, "tmp"), XDG_RUNTIME_DIR: path.join(stateRoot, "run"), CLAUDE_CONFIG_DIR: path.join(stateRoot, "home", ".claude") });
     assert.deepEqual(readinessEnvironment, launch.env);
     assert.equal(credentialCalls, 0);
@@ -111,11 +111,11 @@ test("subscription probes distinguish a rejected status command from an unspawna
 test("runtime instance CRUD is a closed defineCliCommand surface", () => {
   const ids = ["runtime-instance-create", "runtime-instance-list", "runtime-instance-show", "runtime-instance-update", "runtime-instance-delete"];
   for (const id of ids) { const command = daemonProtocolCommands.find((entry) => entry.id === id); assert.ok(command, id); assert.deepEqual(command.inputs, command.flags, id); }
-  const created = parseThinCommand(["runtime", "instance", "create", "--id", "codex-review", "--name", "Codex Review", "--kind", "codex", "--installation", observed.installationId, "--provider", "codex_local_access", "--model", "gpt-5.6-sol", "--effort", "xhigh", "--base-url", "http://127.0.0.1:1/v1", "--wire-api", "responses", "--requires-openai-auth", "--http-header", "X-Harness-Probe=present", "--auth", "api-key", "--credential-ref", "keychain:harness/codex-review"]);
-  assert.equal(created.ok, true); if (created.ok) assert.deepEqual({ method: created.command.method, action: created.command.action }, { method: "daemon.runtimeInstance.create", action: { kind: "runtime-instance-create", instanceId: "codex-review", name: "Codex Review", kindId: "codex", installationId: observed.installationId, providerId: "codex_local_access", model: "gpt-5.6-sol", codex: { reasoningEffort: "xhigh", baseUrl: "http://127.0.0.1:1/v1", wireApi: "responses", requiresOpenAiAuth: true, httpHeaders: { "X-Harness-Probe": "present" } }, authMode: "api-key", credentialRef: "keychain:harness/codex-review" } });
+  const created = parseThinCommand(["runtime", "instance", "create", "--id", "codex-review", "--name", "Codex Review", "--kind", "codex", "--installation", observed.installationId, "--provider", "codex_local_access", "--model", "gpt-5.6-sol", "--model", "gpt-5.6-terra", "--default-model", "gpt-5.6-terra", "--permission-mode", "workspace-write", "--effort", "xhigh", "--base-url", "http://127.0.0.1:1/v1", "--wire-api", "responses", "--requires-openai-auth", "--http-header", "X-Harness-Probe=present", "--auth", "api-key", "--credential-ref", "keychain:harness/codex-review"]);
+  assert.equal(created.ok, true); if (created.ok) assert.deepEqual({ method: created.command.method, action: created.command.action }, { method: "daemon.runtimeInstance.create", action: { kind: "runtime-instance-create", instanceId: "codex-review", name: "Codex Review", kindId: "codex", installationId: observed.installationId, providerId: "codex_local_access", models: ["gpt-5.6-sol", "gpt-5.6-terra"], defaultModel: "gpt-5.6-terra", permissionMode: "workspace-write", codex: { reasoningEffort: "xhigh", baseUrl: "http://127.0.0.1:1/v1", wireApi: "responses", requiresOpenAiAuth: true, httpHeaders: { "X-Harness-Probe": "present" } }, authMode: "api-key", credentialRef: "keychain:harness/codex-review" } });
   for (const [argv, method, instanceId] of [["list", "daemon.runtimeInstance.list", undefined], ["show", "daemon.runtimeInstance.show", "codex-review"], ["update", "daemon.runtimeInstance.update", "codex-review"], ["delete", "daemon.runtimeInstance.delete", "codex-review"]] as const) { const parsed = parseThinCommand(["runtime", "instance", argv, ...(instanceId ? [instanceId] : [])]); assert.equal(parsed.ok, argv === "update" ? false : true, JSON.stringify(parsed)); if (parsed.ok) assert.deepEqual({ method: parsed.command.method, action: parsed.command.action }, { method, action: { kind: `runtime-instance-${argv}`, ...(instanceId ? { instanceId } : {}) } }); }
-  const update = parseThinCommand(["runtime", "instance", "update", "codex-review", "--name", "Updated", "--model", "gpt-5.6-sol", "--model", "gpt-5.6-terra", "--default-model", "gpt-5.6-terra", "--disable"]); assert.equal(update.ok, true); if (update.ok) assert.deepEqual(update.command.action, { kind: "runtime-instance-update", instanceId: "codex-review", name: "Updated", models: ["gpt-5.6-sol", "gpt-5.6-terra"], defaultModel: "gpt-5.6-terra", enabled: false });
-  const run = parseThinCommand(["runtime", "run", "codex-review", "--model", "gpt-5.6-terra", "--effort", "xhigh", "--prompt", "Inspect"]); assert.equal(run.ok, true); if (run.ok) { assert.equal(run.command.action.model, "gpt-5.6-terra"); assert.equal(run.command.action.effort, "xhigh"); }
+  const update = parseThinCommand(["runtime", "instance", "update", "codex-review", "--name", "Updated", "--model", "gpt-5.6-sol", "--model", "gpt-5.6-terra", "--default-model", "gpt-5.6-terra", "--permission-mode", "read-only", "--disable"]); assert.equal(update.ok, true); if (update.ok) assert.deepEqual(update.command.action, { kind: "runtime-instance-update", instanceId: "codex-review", name: "Updated", models: ["gpt-5.6-sol", "gpt-5.6-terra"], defaultModel: "gpt-5.6-terra", permissionMode: "read-only", enabled: false });
+  const run = parseThinCommand(["runtime", "run", "codex-review", "--model", "gpt-5.6-terra", "--effort", "xhigh", "--permission-mode", "workspace-write", "--prompt", "Inspect"]); assert.equal(run.ok, true); if (run.ok) { assert.equal(run.command.action.model, "gpt-5.6-terra"); assert.equal(run.command.action.effort, "xhigh"); assert.equal(run.command.action.permissionMode, "workspace-write"); }
   assert.deepEqual(parseThinCommand(["runtime", "run", "codex-review", "--effort", "turbo", "--prompt", "Inspect"]), { ok: false, code: "invalid_runtime_effort", nextAction: "Use minimal, low, medium, high, or xhigh with a Codex instance.", json: false });
   const probed = parseThinCommand(["runtime", "instance", "show", "codex-review", "--probe"]); assert.equal(probed.ok, true); if (probed.ok) assert.deepEqual({ method: probed.command.method, action: probed.command.action }, { method: "daemon.runtimeInstance.show", action: { kind: "runtime-instance-show", instanceId: "codex-review", probe: true } });
   assert.deepEqual(parseThinCommand(["runtime", "instance", "create", "--id", "bad", "--name", "Bad", "--kind", "codex", "--installation", observed.installationId, "--provider", "openai", "--model", "gpt", "--auth", "api-key"]), { ok: false, code: "missing_field", nextAction: "API-key instances require --credential-ref <opaque-ref>.", json: false });
@@ -128,8 +128,8 @@ test("runtime instance command receipts expose readiness metadata without creden
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-instance-command-"));
   try {
     const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed] });
-    const created = store.command({ kind: "runtime-instance-create", instanceId: "codex-safe", name: "Codex Safe", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", authMode: "api-key", credentialRef: "keychain:harness/codex-safe" });
-    assert.deepEqual(created.instance, { schemaVersion: 2, instanceId: "codex-safe", name: "Codex Safe", kindId: "codex", installationId: observed.installationId, providerId: "openai", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, codex: { reasoningEffort: null, baseUrl: null, baseUrlConfigured: false, wire_api: null, requires_openai_auth: null, http_headers: null }, authMode: "api-key", authState: "configured", authReadiness: { status: "not-ready", code: "runtime_auth_not_checked", hint: "Authentication has not been verified in this daemon generation." }, isolationState: "enforced" });
+    const created = store.command({ kind: "runtime-instance-create", instanceId: "codex-safe", name: "Codex Safe", kindId: "codex", installationId: observed.installationId, providerId: "openai", models: ["gpt-5.6-sol"], authMode: "api-key", credentialRef: "keychain:harness/codex-safe" });
+    assert.deepEqual(created.instance, { schemaVersion: 2, instanceId: "codex-safe", name: "Codex Safe", kindId: "codex", installationId: observed.installationId, providerId: "openai", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, permissionMode: "bypass", codex: { reasoningEffort: null, baseUrl: null, baseUrlConfigured: false, wire_api: null, requires_openai_auth: null, http_headers: null }, authMode: "api-key", authState: "configured", authReadiness: { status: "not-ready", code: "runtime_auth_not_checked", hint: "Authentication has not been verified in this daemon generation." }, isolationState: "enforced" });
     const listed = store.command({ kind: "runtime-instance-list" }), shown = store.command({ kind: "runtime-instance-show", instanceId: "codex-safe" });
     assert.deepEqual(listed.installations, [{ installationId: observed.installationId, kindId: "codex", version: observed.version, observedAt: observed.observedAt }]); assert.equal(listed.summary, `ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS\ncodex-safe\tCodex Safe\tcodex\tgpt-5.6-sol\tenabled\tapi-key\tnot-checked\n\nINSTALLATION\tKIND\tVERSION\tOBSERVED AT\n${observed.installationId}\tcodex\t${observed.version}\t${observed.observedAt}`);
     assert.deepEqual(shown.instance, created.instance);
@@ -141,15 +141,15 @@ test("runtime instance command receipts expose readiness metadata without creden
 test("runtime instance create filters auto-resolution by kind and rejects same-kind ambiguity", () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-installation-resolution-")), ambiguousRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-installation-ambiguous-")), claude = { ...observed, installationId: "claude-first", kindId: "claude" as const, executablePath: "/opt/runtime-test/claude", version: "claude 1.0.0" }, codex = { ...observed, installationId: "codex-first", version: "codex 1.0.0" }, secondClaude = { ...claude, installationId: "claude-second", version: "claude 2.0.0" };
   try {
-    const automatic = openRuntimeInstanceStore({ userRoot, discover: () => [claude, codex] }), created = automatic.command({ kind: "runtime-instance-create", instanceId: "claude-auto", name: "Claude Auto", kindId: "claude", providerId: "anthropic", model: "claude-fable-5", authMode: "subscription" });
+    const automatic = openRuntimeInstanceStore({ userRoot, discover: () => [claude, codex] }), created = automatic.command({ kind: "runtime-instance-create", instanceId: "claude-auto", name: "Claude Auto", kindId: "claude", providerId: "anthropic", models: ["claude-fable-5"], authMode: "subscription" });
     assert.equal((created.instance as Record<string, unknown>).installationId, claude.installationId);
     const ambiguous = openRuntimeInstanceStore({ userRoot: ambiguousRoot, discover: () => [claude, codex, secondClaude] });
-    assert.throws(() => ambiguous.command({ kind: "runtime-instance-create", instanceId: "claude-ambiguous", name: "Claude Ambiguous", kindId: "claude", providerId: "anthropic", model: "claude-fable-5", authMode: "subscription" }), (error: unknown) => codedAs(error, "runtime_installation_ambiguous") && error instanceof Error && error.message.includes(claude.installationId) && error.message.includes(secondClaude.installationId));
+    assert.throws(() => ambiguous.command({ kind: "runtime-instance-create", instanceId: "claude-ambiguous", name: "Claude Ambiguous", kindId: "claude", providerId: "anthropic", models: ["claude-fable-5"], authMode: "subscription" }), (error: unknown) => codedAs(error, "runtime_installation_ambiguous") && error instanceof Error && error.message.includes(claude.installationId) && error.message.includes(secondClaude.installationId));
   } finally { rmSync(userRoot, { recursive: true, force: true }); rmSync(ambiguousRoot, { recursive: true, force: true }); }
 });
 
 test("runtime instance command adapter rejects ambiguous or unknown auth modes", () => {
-  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-instance-auth-command-")), store = openRuntimeInstanceStore({ userRoot, discover: () => [observed] }), base = { kind: "runtime-instance-create", instanceId: "codex-auth", name: "Codex Auth", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol" };
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-instance-auth-command-")), store = openRuntimeInstanceStore({ userRoot, discover: () => [observed] }), base = { kind: "runtime-instance-create", instanceId: "codex-auth", name: "Codex Auth", kindId: "codex", installationId: observed.installationId, providerId: "openai", models: ["gpt-5.6-sol"] };
   try { assert.throws(() => store.command({ ...base, authMode: "oauth", credentialRef: "keychain:harness/codex-auth" }), (error: unknown) => codedAs(error, "invalid_runtime_auth")); assert.throws(() => store.command({ ...base, authMode: "subscription", credentialRef: "keychain:harness/codex-auth" }), (error: unknown) => codedAs(error, "invalid_runtime_auth")); }
   finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
@@ -169,7 +169,7 @@ test("kind-specific runtime config fails closed across adapters and rejects secr
   try {
     const common = { schemaVersion: 2 as const, instanceId: "claude-closed", name: "Claude Closed", kindId: "claude" as const, installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, auth: { mode: "subscription" as const } };
     assert.throws(() => store.create({ ...common, claude: {}, codex: { wireApi: "responses" } } as never), (error: unknown) => codedAs(error, "invalid_runtime_kind_config") && error.message.includes("claude runtime instance cannot include codex"));
-    assert.throws(() => store.command({ kind: "runtime-instance-create", instanceId: "claude-command", name: "Claude Command", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", model: "claude-fable-5", claude: {}, codex: { wireApi: "responses" }, authMode: "subscription" }), (error: unknown) => codedAs(error, "invalid_runtime_kind_config"));
+    assert.throws(() => store.command({ kind: "runtime-instance-create", instanceId: "claude-command", name: "Claude Command", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], claude: {}, codex: { wireApi: "responses" }, authMode: "subscription" }), (error: unknown) => codedAs(error, "invalid_runtime_kind_config"));
     assert.throws(() => store.create({ schemaVersion: 2, instanceId: "codex-secret-header", name: "Codex Secret Header", kindId: "codex", installationId: observed.installationId, providerId: "sidecar", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, codex: { baseUrl: "http://127.0.0.1:1/v1", httpHeaders: { Authorization: "Bearer forbidden" } }, auth: { mode: "subscription" } }), (error: unknown) => codedAs(error, "invalid_runtime_http_headers"));
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
@@ -194,7 +194,7 @@ test("legacy runtime instance records migrate once to schema v2 on read", () => 
   try {
     writeFileSync(path.join(userRoot, "runtime-instances.json"), `${JSON.stringify({ schema: "runtime-instances/v1", instances: [{ schemaVersion: 1, instanceId: "codex-legacy", name: "Legacy", kindId: "codex", installationId: observed.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "subscription" } }] })}\n`);
     const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed] });
-    assert.deepEqual(store.read("codex-legacy"), { schemaVersion: 2, instanceId: "codex-legacy", name: "Legacy", installationId: observed.installationId, providerId: "openai", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, auth: { mode: "subscription" }, kindId: "codex", codex: {} });
+    assert.deepEqual(store.read("codex-legacy"), { schemaVersion: 2, instanceId: "codex-legacy", name: "Legacy", installationId: observed.installationId, providerId: "openai", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, permissionMode: "bypass", isolationState: "enforced", auth: { mode: "subscription" }, kindId: "codex", codex: {} });
     assert.equal(JSON.parse(readFileSync(path.join(userRoot, "runtime-instances.json"), "utf8")).instances[0].schemaVersion, 2);
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
@@ -237,6 +237,93 @@ test("Codex effort is a per-launch override and never mutates the instance", () 
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
 
+test("permission defaults open and tightens through the instance record or a single dispatch", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-permission-")), claude = { ...observed, installationId: "claude-permission", kindId: "claude" as const, executablePath: "/opt/runtime-test/claude" };
+  try {
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed, claude], resolveCredential: () => "instance-secret" });
+    store.create({ schemaVersion: 2, instanceId: "codex-open", name: "Codex Open", kindId: "codex", installationId: observed.installationId, providerId: "openai", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, codex: {}, auth: { mode: "api-key", credentialRef: "credential:v1:codex-open" } });
+    store.create({ schemaVersion: 2, instanceId: "claude-open", name: "Claude Open", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, isolationState: "enforced", claude: {}, auth: { mode: "api-key", credentialRef: "credential:v1:claude-open" } });
+    const codexDefault = store.prepareLaunch("codex-open", { cwd: "/workspace/repo", prompt: "Default" }), claudeDefault = store.prepareLaunch("claude-open", { cwd: "/workspace/repo", prompt: "Default" });
+    assert.deepEqual(codexDefault.args, ["exec", "--json", "--sandbox", "danger-full-access", "--model", "gpt-5.6-sol", "-"]);
+    assert.deepEqual(claudeDefault.args, ["-p", "--verbose", "--output-format", "stream-json", "--permission-mode", "bypassPermissions", "--model", "claude-fable-5", "--bare"]);
+    store.command({ kind: "runtime-instance-update", instanceId: "codex-open", permissionMode: "workspace-write" });
+    const tightened = store.prepareLaunch("codex-open", { cwd: "/workspace/repo", prompt: "Tightened" });
+    assert.deepEqual(tightened.args, ["exec", "--json", "--sandbox", "workspace-write", "--config", "sandbox_workspace_write.exclude_tmpdir_env_var=true", "--config", "sandbox_workspace_write.exclude_slash_tmp=true", "--model", "gpt-5.6-sol", "-"]);
+    assert.equal(store.read("codex-open")?.permissionMode, "workspace-write");
+    const dispatched = store.prepareLaunch("codex-open", { cwd: "/workspace/repo", prompt: "Dispatch", permissionMode: "read-only" }), claudeDispatched = store.prepareLaunch("claude-open", { cwd: "/workspace/repo", prompt: "Dispatch", permissionMode: "read-only" });
+    assert.deepEqual(dispatched.args, ["exec", "--json", "--sandbox", "read-only", "--model", "gpt-5.6-sol", "-"]);
+    assert.deepEqual(claudeDispatched.args, ["-p", "--verbose", "--output-format", "stream-json", "--permission-mode", "plan", "--model", "claude-fable-5", "--bare"]);
+    assert.equal(store.read("codex-open")?.permissionMode, "workspace-write");
+    assert.throws(() => store.prepareLaunch("codex-open", { cwd: "/workspace/repo", prompt: "Bad", permissionMode: "turbo" }), (error: unknown) => codedAs(error, "invalid_runtime_permission"));
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+test("agy owns its access policy and rejects harness permission declarations", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-agy-permission-")), agy = { installationId: "agy-permission", kindId: "agy" as const, executablePath: "/opt/runtime-test/agy", version: "1.1.15", observedAt: "2026-08-20T00:00:00.000Z" };
+  try {
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [agy], subscriptionReady: () => ({ status: "ready", code: null, hint: null }) });
+    assert.throws(() => store.command({ kind: "runtime-instance-create", instanceId: "agy-locked", name: "AGY Locked", kindId: "agy", providerId: "google", models: ["gemini-3.1-pro-low"], permissionMode: "read-only", authMode: "subscription" }), (error: unknown) => codedAs(error, "invalid_runtime_permission"));
+    store.command({ kind: "runtime-instance-create", instanceId: "agy-open", name: "AGY Open", kindId: "agy", providerId: "google", models: ["gemini-3.1-pro-low"], authMode: "subscription" });
+    assert.equal((store.command({ kind: "runtime-instance-show", instanceId: "agy-open" }).instance as { readonly permissionMode: string | null }).permissionMode, null);
+    assert.throws(() => store.prepareLaunch("agy-open", { cwd: "/workspace/repo", prompt: "Bad", permissionMode: "bypass" }), (error: unknown) => codedAs(error, "invalid_runtime_permission"));
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+test("claude isolation defaults to the operator environment and stays enforced on request", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-claude-isolation-")), claude = { ...observed, installationId: "claude-isolation", kindId: "claude" as const, executablePath: "/opt/runtime-test/claude" }, agy = { installationId: "agy-isolation", kindId: "agy" as const, executablePath: "/opt/runtime-test/agy", version: "1.1.15", observedAt: "2026-08-20T00:00:00.000Z" }, operatorEnv = { PATH: "/runtime/tools", HOME: "/operator/home", TMPDIR: "/operator/tmp", ANTHROPIC_AUTH_TOKEN: "operator-oauth" };
+  try {
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [claude, observed, agy], env: operatorEnv, resolveCredential: () => "instance-secret", subscriptionReady: () => ({ status: "ready", code: null, hint: null }) });
+    store.create({ schemaVersion: 2, instanceId: "claude-operator", name: "Claude Operator", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, claude: {}, auth: { mode: "subscription" } });
+    store.create({ schemaVersion: 2, instanceId: "claude-operator-key", name: "Claude Operator Key", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, claude: {}, auth: { mode: "api-key", credentialRef: "credential:v1:claude-operator-key" } });
+    const launch = store.prepareLaunch("claude-operator", { cwd: "/workspace/repo", prompt: "Reuse the operator login" }), login = store.prepareAuthCommand("claude-operator", "login"), keyLaunch = store.prepareLaunch("claude-operator-key", { cwd: "/workspace/repo", prompt: "Key in operator env" });
+    assert.equal((store.command({ kind: "runtime-instance-show", instanceId: "claude-operator" }).instance as { readonly isolationState: string }).isolationState, "operator-environment");
+    assert.deepEqual(launch.env, operatorEnv);
+    assert.deepEqual(keyLaunch.env, { ...operatorEnv, ANTHROPIC_API_KEY: "instance-secret" });
+    assert.deepEqual(login.env, operatorEnv);
+    assert.deepEqual(login.args, ["auth", "login"]);
+    assert.equal(statSync(login.cwd).isDirectory(), true);
+    assert.equal(existsSync(path.join(userRoot, "runtime-instances", "claude-operator", "home")), false);
+    store.create({ schemaVersion: 2, instanceId: "claude-enforced", name: "Claude Enforced", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, isolationState: "enforced", claude: {}, auth: { mode: "api-key", credentialRef: "credential:v1:claude-enforced" } });
+    const isolated = store.prepareLaunch("claude-enforced", { cwd: "/workspace/repo", prompt: "Isolate" }), stateRoot = path.join(userRoot, "runtime-instances", "claude-enforced");
+    assert.deepEqual(isolated.env, { PATH: "/runtime/tools", HOME: path.join(stateRoot, "home"), TMPDIR: path.join(stateRoot, "tmp"), XDG_RUNTIME_DIR: path.join(stateRoot, "run"), CLAUDE_CONFIG_DIR: path.join(stateRoot, "home", ".claude"), ANTHROPIC_API_KEY: "instance-secret" });
+    assert.throws(() => store.command({ kind: "runtime-instance-create", instanceId: "codex-operator", name: "Codex Operator", kindId: "codex", providerId: "openai", models: ["gpt-5.6-sol"], isolationState: "operator-environment", authMode: "subscription" }), (error: unknown) => codedAs(error, "invalid_runtime_isolation"));
+    assert.throws(() => store.command({ kind: "runtime-instance-create", instanceId: "agy-enforced", name: "AGY Enforced", kindId: "agy", providerId: "google", models: ["gemini-3.1-pro-low"], isolationState: "enforced", authMode: "subscription" }), (error: unknown) => codedAs(error, "invalid_runtime_isolation"));
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+test("create takes repeated models with an optional explicit default and dispatches any of them", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-create-models-"));
+  try {
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed], resolveCredential: () => "instance-secret" });
+    const created = store.command({ kind: "runtime-instance-create", instanceId: "codex-multi", name: "Codex Multi", kindId: "codex", providerId: "openai", models: ["gpt-5.6-sol", "gpt-5.6-terra"], authMode: "api-key", credentialRef: "credential:v1:codex-multi" }).instance as { readonly models: readonly string[]; readonly defaultModel: string };
+    assert.deepEqual(created.models, ["gpt-5.6-sol", "gpt-5.6-terra"]); assert.equal(created.defaultModel, "gpt-5.6-sol");
+    const explicit = store.command({ kind: "runtime-instance-create", instanceId: "codex-explicit", name: "Codex Explicit", kindId: "codex", providerId: "openai", models: ["gpt-5.6-sol", "gpt-5.6-terra"], defaultModel: "gpt-5.6-terra", authMode: "api-key", credentialRef: "credential:v1:codex-explicit" }).instance as { readonly defaultModel: string };
+    assert.equal(explicit.defaultModel, "gpt-5.6-terra");
+    assert.throws(() => store.command({ kind: "runtime-instance-create", instanceId: "codex-bad-default", name: "Codex Bad Default", kindId: "codex", providerId: "openai", models: ["gpt-5.6-sol"], defaultModel: "gpt-unknown", authMode: "api-key", credentialRef: "credential:v1:codex-bad-default" }), (error: unknown) => codedAs(error, "invalid_runtime_model"));
+    const second = store.prepareLaunch("codex-multi", { cwd: "/workspace/repo", prompt: "Second", model: "gpt-5.6-terra" });
+    assert.equal(second.args[second.args.indexOf("--model") + 1], "gpt-5.6-terra");
+    assert.throws(() => store.prepareLaunch("codex-multi", { cwd: "/workspace/repo", prompt: "Rejected", model: "gpt-unknown" }), (error: unknown) => codedAs(error, "invalid_runtime_model"));
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+test("persisted schema v2 records normalize permission and isolation fields once on read", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-field-migration-")), claude = { ...observed, installationId: "claude-field-migration", kindId: "claude" as const, executablePath: "/opt/runtime-test/claude" };
+  try {
+    writeFileSync(path.join(userRoot, "runtime-instances.json"), `${JSON.stringify({ schema: "runtime-instances/v1", instances: [
+      { schemaVersion: 2, instanceId: "codex-persisted", name: "Codex Persisted", kindId: "codex", installationId: observed.installationId, providerId: "openai", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, codex: {}, auth: { mode: "subscription" } },
+      { schemaVersion: 2, instanceId: "claude-persisted", name: "Claude Persisted", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, claude: {}, auth: { mode: "subscription" } }
+    ] })}\n`);
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed, claude], env: { HOME: "/operator/home", PATH: "/bin" }, subscriptionReady: () => ({ status: "ready", code: null, hint: null }) });
+    assert.deepEqual({ ...store.read("codex-persisted"), codex: undefined }, { schemaVersion: 2, instanceId: "codex-persisted", name: "Codex Persisted", installationId: observed.installationId, providerId: "openai", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, permissionMode: "bypass", isolationState: "enforced", kindId: "codex", auth: { mode: "subscription" }, codex: undefined });
+    assert.deepEqual({ ...store.read("claude-persisted"), claude: undefined }, { schemaVersion: 2, instanceId: "claude-persisted", name: "Claude Persisted", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, permissionMode: "bypass", isolationState: "operator-environment", kindId: "claude", auth: { mode: "subscription" }, claude: undefined });
+    const persisted = JSON.parse(readFileSync(path.join(userRoot, "runtime-instances.json"), "utf8")).instances as Array<Record<string, unknown>>;
+    assert.deepEqual(persisted.map(({ permissionMode, isolationState }) => ({ permissionMode, isolationState })), [{ permissionMode: "bypass", isolationState: "operator-environment" }, { permissionMode: "bypass", isolationState: "enforced" }]);
+    const storeAgain = openRuntimeInstanceStore({ userRoot, discover: () => [observed, claude] }), mtimeFirst = statSync(path.join(userRoot, "runtime-instances.json")).mtimeMs;
+    storeAgain.read("codex-persisted");
+    assert.equal(statSync(path.join(userRoot, "runtime-instances.json")).mtimeMs, mtimeFirst);
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
 test("agy uses the operator environment, OAuth-only auth, and a closed effort enum", () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-agy-")), agy = { installationId: "agy-installation-test", kindId: "agy" as const, executablePath: "/opt/runtime-test/agy", version: "1.1.15", observedAt: "2026-08-19T00:00:00.000Z" };
   try {
@@ -247,7 +334,7 @@ test("agy uses the operator environment, OAuth-only auth, and a closed effort en
     assert.equal(launch.env.HOME, "/operator/home"); assert.equal(launch.env.CODEX_HOME, undefined); assert.equal(launch.env.CLAUDE_CONFIG_DIR, undefined);
     assert.throws(() => store.prepareLaunch("agy-review", { cwd: "/workspace/repo", prompt: "reject", effort: "xhigh" }), (error: unknown) => codedAs(error, "invalid_runtime_effort") && error instanceof Error && error.message.includes("low, medium, or high"));
     assert.equal(store.command({ kind: "runtime-instance-show", instanceId: "agy-review" }).instance && (store.command({ kind: "runtime-instance-show", instanceId: "agy-review" }).instance as { isolationState: string }).isolationState, "operator-environment");
-    assert.throws(() => store.command({ kind: "runtime-instance-create", instanceId: "agy-api", name: "AGY API", kindId: "agy", installationId: agy.installationId, providerId: "google", model: "gemini", authMode: "api-key", credentialRef: "credential:v1:agy-api" }), (error: unknown) => codedAs(error, "invalid_runtime_auth"));
+    assert.throws(() => store.command({ kind: "runtime-instance-create", instanceId: "agy-api", name: "AGY API", kindId: "agy", installationId: agy.installationId, providerId: "google", models: ["gemini"], authMode: "api-key", credentialRef: "credential:v1:agy-api" }), (error: unknown) => codedAs(error, "invalid_runtime_auth"));
     assert.throws(() => store.prepareAuthCommand("agy-review", "login"), (error: unknown) => codedAs(error, "runtime_auth_interactive_only"));
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
@@ -335,7 +422,7 @@ test("linux instances keep the POSIX isolation shape distinct from the host", ()
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-linux-isolation-"));
   try {
     const store = openRuntimeInstanceStore({ userRoot, discover: () => [{ ...observed, kindId: "claude", installationId: "claude-installation-test", executablePath: "/opt/runtime-test/claude" }], platform: "linux", env: { PATH: "/runtime/tools", HOME: "/host/home", USERPROFILE: "C:\\host\\home", XDG_RUNTIME_DIR: "/host/run/xdg", ANTHROPIC_API_KEY: "host-secret" } });
-    store.create({ schemaVersion: 1, instanceId: "claude-linux", name: "Claude Linux", kindId: "claude", installationId: "claude-installation-test", providerId: "anthropic", model: "claude-fable-5", auth: { mode: "subscription" } });
+    store.create({ schemaVersion: 2, instanceId: "claude-linux", name: "Claude Linux", kindId: "claude", installationId: "claude-installation-test", providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, isolationState: "enforced", claude: {}, auth: { mode: "subscription" } });
     const command = store.prepareAuthCommand("claude-linux", "login"), stateRoot = path.join(userRoot, "runtime-instances", "claude-linux");
     assert.deepEqual(command.env, { PATH: "/runtime/tools", HOME: path.join(stateRoot, "home"), TMPDIR: path.join(stateRoot, "tmp"), XDG_RUNTIME_DIR: path.join(stateRoot, "run"), CLAUDE_CONFIG_DIR: path.join(stateRoot, "home", ".claude") });
     assert.equal("USERPROFILE" in command.env, false); assert.equal(Object.values(command.env).includes("host-secret"), false);
