@@ -26,7 +26,7 @@ export { closeoutReadiness, closeoutReadinesses, isCloseoutReadiness } from "./c
 export type { CloseoutReadiness } from "./closeout-readiness.ts";
 export { blockingOf } from "./task-blocking.ts";
 
-export { DEFAULT_TASK_WIP_LIMIT, admitTaskExecutionWip, hasCloseoutEvidence, parseTaskWipLimit, taskWipOccupyingStatuses } from "./task-wip-policy.ts";
+export { DEFAULT_TASK_ROOT_THRESHOLD, DEFAULT_TASK_WIP_LIMIT, admitTaskExecutionWip, deriveTaskRoot, hasCloseoutEvidence, parseTaskWipLimit, taskWipOccupyingStatuses } from "./task-wip-policy.ts";
 export type { TaskWipSnapshotEntryV1 } from "./task-wip-policy.ts";
 
 export { findEntityRefs, parseEntityRef } from "./entity-ref.ts";
