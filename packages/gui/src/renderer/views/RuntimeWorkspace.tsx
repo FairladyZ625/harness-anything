@@ -57,8 +57,11 @@ export function RuntimeWorkspace({ repoId, tasks }: { readonly repoId: string; r
   };
   const dispatch = async (request: DispatchRequest) => { const settled = await workspace.dispatch(request); setDialog(null); setRevision((value) => value + 1); if (settled?.runtimeSessionId) focusSession(settled.runtimeSessionId); };
 
-  if (workspace.machine.isError || workspace.overview.isError) return <section className="p-6 text-status-blocked">{t("agentRuntime.readFailed", { error: String((workspace.machine.error ?? workspace.overview.error) as unknown) })}</section>;
-  if (!workspace.machine.data || !workspace.overview.data) return <section className="p-6 text-text-faint">{t("agentRuntime.loading")}</section>;
+  // Each region reads its own source, so one failing read degrades that region and nothing
+  // else: the machine-local instance catalogue going down must not take the Agents, Squads,
+  // Orchestration and Sessions regions — which never touch it — down with it.
+  const readError = [workspace.machine.error, workspace.overview.error, workspace.agents.error, workspace.squads.error].find(Boolean);
+  const catalogsPending = workspace.machine.isPending && workspace.agents.isPending;
   return <section data-testid="runtime-workspace" className="flex min-h-0 flex-1 flex-col overflow-hidden">
     <header className="flex h-[42px] shrink-0 items-center gap-3 border-b border-border bg-surface-raised px-3.5">
       <b className="text-[13px] tracking-[0.02em]">{t("agentRuntime.title")}</b><span className="truncate font-mono text-[10.5px] text-text-faint">{t("agentRuntime.subtitle")}</span>
@@ -67,12 +70,13 @@ export function RuntimeWorkspace({ repoId, tasks }: { readonly repoId: string; r
       <Badge status={runtimeDockLiveCount(workspace.dockRows) > 0 ? "active" : "planned"}>{t("agentRuntime.liveSessions", { count: runtimeDockLiveCount(workspace.dockRows) })}</Badge>
       <Btn size="sm" variant="ghost" onClick={() => setInspector(!inspector)} tip={t("agentRuntime.toggleInspector")}>▐</Btn>
     </header>
+    {readError !== undefined && <p role="alert" data-testid="runtime-read-error" className="shrink-0 border-b border-border bg-status-blocked/10 px-3.5 py-1.5 font-mono text-[11px] text-status-blocked">{t("agentRuntime.readFailed", { error: readError instanceof Error ? readError.message : String(readError) })}</p>}
     {(workspace.error ?? workspace.feedback) && <p role="status" onClick={workspace.clearFeedback} className={`shrink-0 border-b border-border px-3.5 py-1.5 font-mono text-[11px] ${workspace.error ? "bg-status-blocked/10 text-status-blocked" : "text-text-muted"}`}>{workspace.error ?? workspace.feedback}</p>}
     <div className="flex min-h-0 flex-1">
       <RuntimeRail instances={instances} agents={agents} squads={squads} orchestration={orchestrationEntries(workspace.dockRows)} selection={current} open={segments} liveByInstance={liveByInstance}
         onToggle={(segment) => setSegments((value) => ({ ...value, [segment]: !(value[segment] ?? true) }))} onSelect={setSelection} onNew={(segment) => setDialog(segment === "runtimes" ? { kind: "new-runtime" } : { kind: "new-entity", entity: segment === "agents" ? "agent" : "squad" })} />
       <main className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6">
-        {current === null ? <Empty>{t("agentRuntime.emptyWorkspace")}</Empty>
+        {current === null ? <Empty>{t(catalogsPending ? "agentRuntime.loading" : "agentRuntime.emptyWorkspace")}</Empty>
           : current.type === "runtime" ? (instances.find((instance) => instance.instanceId === current.id)
             ? <RuntimeCard instance={instances.find((instance) => instance.instanceId === current.id)!} agents={agents} liveSessions={liveByInstance.get(current.id) ?? 0} busy={workspace.busy}
                 onSelectAgent={(agentId) => setSelection({ type: "agent", id: agentId })} onAuth={(action) => void workspace.authInstance(current.id, action)} onValidate={() => void workspace.validateInstance(current.id)}
@@ -94,7 +98,7 @@ export function RuntimeWorkspace({ repoId, tasks }: { readonly repoId: string; r
     <SessionsDock repoId={repoId} rows={workspace.dockRows} open={dockOpen} selectedId={dockSelected} busy={workspace.busy} onToggle={() => setDockOpen(!dockOpen)} onSelect={focusSession} onCancel={(runtimeSessionId) => void workspace.cancelSession(runtimeSessionId)} />
     {dialog?.kind === "new-runtime" && <NewRuntimeDialog installations={installations} busy={workspace.busy} onCancel={() => setDialog(null)} onCreate={(input) => { void workspace.createInstance(input).then(() => { setDialog(null); setSelection({ type: "runtime", id: input.instanceId }); }); }} />}
     {dialog?.kind === "new-entity" && <NewEntityDialog kind={dialog.entity} agents={agents} squads={squads} busy={workspace.busy} taken={dialog.entity === "agent" ? agents.map((agent) => agent.id) : squads.map((squad) => squad.id)} onCancel={() => setDialog(null)} onCreate={(request) => void createEntity(request)} />}
-    {dialog?.kind === "dispatch" && <DispatchDialog subject={dialog.subject} instances={workspace.overview.data.instances} tasks={tasks} prompts={dialog.prompts} initialMission={dialog.mission} busy={workspace.busy} notice={workspace.settlement?.state === "pending" ? workspace.settlement.hint : null} onCancel={() => setDialog(null)} onSubmit={(request) => void dispatch(request)} />}
+    {dialog?.kind === "dispatch" && <DispatchDialog subject={dialog.subject} instances={workspace.overview.data?.instances ?? []} tasks={tasks} prompts={dialog.prompts} initialMission={dialog.mission} busy={workspace.busy} notice={workspace.settlement?.state === "pending" ? workspace.settlement.hint : null} onCancel={() => setDialog(null)} onSubmit={(request) => void dispatch(request)} />}
     {workspace.settlement && <p role="status" className="shrink-0 border-t border-border px-3.5 py-1 font-mono text-[10.5px] text-text-faint"><Hint>{workspace.settlement.state} · {workspace.settlement.opId} · {workspace.settlement.hint}</Hint></p>}
   </section>;
 }
