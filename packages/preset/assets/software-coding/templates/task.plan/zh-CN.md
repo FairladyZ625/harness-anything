@@ -12,7 +12,23 @@ Task Contract: harness-task v1
 
 ## Context
 
-记录输入背景与「看哪里」清单（要读的代码、文档、契约的具体路径）。冷启动 agent 必须先区分三元语：task 记录要做什么，fact 记录已经观察到什么，decision 记录承重选择为什么成立。
+记录输入背景与已知事实。冷启动 agent 必须先区分三元语：task 记录要做什么，fact 记录已经观察到什么，decision 记录承重选择为什么成立。
+
+## Required Reading
+
+按读取顺序列出代码、文档与契约的具体路径，并标明每项的权威级别；不得把互相冲突的来源并列而不裁定优先级。
+
+## Entry Conditions
+
+列出开工前必须已经成立的条件。条件不成立时停止并上报，不自行虚构上游输入。
+
+## Dependencies
+
+列出上游依赖、交接输入、并发 ownership 与下游接收方；说明每项依赖如何判定已满足。
+
+## Execution Surface
+
+声明执行所在的仓库、worktree、分支与 base，以及允许写入的范围。具体绝对 `cwd` 由派工参数注入，不手抄成可漂移的路径。
 
 ## Constraints
 
@@ -33,6 +49,14 @@ Task Contract: harness-task v1
 - 对未来 decision 或跨任务推理所需的承重观察，使用 `ha fact record --task <task-id> --statement "..." --source "..." --confidence high` 显式晋升；Fact 保持 `0..N`，交付证据归入 Execution outputs。
 - 对选路、推翻、长期边界或派生后续工作的承重选择，运行 `ha decision propose ...`；fact 支撑 decision 或 decision 派生 task 时，用 `ha decision relate ...` 建边。
 - 用测试和检查验证行为。
+
+## Deliverable Contract
+
+写明交付物的形态、落点、接收者与第一个使用方，以及任务完成时必须提交或回报的字段。不要把通用 worker 纪律复制到这里。
+
+## Evidence Protocol
+
+写明证据粒度、需要的阴性对照或变异检查，以及 reviewer 必须拒收的条件。这里描述如何证明，`Verification` 描述什么必须为真。
 
 ## Verification
 

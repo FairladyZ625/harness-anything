@@ -12,7 +12,23 @@ Describe the verifiable result this task must produce, plus the deliverable's fo
 
 ## Context
 
-Record input context and a "where to look" list (concrete paths to the code, documents, and contracts to read). A cold-start agent must separate the three primitives first: task records what work is being done, fact records what has been observed, and decision records why a load-bearing choice holds.
+Record the input context and established facts. A cold-start agent must separate the three primitives first: task records what work is being done, fact records what has been observed, and decision records why a load-bearing choice holds.
+
+## Required Reading
+
+List concrete code, document, and contract paths in reading order, with an authority level for each item. Resolve source conflicts explicitly instead of presenting contradictory inputs as peers.
+
+## Entry Conditions
+
+List everything that must already be true before work starts. Stop and report when an entry condition is unmet instead of inventing missing upstream input.
+
+## Dependencies
+
+List upstream dependencies, handoff inputs, concurrent ownership, and downstream recipients, including how each dependency is proven ready.
+
+## Execution Surface
+
+Declare the repository, worktree, branch, base, and allowed write scope. The dispatcher injects the concrete absolute `cwd`; do not copy a machine-specific path into durable prose.
 
 ## Constraints
 
@@ -33,6 +49,14 @@ If this task is not a CI/gate/governance task but requires modifying CI/gate aut
 - Explicitly promote load-bearing observations needed for later decisions or cross-task reasoning with `ha fact record --task <task-id> --statement "..." --source "..." --confidence high`; Facts remain `0..N`, while delivery evidence belongs in Execution outputs.
 - For route choices, reversals, long-lived boundaries, or choices that derive follow-up work, run `ha decision propose ...`; when facts support decisions or decisions derive tasks, connect them with `ha decision relate ...`.
 - Verify behavior with tests and checks.
+
+## Deliverable Contract
+
+State the deliverable shape, destination, recipient, first consumer, and every task-specific field that completion must submit or report. Do not duplicate generic Worker discipline here.
+
+## Evidence Protocol
+
+State the required evidence granularity, negative controls or mutation checks, and reviewer rejection conditions. This section defines how to prove the result; `Verification` defines what must be true.
 
 ## Verification
 

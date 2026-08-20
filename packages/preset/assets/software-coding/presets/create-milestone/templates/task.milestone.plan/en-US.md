@@ -36,6 +36,22 @@ State in one sentence who gets which verifiable capability from this milestone.
 - Structured table: `harness/milestones/dossier-data.md`
 - Charter decision: `dec_*`, decided by the CEO; this preset validates the anchor but does not create the decision.
 
+## Required Reading
+
+List the charter decision, milestone map, adjacent milestones, and load-bearing code or contracts in order, identifying the final authority when sources conflict.
+
+## Entry Conditions
+
+List the product rulings, consumer commitments, and prerequisite capabilities that must exist before this milestone or a wave may start.
+
+## Dependencies
+
+List cross-task, cross-wave, and external-consumer dependencies and handoffs, including owner, readiness evidence, and downstream recipient.
+
+## Execution Surface
+
+Declare the repository, worktree, branch/base, and write boundary for each wave. Each dispatch injects its concrete absolute `cwd`.
+
 ## PR/merge Operations
 
 - Global merge-health operations ledger: `task_01KWYKCPG5FZA3AFVX9R8XX3B7` (Authority: `decision/dec_mrat6152`).
@@ -66,6 +82,14 @@ If this milestone is not CI/gate/governance work but requires changing CI/gate a
 - Read the create-milestone `PRESET.md`, `harness.yaml`, and nearby milestones; create or update the overview, index, summary, and status view under the configured milestones root.
 - Fan out child tasks from the root task and keep the task mapping table aligned with the task tree.
 - Validate links, required sections, duplicate rows, and status agreement; run the relevant repository checks and record evidence.
+
+## Deliverable Contract
+
+State the milestone's final deliverables, destinations, recipients, first consumer, and the task-level outputs and state each wave must hand back.
+
+## Evidence Protocol
+
+State the required usage proof, negative controls, mutation checks, and reviewer rejection conditions. Never replace actual runner output and consumption evidence with a summary claim.
 
 ## Verification
 

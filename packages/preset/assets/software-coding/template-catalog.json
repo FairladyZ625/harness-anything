@@ -344,11 +344,11 @@
       "slot": "task.plan",
       "materializeAs": "task_plan.md",
       "frontmatterSchema": "task-package/v2",
-      "requiredAnchors": ["## Brief", "## Goal", "## Context", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Verification"],
+      "requiredAnchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"],
       "fallbackLocale": "en-US",
       "locales": [
-        { "locale": "zh-CN", "anchors": ["## Brief", "## Goal", "## Context", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Verification"], "bodyPath": "templates/task.plan/zh-CN.md" },
-        { "locale": "en-US", "anchors": ["## Brief", "## Goal", "## Context", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Verification"], "bodyPath": "templates/task.plan/en-US.md" }
+        { "locale": "zh-CN", "anchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan/en-US.md" }
       ]
     },
     {
@@ -358,11 +358,11 @@
       "slot": "task.plan",
       "materializeAs": "task_plan.md",
       "frontmatterSchema": "task-package/v2",
-      "requiredAnchors": ["## Mission", "## Usage Questions", "## Wave Decomposition", "## Exit Criteria", "## Context", "## PR/merge Operations", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Verification"],
+      "requiredAnchors": ["## Mission", "## Usage Questions", "## Wave Decomposition", "## Exit Criteria", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## PR/merge Operations", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"],
       "fallbackLocale": "en-US",
       "locales": [
-        { "locale": "zh-CN", "anchors": ["## Mission", "## Usage Questions", "## Wave Decomposition", "## Exit Criteria", "## Context", "## PR/merge Operations", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Verification"], "bodyPath": "templates/task.milestone.plan/zh-CN.md" },
-        { "locale": "en-US", "anchors": ["## Mission", "## Usage Questions", "## Wave Decomposition", "## Exit Criteria", "## Context", "## PR/merge Operations", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Verification"], "bodyPath": "templates/task.milestone.plan/en-US.md" }
+        { "locale": "zh-CN", "anchors": ["## Mission", "## Usage Questions", "## Wave Decomposition", "## Exit Criteria", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## PR/merge Operations", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.milestone.plan/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Mission", "## Usage Questions", "## Wave Decomposition", "## Exit Criteria", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## PR/merge Operations", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.milestone.plan/en-US.md" }
       ]
     },
     {

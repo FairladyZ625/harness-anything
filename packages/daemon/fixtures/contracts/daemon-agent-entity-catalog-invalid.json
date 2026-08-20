@@ -6,6 +6,7 @@
       "id": "terra",
       "name": "Terra",
       "runtimeType": "codex",
+      "role": "worker",
       "layer": "user",
       "validity": "valid",
       "issues": [],
