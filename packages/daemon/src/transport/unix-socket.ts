@@ -63,13 +63,18 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
     kind: "unix-socket",
     endpoint,
     start: async () => {
-      mkdirSync(path.dirname(endpoint), { recursive: true, mode: 0o700 });
-      rmSync(endpoint, { force: true });
+      // A named pipe is not a filesystem node. In particular, path.dirname()
+      // treats its Windows spelling as a relative path on POSIX, while on
+      // Windows mkdir/rm/chmod against \\.\pipe itself are invalid.
+      if (process.platform !== "win32") {
+        mkdirSync(path.dirname(endpoint), { recursive: true, mode: 0o700 });
+        rmSync(endpoint, { force: true });
+      }
       await new Promise<void>((resolve, reject) => {
         server.once("error", reject);
         server.listen(endpoint, () => {
           server.off("error", reject);
-          chmodSync(endpoint, 0o600);
+          if (process.platform !== "win32") chmodSync(endpoint, 0o600);
           resolve();
         });
       });
@@ -85,7 +90,7 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
       await new Promise<void>((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
       });
-      rmSync(endpoint, { force: true });
+      if (process.platform !== "win32") rmSync(endpoint, { force: true });
     }
   };
 }
