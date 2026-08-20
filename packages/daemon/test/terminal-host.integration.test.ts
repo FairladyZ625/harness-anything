@@ -15,7 +15,7 @@ test("daemon terminal host spawns, echoes, attaches, resizes, detaches, and term
     const attached = host.attach(spawned.sessionId!, 0);
     assert.match(String(attached.initial.status), /attached|gap/u);
     assert.equal(host.resize({ sessionId: spawned.sessionId!, cols: 100, rows: 31 }).state, "running");
-    assert.equal(host.input({ sessionId: spawned.sessionId!, clientSeq: 1, utf8: "printf '__HA_PTY_OK__\\n'\n" }).acceptedThrough, 1);
+    assert.equal(host.input({ sessionId: spawned.sessionId!, clientSeq: 1, utf8: "echo __HA_PTY_OK__\r" }).acceptedThrough, 1);
     let output = "";
     for (let attempts = 0; attempts < 20 && !output.includes("__HA_PTY_OK__"); attempts += 1) {
       const frame = await Promise.race([attached.next(), new Promise<null>((resolve) => setTimeout(() => resolve(null), 100))]);
@@ -38,6 +38,20 @@ test("trusted runtime auth terminal executes an exact non-platform fixture witho
     assert.equal(spawned.ok, true); assert.deepEqual(launch, { file: process.execPath, args: ["-e", "process.stdout.write(process.env.RUNTIME_AUTH_MARKER ?? 'missing')"], options: { name: "xterm-256color", cols: 80, rows: 24, cwd: root, env: { PATH: process.env.PATH ?? "", RUNTIME_AUTH_MARKER: "AUTH_STUB_OK", TERM: "xterm-256color" } } }); const attached = host.attach(spawned.sessionId!, 0); data?.("AUTH_STUB_OK"); const frame = await attached.next(); assert.equal(frame?.utf8, "AUTH_STUB_OK");
     const listed = JSON.stringify(host.list()); assert.match(listed, /runtime-instance:codex-review/u); assert.doesNotMatch(listed, new RegExp(process.execPath.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u")); assert.doesNotMatch(listed, /RUNTIME_AUTH_MARKER/u); await host.close();
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("windows terminals preserve SystemRoot and pass command shims to node-pty as one command line", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-auth-terminal-windows-")), previousSystemRoot = process.env.SystemRoot;
+  try {
+    process.env.SystemRoot = "C:\\Windows";
+    const launches: Array<{ readonly file: string; readonly args: readonly string[] | string; readonly options: Record<string, unknown> }> = [];
+    const host = openTerminalHost({ repoId: "repo-windows", rootDir: root, daemonGeneration: 9, platform: "win32", spawnPty: ((file: string, args: readonly string[] | string, options: Record<string, unknown>) => { let exit: ((value: { readonly exitCode: number }) => void) | undefined; launches.push({ file, args, options }); return { onData: () => ({ dispose: () => undefined }), onExit: (listener: (value: { readonly exitCode: number }) => void) => { exit = listener; return { dispose: () => undefined }; }, write: () => undefined, resize: () => undefined, kill: () => { exit?.({ exitCode: 0 }); } }; }) as never });
+    host.spawn({ idempotencyKey: "windows-shell", cwd: { scope: "repo-root" }, shellProfileId: "default", name: "Windows shell" });
+    host.spawnTrusted({ idempotencyKey: "windows-auth", name: "Codex · Sign in", executablePath: "C:\\Program Files\\Codex\\codex.cmd", args: ["login"], env: { PATH: "C:\\Program Files\\Codex", COMSPEC: "C:\\Windows\\System32\\cmd.exe" }, cwd: root, publicCwd: "runtime-instance:codex", profile: "runtime-auth" });
+    assert.equal(launches[0]?.file, "powershell.exe"); assert.equal((launches[0]?.options.env as Record<string, unknown>).SystemRoot, "C:\\Windows");
+    assert.equal(launches[1]?.file, "C:\\Windows\\System32\\cmd.exe"); assert.equal(launches[1]?.args, '/d /s /c ""C:\\Program Files\\Codex\\codex.cmd" login"');
+    await host.close();
+  } finally { if (previousSystemRoot === undefined) delete process.env.SystemRoot; else process.env.SystemRoot = previousSystemRoot; rmSync(root, { recursive: true, force: true }); }
 });
 
 test("a terminal child that exits on its own still gets its pty released on windows", async () => {

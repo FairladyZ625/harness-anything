@@ -149,12 +149,12 @@ test("GUI renderer bridge drives a resident PTY through spawn attach IO resize d
     const spawned = await bridge.invoke("spawnTerminal", { ...scope, idempotencyKey: "terminal-renderer-chain", name: "Renderer chain", cwd: { scope: "repo-root" }, shellProfileId: "default", taskId: "task-terminal" }) as Record<string, unknown>;
     assert.equal(spawned.schema, "terminal-control-receipt/v1", JSON.stringify(spawned)); assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
     const sessionId = String(spawned.sessionId), values: Array<Record<string, unknown>> = [];
-    let resolveEcho!: () => void; const echoSeen = new Promise<void>((resolve) => { resolveEcho = resolve; });
+    let output = "", resolveEcho!: () => void; const echoSeen = new Promise<void>((resolve) => { resolveEcho = resolve; });
     const stop = await bridge.stream("attachTerminal", { ...scope, sessionId, afterSeq: 0 }, (value) => {
-      const frame = value as Record<string, unknown>; values.push(frame); if (frame.schema === "terminal-attach-event/v1" && String(frame.utf8).includes("GUI_S3_R2_PTY")) resolveEcho();
+      const frame = value as Record<string, unknown>; values.push(frame); if (frame.schema === "terminal-attach-event/v1" && frame.kind === "output" && typeof frame.utf8 === "string") { output += frame.utf8; if (output.includes("GUI_S3_R2_PTY")) resolveEcho(); }
     });
     const initial = values.find((value) => value.schema === "terminal-attach/v1"); assert.equal(initial?.status, "attached"); assert.equal(typeof initial?.attachmentId, "string");
-    const input = await bridge.invoke("sendTerminalInput", { ...scope, sessionId, clientSeq: 1, utf8: "printf 'GUI_S3_R2_PTY\\n'\r" }) as Record<string, unknown>;
+    const input = await bridge.invoke("sendTerminalInput", { ...scope, sessionId, clientSeq: 1, utf8: "echo GUI_S3_R2_PTY\r" }) as Record<string, unknown>;
     assert.deepEqual({ schema: input.schema, acceptedThrough: input.acceptedThrough }, { schema: "terminal-input-ack/v1", acceptedThrough: 1 });
     await Promise.race([echoSeen, new Promise((_, reject) => setTimeout(() => reject(new Error("resident PTY echo timeout")), 2_000))]);
     const resized = await bridge.invoke("resizeTerminal", { ...scope, sessionId, cols: 100, rows: 30 }) as Record<string, unknown>;

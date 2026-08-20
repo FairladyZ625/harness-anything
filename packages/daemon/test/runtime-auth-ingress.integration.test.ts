@@ -58,10 +58,10 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
         const replay = await rpc(host, auth, "repo.runtimeInstance.auth.login", { repo: { repoId }, payload: { instanceId: "codex-signin", idempotencyKey } });
         assert.equal(replay.sessionId, spawned.sessionId);
         const frames: Record<string, unknown>[] = [], attached = await rpcTerminalAttach(host, auth, repoId, String(spawned.sessionId), frames);
-        try { await eventually(async () => frames.some((frame) => typeof frame.utf8 === "string" && frame.utf8.includes("Paste the operator sign-in token:")));
+        try { await eventually(async () => terminalOutput(frames).includes("Paste the operator sign-in token:"));
           const ack = await rpc(host, auth, "repo.terminal.input", { repo: { repoId }, payload: { sessionId: spawned.sessionId, clientSeq: 1, utf8: `${token}\n` } });
           assert.equal(ack.ok, true);
-          await eventually(async () => frames.some((frame) => typeof frame.utf8 === "string" && frame.utf8.includes(`Signed in as ${token}.`)));
+          await eventually(async () => terminalOutput(frames).includes(`Signed in as ${token}.`));
           await eventually(async () => frames.some((frame) => frame.kind === "exit"));
         } finally { attached.close(); }
         assert.equal(JSON.parse(readFileSync(authFile, "utf8")).token, token);
@@ -74,7 +74,7 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
       assert.equal(spawned.ok, true, JSON.stringify(spawned));
       const frames: Record<string, unknown>[] = [], attached = await rpcTerminalAttach(host, auth, repoId, String(spawned.sessionId), frames);
       try { await eventually(async () => frames.some((frame) => frame.kind === "exit")); } finally { attached.close(); }
-      assert.equal(frames.some((frame) => typeof frame.utf8 === "string" && frame.utf8.includes("Signed out.")), true);
+      assert.equal(terminalOutput(frames).includes("Signed out."), true);
       const shown = await rpc(host, auth, "daemon.runtimeInstance.show", { payload: { instanceId: "codex-signin", probe: true } });
       assert.equal(((shown.instance as Record<string, unknown>).authReadiness as Record<string, unknown>).code, "runtime_subscription_required");
     });
@@ -96,4 +96,5 @@ async function rpcTerminalAttach(host: Awaited<ReturnType<typeof openDaemonHost>
   await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } }); const response = await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.terminal.attach", params: { repo: { repoId }, payload: { sessionId, afterSeq: 0 } } }); assert.ok(response && !Array.isArray(response) && "result" in response); assert.equal((response as { result: { ok: boolean } }).result.ok, true, JSON.stringify(response)); return { close: server.close };
 }
 async function eventually(check: () => boolean | Promise<boolean>): Promise<void> { for (let attempt = 0; attempt < 300; attempt += 1) { if (await check()) return; await new Promise((resolve) => setTimeout(resolve, 20)); } throw new Error("terminal frame did not arrive"); }
+function terminalOutput(frames: readonly Record<string, unknown>[]): string { return frames.filter((frame) => frame.kind === "output" && typeof frame.utf8 === "string").map((frame) => frame.utf8).join(""); }
 function git(root: string, ...args: readonly string[]): void { execFileSync("git", ["-C", root, ...args], { stdio: ["ignore", "ignore", "ignore"] }); }
