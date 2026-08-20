@@ -16,7 +16,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { serializeEventHead, sha256Text } from "../../kernel/src/index.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { applyFleetMirrorCut, readFleetUnresolvedConflicts, withFleetMirrorLock } from "../src/fleet-edge-mirror.ts";
@@ -37,7 +36,8 @@ const sha = (body: string | Buffer): string => createHash("sha256").update(body)
 const writeJson = (file: string, value: unknown): void => { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, `${JSON.stringify(value)}\n`); };
 const writeBytes = (file: string, body: string): void => { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, body); };
 const docClaim = (root: string, ref: string, body: string) => { writeBytes(path.join(root, ".harness", "doc-sync-claims", ref), body); return { ref: `doc-sync-claims/${ref}`, sha256: sha(body), size: Buffer.byteLength(body), mediaType: "text/markdown" as const }; };
-const headOf = (root: string): { revision: number; headDigest: string } => { const head = JSON.parse(readFileSync(path.join(root, "harness", "events", "head.json"), "utf8")) as { revision: number; opId: string; eventDigest: string }; return { revision: head.revision, headDigest: `sha256:${sha256Text(serializeEventHead(head))}` }; };
+const ledgerCut = (value: unknown): { repoId: string; revision: number; headDigest: string } => { const cut = value as { repoId: string; revision: number; headDigest: string }; return { repoId: cut.repoId, revision: cut.revision, headDigest: cut.headDigest }; };
+const mirrorCut = (value: unknown): { revision: number; headDigest: string } => { const cut = ledgerCut(value); return { revision: cut.revision, headDigest: cut.headDigest }; };
 
 test("F1: the fleet doc-submit channel cannot write task documents without the held execution", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "w3c-h-f1-")); t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -48,22 +48,22 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
     const packagePath = String((created as Record<string, unknown>).packagePath), logical = `${packagePath}/task_plan.md`;
     const target = path.join(root, "harness", logical), original = readFileSync(target, "utf8"), body = `${original}\n## Unheld push\n`;
     const before = git(root, "rev-list", "--count", "refs/ha/canonical");
-    const bypass = await cell.run({ kind: "doc-submit", executionId: null, baseLedgerSha: git(root, "rev-parse", "refs/ha/canonical"), changes: [{ path: logical, baseBlobSha256: sha(original), policyId, candidate: docClaim(root, "f1-unheld", body) }] }, { actor, source: assignmentSource, assignmentScope: { repoId: "w3c-h-f1", taskId: "some-other-task", executionId: "some-other-execution", paths: ["tasks"] } });
+    const bypass = await cell.run({ kind: "doc-submit", executionId: null, baseLedgerSha: ledgerCut(created.cut), changes: [{ path: logical, baseBlobSha256: sha(original), policyId, candidate: docClaim(root, "f1-unheld", body) }] }, { actor, source: assignmentSource, assignmentScope: { repoId: "w3c-h-f1", taskId: "some-other-task", executionId: "some-other-execution", paths: ["tasks"] } });
     assert.equal(bypass.outcome, "op_rejected");
     assert.equal(bypass.code, "task_docs_require_task_command");
     assert.equal(git(root, "rev-list", "--count", "refs/ha/canonical"), before, "the ledger must not move for a channel-less task-document push");
     const ghostPath = "tasks/ghost-package/task_plan.md";
-    const ghost = await cell.run({ kind: "doc-submit", executionId: null, baseLedgerSha: git(root, "rev-parse", "refs/ha/canonical"), changes: [{ path: ghostPath, baseBlobSha256: null, policyId, candidate: docClaim(root, "f1-ghost", "# Ghost\n") }] }, { actor, source: assignmentSource, assignmentScope: { repoId: "w3c-h-f1", taskId: "some-other-task", executionId: "some-other-execution", paths: ["tasks"] } });
+    const ghost = await cell.run({ kind: "doc-submit", executionId: null, baseLedgerSha: ledgerCut(created.cut), changes: [{ path: ghostPath, baseBlobSha256: null, policyId, candidate: docClaim(root, "f1-ghost", "# Ghost\n") }] }, { actor, source: assignmentSource, assignmentScope: { repoId: "w3c-h-f1", taskId: "some-other-task", executionId: "some-other-execution", paths: ["tasks"] } });
     assert.equal(ghost.outcome, "op_rejected");
     assert.equal(ghost.code, "task_docs_require_task_command", "an unprojected task package must not become a shared-surface bypass");
     // The holder naming its held execution keeps decideDocWrite's holder check
     // as its authority: the same actor holding the lease may push explicitly.
-    assert.equal((await cell.run({ kind: "task-start", taskId: "task-direct", executionId: "exe-f1" }, { actor, source: assignmentSource })).outcome, "applied");
-    const held = await cell.run({ kind: "doc-submit", executionId: "exe-f1", baseLedgerSha: git(root, "rev-parse", "refs/ha/canonical"), changes: [{ path: logical, baseBlobSha256: sha(original), policyId, candidate: docClaim(root, "f1-held", body) }] }, { actor, source: assignmentSource, assignmentScope: { repoId: "w3c-h-f1", taskId: "task-direct", executionId: "exe-f1", paths: ["tasks"] } });
+    const started = await cell.run({ kind: "task-start", taskId: "task-direct", executionId: "exe-f1" }, { actor, source: assignmentSource }); assert.equal(started.outcome, "applied");
+    const held = await cell.run({ kind: "doc-submit", executionId: "exe-f1", baseLedgerSha: ledgerCut(started.cut), changes: [{ path: logical, baseBlobSha256: sha(original), policyId, candidate: docClaim(root, "f1-held", body) }] }, { actor, source: assignmentSource, assignmentScope: { repoId: "w3c-h-f1", taskId: "task-direct", executionId: "exe-f1", paths: ["tasks"] } });
     assert.equal(held.outcome, "applied", JSON.stringify(held).slice(0, 300));
     // A different principal naming the held execution is still refused.
     const other = { principal: { personId: "someone-else" }, executor: null } as const;
-    const forged = await cell.run({ kind: "doc-submit", executionId: "exe-f1", baseLedgerSha: git(root, "rev-parse", "refs/ha/canonical"), changes: [{ path: logical, baseBlobSha256: sha(readFileSync(target, "utf8")), policyId, candidate: docClaim(root, "f1-forged", `${readFileSync(target, "utf8")}\n## Forged\n`) }] }, { actor: other, source: assignmentSource, assignmentScope: { repoId: "w3c-h-f1", taskId: "task-direct", executionId: "exe-f1", paths: ["tasks"] } });
+    const forged = await cell.run({ kind: "doc-submit", executionId: "exe-f1", baseLedgerSha: ledgerCut(held.cut), changes: [{ path: logical, baseBlobSha256: sha(readFileSync(target, "utf8")), policyId, candidate: docClaim(root, "f1-forged", `${readFileSync(target, "utf8")}\n## Forged\n`) }] }, { actor: other, source: assignmentSource, assignmentScope: { repoId: "w3c-h-f1", taskId: "task-direct", executionId: "exe-f1", paths: ["tasks"] } });
     assert.equal(forged.outcome, "op_rejected");
     assert.equal(forged.code, "lease_conflict");
   } finally { await cell.close(); }
@@ -79,7 +79,7 @@ test("F2: a crash after the atomic bundle commit replays both the transition and
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-crash", title: "Crash" }, binding);
     const packagePath = String((created as Record<string, unknown>).packagePath), logical = `${packagePath}/task_plan.md`, target = path.join(root, "harness", logical), original = readFileSync(target, "utf8"), body = `${original}\n## Carried\n`;
-    const base = headOf(root);
+    const base = mirrorCut(created.cut);
     armed = true;
     const failed = await cell.run({ kind: "task-start", taskId: "task-crash", executionId: "exe-crash", mirrorBaseCut: base, docChanges: [{ path: logical, baseBlobSha256: sha(original), policyId, candidate: docClaim(root, "f2-carried", body) }] }, binding);
     assert.equal(failed.outcome, "op_rejected");
@@ -102,7 +102,7 @@ test("F8: the mirror gate fences on cut identity — same revision with a differ
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-fence", title: "Fence" }, binding);
     const packagePath = String((created as Record<string, unknown>).packagePath), logical = `${packagePath}/task_plan.md`, target = path.join(root, "harness", logical), original = readFileSync(target, "utf8");
-    const base = headOf(root);
+    const base = mirrorCut(created.cut);
     const rolled = await cell.run({ kind: "task-start", taskId: "task-fence", executionId: "exe-fence", mirrorBaseCut: { revision: base.revision, headDigest: `sha256:${"0".repeat(64)}` }, docChanges: [{ path: logical, baseBlobSha256: sha(original), policyId, candidate: docClaim(root, "f8-rolled", `${original}\n## Rolled back view\n`) }] }, binding);
     assert.equal(rolled.outcome, "op_rejected");
     assert.equal(rolled.code, "mirror_behind_center");

@@ -13,7 +13,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { registerDaemonRepo, serializeEventHead, sha256Bytes, sha256Text } from "../../kernel/src/index.ts";
+import { registerDaemonRepo, sha256Bytes } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { runFleetEdgeConflictExit, runFleetEdgeDocSync, settlePushRejection } from "../src/fleet-edge-doc-sync.ts";
@@ -129,8 +129,10 @@ test("class A: a base conflict voids the whole transition and stages base/local/
   // whose declared per-path base no longer matches the projection is refused
   // with base_blob_changed and the transition never runs.
   const auth = { transportKind: "fleet-tls" as const, assignmentBinding: { nodeId: "node-one", assignmentId: "assignment-node-one", repoId: "dual-repo", taskId: created.taskId, executionId: "exe-seeded", paths: ["tasks"], actor: { principal: { personId: "person-node-one" }, executor: { kind: "agent" as const, id: "agent-node-one" } } } };
-  const head = JSON.parse(fixture.git("show", "refs/ha/canonical:harness/events/head.json")) as { revision: number; opId: string; eventDigest: string };
-  const probe = await fixture.host.run("dual-repo", { kind: "task-start", taskId: created.taskId, executionId: "exe-a-probe", mirrorBaseCut: { revision: head.revision, headDigest: `sha256:${sha256Text(serializeEventHead(head))}` }, docChanges: [{ path: planPath, baseBlobSha256: sha256Bytes(Buffer.from(localVersion)), policyId: "markdown-body-replaceable/v1", candidate: { ref: `doc-sync-claims/${sha256Bytes(Buffer.from(centerVersion))}`, sha256: sha256Bytes(Buffer.from(centerVersion)), size: Buffer.byteLength(centerVersion), mediaType: "text/markdown" } }] }, auth);
+  const status = await fixture.host.run("dual-repo", { kind: "doc-status", paths: [planPath] }, auth);
+  if (status.detail?.kind !== "doc_sync") throw new Error("doc status lacks a canonical cut");
+  const current = status.detail.currentLedgerSha;
+  const probe = await fixture.host.run("dual-repo", { kind: "task-start", taskId: created.taskId, executionId: "exe-a-probe", mirrorBaseCut: { revision: current.revision, headDigest: current.headDigest }, docChanges: [{ path: planPath, baseBlobSha256: sha256Bytes(Buffer.from(localVersion)), policyId: "markdown-body-replaceable/v1", candidate: { ref: `doc-sync-claims/${sha256Bytes(Buffer.from(centerVersion))}`, sha256: sha256Bytes(Buffer.from(centerVersion)), size: Buffer.byteLength(centerVersion), mediaType: "text/markdown" } }] }, auth);
   assert.equal(probe.outcome, "op_rejected");
   assert.equal(probe.code, "base_blob_changed");
   assert.equal(fixture.center.status().leases.leases.filter((row) => row.taskId === created.taskId).length, 0, "the probe transition must not apply either");

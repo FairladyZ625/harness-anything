@@ -1,40 +1,44 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import { type TaskCreatedEvent } from "../../src/domain/task-lifecycle.contract.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
+import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { localWalFileSystem } from "../../src/local/local-layout-file-system.ts";
 import { makeTaskEventStore as makeGitEventStore } from "../../src/store/task-event-store.ts";
 import { makeWalShadowEventStore } from "../../src/store/wal-shadow-event-store.ts";
 import { openWalEventLog } from "../../src/store/wal-event-log.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
-test("S3 shadows each unchanged Git publication into a local WAL", async () => {
+test("S4 acknowledges the durable WAL cut with zero Git processes and immediate worktree visibility", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
-    const store = makeWalShadowEventStore({ repoId: "wal-shadow", rootDir });
-    const event = taskCreated(1);
-    const plan = taskLifecycleWritePlan(event);
-    assert.deepEqual(plan.targets.filter((target) => target.kind === "local_wal_file"), [
+    const store = makeWalShadowEventStore({ repoId: "wal-shadow", rootDir, walFlushEvents: 64, walFlushMs: 60_000 });
+    const bundle = taskBundle(1, "visible on return\n");
+    assert.deepEqual(bundle.plan.targets.filter((target) => target.kind === "local_wal_file"), [
       { kind: "local_wal_file", path: ".harness/wal/seg-000000.log", operation: "append" },
       { kind: "local_wal_file", path: ".harness/wal/head.json", operation: "replace" },
+      { kind: "local_wal_file", path: `.harness/wal/objects/${bundle.blobs[0]!.sha256}`, operation: "replace" },
     ]);
-    const receipt = store.append({
-      event,
-      plan,
-      blobs: [],
-    });
+    const branchBefore = git(rootDir, "rev-parse", "HEAD");
+    const receipt = store.append(bundle);
     const wal = openWalEventLog(rootDir);
     assert.equal(receipt.revision, 1);
-    assert.equal(
-      existsSync(path.join(rootDir, ".harness", "wal", "seg-000000.log")),
-      true,
+    assert.equal(receipt.commitSha, null);
+    assert.equal(receipt.cut.opId, bundle.event.opId);
+    assert.deepEqual(
+      { repoId: receipt.cut.repoId, revision: receipt.cut.revision, headDigest: receipt.cut.headDigest },
+      store.currentCut(),
     );
-    assert.deepEqual(wal.readEvent(event.opId), event);
+    assert.equal(receipt.metrics.gitProcesses, 0);
+    assert.equal(git(rootDir, "rev-parse", "HEAD"), branchBefore);
+    assert.equal(readFileSync(path.join(rootDir, "harness", "tasks", "task-1", "task.md"), "utf8"), "visible on return\n");
+    assert.equal(existsSync(path.join(rootDir, ".harness", "wal", "seg-000000.log")), true);
+    assert.deepEqual(wal.readEvent(bundle.event.opId), bundle.event);
     assert.deepEqual(wal.audit(store.read().events, store.read().revision), {
       status: "equivalent",
       walRevision: 1,
@@ -42,34 +46,32 @@ test("S3 shadows each unchanged Git publication into a local WAL", async () => {
       compared: 1,
       divergence: null,
     });
+    await store.drain();
   });
 });
 
-test("S3 audits its WAL suffix against an existing Git history", async () => {
+test("S4 batches a WAL suffix into one Git commit and garbage-collects local content", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
-    const gitStore = makeGitEventStore({ repoId: "wal-shadow", rootDir });
-    const first = taskCreated(1);
-    gitStore.append({ event: first, plan: taskLifecycleWritePlan(first), blobs: [] });
-    const store = makeWalShadowEventStore({ repoId: "wal-shadow", rootDir });
-    const second = taskCreated(2);
-    store.append({ event: second, plan: taskLifecycleWritePlan(second), blobs: [] });
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    const third = taskCreated(3);
-    store.append({ event: third, plan: taskLifecycleWritePlan(third), blobs: [] });
-    const wal = openWalEventLog(rootDir);
-    assert.deepEqual(
-      wal.records().map((record) => record.revision),
-      [2, 3],
-    );
-    assert.equal(wal.audit(store.read().events, store.read().revision).status, "equivalent");
+    const store = makeWalShadowEventStore({ repoId: "wal-shadow", rootDir, walFlushEvents: 64, walFlushMs: 60_000 });
+    const countBefore = Number(git(rootDir, "rev-list", "--count", "HEAD"));
+    for (let revision = 1; revision <= 3; revision += 1)
+      assert.equal(store.append(taskBundle(revision, `document ${revision}\n`)).commitSha, null);
+    assert.deepEqual(openWalEventLog(rootDir).records().map((record) => record.revision), [1, 2, 3]);
+    await store.drain();
+    assert.equal(Number(git(rootDir, "rev-list", "--count", "HEAD")), countBefore + 1);
+    assert.deepEqual(openWalEventLog(rootDir).records(), []);
+    assert.deepEqual(readdirSync(path.join(rootDir, ".harness", "wal", "objects")), []);
+    const reopened = makeWalShadowEventStore({ repoId: "wal-shadow", rootDir });
+    assert.deepEqual(reopened.read().events.map((event) => event.workspaceRevision), [1, 2, 3]);
+    await reopened.drain();
   });
 });
 
-test("S3 discards a torn WAL tail and keeps the Git-equivalence audit", async () => {
+test("S4 discards a torn WAL tail without losing the acknowledged record", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
-    const store = makeWalShadowEventStore({ repoId: "wal-shadow", rootDir });
+    const store = makeWalShadowEventStore({ repoId: "wal-shadow", rootDir, walFlushEvents: 64, walFlushMs: 60_000 });
     const first = taskCreated(1);
     store.append({ event: first, plan: taskLifecycleWritePlan(first), blobs: [] });
     const segment = path.join(rootDir, ".harness", "wal", "seg-000000.log");
@@ -78,34 +80,107 @@ test("S3 discards a torn WAL tail and keeps the Git-equivalence audit", async ()
     assert.deepEqual(reopened.records().map((record) => record.revision), [1]);
     assert.equal(readFileSync(segment, "utf8").endsWith("\n"), true);
     assert.equal(reopened.audit(store.read().events, store.read().revision).status, "equivalent");
+    await store.drain();
   });
 });
 
-test("WAL shadow failure never changes the authoritative Git receipt", async () => {
+test("an authoritative WAL fsync failure rejects the write without changing Git or memory", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const store = makeWalShadowEventStore({ repoId: "wal-shadow-failure", rootDir });
-    const first = taskCreated(1);
-    store.append({ event: first, plan: taskLifecycleWritePlan(first), blobs: [] });
+    const before = git(rootDir, "rev-parse", "HEAD");
     const originalAppend = localWalFileSystem.append;
-    const warnings: string[] = [];
-    const originalWarn = console.warn;
     localWalFileSystem.append = () => {
       throw new Error("simulated WAL I/O failure");
     };
-    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
     try {
-      const event = taskCreated(2);
-      const receipt = store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
-      assert.equal(receipt.status, "applied");
-      assert.equal(receipt.revision, 2);
-      assert.deepEqual(store.read().events.map((candidate) => candidate.workspaceRevision), [1, 2]);
+      const event = taskCreated(1);
+      assert.throws(
+        () => store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] }),
+        /simulated WAL I\/O failure/u,
+      );
     } finally {
       localWalFileSystem.append = originalAppend;
+    }
+    assert.equal(git(rootDir, "rev-parse", "HEAD"), before);
+    assert.equal(store.read().revision, 0);
+    assert.deepEqual(openWalEventLog(rootDir).records(), []);
+    await store.drain();
+  });
+});
+
+test("materialization failures warn, retry with a bound, and do not revoke the write receipt", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    let failures = 0;
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+    const store = makeWalShadowEventStore({
+      repoId: "wal-retry",
+      rootDir,
+      walFlushEvents: 64,
+      walFlushMs: 60_000,
+      walRetryLimit: 4,
+      walRetryBaseMs: 1,
+      killpoint: (point) => {
+        if (point === "after_git_commit" && failures++ < 2) throw new Error("transient materializer failure");
+      },
+    });
+    try {
+      const receipt = store.append(taskBundle(1, "retry remains visible\n"));
+      assert.equal(receipt.status, "applied");
+      assert.equal(receipt.commitSha, null);
+      await store.drain();
+    } finally {
       console.warn = originalWarn;
     }
-    assert.equal(warnings.some((warning) => warning.includes("WAL append failed")), true);
-    assert.deepEqual(openWalEventLog(rootDir).records().map((record) => record.revision), [1, 2]);
+    assert.equal(warnings.filter((warning) => warning.includes("materialization failed")).length, 2);
+    assert.deepEqual(openWalEventLog(rootDir).records(), []);
+    assert.equal(makeGitEventStore({ repoId: "wal-retry", rootDir }).read().revision, 1);
+  });
+});
+
+test("restart recovery settles and checkpoints a WAL cut whose Git refs already advanced", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const first = makeWalShadowEventStore({
+      repoId: "wal-recovery",
+      rootDir,
+      walFlushEvents: 64,
+      walFlushMs: 60_000,
+      walRetryLimit: 1,
+      walRetryBaseMs: 1,
+      killpoint: (point) => {
+        if (point === "after_git_ref_update") throw new Error("simulated process death after ref update");
+      },
+    });
+    const receipt = first.append(taskBundle(1, "recover me\n"));
+    assert.equal(receipt.commitSha, null);
+    await assert.rejects(first.drain(), /WAL drain exhausted/u);
+    const documentPath = path.join(rootDir, "harness", "tasks", "task-1", "task.md");
+    rmSync(documentPath);
+    assert.equal(openWalEventLog(rootDir).records().length, 1);
+    const recovered = makeWalShadowEventStore({ repoId: "wal-recovery", rootDir, walFlushMs: 60_000 });
+    recovered.recover();
+    assert.equal(readFileSync(documentPath, "utf8"), "recover me\n");
+    assert.deepEqual(openWalEventLog(rootDir).records(), []);
+    assert.equal(recovered.read().revision, 1);
+    await recovered.drain();
+  });
+});
+
+test("a concurrent append burst remains contiguous and materializes as one cut", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeWalShadowEventStore({ repoId: "wal-burst", rootDir, walFlushEvents: 64, walFlushMs: 60_000 });
+    const receipts = await Promise.all(
+      Array.from({ length: 24 }, (_, index) => Promise.resolve().then(() => store.append(taskBundle(index + 1)))),
+    );
+    assert.equal(receipts.every((receipt) => receipt.commitSha === null && receipt.metrics.gitProcesses === 0), true);
+    assert.deepEqual(store.read().events.map((event) => event.workspaceRevision), Array.from({ length: 24 }, (_, index) => index + 1));
+    await store.drain();
+    assert.equal(git(rootDir, "log", "-1", "--format=%s"), "harness WAL flush 1-24");
   });
 });
 
@@ -141,6 +216,25 @@ function taskCreated(revision: number): TaskCreatedEvent {
         presetSnapshotDigest: null,
       },
     },
+  };
+}
+
+function taskBundle(revision: number, document?: string) {
+  const base = taskCreated(revision);
+  if (document === undefined)
+    return { event: base, plan: taskLifecycleWritePlan(base), blobs: [] };
+  const claim = {
+    path: `tasks/task-${revision}/task.md`,
+    sha256: sha256Text(document),
+    size: Buffer.byteLength(document),
+    mediaType: "text/markdown" as const,
+    policyId: "typed-machine-writer/v1",
+  };
+  const event = { ...base, payload: { ...base.payload, documentClaims: [claim] } };
+  return {
+    event,
+    plan: taskLifecycleWritePlan(event),
+    blobs: [{ sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType, body: document }],
   };
 }
 

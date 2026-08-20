@@ -17,7 +17,7 @@ import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
 test("task/doc reducers share one SQLite transaction and L2 rebuild restores exact document bytes", async () => {
-  await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir }), projection = makeTaskProjection({ rootDir, eventStore }), body = "# Notes\n\nAppended prose.\n", hash = sha256Text(body), base = eventStore.currentCommit();
+  await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir }), projection = makeTaskProjection({ rootDir, eventStore }), body = "# Notes\n\nAppended prose.\n", hash = sha256Text(body), base = eventStore.currentCut();
     const event: DocEventV1 = { schema: "doc-event/v1", eventId: "doc-event", workspaceRevision: 1, opId: "doc-op", type: "documents_written", actor: { principal: { personId: "person-1" }, executor: null }, source: "local", occurredAt: "2026-08-11T00:00:00.000Z",
       payload: { executionId: "execution-1", baseLedgerSha: base, changes: [{ path: "context/notes.md", baseBlobSha256: null, candidate: { sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" }, policyId: DOC_POLICY_ID,
         regionProofs: [{ regionId: "heading/notes", policyId: DOC_POLICY_ID, codecId: DOC_CODEC_ID, baseSha256: sha256Text(""), candidateSha256: hash, insertBytes: Buffer.byteLength(body) }] }] } };
@@ -102,7 +102,7 @@ test("a fresh projection prefetches deferred staged content in one batch before 
 });
 
 test("replica basis returns one exact L2 manifest and only post-cut applied events", async () => {
-  await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir }), projection = makeTaskProjection({ rootDir, eventStore }), body = "# Replica\n", hash = sha256Text(body), base = eventStore.currentCommit();
+  await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir }), projection = makeTaskProjection({ rootDir, eventStore }), body = "# Replica\n", hash = sha256Text(body), base = eventStore.currentCut();
     const event: DocEventV1 = { schema: "doc-event/v1", eventId: "replica-event", workspaceRevision: 1, opId: "replica-op", type: "documents_written", actor: { principal: { personId: "person-1" }, executor: null }, source: "local", occurredAt: "2026-08-14T00:00:00.000Z", payload: { executionId: null, baseLedgerSha: base, changes: [{ path: "context/replica.md", baseBlobSha256: null, candidate: { sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" }, policyId: DOC_POLICY_ID, regionProofs: [{ regionId: "heading/replica", policyId: DOC_POLICY_ID, codecId: DOC_CODEC_ID, baseSha256: sha256Text(""), candidateSha256: hash, insertBytes: Buffer.byteLength(body) }] }] } }, plan = docSyncWritePlan(event);
     eventStore.append({ event, plan, blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }] });
     assert.deepEqual(projection.readReplicaBasis(null), { watermark: 0, sourceRevision: 1, headEvent: null, events: [], documents: [] });
@@ -124,8 +124,8 @@ test("a migration policy upgrade replays identically in cold rebuild", async () 
     assert.equal(imported.status, "ready");
     assert.equal(imported.document?.policyId, MIGRATION_DOCUMENT_POLICY_ID);
 
-    const authored = `${legacy}Replacement wording.\n`, intent = parseDocWriteIntent({ schema: "doc-write-intent/v1", executionId: null, baseLedgerSha: eventStore.currentCommit().sha, changes: [{ path: standard, baseBlobSha256: imported.document?.blobSha256 ?? null, policyId: DOC_POLICY_ID, candidate: { ref: `doc-sync-claims/${sha256Text(authored)}`, sha256: sha256Text(authored), size: Buffer.byteLength(authored), mediaType: "text/markdown" } }] }, "test-repo");
-    const decision = decideDocWrite({ intent, opId: "op-upgrade", eventId: "event-upgrade", workspaceRevision: 2, actor, source: "local", occurredAt: "2026-08-11T00:01:00.000Z", currentLedgerSha: eventStore.currentCommit(), lease: null, documents: [imported.document], claims: [Buffer.from(authored)] });
+    const authored = `${legacy}Replacement wording.\n`, intent = parseDocWriteIntent({ schema: "doc-write-intent/v1", executionId: null, baseLedgerSha: eventStore.currentCut(), changes: [{ path: standard, baseBlobSha256: imported.document?.blobSha256 ?? null, policyId: DOC_POLICY_ID, candidate: { ref: `doc-sync-claims/${sha256Text(authored)}`, sha256: sha256Text(authored), size: Buffer.byteLength(authored), mediaType: "text/markdown" } }] }, "test-repo");
+    const decision = decideDocWrite({ intent, opId: "op-upgrade", eventId: "event-upgrade", workspaceRevision: 2, actor, source: "local", occurredAt: "2026-08-11T00:01:00.000Z", currentLedgerSha: eventStore.currentCut(), lease: null, documents: [imported.document], claims: [Buffer.from(authored)] });
     assert.equal(decision.accepted, true, JSON.stringify(decision)); if (!decision.accepted) return;
     assert.deepEqual(decision.event.payload.changes[0]?.policyUpgrade, { from: MIGRATION_DOCUMENT_POLICY_ID, to: DOC_POLICY_ID });
     eventStore.append({ event: decision.event, plan: decision.plan, blobs: decision.blobs });
@@ -334,7 +334,7 @@ function batchDocumentBundle(store: CanonicalEventStore, revision: number, opId 
   const body = batchDocumentBody(revision), sha256 = sha256Text(body), path = batchDocumentPath(revision);
   const event: DocEventV1 = { schema: "doc-event/v1", eventId: `batch-event-${revision}`, workspaceRevision: revision, opId,
     type: "documents_written", actor: { principal: { personId: "person-1" }, executor: null }, source: "local", occurredAt: "2026-08-19T00:00:00.000Z",
-    payload: { executionId: null, baseLedgerSha: store.currentCommit(), changes: [{ path, baseBlobSha256: null, candidate: { sha256, size: Buffer.byteLength(body), mediaType: "text/markdown" }, policyId: DOC_POLICY_ID,
+    payload: { executionId: null, baseLedgerSha: store.currentCut(), changes: [{ path, baseBlobSha256: null, candidate: { sha256, size: Buffer.byteLength(body), mediaType: "text/markdown" }, policyId: DOC_POLICY_ID,
       regionProofs: [{ regionId: `heading/batch ${revision}`, policyId: DOC_POLICY_ID, codecId: DOC_CODEC_ID, baseSha256: sha256Text(""), candidateSha256: sha256, insertBytes: Buffer.byteLength(body) }] }] } };
   return { event, plan: docSyncWritePlan(event), blobs: [{ sha256, size: Buffer.byteLength(body), mediaType: "text/markdown", body }] };
 }

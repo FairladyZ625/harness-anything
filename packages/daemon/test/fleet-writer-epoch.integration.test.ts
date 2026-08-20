@@ -71,13 +71,13 @@ test("append rechecks the epoch after a successor is allocated", async () => {
   } finally { await cell?.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
-test("remote-center recovery discards a prepared publication after fencing", async () => {
+test("remote-center recovery leaves no legacy prepared publication after fencing", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-prepared-")), repo = probeRepo(root), stateRoot = path.join(root, "state"); let oldCell: Awaited<ReturnType<typeof openRepoCell>> | undefined, recoveryCell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     const oldAuthority = openPersistentWriterEpoch({ stateRoot, holderId: "old-center" }), newAuthority = openPersistentWriterEpoch({ stateRoot, holderId: "new-center" }), oldLease = oldAuthority.acquire("probe-repo"); let triggered = false;
     oldCell = await openRepoCell({ repoId: "probe-repo" as never, rootDir: repo as never, ownerId: "old-cell", mode: "remote-center", killpoint: (point) => { if (point === "after_head_write" && !triggered) { triggered = true; newAuthority.acquire("probe-repo"); throw new Error("simulated process death after prepared event"); } } });
     const failed = await oldCell.run({ kind: "task-create", taskId: "task_probe_prepared", title: "prepared stale recovery" }, probeBinding(() => oldAuthority.assert("probe-repo", oldLease.epoch, oldLease.holderId)));
-    assert.equal(failed.outcome, "op_rejected"); assert.equal(failed.code, "service_rejected"); assert.notEqual(probeGit(repo, "for-each-ref", "--format=%(refname)", "refs/ha-event-prepared/").trim(), ""); await oldCell.close(); oldCell = undefined;
+    assert.equal(failed.outcome, "op_rejected"); assert.equal(failed.code, "service_rejected"); assert.equal(probeGit(repo, "for-each-ref", "--format=%(refname)", "refs/ha-event-prepared/").trim(), ""); await oldCell.close(); oldCell = undefined;
     recoveryCell = await openRepoCell({ repoId: "probe-repo" as never, rootDir: repo as never, ownerId: "new-cell", mode: "remote-center" });
     assert.equal(recoveryCell.status().state, "attached"); assert.equal(probeGit(repo, "for-each-ref", "--format=%(refname)", "refs/ha-event-prepared/").trim(), ""); assert.equal(probeGit(repo, "rev-parse", "refs/ha/canonical"), probeGit(repo, "rev-parse", "HEAD"));
     newAuthority.close(); oldAuthority.close();

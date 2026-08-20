@@ -82,7 +82,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       body: "## 背景\nResident bridge test.\n\n## 权衡\nTyped receipts over local optimism.\n\n## 结论\nUse daemon facets.\n", claims: [], fulfillments: [], relations: []
     }));
     assert.equal(proposed.ok, true, JSON.stringify(proposed)); assert.equal(proposed.outcome, "applied"); assert.equal(proposed.worktreeVisible, true); assert.equal(proposed.consentId, null);
-    assert.match(String(proposed.path), /^decisions\/decision-dec_/u); assert.match(String(proposed.commitSha), /^[0-9a-f]{40}$/u); assert.match(String(proposed.documentSha256), /^(?:sha256:)?[0-9a-f]{64}$/u);
+    assert.match(String(proposed.path), /^decisions\/decision-dec_/u); assert.equal(proposed.commitSha, null); assert.equal(typeof proposed.cut, "object"); assert.match(String(proposed.documentSha256), /^(?:sha256:)?[0-9a-f]{64}$/u);
     const proposedEvidence = JSON.parse(String(proposed.evidence)) as { decisionId: string }; assert.match(proposedEvidence.decisionId, /^dec_[0-9A-F]{26}$/u);
     const accepted = parseDaemonGuiActionResponse("repo.decision.accept", await bridge.invoke("acceptDecision", { ...scope, decisionId: proposedEvidence.decisionId, rationale: "Independent resident-daemon acceptance.", judgmentOnlyRationale: "No load-bearing claim was declared; explicit human judgment is recorded." }));
     assert.equal(accepted.ok, true, JSON.stringify(accepted)); assert.equal(accepted.outcome, "applied"); assert.equal(accepted.worktreeVisible, true); assert.match(String(accepted.consentId), /^djc_[0-9a-f]{26}$/u);
@@ -95,8 +95,14 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     const documents = parseDaemonGuiReadResult("repo.tasks.documents.list", results.get("repo.tasks.documents.list"));
     assert.equal(documents.status, "ready"); assert.ok(documents.documents.some((row) => row.path === "notes.md"), JSON.stringify(documents.documents));
     const progress = parseDaemonGuiActionResponse("repo.task.progress.append", await bridge.invoke("appendTaskProgress", { ...scope, taskId: "task-gui-smoke", executionId, text: "Renderer sent typed progress.", evidence: [{ type: "test", path: "packages/gui/test/service-bridge.test.ts", summary: "resident daemon bridge" }], baseDocumentSha256: null }));
-    assert.equal(progress.ok, true, JSON.stringify(progress)); assert.equal(progress.outcome, "applied");
-    const commitSha = String(progress.commitSha); assert.match(commitSha, /^[0-9a-f]{40}$/u);
+    assert.equal(progress.ok, true, JSON.stringify(progress)); assert.equal(progress.outcome, "applied"); assert.equal(progress.commitSha, null); assert.equal(typeof progress.cut, "object");
+    let settledProgress = progress;
+    const publicationDeadline = performance.now() + 10_000;
+    while (settledProgress.commitSha === null && performance.now() < publicationDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      settledProgress = parseDaemonGuiActionResponse("repo.receipt.show", await bridge.invoke("showReceipt", { ...scope, opId: progress.opId }));
+    }
+    const commitSha = String(settledProgress.commitSha); assert.match(commitSha, /^[0-9a-f]{40}$/u);
     const submitted = parseDaemonGuiActionResponse("repo.task.submit", await bridge.invoke("submitTask", { ...scope, taskId: "task-gui-smoke", executionId, submission: {
       completionClaim: "GUI task mutation bridge is exercised.", deliverables: ["Task action bridge"], outputs: ["packages/gui/test/service-bridge.test.ts"],
       verificationNotes: ["resident daemon"], knownGaps: ["Electron E2E unverified"], residualRisks: ["manual desktop verification pending"], commitSha
@@ -235,6 +241,6 @@ function seedRuntime(rootDir: string, repoId: string): void { const store = make
   ["runtime_session_started", { runtimeSessionId: "runtime-gui", instanceId: "codex-gui", installationId: "installation-gui", kindId: "codex", definitionSnapshotRef: "artifact:runtime-definition/gui", launchGeneration: 1, attachable: true }],
   ["runtime_session_task_bound", { runtimeSessionId: "runtime-gui", taskId: "task-gui", executionId: "execution-gui", providerSessionId: "provider-gui", transcriptRef: "file:runtime/gui.jsonl" }]
   ] as const; for (const [index, [type, payload]] of values.entries()) { const revision = base + index + 1, event = { schema: "agent-runtime-event/v1", eventId: `event-runtime-gui-${revision}`, workspaceRevision: revision, opId: `op-runtime-gui-${revision}`, actor: { principal: { personId: "person-gui" }, executor: null }, source: "local", occurredAt: `2026-08-13T00:00:0${index}.000Z`, type, payload } as AgentRuntimeEventV1; store.append({ event, plan: runtimeWritePlan(event), blobs: [] }); }
-  seedTriadicEvents(rootDir, repoId); }
+  void store.drain(); seedTriadicEvents(rootDir, repoId); }
 function runtimeWritePlan(event: AgentRuntimeEventV1): FrozenWritePlan { return Object.freeze({ commandType: event.type, targets: Object.freeze([{ kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" }, { kind: "event_head", path: "harness/events/head.json", operation: "replace" }, { kind: "projection_invalidation", projection: "agent-runtime/v1", key: event.opId }].map((target) => Object.freeze(target))) }) as FrozenWritePlan; }
 function seedEntityDeclarations(rootDir: string): void { const agent = { schema: "agent-declaration/v1", id: "terra", name: "Terra", instructions: "Review precisely.", runtime_type: "codex", skills: [{ id: "review", path: "skills/review" }], prompts: ["prompt://review"], preset: "standard-task" }, squad = { schema: "squad-declaration/v1", id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: "# Core Squad\n\nTerra leads review." }; for (const declaration of [agent, squad]) { const store = path.join(rootDir, ".harness", "schema" in declaration && declaration.schema === "agent-declaration/v1" ? "agents" : "squads"); mkdirSync(store, { recursive: true }); writeFileSync(path.join(store, `${declaration.id}.json`), `${JSON.stringify(declaration, null, 2)}\n`); } }

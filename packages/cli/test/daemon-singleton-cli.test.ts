@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -115,8 +115,9 @@ async function residentPid(userRoot: string): Promise<number> {
   throw new Error("no resident daemon pid appeared");
 }
 async function waitForImportProgress(root: string, minimumRevisions: number): Promise<void> {
-  for (let attempt = 0; attempt < 600; attempt += 1) { if (git(root, "rev-list", "--count", "HEAD") - 1 >= minimumRevisions) return; await delay(100); }
-  throw new Error("migration replay did not start committing events");
+  const tasksRoot = path.join(root, "harness/tasks");
+  for (let attempt = 0; attempt < 12_000; attempt += 1) { try { if (readdirSync(tasksRoot).length >= minimumRevisions) return; } catch { /* the first visible migration document has not landed yet */ } await delay(5); }
+  throw new Error("migration replay did not make worktree-visible progress");
 }
 async function waitForProcessExit(pid: number, boundMs: number): Promise<void> {
   for (const deadline = Date.now() + boundMs; Date.now() < deadline;) { try { process.kill(pid, 0); } catch { return; } await delay(50); }

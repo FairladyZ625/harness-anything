@@ -17,12 +17,12 @@ export type { PresetSnapshotUpgradeBundle, PresetSnapshotUpgradeEventV1 } from "
 export { compileTaskProgress, isTaskProgressEvent, taskProgressWritePlan } from "./domain/task-progress-event.ts";
 export type { TaskProgressEvidence, TaskProgressEventV1 } from "./domain/task-progress-event.ts";
 export { assertCurrentWriter, bindWriterGenerationToken, createWriteReceipt, normalizeCommandEnvelope, serializeEventHead, WRITE_RECEIPT_SCHEMA } from "./domain/write-chain.contract.ts";
-export type { ActorIdentity, DocSyncReceiptDetail, FrozenWritePlan, WriteOperationReceipt, WriteReceipt, WriteSource, WriteTarget, WriterGeneration, WriterGenerationToken } from "./domain/write-chain.contract.ts";
+export type { ActorIdentity, DocSyncReceiptDetail, FrozenWritePlan, LedgerCutIdentity, WriteOperationReceipt, WriteReceipt, WriteSource, WriteTarget, WriterGeneration, WriterGenerationToken } from "./domain/write-chain.contract.ts";
 export { parseVerticalScriptAction, parseVerticalScriptPlan, parseVerticalScriptResult } from "./domain/vertical-script-action.ts"; export type { VerticalScriptActionV1, VerticalScriptChangeV1, VerticalScriptPlanV1, VerticalScriptResultV1 } from "./domain/vertical-script-action.ts";
 export { DOC_POLICY_ID, decideDocWrite, docSyncWritePlan, documentPath, isDocEvent, isTaskEvent, parseDocWriteIntent, resolveDocRoute } from "./domain/doc-sync.contract.ts";
 export { classifyTextualArtifactPath, type OpaqueTextualMediaType } from "./domain/artifact-text-classification.ts";
 export { parseCanonicalEvent, serializeCanonicalEvent } from "./domain/doc-sync.contract.ts";
-export type { CanonicalEventV1, DocClaimRef, DocEventChange, DocEventV1, DocWriteIntent, LedgerCommitSha } from "./domain/doc-sync.contract.ts";
+export type { CanonicalEventV1, DocClaimRef, DocEventChange, DocEventV1, DocWriteIntent } from "./domain/doc-sync.contract.ts";
 export { MIGRATION_DOCUMENT_POLICY_ID, MIGRATION_IMPORT_SOURCE, migrationImportWritePlan, validateMigrationImportEvent } from "./domain/migration-import-event.ts";
 export type { MigrationDestinationPreimage, MigrationDocumentClaim, MigrationImportEventV1 } from "./domain/migration-import-event.ts";
 export type { ArchivedExecutionV0, ExecutionV1, ProjectedExecution } from "./domain/execution.ts";
@@ -79,11 +79,11 @@ export { defaultLifecycleTaskProjectionPath } from "./projection/rebuildable-tas
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export {
-  canonicalDocumentClaims, canonicalEventWritePlan, configureLedgerMaintenance, ledgerGitPath, resolveLedgerGitLayout,
+  canonicalDocumentClaims, canonicalEventCut, canonicalEventWritePlan, configureLedgerMaintenance, ledgerGitPath, resolveLedgerGitLayout,
   makeTaskEventStore,
   makeTaskProjection
 } from "./composition/index.ts";
-export type { CanonicalContentBlob, CanonicalEventStore, CanonicalWriteBundle, EventPublicationKillpoint, ProjectionPage, ReplicaProjectionBasis, TaskProjection, TaskProjectionListQuery, TaskRelationProjectionRead, TaskRelationQuery } from "./composition/index.ts";
+export type { CanonicalContentBlob, CanonicalEventAppendReceipt, CanonicalEventCut, CanonicalEventStore, CanonicalWriteBundle, EventPublicationKillpoint, ProjectionPage, ReplicaProjectionBasis, TaskProjection, TaskProjectionListQuery, TaskRelationProjectionRead, TaskRelationQuery } from "./composition/index.ts";
 export {
   readDaemonRegistry,
   resolveDaemonRepoByRoot,

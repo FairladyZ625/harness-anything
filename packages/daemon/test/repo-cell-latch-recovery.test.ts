@@ -37,7 +37,7 @@ test("an invalid_store latch re-attaches on the next command after the ledger is
     await cell.close(); cell = undefined;
     // One more event lands after the daemon's projection cut (the kty-web lag shape), then a flat
     // entry lands in the sharded events root: the next catch-up scan must judge the mixed layout.
-    appendRawEvent(rootDir, "latch-heal", "task_lagging", 2);
+    await appendRawEvent(rootDir, "latch-heal", "task_lagging", 2);
     const stray = "harness/events/migration-stray.json";
     writeFileSync(path.join(rootDir, stray), "{}\n"); git(rootDir, "add", stray); git(rootDir, "commit", "-qm", "corrupt: flat entry in sharded events root"); git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
     cell = await openRepoCell({ repoId: workspaceId("latch-heal"), rootDir: canonicalRoot(rootDir), ownerId: "latch-heal-two", now: () => clock });
@@ -72,7 +72,7 @@ test("the latch re-probe is throttled to one attempt per interval", async () => 
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("latch-throttle"), rootDir: canonicalRoot(rootDir), ownerId: "latch-throttle-one", now: () => clock }); const binding = { actor, source: "local" as const };
     await cell.run({ kind: "task-create", taskId: "task_throttle", title: "Throttle" }, binding);
     await cell.close(); cell = undefined;
-    appendRawEvent(rootDir, "latch-throttle", "task_lagging", 2);
+    await appendRawEvent(rootDir, "latch-throttle", "task_lagging", 2);
     const stray = "harness/events/migration-stray.json";
     writeFileSync(path.join(rootDir, stray), "{}\n"); git(rootDir, "add", stray); git(rootDir, "commit", "-qm", "corrupt: flat entry in sharded events root"); git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
     cell = await openRepoCell({ repoId: workspaceId("latch-throttle"), rootDir: canonicalRoot(rootDir), ownerId: "latch-throttle-two", now: () => clock });
@@ -91,29 +91,52 @@ test("the latch re-probe is throttled to one attempt per interval", async () => 
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
-test("a publication_indeterminate latch reports the infrastructure class and heals after the authored branch is restored", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-latch-infra-")); let clock = "2026-08-18T00:00:00.000Z"; let cell: RepoCell | undefined;
+test("every latched RepoCell exit declares the latch and the cause identically while the fault persists", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-latch-")); let cell: RepoCell | undefined;
+  const reason = (error: unknown): string => error instanceof Error ? error.message : String(error);
+  try {
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("latch"), rootDir: canonicalRoot(rootDir), ownerId: "latch-one" }); const binding = { actor, source: "local" as const };
+    await cell.run({ kind: "task-create", taskId: "task-latch", title: "Latch" }, binding);
+    await cell.close(); cell = undefined;
+    const lagging: TaskEventV1 = { schema: "task-event/v1", eventId: "event-task-lagging", workspaceRevision: 2, opId: "op-task-lagging", taskId: "task-lagging", type: "task_created", actor, source: "local", occurredAt: "2026-08-18T00:00:00.000Z", payload: { task: { schema: "task/v1", taskId: "task-lagging", title: "Lagging", taskClass: "standard", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [], presetSnapshotDigest: null } } };
+    const laggingStore = makeTaskEventStore({ repoId: "latch", rootDir }); laggingStore.append({ event: lagging, plan: taskLifecycleWritePlan(lagging), blobs: [] }); await laggingStore.drain();
+    writeFileSync(path.join(rootDir, "harness/events/migration-stray.json"), "{}\n"); git(rootDir, "add", "harness/events/migration-stray.json"); git(rootDir, "commit", "-qm", "corrupt: flat entry in sharded events root"); git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
+    cell = await openRepoCell({ repoId: workspaceId("latch"), rootDir: canonicalRoot(rootDir), ownerId: "latch-two" });
+    const first = await cell.run({ kind: "task-list" }, binding);
+    assert.equal(first.outcome, "op_rejected"); assert.equal(first.code, "invalid_store"); assert.equal(cell.status().state, "unavailable");
+    assert.match(String(first.nextAction ?? ""), /events root mixes .* flat\/v1 .* sharded entries; run ha migrate ledger/u);
+    const write = await cell.run({ kind: "task-create", taskId: "task-after-latch", title: "After latch" }, binding);
+    const declared = String(write.nextAction ?? ""), latched = cell;
+    const reads = await Promise.all([latched.read("repo.tasks.list"), latched.spawnRuntime({}, binding), latched.attach("runtime-session", ""), latched.verifyReadiness()].map((pending) => pending.then(() => "resolved without reporting the latch", reason)));
+    for (const observed of reads) assert.equal(observed, declared);
+    assert.match(declared, /stays latched until its ledger data verifies/u);
+    assert.match(declared, /re-probes the ledger and re-attaches automatically/u);
+    assert.match(declared, /Cause: events root mixes \d+ flat\/v1 and \d+ sharded entries; run ha migrate ledger to normalize and migrate the ledger$/u);
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("an authored-branch advance does not revoke an acknowledged WAL receipt", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-latch-infra-")), clock = "2026-08-18T00:00:00.000Z"; let cell: RepoCell | undefined;
   try {
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("latch-infra"), rootDir: canonicalRoot(rootDir), ownerId: "latch-infra-one", now: () => clock }); const binding = { actor, source: "local" as const };
     const seed = await cell.run({ kind: "task-create", taskId: "task_infra", title: "Infra" }, binding);
     mkdirSync(path.join(rootDir, "harness/context"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/context/notes.md"), "# Notes\n");
     git(rootDir, "commit", "--allow-empty", "-qm", "external advance"); // moves the authored branch off the canonical cut
-    const indeterminate = await cell.run({ kind: "doc-submit", paths: ["context/notes.md"] }, binding);
-    assert.equal(indeterminate.outcome, "indeterminate"); assert.equal(indeterminate.code, "publication_indeterminate");
-    assert.equal(cell.status().state, "unavailable"); assert.equal(cell.status().causeClass, "infrastructure");
+    const pending = await cell.run({ kind: "doc-submit", paths: ["context/notes.md"] }, binding);
+    assert.equal(pending.outcome, "applied", JSON.stringify(pending)); assert.equal(pending.commitSha, null); assert.ok(pending.cut);
+    assert.equal(cell.status().state, "attached"); assert.equal(cell.status().causeClass, null);
     const receiptWhileLatched = await cell.run({ kind: "receipt-show", opId: seed.opId }, binding);
     assert.equal(receiptWhileLatched.outcome, "applied", JSON.stringify(receiptWhileLatched));
-    // Repair per the embedded recovery command: point the authored branch back at the canonical cut.
-    git(rootDir, "update-ref", git(rootDir, "symbolic-ref", "HEAD"), "refs/ha/canonical");
-    clock = "2026-08-18T00:00:06.000Z";
-    const healed = await cell.run({ kind: "task-list" }, binding);
-    assert.equal(healed.outcome, "applied", JSON.stringify(healed));
-    assert.equal(cell.status().state, "attached"); assert.equal(cell.status().causeClass, null);
+    // The batch materializer preserves an authored descendant and catches Git up on drain.
+    await cell.close(); cell = undefined;
+    assert.equal(git(rootDir, "show", "refs/ha/canonical:harness/context/notes.md"), "# Notes");
+    assert.equal(git(rootDir, "log", "-1", "--format=%s", "HEAD"), "harness WAL flush 1-2");
+    cell = await openRepoCell({ repoId: workspaceId("latch-infra"), rootDir: canonicalRoot(rootDir), ownerId: "latch-infra-two", now: () => clock });
     assert.equal((await cell.run({ kind: "task-create", taskId: "task_infra_after", title: "After infra heal" }, binding)).outcome, "applied");
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
-test("failed in-process recovery keeps a prepared operation indeterminate for immediate receipt lookup", async () => {
+test("in-process recovery promotes a durable WAL operation after an external authored advance", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-latch-prepared-receipt-")), clock = "2026-08-18T00:00:00.000Z"; let armed = true, cell: RepoCell | undefined;
   try {
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("latch-prepared-receipt"), rootDir: canonicalRoot(rootDir), ownerId: "latch-prepared-receipt", now: () => clock, killpoint: (point) => { if (armed && point === "after_head_write") { armed = false; throw new Error("prepared publication interruption"); } } }); const binding = { actor, source: "local" as const };
@@ -121,7 +144,7 @@ test("failed in-process recovery keeps a prepared operation indeterminate for im
     assert.equal(interrupted.outcome, "op_rejected"); assert.equal(cell.status().state, "unavailable");
     git(rootDir, "commit", "--allow-empty", "-qm", "external advance after prepared publication");
     const receipt = await cell.run({ kind: "receipt-show", opId: interrupted.opId }, binding);
-    assert.equal(receipt.outcome, "indeterminate", JSON.stringify(receipt)); assert.equal(receipt.code, "publication_indeterminate");
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); assert.match(String(receipt.commitSha), /^[0-9a-f]{40}$/u); assert.equal(cell.status().state, "attached");
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -135,9 +158,9 @@ test("a queued write rechecks Cell state after close begins", async () => {
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
-function appendRawEvent(rootDir: string, repoId: string, taskId: string, revision: number): void {
+async function appendRawEvent(rootDir: string, repoId: string, taskId: string, revision: number): Promise<void> {
   const event: TaskEventV1 = { schema: "task-event/v1", eventId: `event-${taskId}`, workspaceRevision: revision, opId: `op-${taskId}`, taskId, type: "task_created", actor, source: "local", occurredAt: "2026-08-18T00:00:00.000Z", payload: { task: { schema: "task/v1", taskId, title: "Lagging append", taskClass: "standard", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [], presetSnapshotDigest: null } } };
-  makeTaskEventStore({ repoId, rootDir }).append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+  const store = makeTaskEventStore({ repoId, rootDir }); store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] }); await store.drain();
 }
 function initRepo(rootDir: string): void { git(rootDir, "init", "-q"); git(rootDir, "config", "user.name", "Latch Recovery Test"); git(rootDir, "config", "user.email", "latch-recovery@example.invalid"); git(rootDir, "commit", "--allow-empty", "-qm", "base"); }
 function git(rootDir: string, ...args: readonly string[]): string { return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim(); }

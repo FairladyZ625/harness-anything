@@ -71,7 +71,7 @@ function seedLedger(rootDir: string, name: string, body: string): CanonicalEvent
   git(rootDir, "config", "user.email", "identity-test@example.invalid");
   git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
   const eventStore = makeTaskEventStore({ repoId: name, rootDir });
-  const hash = sha256Text(body), base = eventStore.currentCommit();
+  const hash = sha256Text(body), base = eventStore.currentCut();
   const event: DocEventV1 = { schema: "doc-event/v1", eventId: `event-${name}`, workspaceRevision: 1, opId: `op-${name}`, type: "documents_written",
     actor: { principal: { personId: "person-1" }, executor: null }, source: "local", occurredAt: "2026-08-18T00:00:00.000Z",
     payload: { executionId: null, baseLedgerSha: base, changes: [{ path: "context/notes.md", baseBlobSha256: null,
