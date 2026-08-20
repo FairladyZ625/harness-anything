@@ -171,7 +171,7 @@ function headroomFor(measured) {
 // daemon (1630 -> 1660, #1458 adds lines) and gui (18494 -> 18414, #1458 removes
 // them), so daemon uses the merged figure and gui the base one.
 const DECISION_INPUT_LINES = Object.freeze({
-  kernel: 7962,
+  kernel: 10198, // re-measured under dec_F906FA4E1BE047B6F591CF4316 (S4 moves Git materialization off the write return path)
   "task-lifecycle": 375,
   "write-contract": 292,
   "doc-sync": 572,
