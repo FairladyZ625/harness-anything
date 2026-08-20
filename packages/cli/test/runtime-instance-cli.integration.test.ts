@@ -1,10 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -13,8 +14,8 @@ test("real CLI performs machine runtime instance CRUD through an isolated reside
   // fixture puts its own on PATH: asserting that some runtime happens to be installed
   // would assert a property of the host, which is false on every clean machine.
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-instance-cli-")), userRoot = path.join(root, "user"), binRoot = path.join(root, "bin"), fixtureVersion = "0.0.0-runtime-instance-fixture";
-  mkdirSync(binRoot, { recursive: true }); for (const kind of ["claude", "codex"] as const) writeFileSync(path.join(binRoot, kind), `#!/bin/sh\necho "${kind} ${fixtureVersion}"\n`, { mode: 0o755 });
-  const env = { ...process.env, HOME: path.join(root, "home"), PATH: [binRoot, ...(process.env.PATH ?? "").split(path.delimiter).filter((entry) => !existsSync(path.join(entry, "codex")) && !existsSync(path.join(entry, "codex.exe")))].join(path.delimiter), HARNESS_DAEMON_USER_ROOT: userRoot, HARNESS_DAEMON_ID: "runtime-instance-test" };
+  mkdirSync(binRoot, { recursive: true }); for (const kind of ["claude", "codex"] as const) writeProviderExecutable(path.join(binRoot, kind), `console.log("${kind} ${fixtureVersion}");\n`);
+  const env = { ...process.env, HOME: path.join(root, "home"), PATH: [binRoot, ...(process.env.PATH ?? "").split(path.delimiter).filter((entry) => ["codex", "codex.cmd", "codex.exe"].every((name) => !existsSync(path.join(entry, name))))].join(path.delimiter), HARNESS_DAEMON_USER_ROOT: userRoot, HARNESS_DAEMON_ID: "runtime-instance-test" };
   try {
     assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);
     const initial = run(root, env, ["runtime", "instance", "list"]), installations = initial.installations as Array<{ installationId: string; kindId: "claude" | "codex"; version: string }>;

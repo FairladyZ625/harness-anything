@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { hostname, tmpdir } from "node:os";
 import net from "node:net";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { registerDaemonRepo } from "../../kernel/src/index.ts";
@@ -15,6 +15,7 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
+import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 test("a caller that names a response deadline gets a classified failure instead of an open-ended silent socket", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "daemon-response-deadline-")), endpoint = localEndpoint(root, "quiet.sock");
@@ -30,7 +31,7 @@ test("a caller that names a response deadline gets a classified failure instead 
 });
 
 test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/control, secret rejection, and real PTY", async () => {
-    const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-s3-resident-")), userRoot = path.join(parent, "user"), alpha = path.join(parent, "alpha"), beta = path.join(parent, "beta"), endpoint = localEndpoint(parent, "daemon.sock"), executablePath = path.join(parent, "runtime-stub.mjs"), uid = process.getuid?.() ?? 0; writeFileSync(executablePath, `#!${process.execPath}\nif (process.argv[2] === "--version") console.log("resident-runtime-stub 1.0.0");\nprocess.exit(0);\n`); chmodSync(executablePath, 0o755);
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-s3-resident-")), userRoot = path.join(parent, "user"), alpha = path.join(parent, "alpha"), beta = path.join(parent, "beta"), endpoint = localEndpoint(parent, "daemon.sock"), executablePath = writeProviderExecutable(path.join(parent, "runtime-stub.mjs"), `if (process.argv[2] === "--version") console.log("resident-runtime-stub 1.0.0");\nprocess.exit(0);\n`), uid = process.getuid?.() ?? 0;
     initRepo(alpha, "alpha", uid); initRepo(beta, "beta", uid); registerDaemonRepo({ canonicalRoot: alpha, repoId: "alpha", userRoot, createConvenienceLinks: false }); registerDaemonRepo({ canonicalRoot: beta, repoId: "beta", userRoot, createConvenienceLinks: false });
     const locked = await openRepoCell({ repoId: workspaceId("beta"), rootDir: canonicalRoot(beta), ownerId: "other-daemon" });
     let launched: Record<string, unknown> | null = null; const host = await openDaemonHost({ daemonId: "gui-s3", userRoot, endpoint, runtimeDiscover: () => [{ installationId: "installation-codex", kindId: "codex", executablePath, version: "1.0.0", observedAt: "2026-08-14T00:00:00.000Z" }], runtimeLaunch: (prepared) => { launched = prepared as unknown as Record<string, unknown>; return { pid: 4242, onOutput: () => undefined, onErrorOutput: () => undefined, onExit: () => undefined, terminate: () => undefined }; } });

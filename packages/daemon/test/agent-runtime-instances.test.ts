@@ -8,6 +8,7 @@ import { parseThinCommand } from "../../cli/src/cli/thin-command.ts";
 import { discoverRuntimeInstallations, openRuntimeInstanceStore, type RuntimeAuthReadiness, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { resolveAgentSkills } from "../src/agent-skills.ts";
 import { daemonProtocolCommands } from "../src/protocol/daemon-protocol.contract.ts";
+import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 const observed: RuntimeInstallationWitness = { installationId: "codex-installation-test", kindId: "codex", executablePath: "/opt/runtime-test/codex", version: "0.146.1", observedAt: "2026-08-15T00:00:00.000Z" };
 
@@ -30,10 +31,10 @@ test("machine runtime instance CRUD binds a witnessed installation and enforces 
 });
 
 test("runtime installation discovery witnesses the exact executable realpath and version", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-discovery-")), bin = path.join(root, "bin"), real = path.join(root, "real"), executable = path.join(real, "codex-real");
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-discovery-")), bin = path.join(root, "bin"), real = path.join(root, "real"), script = path.join(real, "codex-real");
   try {
     requireDirectory(bin); requireDirectory(real);
-    writeFileSync(executable, "#!/bin/sh\necho stub-runtime-1.0.0\n", { mode: 0o755 });
+    const executable = writeProviderExecutable(script, "console.log(\"stub-runtime-1.0.0\");\n");
     symlinkSync(executable, path.join(bin, "codex"));
     const installations = discoverRuntimeInstallations({ env: { PATH: bin }, now: () => "2026-08-15T01:00:00.000Z" });
     assert.equal(installations.length, 1);
@@ -98,9 +99,8 @@ test("subscription launch fails closed without provider-native readiness and nev
 });
 
 test("subscription probes distinguish a rejected status command from an unspawnable executable", () => {
-  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-subscription-probe-")), rejectedPath = path.join(userRoot, "rejected-status.mjs"), rejected = { ...observed, installationId: "codex-rejected-status", executablePath: rejectedPath }, unspawnable = { ...observed, installationId: "codex-unspawnable-status", executablePath: path.join(userRoot, "missing-status") };
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-subscription-probe-")), rejectedPath = path.join(userRoot, "rejected-status.mjs"), rejected = { ...observed, installationId: "codex-rejected-status", executablePath: writeProviderExecutable(rejectedPath, "process.exit(7);\n") }, unspawnable = { ...observed, installationId: "codex-unspawnable-status", executablePath: path.join(userRoot, "missing-status") };
   try {
-    writeFileSync(rejectedPath, `#!${process.execPath}\nprocess.exit(7);\n`, { mode: 0o755 });
     const store = openRuntimeInstanceStore({ userRoot, discover: () => [rejected, unspawnable] });
     for (const installation of [rejected, unspawnable]) store.create({ schemaVersion: 1, instanceId: installation.installationId, name: installation.installationId, kindId: "codex", installationId: installation.installationId, providerId: "openai", model: "gpt-5.6-sol", auth: { mode: "subscription" } });
     assert.equal(store.authStatus(rejected.installationId).code, "runtime_subscription_required");
@@ -427,9 +427,8 @@ test("agy uses the operator environment, OAuth-only auth, and a closed effort en
 });
 
 test("agy subscription probes report an unavailable operator environment", () => {
-  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-agy-subscription-probe-")), executablePath = path.join(userRoot, "agy-models.mjs"), agy: RuntimeInstallationWitness = { installationId: "agy-rejected-status", kindId: "agy", executablePath, version: "1.1.15", observedAt: "2026-08-19T00:00:00.000Z" };
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-agy-subscription-probe-")), agy: RuntimeInstallationWitness = { installationId: "agy-rejected-status", kindId: "agy", executablePath: writeProviderExecutable(path.join(userRoot, "agy-models.mjs"), "process.exit(7);\n"), version: "1.1.15", observedAt: "2026-08-19T00:00:00.000Z" };
   try {
-    writeFileSync(executablePath, `#!${process.execPath}\nprocess.exit(7);\n`, { mode: 0o755 });
     const store = openRuntimeInstanceStore({ userRoot, discover: () => [agy] });
     store.create({ schemaVersion: 1, instanceId: "agy-subscription", name: "AGY Subscription", kindId: "agy", installationId: agy.installationId, providerId: "google", model: "gemini-3.1-pro-low", auth: { mode: "subscription" } });
     assert.deepEqual(store.authStatus("agy-subscription"), { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in the operator environment." });
@@ -542,18 +541,42 @@ test("credential references accept the backend-agnostic grammar and legacy keych
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
 
-// The PATHEXT suffix enumeration and argv-direct spawn are observable from any
-// host (the `.exe`-named probe is a shell script here); routing `.cmd` shims
-// through the explicit cmd.exe argv needs a real Windows host and is covered by
-// the manual cross-platform regression checklist instead.
+// The PATHEXT suffix enumeration is observable from any host: a POSIX host
+// witnesses the argv-direct `.exe`-suffixed probe directly, while a real
+// Windows host witnesses the same enumeration through the `.cmd` shim the
+// shared provider stub fixture produces.
 test("win32 installation discovery probes PATHEXT suffixes and witnesses the shim", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-win32-discovery-")), bin = path.join(root, "bin");
   try {
     mkdirSync(bin);
-    writeFileSync(path.join(bin, "codex.exe"), "#!/bin/sh\necho stub-runtime-1.0.0\n", { mode: 0o755 });
+    const executablePath = writeProviderExecutable(process.platform === "win32" ? path.join(bin, "codex") : path.join(bin, "codex.exe"), "console.log(\"stub-runtime-1.0.0\");\n");
     const installations = discoverRuntimeInstallations({ env: { PATH: bin }, platform: "win32", now: () => "2026-08-15T01:00:00.000Z" });
     assert.equal(installations.length, 1);
     assert.deepEqual({ kindId: installations[0]!.kindId, version: installations[0]!.version, observedAt: installations[0]!.observedAt }, { kindId: "codex", version: "stub-runtime-1.0.0", observedAt: "2026-08-15T01:00:00.000Z" });
-    assert.equal(installations[0]!.executablePath.endsWith("codex.exe"), true);
+    assert.equal(installations[0]!.executablePath.endsWith(process.platform === "win32" ? "codex.cmd" : "codex.exe"), true);
+    assert.equal(installations[0]!.executablePath, realpathSync(executablePath));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+// The shared stub fixture must forward the exact argv through the platform's
+// real launch shape: the discovery version probe proves single-argument
+// passthrough (`--version`), and the codex subscription probe proves
+// multi-argument passthrough (`login status`) — the stub answers ready only
+// when it receives that argv verbatim, so a shim that dropped or reordered
+// arguments would surface as runtime_subscription_required, not readiness.
+test("the shared provider stub fixture launches with the exact argv on every platform", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-stub-fixture-")), bin = path.join(root, "bin"), witness = path.join(root, "argv-witness.json"), userRoot = path.join(root, "user"), script = path.join(bin, "codex");
+  try {
+    requireDirectory(bin);
+    const executablePath = writeProviderExecutable(script, `const fs = require("node:fs");\nconst argv = process.argv.slice(2), serialized = JSON.stringify(argv);\nfs.writeFileSync(${JSON.stringify(witness)}, serialized);\nconsole.log(serialized);\nif (serialized !== JSON.stringify(["--version"]) && serialized !== JSON.stringify(["login", "status"])) process.exit(9);\n`);
+    assert.equal(readFileSync(script, "utf8").startsWith(`#!${process.execPath}\n`), true);
+    if (process.platform === "win32") assert.equal(executablePath.endsWith(".cmd"), true); else assert.equal(statSync(script).mode & 0o777, 0o755);
+    const installations = discoverRuntimeInstallations({ env: { PATH: bin } });
+    assert.equal(installations.length, 1, JSON.stringify(installations));
+    assert.equal(installations[0]!.executablePath, realpathSync(executablePath));
+    assert.equal(installations[0]!.version, JSON.stringify(["--version"]));
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => installations });
+    store.create({ schemaVersion: 2, instanceId: "codex-stub-argv", name: "Codex Stub Argv", kindId: "codex", installationId: installations[0]!.installationId, providerId: "openai", models: ["argv-model"], defaultModel: "argv-model", enabled: true, codex: {}, auth: { mode: "subscription" } });
+    assert.deepEqual(store.authStatus("codex-stub-argv"), { status: "ready", code: null, hint: null });
+    assert.equal(readFileSync(witness, "utf8"), JSON.stringify(["login", "status"]));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
