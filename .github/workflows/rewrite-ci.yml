@@ -248,7 +248,7 @@ jobs:
     # dec_630DB4EB94D3CB0B2459C8ABE2 (2026-08-20): Windows is demoted off the PR merge path.
     # The full matrix runs on the nightly schedule (and manual dispatch) only; windows-first-run
     # remains the per-PR smoke. This lane is never promoted to a required context.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name != 'pull_request' && github.event_name != 'push'
     needs: metadata-source-proof
     name: windows-integration-shard (${{ matrix.shard }})
     runs-on: windows-latest

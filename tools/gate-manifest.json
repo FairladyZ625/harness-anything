@@ -150,7 +150,6 @@
         "crlf-checkout",
         "windows-first-run",
         "integration-shard",
-        "windows-integration-shard",
         "boundaries",
         "package-policy",
         "supply-chain",
@@ -162,7 +161,8 @@
         "source-validation-proof"
       ],
       "nonPullRequestGateJobs": [
-        "full-check"
+        "full-check",
+        "windows-integration-shard"
       ]
     },
     "branchProtection": {
@@ -557,7 +557,6 @@
             "crlf-checkout",
             "windows-first-run",
             "integration-shard",
-            "windows-integration-shard",
             "boundaries",
             "package-policy",
             "supply-chain",
@@ -1058,8 +1057,7 @@
         },
         "rewriteCi": {
           "pullRequestJobs": [
-            "integration-shard",
-            "windows-integration-shard"
+            "integration-shard"
           ],
           "nonPullRequestJobs": []
         },
@@ -2232,8 +2230,8 @@
       "tierReason": null,
       "authoritySource": [
         "decision/dec_399F48E3547D831F1199F51E84#CH1",
-        "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#领域服务跨聚合的判定仍在-domain-层",
-        "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#切片-3--判定下沉",
+        "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#\u9886\u57df\u670d\u52a1\u8de8\u805a\u5408\u7684\u5224\u5b9a\u4ecd\u5728-domain-\u5c42",
+        "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#\u5207\u7247-3--\u5224\u5b9a\u4e0b\u6c89",
         "harness/adr/ADR-0027-task-completion-proof-and-gate-semantics.md#d7",
         "harness/adr/ADR-0024-gui-architecture-and-trust-boundary.md#p4"
       ],
@@ -2316,7 +2314,7 @@
         "packages/kernel/src/domain/entity-relation.ts#isAllowedRelationKindTriple",
         "decision/dec_mr74sbka",
         "decision/dec_399F48E3547D831F1199F51E84#CH1",
-        "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#铁律三--一个语义关系只有一个规范方向"
+        "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#\u94c1\u5f8b\u4e09--\u4e00\u4e2a\u8bed\u4e49\u5173\u7cfb\u53ea\u6709\u4e00\u4e2a\u89c4\u8303\u65b9\u5411"
       ],
       "consumerScope": [
         "kernel relation write surface (isAllowedRelationKindTriple behind validateRelationRecordsForHost)",
@@ -2393,7 +2391,7 @@
       "authoritySource": [
         "packages/kernel/src/domain/task-lifecycle.contract.ts#TASK_LIFECYCLE_TRANSITIONS",
         "decision/dec_399F48E3547D831F1199F51E84#CH1",
-        "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#铁律一--任何跨状态修改必须经过聚合入口",
+        "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#\u94c1\u5f8b\u4e00--\u4efb\u4f55\u8de8\u72b6\u6001\u4fee\u6539\u5fc5\u987b\u7ecf\u8fc7\u805a\u5408\u5165\u53e3",
         "task_9178bc1dd384c27084b2a9ab79"
       ],
       "consumerScope": [
@@ -4456,8 +4454,8 @@
       "authoritySource": [
         "packages/kernel/src/domain/status-vocabulary.ts",
         "decision/dec_399F48E3547D831F1199F51E84#CH1",
-        "harness/adr/ADR-0020-decision-entity-adr-boundary.md#d1--decision-是承重选择的唯一结构化-sot",
-        "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#铁律四--一个词只能指一件事"
+        "harness/adr/ADR-0020-decision-entity-adr-boundary.md#d1--decision-\u662f\u627f\u91cd\u9009\u62e9\u7684\u552f\u4e00\u7ed3\u6784\u5316-sot",
+        "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#\u94c1\u5f8b\u56db--\u4e00\u4e2a\u8bcd\u53ea\u80fd\u6307\u4e00\u4ef6\u4e8b"
       ],
       "consumerScope": [
         "kernel domain status vocabularies (every word declared in packages/kernel/src/domain)",
