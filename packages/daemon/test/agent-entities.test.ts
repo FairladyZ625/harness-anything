@@ -62,6 +62,21 @@ test("Agent skills are references under the authored root and fail closed with r
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+test("generated Agent output reuses validation, admits only runnable declarations, and never overwrites", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-generated-agent-")), source = path.join(rootDir, "source"), generated = { ...agent, id: "generated", name: "Generated", instructions: "Generated instructions." };
+  try {
+    writeEntity(source, generated.id, "agent", generated);
+    const runtimeInstances = [{ kindId: "codex", models: ["gpt-5.6-sol", "gpt-5.6-terra"], enabled: true }];
+    assert.throws(() => run({ rootDir, kind: "agent-install", packageSource: path.join(source, generated.id), generatedOnly: true, runtimeInstances }), (error: unknown) => (error as { code?: string }).code === "agent_validation_required");
+    assert.equal((run({ rootDir, kind: "agent-install", packageSource: path.join(source, generated.id), generatedOnly: true, validated: true, runtimeInstances }) as { entityId: string }).entityId, generated.id);
+    assert.throws(() => run({ rootDir, kind: "agent-install", packageSource: path.join(source, generated.id), generatedOnly: true, validated: true, runtimeInstances }), (error: unknown) => (error as { code?: string; message?: string }).code === "agent_id_conflict" && /ha agent inspect generated.*ha agent create/u.test(String((error as Error).message)));
+    const unknown = { ...generated, id: "unknown-generated", runtime_type: "opencode" }; writeEntity(source, unknown.id, "agent", unknown);
+    assert.throws(() => run({ rootDir, kind: "agent-install", packageSource: path.join(source, unknown.id), generatedOnly: true, validated: true, runtimeInstances }), (error: unknown) => (error as { code?: string; message?: string }).code === "agent_runtime_type_unavailable" && /ha runtime instance list/u.test(String((error as Error).message)));
+    const unsupported = { ...generated, id: "unsupported-generated", model: "missing-model" }; writeEntity(source, unsupported.id, "agent", unsupported);
+    assert.throws(() => run({ rootDir, kind: "agent-install", packageSource: path.join(source, unsupported.id), generatedOnly: true, validated: true, runtimeInstances }), (error: unknown) => (error as { code?: string; message?: string }).code === "agent_model_unavailable" && /ha runtime instance list/u.test(String((error as Error).message)));
+  } finally { rmSync(rootDir, { recursive: true, force: true }); }
+});
+
 test("entity validation names every malformed manifest and refuses squads that reference missing agents", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-entity-errors-")), source = path.join(rootDir, "source");
   try {
@@ -123,5 +138,5 @@ test("GUI declaration writes validate before installing and preserve roster byte
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 
-function run(input: { readonly rootDir: string; readonly kind: string; readonly packageSource?: string; readonly declaration?: Record<string, unknown>; readonly agentId?: string; readonly squadId?: string }): unknown { return runAgentEntityAction({ rootDir: input.rootDir, action: { kind: input.kind, ...(input.packageSource ? { packageSource: input.packageSource } : {}), ...(input.declaration ? { declaration: input.declaration } : {}), ...(input.agentId ? { agentId: input.agentId } : {}), ...(input.squadId ? { squadId: input.squadId } : {}) } }); }
+function run(input: { readonly rootDir: string; readonly kind: string; readonly packageSource?: string; readonly declaration?: Record<string, unknown>; readonly agentId?: string; readonly squadId?: string; readonly generatedOnly?: boolean; readonly validated?: boolean; readonly runtimeInstances?: readonly { readonly kindId: string; readonly models: readonly string[]; readonly enabled: boolean }[] }): unknown { return runAgentEntityAction({ rootDir: input.rootDir, runtimeInstances: input.runtimeInstances, action: { kind: input.kind, ...(input.packageSource ? { packageSource: input.packageSource } : {}), ...(input.declaration ? { declaration: input.declaration } : {}), ...(input.agentId ? { agentId: input.agentId } : {}), ...(input.squadId ? { squadId: input.squadId } : {}), ...(input.generatedOnly ? { generatedOnly: true } : {}), ...(input.validated ? { validated: true } : {}) } }); }
 function writeEntity(source: string, id: string, kind: "agent" | "squad", declaration: Record<string, unknown>): void { const target = path.join(source, id); mkdirSync(target, { recursive: true }); writeFileSync(path.join(target, kind === "agent" ? "agent.json" : "squad.json"), `${JSON.stringify(declaration, null, 2)}\n`); }
