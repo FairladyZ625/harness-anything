@@ -8,8 +8,6 @@
     { "path": "./packages/cli" },
     { "path": "./packages/gui" },
     { "path": "./packages/adapters/local" },
-    { "path": "./packages/adapters/multica" },
-    { "path": "./packages/adapters/github-issues" },
-    { "path": "./packages/adapters/linear" }
+    { "path": "./packages/adapters/multica" }
   ]
 }

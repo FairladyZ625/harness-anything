@@ -130,16 +130,6 @@
     ],
     "expectedWorkspaceTsconfigs": [
       {
-        "value": "packages/adapters/github-issues/tsconfig.json",
-        "ref": "ADR-0023#D6",
-        "reason": "Workspace TypeScript references are a governed package boundary list."
-      },
-      {
-        "value": "packages/adapters/linear/tsconfig.json",
-        "ref": "ADR-0023#D6",
-        "reason": "Workspace TypeScript references are a governed package boundary list."
-      },
-      {
         "value": "packages/adapters/local/tsconfig.json",
         "ref": "ADR-0023#D6",
         "reason": "Workspace TypeScript references are a governed package boundary list."

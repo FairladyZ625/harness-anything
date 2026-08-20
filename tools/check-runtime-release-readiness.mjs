@@ -83,9 +83,7 @@ for (const workspace of [
   "packages/cli/package.json",
   "packages/gui/package.json",
   "packages/adapters/local/package.json",
-  "packages/adapters/multica/package.json",
-  "packages/adapters/github-issues/package.json",
-  "packages/adapters/linear/package.json"
+  "packages/adapters/multica/package.json"
 ]) {
   const packageJson = readJson(workspace);
   if (workspace === "packages/cli/package.json") {
