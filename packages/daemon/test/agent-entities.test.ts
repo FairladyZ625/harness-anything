@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -88,7 +88,7 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
     assert.deepEqual(squadRows.squads.map(({ id, leader, workers }) => ({ id, leader, workers })), [{ id: "core-squad", leader: "terra", workers: ["terra"] }]);
     const agentDetail = readAgentEntityGuiProjection({ rootDir, kind: "agent-inspect", entityId: "terra" }), squadDetail = readAgentEntityGuiProjection({ rootDir, kind: "squad-inspect", entityId: "core-squad" });
     assert.equal(agentDetail.ok, true); assert.equal(squadDetail.ok, true);
-    assert.deepEqual(agentDetail.agent, { id: "terra", name: "Terra", runtimeType: "codex", instructions: "Review precisely.", skills: ["review"], prompts: ["prompt://review"], preset: "standard-task" });
+    assert.deepEqual(agentDetail.agent, { id: "terra", name: "Terra", runtimeType: "codex", instructions: "Review precisely.", model: "gpt-5.6-terra", skills: ["review"], prompts: ["prompt://review"], preset: "standard-task" });
     assert.deepEqual(squadDetail.squad, { id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: squad.roster });
     assert.throws(() => readAgentEntityGuiProjection({ rootDir, kind: "agent-inspect", entityId: "unknown" }), (error: unknown) => (error as { code?: string }).code === "agent_not_found");
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
@@ -108,5 +108,16 @@ test("Squad dispatch resolution selects one declared worker and rejects outsider
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 
-function run(input: { readonly rootDir: string; readonly kind: string; readonly packageSource?: string; readonly agentId?: string; readonly squadId?: string }): unknown { return runAgentEntityAction({ rootDir: input.rootDir, action: { kind: input.kind, ...(input.packageSource ? { packageSource: input.packageSource } : {}), ...(input.agentId ? { agentId: input.agentId } : {}), ...(input.squadId ? { squadId: input.squadId } : {}) } }); }
+test("GUI declaration writes validate before installing and preserve roster bytes", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-entities-gui-write-")), roster = "## Blue Squad\n\n  Fable leads.\n\n";
+  try {
+    run({ rootDir, kind: "agent-install", declaration: { ...agent, id: "gui-agent", name: "GUI Agent" } });
+    run({ rootDir, kind: "squad-install", declaration: { ...squad, id: "gui-squad", name: "GUI Squad", leader: "gui-agent", workers: ["gui-agent"], roster } });
+    assert.equal((run({ rootDir, kind: "squad-inspect", squadId: "gui-squad" }) as { squad: { roster: string } }).squad.roster, roster);
+    assert.throws(() => run({ rootDir, kind: "agent-install", declaration: { ...agent, id: "Bad ID" } }), (error: unknown) => (error as { code?: string }).code === "invalid_manifest");
+    assert.equal(existsSync(path.join(rootDir, ".harness", "agents", "Bad ID.json")), false);
+  } finally { rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+function run(input: { readonly rootDir: string; readonly kind: string; readonly packageSource?: string; readonly declaration?: Record<string, unknown>; readonly agentId?: string; readonly squadId?: string }): unknown { return runAgentEntityAction({ rootDir: input.rootDir, action: { kind: input.kind, ...(input.packageSource ? { packageSource: input.packageSource } : {}), ...(input.declaration ? { declaration: input.declaration } : {}), ...(input.agentId ? { agentId: input.agentId } : {}), ...(input.squadId ? { squadId: input.squadId } : {}) } }); }
 function writeEntity(source: string, id: string, kind: "agent" | "squad", declaration: Record<string, unknown>): void { const target = path.join(source, id); mkdirSync(target, { recursive: true }); writeFileSync(path.join(target, kind === "agent" ? "agent.json" : "squad.json"), `${JSON.stringify(declaration, null, 2)}\n`); }

@@ -24,7 +24,7 @@ test("preload exposes only the approved API methods", () => {
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", staleRepoId: "repo-b" }), /not allowed/u);
   assert.throws(() => assertPreloadPayload("getSystemStatus", { repoId: "repo-a" }), /not allowed/u);
   assert.equal(getPreloadApiCapability("getTasks").status, "shipped");
-  assert.equal(daemonGuiActionMethods.length, 19); assert.equal(daemonGuiActionMethods.some(({ method }) => method === "repo.task.run"), false); assert.equal(daemonGuiActionMethods.some(({ method }) => method === "repo.agentRuntime.cancel"), true); assert.equal(preloadAllowlist.includes("daemon.agentRuntime.credentials.bind" as never), false); assert.equal(preloadAllowlist.includes("startTask"), true); assert.equal(preloadAllowlist.includes("showReceipt"), true);
+  assert.equal(daemonGuiActionMethods.length, 21); assert.equal(daemonGuiActionMethods.some(({ method }) => method === "repo.task.run"), false); assert.equal(daemonGuiActionMethods.some(({ method }) => method === "repo.agentRuntime.cancel"), true); assert.equal(daemonGuiActionMethods.some(({ method }) => method === "repo.agent.entity.write"), true); assert.equal(daemonGuiActionMethods.some(({ method }) => method === "repo.squad.entity.write"), true); assert.equal(preloadAllowlist.includes("daemon.agentRuntime.credentials.bind" as never), false); assert.equal(preloadAllowlist.includes("startTask"), true); assert.equal(preloadAllowlist.includes("showReceipt"), true);
 });
 
 test("repo and empty scopes are derived when a GUI contract grows", () => {
@@ -45,6 +45,13 @@ test("Agent and Squad detail payload paths stay open on the real contract", () =
   assert.equal(assertPreloadPayload("listAgents", { repoId: "repo-a" }), true);
   assert.equal(assertPreloadPayload("listSquads", { repoId: "repo-a" }), true);
   assert.throws(() => assertPreloadPayload("listAgents", { repoId: "repo-a", agentId: "fable" }), /not allowed/u);
+});
+
+test("Agent and Squad writes stay on the daemon allowlist and reject secret-shaped declaration keys", () => {
+  const agent = { repoId: "repo-a", declaration: { schema: "agent-declaration/v1", id: "fable", name: "Fable", instructions: "Review.", runtime_type: "any" } };
+  const squad = { repoId: "repo-a", declaration: { schema: "squad-declaration/v1", id: "blue-squad", name: "Blue", leader: "fable", workers: [], roster: "# Blue\n" } };
+  assert.equal(assertPreloadPayload("saveAgent", agent), true); assert.equal(assertPreloadPayload("saveSquad", squad), true);
+  assert.throws(() => assertPreloadPayload("saveAgent", { ...agent, declaration: { ...agent.declaration, apiKey: "no" } }), /secret-like key/u);
 });
 
 // The only tolerated secret payload is the user-typed create-form key, and only

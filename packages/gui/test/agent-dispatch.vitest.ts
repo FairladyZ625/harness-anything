@@ -14,7 +14,10 @@ beforeAll(() => setActiveLocale("en-US"));
 
 const codexInstance = { schemaVersion: 2, instanceId: "w4c-verify-codex", name: "Codex Verify", kindId: "codex", installationId: "codex-install", providerId: "openai", models: ["gpt-5.6-terra"], defaultModel: "gpt-5.6-terra", enabled: true, codex: { reasoningEffort: "high", baseUrl: null, baseUrlConfigured: false, wire_api: null, requires_openai_auth: null, http_headers: null }, authMode: "subscription", authState: "authenticated", authReadiness: { status: "ready", code: null, hint: null }, isolationState: "enforced" } as const;
 const claudeInstance = { ...codexInstance, instanceId: "claude-one", name: "Claude One", kindId: "claude", claude: { baseUrl: null, baseUrlConfigured: false } } as never;
+const agyInstance = { ...codexInstance, instanceId: "agy-one", name: "Agy One", kindId: "agy", agy: { effort: "high" } } as never;
 const agentSubject: DispatchSubject = { kind: "agent", agent: { agentId: "terra", agentName: "terra", runtimeType: "codex" } };
+const anyAgentSubject: DispatchSubject = { kind: "agent", agent: { agentId: "any-worker", agentName: "any-worker", runtimeType: "any" } };
+const openCodeAgentSubject: DispatchSubject = { kind: "agent", agent: { agentId: "opencode-worker", agentName: "opencode-worker", runtimeType: "opencode-worker" } };
 const squadSubject: DispatchSubject = { kind: "squad", squadId: "core-squad", squadName: "Core Squad", leader: { agentId: "fable", agentName: "fable", runtimeType: "claude" }, workers: [{ agentId: "luna", agentName: "luna", runtimeType: "claude" }, { agentId: "sol", agentName: "sol", runtimeType: "codex" }, { agentId: "terra", agentName: "terra", runtimeType: "codex" }] };
 const baseRequest = { runtimeInstanceId: "w4c-verify-codex", mission: "Verify the auth cleanup diff.", cwd: { scope: "repo-root" } as const, taskId: "task-dispatch", idempotencyKey: "gui-dispatch-1" };
 const definition = { schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: "w4c-verify-codex", installationId: "codex-install", kindId: "codex", providerId: "openai", model: "gpt-5.6-terra", reasoningEffort: null, baseUrl: null, authMode: "subscription" } as const;
@@ -45,6 +48,8 @@ describe("agent dispatch flow", () => {
     expect(compatibleDispatchInstances("claude", [codexInstance, claudeInstance]).map((instance) => instance.instanceId)).toEqual(["claude-one"]);
     expect(compatibleDispatchInstances("agy", [codexInstance, claudeInstance])).toEqual([]);
   });
+  it("lets an any Agent filter and dispatch through every supported enabled runtime kind", () => { for (const instance of [codexInstance, claudeInstance, agyInstance]) { expect(compatibleDispatchInstances("any", [instance]).map((row) => row.instanceId)).toEqual([instance.instanceId]); expect(buildDispatchSpawnInput({ ...baseRequest, subject: anyAgentSubject, runtimeInstanceId: instance.instanceId }, [instance])).toMatchObject({ agentId: "any-worker", runtimeInstanceId: instance.instanceId }); } expect(compatibleDispatchInstances("any", [{ ...codexInstance, enabled: false }])).toEqual([]); });
+  it("keeps unknown open runtime identifiers fail-closed", () => { expect(compatibleDispatchInstances("opencode-worker", [codexInstance, claudeInstance, agyInstance])).toEqual([]); expect(() => buildDispatchSpawnInput({ ...baseRequest, subject: openCodeAgentSubject }, [codexInstance])).toThrow("dispatch_runtime_type_mismatch"); });
   it("rejects a runtime instance whose kindId does not match the selected executor runtime_type", () => {
     expect(() => buildDispatchSpawnInput({ ...baseRequest, subject: agentSubject }, [claudeInstance])).toThrow("dispatch_runtime_type_mismatch");
   });
