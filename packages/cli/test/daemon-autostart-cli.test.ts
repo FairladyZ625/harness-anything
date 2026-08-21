@@ -77,7 +77,8 @@ test("a blocked vertical script keeps handshakes live without releasing its same
     const [scriptReceipt, readReceipt] = await Promise.all([scriptRequest, queuedRead]);
     const orderingAfterRelease = { scriptOutcome: scriptReceipt.outcome, readStatus: readReceipt.status, taskCount: Array.isArray(readReceipt.rows) ? readReceipt.rows.length : null };
     context.diagnostic(`same-repo ordering probe after script release: ${JSON.stringify(orderingAfterRelease)}`);
-    assert.deepEqual({ scriptOutcome: scriptReceipt.outcome, readStatus: readReceipt.status }, { scriptOutcome: "applied", readStatus: "ready" });
+    assert.deepEqual({ scriptOutcome: scriptReceipt.outcome, readStatus: readReceipt.status }, { scriptOutcome: "pending", readStatus: "ready" });
+    assert.equal((scriptReceipt.proof as { readonly canonicalVisible?: unknown }).canonicalVisible, false);
   } finally {
     rmSync(blocker, { force: true });
     await Promise.all([scriptRequest?.catch(() => undefined), queuedRead?.catch(() => undefined)]); client?.close(); queuedClient?.close();
