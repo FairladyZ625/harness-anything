@@ -81,11 +81,11 @@ export function Card({
   bodyClassName?: string;
 }) {
   return (
-    <section className="rounded-lg border border-border bg-surface">
+    <section className="flex min-h-[24rem] flex-col rounded-lg border border-border bg-surface xl:min-h-0">
       <div className="border-b border-border px-3 py-2 font-mono text-[11px] uppercase tracking-wide text-text-faint">
         {title}
       </div>
-      <div className={bodyClassName}>{children}</div>
+      <div className={`${bodyClassName} flex min-h-0 flex-1 flex-col overflow-hidden`}>{children}</div>
     </section>
   );
 }

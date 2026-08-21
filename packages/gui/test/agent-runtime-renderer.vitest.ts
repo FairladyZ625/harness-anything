@@ -2,7 +2,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AgentCard } from "../src/renderer/components/runtime/AgentCard.tsx";
+import { AgentCard, agentDeclarationFrom, agentDraftFrom } from "../src/renderer/components/runtime/AgentCard.tsx";
 import { NewRuntimeDialog } from "../src/renderer/components/runtime/NewRuntimeDialog.tsx";
 import { TextInput } from "../src/renderer/components/runtime/parts.tsx";
 import { RuntimeCard } from "../src/renderer/components/runtime/RuntimeCard.tsx";
@@ -21,13 +21,14 @@ beforeAll(() => setActiveLocale("en-US"));
 
 const definition = { schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: "codex-review", installationId: "installation-codex", kindId: "codex", providerId: "openai", model: "gpt-5.6-sol", reasoningEffort: "high", baseUrl: "https://api.example.test/", authMode: "api-key" } as const;
 const session = { runtimeSessionId: "runtime-session", providerSessionId: "provider-session", instanceId: definition.instanceId, installationId: definition.installationId, kindId: "codex", definitionSnapshotRef: "artifact:runtime-definition/test", definitionSnapshot: definition, liveness: "unknown", attachCapability: "supported", streamCursor: "stream:4", associations: [{ taskId: "task-runtime", executionId: "execution-runtime", holder: { personId: "person-owner", executorId: "runtime-session:runtime-session" }, lease: { phase: "held", expiresAt: "2026-08-13T01:00:00.000Z" } }], activity: { lastObservedAt: "2026-08-13T00:00:00.000Z", outcome: null, exitCode: null, resultRef: null } } as const;
-const installation = { installationId: "installation-codex", kindId: "codex", version: "1.0.0", observedAt: "2026-08-13T00:00:00.000Z" } as const;
+const installation = { installationId: "installation-codex", kindId: "codex", version: "1.0.0", observedAt: "2026-08-13T00:00:00.000Z", models: ["gpt-5.6-sol", "gpt-5.6-terra"], defaultModel: "gpt-5.6-sol" } as const;
 const instance = { schemaVersion: 2, instanceId: definition.instanceId, name: "Codex Review", kindId: "codex", installationId: definition.installationId, providerId: "openai", models: [definition.model], defaultModel: definition.model, enabled: true, permissionMode: "bypass", codex: { reasoningEffort: definition.reasoningEffort, baseUrl: definition.baseUrl, baseUrlConfigured: true, wire_api: null, requires_openai_auth: null, http_headers: { "x-client": "harness" } }, authMode: definition.authMode, authState: "configured", authReadiness: { status: "ready", code: null, hint: null }, isolationState: "enforced" } as const;
 const claudeInstance = { ...instance, instanceId: "claude-one", name: "Claude One", kindId: "claude", authMode: "subscription", isolationState: "operator-environment", claude: { baseUrl: null, baseUrlConfigured: false } } as never;
 const agyInstance = { ...instance, instanceId: "agy-one", name: "Agy One", kindId: "agy", authMode: "subscription", permissionMode: null, isolationState: "operator-environment", agy: { effort: "high" } } as never;
 const agentRows = [{ id: "fable", name: "fable", runtimeType: "claude", role: "commander", layer: "user", validity: "valid", issues: [] }, { id: "luna", name: "luna", runtimeType: "codex", role: "worker", layer: "user", validity: "valid", issues: [] }, { id: "sol", name: "sol", runtimeType: "codex", role: "worker", layer: "user", validity: "valid", issues: [] }, { id: "terra", name: "terra", runtimeType: "codex", role: "worker", layer: "user", validity: "valid", issues: [] }] as const;
 const squadRows = [{ id: "core-squad", name: "Core Squad", leader: "fable", workers: ["luna", "sol", "terra"], layer: "user", validity: "valid", issues: [] }] as const;
-const agentDetail = { id: "fable", name: "fable", runtimeType: "claude", role: "commander", instructions: "Lead the squad. Decide before dispatch.", model: null, skills: ["review", "triage"], prompts: ["daily-plan"], preset: null } as const;
+const agentDetail = { id: "fable", name: "fable", runtimeType: "claude", role: "commander", instructions: "Lead the squad. Decide before dispatch.", model: null, skills: [{ id: "review", path: "/Users/test/.claude/skills/review" }, { id: "triage", path: "/repo/skills/triage" }], prompts: ["daily-plan"], preset: null } as const;
+const availableSkills = [{ id: "review", path: "/Users/test/.claude/skills/review", source: "user" }, { id: "triage", path: "/repo/skills/triage", source: "project" }] as const, presets = [{ id: "standard-task", title: "Standard task", description: "Default implementation loop" }] as const;
 const squadDetail = { id: "core-squad", name: "Core Squad", leader: "fable", workers: ["luna", "sol", "terra"], roster: "fable » luna, sol, terra" } as const;
 const noop = () => undefined;
 const runtimeCard = (row: typeof instance | typeof claudeInstance) => renderToStaticMarkup(createElement(RuntimeCard, { instance: row, agents: agentRows as never, liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop }));
@@ -87,22 +88,22 @@ describe("agent runtime renderer", () => {
     for (const text of ["fable", "luna", "sol", "terra", "commander", "worker"]) expect(inspector).toContain(text);
   });
   it("renders the agent and squad declarations behind showAgent/showSquad", () => {
-    const agent = renderToStaticMarkup(createElement(AgentCard, { detail: agentDetail, row: agentRows[0] as never, squads: squadRows as never, instances: [claudeInstance] as never, busy: false, onSave: noop, onDispatch: noop, onSelectSquad: noop, onSelectRuntime: noop }));
+    const agent = renderToStaticMarkup(createElement(AgentCard, { detail: agentDetail, row: agentRows[0] as never, squads: squadRows as never, instances: [claudeInstance] as never, availableSkills, presets, busy: false, onSave: noop, onDispatch: noop, onSelectSquad: noop, onSelectRuntime: noop }));
     for (const text of ["Lead the squad. Decide before dispatch.", "commander", "claude", "review", "triage", "daily-plan", "Core Squad"]) expect(agent).toContain(text);
     expect(agent).toContain("Role is fully decoupled from model and provider");
     const squad = renderToStaticMarkup(createElement(SquadCard, { detail: squadDetail, row: squadRows[0] as never, agents: agentRows as never, busy: false, onSave: noop, onLaunch: noop, onSelectAgent: noop }));
     for (const text of ["fable » luna, sol, terra", "Core Squad", "Commander", "Worker #1", "4 members"]) expect(squad).toContain(text);
   });
-  it("refuses to save an agent whose skills the read projection cannot round-trip", () => {
-    const withSkills = renderToStaticMarkup(createElement(AgentCard, { detail: agentDetail, row: agentRows[0] as never, squads: squadRows as never, instances: [], busy: false, onSave: noop, onDispatch: noop, onSelectSquad: noop, onSelectRuntime: noop }));
-    expect(withSkills).toContain("saving here would drop the mounts");
-    const withoutSkills = renderToStaticMarkup(createElement(AgentCard, { detail: { ...agentDetail, skills: [] }, row: agentRows[0] as never, squads: squadRows as never, instances: [], busy: false, onSave: noop, onDispatch: noop, onSelectSquad: noop, onSelectRuntime: noop }));
-    expect(withoutSkills).not.toContain("saving here would drop the mounts");
+  it("round-trips skill paths and exposes searchable Skill and Preset selectors", () => {
+    const withSkills = renderToStaticMarkup(createElement(AgentCard, { detail: agentDetail, row: agentRows[0] as never, squads: squadRows as never, instances: [], availableSkills, presets, busy: false, onSave: noop, onDispatch: noop, onSelectSquad: noop, onSelectRuntime: noop }));
+    expect(agentDeclarationFrom(agentDetail.id, agentDraftFrom(agentDetail))).toMatchObject({ skills: agentDetail.skills });
+    expect(withSkills).toContain('data-testid="agent-skill-search"'); expect(withSkills).toContain('data-testid="agent-preset"'); expect(withSkills).not.toContain("saving here would drop the mounts");
   });
   it("keeps the Agent/Squad payload path open at the preload boundary", () => {
     expect(assertPreloadPayload("showAgent", { repoId: "repo-a", agentId: "fable" })).toBe(true);
     expect(assertPreloadPayload("showSquad", { repoId: "repo-a", squadId: "core-squad" })).toBe(true);
     expect(assertPreloadPayload("listAgents", { repoId: "repo-a" })).toBe(true);
+    expect(assertPreloadPayload("listAgentSkills", { repoId: "repo-a" })).toBe(true);
     expect(assertPreloadPayload("listSquads", { repoId: "repo-a" })).toBe(true);
     expect(() => assertPreloadPayload("listAgents", { repoId: "repo-a", agentId: "fable" })).toThrow(/not allowed/u);
   });
@@ -116,6 +117,11 @@ describe("agent runtime renderer", () => {
     expect(dialog("agy")).toContain("AGY supports only its own login flow");
     expect(dialog("agy")).not.toContain("API override");
   });
+  it("renders detected models as a defaulted selector and keeps custom text behind an override", () => {
+    const markup = renderToStaticMarkup(createElement(NewRuntimeDialog, { installations: [installation], busy: false, initialKind: "codex", onCancel: noop, onCreate: noop }));
+    expect(markup).toContain('data-testid="new-runtime-model"'); expect(markup).toContain("Auto (default gpt-5.6-sol)"); expect(markup).toContain("gpt-5.6-terra"); expect(markup).not.toContain('data-testid="new-runtime-model-custom"');
+  });
+  it("offers bottom and right terminal dock positions", async () => { const { readFile } = await import("node:fs/promises"), source = await readFile(new URL("../src/renderer/components/TerminalDock.tsx", import.meta.url), "utf8"); expect(source).toContain('data-testid="terminal-dock-bottom"'); expect(source).toContain('data-testid="terminal-dock-right"'); expect(source).toContain('data-dock-position={dockPosition}'); });
   it("hides disabled instances by default while retaining them in all mode", () => {
     const enabled = { ...instance, instanceId: "enabled-instance", enabled: true } as const;
     const disabled = { ...instance, instanceId: "disabled-instance", enabled: false } as const;

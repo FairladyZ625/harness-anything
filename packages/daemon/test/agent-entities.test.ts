@@ -1,11 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { prepareAgentEntityInstall, readAgentEntityGuiProjection, resolveSquadDispatchTarget, runAgentEntityAction } from "../src/agent-entities.ts";
-import { resolveAgentSkills } from "../src/agent-skills.ts";
+import { discoverAgentSkills, resolveAgentSkills } from "../src/agent-skills.ts";
 import { validateAgentDeclarationV1 } from "../src/agent-entities.contract.ts";
 
 const agent = { schema: "agent-declaration/v1", id: "terra", name: "Terra", instructions: "Review precisely.", runtime_type: "codex", model: "gpt-5.6-terra", skills: [{ id: "review", path: "skills/review" }], prompts: ["prompt://review"], preset: "standard-task" }, squad = { schema: "squad-declaration/v1", id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: "# Core Squad\n\nTerra leads review." };
@@ -57,14 +57,55 @@ test("Agent skills only accept unique exact {id, path} declarations", () => {
   for (const skills of [["review"], [{ id: "review" }], [{ id: "review", path: "skills/review" }, { id: "review", path: "skills/another-review" }]]) assert.match(validateAgentDeclarationV1({ ...agent, skills }).join("\n"), /skills.*unique \{id, path\}/u, JSON.stringify(skills));
 });
 
-test("Agent skills are references under the authored root and fail closed with repairable errors", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-skills-")), skillDir = path.join(rootDir, "harness", "skills", "review");
+test("Agent skill discovery scans user and project roots and returns absolute selectable paths", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-agent-skill-discovery-")), rootDir = path.join(parent, "repo"), userHome = path.join(parent, "home"), userSkill = path.join(userHome, ".claude", "skills", "user-review"), userAgentSkill = path.join(userHome, ".agents", "skills", "agent-only"), userCodexSkill = path.join(userHome, ".codex", "skills", "codex-only"), userAgentShared = path.join(userHome, ".agents", "skills", "shared"), userCodexShared = path.join(userHome, ".codex", "skills", "shared"), projectSkill = path.join(rootDir, "harness", "skills", "project-test"), repoClaudeSkill = path.join(rootDir, ".claude", "skills", "repo-plan"), repoSkill = path.join(rootDir, "skills", "repo-shared"), repoAgentLink = path.join(rootDir, ".agents", "skills", "repo-shared"), linkedProjectSkill = path.join(parent, "linked-project-agent-only"), linkedProjectAgentLink = path.join(rootDir, ".agents", "skills", "project-agent-only"), archivedSkill = path.join(userHome, ".agents", "skills-archive", "archived"), disabledSkill = path.join(userHome, ".agents", "skills-disabled-2026-05-08", "disabled");
   try {
-    mkdirSync(skillDir, { recursive: true }); writeFileSync(path.join(skillDir, "SKILL.md"), "---\nname: review\ndescription: Review\n---\nReview carefully.\n");
+    for (const skillDir of [userSkill, userAgentSkill, userCodexSkill, userAgentShared, userCodexShared, projectSkill, repoClaudeSkill, repoSkill, linkedProjectSkill, archivedSkill, disabledSkill]) { mkdirSync(skillDir, { recursive: true }); writeFileSync(path.join(skillDir, "SKILL.md"), `# ${path.basename(skillDir)}\n`); }
+    mkdirSync(path.dirname(repoAgentLink), { recursive: true });
+    symlinkSync(repoSkill, repoAgentLink, "dir");
+    symlinkSync(linkedProjectSkill, linkedProjectAgentLink, "dir");
+    mkdirSync(path.join(rootDir, "harness", "skills", "incomplete"), { recursive: true });
+    const expected = [
+      { id: "agent-only", path: realpathSync(userAgentSkill), source: "user" },
+      { id: "codex-only", path: realpathSync(userCodexSkill), source: "user" },
+      { id: "linked-project-agent-only", path: realpathSync(linkedProjectSkill), source: "project" },
+      { id: "project-test", path: realpathSync(projectSkill), source: "project" },
+      { id: "repo-plan", path: realpathSync(repoClaudeSkill), source: "project" },
+      { id: "repo-shared", path: realpathSync(repoSkill), source: "project" },
+      { id: "shared", path: realpathSync(userAgentShared), source: "user" },
+      { id: "shared", path: realpathSync(userCodexShared), source: "user" },
+      { id: "user-review", path: realpathSync(userSkill), source: "user" }
+    ].sort((left, right) => left.id.localeCompare(right.id) || left.path.localeCompare(right.path));
+    assert.deepEqual(discoverAgentSkills({ rootDir, userHome }), expected);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("Agent skill discovery does not index nested skills embedded inside a catalog entry", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-agent-skill-nested-")), rootDir = path.join(parent, "repo"), userHome = path.join(parent, "home"), nestedSkill = path.join(userHome, ".agents", "skills", "workspace-snapshot", "old-skill");
+  try {
+    mkdirSync(nestedSkill, { recursive: true });
+    writeFileSync(path.join(nestedSkill, "SKILL.md"), "# old skill\n");
+    assert.deepEqual(discoverAgentSkills({ rootDir, userHome }), []);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("Agent skill discovery requires the exact SKILL.md manifest name", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-agent-skill-case-")), rootDir = path.join(parent, "repo"), userHome = path.join(parent, "home"), malformedSkill = path.join(userHome, ".agents", "skills", "lowercase-manifest");
+  try {
+    mkdirSync(malformedSkill, { recursive: true });
+    writeFileSync(path.join(malformedSkill, "skill.md"), "# wrong case\n");
+    assert.deepEqual(discoverAgentSkills({ rootDir, userHome }), []);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("Agent skills accept project-relative and absolute references and fail closed with repairable errors", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-skills-")), skillDir = path.join(rootDir, "harness", "skills", "review"), externalSkillDir = path.join(rootDir, "external", "outside");
+  try {
+    mkdirSync(skillDir, { recursive: true }); writeFileSync(path.join(skillDir, "SKILL.md"), "---\nname: review\ndescription: Review\n---\nReview carefully.\n"); mkdirSync(externalSkillDir, { recursive: true }); writeFileSync(path.join(externalSkillDir, "SKILL.md"), "# Outside\n");
     const resolved = resolveAgentSkills({ rootDir, skills: [{ id: "review", path: "skills/review" }] }); assert.deepEqual(resolved.map(({ id, sourceDir, skillFile }) => ({ id, sourceDir, skillFile })), [{ id: "review", sourceDir: realpathSync(skillDir), skillFile: path.join(realpathSync(skillDir), "SKILL.md") }]);
-    assert.throws(() => resolveAgentSkills({ rootDir, skills: [{ id: "missing", path: "skills/missing" }] }), (error: unknown) => (error as { code?: string; message?: string }).code === "agent_skill_not_found" && /create that directory.*SKILL\.md/u.test(String((error as Error).message)));
+    assert.deepEqual(resolveAgentSkills({ rootDir, skills: [{ id: "outside", path: externalSkillDir }] }).map(({ id, sourceDir }) => ({ id, sourceDir })), [{ id: "outside", sourceDir: realpathSync(externalSkillDir) }]);
+    assert.throws(() => resolveAgentSkills({ rootDir, skills: [{ id: "missing", path: "skills/missing" }] }), (error: unknown) => (error as { code?: string; message?: string }).code === "agent_skill_not_found" && /select an available skill directory.*SKILL\.md/u.test(String((error as Error).message)));
     mkdirSync(path.join(rootDir, "harness", "skills", "broken"), { recursive: true }); assert.throws(() => resolveAgentSkills({ rootDir, skills: [{ id: "broken", path: "skills/broken" }] }), (error: unknown) => (error as { code?: string; message?: string }).code === "agent_skill_manifest_missing" && /add SKILL\.md/u.test(String((error as Error).message)));
-    assert.throws(() => resolveAgentSkills({ rootDir, skills: [{ id: "escape", path: "../outside" }] }), (error: unknown) => (error as { code?: string; message?: string }).code === "agent_skill_path_outside_root" && /set path to a relative directory/u.test(String((error as Error).message)));
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -113,7 +154,7 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
     assert.deepEqual(squadRows.squads.map(({ id, leader, workers }) => ({ id, leader, workers })), [{ id: "core-squad", leader: "terra", workers: ["terra"] }]);
     const agentDetail = readAgentEntityGuiProjection({ rootDir, kind: "agent-inspect", entityId: "terra" }), squadDetail = readAgentEntityGuiProjection({ rootDir, kind: "squad-inspect", entityId: "core-squad" });
     assert.equal(agentDetail.ok, true); assert.equal(squadDetail.ok, true);
-    assert.deepEqual(agentDetail.agent, { id: "terra", name: "Terra", runtimeType: "codex", role: "worker", instructions: "Review precisely.", model: "gpt-5.6-terra", skills: ["review"], prompts: ["prompt://review"], preset: "standard-task" });
+    assert.deepEqual(agentDetail.agent, { id: "terra", name: "Terra", runtimeType: "codex", role: "worker", instructions: "Review precisely.", model: "gpt-5.6-terra", skills: [{ id: "review", path: "skills/review" }], prompts: ["prompt://review"], preset: "standard-task" });
     assert.deepEqual(squadDetail.squad, { id: "core-squad", name: "Core Squad", leader: "terra", workers: ["terra"], roster: squad.roster });
     assert.throws(() => readAgentEntityGuiProjection({ rootDir, kind: "agent-inspect", entityId: "unknown" }), (error: unknown) => (error as { code?: string }).code === "agent_not_found");
   } finally { rmSync(rootDir, { recursive: true, force: true }); }

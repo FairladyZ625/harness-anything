@@ -64,8 +64,8 @@ export function OverviewView({
   const health = deriveRuntimeHealth({ ...systemHealth, lastSnapshotAt: lastSnapshotAt || null, now: new Date().toISOString() });
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto">
-      <header className="border-b border-border bg-surface/40 px-5 py-4">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <header className="shrink-0 border-b border-border bg-surface/40 px-5 py-4">
         <div className="flex items-baseline gap-2">
           <h1 className="ui-title font-mono font-semibold">{project.name}</h1>
           <span className="truncate font-mono text-[12px] text-text-faint">{project.path}</span>
@@ -76,7 +76,7 @@ export function OverviewView({
         <p className="mt-1 text-[12px] text-text-muted">{t("views.overviewView.tagline")}</p>
       </header>
 
-      <div className="grid grid-cols-1 gap-4 p-5 xl:grid-cols-2">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-5 xl:auto-rows-[minmax(0,1fr)] xl:grid-cols-2 xl:overflow-hidden">
         <Card title={t("views.overviewView.decisionStreamTitle")} bodyClassName="p-3">
           <DecisionStream
             decisions={decisions}

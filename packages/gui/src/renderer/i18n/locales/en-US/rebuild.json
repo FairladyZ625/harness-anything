@@ -9,7 +9,7 @@
   "shell.nav.graph": "Relation Graph",
   "shell.nav.presets": "Preset / Vertical",
   "shell.nav.adapters": "Engine Adapters",
-  "shell.nav.agents": "Agent Sessions",
+  "shell.nav.agents": "Agent Runtime",
   "shell.nav.system": "System",
   "shell.nav.settings": "Settings",
   "shell.nav.workspace": "Workspace",
