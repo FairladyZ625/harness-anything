@@ -14,7 +14,9 @@ let client: Promise<DaemonClient> | undefined;
 export function createLocalGuiServiceBridge(rootDir: string, _layoutOverrides?: { readonly authoredRoot?: string }, options: { readonly packaged?: PackagedRuntime } = {}): GuiServiceBridge {
   const root = path.resolve(rootDir); validateProjectPath(root, "."); return createGuiServiceBridgeForDaemon((route, payload) => request(root, route, payload, options.packaged), async (route, payload, emit) => {
     const daemon = await loadClient(), scoped = repoPayload(payload), target = daemon.resolveLocalDaemonTarget({ rootDir: root, repoIdOverride: scoped.repoId });
-    return streamDaemonFacetAt({ socketPath: target.socketPath, repoId: target.repoId, method: route.rpcMethod as keyof DaemonGuiStreamPayloadMap, payload: scoped.payload as DaemonGuiStreamPayloadMap[keyof DaemonGuiStreamPayloadMap], onValue: emit });
+    // A stream that exhausts its reconnect budget reaches the renderer through the same frame
+    // channel a failed open already uses, so a lost pane says so instead of going quietly blank.
+    return streamDaemonFacetAt({ socketPath: target.socketPath, repoId: target.repoId, method: route.rpcMethod as keyof DaemonGuiStreamPayloadMap, payload: scoped.payload as DaemonGuiStreamPayloadMap[keyof DaemonGuiStreamPayloadMap], onValue: emit, onClosed: (failure) => emit({ ok: false, code: failure.code, hint: `daemon stream lost after ${failure.attempts} reconnect attempts (${failure.lastError}); reopen the panel or restart the daemon.` }) });
   }); }
 // Owner decision (autostart, plan A): when the daemon is unreachable the trusted
 // main process starts it (bounded: two attempts), then retries the request once.
