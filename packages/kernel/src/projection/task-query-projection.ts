@@ -59,6 +59,73 @@ export function readTaskRelationRows(db: DatabaseSync): readonly TaskRelationPro
   return (db.prepare("SELECT relation_id, source_ref, target_ref, relation_type, direction, strength, origin, state, rationale, owner_ref, source_path, record_index FROM task_relation ORDER BY relation_id").all() as unknown as readonly Record<string, unknown>[]).map(taskRelationRow);
 }
 
+/** One indexed lookup for every requested target. json_each keeps the statement shape and
+ * bind count fixed even when a caller supplies more than SQLite's variable ceiling. */
+export function readTaskRelationsByTargets(db: DatabaseSync, targetRefs: readonly string[], relationType: string): readonly TaskRelationProjectionRow[] {
+  checkedRefs(targetRefs, "relation target batch");
+  if (targetRefs.length === 0) return [];
+  const sql = `WITH requested_targets(target_order, target_ref) AS MATERIALIZED (SELECT CAST(key AS INTEGER), value FROM json_each(?)),
+    matching_rows AS (
+      SELECT requested_targets.target_order, task_relation.relation_id, task_relation.source_ref, task_relation.target_ref, task_relation.relation_type, task_relation.direction, task_relation.strength, task_relation.origin, task_relation.state, task_relation.rationale, task_relation.owner_ref, task_relation.source_path, task_relation.record_index
+      FROM requested_targets CROSS JOIN task_relation INDEXED BY task_relation_target
+      WHERE task_relation.target_ref = requested_targets.target_ref AND task_relation.relation_type = ? AND NOT EXISTS (SELECT 1 FROM relation_edge WHERE relation_edge.relation_id = task_relation.relation_id)
+      UNION ALL
+      SELECT requested_targets.target_order, relation_edge.relation_id, relation_edge.source_ref, relation_edge.target_ref, relation_edge.relation_type, json_extract(relation_edge.row_json, '$.direction'), json_extract(relation_edge.row_json, '$.strength'), json_extract(relation_edge.row_json, '$.origin'), relation_edge.state, json_extract(relation_edge.row_json, '$.rationale'), relation_edge.owner_ref, json_extract(relation_edge.row_json, '$.sourcePath'), json_extract(relation_edge.row_json, '$.recordIndex')
+      FROM requested_targets CROSS JOIN relation_edge INDEXED BY relation_edge_target
+      WHERE relation_edge.target_ref = requested_targets.target_ref AND relation_edge.relation_type = ?
+    )
+    SELECT relation_id, source_ref, target_ref, relation_type, direction, strength, origin, state, rationale, owner_ref, source_path, record_index FROM matching_rows ORDER BY target_order, relation_id`;
+  return (db.prepare(sql).all(JSON.stringify(targetRefs), relationType, relationType) as unknown as readonly Record<string, unknown>[]).map(taskRelationRow);
+}
+
+/** Indexed transitive depends-on read. The path token prevents cycles from being traversed,
+ * while the explicit depth cap fails instead of silently serving a truncated blocker set. */
+export function readTaskDependencyClosureRows(db: DatabaseSync, sourceRefs: readonly string[], maxDepth = 256): readonly TaskRelationProjectionRow[] {
+  checkedRefs(sourceRefs, "dependency closure");
+  if (sourceRefs.length === 0) return [];
+  if (!Number.isSafeInteger(maxDepth) || maxDepth < 1 || maxDepth > 4_096) throw new Error("dependency closure depth limit must be an integer between 1 and 4096");
+  const sql = `WITH RECURSIVE dependency_walk(seed_order, source_ref, depth, visited_path) AS (
+      SELECT CAST(key AS INTEGER), value, 0, char(31) || value || char(31) FROM json_each(?)
+      UNION ALL
+      SELECT dependency_walk.seed_order, task_relation.target_ref, dependency_walk.depth + 1, dependency_walk.visited_path || task_relation.target_ref || char(31)
+      FROM dependency_walk CROSS JOIN task_relation INDEXED BY task_relation_source
+      WHERE task_relation.source_ref = dependency_walk.source_ref AND task_relation.relation_type = 'depends-on' AND dependency_walk.depth < ?
+        AND NOT EXISTS (SELECT 1 FROM relation_edge WHERE relation_edge.relation_id = task_relation.relation_id)
+        AND instr(dependency_walk.visited_path, char(31) || task_relation.target_ref || char(31)) = 0
+      UNION ALL
+      SELECT dependency_walk.seed_order, relation_edge.target_ref, dependency_walk.depth + 1, dependency_walk.visited_path || relation_edge.target_ref || char(31)
+      FROM dependency_walk CROSS JOIN relation_edge INDEXED BY relation_edge_source
+      WHERE relation_edge.source_ref = dependency_walk.source_ref AND relation_edge.relation_type = 'depends-on' AND dependency_walk.depth < ?
+        AND instr(dependency_walk.visited_path, char(31) || relation_edge.target_ref || char(31)) = 0
+    ), dependency_rows AS (
+      SELECT dependency_walk.seed_order, dependency_walk.depth, dependency_walk.visited_path, task_relation.relation_id, task_relation.source_ref, task_relation.target_ref, task_relation.relation_type, task_relation.direction, task_relation.strength, task_relation.origin, task_relation.state, task_relation.rationale, task_relation.owner_ref, task_relation.source_path, task_relation.record_index
+      FROM dependency_walk CROSS JOIN task_relation INDEXED BY task_relation_source
+      WHERE task_relation.source_ref = dependency_walk.source_ref AND task_relation.relation_type = 'depends-on' AND NOT EXISTS (SELECT 1 FROM relation_edge WHERE relation_edge.relation_id = task_relation.relation_id)
+      UNION ALL
+      SELECT dependency_walk.seed_order, dependency_walk.depth, dependency_walk.visited_path, relation_edge.relation_id, relation_edge.source_ref, relation_edge.target_ref, relation_edge.relation_type, json_extract(relation_edge.row_json, '$.direction'), json_extract(relation_edge.row_json, '$.strength'), json_extract(relation_edge.row_json, '$.origin'), relation_edge.state, json_extract(relation_edge.row_json, '$.rationale'), relation_edge.owner_ref, json_extract(relation_edge.row_json, '$.sourcePath'), json_extract(relation_edge.row_json, '$.recordIndex')
+      FROM dependency_walk CROSS JOIN relation_edge INDEXED BY relation_edge_source
+      WHERE relation_edge.source_ref = dependency_walk.source_ref AND relation_edge.relation_type = 'depends-on'
+    ), dependency_overflow AS (
+      SELECT 1 AS present FROM dependency_walk CROSS JOIN task_relation INDEXED BY task_relation_source
+      WHERE task_relation.source_ref = dependency_walk.source_ref AND dependency_walk.depth = ? AND task_relation.relation_type = 'depends-on'
+        AND NOT EXISTS (SELECT 1 FROM relation_edge WHERE relation_edge.relation_id = task_relation.relation_id)
+        AND instr(dependency_walk.visited_path, char(31) || task_relation.target_ref || char(31)) = 0
+      UNION ALL
+      SELECT 1 FROM dependency_walk CROSS JOIN relation_edge INDEXED BY relation_edge_source
+      WHERE relation_edge.source_ref = dependency_walk.source_ref AND dependency_walk.depth = ? AND relation_edge.relation_type = 'depends-on'
+        AND instr(dependency_walk.visited_path, char(31) || relation_edge.target_ref || char(31)) = 0
+      LIMIT 1
+    )
+    SELECT 0 AS overflow, seed_order, depth, visited_path, relation_id, source_ref, target_ref, relation_type, direction, strength, origin, state, rationale, owner_ref, source_path, record_index FROM dependency_rows
+    UNION ALL SELECT 1, -1, -1, '', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dependency_overflow
+    ORDER BY overflow DESC, depth, seed_order, visited_path, relation_id`;
+  const records = db.prepare(sql).all(JSON.stringify(sourceRefs), maxDepth, maxDepth, maxDepth, maxDepth) as unknown as readonly (Record<string, unknown> & { readonly overflow: number })[];
+  if (records[0]?.overflow === 1) throw new Error(`dependency closure depth limit ${maxDepth} exceeded`);
+  const rows = new Map<string, TaskRelationProjectionRow>();
+  for (const record of records) if (record.relation_id !== null) { const row = taskRelationRow(record); if (!rows.has(row.relationId)) rows.set(row.relationId, row); }
+  return [...rows.values()];
+}
+
 /** Cheap id+status pairs from the maintained columns — the blocking judgment's task input
  * without materializing any snapshot JSON. */
 export function readTaskStatusRows(db: DatabaseSync, taskIds?: readonly string[]): readonly { readonly taskId: string; readonly status: string | null }[] {
@@ -117,6 +184,10 @@ export function readTaskRelationPage(db: DatabaseSync, query: TaskRelationQuery)
 
 function taskRelationRow(row: Record<string, unknown>): TaskRelationProjectionRow {
   return { relationId: String(row.relation_id), sourceRef: String(row.source_ref), targetRef: String(row.target_ref), relationType: String(row.relation_type) as TaskRelationProjectionRow["relationType"], direction: String(row.direction) as TaskRelationProjectionRow["direction"], strength: String(row.strength) as TaskRelationProjectionRow["strength"], origin: String(row.origin) as TaskRelationProjectionRow["origin"], state: String(row.state) as TaskRelationProjectionRow["state"], rationale: String(row.rationale ?? ""), ownerRef: String(row.owner_ref), sourcePath: String(row.source_path), recordIndex: Number(row.record_index) };
+}
+
+function checkedRefs(refs: readonly string[], label: string): void {
+  if (!Array.isArray(refs) || refs.some((ref) => typeof ref !== "string" || ref.length === 0)) throw new Error(`${label} requires non-empty string refs`);
 }
 
 export function checkedPageLimit(value: number): number { if (!Number.isSafeInteger(value) || value < 1 || value > 500) throw new Error("query page limit must be an integer between 1 and 500"); return value; }

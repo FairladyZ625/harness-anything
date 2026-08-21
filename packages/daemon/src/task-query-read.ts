@@ -51,18 +51,11 @@ export function makeTaskQueryReadModel(input: { readonly rootDir: CanonicalRoot;
     return { schema: "daemon.agenda/v1", ok: true, command: "agenda", status: reads.every((read) => read.status === "ready") ? "ready" : "pending", inFlight, awaitingDecision, waitingOnOthers, dispatchable, page: { sourceLimit, cursor: query.cursor ?? null, nextCursor }, watermark: watermarks.length ? Math.min(...watermarks) : 0, sourceRevision: revisions.length ? Math.max(...revisions) : 0, warnings, summary: renderAgendaSummary({ inFlight, awaitingDecision, waitingOnOthers, dispatchable }) };
   }
   function narrowTaskContext(taskIds: readonly string[]) {
-    const blockingEdges = new Map<string, TaskRelationProjectionRead["rows"][number]>(), decisionEdges = new Map<string, TaskRelationProjectionRead["rows"][number]>(), statusIds = new Set(taskIds), queue = taskIds.map((taskId) => `task/${taskId}`), visited = new Set<string>();
-    while (queue.length) {
-      const sourceRef = queue.shift()!;
-      if (visited.has(sourceRef)) continue;
-      visited.add(sourceRef);
-      for (const edge of projection.readRelationQuery({ source: sourceRef }).rows) if (edge.relationType === "depends-on") { blockingEdges.set(edge.relationId, edge); const targetId = /^task\/([^/]+)$/u.exec(edge.targetRef)?.[1]; if (targetId) { statusIds.add(targetId); queue.push(edge.targetRef); } }
-    }
-    for (const taskId of taskIds) for (const edge of projection.readRelationQuery({ target: `task/${taskId}` }).rows) if (edge.relationType === "derives") decisionEdges.set(edge.relationId, edge);
-    const decisions = new Map<string, NonNullable<ReturnType<typeof projection.readDecision>["decision"]>>();
-    for (const edge of decisionEdges.values()) { const decisionId = /^decision\/([^/]+)/u.exec(edge.sourceRef)?.[1]; if (decisionId && !decisions.has(decisionId)) { const row = projection.readDecision(decisionId).decision; if (row) decisions.set(decisionId, row); } }
+    const taskRefs = taskIds.map((taskId) => `task/${taskId}`), blockingEdges = projection.readTaskDependencyClosure(taskRefs).rows, decisionEdges = projection.readTaskRelationsByTargets(taskRefs, "derives").rows, statusIds = new Set(taskIds);
+    for (const edge of blockingEdges) { const targetId = /^task\/([^/]+)$/u.exec(edge.targetRef)?.[1]; if (targetId) statusIds.add(targetId); }
+    const decisionIds = [...new Set(decisionEdges.flatMap((edge) => /^decision\/([^/]+)/u.exec(edge.sourceRef)?.[1] ?? []))], decisions = new Map(decisionIds.length ? projection.readDecisions(decisionIds).decisions.map((row) => [row.decisionId, row]) : []);
     const taskStatuses = projection.readTaskStatuses([...statusIds]).rows.flatMap((row) => row.status === null ? [] : [{ taskId: row.taskId, status: row.status }]);
-    return { blockingEdges: [...blockingEdges.values()], decisionEdges: [...decisionEdges.values()], decisions, taskStatuses };
+    return { blockingEdges, decisionEdges, decisions, taskStatuses };
   }
   /**
    * Narrow relation graph read: one indexed page of converged event-backed
