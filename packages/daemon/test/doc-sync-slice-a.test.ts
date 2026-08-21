@@ -26,6 +26,19 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+test("new non-textual artifacts are inapplicable while binary replacement of canonical text remains blocked", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-non-textual-")); initRepo(rootDir); const cell = await openRepoCell({ repoId: workspaceId("non-textual"), rootDir: canonicalRoot(rootDir), ownerId: "non-textual-daemon" }), binding = { actor, source: "local" as const }, fresh = "tasks/task-proof/artifacts/screenshots/evidence.png", tracked = "tasks/task-proof/artifacts/report.bin";
+  try {
+    const freshTarget = path.join(rootDir, "harness", fresh); mkdirSync(path.dirname(freshTarget), { recursive: true }); writeFileSync(freshTarget, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00]));
+    const status = await cell.run({ kind: "doc-status", paths: [fresh] }, binding), row = rows(status.evidence)[0] as { readonly state: string; readonly reason?: string } | undefined;
+    assert.deepEqual([row?.state, row?.reason], ["inapplicable", "non-textual artifact is outside doc sync"]); assert.deepEqual(status.detail?.unresolvedTouches, []); assert.equal(status.detail?.nextAction, "no action required; inapplicable artifacts are outside doc sync");
+    const noOp = await cell.run({ kind: "doc-submit", paths: [fresh] }, binding) as Record<string, unknown>; assert.equal(noOp.outcome, "applied"); assert.match(String(noOp.opId), /^noop:/u);
+
+    write(rootDir, tracked, "textual baseline\n"); assert.equal((await cell.run({ kind: "doc-submit", paths: [tracked] }, binding)).outcome, "applied"); writeFileSync(path.join(rootDir, "harness", tracked), Buffer.from([0xff, 0x00]));
+    const blocked = await cell.run({ kind: "doc-status", paths: [tracked] }, binding); assert.equal(rows(blocked.evidence)[0]?.state, "blocked"); assert.equal(blocked.detail?.unresolvedTouches[0]?.requiredRoute, "typed-binary-content");
+  } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
 test("implicit submit applies eligible prose and reports an unrelated blocked row as skipped", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-partial-blocked-")); initRepo(rootDir); const repoId = workspaceId("partial-blocked"), cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "partial-blocked-daemon" }), binding = { actor, source: "local" as const };
   try {

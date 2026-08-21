@@ -10,7 +10,7 @@ export interface DocSyncWatchStatus { readonly sessionId: string; readonly perso
 export interface DocSyncWatcher { readonly wake: (logicalPath?: string) => void; readonly overflow: () => void; readonly flush: () => Promise<void>; readonly status: () => DocSyncWatchStatus; readonly close: () => Promise<void> }
 type Runner = (action: { readonly kind: "doc-dry-run" | "doc-submit"; readonly paths: readonly string[] }, attribution?: WatchAttribution) => Promise<WriteReceipt>;
 type WatchFactory = (target: string, options: { readonly recursive: boolean }, listener: (event: string, filename: string | Buffer | null) => void) => FSWatcher;
-interface ScanRow { readonly path: string; readonly state: "clean" | "eligible" | "blocked" | "deletion" | "conflict"; readonly reason: string | null; readonly candidateBlobSha256: string | null }
+interface ScanRow { readonly path: string; readonly state: "clean" | "eligible" | "inapplicable" | "blocked" | "deletion" | "conflict"; readonly reason: string | null; readonly candidateBlobSha256: string | null }
 
 export function openDocSyncWatcher(input: { readonly rootDir: string; readonly personId: string; readonly run: Runner; readonly debounceMs?: number; readonly pollMs?: number; readonly watchFilesystem?: boolean; readonly startupScan?: boolean; readonly platform?: NodeJS.Platform; readonly watchPath?: WatchFactory }): DocSyncWatcher {
   const sessionId = `watch-${randomUUID()}`, debounceMs = input.debounceMs ?? 75, pending = new Set<string>(), observations = new Map<string, { fingerprint: string; count: number }>(), submitted = new Map<string, string>();
