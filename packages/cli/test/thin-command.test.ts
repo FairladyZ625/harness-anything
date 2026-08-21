@@ -8,7 +8,7 @@ import { deriveCliCapabilities, firstCliCommand, firstCliCommandIndex, parseThin
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 106);
+  assert.equal(thinCliCommands.length, 108);
   for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))].filter((value): value is string => value !== undefined).sort()) assert.match(help, new RegExp(`^  ${domain} \\(`, "mu"));
   assert.doesNotMatch(help, /ha task start <task-id>/u);
   const taskHelp = renderThinHelp([], "task");
@@ -49,7 +49,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     runtime: ["runtime-batch", "runtime-cancel", "runtime-instance-create", "runtime-instance-delete", "runtime-instance-list", "runtime-instance-login", "runtime-instance-logout", "runtime-instance-show", "runtime-instance-update", "runtime-run", "runtime-status"],
     script: ["preset-run-start", "script-inspect", "script-list", "script-run"],
     squad: ["squad-inspect", "squad-install", "squad-list", "squad-run", "squad-validate"],
-    task: ["task-amend", "task-archive", "task-artifact-add", "task-code-doc-reconcile", "task-complete", "task-contract-migrate", "task-create", "task-declare-executor", "task-delete", "task-dispatches", "task-list", "task-progress-append", "task-relate", "task-release", "task-reopen", "task-review", "task-review-consent", "task-review-execution", "task-show", "task-start", "task-submit", "task-supersede", "task-transition"],
+    task: ["task-amend", "task-archive", "task-artifact-add", "task-code-doc-reconcile", "task-complete", "task-contract-migrate", "task-create", "task-declare-executor", "task-delete", "task-dispatches", "task-list", "task-pin", "task-progress-append", "task-relate", "task-release", "task-reopen", "task-review", "task-review-consent", "task-review-execution", "task-show", "task-start", "task-submit", "task-supersede", "task-transition", "task-unpin"],
     template: ["template-list", "template-render"],
     vertical: ["vertical-validate"]
   });
@@ -104,6 +104,8 @@ test("task lifecycle and read surfaces parse every F03 F04 F05 leaf into closed 
     [["task", "transition", "task-1", "planned", "--reason", "Owner rolled back the batch cancellation"], { kind: "task-transition", taskId: "task-1", status: "planned", reason: "Owner rolled back the batch cancellation" }],
     [["task", "amend", "task-1", "--set", "title:New title", "--set", "riskTier:high"], { kind: "task-amend", taskId: "task-1", patches: [{ field: "title", value: "New title" }, { field: "riskTier", value: "high" }] }],
     [["task", "amend", "task-1", "--set", "pinned:true"], { kind: "task-amend", taskId: "task-1", patches: [{ field: "pinned", value: "true" }] }],
+    [["task", "pin", "task-1"], { kind: "task-amend", taskId: "task-1", patches: [{ field: "pinned", value: "true" }] }],
+    [["task", "unpin", "task-1"], { kind: "task-amend", taskId: "task-1", patches: [{ field: "pinned", value: "false" }] }],
     [["agenda", "--limit", "25", "--cursor", "cursor-a"], { kind: "agenda", limit: 25, cursor: "cursor-a" }],
     [["task", "archive", "task-1", "--reason", "Delivered", "--archived-by", "owner"], { kind: "task-archive", taskId: "task-1", reason: "Delivered", archivedBy: "owner" }],
     [["task", "supersede", "task-1", "--by", "task-2", "--confirm", "task-1", "--reason", "Scope changed"], { kind: "task-supersede", oldTaskId: "task-1", byTaskId: "task-2", confirm: "task-1", reason: "Scope changed", allowOpenFindings: false }],
