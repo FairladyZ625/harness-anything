@@ -191,8 +191,8 @@ test("GUI dispatches a real daemon-mediated codex provider mission and exposes i
 
 function seedRealDispatchFixture(userRoot, rootDir, installationId) {
   if (!installationId) throw new Error("codex installation is not witnessed by the daemon runtime inventory");
-  mkdirSync(resolve(rootDir, ".harness/agents"), { recursive: true });
-  writeFileSync(resolve(rootDir, ".harness/agents/codex-sidecar.json"), `${JSON.stringify({ schema: "agent-declaration/v1", id: "codex-sidecar", name: "Codex Sidecar", instructions: "Use the shell to complete the mission exactly and report the resulting file contents.", runtime_type: "codex" }, null, 2)}\n`);
+  mkdirSync(resolve(rootDir, "harness/agents"), { recursive: true });
+  writeFileSync(resolve(rootDir, "harness/agents/codex-sidecar.json"), `${JSON.stringify({ schema: "agent-declaration/v1", id: "codex-sidecar", name: "Codex Sidecar", instructions: "Use the shell to complete the mission exactly and report the resulting file contents.", runtime_type: "codex" }, null, 2)}\n`);
   writeFileSync(resolve(userRoot, "runtime-instances.json"), `${JSON.stringify({ schema: "runtime-instances/v1", instances: [{ schemaVersion: 2, instanceId: "codex-sidecar", name: "Codex Sidecar", installationId, providerId: "codex_local_access", models: ["gpt-5.6-terra"], defaultModel: "gpt-5.6-terra", enabled: true, auth: { mode: "api-key", credentialRef: "credential:v1:codex-sidecar" }, kindId: "codex", codex: { reasoningEffort: "low", baseUrl: "http://localhost:50818/v1", wireApi: "responses", requiresOpenAiAuth: true } }] }, null, 2)}\n`);
 }
 

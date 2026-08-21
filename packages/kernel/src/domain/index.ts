@@ -77,6 +77,8 @@ export type {
   TemplateLibraryError
 } from "./errors.ts";
 
+export { compileAgentEntityWrite, isAgentEntityEvent } from "./agent-entity-event.ts";
+
 export {
   validateExtensionInputShape,
   validateTemplateCatalog,
