@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { createFactProjectionTables, listDecisionRows, readFactGraphRows, searchFactRows, type FactProjectionRow } from "../../src/projection/fact-event-projection.ts";
+import { createDecisionProjectionTables, listDecisionRows } from "../../src/projection/decision-event-projection.ts";
+import { createFactProjectionTables, readFactGraphRows, searchFactRows, type FactProjectionRow } from "../../src/projection/fact-event-projection.ts";
+import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
 
 test("100k Fact FTS exact searches stay indexed with p95 below 10ms", (context) => {
   const db = new DatabaseSync(":memory:");
   try {
-    createFactProjectionTables(db);
+    createRelationGraphProjectionTables(db); createFactProjectionTables(db); createDecisionProjectionTables(db);
     const insertFact = db.prepare("INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     const insertFts = db.prepare("INSERT INTO fact_fts(task_id, fact_id, statement, evidence_source) VALUES (?, ?, ?, ?)");
     db.exec("BEGIN");
@@ -47,7 +49,7 @@ test("100k Fact FTS exact searches stay indexed with p95 below 10ms", (context) 
 test("10k Decision FTS searches stay indexed after refresh with p95 below 10ms", (context) => {
   const db = new DatabaseSync(":memory:");
   try {
-    createFactProjectionTables(db); db.exec("CREATE TABLE document(path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)");
+    createRelationGraphProjectionTables(db); createFactProjectionTables(db); createDecisionProjectionTables(db); db.exec("CREATE TABLE document(path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)");
     const insert = db.prepare("INSERT INTO decision(decision_id,state,title,question,risk_tier,urgency,vertical,preset,decision_class,applies_json,proposer_json,arbiter_json,proposed_at,decided_at,workspace_revision) VALUES (?, 'proposed', ?, ?, 'high', 'medium', 'performance', 'default', 'ordinary', ?, ?, NULL, ?, NULL, ?)");
     const insertFts = db.prepare("INSERT INTO decision_fts(decision_id,title,question,option_text,claim_text,body) VALUES (?, ?, ?, '', '', '')"), applies = JSON.stringify({ modules: ["kernel"], productLines: [] }), proposer = JSON.stringify({ principal: { personId: "performance" }, executor: null });
     db.exec("BEGIN");

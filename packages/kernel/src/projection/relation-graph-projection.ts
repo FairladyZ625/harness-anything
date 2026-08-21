@@ -1,3 +1,4 @@
+import type { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import { formatRelationFlowRecord, parseEntityRef, validateRelationRecordsForHost, type EntityRelationRecord, type EntityRelationValidationIssue } from "../domain/index.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
@@ -17,6 +18,17 @@ export interface EventBackedRelationTruth { readonly factAnchors: readonly FactA
 export interface RelationGraphProjection { readonly edges: readonly RelationGraphEdgeRow[]; readonly coverageRows: readonly RelationCoverageRow[]; readonly factAnchors: readonly FactAnchorRow[] }
 export interface RelationRecordEntry { readonly hostRef: string; readonly ownerRef: string; readonly sourceKind: RelationAuthoredSourceKind; readonly record: EntityRelationRecord; readonly sourcePath: string; readonly recordIndex: number }
 export interface RelationRecordValidationIssue { readonly entry: RelationRecordEntry; readonly issue: EntityRelationValidationIssue | { readonly code: "relation_provenance_inheritance_mismatch" | "relation_endpoint_unknown"; readonly relationId?: string; readonly message: string } }
+
+export function createRelationGraphProjectionTables(db: DatabaseSync): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS relation_edge (relation_id TEXT PRIMARY KEY, source_ref TEXT NOT NULL, target_ref TEXT NOT NULL, relation_type TEXT NOT NULL,
+      state TEXT NOT NULL, owner_ref TEXT NOT NULL, workspace_revision INTEGER NOT NULL, row_json TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS relation_edge_source ON relation_edge(source_ref, state);
+    CREATE INDEX IF NOT EXISTS relation_edge_target ON relation_edge(target_ref, state);
+    CREATE INDEX IF NOT EXISTS relation_edge_type_target ON relation_edge(relation_type, target_ref, state);
+    CREATE INDEX IF NOT EXISTS relation_edge_state_page ON relation_edge(state, relation_id);
+  `);
+}
 
 const emptyTruth: EventBackedRelationTruth = { factAnchors: [], decisionAnchors: [], edges: [], coverageRows: [] };
 export function buildRelationGraphProjection(rootInput: HarnessLayoutInput, truth: EventBackedRelationTruth = emptyTruth): RelationGraphProjection { const entries = collectRelationRecordEntries(rootInput), refIndex = buildGraphRefIndex(rootInput, truth), authored = relationEntriesToEdges(entries, refIndex), edges = convergeEdges([...truth.edges, ...authored]); return { edges, coverageRows: truth.coverageRows, factAnchors: [...truth.factAnchors].sort((a, b) => a.factRef.localeCompare(b.factRef)) }; }

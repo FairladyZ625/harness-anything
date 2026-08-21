@@ -7,7 +7,7 @@ import {
 } from "../../src/domain/lifecycle-status.ts";
 import {
   decisionStates
-} from "../../src/domain/fact-event.ts";
+} from "../../src/domain/decision-event.ts";
 import {
   packageDispositions
 } from "../../src/domain/package-disposition.ts";

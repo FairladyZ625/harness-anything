@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readFileSync, readlinkSync, readdirSync, symlink
 import path from "node:path";
 import test from "node:test";
 import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, parseCanonicalEvent, serializeCanonicalEvent, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
-import { compileDecisionWrite, decisionWritePlan, type DecisionDocumentState, type DecisionEventDraftV1 } from "../../src/domain/fact-event.ts";
+import { compileDecisionWrite, decisionWritePlan, type DecisionDocumentState, type DecisionEventDraftV1 } from "../../src/domain/decision-event.ts";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import { serializeTaskEvent, type TaskCreatedEvent } from "../../src/domain/task-lifecycle.contract.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";

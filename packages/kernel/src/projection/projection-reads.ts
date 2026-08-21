@@ -3,7 +3,8 @@ import type { CanonicalEventV1, DocumentState } from "../domain/doc-sync.contrac
 import type { LeaseHolder } from "../domain/execution.ts";
 import type { RuntimeSession } from "../domain/agent-runtime.ts";
 import type { TaskProgressEventV1 } from "../domain/task-progress-event.ts";
-import { readDecisionGraphRows, readFactAnchorRows, readFactGraphRows, type DecisionAgendaProjectionRow, type DecisionProjectionRow, type FactProjectionRow, type FactSearchPage } from "./fact-event-projection.ts";
+import { readDecisionGraphRows, type DecisionAgendaProjectionRow, type DecisionProjectionRow } from "./decision-event-projection.ts";
+import { readFactAnchorRows, readFactGraphRows, type FactProjectionRow, type FactSearchPage } from "./fact-event-projection.ts";
 import type { ProjectionPage, TaskRelationProjectionRow } from "./task-query-projection.ts";
 
 export type TaskProjectionWarning = "projection_missing";

@@ -7,7 +7,7 @@ import { classifyModule, classifyPath, isProductionPath, isTestPath, MODULES } f
 test("module-policy is the single ordered module catalog", () => {
   assert.deepEqual(MODULES, [
     "kernel", "task-lifecycle", "write-contract", "doc-sync", "preset", "cli", "gui",
-    "daemon", "fleet", "authority-write-path", "identity-rbac", "agent-runtime", "decision-fact", "test-infra"
+    "daemon", "fleet", "authority-write-path", "identity-rbac", "agent-runtime", "decision", "fact", "test-infra"
   ]);
   assert.equal(classifyModule("packages/kernel/src/domain/task.ts"), "kernel");
   assert.equal(classifyModule("packages/application/src/task-lifecycle-gates.ts"), "task-lifecycle");
@@ -22,6 +22,8 @@ test("module-policy is the single ordered module catalog", () => {
   assert.equal(classifyModule("packages/agent-runtime/src/index.ts"), "agent-runtime");
   assert.equal(classifyModule("packages/gui/src/renderer/agent-runtime-view.tsx"), "agent-runtime");
   assert.equal(classifyModule("packages/daemon/src/agent-runtime-registry.ts"), "agent-runtime");
+  assert.equal(classifyModule("packages/kernel/src/domain/decision-event.ts"), "decision");
+  assert.equal(classifyModule("packages/kernel/src/domain/fact-event.ts"), "fact");
   assert.equal(classifyModule("tools/gates/line-budget.mjs"), "test-infra");
 });
 
@@ -78,7 +80,7 @@ test("W3 Slice 3 fixture keeps user shadow lifecycle paths in their production b
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
 
-test("Decision/Fact Slice A fixture assigns the vertical cut and shared seams to their budgets", () => {
+test("Decision/Fact split fixture assigns both concepts and shared seams to their budgets", () => {
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/decision-fact-slice-a-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
@@ -128,7 +130,7 @@ test("task surface fixture bills CLI, daemon, GUI, kernel, and preset seams to t
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });
 
-test("decision surface fixture bills CLI, daemon, Decision/Fact, and kernel seams to their ratcheted buckets", () => {
+test("decision surface fixture bills CLI, daemon, Decision, and kernel seams to their ratcheted buckets", () => {
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/decision-surface-production-paths.json", import.meta.url), "utf8"));
   for (const row of fixture) assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
 });

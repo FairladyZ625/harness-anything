@@ -1,5 +1,5 @@
 [
-  { "path": "packages/application/src/fact-service.ts", "module": "decision-fact" },
+  { "path": "packages/application/src/fact-service.ts", "module": "fact" },
   { "path": "packages/application/src/task-lifecycle-service.ts", "module": "task-lifecycle" },
   { "path": "packages/cli/src/cli/thin-command.ts", "module": "cli" },
   { "path": "packages/daemon/src/doc-sync-actions.ts", "module": "doc-sync" },

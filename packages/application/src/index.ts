@@ -15,7 +15,8 @@ export type {
   TaskLifecycleService,
   TaskLifecycleServiceRead
 } from "./task-lifecycle-service.ts";
-export { FactServiceError, makeDecisionService, makeFactService } from "./fact-service.ts";
+export { makeDecisionService } from "./decision-service.ts";
+export { FactServiceError, makeFactService } from "./fact-service.ts";
 export type { FactRecordResult, FactWriteBundle } from "./fact-service.ts";
 export interface LocalControllerServiceOptions {
   readonly rootDir: string;

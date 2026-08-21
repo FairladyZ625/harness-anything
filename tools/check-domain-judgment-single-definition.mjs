@@ -19,7 +19,7 @@ const requiredConsumers = new Map([
   ["packages/kernel/src/domain/completion-readiness.ts", "closeoutReadiness("],
   ["packages/kernel/src/projection/sqlite-task-source.ts", "domainCloseoutReadiness("],
   ["packages/kernel/src/projection/fact-event-projection.ts", "factLiveness("],
-  ["packages/kernel/src/projection/fact-event-projection.ts#coverage", "coverageOf("],
+  ["packages/kernel/src/projection/decision-event-projection.ts#coverage", "coverageOf("],
   ["packages/kernel/src/projection/cold-rebuild-source.ts#liveness", "factLiveness("],
   ["packages/kernel/src/projection/cold-rebuild-source.ts#coverage", "coverageOf("],
   ["packages/daemon/src/repo-cell.ts#closeout", "closeoutReadiness("],

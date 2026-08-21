@@ -9,7 +9,7 @@
   { "path": "packages/gui/src/renderer/triadic-data.ts", "module": "gui" },
   { "path": "packages/kernel/src/index.ts", "module": "kernel" },
   { "path": "packages/kernel/src/projection/decision-readiness-projection.ts", "module": "kernel" },
-  { "path": "packages/kernel/src/projection/fact-event-projection.ts", "module": "decision-fact" },
+  { "path": "packages/kernel/src/projection/fact-event-projection.ts", "module": "fact" },
   { "path": "packages/kernel/src/projection/rebuildable-relation-read.ts", "module": "kernel" },
   { "path": "packages/kernel/src/projection/rebuildable-task-projection.ts", "module": "kernel" },
   { "path": "packages/kernel/src/projection/relation-graph-projection.ts", "module": "kernel" },

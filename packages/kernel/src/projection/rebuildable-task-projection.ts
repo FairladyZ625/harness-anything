@@ -14,15 +14,19 @@ import { assertAgentEntityWritePlan, isAgentEntityEvent } from "../domain/agent-
 import { assertTaskBootstrapWritePlan, isTaskBootstrapEvent, taskBootstrapPackagePath } from "../domain/task-bootstrap-event.ts";
 import { assertTaskProgressWritePlan, isTaskProgressEvent, renderTaskProgressDocument, type TaskProgressEventV1 } from "../domain/task-progress-event.ts";
 import { assertPresetSnapshotUpgradeWritePlan, isPresetSnapshotUpgradeEvent } from "../domain/preset-snapshot-upgrade-event.ts";
-import { assertDecisionWritePlan, assertFactWritePlan, renderDecisionDocument, renderFactsDocument, type DecisionEventV1, type FactEventV1 } from "../domain/fact-event.ts";
+import { assertDecisionWritePlan, renderDecisionDocument, type DecisionEventV1 } from "../domain/decision-event.ts";
+import { assertFactWritePlan, renderFactsDocument, type FactEventV1 } from "../domain/fact-event.ts";
 import { assertTaskLifecycleWritePlan, lifecycleDocumentPaths } from "../domain/task-lifecycle-publication.ts";
 import { slugifyTaskTitle } from "../layout/index.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
-import { assertDecisionAdmission, assertFactAdmission, createFactProjectionTables, FactProjectionError, listDecisionAgendaRowsPage, listDecisionRows, readDecisionDocumentState, readDecisionGraphRows, readDecisionRow, readDecisionRows, readFactAnchorRows, readFactGraphRows, readFactRow, reduceDecisionEvent, reduceFactEvent, refreshDecisionDocumentSearch, searchFactRows, searchFactRowsPage, type DecisionListFilters, type DecisionPageQuery, type FactSearchFilters } from "./fact-event-projection.ts";
-import type { EventBackedRelationTruth } from "./relation-graph-projection.ts";
+import { assertDecisionAdmission, createDecisionProjectionTables, listDecisionAgendaRowsPage, listDecisionRows, readDecisionDocumentState, readDecisionGraphRows, readDecisionRow, readDecisionRows, reduceDecisionEvent, refreshDecisionDocumentSearch } from "./decision-event-projection.ts";
+import { assertFactAdmission, createFactProjectionTables, FactProjectionError, readFactAnchorRows, readFactGraphRows, readFactRow, reduceFactEvent, searchFactRows, searchFactRowsPage } from "./fact-event-projection.ts";
+import { createRelationGraphProjectionTables } from "./relation-graph-projection.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
-import { createTaskRelationProjectionTable, listTaskRowsNarrow, readTaskDependencyClosureRows, readTaskRelationPage, readTaskRelationRows, readTaskRelationsByTargets, readTaskRuntimeBatchPage, readTaskStatusRows, refreshTaskRelationProjection, type TaskProjectionListQuery, type TaskRelationQuery } from "./task-query-projection.ts";
+import { createTaskRelationProjectionTable, listTaskRowsNarrow, readTaskDependencyClosureRows, readTaskRelationPage, readTaskRelationRows, readTaskRelationsByTargets, readTaskRuntimeBatchPage, readTaskStatusRows, refreshTaskRelationProjection, type TaskProjectionListQuery } from "./task-query-projection.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
+import type { TaskProjection } from "./task-projection-port.ts";
+export type { TaskProjection } from "./task-projection-port.ts";
 
 interface EventStreamPort {
   readonly readHead: () => { readonly revision: number; readonly eventDigest: `sha256:${string}` } | null;
@@ -34,26 +38,7 @@ interface EventStreamPort {
 }
 type EventContentPrefetch = (events: readonly CanonicalEventV1[]) => ReadonlyMap<string, Uint8Array | null>;
 const batchContentPrefetchers = new WeakMap<EventStreamPort, EventContentPrefetch>();
-export * from "./projection-reads.ts"; import type { DocumentProjectionRead, FactAnchorProjectionRead, FactGraphProjectionRead, FactProjectionRead, FactProjectionSearchRead, DecisionProjectionRead, DecisionProjectionListRead, DecisionAgendaProjectionPageRead, DecisionGraphProjectionRead, LeaseInterval, PresetSnapshotProjectionRead, ProjectionApplyReceipt, ProjectionRebuildReceipt, ReplicaProjectionBasis, TaskProgressProjectionRead, TaskProjectionListRead, TaskProjectionRead, TaskRelationProjectionRead, TaskRuntimeBatchQuery, TaskRuntimeBatchRead } from "./projection-reads.ts";
-export interface TaskProjection {
-  readonly path: string; readonly close: () => void; readonly apply: (event: CanonicalEventV1, plan?: FrozenWritePlan) => ProjectionApplyReceipt; readonly rebuild: () => ProjectionRebuildReceipt;
-  readonly readStateDigest: () => `sha256:${string}` | null;
-  readonly read: (taskId: string) => TaskProjectionRead; readonly list: (query?: TaskProjectionListQuery) => TaskProjectionListRead; readonly readTaskRelations: () => TaskRelationProjectionRead; readonly readTaskDependencyClosure: (sourceRefs: readonly string[], maxDepth?: number) => TaskRelationProjectionRead; readonly readTaskRelationsByTargets: (targetRefs: readonly string[], relationType: string) => TaskRelationProjectionRead; readonly readTaskStatuses: (taskIds?: readonly string[]) => { readonly status: "ready" | "pending"; readonly rows: readonly { readonly taskId: string; readonly status: string | null }[]; readonly watermark: number; readonly sourceRevision: number }; readonly readTaskRuntimeBatch: (query: TaskRuntimeBatchQuery) => TaskRuntimeBatchRead; readonly readRelationQuery: (query?: TaskRelationQuery) => TaskRelationProjectionRead; readonly readOperation: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
-  readonly readRelationTruth: () => EventBackedRelationTruth;
-  readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null; readonly readDocument: (path: string) => DocumentProjectionRead; readonly readReplicaBasis: (afterRevision: number | null) => ReplicaProjectionBasis; readonly taskIdForDocumentPath: (path: string) => string | null;
-  readonly readTaskCompletion: (taskId: string, executionId: string) => TaskEventV1 | null;
-  readonly readRuntimeDispatch: (runtimeSessionIdValue: string, definitionSnapshotRef: string) => AgentRuntimeEventV1 | null;
-  readonly readRuntimeSessionEvents: (runtimeSessionIdValue: string, afterRevision: number, limit: number) => readonly AgentRuntimeEventV1[];
-  readonly readPresetSnapshot: (digest: string) => PresetSnapshotProjectionRead;
-  readonly readProgress: (taskId: string) => TaskProgressProjectionRead;
-  readonly admitFact: (event: FactEventV1) => void; readonly readFact: (taskId: string, factId: string) => FactProjectionRead; readonly searchFacts: (filters: FactSearchFilters) => FactProjectionSearchRead; readonly readFactAnchors: (refs?: readonly string[]) => FactAnchorProjectionRead; readonly readFactGraph: () => FactGraphProjectionRead;
-  readonly admitDecision: (event: DecisionEventV1) => void; readonly readDecision: (decisionId: string) => DecisionProjectionRead; readonly readDecisions: (decisionIds: readonly string[]) => DecisionProjectionListRead; readonly listDecisions: (filters: DecisionListFilters) => DecisionProjectionListRead; readonly listDecisionAgendaPage: (query: DecisionPageQuery) => DecisionAgendaProjectionPageRead; readonly readDecisionGraph: () => DecisionGraphProjectionRead;
-  readonly readLeaseIntervals: (taskId: string) => readonly LeaseInterval[]; readonly currentLease: (taskId: string, now?: string) => LeaseV1 | null; readonly currentLeaseForExecution: (executionId: string, now?: string) => LeaseV1 | null;
-  readonly reserveLease: (lease: LeaseV1, now: string) => LeaseV1; readonly activateLease: (lease: LeaseV1) => LeaseV1;
-  readonly renewLease: (lease: LeaseV1, expiresAt: string) => LeaseV1; readonly releaseLease: (lease: LeaseV1) => LeaseV1;
-  readonly readRuntimeInstallation: (installationId: string) => RuntimeInstallation | null; readonly readRuntimeInstallations: () => readonly RuntimeInstallation[]; readonly readRuntimeSession: (runtimeSessionId: string) => RuntimeSession | null;
-  readonly readRuntimeSessions: () => readonly RuntimeSession[]; readonly readRuntimeSessionsForTask: (taskId: string) => readonly RuntimeSession[];
-}
+export * from "./projection-reads.ts"; import type { DocumentProjectionRead, LeaseInterval, PresetSnapshotProjectionRead, ProjectionApplyReceipt, ProjectionRebuildReceipt, TaskProjectionListRead, TaskProjectionRead } from "./projection-reads.ts";
 export function defaultLifecycleTaskProjectionPath(rootDir: string): string { return path.join(path.resolve(rootDir), ".harness/cache/task.sqlite"); }
 export function makeTaskProjection(options: { readonly rootDir: string; readonly eventStore: EventStreamPort;
   readonly projectionPath?: string; readonly catchUpLimit?: number; readonly now?: () => string }): TaskProjection {
@@ -293,7 +278,9 @@ function createTables(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS lease_interval (task_id TEXT NOT NULL, execution_id TEXT NOT NULL, acquired_revision INTEGER NOT NULL, released_revision INTEGER, holder_json TEXT NOT NULL, previous_holder_json TEXT, lease_expires_at TEXT NOT NULL, reason TEXT NOT NULL, PRIMARY KEY(task_id, execution_id, acquired_revision));
   `);
   createTaskRelationProjectionTable(db);
+  createRelationGraphProjectionTables(db);
   createFactProjectionTables(db);
+  createDecisionProjectionTables(db);
 }
 
 function projectionSchemaVersion(db: DatabaseSync): number | null { if (queryRows(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='projection_meta'").length === 0) return null; const columns = queryRows(db, "PRAGMA table_info(projection_meta)"); if (!columns.some(({ name }) => name === "schema_version")) return 0; const row = queryRows(db, "SELECT schema_version FROM projection_meta WHERE singleton=1")[0]; return row ? Number(row.schema_version) : 0; }
