@@ -7,3 +7,4 @@
 # the crlf-checkout lane keeps the teeth it needs to find the next defect in this class.
 packages/preset/assets/** -text
 packages/*/test/fixtures/** -text
+packages/*/fixtures/** -text
