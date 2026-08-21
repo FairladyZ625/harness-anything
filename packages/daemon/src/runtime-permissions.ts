@@ -1,6 +1,7 @@
 // Permission/sandbox vocabulary for runtime instances. One harness-level mode per
 // instance (default open) mapped onto each provider's own verified flags:
-// Claude Code 2.1.234 `--permission-mode`, Codex CLI 0.147.0 `--sandbox`.
+// Claude Code 2.1.234 `--permission-mode`; Codex CLI 0.147.0 uses `--sandbox`
+// for a new exec, but its resume parser requires config overrides (or bypass).
 export type RuntimePermissionMode = "bypass" | "workspace-write" | "read-only";
 export type RuntimeIsolationState = "enforced" | "operator-environment";
 export type RuntimePermissionKind = "claude" | "codex" | "agy";
@@ -22,9 +23,11 @@ export function runtimeIsolationState(value: unknown, kindId: RuntimePermissionK
 // The #1608 workspace-write hardening (excluding $TMPDIR and /tmp from the writable
 // sandbox) stays exactly as it was whenever an operator explicitly tightens a codex
 // instance back to workspace-write; only the default moved to the open side.
-export function permissionLaunchArgs(kindId: "claude" | "codex", mode: RuntimePermissionMode): readonly string[] {
+export function permissionLaunchArgs(kindId: "claude" | "codex", mode: RuntimePermissionMode, phase: "start" | "resume" = "start"): readonly string[] {
   if (kindId === "claude") return ["--permission-mode", mode === "bypass" ? "bypassPermissions" : mode === "workspace-write" ? "acceptEdits" : "plan"];
-  return mode === "bypass" ? ["--sandbox", "danger-full-access"] : mode === "workspace-write" ? ["--sandbox", "workspace-write", "--config", "sandbox_workspace_write.exclude_tmpdir_env_var=true", "--config", "sandbox_workspace_write.exclude_slash_tmp=true"] : ["--sandbox", "read-only"];
+  const sandbox = mode === "bypass" ? "danger-full-access" : mode;
+  const selection = phase === "resume" ? mode === "bypass" ? ["--dangerously-bypass-approvals-and-sandbox"] : ["--config", `sandbox_mode=${JSON.stringify(sandbox)}`] : ["--sandbox", sandbox];
+  return mode === "workspace-write" ? [...selection, "--config", "sandbox_workspace_write.exclude_tmpdir_env_var=true", "--config", "sandbox_workspace_write.exclude_slash_tmp=true"] : selection;
 }
 
 function permissionError(code: string, message: string): Error { return Object.assign(new Error(message), { code }); }
