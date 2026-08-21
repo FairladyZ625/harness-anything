@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseCanonicalEvent, serializeCanonicalEvent } from "../../packages/kernel/src/index.ts";
-import { assessConnections, assessHelloLatency, assessRssTrend, createSoakEvents } from "./daemon-soak.mjs";
+import { assessConnections, assessHelloLatency, assessRssTrend, assessWorkload, createSoakEvents, recordLoadFailure, renderDaemonOutput } from "./daemon-soak.mjs";
 
 test("scale ledger generator emits the requested valid event and task counts", () => {
   const events = createSoakEvents({ taskCount: 3, eventCount: 12 });
@@ -46,4 +46,22 @@ test("RSS assessment accepts a plateau and rejects sustained monotonic growth", 
   const result = assessRssTrend({ samples: climb, maxGrowthBytes: 16 * mib, maxSlopeBytesPerMinute: 8 * mib });
   assert.equal(result.ok, false);
   assert.match(result.message, /RSS trend/u);
+});
+
+test("workload failures retain bounded, self-explanatory evidence", () => {
+  const counts = { requests: 3, failures: 3, failureEvidence: [], failureEvidenceDropped: 0, failureEvidenceLimit: 2 }, startedAt = performance.now();
+  for (const method of ["repo.tasks.list", "protocol.hello", "daemon.status"]) recordLoadFailure({ counts, method, startedAt, failure: Object.assign(new Error("the daemon did not answer within 5s"), { code: "daemon_response_timeout" }) });
+  assert.equal(counts.failureEvidence.length, 2);
+  assert.equal(counts.failureEvidenceDropped, 1);
+  assert.match(counts.failureEvidence[0], /^t\+\d+ms repo\.tasks\.list failed: code=daemon_response_timeout; the daemon did not answer within 5s$/u);
+  const assessment = assessWorkload(counts);
+  assert.equal(assessment.ok, false);
+  assert.match(assessment.message, /protocol\.hello failed/u);
+  assert.match(assessment.message, /failure evidence truncated: 1 additional failure\(s\) omitted after 2 record\(s\)/u);
+});
+
+test("daemon output artifact declares that a normal empty stdio capture is expected", () => {
+  const output = renderDaemonOutput([]);
+  assert.match(output, /captured daemon stdout\/stderr: 0 byte\(s\)/u);
+  assert.match(output, /This capture is working/u);
 });
