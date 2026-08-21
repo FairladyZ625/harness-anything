@@ -19,6 +19,7 @@ import { buildTimeline, discoverConnLogFiles, loadConnLogRecords, renderTimeline
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 const cliEntry = path.join(repoRoot, "packages/cli/src/index.ts");
 const MIB = 1024 * 1024;
+const workloadFailureEvidenceLimit = 20;
 
 const soakActor = Object.freeze({ principal: { personId: "person-soak" }, executor: null });
 const runtimeDefinition = Object.freeze({ schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: "instance-soak", installationId: "installation-soak", kindId: "codex", providerId: "openai", model: "gpt-5.6-sol", reasoningEffort: "high", baseUrl: null, authMode: "subscription" });
@@ -97,6 +98,12 @@ export function assessRssTrend({ samples, maxGrowthBytes, maxSlopeBytesPerMinute
   };
 }
 
+export function assessWorkload({ requests, failures, failureEvidence, failureEvidenceDropped, failureEvidenceLimit }) {
+  const prefix = failures === 0 ? "PASS" : "FAIL";
+  const evidence = failures === 0 ? "" : `; ${failureEvidence.join("; ")}${failureEvidenceDropped === 0 ? "" : `${failureEvidence.length > 0 ? "; " : ""}failure evidence truncated: ${failureEvidenceDropped} additional failure(s) omitted after ${failureEvidenceLimit} record(s)`}`;
+  return { ok: failures === 0, message: `${prefix} workload requests: ${requests} completed, ${failures} failed${evidence}` };
+}
+
 function percentile(values, fraction) {
   if (values.length === 0) return Number.POSITIVE_INFINITY;
   const sorted = [...values].sort((left, right) => left - right);
@@ -146,7 +153,7 @@ async function runSoak(config = readConfig()) {
     const taskIds = Array.from({ length: config.taskCount }, (_, index) => `task_soak_${String(index).padStart(6, "0")}`);
     const warmup = await runLoadPhase({ endpoint, repoId, taskIds, durationMs: config.warmupMs, concurrency: config.concurrency, requestIntervalMs: config.requestIntervalMs, helloProbeIntervalMs: config.helloProbeIntervalMs, sampleRssPid: null });
     console.log(`[soak] warmup ${config.warmupMs}ms requests=${warmup.requests} failures=${warmup.failures}`);
-    const load = await runLoadPhase({ endpoint, repoId, taskIds, durationMs: config.durationMs, concurrency: config.concurrency, requestIntervalMs: config.requestIntervalMs, helloProbeIntervalMs: config.helloProbeIntervalMs, sampleRssPid: child.pid });
+    const load = await runLoadPhase({ endpoint, repoId, taskIds, durationMs: config.durationMs, concurrency: config.concurrency, requestIntervalMs: config.requestIntervalMs, helloProbeIntervalMs: config.helloProbeIntervalMs, sampleRssPid: child.pid, workloadMethodOverride: config.workloadMethodOverride });
     console.log(`[soak] load ${config.durationMs}ms requests=${load.requests} failures=${load.failures} hello-probes=${load.helloSamplesMs.length} rss-samples=${load.rssSamples.length}`);
 
     let streamAttached = false, streamLost = null;
@@ -175,12 +182,12 @@ async function runSoak(config = readConfig()) {
     const hello = assessHelloLatency({ clientSamplesMs: load.helloSamplesMs, daemon: normal, maxP99Ms: config.maxHelloP99Ms });
     const rss = assessRssTrend({ samples: load.rssSamples, maxGrowthBytes: config.maxRssGrowthBytes, maxSlopeBytesPerMinute: config.maxRssSlopeBytesPerMinute });
     const workload = { ...load, helloSamplesMs: undefined, rssSamples: undefined, warmupRequests: warmup.requests, warmupFailures: warmup.failures };
-    const assertions = [connections, hello, rss, { ok: load.failures === 0, message: `${load.failures === 0 ? "PASS" : "FAIL"} workload requests: ${load.requests} completed, ${load.failures} failed` }];
+    const assertions = [connections, hello, rss, assessWorkload(load)];
     const report = { schema: "daemon-nightly-soak/v1", generatedAt: new Date().toISOString(), config, fixture: { tasks: config.taskCount, events: config.eventCount, method: "deterministic canonical event generator committed as the fixture's initial Git snapshot" }, workload, assertions, rssSamples: load.rssSamples, helloSamplesMs: load.helloSamplesMs, normalTimeline: normal, faultTimeline: fault, streamLost };
     writeFileSync(path.join(resultsDir, "summary.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
     writeFileSync(path.join(resultsDir, "normal-timeline.txt"), `${renderTimeline(normal)}\n`, "utf8");
     writeFileSync(path.join(resultsDir, "fault-timeline.txt"), `${renderTimeline(fault)}\n`, "utf8");
-    writeFileSync(path.join(resultsDir, "daemon-output.log"), daemonOutput.join(""), "utf8");
+    writeFileSync(path.join(resultsDir, "daemon-output.log"), renderDaemonOutput(daemonOutput), "utf8");
     for (const assertion of assertions) console.log(assertion.message);
     console.log(`[soak] artifacts=${resultsDir}`);
     if (assertions.some(({ ok }) => !ok)) throw new Error("nightly soak invariants failed");
@@ -189,7 +196,7 @@ async function runSoak(config = readConfig()) {
     detach?.();
     if (rejectServer) await closeServer(rejectServer).catch(() => undefined);
     await stopChild(child);
-    if (daemonOutput.length > 0 && !existsSync(path.join(resultsDir, "daemon-output.log"))) writeFileSync(path.join(resultsDir, "daemon-output.log"), daemonOutput.join(""), "utf8");
+    if (!existsSync(path.join(resultsDir, "daemon-output.log"))) writeFileSync(path.join(resultsDir, "daemon-output.log"), renderDaemonOutput(daemonOutput), "utf8");
     rmSync(parent, { recursive: true, force: true });
   }
 }
@@ -206,17 +213,17 @@ function initializeFixture({ rootDir, userRoot, repoId, events }) {
   registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
 }
 
-async function runLoadPhase({ endpoint, repoId, taskIds, durationMs, concurrency, requestIntervalMs, helloProbeIntervalMs, sampleRssPid }) {
-  const stopAt = Date.now() + durationMs, counts = { requests: 0, failures: 0 }, methods = new Map(), helloSamplesMs = [], rssSamples = [];
-  const workers = Array.from({ length: concurrency }, (_, worker) => workloadClient({ endpoint, repoId, taskIds, stopAt, worker, counts, methods, requestIntervalMs }));
-  const probes = helloProbeLoop({ endpoint, stopAt, samples: helloSamplesMs, counts, helloProbeIntervalMs });
+async function runLoadPhase({ endpoint, repoId, taskIds, durationMs, concurrency, requestIntervalMs, helloProbeIntervalMs, sampleRssPid, workloadMethodOverride = null }) {
+  const startedAt = performance.now(), stopAt = Date.now() + durationMs, counts = { requests: 0, failures: 0, failureEvidence: [], failureEvidenceDropped: 0, failureEvidenceLimit: workloadFailureEvidenceLimit }, methods = new Map(), helloSamplesMs = [], rssSamples = [];
+  const workers = Array.from({ length: concurrency }, (_, worker) => workloadClient({ endpoint, repoId, taskIds, stopAt, startedAt, worker, counts, methods, requestIntervalMs, workloadMethodOverride }));
+  const probes = helloProbeLoop({ endpoint, stopAt, startedAt, samples: helloSamplesMs, counts, helloProbeIntervalMs });
   const rss = sampleRssPid ? rssLoop({ pid: sampleRssPid, stopAt, samples: rssSamples }) : Promise.resolve();
   await Promise.all([...workers, probes, rss]);
   await delay(250);
   return { ...counts, methods: Object.fromEntries([...methods.entries()].sort()), helloSamplesMs, rssSamples };
 }
 
-async function workloadClient({ endpoint, repoId, taskIds, stopAt, worker, counts, methods, requestIntervalMs }) {
+async function workloadClient({ endpoint, repoId, taskIds, stopAt, startedAt, worker, counts, methods, requestIntervalMs, workloadMethodOverride }) {
   let iteration = 0;
   while (Date.now() < stopAt) {
     const batchStart = (worker * 53 + iteration * 17) % taskIds.length;
@@ -231,17 +238,17 @@ async function workloadClient({ endpoint, repoId, taskIds, stopAt, worker, count
       ["repo.tasks.list", { repo: { repoId }, payload: { limit: 50 } }],
       ["daemon.status", {}]
     ];
-    const [method, params] = options[(worker + iteration) % options.length];
+    const [method, params] = workloadMethodOverride === null ? options[(worker + iteration) % options.length] : [workloadMethodOverride, {}];
     try {
       const result = await requestDaemonJsonRpcAt(endpoint, method, params, 1_000, 5_000);
-      if (result.ok !== true) counts.failures += 1;
-    } catch { counts.failures += 1; }
+      if (result.ok !== true) { counts.failures += 1; recordLoadFailure({ counts, method, startedAt, failure: result }); }
+    } catch (error) { counts.failures += 1; recordLoadFailure({ counts, method, startedAt, failure: error }); }
     counts.requests += 1; methods.set(method, (methods.get(method) ?? 0) + 1); iteration += 1;
     await delay(requestIntervalMs);
   }
 }
 
-async function helloProbeLoop({ endpoint, stopAt, samples, counts, helloProbeIntervalMs }) {
+async function helloProbeLoop({ endpoint, stopAt, startedAt, samples, counts, helloProbeIntervalMs }) {
   while (Date.now() < stopAt) {
     let socket;
     try {
@@ -249,11 +256,30 @@ async function helloProbeLoop({ endpoint, stopAt, samples, counts, helloProbeInt
       const client = new JsonRpcLineClient(socket, socket), started = performance.now();
       const result = await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 5_000);
       samples.push(performance.now() - started);
-      if (result.ok !== true) counts.failures += 1;
+      if (result.ok !== true) { counts.failures += 1; recordLoadFailure({ counts, method: "protocol.hello", startedAt, failure: result }); }
       client.close();
-    } catch { counts.failures += 1; socket?.destroy(); }
+    } catch (error) { counts.failures += 1; recordLoadFailure({ counts, method: "protocol.hello", startedAt, failure: error }); socket?.destroy(); }
     await delay(helloProbeIntervalMs);
   }
+}
+
+export function recordLoadFailure({ counts, method, startedAt, failure }) {
+  if (counts.failureEvidence.length >= counts.failureEvidenceLimit) { counts.failureEvidenceDropped += 1; return; }
+  counts.failureEvidence.push(`t+${Math.round(performance.now() - startedAt)}ms ${method} failed: ${describeFailure(failure)}`);
+}
+
+function describeFailure(failure) {
+  const record = failure !== null && typeof failure === "object" ? failure : null;
+  const nested = record?.error !== null && typeof record?.error === "object" ? record.error : null;
+  const code = typeof nested?.code === "string" ? nested.code : typeof record?.code === "string" ? record.code : null;
+  const detail = failure instanceof Error ? failure.message : typeof nested?.hint === "string" ? nested.hint : typeof record?.message === "string" ? record.message : typeof record?.summary === "string" ? record.summary : null;
+  return `${code === null ? "error" : `code=${code}`}${detail === null ? " (no diagnostic text returned)" : `; ${detail}`}`;
+}
+
+export function renderDaemonOutput(chunks) {
+  const output = chunks.join(""), bytes = Buffer.byteLength(output);
+  if (bytes > 0) return `[soak] captured daemon stdout/stderr: ${bytes} byte(s)\n${output}`;
+  return "[soak] captured daemon stdout/stderr: 0 byte(s)\n[soak] no daemon stdout/stderr was emitted. This is expected: normal `ha daemon serve` startup, service, and cooperative shutdown intentionally write no stdio. This capture is working; persistent daemon diagnostics use lifecycle, connection, and request log sinks.\n";
 }
 
 async function rssLoop({ pid, stopAt, samples }) {
@@ -296,16 +322,17 @@ async function waitForAttachedRepo({ child, endpoint, repoId, timeoutMs }) {
   throw new Error(`daemon did not attach ${repoId} within ${timeoutMs}ms`);
 }
 
-function readConfig(env = process.env) {
+export function readConfig(env = process.env) {
   return {
     taskCount: positive(env.HARNESS_SOAK_TASKS, 1_377), eventCount: positive(env.HARNESS_SOAK_EVENTS, 26_650),
     durationMs: positive(env.HARNESS_SOAK_DURATION_MS, 120_000), warmupMs: positive(env.HARNESS_SOAK_WARMUP_MS, 30_000), faultDurationMs: positive(env.HARNESS_SOAK_FAULT_MS, 10_000), startupTimeoutMs: positive(env.HARNESS_SOAK_STARTUP_TIMEOUT_MS, 300_000), concurrency: positive(env.HARNESS_SOAK_CONCURRENCY, 8), requestIntervalMs: positive(env.HARNESS_SOAK_REQUEST_INTERVAL_MS, 500), helloProbeIntervalMs: positive(env.HARNESS_SOAK_HELLO_INTERVAL_MS, 500),
-    maxFaultConnections: positive(env.HARNESS_SOAK_MAX_FAULT_CONNECTIONS, 6), maxHelloP99Ms: positive(env.HARNESS_SOAK_MAX_HELLO_P99_MS, 500), maxRssGrowthBytes: positive(env.HARNESS_SOAK_MAX_RSS_GROWTH_MIB, 32) * MIB, maxRssSlopeBytesPerMinute: positive(env.HARNESS_SOAK_MAX_RSS_SLOPE_MIB_PER_MIN, 12) * MIB,
+    maxFaultConnections: positive(env.HARNESS_SOAK_MAX_FAULT_CONNECTIONS, 6), maxHelloP99Ms: positive(env.HARNESS_SOAK_MAX_HELLO_P99_MS, 500), maxRssGrowthBytes: positive(env.HARNESS_SOAK_MAX_RSS_GROWTH_MIB, 32) * MIB, maxRssSlopeBytesPerMinute: positive(env.HARNESS_SOAK_MAX_RSS_SLOPE_MIB_PER_MIN, 12) * MIB, workloadMethodOverride: optionalText(env.HARNESS_SOAK_WORKLOAD_METHOD_OVERRIDE),
     resultsDir: env.HARNESS_SOAK_RESULTS_DIR || "tmp/soak-results"
   };
 }
 
 function positive(value, fallback) { const parsed = value === undefined ? fallback : Number(value); if (!Number.isInteger(parsed) || parsed < 1) throw new Error(`soak configuration must be positive integers; received ${value}`); return parsed; }
+function optionalText(value) { if (value === undefined) return null; if (typeof value !== "string" || value.length === 0) throw new Error("HARNESS_SOAK_WORKLOAD_METHOD_OVERRIDE must be a non-empty method name"); return value; }
 function git(rootDir, ...args) { execFileSync("git", ["-C", rootDir, ...args], { stdio: "ignore" }); }
 function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 function listen(server, endpoint) { return new Promise((resolve, reject) => { server.once("error", reject); server.listen(endpoint, () => { server.off("error", reject); resolve(); }); }); }
