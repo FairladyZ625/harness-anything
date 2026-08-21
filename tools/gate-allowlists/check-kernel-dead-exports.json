@@ -714,11 +714,6 @@
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
       },
       {
-        "value": "parseCanonicalEvent",
-        "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
-        "reason": "Preset v3 Slice A keeps canonical event parsing public as the closed-union reader contract."
-      },
-      {
         "value": "ParsedEntityRef",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."

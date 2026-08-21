@@ -5,27 +5,33 @@ import test from "node:test";
 import { compileDecisionWrite, compileFactWrite, deriveRelationId, FactEventSchema, parseCanonicalEvent, serializeCanonicalEvent, type DecisionEventDraftV1, type FactEventDraftV1 } from "../../src/index.ts";
 import { assertDecisionJudgmentConsent, assertDecisionWritePlan, decisionMachineDigest, type DecisionDocumentState } from "../../src/domain/fact-event.ts";
 import { DecisionEventSchema } from "../../src/schemas/fact-event.ts";
-import { validateDecisionEvent, validateFactEvent } from "../../src/domain/fact-event.ts";
+import { validateCurrentDecisionEvent, validateCurrentFactEvent, validateDecisionEvent, validateFactEvent } from "../../src/domain/fact-event.ts";
 
 const draft: FactEventDraftV1 = { schema: "fact-event/v1", eventId: "event-fact-contract", workspaceRevision: 1, opId: "op-fact-contract",
   taskId: "task-contract", factId: "F-ABCDEFGH", type: "fact_recorded", actor: { principal: { personId: "person-contract" }, executor: null }, source: "local",
   occurredAt: "2026-08-13T00:00:00.000Z", payload: { statement: "Closed Fact payload", evidenceSource: "contract fixture", observedAt: "2026-08-13T00:00:00.000Z",
     confidence: "high", memoryClass: "semantic", memoryTags: ["pattern"], provenance: [{ runtime: "human", sessionId: "session-contract", boundAt: "2026-08-13T00:00:00.000Z" }] } }, event = compileFactWrite({ event: draft, packagePath: "tasks/task-contract-contract", currentFacts: [] }).event;
 
-test("Fact event schema accepts canonical bytes and rejects invalid or unknown fields", () => {
+test("Fact event reader ignores unknown fields while the current writer stays strict", () => {
   assert.deepEqual(validateFactEvent(event), []);
   assert.deepEqual(Schema.decodeUnknownSync(FactEventSchema)(event), event);
   assert.deepEqual(parseCanonicalEvent(serializeCanonicalEvent(event)), event);
-  for (const invalid of [
+  const additive = [
     { ...event, unexpected: true },
+    { ...event, payload: { ...event.payload, unexpected: true } },
+    { ...event, payload: { ...event.payload, provenance: [{ ...event.payload.provenance[0]!, token: "future field" }] } }
+  ];
+  for (const future of additive) {
+    assert.deepEqual(validateFactEvent(future), [], JSON.stringify(future));
+    assert.notDeepEqual(validateCurrentFactEvent(future), [], JSON.stringify(future));
+  }
+  for (const invalid of [
     { ...event, factId: "F-bad" },
     { ...event, taskId: "task/unsafe" },
     { ...event, occurredAt: "not-a-timestamp" },
-    { ...event, payload: { ...event.payload, unexpected: true } },
     { ...event, payload: { ...event.payload, statement: "   " } },
     { ...event, payload: { ...event.payload, observedAt: "not-a-timestamp" } },
     { ...event, payload: { ...event.payload, memoryTags: ["pattern", "pattern"] } },
-    { ...event, payload: { ...event.payload, provenance: [{ ...event.payload.provenance[0]!, token: "not allowed" }] } },
     { ...event, payload: { ...event.payload, provenance: [event.payload.provenance[0]!, { ...event.payload.provenance[0]!, boundAt: "2026-08-13T00:00:01.000Z" }] } },
     { ...event, payload: { ...event.payload, supersedes: { factRef: "fact/task-contract/F-12345678", rationale: "x".repeat(200) } } }
   ]) {
@@ -40,9 +46,10 @@ test("Fact compiler renders the exact machine-owned file and retires superseded 
 const initialRelationIdentity = { source: "decision/dec_CONTRACT/C1", target: "decision/dec_CONTRACT/CH1", type: "supports" as const, direction: "directed" as const }, initialRelation = { relation_id: deriveRelationId(initialRelationIdentity), ...initialRelationIdentity, strength: "strong" as const, origin: "declared" as const, rationale: "The claim supports the chosen option.", state: "active" as const };
 const decisionDraft: DecisionEventDraftV1 = { schema: "decision-event/v1", eventId: "event-decision-contract", workspaceRevision: 1, opId: "op-decision-contract", decisionId: "dec_CONTRACT", type: "decision_proposed", actor: { principal: { personId: "person-proposer" }, executor: null }, source: "local", occurredAt: "2026-08-14T00:00:00.000Z", payload: { title: "Canonical Decision", question: "Should the authored document be canonical?", riskTier: "medium", urgency: "high", vertical: "software/coding", preset: "standard-task", appliesTo: { modules: ["kernel"], productLines: [] }, decisionClass: "ordinary", chosen: [{ id: "CH1", text: "Use the bundle" }], rejected: [{ id: "RJ1", text: "Use split files", whyNot: "They drift." }], body: "# Canonical Decision\n\n初始正文。\n", claims: [{ id: "C1", text: "One bundle is atomic.", loadBearing: true }], fulfillments: [{ claimId: "C1", mode: "evidenced" }], relations: [initialRelation] } }, decision = compileDecisionWrite({ event: decisionDraft, currentDecision: null, currentRelations: [], currentDocument: null });
 
-test("Decision event schema requires the exact authored mutation claim", () => {
+test("Decision event reader ignores additions while the current writer requires its exact authored mutation claim", () => {
   assert.deepEqual(validateDecisionEvent(decision.event), []); assert.deepEqual(Schema.decodeUnknownSync(DecisionEventSchema)(decision.event), decision.event); assert.deepEqual(parseCanonicalEvent(serializeCanonicalEvent(decision.event)), decision.event);
-  for (const invalid of [decisionDraft, { ...decision.event, unexpected: true }, { ...decision.event, payload: { ...decision.event.payload, unexpected: true } }, { ...decision.event, payload: { ...decision.event.payload, baseDocumentSha256: "0".repeat(64) } }, { ...decision.event, payload: { ...decision.event.payload, decisionDocumentClaim: { ...decision.event.payload.decisionDocumentClaim, path: "decisions/decision-dec_OTHER/decision.md" } } }, { ...decision.event, payload: { ...decision.event.payload, decisionDocumentClaim: { ...decision.event.payload.decisionDocumentClaim, sha256: "bad" } } }]) { assert.notDeepEqual(validateDecisionEvent(invalid), [], JSON.stringify(invalid)); assert.throws(() => Schema.decodeUnknownSync(DecisionEventSchema)(invalid), JSON.stringify(invalid)); }
+  for (const future of [{ ...decision.event, unexpected: true }, { ...decision.event, payload: { ...decision.event.payload, unexpected: true } }]) { assert.deepEqual(validateDecisionEvent(future), [], JSON.stringify(future)); assert.notDeepEqual(validateCurrentDecisionEvent(future), [], JSON.stringify(future)); }
+  for (const invalid of [decisionDraft, { ...decision.event, payload: { ...decision.event.payload, baseDocumentSha256: "0".repeat(64) } }, { ...decision.event, payload: { ...decision.event.payload, decisionDocumentClaim: { ...decision.event.payload.decisionDocumentClaim, path: "decisions/decision-dec_OTHER/decision.md" } } }, { ...decision.event, payload: { ...decision.event.payload, decisionDocumentClaim: { ...decision.event.payload.decisionDocumentClaim, sha256: "bad" } } }]) { assert.notDeepEqual(validateDecisionEvent(invalid), [], JSON.stringify(invalid)); assert.throws(() => Schema.decodeUnknownSync(DecisionEventSchema)(invalid), JSON.stringify(invalid)); }
 });
 
 test("Decision compiler renders the exact single-file package and frozen write plan", () => {
@@ -58,6 +65,8 @@ test("Decision outcome embeds an independently verifiable machine-content consen
   const consent = accepted.event.payload.judgmentConsent;
   assert.deepEqual({ schema: consent.schema, decisionId: consent.decisionId, action: consent.action, targetState: consent.targetState, actor: consent.actor, source: consent.source, consentedAt: consent.consentedAt }, { schema: "decision-judgment-consent/v1", decisionId: "dec_CONTRACT", action: "accept", targetState: "in_effect", actor: outcome.actor, source: outcome.source, consentedAt: outcome.occurredAt });
   assert.equal(consent.machineDigest, decisionMachineDigest({ ...current, relations: [] })); assert.match(consent.consentId, /^djc_[0-9a-f]{26}$/u); assert.deepEqual(validateDecisionEvent(accepted.event), []); assert.match(accepted.body, new RegExp(`judgmentConsents: .*${consent.consentId}`, "u"));
+  const nestedFuture = { ...accepted.event, payload: { ...accepted.event.payload, judgmentConsent: { ...consent, actor: { ...consent.actor, futureOptionalField: true } } } };
+  assert.deepEqual(validateDecisionEvent(nestedFuture), []); assert.notDeepEqual(validateCurrentDecisionEvent(nestedFuture), []);
   const proseOnly = compileDecisionWrite({ event: outcome, currentDecision: current, currentRelations: [], currentDocument: { blobSha256: decision.event.payload.decisionDocumentClaim.sha256, body: decision.body.replace("# Canonical Decision", "# Hand-edited prose") } });
   assert.equal(proseOnly.event.payload.judgmentConsent.machineDigest, consent.machineDigest, "prose is outside the machine-content pin");
   for (const invalidConsent of [{ ...consent, actor: { principal: { personId: "other" }, executor: null } }, { ...consent, source: "remote_direct" }]) assert.notDeepEqual(validateDecisionEvent({ ...accepted.event, payload: { ...accepted.event.payload, judgmentConsent: invalidConsent } }), []);

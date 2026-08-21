@@ -86,6 +86,7 @@
     "harness:check-relation-canonical-direction": "node tools/check-relation-canonical-direction.mjs",
     "harness:check-domain-judgment-single-definition": "node tools/check-domain-judgment-single-definition.mjs",
     "harness:check-task-event-aggregate-entry": "node tools/check-task-event-aggregate-entry.mjs",
+    "harness:check-canonical-event-compat": "node tools/gates/canonical-event-compat.mjs --check",
     "harness:check-status-vocabulary": "node tools/check-status-vocabulary.mjs",
     "harness:check-enforcement-debt-sunset": "node tools/check-enforcement-debt-sunset.mjs",
     "pr:doctor": "node tools/pr-doctor.mjs"

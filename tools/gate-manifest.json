@@ -71,6 +71,7 @@
         "check-status-vocabulary",
         "check-domain-judgment-single-definition",
         "check-task-event-aggregate-entry",
+        "canonical-event-compat",
         "scan-forbidden-symbols",
         "check-duplicate-definitions",
         "check-integrity-single-source",
@@ -118,6 +119,7 @@
         "check-status-vocabulary",
         "check-domain-judgment-single-definition",
         "check-task-event-aggregate-entry",
+        "canonical-event-compat",
         "scan-forbidden-symbols",
         "check-duplicate-definitions",
         "check-integrity-single-source",
@@ -140,7 +142,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 40
+      "harnessLeafGateCount": 41
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -4446,6 +4448,88 @@
         "status": "covered",
         "evidence": [
           "Under an induced global core.autocrlf=true the clone-fidelity check fails with the #1588 signature; the gate is green with the setting unset."
+        ]
+      }
+    },
+    {
+      "id": "canonical-event-compat",
+      "command": "npm run harness:check-canonical-event-compat",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "decision/dec_3CA0514AF96C0E8C1AE555A513#CH1",
+        "decision/dec_3CA0514AF96C0E8C1AE555A513#CH3",
+        "packages/kernel/src/domain/doc-sync.contract.ts:canonicalEventSchemas",
+        "packages/kernel/fixtures/canonical-events/"
+      ],
+      "consumerScope": [
+        "all canonical event reader predicates registered in canonicalEventSchemas",
+        "byte-exact frozen events previously accepted under every registered canonical schema id"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries",
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Every registered canonical schema id must retain at least one byte-exact accepted sample; reader rejection has no allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/canonical-event-compat.mjs",
+          "packages/kernel/fixtures/canonical-events/",
+          "package.json:scripts.harness:check-canonical-event-compat",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-canonical-event-compat"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/gates/test/canonical-event-compat.test.mjs",
+          "packages/kernel/test/contracts/canonical-event-forward-compat.test.ts",
+          "packages/kernel/fixtures/canonical-events/ORIGINS.md"
         ]
       }
     },

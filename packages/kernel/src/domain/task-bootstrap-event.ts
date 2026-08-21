@@ -3,7 +3,7 @@ import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import { validateTaskV1, type TaskV1 } from "./task.ts";
-import { freezeDeclaredWritePlan, hasOnlyFields, isFrozenWritePlan, isNonEmptyString, isRecord, serializeEventEnvelope, validateActorIdentity, validateWriteSource,
+import { freezeDeclaredWritePlan, hasOnlyFields, hasRequiredFields, isFrozenWritePlan, isNonEmptyString, isRecord, validateEventEnvelopeIdentity,
   type ActorIdentity, type EventEnvelope, type FrozenWritePlan, type WriteTarget } from "./write-chain.contract.ts";
 
 export interface PresetSnapshotClaim { readonly digest: `sha256:${string}`; readonly sha256: string; readonly size: number; readonly mediaType: "application/json" }
@@ -16,13 +16,19 @@ export type TaskBootstrapEventV1 = EventEnvelope<"task-bootstrap-event/v1", "tas
 export const TASK_BOOTSTRAP_EVENT_SCHEMA = Object.freeze({ id: "task-bootstrap-event/v1", required: Object.freeze(["schema", "eventId", "workspaceRevision", "opId", "taskId", "type", "actor", "source", "occurredAt", "payload"]) });
 
 export function validateTaskBootstrapEvent(value: unknown): readonly string[] {
-  if (!isRecord(value) || !hasOnlyFields(value, TASK_BOOTSTRAP_EVENT_SCHEMA.required) || value.schema !== "task-bootstrap-event/v1" || value.type !== "task_bootstrapped" || !isNonEmptyString(value.taskId) || !isNonEmptyString(value.eventId) || !isNonEmptyString(value.opId) || !isNonEmptyString(value.occurredAt) || !Number.isInteger(value.workspaceRevision) || (value.workspaceRevision as number) < 1 || validateActorIdentity(value.actor).length || validateWriteSource(value.source).length || !isRecord(value.payload) || !hasOnlyFields(value.payload, ["task", "presetSnapshotClaim", "initialDocumentClaims"])) return ["task bootstrap event envelope or payload is invalid"];
-  const taskIssues = validateTaskV1(value.payload.task), snapshot = value.payload.presetSnapshotClaim, documents = value.payload.initialDocumentClaims;
+  return validateTaskBootstrapEventFields(value, true);
+}
+export function validateCurrentTaskBootstrapEvent(value: unknown): readonly string[] {
+  return validateTaskBootstrapEventFields(value, false);
+}
+function validateTaskBootstrapEventFields(value: unknown, allowUnknownFields: boolean): readonly string[] {
+  const hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
+  if (!isRecord(value) || !hasFields(value, TASK_BOOTSTRAP_EVENT_SCHEMA.required) || value.schema !== "task-bootstrap-event/v1" || value.type !== "task_bootstrapped" || !isRecord(value.payload) || !hasFields(value.payload, ["task", "presetSnapshotClaim", "initialDocumentClaims"])) return ["task bootstrap event envelope or payload is invalid"];
+  const taskIssues = validateTaskV1(value.payload.task, allowUnknownFields), snapshot = value.payload.presetSnapshotClaim, documents = value.payload.initialDocumentClaims;
   if (taskIssues.length) return taskIssues.map((issue) => issue.message);
-  if ((value.payload.task as TaskV1).taskId !== value.taskId || !validSnapshotClaim(snapshot) || (value.payload.task as TaskV1).presetSnapshotDigest !== (snapshot as PresetSnapshotClaim).digest || !Array.isArray(documents) || documents.length === 0 || !documents.every(validDocumentClaim) || new Set(documents.map((claim) => isRecord(claim) ? claim.path : null)).size !== documents.length) return ["task bootstrap claims are invalid"];
+  if ((value.payload.task as TaskV1).taskId !== value.taskId || !validSnapshotClaim(snapshot, allowUnknownFields) || (value.payload.task as TaskV1).presetSnapshotDigest !== (snapshot as PresetSnapshotClaim).digest || !Array.isArray(documents) || documents.length === 0 || !documents.every((claim) => validDocumentClaim(claim, allowUnknownFields)) || new Set(documents.map((claim) => isRecord(claim) ? claim.path : null)).size !== documents.length) return ["task bootstrap claims are invalid"];
   try { taskBootstrapPackagePath(value as unknown as TaskBootstrapEventV1); } catch { return ["task bootstrap package path is invalid"]; }
-  try { serializeEventEnvelope(value as unknown as TaskBootstrapEventV1); } catch { return ["task bootstrap event identity is invalid"]; }
-  return [];
+  return validateEventEnvelopeIdentity(value, allowUnknownFields).length ? ["task bootstrap event identity is invalid"] : [];
 }
 export function isTaskBootstrapEvent(event: { readonly schema: string }): event is TaskBootstrapEventV1 { return event.schema === "task-bootstrap-event/v1"; }
 export function taskBootstrapWritePlan(event: TaskBootstrapEventV1): FrozenWritePlan<"TaskBootstrap"> {
@@ -38,6 +44,6 @@ export function assertTaskBootstrapWritePlan(event: TaskBootstrapEventV1, plan: 
 export function taskBootstrapClaims(event: TaskBootstrapEventV1): readonly (PresetSnapshotClaim | InitialDocumentClaim)[] { return uniqueClaims(event); }
 export function taskBootstrapPackagePath(event: TaskBootstrapEventV1): string { const roots = new Set(event.payload.initialDocumentClaims.map((claim) => claim.path.split("/").slice(0, 2).join("/"))), root = [...roots][0], prefix = `tasks/${event.taskId}-`, slug = root?.slice(prefix.length); if (roots.size !== 1 || !root?.startsWith(prefix) || !slug || !/^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$/u.test(slug) || event.payload.initialDocumentClaims.some((claim) => !claim.path.startsWith(`${root}/`))) throw new Error("task bootstrap claims must share one slugged task package"); return root; }
 function uniqueClaims(event: TaskBootstrapEventV1): readonly (PresetSnapshotClaim | InitialDocumentClaim)[] { return [...new Map([event.payload.presetSnapshotClaim, ...event.payload.initialDocumentClaims].map((claim) => [claim.sha256, claim])).values()]; }
-function validSnapshotClaim(value: unknown): value is PresetSnapshotClaim { return isRecord(value) && hasOnlyFields(value, ["digest", "sha256", "size", "mediaType"]) && /^sha256:[0-9a-f]{64}$/u.test(String(value.digest)) && validBootstrapStoredClaim(value) && value.mediaType === "application/json"; }
-function validDocumentClaim(value: unknown): value is InitialDocumentClaim { if (!isRecord(value) || !hasOnlyFields(value, ["path", "sha256", "size", "mediaType", "owner", "policyId"]) || !validBootstrapStoredClaim(value) || value.owner !== "machine" && value.owner !== "doc-sync" || value.owner === "machine" && value.policyId !== "typed-machine-writer/v1" || value.owner === "doc-sync" && (value.policyId !== "markdown-body-replaceable/v1" || value.mediaType !== "text/markdown" && value.mediaType !== "text/plain") || !["application/json", "text/markdown", "text/plain"].includes(String(value.mediaType)) && !isOpaqueTextualMediaType(value.mediaType)) return false; try { return normalizeRelativeDocumentPath(String(value.path)) === value.path; } catch { return false; } }
+function validSnapshotClaim(value: unknown, allowUnknownFields: boolean): value is PresetSnapshotClaim { return isRecord(value) && (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["digest", "sha256", "size", "mediaType"]) && /^sha256:[0-9a-f]{64}$/u.test(String(value.digest)) && validBootstrapStoredClaim(value) && value.mediaType === "application/json"; }
+function validDocumentClaim(value: unknown, allowUnknownFields: boolean): value is InitialDocumentClaim { if (!isRecord(value) || !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["path", "sha256", "size", "mediaType", "owner", "policyId"]) || !validBootstrapStoredClaim(value) || value.owner !== "machine" && value.owner !== "doc-sync" || value.owner === "machine" && value.policyId !== "typed-machine-writer/v1" || value.owner === "doc-sync" && (value.policyId !== "markdown-body-replaceable/v1" || value.mediaType !== "text/markdown" && value.mediaType !== "text/plain") || !["application/json", "text/markdown", "text/plain"].includes(String(value.mediaType)) && !isOpaqueTextualMediaType(value.mediaType)) return false; try { return normalizeRelativeDocumentPath(String(value.path)) === value.path; } catch { return false; } }
 function validBootstrapStoredClaim(value: Readonly<Record<string, unknown>>): boolean { return /^[0-9a-f]{64}$/u.test(String(value.sha256)) && Number.isSafeInteger(value.size) && (value.size as number) >= 0 && isNonEmptyString(value.mediaType); }

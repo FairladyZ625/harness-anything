@@ -117,22 +117,39 @@ export function isRecord(value: unknown): value is Readonly<Record<string, unkno
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function hasOnlyFields(value: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean {
-  return Object.keys(value).every((field) => fields.includes(field)) && fields.every((field) => Object.hasOwn(value, field));
-}
+export function hasOnlyFields(value: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean { return Object.keys(value).every((field) => fields.includes(field)) && fields.every((field) => Object.hasOwn(value, field)); }
 
-export function validateActorIdentity(value: unknown): readonly string[] {
-  if (!isRecord(value) || !hasOnlyFields(value, ["principal", "executor"]) || !isRecord(value.principal)
-    || !hasOnlyFields(value.principal, ["personId"]) || !isNonEmptyString(value.principal.personId)) return ["principal must be a person identity"];
-  if (value.executor !== null && (!isRecord(value.executor) || !hasOnlyFields(value.executor, ["kind", "id"])
+export function hasRequiredFields(value: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean { return fields.every((field) => Object.hasOwn(value, field)); }
+export function hasContractFields(value: Readonly<Record<string, unknown>>, fields: readonly string[], allowUnknownFields: boolean): boolean { return allowUnknownFields ? hasRequiredFields(value, fields) : hasOnlyFields(value, fields); }
+
+export function validateActorIdentity(value: unknown, allowUnknownFields = false): readonly string[] {
+  if (!isRecord(value) || !hasContractFields(value, ["principal", "executor"], allowUnknownFields) || !isRecord(value.principal)
+    || !hasContractFields(value.principal, ["personId"], allowUnknownFields) || !isNonEmptyString(value.principal.personId)) return ["principal must be a person identity"];
+  if (value.executor !== null && (!isRecord(value.executor) || !hasContractFields(value.executor, ["kind", "id"], allowUnknownFields)
     || value.executor.kind !== "agent" || !isNonEmptyString(value.executor.id))) return ["executor must be an agent identity or null"];
   return [];
 }
 
-export function validateWriteSource(value: unknown): readonly string[] {
+export function validateWriteSource(value: unknown, allowUnknownFields = false): readonly string[] {
   if (value === "local" || value === "remote_direct" || value === "migration-import/v1") return [];
-  if (isRecord(value) && hasOnlyFields(value, ["kind", "nodeId", "assignmentId"]) && value.kind === "assignment" && isNonEmptyString(value.nodeId) && isNonEmptyString(value.assignmentId)) return [];
-  return isRecord(value) && hasOnlyFields(value, ["kind", "sessionId", "path", "fingerprint"]) && value.kind === "watch_session" && isNonEmptyString(value.sessionId) && safeWorkspacePath(value.path) && /^[0-9a-f]{64}$/u.test(String(value.fingerprint)) ? [] : ["source must be local, remote_direct, migration-import/v1, an assignment identity, or a watch session"];
+  if (isRecord(value) && hasContractFields(value, ["kind", "nodeId", "assignmentId"], allowUnknownFields) && value.kind === "assignment" && isNonEmptyString(value.nodeId) && isNonEmptyString(value.assignmentId)) return [];
+  return isRecord(value) && hasContractFields(value, ["kind", "sessionId", "path", "fingerprint"], allowUnknownFields) && value.kind === "watch_session" && isNonEmptyString(value.sessionId) && safeWorkspacePath(value.path) && /^[0-9a-f]{64}$/u.test(String(value.fingerprint)) ? [] : ["source must be local, remote_direct, migration-import/v1, an assignment identity, or a watch session"];
+}
+
+function actorIdentityShape(value: unknown): readonly unknown[] | null {
+  if (validateActorIdentity(value, true).length || !isRecord(value) || !isRecord(value.principal)) return null;
+  return [value.principal.personId, value.executor === null ? null : isRecord(value.executor) ? [value.executor.kind, value.executor.id] : null];
+}
+export function sameActorIdentity(left: unknown, right: unknown): boolean { const shape = actorIdentityShape(left);
+  return shape !== null && stableStringify(shape) === stableStringify(actorIdentityShape(right));
+}
+function writeSourceShape(value: unknown): unknown {
+  if (validateWriteSource(value, true).length) return null;
+  if (!isRecord(value)) return value;
+  return value.kind === "assignment" ? [value.kind, value.nodeId, value.assignmentId] : [value.kind, value.sessionId, value.path, value.fingerprint];
+}
+export function sameWriteSource(left: unknown, right: unknown): boolean { const shape = writeSourceShape(left);
+  return shape !== null && stableStringify(shape) === stableStringify(writeSourceShape(right));
 }
 
 export function createWriteReceipt<R extends WriteReceipt>(receipt: R): Readonly<R> {
@@ -171,10 +188,15 @@ export function freezeWriteValue<T>(value: T): Readonly<T> {
   return Object.freeze(value);
 }
 
+export function validateEventEnvelopeIdentity(value: unknown, allowUnknownFields = false): readonly string[] {
+  if (isRecord(value) && isNonEmptyString(value.schema) && isNonEmptyString(value.eventId) && isNonEmptyString(value.opId) && isNonEmptyString(value.type)
+    && isNonEmptyString(value.occurredAt) && Number.isInteger(value.workspaceRevision) && (value.workspaceRevision as number) >= 1
+    && validateActorIdentity(value.actor, allowUnknownFields).length === 0 && validateWriteSource(value.source, allowUnknownFields).length === 0) return [];
+  return ["event envelope identity is invalid"];
+}
+
 export function serializeEventEnvelope(event: EventEnvelope<string, string, ActorIdentity, unknown>): string {
-  if (!isNonEmptyString(event.schema) || !isNonEmptyString(event.eventId) || !isNonEmptyString(event.opId) || !isNonEmptyString(event.type)
-    || !isNonEmptyString(event.occurredAt) || !Number.isInteger(event.workspaceRevision) || event.workspaceRevision < 1
-    || validateActorIdentity(event.actor).length > 0 || validateWriteSource(event.source).length > 0) {
+  if (validateEventEnvelopeIdentity(event).length > 0) {
     throw new WriteChainContractError("invalid_contract", "event envelope identity is invalid");
   }
   return `${JSON.stringify(canonicalizeWriteValue(event))}\n`;

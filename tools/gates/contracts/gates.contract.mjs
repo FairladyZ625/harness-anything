@@ -36,7 +36,8 @@ export default Object.freeze({
     { id: "G31", phase: "P2", job: "dependency-policy", command: "node tools/gates/dependency-policy.mjs" },
     { id: "G32", phase: "P2", job: "line-budget", command: "node tools/gates/line-budget.mjs --base \"$BASE_SHA\"" },
     { id: "G33", phase: "P2", job: "production-delta", command: "node tools/gates/production-delta.mjs --base \"$BASE_SHA\"" },
-    { id: "G34", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" }
+    { id: "G34", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
+    { id: "G35", phase: "P2", job: "canonical-event-compat", command: "node tools/gates/canonical-event-compat.mjs --check" }
   ],
   schemas: []
 });

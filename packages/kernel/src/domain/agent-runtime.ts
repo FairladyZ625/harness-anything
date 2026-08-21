@@ -1,4 +1,4 @@
-import { hasOnlyFields, isNonEmptyString, isRecord, serializeEventEnvelope, type ActorIdentity, type EventEnvelope } from "./write-chain.contract.ts";
+import { hasOnlyFields, hasRequiredFields, isNonEmptyString, isRecord, validateEventEnvelopeIdentity, type ActorIdentity, type EventEnvelope } from "./write-chain.contract.ts";
 
 export const runtimeProtocolFamilies = ["claude-compatible", "codex", "agy"] as const;
 export const runtimeCapabilities = ["structured_witness", "resume", "attach"] as const;
@@ -29,20 +29,29 @@ const payloadFields: Record<AgentRuntimeEventType, readonly string[]> = {
   runtime_session_liveness_changed: ["runtimeSessionId", "liveness"], runtime_session_cancelled: ["runtimeSessionId"], runtime_session_exited: ["runtimeSessionId"], runtime_session_outcome_observed: ["runtimeSessionId", "outcome", "exitCode", "resultRef", "result"], runtime_dispatch_outcome_unknown: ["dispatchId", "runtimeSessionId"]
 };
 export function validateAgentRuntimePayload(type: AgentRuntimeEventType, value: unknown): readonly string[] {
-  if (!isRecord(value) || !hasOnlyFields(value, payloadFields[type])) return ["agent runtime payload fields are incomplete or unknown"];
+  return validateAgentRuntimePayloadFields(type, value, false);
+}
+function validateAgentRuntimePayloadFields(type: AgentRuntimeEventType, value: unknown, allowUnknownFields: boolean): readonly string[] {
+  if (!isRecord(value) || !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, payloadFields[type])) return ["agent runtime payload fields are incomplete or unknown"];
   const ids = payloadFields[type].filter((field) => /(?:Id|Key)$/u.test(field)); if (ids.some((field) => !isNonEmptyString(value[field]))) return ["agent runtime payload identity is invalid"];
   if (type === "runtime_installation_observed" && (!runtimeProtocolFamilies.includes(value.protocolFamily as RuntimeProtocolFamily) || !["wrapper", "hook"].includes(String(value.discoverySource)) || !validCapabilities(value.capabilities) || !isNonEmptyString(value.hostRef) || !isNonEmptyString(value.version))) return ["runtime installation observation is invalid"];
-  if (type === "runtime_dispatch_requested" && (!validRef(value.definitionSnapshotRef) || !validDefinitionSnapshot(value.definitionSnapshot) || value.instanceId !== value.definitionSnapshot.instanceId || value.installationId !== value.definitionSnapshot.installationId || value.kindId !== value.definitionSnapshot.kindId)) return ["runtime definition snapshot is invalid"];
+  if (type === "runtime_dispatch_requested" && (!validRef(value.definitionSnapshotRef) || !validDefinitionSnapshot(value.definitionSnapshot, allowUnknownFields) || value.instanceId !== value.definitionSnapshot.instanceId || value.installationId !== value.definitionSnapshot.installationId || value.kindId !== value.definitionSnapshot.kindId)) return ["runtime definition snapshot is invalid"];
   if (type === "runtime_session_started" && (!validRef(value.definitionSnapshotRef) || !Number.isInteger(value.launchGeneration) || (value.launchGeneration as number) < 0 || typeof value.attachable !== "boolean")) return ["runtime session start is invalid"];
   if ((type === "runtime_session_provider_bound" || type === "runtime_session_task_bound") && !validRef(value.transcriptRef)) return ["runtime transcript ref is invalid"];
   if (type === "runtime_session_liveness_changed" && !["live", "stale", "unknown"].includes(String(value.liveness))) return ["runtime liveness transition is invalid"];
-  if (type === "runtime_session_outcome_observed" && (!["succeeded", "failed", "unknown", "cancelled"].includes(String(value.outcome)) || value.exitCode !== null && (!Number.isInteger(value.exitCode) || (value.exitCode as number) < 0) || !validResult(value.resultRef, value.result))) return ["runtime outcome observation is invalid"];
+  if (type === "runtime_session_outcome_observed" && (!["succeeded", "failed", "unknown", "cancelled"].includes(String(value.outcome)) || value.exitCode !== null && (!Number.isInteger(value.exitCode) || (value.exitCode as number) < 0) || !validResult(value.resultRef, value.result, allowUnknownFields))) return ["runtime outcome observation is invalid"];
   return [];
 }
 export function validateAgentRuntimeEvent(value: unknown): readonly string[] {
-  if (!isRecord(value) || !hasOnlyFields(value, envelopeFields) || value.schema !== "agent-runtime-event/v1" || !agentRuntimeEventTypes.includes(value.type as AgentRuntimeEventType)) return ["agent runtime event envelope is invalid"];
-  const errors = validateAgentRuntimePayload(value.type as AgentRuntimeEventType, value.payload); if (errors.length) return errors;
-  try { serializeEventEnvelope(value as unknown as AgentRuntimeEventV1); } catch { return ["agent runtime event envelope identity is invalid"]; } return [];
+  return validateAgentRuntimeEventFields(value, true);
+}
+export function validateCurrentAgentRuntimeEvent(value: unknown): readonly string[] {
+  return validateAgentRuntimeEventFields(value, false);
+}
+function validateAgentRuntimeEventFields(value: unknown, allowUnknownFields: boolean): readonly string[] {
+  if (!isRecord(value) || !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, envelopeFields) || value.schema !== "agent-runtime-event/v1" || !agentRuntimeEventTypes.includes(value.type as AgentRuntimeEventType)) return ["agent runtime event envelope is invalid"];
+  const errors = validateAgentRuntimePayloadFields(value.type as AgentRuntimeEventType, value.payload, allowUnknownFields); if (errors.length) return errors;
+  return validateEventEnvelopeIdentity(value, allowUnknownFields).length ? ["agent runtime event envelope identity is invalid"] : [];
 }
 export function isAgentRuntimeEvent(event: { readonly schema: string }): event is AgentRuntimeEventV1 { return event.schema === "agent-runtime-event/v1"; }
 export function runtimeEventContentClaims(event: AgentRuntimeEventV1): readonly RuntimeResultClaim[] { return event.type === "runtime_session_outcome_observed" ? [event.payload.result] : []; }
@@ -62,6 +71,6 @@ export function reduceRuntimeSession(current: RuntimeSession | null, event: Agen
 }
 export function markRuntimeSessionUnknown(session: RuntimeSession): RuntimeSession { return session.liveness === "exited" || session.liveness === "unknown" && !session.attachable ? session : { ...session, liveness: "unknown", attachable: false }; }
 function validCapabilities(value: unknown): boolean { return Array.isArray(value) && value.every((item) => runtimeCapabilities.includes(item as RuntimeCapability)) && new Set(value).size === value.length; }
-function validDefinitionSnapshot(value: unknown): value is AgentDefinitionSnapshot { return isRecord(value) && hasOnlyFields(value, ["schema", "configVersion", "instanceId", "installationId", "kindId", "providerId", "model", "reasoningEffort", "baseUrl", "authMode"]) && value.schema === "agent-definition-snapshot/v1" && value.configVersion === 1 && [value.instanceId, value.installationId, value.providerId, value.model].every(isNonEmptyString) && ["claude", "codex", "agy"].includes(String(value.kindId)) && (value.reasoningEffort === null || isNonEmptyString(value.reasoningEffort)) && (value.baseUrl === null || isNonEmptyString(value.baseUrl)) && ["subscription", "api-key"].includes(String(value.authMode)); }
-function validResult(ref: unknown, value: unknown): value is RuntimeResultClaim { return isRecord(value) && hasOnlyFields(value, ["sha256", "size", "mediaType"]) && typeof value.sha256 === "string" && /^[0-9a-f]{64}$/u.test(value.sha256) && Number.isInteger(value.size) && (value.size as number) >= 0 && value.mediaType === "text/plain; charset=utf-8" && ref === `artifact:runtime-result/sha256/${value.sha256}`; }
+function validDefinitionSnapshot(value: unknown, allowUnknownFields: boolean): value is AgentDefinitionSnapshot { return isRecord(value) && (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["schema", "configVersion", "instanceId", "installationId", "kindId", "providerId", "model", "reasoningEffort", "baseUrl", "authMode"]) && value.schema === "agent-definition-snapshot/v1" && value.configVersion === 1 && [value.instanceId, value.installationId, value.providerId, value.model].every(isNonEmptyString) && ["claude", "codex", "agy"].includes(String(value.kindId)) && (value.reasoningEffort === null || isNonEmptyString(value.reasoningEffort)) && (value.baseUrl === null || isNonEmptyString(value.baseUrl)) && ["subscription", "api-key"].includes(String(value.authMode)); }
+function validResult(ref: unknown, value: unknown, allowUnknownFields: boolean): value is RuntimeResultClaim { return isRecord(value) && (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["sha256", "size", "mediaType"]) && typeof value.sha256 === "string" && /^[0-9a-f]{64}$/u.test(value.sha256) && Number.isInteger(value.size) && (value.size as number) >= 0 && value.mediaType === "text/plain; charset=utf-8" && ref === `artifact:runtime-result/sha256/${value.sha256}`; }
 function validRef(value: unknown): boolean { return typeof value === "string" && /^(?:artifact|file|provider):[^\r\n]{1,512}$/u.test(value); }

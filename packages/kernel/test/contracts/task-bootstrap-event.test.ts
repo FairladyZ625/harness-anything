@@ -7,6 +7,7 @@ import {
   serializeCanonicalEvent,
   type TaskBootstrapEventV1
 } from "../../src/index.ts";
+import { validateCurrentCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
 
 const event: TaskBootstrapEventV1 = {
   schema: "task-bootstrap-event/v1",
@@ -67,6 +68,8 @@ test("long_running is a kernel taskClass and the retired longRunning boolean is 
   const legacy = parseCanonicalEvent(serializeCanonicalEvent({ ...event, payload: { ...event.payload, task: { ...event.payload.task, taskClass: "long_running", metadata: { ...metadata, longRunning: true } } } } as unknown as TaskBootstrapEventV1));
   assert.deepEqual(legacy.payload.task.metadata, { ...metadata, longRunning: true });
   assert.throws(() => serializeCanonicalEvent({ ...event, payload: { ...event.payload, task: { ...event.payload.task, metadata: { ...metadata, longRunning: "yes" } } } } as unknown as TaskBootstrapEventV1), /metadata is incomplete or invalid/u);
-  assert.throws(() => serializeCanonicalEvent({ ...event, payload: { ...event.payload, task: { ...event.payload.task, metadata: { ...metadata, orbit: true } } } } as unknown as TaskBootstrapEventV1), /metadata is incomplete or invalid/u);
+  const future = { ...event, payload: { ...event.payload, task: { ...event.payload.task, metadata: { ...metadata, orbit: true } } } };
+  assert.doesNotThrow(() => serializeCanonicalEvent(future as unknown as TaskBootstrapEventV1));
+  assert.match(validateCurrentCanonicalEvent(future).join("\n"), /metadata is incomplete or invalid/u);
   assert.throws(() => serializeCanonicalEvent({ ...event, payload: { ...event.payload, task: { ...event.payload.task, taskClass: "long-running", metadata } } } as unknown as TaskBootstrapEventV1), /invalid taskClass/u);
 });

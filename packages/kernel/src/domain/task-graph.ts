@@ -1,3 +1,5 @@
+import { hasOnlyFields, hasRequiredFields, isRecord } from "./write-chain.contract.ts";
+
 export const taskNodeIds = ["implementation", "review"] as const;
 export type TaskNodeId = (typeof taskNodeIds)[number];
 export const graphEdgeTriggers = ["submitted", "changes_requested"] as const;
@@ -14,10 +16,11 @@ export const REPLAY_TASK_GRAPH: TaskGraphV1 = Object.freeze({ template: "replay/
 ]), maxIterations: 1 });
 export const TASK_GRAPH_V1_SCHEMA = Object.freeze({ id: "TaskGraph/v1", template: "replay/v1", nodes: taskNodeIds, maxIterations: 1 });
 export const TASK_EDGE_TAKEN_SCHEMA = Object.freeze({ id: "TaskEdgeTaken/v1", required: Object.freeze(["edgeId", "from", "to", "on", "actorRole", "reason", "commitSha", "iteration"]) });
-export function validateTaskGraph(value: unknown): readonly GraphValidationIssue[] {
-  if (!isTaskGraphRecord(value) || value.template !== "replay/v1" || value.maxIterations !== 1 || !Array.isArray(value.nodes) || !Array.isArray(value.edges)) return [graphIssue("invalid_graph_shape", "graph must declare canonical replay/v1 nodes and edges")];
-  if (JSON.stringify(value.nodes) !== JSON.stringify(REPLAY_TASK_GRAPH.nodes)) return [graphIssue("invalid_node_set", "replay/v1 requires implementation and review in order")];
-  if (value.edges.some((edge) => !isTaskGraphRecord(edge) || !["forward", "return"].includes(String(edge.kind)))) return [graphIssue("invalid_graph_shape", "replay/v1 edges require a declared kind")];
+export function validateTaskGraph(value: unknown, allowUnknownFields = false): readonly GraphValidationIssue[] {
+  const hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
+  if (!isRecord(value) || !hasFields(value, ["template", "nodes", "edges", "maxIterations"]) || value.template !== "replay/v1" || value.maxIterations !== 1 || !Array.isArray(value.nodes) || !Array.isArray(value.edges)) return [graphIssue("invalid_graph_shape", "graph must declare canonical replay/v1 nodes and edges")];
+  if (value.nodes.length !== REPLAY_TASK_GRAPH.nodes.length || value.nodes.some((node, index) => !isRecord(node) || !hasFields(node, ["id", "kind"]) || node.id !== REPLAY_TASK_GRAPH.nodes[index]?.id || node.kind !== REPLAY_TASK_GRAPH.nodes[index]?.kind)) return [graphIssue("invalid_node_set", "replay/v1 requires implementation and review in order")];
+  if (value.edges.some((edge) => !isRecord(edge) || !hasFields(edge, ["id", "from", "to", "on", "actorRole", "kind"]) || !["forward", "return"].includes(String(edge.kind)))) return [graphIssue("invalid_graph_shape", "replay/v1 edges require a declared kind")];
   const returns = value.edges.filter((edge) => isTaskGraphRecord(edge) && edge.kind === "return"), forwards = value.edges.filter((edge) => isTaskGraphRecord(edge) && edge.kind === "forward");
   if (returns.length !== 1 || !sameEdge(returns[0], REPLAY_TASK_GRAPH.edges[1])) return [graphIssue("invalid_return_edge", "review changes_requested is the only return edge")];
   const outgoing = new Map<unknown, number>(); for (const edge of forwards) if (isTaskGraphRecord(edge)) outgoing.set(edge.from, (outgoing.get(edge.from) ?? 0) + 1);

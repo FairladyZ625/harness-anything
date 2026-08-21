@@ -3,9 +3,10 @@ import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import {
   freezeDeclaredWritePlan,
   hasOnlyFields,
+  hasRequiredFields,
   isFrozenWritePlan,
   isRecord,
-  serializeEventEnvelope,
+  validateEventEnvelopeIdentity,
   type ActorIdentity,
   type EventEnvelope,
   type FrozenWritePlan,
@@ -33,9 +34,21 @@ export function isLedgerLayoutMigrationEvent(event: {
 export function validateLedgerLayoutMigrationEvent(
   value: unknown,
 ): readonly string[] {
+  return validateLedgerLayoutMigrationEventFields(value, true);
+}
+export function validateCurrentLedgerLayoutMigrationEvent(
+  value: unknown,
+): readonly string[] {
+  return validateLedgerLayoutMigrationEventFields(value, false);
+}
+function validateLedgerLayoutMigrationEventFields(
+  value: unknown,
+  allowUnknownFields: boolean,
+): readonly string[] {
+  const hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
   if (
     !isRecord(value) ||
-    !hasOnlyFields(value, [
+    !hasFields(value, [
       "schema",
       "eventId",
       "workspaceRevision",
@@ -49,7 +62,7 @@ export function validateLedgerLayoutMigrationEvent(
     value.schema !== "ledger-layout-event/v1" ||
     value.type !== "ledger_layout_migrated" ||
     !isRecord(value.payload) ||
-    !hasOnlyFields(value.payload, [
+    !hasFields(value.payload, [
       "from",
       "to",
       "eventCount",
@@ -64,12 +77,9 @@ export function validateLedgerLayoutMigrationEvent(
     !/^[0-9a-f]{40}$/u.test(String(value.payload.preEventsTreeSha))
   )
     return ["ledger layout migration event is invalid"];
-  try {
-    serializeEventEnvelope(value as unknown as LedgerLayoutMigrationEventV1);
-  } catch {
-    return ["ledger layout migration event identity is invalid"];
-  }
-  return [];
+  return validateEventEnvelopeIdentity(value, allowUnknownFields).length
+    ? ["ledger layout migration event identity is invalid"]
+    : [];
 }
 export function ledgerLayoutMigrationWritePlan(
   event: LedgerLayoutMigrationEventV1,
