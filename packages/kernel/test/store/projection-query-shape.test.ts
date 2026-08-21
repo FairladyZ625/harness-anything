@@ -2,28 +2,28 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { createFactProjectionTables, listDecisionAgendaRowsPage, readDecisionGraphRows, readFactGraphRows, searchFactRows, type FactProjectionRow } from "../../src/projection/fact-event-projection.ts";
-import { listTaskRowsNarrow, readTaskStatusRows } from "../../src/projection/task-query-projection.ts";
+import { createFactProjectionTables, listDecisionAgendaRowsPage, readDecisionGraphRows, readDecisionRows, readFactGraphRows, searchFactRows, type FactProjectionRow } from "../../src/projection/fact-event-projection.ts";
+import { createTaskRelationProjectionTable, listTaskRowsNarrow, readTaskDependencyClosureRows, readTaskRelationsByTargets, readTaskStatusRows } from "../../src/projection/task-query-projection.ts";
 
 // Counts statement executions so the assertions describe query shape, not wall-clock time:
 // an N+1 regression changes the count deterministically on any machine, under any load.
-function countingDatabase(): { readonly db: DatabaseSync; readonly executions: () => number } {
+function countingDatabase(): { readonly db: DatabaseSync; readonly executions: () => number; readonly reads: () => readonly { readonly sql: string; readonly args: readonly unknown[] }[] } {
   const db = new DatabaseSync(":memory:"), prepare = db.prepare.bind(db);
-  let executions = 0;
+  let executions = 0; const reads: { sql: string; args: readonly unknown[] }[] = [];
   db.prepare = ((sql: string) => {
     const statement = prepare(sql);
     for (const method of ["all", "get"] as const) {
       const original = statement[method].bind(statement);
-      statement[method] = ((...args: readonly unknown[]) => { executions += 1; return original(...args); }) as typeof statement[typeof method];
+      statement[method] = ((...args: readonly unknown[]) => { executions += 1; reads.push({ sql, args }); return original(...args); }) as typeof statement[typeof method];
     }
     return statement;
   }) as typeof db.prepare;
-  return { db, executions: () => executions };
+  return { db, executions: () => executions, reads: () => reads };
 }
 
 function seed(db: DatabaseSync, decisions: number, facts: number): void {
   createFactProjectionTables(db);
-  db.exec("CREATE TABLE projection_meta (singleton INTEGER PRIMARY KEY CHECK(singleton=1), watermark INTEGER NOT NULL, scan_cursor TEXT, scanned_revision INTEGER NOT NULL)");
+  db.exec("CREATE TABLE projection_meta (singleton INTEGER PRIMARY KEY CHECK(singleton=1), watermark INTEGER NOT NULL, scan_cursor TEXT, scanned_revision INTEGER NOT NULL); CREATE TABLE document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)");
   db.exec("INSERT INTO projection_meta VALUES (1, 1, NULL, 1)");
   const applies = JSON.stringify({ modules: ["kernel"], productLines: [] }), proposer = JSON.stringify({ principal: { personId: "shape" }, executor: null });
   const insertDecision = db.prepare("INSERT INTO decision(decision_id,state,title,question,risk_tier,urgency,vertical,preset,decision_class,applies_json,proposer_json,arbiter_json,proposed_at,decided_at,workspace_revision) VALUES (?, 'active', ?, ?, 'high', 'medium', 'shape', 'default', 'ordinary', ?, ?, NULL, '2026-08-16T00:00:00.000Z', NULL, ?)");
@@ -128,3 +128,41 @@ test("agenda dependency status lookup stays narrow above SQLite's bind limit", (
     assert.match(plan, /task_snapshot.*task_id/u);
   } finally { db.close(); }
 });
+
+test("task context collection reads stay indexed, bounded, and constant in statement count", (context) => {
+  const counted = countingDatabase(), { db } = counted;
+  try {
+    createFactProjectionTables(db); createTaskRelationProjectionTable(db);
+    const insertTask = db.prepare("INSERT INTO task_relation VALUES (?, ?, ?, ?, 'depends-on', 'directed', 'strong', 'declared', 'active', 'fixture', ?, 'fixture', 0, 1, '2026-08-21T00:00:00.000Z')");
+    for (const [relationId, source, target] of [["rel_ab", "task/a", "task/b"], ["rel_ba", "task/b", "task/a"], ["rel_bc", "task/b", "task/c"]] as const) insertTask.run(relationId, source.slice(5), source, target, source);
+    db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'derives', 'active', ?, 1, ?)").run("rel_decision_a", "decision/dec_A/CH1", "task/a", "decision/dec_A", JSON.stringify({ relationId: "rel_decision_a", sourceRef: "decision/dec_A/CH1", targetRef: "task/a", relationType: "derives", direction: "directed", strength: "strong", origin: "declared", state: "active", rationale: "fixture", ownerRef: "decision/dec_A", sourcePath: "event:fixture", recordIndex: 0 }));
+    const before = counted.executions(), closure = readTaskDependencyClosureRows(db, ["task/a"], 5), afterClosure = counted.executions(), derives = readTaskRelationsByTargets(db, ["task/a"], "derives"), afterTargets = counted.executions();
+    assert.deepEqual(closure.map(({ relationId }) => relationId).sort(), ["rel_ab", "rel_ba", "rel_bc"]);
+    assert.deepEqual(derives.map(({ relationId }) => relationId), ["rel_decision_a"]);
+    assert.equal(afterClosure - before, 1); assert.equal(afterTargets - afterClosure, 1);
+    assert.throws(() => readTaskDependencyClosureRows(db, ["task/a"], 1), /depth limit/u);
+    const closureRead = counted.reads().find(({ sql }) => sql.includes("WITH RECURSIVE dependency_walk"))!, targetRead = counted.reads().find(({ sql }) => sql.includes("requested_targets"))!;
+    const closurePlan = queryPlan(db, closureRead), targetPlan = queryPlan(db, targetRead);
+    context.diagnostic(`dependency closure plan: ${closurePlan}`); context.diagnostic(`relation targets plan: ${targetPlan}`);
+    assert.match(closurePlan, /SEARCH task_relation USING INDEX task_relation_source/u); assert.match(closurePlan, /SEARCH relation_edge USING INDEX relation_edge_source/u);
+    assert.match(targetPlan, /SEARCH task_relation USING INDEX task_relation_target/u); assert.match(targetPlan, /SEARCH relation_edge USING INDEX relation_edge_target/u);
+    assert.doesNotMatch(`${closurePlan}\n${targetPlan}`, /SCAN (?:task_relation|relation_edge)(?:\s|$)/u);
+  } finally { db.close(); }
+});
+
+test("decision collection read uses one statement and indexed owner lookups", (context) => {
+  const counted = countingDatabase(), { db } = counted;
+  try {
+    seed(db, 50, 1);
+    const ids = Array.from({ length: 50 }, (_, index) => `dec_SHAPE_${String(index).padStart(5, "0")}`), before = counted.executions(), decisions = readDecisionRows(db, ids), after = counted.executions();
+    assert.equal(after - before, 1); assert.equal(decisions.length, 50); assert.equal(decisions[0]?.chosen[0]?.text, "option 0"); assert.equal(decisions[49]?.claims[0]?.text, "claim 49");
+    const read = counted.reads().find(({ sql }) => sql.includes("requested_decisions"))!, plan = queryPlan(db, read);
+    context.diagnostic(`decision collection plan: ${plan}`);
+    for (const index of ["sqlite_autoindex_decision_1", "sqlite_autoindex_decision_option_1", "sqlite_autoindex_decision_claim_1", "decision_judgment_consent_owner", "decision_amendment_owner", "decision_content_pin_owner", "sqlite_autoindex_document_1"]) assert.match(plan, new RegExp(index, "u"));
+    assert.doesNotMatch(plan, /SCAN (?:decision|decision_option|decision_claim|decision_judgment_consent|decision_amendment|decision_content_pin|document)(?:\s|$)/u);
+  } finally { db.close(); }
+});
+
+function queryPlan(db: DatabaseSync, read: { readonly sql: string; readonly args: readonly unknown[] }): string {
+  return (db.prepare(`EXPLAIN QUERY PLAN ${read.sql}`).all(...read.args) as unknown as readonly { readonly detail: string }[]).map(({ detail }) => detail).join("\n");
+}

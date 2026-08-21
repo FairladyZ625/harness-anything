@@ -212,12 +212,16 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     assert.equal((await cell.run({ kind: "task-start", taskId: "task_real_Delta", executionId: "exe_real_delta" }, binding)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-relate", taskId: "task_real_Alpha", target: "task/task_real_Beta", relationType: "depends-on", rationale: "Alpha waits for Beta" }, binding)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-relate", taskId: "task_real_Gamma", target: "task/task_real_Delta", relationType: "depends-on", rationale: "Gamma waits for Delta" }, binding)).outcome, "applied");
+    const proposed = await cell.run({ kind: "decision-propose", jsonInput: JSON.stringify({ title: "Place Alpha", question: "Should the list retain Decision-derived placement?", riskTier: "medium", urgency: "medium", vertical: "software/coding", preset: "standard-task", decisionClass: "ordinary", appliesTo: { modules: ["daemon-query"], productLines: ["gui"] }, chosen: [{ id: "CH1", text: "Place it" }], rejected: [{ id: "RJ1", text: "Drop placement", whyNot: "The GUI contract needs it." }], claims: [], fulfillments: [], relations: [{ anchor: "CH1", type: "derives", target: "task/task_real_Alpha", rationale: "The Decision supplies task placement." }] }) }, binding);
+    assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
     const factReceipt = await cell.run({ kind: "fact-record", taskId: "task_real_Alpha", statement: "Alpha depends on Beta for query equivalence", evidenceSource: "task-relation/depends-on", confidence: "high", memoryClass: "semantic" }, binding); assert.equal(factReceipt.outcome, "applied", JSON.stringify(factReceipt));
 
     const taskBytes = JSON.stringify(await cell.read("repo.tasks.list", {})), graphBytes = JSON.stringify(await cell.read("repo.triadic.relationGraph", {}));
     const unparameterized = JSON.parse(taskBytes) as { page?: unknown; rows: { taskId: string; blockingAssessment: { blockers: { targetTaskId: string }[] } }[] };
     assert.equal(unparameterized.page, undefined, "unparameterized task list must not carry a page facet");
     assert.deepEqual(unparameterized.rows.find(({ taskId }) => taskId === "task_real_Alpha")?.blockingAssessment.blockers.map(({ targetTaskId }) => targetTaskId), ["task_real_Beta"], "unparameterized guiTasks must judge blockers from the complete relation graph");
+    const alphaPlacement = (unparameterized.rows.find(({ taskId }) => taskId === "task_real_Alpha") as { placement: { moduleKeys: string[]; productLines: string[] } }).placement;
+    assert.deepEqual({ moduleKeys: alphaPlacement.moduleKeys, productLines: alphaPlacement.productLines }, { moduleKeys: ["daemon-query"], productLines: ["gui"] });
     await cell.close(); cell = await openRepoCell({ repoId: workspaceId("task-query-real"), rootDir: canonicalRoot(rootDir), ownerId: "task-query-real-reopen", now: () => "2026-08-16T00:00:00.000Z" });
     assert.equal(JSON.stringify(await cell.read("repo.tasks.list", {})), taskBytes, "unparameterized task list must be byte-identical across reopen");
     assert.equal(JSON.stringify(await cell.read("repo.triadic.relationGraph", {})), graphBytes, "unparameterized relation graph must be byte-identical across reopen");
@@ -234,7 +238,7 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     assert.equal(JSON.stringify(paged), JSON.stringify(unparameterizedRows), "paged walk must concatenate to the unparameterized rows");
     const graphPage = await cell.read("repo.triadic.relationGraph", { limit: 1 });
     const graphEdges = JSON.parse(graphBytes).edges as { relationId: string }[];
-    assert.equal(graphEdges.length, 2, `fixture should carry two task edges, saw ${graphEdges.length}`);
+    assert.equal(graphEdges.length, 3, `fixture should carry two task edges and one Decision edge, saw ${graphEdges.length}`);
     assert.equal(graphPage.edges.length, 1); assert.equal(graphPage.page?.limit, 1); assert.ok(graphPage.page?.nextCursor, "one edge per page must leave a next cursor when more edges remain");
     let graphWalk = await cell.read("repo.triadic.relationGraph", { limit: 1 }), walked: typeof graphWalk.edges = [];
     while (true) { walked = [...walked, ...graphWalk.edges]; if (!graphWalk.page?.nextCursor) break; graphWalk = await cell.read("repo.triadic.relationGraph", { limit: 1, cursor: graphWalk.page.nextCursor }); }

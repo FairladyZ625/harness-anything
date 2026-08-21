@@ -91,10 +91,10 @@ test("G32 introduces the Decision/Fact bucket with the 540-line design ceiling (
   assert.equal(result.actual["decision-fact"], 1);
 });
 
-test("a decision-fact ceiling above the 540 design limit is rejected", () => {
+test("a decision-fact ceiling above the 563 design limit is rejected", () => {
   assert.throws(
-    () => parseBudgets(budgetBody(2).replace('"decision-fact": 0', '"decision-fact": 541')),
-    /decision-fact exceeds its design limit 540/u
+    () => parseBudgets(budgetBody(2).replace('"decision-fact": 0', '"decision-fact": 564')),
+    /decision-fact exceeds its design limit 563/u
   );
 });
 
