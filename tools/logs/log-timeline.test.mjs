@@ -54,7 +54,8 @@ test("the timeline recovers growth start, climb rate, cadence, and leak counts f
   assert.equal(drainedMinute.closes, 33, "the 22:14 GUI stop drains 33 leaked sockets; the probe loop has ended by then");
   const hello = summary.methods.find((stats) => stats.method === "protocol.hello");
   const status = summary.methods.find((stats) => stats.method === "daemon.status");
-  assert.equal(hello.count, 5 + 55); assert.equal(status.count, 55); assert.equal(status.p50Ms, 1_200);
+  assert.equal(hello.count, 5 + 55); assert.equal(hello.p99Ms, 3);
+  assert.equal(status.count, 55); assert.equal(status.p50Ms, 1_200); assert.equal(status.p99Ms, 1_200);
   assert.equal(summary.methods[0].method, "daemon.status", "the slow probe method dominates total time");
   assert.equal(summary.connections.stillOpen, 27 * 30 - 33);
   assert.equal(summary.connections.zeroRequest, 27 * 30, "every leaked socket — drained or not — opened without a single request");

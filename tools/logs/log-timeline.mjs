@@ -128,7 +128,7 @@ export function buildTimeline(records, options = {}) {
     minutes,
     growth: analyzeGrowth(minutes),
     cadence: analyzeCadence(minutes),
-    methods: [...methods.values()].sort((left, right) => sum(right.durations) - sum(left.durations) || right.count - left.count).slice(0, top).map((stats) => ({ ...stats, totalMs: sum(stats.durations), p50Ms: percentile(stats.durations, 0.5), p90Ms: percentile(stats.durations, 0.9), maxMs: Math.max(...stats.durations, 0) })),
+    methods: [...methods.values()].sort((left, right) => sum(right.durations) - sum(left.durations) || right.count - left.count).slice(0, top).map((stats) => ({ ...stats, totalMs: sum(stats.durations), p50Ms: percentile(stats.durations, 0.5), p90Ms: percentile(stats.durations, 0.9), p99Ms: percentile(stats.durations, 0.99), maxMs: Math.max(...stats.durations, 0) })),
     connections: summarizeConnections(conns)
   };
 }
@@ -185,9 +185,9 @@ export function renderTimeline(summary) {
   }
   lines.push("");
   lines.push(`top methods by total time (of ${summary.methods.length} shown):`);
-  lines.push(`  ${"method".padEnd(44)}  ${"count".padStart(7)}  ${"err".padStart(5)}  ${"p50".padStart(8)}  ${"p90".padStart(8)}  ${"max".padStart(8)}  ${"total".padStart(9)}`);
+  lines.push(`  ${"method".padEnd(44)}  ${"count".padStart(7)}  ${"err".padStart(5)}  ${"p50".padStart(8)}  ${"p90".padStart(8)}  ${"p99".padStart(8)}  ${"max".padStart(8)}  ${"total".padStart(9)}`);
   for (const stats of summary.methods) {
-    lines.push(`  ${stats.method.slice(0, 44).padEnd(44)}  ${String(stats.count).padStart(7)}  ${String(stats.errors).padStart(5)}  ${fmtMs(stats.p50Ms).padStart(8)}  ${fmtMs(stats.p90Ms).padStart(8)}  ${fmtMs(stats.maxMs).padStart(8)}  ${fmtMs(stats.totalMs).padStart(9)}`);
+    lines.push(`  ${stats.method.slice(0, 44).padEnd(44)}  ${String(stats.count).padStart(7)}  ${String(stats.errors).padStart(5)}  ${fmtMs(stats.p50Ms).padStart(8)}  ${fmtMs(stats.p90Ms).padStart(8)}  ${fmtMs(stats.p99Ms).padStart(8)}  ${fmtMs(stats.maxMs).padStart(8)}  ${fmtMs(stats.totalMs).padStart(9)}`);
   }
   const conns = summary.connections;
   lines.push("");
