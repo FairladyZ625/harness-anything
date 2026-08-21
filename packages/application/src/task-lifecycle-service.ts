@@ -34,7 +34,7 @@ export function makeTaskLifecycleService(options: { readonly eventStore: EventSt
     if (existing !== null) {
       if (!eventMatchesOperation(existing, command, proof as ProofFor<C>, carried)) throw new TaskLifecycleOperationConflict(`opId ${command.opId} already has a different payload`);
       const plan = taskLifecycleWritePlan(existing); if (options.projection.readTaskOperation(command.opId) === null) options.projection.apply(existing, plan);
-      return receiptFromRead(await read(command.taskId), existing, plan);
+      return receiptFromRead(await read(command.taskId), existing, plan, existing);
     }
     const current = await read(command.taskId);
     if (current.status !== "ready" && (command.type !== "CreateReplayTask" || current.snapshot.task !== null)) return { outcome: "indeterminate", opId: command.opId, code: "operation_not_published", origin: "N/A", snapshot: current.snapshot, frozenPlan: Object.freeze({ commandType: command.type, targets: Object.freeze([]) }) as unknown as FrozenWritePlan, nextAction: "retry task lifecycle read: projection catch-up is pending" };
@@ -51,13 +51,13 @@ export function makeTaskLifecycleService(options: { readonly eventStore: EventSt
     if (claim !== null) try {
       const active = options.projection.activateLease(claim.reserving);
       if (json(active) !== json(claim.active)) throw new TaskLifecycleOperationConflict("lease activation did not match the L1 event");
-    } catch (error) { return pendingReceipt(current, plan, command.opId, message(error), event); }
+    } catch (error) { return pendingReceipt(current, plan, command.opId, message(error), event, options.eventStore.readTaskEvent(event.opId)); }
     let applied;
     try { applied = planned(plan, projectionTarget(command.taskId), () => options.projection.apply(event, plan)); }
-    catch (error) { return pendingReceipt(await read(command.taskId), plan, command.opId, message(error), event); }
-    if (applied.metrics.reducedItems === 0) return pendingReceipt({ ...current, sourceRevision: event.workspaceRevision }, plan, command.opId, "projection catch-up is pending", event);
+    catch (error) { return pendingReceipt(await read(command.taskId), plan, command.opId, message(error), event, options.eventStore.readTaskEvent(event.opId)); }
+    if (applied.metrics.reducedItems === 0) return pendingReceipt({ ...current, sourceRevision: event.workspaceRevision }, plan, command.opId, "projection catch-up is pending", event, options.eventStore.readTaskEvent(event.opId));
     options.killpoint?.("before_response_write");
-    const receipt = receiptFromRead(await read(command.taskId), event, plan); options.killpoint?.("after_response_write"); return receipt;
+    const receipt = receiptFromRead(await read(command.taskId), event, plan, options.eventStore.readTaskEvent(event.opId)); options.killpoint?.("after_response_write"); return receipt;
     // `append` receives the augmented event/plan/blobs as one canonical
     // publication. Keeping this call below the preparation makes the
     // transition and carried documents share one Git commit and one recovery
@@ -110,15 +110,18 @@ function planned<A>(plan: FrozenWritePlan, target: WriteTarget, write: () => A):
 export function assertWriteTargetDeclared(plan: FrozenWritePlan, target: WriteTarget): void {
   if (!Object.isFrozen(plan) || !Object.isFrozen(plan.targets) || !plan.targets.some((candidate) => json(candidate) === json(target))) throw new TaskLifecycleOperationConflict(`undeclared_write_target: ${json(target)}`);
 }
-function receiptFromRead(read: TaskLifecycleServiceRead, event: TaskEventV1, plan: FrozenWritePlan): WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot> {
-  return read.status === "ready" && read.watermark >= event.workspaceRevision ? { outcome: "applied", opId: event.opId, event, revision: event.workspaceRevision,
-    evidence: `event-object:${event.opId};files:${[...(event.payload.documentClaims ?? []), ...(event.payload.carriedDocumentClaims ?? [])].map((claim) => claim.path).join(",")}`, visibility: "center", proof: { committedRevision: event.workspaceRevision, appliedCut: event.workspaceRevision, durable: true, canonicalVisible: true, worktreeVisible: true }, snapshot: read.snapshot, frozenPlan: plan }
-    : pendingReceipt(read, plan, event.opId, "projection catch-up is pending", event);
+function receiptFromRead(read: TaskLifecycleServiceRead, event: TaskEventV1, plan: FrozenWritePlan, published: TaskEventV1 | null): WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot> {
+  const canonicalVisible = samePublishedEvent(published, event);
+  return read.status === "ready" && read.watermark >= event.workspaceRevision && canonicalVisible ? { outcome: "applied", opId: event.opId, event, revision: event.workspaceRevision,
+    evidence: `event-object:${event.opId};files:${[...(event.payload.documentClaims ?? []), ...(event.payload.carriedDocumentClaims ?? [])].map((claim) => claim.path).join(",")}`, visibility: "center", proof: { committedRevision: event.workspaceRevision, appliedCut: event.workspaceRevision, durable: canonicalVisible, canonicalVisible, worktreeVisible: canonicalVisible }, snapshot: read.snapshot, frozenPlan: plan }
+    : pendingReceipt(read, plan, event.opId, canonicalVisible ? "projection catch-up is pending" : "canonical event publication is missing", event, published);
 }
-function pendingReceipt(read: TaskLifecycleServiceRead, plan: FrozenWritePlan, opId: string, reason: string, event: TaskEventV1): WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot> {
+function pendingReceipt(read: TaskLifecycleServiceRead, plan: FrozenWritePlan, opId: string, reason: string, event: TaskEventV1, published: TaskEventV1 | null): WriteOperationReceipt<TaskEventV1, TaskLifecycleSnapshot> {
+  const canonicalVisible = samePublishedEvent(published, event);
   const revision = event.workspaceRevision; return { outcome: "pending", opId, event, revision, evidence: `event-object:${opId}`,
-    visibility: "center", proof: { committedRevision: revision, appliedCut: read.watermark, durable: true, canonicalVisible: false, worktreeVisible: true }, snapshot: read.snapshot, frozenPlan: plan, nextAction: `retry task lifecycle read: ${reason}` };
+    visibility: "center", proof: { committedRevision: revision, appliedCut: read.watermark, durable: canonicalVisible, canonicalVisible, worktreeVisible: canonicalVisible }, snapshot: read.snapshot, frozenPlan: plan, nextAction: `retry task lifecycle read: ${reason}` };
 }
+function samePublishedEvent(published: TaskEventV1 | null, expected: TaskEventV1): boolean { return published !== null && published.eventId === expected.eventId && published.opId === expected.opId && published.workspaceRevision === expected.workspaceRevision; }
 function eventMatchesOperation<C extends TaskLifecycleCommand>(event: TaskEventV1, command: C, proof: ProofFor<C>, carried: TaskCarriedDocuments | null): boolean { return json(operationIdentityFromEvent(event)) === json(operationIdentityFromCommand(command, proof)) && json(event.payload.carriedDocumentClaims ?? null) === json(carried?.changes ?? null); }
 function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C, proof: ProofFor<C>): unknown {
   const common = { type: command.type, taskId: command.taskId, eventId: command.eventId, workspaceRevision: command.workspaceRevision, actor: command.actor, source: command.source, occurredAt: command.occurredAt };

@@ -257,6 +257,28 @@ test("pending without an event uses an honest receipt", async () => {
   assert.match(receipt.nextAction ?? "", /retry.*read/iu);
 });
 
+test("missing canonical append cannot be hidden by a ready projection", async () => {
+  const initial = { revision: 0, task: null, executions: [], reviews: [], edgesTaken: [], lease: null } as const;
+  let snapshot = initial;
+  const read = () => ({ status: "ready" as const, snapshot, packagePath: null, watermark: snapshot.revision, sourceRevision: snapshot.revision, warnings: [] });
+  const service = makeTaskLifecycleService({
+    eventStore: { readTaskEvent: () => null, append: (candidate) => ({ status: "applied" as const, revision: candidate.event.workspaceRevision }) },
+    projection: {
+      read, readDocument: () => ({ document: null }), readTaskOperation: () => null, currentLease: () => null,
+      reserveLease: (lease) => lease, activateLease: (lease) => lease, renewLease: (lease) => lease, releaseLease: (lease) => lease,
+      apply: (event) => { snapshot = reduceTaskEvent(snapshot, event); return { metrics: { reducedItems: 1 } }; }
+    }
+  });
+  const create = command("workspace", { type: "CreateReplayTask" as const, taskId: "task-missing-append", title: "Missing append", taskClass: "standard" as const,
+    graph: replayGraph, completionGateIds: [], presetSnapshotDigest: null }, { eventId: "event-missing-append", workspaceRevision: 1, occurredAt: "2026-08-12T00:00:00.000Z" }, 0);
+  const receipt = await service.execute(create, { taskIdUnique: true, actorBinding: actor });
+
+  assert.equal(receipt.outcome, "pending");
+  assert.equal(receipt.proof?.canonicalVisible, false);
+  assert.equal(receipt.proof?.durable, false);
+  assert.match(receipt.nextAction ?? "", /canonical event publication is missing/u);
+});
+
 // Every phase of an independent write is O(old events) by construction: store init builds its
 // known-op set from the whole event tree, each bounded catch-up round re-parses that same tree to
 // slice a 64-item window out of it, and the git commit writes a tree holding every event file.
