@@ -33,6 +33,7 @@ export interface EmptyGuiPayload {
 export interface GuiTaskQueryPayload {
   readonly status?: string; readonly updatedAfter?: string; readonly updatedBefore?: string; readonly limit?: number; readonly cursor?: string;
 }
+export interface GuiAgendaQueryPayload { readonly limit?: number; readonly cursor?: string }
 export interface GuiRelationQueryPayload {
   readonly status?: string; readonly updatedAfter?: string; readonly updatedBefore?: string; readonly limit?: number; readonly cursor?: string
 }
@@ -44,6 +45,7 @@ export interface GuiTaskDocumentListPayload {
 export const apiSchemaContracts = [
   { id: "gui.empty/v1", owner: "gui", typeName: "EmptyGuiPayload" },
   { id: "gui.task-query/v1", owner: "gui", typeName: "GuiTaskQueryPayload" },
+  { id: "gui.agenda-query/v1", owner: "gui", typeName: "GuiAgendaQueryPayload" },
   { id: "gui.relation-query/v1", owner: "gui", typeName: "GuiRelationQueryPayload" },
   { id: "gui.task-document/v1", owner: "gui", typeName: "GuiTaskDocumentPayload" },
   { id: "gui.task-document-list/v1", owner: "gui", typeName: "GuiTaskDocumentListPayload" },

@@ -2,7 +2,7 @@ import type { LeaseChangeReason, TaskLifecycleSnapshot } from "../domain/task-li
 import type { CanonicalEventV1, DocumentState } from "../domain/doc-sync.contract.ts";
 import type { LeaseHolder } from "../domain/execution.ts";
 import type { TaskProgressEventV1 } from "../domain/task-progress-event.ts";
-import { readDecisionGraphRows, readFactAnchorRows, readFactGraphRows, type DecisionProjectionRow, type FactProjectionRow, type FactSearchPage } from "./fact-event-projection.ts";
+import { readDecisionGraphRows, readFactAnchorRows, readFactGraphRows, type DecisionAgendaProjectionRow, type DecisionProjectionRow, type FactProjectionRow, type FactSearchPage } from "./fact-event-projection.ts";
 import type { ProjectionPage, TaskRelationProjectionRow } from "./task-query-projection.ts";
 
 export type TaskProjectionWarning = "projection_missing";
@@ -33,4 +33,5 @@ export interface FactAnchorProjectionRead { readonly status: "ready" | "pending"
 export interface FactGraphProjectionRead { readonly status: "ready" | "pending"; readonly edges: ReturnType<typeof readFactGraphRows>["edges"]; readonly factAnchors: ReturnType<typeof readFactGraphRows>["factAnchors"]; readonly facts: readonly FactProjectionRow[]; readonly watermark: number; readonly sourceRevision: number }
 export interface DecisionProjectionRead { readonly status: "ready" | "pending"; readonly decision: DecisionProjectionRow | null; readonly watermark: number; readonly sourceRevision: number }
 export interface DecisionProjectionListRead { readonly status: "ready" | "pending"; readonly decisions: readonly DecisionProjectionRow[]; readonly watermark: number; readonly sourceRevision: number }
+export interface DecisionAgendaProjectionPageRead { readonly status: "ready" | "pending"; readonly decisions: readonly DecisionAgendaProjectionRow[]; readonly watermark: number; readonly sourceRevision: number; readonly page: ProjectionPage }
 export interface DecisionGraphProjectionRead { readonly status: "ready" | "pending"; readonly edges: ReturnType<typeof readDecisionGraphRows>["edges"]; readonly decisionAnchors: ReturnType<typeof readDecisionGraphRows>["decisionAnchors"]; readonly coverageRows: ReturnType<typeof readDecisionGraphRows>["coverageRows"]; readonly watermark: number; readonly sourceRevision: number }

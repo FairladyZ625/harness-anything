@@ -8,7 +8,7 @@ import { deriveCliCapabilities, firstCliCommand, firstCliCommandIndex, parseThin
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 105);
+  assert.equal(thinCliCommands.length, 106);
   for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))].filter((value): value is string => value !== undefined).sort()) assert.match(help, new RegExp(`^  ${domain} \\(`, "mu"));
   assert.doesNotMatch(help, /ha task start <task-id>/u);
   const taskHelp = renderThinHelp([], "task");
@@ -34,6 +34,7 @@ test("an unknown command domain reports unknown with the available set instead o
 
 test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(deriveCliCapabilities(), {
+    agenda: ["agenda"],
     agent: ["agent-create", "agent-inspect", "agent-install", "agent-list", "agent-validate"],
     daemon: ["daemon-fleet-center-start", "daemon-fleet-edge-sync", "daemon-projection-rebuild", "daemon-repo-register", "daemon-repo-unregister", "daemon-start", "daemon-status", "daemon-stop"],
     decision: ["decision-accept", "decision-amend", "decision-claim-add", "decision-claim-fulfill", "decision-defer", "decision-list", "decision-propose", "decision-reckon", "decision-reject", "decision-relate", "decision-relation-replace", "decision-relation-retire", "decision-repin", "decision-retire", "decision-show", "decision-supersede", "decision-transition", "decision-validate", "decision-verify"],
@@ -102,6 +103,8 @@ test("task lifecycle and read surfaces parse every F03 F04 F05 leaf into closed 
     [["task", "transition", "task-1", "cancelled", "--force", "--reason", "Invalid scope"], { kind: "task-transition", taskId: "task-1", status: "cancelled", force: true, reason: "Invalid scope" }],
     [["task", "transition", "task-1", "planned", "--reason", "Owner rolled back the batch cancellation"], { kind: "task-transition", taskId: "task-1", status: "planned", reason: "Owner rolled back the batch cancellation" }],
     [["task", "amend", "task-1", "--set", "title:New title", "--set", "riskTier:high"], { kind: "task-amend", taskId: "task-1", patches: [{ field: "title", value: "New title" }, { field: "riskTier", value: "high" }] }],
+    [["task", "amend", "task-1", "--set", "pinned:true"], { kind: "task-amend", taskId: "task-1", patches: [{ field: "pinned", value: "true" }] }],
+    [["agenda", "--limit", "25", "--cursor", "cursor-a"], { kind: "agenda", limit: 25, cursor: "cursor-a" }],
     [["task", "archive", "task-1", "--reason", "Delivered", "--archived-by", "owner"], { kind: "task-archive", taskId: "task-1", reason: "Delivered", archivedBy: "owner" }],
     [["task", "supersede", "task-1", "--by", "task-2", "--confirm", "task-1", "--reason", "Scope changed"], { kind: "task-supersede", oldTaskId: "task-1", byTaskId: "task-2", confirm: "task-1", reason: "Scope changed", allowOpenFindings: false }],
     [["task", "delete", "--soft", "task-1", "--reason", "Duplicate"], { kind: "task-delete", taskId: "task-1", mode: "soft", reason: "Duplicate" }],
@@ -113,6 +116,7 @@ test("task lifecycle and read surfaces parse every F03 F04 F05 leaf into closed 
     [["task", "relate", "task-1", "depends-on", "task-2", "--rationale", "Must land first", "--dry-run"], { kind: "task-relate", taskId: "task-1", target: "task/task-2", relationType: "depends-on", rationale: "Must land first", dryRun: true }]
   ] as const;
   for (const [argv, expected] of cases) { const parsed = parseThinCommand(argv); assert.equal(parsed.ok, true, `${argv.join(" ")}: ${JSON.stringify(parsed)}`); if (parsed.ok) assert.deepEqual(parsed.command.action, expected); }
+  const agenda = parseThinCommand(["agenda", "--limit", "25"]); assert.equal(agenda.ok, true); if (agenda.ok) assert.equal(agenda.command.method, "repo.agenda.read");
   assert.equal(parseThinCommand(["task", "transition", "task-1", "done"]).ok, false);
   const bareReinstate = parseThinCommand(["task", "transition", "task-1", "planned"]);
   assert.equal(bareReinstate.ok, false);

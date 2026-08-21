@@ -34,14 +34,14 @@ export type TaskClass = (typeof taskClasses)[number];
 export interface ActorAxes { readonly principal: { readonly personId: string }; readonly executor: { readonly kind: "agent"; readonly id: string } | null }
 export type TaskPackageDisposition = "active" | "archived" | "tombstoned";
 export interface TaskMetadataV1 { readonly idempotencyKey: string | null; readonly parentTaskId: string | null; readonly workKind: "feat" | "fix" | "refactor" | "docs" | "test" | "chore" | null; readonly riskTier: "low" | "medium" | "high" | null; readonly urgency: "low" | "medium" | "high" | null; readonly verticalId: string; readonly presetId: string; readonly profileId: string; readonly moduleKey: string | null; readonly slug: string; readonly surfaces: readonly string[]; readonly fromLegacyId: string | null }
-export interface TaskV1 { readonly schema: "task/v1"; readonly taskId: string; readonly title: string; readonly taskClass: TaskClass; readonly status: ReplayTaskStatus; readonly graph: TaskGraphV1; readonly currentNode: TaskNodeId; readonly iteration: 0 | 1; readonly createdBy: ActorAxes; readonly completionGateIds: readonly string[]; readonly presetSnapshotDigest: `sha256:${string}` | null; readonly metadata?: TaskMetadataV1; readonly relations?: readonly EntityRelationRecord[]; readonly packageDisposition?: TaskPackageDisposition; readonly supersededBy?: string | null; readonly contractVersion?: number }
+export interface TaskV1 { readonly schema: "task/v1"; readonly taskId: string; readonly title: string; readonly taskClass: TaskClass; readonly status: ReplayTaskStatus; readonly graph: TaskGraphV1; readonly currentNode: TaskNodeId; readonly iteration: 0 | 1; readonly createdBy: ActorAxes; readonly completionGateIds: readonly string[]; readonly presetSnapshotDigest: `sha256:${string}` | null; readonly pinned?: boolean; readonly metadata?: TaskMetadataV1; readonly relations?: readonly EntityRelationRecord[]; readonly packageDisposition?: TaskPackageDisposition; readonly supersededBy?: string | null; readonly contractVersion?: number }
 export interface ContractValidationIssue { readonly code: string; readonly message: string }
 export const TASK_V1_SCHEMA = Object.freeze({ id: "Task/v1", required: Object.freeze(["schema", "taskId", "title", "taskClass", "status", "graph", "currentNode", "iteration", "createdBy", "completionGateIds", "presetSnapshotDigest"]), statuses: replayTaskStatuses, taskClasses });
 export function validateActorAxes(value: unknown): readonly ContractValidationIssue[] {
   return validateActorIdentity(value).map((message) => ({ code: "invalid_actor", message }));
 }
 export function validateTaskV1(value: unknown): readonly ContractValidationIssue[] {
-  const fields = TASK_V1_SCHEMA.required, allowed = [...fields, "metadata", "relations", "packageDisposition", "supersededBy", "contractVersion"];
+  const fields = TASK_V1_SCHEMA.required, allowed = [...fields, "pinned", "metadata", "relations", "packageDisposition", "supersededBy", "contractVersion"];
   if (!isRecord(value) || fields.some((field) => !(field in value)) || Object.keys(value).some((field) => !allowed.includes(field))) return [{ code: "invalid_task", message: "Task/v1 fields are incomplete or unknown" }];
   const issues: ContractValidationIssue[] = [];
   if (value.schema !== "task/v1") issues.push({ code: "invalid_schema", message: "Task must use task/v1" });
@@ -52,6 +52,7 @@ export function validateTaskV1(value: unknown): readonly ContractValidationIssue
   if (value.iteration !== 0 && value.iteration !== 1) issues.push({ code: "invalid_iteration", message: "iteration must be 0 or 1" });
   if (!Array.isArray(value.completionGateIds) || value.completionGateIds.some((id) => !isNonEmptyString(id))) issues.push({ code: "invalid_task", message: "completion gate ids must be strings" });
   if (value.presetSnapshotDigest !== null && (typeof value.presetSnapshotDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(value.presetSnapshotDigest))) issues.push({ code: "invalid_task", message: "preset snapshot digest must be null or SHA-256" });
+  if (value.pinned !== undefined && typeof value.pinned !== "boolean") issues.push({ code: "invalid_task", message: "pinned must be a boolean" });
   if (value.metadata !== undefined && !validMetadata(value.metadata)) issues.push({ code: "invalid_task", message: "task metadata is incomplete or invalid" });
   if (value.relations !== undefined && (!Array.isArray(value.relations) || validateRelationRecordsForHost(`task/${String(value.taskId)}`, value.relations as EntityRelationRecord[]).length)) issues.push({ code: "invalid_task", message: "task relations are invalid" });
   if (value.packageDisposition !== undefined && !["active", "archived", "tombstoned"].includes(String(value.packageDisposition))) issues.push({ code: "invalid_task", message: "invalid package disposition" });

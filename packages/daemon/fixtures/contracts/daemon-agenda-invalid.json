@@ -1,0 +1,19 @@
+{
+  "schema": "daemon.agenda/v1",
+  "ok": true,
+  "command": "agenda",
+  "status": "ready",
+  "inFlight": [],
+  "awaitingDecision": [],
+  "waitingOnOthers": [],
+  "dispatchable": [],
+  "page": {
+    "sourceLimit": 0,
+    "cursor": null,
+    "nextCursor": null
+  },
+  "watermark": 0,
+  "sourceRevision": 0,
+  "warnings": [],
+  "summary": "invalid source limit"
+}
