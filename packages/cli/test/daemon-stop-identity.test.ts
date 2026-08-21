@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -88,8 +89,8 @@ async function spawnLegacyDaemon(daemonId: string): Promise<Fixture> {
   assert.equal(launched.status, 0, launched.stderr);
   const daemonPid = await new Promise<number>((resolve, reject) => {
     const deadline = Date.now() + 10_000;
-    const poll = () => { const pid = readDaemonPid(userRoot, daemonId); if (pid !== null) resolve(pid); else if (Date.now() > deadline) reject(new Error("legacy daemon never wrote its pid file")); else setTimeout(poll, 20); };
-    poll();
+    const poll = async () => { const pid = readDaemonPid(userRoot, daemonId); if (pid !== null && await socketAccepting(socketPath)) resolve(pid); else if (Date.now() > deadline) reject(new Error("legacy daemon never became socket-ready")); else setTimeout(() => { void poll(); }, 20); };
+    void poll();
   });
   return { parent, userRoot, daemonId, daemonPid };
 }
@@ -115,7 +116,9 @@ const server = net.createServer((socket) => {
     }
   });
 });
-server.listen(socketPath);
+// Keep the real daemon's pid-before-bind gap wide enough that the fixture helper must prove socket
+// readiness instead of mistaking process bookkeeping for a server that can already answer.
+setTimeout(() => server.listen(socketPath), 2_000);
 // A real serve() releases its pid file and endpoint as its last cooperative acts; the stub must
 // do the same on TERM or the CLI waits out its budget on an exited-but-unreaped child.
 process.on("SIGTERM", () => { if (mode === "wedge") return; server.close(); try { unlinkSync(socketPath); } catch {} try { unlinkSync(pidPath); } catch {} process.exit(0); });
@@ -128,6 +131,7 @@ function run(target: Target, args: readonly string[]): Record<string, unknown> {
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
   return JSON.parse(result.stdout) as Record<string, unknown>;
 }
+function socketAccepting(socketPath: string): Promise<boolean> { return new Promise((resolve) => { const socket = connect(socketPath); const settle = (ready: boolean) => { socket.removeAllListeners(); socket.destroy(); resolve(ready); }; socket.once("connect", () => settle(true)); socket.once("error", () => settle(false)); }); }
 async function alive(pid: number): Promise<boolean> { return new Promise((resolve) => { try { process.kill(pid, 0); resolve(true); } catch { resolve(false); } }); }
 async function waitForExit(pid: number): Promise<void> { for (let attempt = 0; attempt < 600; attempt += 1) { if (!(await alive(pid))) return; await new Promise((resolve) => setTimeout(resolve, 20)); } throw new Error(`process ${pid} did not exit`); }
 async function cleanup(fixture: Fixture): Promise<void> {
