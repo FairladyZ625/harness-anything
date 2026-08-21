@@ -1,7 +1,7 @@
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
-import { freezeDeclaredWritePlan, hasOnlyFields, isFrozenWritePlan, isNonEmptyString, isRecord, serializeEventEnvelope, validateActorIdentity, validateWriteSource, type ActorIdentity, type EventEnvelope, type FrozenWritePlan, type WriteSource, type WriteTarget } from "./write-chain.contract.ts";
+import { freezeDeclaredWritePlan, hasOnlyFields, hasRequiredFields, isFrozenWritePlan, isRecord, validateEventEnvelopeIdentity, type ActorIdentity, type EventEnvelope, type FrozenWritePlan, type WriteSource, type WriteTarget } from "./write-chain.contract.ts";
 
 export const AGENT_ENTITY_DOCUMENT_POLICY_ID = "typed-agent-entity/v1";
 export type AgentEntityDeclarationKind = "agent" | "squad";
@@ -12,17 +12,23 @@ export interface AgentEntityWriteBundle { readonly event: AgentEntityEventV1; re
 export function compileAgentEntityWrite(input: { readonly entityKind: AgentEntityDeclarationKind; readonly entityId: string; readonly body: string; readonly eventId: string; readonly opId: string; readonly workspaceRevision: number; readonly actor: ActorIdentity; readonly source: WriteSource; readonly occurredAt: string }): AgentEntityWriteBundle {
   const claim: AgentEntityDeclarationClaim = { path: agentEntityDeclarationPath(input.entityKind, input.entityId), sha256: sha256Text(input.body), size: Buffer.byteLength(input.body), mediaType: "application/json", policyId: AGENT_ENTITY_DOCUMENT_POLICY_ID };
   const event: AgentEntityEventV1 = { schema: "agent-entity-event/v1", eventId: input.eventId, workspaceRevision: input.workspaceRevision, opId: input.opId, type: "agent_entity_written", actor: input.actor, source: input.source, occurredAt: input.occurredAt, payload: { entityKind: input.entityKind, entityId: input.entityId, declarationDocumentClaim: claim } };
-  const errors = validateAgentEntityEvent(event);
+  const errors = validateCurrentAgentEntityEvent(event);
   if (errors.length) throw new Error(errors.join("; "));
   return { event, plan: agentEntityWritePlan(event), blobs: [{ sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType, body: input.body }] };
 }
 
 export function validateAgentEntityEvent(value: unknown): readonly string[] {
-  if (!isRecord(value) || !hasOnlyFields(value, ["schema", "eventId", "workspaceRevision", "opId", "type", "actor", "source", "occurredAt", "payload"]) || value.schema !== "agent-entity-event/v1" || value.type !== "agent_entity_written" || !isNonEmptyString(value.eventId) || !isNonEmptyString(value.opId) || !isNonEmptyString(value.occurredAt) || !Number.isInteger(value.workspaceRevision) || (value.workspaceRevision as number) < 1 || validateActorIdentity(value.actor).length || validateWriteSource(value.source).length || !isRecord(value.payload) || !hasOnlyFields(value.payload, ["entityKind", "entityId", "declarationDocumentClaim"])) return ["agent entity event envelope or payload is invalid"];
+  return validateAgentEntityEventFields(value, true);
+}
+export function validateCurrentAgentEntityEvent(value: unknown): readonly string[] {
+  return validateAgentEntityEventFields(value, false);
+}
+function validateAgentEntityEventFields(value: unknown, allowUnknownFields: boolean): readonly string[] {
+  const hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
+  if (!isRecord(value) || !hasFields(value, ["schema", "eventId", "workspaceRevision", "opId", "type", "actor", "source", "occurredAt", "payload"]) || value.schema !== "agent-entity-event/v1" || value.type !== "agent_entity_written" || !isRecord(value.payload) || !hasFields(value.payload, ["entityKind", "entityId", "declarationDocumentClaim"])) return ["agent entity event envelope or payload is invalid"];
   const kind = value.payload.entityKind, id = value.payload.entityId, claim = value.payload.declarationDocumentClaim;
-  if ((kind !== "agent" && kind !== "squad") || !entityId(id) || !isRecord(claim) || !hasOnlyFields(claim, ["path", "sha256", "size", "mediaType", "policyId"]) || claim.path !== agentEntityDeclarationPath(kind, id) || !/^[0-9a-f]{64}$/u.test(String(claim.sha256)) || !Number.isSafeInteger(claim.size) || (claim.size as number) < 0 || claim.mediaType !== "application/json" || claim.policyId !== AGENT_ENTITY_DOCUMENT_POLICY_ID) return ["agent entity declaration claim is invalid"];
-  try { serializeEventEnvelope(value as unknown as AgentEntityEventV1); } catch { return ["agent entity event identity is invalid"]; }
-  return [];
+  if ((kind !== "agent" && kind !== "squad") || !entityId(id) || !isRecord(claim) || !hasFields(claim, ["path", "sha256", "size", "mediaType", "policyId"]) || claim.path !== agentEntityDeclarationPath(kind, id) || !/^[0-9a-f]{64}$/u.test(String(claim.sha256)) || !Number.isSafeInteger(claim.size) || (claim.size as number) < 0 || claim.mediaType !== "application/json" || claim.policyId !== AGENT_ENTITY_DOCUMENT_POLICY_ID) return ["agent entity declaration claim is invalid"];
+  return validateEventEnvelopeIdentity(value, allowUnknownFields).length ? ["agent entity event identity is invalid"] : [];
 }
 
 export function isAgentEntityEvent(event: { readonly schema: string }): event is AgentEntityEventV1 { return event.schema === "agent-entity-event/v1"; }

@@ -1,4 +1,4 @@
-import { agentRuntimeEventTypes, validateAgentRuntimeEvent, validateAgentRuntimePayload, type AgentRuntimeEventType, type AgentRuntimeEventV1, type RuntimeProtocolFamily } from "../domain/agent-runtime.ts";
+import { agentRuntimeEventTypes, validateCurrentAgentRuntimeEvent, validateAgentRuntimePayload, type AgentRuntimeEventType, type AgentRuntimeEventV1, type RuntimeProtocolFamily } from "../domain/agent-runtime.ts";
 import { hasOnlyFields, isNonEmptyString, isRecord, type ActorIdentity, type WriteSource } from "../domain/write-chain.contract.ts";
 
 export interface ProviderWitnessV1 { readonly schema: "agent-runtime-witness/v1"; readonly protocolFamily: RuntimeProtocolFamily; readonly channel: "wrapper" | "hook"; readonly type: AgentRuntimeEventType | "heartbeat"; readonly payload: Readonly<Record<string, unknown>> }
@@ -16,5 +16,5 @@ export function eventFromProviderWitness(value: unknown, binding: ProviderWitnes
   const witness = parseProviderWitness(value); if (witness.type === "heartbeat") return null;
   const payload = witness.type === "runtime_installation_observed" ? { ...witness.payload, protocolFamily: witness.protocolFamily, discoverySource: witness.channel, hostRef: binding.hostRef } : witness.payload;
   const event = { schema: "agent-runtime-event/v1", eventId: binding.eventId, workspaceRevision: binding.workspaceRevision, opId: binding.opId, type: witness.type, actor: binding.actor, source: binding.source, occurredAt: binding.occurredAt, payload } as AgentRuntimeEventV1;
-  const errors = validateAgentRuntimeEvent(event); if (errors.length) throw new Error(errors.join("; ")); return event;
+  const errors = validateCurrentAgentRuntimeEvent(event); if (errors.length) throw new Error(errors.join("; ")); return event;
 }

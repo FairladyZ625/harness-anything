@@ -2,14 +2,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MIGRATION_DOCUMENT_POLICY_ID, migrationImportWritePlan, sha256Text, validateMigrationImportEvent, type MigrationImportEventV1 } from "../../src/index.ts";
+import { validateCurrentMigrationImportEvent } from "../../src/domain/migration-import-event.ts";
 
 const body = "# Repository document\n", referencedBody = "Referenced body\n", documentClaim = { path: "field-notes/2024/xyz.md", sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/markdown", policyId: MIGRATION_DOCUMENT_POLICY_ID } as const, referencedContentClaims = [{ sha256: sha256Text(referencedBody), size: Buffer.byteLength(referencedBody), mediaType: "text/plain" }] as const;
 
-test("repo-document accepts only its exact fields and non-specialized document paths", () => {
+test("repo-document readers ignore additions while current writers keep exact fields", () => {
   const event = repoDocumentEvent(documentClaim.path);
   assert.deepEqual(validateMigrationImportEvent(event), []);
   assert.deepEqual(validateMigrationImportEvent(repoDocumentEvent("decisions/README.md")), []); assert.deepEqual(validateMigrationImportEvent(repoDocumentEvent("tasks/README.md")), []);
-  assert.deepEqual(validateMigrationImportEvent({ ...event, payload: { ...event.payload, entity: { ...event.payload.entity, guessedOwner: "task/nope" } } }), ["migration repo document entity is invalid"]);
+  const additive = { ...event, payload: { ...event.payload, entity: { ...event.payload.entity, guessedOwner: "task/nope" } } };
+  assert.deepEqual(validateMigrationImportEvent(additive), []); assert.deepEqual(validateCurrentMigrationImportEvent(additive), ["migration repo document entity is invalid"]);
   assert.deepEqual(validateMigrationImportEvent(repoDocumentEvent("people.yaml")), []);
   for (const target of ["tasks/task_x/note.md", "decisions/decision-dec_X/note.md", "presets/custom/README.md", "objects/sha256/blob", "events/old.json", "harness.yaml"]) {
     assert.deepEqual(validateMigrationImportEvent(repoDocumentEvent(target)), ["migration repo document entity is invalid"], target);
@@ -19,7 +21,7 @@ test("repo-document accepts only its exact fields and non-specialized document p
 
 test("repo-document accepts an exact file or link destination preimage but never a directory preimage", () => {
   const event = repoDocumentEvent("people.yaml"), entity = event.payload.entity as Extract<MigrationImportEventV1["payload"]["entity"], { readonly kind: "repo-document" }>, resolved = (nodeKind: "file" | "symbolic-link" | "directory") => ({ ...event, payload: { ...event.payload, entity: { ...entity, destinationPreimage: { nodeKind, sha256: "b".repeat(64), size: 42 } } } });
-  assert.deepEqual(validateMigrationImportEvent(resolved("file")), []); assert.deepEqual(validateMigrationImportEvent(resolved("symbolic-link")), []); assert.deepEqual(validateMigrationImportEvent(resolved("directory")), ["migration repo document entity is invalid"]); assert.deepEqual(validateMigrationImportEvent({ ...resolved("file"), payload: { ...resolved("file").payload, entity: { ...resolved("file").payload.entity, extra: true } } }), ["migration repo document entity is invalid"]);
+  assert.deepEqual(validateMigrationImportEvent(resolved("file")), []); assert.deepEqual(validateMigrationImportEvent(resolved("symbolic-link")), []); assert.deepEqual(validateMigrationImportEvent(resolved("directory")), ["migration repo document entity is invalid"]); const additive = { ...resolved("file"), payload: { ...resolved("file").payload, entity: { ...resolved("file").payload.entity, extra: true } } }; assert.deepEqual(validateMigrationImportEvent(additive), []); assert.deepEqual(validateCurrentMigrationImportEvent(additive), ["migration repo document entity is invalid"]);
 });
 
 test("repo-document write plan publishes the document and every referenced CAS claim", () => {

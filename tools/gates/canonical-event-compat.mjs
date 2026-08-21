@@ -1,0 +1,70 @@
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { consumeKnownError } from "../../packages/kernel/src/error-consumption.ts";
+import { canonicalEventSchemas, parseCanonicalEvent } from "../../packages/kernel/src/domain/doc-sync.contract.ts";
+import { repoRoot } from "./git.mjs";
+
+const FIXTURE_ROOT = "packages/kernel/fixtures/canonical-events";
+
+function fixtureDirectory(schema) {
+  return schema.replaceAll("/", "-");
+}
+
+export function validateFrozenCanonicalEvents(rootDir, schemas, parseCanonicalEvent) {
+  const errors = [];
+  for (const entry of schemas) {
+    const relativeDirectory = path.posix.join(FIXTURE_ROOT, fixtureDirectory(entry.schema));
+    const directory = path.join(rootDir, relativeDirectory);
+    if (!existsSync(directory)) {
+      errors.push(`${relativeDirectory}: ${entry.schema} has no frozen samples`);
+      continue;
+    }
+    const samples = readdirSync(directory).filter((name) => name.endsWith(".json")).sort();
+    if (samples.length === 0) {
+      errors.push(`${relativeDirectory}: ${entry.schema} has no frozen samples`);
+      continue;
+    }
+    for (const name of samples) {
+      const relativePath = path.posix.join(relativeDirectory, name);
+      let body;
+      let value;
+      try {
+        body = readFileSync(path.join(directory, name), "utf8");
+        value = JSON.parse(body);
+      } catch (error) {
+        consumeKnownError(error);
+        errors.push(`${relativePath}: invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+        continue;
+      }
+      if (value === null || typeof value !== "object" || Array.isArray(value) || value.schema !== entry.schema) {
+        errors.push(`${relativePath}: expected ${entry.schema}, found ${String(value?.schema)}`);
+        continue;
+      }
+      const issues = entry.validate(value);
+      if (issues.length > 0) errors.push(`${relativePath}: ${entry.schema} rejected frozen sample: ${issues.join("; ")}`);
+      else if (parseCanonicalEvent !== undefined) {
+        try {
+          parseCanonicalEvent(body);
+        } catch (error) {
+          consumeKnownError(error);
+          errors.push(`${relativePath}: frozen bytes are invalid: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
+  }
+  return errors;
+}
+
+function main() {
+  if (!process.argv.includes("--check")) throw new Error("usage: node tools/gates/canonical-event-compat.mjs --check");
+  const errors = validateFrozenCanonicalEvents(repoRoot(), canonicalEventSchemas, parseCanonicalEvent);
+  if (errors.length > 0) {
+    console.error(errors.join("\n"));
+    process.exitCode = 1;
+  } else {
+    console.log(`canonical-event-compat: ok (${canonicalEventSchemas.length} schemas)`);
+  }
+}
+
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) main();

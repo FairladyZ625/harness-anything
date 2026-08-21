@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { eventFromProviderWitness, type ProviderWitnessV1 } from "../../src/agent-runtime/provider-witness.ts";
-import { reduceRuntimeSession, runtimeEventContentClaims, type AgentRuntimeEventType, type AgentRuntimeEventV1 } from "../../src/domain/agent-runtime.ts";
+import { reduceRuntimeSession, runtimeEventContentClaims, validateCurrentAgentRuntimeEvent, type AgentRuntimeEventType, type AgentRuntimeEventV1 } from "../../src/domain/agent-runtime.ts";
 import { serializeCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
 import { eventObjectRelativePath } from "../../src/layout/ledger-object-layout.ts";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
@@ -60,7 +60,7 @@ test("witness provenance is envelope-bound and local or assignment provenance re
     assert.throws(() => eventFromProviderWitness({ ...startedWitness, ...selfReported } as unknown as ProviderWitnessV1, envelope(1)), /witness/iu);
   for (const selfReported of [{ actor }, { source: "local" }, { workspaceId: "workspace-client" }, { occurredAt: "2026-08-12T00:00:00.000Z" }])
     assert.throws(() => eventFromProviderWitness({ ...startedWitness, payload: { ...startedWitness.payload, ...selfReported } }, envelope(1)), /payload/iu);
-  assert.throws(() => serializeCanonicalEvent({ ...local, payload: { ...local.payload, occurredAt: local.occurredAt } } as AgentRuntimeEventV1), /payload/iu);
+  assert.match(validateCurrentAgentRuntimeEvent({ ...local, payload: { ...local.payload, occurredAt: local.occurredAt } }).join("\n"), /payload/iu);
 });
 
 test("agent runtime source has no per-session store or legacy JSONL ledger", () => {
@@ -112,7 +112,7 @@ test("runtime schema rejects credential, transcript body, tool/cost stream, and 
   const bound = eventFromProviderWitness(witness("runtime_session_task_bound"), envelope(1))!;
   for (const forbidden of [
     { credential: "secret" }, { transcript: "full conversation" }, { tool: { name: "shell" } }, { cost: { amount: 1 } }
-  ]) assert.throws(() => serializeCanonicalEvent({ ...bound, payload: { ...bound.payload, ...forbidden } } as AgentRuntimeEventV1), /payload/iu);
+  ]) assert.match(validateCurrentAgentRuntimeEvent({ ...bound, payload: { ...bound.payload, ...forbidden } }).join("\n"), /payload/iu);
   assert.throws(() => serializeCanonicalEvent({ ...bound, payload: { ...bound.payload, transcriptRef: "full\nconversation" } } as AgentRuntimeEventV1), /transcript ref|payload/iu);
   const dispatch = witness("runtime_dispatch_requested"); assert.throws(() => eventFromProviderWitness({ ...dispatch, payload: { ...dispatch.payload, definitionSnapshot: { ...(dispatch.payload.definitionSnapshot as Record<string, unknown>), credentialRef: "keychain:forbidden" } } }, envelope(2)), /payload/iu);
   assert.deepEqual(forbiddenKeys(bound), []);
