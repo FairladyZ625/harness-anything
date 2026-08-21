@@ -118,8 +118,8 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   assert.deepEqual(consoleFailures, [], "renderer emitted console errors");
 });
 
-test("GUI dispatches a real daemon-mediated codex provider mission and exposes its settled artifact chain", { timeout: 90_000 }, async (t) => {
-  const proofValue = `gui-real-dispatch-${Date.now()}`;
+test("GUI creates a Runtime and Agent from zero, invokes its selected Skill, and exposes the settled artifact chain", { timeout: 90_000 }, async (t) => {
+  const proofValue = `gui-real-dispatch-${Date.now()}`, skillProofValue = `manifest-observed-${Date.now()}`;
   const fakeProviderRoot = mkdtempSync(resolve(tmpdir(), "ha-gui-codex-provider-")), fakeProviderBin = resolve(fakeProviderRoot, "bin"), fakeProviderPath = resolve(fakeProviderBin, "codex"), originalPath = process.env.PATH ?? "";
   mkdirSync(fakeProviderBin);
   writeFakeCodex(fakeProviderPath);
@@ -133,22 +133,65 @@ test("GUI dispatches a real daemon-mediated codex provider mission and exposes i
     rmSync(fakeProviderRoot, { recursive: true, force: true });
     throw error;
   }
-  const ledgerRoot = daemonFixture.rootDir, proofPath = resolve(ledgerRoot, "artifacts/gui-real-dispatch-proof.txt");
+  const ledgerRoot = daemonFixture.rootDir, proofPath = resolve(ledgerRoot, "artifacts/gui-real-dispatch-proof.txt"), skillCandidate = resolve(ledgerRoot, ".agents/skills/gui-proof-skill");
   let electronApp;
   t.after(async () => { try { if (electronApp) await closeElectronApp(electronApp); await daemonFixture.stop(); } finally { process.env.PATH = originalPath; rmSync(fakeProviderRoot, { recursive: true, force: true }); } });
   const codexInstallation = discoverRuntimeInstallations().find((installation) => installation.kindId === "codex" && installation.executablePath === realpathSync.native(fakeProviderPath));
   if (!codexInstallation) throw new Error("fake codex installation was not witnessed by the daemon runtime inventory");
-  seedRealDispatchFixture(daemonFixture.userRoot, ledgerRoot, codexInstallation.installationId);
+  assert.deepEqual(codexInstallation.models, ["gpt-5.6-sol", "gpt-5.6-terra"]);
+  assert.equal(codexInstallation.defaultModel, "gpt-5.6-sol");
+  mkdirSync(skillCandidate, { recursive: true });
+  const skillPath = realpathSync.native(skillCandidate);
+  writeFileSync(resolve(skillPath, "SKILL.md"), `# GUI proof skill\n\nWhen selected, read this file and report GUI_MANIFEST_MARKER:${skillProofValue}.\n`);
 
   electronApp = await electron.launch({ executablePath: electronPath, args: [resolve(guiRoot, "src/main/electron-main.ts")], cwd: repoRoot, env: { ...process.env, ...daemonFixture.env, HARNESS_GUI_ROOT: ledgerRoot } });
   const page = await electronApp.firstWindow();
   page.setDefaultTimeout(20_000);
   await page.waitForLoadState("domcontentloaded");
-  await page.getByRole("button", { name: "Agent 会话", exact: true }).click();
-  await page.getByTestId("rail-agent-codex-sidecar").waitFor({ timeout: 20_000 });
-  await page.getByTestId("rail-agent-codex-sidecar").click();
-  await page.getByTestId("dispatch-entry-codex-sidecar").waitFor({ timeout: 20_000 });
-  await page.getByTestId("dispatch-entry-codex-sidecar").click();
+  await page.getByRole("button", { name: /^Agent (?:运行时|Runtime)$/u }).click();
+
+  await page.getByTestId("runtime-new-runtimes").click();
+  const runtimeDialog = page.getByTestId("new-runtime-dialog");
+  await runtimeDialog.waitFor();
+  await runtimeDialog.getByRole("button", { name: "Codex", exact: true }).click();
+  await runtimeDialog.getByTestId("new-runtime-id").fill("gui-from-zero");
+  await runtimeDialog.getByLabel(/^(?:名称|Name)$/u).fill("GUI From Zero");
+  const modelSelect = runtimeDialog.getByTestId("new-runtime-model");
+  await modelSelect.locator('option[value="gpt-5.6-sol"]').waitFor({ state: "attached" });
+  assert.equal(await modelSelect.inputValue(), "", "detected default must not require a typed model override");
+  assert.equal(await runtimeDialog.getByTestId("new-runtime-model-custom").count(), 0, "custom model input must stay opt-in");
+  const createRuntime = runtimeDialog.getByTestId("new-runtime-create");
+  assert.equal(await createRuntime.isEnabled(), true, "blank-model Runtime form did not become creatable from the detected default");
+  await createRuntime.click();
+  await page.getByTestId("rail-runtime-gui-from-zero").waitFor({ timeout: 20_000 });
+
+  await page.getByTestId("runtime-new-agents").click();
+  const agentDialog = page.getByTestId("new-agent-dialog");
+  await agentDialog.waitFor();
+  await agentDialog.getByRole("button", { name: /(?:空白创建|Blank)/u }).click();
+  await agentDialog.getByTestId("new-agent-id").fill("gui-from-zero-agent");
+  await agentDialog.getByLabel(/^(?:名称|Name)$/u).fill("GUI From Zero Agent");
+  await agentDialog.getByTestId("new-agent-create").click();
+  const agentCard = page.getByTestId("agent-card-gui-from-zero-agent");
+  await agentCard.waitFor({ timeout: 20_000 });
+  await agentCard.getByTestId("agent-instructions").fill("Use every selected Skill before completing the mission, then report the exact proof values.");
+  await agentCard.getByTestId("agent-skill-search").fill("gui-proof-skill");
+  const skillChoice = agentCard.locator("button", { hasText: "gui-proof-skill" });
+  await skillChoice.waitFor();
+  assert.ok((await skillChoice.innerText()).includes(skillPath), "Skill selector did not expose the absolute .agents path");
+  await skillChoice.click();
+  await agentCard.getByTestId("agent-preset").fill("standard-task");
+  const presetChoice = agentCard.locator("button", { hasText: "standard-task" });
+  await presetChoice.waitFor();
+  await presetChoice.click();
+  assert.equal(await agentCard.getByTestId("agent-model-select").inputValue(), "", "Agent must retain the Runtime provider default unless the user chooses an override");
+  await agentCard.getByTestId("agent-save").click();
+  await page.waitForFunction(() => globalThis.document.querySelector('[data-testid="agent-save"]')?.hasAttribute("disabled"));
+  const savedAgent = JSON.parse(readFileSync(resolve(ledgerRoot, "harness/agents/gui-from-zero-agent.json"), "utf8"));
+  assert.deepEqual(savedAgent.skills, [{ id: "gui-proof-skill", path: skillPath }]);
+  assert.equal(savedAgent.preset, "standard-task");
+
+  await page.getByTestId("dispatch-entry-gui-from-zero-agent").click();
   const dialog = page.getByTestId("dispatch-dialog");
   await dialog.waitFor();
   await dialog.getByTestId("dispatch-task-task-gui-dispatch").click();
@@ -160,9 +203,9 @@ test("GUI dispatches a real daemon-mediated codex provider mission and exposes i
 
   const dock = page.getByTestId("sessions-dock");
   await dock.waitFor({ timeout: 30_000 });
-  const settledOutcome = page.locator('[data-testid^="runtime-outcome-"]').first();
+  const settledOutcome = dock.locator("button", { hasText: "Run a real GUI dispatch" }).locator('[data-testid^="runtime-outcome-"]');
   await settledOutcome.waitFor({ timeout: 20_000 });
-  await page.waitForFunction(() => [...globalThis.document.querySelectorAll('[data-testid^="runtime-outcome-"]')].some((element) => ["succeeded", "failed", "unknown", "cancelled"].includes(element.textContent?.trim() ?? "")), undefined, { timeout: 150_000 });
+  await page.waitForFunction(() => [...globalThis.document.querySelectorAll('[data-testid^="runtime-outcome-"]')].some((element) => element.closest("button")?.textContent?.includes("Run a real GUI dispatch") && ["succeeded", "failed", "cancelled"].includes(element.textContent?.trim() ?? "")), undefined, { timeout: 150_000 });
   assert.equal((await settledOutcome.textContent())?.trim(), "succeeded", `real provider dispatch did not settle successfully: ${await settledOutcome.textContent()}`);
   const detail = page.getByTestId("session-detail");
   await detail.waitFor();
@@ -170,6 +213,8 @@ test("GUI dispatches a real daemon-mediated codex provider mission and exposes i
   const providerResult = await detail.locator("pre").textContent();
   assert.ok((providerResult ?? "").trim().length > 0, "daemon did not expose a provider result in the GUI");
   assert.match(providerResult ?? "", /GUI_REAL_DISPATCH_PROOF=/u, "provider result did not report the requested proof line");
+  assert.ok((providerResult ?? "").includes(`GUI_MANIFEST_OBSERVED:${skillProofValue}`), `provider did not read the selected Skill manifest:\n${providerResult}`);
+  assert.ok((providerResult ?? "").includes(`GUI_SKILL_PATH=${resolve(skillPath, "SKILL.md")}`), "provider prompt did not contain the selected Skill manifest's absolute path");
   assert.equal(readFileSync(proofPath, "utf8"), `GUI_REAL_DISPATCH_PROOF=${proofValue}\n`, "provider did not create the requested proof file");
 
   await page.getByTestId("rail-orchestration-task-gui-dispatch").waitFor({ timeout: 20_000 });
@@ -189,14 +234,7 @@ test("GUI dispatches a real daemon-mediated codex provider mission and exposes i
   }
 });
 
-function seedRealDispatchFixture(userRoot, rootDir, installationId) {
-  if (!installationId) throw new Error("codex installation is not witnessed by the daemon runtime inventory");
-  mkdirSync(resolve(rootDir, "harness/agents"), { recursive: true });
-  writeFileSync(resolve(rootDir, "harness/agents/codex-sidecar.json"), `${JSON.stringify({ schema: "agent-declaration/v1", id: "codex-sidecar", name: "Codex Sidecar", instructions: "Use the shell to complete the mission exactly and report the resulting file contents.", runtime_type: "codex" }, null, 2)}\n`);
-  writeFileSync(resolve(userRoot, "runtime-instances.json"), `${JSON.stringify({ schema: "runtime-instances/v1", instances: [{ schemaVersion: 2, instanceId: "codex-sidecar", name: "Codex Sidecar", installationId, providerId: "codex_local_access", models: ["gpt-5.6-terra"], defaultModel: "gpt-5.6-terra", enabled: true, auth: { mode: "api-key", credentialRef: "credential:v1:codex-sidecar" }, kindId: "codex", codex: { reasoningEffort: "low", baseUrl: "http://localhost:50818/v1", wireApi: "responses", requiresOpenAiAuth: true } }] }, null, 2)}\n`);
-}
-
-function writeFakeCodex(target) { const source = ["#!/usr/bin/env node", "import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';", "import path from 'node:path';", "if (process.argv.includes('--version')) { console.log('codex-cli e2e-fake'); process.exit(0); }", "const prompt = readFileSync(0, 'utf8');", "const proof = /GUI_REAL_DISPATCH_PROOF=([A-Za-z0-9-]+)/u.exec(prompt)?.[1] ?? 'missing';", "const line = `GUI_REAL_DISPATCH_PROOF=${proof}`;", "mkdirSync(path.resolve(process.cwd(), 'artifacts'), { recursive: true });", "writeFileSync(path.resolve(process.cwd(), 'artifacts/gui-real-dispatch-proof.txt'), `${line}\\n`);", "console.log(JSON.stringify({ type: 'thread.started', thread_id: 'thread-gui-e2e-fake' }));", "console.log(JSON.stringify({ type: 'item.completed', item: { type: 'file_change', status: 'completed', path: 'artifacts/gui-real-dispatch-proof.txt' } }));", "console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: line } }));", "console.log(JSON.stringify({ type: 'turn.completed' }));"].join("\n"); writeFileSync(target, `${source}\n`, { mode: 0o755 }); chmodSync(target, 0o755); }
+function writeFakeCodex(target) { const source = ["#!/usr/bin/env node", "import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';", "import path from 'node:path';", "const args = process.argv.slice(2);", "if (args.includes('--version')) { console.log('codex-cli e2e-fake'); process.exit(0); }", "if (args.join(' ') === 'debug models --bundled') { console.log(JSON.stringify({ models: [{ slug: 'gpt-5.6-sol' }, { slug: 'gpt-5.6-terra' }] })); process.exit(0); }", "if (args[0] === 'login' && args[1] === 'status') process.exit(0);", "if (args[0] === 'login') process.exit(0);", "const prompt = readFileSync(0, 'utf8');", "const proof = /GUI_REAL_DISPATCH_PROOF=([A-Za-z0-9-]+)/u.exec(prompt)?.[1] ?? 'missing';", "const skillFile = /^- gui-proof-skill: (.+)$/mu.exec(prompt)?.[1]?.trim() ?? '';", "const skillText = skillFile ? readFileSync(skillFile, 'utf8') : '';", "const skillProof = /GUI_MANIFEST_MARKER:([A-Za-z0-9-]+)/u.exec(skillText)?.[1] ?? 'missing';", "const line = `GUI_REAL_DISPATCH_PROOF=${proof}`;", "const result = `${line}\\nGUI_MANIFEST_OBSERVED:${skillProof}\\nGUI_SKILL_PATH=${skillFile}`;", "mkdirSync(path.resolve(process.cwd(), 'artifacts'), { recursive: true });", "writeFileSync(path.resolve(process.cwd(), 'artifacts/gui-real-dispatch-proof.txt'), `${line}\\n`);", "console.log(JSON.stringify({ type: 'thread.started', thread_id: 'thread-gui-e2e-fake' }));", "console.log(JSON.stringify({ type: 'item.completed', item: { type: 'file_change', status: 'completed', path: 'artifacts/gui-real-dispatch-proof.txt' } }));", "console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: result } }));", "console.log(JSON.stringify({ type: 'turn.completed' }));"].join("\n"); writeFileSync(target, `${source}\n`, { mode: 0o755 }); chmodSync(target, 0o755); }
 
 async function closeElectronApp(electronApp) {
   const child = electronApp.process();
