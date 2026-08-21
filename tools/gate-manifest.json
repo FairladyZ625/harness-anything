@@ -566,9 +566,7 @@
             "gui-build",
             "node26-compatibility"
           ],
-          "nonPullRequestJobs": [
-            "windows-integration-shard"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
