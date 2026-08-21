@@ -1,5 +1,6 @@
 import { deriveRelationId, relationDirections, relationOrigins, relationStates, relationStrengths, relationTypes, type EntityRelationRecord } from "./entity-relation.ts";
-import { decisionStates, factConfidenceLevels, factMemoryClasses, factMemoryTags, factProvenanceRuntimes, type DecisionDocumentState, type FactConfidence, type FactMemoryClass, type FactMemoryTag, type FactProvenanceRuntime } from "./fact-event.ts";
+import { decisionStates, type DecisionDocumentState } from "./decision-event.ts";
+import { factConfidenceLevels, factMemoryClasses, factMemoryTags, factProvenanceRuntimes, type FactConfidence, type FactMemoryClass, type FactMemoryTag, type FactProvenanceRuntime } from "./fact-event.ts";
 import { validateTaskV1, type TaskV1 } from "./task.ts";
 import { freezeDeclaredWritePlan, hasOnlyFields, hasRequiredFields, isFrozenWritePlan, isNonEmptyString, isRecord, validateEventEnvelopeIdentity, type ActorIdentity, type EventEnvelope, type FrozenWritePlan, type WriteTarget } from "./write-chain.contract.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";

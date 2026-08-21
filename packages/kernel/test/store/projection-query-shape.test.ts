@@ -2,7 +2,9 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { createFactProjectionTables, listDecisionAgendaRowsPage, readDecisionGraphRows, readDecisionRows, readFactGraphRows, searchFactRows, type FactProjectionRow } from "../../src/projection/fact-event-projection.ts";
+import { createDecisionProjectionTables, listDecisionAgendaRowsPage, readDecisionGraphRows, readDecisionRows } from "../../src/projection/decision-event-projection.ts";
+import { createFactProjectionTables, readFactGraphRows, searchFactRows, type FactProjectionRow } from "../../src/projection/fact-event-projection.ts";
+import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
 import { createTaskRelationProjectionTable, listTaskRowsNarrow, readTaskDependencyClosureRows, readTaskRelationsByTargets, readTaskStatusRows } from "../../src/projection/task-query-projection.ts";
 
 // Counts statement executions so the assertions describe query shape, not wall-clock time:
@@ -22,7 +24,7 @@ function countingDatabase(): { readonly db: DatabaseSync; readonly executions: (
 }
 
 function seed(db: DatabaseSync, decisions: number, facts: number): void {
-  createFactProjectionTables(db);
+  createRelationGraphProjectionTables(db); createFactProjectionTables(db); createDecisionProjectionTables(db);
   db.exec("CREATE TABLE projection_meta (singleton INTEGER PRIMARY KEY CHECK(singleton=1), watermark INTEGER NOT NULL, scan_cursor TEXT, scanned_revision INTEGER NOT NULL); CREATE TABLE document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)");
   db.exec("INSERT INTO projection_meta VALUES (1, 1, NULL, 1)");
   const applies = JSON.stringify({ modules: ["kernel"], productLines: [] }), proposer = JSON.stringify({ principal: { personId: "shape" }, executor: null });
@@ -91,7 +93,7 @@ test("readDecisionGraphRows still resolves evidenced coverage through the batche
 test("agenda source pages use covering keyset indexes and fetch only limit plus one rows", (context) => {
   const db = new DatabaseSync(":memory:");
   try {
-    createFactProjectionTables(db);
+    createRelationGraphProjectionTables(db); createFactProjectionTables(db); createDecisionProjectionTables(db);
     db.exec(`
       CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL,
         status TEXT, pinned INTEGER NOT NULL GENERATED ALWAYS AS (CASE WHEN json_extract(snapshot_json, '$.task.pinned') = 1 THEN 1 ELSE 0 END) STORED,
@@ -132,7 +134,7 @@ test("agenda dependency status lookup stays narrow above SQLite's bind limit", (
 test("task context collection reads stay indexed, bounded, and constant in statement count", (context) => {
   const counted = countingDatabase(), { db } = counted;
   try {
-    createFactProjectionTables(db); createTaskRelationProjectionTable(db);
+    createRelationGraphProjectionTables(db); createFactProjectionTables(db); createDecisionProjectionTables(db); createTaskRelationProjectionTable(db);
     const insertTask = db.prepare("INSERT INTO task_relation VALUES (?, ?, ?, ?, 'depends-on', 'directed', 'strong', 'declared', 'active', 'fixture', ?, 'fixture', 0, 1, '2026-08-21T00:00:00.000Z')");
     for (const [relationId, source, target] of [["rel_ab", "task/a", "task/b"], ["rel_ba", "task/b", "task/a"], ["rel_bc", "task/b", "task/c"]] as const) insertTask.run(relationId, source.slice(5), source, target, source);
     db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'derives', 'active', ?, 1, ?)").run("rel_decision_a", "decision/dec_A/CH1", "task/a", "decision/dec_A", JSON.stringify({ relationId: "rel_decision_a", sourceRef: "decision/dec_A/CH1", targetRef: "task/a", relationType: "derives", direction: "directed", strength: "strong", origin: "declared", state: "active", rationale: "fixture", ownerRef: "decision/dec_A", sourcePath: "event:fixture", recordIndex: 0 }));

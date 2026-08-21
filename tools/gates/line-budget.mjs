@@ -51,9 +51,14 @@ export function measureProductionLines({ rootDir, revision = null }) {
   return { counts, unclassified };
 }
 
-// decision-fact 480 -> 540 under dec_782A987FD2B483766D315B957A (B5 paged query input descriptors are real production surface).
-// decision-fact 540 -> 563 under dec_58420E6F1D934B9841F06A95E9 (batched decision reads; expedient, superseded once task_5b9addfa9c127787c1b071f6e0 splits decision from fact).
-const INITIAL_MODULE_CEILINGS = Object.freeze({ "write-contract": 350, "agent-runtime": 520, "decision-fact": 563, fleet: 350 });
+const INITIAL_MODULE_CEILINGS = Object.freeze({
+  "write-contract": 350,
+  "agent-runtime": 520,
+  decision: 286,
+  fact: 307,
+  fleet: 350
+});
+const RETIRED_HISTORICAL_MODULES = new Set(["decision-fact"]);
 
 export function parseBudgets(body, source = "line-budgets.json", historical = false) {
   let parsed;
@@ -66,15 +71,19 @@ export function parseBudgets(body, source = "line-budgets.json", historical = fa
     throw new Error(`${source} must contain { version: 1, ceilings: { ... } }`);
   }
   const unknown = Object.keys(parsed.ceilings).filter((name) => !MODULES.includes(name));
+  const invalidUnknown = historical ? unknown.filter((name) => !RETIRED_HISTORICAL_MODULES.has(name)) : unknown;
   const missing = MODULES.filter((name) => !Object.hasOwn(parsed.ceilings, name));
   const invalidMissing = historical ? missing.filter((name) => !Object.hasOwn(INITIAL_MODULE_CEILINGS, name)) : missing;
-  if (unknown.length > 0 || invalidMissing.length > 0) {
-    throw new Error(`${source} module keys do not match module-policy (missing: ${invalidMissing.join(", ") || "none"}; unknown: ${unknown.join(", ") || "none"})`);
+  if (invalidUnknown.length > 0 || invalidMissing.length > 0) {
+    throw new Error(`${source} module keys do not match module-policy (missing: ${invalidMissing.join(", ") || "none"}; unknown: ${invalidUnknown.join(", ") || "none"})`);
   }
   for (const [moduleName, ceiling] of Object.entries(parsed.ceilings)) {
     if (!Number.isInteger(ceiling) || ceiling < 0) throw new Error(`${source} ceiling for ${moduleName} must be a non-negative integer`);
   }
-  const ceilings = { ...INITIAL_MODULE_CEILINGS, ...parsed.ceilings };
+  const ceilings = Object.fromEntries(MODULES.map((moduleName) => [
+    moduleName,
+    parsed.ceilings[moduleName] ?? INITIAL_MODULE_CEILINGS[moduleName]
+  ]));
   for (const [designModule, designLimit] of Object.entries(INITIAL_MODULE_CEILINGS)) {
     if (ceilings[designModule] > designLimit) throw new Error(`${source} ceiling for ${designModule} exceeds its design limit ${designLimit}`);
   }

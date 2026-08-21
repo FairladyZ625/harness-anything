@@ -15,7 +15,8 @@ export const MODULES = Object.freeze([
   "authority-write-path",
   "identity-rbac",
   "agent-runtime",
-  "decision-fact",
+  "decision",
+  "fact",
   "test-infra"
 ]);
 
@@ -55,13 +56,19 @@ export function classifyModule(filePath) {
   if (/^packages\/daemon\/src\/fleet\//u.test(normalized)) return "fleet";
   if (/agent-runtime/u.test(normalized)) return "agent-runtime";
   if ([
+    "packages/kernel/src/domain/decision-event.ts",
+    "packages/kernel/src/schemas/decision-event.ts",
+    "packages/kernel/src/projection/decision-event-projection.ts",
+    "packages/application/src/decision-service.ts",
+    "packages/daemon/src/decision-actions.ts"
+  ].includes(normalized)) return "decision";
+  if ([
     "packages/kernel/src/domain/fact-event.ts",
     "packages/kernel/src/schemas/fact-event.ts",
     "packages/kernel/src/projection/fact-event-projection.ts",
     "packages/application/src/fact-service.ts",
-    "packages/daemon/src/fact-actions.ts",
-    "packages/cli/src/cli/fact-command.ts"
-  ].includes(normalized)) return "decision-fact";
+    "packages/daemon/src/fact-actions.ts"
+  ].includes(normalized)) return "fact";
   if (/^packages\/gui\//u.test(normalized)) return "gui";
   if (/^packages\/daemon\/src\/identity\//u.test(normalized)) return "identity-rbac";
   if (/doc-sync/u.test(normalized)) return "doc-sync";

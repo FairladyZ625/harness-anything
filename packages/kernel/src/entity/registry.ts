@@ -1,5 +1,5 @@
 import { EntityRelationRecordSchema, FactEventSchema, TaskFrontmatterSchema } from "../schemas/registry.ts";
-import { DecisionEventSchema } from "../schemas/fact-event.ts";
+import { DecisionEventSchema } from "../schemas/decision-event.ts";
 import {
   decisionFieldContracts,
   factFieldContracts,

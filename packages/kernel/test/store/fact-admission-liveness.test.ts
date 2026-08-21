@@ -4,12 +4,14 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import type { FactEventV1 } from "../../src/domain/fact-event.ts";
 import { createFactProjectionTables, FactProjectionError, readFactRow, reduceFactEvent } from "../../src/projection/fact-event-projection.ts";
+import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
 
 const actor = { principal: { personId: "fact-admission" }, executor: null } as const;
 
 test("Fact admission accepts superseding a standing target", () => {
   const db = new DatabaseSync(":memory:");
   try {
+    createRelationGraphProjectionTables(db);
     createFactProjectionTables(db);
     reduceFactEvent(db, fact(1, "F-ABCDEFGH"));
     reduceFactEvent(db, fact(2, "F-BCDEFGHJ", "fact/task-fact/F-ABCDEFGH"));
@@ -23,6 +25,7 @@ test("Fact admission accepts superseding a standing target", () => {
 test("Fact admission rejects superseding an already-superseded target", () => {
   const db = new DatabaseSync(":memory:");
   try {
+    createRelationGraphProjectionTables(db);
     createFactProjectionTables(db);
     reduceFactEvent(db, fact(1, "F-ABCDEFGH"));
     reduceFactEvent(db, fact(2, "F-BCDEFGHJ", "fact/task-fact/F-ABCDEFGH"));

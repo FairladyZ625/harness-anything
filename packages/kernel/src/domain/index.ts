@@ -35,8 +35,10 @@ export type { EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";
 export { decisionEntityId, decisionIdFromEntityId, moduleEntityId, moduleKeyFromEntityId, parseWriteEntityId, taskEntityId, taskIdFromEntityId } from "./entity-id.ts";
 export type { EntityId, ParsedWriteEntityId } from "./entity-id.ts";
 
-export { compileDecisionWrite, compileFactWrite, decisionDocumentProse, decisionMachineDigest, decisionStates, decisionWritePlan, factConfidenceLevels, factMemoryClasses, factMemoryTags, factWritePlan, isFactId } from "./fact-event.ts";
-export type { DecisionAmendableSnapshot, DecisionEventDraftV1, DecisionEventV1, DecisionState, FactConfidence, FactEventDraftV1, FactEventV1, FactMemoryClass, FactMemoryTag } from "./fact-event.ts";
+export { compileDecisionWrite, decisionDocumentProse, decisionMachineDigest, decisionStates, decisionWritePlan } from "./decision-event.ts";
+export type { DecisionAmendableSnapshot, DecisionEventDraftV1, DecisionEventV1, DecisionState } from "./decision-event.ts";
+export { compileFactWrite, factConfidenceLevels, factMemoryClasses, factMemoryTags, factWritePlan, isFactId } from "./fact-event.ts";
+export type { FactConfidence, FactEventDraftV1, FactEventV1, FactMemoryClass, FactMemoryTag } from "./fact-event.ts";
 
 export { createEntityKindRegistry, getEntityKind } from "./entity-kind-registry.ts";
 export type {

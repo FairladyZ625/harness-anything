@@ -10,7 +10,7 @@ import {
 } from "../../src/domain/lifecycle-status.ts";
 import {
   decisionStates
-} from "../../src/domain/fact-event.ts";
+} from "../../src/domain/decision-event.ts";
 import { DomainStatusSchema } from "../../src/schemas/registry.ts";
 
 test("domain status vocabulary is exactly the six canonical coordination states", () => {

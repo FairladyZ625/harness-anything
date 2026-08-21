@@ -19,7 +19,7 @@ const GUI_MODEL = "packages/gui/src/renderer/model/types.ts";
 const GUI_ADAPTER = "packages/gui/src/renderer/triadic-data.ts";
 
 const register = await import(new URL("../packages/kernel/src/domain/status-vocabulary.ts", import.meta.url));
-const realDecisionModule = await import(new URL("../packages/kernel/src/domain/fact-event.ts", import.meta.url));
+const realDecisionModule = await import(new URL("../packages/kernel/src/domain/decision-event.ts", import.meta.url));
 const realModules = new Map();
 for (const vocabulary of register.statusVocabularies) {
   if (!vocabulary.module.startsWith("packages/kernel/src/domain/") || vocabulary.anchor.startsWith("#")) continue;
@@ -66,7 +66,7 @@ test("bypass fixture: a new unregistered status vocabulary is refused", () => {
 });
 
 test("bypass fixture: a kernel vocabulary gaining an unregistered word is refused", () => {
-  const drifted = new Map([["packages/kernel/src/domain/fact-event.ts", {
+  const drifted = new Map([["packages/kernel/src/domain/decision-event.ts", {
     ...realDecisionModule,
     decisionStates: [...realDecisionModule.decisionStates, "reconsidered"]
   }]]);

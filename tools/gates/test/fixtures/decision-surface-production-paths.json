@@ -2,11 +2,11 @@
   { "path": "packages/cli/src/cli/thin-command.ts", "module": "cli" },
   { "path": "packages/daemon/src/decision-surface-actions.ts", "module": "daemon" },
   { "path": "packages/daemon/src/distill-actions.ts", "module": "daemon" },
-  { "path": "packages/daemon/src/fact-actions.ts", "module": "decision-fact" },
+  { "path": "packages/daemon/src/decision-actions.ts", "module": "decision" },
   { "path": "packages/daemon/src/protocol/daemon-protocol.contract.ts", "module": "daemon" },
   { "path": "packages/daemon/src/repo-cell.ts", "module": "daemon" },
-  { "path": "packages/kernel/src/domain/fact-event.ts", "module": "decision-fact" },
+  { "path": "packages/kernel/src/domain/decision-event.ts", "module": "decision" },
   { "path": "packages/kernel/src/domain/index.ts", "module": "kernel" },
-  { "path": "packages/kernel/src/projection/fact-event-projection.ts", "module": "decision-fact" },
+  { "path": "packages/kernel/src/projection/decision-event-projection.ts", "module": "decision" },
   { "path": "packages/kernel/src/projection/rebuildable-task-projection.ts", "module": "kernel" }
 ]

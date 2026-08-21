@@ -4,6 +4,7 @@ import test from "node:test";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { createFactProjectionTables, searchFactRows, searchFactRowsPage, readFactAnchorRows, type FactProjectionRow } from "../../src/projection/fact-event-projection.ts";
 import { deriveRelationId, type EntityRelationRecord } from "../../src/domain/entity-relation.ts";
+import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import type { CanonicalEventV1 } from "../../src/domain/doc-sync.contract.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
@@ -127,6 +128,7 @@ test("unparameterized list stays byte-identical across reopen after the schema b
 test("fact search pages concatenate to the full result, honor windows, and keep liveness exact", () => {
   const db = new DatabaseSync(":memory:");
   try {
+    createRelationGraphProjectionTables(db);
     createFactProjectionTables(db);
     const insertFact = db.prepare("INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     const insertFts = db.prepare("INSERT INTO fact_fts(task_id, fact_id, statement, evidence_source) VALUES (?, ?, ?, ?)");

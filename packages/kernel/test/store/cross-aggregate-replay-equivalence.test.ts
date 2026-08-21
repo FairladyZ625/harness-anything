@@ -4,13 +4,17 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { factLiveness } from "../../src/domain/fact-liveness.ts";
 import { buildColdCoverage, type ColdRebuildSource } from "../../src/projection/cold-rebuild-source.ts";
-import { createFactProjectionTables, readDecisionGraphRows, readFactGraphRows } from "../../src/projection/fact-event-projection.ts";
+import { createDecisionProjectionTables, readDecisionGraphRows } from "../../src/projection/decision-event-projection.ts";
+import { createFactProjectionTables, readFactGraphRows } from "../../src/projection/fact-event-projection.ts";
+import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
 import type { RelationFactRow, RelationGraphEdgeRow } from "../../src/projection/relation-graph-projection.ts";
 
 test("warm event projection and cold coverage adapter agree on the same replay inputs", () => {
   const db = new DatabaseSync(":memory:");
   try {
+    createRelationGraphProjectionTables(db);
     createFactProjectionTables(db);
+    createDecisionProjectionTables(db);
     db.exec("CREATE TABLE projection_meta (singleton INTEGER PRIMARY KEY, watermark INTEGER NOT NULL); INSERT INTO projection_meta VALUES (1, 9); CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, snapshot_json TEXT NOT NULL)");
     db.prepare("INSERT INTO task_snapshot VALUES (?,?)").run("done", JSON.stringify({ task: { status: "done" } }));
     const applies = JSON.stringify({ modules: [], productLines: [] }), proposer = JSON.stringify({ principal: { personId: "fixture" }, executor: null });

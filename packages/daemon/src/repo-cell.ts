@@ -16,7 +16,8 @@ import { prepareAgentEntityInstall, readAgentDeclaration, readAgentEntityGuiProj
 import { compileAgentEntityWrite, isAgentEntityEvent } from "../../kernel/src/index.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts"; import { makeAgentRuntimeStreamHub, type AgentRuntimeAttachSubscription, type AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
-import { makeDecisionActions, makeFactActions } from "./fact-actions.ts";
+import { makeDecisionActions } from "./decision-actions.ts";
+import { makeFactActions } from "./fact-actions.ts";
 import { distillPromotionAction, prepareDistillCandidate } from "./distill-actions.ts";
 import type { FleetAssignmentScope } from "./fleet/contract.ts";
 import { openReplicaCutSource, type ReplicaCutSource } from "./fleet/replica-cut-store.ts";

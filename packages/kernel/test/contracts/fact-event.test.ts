@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import { Schema } from "effect";
 import test from "node:test";
 import { compileDecisionWrite, compileFactWrite, deriveRelationId, FactEventSchema, parseCanonicalEvent, serializeCanonicalEvent, type DecisionEventDraftV1, type FactEventDraftV1 } from "../../src/index.ts";
-import { assertDecisionJudgmentConsent, assertDecisionWritePlan, decisionMachineDigest, type DecisionDocumentState } from "../../src/domain/fact-event.ts";
-import { DecisionEventSchema } from "../../src/schemas/fact-event.ts";
-import { validateCurrentDecisionEvent, validateCurrentFactEvent, validateDecisionEvent, validateFactEvent } from "../../src/domain/fact-event.ts";
+import { assertDecisionJudgmentConsent, assertDecisionWritePlan, decisionMachineDigest, type DecisionDocumentState } from "../../src/domain/decision-event.ts";
+import { DecisionEventSchema } from "../../src/schemas/decision-event.ts";
+import { validateCurrentDecisionEvent, validateDecisionEvent } from "../../src/domain/decision-event.ts";
+import { validateCurrentFactEvent, validateFactEvent } from "../../src/domain/fact-event.ts";
 
 const draft: FactEventDraftV1 = { schema: "fact-event/v1", eventId: "event-fact-contract", workspaceRevision: 1, opId: "op-fact-contract",
   taskId: "task-contract", factId: "F-ABCDEFGH", type: "fact_recorded", actor: { principal: { personId: "person-contract" }, executor: null }, source: "local",

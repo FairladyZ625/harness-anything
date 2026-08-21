@@ -80,22 +80,45 @@ test("G32 introduces the design-approved write-contract bucket at no more than 3
   assert.equal(result.actual["write-contract"], 1);
 });
 
-test("G32 introduces the Decision/Fact bucket with the 540-line design ceiling (dec_782A987FD2B483766D315B957A)", () => {
-  const legacyModules = MODULES.filter((name) => name !== "decision-fact");
-  const legacyBudget = `${JSON.stringify({ version: 1, ceilings: Object.fromEntries(legacyModules.map((name) => [name, name === "kernel" ? 2 : 0])) }, null, 2)}\n`;
-  const { rootDir, base } = makeRepo({ "packages/kernel/src/index.ts": "one\ntwo\n", "tools/gates/line-budgets.json": legacyBudget });
-  writeRepoFile(rootDir, "packages/kernel/src/domain/fact-event.ts", "event\n");
-  writeRepoFile(rootDir, "tools/gates/line-budgets.json", budgetBody(2).replace('"decision-fact": 0', '"decision-fact": 540'));
+test("G32 replaces the retired Decision/Fact bucket with exact Decision and Fact design ceilings", () => {
+  const legacyModules = MODULES.filter((name) => name !== "decision" && name !== "fact");
+  const legacyCeilings = Object.fromEntries(legacyModules.map((name) => [name, name === "kernel" ? 2 : 0]));
+  legacyCeilings["decision-fact"] = 563;
+  const legacyBudget = `${JSON.stringify({ version: 1, ceilings: legacyCeilings }, null, 2)}\n`;
+  const { rootDir, base } = makeRepo({
+    "packages/kernel/src/index.ts": "one\ntwo\n",
+    "packages/kernel/src/domain/fact-event.ts": "legacy decision\nlegacy fact\n",
+    "tools/gates/line-budgets.json": legacyBudget
+  });
+  writeRepoFile(rootDir, "packages/kernel/src/domain/decision-event.ts", "decision\n");
+  writeRepoFile(rootDir, "packages/kernel/src/domain/fact-event.ts", "fact\n");
+  writeRepoFile(rootDir, "tools/gates/line-budgets.json", budgetBody(2)
+    .replace('"decision": 0', '"decision": 286')
+    .replace('"fact": 0', '"fact": 307'));
   const result = evaluateLineBudget({ rootDir, base });
   assert.equal(result.ok, true, result.errors.join("\n"));
-  assert.equal(result.actual["decision-fact"], 1);
+  assert.deepEqual(
+    { decision: result.actual.decision, fact: result.actual.fact, baseFact: result.baseActual.fact },
+    { decision: 1, fact: 1, baseFact: 2 }
+  );
 });
 
-test("a decision-fact ceiling above the 563 design limit is rejected", () => {
-  assert.throws(
-    () => parseBudgets(budgetBody(2).replace('"decision-fact": 0', '"decision-fact": 564')),
-    /decision-fact exceeds its design limit 563/u
-  );
+test("current budgets reject the retired Decision/Fact bucket and historical budgets reject arbitrary unknown buckets", () => {
+  const currentWithRetired = JSON.parse(budgetBody(2));
+  currentWithRetired.ceilings["decision-fact"] = 563;
+  assert.throws(() => parseBudgets(JSON.stringify(currentWithRetired)), /unknown: decision-fact/u);
+  const historicalWithUnknown = JSON.parse(budgetBody(2));
+  historicalWithUnknown.ceilings.surprise = 1;
+  assert.throws(() => parseBudgets(JSON.stringify(historicalWithUnknown), "historical", true), /unknown: surprise/u);
+});
+
+test("Decision and Fact ceilings above their exact split measurements are rejected", () => {
+  for (const [moduleName, limit] of [["decision", 286], ["fact", 307]]) {
+    assert.throws(
+      () => parseBudgets(budgetBody(2).replace(`"${moduleName}": 0`, `"${moduleName}": ${limit + 1}`)),
+      new RegExp(`${moduleName} exceeds its design limit ${limit}`, "u")
+    );
+  }
 });
 
 test("G32 introduces the Fleet bucket with the 350-line design ceiling", () => {
@@ -113,7 +136,16 @@ test("G32 introduces the Fleet bucket with the 350-line design ceiling", () => {
 // what is actually committed: a raised ceiling only stands while its receipt
 // verifies, so a receipt that stopped verifying would leave the ceiling unbacked
 // without anything failing.
-test("every committed line-budget receipt verifies, and the raised ceilings are covered", () => {
+const RETIRED_LINE_BUDGET_RECEIPTS = Object.freeze({
+  "line-budget-decision-fact-563.json": Object.freeze({
+    decisionId: "dec_58420E6F1D934B9841F06A95E9",
+    scope: "module:decision-fact",
+    kind: "line-budget",
+    limit: 563
+  })
+});
+
+test("every committed line-budget receipt verifies, active raised ceilings are covered, and retired receipts are explicit", () => {
   const gatesDir = path.join(import.meta.dirname, "..");
   const ceilings = parseBudgets(readFileSync(path.join(gatesDir, "line-budgets.json"), "utf8"));
   const receipts = loadReceipts(path.join(gatesDir, "receipts")).filter(({ receipt }) => receipt?.kind === "line-budget");
@@ -123,18 +155,30 @@ test("every committed line-budget receipt verifies, and the raised ceilings are 
   // this test claims to catch -- it still parses and still signs, but the gate
   // stops accepting it, so the ceiling it backs goes unbacked while this stays green.
   const now = new Date();
+  const retiredReceiptFiles = [];
   for (const { filePath, receipt } of receipts) {
     assert.deepEqual(verifyReceipt(receipt, { now }).errors, [], filePath);
-    assert.ok(MODULES.includes(receipt.scope.replace(/^module:/u, "")), `${filePath}: scope names an unknown module`);
+    const moduleName = receipt.scope.replace(/^module:/u, "");
+    if (MODULES.includes(moduleName)) continue;
+    const fileName = path.basename(filePath);
+    assert.ok(RETIRED_LINE_BUDGET_RECEIPTS[fileName], `${filePath}: scope names an unknown module without an explicit retirement record`);
+    assert.deepEqual(
+      { decisionId: receipt.decisionId, scope: receipt.scope, kind: receipt.kind, limit: receipt.limit },
+      RETIRED_LINE_BUDGET_RECEIPTS[fileName],
+      `${filePath}: retired receipt semantics changed`
+    );
+    retiredReceiptFiles.push(fileName);
   }
+  assert.deepEqual(retiredReceiptFiles.sort(), Object.keys(RETIRED_LINE_BUDGET_RECEIPTS).sort());
   // A receipt may outlive the ceiling it was minted for -- a ceiling can still be
   // lowered deliberately -- so the reverse direction is the one worth asserting: every ceiling
   // that a receipt was needed for still has one that reaches it. The module list
   // is derived from what is committed rather than named here, so a module whose
   // receipt is minted below its ceiling fails instead of going unchecked.
-  const receiptModules = [...new Set(receipts.map(({ receipt }) => receipt.scope.replace(/^module:/u, "")))];
+  const activeReceipts = receipts.filter(({ receipt }) => MODULES.includes(receipt.scope.replace(/^module:/u, "")));
+  const receiptModules = [...new Set(activeReceipts.map(({ receipt }) => receipt.scope.replace(/^module:/u, "")))];
   for (const moduleName of receiptModules) {
-    assert.ok(receipts.some(({ receipt }) => verifyReceipt(receipt, {
+    assert.ok(activeReceipts.some(({ receipt }) => verifyReceipt(receipt, {
       scope: `module:${moduleName}`, kind: "line-budget", minimumLimit: ceilings[moduleName], now
     }).ok), `${moduleName}: ceiling ${ceilings[moduleName]} has no receipt the gate would accept`);
   }
@@ -142,7 +186,7 @@ test("every committed line-budget receipt verifies, and the raised ceilings are 
   // verifies, so a module carrying several is carrying expiries nobody is
   // tracking -- and this test fails the day the oldest of them lapses.
   assert.deepEqual(
-    receiptModules.filter((moduleName) => receipts.filter(({ receipt }) => receipt.scope === `module:${moduleName}`).length > 1),
+    receiptModules.filter((moduleName) => activeReceipts.filter(({ receipt }) => receipt.scope === `module:${moduleName}`).length > 1),
     [],
     "each module keeps exactly one line-budget receipt; supersede by replacing the file"
   );
@@ -183,7 +227,8 @@ const DECISION_INPUT_LINES = Object.freeze({
   "authority-write-path": 0,
   "identity-rbac": 563,
   "agent-runtime": 360,
-  "decision-fact": 452,
+  decision: 286,
+  fact: 307,
   "test-infra": 0
 });
 
