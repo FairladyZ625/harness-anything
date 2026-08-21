@@ -29,7 +29,7 @@ async function reachGreenInReview(cell: Awaited<ReturnType<typeof openRepoCell>>
   await cell.run({ kind: "task-create", taskId, title, ...(taskClass === "milestone" ? { taskClass } : {}) }, binding);
   await cell.run({ kind: "task-start", taskId, executionId }, binding);
   const packagePath = `tasks/${taskId}-${title.toLocaleLowerCase("en-US").replace(/[^a-z0-9]+/gu, "-").replace(/^-|-$/gu, "")}`, closeoutPath = `${packagePath}/closeout.md`;
-  writeFileSync(path.join(rootDir, "harness", closeoutPath), "# Closeout\n\n## Summary\n\nDone.\n\n## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n");
+  writeFileSync(path.join(rootDir, "harness", closeoutPath), "# Closeout\n\n## Summary\n\nDone.\n\n## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n");
   assert.equal((await cell.run({ kind: "doc-submit", paths: [closeoutPath] }, binding)).outcome, "applied");
   const commitSha = git(rootDir, "rev-parse", "HEAD");
   writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify({ completionClaim: "Implemented.", deliverables: ["lineage"], outputs: [closeoutPath], verificationNotes: ["verified"], knownGaps: [], residualRisks: [], commitSha }));

@@ -163,7 +163,7 @@ test("completion preflight publishes a dirty opaque artifact and completes with 
 async function reachGreenInReview(cell: Awaited<ReturnType<typeof openRepoCell>>, rootDir: string, taskId: string, executionId: string, packagePath: string): Promise<string> {
   const binding = { actor, source: "local" as const };
   await cell.run({ kind: "task-start", taskId, executionId }, binding);
-  writeFileSync(path.join(rootDir, "harness", `${packagePath}/closeout.md`), "# Closeout\n\n## Summary\n\nDone.\n\n## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n");
+  writeFileSync(path.join(rootDir, "harness", `${packagePath}/closeout.md`), "# Closeout\n\n## Summary\n\nDone.\n\n## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n");
   assert.equal((await cell.run({ kind: "doc-submit", paths: [`${packagePath}/closeout.md`] }, binding)).outcome, "applied");
   const commitSha = git(rootDir, "rev-parse", "HEAD");
   writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify({ completionClaim: "Implemented.", deliverables: ["opaque artifacts"], outputs: [`${packagePath}/closeout.md`], verificationNotes: ["verified"], knownGaps: [], residualRisks: [], commitSha }));
