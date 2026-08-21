@@ -1,6 +1,6 @@
 import type { RuntimeInstanceSummary } from "../../../daemon/src/agent-runtime-instances.ts";
 import type { TerminalControlReceipt } from "../../../daemon/src/gui-s3-control.ts";
-export interface RuntimeInstallationRow { readonly installationId: string; readonly kindId: "claude" | "codex" | "agy"; readonly version: string; readonly observedAt: string }
+export interface RuntimeInstallationRow { readonly installationId: string; readonly kindId: "claude" | "codex" | "agy"; readonly version: string; readonly observedAt: string; readonly models?: readonly string[]; readonly defaultModel?: string }
 export interface RuntimeInstanceCatalog { readonly instances: readonly RuntimeInstanceSummary[]; readonly installations: readonly RuntimeInstallationRow[] }
 export type RuntimeInstanceUpdateInput = { readonly instanceId: string; readonly enabled?: boolean; readonly permissionMode?: "bypass" | "workspace-write" | "read-only"; readonly isolationState?: "enforced" | "operator-environment" };
 type RuntimeInstanceCreateCommon = { readonly instanceId: string; readonly name: string; readonly installationId: string; readonly providerId: string; readonly models: readonly string[]; readonly defaultModel?: string; readonly permissionMode?: "bypass" | "workspace-write" | "read-only"; readonly isolationState?: "enforced" | "operator-environment" };

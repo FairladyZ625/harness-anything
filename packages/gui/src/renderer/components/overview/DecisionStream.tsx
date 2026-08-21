@@ -44,7 +44,7 @@ export function DecisionStream({
   );
 
   return (
-    <div className="flex min-h-0 flex-col gap-2">
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex items-center gap-2">
         <StreamTabs
           options={DECISION_STREAM_STATES.map((key) => ({ key, label: stateLabel(key), count: counts.get(key) ?? 0 }))}

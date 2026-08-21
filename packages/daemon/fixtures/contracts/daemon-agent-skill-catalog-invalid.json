@@ -1,0 +1,10 @@
+{
+  "schema": "agent-skill-catalog/v1",
+  "ok": true,
+  "skills": [
+    {
+      "id": "review",
+      "source": "user"
+    }
+  ]
+}

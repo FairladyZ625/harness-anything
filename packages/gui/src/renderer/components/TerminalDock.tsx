@@ -20,7 +20,7 @@ export const TerminalDock = forwardRef<TerminalDockHandle, Props>(function Termi
   const queryClient = useQueryClient(), [tabs, setTabs] = useState<readonly TerminalTab[]>([]), tabsRef = useRef(tabs), stops = useRef(new Map<string, () => void>());
   // 输入串行化:每个 session 一条 promise 链,clientSeq 严格 = 上次 ack + 1。
   const ackSeq = useRef(new Map<string, number>()), inflight = useRef(new Map<string, Promise<void>>());
-  const [activeId, setActiveId] = useState<string | null>(null), [error, setError] = useState<string | null>(null), [confirmId, setConfirmId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null), [error, setError] = useState<string | null>(null), [confirmId, setConfirmId] = useState<string | null>(null), [dockPosition, setDockPosition] = useState<"bottom" | "right">("bottom");
   const [spawn, setSpawn] = useState({ name: t("terminal.dock.title"), cwdScope: "repo-root" as "repo-root" | "repo-relative", path: "", shellProfileId: "default", taskId: "" });
   const resize = useDockResize();
   const sessions = useQuery({ queryKey: terminalQueryKeys.sessions(repoId), queryFn: () => terminalClient.list(repoId), enabled: open && repoId !== "unselected", staleTime: 1_000 });
@@ -84,8 +84,8 @@ export const TerminalDock = forwardRef<TerminalDockHandle, Props>(function Termi
   const active = tabs.find((tab) => tab.sessionId === activeId) ?? null;
 
   if (!open) return <button onClick={onToggle} className="fixed right-4 bottom-3 z-30 rounded-md border border-border-strong bg-surface-raised px-3 py-1.5 font-mono text-[12px] text-text shadow-xl" title={t("terminal.dock.shortcut")}>{t("terminal.dock.title")} · {t("terminal.dock.shortcut")}</button>;
-  return <section aria-label={t("terminal.dock.title")} className="fixed right-0 bottom-0 left-0 z-30 flex flex-col border-t border-border-strong bg-surface shadow-2xl md:left-56" style={{ height: `${resize.height}px` }}>
-    <div
+  return <section aria-label={t("terminal.dock.title")} data-dock-position={dockPosition} className={dockPosition === "bottom" ? "fixed right-0 bottom-0 left-0 z-30 flex flex-col border-t border-border-strong bg-surface shadow-2xl md:left-56" : "fixed top-0 right-0 bottom-0 z-30 flex flex-col border-l border-border-strong bg-surface shadow-2xl"} style={dockPosition === "bottom" ? { height: `${resize.height}px` } : { width: "clamp(24rem, 46vw, 48rem)" }}>
+    {dockPosition === "bottom" && <div
       role="separator"
       tabIndex={0}
       aria-orientation="horizontal"
@@ -98,10 +98,11 @@ export const TerminalDock = forwardRef<TerminalDockHandle, Props>(function Termi
       onPointerUp={resize.onHandlePointerUp}
       onPointerCancel={resize.onHandlePointerUp}
       onKeyDown={resize.onHandleKeyDown}
-    />
+    />}
     <header className="flex items-center gap-2 border-b border-border px-3 py-1.5">
       <strong className="text-[13px]">{t("terminal.dock.localDirectPty")}</strong><span className="font-mono text-[11px] text-text-faint">{t("terminal.dock.repoGeneration", { repoId, generation: generation ?? t("views.settingsView.systemUnknownDash") })}</span>
-      <button onClick={onToggle} className="ml-auto rounded px-2 py-1 text-[12px] text-text-muted hover:bg-surface-raised">{t("terminal.dock.close")} · {t("terminal.dock.shortcut")}</button>
+      <span className="ml-auto inline-flex overflow-hidden rounded border border-border-strong"><button data-testid="terminal-dock-bottom" aria-pressed={dockPosition === "bottom"} onClick={() => setDockPosition("bottom")} className={`px-2 py-1 text-[11px] ${dockPosition === "bottom" ? "bg-accent text-accent-fg" : "text-text-muted hover:bg-surface-raised"}`}>{t("terminal.dock.positionBottom")}</button><button data-testid="terminal-dock-right" aria-pressed={dockPosition === "right"} onClick={() => setDockPosition("right")} className={`px-2 py-1 text-[11px] ${dockPosition === "right" ? "bg-accent text-accent-fg" : "text-text-muted hover:bg-surface-raised"}`}>{t("terminal.dock.positionRight")}</button></span>
+      <button onClick={onToggle} className="rounded px-2 py-1 text-[12px] text-text-muted hover:bg-surface-raised">{t("terminal.dock.close")} · {t("terminal.dock.shortcut")}</button>
     </header>
     <form onSubmit={create} className="flex flex-wrap items-end gap-2 border-b border-border px-3 py-2">
       <Field label={t("terminal.dock.name")}><input value={spawn.name} onChange={(event) => setSpawn({ ...spawn, name: event.target.value })} className="control w-28" /></Field>

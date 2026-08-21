@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { agentEntityClient } from "../agent-entity-client.ts";
+import { useCatalogSnapshot } from "../catalog-data.ts";
 import type { DispatchRequest, DispatchSubject } from "../dispatch-flow.ts";
 import { runtimeDockLiveCount } from "../runtime-panorama.ts";
 import { t } from "../i18n/index.tsx";
@@ -23,7 +25,7 @@ type Dialog = { readonly kind: "new-runtime" } | { readonly kind: "new-entity"; 
 // orchestration) · detail card · inspector · sessions dock, exactly the four regions the
 // design prototype argues for. Selection is the only cross-region state.
 export function RuntimeWorkspace({ repoId, tasks }: { readonly repoId: string; readonly tasks: readonly TaskOption[] }) {
-  const workspace = useRuntimeWorkspace(repoId, tasks);
+  const workspace = useRuntimeWorkspace(repoId, tasks), catalog = useCatalogSnapshot(repoId), skills = useQuery({ queryKey: ["agent-skills", repoId], queryFn: () => agentEntityClient.listAgentSkills(repoId), staleTime: 10_000 });
   const [selection, setSelection] = useState<RuntimeSelection | null>(null), [segments, setSegments] = useState<Readonly<Record<string, boolean>>>({ runtimes: true, agents: true, squads: true, orchestration: true });
   const [dialog, setDialog] = useState<Dialog | null>(null), [dockOpen, setDockOpen] = useState(false), [dockSelected, setDockSelected] = useState<string | null>(null), [inspector, setInspector] = useState(true), [revision, setRevision] = useState(0);
   const instances = workspace.machine.data?.instances ?? [], installations = workspace.machine.data?.installations ?? [], agents = workspace.agents.data ?? [], squads = workspace.squads.data ?? [];
@@ -45,7 +47,7 @@ export function RuntimeWorkspace({ repoId, tasks }: { readonly repoId: string; r
   };
   const createEntity = async (request: NewEntityRequest) => {
     if (request.kind === "agent") {
-      const draft = request.templateId ? agentDraftFrom(await agentEntityClient.showAgent(repoId, request.templateId)) : { name: request.name, role: "worker" as const, runtimeType: "any", model: "", preset: "", instructions: t("agentRuntime.blankInstructions"), prompts: [] };
+      const draft = request.templateId ? agentDraftFrom(await agentEntityClient.showAgent(repoId, request.templateId)) : { name: request.name, role: "worker" as const, runtimeType: "any", model: "", preset: "", skills: [], instructions: t("agentRuntime.blankInstructions"), prompts: [] };
       await workspace.saveAgent(agentDeclarationFrom(request.id, { ...draft, name: request.name }));
       setSelection({ type: "agent", id: request.id });
     } else {
@@ -83,7 +85,7 @@ export function RuntimeWorkspace({ repoId, tasks }: { readonly repoId: string; r
                 onSetEnabled={(enabled) => void workspace.setInstanceEnabled(current.id, enabled)} onUpdate={(input) => void workspace.updateInstance(input)} onDelete={() => { void workspace.deleteInstance(current.id); setSelection(null); }} />
             : <Empty>{t("agentRuntime.notFound")}</Empty>)
           : current.type === "agent" ? (agentDetail.data
-            ? <AgentCard detail={agentDetail.data} row={agents.find((agent) => agent.id === current.id) ?? null} squads={squads} instances={instances} busy={workspace.busy}
+            ? <AgentCard detail={agentDetail.data} row={agents.find((agent) => agent.id === current.id) ?? null} squads={squads} instances={instances} availableSkills={skills.data ?? []} presets={catalog.data?.presets ?? []} busy={workspace.busy}
                 onSave={(declaration) => void workspace.saveAgent(declaration)} onDispatch={(mission) => void openAgentDispatch(current.id, mission)}
                 onSelectSquad={(squadId) => setSelection({ type: "squad", id: squadId })} onSelectRuntime={(instanceId) => setSelection({ type: "runtime", id: instanceId })} />
             : <Empty>{t("agentRuntime.loading")}</Empty>)

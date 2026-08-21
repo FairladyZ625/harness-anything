@@ -1,6 +1,11 @@
 // harness-test-tier: contract
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { describe, expect, it, vi } from "vitest";
+import { openRuntimeInstanceStore } from "../../daemon/src/agent-runtime-instances.ts";
 import { applyRuntimeAuthMode, applyRuntimeKind, buildRuntimeInstanceCreatePayload, runtimeInstanceFormReady, type CreateInstanceFormState } from "../src/renderer/runtime-instance-form.ts";
+import { runtimeInstanceClient } from "../src/renderer/runtime-instance-client.ts";
 import { planeAllowsApiKey, planeAllowsBaseUrl, planeAllowsEffort, planeAllowsPermissions, planeAuthMode, planeAuthModes, planeUsesApiOverride, RUNTIME_KIND_IDS } from "../src/renderer/runtime-provider-planes.ts";
 import { runtimeDockGroups, runtimeDockLiveCount, runtimeDockRows, type RuntimePanoramaRow } from "../src/renderer/runtime-panorama.ts";
 import { squadChartLayout } from "../src/renderer/components/runtime/SquadCard.tsx";
@@ -50,7 +55,22 @@ describe("provider planes (2026-08-20 adjudication)", () => {
     expect(runtimeInstanceFormReady({ ...form, authMode: "api-key" }, "install")).toBe(false);
     expect(runtimeInstanceFormReady({ ...form, authMode: "api-key", apiKey: "sk-live" }, "install")).toBe(true);
     expect(runtimeInstanceFormReady(form, "")).toBe(false);
-    expect(runtimeInstanceFormReady({ ...form, model: "  " }, "install")).toBe(false);
+    expect(runtimeInstanceFormReady({ ...form, model: "  " }, "install", { models: ["claude-sonnet-4-6"], defaultModel: "claude-sonnet-4-6" })).toBe(true);
+  });
+  it("creates with a detected default when the model override stays blank", () => {
+    const detected = { models: ["gpt-5.6-sol", "gpt-5.6-terra"], defaultModel: "gpt-5.6-sol" } as const, blank = { ...form, kindId: "codex" as const, model: "", installationId: "codex-install", providerId: "openai", permissionMode: "bypass" as const, isolation: "operator-environment" as const };
+    expect(runtimeInstanceFormReady(blank, "codex-install", detected)).toBe(true);
+    expect(buildRuntimeInstanceCreatePayload(blank, "codex-install", detected)).toMatchObject({ models: ["gpt-5.6-sol", "gpt-5.6-terra"], defaultModel: "gpt-5.6-sol" });
+  });
+  it("creates through the renderer bridge and daemon store with a blank model override", async () => {
+    const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-blank-model-")), detected = { installationId: "codex-install", kindId: "codex" as const, executablePath: "/opt/runtime-test/codex", version: "0.147.0", observedAt: "2026-08-22T00:00:00.000Z", models: ["gpt-5.6-sol", "gpt-5.6-terra"], defaultModel: "gpt-5.6-sol" }, blank = { ...form, instanceId: "blank-model", name: "Blank model", kindId: "codex" as const, model: "", installationId: detected.installationId, providerId: "openai", permissionMode: "bypass" as const, isolation: "operator-environment" as const };
+    try {
+      const store = openRuntimeInstanceStore({ userRoot, discover: () => [detected] }), unavailable = async () => ({}), createRuntimeInstance = async (payload: Record<string, unknown>) => store.command({ kind: "runtime-instance-create", ...payload } as never);
+      vi.stubGlobal("window", { harness: { listRuntimeInstances: unavailable, showRuntimeInstance: unavailable, createRuntimeInstance, updateRuntimeInstance: unavailable, deleteRuntimeInstance: unavailable, validateRuntimeInstanceAuth: unavailable, signInRuntimeInstance: unavailable, reauthRuntimeInstance: unavailable, signOutRuntimeInstance: unavailable } });
+      const receipt = await runtimeInstanceClient.create(buildRuntimeInstanceCreatePayload(blank, detected.installationId, detected)), created = receipt.instance as { readonly instanceId: string; readonly models: readonly string[]; readonly defaultModel: string };
+      expect(created).toMatchObject({ instanceId: "blank-model", models: detected.models, defaultModel: detected.defaultModel });
+      console.info(`BLANK_MODEL_CREATE_RECEIPT ${JSON.stringify({ modelInput: blank.model, instanceId: created.instanceId, models: created.models, defaultModel: created.defaultModel, ok: receipt.ok })}`);
+    } finally { vi.unstubAllGlobals(); rmSync(userRoot, { recursive: true, force: true }); }
   });
   it("builds create payloads per kind without cross-kind fields or stray keys", () => {
     const sidecar = buildRuntimeInstanceCreatePayload({ instanceId: "codex-sidecar", name: "Codex sidecar", kindId: "codex", installationId: "codex-install", providerId: "codex_local_access", model: "gpt-5.6-terra, gpt-5.6-sol", reasoningEffort: " high ", baseUrl: "http://localhost:50818/v1", authMode: "api-key", apiKey: "  sk-sidecar  ", wireApi: "responses", requiresOpenAiAuth: true, permissionMode: "workspace-write", isolation: "enforced" }, "codex-install");

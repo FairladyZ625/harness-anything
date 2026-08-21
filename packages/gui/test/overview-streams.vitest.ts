@@ -91,6 +91,7 @@ describe("overview task stream", () => {
     expect(markup.indexOf("Newer task")).toBeLessThan(markup.indexOf("Older task"));
     expect(markup).toContain('data-testid="task-stream-rows"');
     expect(markup).toContain("overflow-y-auto");
+    expect(markup).toContain("xl:flex-1"); expect(markup).toContain("xl:max-h-none");
   });
 
   it("converts UTC stream timestamps with the process local timezone", () => {
