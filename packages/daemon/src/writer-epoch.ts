@@ -14,7 +14,7 @@ export interface PersistentWriterEpoch {
   readonly close: () => void;
 }
 export class WriterEpochError extends Error {
-  readonly code: "writer_epoch_stale" | "writer_epoch_busy" | "writer_epoch_invalid";
+  readonly code: "writer_epoch_stale" | "writer_epoch_invalid";
   constructor(code: WriterEpochError["code"], message: string) { super(message); this.name = "WriterEpochError"; this.code = code; }
 }
 type EpochState = { readonly schema: "fleet-writer-epoch/v1"; readonly repos: Record<string, WriterEpochLease> };
@@ -56,8 +56,8 @@ function readState(file: string): EpochState {
 function isEpochRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }
 function withLock<T>(file: string, operation: () => T): T {
   mkdirSync(path.dirname(file), { recursive: true });
-  let fd: number | undefined;
-  for (let attempt = 0; attempt < 200 && fd === undefined; attempt += 1) {
+  let fd: number;
+  for (;;) {
     try { fd = openSync(file, "wx", 0o600); break; } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       let ownerText: string;
@@ -70,7 +70,6 @@ function withLock<T>(file: string, operation: () => T): T {
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2);
     }
   }
-  if (fd === undefined) throw new WriterEpochError("writer_epoch_busy", "another center is allocating a writer epoch");
   try { writeFileSync(fd, `${process.pid}\n`); fsyncSync(fd); return operation(); }
   finally { closeSync(fd); try { unlinkSync(file); } catch (error) { consumeKnownError(error); } }
 }
