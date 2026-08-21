@@ -1,6 +1,6 @@
-import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { consumeKnownError } from "../../kernel/src/index.ts";
+import { runProcessTextAsync } from "./process-port.ts";
 
 // Backend-agnostic credential port for runtime instances. Callers hand out and
 // store opaque references (`credential:v1:<id>`) and never learn which native
@@ -12,9 +12,9 @@ import { consumeKnownError } from "../../kernel/src/index.ts";
 // existed; other platforms reject it closed. The darwin store writes the
 // secret twice because `security add-generic-password -w` reads entry plus
 // retype from stdin; a single line exits 0 without storing anything.
-export type CredentialRunner = (command: CredentialCommand) => string;
+export type CredentialRunner = (command: CredentialCommand) => Promise<string>;
 export interface CredentialCommand { readonly file: string; readonly args: readonly string[]; readonly stdin?: string }
-export interface CredentialPort { readonly issue: () => string; readonly store: (reference: string, secret: string) => void; readonly resolve: (reference: string) => string }
+export interface CredentialPort { readonly issue: () => string; readonly store: (reference: string, secret: string) => Promise<void>; readonly resolve: (reference: string) => Promise<string> }
 const namespace = "com.harness-anything.runtime-instance", neutralPattern = /^credential:v1:([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)$/u, legacyPattern = /^keychain:([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)$/u;
 const windowsCredentialApi = `using System;using System.Runtime.InteropServices;public class HarnessCredential { [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] public struct CREDENTIAL { public int Flags; public int Type; public string TargetName; public string Comment; public long LastWritten; public int CredentialBlobSize; public IntPtr CredentialBlob; public int Persist; public int AttributeCount; public IntPtr Attributes; public string TargetAlias; public string UserName; } [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool CredWriteW(ref CREDENTIAL credential, uint flags); [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool CredReadW(string target, uint type, uint reserved, out IntPtr credential); [DllImport("advapi32.dll")] public static extern void CredFree(IntPtr credential); }`;
 
@@ -23,14 +23,14 @@ export function credentialPort(platform: NodeJS.Platform = process.platform, run
   const backend = credentialBackend(platform);
   return {
     issue: () => `credential:v1:${randomUUID().replaceAll("-", "")}`,
-    store: (reference, secret) => { const id = neutralPattern.exec(reference)?.[1]; if (!id || !secret) throw credentialUnavailable(backend.hint); attempt(backend.hint, () => run(backend.store(id, secret))); },
-    resolve: (reference) => { const command = backend.resolve(reference); return attempt(backend.hint, () => run(command)) || throwCredentialUnavailable(backend.hint); }
+    store: async (reference, secret) => { const id = neutralPattern.exec(reference)?.[1]; if (!id || !secret) throw credentialUnavailable(backend.hint); await attempt(backend.hint, () => run(backend.store(id, secret))); },
+    resolve: async (reference) => { const command = backend.resolve(reference); return await attempt(backend.hint, () => run(command)) || throwCredentialUnavailable(backend.hint); }
   };
 }
-function runCredentialCommand(command: CredentialCommand): string { return execFileSync(command.file, [...command.args], { encoding: "utf8", stdio: [command.stdin === undefined ? "ignore" : "pipe", "pipe", "ignore"], input: command.stdin, windowsHide: true }).replace(/[\r\n]+$/u, ""); }
+export async function runCredentialCommand(command: CredentialCommand): Promise<string> { return (await runProcessTextAsync(command.file, command.args, undefined, undefined, command.stdin)).replace(/[\r\n]+$/u, ""); }
 // The underlying error (exit status, stderr, ENOENT) is discarded on purpose:
 // it can echo command output, so only the fixed per-backend hint ever surfaces.
-function attempt(hint: string, work: () => string): string { try { return work(); } catch (error) { consumeKnownError(error); throwCredentialUnavailable(hint); } }
+async function attempt(hint: string, work: () => Promise<string>): Promise<string> { try { return await work(); } catch (error) { consumeKnownError(error); throwCredentialUnavailable(hint); } }
 
 interface CredentialBackend { readonly store: (id: string, secret: string) => CredentialCommand; readonly resolve: (reference: string) => CredentialCommand; readonly hint: string }
 function credentialBackend(platform: NodeJS.Platform): CredentialBackend {

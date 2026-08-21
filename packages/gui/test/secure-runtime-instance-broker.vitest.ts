@@ -1,5 +1,6 @@
 // harness-test-tier: contract
 import { describe, expect, it, vi } from "vitest";
+import { credentialPort, runCredentialCommand } from "../../daemon/src/agent-runtime-credential-port.ts";
 import { createRuntimeInstanceCredentialController } from "../src/main/secure-credential-broker.ts";
 
 // The vault port is always injected here; the real one talks to the platform
@@ -13,7 +14,7 @@ describe("main-only runtime instance credential controller", () => {
   it("stores the typed key in the vault and gives the daemon only an opaque reference", async () => {
     const create = vi.fn(async () => appliedReceipt());
     const stored: { reference: string; secret: string }[] = [];
-    const controller = createRuntimeInstanceCredentialController({ port: { issue: () => "credential:v1:issued-ref", store: (reference, secret) => { stored.push({ reference, secret }); }, resolve: () => "" }, create });
+    const controller = createRuntimeInstanceCredentialController({ port: { issue: () => "credential:v1:issued-ref", store: async (reference, secret) => { stored.push({ reference, secret }); }, resolve: async () => "" }, create });
     const receipt = await controller.create({ ...base, authMode: "api-key", apiKey: `  ${secret}  ` });
     expect(stored).toEqual([{ reference: "credential:v1:issued-ref", secret }]);
     expect(create).toHaveBeenCalledOnce();
@@ -25,24 +26,33 @@ describe("main-only runtime instance credential controller", () => {
     expect(JSON.stringify(receipt)).not.toMatch(/credentialRef|apiKey|keychain:/u);
   });
   it("fails closed before daemon create when the vault refuses to store", async () => {
-    const create = vi.fn(), controller = createRuntimeInstanceCredentialController({ port: { issue: () => "credential:v1:issued-ref", store: () => { throw Object.assign(new Error("vault refused"), { code: "runtime_credential_unavailable" }); }, resolve: () => "" }, create });
+    const create = vi.fn(), controller = createRuntimeInstanceCredentialController({ port: { issue: () => "credential:v1:issued-ref", store: async () => { throw Object.assign(new Error("vault refused"), { code: "runtime_credential_unavailable" }); }, resolve: async () => "" }, create });
     const receipt = await controller.create({ ...base, authMode: "api-key", apiKey: secret });
     expect(receipt).toMatchObject({ ok: false, error: { code: "runtime_credential_unavailable" } });
     expect(create).not.toHaveBeenCalled();
     expect(JSON.stringify(receipt)).not.toMatch(new RegExp(secret, "u"));
   });
   it("rejects an api-key create that arrives without a key instead of creating a dead instance", async () => {
-    const create = vi.fn(), controller = createRuntimeInstanceCredentialController({ port: { issue: () => "credential:v1:issued-ref", store: () => undefined, resolve: () => "" }, create });
+    const create = vi.fn(), controller = createRuntimeInstanceCredentialController({ port: { issue: () => "credential:v1:issued-ref", store: async () => undefined, resolve: async () => "" }, create });
     const receipt = await controller.create({ ...base, authMode: "api-key" });
     expect(receipt).toMatchObject({ ok: false, error: { code: "api_key_required" } });
     expect(create).not.toHaveBeenCalled();
   });
   it("forwards subscription creates unchanged with no credential material attached", async () => {
     const create = vi.fn(async () => appliedReceipt({ authMode: "subscription", authState: "unknown" }));
-    const controller = createRuntimeInstanceCredentialController({ port: { issue: () => { throw new Error("vault must not be touched"); }, store: () => undefined, resolve: () => "" }, create });
+    const controller = createRuntimeInstanceCredentialController({ port: { issue: () => { throw new Error("vault must not be touched"); }, store: async () => undefined, resolve: async () => "" }, create });
     const receipt = await controller.create({ instanceId: "claude-one", name: "Claude one", kindId: "claude", installationId: "claude-install", providerId: "anthropic", model: "claude-opus", claude: {}, authMode: "subscription" });
     expect(create).toHaveBeenCalledWith(expect.not.objectContaining({ credentialRef: expect.anything() }));
     expect(JSON.stringify(create.mock.calls[0]![0])).not.toMatch(/apiKey|credentialRef|secret/u);
     expect(receipt).toMatchObject({ ok: true });
+  });
+  it("keeps the Electron main event loop responsive while the credential backend waits", async () => {
+    const port = credentialPort("darwin", () => runCredentialCommand({ file: process.execPath, args: ["-e", "setTimeout(() => process.exit(0), 200)"] }));
+    const controller = createRuntimeInstanceCredentialController({ port, create: async () => appliedReceipt() });
+    let heartbeats = 0;
+    const heartbeat = setInterval(() => { heartbeats += 1; }, 5);
+    try { expect(await controller.create({ ...base, authMode: "api-key", apiKey: secret })).toMatchObject({ ok: true }); }
+    finally { clearInterval(heartbeat); }
+    expect(heartbeats).toBeGreaterThan(0);
   });
 });

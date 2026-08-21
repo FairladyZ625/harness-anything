@@ -13,7 +13,7 @@ export function createRuntimeInstanceCredentialController(input: { readonly port
   if (typeof payload.apiKey !== "string" || payload.apiKey.trim().length === 0) return unavailable("api_key_required", "Enter the provider API key in the create form; it is stored only in the local credential vault.");
   const { apiKey, ...rest } = payload;
   let credentialRef: string;
-  try { credentialRef = port.issue(); port.store(credentialRef, apiKey.trim()); } catch { return unavailable("runtime_credential_unavailable", "The local credential vault refused to store this API key; the instance was not created and no secret was persisted."); }
+  try { credentialRef = port.issue(); await port.store(credentialRef, apiKey.trim()); } catch { return unavailable("runtime_credential_unavailable", "The local credential vault refused to store this API key; the instance was not created and no secret was persisted."); }
   return input.create({ ...rest, credentialRef });
 } }; }
 function unavailable(code: string, hint: string): Receipt { return { schema: "command-receipt/v2", ok: false, command: "runtime-instance-create", outcome: "op_rejected", opId: `runtime-instance-create:${randomUUID()}`, code, origin: "electron-main", evidence: `rejection:${code}`, error: { code, hint }, nextAction: hint }; }
