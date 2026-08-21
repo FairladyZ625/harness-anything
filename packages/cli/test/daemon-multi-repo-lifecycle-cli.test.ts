@@ -307,8 +307,8 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
     context.diagnostic(`latency-baseline=compiled-cli-help-noop samples=${noopSamples.length} p50=${noopP50.toFixed(3)}ms min=${Math.min(...noopSamples).toFixed(3)}ms max=${Math.max(...noopSamples).toFixed(3)}ms`);
     context.diagnostic(`latency-ratio=paired-round-cli-write-over-cli-help-noop warmup-rounds=${warmupRounds} rounds=${ratios.length} samples-per-round=${samplesPerRound} p50=${startupRatio.toFixed(3)}x min=${orderedRatios[0]!.toFixed(3)}x max=${orderedRatios.at(-1)!.toFixed(3)}x load1-per-parallelism=${loadSamples.map((value) => value.toFixed(2)).join(",")}`);
     context.diagnostic(`latency-round-ratios=${ratios.map((value) => value.toFixed(3)).join(",")}`);
-    const shadowProbe = JSON.parse(execFileSync(process.execPath, [path.resolve("tools/measure-p50-shadow-append.mjs")], { encoding: "utf8" })) as { shadow: number[]; fsync: number[]; ratio: number };
-    context.diagnostic(`latency-probe=shadow-append-vs-explicit-fsync samples=${shadowProbe.shadow.length} shadow-p50=${median(shadowProbe.shadow).toFixed(3)}ms fsync-p50=${median(shadowProbe.fsync).toFixed(3)}ms ratio=${shadowProbe.ratio.toFixed(3)}x`);
+    const walProbe = JSON.parse(execFileSync(process.execPath, [path.resolve("tools/verify-wal-append-fsync.mjs")], { encoding: "utf8" })) as { durable: boolean; trace: readonly string[] };
+    context.diagnostic(`wal-append-fsync=write-then-fsync-before-close durable=${walProbe.durable} trace=${walProbe.trace.join(">")}`);
     // A write invocation adds one daemon round trip, a canonical persisted write, and a
     // parsed receipt to an otherwise ordinary CLI invocation. It is measured against the
     // compiled CLI's adjacent --help no-op, so machine speed and load cancel within each
@@ -332,14 +332,24 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
     // load1/parallelism read 4.225x-4.969x; 6.0x is the observed maximum plus 1.031x
     // (20.8%) safety margin. A temporary second real daemon write in the timed arm read
     // 10.494x (9.589x-11.478x), so the margin still rejects a 2x write-path regression.
-    // The acknowledged WAL is now the durability boundary, so the shadow probe must cost
-    // the same order as an explicit fsync rather than falling back to page cache: a real
-    // fallback reads ~0.03x, while implementation differences on slow CI disks have read
-    // as low as 0.462x, so the floor sits at 0.25x to separate the two regimes.
+    // The acknowledged WAL is the durability boundary: localWalFileSystem.append must
+    // fsync the segment descriptor after the write and before the close. This used to be
+    // gated by a wall-clock ratio (shadow append over an explicit-fsync append), but both
+    // arms ran near-identical syscall sequences, so the ratio measured fsync-latency
+    // jitter between two time windows rather than the presence of the fsync: across
+    // twenty main runs on CI Linux it read 0.462x-6.076x with the fsync present the
+    // whole time, redding both sides of its [0.25, 2.5] band while carrying no
+    // information about the property (in each red run the other Node arm read ~1x green
+    // in the same run, on the same disk). Moving the floor only traded which side reds.
+    // A crash-visibility check cannot replace it: the page cache survives process
+    // death, so only the node:fs call sequence observes the boundary directly. The
+    // probe instruments node:fs in a fresh process before importing the kernel adapter,
+    // so the verdict is deterministic under any load and fails closed (empty trace) if
+    // the instrumentation ever stops binding on a future Node.
     assert.equal(startupRatio <= 6, true,
       `thin CLI write was ${startupRatio.toFixed(3)}x a compiled CLI help no-op (paired round p50; spread ${orderedRatios[0]!.toFixed(3)}x-${orderedRatios.at(-1)!.toFixed(3)}x, write=${p50.toFixed(3)}ms, noop=${noopP50.toFixed(3)}ms)`);
-    assert.equal(shadowProbe.ratio >= 0.25 && shadowProbe.ratio <= 2.5, true,
-      `durable WAL append was ${shadowProbe.ratio.toFixed(3)}x an explicit fsync append (WAL p50=${median(shadowProbe.shadow).toFixed(3)}ms, fsync p50=${median(shadowProbe.fsync).toFixed(3)}ms)`);
+    assert.equal(walProbe.durable, true,
+      `acknowledged WAL append did not cross an fsync boundary (expected write-then-fsync-before-close on the segment descriptor); node:fs trace: ${walProbe.trace.join(">")}`);
   } finally { stop(fixture.alpha, fixture.userRoot, builtCli); rmSync(fixture.root, { recursive: true, force: true }); }
 });
 
