@@ -94,6 +94,21 @@ test("task pin and unpin reuse amend events and update agenda order", async () =
   });
 });
 
+test("terminal task transitions clear pins without changing unpinned task outcomes", async () => {
+  await withCell("agenda-terminal-pin", async (cell) => {
+    for (const taskId of ["task_pinned", "task_plain"] as const) assert.equal((await cell.run({ kind: "task-create", taskId, title: taskId }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-amend", taskId: "task_pinned", patches: [{ field: "pinned", value: "true" }] }, binding)).outcome, "applied");
+
+    const cancel = (taskId: "task_pinned" | "task_plain") => cell.run({ kind: "task-transition", taskId, status: "cancelled", reason: "Terminal pin fixture", force: true }, binding);
+    const pinned = await cancel("task_pinned"), plain = await cancel("task_plain");
+    assert.equal(pinned.outcome, "applied", JSON.stringify(pinned)); assert.equal(plain.outcome, "applied", JSON.stringify(plain));
+    assert.deepEqual((await cell.read("repo.tasks.list")).rows.map(({ taskId, snapshot }) => ({ taskId, status: snapshot.task?.status, pinned: snapshot.task?.pinned })).sort((left, right) => left.taskId.localeCompare(right.taskId)), [
+      { taskId: "task_pinned", status: "cancelled", pinned: false },
+      { taskId: "task_plain", status: "cancelled", pinned: false }
+    ]);
+  });
+});
+
 function pinnedAmendEvent(event: unknown): { readonly type: "task_amended"; readonly command: "amend"; readonly fields: readonly string[]; readonly pinned: boolean } {
   if (event === null || typeof event !== "object") throw new Error("expected a task event");
   const candidate = event as { readonly schema?: unknown; readonly type?: unknown; readonly payload?: { readonly mutation?: { readonly command?: unknown; readonly fields?: unknown }; readonly task?: { readonly pinned?: unknown } } };

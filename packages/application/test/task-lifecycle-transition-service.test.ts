@@ -170,6 +170,29 @@ test("reinstate rolls a cancelled task back to planned, active, or in_review wit
   }
 });
 
+test("terminal lifecycle states clear a prior task pin", async () => {
+  const harness = lifecycleHarness();
+  try {
+    const created = await harness.create();
+    const cancelled = applyTransition({ ...created.snapshot, task: { ...created.snapshot.task!, pinned: true } }, command(harness.rootDir, {
+      type: "TransitionTask" as const, taskId: "task-1", status: "cancelled" as const, reason: "No longer being worked", force: true
+    }, { eventId: "event-cancel-pin", workspaceRevision: created.snapshot.revision + 1, occurredAt: "2026-08-11T00:01:00.000Z" }, created.snapshot.revision), {});
+    assert.equal(cancelled.snapshot.task?.status, "cancelled");
+    assert.equal(cancelled.snapshot.task?.pinned, false);
+
+    await harness.start("execution-1"); await harness.submit("execution-1"); await harness.review("execution-1", "acceptance", "approved"); const consented = await harness.consent("execution-1");
+    const completed = applyTransition({ ...consented.snapshot, task: { ...consented.snapshot.task!, pinned: true } }, command(harness.rootDir, {
+      type: "CompleteTask" as const, taskId: "task-1", executionId: "execution-1"
+    }, { eventId: "event-complete-pin", workspaceRevision: consented.snapshot.revision + 1, occurredAt: "2026-08-11T00:10:00.000Z" }, consented.snapshot.revision), {
+      capability: "task-complete@v1", capabilityRef: "cap-complete-pin", actorRole: "owner", noActiveLease: true, gateReceipts: []
+    });
+    assert.equal(completed.snapshot.task?.status, "done");
+    assert.equal(completed.snapshot.task?.pinned, false);
+  } finally {
+    harness.cleanup();
+  }
+});
+
 test("second distinct task create uses aggregate revision zero in a non-empty workspace", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-two-tasks-"));
   let projection: ReturnType<typeof makeTaskProjection> | undefined;
