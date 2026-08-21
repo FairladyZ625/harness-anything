@@ -271,9 +271,11 @@ test("fact search action forwards observed-time windows and preserves keyset pag
     const window = evidence(await cell.run({ kind: "fact-search", taskId: "task_fact_query", observedAfter: "2026-08-15T00:00:03.000Z", observedBefore: "2026-08-15T00:00:04.000Z" }, binding));
     assert.deepEqual((window.facts as { factId: string }[]).map(({ factId }) => factId), ["F-00000004", "F-00000003"]);
     const invalidDate = await cell.run({ kind: "fact-search", taskId: "task_fact_query", observedAfter: "not-a-date" }, binding), invertedWindow = await cell.run({ kind: "fact-search", taskId: "task_fact_query", observedAfter: "2026-08-16T00:00:00.000Z", observedBefore: "2026-08-15T00:00:00.000Z" }, binding), invalidLimit = await cell.run({ kind: "fact-search", taskId: "task_fact_query", limit: 0 }, binding);
+    const unknownField = await cell.run({ kind: "fact-search", taskId: "task_fact_query", permissionMode: "read-only" }, binding);
     assert.equal(invalidDate.outcome, "op_rejected"); assert.match(String(invalidDate.nextAction), /ISO-8601/u);
     assert.equal(invertedWindow.outcome, "op_rejected"); assert.match(String(invertedWindow.nextAction), /later/u);
     assert.equal(invalidLimit.outcome, "op_rejected"); assert.match(String(invalidLimit.nextAction), /between 1 and 500/u);
+    assert.equal(unknownField.outcome, "op_rejected"); assert.equal(unknownField.nextAction, 'Fact search filters contain an unknown field "permissionMode"; allowed fields: "kind", "query", "taskId", "confidence", "memoryClass", "observedAfter", "observedBefore", "limit", "cursor".');
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 

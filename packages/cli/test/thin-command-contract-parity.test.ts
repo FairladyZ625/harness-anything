@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DAEMON_RPC_SCHEMA, daemonMethodAcceptsPayloadExecutor, daemonProtocolCommands, validateDaemonRpcCall } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { unknownFieldViolation } from "../../daemon/src/protocol/json-rpc-types.ts";
 import { deriveThinCliInputs, parseThinCommand } from "../src/cli/thin-command.ts";
 
 const frozenMutations = Object.freeze([
@@ -40,6 +41,11 @@ test("daemon-effective rebuilds keep their declared positional in usage", () => 
   assert.ok(repoBootstrap); assert.match(repoBootstrap.usage, /--repo-id <repo-id>/u);
 });
 
+test("closed-field violations bind the rejected name to the legal field table", () => {
+  assert.equal(unknownFieldViolation({ schema: "probe", permissionMode: "bypass" }, ["schema", "permission-mode"]), 'unknown field "permissionMode"; allowed fields: "schema", "permission-mode".');
+  assert.equal(unknownFieldViolation({ schema: "probe" }, ["schema", "permission-mode"]), null);
+});
+
 // #1572: the CLI executor-injection surface is derived from the daemon shapes (daemonMethodAcceptsPayloadExecutor),
 // not a hand-copied method list. This register reconciles both directions: the reviewed surface below, and the
 // real wire validator — wherever injection may happen, validateDaemonRpcCall must accept the field, and wherever
@@ -54,11 +60,11 @@ test("executor injection follows the daemon-declared surface exactly", () => {
   for (const { method, params } of DAEMON_RPC_SCHEMA.methods) {
     const accepts = daemonMethodAcceptsPayloadExecutor(method), payload = payloadShapeOf(params);
     const errors = validateDaemonRpcCall({ method, params: { repo: { repoId: "parity" }, payload: { executor: agent } } });
-    const executorRejected = errors.some((error) => error.includes("params.payload.executor is not allowed"));
+    const executorRejected = errors.some((error) => error.includes('params.payload contains an unknown field "executor"'));
     assert.equal(accepts, reviewedExecutorSurface.includes(method), `${method}: derived surface matches the reviewed register`);
     if (accepts) assert.equal(executorRejected, false, `${method}: the validator must accept a declared payload executor`);
     else if (payload && !payload.open) assert.equal(executorRejected, true, `${method}: an undeclared payload executor must be rejected`);
-    else if (!payload) assert.equal(errors.some((error) => error.includes("params.payload is not allowed")), true, `${method}: carries no payload envelope at all`);
+    else if (!payload) assert.equal(errors.some((error) => error.includes('params contains an unknown field "payload"')), true, `${method}: carries no payload envelope at all`);
   }
   // repo.task.run is the one structural exception: the executor rides inside the open action envelope.
   assert.deepEqual(validateDaemonRpcCall({ method: "repo.task.run", params: { repo: { repoId: "parity" }, payload: { action: { kind: "task-list", executor: agent } } } }), []);

@@ -84,7 +84,7 @@ test("task-create and preset RPC descriptors enforce closed payloads and retire 
   assert.equal(parseDaemonRpcParams("repo.task.create", { repo: { repoId: "alpha" }, payload: fullPayload }).ok, true);
   const retiredBoolean = parseDaemonRpcParams("repo.task.create", { repo: { repoId: "alpha" }, payload: { ...fullPayload, longRunning: true } });
   assert.equal(retiredBoolean.ok, false);
-  if (!retiredBoolean.ok) assert.deepEqual(retiredBoolean.errors, ["params.payload.longRunning is not allowed"]);
+  if (!retiredBoolean.ok) { assert.equal(retiredBoolean.errors.length, 1); assert.match(retiredBoolean.errors[0]!, /params\.payload contains an unknown field "longRunning"; allowed fields:/u); for (const field of ["taskId", "title", "taskClass", "idempotencyKey"]) assert.match(retiredBoolean.errors[0]!, new RegExp(`"${field}"`, "u")); }
   assert.equal(parseDaemonRpcParams("repo.task.create", { repo: { repoId: "alpha" }, payload: { ...fullPayload, taskClass: "long_running" } }).ok, true);
 });
 
