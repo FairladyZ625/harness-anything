@@ -21,6 +21,10 @@ test("preload exposes only the approved API methods", () => {
   assert.equal(assertPreloadPayload("getTasks", { repoId: "repo-a" }), true);
   assert.equal(assertPreloadPayload("getTasks", { repoId: "repo-a", status: "active", limit: 50 }), true);
   assert.equal(assertPreloadPayload("getRelationGraph", { repoId: "repo-a", updatedAfter: "2026-08-01T00:00:00.000Z", cursor: "eAo" }), true);
+  assert.equal(assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskId: "task-a" }), true);
+  assert.equal(assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskIds: ["task-a", "task-b"], limit: 2 }), true);
+  assert.throws(() => assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskId: "task-a", taskIds: ["task-b"] }), /invalid/u);
+  assert.throws(() => assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskIds: ["task-a", "task-a"] }), /invalid/u);
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", limit: 0 }), /query facets are invalid/u);
   assert.throws(() => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", updatedBefore: "not-a-date" }), /query facets are invalid/u);
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", status: "edge_retired" }), /query facets are invalid/u);

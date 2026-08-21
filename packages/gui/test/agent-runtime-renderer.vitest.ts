@@ -15,6 +15,7 @@ import { assertPreloadPayload } from "../src/preload/allowlist.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { openAgentRuntimePane } from "../src/renderer/agent-runtime-client.ts";
 import { submitRuntimeSpawn } from "../src/renderer/runtime-control.ts";
+import { readPanorama } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
 
 beforeAll(() => setActiveLocale("en-US"));
 
@@ -138,5 +139,10 @@ describe("agent runtime renderer", () => {
     const dock = renderToStaticMarkup(createElement(SessionsDock, { repoId: "repo-a", rows, open: true, selectedId: null, busy: false, onToggle: noop, onSelect: noop, onCancel: noop }));
     for (const text of ["Sessions", "Review the runtime", "Core Squad", "running", "succeeded", "2 sessions · 1 running"]) expect(dock).toContain(text);
     expect(renderToStaticMarkup(createElement(SessionDetailView, { session, row: rows[0]!, result: null, frames: [], attach: "attached", busy: false, onCancel: noop }))).toContain("Fable → Luna");
+  });
+  it("reads a 402-task panorama through one batch request and keeps dispatch rows when the squad catalog fails", async () => {
+    const tasks = Array.from({ length: 402 }, (_, index) => ({ taskId: `task-${String(index).padStart(3, "0")}`, title: `Task ${index}` })), dispatch = { dispatchId: "dispatch-batch", taskId: tasks[0]!.taskId, executionId: "execution-batch", runtimeSessionId: "runtime-batch", instanceId: "codex-review", squadId: "missing-squad", providerSessionId: null, eventStreamRef: null, startedAt: "2026-08-21T00:00:00.000Z", endedAt: null, outcome: null, status: "running" } as const, getTaskDispatches = vi.fn(async (taskIds: readonly string[]) => ({ ok: true, status: "ready", taskIds, unavailableTaskIds: [], dispatches: [dispatch], page: { limit: 500, cursor: null, nextCursor: null }, watermark: 1, sourceRevision: 1 } as const)), listSquads = vi.fn(async (): Promise<readonly (typeof squadRows)[number][]> => { throw new Error("one catalog row is unavailable"); });
+    const panorama = await readPanorama("repo-a", tasks, { getTaskDispatches, listSquads });
+    expect(getTaskDispatches).toHaveBeenCalledOnce(); expect(getTaskDispatches).toHaveBeenCalledWith(tasks.map(({ taskId }) => taskId)); expect(listSquads).toHaveBeenCalledOnce(); expect(panorama).toHaveLength(1); expect(panorama[0]).toMatchObject({ taskTitle: "Task 0", squad: null });
   });
 });

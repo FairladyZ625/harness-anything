@@ -2,6 +2,7 @@
 // database itself — it receives the already-open rebuildable projection handle
 // from rebuildable-task-projection.ts, which owns the governed writable open.
 import type { DatabaseSync } from "node:sqlite";
+import type { RuntimeSession } from "../domain/agent-runtime.ts";
 import type { EntityRelationRecord } from "../domain/entity-relation.ts";
 import type { ReplayTaskStatus, TaskV1 } from "../domain/task.ts";
 
@@ -16,6 +17,15 @@ export interface TaskProjectionListQuery { readonly status?: ReplayTaskStatus; r
 export interface TaskRelationQuery { readonly entity?: string; readonly source?: string; readonly target?: string; readonly relationType?: string; readonly state?: string; readonly updatedAfter?: string; readonly updatedBefore?: string; readonly limit?: number; readonly cursor?: string }
 export interface TaskRelationProjectionRow { readonly relationId: string; readonly sourceRef: string; readonly targetRef: string; readonly relationType: EntityRelationRecord["type"]; readonly direction: EntityRelationRecord["direction"]; readonly strength: EntityRelationRecord["strength"]; readonly origin: EntityRelationRecord["origin"]; readonly state: EntityRelationRecord["state"]; readonly rationale: string; readonly ownerRef: string; readonly sourcePath: string; readonly recordIndex: number }
 export interface NarrowTaskRow { readonly task_id: string; readonly package_path: string | null; readonly generation: "v0" | "v1"; readonly workspace_revision: number; readonly updated_at: string; readonly pinned: number }
+
+/** One bounded task/runtime join. The supplied ids are filtered in memory so no
+ * variable-size bind list can cross SQLite's parameter ceiling. */
+export function readTaskRuntimeBatchPage(db: DatabaseSync, query: { readonly taskIds: readonly string[]; readonly limit?: number; readonly cursor?: string }): { readonly taskIds: readonly string[]; readonly rows: readonly { readonly taskId: string; readonly packagePath: string | null; readonly sessions: readonly RuntimeSession[] }[]; readonly page: ProjectionPage } {
+  if (!Array.isArray(query.taskIds) || query.taskIds.length === 0 || query.taskIds.length > 500 || query.taskIds.some((taskId) => typeof taskId !== "string" || taskId.length === 0) || new Set(query.taskIds).size !== query.taskIds.length) throw new Error("task runtime batch requires 1..500 unique task ids");
+  const limit = query.limit === undefined ? 500 : checkedPageLimit(query.limit), ordered = [...query.taskIds].sort(), after = query.cursor === undefined ? null : decodePageCursor(query.cursor, 1)[0]!, remaining = after === null ? ordered : ordered.filter((taskId) => taskId > after), taskIds = remaining.slice(0, limit), last = taskIds.at(-1), selected = new Set(taskIds), tasks = new Map(listTaskRowsNarrow(db, {}).rows.filter((row) => selected.has(row.task_id)).map((row) => [row.task_id, row])), sessions = new Map<string, RuntimeSession[]>();
+  for (const session of (db.prepare("SELECT value_json FROM runtime_session ORDER BY runtime_session_id").all() as unknown as readonly { readonly value_json: string }[]).map((row) => JSON.parse(row.value_json) as RuntimeSession)) for (const binding of session.taskBindings) if (selected.has(binding.taskId)) { const rows = sessions.get(binding.taskId) ?? []; rows.push(session); sessions.set(binding.taskId, rows); }
+  return { taskIds, rows: taskIds.flatMap((taskId) => { const task = tasks.get(taskId); return task ? [{ taskId, packagePath: task.package_path, sessions: sessions.get(taskId) ?? [] }] : []; }), page: { limit, cursor: query.cursor ?? null, nextCursor: remaining.length > limit && last ? encodePageCursor([last]) : null } };
+}
 
 export function createTaskRelationProjectionTable(db: DatabaseSync): void {
   db.exec(`

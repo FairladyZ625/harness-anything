@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../../../daemon/src/agent-entities.contract.ts";
-import { agentEntityClient } from "../../agent-entity-client.ts";
+import { agentEntityClient, type SquadEntityRow } from "../../agent-entity-client.ts";
 import { agentRuntimeClient } from "../../agent-runtime-client.ts";
 import { harnessClient } from "../../api-client.ts";
 import { buildDispatchSpawnInput, type DispatchRequest } from "../../dispatch-flow.ts";
@@ -21,8 +21,9 @@ export function useRuntimeWorkspace(repoId: string, tasks: readonly RuntimePanor
   const machine = useQuery({ queryKey: ["runtime-instances", "machine"], queryFn: runtimeInstanceClient.list, staleTime: 2_000 });
   const overview = useQuery({ queryKey: ["runtime-control", repoId, "overview"], queryFn: () => agentRuntimeClient.overview(repoId), staleTime: 3_000 });
   const agents = useQuery({ queryKey: ["agents", repoId], queryFn: () => agentEntityClient.listAgents(repoId), staleTime: 4_000 });
-  const squads = useQuery({ queryKey: ["squads", repoId], queryFn: () => agentEntityClient.listSquads(repoId), staleTime: 4_000 });
-  const panorama = useQuery({ queryKey: ["runtime-panorama", repoId, tasks.map((task) => task.taskId).join(",")], queryFn: () => readPanorama(repoId, tasks), staleTime: 4_000 });
+  const squadQuery = { queryKey: ["squads", repoId], queryFn: () => agentEntityClient.listSquads(repoId), staleTime: 4_000 } as const;
+  const squads = useQuery(squadQuery);
+  const panorama = useQuery({ queryKey: ["runtime-panorama", repoId, tasks.map((task) => task.taskId).join(",")], queryFn: () => readPanorama(repoId, tasks, { listSquads: () => client.fetchQuery(squadQuery), getTaskDispatches: (taskIds) => harnessClient.getTaskDispatches({ repoId, taskIds }) }), staleTime: 4_000 });
   const [busy, setBusy] = useState(false), [feedback, setFeedback] = useState<string | null>(null), [error, setError] = useState<string | null>(null), [settlement, setSettlement] = useState<RuntimeSpawnSettlement | null>(null);
 
   const refresh = async () => { await Promise.all([client.invalidateQueries({ queryKey: ["runtime-instances", "machine"] }), client.invalidateQueries({ queryKey: ["runtime-control", repoId] }), client.invalidateQueries({ queryKey: ["runtime-panorama", repoId] })]); };
@@ -58,12 +59,14 @@ export function useRuntimeWorkspace(repoId: string, tasks: readonly RuntimePanor
 export function useAgentDetail(repoId: string, agentId: string | null) { return useQuery({ queryKey: ["agent-detail", repoId, agentId], queryFn: () => agentEntityClient.showAgent(repoId, agentId ?? ""), enabled: agentId !== null, staleTime: 4_000 }); }
 export function useSquadDetail(repoId: string, squadId: string | null) { return useQuery({ queryKey: ["squad-detail", repoId, squadId], queryFn: () => agentEntityClient.showSquad(repoId, squadId ?? ""), enabled: squadId !== null, staleTime: 4_000 }); }
 
-async function readPanorama(repoId: string, tasks: readonly RuntimePanoramaTask[]) {
-  const dispatches = (await Promise.all(tasks.map(async ({ taskId }) => (await harnessClient.getTaskDispatches({ repoId, taskId })).dispatches))).flat();
-  const squadIds = [...new Set(dispatches.flatMap((row) => row.squadId ? [row.squadId] : []))];
-  const squads = await Promise.all(squadIds.map(async (squadId) => [squadId, await agentEntityClient.showSquad(repoId, squadId)] as const));
-  return joinRuntimePanorama(tasks, dispatches, new Map(squads));
+export async function readPanorama(repoId: string, tasks: readonly RuntimePanoramaTask[], reads: { readonly listSquads: () => Promise<readonly SquadEntityRow[]>; readonly getTaskDispatches: (taskIds: readonly string[]) => ReturnType<typeof harnessClient.getTaskDispatches> } = { listSquads: () => agentEntityClient.listSquads(repoId), getTaskDispatches: (taskIds) => harnessClient.getTaskDispatches({ repoId, taskIds }) }) {
+  if (tasks.length === 0) return [];
+  const chunks = chunkTaskIds(tasks.map(({ taskId }) => taskId)), squadPromise = reads.listSquads(), dispatchPromises = chunks.map((taskIds) => reads.getTaskDispatches(taskIds)), [squadRead] = await Promise.allSettled([squadPromise]), dispatchReads = await Promise.allSettled(dispatchPromises);
+  for (const read of [squadRead, ...dispatchReads]) if (read?.status === "rejected") consumeKnownError(read.reason);
+  const squads = squadRead?.status === "fulfilled" ? squadRead.value : [], dispatches = dispatchReads.flatMap((read) => read.status === "fulfilled" ? read.value.dispatches : []);
+  return joinRuntimePanorama(tasks, dispatches, new Map(squads.map((squad) => [squad.id, squad])));
 }
+function chunkTaskIds(taskIds: readonly string[]): readonly (readonly string[])[] { const chunks: string[][] = []; for (let offset = 0; offset < taskIds.length; offset += 500) chunks.push(taskIds.slice(offset, offset + 500)); return chunks; }
 
 // A task-bound dispatch spawns first; only a runtime_task_lease_required rejection triggers
 // one lease acquisition and one resubmit under the same idempotency key — the first attempt

@@ -76,6 +76,18 @@ test("narrow task list pages concatenate to the unparameterized result and keep 
   });
 });
 
+test("task runtime batch reads up to 500 ids without a variable SQLite IN list", async () => {
+  const fixture = taskFixture();
+  await withTempStoreAsync(async (rootDir) => {
+    const projection = makeTaskProjection({ rootDir, eventStore: memoryEventStore(fixture.events) }), requested = [...fixture.tasks.map(({ taskId }) => taskId), ...Array.from({ length: 494 }, (_, index) => `task_missing_${String(index).padStart(3, "0")}`)];
+    const batch = projection.readTaskRuntimeBatch({ taskIds: requested });
+    assert.equal(batch.status, "ready"); assert.equal(batch.taskIds.length, 500); assert.deepEqual(batch.rows.map(({ taskId }) => taskId), fixture.tasks.map(({ taskId }) => taskId).sort()); assert.equal(batch.page.nextCursor, null);
+    const first = projection.readTaskRuntimeBatch({ taskIds: requested.slice(0, 4), limit: 2 }), second = projection.readTaskRuntimeBatch({ taskIds: requested.slice(0, 4), limit: 2, cursor: first.page.nextCursor! });
+    assert.deepEqual([...first.taskIds, ...second.taskIds], requested.slice(0, 4).sort()); assert.equal(second.page.nextCursor, null);
+    assert.throws(() => projection.readTaskRuntimeBatch({ taskIds: [...requested, "task_over_limit"] }), /1\.\.500/u);
+  });
+});
+
 test("task relation projection rows equal the snapshot-derived edges and survive a cold rebuild", async () => {
   const fixture = taskFixture();
   await withTempStoreAsync(async (rootDir) => {
