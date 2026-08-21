@@ -237,12 +237,12 @@ function initIngressRepo(root: string, uid: number): void {
   git(root, "add", "harness"); git(root, "commit", "-qm", "fixture");
 }
 async function rpc(host: Awaited<ReturnType<typeof openDaemonHost>>, auth: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2], method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const server = createJsonRpcProtocolServer({ host, authContext: auth, emit: async () => undefined });
+  const server = createJsonRpcProtocolServer({ host, build: { commit: null }, authContext: auth, emit: async () => undefined });
   try { await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } }); const response = await server.handle({ jsonrpc: "2.0", id: 2, method, params }); assert.ok(response && !Array.isArray(response) && "result" in response); return (response as { result: Record<string, unknown> }).result; }
   finally { server.close(); }
 }
 async function rpcAttach(host: Awaited<ReturnType<typeof openDaemonHost>>, auth: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2], repoId: string, runtimeSessionId: string, frames: Record<string, unknown>[]): Promise<{ readonly close: () => void }> {
-  const server = createJsonRpcProtocolServer({ host, authContext: auth, emit: async (_method, params) => { frames.push(params); } });
+  const server = createJsonRpcProtocolServer({ host, build: { commit: null }, authContext: auth, emit: async (_method, params) => { frames.push(params); } });
   await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } }); const response = await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.agentRuntime.attach", params: { repo: { repoId }, payload: { runtimeSessionId, afterCursor: "stream:0" } } }); assert.ok(response && !Array.isArray(response) && "result" in response); assert.equal((response as { result: { ok: boolean } }).result.ok, true, JSON.stringify(response)); return { close: server.close };
 }
 async function eventually(check: () => boolean | Promise<boolean>): Promise<void> { await eventuallyValue(async () => await check() ? true : null); }

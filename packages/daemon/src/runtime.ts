@@ -7,6 +7,7 @@ import { createJsonRpcProtocolServer } from "./protocol/json-rpc-server.ts";
 import { openDaemonRequestLog } from "./request-log.ts";
 import { openDaemonLifecycleLog } from "./lifecycle-log.ts";
 import { openDaemonConnLog } from "./conn-log.ts";
+import { daemonBuildStamp } from "./build-identity.ts";
 import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
 
 export interface RunningDaemon { readonly endpoint: string; readonly stop: () => Promise<void> }
@@ -22,6 +23,7 @@ export async function startDaemon(input: { readonly daemonId: string; readonly u
   const pidPath = daemonPidPath(input.userRoot, input.daemonId);
   mkdirSync(path.dirname(pidPath), { recursive: true }); writeFileSync(pidPath, `${process.pid}\n`, "utf8");
   const lifecycle = openDaemonLifecycleLog({ userRoot: input.userRoot, daemonId: input.daemonId }); lifecycle.record({ event: "process_start", endpoint });
+  const build = daemonBuildStamp();
   // Connection- and request-level traffic sink; async by design so the socket hot path never waits on disk.
   const connLog = openDaemonConnLog({ userRoot: input.userRoot, daemonId: input.daemonId });
   let host: Awaited<ReturnType<typeof openDaemonHost>> | undefined, transport: ReturnType<typeof createUnixSocketTransportServer> | undefined, stopped = false;
@@ -31,7 +33,7 @@ export async function startDaemon(input: { readonly daemonId: string; readonly u
     // One sink for the daemon; the protocol server is created per connection and reports into it.
     const requestLog = openDaemonRequestLog({ resolveRootDir: (repoId) => host!.status().repos.find((repo) => repo.repoId === repoId)?.rootDir });
     transport = createUnixSocketTransportServer({ daemonId: input.daemonId, socketPath: endpoint,
-      createProtocolServer: (authContext, emit, connectionId) => createJsonRpcProtocolServer({ host: host!, authContext, emit, connectionId: connLog.connectionOpened(connectionId, authContext.transportKind), recordRequest: requestLog.record, recordTraffic: connLog.request, requestShutdown: input.requestShutdown ?? (() => { void stop(); }) }),
+      createProtocolServer: (authContext, emit, connectionId) => createJsonRpcProtocolServer({ host: host!, build, authContext, emit, connectionId: connLog.connectionOpened(connectionId, authContext.transportKind), recordRequest: requestLog.record, recordTraffic: connLog.request, requestShutdown: input.requestShutdown ?? (() => { void stop(); }) }),
       onConnectionClosed: (connection) => connLog.connectionClosed(connection.connectionId) });
     await transport.start(); lifecycle.record({ event: "socket_bound", endpoint }); host.startAttachments();
   } catch (error) { lifecycle.record({ event: "process_exit", outcome: "startup_failed", error: error instanceof Error ? error.stack ?? error.message : String(error) }); await connLog.settle(); await host?.close(); rmSync(pidPath, { force: true }); singleton.release(); throw error; }

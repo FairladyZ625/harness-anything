@@ -1,7 +1,6 @@
 import { readDaemonPid } from "../../../daemon/src/runtime.ts";
 import { startDetachedProcess, terminateProcess } from "../../../daemon/src/process-port.ts";
 import { daemonLifecycleLogPath } from "../../../daemon/src/lifecycle-log.ts";
-import { daemonBuildStamp } from "../../../daemon/src/build-identity.ts";
 import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts";
 import type { GuiServiceBridge } from "../api/service-bridge.ts";
 import { consumeKnownError } from "../api/error-consumption.ts";
@@ -11,7 +10,7 @@ import { createRuntimeInstanceCredentialController } from "./secure-credential-b
 import type { CredentialPort } from "../../../daemon/src/agent-runtime-credential-port.ts";
 
 type Target = { readonly repoId: string; readonly socketPath: string; readonly userRoot: string; readonly daemonId: string };
-export function addLocalMainControls(input: { readonly bridge: GuiServiceBridge; readonly target: (repoId?: string) => Promise<Target>; readonly packaged?: PackagedRuntime; readonly credentialPort?: CredentialPort }): GuiServiceBridge {
+export function addLocalMainControls(input: { readonly bridge: GuiServiceBridge; readonly target: (repoId?: string) => Promise<Target>; readonly clientBuildCommit: string | null; readonly packaged?: PackagedRuntime; readonly credentialPort?: CredentialPort }): GuiServiceBridge {
   const supervisor = createDaemonSupervisor({ authorize: async (payload) => asRecord(await input.bridge.invoke("requestDaemonControl", payload)), restart: async (repoId) => restartResidentDaemon(await input.target(repoId), input.packaged) });
   // The daemon exposes create/list/show/update/delete only; an authentication probe is
   // `show` with probe:true, which returns the freshly probed instance. A probe shells out
@@ -42,7 +41,7 @@ export function addLocalMainControls(input: { readonly bridge: GuiServiceBridge;
   // reading an older daemon; with it, the System page can say "restart the daemon" in one line.
   function overlayBuildSkew(value: Record<string, unknown>): Record<string, unknown> {
     const daemon = asRecord(value.daemon); if (!daemon.daemonId) return value;
-    const reported = asRecord(daemon.build).commitSha, clientCommit = daemonBuildStamp().commit;
+    const reported = asRecord(daemon.build).commitSha, clientCommit = input.clientBuildCommit;
     const stale = typeof reported === "string" && clientCommit !== null && reported !== clientCommit ? { daemonCommit: reported, clientCommit } : null;
     return { ...value, daemon: { buildStale: stale, ...daemon } };
   }

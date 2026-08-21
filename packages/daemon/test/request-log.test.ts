@@ -32,7 +32,7 @@ function readRecords(rootDir: string): readonly DaemonRequestLogRecord[] {
 
 function openServerWithLog(rootDir: string, host: DaemonHost = stubHost(rootDir)) {
   const log = openDaemonRequestLog({ resolveRootDir: (repoId) => host.status().repos.find((repo) => repo.repoId === repoId)?.rootDir });
-  return createJsonRpcProtocolServer({ host, authContext: { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: 501, source: "unix-socket-filesystem-owner-boundary" } }, emit: async () => undefined, recordRequest: log.record });
+  return createJsonRpcProtocolServer({ host, build: { commit: null }, authContext: { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: 501, source: "unix-socket-filesystem-owner-boundary" } }, emit: async () => undefined, recordRequest: log.record });
 }
 
 test("a repo-scoped read request is recorded in the repository local root", async () => {

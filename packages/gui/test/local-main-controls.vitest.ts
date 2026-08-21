@@ -11,7 +11,7 @@ vi.mock("../../daemon/src/client/local-json-rpc-client.ts", () => ({
 const { addLocalMainControls } = await import("../src/main/local-main-controls.ts");
 const registered = new Set(jsonRpcMethodContracts.map((entry) => entry.method));
 const instanceRow = { schemaVersion: 2, instanceId: "codex-sidecar", name: "Codex sidecar", kindId: "codex", enabled: true, authMode: "api-key", authReadiness: { status: "ready", code: "runtime_auth_not_checked", hint: null } };
-const controls = () => addLocalMainControls({ bridge: { stream: (() => () => undefined) as never, invoke: async () => ({ ok: true }) }, target: async () => ({ repoId: "repo-a", socketPath: "/tmp/socket", userRoot: "/tmp/root", daemonId: "daemon-a" }) });
+const controls = () => addLocalMainControls({ bridge: { stream: (() => () => undefined) as never, invoke: async () => ({ ok: true }) }, target: async () => ({ repoId: "repo-a", socketPath: "/tmp/socket", userRoot: "/tmp/root", daemonId: "daemon-a" }), clientBuildCommit: null });
 
 beforeEach(() => {
   requests.length = 0;
