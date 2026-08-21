@@ -76,7 +76,10 @@ export function selectManifestGateIds(manifest, options) {
 
   return manifest.gates
     .filter((gate) => !gate.aggregate)
-    .filter((gate) => gate.executionSurfaces?.rewriteCi?.pullRequestJobs?.includes(options.workflowJob))
+    .filter((gate) => [
+      ...(gate.executionSurfaces?.rewriteCi?.pullRequestJobs ?? []),
+      ...(gate.executionSurfaces?.rewriteCi?.nonPullRequestJobs ?? [])
+    ].includes(options.workflowJob))
     .map((gate) => gate.id)
     .filter((id) => !options.exclude.has(id));
 }

@@ -249,7 +249,6 @@ jobs:
     # The full matrix runs on the nightly schedule (and manual dispatch) only; windows-first-run
     # remains the per-PR smoke. This lane is never promoted to a required context.
     if: github.event_name != 'pull_request' && github.event_name != 'push'
-    needs: metadata-source-proof
     name: windows-integration-shard (${{ matrix.shard }})
     runs-on: windows-latest
     strategy:
@@ -257,20 +256,13 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5, 6]
     steps:
-      - name: Reuse same-SHA source validation
-        if: ${{ needs.metadata-source-proof.outputs.reuse_source == 'true' }}
-        run: echo "Reusing successful source validation for the same head SHA."
       - uses: actions/checkout@v4
-        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
       - uses: actions/setup-node@v4
-        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         with:
           node-version: 24
           cache: npm
-      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
-        run: npm ci
-      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
-        run: node tools/run-manifest-gates.mjs --workflow-job windows-integration-shard --shard ${{ matrix.shard }} --exclude mergify-queue-metadata-edit-noop
+      - run: npm ci
+      - run: node tools/run-manifest-gates.mjs --workflow-job windows-integration-shard --shard ${{ matrix.shard }}
 
   nightly-daemon-soak:
     # Functional CI starts a small daemon, serves one client for seconds, and stops it. That shape

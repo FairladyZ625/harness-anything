@@ -5,6 +5,7 @@ import {
   harnessRuntimeReleaseReadiness,
   validateRuntimeReleaseReadiness
 } from "../packages/gui/src/distribution/runtime-release-readiness.ts";
+import { selectManifestGateIds } from "./run-manifest-gates.mjs";
 
 const root = process.cwd();
 const errors = [];
@@ -225,18 +226,7 @@ function parseManifestRunnerCommand(command) {
 }
 
 function expandManifestRunnerIds(invocation) {
-  if (invocation.packageSurface) {
-    return (gateManifest.surfaces?.packageJson?.[invocation.packageSurface] ?? [])
-      .filter((id) => !invocation.exclude.has(id));
-  }
-  if (invocation.workflowJob) {
-    return (gateManifest.gates ?? [])
-      .filter((gate) => !gate.aggregate)
-      .filter((gate) => gate.executionSurfaces?.rewriteCi?.pullRequestJobs?.includes(invocation.workflowJob))
-      .map((gate) => gate.id)
-      .filter((id) => !invocation.exclude.has(id));
-  }
-  return [];
+  return selectManifestGateIds(gateManifest, invocation);
 }
 
 function splitShellAndList(script) {
