@@ -12,10 +12,10 @@ import type { ReplayTaskStatus, TaskV1 } from "../domain/task.ts";
  * through the projection's own transaction (apply/rebuild/cold catch-up).
  */
 export interface ProjectionPage { readonly limit: number; readonly cursor: string | null; readonly nextCursor: string | null }
-export interface TaskProjectionListQuery { readonly status?: ReplayTaskStatus; readonly updatedAfter?: string; readonly updatedBefore?: string; readonly limit?: number; readonly cursor?: string }
+export interface TaskProjectionListQuery { readonly status?: ReplayTaskStatus; readonly updatedAfter?: string; readonly updatedBefore?: string; readonly limit?: number; readonly cursor?: string; readonly pinnedFirst?: boolean }
 export interface TaskRelationQuery { readonly entity?: string; readonly source?: string; readonly target?: string; readonly relationType?: string; readonly state?: string; readonly updatedAfter?: string; readonly updatedBefore?: string; readonly limit?: number; readonly cursor?: string }
 export interface TaskRelationProjectionRow { readonly relationId: string; readonly sourceRef: string; readonly targetRef: string; readonly relationType: EntityRelationRecord["type"]; readonly direction: EntityRelationRecord["direction"]; readonly strength: EntityRelationRecord["strength"]; readonly origin: EntityRelationRecord["origin"]; readonly state: EntityRelationRecord["state"]; readonly rationale: string; readonly ownerRef: string; readonly sourcePath: string; readonly recordIndex: number }
-export interface NarrowTaskRow { readonly task_id: string; readonly package_path: string | null; readonly generation: "v0" | "v1"; readonly workspace_revision: number; readonly updated_at: string }
+export interface NarrowTaskRow { readonly task_id: string; readonly package_path: string | null; readonly generation: "v0" | "v1"; readonly workspace_revision: number; readonly updated_at: string; readonly pinned: number }
 
 export function createTaskRelationProjectionTable(db: DatabaseSync): void {
   db.exec(`
@@ -53,12 +53,12 @@ export function readTaskRelationRows(db: DatabaseSync): readonly TaskRelationPro
  * without materializing any snapshot JSON. */
 export function readTaskStatusRows(db: DatabaseSync, taskIds?: readonly string[]): readonly { readonly taskId: string; readonly status: string | null }[] {
   if (taskIds?.length === 0) return [];
-  // An id list above SQLite's parameter budget reads every row and filters in memory instead.
-  const scoped = taskIds !== undefined && taskIds.length <= 900;
-  const memoryIds = taskIds !== undefined && !scoped ? new Set(taskIds) : null;
-  const sql = scoped ? `SELECT task_id, status FROM task_snapshot WHERE task_id IN (${taskIds.map(() => "?").join(",")}) ORDER BY task_id` : "SELECT task_id, status FROM task_snapshot ORDER BY task_id";
-  const rows = (db.prepare(sql).all(...(scoped ? taskIds : [])) as unknown as readonly { readonly task_id: string; readonly status: string | null }[]).map((row) => ({ taskId: row.task_id, status: row.status }));
-  return memoryIds === null ? rows : rows.filter((row) => memoryIds.has(row.taskId));
+  // Keep one fixed statement and one bind regardless of dependency-closure size. json_each
+  // preserves the primary-key lookup shape without crossing SQLite's variable limit or
+  // falling back to a full task_snapshot scan on large ledgers.
+  const scoped = taskIds !== undefined;
+  const sql = scoped ? "SELECT task_id, status FROM task_snapshot WHERE task_id IN (SELECT value FROM json_each(?)) ORDER BY task_id" : "SELECT task_id, status FROM task_snapshot ORDER BY task_id";
+  return (db.prepare(sql).all(...(scoped ? [JSON.stringify(taskIds)] : [])) as unknown as readonly { readonly task_id: string; readonly status: string | null }[]).map((row) => ({ taskId: row.task_id, status: row.status }));
 }
 
 /** Indexed narrow page over the task snapshot table; order matches the unparameterized list (task id asc). */
@@ -67,14 +67,14 @@ export function listTaskRowsNarrow(db: DatabaseSync, query: TaskProjectionListQu
   if (query.status !== undefined) { where.push("task_snapshot.status = ?"); values.push(query.status); }
   if (query.updatedAfter !== undefined) { where.push("task_snapshot.updated_at >= ?"); values.push(query.updatedAfter); }
   if (query.updatedBefore !== undefined) { where.push("task_snapshot.updated_at <= ?"); values.push(query.updatedBefore); }
-  if (query.cursor !== undefined) { const [taskId] = decodePageCursor(query.cursor, 1); where.push("task_snapshot.task_id > ?"); values.push(taskId!); }
+  if (query.cursor !== undefined) { if (query.pinnedFirst) { const [pinned, taskId] = decodePageCursor(query.cursor, 2); if (pinned !== "0" && pinned !== "1") throw new Error("query cursor is invalid"); where.push("(task_snapshot.pinned < ? OR (task_snapshot.pinned = ? AND task_snapshot.task_id > ?))"); values.push(Number(pinned), Number(pinned), taskId!); } else { const [taskId] = decodePageCursor(query.cursor, 1); where.push("task_snapshot.task_id > ?"); values.push(taskId!); } }
   const paged = query.limit !== undefined || query.cursor !== undefined, pageLimit = query.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(query.limit);
-  const sql = `SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path, COALESCE(task_generation.generation, 'v1') AS generation, task_snapshot.workspace_revision AS workspace_revision, task_snapshot.updated_at AS updated_at FROM task_snapshot LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY task_snapshot.task_id${pageLimit === null ? "" : " LIMIT ?"}`;
+  const sql = `SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path, COALESCE(task_generation.generation, 'v1') AS generation, task_snapshot.workspace_revision AS workspace_revision, task_snapshot.updated_at AS updated_at, task_snapshot.pinned AS pinned FROM task_snapshot LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY ${query.pinnedFirst ? "task_snapshot.pinned DESC, " : ""}task_snapshot.task_id${pageLimit === null ? "" : " LIMIT ?"}`;
   if (pageLimit !== null) values.push(pageLimit + 1);
   const raw = db.prepare(sql).all(...values) as unknown as readonly NarrowTaskRow[], visible = pageLimit === null ? raw : raw.slice(0, pageLimit);
   if (pageLimit === null) return { rows: visible, page: null };
   const last = visible.at(-1);
-  return { rows: visible, page: { limit: pageLimit, cursor: query.cursor ?? null, nextCursor: raw.length > pageLimit && last ? encodePageCursor([last.task_id]) : null } };
+  return { rows: visible, page: { limit: pageLimit, cursor: query.cursor ?? null, nextCursor: raw.length > pageLimit && last ? encodePageCursor(query.pinnedFirst ? [String(last.pinned), last.task_id] : [last.task_id]) : null } };
 }
 
 /**

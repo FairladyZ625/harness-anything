@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { createFactProjectionTables, readDecisionGraphRows, readFactGraphRows, searchFactRows, type FactProjectionRow } from "../../src/projection/fact-event-projection.ts";
+import { createFactProjectionTables, listDecisionAgendaRowsPage, readDecisionGraphRows, readFactGraphRows, searchFactRows, type FactProjectionRow } from "../../src/projection/fact-event-projection.ts";
+import { listTaskRowsNarrow, readTaskStatusRows } from "../../src/projection/task-query-projection.ts";
 
 // Counts statement executions so the assertions describe query shape, not wall-clock time:
 // an N+1 regression changes the count deterministically on any machine, under any load.
@@ -84,5 +85,46 @@ test("readDecisionGraphRows still resolves evidenced coverage through the batche
     assert.equal(graph.coverageRows[0]?.status, "covered");
     assert.deepEqual(graph.coverageRows[0]?.relationPath, ["rel_shape_0"]);
     assert.equal(graph.coverageRows[0]?.coveringFactRef, "fact/task-0/F-00000000");
+  } finally { db.close(); }
+});
+
+test("agenda source pages use covering keyset indexes and fetch only limit plus one rows", (context) => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    createFactProjectionTables(db);
+    db.exec(`
+      CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL,
+        status TEXT, pinned INTEGER NOT NULL GENERATED ALWAYS AS (CASE WHEN json_extract(snapshot_json, '$.task.pinned') = 1 THEN 1 ELSE 0 END) STORED,
+        updated_at TEXT NOT NULL DEFAULT '');
+      CREATE TABLE task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);
+      CREATE TABLE task_generation (task_id TEXT PRIMARY KEY, generation TEXT NOT NULL);
+      CREATE INDEX task_snapshot_agenda_status_pin ON task_snapshot(status, pinned DESC, task_id ASC);
+    `);
+    const insert = db.prepare("INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at) VALUES (?, ?, ?, 'planned', '2026-08-21T00:00:00.000Z')");
+    for (let index = 0; index < 2_000; index += 1) insert.run(`task_${String(index).padStart(5, "0")}`, index + 1, JSON.stringify({ task: { pinned: index === 1_999 } }));
+    seed(db, 2_000, 1); db.exec("UPDATE decision SET state='proposed'");
+    const tasks = listTaskRowsNarrow(db, { status: "planned", pinnedFirst: true, limit: 5 }), decisions = listDecisionAgendaRowsPage(db, { state: "proposed", limit: 5 });
+    assert.equal(tasks.rows.length, 5); assert.equal(tasks.rows[0]?.task_id, "task_01999"); assert.ok(tasks.page?.nextCursor);
+    assert.equal(decisions.rows.length, 5); assert.ok(decisions.page.nextCursor);
+    const taskPlan = (db.prepare("EXPLAIN QUERY PLAN SELECT task_id FROM task_snapshot WHERE status = 'planned' ORDER BY pinned DESC, task_id LIMIT 6").all() as unknown as { detail: string }[]).map(({ detail }) => detail).join("\n"), decisionPlan = (db.prepare("EXPLAIN QUERY PLAN SELECT decision_id, title, risk_tier, urgency, proposed_at FROM decision WHERE state = 'proposed' ORDER BY decision_id LIMIT 6").all() as unknown as { detail: string }[]).map(({ detail }) => detail).join("\n");
+    context.diagnostic(`task agenda plan: ${taskPlan}`); context.diagnostic(`decision agenda plan: ${decisionPlan}`);
+    assert.match(taskPlan, /task_snapshot_agenda_status_pin/u); assert.match(decisionPlan, /decision_state_page/u);
+  } finally { db.close(); }
+});
+
+test("agenda dependency status lookup stays narrow above SQLite's bind limit", (context) => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec("CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, status TEXT)");
+    const insert = db.prepare("INSERT INTO task_snapshot(task_id, status) VALUES (?, 'planned')");
+    for (let index = 0; index < 2_000; index += 1) insert.run(`task_${String(index).padStart(5, "0")}`);
+    const requested = Array.from({ length: 1_200 }, (_, index) => `task_${String(index * 2).padStart(5, "0")}`);
+    const rows = readTaskStatusRows(db, requested);
+    assert.equal(rows.length, 1_000);
+    assert.equal(rows[0]?.taskId, "task_00000");
+    assert.equal(rows.at(-1)?.taskId, "task_01998");
+    const plan = (db.prepare("EXPLAIN QUERY PLAN SELECT task_id, status FROM task_snapshot WHERE task_id IN (SELECT value FROM json_each(?)) ORDER BY task_id").all(JSON.stringify(requested)) as unknown as { detail: string }[]).map(({ detail }) => detail).join("\n");
+    context.diagnostic(`task status agenda plan: ${plan}`);
+    assert.match(plan, /task_snapshot.*task_id/u);
   } finally { db.close(); }
 });

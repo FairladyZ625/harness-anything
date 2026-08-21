@@ -68,6 +68,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.deepEqual(tasks.rows.map(({ taskId }) => taskId), ["task-gui-smoke"]);
     assert.equal(tasks.rows[0]?.snapshot.task?.title, "Resident GUI task");
     assert.equal(tasks.rows[0]?.snapshot.task?.status, "active"); assert.equal(tasks.rows[0]?.snapshot.lease?.executionId, executionId);
+    const agenda = parseDaemonGuiReadResult("repo.agenda.read", results.get("repo.agenda.read")); assert.deepEqual(agenda.inFlight.map(({ taskId }) => taskId), ["task-gui-smoke"]); assert.match(agenda.summary, /在飞线/u);
     assert.deepEqual(tasks.rows[0]?.placement.moduleKeys, ["gui"]); assert.equal(tasks.rows[0]?.placement.origin, "native");
     const graph = parseDaemonGuiReadResult("repo.triadic.relationGraph", results.get("repo.triadic.relationGraph"));
     assert.deepEqual(graph.edges.map(({ relationType }) => relationType).sort(), ["derives", "evidenced-by"]); assert.equal(graph.factAnchors.length, 1); assert.equal(graph.facts.length, 1);

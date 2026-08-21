@@ -17,7 +17,7 @@ import { assertDecisionWritePlan, assertFactWritePlan, renderDecisionDocument, r
 import { assertTaskLifecycleWritePlan, lifecycleDocumentPaths } from "../domain/task-lifecycle-publication.ts";
 import { slugifyTaskTitle } from "../layout/index.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
-import { assertDecisionAdmission, assertFactAdmission, createFactProjectionTables, FactProjectionError, listDecisionRows, readDecisionDocumentState, readDecisionGraphRows, readDecisionRow, readFactAnchorRows, readFactGraphRows, readFactRow, reduceDecisionEvent, reduceFactEvent, refreshDecisionDocumentSearch, searchFactRows, searchFactRowsPage, type DecisionListFilters, type FactSearchFilters } from "./fact-event-projection.ts";
+import { assertDecisionAdmission, assertFactAdmission, createFactProjectionTables, FactProjectionError, listDecisionAgendaRowsPage, listDecisionRows, readDecisionDocumentState, readDecisionGraphRows, readDecisionRow, readFactAnchorRows, readFactGraphRows, readFactRow, reduceDecisionEvent, reduceFactEvent, refreshDecisionDocumentSearch, searchFactRows, searchFactRowsPage, type DecisionListFilters, type DecisionPageQuery, type FactSearchFilters } from "./fact-event-projection.ts";
 import type { EventBackedRelationTruth } from "./relation-graph-projection.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable, listTaskRowsNarrow, readTaskRelationPage, readTaskRelationRows, readTaskStatusRows, refreshTaskRelationProjection, type TaskProjectionListQuery, type TaskRelationQuery } from "./task-query-projection.ts";
@@ -33,7 +33,7 @@ interface EventStreamPort {
 }
 type EventContentPrefetch = (events: readonly CanonicalEventV1[]) => ReadonlyMap<string, Uint8Array | null>;
 const batchContentPrefetchers = new WeakMap<EventStreamPort, EventContentPrefetch>();
-export * from "./projection-reads.ts"; import type { DocumentProjectionRead, FactAnchorProjectionRead, FactGraphProjectionRead, FactProjectionRead, FactProjectionSearchRead, DecisionProjectionRead, DecisionProjectionListRead, DecisionGraphProjectionRead, LeaseInterval, PresetSnapshotProjectionRead, ProjectionApplyReceipt, ProjectionRebuildReceipt, ReplicaProjectionBasis, TaskProgressProjectionRead, TaskProjectionListRead, TaskProjectionRead, TaskRelationProjectionRead } from "./projection-reads.ts";
+export * from "./projection-reads.ts"; import type { DocumentProjectionRead, FactAnchorProjectionRead, FactGraphProjectionRead, FactProjectionRead, FactProjectionSearchRead, DecisionProjectionRead, DecisionProjectionListRead, DecisionAgendaProjectionPageRead, DecisionGraphProjectionRead, LeaseInterval, PresetSnapshotProjectionRead, ProjectionApplyReceipt, ProjectionRebuildReceipt, ReplicaProjectionBasis, TaskProgressProjectionRead, TaskProjectionListRead, TaskProjectionRead, TaskRelationProjectionRead } from "./projection-reads.ts";
 export interface TaskProjection {
   readonly path: string; readonly close: () => void; readonly apply: (event: CanonicalEventV1, plan?: FrozenWritePlan) => ProjectionApplyReceipt; readonly rebuild: () => ProjectionRebuildReceipt;
   readonly readStateDigest: () => `sha256:${string}` | null;
@@ -46,7 +46,7 @@ export interface TaskProjection {
   readonly readPresetSnapshot: (digest: string) => PresetSnapshotProjectionRead;
   readonly readProgress: (taskId: string) => TaskProgressProjectionRead;
   readonly admitFact: (event: FactEventV1) => void; readonly readFact: (taskId: string, factId: string) => FactProjectionRead; readonly searchFacts: (filters: FactSearchFilters) => FactProjectionSearchRead; readonly readFactAnchors: (refs?: readonly string[]) => FactAnchorProjectionRead; readonly readFactGraph: () => FactGraphProjectionRead;
-  readonly admitDecision: (event: DecisionEventV1) => void; readonly readDecision: (decisionId: string) => DecisionProjectionRead; readonly listDecisions: (filters: DecisionListFilters) => DecisionProjectionListRead; readonly readDecisionGraph: () => DecisionGraphProjectionRead;
+  readonly admitDecision: (event: DecisionEventV1) => void; readonly readDecision: (decisionId: string) => DecisionProjectionRead; readonly listDecisions: (filters: DecisionListFilters) => DecisionProjectionListRead; readonly listDecisionAgendaPage: (query: DecisionPageQuery) => DecisionAgendaProjectionPageRead; readonly readDecisionGraph: () => DecisionGraphProjectionRead;
   readonly readLeaseIntervals: (taskId: string) => readonly LeaseInterval[]; readonly currentLease: (taskId: string, now?: string) => LeaseV1 | null; readonly currentLeaseForExecution: (executionId: string, now?: string) => LeaseV1 | null;
   readonly reserveLease: (lease: LeaseV1, now: string) => LeaseV1; readonly activateLease: (lease: LeaseV1) => LeaseV1;
   readonly renewLease: (lease: LeaseV1, expiresAt: string) => LeaseV1; readonly releaseLease: (lease: LeaseV1) => LeaseV1;
@@ -105,6 +105,7 @@ export function makeTaskProjection(options: { readonly rootDir: string; readonly
     admitDecision: (event) => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit); if (round.watermark !== round.sourceRevision) throw new FactProjectionError("content_not_ready", `Decision admission requires projection revision ${round.sourceRevision}; current watermark is ${round.watermark}.`); assertDecisionAdmission(db, event); }),
     readDecision: (decisionId) => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", decision: readDecisionRow(db, decisionId), watermark: current, sourceRevision: round.sourceRevision }; }),
     listDecisions: (filters) => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", decisions: listDecisionRows(db, filters), watermark: current, sourceRevision: round.sourceRevision }; }),
+    listDecisionAgendaPage: (query) => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db), page = listDecisionAgendaRowsPage(db, query); return { status: current === round.sourceRevision ? "ready" : "pending", decisions: page.rows, page: page.page, watermark: current, sourceRevision: round.sourceRevision }; }),
     readDecisionGraph: () => withDatabase(projectionPath, readHead, (db) => { const round = catchUpRound(db, options.eventStore, limit), current = watermark(db); return { status: current === round.sourceRevision ? "ready" : "pending", ...readDecisionGraphRows(db), watermark: current, sourceRevision: round.sourceRevision }; }),
     readRuntimeInstallation: (installationId) => withDatabase(projectionPath, readHead, (db) => readRuntimeInstallation(db, installationId)), readRuntimeInstallations: () => withDatabase(projectionPath, readHead, readRuntimeInstallations),
     readRuntimeSession: (runtimeSessionIdValue) => withDatabase(projectionPath, readHead, (db) => readRuntimeSession(db, runtimeSessionIdValue)), readRuntimeSessions: () => withDatabase(projectionPath, readHead, readRuntimeSessions),
@@ -125,7 +126,7 @@ function listProjection(projectionPath: string, readHead: EventStreamPort["readH
     const round = catchUpRound(db, eventStore, limit), current = watermark(db), at = now();
     // The unparameterized read keeps its original single statement so its result
     // stays byte-identical; only explicit query parameters take the indexed path.
-    if (query.status === undefined && query.updatedAfter === undefined && query.updatedBefore === undefined && query.limit === undefined && query.cursor === undefined) {
+    if (query.status === undefined && query.updatedAfter === undefined && query.updatedBefore === undefined && query.limit === undefined && query.cursor === undefined && query.pinnedFirst !== true) {
       const rows = db.prepare("SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path, COALESCE(task_generation.generation, 'v1') AS generation, task_snapshot.workspace_revision AS workspace_revision, event_index.event_json AS event_json FROM task_snapshot LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id) JOIN event_index ON event_index.workspace_revision = task_snapshot.workspace_revision ORDER BY task_snapshot.task_id").all() as unknown as readonly { readonly task_id: string; readonly package_path: string | null; readonly generation: "v0" | "v1"; readonly workspace_revision: number; readonly event_json: string }[];
       return { status: current === round.sourceRevision ? "ready" : "pending", rows: rows.map((row) => ({ taskId: row.task_id, packagePath: row.package_path, generation: row.generation, workspaceRevision: row.workspace_revision,
         updatedAt: parseEventJson(row.event_json).occurredAt, snapshot: readSnapshot(db, row.task_id, at) })), watermark: current, sourceRevision: round.sourceRevision,
@@ -274,10 +275,11 @@ function createTables(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS runtime_installation (installation_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS runtime_session (runtime_session_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL,
-      status TEXT,
+      status TEXT, pinned INTEGER NOT NULL GENERATED ALWAYS AS (CASE WHEN json_extract(snapshot_json, '$.task.pinned') = 1 THEN 1 ELSE 0 END) STORED,
       updated_at TEXT NOT NULL DEFAULT '');
     CREATE INDEX IF NOT EXISTS task_snapshot_status_updated ON task_snapshot(status, updated_at DESC, task_id ASC);
     CREATE INDEX IF NOT EXISTS task_snapshot_updated_task ON task_snapshot(updated_at DESC, task_id ASC);
+    CREATE INDEX IF NOT EXISTS task_snapshot_agenda_status_pin ON task_snapshot(status, pinned DESC, task_id ASC);
     CREATE TABLE IF NOT EXISTS task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);
     CREATE TABLE IF NOT EXISTS task_generation (task_id TEXT PRIMARY KEY, generation TEXT NOT NULL CHECK(generation IN ('v0','v1')));
 
