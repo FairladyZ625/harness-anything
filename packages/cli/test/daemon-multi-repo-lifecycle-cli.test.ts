@@ -50,7 +50,7 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     const blockedPath = "context/other-session.md", eligiblePath = "context/this-session.md", blockedFile = path.join(fixture.alpha, "harness", blockedPath); mkdirSync(path.dirname(blockedFile), { recursive: true });
     writeFileSync(blockedFile, "# Stable\n"); assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", blockedPath]).outcome, "applied");
     writeFileSync(blockedFile, "# Renamed\n"); writeFileSync(path.join(fixture.alpha, "harness", eligiblePath), "# Eligible\n");
-    const partial = run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit"]); assert.equal(partial.outcome, "applied", JSON.stringify(partial)); assert.match(String(partial.summary), /doc-submit: applied[\s\S]*skipped:[\s\S]*context\/other-session\.md\tblocked\tbase region is missing or reordered/u); assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", eligiblePath]).evidence, "# Eligible\n");
+    const partial = run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit"]); assert.equal(partial.outcome, "applied", JSON.stringify(partial)); assert.match(String(partial.summary), /doc-submit: applied[\s\S]*skipped:[\s\S]*context\/other-session\.md\tblocked\tbase region is missing: "# Stable"/u); assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", eligiblePath]).evidence, "# Eligible\n");
     const spoof = await requestLocalDaemonJsonRpc(fixture.alpha, "repo.task.create", { repo: { repoId: "alpha" },
       payload: { taskId: "task-spoof", title: "Spoof", actor: { principal: { personId: "attacker" } } } }, 100,
     { userRoot: fixture.userRoot });
