@@ -12,7 +12,8 @@ export function parseRunnerArgs(args, tierNames) {
     slowLimit: 10,
     concurrency: undefined,
     shard: undefined,
-    prefixes: []
+    prefixes: [],
+    files: []
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -76,6 +77,17 @@ export function parseRunnerArgs(args, tierNames) {
       options.prefixes.push(normalizeTestPrefix(arg.slice("--prefix=".length)));
       continue;
     }
+    if (arg === "--file") {
+      const value = args[index + 1];
+      if (value === undefined) throw new Error("--file requires a value");
+      options.files.push(normalizeTestFile(value));
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--file=")) {
+      options.files.push(normalizeTestFile(arg.slice("--file=".length)));
+      continue;
+    }
     if (arg === "--shard") {
       const value = args[index + 1];
       if (value === undefined) throw new Error("--shard requires a value");
@@ -97,6 +109,9 @@ export function parseRunnerArgs(args, tierNames) {
   if (options.shard !== undefined && options.tier !== "integration") {
     throw new Error("--shard is only supported with --tier integration");
   }
+  if (options.shard !== undefined && options.files.length > 0) {
+    throw new Error("--file cannot be combined with --shard");
+  }
 
   return options;
 }
@@ -114,6 +129,13 @@ function normalizeTestPrefix(value) {
     throw new Error(`--prefix must be a POSIX repository-relative path; received ${JSON.stringify(value)}`);
   }
   return value.endsWith("/") ? value : `${value}/`;
+}
+
+function normalizeTestFile(value) {
+  if (!value || value.startsWith("/") || value.split("/").includes("..") || value.includes("\\") || !testFilePattern.test(value)) {
+    throw new Error(`--file must be a POSIX repository-relative test file; received ${JSON.stringify(value)}`);
+  }
+  return value;
 }
 
 export async function collectTestFiles(repoRoot, roots) {
@@ -163,6 +185,12 @@ export function selectTestFiles(testFiles, manifest, tier) {
 export function filterTestFilesByPrefixes(files, prefixes) {
   if (prefixes.length === 0) return [...files];
   return files.filter((file) => prefixes.some((prefix) => file.startsWith(prefix)));
+}
+
+export function filterTestFilesByNames(files, names) {
+  if (names.length === 0) return [...files];
+  const selected = new Set(names);
+  return files.filter((file) => selected.has(file));
 }
 
 export function validateManifest(testFiles, manifest) {

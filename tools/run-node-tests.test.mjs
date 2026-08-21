@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
-import { collectSlowTests, filterTestFilesByPrefixes, formatSlowTestSummary, parseCompletedTestLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, validateManifest } from "./node-test-runner-lib.mjs";
+import { collectSlowTests, filterTestFilesByNames, filterTestFilesByPrefixes, formatSlowTestSummary, parseCompletedTestLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, validateManifest } from "./node-test-runner-lib.mjs";
 import { deriveTestTierManifest, discoverTestTierManifest, parseTestTierMarker, testTierNames } from "./test-tier-manifest.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
@@ -16,7 +16,8 @@ test("parseRunnerArgs accepts tier and slow summary options", () => {
     slowLimit: 3,
     concurrency: undefined,
     shard: undefined,
-    prefixes: []
+    prefixes: [],
+    files: []
   });
 });
 
@@ -45,12 +46,30 @@ test("parseRunnerArgs accepts safe repository-relative test prefixes", () => {
   assert.throws(() => parseRunnerArgs(["--prefix", "../outside"], testTierNames), /repository-relative/u);
 });
 
+test("parseRunnerArgs accepts safe repository-relative test files", () => {
+  assert.deepEqual(parseRunnerArgs(["--file", "tools/run-node-tests.test.mjs", "--file=packages/kernel/test/domain/domain-status.test.ts"], testTierNames).files, [
+    "tools/run-node-tests.test.mjs",
+    "packages/kernel/test/domain/domain-status.test.ts"
+  ]);
+  assert.throws(() => parseRunnerArgs(["--file", "../outside.test.mjs"], testTierNames), /repository-relative test file/u);
+  assert.throws(() => parseRunnerArgs(["--file", "tools/not-a-test.mjs"], testTierNames), /repository-relative test file/u);
+  assert.throws(() => parseRunnerArgs(["--tier", "integration", "--shard", "1", "--file", "tools/a.test.mjs"], testTierNames), /cannot be combined/u);
+});
+
 test("filterTestFilesByPrefixes keeps only selected repository paths", () => {
   assert.deepEqual(filterTestFilesByPrefixes([
     "tools/a.test.mjs",
     "packages/kernel/b.test.ts",
     "packages/gui/c.test.ts"
   ], ["tools/", "packages/kernel/"]), ["tools/a.test.mjs", "packages/kernel/b.test.ts"]);
+});
+
+test("filterTestFilesByNames keeps only exact selected repository paths", () => {
+  assert.deepEqual(filterTestFilesByNames([
+    "tools/a.test.mjs",
+    "packages/kernel/b.test.ts",
+    "packages/gui/c.test.ts"
+  ], ["packages/kernel/b.test.ts", "tools/a.test.mjs"]), ["tools/a.test.mjs", "packages/kernel/b.test.ts"]);
 });
 
 test("runner watchdog fails and names a file whose process keeps an open handle", () => {
