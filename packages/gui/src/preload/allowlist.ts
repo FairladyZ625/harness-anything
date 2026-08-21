@@ -5,7 +5,7 @@ export const localMainPreloadMethods = ["listRuntimeInstances", "showRuntimeInst
 export type PreloadApiMethod = (typeof daemonGuiReadMethods)[number]["guiBridgeMethod"] | (typeof daemonGuiActionMethods)[number]["guiBridgeMethod"] | (typeof daemonGuiStreamFacets)[number]["guiBridgeMethod"] | (typeof localMainPreloadMethods)[number];
 const daemonGuiFacets: ReadonlyArray<{ readonly guiBridgeMethod: PreloadApiMethod }> = [...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonGuiStreamFacets];
 const localMainFacets: ReadonlyArray<{ readonly guiBridgeMethod: PreloadApiMethod }> = localMainPreloadMethods.map((guiBridgeMethod) => ({ guiBridgeMethod }));
-const runtimeInstanceCreateFields = ["instanceId", "name", "kindId", "installationId", "providerId", "models", "permissionMode", "isolationState", "claude", "codex", "agy", "authMode", "apiKey"] as const;
+const runtimeInstanceCreateFields = ["instanceId", "name", "kindId", "installationId", "providerId", "models", "defaultModel", "permissionMode", "isolationState", "claude", "codex", "agy", "authMode", "apiKey"] as const;
 type PreloadFacet = { readonly guiBridgeMethod: string; readonly requiresRepo?: boolean; readonly inputSchemaId: string };
 export function deriveRepoScopedMethods(facets: readonly PreloadFacet[]): ReadonlySet<string> { return new Set(facets.filter(({ requiresRepo }) => requiresRepo).map(({ guiBridgeMethod }) => guiBridgeMethod)); }
 export function deriveEmptyRepoMethods(facets: readonly PreloadFacet[]): ReadonlySet<string> { return new Set(facets.filter(({ requiresRepo, inputSchemaId }) => requiresRepo && inputSchemaId === "gui.empty/v1").map(({ guiBridgeMethod }) => guiBridgeMethod)); }
@@ -75,6 +75,7 @@ function runtimeInstanceCreateProblem(value: unknown): string | undefined {
   for (const field of ["instanceId", "name", "installationId", "providerId"]) if (typeof value[field] !== "string" || value[field].trim().length === 0) return `field "${field}" must be a non-blank string.`;
   if (!["claude", "codex", "agy"].includes(String(value.kindId))) return 'field "kindId" must be claude, codex, or agy.';
   if (!Array.isArray(value.models) || value.models.length === 0 || value.models.some((model) => typeof model !== "string" || model.trim().length === 0) || new Set(value.models).size !== value.models.length) return 'field "models" must be a non-empty array of non-blank strings with no duplicates.';
+  if (value.defaultModel !== undefined && (typeof value.defaultModel !== "string" || !value.models.includes(value.defaultModel))) return 'field "defaultModel" must be one of the listed models.';
   if (!["subscription", "api-key"].includes(String(value.authMode))) return 'field "authMode" must be subscription or api-key.';
   if (value.kindId === "agy" && value.authMode !== "subscription") return 'field "authMode" must be subscription for agy.';
   if (value.permissionMode !== undefined && !["bypass", "workspace-write", "read-only"].includes(String(value.permissionMode))) return 'field "permissionMode" must be bypass, workspace-write, or read-only.';

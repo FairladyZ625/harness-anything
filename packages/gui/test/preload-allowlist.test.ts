@@ -88,6 +88,13 @@ test("preload accepts the renderer's codex create payload", () => {
   assert.equal(assertPreloadPayload("createRuntimeInstance", payload), true);
 });
 
+test("preload accepts the renderer's detected model default", () => {
+  const payload = buildRuntimeInstanceCreatePayload({ ...runtimeCreateForm, instanceId: "codex-detected", name: "Codex detected", kindId: "codex", providerId: "openai", model: "", permissionMode: "workspace-write", isolation: "enforced" }, "codex-install", { models: ["gpt-5.6-sol", "gpt-5.6-terra"], defaultModel: "gpt-5.6-sol" });
+  assert.equal(payload.defaultModel, "gpt-5.6-sol");
+  assert.equal(assertPreloadPayload("createRuntimeInstance", payload), true);
+  assert.throws(() => assertPreloadPayload("createRuntimeInstance", { ...payload, defaultModel: "typed-by-hand" }), /defaultModel.*listed models/u);
+});
+
 test("preload accepts the renderer's claude create payload", () => {
   const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
   assert.deepEqual(Object.keys(payload).sort(), ["authMode", "claude", "installationId", "instanceId", "isolationState", "kindId", "models", "name", "permissionMode", "providerId"]);
