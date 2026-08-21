@@ -1,12 +1,14 @@
 ---
 name: harness-migration
-description: Migrate a previous-generation Harness Anything repository into the current format, from a machine that does not have the current Harness installed. Use when a project's harness/ ledger predates the current generation, when ha commands fail against an existing repository because its layout is from an older release, or when a user asks to upgrade, migrate, or replay an old Harness ledger. Fetches the current source into a temporary location, so it works with no prior installation and does not disturb an existing Harness install.
+description: Diagnose and migrate a Harness Anything ledger from a machine that does not have the current Harness installed. Use when a project's harness/ ledger predates the current generation, when daemon attach fails because a current ledger has pre-S4 doc cuts, or when a user asks to upgrade, migrate, replay, or repair an old Harness ledger. The skill first confirms the symptom really is a ledger-generation mismatch, then fetches the current source into a temporary location without disturbing an existing Harness install.
 ---
 
 # Harness Migration
 
-Replay a previous-generation `harness/` ledger into a freshly initialized
-current-format repository. The source is never written to.
+First confirm a broken `harness/` ledger actually has a generation mismatch
+rather than some other fault. If it does, replay it into a freshly initialized
+current-format repository; the source is never written to. Replay is the only
+supported migration path — there is no in-place repair tool.
 
 **This skill assumes nothing is installed.** It fetches the current source into
 a throwaway directory and runs everything from there. A Harness installation
@@ -169,15 +171,100 @@ Two consequences worth knowing now rather than at step 8:
 absent. Running the TypeScript entry directly is the supported path here and
 needs no build step.
 
-## 2. Freeze and back up the source ledger
+## 1a. Confirm the symptom is a ledger-generation mismatch before importing
 
-Ask the user for the absolute path of the repository holding the old `harness/`
-directory.
+Do this **after step 1 fetches the current source, before creating a destination
+or running `migrate import`**. The symptoms below are an entry point, not a
+decision: both kinds of ledger can produce them.
+
+| What you see | What it means | Next action |
+| --- | --- | --- |
+| `doc event envelope or payload is invalid` | Could be either an older ledger or a current ledger with pre-S4 doc cuts. | Run the read-only event scan below. |
+| daemon receipt `repo_attach_failed` or `repo_unavailable` while attaching the repository | The daemon could not build its projection; it does not identify the ledger generation. | Run the read-only event scan below; do not retry attach as a probe. |
+
+Set the source path once. The scan only reads its event files; it does not need
+the daemon and does not alter the source.
+
+```bash
+export ARCHIVE_SOURCE="$(cd /absolute/path/to/repository-with-harness && pwd -P)"
+export CANONICAL_EVENT_CONTRACT="file://$HARNESS_MIGRATION_WORK/ha-src/packages/kernel/src/domain/doc-sync.contract.ts"
+node --input-type=module - "$ARCHIVE_SOURCE/harness/events" "$CANONICAL_EVENT_CONTRACT" <<'NODE'
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+const [eventsRoot, contractUrl] = process.argv.slice(2);
+const { parseCanonicalEvent } = await import(contractUrl);
+const counts = { files: 0, parsed: 0, unknown_schema: 0, legacy_cut_shape: 0, other: 0 };
+async function* eventFiles(dir) {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const file = join(dir, entry.name);
+    if (entry.isDirectory()) yield* eventFiles(file);
+    else if (entry.isFile() && entry.name.endsWith('.json') && entry.name !== 'head.json') yield file;
+  }
+}
+function hasLegacyCut(value) {
+  if (!value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some(hasLegacyCut);
+  const cut = value.baseLedgerSha;
+  if (cut && typeof cut === 'object' && !Array.isArray(cut)) {
+    const keys = Object.keys(cut).sort();
+    if (keys.length === 2 && keys[0] === 'repoId' && keys[1] === 'sha') return true;
+  }
+  return Object.values(value).some(hasLegacyCut);
+}
+for await (const file of eventFiles(eventsRoot)) {
+  counts.files++;
+  let text, event;
+  try {
+    text = await readFile(file, 'utf8');
+    event = JSON.parse(text);
+    parseCanonicalEvent(text);
+    counts.parsed++;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message === 'canonical event schema is unknown') counts.unknown_schema++;
+    else if (message === 'doc event envelope or payload is invalid' && event?.schema === 'doc-event/v1' && hasLegacyCut(event)) counts.legacy_cut_shape++;
+    else counts.other++;
+  }
+}
+console.log(JSON.stringify(counts, null, 2));
+NODE
+```
+
+Interpret the counts conservatively:
+
+- If `unknown_schema > 0` **or** `other > 0`, this is a previous-generation
+  ledger rather than the narrow S4-only cut mismatch. Continue with the replay
+  steps in this skill. The replay importer constructs current migration events
+  rather than copying source event bytes.
+- If `legacy_cut_shape > 0`, `unknown_schema = 0`, and `other = 0`, the ledger
+  is a current-generation ledger whose doc cuts predate S4. Replay handles it,
+  and replay is the only supported path: **there is no in-place restamp
+  migration, and none is planned.** An in-place restamp was built and evaluated;
+  it was deliberately not shipped, because a tool that rewrites cut identity in
+  place has to be trusted on a ledger nobody can re-derive, while replay
+  reconstructs the destination from source events and leaves the source
+  untouched.
+
+  Know what replay costs you here: it remaps entity IDs and writes a new
+  ledger, which is more than this ledger strictly needs — only its cut identity
+  is stale. Budget for the ID remapping (see the ID mapping steps below) rather
+  than looking for a narrower tool. If remapped IDs are genuinely unacceptable
+  for your ledger, stop and report that; do not improvise a hand-edit of event
+  bytes.
+- If all three failure counts are zero, the stream already parses under the
+  current code. This is not a generation mismatch, so migration will not fix it;
+  stop and investigate the reported symptom separately.
+
+If the scan itself cannot read the events directory or run the current parser,
+stop and report that failure. Do not infer the generation from `harness.yaml`:
+both generations can carry `schema: harness-anything/v1`.
+
+## 2. Freeze and back up the source ledger
 
 Back up and digest **`harness/` only** — never the repository root.
 
 ```bash
-export ARCHIVE_SOURCE="$(cd /absolute/path/to/legacy-repository && pwd -P)"
 export WORK_SOURCE="$HARNESS_MIGRATION_WORK/legacy-copy"
 mkdir -p "$HARNESS_MIGRATION_WORK/backups" "$WORK_SOURCE"
 export LEDGER_ARCHIVE="$HARNESS_MIGRATION_WORK/backups/legacy-harness.tar"
