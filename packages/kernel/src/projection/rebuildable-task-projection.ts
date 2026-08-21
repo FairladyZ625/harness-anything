@@ -275,7 +275,7 @@ function createTables(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS runtime_installation (installation_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS runtime_session (runtime_session_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL,
-      status TEXT, pinned INTEGER NOT NULL GENERATED ALWAYS AS (CASE WHEN json_extract(snapshot_json, '$.task.pinned') = 1 THEN 1 ELSE 0 END) STORED,
+      status TEXT, pinned INTEGER NOT NULL GENERATED ALWAYS AS (CASE WHEN json_valid(snapshot_json) THEN CASE WHEN json_extract(snapshot_json, '$.task.pinned') = 1 THEN 1 ELSE 0 END ELSE 0 END) STORED,
       updated_at TEXT NOT NULL DEFAULT '');
     CREATE INDEX IF NOT EXISTS task_snapshot_status_updated ON task_snapshot(status, updated_at DESC, task_id ASC);
     CREATE INDEX IF NOT EXISTS task_snapshot_updated_task ON task_snapshot(updated_at DESC, task_id ASC);
