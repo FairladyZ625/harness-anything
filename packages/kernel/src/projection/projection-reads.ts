@@ -1,6 +1,7 @@
 import type { LeaseChangeReason, TaskLifecycleSnapshot } from "../domain/task-lifecycle.contract.ts";
 import type { CanonicalEventV1, DocumentState } from "../domain/doc-sync.contract.ts";
 import type { LeaseHolder } from "../domain/execution.ts";
+import type { RuntimeSession } from "../domain/agent-runtime.ts";
 import type { TaskProgressEventV1 } from "../domain/task-progress-event.ts";
 import { readDecisionGraphRows, readFactAnchorRows, readFactGraphRows, type DecisionAgendaProjectionRow, type DecisionProjectionRow, type FactProjectionRow, type FactSearchPage } from "./fact-event-projection.ts";
 import type { ProjectionPage, TaskRelationProjectionRow } from "./task-query-projection.ts";
@@ -13,6 +14,9 @@ export interface TaskProjectionRead {
 }
 export interface TaskProjectionListRow { readonly taskId: string; readonly packagePath: string | null; readonly generation: "v0" | "v1"; readonly workspaceRevision: number; readonly updatedAt: string; readonly snapshot: TaskLifecycleSnapshot }
 export interface TaskProjectionListRead { readonly status: "ready" | "pending"; readonly rows: readonly TaskProjectionListRow[]; readonly watermark: number; readonly sourceRevision: number; readonly warnings: readonly TaskProjectionWarning[]; readonly page?: ProjectionPage }
+export interface TaskRuntimeBatchQuery { readonly taskIds: readonly string[]; readonly limit?: number; readonly cursor?: string }
+export interface TaskRuntimeBatchRow { readonly taskId: string; readonly packagePath: string | null; readonly sessions: readonly RuntimeSession[] }
+export interface TaskRuntimeBatchRead { readonly status: "ready" | "pending"; readonly taskIds: readonly string[]; readonly rows: readonly TaskRuntimeBatchRow[]; readonly watermark: number; readonly sourceRevision: number; readonly page: ProjectionPage }
 export interface TaskRelationProjectionRead { readonly status: "ready" | "pending"; readonly rows: readonly TaskRelationProjectionRow[]; readonly watermark: number; readonly sourceRevision: number; readonly page?: ProjectionPage }
 export interface ProjectionApplyReceipt { readonly metrics: { readonly sqliteTransactions: 1; readonly reducedItems: number } }
 export interface ProjectionRebuildReceipt {
