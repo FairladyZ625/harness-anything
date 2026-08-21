@@ -164,7 +164,8 @@
       ],
       "nonPullRequestGateJobs": [
         "full-check",
-        "windows-integration-shard"
+        "windows-integration-shard",
+        "nightly-daemon-soak"
       ]
     },
     "branchProtection": {
@@ -4372,6 +4373,79 @@
         "status": "covered",
         "evidence": [
           "tools/smoke-cli-package.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "nightly-daemon-soak",
+      "command": "npm run test:soak",
+      "category": "smoke",
+      "tier": "nightly-only",
+      "tierReason": "dec_E6E62653DA534ACDD1B7C0A388/CH3 requires a scheduled and manually dispatchable daemon soak without adding it to the pull-request merge path or required contexts.",
+      "authoritySource": [
+        "decision/dec_E6E62653DA534ACDD1B7C0A388#CH3",
+        "tools/soak/daemon-soak.mjs",
+        ".github/workflows/rewrite-ci.yml:jobs.nightly-daemon-soak"
+      ],
+      "consumerScope": [
+        "resident daemon behavior over a deterministic 1,377-task / 26,650-event ledger under concurrent real-client load",
+        "bounded attached-stream reconnects after daemon loss",
+        "protocol.hello P99 and daemon RSS trend during sustained load"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "nightly-daemon-soak"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "The invariant thresholds and scale fixture are fixed in the soak runner; failures remain failures and preserve readable artifacts."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/soak/daemon-soak.mjs",
+          "package.json:scripts.test:soak",
+          ".github/workflows/rewrite-ci.yml",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": "test:soak"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [
+            "nightly-daemon-soak"
+          ],
+          "scheduleOnly": true
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        },
+        "classes": [
+          "local",
+          "nightly"
+        ]
+      },
+      "deterministic": false,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/soak/daemon-soak.test.mjs rejects a 244-open reconnect storm while accepting the bounded 6-open control",
+          "Induced unlimited 40ms reconnect control produced 231 opens and failed the isolated Ubuntu soak; restored bounded reconnect produced 5 opens and passed."
         ]
       }
     },
