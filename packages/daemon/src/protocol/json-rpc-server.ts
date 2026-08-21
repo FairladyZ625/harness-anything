@@ -9,6 +9,7 @@ import { actionForDaemonMethod, daemonGuiStreamFacets, daemonProtocolError, isDa
 import { parseDaemonGuiActionResult, parseDaemonGuiReadResult, parseDaemonGuiStreamResult } from "./gui-result-validation.ts";
 import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./version.ts";
+import { daemonBuildStamp } from "../build-identity.ts";
 export interface JsonRpcProtocolServer { readonly handle: (message: JsonRpcRequest | JsonRpcRequest[]) => Promise<JsonRpcResponse | JsonRpcResponse[] | undefined>; readonly close: () => void }
 interface ObservedRequest { readonly repoId: string; readonly command: string; readonly executor: DaemonRequestLogEntry["executor"] }
 export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost; readonly authContext: DaemonAuthenticationContext; readonly emit: (method: string, params: JsonObject) => Promise<void>; readonly connectionId?: string; readonly recordRequest?: (entry: DaemonRequestLogEntry) => void; readonly recordTraffic?: (entry: DaemonTrafficLogEntry) => void; readonly requestShutdown?: () => void }): JsonRpcProtocolServer {
@@ -29,7 +30,7 @@ export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost
     observed = { ...observed, repoId: repoIdFromParams(params) };
     if (request.method === "protocol.hello") {
       if (params.protocolVersion !== currentDaemonProtocolVersion) return reply(daemonProtocolError("protocol.hello", "incompatible_protocol_version", "Use the daemon protocol version reported by this binary.") as unknown as JsonObject);
-      handshaken = true; return reply({ ok: true, protocolVersion: currentDaemonProtocolVersion, methods: jsonRpcMethodContracts.map((entry) => entry.method) });
+      handshaken = true; return reply({ ok: true, protocolVersion: currentDaemonProtocolVersion, methods: jsonRpcMethodContracts.map((entry) => entry.method), build: { ...daemonBuildStamp() } });
     }
     if (!handshaken) return reply(daemonProtocolError(request.method, "hello_required", "Call protocol.hello first.") as unknown as JsonObject);
     if (request.method === "daemon.status") return reply({ ok: true, ...options.host.status() } as unknown as JsonObject);

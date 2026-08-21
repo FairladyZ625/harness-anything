@@ -14,6 +14,9 @@ export function daemonPidPath(userRoot: string, daemonId: string): string { retu
 export function daemonSingletonLockPath(userRoot: string, daemonId: string): string { return path.join(userRoot, `daemon-${safeRuntimeId(daemonId)}.singleton.lock`); }
 export function daemonAutostartLockPath(userRoot: string, daemonId: string): string { return path.join(userRoot, `daemon-${safeRuntimeId(daemonId)}.autostart.lock`); }
 export function readDaemonPid(userRoot: string, daemonId: string): number | null { return readPidFile(daemonPidPath(userRoot, daemonId)); }
+// External stop control reads the lock holder to refuse signalling through stale bookkeeping:
+// a slot whose lock names a different pid belongs to that pid, not to the one in the pid file.
+export function readDaemonSingletonLockPid(userRoot: string, daemonId: string): number | null { return readPidFile(daemonSingletonLockPath(userRoot, daemonId)); }
 export async function acquireDaemonAutostartFlight(input: { readonly userRoot: string; readonly daemonId: string; readonly pid?: number }): Promise<{ readonly owner: boolean; readonly release: () => void }> {
   const pid = input.pid ?? process.pid, lockPath = daemonAutostartLockPath(input.userRoot, input.daemonId); mkdirSync(input.userRoot, { recursive: true });
   for (let attempt = 0; attempt < 8; attempt += 1) {

@@ -185,6 +185,7 @@
   "views.systemView.queueDepthDerived": "Derived by summing per-repository queue depth; the daemon contract does not project a global queue.",
   "views.settingsView.systemQueueDepth": "Queue depth",
   "views.systemView.userRootNotProjected": "The local main process could not resolve this daemon's user root.",
+  "views.systemView.buildStale": "The daemon is running code from commit {daemon} while this GUI is from {client} — it was started before the workspace moved on. Use Restart daemon to pick up current code.",
   "views.settingsView.systemDaemonStatus": "Daemon status",
   "views.settingsView.systemRunning": "Running",
   "views.settingsView.systemVersion": "Version",

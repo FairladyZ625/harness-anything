@@ -71,7 +71,7 @@ export interface SystemRepoRow {
 export interface DaemonPoint { readonly daemonId: string; readonly pid: number; readonly startedAt: string }
 export interface SystemStatusSuccess {
   readonly schema: "gui-system-status/v1"; readonly ok: true; readonly observedAt: string;
-  readonly daemon: DaemonPoint & { readonly protocolVersion: number; readonly uptimeMs: number; readonly endpoint: string; readonly build: { readonly version: string; readonly commitSha: string | null }; readonly userRoot?: string; readonly activeControl: null | { readonly kind: "refresh" | "restart"; readonly operationId: string; readonly phase: DaemonControlReceipt["phase"]; readonly requestedAt: string; readonly error: BridgeError | null } };
+  readonly daemon: DaemonPoint & { readonly protocolVersion: number; readonly uptimeMs: number; readonly endpoint: string; readonly build: { readonly version: string; readonly commitSha: string | null }; readonly buildStale?: null | { readonly daemonCommit: string; readonly clientCommit: string }; readonly userRoot?: string; readonly activeControl: null | { readonly kind: "refresh" | "restart"; readonly operationId: string; readonly phase: DaemonControlReceipt["phase"]; readonly requestedAt: string; readonly error: BridgeError | null } };
   readonly repos: ReadonlyArray<SystemRepoRow>;
 }
 export interface BridgeError { readonly code: string; readonly hint: string }
