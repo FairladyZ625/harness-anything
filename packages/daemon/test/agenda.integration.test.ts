@@ -5,6 +5,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { parseThinCommand } from "../../cli/src/cli/thin-command.ts";
 import { canonicalRoot, workspaceId, type DaemonAgendaResult } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
@@ -63,6 +65,41 @@ test("agenda projects an all-blocked ledger only into the waiting group", async 
     assert.deepEqual({ inFlight: agenda.inFlight, awaitingDecision: agenda.awaitingDecision, dispatchable: agenda.dispatchable }, { inFlight: [], awaitingDecision: [], dispatchable: [] });
   });
 });
+
+test("task pin and unpin reuse amend events and update agenda order", async () => {
+  await withCell("agenda-pin-command", async (cell, rootDir) => {
+    for (const taskId of ["task_a", "task_z"] as const) assert.equal((await cell.run({ kind: "task-create", taskId, title: taskId }, binding)).outcome, "applied");
+    const runCli = (argv: readonly string[]) => {
+      const parsed = parseThinCommand(argv);
+      assert.equal(parsed.ok, true, argv.join(" "));
+      if (!parsed.ok) throw new Error(parsed.nextAction);
+      return cell.run(parsed.command.action as Parameters<typeof cell.run>[0], binding);
+    };
+    const eventFor = (opId: string) => makeTaskEventStore({ repoId: "agenda-pin-command", rootDir }).readEvent(opId), pin = await runCli(["task", "pin", "task_z"]);
+    assert.equal(pin.outcome, "applied", JSON.stringify(pin));
+    const pinEvent = pinnedAmendEvent(eventFor(pin.opId));
+    assert.deepEqual(pinEvent, { type: "task_amended", command: "amend", fields: ["pinned"], pinned: true });
+    assert.deepEqual((await cell.read("repo.agenda.read")).dispatchable.map(({ taskId }) => taskId), ["task_z", "task_a"]);
+
+    const unpin = await runCli(["task", "unpin", "task_z"]);
+    assert.equal(unpin.outcome, "applied", JSON.stringify(unpin));
+    assert.deepEqual(pinnedAmendEvent(eventFor(unpin.opId)), { type: "task_amended", command: "amend", fields: ["pinned"], pinned: false });
+    const shown = await runCli(["task", "show", "task_z"]);
+    assert.match(String(shown.evidence), /"pinned":false/u);
+    assert.deepEqual((await cell.read("repo.agenda.read")).dispatchable.map(({ taskId }) => taskId), ["task_a", "task_z"]);
+
+    const amend = await runCli(["task", "amend", "task_z", "--set", "pinned:true"]);
+    assert.equal(amend.outcome, "applied", JSON.stringify(amend));
+    assert.deepEqual(pinnedAmendEvent(eventFor(amend.opId)), pinEvent);
+  });
+});
+
+function pinnedAmendEvent(event: unknown): { readonly type: "task_amended"; readonly command: "amend"; readonly fields: readonly string[]; readonly pinned: boolean } {
+  if (event === null || typeof event !== "object") throw new Error("expected a task event");
+  const candidate = event as { readonly schema?: unknown; readonly type?: unknown; readonly payload?: { readonly mutation?: { readonly command?: unknown; readonly fields?: unknown }; readonly task?: { readonly pinned?: unknown } } };
+  if (candidate.schema !== "task-event/v1" || candidate.type !== "task_amended" || candidate.payload?.mutation?.command !== "amend" || !Array.isArray(candidate.payload.mutation.fields) || typeof candidate.payload.task?.pinned !== "boolean") throw new Error("expected a pinned task_amended event");
+  return { type: "task_amended", command: "amend", fields: candidate.payload.mutation.fields as readonly string[], pinned: candidate.payload.task.pinned };
+}
 
 async function withCell(name: string, run: (cell: Awaited<ReturnType<typeof openRepoCell>>, rootDir: string) => Promise<void>): Promise<void> { const rootDir = mkdtempSync(path.join(tmpdir(), `${name}-`)); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined; try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId(name), rootDir: canonicalRoot(rootDir), ownerId: name, now: () => "2026-08-21T12:00:00.000Z" }); await run(cell, rootDir); } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); } }
 function decisionProposal() { return { kind: "decision-propose", jsonInput: JSON.stringify({ title: "Choose agenda behavior", question: "Should this proposal appear in the agenda?", riskTier: "medium", urgency: "high", vertical: "default", preset: "default", decisionClass: "ordinary", appliesTo: { modules: ["daemon"], productLines: [] }, chosen: [{ id: "CH1", text: "Project it" }], rejected: [{ id: "RJ1", text: "Hide it", whyNot: "It needs review" }], claims: [], fulfillments: [], relations: [] }) } as const; }
