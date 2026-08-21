@@ -45,6 +45,7 @@ function adaptProjectionRow(row: TaskSnapshotProjectionRow, projectId: string, p
     packagePath: row.packagePath,
     parentTaskId: row.placement.parentTaskId ?? undefined,
     ...(placement.spawningDecision ? { spawningDecision: placement.spawningDecision } : {}),
+    ...(task.pinned === true ? { pinned: true } : {}),
     currentNode: task.currentNode,
     iteration: task.iteration,
     ...(row.snapshot.lease ? { activeExecutionId: row.snapshot.lease.executionId, leaseExpiresAt: row.snapshot.lease.expiresAt } : {}),

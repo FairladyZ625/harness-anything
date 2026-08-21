@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { describe, expect, it } from "vitest";
-import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
-import { buildLedgerTimeline, ledgerIdCreatedAt, taskCreatedAt } from "../src/renderer/model/ledger-timeline.ts";
+import type { TaskRow } from "../src/renderer/model/types.ts";
+import { ledgerIdCreatedAt, sortTasksByCreatedDesc, taskCreatedAt } from "../src/renderer/model/ledger-timeline.ts";
 
 // kernel generateTaskId 形态:task_ + base32(ms,10) + 16 位熵。
 const OLD = "task_01M0507380ABCDEFGHJKMNPQRS"; // 2026-08-16T10:00:00Z
@@ -14,13 +14,6 @@ function task(taskId: string, title = taskId): TaskRow {
     freshness: "fresh", packageDisposition: "active", closeoutReadiness: "not_required",
     engine: "local", source: "local-document", module: "unassigned",
     lastKnownAt: "2026-08-01T00:00:00.000Z", gates: [], docs: [],
-  };
-}
-
-function decision(decisionId: string, proposedAt: string, title = decisionId): DecisionRow {
-  return {
-    decisionId, title, state: "in_effect", question: "q", chosen: [], rejected: [],
-    claims: [], judgmentConsents: [], body: null, proposedAt,
   };
 }
 
@@ -39,35 +32,23 @@ describe("ledger id creation-time decode", () => {
   });
 });
 
-describe("buildLedgerTimeline", () => {
-  it("mixes tasks and decisions in creation-time descending order, newest first", () => {
-    const entries = buildLedgerTimeline(
-      [task(OLD), task(NEW)],
-      [decision("dec_1", "2026-08-17T10:00:00.000Z")],
-    );
-    expect(entries.map((entry) => entry.id)).toEqual([NEW, "dec_1", OLD]);
-    expect(entries.map((entry) => entry.kind)).toEqual(["task", "decision", "task"]);
-  });
-
-  it("a newly created task or decision lands on top without search", () => {
-    const entries = buildLedgerTimeline(
-      [task(OLD), task(MID), task(NEW)],
-      [decision("dec_latest", "2026-08-19T00:00:00.000Z")],
-    );
-    expect(entries[0]).toMatchObject({ id: "dec_latest" });
-    expect(entries[1]).toMatchObject({ id: NEW });
+describe("sortTasksByCreatedDesc (overview task stream)", () => {
+  it("orders tasks newest first so a newly created task lands on top without search", () => {
+    expect(sortTasksByCreatedDesc([task(OLD), task(MID), task(NEW)]).map((row) => row.taskId))
+      .toEqual([NEW, MID, OLD]);
   });
 
   it("sorts entities with unknown creation time to the tail, keeping determinism", () => {
-    const entries = buildLedgerTimeline(
-      [task("replay-imported-task"), task(NEW)],
-      [],
-    );
-    expect(entries.map((entry) => entry.id)).toEqual([NEW, "replay-imported-task"]);
-    expect(entries[1]!.at).toBeNull();
+    const rows = sortTasksByCreatedDesc([task("replay-imported-task"), task(NEW)]);
+    expect(rows.map((row) => row.taskId)).toEqual([NEW, "replay-imported-task"]);
+    expect(taskCreatedAt(rows[1]!)).toBeNull();
   });
 
-  it("empty inputs yield an empty stream", () => {
-    expect(buildLedgerTimeline([], [])).toEqual([]);
+  it("empty input yields an empty stream and never mutates the input array", () => {
+    const input: TaskRow[] = [];
+    expect(sortTasksByCreatedDesc(input)).toEqual([]);
+    const original = [task(OLD), task(NEW)];
+    sortTasksByCreatedDesc(original);
+    expect(original.map((row) => row.taskId)).toEqual([OLD, NEW]);
   });
 });

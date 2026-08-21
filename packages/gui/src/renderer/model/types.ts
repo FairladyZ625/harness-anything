@@ -101,6 +101,11 @@ export interface TaskRow {
   urgency?: Urgency;
   /** 该 task 由哪条 decision 派生（生成式派生时必填；顶层独立 task 可空） */
   spawningDecision?: string;
+  /**
+   * 台账 pin(task/v1 `pinned`,经 `ha task pin` 写入):「我当下正在做的」,
+   * 与 coordinationStatus=active 正交——进行中未必在做,在做未必进行中。
+   */
+  pinned?: boolean;
   /** entity 原文溯源（⚠️ 与 RelationEdge.provenance 同名不同义） */
   provenance?: ReadonlyArray<ProvenanceEntry>;
   /**
