@@ -5,6 +5,9 @@ import { daemonGuiActionMethods, daemonGuiReadMethods, daemonGuiStreamFacets } f
 import { HARNESS_PRELOAD_API, assertPreloadPayload, getPreloadApiCapability, isAllowedPreloadApiMethod,
   localMainPreloadMethods, preloadAllowlist, shippedPreloadMethods } from "../src/index.ts";
 import { deriveEmptyRepoMethods, deriveRepoScopedMethods } from "../src/preload/allowlist.ts";
+import { buildRuntimeInstanceCreatePayload, type CreateInstanceFormState } from "../src/renderer/runtime-instance-form.ts";
+
+const runtimeCreateForm: CreateInstanceFormState = { instanceId: "claude-one", name: "Claude one", kindId: "claude", installationId: "claude-install", providerId: "anthropic", model: "claude-opus", reasoningEffort: "", baseUrl: "", authMode: "subscription", apiKey: "", wireApi: "", requiresOpenAiAuth: false, permissionMode: "bypass", isolation: "operator-environment" };
 
 test("preload exposes only the approved API methods", () => {
   const approved = [...[...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonGuiStreamFacets].map(({ guiBridgeMethod }) => guiBridgeMethod), ...localMainPreloadMethods];
@@ -70,11 +73,49 @@ test("Agent and Squad writes stay on the daemon allowlist and reject secret-shap
 // on createRuntimeInstance in api-key mode: nowhere else, never nested, never on
 // a subscription create.
 test("the create-form API key carve-out is a single method and a single field", () => {
-  const create = (overrides: Record<string, unknown>): Record<string, unknown> => ({ instanceId: "codex-sidecar", name: "Codex sidecar", kindId: "codex", installationId: "codex-install", providerId: "codex_local_access", model: "gpt-5.6-terra", codex: { baseUrl: "http://localhost:50818/v1", wireApi: "responses", requiresOpenAiAuth: true }, authMode: "api-key", apiKey: "sk-typed-by-user", ...overrides });
+  const create = (overrides: Record<string, unknown>): Record<string, unknown> => ({ instanceId: "codex-sidecar", name: "Codex sidecar", kindId: "codex", installationId: "codex-install", providerId: "codex_local_access", models: ["gpt-5.6-terra"], codex: { baseUrl: "http://localhost:50818/v1", wireApi: "responses", requiresOpenAiAuth: true }, authMode: "api-key", apiKey: "sk-typed-by-user", ...overrides });
   assert.equal(assertPreloadPayload("createRuntimeInstance", create()), true);
   assert.throws(() => assertPreloadPayload("createRuntimeInstance", create({ authMode: "subscription" })), /invalid/u);
   assert.throws(() => assertPreloadPayload("createRuntimeInstance", create({ apiKey: "  " })), /invalid/u);
   assert.throws(() => assertPreloadPayload("createRuntimeInstance", create({ codex: { apiKey: "nested-forbidden" } })), /secret-like key/u);
   assert.throws(() => assertPreloadPayload("showRuntimeInstance", { instanceId: "codex-sidecar", apiKey: "wrong-method" }), /secret-like key/u);
   assert.throws(() => assertPreloadPayload("spawnAgentRuntime", { repoId: "repo-a", nested: { apiKey: "wrong-path" } }), /secret-like key/u);
+});
+
+test("preload accepts the renderer's codex create payload", () => {
+  const payload = buildRuntimeInstanceCreatePayload({ ...runtimeCreateForm, instanceId: "codex-sidecar", name: "Codex sidecar", kindId: "codex", providerId: "openai", model: "gpt-5.6-sol", reasoningEffort: "high", permissionMode: "workspace-write", isolation: "enforced" }, "codex-install");
+  assert.deepEqual(Object.keys(payload).sort(), ["authMode", "codex", "installationId", "instanceId", "isolationState", "kindId", "models", "name", "permissionMode", "providerId"]);
+  assert.equal(assertPreloadPayload("createRuntimeInstance", payload), true);
+});
+
+test("preload accepts the renderer's claude create payload", () => {
+  const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
+  assert.deepEqual(Object.keys(payload).sort(), ["authMode", "claude", "installationId", "instanceId", "isolationState", "kindId", "models", "name", "permissionMode", "providerId"]);
+  assert.equal(assertPreloadPayload("createRuntimeInstance", payload), true);
+});
+
+test("preload accepts the renderer's agy create payload", () => {
+  const payload = buildRuntimeInstanceCreatePayload({ ...runtimeCreateForm, instanceId: "agy-one", name: "agy one", kindId: "agy", providerId: "google", model: "gemini-3.1-pro-low", reasoningEffort: "medium", permissionMode: undefined }, "agy-install");
+  assert.deepEqual(Object.keys(payload).sort(), ["agy", "authMode", "installationId", "instanceId", "kindId", "models", "name", "providerId"]);
+  assert.equal(assertPreloadPayload("createRuntimeInstance", payload), true);
+});
+
+test("runtime create rejection names an unknown field and the allowed expectation", () => {
+  const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
+  assert.throws(() => assertPreloadPayload("createRuntimeInstance", { ...payload, unexpectedField: true }), /unexpectedField.*expected only/u);
+});
+
+test("runtime create rejection names invalid models and the expected shape", () => {
+  const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
+  assert.throws(() => assertPreloadPayload("createRuntimeInstance", { ...payload, models: [] }), /models.*non-empty array.*non-blank strings/u);
+});
+
+test("runtime create rejection names invalid permission mode and its enum", () => {
+  const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
+  assert.throws(() => assertPreloadPayload("createRuntimeInstance", { ...payload, permissionMode: "admin" }), /permissionMode.*bypass, workspace-write, or read-only/u);
+});
+
+test("runtime create rejection names invalid isolation state and its enum", () => {
+  const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
+  assert.throws(() => assertPreloadPayload("createRuntimeInstance", { ...payload, isolationState: "disabled" }), /isolationState.*enforced or operator-environment/u);
 });

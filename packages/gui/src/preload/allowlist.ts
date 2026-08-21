@@ -5,6 +5,7 @@ export const localMainPreloadMethods = ["listRuntimeInstances", "showRuntimeInst
 export type PreloadApiMethod = (typeof daemonGuiReadMethods)[number]["guiBridgeMethod"] | (typeof daemonGuiActionMethods)[number]["guiBridgeMethod"] | (typeof daemonGuiStreamFacets)[number]["guiBridgeMethod"] | (typeof localMainPreloadMethods)[number];
 const daemonGuiFacets: ReadonlyArray<{ readonly guiBridgeMethod: PreloadApiMethod }> = [...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonGuiStreamFacets];
 const localMainFacets: ReadonlyArray<{ readonly guiBridgeMethod: PreloadApiMethod }> = localMainPreloadMethods.map((guiBridgeMethod) => ({ guiBridgeMethod }));
+const runtimeInstanceCreateFields = ["instanceId", "name", "kindId", "installationId", "providerId", "models", "permissionMode", "isolationState", "claude", "codex", "agy", "authMode", "apiKey"] as const;
 type PreloadFacet = { readonly guiBridgeMethod: string; readonly requiresRepo?: boolean; readonly inputSchemaId: string };
 export function deriveRepoScopedMethods(facets: readonly PreloadFacet[]): ReadonlySet<string> { return new Set(facets.filter(({ requiresRepo }) => requiresRepo).map(({ guiBridgeMethod }) => guiBridgeMethod)); }
 export function deriveEmptyRepoMethods(facets: readonly PreloadFacet[]): ReadonlySet<string> { return new Set(facets.filter(({ requiresRepo, inputSchemaId }) => requiresRepo && inputSchemaId === "gui.empty/v1").map(({ guiBridgeMethod }) => guiBridgeMethod)); }
@@ -55,7 +56,10 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
   if (["showRuntimeInstance", "deleteRuntimeInstance", "validateRuntimeInstanceAuth"].includes(method) && !exactStrings(payload, ["instanceId"])) throw new Error(`Preload ${method} request is invalid.`);
   if (method === "updateRuntimeInstance" && !validRuntimeInstanceUpdate(payload)) throw new Error("Preload updateRuntimeInstance request is invalid.");
   if (["signInRuntimeInstance", "reauthRuntimeInstance", "signOutRuntimeInstance"].includes(method) && !exactStrings(payload, ["repoId", "instanceId", "idempotencyKey"])) throw new Error(`Preload ${method} request is invalid.`);
-  if (method === "createRuntimeInstance" && (!isPreloadPayloadRecord(payload) || !closed(payload, ["instanceId", "name", "kindId", "installationId", "providerId", "model", "claude", "codex", "agy", "authMode", "apiKey"]) || !["claude", "codex", "agy"].includes(String(payload.kindId)) || !["subscription", "api-key"].includes(String(payload.authMode)) || payload.kindId === "agy" && payload.authMode !== "subscription" || !["instanceId", "name", "kindId", "installationId", "providerId", "model", "authMode"].every((key) => typeof payload[key] === "string" && String(payload[key]).length > 0) || (String(payload.authMode) === "api-key" ? typeof payload.apiKey !== "string" || payload.apiKey.trim().length === 0 : payload.apiKey !== undefined) || !validRuntimeKindConfig(payload))) throw new Error("Runtime instance create request is invalid.");
+  if (method === "createRuntimeInstance") {
+    const problem = runtimeInstanceCreateProblem(payload);
+    if (problem !== undefined) throw new Error(`Runtime instance create request is invalid: ${problem}`);
+  }
   return true;
 }
 // The only secret the preload ever forwards is the top-level `apiKey` the user just
@@ -65,7 +69,38 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
 // method, including `apiKey` nested inside a kind config — stays rejected.
 // (containsSecretLikeKey itself lives in api/entity-payload-hygiene.ts, shared with
 // the renderer read clients so the credential vocabulary stays out of renderer source.)
-function validRuntimeKindConfig(value: Record<string, unknown>): boolean { const field = value.kindId === "codex" ? "codex" : value.kindId === "agy" ? "agy" : "claude", other = ["claude", "codex", "agy"].filter((item) => item !== field), config = value[field]; if (other.some((key) => value[key] !== undefined) || !isPreloadPayloadRecord(config)) return false; if (field === "claude") return closed(config, ["baseUrl"]) && (config.baseUrl === undefined || typeof config.baseUrl === "string"); if (field === "agy") return closed(config, ["effort"]) && (config.effort === undefined || ["low", "medium", "high"].includes(String(config.effort))); return closed(config, ["reasoningEffort", "baseUrl", "wireApi", "requiresOpenAiAuth", "httpHeaders"]) && (config.reasoningEffort === undefined || typeof config.reasoningEffort === "string") && (config.baseUrl === undefined || typeof config.baseUrl === "string") && (config.wireApi === undefined || typeof config.wireApi === "string") && (config.requiresOpenAiAuth === undefined || typeof config.requiresOpenAiAuth === "boolean") && (config.httpHeaders === undefined || isPreloadPayloadRecord(config.httpHeaders) && Object.values(config.httpHeaders).every((item) => typeof item === "string")); }
+function runtimeInstanceCreateProblem(value: unknown): string | undefined {
+  if (!isPreloadPayloadRecord(value)) return 'field "payload" must be an object.';
+  if (!closed(value, runtimeInstanceCreateFields)) { const field = Object.keys(value).find((key) => !runtimeInstanceCreateFields.some((allowed) => allowed === key)); return `unexpected field "${field}"; expected only ${runtimeInstanceCreateFields.join(", ")}.`; }
+  for (const field of ["instanceId", "name", "installationId", "providerId"]) if (typeof value[field] !== "string" || value[field].trim().length === 0) return `field "${field}" must be a non-blank string.`;
+  if (!["claude", "codex", "agy"].includes(String(value.kindId))) return 'field "kindId" must be claude, codex, or agy.';
+  if (!Array.isArray(value.models) || value.models.length === 0 || value.models.some((model) => typeof model !== "string" || model.trim().length === 0) || new Set(value.models).size !== value.models.length) return 'field "models" must be a non-empty array of non-blank strings with no duplicates.';
+  if (!["subscription", "api-key"].includes(String(value.authMode))) return 'field "authMode" must be subscription or api-key.';
+  if (value.kindId === "agy" && value.authMode !== "subscription") return 'field "authMode" must be subscription for agy.';
+  if (value.permissionMode !== undefined && !["bypass", "workspace-write", "read-only"].includes(String(value.permissionMode))) return 'field "permissionMode" must be bypass, workspace-write, or read-only.';
+  if (value.kindId === "agy" && value.permissionMode !== undefined) return 'field "permissionMode" must be omitted for agy.';
+  if (value.isolationState !== undefined && !["enforced", "operator-environment"].includes(String(value.isolationState))) return 'field "isolationState" must be enforced or operator-environment.';
+  if (value.kindId === "agy" && value.isolationState !== undefined && value.isolationState !== "operator-environment") return 'field "isolationState" must be operator-environment for agy.';
+  if (value.kindId === "codex" && value.authMode === "api-key" && value.isolationState === "operator-environment") return 'field "isolationState" must be enforced for codex API-key auth.';
+  if (value.authMode === "api-key" && (typeof value.apiKey !== "string" || value.apiKey.trim().length === 0)) return 'field "apiKey" must be a non-blank string for api-key auth.';
+  if (value.authMode === "subscription" && value.apiKey !== undefined) return 'field "apiKey" must be omitted for subscription auth.';
+  return runtimeKindConfigProblem(value);
+}
+function runtimeKindConfigProblem(value: Record<string, unknown>): string | undefined {
+  const field = value.kindId === "codex" ? "codex" : value.kindId === "agy" ? "agy" : "claude", other = ["claude", "codex", "agy"].filter((item) => item !== field), config = value[field];
+  const wrongKind = other.find((key) => value[key] !== undefined); if (wrongKind !== undefined) return `field "${wrongKind}" must be omitted when kindId is ${field}.`;
+  if (!isPreloadPayloadRecord(config)) return `field "${field}" must be an object.`;
+  const fields = field === "claude" ? ["baseUrl"] : field === "agy" ? ["effort"] : ["reasoningEffort", "baseUrl", "wireApi", "requiresOpenAiAuth", "httpHeaders"];
+  if (!closed(config, fields)) { const nested = Object.keys(config).find((key) => !fields.includes(key)); return `unexpected field "${field}.${nested}"; expected only ${fields.join(", ")}.`; }
+  if (field === "claude") return config.baseUrl === undefined || typeof config.baseUrl === "string" ? undefined : 'field "claude.baseUrl" must be a string.';
+  if (field === "agy") return config.effort === undefined || ["low", "medium", "high"].includes(String(config.effort)) ? undefined : 'field "agy.effort" must be low, medium, or high.';
+  if (config.reasoningEffort !== undefined && typeof config.reasoningEffort !== "string") return 'field "codex.reasoningEffort" must be a string.';
+  if (config.baseUrl !== undefined && typeof config.baseUrl !== "string") return 'field "codex.baseUrl" must be a string.';
+  if (config.wireApi !== undefined && typeof config.wireApi !== "string") return 'field "codex.wireApi" must be a string.';
+  if (config.requiresOpenAiAuth !== undefined && typeof config.requiresOpenAiAuth !== "boolean") return 'field "codex.requiresOpenAiAuth" must be a boolean.';
+  if (config.httpHeaders !== undefined && (!isPreloadPayloadRecord(config.httpHeaders) || Object.values(config.httpHeaders).some((item) => typeof item !== "string"))) return 'field "codex.httpHeaders" must be an object with string values.';
+  return undefined;
+}
 function validRuntimeInstanceUpdate(value: unknown): boolean { return isPreloadPayloadRecord(value) && closed(value, ["instanceId", "enabled", "permissionMode", "isolationState"]) && typeof value.instanceId === "string" && value.instanceId.length > 0 && [value.enabled, value.permissionMode, value.isolationState].some((field) => field !== undefined) && (value.enabled === undefined || typeof value.enabled === "boolean") && (value.permissionMode === undefined || ["bypass", "workspace-write", "read-only"].includes(String(value.permissionMode))) && (value.isolationState === undefined || ["enforced", "operator-environment"].includes(String(value.isolationState))); }
 function exactStrings(value: unknown, fields: readonly string[]): boolean { return isPreloadPayloadRecord(value) && Object.keys(value).length === fields.length && fields.every((field) => typeof value[field] === "string" && String(value[field]).length > 0); }
 function closed(value: Record<string, unknown>, fields: readonly string[]): boolean { return Object.keys(value).every((key) => fields.includes(key)); }
