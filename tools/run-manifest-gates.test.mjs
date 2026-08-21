@@ -21,6 +21,24 @@ test("manifest gate runner appends shard args only to shardable gates", () => {
   ]);
 });
 
+test("manifest gate runner executes gates declared for non-pull-request workflow jobs", () => {
+  const manifest = {
+    gates: [
+      {
+        id: "test-integration",
+        command: "npm run test:integration",
+        shardable: true,
+        executionSurfaces: { rewriteCi: { pullRequestJobs: [], nonPullRequestJobs: ["windows-integration-shard"] } }
+      }
+    ]
+  };
+  const options = parseManifestGateArgs(["--workflow-job", "windows-integration-shard", "--shard", "4"]);
+
+  assert.deepEqual(buildManifestGatePlan(manifest, options), [
+    { id: "test-integration", command: "npm run test:integration -- --shard 4" }
+  ]);
+});
+
 test("manifest gate runner rejects --shard for non-shardable gates", () => {
   const manifest = {
     gates: [

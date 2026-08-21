@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { boundaryAllowlistAuthorityFindings } from "./gate-surface-boundary-policy.mjs";
+import { selectManifestGateIds } from "./run-manifest-gates.mjs";
 
 const DEFAULT_ROOT = process.cwd();
 const MANIFEST_GATE_RUNNER = "node tools/run-manifest-gates.mjs";
@@ -70,7 +71,6 @@ function checkPackageScripts({ findings, manifest, gates, gatesById, commandToGa
     aggregateName: "check",
     commands: splitShellAndList(packageScripts.check ?? ""),
     manifest,
-    gates,
     commandToGateIds
   });
   const actualCheckPrIds = mapAggregateCommands({
@@ -78,7 +78,6 @@ function checkPackageScripts({ findings, manifest, gates, gatesById, commandToGa
     aggregateName: "check:pr",
     commands: splitShellAndList(packageScripts["check:pr"] ?? ""),
     manifest,
-    gates,
     commandToGateIds
   });
 
@@ -267,12 +266,12 @@ function checkBoundaryFields({ findings, gates, packageScripts }) {
   }
 }
 
-function mapAggregateCommands({ findings, aggregateName, commands, manifest, gates, commandToGateIds }) {
+function mapAggregateCommands({ findings, aggregateName, commands, manifest, commandToGateIds }) {
   const ids = [];
   for (const command of commands) {
     const runnerInvocation = parseManifestRunnerCommand(command);
     if (runnerInvocation) {
-      const expandedIds = expandManifestRunnerIds({ invocation: runnerInvocation, manifest, gates });
+      const expandedIds = expandManifestRunnerIds({ invocation: runnerInvocation, manifest });
       if (runnerInvocation.packageSurface === null) {
         findings.push(formatFinding("package-json", `package.json scripts.${aggregateName} uses manifest gate runner without --package-surface.`));
       }
@@ -317,19 +316,19 @@ function jobRunsGateCommand({ job, gate, manifest, gates }) {
   if (job.runCommands.includes(gate.command)) {
     return true;
   }
-  if (job.runCommands.some((command) => manifestRunnerCoversGate({ command, gateId: gate.id, workflowJob: job.id, manifest, gates }))) {
+  if (job.runCommands.some((command) => manifestRunnerCoversGate({ command, gateId: gate.id, workflowJob: job.id, manifest }))) {
     return true;
   }
   const parts = splitShellAndList(gate.command);
   return parts.length > 1 && parts.every((part) => jobRunsCommandPart({ job, part, manifest, gates }));
 }
 
-function manifestRunnerCoversGate({ command, gateId, workflowJob, manifest, gates }) {
+function manifestRunnerCoversGate({ command, gateId, workflowJob, manifest }) {
   const invocation = parseManifestRunnerCommand(command);
   if (!invocation || invocation.workflowJob !== workflowJob) {
     return false;
   }
-  return expandManifestRunnerIds({ invocation, manifest, gates }).includes(gateId);
+  return expandManifestRunnerIds({ invocation, manifest }).includes(gateId);
 }
 
 function jobRunsCommandPart({ job, part, manifest, gates }) {
@@ -342,7 +341,7 @@ function jobRunsCommandPart({ job, part, manifest, gates }) {
     if (!invocation || invocation.workflowJob !== job.id) {
       continue;
     }
-    const expandedGates = expandManifestRunnerIds({ invocation, manifest, gates })
+    const expandedGates = expandManifestRunnerIds({ invocation, manifest })
       .map((id) => gatesById.get(id))
       .filter(Boolean);
     if (expandedGates.some((gate) => gate.command === part)) {
@@ -525,21 +524,8 @@ function parseManifestRunnerCommand(command) {
   return invocation;
 }
 
-function expandManifestRunnerIds({ invocation, manifest, gates }) {
-  if (invocation.packageSurface) {
-    return (manifest.surfaces?.packageJson?.[invocation.packageSurface] ?? [])
-      .filter((id) => !invocation.exclude.has(id));
-  }
-
-  if (invocation.workflowJob) {
-    return gates
-      .filter((gate) => !gate.aggregate)
-      .filter((gate) => gate.executionSurfaces?.rewriteCi?.pullRequestJobs?.includes(invocation.workflowJob))
-      .map((gate) => gate.id)
-      .filter((id) => !invocation.exclude.has(id));
-  }
-
-  return [];
+function expandManifestRunnerIds({ invocation, manifest }) {
+  return selectManifestGateIds(manifest, invocation);
 }
 
 function compareIdSets({ findings, label, expected, actual }) {
