@@ -7,6 +7,7 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
 import { makeTaskEventStore, type CanonicalEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
+import { makeWalShadowEventStore } from "../../src/store/wal-shadow-event-store.ts";
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
@@ -76,6 +77,19 @@ test("cold projection reuses one batch tree scan and its verified blob prefetch"
     assert.equal(read.status, "ready"); assert.equal(read.document?.body, batchDocumentBody(count));
     const processes = localGitObjectRefStore.processCount() - before;
     assert.equal(processes <= 7, true, `cold projection opened ${processes} Git processes for ${count} claimed blobs across two batches`);
+  });
+});
+
+test("WAL-shadow cold projection preserves Git batch content prefetch", async (t) => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir); const writer = makeTaskEventStore({ repoId: "wal-shadow-batch-prefetch", rootDir }), count = 128;
+    for (let revision = 1; revision <= count; revision += 1) writer.append(batchDocumentBundle(writer, revision));
+    const reader = makeWalShadowEventStore({ repoId: "wal-shadow-batch-prefetch", rootDir, walFlushMs: 60_000 }), projection = makeTaskProjection({ rootDir, eventStore: reader, catchUpLimit: 64 }), before = localGitObjectRefStore.processCount();
+    const rebuilt = projection.rebuild(), processes = localGitObjectRefStore.processCount() - before;
+    t.diagnostic(JSON.stringify({ events: count, gitProcesses: processes, watermark: rebuilt.watermark }));
+    assert.equal(rebuilt.watermark, count);
+    assert.equal(processes <= 7, true, `WAL-shadow cold projection opened ${processes} Git processes for ${count} claimed blobs across two batches`);
+    projection.close();
   });
 });
 
