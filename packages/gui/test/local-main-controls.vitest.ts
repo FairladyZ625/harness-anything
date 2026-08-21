@@ -60,4 +60,10 @@ describe("local main controls runtime-instance RPC", () => {
     expect(listed.ok).toBe(false);
     expect(requests.map((entry) => entry.method)).toEqual(["daemon.runtimeInstance.list"]);
   });
+  it("keeps the list and the original readiness when one instance probe is refused", async () => {
+    const unavailable = { ...instanceRow, instanceId: "codex-offline", name: "Codex offline", authReadiness: { status: "not-ready", code: "runtime_auth_not_checked", hint: "Probe pending." } };
+    reply = (method, params) => { if (method === "daemon.runtimeInstance.list") return { schema: "command-receipt/v2", ok: true, instances: [instanceRow, unavailable], installations: [] }; const instanceId = String((params.payload as Record<string, unknown>).instanceId); if (instanceId === "codex-offline") throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }); return { schema: "command-receipt/v2", ok: true, instance: { ...instanceRow, authReadiness: { status: "ready", code: null, hint: null } } }; };
+    const listed = await controls().invoke("listRuntimeInstances", null) as { instances: { instanceId: string; authReadiness: { code: string | null } }[] };
+    expect(listed.instances).toHaveLength(2); expect(listed.instances[0]!.authReadiness.code).toBeNull(); expect(listed.instances[1]).toMatchObject({ instanceId: "codex-offline", authReadiness: { code: "runtime_auth_not_checked" } });
+  });
 });
