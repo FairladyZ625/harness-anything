@@ -136,6 +136,18 @@ test("local daemon target routes a repository worktree to the canonical workspac
   }
 });
 
+test("local daemon target keeps an injected endpoint across an isolated runtime temp directory", () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-endpoint-")), workspaceRoot = path.join(fixtureRoot, "workspace"), userRoot = path.join(fixtureRoot, "user"), endpoint = process.platform === "win32" ? "\\\\.\\pipe\\harness-anything-runtime-worker" : path.join(fixtureRoot, "daemon.sock");
+  try {
+    mkdirSync(workspaceRoot); mkdirSync(userRoot); const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot);
+    writeFileSync(path.join(userRoot, "registry.json"), `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [repo("runtime-worker", canonicalWorkspaceRoot)] }, null, 2)}\n`);
+    const target = resolveLocalDaemonTarget({ rootDir: workspaceRoot, userRoot, env: { HARNESS_DAEMON_ENDPOINT: endpoint, TMPDIR: path.join(fixtureRoot, "isolated-tmp") } });
+    assert.equal(target.socketPath, endpoint);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 function repo(repoId: string, canonicalRoot: string, state = "enabled") {
   return { repoId, canonicalRoot, displayName: repoId, authoredBranch: "main", state, registeredAt: "2026-08-17T00:00:00.000Z" };
 }
