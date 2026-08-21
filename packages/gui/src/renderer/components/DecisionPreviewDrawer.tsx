@@ -4,8 +4,9 @@ import type { DecisionRow, RelationEdge, TaskRow } from "../model/types";
 import { derivedTasks, supersedeChain } from "../model/triadic.ts";
 import { DecisionStateBadge, RiskTierBadge, UrgencyBadge } from "./badges.tsx";
 import { t } from "../i18n/index.tsx";
+import { localMonthDayTime } from "../model/local-time.ts";
 
-const timeOf = (iso: string | undefined) => (iso ? iso.slice(5, 16).replace("T", " ") : "—");
+const timeOf = (iso: string | undefined) => (iso ? localMonthDayTime(iso) ?? "—" : "—");
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (

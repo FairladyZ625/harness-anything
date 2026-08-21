@@ -114,14 +114,14 @@ function listProjection(projectionPath: string, readHead: EventStreamPort["readH
     // The unparameterized read keeps its original single statement so its result
     // stays byte-identical; only explicit query parameters take the indexed path.
     if (query.status === undefined && query.updatedAfter === undefined && query.updatedBefore === undefined && query.limit === undefined && query.cursor === undefined && query.pinnedFirst !== true) {
-      const rows = db.prepare("SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path, COALESCE(task_generation.generation, 'v1') AS generation, task_snapshot.workspace_revision AS workspace_revision, event_index.event_json AS event_json FROM task_snapshot LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id) JOIN event_index ON event_index.workspace_revision = task_snapshot.workspace_revision ORDER BY task_snapshot.task_id").all() as unknown as readonly { readonly task_id: string; readonly package_path: string | null; readonly generation: "v0" | "v1"; readonly workspace_revision: number; readonly event_json: string }[];
+      const rows = db.prepare("SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path, COALESCE(task_generation.generation, 'v1') AS generation, task_snapshot.workspace_revision AS workspace_revision, (SELECT json_extract(bootstrap.event_json, '$.occurredAt') FROM event_index AS bootstrap WHERE bootstrap.task_id = task_snapshot.task_id AND json_extract(bootstrap.event_json, '$.schema') = 'task-bootstrap-event/v1' ORDER BY bootstrap.workspace_revision LIMIT 1) AS created_at, event_index.event_json AS event_json FROM task_snapshot LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id) JOIN event_index ON event_index.workspace_revision = task_snapshot.workspace_revision ORDER BY task_snapshot.task_id").all() as unknown as readonly { readonly task_id: string; readonly package_path: string | null; readonly generation: "v0" | "v1"; readonly workspace_revision: number; readonly created_at: string | null; readonly event_json: string }[];
       return { status: current === round.sourceRevision ? "ready" : "pending", rows: rows.map((row) => ({ taskId: row.task_id, packagePath: row.package_path, generation: row.generation, workspaceRevision: row.workspace_revision,
-        updatedAt: parseEventJson(row.event_json).occurredAt, snapshot: readSnapshot(db, row.task_id, at) })), watermark: current, sourceRevision: round.sourceRevision,
+        createdAt: row.created_at, updatedAt: parseEventJson(row.event_json).occurredAt, snapshot: readSnapshot(db, row.task_id, at) })), watermark: current, sourceRevision: round.sourceRevision,
         warnings: !existed && round.sourceRevision > 0 ? ["projection_missing"] : [] };
     }
     const page = listTaskRowsNarrow(db, query);
     return { status: current === round.sourceRevision ? "ready" : "pending", rows: page.rows.map((row) => ({ taskId: row.task_id, packagePath: row.package_path, generation: row.generation, workspaceRevision: row.workspace_revision,
-      updatedAt: row.updated_at, snapshot: readSnapshot(db, row.task_id, at) })), watermark: current, sourceRevision: round.sourceRevision,
+      createdAt: row.created_at, updatedAt: row.updated_at, snapshot: readSnapshot(db, row.task_id, at) })), watermark: current, sourceRevision: round.sourceRevision,
       warnings: !existed && round.sourceRevision > 0 ? ["projection_missing"] : [], ...(page.page ? { page: page.page } : {}) };
   });
 }

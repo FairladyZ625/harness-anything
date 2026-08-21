@@ -15,6 +15,7 @@ import type {
   FactAnchorRow,
   RelationCoverageRow,
 } from "../../api/renderer-dto";
+import { localDateTime } from "../model/local-time.ts";
 
 /** 信号 → 颜色/图标(triage 卡片 badge 语言) */
 const SIGNAL_VISUAL: Record<
@@ -284,7 +285,7 @@ function FactTriageCard({
           {/* 元信息行 */}
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-text-faint">
             <span className="rounded bg-surface-raised px-1.5 py-0.5">{fact.category}</span>
-            <span>@ {fact.at.slice(0, 16).replace("T", " ")}</span>
+            <span>@ {localDateTime(fact.at) ?? "—"}</span>
             {sourceTask ? (
               <button
                 onClick={() => onNavigateTask?.(sourceTask.taskId)}

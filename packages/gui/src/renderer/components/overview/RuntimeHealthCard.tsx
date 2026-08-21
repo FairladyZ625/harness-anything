@@ -4,6 +4,7 @@ import { runtimeHealthWorst } from "../../model/runtime-health.ts";
 import { formatUptimeMs } from "../../views/SystemView.tsx";
 import { t } from "../../i18n/index.tsx";
 import { StreamExitButton } from "./streamParts.tsx";
+import { localDateTime } from "../../model/local-time.ts";
 
 const HEALTH_TONE = {
   ok: "text-success",
@@ -129,7 +130,7 @@ export function RuntimeHealthCard({
           label={t("views.overviewView.healthLedgerChange")}
           ok={null}
           value={health.ledgerChange.at ? ageText(health.ledgerChange.ageSec) : t("views.overviewView.healthNever")}
-          detail={health.ledgerChange.at ? health.ledgerChange.at.slice(0, 19).replace("T", " ") : undefined}
+          detail={health.ledgerChange.at ? localDateTime(health.ledgerChange.at, true) ?? undefined : undefined}
         />
       </div>
     </div>

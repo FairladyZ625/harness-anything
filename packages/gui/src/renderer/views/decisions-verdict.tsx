@@ -33,13 +33,14 @@ import {
   type SignalColor,
   type ReadinessSignal,
 } from "../model/readiness-signals";
+import { localDateTime } from "../model/local-time.ts";
 import { DecisionJudgmentPanel, type JudgmentOpenRequest } from "../components/DecisionJudgmentPanel.tsx";
 import type { DecisionAction, DecisionMutationFeedback } from "../decision-actions.ts";
 import { t } from "../i18n/index.tsx";
 
 export { computeReadinessSignals, type SignalColor, type ReadinessSignal };
 
-const dateLabel = (iso?: string) => (iso ? iso.slice(0, 16).replace("T", " ") : "—");
+const dateLabel = (iso?: string) => (iso ? localDateTime(iso) ?? "—" : "—");
 
 /** 单盏灯 */
 function SignalLamp({ signal }: { signal: ReadinessSignal }) {

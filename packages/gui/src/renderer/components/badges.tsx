@@ -31,6 +31,7 @@ import {
 } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { t, type MessageKey } from "../i18n/index.tsx";
+import { localTime } from "../model/local-time.ts";
 
 function localizedLabel(key: MessageKey): { readonly label: string } {
   return { get label() { return t(key); } };
@@ -142,8 +143,7 @@ export function EngineBadge({ engine, locked }: { engine: EngineId; locked: bool
   );
 }
 
-const timeOf = (iso: string) =>
-  iso.slice(11, 16);
+const timeOf = (iso: string) => localTime(iso) ?? "—";
 
 export function FreshnessTag({
   freshness,

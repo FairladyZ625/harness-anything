@@ -16,8 +16,9 @@ import {
   StatusBadge,
 } from "./badges";
 import { t } from "../i18n/index.tsx";
+import { localMonthDayTime } from "../model/local-time.ts";
 
-const timeOf = (iso: string) => iso.slice(5, 16).replace("T", " ");
+const timeOf = (iso: string) => localMonthDayTime(iso) ?? "—";
 
 function Section({
   title,

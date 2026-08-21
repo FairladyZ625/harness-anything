@@ -91,6 +91,8 @@ export interface TaskRow {
   activeExecutionId?: string;
   leaseExpiresAt?: string;
   events?: EventEntry[];
+  /** task_bootstrapped occurredAt; null when the ledger has no reliable creation event. */
+  createdAt?: string | null;
   lastKnownAt: string;
   /** closeoutReadiness=ready 的起始时间，用于等待时长统计 */
   waitingSince?: string;

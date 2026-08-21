@@ -6,7 +6,7 @@ import type { DecisionRow, RelationEdge } from "../src/renderer/model/types.ts";
 
 function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotProjectionRow {
   const taskId = overrides.taskId ?? "task-x";
-  return { taskId, workspaceRevision: 1, updatedAt: "2026-08-12T00:00:00.000Z", snapshot: { revision: 1,
+  return { taskId, workspaceRevision: 1, createdAt: "2026-08-11T23:59:00.000Z", updatedAt: "2026-08-12T00:00:00.000Z", snapshot: { revision: 1,
     task: { schema: "task/v1", taskId, title: "X", taskClass: "standard", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0,
       createdBy: { principal: { personId: "person-owner" }, executor: null }, completionGateIds: [], presetSnapshotDigest: null }, executions: [], reviews: [], consents: [], codeDocWitnesses: [], gateWitnesses: [], edgesTaken: [], lease: null },
     packagePath: `tasks/${taskId}-x`, snapshotAvailability: { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" },
@@ -33,7 +33,7 @@ describe("adaptProjectionRows", () => {
     const [task] = adaptProjectionRows([row()], "repo-test");
     expect(task).toMatchObject({ taskId: "task-x", title: "X", coordinationStatus: "planned", rawStatus: "planned/implementation",
       canonicalStatus: "planned", blocking: "clear", blockingLabel: "当前投影无 active blocking relation",
-      freshness: "fresh", rootTaskId: "task-x", rootTitle: "X", module: "gui", moduleKeys: ["gui"], productLines: ["harness"],
+      freshness: "fresh", createdAt: "2026-08-11T23:59:00.000Z", rootTaskId: "task-x", rootTitle: "X", module: "gui", moduleKeys: ["gui"], productLines: ["harness"],
       origin: "native", engine: "kernel/task-lifecycle/v1" });
   });
 

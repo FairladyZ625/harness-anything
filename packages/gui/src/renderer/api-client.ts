@@ -235,7 +235,7 @@ function readCatalogRereadReceipt(value: unknown): CatalogRereadReceipt {
 }
 
 function isTaskSnapshotProjectionRow(value: unknown): value is TaskSnapshotProjectionRow {
-  if (!isRendererRecord(value) || typeof value.taskId !== "string" || typeof value.updatedAt !== "string" || value.generation !== "v0" && value.generation !== "v1" || !isRendererRecord(value.snapshot)) return false;
+  if (!isRendererRecord(value) || typeof value.taskId !== "string" || value.createdAt !== null && typeof value.createdAt !== "string" || typeof value.updatedAt !== "string" || value.generation !== "v0" && value.generation !== "v1" || !isRendererRecord(value.snapshot)) return false;
   const task = value.snapshot.task;
   return isRendererRecord(task) && task.schema === "task/v1" && task.taskId === value.taskId && typeof task.title === "string";
 }

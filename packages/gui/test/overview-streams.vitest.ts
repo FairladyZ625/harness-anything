@@ -8,6 +8,8 @@ import { TaskStream } from "../src/renderer/components/overview/TaskStream.tsx";
 import { PinnedStream } from "../src/renderer/components/overview/PinnedStream.tsx";
 import { RuntimeHealthCard } from "../src/renderer/components/overview/RuntimeHealthCard.tsx";
 import { DecisionPreviewDrawer } from "../src/renderer/components/DecisionPreviewDrawer.tsx";
+import { streamTime } from "../src/renderer/components/overview/streamParts.tsx";
+import { localDateTime, localTime } from "../src/renderer/model/local-time.ts";
 
 function task(patch: Partial<TaskRow>): TaskRow {
   return {
@@ -15,7 +17,7 @@ function task(patch: Partial<TaskRow>): TaskRow {
     coordinationStatus: "active", rawStatus: "active", freshness: "fresh",
     packageDisposition: "active", closeoutReadiness: "not_required",
     engine: "local", source: "local-document", module: "kernel",
-    lastKnownAt: "2026-08-01T00:00:00.000Z", gates: [], docs: [],
+    createdAt: null, lastKnownAt: "2026-08-01T00:00:00.000Z", gates: [], docs: [],
     ...patch,
   };
 }
@@ -78,12 +80,10 @@ describe("overview task stream", () => {
   });
 
   it("renders newest tasks first inside the internally scrolling body", () => {
-    const NEW = "task_01M0A39KE0ABCDEFGHJKMNPQRS"; // 2026-08-18
-    const OLD = "task_01M0507380ABCDEFGHJKMNPQRS"; // 2026-08-16
     const markup = renderToStaticMarkup(createElement(TaskStream, {
       tasks: [
-        task({ taskId: OLD, title: "Older task", coordinationStatus: "active" }),
-        task({ taskId: NEW, title: "Newer task", coordinationStatus: "active" }),
+        task({ taskId: "task_z_hash", title: "Older task", coordinationStatus: "active", createdAt: "2026-08-16T10:00:00.000Z" }),
+        task({ taskId: "task_a_hash", title: "Newer task", coordinationStatus: "active", createdAt: "2026-08-18T09:30:00.000Z" }),
       ],
       onOpenPreview: noop,
       onGoBoard: noop,
@@ -91,6 +91,20 @@ describe("overview task stream", () => {
     expect(markup.indexOf("Newer task")).toBeLessThan(markup.indexOf("Older task"));
     expect(markup).toContain('data-testid="task-stream-rows"');
     expect(markup).toContain("overflow-y-auto");
+  });
+
+  it("converts UTC stream timestamps with the process local timezone", () => {
+    const previous = process.env.TZ;
+    try {
+      process.env.TZ = "Asia/Taipei";
+      expect(streamTime("2026-08-21T16:04:35.025Z")).toBe("08-22 00:04");
+      expect(localDateTime("2026-08-21T16:04:35.025Z")).toBe("2026-08-22 00:04");
+      expect(localDateTime("2026-08-21T16:04:35.025Z", true)).toBe("2026-08-22 00:04:35");
+      expect(localTime("2026-08-21T16:04:35.025Z", true)).toBe("00:04:35");
+    } finally {
+      if (previous === undefined) delete process.env.TZ;
+      else process.env.TZ = previous;
+    }
   });
 
   it("shows the per-status empty state", () => {

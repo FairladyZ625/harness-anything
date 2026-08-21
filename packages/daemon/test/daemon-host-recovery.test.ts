@@ -34,6 +34,7 @@ test("a startup-failed repo self-heals on the next command and reports honest st
     const systemLatched = systemRow(host, "host-heal");
     assert.equal(systemLatched.cellState, "unavailable");
     assert.equal(systemLatched.generation, null); assert.equal(systemLatched.queueDepth, null);
+    assert.match(String(systemLatched.unavailableReason), /writer lock/u);
     // Repair the workspace underneath the live daemon; the next command re-attaches it.
     rmSync(lockPath); clock = "2026-08-18T00:00:01.000Z"; // fresh latch earned one immediate probe
     const healed = await host.run("host-heal", { kind: "task-create", taskId: "task_host_heal", title: "Host heal" }, auth);
@@ -44,6 +45,7 @@ test("a startup-failed repo self-heals on the next command and reports honest st
     assert.equal(typeof attached.queueDepth, "number");
     const systemAttached = systemRow(host, "host-heal");
     assert.equal(systemAttached.cellState, "attached"); assert.equal(typeof systemAttached.generation, "number");
+    assert.equal(systemAttached.unavailableReason, null);
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 

@@ -122,7 +122,7 @@ describe("ExecutionEvidenceView", () => {
 function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotProjectionRow {
   const taskId = overrides.taskId ?? "task-evidence";
   const base: TaskSnapshotProjectionRow = {
-    taskId, packagePath: `tasks/${taskId}`, generation: "v1", workspaceRevision: 9, updatedAt: "2026-08-14T09:00:00.000Z",
+    taskId, packagePath: `tasks/${taskId}`, generation: "v1", workspaceRevision: 9, createdAt: "2026-08-14T08:00:00.000Z", updatedAt: "2026-08-14T09:00:00.000Z",
     snapshot: {
       revision: 9,
       task: { schema: "task/v1", taskId, title: "Evidence truth", taskClass: "standard", status: "in_review", graph: REPLAY_TASK_GRAPH,
