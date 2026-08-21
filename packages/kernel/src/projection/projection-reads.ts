@@ -13,7 +13,7 @@ export interface TaskProjectionRead {
   readonly sourceRevision: number; readonly warnings: readonly TaskProjectionWarning[];
   readonly catchUp: { readonly maxItems: number; readonly reducedItems: number; readonly sqliteTransactions: 0 | 1 };
 }
-export interface TaskProjectionListRow { readonly taskId: string; readonly packagePath: string | null; readonly generation: "v0" | "v1"; readonly workspaceRevision: number; readonly updatedAt: string; readonly snapshot: TaskLifecycleSnapshot }
+export interface TaskProjectionListRow { readonly taskId: string; readonly packagePath: string | null; readonly generation: "v0" | "v1"; readonly workspaceRevision: number; readonly createdAt: string | null; readonly updatedAt: string; readonly snapshot: TaskLifecycleSnapshot }
 export interface TaskProjectionListRead { readonly status: "ready" | "pending"; readonly rows: readonly TaskProjectionListRow[]; readonly watermark: number; readonly sourceRevision: number; readonly warnings: readonly TaskProjectionWarning[]; readonly page?: ProjectionPage }
 export interface TaskRuntimeBatchQuery { readonly taskIds: readonly string[]; readonly limit?: number; readonly cursor?: string }
 export interface TaskRuntimeBatchRow { readonly taskId: string; readonly packagePath: string | null; readonly sessions: readonly RuntimeSession[] }

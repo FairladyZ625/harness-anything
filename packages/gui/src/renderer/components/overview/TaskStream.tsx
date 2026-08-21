@@ -12,7 +12,7 @@ import { StreamBody, StreamEmpty, StreamExitButton, StreamTabs, streamTime } fro
  * 状态切换是**就地筛选**——点哪个状态,本格数据源换成该状态的任务瀑布流,
  * 路由不动;「去看板」是唯一的显式路由出口,带当前状态预置。
  * 计数口径 = coordinationStatusCensus(与侧栏摘要逐字同源)。
- * 排序 = 创建时间倒序(ledgerIdCreatedAt 派生);内部滚动,不截断。
+ * 排序 = task_bootstrapped 创建时间倒序;内部滚动,不截断。
  */
 export function TaskStream({
   tasks,

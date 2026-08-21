@@ -14,12 +14,13 @@ import type { TaskFilters } from "../model/taskFilters";
 import { sortByFavoritesFirst } from "../model/taskFilters";
 import { spawningDecisionOf } from "../model/triadic";
 import { t } from "../i18n/index.tsx";
+import { localMonthDayTime } from "../model/local-time.ts";
 
 const PAGE_SIZE_OPTIONS = [8, 15, 30, 60] as const;
 type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
 const DEFAULT_PAGE_SIZE: PageSize = 15;
 
-const dateLabel = (iso: string) => iso.slice(5, 16).replace("T", " ");
+const dateLabel = (iso: string) => localMonthDayTime(iso) ?? "—";
 
 function AuditRow({
   task,

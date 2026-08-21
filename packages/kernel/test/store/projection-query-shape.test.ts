@@ -100,6 +100,8 @@ test("agenda source pages use covering keyset indexes and fetch only limit plus 
         updated_at TEXT NOT NULL DEFAULT '');
       CREATE TABLE task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);
       CREATE TABLE task_generation (task_id TEXT PRIMARY KEY, generation TEXT NOT NULL);
+      CREATE TABLE event_index (workspace_revision INTEGER PRIMARY KEY, task_id TEXT NOT NULL, event_json TEXT NOT NULL);
+      CREATE INDEX event_index_task_id ON event_index(task_id, workspace_revision);
       CREATE INDEX task_snapshot_agenda_status_pin ON task_snapshot(status, pinned DESC, task_id ASC);
     `);
     const insert = db.prepare("INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at) VALUES (?, ?, ?, 'planned', '2026-08-21T00:00:00.000Z')");

@@ -13,6 +13,7 @@ import { DecisionStateBadge, RiskTierBadge, UrgencyBadge } from "../components/b
 import { triadicQueryKeys } from "../triadic-data.ts";
 import { groupDecisions, type PoolGroupBy } from "../model/decision-pool-grouping.ts";
 import { t } from "../i18n/index.tsx";
+import { localMonthDayTime } from "../model/local-time.ts";
 
 type PoolTab = "proposed" | "active" | "retired";
 type TimeRange = "all" | "14d" | "30d";
@@ -42,7 +43,7 @@ function ChainView({ decision, relations }: { decision: DecisionRow; relations: 
   return <div className="flex flex-wrap items-center gap-1.5 text-[11px]"><GitBranch weight="bold" className="text-text-faint" />
     {chain.supersedes.length > 0 && <span className="inline-flex items-center gap-1 font-mono text-danger">{decision.decisionId}<ArrowRight weight="bold" />{t("views.decisionPoolView.retiresValue", { value: chain.supersedes.join(", ") })}</span>}
     {chain.supersededBy.length > 0 && <span className="font-mono text-stale">{t("views.decisionPoolView.supersededByValue", { value: chain.supersededBy.join(", ") })}</span>}
-    {amended && <span className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-text-muted">{t("views.decisionPoolView.amendedAtValue", { value: decision.lastChangedAt?.slice(5, 16).replace("T", " ") })}</span>}
+    {amended && <span className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-text-muted">{t("views.decisionPoolView.amendedAtValue", { value: localMonthDayTime(decision.lastChangedAt!) ?? "—" })}</span>}
   </div>;
 }
 
