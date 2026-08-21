@@ -192,12 +192,14 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       cursor: walEvents.at(-1)?.opId ?? gitBatch?.cursor ?? cursor,
       done,
       accessedItems: (gitBatch?.accessedItems ?? 0) + walEvents.length,
-      prefetchContent: (replay) =>
-        new Map(
-          replay
-            .flatMap((event) => canonicalEventContentClaims(event))
-            .map((claim) => [claim.sha256, wal.readContentBlob(claim.sha256) ?? git.readContentBlob(claim.sha256)]),
-        ),
+      prefetchContent: records.length === 0 && gitBatch?.prefetchContent !== undefined
+        ? gitBatch.prefetchContent
+        : (replay) =>
+          new Map(
+            replay
+              .flatMap((event) => canonicalEventContentClaims(event))
+              .map((claim) => [claim.sha256, wal.readContentBlob(claim.sha256) ?? git.readContentBlob(claim.sha256)]),
+          ),
     };
   };
   const append = (bundle: CanonicalWriteBundle): CanonicalEventAppendReceipt => {
