@@ -15,7 +15,10 @@ export function scanDocCandidates(input: { readonly rootDir: string; readonly wo
   return { baseLedgerSha, executionId: execution.id, lease: execution.lease, rows };
   function scanOne(logical: string): ScannedDocCandidate {
     const route = resolveDocRoute(documentPath(logical)), target = path.join(layout.authoredRoot, ...logical.split("/")), projected = input.projection.readDocument(documentPath(logical)), conflicts = conflictsFor(logical), safe = directFile(layout.authoredRoot, logical), classification = classifyTextualArtifactPath(logical), rawBytes = safe && existsSync(target) ? readFileSync(target) : null, bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, classification?.policyId), base = projected.document?.blobSha256 ?? null, candidate = bytes === null ? null : sha256Bytes(bytes);
-    if (!route.allowed) return safe && candidate !== null && candidate === base ? scannedCandidateRow("clean", null, bytes, base, candidate, classification?.mediaType ?? null) : scannedCandidateRow("blocked", safe ? `path is owned by ${route.requiredRoute}` : "path contains a symbolic link or is not a regular file", bytes, base, candidate, null, null, route.requiredRoute);
+    if (!route.allowed) {
+      if (route.requiredRoute === "people-registry" && safe && candidate !== null && base === null) return scannedCandidateRow("inapplicable", "path is owned by people-registry and is outside doc sync", bytes, base, candidate, null, null, route.requiredRoute);
+      return safe && candidate !== null && candidate === base ? scannedCandidateRow("clean", null, bytes, base, candidate, classification?.mediaType ?? null) : scannedCandidateRow("blocked", safe ? `path is owned by ${route.requiredRoute}` : "path contains a symbolic link or is not a regular file", bytes, base, candidate, null, null, route.requiredRoute);
+    }
     if (classification === null) return scannedCandidateRow("blocked", "path is not a supported textual document", null, projected.document?.blobSha256 ?? null, null);
     if (projected.watermark !== projected.sourceRevision) return scannedCandidateRow("blocked", "canonical projection is pending", null, projected.document?.blobSha256 ?? null, null);
     if (!safe) return scannedCandidateRow("blocked", "path contains a symbolic link or is not a regular file", null, projected.document?.blobSha256 ?? null, null);
