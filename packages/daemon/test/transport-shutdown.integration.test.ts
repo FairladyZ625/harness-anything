@@ -6,7 +6,7 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { requestDaemonShutdownAt } from "../src/client/local-json-rpc-client.ts";
+import { requestDaemonShutdownAt } from "../src/client/local-json-rpc-shutdown.ts";
 import type { JsonRpcRequest } from "../src/protocol/json-rpc-types.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 

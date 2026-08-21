@@ -3,7 +3,7 @@ import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts"; import { requestDaemonJsonRpcAt, requestDaemonShutdownAt, type DaemonShutdownExchange } from "../../../daemon/src/client/local-json-rpc-client.ts"; import { detachedProcessOptions, terminateProcess } from "../../../daemon/src/process-port.ts"; import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
+import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts"; import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts"; import type { DaemonShutdownExchange } from "../../../daemon/src/client/local-json-rpc-shutdown.ts"; import { detachedProcessOptions, terminateProcess } from "../../../daemon/src/process-port.ts"; import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
 import { ensureLocalDaemonRunning } from "../../../daemon/src/client/daemon-autostart.ts";
 import { readDaemonPid, startDaemon } from "../../../daemon/src/runtime.ts";
 import { daemonProcessAlive, daemonSocketProbe, readDaemonSingletonLockPid, releaseDaemonPidFile, releaseDaemonSingletonLock } from "../../../daemon/src/daemon-singleton.ts";
@@ -92,7 +92,7 @@ function statusWithBuildSkew(receipt: Record<string, unknown>): Record<string, u
 }
 async function requestCooperativeStop(userRoot: string, daemonId: string, pid: number): Promise<DaemonShutdownExchange | null> {
   let exchange: DaemonShutdownExchange | null = null;
-  try { exchange = await requestDaemonShutdownAt(localUserDaemonEndpoint(userRoot, daemonId), 75); }
+  try { const { requestDaemonShutdownAt } = await import("../../../daemon/src/client/local-json-rpc-shutdown.ts"); exchange = await requestDaemonShutdownAt(localUserDaemonEndpoint(userRoot, daemonId), 75); }
   catch (error) { consumeKnownError(error); }
   if (exchange !== null && (exchange.stopReply === null || exchange.stopReply.ok)) return exchange;
   // Two daemons end up here: one that never reached socket bind, and one that answered "no" — a
