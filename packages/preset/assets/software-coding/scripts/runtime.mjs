@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const assetRoot = path.resolve(import.meta.dirname, "..");
@@ -7,7 +7,14 @@ const assetRoot = path.resolve(import.meta.dirname, "..");
 export async function run(expectedId) {
   const context = JSON.parse(Buffer.from(process.argv[2] ?? "", "base64url").toString("utf8"));
   if (context.schema !== "vertical-script-context/v1" || context.scriptId !== expectedId) throw new Error("invalid vertical script context");
+  await waitAtTestBlocker();
   const result = handlers[expectedId](context); process.stdout.write(`${JSON.stringify({ schema: "vertical-script-plan/v1", scriptId: expectedId, warnings: [], ...result })}\n`);
+}
+
+async function waitAtTestBlocker() {
+  const blocker = process.env.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE; if (!blocker) return;
+  writeFileSync(`${blocker}.started`, `${process.pid}\n`, "utf8");
+  while (existsSync(blocker)) await new Promise((resolve) => setTimeout(resolve, 10));
 }
 
 const handlers = {

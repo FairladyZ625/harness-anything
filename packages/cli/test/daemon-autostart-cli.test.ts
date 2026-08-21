@@ -6,8 +6,10 @@ import { createServer } from "node:net";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { JsonRpcLineClient, connectSocket, requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
 import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
 import { openDaemonLifecycleLog, readDaemonLifecycleRecords } from "../../daemon/src/lifecycle-log.ts";
+import { currentDaemonProtocolVersion } from "../../daemon/src/protocol/version.ts";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
 import { makeTaskEventStore, registerDaemonRepo, REPLAY_TASK_GRAPH, taskLifecycleWritePlan, type TaskEventV1 } from "../../kernel/src/index.ts";
 
@@ -40,6 +42,47 @@ test("registered workspace CLI command auto-starts the daemon, retries, and succ
     assert.ok(generationStart >= 0 && bound > generationStart && attach > bound, "the resident socket must bind before the cold registry starts attaching");
     assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "stop"]).ok, true);
   } finally { rmSync(fixture.parent, { recursive: true, force: true }); }
+});
+
+test("a blocked vertical script keeps handshakes live without releasing its same-repo queue slot", async (context) => {
+  const fixture = setup(), repoId = "vertical-wedge", taskId = "task-vertical-wedge", blocker = path.join(fixture.parent, "vertical-script.block"), started = `${blocker}.started`, endpoint = localUserDaemonEndpoint(fixture.userRoot, "default");
+  let client: JsonRpcLineClient | undefined, queuedClient: JsonRpcLineClient | undefined, scriptRequest: Promise<Record<string, unknown>> | undefined, queuedRead: Promise<Record<string, unknown>> | undefined;
+  try {
+    writeFileSync(blocker, "blocked\n", "utf8");
+    const launched = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "daemon", "start", "--service"], { encoding: "utf8", env: { ...cliEnv(fixture.root, fixture.userRoot), HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE: blocker } });
+    assert.equal(launched.status, 0, `${launched.stderr}\n${launched.stdout}`);
+    register(fixture.root, fixture.userRoot, repoId);
+    assert.equal(run(fixture.root, fixture.userRoot, ["task", "create", "--id", taskId, "--admin", "--title", "Vertical Wedge"]).outcome, "applied");
+
+    const socket = await connectSocket(endpoint, 2_000); client = new JsonRpcLineClient(socket, socket);
+    await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
+    scriptRequest = client.request("repo.script.run", { repo: { repoId }, payload: { scriptId: "vertical:software-coding:architecture-check", taskId, inputs: {}, dryRun: true } }) as Promise<Record<string, unknown>>;
+    await waitForPath(started);
+
+    const probeStarted = performance.now(); let handshake: Record<string, unknown>;
+    try { const response = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2_000, 250); handshake = { ok: true, elapsedMs: Math.round(performance.now() - probeStarted), daemonPid: response.pid }; }
+    catch (error) { handshake = { ok: false, elapsedMs: Math.round(performance.now() - probeStarted), code: coded(error), message: error instanceof Error ? error.message : String(error) }; }
+    context.diagnostic(`blocked vertical script handshake probe: ${JSON.stringify(handshake)}`);
+    assert.equal(handshake.ok, true, JSON.stringify(handshake));
+
+    const queuedSocket = await connectSocket(endpoint, 2_000); queuedClient = new JsonRpcLineClient(queuedSocket, queuedSocket);
+    await queuedClient.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
+    queuedRead = queuedClient.request("repo.tasks.list", { repo: { repoId }, payload: {} }) as Promise<Record<string, unknown>>;
+    const orderingStarted = performance.now(), beforeRelease = await Promise.race([queuedRead.then(() => "settled" as const), new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 250))]);
+    const orderingWhileBlocked = { state: beforeRelease, elapsedMs: Math.round(performance.now() - orderingStarted) };
+    context.diagnostic(`same-repo ordering probe while script blocked: ${JSON.stringify(orderingWhileBlocked)}`);
+    assert.equal(beforeRelease, "pending", JSON.stringify(orderingWhileBlocked));
+
+    rmSync(blocker, { force: true });
+    const [scriptReceipt, readReceipt] = await Promise.all([scriptRequest, queuedRead]);
+    const orderingAfterRelease = { scriptOutcome: scriptReceipt.outcome, readStatus: readReceipt.status, taskCount: Array.isArray(readReceipt.rows) ? readReceipt.rows.length : null };
+    context.diagnostic(`same-repo ordering probe after script release: ${JSON.stringify(orderingAfterRelease)}`);
+    assert.deepEqual({ scriptOutcome: scriptReceipt.outcome, readStatus: readReceipt.status }, { scriptOutcome: "applied", readStatus: "ready" });
+  } finally {
+    rmSync(blocker, { force: true });
+    await Promise.all([scriptRequest?.catch(() => undefined), queuedRead?.catch(() => undefined)]); client?.close(); queuedClient?.close();
+    stop(fixture.root, fixture.userRoot); rmSync(fixture.parent, { recursive: true, force: true });
+  }
 });
 
 test("receipt show diagnoses a missing daemon without starting one", () => {
@@ -185,6 +228,8 @@ function run(root: string, userRoot: string, args: readonly string[], actor?: st
 function waitForDaemonDown(userRoot: string): void { const socketPath = localUserDaemonEndpoint(userRoot, "default");
   for (let attempt = 0; attempt < 200; attempt += 1) { if (readDaemonPid(userRoot, "default") === null && !existsSync(socketPath)) return; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10); }
   throw new Error("previous daemon did not drain before the autostart probe"); }
+async function waitForPath(target: string): Promise<void> { const deadline = Date.now() + 5_000; while (!existsSync(target)) { if (Date.now() >= deadline) throw new Error(`timed out waiting for ${target}`); await new Promise((resolve) => setTimeout(resolve, 10)); } }
+function coded(error: unknown): string | null { return typeof error === "object" && error !== null && "code" in error ? String((error as { readonly code: unknown }).code) : null; }
 function stop(root: string, userRoot: string): void { if (readDaemonPid(userRoot, "default") !== null) spawnSync(process.execPath, [cli, "--root", root, "--json", "daemon", "stop"], { encoding: "utf8", env: cliEnv(root, userRoot) }); }
 function statusOf(root: string, userRoot: string, taskId: string): string { const shown = run(root, userRoot, ["task", "show", taskId]); return (JSON.parse(String(shown.evidence)) as { task: { status: string } }).task.status; }
 function git(root: string, ...args: string[]): string { return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim(); }
