@@ -52,7 +52,8 @@ export function measureProductionLines({ rootDir, revision = null }) {
 }
 
 // decision-fact 480 -> 540 under dec_782A987FD2B483766D315B957A (B5 paged query input descriptors are real production surface).
-const INITIAL_MODULE_CEILINGS = Object.freeze({ "write-contract": 350, "agent-runtime": 520, "decision-fact": 540, fleet: 350 });
+// decision-fact 540 -> 563 under dec_58420E6F1D934B9841F06A95E9 (batched decision reads; expedient, superseded once task_5b9addfa9c127787c1b071f6e0 splits decision from fact).
+const INITIAL_MODULE_CEILINGS = Object.freeze({ "write-contract": 350, "agent-runtime": 520, "decision-fact": 563, fleet: 350 });
 
 export function parseBudgets(body, source = "line-budgets.json", historical = false) {
   let parsed;
