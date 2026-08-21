@@ -50,6 +50,7 @@ test("buildSteps appends integration and gui lanes only in the full tier", () =>
     assert.ok(fastScripts.includes(script), `missing manifest gate script: ${script}`);
   }
   assert.ok(fastScripts.includes("lint"));
+  assert.ok(fastScripts.includes("check:local:line-budget"));
   // Positive control: the gate PR #1358 slipped through on must be present.
   assert.ok(fastScripts.includes("harness:check-cli-help-contract"));
   // CI's boundaries exclusions must be honored locally too — and only those. The
@@ -58,6 +59,11 @@ test("buildSteps appends integration and gui lanes only in the full tier", () =>
   assert.deepEqual([...excluded], ["mergify-queue-metadata-edit-noop"]);
   assert.ok(fastScripts.includes("harness:check-duplicate-definitions"));
   assert.deepEqual(fastScripts.slice(-2), ["check:local:derived-contracts", "check:local:schema-closure"]);
+});
+
+test("the local line-budget step resolves to an executable package script", () => {
+  const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(packageJson.scripts["check:local:line-budget"], "node tools/run-local-line-budget.mjs");
 });
 
 test("selectQosPrefix wraps with taskpolicy on darwin when available", () => {

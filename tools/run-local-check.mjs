@@ -14,8 +14,8 @@
  *     reclaimed. `--no-wait` exits immediately instead of waiting.
  *   - Low QoS: on darwin, wrap each step in `taskpolicy -c utility`; otherwise
  *     fall back to `nice -n 10`; if neither is available, run bare.
- *   - Tiers: default "fast" (typecheck, lint, test:fast, test:contract,
- *     boundaries checkers, package-policy, and rebuild contract gates).
+ *   - Tiers: default "fast" (fresh-main line-budget, typecheck, lint,
+ *     test:fast, test:contract, boundaries checkers, package-policy, and rebuild contract gates).
  *     `--full` appends test:integration test:gui, and test:gui:e2e. First
  *     failing step stops the run with a non-zero exit and a clear report of
  *     which step failed.
@@ -80,7 +80,10 @@ function manifestDerivedSteps() {
     ]);
 }
 
+// G32 lives in rebuild-gates.yml rather than the rewrite-ci manifest. Keep its
+// base-sensitive local adapter explicit; the remaining static gates are derived.
 const FAST_STEPS = [
+  ["line-budget", "check:local:line-budget"],
   ["typecheck", "typecheck"],
   ["test:fast", "test:fast"],
   ["test:contract", "test:contract"],
