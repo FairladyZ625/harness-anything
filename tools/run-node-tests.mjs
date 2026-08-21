@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
-import { collectSlowTests, filterTestFilesByPrefixes, formatSlowTestSummary, parseRunnerArgs, resolveTestConcurrency, selectTestFiles } from "./node-test-runner-lib.mjs";
+import { collectSlowTests, filterTestFilesByNames, filterTestFilesByPrefixes, formatSlowTestSummary, parseRunnerArgs, resolveTestConcurrency, selectTestFiles } from "./node-test-runner-lib.mjs";
 import { discoverTestTierManifest, testTierNames } from "./test-tier-manifest.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
@@ -47,12 +47,21 @@ if (options.shard !== undefined) {
 }
 const beforePrefixes = selection.files.length;
 selection.files = filterTestFilesByPrefixes(selection.files, options.prefixes);
+const beforeFiles = selection.files.length;
+selection.files = filterTestFilesByNames(selection.files, options.files);
 
 // A prefix that selects nothing is a typo, not an empty tier. Exiting 0 here
 // would report "ran clean" for a run that executed no assertions at all.
 if (options.prefixes.length > 0 && selection.files.length === 0) {
   console.error(
     `No test file in tier ${options.tier} starts with any of: ${options.prefixes.join(", ")} (${beforePrefixes} files were available before filtering).`
+  );
+  process.exit(1);
+}
+
+if (options.files.length > 0 && selection.files.length === 0) {
+  console.error(
+    `No selected test file belongs to tier ${options.tier}: ${options.files.join(", ")} (${beforeFiles} files were available before exact-file filtering).`
   );
   process.exit(1);
 }
