@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { applyTransition, compileCompletionGateWitness, completionBlockers, eventObjectTarget, normalizeTaskLifecycleCommand, type TaskEventV1 } from "../../kernel/src/index.ts";
+import { applyTransition, compileCompletionGateWitness, completionBlockers, eventObjectTarget, normalizeTaskLifecycleCommand, serializeCanonicalEvent, sha256Text, type TaskEventV1 } from "../../kernel/src/index.ts";
 import { makeTaskEventStore, makeTaskProjection, reduceTaskEvent, serializeEventHead, serializeTaskEvent, TASK_LEASE_BROKER_CONTRACT } from "../../kernel/test/store/task-lifecycle-runtime.ts";
 import { makeTaskLifecycleService, TaskLifecycleOperationConflict } from "../src/task-lifecycle-service.ts";
 import { lifecycleHarness, replayGraph } from "./task-lifecycle-test-harness.ts";
@@ -122,6 +122,23 @@ test("transition service publishes aggregate-authored task status idempotently",
   } finally {
     projection?.close(); rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
+});
+
+test("transition republishes a historical task without its retired longRunning metadata", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-retired-metadata-"));
+  let projection: ReturnType<typeof makeTaskProjection> | undefined;
+  try {
+    initRepo(rootDir);
+    const historical = oldTaskEvent(1), metadata = { idempotencyKey: null, parentTaskId: null, workKind: "fix" as const, riskTier: "medium" as const, urgency: null, verticalId: "software/coding", presetId: "standard-task", profileId: "baseline", moduleKey: null, slug: "legacy-task", surfaces: [] as readonly string[], fromLegacyId: null };
+    const legacy = { ...historical, taskId: "task-legacy", payload: { ...historical.payload, task: { ...historical.payload.task, taskId: "task-legacy", title: "Legacy task", metadata: { ...metadata, longRunning: false } } } } as unknown as typeof historical;
+    const eventBody = serializeCanonicalEvent(legacy), target = path.join(rootDir, eventObjectTarget(legacy.opId)); mkdirSync(path.dirname(target), { recursive: true }); writeFileSync(target, eventBody); writeFileSync(path.join(rootDir, "harness/events/head.json"), serializeEventHead({ revision: 1, opId: legacy.opId, eventDigest: `sha256:${sha256Text(eventBody)}` })); git(rootDir, "add", "harness/events"); git(rootDir, "commit", "--quiet", "-m", "historical task fixture");
+    const eventStore = makeTaskEventStore({ repoId: "legacy-task", rootDir }); projection = makeTaskProjection({ rootDir, eventStore }); projection.rebuild(); const service = makeTaskLifecycleService({ eventStore, projection });
+    const block = command(rootDir, { type: "TransitionTask" as const, taskId: legacy.taskId, status: "blocked" as const, reason: "Waiting on scope", force: true }, { eventId: "event-block", workspaceRevision: 2, occurredAt: "2026-08-11T00:01:00.000Z" }, 1);
+    const receipt = await service.execute(block, {}), written = eventStore.readTaskEvent(block.opId);
+    assert.equal(receipt.outcome, "applied"); assert.equal(receipt.snapshot.task?.status, "blocked"); assert.equal(Object.hasOwn(receipt.snapshot.task?.metadata ?? {}, "longRunning"), false);
+    assert.equal(written?.schema === "task-event/v1" && Object.hasOwn(written.payload.task.metadata ?? {}, "longRunning"), false);
+    const contract = projection.readDocument("tasks/task-legacy-legacy-task/task-contract.json").document; assert.ok(contract); assert.equal(Object.hasOwn(JSON.parse(contract.body).metadata, "longRunning"), false);
+  } finally { projection?.close(); rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }); }
 });
 
 test("reinstate rolls a cancelled task back to planned, active, or in_review with an audited reason", async () => {
