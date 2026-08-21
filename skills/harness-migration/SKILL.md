@@ -1,13 +1,14 @@
 ---
 name: harness-migration
-description: Diagnose and migrate a Harness Anything ledger from a machine that does not have the current Harness installed. Use when a project's harness/ ledger predates the current generation, when daemon attach fails because a current ledger has pre-S4 doc cuts, or when a user asks to upgrade, migrate, replay, or repair an old Harness ledger. The skill first distinguishes the narrow in-place restamp case from replay, then fetches the current source into a temporary location without disturbing an existing Harness install.
+description: Diagnose and migrate a Harness Anything ledger from a machine that does not have the current Harness installed. Use when a project's harness/ ledger predates the current generation, when daemon attach fails because a current ledger has pre-S4 doc cuts, or when a user asks to upgrade, migrate, replay, or repair an old Harness ledger. The skill first confirms the symptom really is a ledger-generation mismatch, then fetches the current source into a temporary location without disturbing an existing Harness install.
 ---
 
 # Harness Migration
 
-First decide whether a broken `harness/` ledger needs a fresh replay or the
-narrow in-place cut restamp. Replay a previous-generation ledger into a freshly
-initialized current-format repository; the source is never written to.
+First confirm a broken `harness/` ledger actually has a generation mismatch
+rather than some other fault. If it does, replay it into a freshly initialized
+current-format repository; the source is never written to. Replay is the only
+supported migration path — there is no in-place repair tool.
 
 **This skill assumes nothing is installed.** It fetches the current source into
 a throwaway directory and runs everything from there. A Harness installation
@@ -170,7 +171,7 @@ Two consequences worth knowing now rather than at step 8:
 absent. Running the TypeScript entry directly is the supported path here and
 needs no build step.
 
-## 1a. Decide: replay an older ledger, or restamp an S4-stale current ledger?
+## 1a. Confirm the symptom is a ledger-generation mismatch before importing
 
 Do this **after step 1 fetches the current source, before creating a destination
 or running `migrate import`**. The symptoms below are an entry point, not a
@@ -232,22 +233,28 @@ NODE
 
 Interpret the counts conservatively:
 
-- If `unknown_schema > 0` **or** `other > 0`, this is not the narrow S4-only
-  cut mismatch. **Do not restamp it.** Continue with the replay steps in this
-  skill. The replay importer constructs current migration events rather than
-  copying source event bytes.
+- If `unknown_schema > 0` **or** `other > 0`, this is a previous-generation
+  ledger rather than the narrow S4-only cut mismatch. Continue with the replay
+  steps in this skill. The replay importer constructs current migration events
+  rather than copying source event bytes.
 - If `legacy_cut_shape > 0`, `unknown_schema = 0`, and `other = 0`, the ledger
-  is the current-generation pre-S4-cut case. **Do not use replay:** it would
-  remap IDs and rewrite the ledger when only its cut identity needs restamping.
+  is a current-generation ledger whose doc cuts predate S4. Replay handles it,
+  and replay is the only supported path: **there is no in-place restamp
+  migration, and none is planned.** An in-place restamp was built and evaluated;
+  it was deliberately not shipped, because a tool that rewrites cut identity in
+  place has to be trusted on a ledger nobody can re-derive, while replay
+  reconstructs the destination from source events and leaves the source
+  untouched.
 
-  **RESTAMP COMMAND PLACEHOLDER — do not invent or substitute a command here.**
-  When the in-place restamp migration is released, replace this paragraph with
-  its exact documented invocation. It must run against this source ledger,
-  preserve `opId`, make one migration commit, be idempotent, and work without a
-  successful daemon attach.
+  Know what replay costs you here: it remaps entity IDs and writes a new
+  ledger, which is more than this ledger strictly needs — only its cut identity
+  is stale. Budget for the ID remapping (see the ID mapping steps below) rather
+  than looking for a narrower tool. If remapped IDs are genuinely unacceptable
+  for your ledger, stop and report that; do not improvise a hand-edit of event
+  bytes.
 - If all three failure counts are zero, the stream already parses under the
-  current code. Neither replay nor restamp is indicated by this issue; stop and
-  investigate the reported symptom separately.
+  current code. This is not a generation mismatch, so migration will not fix it;
+  stop and investigate the reported symptom separately.
 
 If the scan itself cannot read the events directory or run the current parser,
 stop and report that failure. Do not infer the generation from `harness.yaml`:
