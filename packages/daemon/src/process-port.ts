@@ -19,13 +19,13 @@ export function terminateProcess(pid: number): void { process.kill(pid, "SIGTERM
 // pending SIGTERM reach its handler at the next safe point.
 export function yieldToEventLoop(): Promise<void> { return new Promise((resolve) => setImmediate(resolve)); }
 export function runProcessText(command: string, args: readonly string[], cwd?: string, env?: NodeJS.ProcessEnv): string { return execFileSync(command, [...args], { cwd, ...(env ? { env } : {}), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); }
-export function runProcessTextAsync(command: string, args: readonly string[], cwd?: string, env?: NodeJS.ProcessEnv): Promise<string> {
+export function runProcessTextAsync(command: string, args: readonly string[], cwd?: string, env?: NodeJS.ProcessEnv, input?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile(command, [...args], { cwd, ...(env ? { env } : {}), encoding: "utf8", windowsHide: true }, (error, stdout, stderr) => {
       if (error) { Object.assign(error, { stdout, stderr }); reject(error); return; }
       resolve(stdout);
     });
-    child.stdin?.end();
+    child.stdin?.end(input);
   });
 }
 export function makeGitReadinessSource() { return { run: (rootDir: string, args: readonly string[], allowNoMatch = false) => { try { return { ok: true, stdout: runProcessText("git", args, rootDir).trim() }; } catch (error) { const status = typeof error === "object" && error && "status" in error ? Number(error.status) : null; return { ok: allowNoMatch && status === 1, stdout: "" }; } } }; }
