@@ -205,6 +205,11 @@ export function DecisionStateBadge({ state }: { state: DecisionState }) {
   );
 }
 
+/** 决策状态词的显示名(决策流状态切换钮与徽章共用同一标签源)。 */
+export function decisionStateLabel(state: DecisionState): string {
+  return DECISION_STATE_META[state].label;
+}
+
 const RISK_META: Record<RiskTier, { label: string; cls: string }> = {
   high: { ...localizedLabel("components.badges.highRisk"), cls: "text-danger" },
   medium: { ...localizedLabel("components.badges.mediumRisk"), cls: "text-stale" },

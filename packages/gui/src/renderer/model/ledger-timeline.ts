@@ -1,24 +1,15 @@
-import type { DecisionRow, TaskRow } from "./types.ts";
+import type { TaskRow } from "./types.ts";
 
 /**
- * 主页任务流(老 Archive 主线的时间线形态,用现有投影重实现)。
+ * 总览任务流的排序模型(任务与决策分流后,本模块只管任务侧;决策流见
+ * triadic.sortDecisionQueue)。
  *
- * 时间来源:
- * - task:kernel mint 的 taskId 自带创建时间戳段(task_ + base32(ms,10) + 熵,
- *   见 kernel layout/generateTaskId)。当前 repo.tasks.list 投影行不再携带
- *   createdAt,前端从 id 派生——这是 mint 规则的确定性解码,不是猜。
- * - decision:投影行必带 proposedAt(daemon 契约 nonEmpty),直接用;
- *   decisionId 是 opId 哈希,不含时间信息,不做 id 解码。
- * - 解不出时间的实体(重放/导入的任意 id)排尾部,时间显示「—」,
- *   不拿 lastKnownAt 冒充创建时间。
+ * 时间来源:kernel mint 的 taskId 自带创建时间戳段(task_ + base32(ms,10) +
+ * 熵,见 kernel layout/generateTaskId)。当前 repo.tasks.list 投影行不携带
+ * createdAt,前端从 id 派生——这是 mint 规则的确定性解码,不是猜。
+ * 解不出时间的实体(重放/导入的任意 id)排尾部,时间显示「—」,
+ * 不拿 lastKnownAt 冒充创建时间。
  */
-export interface LedgerTimelineEntry {
-  readonly kind: "task" | "decision";
-  readonly id: string;
-  readonly title: string;
-  /** 创建/提案时间;null = 无法从投影确定。 */
-  readonly at: string | null;
-}
 
 /** kernel Crockford base32 字母表(与 layout/index.ts 的 crockfordBase32 一致)。 */
 const CROCKFORD_BASE32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -42,23 +33,13 @@ export function taskCreatedAt(task: TaskRow): string | null {
   return ledgerIdCreatedAt(task.taskId);
 }
 
-export function decisionCreatedAt(decision: DecisionRow): string | null {
-  return decision.proposedAt ?? null;
-}
-
-/** 任务 + 决策按创建时间倒序混排;最新在最上面,无时间的排尾部。 */
-export function buildLedgerTimeline(
-  tasks: ReadonlyArray<TaskRow>,
-  decisions: ReadonlyArray<DecisionRow>,
-): readonly LedgerTimelineEntry[] {
-  const entries: LedgerTimelineEntry[] = [
-    ...tasks.map((task) => ({ kind: "task" as const, id: task.taskId, title: task.title, at: taskCreatedAt(task) })),
-    ...decisions.map((decision) => ({ kind: "decision" as const, id: decision.decisionId, title: decision.title, at: decisionCreatedAt(decision) })),
-  ];
-  return entries.sort((left, right) => {
-    if (left.at === null && right.at === null) return right.id.localeCompare(left.id);
-    if (left.at === null) return 1;
-    if (right.at === null) return -1;
-    return right.at.localeCompare(left.at) || right.id.localeCompare(left.id);
+/** 任务按创建时间倒序;最新在最上面,无时间的排尾部(尾部内按 id 稳定)。 */
+export function sortTasksByCreatedDesc(tasks: ReadonlyArray<TaskRow>): TaskRow[] {
+  return [...tasks].sort((left, right) => {
+    const leftAt = taskCreatedAt(left), rightAt = taskCreatedAt(right);
+    if (leftAt === null && rightAt === null) return right.taskId.localeCompare(left.taskId);
+    if (leftAt === null) return 1;
+    if (rightAt === null) return -1;
+    return rightAt.localeCompare(leftAt) || right.taskId.localeCompare(left.taskId);
   });
 }

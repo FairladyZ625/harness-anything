@@ -124,6 +124,14 @@ function AppShell() {
   // 决策批准角标:proposed 决策数(唯一面向人的"待人处理"计数)
   const inboxCount = decisions.filter((d) => d.state === "proposed").length;
 
+  // 总览第四格输入(口径见 model/runtime-health.ts):daemon 响应折算自
+  // systemQuery 成败 + observedAt 年龄;投影落后取 tasksQuery 的同一对数字。
+  const overviewSystemHealth = useMemo(() => ({
+    daemon: systemQuery.data ? { ok: !systemQuery.isError, observedAt: systemQuery.data.observedAt, uptimeMs: systemQuery.data.daemon.uptimeMs } : null,
+    repo: activeRepo ?? null,
+    projection: tasksQuery.data ? { watermark: tasksQuery.data.watermark, sourceRevision: tasksQuery.data.sourceRevision, status: tasksQuery.data.status } : null,
+  }), [activeRepo, systemQuery.data, systemQuery.isError, tasksQuery.data]);
+
   const goto = (v: ViewId) => {
     navigate({
       view: v,
@@ -444,13 +452,13 @@ function AppShell() {
                 project={project}
                 tasks={projectTasks}
                 decisions={decisions}
-                facts={facts}
                 relations={relations}
+                systemHealth={overviewSystemHealth}
                 onSelect={openTaskPreview}
-                onDrill={drillToBoard}
+                onDrill={(status) => drillToBoard("__all__", status, "root")}
                 onOpenInbox={() => goto("decisions")}
-                onOpenDecisionPool={() => goto("decisionPool")}
                 onOpenDecision={navigateToDecision}
+                onOpenSystem={() => goto("system")}
               />
             ) : view === "board" ? (
               <BoardView

@@ -51,21 +51,32 @@ test("Overview is first-usable only with real interactive projection content", {
   await taskSurface.or(taskError).first().waitFor({ timeout: 20_000 });
   if (await taskError.isVisible()) throw new Error(`GUI task bridge failed:\n${await taskError.innerText()}`);
 
-  // 总览默认视图:真实 proposed decision 出现(事件台账派生,非 mock)。
-  await page.getByRole("button", { name: /dec_gui_smoke.*Expose the triadic projection to the GUI/u }).waitFor({ timeout: 20_000 });
+  // 总览决策流:真实 proposed decision 出现(事件台账派生,非 mock)。
+  // 点击行 = 开预览抽屉(抽屉头带 decisionId),不是跳页 —— Esc 关闭。
+  const decisionRow = page.getByRole("button", { name: /Expose the triadic projection to the GUI/u }).first();
+  await decisionRow.waitFor({ timeout: 20_000 });
+  await decisionRow.click();
+  await page.getByText("dec_gui_smoke").first().waitFor({ timeout: 10_000 });
+  await page.keyboard.press("Escape");
   await page.getByTestId("real-task-summary").waitFor({ timeout: 20_000 });
 
-  // 总览 → 看板下钻是交互面:active 状态块可点,落到看板泳道。
-  const activeTile = page.getByTestId("overview-status-active");
-  await activeTile.waitFor();
-  await activeTile.click();
+  // 总览任务流:状态切换是就地筛选(2026-08-21 泽宇反馈)。fixture 任务经
+  // repo.task.create 进 planned;从默认 active 页签切到 planned,本页数据换源、
+  // 路由不动(仍在总览);显式「去看板」才是路由出口。
+  const activeTab = page.getByTestId("overview-status-active");
+  await activeTab.waitFor();
+  const plannedTab = page.getByTestId("overview-status-planned");
+  await plannedTab.click();
+  await page.getByTestId("task-stream-rows").getByText("Render the real triadic projection").first().waitFor({ timeout: 10_000 });
+  await page.getByText("一屏四问").waitFor({ timeout: 10_000 });
+  await page.getByRole("button", { name: "去看板" }).click();
   await page.getByText("Render the real triadic projection").first().waitFor({ timeout: 10_000 });
 
   // 视图级后退/前进历史:back 回总览,forward 回看板。
   const navBar = page.getByTestId("nav-history-bar");
   await navBar.waitFor();
   await navBar.getByRole("button", { name: /后退/u }).click();
-  await page.getByText("一屏三问").waitFor({ timeout: 10_000 });
+  await page.getByText("一屏四问").waitFor({ timeout: 10_000 });
   await navBar.getByRole("button", { name: /前进/u }).click();
   await page.getByText("Render the real triadic projection").first().waitFor({ timeout: 10_000 });
 

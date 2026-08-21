@@ -65,12 +65,19 @@ export function rationaleFor(ref: string, relations: RelationEdge[]): string | u
 export const axisRank = (value?: "high" | "medium" | "low") =>
   value === "high" ? 0 : value === "medium" ? 1 : value === "low" ? 2 : 3;
 
+/**
+ * 决策队列排序:风险 high→low → 紧急度 high→low → proposedAt 倒序。
+ *
+ * 风险/紧急度保持主键(队列语义是「先裁哪个」,时间提为主键会把滞留的高风险
+ * 决策压到最新低风险之下);同档内最新在前——泽宇 2026-08-21 的「时间倒序」
+ * 指的是这一层。总览决策流、决策批准、决策池三处共用本排序。
+ */
 export function sortDecisionQueue(decisions: DecisionRow[]): DecisionRow[] {
   return [...decisions].sort((a, b) => {
     const risk = axisRank(a.riskTier) - axisRank(b.riskTier);
     if (risk !== 0) return risk;
     const urgency = axisRank(a.urgency) - axisRank(b.urgency);
     if (urgency !== 0) return urgency;
-    return (a.proposedAt ?? "").localeCompare(b.proposedAt ?? "");
+    return (b.proposedAt ?? "").localeCompare(a.proposedAt ?? "");
   });
 }
