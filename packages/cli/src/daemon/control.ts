@@ -3,10 +3,11 @@ import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts"; import { requestDaemonJsonRpcAt, requestDaemonShutdownAt } from "../../../daemon/src/client/local-json-rpc-client.ts"; import { detachedProcessOptions, terminateProcess } from "../../../daemon/src/process-port.ts"; import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
+import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts"; import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts"; import type { DaemonShutdownExchange } from "../../../daemon/src/client/local-json-rpc-shutdown.ts"; import { detachedProcessOptions, terminateProcess } from "../../../daemon/src/process-port.ts"; import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
 import { ensureLocalDaemonRunning } from "../../../daemon/src/client/daemon-autostart.ts";
 import { readDaemonPid, startDaemon } from "../../../daemon/src/runtime.ts";
-import { daemonProcessAlive, releaseDaemonPidFile, releaseDaemonSingletonLock } from "../../../daemon/src/daemon-singleton.ts";
+import { daemonProcessAlive, daemonSocketProbe, readDaemonSingletonLockPid, releaseDaemonPidFile, releaseDaemonSingletonLock } from "../../../daemon/src/daemon-singleton.ts";
+import { daemonBuildStamp } from "../../../daemon/src/build-identity.ts";
 import { cliDaemonServeLaunch, consumeKnownError } from "./client.ts";
 import { daemonRepoModeWords } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { firstCliCommandIndex } from "../cli/thin-command.ts";
@@ -36,8 +37,11 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       const running = await status(userRoot, daemonId).catch(() => null); if (running?.ok === true) return finish(running, 0);
       const started = await ensureLocalDaemonRunning({ socketPath: localUserDaemonEndpoint(userRoot, daemonId), launch: () => cliDaemonServeLaunch(userRoot, daemonId), onProgress: (progress) => process.stderr.write(`${progress.message}\n`) });
       return started.ok ? finish(await status(userRoot, daemonId), 0) : finish(daemonFailure("daemon-start", started.code ?? "daemon_start_failed", started.hint), 1); }
-    if (command === "status") { const receipt = await status(userRoot, daemonId); return finish(receipt, 0); }
-    if (command === "stop") { const pid = readDaemonPid(userRoot, daemonId); if (pid === null) return finish(daemonFailure("daemon-stop", "daemon_unavailable", "No daemon is running."), 1); await requestCooperativeStop(userRoot, daemonId, pid); const stopped = await waitForDaemonStop(userRoot, daemonId, pid); return stopped ? finish({ ok: true, command: "daemon-stop", pid }, 0) : finish(daemonFailure("daemon-stop", "daemon_stop_timeout", `Daemon pid ${pid} did not finish stopping within 5s; inspect its lifecycle log before sending another signal.`), 1); }
+    if (command === "status") { const receipt = await status(userRoot, daemonId); return finish(statusWithBuildSkew(receipt), 0); }
+    if (command === "stop") { const pid = readDaemonPid(userRoot, daemonId); if (pid === null) return finish(daemonFailure("daemon-stop", "daemon_unavailable", "No daemon is running."), 1);
+      if (argv.includes("--force")) { const forced = await forceStopDaemon(userRoot, daemonId, pid); return finish(forced, forced.ok === true ? 0 : 1); }
+      const exchange = await requestCooperativeStop(userRoot, daemonId, pid); const stopped = await waitForDaemonStop(userRoot, daemonId, pid);
+      return stopped ? finish({ ok: true, command: "daemon-stop", pid }, 0) : finish(daemonFailure("daemon-stop", "daemon_stop_timeout", await stopTimeoutHint(userRoot, daemonId, pid, exchange)), 1); }
     return finish(daemonFailure("daemon", "unsupported_command", "Use daemon projection rebuild, daemon repo register|unregister, fleet center start, fleet edge sync, start --service, status, or stop."), 2);
   } catch (error) { return finish(daemonFailure(`daemon-${command ?? "unknown"}`, code(error), message(error)), 1); }
 }
@@ -73,15 +77,73 @@ function deferredServeReceipt(incumbent: { readonly pid: number | null; readonly
   return { ok: true, command: "daemon-serve", outcome: "deferred", incumbent: { pid: incumbent.pid, endpoint: incumbent.endpoint }, summary: `daemon serve deferred: ${witness}; this process did not bind the socket or take any workspace writer lock.`, nextAction: "Use the resident daemon (ha daemon status) or stop it first (ha daemon stop)." };
 }
 async function status(userRoot: string, daemonId: string): Promise<Record<string, unknown>> { return requestDaemonJsonRpcAt(localUserDaemonEndpoint(userRoot, daemonId), "daemon.status", {}, 75) as Promise<Record<string, unknown>>; }
-async function requestCooperativeStop(userRoot: string, daemonId: string, pid: number): Promise<void> {
-  try {
-    await requestDaemonShutdownAt(localUserDaemonEndpoint(userRoot, daemonId), 75);
-    return;
-  } catch (error) { consumeKnownError(error); }
-  // Only a daemon that never reached socket bind cannot receive the queued shutdown. A connected
-  // daemon gets hello and stop in one write, so slow startup work cannot turn a response timeout
-  // into an ungraceful Windows termination that strands its workspace writer lock.
+// The resident daemon outlives the tree it serves, so status is where the mismatch becomes visible
+// instead of surfacing later as a wall of schema rejections from a GUI or CLI speaking newer wire.
+// A missing build field proves the daemon predates build reporting; a present-but-null commit
+// (packaged without a stamp) proves nothing and stays silent.
+function statusWithBuildSkew(receipt: Record<string, unknown>): Record<string, unknown> {
+  const build = "build" in receipt ? receipt.build : undefined;
+  const daemonCommit = typeof build === "object" && build !== null && typeof (build as Record<string, unknown>).commit === "string" ? (build as Record<string, unknown>).commit as string : null, own = daemonBuildStamp().commit;
+  if (daemonCommit === own || daemonCommit === null && build !== undefined) return receipt;
+  const detail = build === undefined
+    ? "the daemon did not report a build commit (it predates build reporting); it may be running older code"
+    : `the daemon is serving code from commit ${daemonCommit?.slice(0, 12)} while this CLI is ${own?.slice(0, 12) ?? "unknown"}`;
+  return { ...receipt, buildSkew: { daemonCommit, cliCommit: own }, summary: `${String(receipt.summary ?? "")} — ${detail}; restart it with \`ha daemon stop\` and the next command, or the GUI restart control.` };
+}
+async function requestCooperativeStop(userRoot: string, daemonId: string, pid: number): Promise<DaemonShutdownExchange | null> {
+  let exchange: DaemonShutdownExchange | null = null;
+  try { const { requestDaemonShutdownAt } = await import("../../../daemon/src/client/local-json-rpc-shutdown.ts"); exchange = await requestDaemonShutdownAt(localUserDaemonEndpoint(userRoot, daemonId), 75); }
+  catch (error) { consumeKnownError(error); }
+  if (exchange !== null && (exchange.stopReply === null || exchange.stopReply.ok)) return exchange;
+  // Two daemons end up here: one that never reached socket bind, and one that answered "no" — a
+  // build without daemon.stop, or a composition without a shutdown owner. Both cannot act on the
+  // RPC, so the signal ladder takes over; serve() drains SIGTERM through the same cooperative
+  // latch as an RPC stop. A daemon that stayed silent keeps its queued shutdown and is left to drain.
   signalStop(pid);
+  return exchange;
+}
+// The old hint pointed at the lifecycle log, which is exactly the surface that stays silent when a
+// stop is rejected: the daemon never heard a request it would record. This one reports what was
+// observed on the way to the timeout and names the supported escalation instead.
+async function stopTimeoutHint(userRoot: string, daemonId: string, pid: number, exchange: DaemonShutdownExchange | null): Promise<string> {
+  const alive = daemonProcessAlive(pid), up = await daemonSocketProbe(localUserDaemonEndpoint(userRoot, daemonId));
+  const reply = exchange?.stopReply == null
+    ? exchange?.helloAnswered === true ? "the daemon answered protocol.hello but never answered daemon.stop (a long write may be holding it)"
+      : "the daemon accepted the connection but never answered the handshake (still starting, or wedged during startup)"
+    : exchange.stopReply.ok ? "the daemon accepted daemon.stop but did not finish draining"
+      : `the daemon rejected daemon.stop (${exchange.stopReply.code ?? "unknown"}${exchange.stopReply.message ? `: ${exchange.stopReply.message}` : ""}) and SIGTERM was sent as the fallback`;
+  return `Daemon pid ${pid} did not stop within 5s. Observed: process ${alive ? "alive" : "gone"}, socket ${up ? "accepting connections" : "not accepting"}, ${reply}${daemonSkewNote(exchange?.daemonCommit ?? null)}. Run \`ha daemon stop --force\` to signal pid ${pid} directly and clear its bookkeeping.`;
+}
+// Skew is the diagnosis, not something to paper over: a daemon serving an older commit is the
+// standing explanation for a rejected stop, and it stays stale until restarted.
+function daemonSkewNote(daemonCommit: string | null): string {
+  const own = daemonBuildStamp().commit;
+  return daemonCommit !== null && own !== null && daemonCommit !== own ? `; the daemon is serving code from commit ${daemonCommit.slice(0, 12)} while this CLI is ${own.slice(0, 12)} — it is running older code` : "";
+}
+// The supported escalation when a daemon will not drain. Signals go to exactly the pid recorded
+// for this (user-root, daemon-id), never by name, and each step first re-reads the bookkeeping:
+// the singleton lock (held by every recent daemon for its whole life) must not name a different
+// pid, so a replacement daemon that took over the slot — or a recycled pid behind a stale pid
+// file — is refused rather than signalled.
+async function forceStopDaemon(userRoot: string, daemonId: string, pid: number): Promise<Record<string, unknown>> {
+  const replaced = (claimed: number | null): boolean => {
+    const holder = readDaemonSingletonLockPid(userRoot, daemonId);
+    return claimed !== null && claimed !== pid || holder !== null && holder !== pid;
+  };
+  if (replaced(readDaemonPid(userRoot, daemonId))) return daemonFailure("daemon-stop", "daemon_replaced", `The daemon slot for --daemon-id ${daemonId} no longer belongs to pid ${pid} (its bookkeeping names a different pid); no signal was sent. If pid ${pid} really is a harness daemon from before singleton bookkeeping, stop it with kill ${pid}.`);
+  signalStop(pid);
+  if (await waitProcessExit(pid, 2_000)) return { ok: true, command: "daemon-stop", pid, forced: true, summary: `daemon-stop: pid ${pid} terminated (SIGTERM)` };
+  if (replaced(readDaemonPid(userRoot, daemonId))) return daemonFailure("daemon-stop", "daemon_replaced", `The daemon slot for --daemon-id ${daemonId} was retaken while stopping pid ${pid}; no SIGKILL was sent. Run ha daemon status to see the current daemon.`);
+  try { process.kill(pid, "SIGKILL"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") return daemonFailure("daemon-stop", "daemon_force_failed", `pid ${pid} could not be signalled: ${message(error)}`); consumeKnownError(error); }
+  await waitProcessExit(pid, 2_000);
+  releaseDaemonPidFile(userRoot, daemonId, pid); releaseDaemonSingletonLock(userRoot, daemonId, pid);
+  return daemonProcessAlive(pid)
+    ? daemonFailure("daemon-stop", "daemon_force_failed", `pid ${pid} is still alive after SIGKILL; it is not responding to signals (check its owner or state with ps -o pid,ppid,stat,command -p ${pid}).`)
+    : { ok: true, command: "daemon-stop", pid, forced: true, summary: `daemon-stop: pid ${pid} terminated (SIGKILL); pid file and singleton lock released` };
+}
+async function waitProcessExit(pid: number, budgetMs: number): Promise<boolean> {
+  for (const deadline = Date.now() + budgetMs; daemonProcessAlive(pid) && Date.now() < deadline;) await new Promise((resolve) => setTimeout(resolve, 10));
+  return !daemonProcessAlive(pid);
 }
 // A daemon that exited between reading its pid file and being signalled is stopped, which is what
 // the caller asked for. Reporting the failed signal instead would answer a question nobody asked.

@@ -6,6 +6,7 @@ import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import { createLocalGuiServiceBridge } from "./local-composition-root.ts";
 import { addLocalMainControls } from "./local-main-controls.ts";
 import { resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
+import { daemonBuildStamp } from "../../../daemon/src/build-identity.ts";
 import { evaluateNavigationRequest, evaluatePermissionRequest, evaluateWindowOpenRequest } from "./security-policy.ts";
 import { assertDevRendererUrl, createGuiContentSecurityPolicy } from "./window-config.ts";
 
@@ -68,7 +69,7 @@ export async function startGuiApp(): Promise<void> {
   await app.whenReady();
   installContentSecurityPolicy();
   const trustedWebContentsIds = new Set<number>();
-  const rootDir = resolveGuiProjectRoot(), packaged = app.isPackaged ? { resourcesPath: process.resourcesPath } : undefined, bridge = createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides(), packaged ? { packaged } : {}), controlled = addLocalMainControls({ bridge, target: async (repoId) => resolveLocalDaemonTarget({ rootDir, ...(repoId ? { repoIdOverride: repoId } : {}) }), ...(packaged ? { packaged } : {}) });
+  const rootDir = resolveGuiProjectRoot(), packaged = app.isPackaged ? { resourcesPath: process.resourcesPath } : undefined, bridge = createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides(), packaged ? { packaged } : {}), controlled = addLocalMainControls({ bridge, target: async (repoId) => resolveLocalDaemonTarget({ rootDir, ...(repoId ? { repoIdOverride: repoId } : {}) }), clientBuildCommit: daemonBuildStamp().commit, ...(packaged ? { packaged } : {}) });
   registerHarnessIpcHandlers(ipcMain, controlled, {
     isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
     rendererUrl: {

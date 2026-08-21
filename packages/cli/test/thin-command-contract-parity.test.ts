@@ -22,7 +22,12 @@ test("all public commands expose the canonical structured input facet", () => {
     assert.deepEqual(deriveThinCliInputs(command), command.inputs, command.id);
     assert.equal(command.inputs.every((input) => input.name.startsWith("--") && Object.hasOwn(input, "required") && Object.hasOwn(input, "error")), true, command.id);
   }
-  for (const id of ["task-show", "receipt-show", "doc-materialize", "preset-upgrade", "ledger-migrate", "daemon-projection-rebuild", "daemon-start", "daemon-status", "daemon-stop"]) assert.deepEqual(daemonProtocolCommands.find((command) => command.id === id)?.inputs, [], id);
+  for (const id of ["task-show", "receipt-show", "doc-materialize", "preset-upgrade", "ledger-migrate", "daemon-projection-rebuild", "daemon-start", "daemon-status"]) assert.deepEqual(daemonProtocolCommands.find((command) => command.id === id)?.inputs, [], id);
+  // daemon-stop is the one daemon control with a flag: --force is the supported escalation when
+  // a cooperative stop times out, and the usage line is derived from this declaration.
+  const daemonStop = daemonProtocolCommands.find((command) => command.id === "daemon-stop");
+  assert.deepEqual(daemonStop?.inputs.map((input) => [input.name, input.kind]), [["--force", "boolean"]], "daemon-stop");
+  assert.match(daemonStop?.usage ?? "", /daemon stop \[--force\]/u, "daemon-stop");
 });
 
 test("daemon-effective rebuilds keep their declared positional in usage", () => {

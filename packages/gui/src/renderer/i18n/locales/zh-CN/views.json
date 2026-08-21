@@ -185,6 +185,7 @@
   "views.systemView.queueDepthDerived": "由各仓队列深度求和派生；daemon 契约未投影全局队列。",
   "views.settingsView.systemQueueDepth": "队列深度",
   "views.systemView.userRootNotProjected": "本地主进程未能解析该 daemon 的用户根目录。",
+  "views.systemView.buildStale": "daemon 正在运行提交 {daemon} 的旧代码，而当前 GUI 是 {client} —— 它启动于工作区更新之前。请用“重启守护进程”让其加载当前代码。",
   "views.settingsView.systemDaemonStatus": "守护进程状态",
   "views.settingsView.systemRunning": "运行中",
   "views.settingsView.systemVersion": "版本",

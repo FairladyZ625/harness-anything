@@ -32,19 +32,6 @@ export async function requestDaemonJsonRpcAt(socketPath: string, method: string,
   return requestWithSocket(await connectSocket(socketPath, timeoutMs), method, params, responseTimeoutMs);
 }
 
-export async function requestDaemonShutdownAt(socketPath: string, timeoutMs = 75): Promise<void> {
-  const socket = await connectSocket(socketPath, timeoutMs);
-  const payload = [
-    { jsonrpc: "2.0", method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } } satisfies JsonRpcRequest,
-    { jsonrpc: "2.0", method: "daemon.stop", params: {} } satisfies JsonRpcRequest
-  ].map((request) => JSON.stringify(request)).join("\n") + "\n";
-  await new Promise<void>((resolve, reject) => {
-    const fail = (error: Error) => reject(error);
-    socket.once("error", fail);
-    socket.end(payload, () => { socket.off("error", fail); resolve(); });
-  });
-}
-
 export class JsonRpcLineClient {
   private nextId = 1;
   private readonly input: Readable;
@@ -85,11 +72,11 @@ function responseTimeoutHint(method: string, responseTimeoutMs: number): string 
   return `the daemon did not answer ${method} within ${waited}; a long write may be holding the workspace queue, or the daemon wedged during startup. Run ha daemon status, wait for it to finish, then retry.`;
 }
 
-function connectSocket(socketPath: string, timeoutMs: number): Promise<net.Socket> {
+export function connectSocket(socketPath: string, timeoutMs: number): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath), timer = setTimeout(() => { socket.destroy(); reject(new Error("daemon_unavailable")); }, timeoutMs);
     socket.once("connect", () => { clearTimeout(timer); resolve(socket); });
     socket.once("error", (error) => { clearTimeout(timer); reject(error); });
   });
 }
-function jsonRpcRecord(value: unknown): value is JsonObject { return value !== null && typeof value === "object" && !Array.isArray(value); }
+export function jsonRpcRecord(value: unknown): value is JsonObject { return value !== null && typeof value === "object" && !Array.isArray(value); }
