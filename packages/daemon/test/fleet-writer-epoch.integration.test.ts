@@ -13,9 +13,19 @@ function probeGit(repo: string, ...args: string[]): string { return execFileSync
 function probeRepo(root: string): string { const repo = path.join(root, "repo"); mkdirSync(path.join(repo, "harness"), { recursive: true }); probeGit(repo, "init", "-q"); probeGit(repo, "config", "user.name", "W3A Probe"); probeGit(repo, "config", "user.email", "w3a@example.invalid"); probeGit(repo, "commit", "--allow-empty", "-qm", "base"); writeFileSync(path.join(repo, "harness", "harness.yaml"), "schema: harness-anything/v1\nname: probe\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n"); probeGit(repo, "add", "harness"); probeGit(repo, "commit", "-qm", "harness"); return repo; }
 const probeBinding = (assertWriterEpoch: () => void) => ({ actor: { principal: { personId: "writer" }, executor: { kind: "agent" as const, id: "probe" } }, source: { kind: "assignment" as const, nodeId: "node", assignmentId: "assignment" }, assertWriterEpoch });
 
-function childEpoch(source: string, root: string, holderId: string): Promise<{ readonly code: number | null; readonly lease: { readonly epoch: number; readonly holderId: string } | null }> {
-  const code = `import { openPersistentWriterEpoch } from ${JSON.stringify(pathToFileURL(source).href)}; const [root, holder] = process.argv.slice(1); const authority = openPersistentWriterEpoch({ stateRoot: root, holderId: holder }); console.log(JSON.stringify(authority.acquire("repo")));`;
-  return new Promise((resolve, reject) => { const child = spawn(process.execPath, ["--input-type=module", "-e", code, root, holderId], { stdio: ["ignore", "pipe", "pipe"] }); let stdout = "", stderr = ""; child.stdout.on("data", (chunk) => { stdout += chunk; }); child.stderr.on("data", (chunk) => { stderr += chunk; }); child.on("error", reject); child.on("close", (exitCode) => { if (exitCode !== 0) return reject(new Error(stderr)); resolve({ code: exitCode, lease: JSON.parse(stdout.trim()) }); }); });
+function childEpoch(source: string, root: string, holderId: string, readyFile = ""): Promise<{ readonly code: number | null; readonly lease: { readonly epoch: number; readonly holderId: string } | null }> {
+  const code = `import { writeFileSync } from "node:fs"; import { openPersistentWriterEpoch } from ${JSON.stringify(pathToFileURL(source).href)}; const [root, holder, ready] = process.argv.slice(1); const authority = openPersistentWriterEpoch({ stateRoot: root, holderId: holder }); if (ready) writeFileSync(ready, "ready\\n"); console.log(JSON.stringify(authority.acquire("repo")));`;
+  return new Promise((resolve, reject) => { const child = spawn(process.execPath, ["--input-type=module", "-e", code, root, holderId, readyFile], { stdio: ["ignore", "pipe", "pipe"] }); let stdout = "", stderr = ""; child.stdout.on("data", (chunk) => { stdout += chunk; }); child.stderr.on("data", (chunk) => { stderr += chunk; }); child.on("error", reject); child.on("close", (exitCode) => { if (exitCode !== 0) return reject(new Error(stderr)); resolve({ code: exitCode, lease: JSON.parse(stdout.trim()) }); }); });
+}
+
+async function holdEpochLock(root: string, readyFile: string, holdMs: number): Promise<() => Promise<void>> {
+  const file = path.join(root, "writer-epochs.lock");
+  const code = `import { closeSync, existsSync, fsyncSync, openSync, unlinkSync, writeFileSync } from "node:fs"; const [file, ready, hold] = process.argv.slice(1); const fd = openSync(file, "wx", 0o600); writeFileSync(fd, process.pid + "\\n"); fsyncSync(fd); console.log("locked"); const deadline = Date.now() + 10_000; while (!existsSync(ready)) { if (Date.now() >= deadline) throw new Error("waiter did not become ready"); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1); } Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(hold)); closeSync(fd); unlinkSync(file);`;
+  const child = spawn(process.execPath, ["--input-type=module", "-e", code, file, readyFile, String(holdMs)], { stdio: ["ignore", "pipe", "pipe"] }); let stderr = "";
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  const done = new Promise<void>((resolve, reject) => { child.once("error", reject); child.once("close", (exitCode) => exitCode === 0 ? resolve() : reject(new Error(stderr))); });
+  await new Promise<void>((resolve, reject) => { child.stdout.once("data", (chunk) => chunk.toString().includes("locked") ? resolve() : reject(new Error(`lock holder did not become ready: ${chunk.toString()}`))); child.once("error", reject); child.once("close", (exitCode) => { if (exitCode !== 0) reject(new Error(stderr)); }); });
+  return () => done;
 }
 
 test("persistent writer epochs allocate monotonically and fence a stale holder", () => {
@@ -45,6 +55,15 @@ test("concurrent processes allocate unique epochs through the same critical sect
     assert.deepEqual(epochs, Array.from({ length: 12 }, (_value, index) => index + 1));
     assert.equal(new Set(results.map((result) => result.lease!.holderId)).size, 12);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("writer epoch acquisition waits for a live lock owner", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-wait-")), readyFile = path.join(root, "waiter-ready");
+  const waitForHolder = await holdEpochLock(root, readyFile, 1_000);
+  try {
+    const source = path.resolve("packages/daemon/src/writer-epoch.ts"), result = await childEpoch(source, root, "waiting-worker", readyFile);
+    assert.equal(result.lease?.epoch, 1);
+  } finally { await waitForHolder(); rmSync(root, { recursive: true, force: true }); }
 });
 
 test("restoring an older state file cannot reuse a historical epoch", () => {
