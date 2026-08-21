@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, registerDaemonRepo, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, makeTaskProjection, registerDaemonRepo, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -111,8 +111,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-ingress-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), executablePath = writeProviderExecutable(path.join(parent, "codex-stub.mjs"), "process.exit(0);\n"), repoId = "runtime-spawn-ingress", uid = 4301;
   initIngressRepo(root, uid); registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
   const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" } } as const;
-  const ingressDefinition = { ...definition, authMode: "subscription" as const }, ingressInstallation = { ...installation, executablePath };
-  const host = await openDaemonHost({ daemonId: "runtime-spawn-ingress", userRoot, runtimeDiscover: () => [ingressInstallation], runtimeLaunch: () => ({ pid: 4310, onOutput: (listener) => { queueMicrotask(() => listener(`${JSON.stringify({ type: "thread.started", thread_id: "provider-task-session" })}\n`)); }, onErrorOutput: () => undefined, onExit: () => undefined, terminate: () => undefined }) });
+  const ingressDefinition = { ...definition, authMode: "subscription" as const }, ingressInstallation = { ...installation, executablePath }; let launchedEnv: NodeJS.ProcessEnv | null = null;
+  const host = await openDaemonHost({ daemonId: "runtime-spawn-ingress", userRoot, runtimeDiscover: () => [ingressInstallation], runtimeLaunch: (prepared) => { launchedEnv = prepared.env; return { pid: 4310, onOutput: (listener) => { queueMicrotask(() => listener(`${JSON.stringify({ type: "thread.started", thread_id: "provider-task-session" })}\n`)); }, onErrorOutput: () => undefined, onExit: () => undefined, terminate: () => undefined }; } });
   await host.attachmentsSettled();
   try {
     host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: ingressDefinition.instanceId, name: "Codex Review", kindId: ingressDefinition.kindId, installationId: ingressDefinition.installationId, providerId: ingressDefinition.providerId, models: [ingressDefinition.model], codex: { reasoningEffort: ingressDefinition.reasoningEffort }, authMode: ingressDefinition.authMode }, auth);
@@ -122,6 +122,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId, executor }, auth)).outcome, "applied");
       const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-root" }, prompt: "Inspect the task", taskId, idempotencyKey: "agent-task-bound", executor } });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      assert.equal(launchedEnv?.HARNESS_ACTOR, `agent:runtime-session:${receipt.runtimeSessionId}`);
+      assert.equal(launchedEnv?.HARNESS_DAEMON_USER_ROOT, userRoot); assert.equal(launchedEnv?.HARNESS_DAEMON_ID, "runtime-spawn-ingress"); assert.match(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /harness-anything/u);
       const bound = await eventuallyValue(async () => makeTaskEventStore({ repoId, rootDir: root }).read().events.find((event) => event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === receipt.runtimeSessionId) ?? null);
       assert.equal(bound?.type, "runtime_session_task_bound"); assert.deepEqual(bound?.actor.executor, executor);
       assert.deepEqual(bound?.type === "runtime_session_task_bound" && { taskId: bound.payload.taskId, executionId: bound.payload.executionId }, { taskId, executionId });
@@ -141,9 +143,26 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
       const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-root" }, prompt: "Inspect the human task", taskId, idempotencyKey: "human-task-bound" } });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      assert.equal(launchedEnv?.HARNESS_ACTOR, `agent:runtime-session:${receipt.runtimeSessionId}`);
       const bound = await eventuallyValue(async () => makeTaskEventStore({ repoId, rootDir: root }).read().events.find((event) => event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === receipt.runtimeSessionId) ?? null);
       assert.equal(bound?.type, "runtime_session_task_bound"); assert.equal(bound?.actor.executor, null);
       assert.deepEqual(bound?.type === "runtime_session_task_bound" && { taskId: bound.payload.taskId, executionId: bound.payload.executionId }, { taskId, executionId });
+    });
+    await t.test("the bound runtime appends attributed progress while an unrelated executor stays rejected", async () => {
+      const taskId = "task-runtime-progress", executionId = "exec-runtime-progress", holder = { kind: "agent", id: "dispatch-holder" } as const;
+      assert.equal((await host.run(repoId, { kind: "task-create", taskId, title: "Runtime progress" }, auth)).outcome, "applied");
+      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId, executor: holder }, auth)).outcome, "applied");
+      const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-root" }, prompt: "Record progress", taskId, idempotencyKey: "runtime-progress", executor: holder } });
+      await eventuallyValue(async () => makeTaskEventStore({ repoId, rootDir: root }).read().events.find((event) => event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === receipt.runtimeSessionId) ?? null);
+      const worker = { kind: "agent", id: `runtime-session:${receipt.runtimeSessionId}` } as const, evidence = [{ type: "test", path: "reports/runtime-progress.txt", summary: "worker checkpoint" }];
+      assert.equal((await host.run(repoId, { kind: "task-progress-append", taskId, text: "Worker checkpoint one.", evidence, executor: worker }, auth)).outcome, "applied");
+      assert.equal((await host.run(repoId, { kind: "task-progress-append", taskId, text: "Worker checkpoint two.", evidence, executor: worker }, auth)).outcome, "applied");
+      const rejected = await host.run(repoId, { kind: "task-progress-append", taskId, text: "Unrelated writer.", evidence, executor: { kind: "agent", id: "unrelated-worker" } }, auth); assert.equal(rejected.outcome, "op_rejected"); assert.equal(rejected.code, "progress_lease_mismatch");
+      const progress = makeTaskEventStore({ repoId, rootDir: root }).read().events.filter((event) => event.schema === "task-progress-event/v1" && event.payload.taskId === taskId);
+      assert.deepEqual(progress.map((event) => event.payload.text), ["Worker checkpoint one.", "Worker checkpoint two."]);
+      assert.deepEqual(progress.map((event) => event.actor.executor), [worker, worker]); assert.deepEqual(progress.map((event) => event.payload.runtimeSessionId), [receipt.runtimeSessionId, receipt.runtimeSessionId]);
+      assert.match(readFileSync(path.join(root, "harness/tasks/task-runtime-progress-runtime-progress/progress.md"), "utf8"), /Worker checkpoint one\.[\s\S]*Worker checkpoint two\./u);
+      const replayStore = makeTaskEventStore({ repoId, rootDir: root }), replay = makeTaskProjection({ rootDir: root, eventStore: replayStore, projectionPath: path.join(parent, "runtime-progress-replay.sqlite") }); try { replay.rebuild(); assert.deepEqual(replay.readProgress(taskId).rows.map((event) => ({ text: event.payload.text, actor: event.actor.executor, runtimeSessionId: event.payload.runtimeSessionId })), [{ text: "Worker checkpoint one.", actor: worker, runtimeSessionId: receipt.runtimeSessionId }, { text: "Worker checkpoint two.", actor: worker, runtimeSessionId: receipt.runtimeSessionId }]); } finally { replay.close(); }
     });
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });

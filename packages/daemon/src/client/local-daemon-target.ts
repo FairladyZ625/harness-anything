@@ -27,7 +27,8 @@ export function resolveLocalDaemonTarget(input: { readonly rootDir: string; read
     : repos.filter((candidate) => candidate.canonicalRoot === rootDir || rootDir.startsWith(`${candidate.canonicalRoot}${path.sep}`))
       .sort((left, right) => right.canonicalRoot.length - left.canonicalRoot.length)[0];
   if (!repo || repo.state !== "enabled") throw new Error(`workspace is not registered; run ha daemon repo register --repo-id <id> --root ${JSON.stringify(path.resolve(input.rootDir))}`);
-  return { repoId: workspaceId(repo.repoId), canonicalRoot: bindCanonicalRoot(repo.canonicalRoot), userRoot, daemonId, socketPath: localUserDaemonEndpoint(userRoot, daemonId) };
+  const injectedEndpoint = env.HARNESS_DAEMON_ENDPOINT?.trim(), socketPath = injectedEndpoint ? endpointIdentity(injectedEndpoint) : localUserDaemonEndpoint(userRoot, daemonId);
+  return { repoId: workspaceId(repo.repoId), canonicalRoot: bindCanonicalRoot(repo.canonicalRoot), userRoot, daemonId, socketPath };
 }
 export function readRegisteredRepos(userRoot: string): readonly { readonly repoId: string; readonly canonicalRoot: string; readonly state: string; readonly mode?: string }[] {
   const registryPath = path.join(userRoot, "registry.json");
