@@ -33,7 +33,7 @@ test("implicit submit applies eligible prose and reports an unrelated blocked ro
     write(rootDir, "context/blocked.md", "# Renamed\n\nbase\n"); write(rootDir, "context/eligible.md", "# Eligible\n\nship me\n");
     const submitted = await cell.run({ kind: "doc-submit", paths: [] }, binding) as Record<string, unknown>;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    assert.match(String(submitted.summary), /doc-submit: applied[\s\S]*context\/eligible\.md[\s\S]*skipped:[\s\S]*context\/blocked\.md\tblocked\tbase region is missing or reordered/u);
+    assert.match(String(submitted.summary), /doc-submit: applied[\s\S]*context\/eligible\.md[\s\S]*skipped:[\s\S]*context\/blocked\.md\tblocked\tbase region is missing: "# Stable"/u);
     const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(submitted.opId)); assert.equal(event?.schema, "doc-event/v1"); if (event?.schema === "doc-event/v1") assert.deepEqual(event.payload.changes.map((change) => change.path), ["context/eligible.md"]);
     assert.equal(readFileSync(path.join(rootDir, "harness/context/eligible.md"), "utf8"), "# Eligible\n\nship me\n"); assert.equal(readFileSync(path.join(rootDir, "harness/context/blocked.md"), "utf8"), "# Renamed\n\nbase\n");
     const settledHead = git(rootDir, "rev-parse", "HEAD"), skippedOnly = await cell.run({ kind: "doc-submit", paths: [] }, binding) as Record<string, unknown>; assert.equal(skippedOnly.outcome, "applied", JSON.stringify(skippedOnly)); assert.match(String(skippedOnly.summary), /doc-submit: applied\napplied:\n\(none\)\nskipped:\ncontext\/blocked\.md\tblocked/u); assert.equal(git(rootDir, "rev-parse", "HEAD"), settledHead, "a skipped-only implicit submit must not publish an event");

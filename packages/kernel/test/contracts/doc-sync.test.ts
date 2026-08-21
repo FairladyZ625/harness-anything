@@ -165,11 +165,13 @@ test("direct CRLF claims name the line-ending repair when the contract rejects t
   assert.equal(result.accepted, false); if (!result.accepted) { assert.equal(result.code, "unresolved_touch"); assert.equal(result.detail.unresolvedTouches[0]?.reason, "claim is not canonical LF text"); assert.match(result.detail.nextAction, /LF line endings.*resubmit/u); }
 });
 
-test("prose regression controls still reject deletion, duplicate headings, and base-region reordering", () => {
+test("prose regression controls reject deletion and duplicate headings while naming missing and reordered base regions", () => {
   const base = "# One\nA\n# Two\nB\n", prose = { path: "context/notes.md", baseBlobSha256: sha256Text(base), policyId: DOC_POLICY_ID, candidate: claim(base) } as const;
   const deletion = decide({ ...prose, candidate: null }, state(base), null); assert.equal(deletion.accepted, false); if (!deletion.accepted) assert.equal(deletion.code, "deletion_forbidden");
   const duplicate = "# Same\nA\n# Same\nB\n", duplicateResult = decide({ ...prose, candidate: claim(duplicate) }, state(base), Buffer.from(duplicate)); assert.equal(duplicateResult.accepted, false); if (!duplicateResult.accepted) assert.equal(duplicateResult.detail.unresolvedTouches[0]?.reason, "duplicate heading anchor");
-  const reordered = "# Two\nB\n# One\nA\n", reorderedResult = decide({ ...prose, candidate: claim(reordered) }, state(base), Buffer.from(reordered)); assert.equal(reorderedResult.accepted, false); if (!reorderedResult.accepted) assert.match(reorderedResult.detail.unresolvedTouches[0]?.reason ?? "", /base region is missing or reordered/u);
+  const missing = "# One\nA\n", missingResult = decide({ ...prose, candidate: claim(missing) }, state(base), Buffer.from(missing)); assert.equal(missingResult.accepted, false); if (!missingResult.accepted) assert.equal(missingResult.detail.unresolvedTouches[0]?.reason, "base region is missing: \"# Two\"");
+  const allMissing = "Replacement prose.\n", allMissingResult = decide({ ...prose, candidate: claim(allMissing) }, state(base), Buffer.from(allMissing)); assert.equal(allMissingResult.accepted, false); if (!allMissingResult.accepted) assert.equal(allMissingResult.detail.unresolvedTouches[0]?.reason, "base regions are missing: \"# One\", \"# Two\"");
+  const reordered = "# Two\nB\n# One\nA\n", reorderedResult = decide({ ...prose, candidate: claim(reordered) }, state(base), Buffer.from(reordered)); assert.equal(reorderedResult.accepted, false); if (!reorderedResult.accepted) assert.equal(reorderedResult.detail.unresolvedTouches[0]?.reason, "base regions are reordered: candidate places \"# Two\" before \"# One\"; expected \"# One\" before \"# Two\"");
 });
 
 test("the first authored write on a migrated document upgrades its policy one-way with from/to recorded", () => {
@@ -192,7 +194,7 @@ test("the first authored write on a migrated document upgrades its policy one-wa
 
 test("an upgraded write still runs the full region differ and heading preservation", () => {
   const base = "# One\nA\n# Two\nB\n", reordered = "# Two\nB\n# One\nA\n", result = decide({ path: "context/notes.md", baseBlobSha256: sha256Text(base), policyId: DOC_POLICY_ID, candidate: claim(reordered) }, { ...state(base), policyId: MIGRATION_DOCUMENT_POLICY_ID }, Buffer.from(reordered));
-  assert.equal(result.accepted, false, JSON.stringify(result)); if (!result.accepted) { assert.equal(result.code, "unresolved_touch"); assert.equal(result.detail.unresolvedTouches.some(({ reason }) => reason.includes("missing or reordered")), true); }
+  assert.equal(result.accepted, false, JSON.stringify(result)); if (!result.accepted) { assert.equal(result.code, "unresolved_touch"); assert.equal(result.detail.unresolvedTouches.some(({ reason }) => reason === "base regions are reordered: candidate places \"# Two\" before \"# One\"; expected \"# One\" before \"# Two\""), true); }
 });
 
 test("receipt detail registry rejects unregistered or open-ended detail shapes", () => {
