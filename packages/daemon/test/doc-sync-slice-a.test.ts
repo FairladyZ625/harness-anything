@@ -31,11 +31,24 @@ test("new non-textual artifacts are inapplicable while binary replacement of can
   try {
     const freshTarget = path.join(rootDir, "harness", fresh); mkdirSync(path.dirname(freshTarget), { recursive: true }); writeFileSync(freshTarget, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00]));
     const status = await cell.run({ kind: "doc-status", paths: [fresh] }, binding), row = rows(status.evidence)[0] as { readonly state: string; readonly reason?: string } | undefined;
-    assert.deepEqual([row?.state, row?.reason], ["inapplicable", "non-textual artifact is outside doc sync"]); assert.deepEqual(status.detail?.unresolvedTouches, []); assert.equal(status.detail?.nextAction, "no action required; inapplicable artifacts are outside doc sync");
+    assert.deepEqual([row?.state, row?.reason], ["inapplicable", "non-textual artifact is outside doc sync"]); assert.deepEqual(status.detail?.unresolvedTouches, []); assert.equal(status.detail?.nextAction, "no action required; inapplicable candidates are outside doc sync");
     const noOp = await cell.run({ kind: "doc-submit", paths: [fresh] }, binding) as Record<string, unknown>; assert.equal(noOp.outcome, "applied"); assert.match(String(noOp.opId), /^noop:/u);
 
     write(rootDir, tracked, "textual baseline\n"); assert.equal((await cell.run({ kind: "doc-submit", paths: [tracked] }, binding)).outcome, "applied"); writeFileSync(path.join(rootDir, "harness", tracked), Buffer.from([0xff, 0x00]));
     const blocked = await cell.run({ kind: "doc-status", paths: [tracked] }, binding); assert.equal(rows(blocked.evidence)[0]?.state, "blocked"); assert.equal(blocked.detail?.unresolvedTouches[0]?.requiredRoute, "typed-binary-content");
+  } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("people-registry ownership is inapplicable while typed writable routes remain blocked", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-owned-route-")); initRepo(rootDir); const cell = await openRepoCell({ repoId: workspaceId("owned-route"), rootDir: canonicalRoot(rootDir), ownerId: "owned-route-daemon" }), binding = { actor, source: "local" as const };
+  try {
+    write(rootDir, "people.yaml", "schema: harness-people/v1\npeople: []\nroles: []\n"); write(rootDir, "harness.yaml", "schema: harness-anything/v1\nname: hand-edited\n");
+    const people = await cell.run({ kind: "doc-status", paths: ["people.yaml"] }, binding), peopleRow = rows(people.evidence)[0] as { readonly state: string; readonly reason?: string } | undefined;
+    assert.deepEqual([peopleRow?.state, peopleRow?.reason], ["inapplicable", "path is owned by people-registry and is outside doc sync"]); assert.deepEqual(people.detail?.unresolvedTouches, []); assert.equal(people.detail?.nextAction, "no action required; inapplicable candidates are outside doc sync");
+    const noOp = await cell.run({ kind: "doc-submit", paths: ["people.yaml"] }, binding); assert.equal(noOp.outcome, "applied"); assert.match(noOp.opId, /^noop:/u);
+
+    const workspace = await cell.run({ kind: "doc-status", paths: ["harness.yaml"] }, binding), workspaceRow = rows(workspace.evidence)[0] as { readonly state: string; readonly reason?: string } | undefined;
+    assert.deepEqual([workspaceRow?.state, workspaceRow?.reason], ["blocked", "path is owned by workspace-config"]); assert.equal(workspace.detail?.unresolvedTouches[0]?.requiredRoute, "workspace-config");
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
