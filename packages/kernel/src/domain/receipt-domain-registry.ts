@@ -9,8 +9,10 @@ export interface DocSyncUnresolvedTouch { readonly path: string; readonly region
 export interface DocSyncDeletion { readonly path: string; readonly baseBlobSha256: string; readonly source: "intent" }
 export interface DocSyncHolder { readonly taskId: string; readonly executionId: string; readonly personId: string; readonly executorId: string | null; readonly source: unknown; readonly expiresAt: string; readonly version: number }
 export interface LedgerCutIdentity { readonly repoId: string; readonly revision: number; readonly headDigest: string }
+export interface LedgerCommitIdentity { readonly repoId: string; readonly sha: string }
+export type LedgerIdentity = LedgerCutIdentity | LedgerCommitIdentity;
 export interface DocSyncReceiptDetail {
-  readonly kind: "doc_sync"; readonly code: string; readonly baseLedgerSha: LedgerCutIdentity; readonly currentLedgerSha: LedgerCutIdentity;
+  readonly kind: "doc_sync"; readonly code: string; readonly baseLedgerSha: LedgerIdentity; readonly currentLedgerSha: LedgerCutIdentity;
   readonly paths: readonly DocSyncPathDetail[]; readonly holder: DocSyncHolder | null; readonly differences: readonly DocSyncDifference[];
   readonly unresolvedTouches: readonly DocSyncUnresolvedTouch[]; readonly deletions: readonly DocSyncDeletion[]; readonly nextAction: string;
 }
@@ -53,7 +55,7 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
 }
 function validateDocSyncDetail(value: Readonly<Record<string, unknown>>): boolean {
   return exact(value, ["kind", "code", "baseLedgerSha", "currentLedgerSha", "paths", "holder", "differences", "unresolvedTouches", "deletions", "nextAction"])
-    && value.kind === "doc_sync" && text(value.code) && ledgerCut(value.baseLedgerSha) && ledgerCut(value.currentLedgerSha) && text(value.nextAction)
+    && value.kind === "doc_sync" && text(value.code) && receiptLedgerIdentity(value.baseLedgerSha) && ledgerCut(value.currentLedgerSha) && text(value.nextAction)
     && Array.isArray(value.paths) && value.paths.every((row) => isReceiptDomainRecord(row) && exact(row, ["path", "baseBlobSha256", "currentBlobSha256", "candidateBlobSha256"]) && text(row.path) && [row.baseBlobSha256, row.currentBlobSha256, row.candidateBlobSha256].every(nullableSha))
     && (value.holder === null || isReceiptDomainRecord(value.holder) && exact(value.holder, ["taskId", "executionId", "personId", "executorId", "source", "expiresAt", "version"]) && [value.holder.taskId, value.holder.executionId, value.holder.personId, value.holder.expiresAt].every(text) && (value.holder.executorId === null || text(value.holder.executorId)) && cut(value.holder.version))
     && Array.isArray(value.differences) && value.differences.every((row) => isReceiptDomainRecord(row) && exact(row, ["path", "regionId", "insertBytes", "deleteBytes", "replaceBytes", "firstChange"]) && text(row.path) && text(row.regionId) && [row.insertBytes, row.deleteBytes, row.replaceBytes].every(cut) && (row.firstChange === null || isReceiptDomainRecord(row.firstChange) && exact(row.firstChange, ["baseOffset", "candidateOffset"]) && cut(row.firstChange.baseOffset) && cut(row.firstChange.candidateOffset)))
@@ -66,4 +68,5 @@ function text(value: unknown): value is string { return typeof value === "string
 function cut(value: unknown): value is number { return Number.isInteger(value) && (value as number) >= 0; }
 function sha(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f]{40}$/u.test(value); }
 function nullableSha(value: unknown): boolean { return value === null || typeof value === "string" && /^[0-9a-f]{64}$/u.test(value); }
+function receiptLedgerIdentity(value: unknown): value is LedgerIdentity { return ledgerCut(value) || isReceiptDomainRecord(value) && exact(value, ["repoId", "sha"]) && text(value.repoId) && sha(value.sha); }
 function ledgerCut(value: unknown): value is LedgerCutIdentity { return isReceiptDomainRecord(value) && exact(value, ["repoId", "revision", "headDigest"]) && text(value.repoId) && cut(value.revision) && typeof value.headDigest === "string" && /^sha256:[0-9a-f]{64}$/u.test(value.headDigest); }
