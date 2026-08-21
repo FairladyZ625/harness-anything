@@ -296,6 +296,11 @@ test("permission defaults open and tightens through the instance record or a sin
     const dispatched = await store.prepareLaunch("codex-open", { cwd: "/workspace/repo", prompt: "Dispatch", permissionMode: "read-only" }), claudeDispatched = await store.prepareLaunch("claude-open", { cwd: "/workspace/repo", prompt: "Dispatch", permissionMode: "read-only" });
     assert.deepEqual(dispatched.args, ["exec", "--json", "--sandbox", "read-only", "--model", "gpt-5.6-sol", "-"]);
     assert.deepEqual(claudeDispatched.args, ["-p", "--verbose", "--output-format", "stream-json", "--permission-mode", "plan", "--model", "claude-fable-5", "--bare"]);
+    const resumedBypass = await store.prepareLaunch("codex-open", { cwd: "/workspace/repo", prompt: "Resume open", providerSessionId: "session-bypass", permissionMode: "bypass" }), resumedWorkspace = await store.prepareLaunch("codex-open", { cwd: "/workspace/repo", prompt: "Resume workspace", providerSessionId: "session-workspace" }), resumedReadOnly = await store.prepareLaunch("codex-open", { cwd: "/workspace/repo", prompt: "Resume read-only", providerSessionId: "session-read-only", permissionMode: "read-only" });
+    assert.deepEqual(resumedBypass.args, ["exec", "resume", "--json", "--dangerously-bypass-approvals-and-sandbox", "--model", "gpt-5.6-sol", "session-bypass", "-"]);
+    assert.deepEqual(resumedWorkspace.args, ["exec", "resume", "--json", "--config", 'sandbox_mode="workspace-write"', "--config", "sandbox_workspace_write.exclude_tmpdir_env_var=true", "--config", "sandbox_workspace_write.exclude_slash_tmp=true", "--model", "gpt-5.6-sol", "session-workspace", "-"]);
+    assert.deepEqual(resumedReadOnly.args, ["exec", "resume", "--json", "--config", 'sandbox_mode="read-only"', "--model", "gpt-5.6-sol", "session-read-only", "-"]);
+    for (const resumed of [resumedBypass, resumedWorkspace, resumedReadOnly]) assert.equal(resumed.args.includes("--sandbox"), false);
     assert.equal(store.read("codex-open")?.permissionMode, "workspace-write");
     await assert.rejects(store.prepareLaunch("codex-open", { cwd: "/workspace/repo", prompt: "Bad", permissionMode: "turbo" }), (error: unknown) => codedAs(error, "invalid_runtime_permission"));
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
