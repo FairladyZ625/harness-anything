@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import { canonicalEventSchemas, parseCanonicalEvent, validateCurrentCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
-import { serializeEventEnvelope } from "../../src/domain/write-chain.contract.ts";
+import { sameActorIdentity, sameWriteSource, serializeEventEnvelope } from "../../src/domain/write-chain.contract.ts";
 
 const actor = { principal: { personId: "person-fixture" }, executor: { kind: "agent" as const, id: "codex" } };
 const taskCreated = {
@@ -44,6 +44,14 @@ test("Task/v1 readers ignore a field that current writers do not know", () => {
 
   assert.deepEqual(parseCanonicalEvent(bytes), future);
   assert.match(validateCurrentCanonicalEvent(future).join("\n"), /unknown/u);
+});
+
+test("semantic actor and source equality ignores additions but not known-axis changes", () => {
+  assert.equal(sameActorIdentity({ ...actor, futureOptionalField: true }, actor), true);
+  assert.equal(sameActorIdentity({ ...actor, principal: { personId: "someone-else" } }, actor), false);
+  const source = { kind: "watch_session" as const, sessionId: "session-1", path: "context/input.md", fingerprint: "a".repeat(64) };
+  assert.equal(sameWriteSource({ ...source, futureOptionalField: true }, source), true);
+  assert.equal(sameWriteSource({ ...source, path: "context/other.md" }, source), false);
 });
 
 test("every canonical reader ignores an unknown field at every frozen object boundary", () => {

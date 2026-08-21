@@ -1,7 +1,7 @@
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
-import { freezeDeclaredWritePlan, hasOnlyFields, hasRequiredFields, isFrozenWritePlan, isNonEmptyString, isRecord, sameActorIdentity, sameWriteSource, serializeEventEnvelope, validateActorIdentity, validateEventEnvelopeIdentity, validateWriteSource, type ActorIdentity, type EventEnvelope, type FrozenWritePlan, type WriteTarget } from "./write-chain.contract.ts";
+import { freezeDeclaredWritePlan, hasContractFields as matchesFields, isFrozenWritePlan, isNonEmptyString, isRecord, sameActorIdentity, sameWriteSource, serializeEventEnvelope, validateActorIdentity, validateEventEnvelopeIdentity, validateWriteSource, type ActorIdentity, type EventEnvelope, type FrozenWritePlan, type WriteTarget } from "./write-chain.contract.ts";
 import { deriveRelationId, relationDirections, relationOrigins, relationStates, relationStrengths, relationTypes, type EntityRelationRecord } from "./entity-relation.ts";
 import { timestamp } from "./timestamp.ts";
 
@@ -93,12 +93,8 @@ export function isDecisionEvent(event: { readonly schema: string }): event is De
 export function serializeFactEvent(event: FactEventV1): string { const errors = validateCurrentFactEvent(event); if (errors.length) throw new Error(errors.join("; ")); return serializeEventEnvelope(event); }
 export function serializeDecisionEvent(event: DecisionEventV1): string { const errors = validateCurrentDecisionEvent(event); if (errors.length) throw new Error(errors.join("; ")); return serializeEventEnvelope(event); }
 
-export function validateDecisionEvent(value: unknown): readonly string[] {
-  return validateDecisionEventFields(value, true);
-}
-export function validateCurrentDecisionEvent(value: unknown): readonly string[] {
-  return validateDecisionEventFields(value, false);
-}
+export function validateDecisionEvent(value: unknown): readonly string[] { return validateDecisionEventFields(value, true); }
+export function validateCurrentDecisionEvent(value: unknown): readonly string[] { return validateDecisionEventFields(value, false); }
 function validateDecisionEventFields(value: unknown, allowUnknownFields: boolean): readonly string[] {
   if (!isRecord(value) || !matchesFields(value, ["schema", "eventId", "workspaceRevision", "opId", "decisionId", "type", "actor", "source", "occurredAt", "payload"], allowUnknownFields)
     || value.schema !== "decision-event/v1" || !includes(decisionEventTypes, value.type) || !decisionId(value.decisionId) || !timestamp(value.occurredAt) || !isRecord(value.payload)) return ["decision event envelope or payload is invalid"];
@@ -117,16 +113,12 @@ function validateDecisionEventFields(value: unknown, allowUnknownFields: boolean
   return matchesFields(payload, ["relationId", "reason", ...common], allowUnknownFields) && relationId(payload.relationId) && codePoints(payload.reason, 1, 199) ? [] : ["decision relation retirement payload is invalid"];
 }
 
-export function validateFactEvent(value: unknown): readonly string[] {
-  return validateFactEventFields(value, true);
-}
-export function validateCurrentFactEvent(value: unknown): readonly string[] {
-  return validateFactEventFields(value, false);
-}
+export function validateFactEvent(value: unknown): readonly string[] { return validateFactEventFields(value, true); }
+export function validateCurrentFactEvent(value: unknown): readonly string[] { return validateFactEventFields(value, false); }
 function validateFactEventFields(value: unknown, allowUnknownFields: boolean): readonly string[] {
   if (!isRecord(value) || !matchesFields(value, ["schema", "eventId", "workspaceRevision", "opId", "taskId", "factId", "type", "actor", "source", "occurredAt", "payload"], allowUnknownFields)
     || value.schema !== "fact-event/v1" || value.type !== "fact_recorded" || !safeId(value.taskId) || typeof value.factId !== "string" || !isFactId(value.factId)
-    || !timestamp(value.occurredAt) || !isRecord(value.payload) || !hasFactPayloadFields(value.payload, allowUnknownFields)) return ["fact event envelope or payload is invalid"];
+    || !timestamp(value.occurredAt) || !isRecord(value.payload) || !requiredWithOptional(value.payload, ["statement", "evidenceSource", "observedAt", "confidence", "memoryClass", "memoryTags", "provenance", "factsDocumentClaim"], ["supersedes"], allowUnknownFields)) return ["fact event envelope or payload is invalid"];
   if (validateEventEnvelopeIdentity(value, allowUnknownFields).length) return ["fact event envelope identity is invalid"];
   const payload = value.payload;
   if (!isNonEmptyString(payload.statement) || !isNonEmptyString(payload.evidenceSource) || !timestamp(payload.observedAt)
@@ -137,10 +129,6 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
   return [];
 }
 
-function hasFactPayloadFields(value: Readonly<Record<string, unknown>>, allowUnknownFields: boolean): boolean {
-  const required = ["statement", "evidenceSource", "observedAt", "confidence", "memoryClass", "memoryTags", "provenance", "factsDocumentClaim"];
-  return required.every((field) => Object.hasOwn(value, field)) && (allowUnknownFields || Object.keys(value).every((field) => required.includes(field) || field === "supersedes"));
-}
 function validFactsClaim(value: unknown, taskId: unknown, allowUnknownFields: boolean): value is FactsDocumentClaim { if (!isRecord(value) || !matchesFields(value, ["path", "sha256", "size", "mediaType", "policyId"], allowUnknownFields) || !/^[0-9a-f]{64}$/u.test(String(value.sha256)) || !Number.isSafeInteger(value.size) || (value.size as number) < 0 || value.mediaType !== "text/markdown" || value.policyId !== FACT_DOCUMENT_POLICY_ID || typeof taskId !== "string" || !String(value.path).startsWith(`tasks/${taskId}-`) || !String(value.path).endsWith("/facts.md")) return false; try { return normalizeRelativeDocumentPath(String(value.path)) === value.path; } catch { return false; } }
 function escapeFactDocumentScalar(value: string): string { return JSON.stringify(value).slice(1, -1); }
 function provenance(value: unknown, allowUnknownFields: boolean): boolean { return isRecord(value) && matchesFields(value, ["runtime", "sessionId", "boundAt"], allowUnknownFields)
@@ -191,5 +179,4 @@ function amendableSnapshot(value: unknown, allowUnknownFields: boolean): value i
 function fulfillments(value: unknown, allowUnknownFields: boolean): boolean { return Array.isArray(value) && value.every((entry) => isRecord(entry) && matchesFields(entry, ["claimId", "mode"], allowUnknownFields) && claimId(entry.claimId) && includes(decisionFulfillmentModes, entry.mode)) && new Set(value.map((entry) => isRecord(entry) ? entry.claimId : null)).size === value.length; }
 function relationId(value: unknown): value is string { return typeof value === "string" && /^rel_[0-9a-f]{16}$/u.test(value); }
 function relation(value: unknown, allowUnknownFields: boolean): value is EntityRelationRecord { return isRecord(value) && matchesFields(value, ["relation_id", "source", "target", "type", "strength", "direction", "origin", "rationale", "state"], allowUnknownFields) && typeof value.relation_id === "string" && /^rel_[0-9a-f]{16}$/u.test(value.relation_id) && isNonEmptyString(value.source) && isNonEmptyString(value.target) && includes(relationTypes, value.type) && includes(relationStrengths, value.strength) && includes(relationDirections, value.direction) && includes(relationOrigins, value.origin) && codePoints(value.rationale, 1, 199) && includes(relationStates, value.state) && value.state === "active"; }
-function matchesFields(value: Readonly<Record<string, unknown>>, fields: readonly string[], allowUnknownFields: boolean): boolean { return (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, fields); }
 function requiredWithOptional(value: Readonly<Record<string, unknown>>, required: readonly string[], optional: readonly string[], allowUnknownFields: boolean): boolean { return required.every((field) => Object.hasOwn(value, field)) && (allowUnknownFields || Object.keys(value).every((field) => required.includes(field) || optional.includes(field))); }
