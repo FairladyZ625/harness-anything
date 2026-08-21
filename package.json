@@ -45,6 +45,7 @@
     "check:local:derived-contracts": "node tools/gates/derived-contracts.mjs --check",
     "check:local:gates": "node tools/run-local-gates-check.mjs",
     "check:local:full": "node tools/run-local-check.mjs --full",
+    "check:local:line-budget": "node tools/run-local-line-budget.mjs",
     "check:local:schema-closure": "node tools/gates/schema-closure.mjs --check",
     "harness:check-file-complexity": "node tools/check-file-complexity.mjs",
     "harness:check-cli-structure": "node tools/check-cli-structure.mjs",
