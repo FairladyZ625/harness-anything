@@ -1,14 +1,17 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { classifyTextualArtifactPath, OPAQUE_TEXTUAL_MEDIA_TYPE, OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
-import docSyncContract, { DOC_POLICY_ID, decideDocWrite, docRegionPolicyRegistry, documentPath, parseDocWriteIntent, resolveDocRoute, serializeDocEvent, serializeDocWriteIntent, validateDocEvent, validateDocWriteIntent, verifyDocEventChange, type ContentClaim, type DocWriteChange, type DocumentState } from "../../src/domain/doc-sync.contract.ts";
+import docSyncContract, { DOC_POLICY_ID, decideDocWrite, docRegionPolicyRegistry, docSyncWritePlan, documentPath, parseCanonicalEvent, parseDocWriteIntent, resolveDocRoute, serializeCanonicalEvent, serializeDocEvent, serializeDocWriteIntent, validateCurrentDocEvent, validateDocEvent, validateDocWriteIntent, verifyDocEventChange, type ContentClaim, type DocWriteChange, type DocumentState } from "../../src/domain/doc-sync.contract.ts";
 import { MIGRATION_DOCUMENT_POLICY_ID } from "../../src/domain/migration-import-event.ts";
 import { validateWriteReceipt, validateWriteSource } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
+import { validateCanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 const baseLedgerSha = { repoId: "docs", revision: 2, headDigest: `sha256:${"a".repeat(64)}` } as const, currentLedgerSha = baseLedgerSha;
+const legacyDocEventBytes = readFileSync(new URL("../../fixtures/events/doc-event-v1-legacy-ledger-identity.json", import.meta.url), "utf8");
 const lease = { schema: "lease/v1", taskId: "task-owner", executionId: "execution-1", actor, source: "local", phase: "held", expiresAt: "2026-08-12T12:00:00.000Z", ttlMs: 1_800_000, version: 3 } as const;
 const claim = (body: string) => ({ ref: "doc-sync-claims/candidate", sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/markdown" as const });
 const opaqueClaim = (body: string, mediaType: ContentClaim["mediaType"] = OPAQUE_TEXTUAL_MEDIA_TYPE) => ({ ref: "doc-sync-claims/candidate", sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType });
@@ -23,6 +26,25 @@ test("derived doc-sync contract closes intent and event schemas", () => {
   const parsed = parseDocWriteIntent({ schema: "doc-write-intent/v1", executionId: "execution-1", baseLedgerSha, changes: [{ path: "context/notes.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: claim("body\n") }] }, "docs");
   assert.deepEqual(JSON.parse(serializeDocWriteIntent(parsed)).baseLedgerSha, baseLedgerSha);
   assert.deepEqual(validateWriteSource({ kind: "watch_session", sessionId: "watch-one", path: "context/notes.md", fingerprint: "a".repeat(64) }), []); assert.match(validateWriteSource({ kind: "watch_session", sessionId: "watch-one", path: "context/notes.md", fingerprint: "bad" }).join("\n"), /watch session/u);
+});
+
+test("canonical reader accepts the historical doc-event ledger identity bytes", () => {
+  const parsed = parseCanonicalEvent(legacyDocEventBytes);
+  assert.equal(parsed.schema, "doc-event/v1");
+  assert.equal(parsed.workspaceRevision, 21402);
+  assert.deepEqual(parsed.payload.baseLedgerSha, { repoId: "harness-anything", sha: "de2fe7239e570c7c9ed6fe8417a32f008bbf7ccc" });
+  assert.equal(serializeCanonicalEvent(parsed), legacyDocEventBytes);
+  assert.deepEqual(validateWriteReceipt({ outcome: "applied", opId: parsed.opId, revision: parsed.workspaceRevision, evidence: `event-object:${parsed.opId}`, visibility: "center", proof: { committedRevision: parsed.workspaceRevision, appliedCut: parsed.workspaceRevision, durable: true, canonicalVisible: true, worktreeVisible: null }, detail: { kind: "doc_sync", code: "applied", baseLedgerSha: parsed.payload.baseLedgerSha, currentLedgerSha, paths: [], holder: null, differences: [], unresolvedTouches: [], deletions: [], nextAction: "no action required" } }), []);
+});
+
+test("canonical writer rejects the historical doc-event ledger identity", () => {
+  const body = "# Notes\nReplacement sentence.\n", result = decide({ path: "context/notes.md", baseBlobSha256: sha256Text("# Notes\nOriginal sentence.\n"), policyId: DOC_POLICY_ID, candidate: claim(body) }, state("# Notes\nOriginal sentence.\n"), Buffer.from(body));
+  assert.equal(result.accepted, true); if (!result.accepted) return;
+  const legacy = { ...result.event, payload: { ...result.event.payload, baseLedgerSha: { repoId: "docs", sha: "0".repeat(40) } } };
+  assert.deepEqual(validateDocEvent(legacy), []);
+  assert.match(validateCurrentDocEvent(legacy).join("\n"), /invalid/u);
+  assert.throws(() => serializeDocEvent(legacy), /invalid/u);
+  assert.throws(() => validateCanonicalWriteBundle({ event: legacy, plan: docSyncWritePlan(legacy), blobs: result.blobs }), /current cut/u);
 });
 
 test("doc ingress rejects non-portable paths and same-batch Unicode collisions", () => {
