@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   REPLAY_TASK_GRAPH,
+  currentTaskForWrite,
   parseCanonicalEvent,
   serializeCanonicalEvent,
   type TaskBootstrapEventV1
@@ -67,9 +68,13 @@ test("long_running is a kernel taskClass and the retired longRunning boolean is 
   // immutable log must keep replaying, so the retired key is tolerated when it carries its old type.
   const legacy = parseCanonicalEvent(serializeCanonicalEvent({ ...event, payload: { ...event.payload, task: { ...event.payload.task, taskClass: "long_running", metadata: { ...metadata, longRunning: true } } } } as unknown as TaskBootstrapEventV1));
   assert.deepEqual(legacy.payload.task.metadata, { ...metadata, longRunning: true });
-  assert.throws(() => serializeCanonicalEvent({ ...event, payload: { ...event.payload, task: { ...event.payload.task, metadata: { ...metadata, longRunning: "yes" } } } } as unknown as TaskBootstrapEventV1), /metadata is incomplete or invalid/u);
+  assert.throws(() => serializeCanonicalEvent({ ...event, payload: { ...event.payload, task: { ...event.payload.task, metadata: { ...metadata, longRunning: "yes" } } } } as unknown as TaskBootstrapEventV1), /retired task metadata field longRunning must be a boolean/u);
   const future = { ...event, payload: { ...event.payload, task: { ...event.payload.task, metadata: { ...metadata, orbit: true } } } };
   assert.doesNotThrow(() => serializeCanonicalEvent(future as unknown as TaskBootstrapEventV1));
-  assert.match(validateCurrentCanonicalEvent(future).join("\n"), /metadata is incomplete or invalid/u);
+  assert.match(validateCurrentCanonicalEvent(future).join("\n"), /task metadata contains unknown fields: orbit/u);
+  const { fromLegacyId: _missing, ...missingField } = metadata; void _missing;
+  assert.match(validateCurrentCanonicalEvent({ ...event, payload: { ...event.payload, task: { ...event.payload.task, metadata: missingField } } }).join("\n"), /task metadata is missing required fields: fromLegacyId/u);
+  const sanitized = currentTaskForWrite({ ...event.payload.task, metadata: { ...metadata, longRunning: false, orbit: true } } as unknown as TaskBootstrapEventV1["payload"]["task"]);
+  assert.deepEqual(sanitized.metadata, { ...metadata, orbit: true }, "only the known retired key is removed; future fields stay visible to the strict writer gate");
   assert.throws(() => serializeCanonicalEvent({ ...event, payload: { ...event.payload, task: { ...event.payload.task, taskClass: "long-running", metadata } } } as unknown as TaskBootstrapEventV1), /invalid taskClass/u);
 });

@@ -82,9 +82,9 @@ async function renewTaskLease(options: { readonly eventStore: EventStorePort; re
   const event: Extract<TaskEventV1, { readonly type: "lease_renewed" }> = { schema: "task-event/v1", eventId: input.eventId, workspaceRevision: input.workspaceRevision,
     opId: input.opId, taskId: input.taskId, type: "lease_renewed", actor: input.actor, source: input.source, occurredAt: input.occurredAt,
     payload: { task, execution, lease: renewed, previousHolder: holder(current), leaseExpiresAt: renewed.expiresAt, reason: "same_principal_reconnect", documentClaims: [] } };
-  const plan = taskLifecycleWritePlan(event); options.eventStore.append({ event, plan, blobs: [] }); const changed = options.projection.renewLease(current, input.expiresAt);
+  const compiled = compileTaskLifecycleWrite({ event, snapshot: state.snapshot, packagePath: state.packagePath, currentDocuments: [] }); options.eventStore.append(compiled); const changed = options.projection.renewLease(current, input.expiresAt);
   if (json(changed) !== json(renewed)) throw new TaskLifecycleOperationConflict("lease renewal CAS did not match the L1 event");
-  options.projection.apply(event, plan); return changed;
+  options.projection.apply(compiled.event, compiled.plan); return changed;
 }
 
 function planClaim(projection: ProjectionPort, command: StartCommand, proof: TaskLifecycleServiceProof<StartCommand>): { readonly reserving: Lease; readonly active: Lease; readonly proof: ProofFor<StartCommand> } {

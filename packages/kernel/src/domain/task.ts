@@ -53,7 +53,7 @@ export function validateTaskV1(value: unknown, allowUnknownFields = false): read
   if (!Array.isArray(value.completionGateIds) || value.completionGateIds.some((id) => !isNonEmptyString(id))) issues.push({ code: "invalid_task", message: "completion gate ids must be strings" });
   if (value.presetSnapshotDigest !== null && (typeof value.presetSnapshotDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(value.presetSnapshotDigest))) issues.push({ code: "invalid_task", message: "preset snapshot digest must be null or SHA-256" });
   if (value.pinned !== undefined && typeof value.pinned !== "boolean") issues.push({ code: "invalid_task", message: "pinned must be a boolean" });
-  if (value.metadata !== undefined && !validMetadata(value.metadata, allowUnknownFields)) issues.push({ code: "invalid_task", message: "task metadata is incomplete or invalid" });
+  if (value.metadata !== undefined) { const issue = metadataIssue(value.metadata, allowUnknownFields); if (issue) issues.push(issue); }
   const relationFields = ["relation_id", "source", "target", "type", "strength", "direction", "origin", "rationale", "state"];
   if (value.relations !== undefined && (!Array.isArray(value.relations) || value.relations.some((relation) => !isRecord(relation) || !(allowUnknownFields || Object.keys(relation).every((field) => relationFields.includes(field))) || relationFields.some((field) => !Object.hasOwn(relation, field))) || validateRelationRecordsForHost(`task/${String(value.taskId)}`, value.relations as EntityRelationRecord[]).length)) issues.push({ code: "invalid_task", message: "task relations are invalid" });
   if (value.packageDisposition !== undefined && !["active", "archived", "tombstoned"].includes(String(value.packageDisposition))) issues.push({ code: "invalid_task", message: "invalid package disposition" });
@@ -63,13 +63,34 @@ export function validateTaskV1(value: unknown, allowUnknownFields = false): read
   return issues;
 }
 
-function validMetadata(value: unknown, allowUnknownFields: boolean): value is TaskMetadataV1 {
+const taskMetadataFields = ["idempotencyKey", "parentTaskId", "workKind", "riskTier", "urgency", "verticalId", "presetId", "profileId", "moduleKey", "slug", "surfaces", "fromLegacyId"] as const;
+function metadataIssue(value: unknown, allowUnknownFields: boolean): ContractValidationIssue | null {
   // longRunning predates taskClass=long_running (dec_01KYRHP8ND). The event log is immutable,
   // so historical payloads may still carry the retired boolean; current writers never emit it.
-  const fields = ["idempotencyKey", "parentTaskId", "workKind", "riskTier", "urgency", "verticalId", "presetId", "profileId", "moduleKey", "slug", "surfaces", "fromLegacyId"];
-  if (!isRecord(value) || !fields.every((field) => Object.hasOwn(value, field)) || !allowUnknownFields && Object.keys(value).some((field) => !fields.includes(field)) || allowUnknownFields && typeof value.longRunning !== "undefined" && typeof value.longRunning !== "boolean") return false;
+  if (!isRecord(value)) return { code: "invalid_task", message: "task metadata must be an object" };
+  const missing = taskMetadataFields.filter((field) => !Object.hasOwn(value, field));
+  if (missing.length) return { code: "invalid_task", message: `task metadata is missing required fields: ${missing.join(", ")}` };
+  const unknown = Object.keys(value).filter((field) => !(taskMetadataFields as readonly string[]).includes(field)).sort();
+  if (!allowUnknownFields && unknown.length) return { code: "invalid_task", message: `task metadata contains unknown fields: ${unknown.join(", ")}` };
+  if (allowUnknownFields && Object.hasOwn(value, "longRunning") && typeof value.longRunning !== "boolean") return { code: "invalid_task", message: "retired task metadata field longRunning must be a boolean" };
   const nullableText = (candidate: unknown): boolean => candidate === null || isNonEmptyString(candidate);
-  return nullableText(value.idempotencyKey) && nullableText(value.parentTaskId) && (value.workKind === null || ["feat", "fix", "refactor", "docs", "test", "chore"].includes(String(value.workKind))) && (value.riskTier === null || ["low", "medium", "high"].includes(String(value.riskTier))) && (value.urgency === null || ["low", "medium", "high"].includes(String(value.urgency))) && isNonEmptyString(value.verticalId) && isNonEmptyString(value.presetId) && isNonEmptyString(value.profileId) && nullableText(value.moduleKey) && /^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$/u.test(String(value.slug)) && Array.isArray(value.surfaces) && value.surfaces.every(isNonEmptyString) && nullableText(value.fromLegacyId);
+  const invalid = [
+    !nullableText(value.idempotencyKey) && "idempotencyKey", !nullableText(value.parentTaskId) && "parentTaskId",
+    !(value.workKind === null || ["feat", "fix", "refactor", "docs", "test", "chore"].includes(String(value.workKind))) && "workKind",
+    !(value.riskTier === null || ["low", "medium", "high"].includes(String(value.riskTier))) && "riskTier",
+    !(value.urgency === null || ["low", "medium", "high"].includes(String(value.urgency))) && "urgency",
+    !isNonEmptyString(value.verticalId) && "verticalId", !isNonEmptyString(value.presetId) && "presetId", !isNonEmptyString(value.profileId) && "profileId",
+    !nullableText(value.moduleKey) && "moduleKey", !/^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$/u.test(String(value.slug)) && "slug",
+    !(Array.isArray(value.surfaces) && value.surfaces.every(isNonEmptyString)) && "surfaces", !nullableText(value.fromLegacyId) && "fromLegacyId"
+  ].filter((field): field is string => typeof field === "string");
+  return invalid.length ? { code: "invalid_task", message: `task metadata fields have invalid values: ${invalid.join(", ")}` } : null;
+}
+
+export function currentTaskForWrite(task: TaskV1): TaskV1 {
+  if (task.metadata === undefined || !Object.hasOwn(task.metadata, "longRunning")) return task;
+  const { longRunning, ...metadata } = task.metadata as TaskMetadataV1 & { readonly longRunning: unknown };
+  void longRunning;
+  return { ...task, metadata };
 }
 
 const taskNodeIdsForValidation = ["implementation", "review"] as const;

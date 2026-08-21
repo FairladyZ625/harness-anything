@@ -29,6 +29,19 @@ test("canonical schema registry parses task/doc once and rejects unknown or non-
   assert.throws(() => parseCanonicalEvent(`${JSON.stringify(event)}\n`), /not canonical/u);
 });
 
+test("current writer rejects incomplete metadata with the exact missing field", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir); const store = makeTaskEventStore({ repoId: "metadata-boundary", rootDir }), metadata = { idempotencyKey: null, parentTaskId: null, workKind: null, riskTier: null, urgency: null, verticalId: "software/coding", presetId: "standard-task", profileId: "baseline", moduleKey: null, slug: "replay-task", surfaces: [] };
+    const incomplete = { ...event, payload: { task: { ...event.payload.task, metadata } } } as unknown as TaskCreatedEvent;
+    assert.throws(() => store.append(bundle(incomplete)), (error: unknown) => {
+      assert.equal((error as { code?: string }).code, "invalid_write_plan");
+      assert.equal((error as Error).message, "canonical write requires the current event shape: task metadata is missing required fields: fromLegacyId");
+      return true;
+    });
+    assert.equal(store.readHead(), null);
+  });
+});
+
 test("Git object reads distinguish a missing commit path from repository failure", async () => {
   await withTempStoreAsync(async (rootDir) => {
     assert.throws(() => localGitObjectRefStore.readPath(rootDir, "0".repeat(40), "harness/events/head.json"), (error: unknown) => {
