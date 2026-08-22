@@ -162,6 +162,7 @@
   "views.executionEvidenceView.checkerResult": "checker result",
   "views.executionEvidenceView.witnessTitle": "execution-level witnesses · not an output receipt",
   "views.executionEvidenceView.reviewsSnapshotValidated": "reviews · snapshot-validated",
+  "views.executionEvidenceView.selectedByConsent": "selected by {consent}",
   "views.executionEvidenceView.noneCurrentCut": "none / no record in the current cut",
   "views.executionEvidenceView.paginationLabel": "execution evidence pagination",
   "views.executionEvidenceView.reloadCurrentQuery": "reload current query",

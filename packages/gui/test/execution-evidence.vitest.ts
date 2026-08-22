@@ -24,8 +24,9 @@ describe("execution evidence model", () => {
     const execution = model.executions[0]!;
 
     expect(execution.origin).toBe("native");
-    expect(execution.reviews.map(({ reviewId }) => reviewId)).toEqual(["review-matching"]);
+    expect(execution.reviews.map(({ reviewId }) => reviewId)).toEqual(["review-dismissed", "review-unselected", "review-matching"]);
     expect(execution.consents.map(({ consentId }) => consentId)).toEqual(["consent-matching"]);
+    expect({ reviewId: execution.selectedReviewId, consentId: execution.selectedConsentId }).toEqual({ reviewId: "review-matching", consentId: "consent-matching" });
     expect(execution.gateWitnesses.map(({ witnessId }) => witnessId)).toEqual(["gate-matching"]);
     expect(model.stats).toEqual({
       executions: 1,
@@ -105,6 +106,7 @@ describe("ExecutionEvidenceView", () => {
     for (const text of ["执行证据", "有通过 receipt", "无 receipt", "归档", "原生", "unknown / 未投影", "execution-level witnesses", "不等同 output receipt"]) {
       expect(markup).toContain(text);
     }
+    expect(markup).toContain("review-matching · approved · 由 consent-matching 选中");
     expect(markup).toContain('aria-expanded="true"');
     expect(markup).toContain('aria-expanded="false"');
   });
@@ -128,7 +130,7 @@ function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotPr
       task: { schema: "task/v1", taskId, title: "Evidence truth", taskClass: "standard", status: "in_review", graph: REPLAY_TASK_GRAPH,
         currentNode: "review", iteration: 0, createdBy: ACTOR, completionGateIds: ["build"], presetSnapshotDigest: null },
       executions: [execution("execution-1", 1)],
-      reviews: [review("review-matching", SHA_A, 0), review("review-other-cut", SHA_B, 1)],
+      reviews: [review("review-dismissed", SHA_A, 0, "dismissed"), review("review-unselected", SHA_A, 0), review("review-matching", SHA_A, 0), review("review-other-cut", SHA_B, 1)],
       consents: [consent("consent-matching", "review-matching"), consent("consent-other-cut", "review-other-cut")],
       codeDocWitnesses: [],
       gateWitnesses: [gate("gate-matching", SHA_A, 0), gate("gate-other-cut", SHA_B, 1)],
@@ -154,8 +156,8 @@ function execution(executionId: string, minute: number) {
       verificationNotes: ["checked"], knownGaps: [], residualRisks: [], commitSha: SHA_A } };
 }
 
-function review(reviewId: string, commitSha: string, iteration: 0 | 1) {
-  return { schema: "review/v1" as const, reviewId, taskId: "task-evidence", executionId: "execution-1", verdict: "approved" as const, actor: ACTOR,
+function review(reviewId: string, commitSha: string, iteration: 0 | 1, verdict: "approved" | "dismissed" = "approved") {
+  return { schema: "review/v1" as const, reviewId, taskId: "task-evidence", executionId: "execution-1", verdict, actor: ACTOR,
     capabilityRef: "capability/review", reason: "verified", evidenceChecked: ["artifacts/result.txt"], commitSha, iteration, contentDigest: DIGEST, reviewedAt: "2026-08-14T08:10:00.000Z" };
 }
 

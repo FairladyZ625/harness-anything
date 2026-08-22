@@ -9,7 +9,7 @@ export const closeoutReadinesses = [
 
 export type CloseoutReadiness = typeof closeoutReadinesses[number];
 
-import { reviewDigest } from "./review.ts";
+import { approvedReviewsForCut, consentedApprovedReview } from "./review.ts";
 import type { ProjectedExecution } from "./execution.ts";
 import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
 import type { CodeDocWitnessV1 } from "./code-doc-witness.ts";
@@ -51,10 +51,9 @@ export function closeoutReadiness(snapshot: CloseoutSnapshot, availability?: Clo
   if (!execution?.submission) return { readiness: "missing", blocker: "execution", gates: gateResults(snapshot, availability) };
   const gates = gateResults(snapshot, availability, execution.executionId, execution.submission.commitSha, execution.iteration);
   if (availability && Object.values(availability).includes("unknown") || gates.some(({ status }) => status === "unknown")) return { readiness: "incomplete", executionId: execution.executionId, blocker: "projection_unknown", gates };
-  const review = snapshot.reviews.find((value) => value.executionId === execution.executionId && value.verdict === "approved" && value.commitSha === execution.submission?.commitSha && value.iteration === execution.iteration);
-  if (!review) return { readiness: "incomplete", executionId: execution.executionId, blocker: "review", gates };
-  const consent = snapshot.consents.find((value) => value.executionId === execution.executionId && value.reviewId === review.reviewId && value.reviewDigest === reviewDigest(review) && value.contentDigest === review.contentDigest);
-  if (!consent) return { readiness: "incomplete", executionId: execution.executionId, blocker: "consent", gates };
+  const approved = approvedReviewsForCut(snapshot.reviews, execution.executionId, execution.submission.commitSha, execution.iteration);
+  if (!approved.length) return { readiness: "incomplete", executionId: execution.executionId, blocker: "review", gates };
+  if (!consentedApprovedReview(snapshot.reviews, snapshot.consents, execution.executionId, execution.submission.commitSha, execution.iteration)) return { readiness: "incomplete", executionId: execution.executionId, blocker: "consent", gates };
   const failed = gates.some(({ status }) => status === "failed"), missing = gates.some(({ status }) => status !== "passed");
   const orphan = lineageOrphan(task, snapshot.decisionRelations ?? []);
   return { readiness: failed ? "failed" : missing || orphan ? "incomplete" : "ready", executionId: execution.executionId, ...(missing ? { blocker: "gate" as const } : orphan ? { blocker: "lineage" as const } : {}), gates };

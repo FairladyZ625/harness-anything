@@ -1,5 +1,6 @@
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import { closeoutReadiness } from "./closeout-readiness.ts";
+import { approvedReviewsForCut } from "./review.ts";
 
 export type CompletionBlockerCode = "not_in_review" | "closeout_placeholder" | "review_missing" | "consent_missing" | "ci_missing" | "code_doc_missing" | "decision_lineage_missing" | "lease_held" | "doc_sync_required" | "gate_witness_missing";
 export interface CompletionNext { readonly command: string; readonly reason: string }
@@ -12,9 +13,9 @@ export function completionBlockers(snapshot: TaskLifecycleSnapshot, executionId:
   const submission = execution.submission;
   if (snapshot.lease !== null) return one("lease_held", "lease", `ha task submit ${task.taskId} --execution-id ${snapshot.lease.executionId} --from-file <submission.json>`, "Release the held execution lease through canonical submit.");
   const assessment = closeoutReadiness(snapshot);
-  const review = snapshot.reviews.find((value) => value.executionId === executionId && value.verdict === "approved" && value.commitSha === submission.commitSha && value.iteration === execution.iteration);
-  if (assessment.blocker === "review" || !review) return one("review_missing", "review", `ha task review-execution ${task.taskId} --execution-id ${executionId} --review-id <id> --from-file <review.json>`, "Record one independent approved Execution Review.");
-  if (assessment.blocker === "consent") return one("consent_missing", "consent", `ha task review-consent ${task.taskId} --execution-id ${executionId} --review-id ${review.reviewId} --consent-id <id>`, "Record content-pinned owner consent for the approved Review.");
+  const approved = approvedReviewsForCut(snapshot.reviews, executionId, submission.commitSha, execution.iteration);
+  if (assessment.blocker === "review" || !approved.length) return one("review_missing", "review", `ha task review-execution ${task.taskId} --execution-id ${executionId} --review-id <id> --from-file <review.json>`, "Record one independent approved Execution Review.");
+  if (assessment.blocker === "consent") { const reviewId = approved.length === 1 ? approved[0]!.reviewId : "<review-id>"; return one("consent_missing", "consent", `ha task review-consent ${task.taskId} --execution-id ${executionId} --review-id ${reviewId} --consent-id <id>`, "Select one approved Review with content-pinned owner consent."); }
   const gate = assessment.gates.find(({ status }) => status !== "passed");
   if (gate) return gate.gateId === "code-doc-reconciliation"
     ? one("code_doc_missing", gate.gateId, `ha task code-doc reconcile ${task.taskId} --execution-id ${executionId} --commit-sha ${submission.commitSha} --iteration ${execution.iteration} --path <path>`, "Publish a typed code-doc witness for this execution cut.")

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -31,7 +31,7 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
     assert.equal((await cell.run({ kind: "task-transition", taskId: "task_blocked", status: "blocked", reason: "Waiting on another team" }, binding)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-relate", taskId: "task_wait", target: "task/task_dependency", relationType: "depends-on", rationale: "Dependency must finish first" }, binding)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-start", taskId: "task_review", executionId: "exe_review" }, binding)).outcome, "applied");
-    assert.equal((await cell.run({ kind: "task-submit", taskId: "task_review", executionId: "exe_review", submission: { completionClaim: "Agenda fixture is ready.", deliverables: ["agenda projection"], outputs: ["daemon agenda"], verificationNotes: ["integration test"], knownGaps: [], residualRisks: [], commitSha: git(rootDir, "rev-parse", "HEAD") } }, binding)).outcome, "applied");
+    const reviewCommitSha = git(rootDir, "rev-parse", "HEAD"); assert.equal((await cell.run({ kind: "task-submit", taskId: "task_review", executionId: "exe_review", submission: { completionClaim: "Agenda fixture is ready.", deliverables: ["agenda projection"], outputs: ["daemon agenda"], verificationNotes: ["integration test"], knownGaps: [], residualRisks: [], commitSha: reviewCommitSha } }, binding)).outcome, "applied");
     const proposed = await cell.run(decisionProposal(), binding); assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
 
     const missing = await cell.run({ kind: "task-amend", taskId: "task_missing", patches: [{ field: "pinned", value: "true" }] }, binding);
@@ -47,6 +47,11 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
     assert.equal(agenda.dispatchable[0]?.taskId, "task_dispatch_pinned"); assert.equal(agenda.dispatchable[0]?.pinned, true);
     assert.equal(agenda.dispatchable.some(({ taskId }) => taskId === "task_wait"), false);
     assert.match(agenda.summary, /📌 task_active[\s\S]*待裁[\s\S]*球在别人手里[\s\S]*📌 task_dispatch_pinned/u);
+    const reviewerBinding = { actor: { principal: { personId: "person-agenda-reviewer" }, executor: { kind: "agent" as const, id: "agenda-reviewer" } }, source: "local" as const, roles: ["$arbiter"] };
+    writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "dismissed", reason: "Superseded opinion.", evidenceChecked: ["agenda"] })); assert.equal((await cell.run({ kind: "task-review-execution", taskId: "task_review", executionId: "exe_review", reviewId: "review-dismissed", fromFile: "review.json" }, reviewerBinding)).outcome, "applied");
+    assert.equal((await cell.read("repo.agenda.read", { limit: 50 })).awaitingDecision.some((row) => row.kind === "execution" && row.executionId === "exe_review"), true, "dismissed history must not remove the execution from review work");
+    writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Current opinion.", evidenceChecked: ["agenda"] })); assert.equal((await cell.run({ kind: "task-review-execution", taskId: "task_review", executionId: "exe_review", reviewId: "review-approved", fromFile: "review.json" }, reviewerBinding)).outcome, "applied");
+    assert.equal((await cell.read("repo.agenda.read", { limit: 50 })).awaitingDecision.some((row) => row.kind === "execution" && row.executionId === "exe_review"), false, "an approved current-cut Review resolves review work even when dismissed history remains");
     const contract = JSON.parse(readFileSync(path.join(rootDir, "harness/tasks/task_active-active-pinned/task-contract.json"), "utf8")) as { pinned?: boolean };
     assert.equal(contract.pinned, true);
 

@@ -5,7 +5,7 @@ import { blockingOf } from "../../src/domain/task-blocking.ts";
 import { closeoutReadiness, type CloseoutSnapshot } from "../../src/domain/closeout-readiness.ts";
 import { coverageOf } from "../../src/domain/decision-coverage.ts";
 import { factLiveness } from "../../src/domain/fact-liveness.ts";
-import { reviewDigest } from "../../src/domain/review.ts";
+import { consentedApprovedReview, reviewDigest } from "../../src/domain/review.ts";
 
 const actor = { principal: { personId: "owner" }, executor: null } as const;
 const commitSha = "a".repeat(40);
@@ -25,6 +25,19 @@ test("closeout readiness requires a passing exact-cut gate, not witness existenc
   assert.equal(closeoutReadiness({ ...stale, gateWitnesses: stale.gateWitnesses.map((witness) => ({ ...witness, commitSha: "c".repeat(40) })) }).readiness, "incomplete");
   const recovered = closeout("fail");
   assert.deepEqual(closeoutReadiness({ ...recovered, gateWitnesses: [...recovered.gateWitnesses, { ...recovered.gateWitnesses[0]!, witnessId: "witness-2", receiptId: "receipt-2", result: "pass" }] }).gates, [{ gateId: "ci", status: "passed" }]);
+});
+
+test("closeout consumes the latest content-pinned consent selection and ignores other Reviews", () => {
+  const base = closeout("pass"), selected = base.reviews[0]!, selectedConsent = base.consents[0]!;
+  const dismissed = { ...selected, reviewId: "review-dismissed", verdict: "dismissed" as const, reason: "superseded review history" };
+  const unselected = { ...selected, reviewId: "review-unselected", reason: "approved but not selected" };
+  const earlierConsent = { ...selectedConsent, consentId: "consent-unselected", reviewId: unselected.reviewId, reviewDigest: reviewDigest(unselected), contentDigest: unselected.contentDigest };
+  const history = { ...base, reviews: [dismissed, unselected, selected], consents: [earlierConsent, selectedConsent] };
+
+  assert.equal(consentedApprovedReview(history.reviews, history.consents, "exe-1", commitSha, 0)?.review.reviewId, selected.reviewId);
+  assert.equal(closeoutReadiness(history).readiness, "ready");
+  const unpinnedSelection = { ...history, consents: [{ ...selectedConsent, reviewDigest: `sha256:${"0".repeat(64)}` as `sha256:${string}` }] };
+  assert.equal(closeoutReadiness(unpinnedSelection).blocker, "consent", "an unselected approved Review must not satisfy the gate");
 });
 
 test("closeout readiness gates milestone and long_running completion on an active decision derives edge", () => {
