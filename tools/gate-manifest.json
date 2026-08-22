@@ -69,6 +69,7 @@
         "check-relation-cycle-substrate",
         "check-relation-canonical-direction",
         "check-status-vocabulary",
+        "check-gui-status-judgments",
         "check-domain-judgment-single-definition",
         "check-task-event-aggregate-entry",
         "canonical-event-compat",
@@ -117,6 +118,7 @@
         "check-relation-cycle-substrate",
         "check-relation-canonical-direction",
         "check-status-vocabulary",
+        "check-gui-status-judgments",
         "check-domain-judgment-single-definition",
         "check-task-event-aggregate-entry",
         "canonical-event-compat",
@@ -142,7 +144,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 41
+      "harnessLeafGateCount": 42
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -4680,6 +4682,87 @@
         "status": "covered",
         "evidence": [
           "tools/check-status-vocabulary.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "check-gui-status-judgments",
+      "command": "npm run harness:check-gui-status-judgments",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "packages/kernel/src/domain/status-vocabulary.ts",
+        "decision/dec_8DCD52E98BAB268B0194B1E399#CH1",
+        "decision/dec_8DCD52E98BAB268B0194B1E399#CH2",
+        "decision/dec_8DCD52E98BAB268B0194B1E399#CH3",
+        "harness/governance/standards/architecture-conformance-standard.md#default-architecture-direction"
+      ],
+      "consumerScope": [
+        "entity-standing status-vocabulary comparisons, switches, membership checks, and literal groups under packages/gui/src; operation receipts and response-envelope availability are excluded from their registry entity/field metadata",
+        "GUI mirror declaration exclusions derived from statusVocabularies mirrorOf metadata",
+        "the frozen path, named semantic scope, syntax kind, content fingerprint, occurrence, and classification baseline"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/gates/gui-status-judgment-baseline.mjs#guiStatusJudgmentBaseline",
+        "adrOrDecisionRequired": true,
+        "notes": "dec_8DCD52E98BAB268B0194B1E399 ratchet: only frozen main@8e700a5ac entity-judgment sites are grandfathered. Path, named semantic scope, syntax kind, content fingerprint, and same-shape occurrence must match; unrelated line movement is ignored, while stale entries must be removed and new entries cannot inherit an exemption."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-gui-status-judgments.mjs",
+          "tools/check-gui-status-judgments.test.mjs",
+          "tools/gates/gui-status-judgment-baseline.mjs",
+          "package.json:scripts.harness:check-gui-status-judgments",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-gui-status-judgments"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-gui-status-judgments.test.mjs"
         ]
       }
     }
