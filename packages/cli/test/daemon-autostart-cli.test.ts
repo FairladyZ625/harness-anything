@@ -7,11 +7,12 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { JsonRpcLineClient, connectSocket, requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
+import { streamAgentRuntimeAt } from "../../daemon/src/client/local-json-rpc-stream.ts";
 import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
 import { openDaemonLifecycleLog, readDaemonLifecycleRecords } from "../../daemon/src/lifecycle-log.ts";
 import { currentDaemonProtocolVersion } from "../../daemon/src/protocol/version.ts";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
-import { makeTaskEventStore, registerDaemonRepo, REPLAY_TASK_GRAPH, taskLifecycleWritePlan, type TaskEventV1 } from "../../kernel/src/index.ts";
+import { canonicalEventWritePlan, makeTaskEventStore, registerDaemonRepo, REPLAY_TASK_GRAPH, taskLifecycleWritePlan, type AgentDefinitionSnapshot, type AgentRuntimeEventV1, type TaskEventV1 } from "../../kernel/src/index.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -50,7 +51,7 @@ test("a blocked vertical script keeps handshakes, snapshots, and same-repo write
   try {
     writeFileSync(blocker, "blocked\n", "utf8");
     const launched = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "daemon", "start", "--service"], { encoding: "utf8", env: { ...cliEnv(fixture.root, fixture.userRoot), HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE: blocker } });
-    assert.equal(launched.status, 0, `${launched.stderr}\n${launched.stdout}`);
+    assert.equal(launched.status, 0, `${launched.stderr}\n${launched.stdout}\n${existsSync(path.join(fixture.userRoot, "logs", "daemon-default.log")) ? readFileSync(path.join(fixture.userRoot, "logs", "daemon-default.log"), "utf8") : "daemon log missing"}`);
     register(fixture.root, fixture.userRoot, repoId);
     assert.equal(run(fixture.root, fixture.userRoot, ["task", "create", "--id", taskId, "--admin", "--title", "Vertical Wedge"]).outcome, "applied");
 
@@ -89,6 +90,41 @@ test("a blocked vertical script keeps handshakes, snapshots, and same-repo write
   } finally {
     rmSync(blocker, { force: true });
     await Promise.all([scriptRequest?.catch(() => undefined), queuedWrite?.catch(() => undefined)]); client?.close(); readClient?.close(); queuedClient?.close();
+    stop(fixture.root, fixture.userRoot); rmSync(fixture.parent, { recursive: true, force: true });
+  }
+});
+
+test("runtime stream attach stays live before, during, and after a blocked vertical script", async (context) => {
+  const fixture = setup(), repoId = "runtime-attach-live", taskId = "task-runtime-attach-live", runtimeSessionId = "runtime-session-attach-live", blocker = path.join(fixture.parent, "vertical-attach.block"), started = `${blocker}.started`, endpoint = localUserDaemonEndpoint(fixture.userRoot, "default");
+  let client: JsonRpcLineClient | undefined, scriptRequest: Promise<Record<string, unknown>> | undefined;
+  try {
+    seedAttachableRuntime(fixture.root, repoId, runtimeSessionId);
+    writeFileSync(blocker, "blocked\n", "utf8");
+    const launched = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "daemon", "start", "--service"], { encoding: "utf8", env: { ...cliEnv(fixture.root, fixture.userRoot), HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE: blocker } });
+    assert.equal(launched.status, 0, `${launched.stderr}\n${launched.stdout}\n${existsSync(path.join(fixture.userRoot, "logs", "daemon-default.log")) ? readFileSync(path.join(fixture.userRoot, "logs", "daemon-default.log"), "utf8") : "daemon log missing"}`);
+    register(fixture.root, fixture.userRoot, repoId);
+    assert.equal(run(fixture.root, fixture.userRoot, ["task", "create", "--id", taskId, "--admin", "--title", "Runtime Attach Live"]).outcome, "applied");
+
+    const idle = await probeRuntimeAttach(endpoint, repoId, runtimeSessionId);
+
+    const socket = await connectSocket(endpoint, 2_000); client = new JsonRpcLineClient(socket, socket);
+    await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
+    scriptRequest = client.request("repo.script.run", { repo: { repoId }, payload: { scriptId: "vertical:software-coding:repository-audit", taskId, inputs: {}, dryRun: true } }) as Promise<Record<string, unknown>>;
+    await waitForFileContent(started);
+
+    const readStarted = performance.now(), read = await requestDaemonJsonRpcAt(endpoint, "repo.agentRuntime.sessions.read", { repo: { repoId }, payload: { runtimeSessionId } }, 2_000, 500), loaded = await probeRuntimeAttach(endpoint, repoId, runtimeSessionId);
+    const snapshot = { elapsedMs: Math.round(performance.now() - readStarted), revision: read.sourceRevision, runtimeSessionId: (read.session as Record<string, unknown>).runtimeSessionId };
+
+    rmSync(blocker, { force: true }); const scriptReceipt = await scriptRequest;
+    const recovered = await probeRuntimeAttach(endpoint, repoId, runtimeSessionId);
+    context.diagnostic(`runtime attach three-point control: ${JSON.stringify({ idle, loaded: { snapshot, attach: loaded }, recovered, scriptOutcome: scriptReceipt.outcome })}`);
+
+    assert.equal(idle.status, "attached", JSON.stringify(idle));
+    assert.equal(snapshot.runtimeSessionId, runtimeSessionId, JSON.stringify(snapshot));
+    assert.equal(loaded.status, "attached", JSON.stringify(loaded));
+    assert.equal(recovered.status, "attached", JSON.stringify(recovered));
+  } finally {
+    rmSync(blocker, { force: true }); await scriptRequest?.catch(() => undefined); client?.close();
     stop(fixture.root, fixture.userRoot); rmSync(fixture.parent, { recursive: true, force: true });
   }
 });
@@ -264,7 +300,7 @@ test("autostart fails fast when its single-flight lock cannot be created", { ski
   } finally { chmodSync(fixture.userRoot, 0o755); rmSync(fixture.parent, { recursive: true, force: true }); }
 });
 
-function cliEnv(root: string, userRoot: string, actor?: string): NodeJS.ProcessEnv { const { HARNESS_ACTOR: _actor, ...base } = process.env; return { ...base, HOME: path.join(root, ".home"), GIT_CONFIG_GLOBAL: "/dev/null", HARNESS_DAEMON_USER_ROOT: userRoot, ...(actor ? { HARNESS_ACTOR: actor } : {}) }; }
+function cliEnv(root: string, userRoot: string, actor?: string): NodeJS.ProcessEnv { const { HARNESS_ACTOR: _actor, HARNESS_DAEMON_ENDPOINT: _endpoint, HARNESS_DAEMON_REPO_ID: _repoId, HARNESS_DAEMON_ID: _daemonId, ...base } = process.env; return { ...base, HOME: path.join(root, ".home"), GIT_CONFIG_GLOBAL: "/dev/null", HARNESS_DAEMON_USER_ROOT: userRoot, ...(actor ? { HARNESS_ACTOR: actor } : {}) }; }
 function setup(): { parent: string; root: string; userRoot: string } { const parent = mkdtempSync(path.join(tmpdir(), "ha-autostart-")), root = setupRepository(parent, "repo"), userRoot = path.join(parent, "user"); return { parent, root, userRoot }; }
 function setupRepository(parent: string, name: string): string { const root = path.join(parent, name);
   mkdirSync(path.join(root, "harness"), { recursive: true });
@@ -291,5 +327,19 @@ function git(root: string, ...args: string[]): string { return execFileSync("git
 function seedLegacyTask(root: string, repoId: string, taskId: string): void {
   const actor = { principal: { personId: "owner" }, executor: null } as const, event: TaskEventV1 = { schema: "task-event/v1", eventId: "event-contract-receipt", workspaceRevision: 1, opId: "op-contract-receipt", taskId, type: "task_created", actor, source: "local", occurredAt: "2026-08-18T00:00:00.000Z", payload: { task: { schema: "task/v1", taskId, title: "Legacy contract receipt", taskClass: "standard", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [], presetSnapshotDigest: null } } };
   makeTaskEventStore({ repoId, rootDir: root }).append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+}
+function seedAttachableRuntime(root: string, repoId: string, runtimeSessionId: string): void {
+  const actor = { principal: { personId: "owner" }, executor: null } as const, definition: AgentDefinitionSnapshot = { schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: "runtime-instance-attach-live", installationId: "runtime-installation-attach-live", kindId: "codex", providerId: "openai", model: "runtime-test-model", reasoningEffort: null, baseUrl: null, authMode: "subscription" }, at = (revision: number) => `2026-08-23T00:00:0${revision}.000Z`;
+  const events: AgentRuntimeEventV1[] = [
+    { schema: "agent-runtime-event/v1", eventId: "event-runtime-installation-attach-live", workspaceRevision: 1, opId: "op-runtime-installation-attach-live", type: "runtime_installation_observed", actor, source: "local", occurredAt: at(1), payload: { installationId: definition.installationId, kindId: definition.kindId, protocolFamily: "codex", hostRef: "host:local", version: "runtime-test", discoverySource: "wrapper", capabilities: ["structured_witness", "attach"] } },
+    { schema: "agent-runtime-event/v1", eventId: "event-runtime-dispatch-attach-live", workspaceRevision: 2, opId: "op-runtime-dispatch-attach-live", type: "runtime_dispatch_requested", actor, source: "local", occurredAt: at(2), payload: { dispatchId: "dispatch-runtime-attach-live", runtimeSessionId, instanceId: definition.instanceId, installationId: definition.installationId, kindId: definition.kindId, idempotencyKey: "runtime-attach-live", definitionSnapshotRef: "artifact:runtime-definition/attach-live", definitionSnapshot: definition } },
+    { schema: "agent-runtime-event/v1", eventId: "event-runtime-started-attach-live", workspaceRevision: 3, opId: "op-runtime-started-attach-live", type: "runtime_session_started", actor, source: "local", occurredAt: at(3), payload: { runtimeSessionId, instanceId: definition.instanceId, installationId: definition.installationId, kindId: definition.kindId, definitionSnapshotRef: "artifact:runtime-definition/attach-live", launchGeneration: 1, attachable: true } }
+  ];
+  const store = makeTaskEventStore({ repoId, rootDir: root }); for (const event of events) store.append({ event, plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId), blobs: [] });
+}
+async function probeRuntimeAttach(endpoint: string, repoId: string, runtimeSessionId: string): Promise<{ readonly status: string; readonly elapsedMs: number; readonly initialValues: number }> {
+  const started = performance.now(); let initialValues = 0;
+  try { const detach = await streamAgentRuntimeAt({ socketPath: endpoint, repoId, payload: { runtimeSessionId, afterCursor: "stream:0" }, onValue: () => { initialValues += 1; }, timeoutMs: 2_000 }); detach(); return { status: "attached", elapsedMs: Math.round(performance.now() - started), initialValues }; }
+  catch (error) { return { status: error instanceof Error ? error.message : String(error), elapsedMs: Math.round(performance.now() - started), initialValues }; }
 }
 function spawnCli(root: string, userRoot: string, args: readonly string[]): Promise<{ status: number | null; stdout: string; stderr: string }> { return new Promise((resolve) => { const child = spawn(process.execPath, [cli, "--root", root, "--json", ...args], { env: cliEnv(root, userRoot), stdio: ["ignore", "pipe", "pipe"] }); let stdout = "", stderr = ""; child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; }); child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; }); child.on("close", (status) => resolve({ status, stdout: stdout.trim(), stderr: stderr.trim() })); }); }
