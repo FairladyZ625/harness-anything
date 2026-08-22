@@ -12,7 +12,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { statusVocabularies, statusWordRegister } from "../packages/kernel/src/domain/status-vocabulary.ts";
-import { guiStatusJudgmentBaseline } from "./gates/gui-status-judgment-baseline.mjs";
+import { guiStatusJudgmentBaseline } from "./gate-allowlists/gui-status-judgment-baseline.mjs";
 
 const GUI_SOURCE = "packages/gui/src";
 const SOURCE_FILE = /\.(?:ts|tsx|mts|js|jsx|mjs)$/u;

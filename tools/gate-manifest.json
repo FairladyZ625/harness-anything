@@ -4716,7 +4716,7 @@
       },
       "allowlistPolicy": {
         "allowed": true,
-        "location": "tools/gates/gui-status-judgment-baseline.mjs#guiStatusJudgmentBaseline",
+        "location": "tools/gate-allowlists/gui-status-judgment-baseline.mjs#guiStatusJudgmentBaseline",
         "adrOrDecisionRequired": true,
         "notes": "dec_8DCD52E98BAB268B0194B1E399 ratchet: only frozen main@8e700a5ac entity-judgment sites are grandfathered. Path, named semantic scope, syntax kind, content fingerprint, and same-shape occurrence must match; unrelated line movement is ignored, while stale entries must be removed and new entries cannot inherit an exemption."
       },
@@ -4726,7 +4726,7 @@
         "protectedSurfaces": [
           "tools/check-gui-status-judgments.mjs",
           "tools/check-gui-status-judgments.test.mjs",
-          "tools/gates/gui-status-judgment-baseline.mjs",
+          "tools/gate-allowlists/gui-status-judgment-baseline.mjs",
           "package.json:scripts.harness:check-gui-status-judgments",
           "tools/gate-manifest.json"
         ]
