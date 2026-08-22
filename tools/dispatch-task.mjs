@@ -4,10 +4,9 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { dispatchTaskCommand, parseToolOptions, renderToolHelp, toolValue } from "./tool-command-contract.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const requiredFlags = Object.freeze(["--plan-file", "--preset", "--title", "--instance"]);
-const optionalFlags = Object.freeze(["--prompt-file"]);
 
 export class DispatchCommandError extends Error {
   constructor(command, status, stdout, stderr) {
@@ -20,34 +19,16 @@ export class DispatchCommandError extends Error {
   }
 }
 
-function usage() {
-  return [
-    "Usage: node tools/dispatch-task.mjs --plan-file <task_plan.md> --preset <preset-id> --title <title> --instance <runtime-instance-id> [--prompt-file <prompt-file>]",
-    "",
-    "Creates the Task, writes the caller-authored plan to the packagePath returned by task create, acquires the execution lease,",
-    "dispatches runtime run --detach, and returns the JSONL path plus a directly executable background sentinel command.",
-    "The script does not generate plan/title judgments and does not monitor, retry, or resume the dispatched runtime.",
-  ].join("\n");
-}
-
 export function parseDispatchArgs(argv) {
-  if (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h")) return { help: true };
-  const accepted = new Set([...requiredFlags, ...optionalFlags]);
-  const values = new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    const flag = argv[index], value = argv[index + 1];
-    if (!accepted.has(flag) || typeof value !== "string" || value.trim().length === 0) throw new Error(usage());
-    if (values.has(flag)) throw new Error(`${flag} may be supplied once.\n\n${usage()}`);
-    values.set(flag, value);
-  }
-  if (requiredFlags.some((flag) => !values.has(flag))) throw new Error(usage());
+  const parsed = parseToolOptions(dispatchTaskCommand, argv);
+  if (parsed.help) return { help: true };
   return {
     help: false,
-    planFile: values.get("--plan-file"),
-    preset: values.get("--preset"),
-    title: values.get("--title"),
-    instance: values.get("--instance"),
-    promptFile: values.get("--prompt-file"),
+    planFile: toolValue(parsed, "--plan-file"),
+    preset: toolValue(parsed, "--preset"),
+    title: toolValue(parsed, "--title"),
+    instance: toolValue(parsed, "--instance"),
+    promptFile: toolValue(parsed, "--prompt-file"),
   };
 }
 
@@ -147,7 +128,7 @@ function main() {
   try {
     const parsed = parseDispatchArgs(process.argv.slice(2));
     if (parsed.help) {
-      process.stdout.write(`${usage()}\n`);
+      process.stdout.write(`${renderToolHelp(dispatchTaskCommand)}\n`);
       return;
     }
     process.stdout.write(`${JSON.stringify(runDispatch(parsed), null, 2)}\n`);

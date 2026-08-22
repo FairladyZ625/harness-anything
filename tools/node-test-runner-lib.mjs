@@ -1,142 +1,33 @@
 import { readdir } from "node:fs/promises";
 import { relative, resolve } from "node:path";
+import { parseToolOptions, runNodeTestsCommand, toolOption, toolValue, toolValues } from "./tool-command-contract.mjs";
 
 export const testFilePattern = /\.(test|spec)\.(?:mjs|js|ts)$/u;
 export const ignoredDirectoryNames = new Set(["node_modules", "dist", "out", "coverage", ".git"]);
 
-export function parseRunnerArgs(args, tierNames) {
+export function parseRunnerArgs(args) {
+  const parsed = parseToolOptions(runNodeTestsCommand, args);
+  if (parsed.help) return { help: true };
   const options = {
-    tier: "all",
-    list: false,
-    slowThresholdMs: 1000,
-    slowLimit: 10,
-    concurrency: undefined,
-    shard: undefined,
-    prefixes: [],
-    files: []
+    tier: toolValue(parsed, "--tier") ?? toolOption(runNodeTestsCommand, "--tier").defaultValue,
+    list: parsed.booleans.has("--list"),
+    slowThresholdMs: Number(toolValue(parsed, "--slow-threshold-ms") ?? toolOption(runNodeTestsCommand, "--slow-threshold-ms").defaultValue),
+    slowLimit: Number(toolValue(parsed, "--slow-limit") ?? toolOption(runNodeTestsCommand, "--slow-limit").defaultValue),
+    concurrency: optionalNumber(toolValue(parsed, "--concurrency")),
+    shard: toolValue(parsed, "--shard"),
+    prefixes: toolValues(parsed, "--prefix").map(normalizeTestPrefix),
+    files: toolValues(parsed, "--file").map(normalizeTestFile)
   };
-
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (arg === "--tier") {
-      const value = args[index + 1];
-      if (value === undefined) throw new Error("--tier requires a value");
-      options.tier = value;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith("--tier=")) {
-      options.tier = arg.slice("--tier=".length);
-      continue;
-    }
-    if (arg === "--list") {
-      options.list = true;
-      continue;
-    }
-    if (arg === "--slow-threshold-ms") {
-      const value = args[index + 1];
-      if (value === undefined) throw new Error("--slow-threshold-ms requires a value");
-      options.slowThresholdMs = parsePositiveInteger(value, "--slow-threshold-ms");
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith("--slow-threshold-ms=")) {
-      options.slowThresholdMs = parsePositiveInteger(arg.slice("--slow-threshold-ms=".length), "--slow-threshold-ms");
-      continue;
-    }
-    if (arg === "--slow-limit") {
-      const value = args[index + 1];
-      if (value === undefined) throw new Error("--slow-limit requires a value");
-      options.slowLimit = parsePositiveInteger(value, "--slow-limit");
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith("--slow-limit=")) {
-      options.slowLimit = parsePositiveInteger(arg.slice("--slow-limit=".length), "--slow-limit");
-      continue;
-    }
-    if (arg === "--concurrency") {
-      const value = args[index + 1];
-      if (value === undefined) throw new Error("--concurrency requires a value");
-      options.concurrency = parsePositiveInteger(value, "--concurrency");
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith("--concurrency=")) {
-      options.concurrency = parsePositiveInteger(arg.slice("--concurrency=".length), "--concurrency");
-      continue;
-    }
-    if (arg === "--prefix") {
-      const value = args[index + 1];
-      if (value === undefined) throw new Error("--prefix requires a value");
-      options.prefixes.push(normalizeTestPrefix(value));
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith("--prefix=")) {
-      options.prefixes.push(normalizeTestPrefix(arg.slice("--prefix=".length)));
-      continue;
-    }
-    if (arg === "--file") {
-      const value = args[index + 1];
-      if (value === undefined) throw new Error("--file requires a value");
-      options.files.push(normalizeTestFile(value));
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith("--file=")) {
-      options.files.push(normalizeTestFile(arg.slice("--file=".length)));
-      continue;
-    }
-    if (arg === "--shard") {
-      const value = args[index + 1];
-      if (value === undefined) throw new Error("--shard requires a value");
-      options.shard = value;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith("--shard=")) {
-      options.shard = arg.slice("--shard=".length);
-      continue;
-    }
-
-    throw new Error(`unknown run-node-tests option: ${arg}`);
-  }
-
-  if (options.tier !== "all" && !tierNames.includes(options.tier)) {
-    throw new Error(`unknown test tier: ${options.tier}; expected all, ${tierNames.join(", ")}`);
-  }
-  if (options.shard !== undefined && options.tier !== "integration") {
-    throw new Error("--shard is only supported with --tier integration");
-  }
-  if (options.shard !== undefined && options.files.length > 0) {
-    throw new Error("--file cannot be combined with --shard");
-  }
-
   return options;
 }
 
-function parsePositiveInteger(value, label) {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new Error(`${label} must be a non-negative integer`);
-  }
-  return parsed;
-}
+function optionalNumber(value) { return value === undefined ? undefined : Number(value); }
 
 function normalizeTestPrefix(value) {
-  if (!value || value.startsWith("/") || value.split("/").includes("..") || value.includes("\\")) {
-    throw new Error(`--prefix must be a POSIX repository-relative path; received ${JSON.stringify(value)}`);
-  }
   return value.endsWith("/") ? value : `${value}/`;
 }
 
-function normalizeTestFile(value) {
-  if (!value || value.startsWith("/") || value.split("/").includes("..") || value.includes("\\") || !testFilePattern.test(value)) {
-    throw new Error(`--file must be a POSIX repository-relative test file; received ${JSON.stringify(value)}`);
-  }
-  return value;
-}
+function normalizeTestFile(value) { return value; }
 
 export async function collectTestFiles(repoRoot, roots) {
   const testFiles = (

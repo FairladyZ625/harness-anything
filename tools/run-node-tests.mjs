@@ -7,7 +7,8 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
 import { collectSlowTests, filterTestFilesByNames, filterTestFilesByPrefixes, formatSlowTestSummary, parseRunnerArgs, resolveTestConcurrency, selectTestFiles } from "./node-test-runner-lib.mjs";
-import { discoverTestTierManifest, testTierNames } from "./test-tier-manifest.mjs";
+import { discoverTestTierManifest } from "./test-tier-manifest.mjs";
+import { renderToolHelp, runNodeTestsCommand } from "./tool-command-contract.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const DEFAULT_TEST_FILE_TIMEOUT_MS = 900_000;
@@ -25,10 +26,14 @@ process.env.HARNESS_GIT_AUTHOR_EMAIL ||= "harness@example.test";
 
 let options;
 try {
-  options = parseRunnerArgs(process.argv.slice(2), testTierNames);
+  options = parseRunnerArgs(process.argv.slice(2));
 } catch (error) {
   console.error(error.message);
   process.exit(2);
+}
+if (options.help) {
+  console.log(renderToolHelp(runNodeTestsCommand));
+  process.exit(0);
 }
 
 const testTierManifest = discoverTestTierManifest(repoRoot);
