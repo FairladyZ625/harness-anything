@@ -30,5 +30,37 @@ test("RepoCell runs only declared vertical scripts and dry-run publishes the sam
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+test("RepoCell snapshot reads overtake a normal write backlog while writes retain FIFO order", async (context) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-vertical-read-backlog-")), blocker = path.join(rootDir, "vertical-script.block"), started = `${blocker}.started`, previousBlocker = process.env.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE;
+  initRepo(rootDir); const cell = await openRepoCell({ repoId: workspaceId("vertical-read-backlog"), rootDir: canonicalRoot(rootDir), ownerId: "vertical-read-backlog-test" }), action = { schema: "vertical-script-action/v1", kind: "script-run", scriptId, taskId: null, inputs: { locale: "en-US" }, dryRun: true } as const;
+  const writes: Promise<unknown>[] = [];
+  try {
+    writeFileSync(blocker, "blocked\n", "utf8"); process.env.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE = blocker;
+    const head = cell.run(action, binding); writes.push(head); await waitForPath(started);
+    const first = cell.run({ kind: "task-create", taskId: "task_fifo_first", title: "FIFO First" }, binding), second = cell.run({ kind: "task-create", taskId: "task_fifo_second", title: "FIFO Second" }, binding), backlog = Array.from({ length: 3 }, () => cell.run(action, binding)); writes.push(first, second, ...backlog);
+
+    const beforeRelease = await Promise.race([Promise.all([first, second]).then(() => "settled" as const), delay(100, "pending" as const)]);
+    assert.equal(beforeRelease, "pending", "writes must not overtake the head of the RepoCell write tail");
+    const snapshotWhileBlocked = await Promise.race([cell.read("repo.tasks.list").then((value) => ({ state: "settled" as const, value })), delay(250, { state: "pending" as const, value: null })]);
+    context.diagnostic(`snapshot read while write tail is blocked: ${JSON.stringify({ state: snapshotWhileBlocked.state, queueDepth: cell.status().queueDepth })}`);
+    assert.equal(snapshotWhileBlocked.state, "settled", "a committed-snapshot read must not join the write tail");
+    assert.deepEqual(snapshotWhileBlocked.value?.rows.map(({ taskId }) => taskId), [], "the snapshot must not expose queued writes");
+
+    rmSync(blocker, { force: true }); await head;
+    const backlogRead = cell.read("repo.tasks.list"), winner = await Promise.race([backlogRead.then(() => "read" as const), Promise.all(backlog).then(() => "writes" as const)]);
+    context.diagnostic(`snapshot read against released normal write backlog: ${JSON.stringify({ winner, queueDepth: cell.status().queueDepth })}`);
+    assert.equal(winner, "read", "a snapshot read must overtake normal queued writes after the staging blocker is released");
+    const [firstReceipt, secondReceipt, concurrentRead] = await Promise.all([first, second, backlogRead]);
+    assert.deepEqual({ first: firstReceipt.revision, second: secondReceipt.revision }, { first: 1, second: 2 }, "write revisions must retain FIFO order");
+    assert.equal([["task_fifo_first"], ["task_fifo_first", "task_fifo_second"]].some((prefix) => JSON.stringify(prefix) === JSON.stringify(concurrentRead.rows.map(({ taskId }) => taskId))), true, "the concurrent snapshot must expose a FIFO prefix, never a partial or reordered write");
+    await Promise.all(backlog); assert.deepEqual((await cell.read("repo.tasks.list")).rows.map(({ taskId }) => taskId), ["task_fifo_first", "task_fifo_second"]);
+  } finally {
+    rmSync(blocker, { force: true }); await Promise.allSettled(writes); if (previousBlocker === undefined) Reflect.deleteProperty(process.env, "HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE"); else process.env.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE = previousBlocker;
+    await cell.close(); rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function initRepo(rootDir: string): void { git(rootDir, "init", "-q"); git(rootDir, "config", "user.name", "Vertical Script Test"); git(rootDir, "config", "user.email", "vertical-script@example.invalid"); mkdirSync(path.join(rootDir, "harness"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "layout:\n  adrRoot: harness/decisions/adrs\n"); git(rootDir, "add", "."); git(rootDir, "commit", "-qm", "base"); }
 function git(rootDir: string, ...args: string[]): string { return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim(); }
+async function waitForPath(target: string): Promise<void> { const deadline = Date.now() + 5_000; while (!existsSync(target)) { if (Date.now() >= deadline) throw new Error(`timed out waiting for ${target}`); await delay(10, undefined); } }
+function delay<T>(milliseconds: number, value: T): Promise<T> { return new Promise((resolve) => setTimeout(() => resolve(value), milliseconds)); }

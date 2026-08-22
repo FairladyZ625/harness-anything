@@ -44,9 +44,9 @@ test("registered workspace CLI command auto-starts the daemon, retries, and succ
   } finally { rmSync(fixture.parent, { recursive: true, force: true }); }
 });
 
-test("a blocked vertical script keeps handshakes live without releasing its same-repo queue slot", async (context) => {
+test("a blocked vertical script keeps handshakes and same-repo snapshot reads live without releasing its write slot", async (context) => {
   const fixture = setup(), repoId = "vertical-wedge", taskId = "task-vertical-wedge", blocker = path.join(fixture.parent, "vertical-script.block"), started = `${blocker}.started`, endpoint = localUserDaemonEndpoint(fixture.userRoot, "default");
-  let client: JsonRpcLineClient | undefined, queuedClient: JsonRpcLineClient | undefined, scriptRequest: Promise<Record<string, unknown>> | undefined, queuedRead: Promise<Record<string, unknown>> | undefined;
+  let client: JsonRpcLineClient | undefined, readClient: JsonRpcLineClient | undefined, queuedClient: JsonRpcLineClient | undefined, scriptRequest: Promise<Record<string, unknown>> | undefined, queuedWrite: Promise<Record<string, unknown>> | undefined;
   try {
     writeFileSync(blocker, "blocked\n", "utf8");
     const launched = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "daemon", "start", "--service"], { encoding: "utf8", env: { ...cliEnv(fixture.root, fixture.userRoot), HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE: blocker } });
@@ -65,30 +65,37 @@ test("a blocked vertical script keeps handshakes live without releasing its same
     context.diagnostic(`blocked vertical script handshake probe: ${JSON.stringify(handshake)}`);
     assert.equal(handshake.ok, true, JSON.stringify(handshake));
 
+    const readSocket = await connectSocket(endpoint, 2_000); readClient = new JsonRpcLineClient(readSocket, readSocket);
+    await readClient.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
+    const readStarted = performance.now(), readWhileBlocked = await Promise.race([readClient.request("repo.tasks.list", { repo: { repoId }, payload: {} }).then((receipt) => ({ state: "settled" as const, receipt })), delay(250, { state: "pending" as const, receipt: null })]);
+    const snapshotTaskIds = Array.isArray(readWhileBlocked.receipt?.rows) ? readWhileBlocked.receipt.rows.map((row) => String((row as Record<string, unknown>).taskId)) : null, snapshotWhileBlocked = { state: readWhileBlocked.state, elapsedMs: Math.round(performance.now() - readStarted), readStatus: readWhileBlocked.receipt?.status, taskIds: snapshotTaskIds };
+    context.diagnostic(`same-repo snapshot probe while script blocked: ${JSON.stringify(snapshotWhileBlocked)}`);
+    assert.deepEqual({ state: readWhileBlocked.state, readStatus: readWhileBlocked.receipt?.status }, { state: "settled", readStatus: "ready" }, JSON.stringify(snapshotWhileBlocked));
+    assert.deepEqual(snapshotTaskIds, [taskId], "the concurrent read must return the committed pre-write snapshot");
+
     const queuedSocket = await connectSocket(endpoint, 2_000); queuedClient = new JsonRpcLineClient(queuedSocket, queuedSocket);
     await queuedClient.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
-    queuedRead = queuedClient.request("repo.tasks.list", { repo: { repoId }, payload: {} }) as Promise<Record<string, unknown>>;
-    const orderingStarted = performance.now(), beforeRelease = await Promise.race([queuedRead.then(() => "settled" as const), new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 250))]);
-    const orderingWhileBlocked = { state: beforeRelease, elapsedMs: Math.round(performance.now() - orderingStarted) };
-    context.diagnostic(`same-repo ordering probe while script blocked: ${JSON.stringify(orderingWhileBlocked)}`);
+    queuedWrite = queuedClient.request("repo.task.create", { repo: { repoId }, payload: { taskId: "task-queued-write", title: "Queued Write" } }) as Promise<Record<string, unknown>>;
+    const orderingStarted = performance.now(), beforeRelease = await Promise.race([queuedWrite.then(() => "settled" as const), delay(250, "pending" as const)]), orderingWhileBlocked = { state: beforeRelease, elapsedMs: Math.round(performance.now() - orderingStarted) };
+    context.diagnostic(`same-repo write ordering probe while script blocked: ${JSON.stringify(orderingWhileBlocked)}`);
     assert.equal(beforeRelease, "pending", JSON.stringify(orderingWhileBlocked));
 
     rmSync(blocker, { force: true });
-    const [scriptReceipt, readReceipt] = await Promise.all([scriptRequest, queuedRead]);
-    const orderingAfterRelease = { scriptOutcome: scriptReceipt.outcome, readStatus: readReceipt.status, taskCount: Array.isArray(readReceipt.rows) ? readReceipt.rows.length : null };
+    const [scriptReceipt, writeReceipt] = await Promise.all([scriptRequest, queuedWrite]);
+    const orderingAfterRelease = { scriptOutcome: scriptReceipt.outcome, writeOutcome: writeReceipt.outcome, writeRevision: writeReceipt.revision };
     context.diagnostic(`same-repo ordering probe after script release: ${JSON.stringify(orderingAfterRelease)}`);
-    assert.deepEqual({ scriptOutcome: scriptReceipt.outcome, readStatus: readReceipt.status }, { scriptOutcome: "pending", readStatus: "ready" });
+    assert.deepEqual({ scriptOutcome: scriptReceipt.outcome, writeOutcome: writeReceipt.outcome }, { scriptOutcome: "pending", writeOutcome: "applied" });
     assert.equal((scriptReceipt.proof as { readonly canonicalVisible?: unknown }).canonicalVisible, false);
   } finally {
     rmSync(blocker, { force: true });
-    await Promise.all([scriptRequest?.catch(() => undefined), queuedRead?.catch(() => undefined)]); client?.close(); queuedClient?.close();
+    await Promise.all([scriptRequest?.catch(() => undefined), queuedWrite?.catch(() => undefined)]); client?.close(); readClient?.close(); queuedClient?.close();
     stop(fixture.root, fixture.userRoot); rmSync(fixture.parent, { recursive: true, force: true });
   }
 });
 
-test("disconnecting a blocked vertical script client terminates its child and releases only its repo queue", async (context) => {
+test("disconnecting a blocked vertical script client terminates its child and releases only its repo write queue", async (context) => {
   const fixture = setup(), otherRoot = setupRepository(fixture.parent, "other-repo"), blockedRepoId = "vertical-disconnect", otherRepoId = "vertical-unaffected", taskId = "task-vertical-disconnect", blocker = path.join(fixture.parent, "vertical-disconnect.block"), started = `${blocker}.started`, endpoint = localUserDaemonEndpoint(fixture.userRoot, "default");
-  let actionSocket: Socket | undefined, queuedClient: JsonRpcLineClient | undefined, scriptRequest: Promise<Record<string, unknown>> | undefined, queuedRead: Promise<Record<string, unknown>> | undefined;
+  let actionSocket: Socket | undefined, queuedClient: JsonRpcLineClient | undefined, scriptRequest: Promise<Record<string, unknown>> | undefined, queuedWrite: Promise<Record<string, unknown>> | undefined;
   try {
     writeFileSync(blocker, "blocked\n", "utf8");
     const launched = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "daemon", "start", "--service"], { encoding: "utf8", env: { ...cliEnv(fixture.root, fixture.userRoot), HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE: blocker } });
@@ -110,21 +117,21 @@ test("disconnecting a blocked vertical script client terminates its child and re
 
     const queuedSocket = await connectSocket(endpoint, 2_000); queuedClient = new JsonRpcLineClient(queuedSocket, queuedSocket);
     await queuedClient.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
-    queuedRead = queuedClient.request("repo.tasks.list", { repo: { repoId: blockedRepoId }, payload: {} }) as Promise<Record<string, unknown>>;
-    const beforeDisconnect = await Promise.race([queuedRead.then(() => "settled" as const), delay(250, "pending" as const)]);
-    context.diagnostic(`same-repo read before client disconnect: ${JSON.stringify({ state: beforeDisconnect })}`);
+    queuedWrite = queuedClient.request("repo.task.create", { repo: { repoId: blockedRepoId }, payload: { taskId: "task-after-disconnect", title: "After Disconnect" } }) as Promise<Record<string, unknown>>;
+    const beforeDisconnect = await Promise.race([queuedWrite.then(() => "settled" as const), delay(250, "pending" as const)]);
+    context.diagnostic(`same-repo write before client disconnect: ${JSON.stringify({ state: beforeDisconnect })}`);
     assert.equal(beforeDisconnect, "pending");
 
     actionSocket.destroy();
-    const afterDisconnect = await Promise.race([queuedRead.then((receipt) => ({ state: "settled" as const, receipt })), delay(2_000, { state: "pending" as const, receipt: null })]);
-    context.diagnostic(`same-repo read after client disconnect: ${JSON.stringify({ state: afterDisconnect.state, blockerStillPresent: existsSync(blocker), childAlive: processAlive(childPid) })}`);
+    const afterDisconnect = await Promise.race([queuedWrite.then((receipt) => ({ state: "settled" as const, receipt })), delay(2_000, { state: "pending" as const, receipt: null })]);
+    context.diagnostic(`same-repo write after client disconnect: ${JSON.stringify({ state: afterDisconnect.state, blockerStillPresent: existsSync(blocker), childAlive: processAlive(childPid) })}`);
     assert.equal(afterDisconnect.state, "settled", "the dead client must release its RepoCell tail slot");
     assert.equal(existsSync(blocker), true, "the test blocker must still be present when cancellation releases the slot");
     assert.equal(processAlive(childPid), false, "the disconnected client's vertical child must be terminated before the slot releases");
-    assert.equal(afterDisconnect.receipt?.status, "ready");
+    assert.equal(afterDisconnect.receipt?.outcome, "applied");
   } finally {
     actionSocket?.destroy(); rmSync(blocker, { force: true });
-    await queuedRead?.catch(() => undefined); queuedClient?.close();
+    await queuedWrite?.catch(() => undefined); queuedClient?.close();
     stop(fixture.root, fixture.userRoot); rmSync(fixture.parent, { recursive: true, force: true });
   }
 });
