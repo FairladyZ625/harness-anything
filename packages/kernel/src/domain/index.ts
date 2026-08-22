@@ -22,7 +22,7 @@ export { explainStatusTransition, isDomainStatus, isTerminalStatus } from "./lif
 export { immutableBindingFields, validateLifecycleBindingInvariant } from "./lifecycle-binding.ts";
 export type { LifecycleBinding, BindingInvariantResult, ImmutableBindingField } from "./lifecycle-binding.ts";
 
-export { closeoutReadiness, closeoutReadinesses, isCloseoutReadiness } from "./closeout-readiness.ts";
+export { closeoutReadiness, closeoutReadinesses, currentExecutionCuts, currentSubmittedExecutions, isCloseoutReadiness } from "./closeout-readiness.ts";
 export type { CloseoutReadiness } from "./closeout-readiness.ts";
 export { blockingOf } from "./task-blocking.ts";
 

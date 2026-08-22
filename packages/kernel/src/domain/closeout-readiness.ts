@@ -10,7 +10,8 @@ export const closeoutReadinesses = [
 export type CloseoutReadiness = typeof closeoutReadinesses[number];
 
 import { approvedReviewsForCut, consentedApprovedReview } from "./review.ts";
-import type { ProjectedExecution } from "./execution.ts";
+import { isNativeExecution } from "./execution.ts";
+import type { ExecutionV1, ProjectedExecution } from "./execution.ts";
 import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
 import type { CodeDocWitnessV1 } from "./code-doc-witness.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
@@ -44,7 +45,7 @@ export interface CloseoutSnapshot {
 export function closeoutReadiness(snapshot: CloseoutSnapshot, availability?: CloseoutProjectionAvailability): CloseoutAssessment {
   const task = snapshot.task;
   if (!task) return { readiness: "missing", blocker: "execution", gates: [] };
-  const cut = snapshot.executions.find((value) => value.iteration === task.iteration && value.submission !== null);
+  const cuts = currentExecutionCuts(snapshot), cut = cuts.length === 1 ? cuts[0] : undefined;
   if (task.status === "done") return { readiness: "passed", ...(cut ? { executionId: cut.executionId } : {}), gates: gateResults(snapshot, availability, cut?.executionId, cut?.submission?.commitSha, cut?.iteration) };
   if (task.status !== "in_review") return { readiness: "not_required", gates: gateResults(snapshot, availability) };
   const execution = cut?.state === "submitted" ? cut : undefined;
@@ -57,6 +58,15 @@ export function closeoutReadiness(snapshot: CloseoutSnapshot, availability?: Clo
   const failed = gates.some(({ status }) => status === "failed"), missing = gates.some(({ status }) => status !== "passed");
   const orphan = lineageOrphan(task, snapshot.decisionRelations ?? []);
   return { readiness: failed ? "failed" : missing || orphan ? "incomplete" : "ready", executionId: execution.executionId, ...(missing ? { blocker: "gate" as const } : orphan ? { blocker: "lineage" as const } : {}), gates };
+}
+
+/** Native submitted content cuts on the Task's current iteration. Multiple results are ambiguity, never an implicit first choice. */
+export function currentExecutionCuts(snapshot: CloseoutSnapshot): readonly ExecutionV1[] {
+  return snapshot.executions.filter((value): value is ExecutionV1 => isNativeExecution(value) && value.iteration === snapshot.task?.iteration && value.submission !== null);
+}
+
+export function currentSubmittedExecutions(snapshot: CloseoutSnapshot): readonly ExecutionV1[] {
+  return currentExecutionCuts(snapshot).filter((value) => value.state === "submitted");
 }
 
 /** dec_01KXBDV2R6DA0AA0MXTCH0E4AP CH1: a milestone or long_running task completes only with an active decision derives edge naming it. */

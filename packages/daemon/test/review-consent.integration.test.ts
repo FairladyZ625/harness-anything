@@ -40,7 +40,7 @@ test("review-consent derives the recorded Review digests without a packet and st
     const beforeTypo = store().readHead()?.revision, typo = await cell.run({ kind: "task-review-consent", taskId, executionId, reviewId: "review-typo", consentId: "consent-typo" }, binding) as unknown as Record<string, unknown>;
     assert.deepEqual({ outcome: typo.outcome, code: typo.code }, { outcome: "op_rejected", code: "invalid_command" }); assert.match(String(typo.nextAction), /choose one of review-derived/u); assert.equal(store().readHead()?.revision, beforeTypo);
 
-    const consented = await cell.run({ kind: "task-review-consent", taskId, executionId, reviewId: "review-derived", consentId: "consent-derived" }, binding) as unknown as Record<string, unknown>;
+    const consented = await cell.run({ kind: "task-review-consent", taskId, consentId: "consent-derived" }, binding) as unknown as Record<string, unknown>;
     assert.equal(consented.outcome, "applied", JSON.stringify(consented));
     const consentEvent = store().readEvent(String(consented.opId)); if (consentEvent?.type !== "review_consent_recorded") throw new Error("consent event missing");
     assert.equal(consentEvent.payload.consent.reviewDigest, reviewDigest(reviewEvent.payload.review));
@@ -61,7 +61,14 @@ test("review-consent derives the recorded Review digests without a packet and st
     const reviewlessTaskId = "task-reviewless", reviewlessExecutionId = "execution-reviewless";
     await cell.run({ kind: "task-create", taskId: reviewlessTaskId, title: "Reviewless consent" }, binding); await cell.run({ kind: "task-start", taskId: reviewlessTaskId, executionId: reviewlessExecutionId }, binding);
     await cell.run({ kind: "task-submit", taskId: reviewlessTaskId, executionId: reviewlessExecutionId, fromFile: "submission.json" }, binding);
-    const reviewless = await cell.run({ kind: "task-review-consent", taskId: reviewlessTaskId, executionId: reviewlessExecutionId, reviewId: "review-none", consentId: "consent-none" }, binding) as unknown as Record<string, unknown>;
-    assert.deepEqual({ outcome: reviewless.outcome, code: reviewless.code }, { outcome: "op_rejected", code: "invalid_transition" }); assert.match(String(reviewless.nextAction), /ha task review-execution/u);
+    const reviewless = await cell.run({ kind: "task-review-consent", taskId: reviewlessTaskId, consentId: "consent-none" }, binding) as unknown as Record<string, unknown>;
+    assert.deepEqual({ outcome: reviewless.outcome, code: reviewless.code }, { outcome: "op_rejected", code: "invalid_command" }); assert.match(String(reviewless.nextAction), /Approved Review candidates: none/u); assert.match(String(reviewless.nextAction), new RegExp(`ha task review-execution ${reviewlessTaskId}`, "u"));
+
+    const ambiguousTaskId = "task-ambiguous", ambiguousExecutionId = "execution-ambiguous";
+    await cell.run({ kind: "task-create", taskId: ambiguousTaskId, title: "Ambiguous consent" }, binding); await cell.run({ kind: "task-start", taskId: ambiguousTaskId, executionId: ambiguousExecutionId }, binding);
+    await cell.run({ kind: "task-submit", taskId: ambiguousTaskId, executionId: ambiguousExecutionId, fromFile: "submission.json" }, binding);
+    for (const reviewId of ["review-a", "review-b"]) assert.equal((await cell.run({ kind: "task-review-execution", taskId: ambiguousTaskId, executionId: ambiguousExecutionId, reviewId, fromFile: "review.json" }, reviewBinding)).outcome, "applied");
+    const ambiguous = await cell.run({ kind: "task-review-consent", taskId: ambiguousTaskId, consentId: "consent-ambiguous" }, binding) as unknown as Record<string, unknown>;
+    assert.deepEqual({ outcome: ambiguous.outcome, code: ambiguous.code }, { outcome: "op_rejected", code: "invalid_command" }); assert.match(String(ambiguous.nextAction), /execution-ambiguous\/review-a/u); assert.match(String(ambiguous.nextAction), /execution-ambiguous\/review-b/u); assert.match(String(ambiguous.nextAction), /ha task review-consent task-ambiguous --execution-id execution-ambiguous --review-id review-a --consent-id consent-ambiguous/u);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });

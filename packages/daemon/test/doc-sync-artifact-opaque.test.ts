@@ -134,11 +134,11 @@ test("task_plan.md and closeout.md retain prose policy, proofs, and deletion pro
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
-test("completion preflight publishes a dirty opaque artifact and completes with canonical opaque artifacts in place", async () => {
+test("an identifier-free lifecycle publishes dirty artifacts and completes on the derived execution and Review cut", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-complete-")); initRepo(rootDir);
   const repoId = workspaceId("artifact-complete"), binding = { actor, source: "local" as const };
   let cell: Awaited<ReturnType<typeof openRepoCell>> | null = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-complete" });
-  const taskId = "task-complete", executionId = "exe-complete";
+  const taskId = "task-complete";
   try {
     assert.equal((await cell.run({ kind: "task-create", taskId, title: "Complete" }, binding)).outcome, "applied");
     writeFileSync(path.join(rootDir, "gen.mjs"), "export const generated = true;\n");
@@ -146,8 +146,8 @@ test("completion preflight publishes a dirty opaque artifact and completes with 
     assert.equal(added.outcome, "applied", JSON.stringify(added));
     const packagePath = String(added.destination).split("/artifacts/")[0]!, manual = `${packagePath}/artifacts/reports/manual.html`;
     write(rootDir, manual, "<!doctype html>\n<title>Manual report</title>\n");
-    await reachGreenInReview(cell, rootDir, taskId, executionId, packagePath);
-    const completed = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed", paths: ["packages/kernel/src/domain/task.ts"] }, binding) as Record<string, unknown>;
+    await reachGreenInReview(cell, rootDir, taskId, packagePath);
+    const completed = await cell.run({ kind: "task-complete", taskId, ci: "passed", paths: ["packages/kernel/src/domain/task.ts"] }, binding) as Record<string, unknown>;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     assert.equal(completed.commitSha, null);
     const store = makeTaskEventStore({ repoId, rootDir });
@@ -160,19 +160,20 @@ test("completion preflight publishes a dirty opaque artifact and completes with 
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
-async function reachGreenInReview(cell: Awaited<ReturnType<typeof openRepoCell>>, rootDir: string, taskId: string, executionId: string, packagePath: string): Promise<string> {
+async function reachGreenInReview(cell: Awaited<ReturnType<typeof openRepoCell>>, rootDir: string, taskId: string, packagePath: string): Promise<void> {
   const binding = { actor, source: "local" as const };
-  await cell.run({ kind: "task-start", taskId, executionId }, binding);
+  assert.equal((await cell.run({ kind: "task-start", taskId }, binding)).outcome, "applied");
   writeFileSync(path.join(rootDir, "harness", `${packagePath}/closeout.md`), "# Closeout\n\n## Summary\n\nDone.\n\n## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n");
   assert.equal((await cell.run({ kind: "doc-submit", paths: [`${packagePath}/closeout.md`] }, binding)).outcome, "applied");
   const commitSha = git(rootDir, "rev-parse", "HEAD");
   writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify({ completionClaim: "Implemented.", deliverables: ["opaque artifacts"], outputs: [`${packagePath}/closeout.md`], verificationNotes: ["verified"], knownGaps: [], residualRisks: [], commitSha }));
-  await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding);
+  assert.equal((await cell.run({ kind: "task-submit", taskId, fromFile: "submission.json" }, binding)).outcome, "applied");
   writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }));
-  const reviewed = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "review-opaque", fromFile: "review.json" }, reviewerBinding) as unknown as Record<string, unknown>;
+  const reviewed = await cell.run({ kind: "task-review-execution", taskId, reviewId: "review-opaque", fromFile: "review.json" }, reviewerBinding) as unknown as Record<string, unknown>;
+  assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
   writeFileSync(path.join(rootDir, "consent.json"), JSON.stringify({ reviewDigest: reviewed.reviewDigest, contentDigest: reviewed.contentDigest }));
-  await cell.run({ kind: "task-review-consent", taskId, executionId, reviewId: "review-opaque", consentId: "consent-opaque", fromFile: "consent.json" }, binding);
-  return commitSha;
+  const consented = await cell.run({ kind: "task-review-consent", taskId, consentId: "consent-opaque", fromFile: "consent.json" }, binding);
+  assert.equal(consented.outcome, "applied", JSON.stringify(consented));
 }
 
 async function blockedRow(cell: Awaited<ReturnType<typeof openRepoCell>>, logical: string): Promise<readonly unknown[]> {
