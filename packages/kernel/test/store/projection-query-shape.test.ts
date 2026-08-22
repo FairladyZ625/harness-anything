@@ -102,17 +102,19 @@ test("agenda source pages use covering keyset indexes and fetch only limit plus 
       CREATE TABLE task_generation (task_id TEXT PRIMARY KEY, generation TEXT NOT NULL);
       CREATE TABLE event_index (workspace_revision INTEGER PRIMARY KEY, task_id TEXT NOT NULL, event_json TEXT NOT NULL);
       CREATE INDEX event_index_task_id ON event_index(task_id, workspace_revision);
+      CREATE INDEX task_snapshot_revision_task ON task_snapshot(workspace_revision, task_id ASC);
       CREATE INDEX task_snapshot_agenda_status_pin ON task_snapshot(status, pinned DESC, task_id ASC);
     `);
     const insert = db.prepare("INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at) VALUES (?, ?, ?, 'planned', '2026-08-21T00:00:00.000Z')");
     for (let index = 0; index < 2_000; index += 1) insert.run(`task_${String(index).padStart(5, "0")}`, index + 1, JSON.stringify({ task: { pinned: index === 1_999 } }));
     seed(db, 2_000, 1); db.exec("UPDATE decision SET state='proposed'");
-    const tasks = listTaskRowsNarrow(db, { status: "planned", pinnedFirst: true, limit: 5 }), decisions = listDecisionAgendaRowsPage(db, { state: "proposed", limit: 5 });
+    const tasks = listTaskRowsNarrow(db, { status: "planned", pinnedFirst: true, limit: 5 }), changed = listTaskRowsNarrow(db, { changedAfterRevision: 1_990, limit: 5 }), decisions = listDecisionAgendaRowsPage(db, { state: "proposed", limit: 5 });
     assert.equal(tasks.rows.length, 5); assert.equal(tasks.rows[0]?.task_id, "task_01999"); assert.ok(tasks.page?.nextCursor);
+    assert.deepEqual(changed.rows.map(({ task_id }) => task_id), ["task_01990", "task_01991", "task_01992", "task_01993", "task_01994"]); assert.ok(changed.page?.nextCursor);
     assert.equal(decisions.rows.length, 5); assert.ok(decisions.page.nextCursor);
-    const taskPlan = (db.prepare("EXPLAIN QUERY PLAN SELECT task_id FROM task_snapshot WHERE status = 'planned' ORDER BY pinned DESC, task_id LIMIT 6").all() as unknown as { detail: string }[]).map(({ detail }) => detail).join("\n"), decisionPlan = (db.prepare("EXPLAIN QUERY PLAN SELECT decision_id, title, risk_tier, urgency, proposed_at FROM decision WHERE state = 'proposed' ORDER BY decision_id LIMIT 6").all() as unknown as { detail: string }[]).map(({ detail }) => detail).join("\n");
-    context.diagnostic(`task agenda plan: ${taskPlan}`); context.diagnostic(`decision agenda plan: ${decisionPlan}`);
-    assert.match(taskPlan, /task_snapshot_agenda_status_pin/u); assert.match(decisionPlan, /decision_state_page/u);
+    const taskPlan = (db.prepare("EXPLAIN QUERY PLAN SELECT task_id FROM task_snapshot WHERE status = 'planned' ORDER BY pinned DESC, task_id LIMIT 6").all() as unknown as { detail: string }[]).map(({ detail }) => detail).join("\n"), revisionPlan = (db.prepare("EXPLAIN QUERY PLAN SELECT task_id FROM task_snapshot WHERE workspace_revision > 1990 ORDER BY task_id LIMIT 6").all() as unknown as { detail: string }[]).map(({ detail }) => detail).join("\n"), decisionPlan = (db.prepare("EXPLAIN QUERY PLAN SELECT decision_id, title, risk_tier, urgency, proposed_at FROM decision WHERE state = 'proposed' ORDER BY decision_id LIMIT 6").all() as unknown as { detail: string }[]).map(({ detail }) => detail).join("\n");
+    context.diagnostic(`task agenda plan: ${taskPlan}`); context.diagnostic(`task revision plan: ${revisionPlan}`); context.diagnostic(`decision agenda plan: ${decisionPlan}`);
+    assert.match(taskPlan, /task_snapshot_agenda_status_pin/u); assert.match(revisionPlan, /task_snapshot_revision_task/u); assert.match(decisionPlan, /decision_state_page/u);
   } finally { db.close(); }
 });
 

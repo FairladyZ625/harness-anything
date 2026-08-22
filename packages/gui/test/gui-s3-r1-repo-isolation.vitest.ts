@@ -84,7 +84,7 @@ describe("GUI S3 R1 repository isolation", () => {
     await expect(taskListQuery("repo-a").queryFn()).rejects.toThrow("Task projection changed while the complete list was being read.");
   });
 
-  it("polls only rows updated since the cached complete task list", async () => {
+  it("polls only rows changed after the cached task projection revision", async () => {
     const getTasks = vi.fn(async () => ({ ok: true as const, status: "ready" as const, rows: [], watermark: 43, sourceRevision: 43, warnings: [], page: { limit: TASK_LIST_PAGE_LIMIT, cursor: null, nextCursor: null } }));
     Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
     const cachedRows = [
@@ -92,8 +92,48 @@ describe("GUI S3 R1 repository isolation", () => {
       { taskId: "task_cached", updatedAt: "2026-08-21T23:59:00.000Z" }
     ] as TaskListSuccess["rows"];
     const result = await readTaskList("repo-a", { ok: true, status: "ready", rows: cachedRows, watermark: 42, sourceRevision: 42, warnings: [] });
-    expect(getTasks).toHaveBeenCalledWith({ repoId: "repo-a", updatedAfter: cachedRows[1]!.updatedAt, limit: TASK_LIST_PAGE_LIMIT });
+    expect(getTasks).toHaveBeenCalledWith({ repoId: "repo-a", changedAfterRevision: 42, limit: TASK_LIST_PAGE_LIMIT });
     expect(result.rows).toEqual(cachedRows);
+  });
+
+  it("includes a task whose newer projection revision carries an older occurredAt", async () => {
+    const projectionRow = (taskId: string, updatedAt: string) => ({
+      taskId,
+      createdAt: null,
+      updatedAt,
+      generation: "v1",
+      snapshot: { task: { schema: "task/v1", taskId, title: taskId } }
+    }) as TaskListSuccess["rows"][number];
+    const cachedRows = [
+      projectionRow("task-cached", "2026-08-21T23:59:00.000Z")
+    ];
+    const migratedRow = projectionRow("task-migrated", "2026-06-14T00:00:00.000Z");
+    const projectionRows = [...cachedRows, migratedRow];
+    const getTasks = vi.fn(async (payload: { readonly changedAfterRevision?: number; readonly updatedAfter?: string }) => ({
+      ok: true as const,
+      status: "ready" as const,
+      rows: payload.changedAfterRevision !== undefined
+        ? [migratedRow]
+        : payload.updatedAfter === undefined ? projectionRows : projectionRows.filter((row) => row.updatedAt >= payload.updatedAfter!),
+      watermark: 43,
+      sourceRevision: 43,
+      warnings: [],
+      page: { limit: TASK_LIST_PAGE_LIMIT, cursor: null, nextCursor: null }
+    }));
+    Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
+
+    const result = await readTaskList("repo-a", {
+      ok: true,
+      status: "ready",
+      rows: cachedRows,
+      watermark: 42,
+      sourceRevision: 42,
+      warnings: []
+    });
+
+    expect(result.watermark).toBe(43);
+    expect(result.rows.map((row) => row.taskId)).toEqual(["task-cached", "task-migrated"]);
+    expect(getTasks).toHaveBeenCalledWith({ repoId: "repo-a", changedAfterRevision: 42, limit: TASK_LIST_PAGE_LIMIT });
   });
 
   it("refreshes an open task document when the ledger cut advances", async () => {

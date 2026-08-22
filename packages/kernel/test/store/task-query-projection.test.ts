@@ -73,6 +73,9 @@ test("narrow task list pages concatenate to the unparameterized result and keep 
     // Time windows filter on the update timestamp with inclusive bounds.
     assert.deepEqual(projection.list({ updatedAfter: "2026-08-20T00:00:00.000Z" }).rows.map((row) => row.taskId), full.rows.filter((row) => row.updatedAt >= "2026-08-20T00:00:00.000Z").map((row) => row.taskId));
     assert.deepEqual(projection.list({ updatedAfter: "2026-08-14T00:00:00.000Z", updatedBefore: "2026-08-20T00:00:00.000Z" }).rows.map((row) => row.taskId), full.rows.filter((row) => row.updatedAt >= "2026-08-14T00:00:00.000Z" && row.updatedAt <= "2026-08-20T00:00:00.000Z").map((row) => row.taskId));
+    // Revision deltas use a strict boundary over the monotonic projected revision.
+    assert.deepEqual(projection.list({ changedAfterRevision: 7 }).rows.map((row) => row.taskId), full.rows.filter((row) => row.workspaceRevision > 7).map((row) => row.taskId));
+    assert.deepEqual(projection.list({ changedAfterRevision: full.watermark }).rows, []);
     assert.deepEqual(projection.list({ status: "active", limit: 1 }).rows.map((row) => row.taskId), ["task_query_01"]);
   });
 });

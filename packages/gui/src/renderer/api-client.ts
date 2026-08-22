@@ -45,8 +45,9 @@ export type TaskDispatchBatchRead = Extract<TaskDispatchesRead, { readonly taskI
 
 /** Optional narrow/paged facets for the wide task reads; omitting them keeps the full result. */
 export interface TaskQueryFacets {
-  readonly status?: string; readonly updatedAfter?: string; readonly updatedBefore?: string; readonly limit?: number; readonly cursor?: string;
+  readonly status?: string; readonly changedAfterRevision?: number; readonly updatedAfter?: string; readonly updatedBefore?: string; readonly limit?: number; readonly cursor?: string;
 }
+export interface RelationQueryFacets { readonly status?: string; readonly updatedAfter?: string; readonly updatedBefore?: string; readonly limit?: number; readonly cursor?: string }
 
 export interface DecisionListSuccess {
   readonly ok: true;
@@ -116,7 +117,7 @@ export const harnessClient = {
   async getTaskDocument(payload: RepoScope & { readonly taskId: string; readonly path: string }): Promise<TaskDocumentProjectionRead> { return readTaskDocumentResult(await invokeBridge("getTaskDocument", payload)); },
   async getTaskDocuments(payload: RepoScope & { readonly taskId: string }): Promise<TaskDocumentListProjectionRead> { return readTaskDocumentListResult(await invokeBridge("getTaskDocuments", payload)); },
   async getTaskDispatches(payload: RepoScope & ({ readonly taskId: string } | { readonly taskIds: readonly string[]; readonly limit?: number; readonly cursor?: string })): Promise<TaskDispatchesRead> { return readTaskDispatchesResult(await invokeBridge("getTaskDispatches", payload)); },
-  async getRelationGraph(payload: RepoScope & TaskQueryFacets): Promise<RelationGraphSuccess> { return readRelationGraphResult(await invokeBridge("getRelationGraph", payload)); },
+  async getRelationGraph(payload: RepoScope & RelationQueryFacets): Promise<RelationGraphSuccess> { return readRelationGraphResult(await invokeBridge("getRelationGraph", payload)); },
   async getDecisions(payload: RepoScope): Promise<DecisionListSuccess> { return readDecisionListResult(await invokeBridge("getDecisions", payload)); },
   async listDecisionControls(payload: RepoScope & { readonly search?: string; readonly state?: string; readonly module?: string; readonly productLine?: string }): Promise<DecisionControlListSuccess> { return readDecisionControlList(await invokeBridge("listDecisions", payload)); },
   async showDecision(payload: RepoScope & { readonly decisionId: string; readonly includeBody?: boolean }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("showDecision", payload)); },

@@ -31,7 +31,7 @@ export interface EmptyGuiPayload {
 }
 /** Optional narrow/paged facets for the wide task reads; absent fields keep the full-result contract. */
 export interface GuiTaskQueryPayload {
-  readonly status?: string; readonly updatedAfter?: string; readonly updatedBefore?: string; readonly limit?: number; readonly cursor?: string;
+  readonly status?: string; readonly changedAfterRevision?: number; readonly updatedAfter?: string; readonly updatedBefore?: string; readonly limit?: number; readonly cursor?: string;
 }
 export interface GuiAgendaQueryPayload { readonly limit?: number; readonly cursor?: string }
 export interface GuiRelationQueryPayload {
