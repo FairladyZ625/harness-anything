@@ -10,6 +10,7 @@ const requiredSubmissionFields = Object.freeze(["completionClaim", "deliverables
 const requiredReviewFields = Object.freeze(["verdict", "reason", "evidenceChecked"]);
 const requiredConsentFields = Object.freeze(["approved"]);
 const requiredCompletionFields = Object.freeze(["ci", "codeDocPaths"]);
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 export class CloseoutCommandError extends Error {
   constructor(command, status, stdout, stderr) {
@@ -30,7 +31,7 @@ function usage() {
     "  submission: completionClaim, deliverables, outputs, verificationNotes, knownGaps, residualRisks, commitSha",
     "  review: verdict, reason, evidenceChecked",
     "  consent: approved=true",
-    "  completion: ci=passed, codeDocPaths[]",
+    "  completion: ci=passed, codeDocPaths[] (empty omits reconcile; an applicable code-doc gate may reject completion)",
     "",
     "The script derives the submitter and owner actor postures from the active task, binds Review to submission.commitSha,",
     "uses the transport human as independent reviewer, and invokes every existing lifecycle gate without bypasses.",
@@ -99,14 +100,18 @@ function parseReceiptText(text, command) {
   return receipt;
 }
 
+export function resolveCloseoutLauncher({ haBin = process.env.HA_BIN } = {}) {
+  return haBin
+    ? { executable: haBin, leadingArgs: [] }
+    : { executable: process.execPath, leadingArgs: [path.join(repositoryRoot, "packages/cli/src/index.ts")] };
+}
+
 function subprocessRunner({ haBin = process.env.HA_BIN, cwd = process.cwd() } = {}) {
   return ({ args, actor }) => {
     const environment = { ...process.env };
     if (actor === null) delete environment.HARNESS_ACTOR;
     else environment.HARNESS_ACTOR = actor;
-    const launcher = haBin
-      ? { executable: haBin, leadingArgs: [] }
-      : { executable: process.execPath, leadingArgs: [path.join(cwd, "packages/cli/src/index.ts")] };
+    const launcher = resolveCloseoutLauncher({ haBin });
     const command = [launcher.executable, ...launcher.leadingArgs, "--json", ...args];
     const result = spawnSync(launcher.executable, [...launcher.leadingArgs, "--json", ...args], { cwd, env: environment, encoding: "utf8" });
     const status = result.status ?? 1, stdout = result.stdout ?? "", stderr = result.stderr ?? "";
@@ -215,8 +220,11 @@ export function runCloseout(input, dependencies = {}) {
     const consentId = deterministicId("consent-closeout", input.taskId, input.executionId, judgment.submission.commitSha);
     invoke("task-review-consent", ["task", "review-consent", input.taskId, "--execution-id", input.executionId, "--review-id", reviewId, "--consent-id", consentId], ownerActor);
 
-    const completeArgs = ["task", "complete", input.taskId, "--execution-id", input.executionId, "--ci", judgment.completion.ci, "--commit-sha", judgment.submission.commitSha, "--iteration", String(execution.iteration)];
-    for (const codePath of judgment.completion.codeDocPaths) completeArgs.push("--path", codePath);
+    const completeArgs = ["task", "complete", input.taskId, "--execution-id", input.executionId, "--ci", judgment.completion.ci];
+    if (judgment.completion.codeDocPaths.length > 0) {
+      completeArgs.push("--commit-sha", judgment.submission.commitSha, "--iteration", String(execution.iteration));
+      for (const codePath of judgment.completion.codeDocPaths) completeArgs.push("--path", codePath);
+    }
     invoke("task-complete", completeArgs, ownerActor);
     return { schema: "closeout-task-receipt/v1", ok: true, taskId: input.taskId, executionId: input.executionId, reviewId, consentId, commitSha: judgment.submission.commitSha, docSyncMode, deferredForeignCandidates: foreign.map((row) => row.path), steps: receipts };
   } finally {
