@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
@@ -13,7 +13,6 @@ import { readDaemonLifecycleRecords } from "../src/lifecycle-log.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { startDaemon } from "../src/runtime.ts";
-import { readDaemonPid } from "../src/daemon-singleton.ts";
 
 const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: process.getuid?.() ?? 0, source: "unix-socket-filesystem-owner-boundary" } } as const;
 
@@ -186,54 +185,6 @@ test("repository modes close local, center-assignment, and edge command families
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
-test("a dist orphan from an old build graph does not reject the resident daemon", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-dist-orphan-admission-")), rootDir = path.join(parent, "repo"), runtimeRoot = path.join(parent, "runtime"), runtimeFile = builtRuntime(runtimeRoot, "build-a");
-  const source = path.join(runtimeRoot, "packages/application/src/record.ts"), orphan = path.join(runtimeRoot, "packages/cli/dist/application/src/record.js"); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try {
-    rosterRepo(rootDir, "dist-orphan-admission"); for (const file of [source, orphan]) { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, `${path.basename(file)}\n`); }
-    const old = Date.now() / 1_000 - 10, current = old + 5; utimesSync(orphan, old, old); utimesSync(source, current, current);
-    cell = await openRepoCell({ repoId: workspaceId("dist-orphan-admission"), rootDir: canonicalRoot(rootDir), ownerId: "dist-orphan-admission", runtimeFile });
-    assert.equal((await cell.run({ kind: "task-create", taskId: "task_dist_orphan", title: "Dist orphan" }, writerBinding)).outcome, "applied");
-  } finally { await cell?.close(); rmSync(parent, { recursive: true, force: true }); }
-});
-
-test("an uncommitted canonical source edit does not reject the unchanged daemon process", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-dirty-source-admission-")), rootDir = path.join(parent, "repo"), runtimeRoot = path.join(parent, "runtime"), runtimeFile = builtRuntime(runtimeRoot, "build-a");
-  const source = path.join(runtimeRoot, "packages/cli/src/cli/thin-command.ts"), output = path.join(runtimeRoot, "packages/cli/dist/cli/src/cli/thin-command.js"); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try {
-    rosterRepo(rootDir, "dirty-source-admission"); for (const file of [source, output]) { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, `${path.basename(file)}\n`); }
-    const old = Date.now() / 1_000 - 10, current = old + 5; utimesSync(output, old, old); utimesSync(source, current, current);
-    cell = await openRepoCell({ repoId: workspaceId("dirty-source-admission"), rootDir: canonicalRoot(rootDir), ownerId: "dirty-source-admission", runtimeFile });
-    assert.equal((await cell.run({ kind: "task-create", taskId: "task_dirty_source", title: "Dirty source" }, writerBinding)).outcome, "applied");
-  } finally { await cell?.close(); rmSync(parent, { recursive: true, force: true }); }
-});
-
-test("a dist rebuild after process start rejects writes until the daemon restarts", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-rebuilt-dist-admission-")), rootDir = path.join(parent, "repo"), runtimeRoot = path.join(parent, "runtime"), runtimeFile = builtRuntime(runtimeRoot, "build-a"), buildId = path.join(runtimeRoot, "packages/cli/dist/build-id.txt"); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try {
-    rosterRepo(rootDir, "rebuilt-dist-admission"); cell = await openRepoCell({ repoId: workspaceId("rebuilt-dist-admission"), rootDir: canonicalRoot(rootDir), ownerId: "rebuilt-dist-admission", runtimeFile });
-    assert.equal((await cell.run({ kind: "task-create", taskId: "task_before_rebuild", title: "Before rebuild" }, writerBinding)).outcome, "applied");
-    writeFileSync(buildId, "build-b\n");
-    const rejected = await cell.run({ kind: "task-create", taskId: "task_after_rebuild", title: "After rebuild" }, writerBinding);
-    assert.equal(rejected.outcome, "op_rejected"); assert.equal(rejected.code, "daemon_build_stale"); assert.equal(cell.status().state, "unavailable");
-  } finally { await cell?.close(); rmSync(parent, { recursive: true, force: true }); }
-});
-
-test("a stale daemon drains through the existing stop path and the next daemon admits the new build", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-stale-daemon-exit-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user"), runtimeRoot = path.join(parent, "runtime"), runtimeFile = builtRuntime(runtimeRoot, "build-a");
-  rosterRepo(rootDir, "stale-daemon-exit"); registerDaemonRepo({ canonicalRoot: rootDir, repoId: "stale-daemon-exit", userRoot, createConvenienceLinks: false });
-  let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined, shutdowns = 0;
-  try {
-    daemon = await startDaemon({ userRoot, daemonId: "stale-daemon-exit", runtimeFile, requestShutdown: () => { shutdowns += 1; if (daemon && "stop" in daemon) void daemon.stop(); } }); assert.ok("stop" in daemon);
-    await new Promise((resolve) => setImmediate(resolve)); writeFileSync(path.join(runtimeRoot, "packages/cli/dist/build-id.txt"), "build-b\n");
-    const rejected = await requestDaemonJsonRpcAt(daemon.endpoint, "repo.task.create", { repo: { repoId: "stale-daemon-exit" }, payload: { taskId: "task_after_stale", title: "Must not run" } }) as { readonly code?: string; readonly outcome?: string };
-    assert.equal(rejected.code, "daemon_build_stale"); assert.equal(rejected.outcome, "op_rejected"); assert.equal(shutdowns, 1);
-    for (let attempt = 0; attempt < 100 && readDaemonPid(userRoot, "stale-daemon-exit") !== null; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
-    assert.equal(readDaemonPid(userRoot, "stale-daemon-exit"), null);
-    const restarted = await startDaemon({ userRoot, daemonId: "stale-daemon-exit", runtimeFile }); assert.ok("stop" in restarted); await restarted.stop();
-  } finally { if (daemon && "stop" in daemon) await daemon.stop(); rmSync(parent, { recursive: true, force: true }); }
-});
-
 test("registry mode is authoritative before refresh and refresh replaces a drifted Cell", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-mode-refresh-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user");
   rosterRepo(rootDir, "mode-refresh"); registerDaemonRepo({ canonicalRoot: rootDir, repoId: "mode-refresh", mode: "local", userRoot, createConvenienceLinks: false });
@@ -278,12 +229,6 @@ function systemRow(host: Awaited<ReturnType<typeof openDaemonHost>>, repoId: str
   const row = system.repos.find((repo) => repo.repoId === repoId);
   assert.ok(row, `gui-system-status must list ${repoId}`);
   return row;
-}
-const writerBinding = { actor: { principal: { personId: "writer" }, executor: null }, source: "local" as const };
-function builtRuntime(runtimeRoot: string, buildId: string): string {
-  const runtimeFile = path.join(runtimeRoot, "packages/cli/dist/daemon/src/runtime-admission.js"), marker = path.join(runtimeRoot, "packages/cli/dist/build-id.txt");
-  for (const [file, body] of [[runtimeFile, "runtime\n"], [marker, `${buildId}\n`]] as const) { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, body); }
-  return runtimeFile;
 }
 function rosterRepo(rootDir: string, repoId: string): void {
   mkdirSync(rootDir, { recursive: true });

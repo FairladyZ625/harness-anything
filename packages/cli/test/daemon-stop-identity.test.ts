@@ -6,7 +6,6 @@ import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { daemonBuildStamp } from "../../daemon/src/build-identity.ts";
 import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
 import { daemonPidPath, readDaemonPid } from "../../daemon/src/runtime.ts";
 
@@ -17,15 +16,11 @@ const cli = path.resolve("packages/cli/src/index.ts");
 // at a lifecycle log that had nothing to say. These fixtures pin the ladder end to end: a
 // pre-daemon.stop daemon stops through the SIGTERM fallback, a wedged daemon produces a hint that
 // reports what was observed and names --force, and --force never signals through stale bookkeeping.
-test("a daemon that rejects daemon.stop still stops, and status names the version skew", async () => {
+test("a daemon that rejects daemon.stop still stops through the signal fallback", async () => {
   const fixture = await spawnLegacyDaemon("legacy");
   try {
     const status = run(fixture, ["daemon", "status", "--json"]);
     assert.equal(status.ok, true, JSON.stringify(status));
-    if (daemonBuildStamp().commit !== null) {
-      assert.deepEqual(status.buildSkew, { daemonCommit: null, cliCommit: daemonBuildStamp().commit }, "status must flag a daemon that predates build reporting");
-      assert.match(String(status.summary), /predates build reporting/u, String(status.summary));
-    }
     const stopped = run(fixture, ["daemon", "stop", "--json"]);
     assert.equal(stopped.ok, true, JSON.stringify(stopped));
     assert.notEqual(stopped.code, "daemon_stop_timeout");

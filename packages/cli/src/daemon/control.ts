@@ -37,7 +37,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       const running = await status(userRoot, daemonId).catch(() => null); if (running?.ok === true) return finish(running, 0);
       const started = await ensureLocalDaemonRunning({ socketPath: localUserDaemonEndpoint(userRoot, daemonId), launch: () => cliDaemonServeLaunch(userRoot, daemonId), onProgress: (progress) => process.stderr.write(`${progress.message}\n`) });
       return started.ok ? finish(await status(userRoot, daemonId), 0) : finish(daemonFailure("daemon-start", started.code ?? "daemon_start_failed", started.hint), 1); }
-    if (command === "status") { const receipt = await status(userRoot, daemonId); return finish(statusWithBuildSkew(receipt), 0); }
+    if (command === "status") return finish(await status(userRoot, daemonId), 0);
     if (command === "stop") { const pid = readDaemonPid(userRoot, daemonId); if (pid === null) return finish(daemonFailure("daemon-stop", "daemon_unavailable", "No daemon is running."), 1);
       if (argv.includes("--force")) { const forced = await forceStopDaemon(userRoot, daemonId, pid); return finish(forced, forced.ok === true ? 0 : 1); }
       const exchange = await requestCooperativeStop(userRoot, daemonId, pid); const stopped = await waitForDaemonStop(userRoot, daemonId, pid);
@@ -77,19 +77,6 @@ function deferredServeReceipt(incumbent: { readonly pid: number | null; readonly
   return { ok: true, command: "daemon-serve", outcome: "deferred", incumbent: { pid: incumbent.pid, endpoint: incumbent.endpoint }, summary: `daemon serve deferred: ${witness}; this process did not bind the socket or take any workspace writer lock.`, nextAction: "Use the resident daemon (ha daemon status) or stop it first (ha daemon stop)." };
 }
 async function status(userRoot: string, daemonId: string): Promise<Record<string, unknown>> { return requestDaemonJsonRpcAt(localUserDaemonEndpoint(userRoot, daemonId), "daemon.status", {}, 75) as Promise<Record<string, unknown>>; }
-// The resident daemon outlives the tree it serves, so status is where the mismatch becomes visible
-// instead of surfacing later as a wall of schema rejections from a GUI or CLI speaking newer wire.
-// A missing build field proves the daemon predates build reporting; a present-but-null commit
-// (packaged without a stamp) proves nothing and stays silent.
-function statusWithBuildSkew(receipt: Record<string, unknown>): Record<string, unknown> {
-  const build = "build" in receipt ? receipt.build : undefined;
-  const daemonCommit = typeof build === "object" && build !== null && typeof (build as Record<string, unknown>).commit === "string" ? (build as Record<string, unknown>).commit as string : null, own = daemonBuildStamp().commit;
-  if (daemonCommit === own || daemonCommit === null && build !== undefined) return receipt;
-  const detail = build === undefined
-    ? "the daemon did not report a build commit (it predates build reporting); it may be running older code"
-    : `the daemon is serving code from commit ${daemonCommit?.slice(0, 12)} while this CLI is ${own?.slice(0, 12) ?? "unknown"}`;
-  return { ...receipt, buildSkew: { daemonCommit, cliCommit: own }, summary: `${String(receipt.summary ?? "")} — ${detail}; restart it with \`ha daemon stop\` and the next command, or the GUI restart control.` };
-}
 async function requestCooperativeStop(userRoot: string, daemonId: string, pid: number): Promise<DaemonShutdownExchange | null> {
   let exchange: DaemonShutdownExchange | null = null;
   try { const { requestDaemonShutdownAt } = await import("../../../daemon/src/client/local-json-rpc-shutdown.ts"); exchange = await requestDaemonShutdownAt(localUserDaemonEndpoint(userRoot, daemonId), 75); }
