@@ -31,7 +31,7 @@ export interface JsonRpcStreamOptions {
   readonly output: Writable;
   readonly transportKind: DaemonTransportKind;
   readonly authContext: DaemonAuthenticationContext;
-  readonly createProtocolServer: (authContext: DaemonAuthenticationContext, emit: (method: string, params: Record<string, unknown>) => Promise<void>, connectionId: string) => JsonRpcProtocolServer;
+  readonly createProtocolServer: (authContext: DaemonAuthenticationContext, emit: (method: string, params: Record<string, unknown>) => Promise<void>, connectionId: string, signal: AbortSignal) => JsonRpcProtocolServer;
   readonly authenticateFirstFrame?: (
     frame: unknown,
     authContext: DaemonAuthenticationContext
@@ -55,8 +55,9 @@ function shutdownDrainDeadline(): Promise<void> {
 export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTransportConnection {
   const reader = createJsonLineFrameReader();
   const connectionId = options.connectionId ?? randomUUID();
+  const disconnected = new AbortController();
   let authContext = options.authContext;
-  let server = options.authenticateFirstFrame ? undefined : options.createProtocolServer(authContext, emit, connectionId);
+  let server = options.authenticateFirstFrame ? undefined : options.createProtocolServer(authContext, emit, connectionId, disconnected.signal);
   let waitingForAuthentication = options.authenticateFirstFrame !== undefined;
   let queue = Promise.resolve();
 
@@ -71,7 +72,8 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     if (batch.error) failConnection(parseError(batch.error)); else queue = queue.finally(() => server?.close());
   });
   options.input.on("error", (error: Error) => failConnection(error));
-  options.output.on("error", (error: Error) => options.onError?.(error));
+  options.input.on("close", disconnect);
+  options.output.on("error", (error: Error) => { disconnect(); options.onError?.(error); });
 
   return {
     connectionId,
@@ -95,6 +97,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
         options.output.end();
         await Promise.race([new Promise<void>((resolve) => options.output.once("finish", resolve)), deadline]);
       }
+      disconnect();
       options.input.destroy();
       options.output.destroy();
     }
@@ -117,7 +120,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
         return;
       }
       authContext = result.authContext ?? authContext;
-      server = options.createProtocolServer(authContext, emit, connectionId);
+      server = options.createProtocolServer(authContext, emit, connectionId, disconnected.signal);
       waitingForAuthentication = false;
       if (!result.forwardFrame) return;
     }
@@ -131,6 +134,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
   }
 
   function failConnection(error: Error): void {
+    disconnect();
     options.onError?.(error);
     writeFrame(streamErrorResponse(null, -32700, error.message));
     options.output.end();
@@ -138,6 +142,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
 
   function writeFrame(frame: unknown): boolean { return options.output.write(encodeJsonLineFrame(frame)); }
   async function emit(method: string, params: Record<string, unknown>): Promise<void> { if (writeFrame({ jsonrpc: "2.0", method, params })) return; await writableReady(options.output); }
+  function disconnect(): void { if (!disconnected.signal.aborted) disconnected.abort(); }
 }
 function writableReady(output: Writable): Promise<void> { return new Promise((resolve) => { const done = () => { output.off("drain", done); output.off("close", done); resolve(); }; output.once("drain", done); output.once("close", done); }); }
 

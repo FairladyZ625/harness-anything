@@ -90,7 +90,7 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
         .find((field) => Object.hasOwn(action, field));
       if (spoof) return rejectHostAction(action, "ingress_binding_forbidden", `Payload cannot report ${spoof}; daemon binds principal authority, root, revision, and time.`);
       try { const { executor: declared, ...intent } = action, executor = declaredExecutor(declared);
-        return await cell.run(intent as RepoTaskAction, await binding(cell.status().rootDir, auth, commandClass, action.kind === "doc-submit", executor)); }
+        return await cell.run(intent as RepoTaskAction, await binding(cell.status().rootDir, auth, commandClass, action.kind === "doc-submit", executor), auth.connectionSignal); }
       catch (error) { return rejectHostAction(action, code(error), daemonErrorMessage(error)); }
     },
     replica: (repoId) => requiredCell(cells, warming, unavailable, repoId).replica,

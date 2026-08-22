@@ -10,6 +10,8 @@ export interface UnixSocketOwnerBoundary {
 
 export interface DaemonAuthenticationContext {
   readonly transportKind: DaemonTransportKind;
+  /** Transport-owned connection lifetime; never accepted from a client payload. */
+  readonly connectionSignal?: AbortSignal;
   readonly endpoint?: string;
   readonly unixSocketOwnerBoundary?: UnixSocketOwnerBoundary;
   readonly assignmentBinding?: DaemonFleetAssignmentBinding;

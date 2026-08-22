@@ -11,7 +11,7 @@ import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
 export interface UnixSocketTransportOptions {
   readonly daemonId: string;
   readonly socketPath?: string;
-  readonly createProtocolServer: (authContext: DaemonAuthenticationContext, emit: (method: string, params: Record<string, unknown>) => Promise<void>, connectionId: string) => JsonRpcProtocolServer;
+  readonly createProtocolServer: (authContext: DaemonAuthenticationContext, emit: (method: string, params: Record<string, unknown>) => Promise<void>, connectionId: string, signal: AbortSignal) => JsonRpcProtocolServer;
   readonly onConnection?: (connection: DaemonTransportConnection) => void;
   readonly onConnectionClosed?: (connection: DaemonTransportConnection) => void;
 }

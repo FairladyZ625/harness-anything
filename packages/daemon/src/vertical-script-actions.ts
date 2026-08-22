@@ -3,11 +3,13 @@ import { acceptBuiltinVerticalScriptPlan, prepareBuiltinVerticalScriptExecution 
 import { publishVerticalScriptChanges } from "./doc-sync-actions.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 
-type Input = { readonly action: unknown; readonly binding: { readonly actor: ActorIdentity; readonly source: WriteSource; readonly docWriteAllowed?: boolean }; readonly workspaceId: string; readonly rootDir: string; readonly store: CanonicalEventStore; readonly projection: TaskProjection; readonly now: () => string; readonly killpoint?: (point: EventPublicationKillpoint) => void };
+type Input = { readonly action: unknown; readonly binding: { readonly actor: ActorIdentity; readonly source: WriteSource; readonly docWriteAllowed?: boolean }; readonly workspaceId: string; readonly rootDir: string; readonly store: CanonicalEventStore; readonly projection: TaskProjection; readonly now: () => string; readonly killpoint?: (point: EventPublicationKillpoint) => void; readonly signal?: AbortSignal };
 export async function runVerticalScriptAction(input: Input): Promise<WriteReceipt> {
+  input.signal?.throwIfAborted();
   const prepared = prepareBuiltinVerticalScriptExecution({ rootDir: input.rootDir, action: input.action, commitSha: input.store.currentCommit().sha }), blocker = process.env.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE;
   const testPermissions = blocker ? [`--allow-fs-read=${blocker}`, `--allow-fs-write=${blocker}.started`] : [], childEnvironment = { PATH: process.env.PATH, ...(blocker ? { HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE: blocker } : {}) };
-  const stdout = await runProcessTextAsync(process.execPath, ["--permission", ...prepared.readRoots.map((root) => `--allow-fs-read=${root}/*`), ...testPermissions, prepared.command, prepared.contextArgument], input.rootDir, childEnvironment);
+  const stdout = await runProcessTextAsync(process.execPath, ["--permission", ...prepared.readRoots.map((root) => `--allow-fs-read=${root}/*`), ...testPermissions, prepared.command, prepared.contextArgument], input.rootDir, childEnvironment, undefined, input.signal);
+  input.signal?.throwIfAborted();
   const plan = acceptBuiltinVerticalScriptPlan(prepared, stdout);
   if (!plan.ok) throw verticalScriptActionError("script_reported_failure", `${plan.status}: ${JSON.stringify(plan.report)}`);
   const result = scriptResult(prepared.action.dryRun, plan);
