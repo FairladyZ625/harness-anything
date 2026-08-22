@@ -44,7 +44,7 @@ test("registered workspace CLI command auto-starts the daemon, retries, and succ
   } finally { rmSync(fixture.parent, { recursive: true, force: true }); }
 });
 
-test("a blocked vertical script keeps handshakes and same-repo snapshot reads live without releasing its write slot", async (context) => {
+test("a blocked vertical script keeps handshakes, snapshots, and same-repo writes live", async (context) => {
   const fixture = setup(), repoId = "vertical-wedge", taskId = "task-vertical-wedge", blocker = path.join(fixture.parent, "vertical-script.block"), started = `${blocker}.started`, endpoint = localUserDaemonEndpoint(fixture.userRoot, "default");
   let client: JsonRpcLineClient | undefined, readClient: JsonRpcLineClient | undefined, queuedClient: JsonRpcLineClient | undefined, scriptRequest: Promise<Record<string, unknown>> | undefined, queuedWrite: Promise<Record<string, unknown>> | undefined;
   try {
@@ -56,7 +56,7 @@ test("a blocked vertical script keeps handshakes and same-repo snapshot reads li
 
     const socket = await connectSocket(endpoint, 2_000); client = new JsonRpcLineClient(socket, socket);
     await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
-    scriptRequest = client.request("repo.script.run", { repo: { repoId }, payload: { scriptId: "vertical:software-coding:architecture-check", taskId, inputs: {}, dryRun: true } }) as Promise<Record<string, unknown>>;
+    scriptRequest = client.request("repo.script.run", { repo: { repoId }, payload: { scriptId: "vertical:software-coding:repository-audit", taskId, inputs: {}, dryRun: true } }) as Promise<Record<string, unknown>>;
     await waitForPath(started);
 
     const probeStarted = performance.now(); let handshake: Record<string, unknown>;
@@ -76,14 +76,14 @@ test("a blocked vertical script keeps handshakes and same-repo snapshot reads li
     const queuedSocket = await connectSocket(endpoint, 2_000); queuedClient = new JsonRpcLineClient(queuedSocket, queuedSocket);
     await queuedClient.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
     queuedWrite = queuedClient.request("repo.task.create", { repo: { repoId }, payload: { taskId: "task-queued-write", title: "Queued Write" } }) as Promise<Record<string, unknown>>;
-    const orderingStarted = performance.now(), beforeRelease = await Promise.race([queuedWrite.then(() => "settled" as const), delay(250, "pending" as const)]), orderingWhileBlocked = { state: beforeRelease, elapsedMs: Math.round(performance.now() - orderingStarted) };
+    const orderingStarted = performance.now(), beforeRelease = await Promise.race([queuedWrite.then(() => "settled" as const), delay(2_000, "pending" as const)]), orderingWhileBlocked = { state: beforeRelease, elapsedMs: Math.round(performance.now() - orderingStarted) };
     context.diagnostic(`same-repo write ordering probe while script blocked: ${JSON.stringify(orderingWhileBlocked)}`);
-    assert.equal(beforeRelease, "pending", JSON.stringify(orderingWhileBlocked));
+    assert.equal(beforeRelease, "settled", JSON.stringify(orderingWhileBlocked));
 
     rmSync(blocker, { force: true });
     const [scriptReceipt, writeReceipt] = await Promise.all([scriptRequest, queuedWrite]);
     const orderingAfterRelease = { scriptOutcome: scriptReceipt.outcome, writeOutcome: writeReceipt.outcome, writeRevision: writeReceipt.revision };
-    context.diagnostic(`same-repo ordering probe after script release: ${JSON.stringify(orderingAfterRelease)}`);
+    context.diagnostic(`vertical settlement after independent same-repo write: ${JSON.stringify(orderingAfterRelease)}`);
     assert.deepEqual({ scriptOutcome: scriptReceipt.outcome, writeOutcome: writeReceipt.outcome }, { scriptOutcome: "pending", writeOutcome: "applied" });
     assert.equal((scriptReceipt.proof as { readonly canonicalVisible?: unknown }).canonicalVisible, false);
   } finally {
@@ -93,7 +93,7 @@ test("a blocked vertical script keeps handshakes and same-repo snapshot reads li
   }
 });
 
-test("disconnecting a blocked vertical script client terminates its child and releases only its repo write queue", async (context) => {
+test("disconnecting a blocked vertical script client terminates its child after same-repo writes advance", async (context) => {
   const fixture = setup(), otherRoot = setupRepository(fixture.parent, "other-repo"), blockedRepoId = "vertical-disconnect", otherRepoId = "vertical-unaffected", taskId = "task-vertical-disconnect", blocker = path.join(fixture.parent, "vertical-disconnect.block"), started = `${blocker}.started`, endpoint = localUserDaemonEndpoint(fixture.userRoot, "default");
   let actionSocket: Socket | undefined, queuedClient: JsonRpcLineClient | undefined, scriptRequest: Promise<Record<string, unknown>> | undefined, queuedWrite: Promise<Record<string, unknown>> | undefined;
   try {
@@ -105,7 +105,7 @@ test("disconnecting a blocked vertical script client terminates its child and re
 
     actionSocket = await connectSocket(endpoint, 2_000); const actionClient = new JsonRpcLineClient(actionSocket, actionSocket);
     await actionClient.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
-    scriptRequest = actionClient.request("repo.script.run", { repo: { repoId: blockedRepoId }, payload: { scriptId: "vertical:software-coding:architecture-check", taskId, inputs: {}, dryRun: true } }) as Promise<Record<string, unknown>>;
+    scriptRequest = actionClient.request("repo.script.run", { repo: { repoId: blockedRepoId }, payload: { scriptId: "vertical:software-coding:repository-audit", taskId, inputs: {}, dryRun: true } }) as Promise<Record<string, unknown>>;
     void scriptRequest.catch(() => undefined);
     await waitForPath(started); const childPid = Number(readFileSync(started, "utf8").trim());
     assert.equal(Number.isSafeInteger(childPid) && childPid > 0, true, `invalid vertical child pid: ${childPid}`);
@@ -118,17 +118,17 @@ test("disconnecting a blocked vertical script client terminates its child and re
     const queuedSocket = await connectSocket(endpoint, 2_000); queuedClient = new JsonRpcLineClient(queuedSocket, queuedSocket);
     await queuedClient.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
     queuedWrite = queuedClient.request("repo.task.create", { repo: { repoId: blockedRepoId }, payload: { taskId: "task-after-disconnect", title: "After Disconnect" } }) as Promise<Record<string, unknown>>;
-    const beforeDisconnect = await Promise.race([queuedWrite.then(() => "settled" as const), delay(250, "pending" as const)]);
+    const beforeDisconnect = await Promise.race([queuedWrite.then(() => "settled" as const), delay(2_000, "pending" as const)]);
     context.diagnostic(`same-repo write before client disconnect: ${JSON.stringify({ state: beforeDisconnect })}`);
-    assert.equal(beforeDisconnect, "pending");
+    assert.equal(beforeDisconnect, "settled");
 
     actionSocket.destroy();
-    const afterDisconnect = await Promise.race([queuedWrite.then((receipt) => ({ state: "settled" as const, receipt })), delay(2_000, { state: "pending" as const, receipt: null })]);
-    context.diagnostic(`same-repo write after client disconnect: ${JSON.stringify({ state: afterDisconnect.state, blockerStillPresent: existsSync(blocker), childAlive: processAlive(childPid) })}`);
-    assert.equal(afterDisconnect.state, "settled", "the dead client must release its RepoCell tail slot");
-    assert.equal(existsSync(blocker), true, "the test blocker must still be present when cancellation releases the slot");
-    assert.equal(processAlive(childPid), false, "the disconnected client's vertical child must be terminated before the slot releases");
-    assert.equal(afterDisconnect.receipt?.outcome, "applied");
+    await waitForProcessExit(childPid);
+    const writeReceipt = await queuedWrite;
+    context.diagnostic(`vertical child after client disconnect: ${JSON.stringify({ writeOutcome: writeReceipt.outcome, blockerStillPresent: existsSync(blocker), childAlive: processAlive(childPid) })}`);
+    assert.equal(existsSync(blocker), true, "the test blocker must still be present when cancellation terminates the child");
+    assert.equal(processAlive(childPid), false, "the disconnected client's vertical child must be terminated");
+    assert.equal(writeReceipt.outcome, "applied");
   } finally {
     actionSocket?.destroy(); rmSync(blocker, { force: true });
     await queuedWrite?.catch(() => undefined); queuedClient?.close();
@@ -281,6 +281,7 @@ function waitForDaemonDown(userRoot: string): void { const socketPath = localUse
   for (let attempt = 0; attempt < 200; attempt += 1) { if (readDaemonPid(userRoot, "default") === null && !existsSync(socketPath)) return; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10); }
   throw new Error("previous daemon did not drain before the autostart probe"); }
 async function waitForPath(target: string): Promise<void> { const deadline = Date.now() + 5_000; while (!existsSync(target)) { if (Date.now() >= deadline) throw new Error(`timed out waiting for ${target}`); await new Promise((resolve) => setTimeout(resolve, 10)); } }
+async function waitForProcessExit(pid: number): Promise<void> { const deadline = Date.now() + 2_000; while (processAlive(pid)) { if (Date.now() >= deadline) throw new Error(`timed out waiting for process ${pid} to exit`); await new Promise((resolve) => setTimeout(resolve, 10)); } }
 function delay<T>(milliseconds: number, value: T): Promise<T> { return new Promise((resolve) => setTimeout(() => resolve(value), milliseconds)); }
 function processAlive(pid: number): boolean { try { process.kill(pid, 0); return true; } catch { return false; } }
 function coded(error: unknown): string | null { return typeof error === "object" && error !== null && "code" in error ? String((error as { readonly code: unknown }).code) : null; }
