@@ -12,10 +12,6 @@
     "module": "doc-sync"
   },
   {
-    "path": "packages/daemon/src/doc-sync-watcher.ts",
-    "module": "doc-sync"
-  },
-  {
     "path": "packages/daemon/src/protocol/daemon-protocol.contract.ts",
     "module": "daemon"
   },

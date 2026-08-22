@@ -25,7 +25,7 @@ test("derived doc-sync contract closes intent and event schemas", () => {
   assert.equal(docSyncContract.schemas.every((schema) => schema.negativeFixtures.length > 0), true);
   const parsed = parseDocWriteIntent({ schema: "doc-write-intent/v1", executionId: "execution-1", baseLedgerSha, changes: [{ path: "context/notes.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: claim("body\n") }] }, "docs");
   assert.deepEqual(JSON.parse(serializeDocWriteIntent(parsed)).baseLedgerSha, baseLedgerSha);
-  assert.deepEqual(validateWriteSource({ kind: "watch_session", sessionId: "watch-one", path: "context/notes.md", fingerprint: "a".repeat(64) }), []); assert.match(validateWriteSource({ kind: "watch_session", sessionId: "watch-one", path: "context/notes.md", fingerprint: "bad" }).join("\n"), /watch session/u);
+  const historicalWatcherSource = { kind: "watch_session", sessionId: "watch-one", path: "context/notes.md", fingerprint: "a".repeat(64) }; assert.deepEqual(validateWriteSource(historicalWatcherSource, true), []); assert.match(validateWriteSource(historicalWatcherSource).join("\n"), /assignment identity/u);
 });
 
 test("canonical reader accepts the historical doc-event ledger identity bytes", () => {
@@ -175,6 +175,15 @@ test("claim mismatch, deletion, heading rename, machine touch, and ambiguous hea
     const current = candidate.startsWith("---") ? "---\nowner: owner\n---\n# Notes\nA\n" : base, rejected = decide({ path: "context/notes.md", baseBlobSha256: sha256Text(current), policyId: DOC_POLICY_ID, candidate: claim(candidate) }, state(current), Buffer.from(candidate));
     assert.equal(rejected.accepted, false, candidate); if (!rejected.accepted) { assert.equal(rejected.code, "unresolved_touch"); assert.equal(rejected.detail.unresolvedTouches.length > 0, true); }
   }
+});
+
+test("an explicit single-document retirement records its reason and declares the audited delete target", () => {
+  const base = "# Temporary\n\nRetire me.\n", document = state(base), intent = { schema: "doc-write-intent/v1" as const, executionId: null, baseLedgerSha, changes: [{ path: document.path, baseBlobSha256: document.blobSha256, policyId: document.policyId, candidate: null }] };
+  const result = decideDocWrite({ intent, opId: "doc-retire-op", eventId: "doc-retire-event", workspaceRevision: 3, actor, source: "local", occurredAt: "2026-08-12T11:00:00.000Z", currentLedgerSha, lease: null, documents: [document], claims: [null], retirementReason: "superseded temporary evidence" });
+  assert.equal(result.accepted, true); if (!result.accepted) return;
+  assert.equal(result.event.payload.retirementReason, "superseded temporary evidence"); assert.equal(result.event.payload.changes[0]?.candidate, null); assert.deepEqual(validateCurrentDocEvent(result.event), []);
+  assert.deepEqual(result.plan.targets.filter((target) => target.kind === "authored_file_delete"), [{ kind: "authored_file_delete", path: document.path, operation: "delete", baseSha256: document.blobSha256 }]);
+  const invalid = decideDocWrite({ intent, opId: "doc-retire-invalid", eventId: "doc-retire-invalid-event", workspaceRevision: 3, actor, source: "local", occurredAt: "2026-08-12T11:00:00.000Z", currentLedgerSha, lease: null, documents: [document], claims: [null], retirementReason: "   " }); assert.equal(invalid.accepted, false); if (!invalid.accepted) assert.equal(invalid.code, "invalid_retirement");
 });
 
 test("direct CRLF claims name the line-ending repair when the contract rejects them", () => {

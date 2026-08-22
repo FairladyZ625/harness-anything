@@ -50,6 +50,7 @@ test("descriptor-derived RBAC preserves every preset, runtime, doc-sync, Fact, a
     "doc-submit": "repo-write",
     "doc-materialize": "repo-write",
     "doc-show": "repo-read",
+    "doc-retire": "repo-write",
     "fact-record": "repo-write",
     "fact-search": "repo-read",
     "fact-show": "repo-read",

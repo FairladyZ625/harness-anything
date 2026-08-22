@@ -49,6 +49,8 @@ test("Task/v1 readers ignore a field that current writers do not know", () => {
 test("semantic actor and source equality ignores additions but not known-axis changes", () => {
   assert.equal(sameActorIdentity({ ...actor, futureOptionalField: true }, actor), true);
   assert.equal(sameActorIdentity({ ...actor, principal: { personId: "someone-else" } }, actor), false);
+  // watch_session remains readable only as immutable historical event identity;
+  // current command normalization rejects it after automatic ingestion retired.
   const source = { kind: "watch_session" as const, sessionId: "session-1", path: "context/input.md", fingerprint: "a".repeat(64) };
   assert.equal(sameWriteSource({ ...source, futureOptionalField: true }, source), true);
   assert.equal(sameWriteSource({ ...source, path: "context/other.md" }, source), false);

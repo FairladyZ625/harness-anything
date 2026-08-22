@@ -1,5 +1,4 @@
 [
-  { "path": "packages/daemon/src/doc-sync-watcher.ts", "module": "doc-sync" },
   { "path": "packages/daemon/src/doc-sync-candidate-scanner.ts", "module": "doc-sync" },
   { "path": "packages/daemon/src/daemon-host.ts", "module": "daemon" },
   { "path": "packages/daemon/src/repo-cell.ts", "module": "daemon" },

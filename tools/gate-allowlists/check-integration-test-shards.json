@@ -357,6 +357,11 @@
         "value": "tools/graph-panorama.test.mjs",
         "ref": "task_01KZWTC8HNP2PVNEAQ02TWDTHF",
         "reason": "The panorama generator imports packages/cli/src/commands/graph-panorama.ts, which the thin-CLI rewrite deleted; the archive implementation is 453 lines against a 171-line cli ceiling, so restoring it is a redesign on the daemon read surface rather than a repair. The relation_edges and relation_coverage projections it reads are intact, so the capability is registered on the functional restore bus instead of carried forward broken."
+      },
+      {
+        "value": "packages/daemon/test/doc-sync-watcher.test.ts",
+        "ref": "dec_585DB10A4218D9FA00F67B9537",
+        "reason": "CH2 retires the watcher ingestion slice completely, including its dedicated integration test; document ingestion now occurs only through explicit doc sync and audited doc retirement commands."
       }
     ]
   }

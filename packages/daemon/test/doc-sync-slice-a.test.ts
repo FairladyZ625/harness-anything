@@ -10,7 +10,6 @@ import { DOC_POLICY_ID, MIGRATION_DOCUMENT_POLICY_ID, MIGRATION_IMPORT_SOURCE, m
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { readDocReceipt } from "../src/doc-sync-actions.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
-import { normalizeDocSyncWatchPath } from "../src/doc-sync-watcher.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 const opaqueTextualMediaType = "application/json";
@@ -22,7 +21,17 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
     const dry = await cell.run({ kind: "doc-dry-run", paths: ["context/a.md", "context/b.md"] }, binding); assert.equal(dry.outcome, "pending"); assert.equal(dry.proof?.canonicalVisible, false); assert.deepEqual(rows(dry.evidence), statusRows.slice(0, 2)); assert.equal(git(rootDir, "rev-parse", "HEAD"), before);
     const submitted = await cell.run({ kind: "doc-submit", paths: ["context/a.md"] }, binding); assert.equal(submitted.outcome, "applied", JSON.stringify(submitted)); assert.equal(submitted.commitSha, null); const event = makeTaskEventStore({ repoId: "scanner", rootDir }).readEvent(submitted.opId); assert.equal(event?.schema, "doc-event/v1"); if (event?.schema === "doc-event/v1") { assert.deepEqual(event.payload.baseLedgerSha, (JSON.parse(status.evidence!.slice("doc-scan:".length)) as { baseLedgerSha: unknown }).baseLedgerSha); assert.equal(event.payload.executionId, null); assert.deepEqual(event.payload.changes.map((change) => change.path), ["context/a.md"]); }
     assert.deepEqual(git(rootDir, "status", "--porcelain", "-uall").split("\n").filter((line) => line.includes(" harness/")).sort(), ["?? harness/context/a.md", "?? harness/context/b.md", "?? harness/context/ignored.json", "?? harness/tasks/task-one/artifacts/data.json", "?? harness/tasks/task-one/progress.md"]);
-    write(rootDir, "context/a.md", "# Renamed\n\nfirst\n"); const acceptedCut = git(rootDir, "rev-parse", "HEAD"), blocked = await cell.run({ kind: "doc-dry-run", paths: ["context/a.md"] }, binding); assert.equal(rows(blocked.evidence)[0]?.state, "blocked"); const rejected = await cell.run({ kind: "doc-submit", paths: ["context/a.md"] }, binding); assert.equal(rejected.outcome, "op_rejected"); assert.equal(rejected.code, "preview_blocked"); assert.equal(git(rootDir, "rev-parse", "HEAD"), acceptedCut);
+    write(rootDir, "context/a.md", "# Renamed\n\nfirst\n"); const acceptedCut = git(rootDir, "rev-parse", "HEAD"), blocked = await cell.run({ kind: "doc-dry-run", paths: ["context/a.md"] }, binding); assert.equal(rows(blocked.evidence)[0]?.state, "blocked"); assert.match(blocked.detail?.nextAction ?? "", /listed blocked candidates/u); assert.doesNotMatch(blocked.detail?.nextAction ?? "", /doc retire|conflict scratch/iu); const rejected = await cell.run({ kind: "doc-submit", paths: ["context/a.md"] }, binding); assert.equal(rejected.outcome, "op_rejected"); assert.equal(rejected.code, "preview_blocked"); assert.equal(git(rootDir, "rev-parse", "HEAD"), acceptedCut);
+  } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("doc retire deletes one projected document and returns an auditable retirement receipt", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-retire-")); initRepo(rootDir); const cell = await openRepoCell({ repoId: workspaceId("retire"), rootDir: canonicalRoot(rootDir), ownerId: "retire-daemon" }), binding = { actor, source: "local" as const }, logical = "context/temporary.md", reason = "superseded temporary evidence";
+  try { write(rootDir, logical, "# Temporary\n\nRetire me.\n"); const submitted = await cell.run({ kind: "doc-submit", paths: [logical] }, binding); assert.equal(submitted.outcome, "applied", JSON.stringify(submitted)); rmSync(path.join(rootDir, "harness", logical));
+    const mutation = await cell.run({ kind: "doc-status", paths: [logical] }, binding); assert.equal(rows(mutation.evidence)[0]?.state, "deletion"); assert.match(mutation.detail?.nextAction ?? "", new RegExp(`ha doc retire --path ${logical}`, "u")); assert.doesNotMatch(mutation.detail?.nextAction ?? "", /resolve blocked/iu);
+    const retired = await cell.run({ kind: "doc-retire", path: logical, reason }, binding); assert.equal(retired.outcome, "applied", JSON.stringify(retired)); assert.equal(retired.proof?.canonicalVisible, true); assert.equal(retired.proof?.worktreeVisible, true); assert.match(retired.evidence ?? "", /^doc-retirement:/u); const receipt = JSON.parse((retired.evidence ?? "").slice("doc-retirement:".length)) as { readonly schema: string; readonly path: string; readonly reason: string }; assert.deepEqual(receipt, { schema: "doc-retirement-receipt/v1", path: logical, baseBlobSha256: sha256Text("# Temporary\n\nRetire me.\n"), reason });
+    const event = makeTaskEventStore({ repoId: "retire", rootDir }).readEvent(retired.opId); assert.equal(event?.schema, "doc-event/v1"); if (event?.schema === "doc-event/v1") { assert.equal(event.payload.retirementReason, reason); assert.equal(event.payload.changes[0]?.candidate, null); }
+    const shown = await cell.run({ kind: "doc-show", path: logical }, binding); assert.equal(shown.code, "document_not_found"); assert.equal(git(rootDir, "ls-tree", "--name-only", "HEAD", `harness/${logical}`), ""); assert.equal(rows((await cell.run({ kind: "doc-status", paths: [] }, binding)).evidence).some((row) => row.state === "deletion"), false);
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -89,11 +98,8 @@ test("authored CRLF prose is canonicalized on scanner read and submitted as LF",
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
-test("scanner and watcher share the textual artifact classifier", () => {
-  const opaque = "tasks/task-one/artifacts/scripts/report.mjs", prose = "tasks/task-one/artifacts/report.md";
-  assert.equal(normalizeDocSyncWatchPath(opaque), opaque);
-  assert.equal(normalizeDocSyncWatchPath(prose), prose);
-  assert.equal(normalizeDocSyncWatchPath("context/ignored.json"), null);
+test("scanner textual artifacts use the canonical classifier", () => {
+  const opaque = "tasks/task-one/artifacts/scripts/report.mjs";
   assert.deepEqual(classifyTextualArtifactPath(opaque), { kind: "opaque-textual", mediaType: "text/javascript", policyId: "opaque-textual-whole-file/v1" });
 });
 
@@ -113,7 +119,7 @@ test("materialize restores task-bootstrap and doc-event files and is idempotent"
 
 test("materialize preserves a divergent local edit in one ignored deterministic conflict scratch", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-conflict-")); initRepo(rootDir); const cell = await openRepoCell({ repoId: workspaceId("conflict"), rootDir: canonicalRoot(rootDir), ownerId: "conflict-daemon" }), binding = { actor, source: "local" as const }, canonical = "# Notes\n\ncanonical\n", local = "# Notes\n\nlocal draft\n";
-  try { write(rootDir, "context/notes.md", canonical); assert.equal((await cell.run({ kind: "doc-submit", paths: ["context/notes.md"] }, binding)).outcome, "applied"); write(rootDir, "context/notes.md", local); const first = materializeReport((await cell.run({ kind: "doc-materialize" }, binding)).evidence); assert.deepEqual(first.changed, ["context/notes.md"]); assert.equal(first.conflicts.length, 1); assert.equal(readFileSync(path.join(rootDir, first.conflicts[0]!), "utf8"), local); assert.equal(readFileSync(path.join(rootDir, "harness/context/notes.md"), "utf8"), canonical); assert.equal(git(rootDir, "status", "--porcelain", "-uall").includes("conflict-"), false); const second = materializeReport((await cell.run({ kind: "doc-materialize" }, binding)).evidence); assert.deepEqual(second, { changed: [], conflicts: [] });
+  try { write(rootDir, "context/notes.md", canonical); assert.equal((await cell.run({ kind: "doc-submit", paths: ["context/notes.md"] }, binding)).outcome, "applied"); write(rootDir, "context/notes.md", local); const first = materializeReport((await cell.run({ kind: "doc-materialize" }, binding)).evidence); assert.deepEqual(first.changed, ["context/notes.md"]); assert.equal(first.conflicts.length, 1); assert.equal(readFileSync(path.join(rootDir, first.conflicts[0]!), "utf8"), local); assert.equal(readFileSync(path.join(rootDir, "harness/context/notes.md"), "utf8"), canonical); assert.equal(git(rootDir, "status", "--porcelain", "-uall").includes("conflict-"), false); const conflicted = await cell.run({ kind: "doc-status", paths: ["context/notes.md"] }, binding); assert.equal(rows(conflicted.evidence)[0]?.state, "conflict"); assert.match(conflicted.detail?.nextAction ?? "", /listed conflict scratch/u); assert.doesNotMatch(conflicted.detail?.nextAction ?? "", /doc retire|blocked candidates/iu); const second = materializeReport((await cell.run({ kind: "doc-materialize" }, binding)).evidence); assert.deepEqual(second, { changed: [], conflicts: [] });
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 

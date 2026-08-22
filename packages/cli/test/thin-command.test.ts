@@ -8,7 +8,7 @@ import { deriveCliCapabilities, firstCliCommand, firstCliCommandIndex, parseThin
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 108);
+  assert.equal(thinCliCommands.length, 109);
   for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))].filter((value): value is string => value !== undefined).sort()) assert.match(help, new RegExp(`^  ${domain} \\(`, "mu"));
   assert.doesNotMatch(help, /ha task start <task-id>/u);
   const taskHelp = renderThinHelp([], "task");
@@ -39,7 +39,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     daemon: ["daemon-fleet-center-start", "daemon-fleet-edge-sync", "daemon-projection-rebuild", "daemon-repo-register", "daemon-repo-unregister", "daemon-start", "daemon-status", "daemon-stop"],
     decision: ["decision-accept", "decision-amend", "decision-claim-add", "decision-claim-fulfill", "decision-defer", "decision-list", "decision-propose", "decision-reckon", "decision-reject", "decision-relate", "decision-relation-replace", "decision-relation-retire", "decision-repin", "decision-retire", "decision-show", "decision-supersede", "decision-transition", "decision-validate", "decision-verify"],
     distill: ["distill-candidate", "distill-promote"],
-    doc: ["doc-conflict-discard-local", "doc-conflict-overwrite-center", "doc-conflict-resolve", "doc-materialize", "doc-show", "doc-status", "doc-sync-dry-run", "doc-sync-submit"],
+    doc: ["doc-conflict-discard-local", "doc-conflict-overwrite-center", "doc-conflict-resolve", "doc-materialize", "doc-retire", "doc-show", "doc-status", "doc-sync-dry-run", "doc-sync-submit"],
     fact: ["fact-record", "fact-search", "fact-show"],
     init: ["repo-bootstrap"],
     migrate: ["ledger-migrate", "migrate-import"],
@@ -232,18 +232,21 @@ test("thin parser converts the sole preset script target into closed typed start
 test("thin doc commands derive descriptor-only actions from the protocol directory", () => {
   const status = parseThinCommand(["doc", "status"]), selectedStatus = parseThinCommand(["doc", "status", "--path", "context/a.md", "--path", "context/b.md"]), dryRun = parseThinCommand(["doc", "sync", "--dry-run", "--path", "context/a.md", "--path", "context/b.md"]), materialize = parseThinCommand(["doc", "materialize"]),
     show = parseThinCommand(["doc", "show", "--path", "tasks/task-1/INDEX.md"]),
+    retire = parseThinCommand(["doc", "retire", "--path", "context/old.md", "--reason", "superseded scratch"]),
     submit = parseThinCommand(["doc", "sync", "--submit", "--execution-id", "exec-1", "--path", "context/a.md", "--path", "context/b.md"]);
-  assert.equal(status.ok, true); assert.equal(selectedStatus.ok, true); assert.equal(dryRun.ok, true); assert.equal(materialize.ok, true); assert.equal(show.ok, true); assert.equal(submit.ok, true);
+  assert.equal(status.ok, true); assert.equal(selectedStatus.ok, true); assert.equal(dryRun.ok, true); assert.equal(materialize.ok, true); assert.equal(show.ok, true); assert.equal(retire.ok, true); assert.equal(submit.ok, true);
   if (status.ok) assert.deepEqual(status.command.action, { kind: "doc-status", paths: [] });
   if (selectedStatus.ok) assert.deepEqual(selectedStatus.command.action, { kind: "doc-status", paths: ["context/a.md", "context/b.md"] });
   if (dryRun.ok) assert.deepEqual(dryRun.command.action, { kind: "doc-dry-run", paths: ["context/a.md", "context/b.md"] });
   if (materialize.ok) assert.deepEqual(materialize.command.action, { kind: "doc-materialize" });
   if (show.ok) assert.deepEqual(show.command.action, { kind: "doc-show", path: "tasks/task-1/INDEX.md" });
+  if (retire.ok) assert.deepEqual(retire.command.action, { kind: "doc-retire", path: "context/old.md", reason: "superseded scratch" });
   if (submit.ok) {
     assert.deepEqual(submit.command.action, { kind: "doc-submit", executionId: "exec-1", paths: ["context/a.md", "context/b.md"] });
     assert.deepEqual(Object.keys(submit.command.action).sort(), ["executionId", "kind", "paths"]);
   }
   assert.equal(parseThinCommand(["doc", "show", "--path", "INDEX.md", "--body", "inline"]).ok, false);
+  assert.equal(parseThinCommand(["doc", "retire", "--path", "context/old.md"]).ok, false);
 });
 
 test("doc CLI and GUI delivery surfaces do not import store, Git, or semantic compiler code", () => {

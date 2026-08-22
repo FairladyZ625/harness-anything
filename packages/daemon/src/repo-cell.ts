@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { makeTaskLifecycleService, type TaskLifecycleServiceProof } from "../../application/src/task-lifecycle-service.ts";
-import { allowsTaskStatusMove, blockingOf, canStartExecution, closeoutReadiness, consumeKnownError, parseDocWriteIntent, serializeEventHead, sha256Text, stableStringify, type DocClaimRef } from "../../kernel/src/index.ts";
+import { allowsTaskStatusMove, blockingOf, canStartExecution, closeoutReadiness, consumeKnownError, parseDocWriteIntent, serializeEventHead, sha256Text, stableStringify, type DocClaimRef, type DocEventChange } from "../../kernel/src/index.ts";
 import { assertCurrentWriter, bindWriterGenerationToken, canonicalGateReceipts, compileCompletionGateWitness, compileExecutionExecutorDeclaration, compileTaskLifecycleWrite, completionBlockers, compileTaskProgress, deriveRelationId, explainStatusTransition, isDomainStatus, isLedgerLayoutMigrationEvent, isTaskEvent, isTaskProgressEvent, isTerminalStatus, lifecycleDocumentPaths, makeTaskEventStore, makeTaskProjection, normalizeCommandEnvelope,
   canReclaim, isIndependentFrom, isSameExecution, normalizeTaskLifecycleCommand, readRelationGraphProjection, reduceTaskEvent, reviewDigest, validateRelationRecordsForHost, type ActorIdentity, type CompleteTaskCommand, type CompletionReadinessContext, type EntityRelationRecord, type EventPublicationKillpoint, type ProofFor,
   projectDecisionReadiness, taskProgressWritePlan, type CanonicalEventAppendReceipt, type CanonicalEventCut, type DaemonRepoMode, type TaskEventV1, type TaskLifecycleCommand, type TaskProgressEvidence, type TaskProgressEventV1, type TaskProjectionListQuery, type TaskV1, VcsCommandError, type WriteReceipt, type WriteSource, type WriterGeneration, admitTaskExecutionWip, deriveTaskRoot, hasCloseoutEvidence, taskClasses, taskWipOccupyingStatuses, type DomainStatus, type TaskWipSnapshotEntryV1 } from "../../kernel/src/index.ts";
@@ -85,8 +85,8 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
   // Latch self-heal: while unavailable, the next command replays the failed judgment against a
   // freshly built ledger view (publication refs re-read from Git, recovery replayed, projection
   // catch-up replayed). Pass -> rebind the core and return to attached; fail -> stay unavailable
-  // with the replayed cause. Probes are throttled so the doc-sync watcher's 0.2s rescans cannot
-  // hot-loop them, and every fresh latch earns one immediate probe.
+  // with the replayed cause. Probes are throttled so frequent read retries cannot hot-loop them,
+  // and every fresh latch earns one immediate probe.
   const attemptRecovery = (): void => {
     if (state !== "unavailable") return;
     if (!recoveryProbe.begin(Date.parse(now()))) return;
@@ -204,13 +204,14 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
     const docOpId = operationId({ kind: "doc-submit", executionId: intent.executionId, baseLedgerSha: intent.baseLedgerSha, changes: docChanges }, binding, input.repoId, headRevision);
     const adjudication = adjudicateDocIntent({ binding, workspaceId: input.repoId, rootDir, store, projection, now, taskDocumentChannel: "task-command" }, intent, docChanges.map((change) => claimBytes(rootDir, change.candidate.ref as DocClaimRef)), lease?.phase === "held" ? lease : null, docOpId);
     if (!adjudication.accepted) return { ...rejectDocSyncAction(opId, adjudication.code, adjudication.detail, adjudication.detail.nextAction), taskId, docSync: { outcome: "not_applied", code: adjudication.code, transition: "blocked" } } as WriteReceipt;
-    if (taskAction.kind === "task-progress-append") { try { const progress = appendProgress(taskAction, binding, { changes: adjudication.decision.event.payload.changes, blobs: adjudication.decision.blobs }); return { ...progress, docSync: { outcome: progress.outcome === "applied" ? "applied" : "not_applied", code: progress.code ?? null, transition: progress.outcome === "pending" ? "pending" : progress.outcome === "applied" ? "applied" : "rejected", paths: docChanges.map((change) => change.path) } } as WriteReceipt; } finally { recycleClaims(rootDir, intent); } }
+    const carriedChanges = adjudication.decision.event.payload.changes.filter((change): change is DocEventChange => change.candidate !== null); if (carriedChanges.length !== adjudication.decision.event.payload.changes.length) throw cellCodedError("invalid_command", "task-carried documents cannot contain retirement changes");
+    if (taskAction.kind === "task-progress-append") { try { const progress = appendProgress(taskAction, binding, { changes: carriedChanges, blobs: adjudication.decision.blobs }); return { ...progress, docSync: { outcome: progress.outcome === "applied" ? "applied" : "not_applied", code: progress.code ?? null, transition: progress.outcome === "pending" ? "pending" : progress.outcome === "applied" ? "applied" : "rejected", paths: docChanges.map((change) => change.path) } } as WriteReceipt; } finally { recycleClaims(rootDir, intent); } }
     // The lifecycle service publishes one task event whose carried-document
     // claims and machine lifecycle claims share the same canonical commit.
     // Projection replay therefore restores both sides after any crash.
     const current = await service.read(taskId), normalized = buildCommand(taskAction as RepoTaskAction, taskId, binding, input.repoId, current.snapshot.revision, rootDir, current.snapshot), command = withServerMeta(normalized, store.readTaskEvent(normalized.opId), store.readHead()?.revision ?? 0, now()), proof = await proofFor(command, current.snapshot, binding);
     let transition: Awaited<ReturnType<typeof service.executeWithDocuments>>;
-    try { transition = await service.executeWithDocuments(command, proof, { changes: adjudication.decision.event.payload.changes, blobs: adjudication.decision.blobs }); }
+    try { transition = await service.executeWithDocuments(command, proof, { changes: carriedChanges, blobs: adjudication.decision.blobs }); }
     finally { recycleClaims(rootDir, intent); }
     if (transition.outcome === "applied" && transition.event && transition.proof) { const publication = publicPublication(store.publication(transition.event)), receipt = lifecycleReceipt(transition.event, transition.snapshot, publication, transition.proof); return { ...receipt, taskId, docSync: { outcome: "applied", revision: transition.revision, commitSha: publication.commitSha, cut: publication.cut, transition: "applied", paths: docChanges.map((change) => change.path) } } as WriteReceipt; }
     if (transition.outcome === "pending") return { outcome: "pending", opId: command.opId, revision: transition.revision, evidence: transition.evidence, visibility: transition.visibility, proof: transition.proof, nextAction: transition.nextAction ?? "Retry receipt show." , taskId, docSync: { outcome: "pending", code: transition.code ?? null, transition: "pending", paths: docChanges.map((change) => change.path) } } as WriteReceipt;
