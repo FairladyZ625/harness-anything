@@ -8,12 +8,11 @@
 /W2D-DISPOSAL.md
 /W2D-REPORT.md
 
-# Private self-hosted harness for this source repository.
-# This directory is versioned by its own local/private git repository and must not be
-# published with the open-source package.
-/.harness-private/
-/.harness/
+# Private self-hosted Harness state. Dot-prefixed Harness directories are runtime or
+# private data at any depth; the root workspace and old-generation copies are private.
+.harness*/
 /harness/
+/harness-old-generation-*/
 /.claude/
 /.agents/
 /.codex/
@@ -26,7 +25,6 @@ coverage/
 tmp/
 *.log
 *.tsbuildinfo
-.harness/
 .playwright-mcp/
 
 # release tarballs (npm pack output)
