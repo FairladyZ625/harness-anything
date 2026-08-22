@@ -463,7 +463,7 @@ for (const killpoint of ["after_sqlite_commit", "before_response_write", "after_
   });
 }
 
-test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion rejection, and worktree preservation", async (context) => {
+test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion rejection, and worktree preservation", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-cell-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("docs"), rootDir: canonicalRoot(rootDir), ownerId: "doc-daemon" });
     assert.equal((await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, { actor, source: "local" })).outcome, "applied");
@@ -479,30 +479,6 @@ test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion r
     const next = `${body}B\n`; writeFileSync(authored, next);
     const updated = await cell.run(action, { actor, source: "local" }); assert.equal(updated.outcome, "applied", JSON.stringify(updated)); body = next;
     rmSync(authored); const deletion = await cell.run(action, { actor, source: "local" }); assert.equal(deletion.code, "deletion_forbidden"); writeFileSync(authored, body);
-    // EXPERIMENT SCAFFOLDING (temporary, removed before final PR): 10 interleaved rounds, each
-    // re-evaluating the retired gate shape (7-sample p50 ratio vs 4x) twice — once without
-    // injection (negative control = false-positive rate) and once with a +50ms delay injected
-    // into the measured doc-write window (positive control = detection rate). Diagnostics only.
-    const median = (values: readonly number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
-    const probe = async (arm: string, round: number, injectMs: number) => {
-      const samples: number[] = [], baselineSamples: number[] = [];
-      for (let index = 0; index < 7; index += 1) {
-        const baselineStarted = performance.now();
-        await cell.run({ kind: "task-create", taskId: `task-doc-baseline-${arm}-${round}-${index}`, title: `Doc baseline ${arm}-${round}-${index}` }, { actor, source: "local" });
-        baselineSamples.push(performance.now() - baselineStarted);
-        const candidate = `${body}${Array.from({ length: index + 1 }, (_, n) => `line-${arm}-${round}-${index}-${n}\n`).join("")}`;
-        writeFileSync(authored, candidate);
-        const started = performance.now(); if (injectMs > 0) await new Promise((resolve) => setTimeout(resolve, injectMs));
-        const result = await cell.run(action, { actor, source: "local" });
-        samples.push(performance.now() - started); assert.equal(result.outcome, "applied", JSON.stringify(result)); body = candidate;
-      }
-      const p50 = median(samples), baselineP50 = median(baselineSamples), ratio = p50 / baselineP50;
-      context.diagnostic(`doc-gate-probe arm=${arm} round=${round} p50=${p50.toFixed(3)}ms baseline-p50=${baselineP50.toFixed(3)}ms ratio=${ratio.toFixed(3)}x red=${ratio >= 4 ? "yes" : "no"} samples=${samples.map((sample) => sample.toFixed(3)).join(",")} baseline-samples=${baselineSamples.map((sample) => sample.toFixed(3)).join(",")}`);
-    };
-    for (let round = 0; round < 10; round += 1) {
-      if (round % 2 === 0) { await probe("negative", round, 0); await probe("positive", round, 50); }
-      else { await probe("positive", round, 50); await probe("negative", round, 0); }
-    }
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
