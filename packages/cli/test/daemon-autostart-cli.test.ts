@@ -57,7 +57,7 @@ test("a blocked vertical script keeps handshakes, snapshots, and same-repo write
     const socket = await connectSocket(endpoint, 2_000); client = new JsonRpcLineClient(socket, socket);
     await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
     scriptRequest = client.request("repo.script.run", { repo: { repoId }, payload: { scriptId: "vertical:software-coding:repository-audit", taskId, inputs: {}, dryRun: true } }) as Promise<Record<string, unknown>>;
-    await waitForPath(started);
+    await waitForFileContent(started);
 
     const probeStarted = performance.now(); let handshake: Record<string, unknown>;
     try { const response = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2_000, 250); handshake = { ok: true, elapsedMs: Math.round(performance.now() - probeStarted), daemonPid: response.pid }; }
@@ -107,7 +107,7 @@ test("disconnecting a blocked vertical script client terminates its child after 
     await actionClient.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
     scriptRequest = actionClient.request("repo.script.run", { repo: { repoId: blockedRepoId }, payload: { scriptId: "vertical:software-coding:repository-audit", taskId, inputs: {}, dryRun: true } }) as Promise<Record<string, unknown>>;
     void scriptRequest.catch(() => undefined);
-    await waitForPath(started); const childPid = Number(readFileSync(started, "utf8").trim());
+    const childPid = Number(await waitForFileContent(started));
     assert.equal(Number.isSafeInteger(childPid) && childPid > 0, true, `invalid vertical child pid: ${childPid}`);
     assert.equal(processAlive(childPid), true, `vertical child ${childPid} must be alive before disconnect`);
 
@@ -280,7 +280,7 @@ function run(root: string, userRoot: string, args: readonly string[], actor?: st
 function waitForDaemonDown(userRoot: string): void { const socketPath = localUserDaemonEndpoint(userRoot, "default");
   for (let attempt = 0; attempt < 200; attempt += 1) { if (readDaemonPid(userRoot, "default") === null && !existsSync(socketPath)) return; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10); }
   throw new Error("previous daemon did not drain before the autostart probe"); }
-async function waitForPath(target: string): Promise<void> { const deadline = Date.now() + 5_000; while (!existsSync(target)) { if (Date.now() >= deadline) throw new Error(`timed out waiting for ${target}`); await new Promise((resolve) => setTimeout(resolve, 10)); } }
+async function waitForFileContent(target: string): Promise<string> { const deadline = Date.now() + 5_000; for (;;) { const content = existsSync(target) ? readFileSync(target, "utf8").trim() : ""; if (content) return content; if (Date.now() >= deadline) throw new Error(`timed out waiting for content in ${target}`); await new Promise((resolve) => setTimeout(resolve, 10)); } }
 async function waitForProcessExit(pid: number): Promise<void> { const deadline = Date.now() + 2_000; while (processAlive(pid)) { if (Date.now() >= deadline) throw new Error(`timed out waiting for process ${pid} to exit`); await new Promise((resolve) => setTimeout(resolve, 10)); } }
 function delay<T>(milliseconds: number, value: T): Promise<T> { return new Promise((resolve) => setTimeout(() => resolve(value), milliseconds)); }
 function processAlive(pid: number): boolean { try { process.kill(pid, 0); return true; } catch { return false; } }
