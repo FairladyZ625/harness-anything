@@ -90,6 +90,7 @@
     "harness:check-task-event-aggregate-entry": "node tools/check-task-event-aggregate-entry.mjs",
     "harness:check-canonical-event-compat": "node tools/gates/canonical-event-compat.mjs --check",
     "harness:check-status-vocabulary": "node tools/check-status-vocabulary.mjs",
+    "harness:check-sync-subprocess": "node tools/check-sync-subprocess.mjs",
     "harness:check-gui-status-judgments": "node tools/check-gui-status-judgments.mjs",
     "harness:check-enforcement-debt-sunset": "node tools/check-enforcement-debt-sunset.mjs",
     "pr:doctor": "node tools/pr-doctor.mjs"

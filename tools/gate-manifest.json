@@ -69,6 +69,7 @@
         "check-relation-cycle-substrate",
         "check-relation-canonical-direction",
         "check-status-vocabulary",
+        "check-sync-subprocess",
         "check-gui-status-judgments",
         "check-domain-judgment-single-definition",
         "check-task-event-aggregate-entry",
@@ -118,6 +119,7 @@
         "check-relation-cycle-substrate",
         "check-relation-canonical-direction",
         "check-status-vocabulary",
+        "check-sync-subprocess",
         "check-gui-status-judgments",
         "check-domain-judgment-single-definition",
         "check-task-event-aggregate-entry",
@@ -144,7 +146,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 42
+      "harnessLeafGateCount": 43
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -4682,6 +4684,84 @@
         "status": "covered",
         "evidence": [
           "tools/check-status-vocabulary.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "check-sync-subprocess",
+      "command": "npm run harness:check-sync-subprocess",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "decision/dec_7F0604B4D53637BB6FF9875C8B#CH1",
+        "decision/dec_7F0604B4D53637BB6FF9875C8B#CH2",
+        "harness/governance/standards/architecture-conformance-standard.md#daemonkernel-异步纪律"
+      ],
+      "consumerScope": [
+        "execFileSync, execSync, and spawnSync bindings imported or required from node:child_process and calls resolved through those named or namespace bindings under packages/daemon/src and packages/kernel/src",
+        "the frozen path, named semantic scope, syntax kind, content fingerprint, and same-shape occurrence baseline; comments, strings, synchronous filesystem APIs, and unrelated modules are excluded"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/gate-allowlists/sync-subprocess-baseline.mjs#syncSubprocessBaseline",
+        "adrOrDecisionRequired": true,
+        "notes": "dec_7F0604B4D53637BB6FF9875C8B CH1 ratchet: only the 17 AST sites frozen from main@50422a1bf are grandfathered. The baseline may shrink but may not gain replacements; stale entries fail and must be removed."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-sync-subprocess.mjs",
+          "tools/check-sync-subprocess.test.mjs",
+          "tools/gate-allowlists/sync-subprocess-baseline.mjs",
+          "package.json:scripts.harness:check-sync-subprocess",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-sync-subprocess"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-sync-subprocess.test.mjs"
         ]
       }
     },
