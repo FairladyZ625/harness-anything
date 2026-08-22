@@ -5,7 +5,7 @@ import type { HarnessLayoutInput } from "../layout/index.ts";
 import { contentObjectRelativePath, eventObjectRelativePath, type LedgerObjectLayout } from "../layout/ledger-object-layout.ts";
 import { ledgerGitPath, resolveLedgerGitLayout } from "./ledger-git-layout.ts";
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-version-control-system.ts";
-import { canonicalDocumentClaims, canonicalDocumentMode, TaskEventStoreError, type CanonicalEventStore, type EventPublicationKillpoint } from "./task-event-store.ts";
+import { canonicalDocumentClaims, canonicalDocumentMode, canonicalDocumentRetirements, TaskEventStoreError, type CanonicalEventStore, type EventPublicationKillpoint } from "./task-event-store.ts";
 import type { WalEventLog, WalEventRecord } from "./wal-event-log.ts";
 
 export interface WalGitMaterializerOptions {
@@ -34,9 +34,9 @@ export function flushWalToGit(wal: WalEventLog, git: CanonicalEventStore, option
   const layoutState = git.layout();
   if (layoutState === "mixed") throw new TaskEventStoreError("invalid_store", "cannot flush WAL into a mixed Git layout");
   const files = batchFiles(wal, ledger, settlementRecords, layoutState);
-  const documentTargets = new Set(settlementRecords.flatMap((record) => canonicalDocumentClaims(record.event).map((claim) => ledgerGitPath(ledger, claim.path))));
-  const documentFiles = files.filter((file) => documentTargets.has(file.target));
-  const durableFiles = files.filter((file) => !documentTargets.has(file.target));
+  const documentTargets = new Set(settlementRecords.flatMap((record) => [...canonicalDocumentClaims(record.event).map((claim) => ledgerGitPath(ledger, claim.path)), ...canonicalDocumentRetirements(record.event).map((retirement) => ledgerGitPath(ledger, retirement.path))]));
+  const documentFiles = files.filter((file) => documentTargets.has("delete" in file ? file.delete : file.target));
+  const durableFiles = files.filter((file) => !documentTargets.has("delete" in file ? file.delete : file.target));
   if (pending.length === 0) {
     localGitWorktreeSettlement.settle(ledger.rootDir, durableFiles);
     localGitWorktreeSettlement.index(ledger.rootDir, documentFiles);
@@ -65,7 +65,7 @@ export function flushWalToGit(wal: WalEventLog, git: CanonicalEventStore, option
   const messageText = `harness WAL flush ${pending[0]!.revision}-${last.revision}`;
   const timestamp = Math.floor(Date.parse(last.event.occurredAt) / 1_000);
   let inputText = `commit ${flushRef}\nmark :1\ncommitter Harness WAL <harness-wal@local.invalid> ${timestamp} +0000\ndata ${Buffer.byteLength(messageText)}\n${messageText}\nfrom ${authoredParent}\n`;
-  for (const file of files) inputText += `M ${file.mode ?? "100644"} inline ${file.target}\ndata ${Buffer.byteLength(file.body)}\n${file.body}\n`;
+  for (const file of files) inputText += "delete" in file ? `D ${file.delete}\n` : `M ${file.mode ?? "100644"} inline ${file.target}\ndata ${Buffer.byteLength(file.body)}\n${file.body}\n`;
   inputText += "\nget-mark :1\ndone\n";
   const imported = localGitObjectRefStore.importCommit(ledger.rootDir, inputText).toString("utf8").trim().split("\n").at(-1) ?? "";
   if (!/^[0-9a-f]{40}$/u.test(imported)) throw new TaskEventStoreError("publication_indeterminate", "WAL Git flush returned no commit");
@@ -88,17 +88,19 @@ function batchFiles(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
   records: readonly WalEventRecord[],
   layout: LedgerObjectLayout,
-): readonly { readonly target: string; readonly body: string; readonly mode?: "100644" | "120000" }[] {
-  const files = new Map<string, { readonly target: string; readonly body: string; readonly mode?: "100644" | "120000" }>();
+): readonly ({ readonly target: string; readonly body: string; readonly mode?: "100644" | "120000" } | { readonly delete: string })[] {
+  const files = new Map<string, { readonly target: string; readonly body: string; readonly mode?: "100644" | "120000" } | { readonly delete: string }>();
   const add = (target: string, body: string, mode: "100644" | "120000" = "100644", replace = false): void => {
     const existing = files.get(target);
-    if (!replace && existing !== undefined && (existing.body !== body || existing.mode !== mode))
+    if (!replace && existing !== undefined && ("delete" in existing || existing.body !== body || existing.mode !== mode))
       throw new TaskEventStoreError("op_conflict", `WAL batch names different bytes at ${target}`);
     files.set(target, { target, body, mode });
   };
+  const remove = (target: string): void => { files.set(target, { delete: target }); };
   for (const record of records) {
     add(ledgerGitPath(ledger, eventObjectRelativePath(record.opId, layout)), canonicalBytes(record.event));
     for (const blob of record.blobs) add(ledgerGitPath(ledger, contentObjectRelativePath(blob.sha256, layout)), Buffer.from(requiredWalBlob(wal, blob.sha256)).toString("utf8"));
+    for (const retirement of canonicalDocumentRetirements(record.event)) remove(ledgerGitPath(ledger, retirement.path));
     for (const claim of canonicalDocumentClaims(record.event)) add(ledgerGitPath(ledger, claim.path), Buffer.from(requiredWalBlob(wal, claim.sha256)).toString("utf8"), canonicalDocumentMode(record.event, claim.path), true);
   }
   const last = records.at(-1)!;

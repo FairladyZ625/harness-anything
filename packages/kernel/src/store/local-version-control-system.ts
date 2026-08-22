@@ -270,9 +270,10 @@ export const localGitWorktreeSettlement = Object.freeze({
       hooks.afterRename?.();
     }
   },
-  index: (repoRoot: string, files: readonly { readonly target: string; readonly body: string; readonly mode?: "100644" | "120000" }[]): number => {
+  deleteVisible: (repoRoot: string, targets: readonly string[], hooks: { readonly beforeRename?: () => void; readonly afterRename?: () => void } = {}): void => { for (const logical of targets) { hooks.beforeRename?.(); removeNode(path.join(repoRoot, ...logical.split("/"))); hooks.afterRename?.(); } },
+  index: (repoRoot: string, files: readonly ({ readonly target: string; readonly body: string; readonly mode?: "100644" | "120000" } | { readonly delete: string })[]): number => {
     if (files.length === 0) return 0;
-    const indexInput = files.map((file) => `${file.mode ?? "100644"} ${gitBlobOid(file.body)}\t${file.target}\0`).join("");
+    const zero = "0".repeat(40), indexInput = files.map((file) => "delete" in file ? `0 ${zero}\t${file.delete}\0` : `${file.mode ?? "100644"} ${gitBlobOid(file.body)}\t${file.target}\0`).join("");
     localGitProcesses += 1;
     awaitDurableSettlement(beginDurableSettlement({ index: { repoRoot, input: indexInput } }));
     return 1;
