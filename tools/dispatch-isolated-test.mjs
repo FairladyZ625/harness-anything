@@ -4,44 +4,15 @@ import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { dispatchIsolatedTestCommand, parseToolOptions, renderToolHelp, toolOption, toolValue } from "./tool-command-contract.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
-const targets = new Set(["ubuntu", "docker", "windows"]);
-const tiers = new Set(["fast", "contract", "integration"]);
 const sourceExcludes = [".git", "node_modules", ".harness", "coverage", "dist", "out"];
 
 export function parseDispatchArgs(argv) {
-  const options = { target: "ubuntu", tier: undefined, file: undefined };
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    const value = argv[index + 1];
-    if (arg === "--target") {
-      if (value === undefined) throw new Error("--target requires ubuntu, docker, or windows");
-      options.target = value;
-      index += 1;
-      continue;
-    }
-    if (arg === "--tier") {
-      if (value === undefined) throw new Error("--tier requires fast, contract, or integration");
-      options.tier = value;
-      index += 1;
-      continue;
-    }
-    if (arg === "--file") {
-      if (value === undefined) throw new Error("--file requires a repository-relative test file");
-      options.file = value;
-      index += 1;
-      continue;
-    }
-    throw new Error(`unknown dispatch-isolated-test option: ${arg}`);
-  }
-  if (!targets.has(options.target)) throw new Error(`unknown target: ${options.target}; expected ubuntu, docker, or windows`);
-  if (options.tier !== undefined && !tiers.has(options.tier)) throw new Error(`unknown test tier: ${options.tier}; expected fast, contract, or integration`);
-  if (options.tier === undefined && options.file === undefined) throw new Error("choose exactly one of --tier or --file");
-  if (options.tier !== undefined && options.file !== undefined) throw new Error("choose exactly one of --tier or --file");
-  if (options.file !== undefined && (!/\.(?:test|spec)\.(?:mjs|js|ts)$/u.test(options.file) || options.file.startsWith("/") || options.file.includes("\\") || options.file.split("/").includes(".."))) {
-    throw new Error(`--file must be a POSIX repository-relative test file; received ${JSON.stringify(options.file)}`);
-  }
+  const parsed = parseToolOptions(dispatchIsolatedTestCommand, argv);
+  if (parsed.help) return { help: true };
+  const options = { target: toolValue(parsed, "--target") ?? toolOption(dispatchIsolatedTestCommand, "--target").defaultValue, tier: toolValue(parsed, "--tier"), file: toolValue(parsed, "--file") };
   return options;
 }
 
@@ -91,6 +62,10 @@ export async function main(argv = process.argv.slice(2)) {
   } catch (error) {
     console.error(`dispatch-isolated-test: ${error.message}`);
     return 2;
+  }
+  if (options.help) {
+    console.log(renderToolHelp(dispatchIsolatedTestCommand));
+    return 0;
   }
   const runId = `harness-test-isolation-${process.pid}-${randomUUID()}`;
   const startedAt = Date.now();

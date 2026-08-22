@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { closeoutTaskCommand, parseToolOptions, renderToolHelp, toolValue } from "./tool-command-contract.mjs";
 
 const requiredSubmissionFields = Object.freeze(["completionClaim", "deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks", "commitSha"]);
 const requiredReviewFields = Object.freeze(["verdict", "reason", "evidenceChecked"]);
@@ -23,32 +24,10 @@ export class CloseoutCommandError extends Error {
   }
 }
 
-function usage() {
-  return [
-    "Usage: node tools/closeout-task.mjs --task-id <task-id> --execution-id <execution-id> --from-file <judgment.json>",
-    "",
-    "The judgment packet must contain exactly:",
-    "  submission: completionClaim, deliverables, outputs, verificationNotes, knownGaps, residualRisks, commitSha",
-    "  review: verdict, reason, evidenceChecked",
-    "  consent: approved=true",
-    "  completion: ci=passed, codeDocPaths[] (empty omits reconcile; an applicable code-doc gate may reject completion)",
-    "",
-    "The script derives the submitter and owner actor postures from the active task, binds Review to submission.commitSha,",
-    "uses the transport human as independent reviewer, and invokes every existing lifecycle gate without bypasses.",
-  ].join("\n");
-}
-
 export function parseCloseoutArgs(argv) {
-  if (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h")) return { help: true };
-  const values = new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    const flag = argv[index], value = argv[index + 1];
-    if (!["--task-id", "--execution-id", "--from-file"].includes(flag) || typeof value !== "string" || value.length === 0) throw new Error(usage());
-    if (values.has(flag)) throw new Error(`${flag} may be supplied once.\n\n${usage()}`);
-    values.set(flag, value);
-  }
-  if (values.size !== 3) throw new Error(usage());
-  return { help: false, taskId: values.get("--task-id"), executionId: values.get("--execution-id"), fromFile: values.get("--from-file") };
+  const parsed = parseToolOptions(closeoutTaskCommand, argv);
+  if (parsed.help) return { help: true };
+  return { help: false, taskId: toolValue(parsed, "--task-id"), executionId: toolValue(parsed, "--execution-id"), fromFile: toolValue(parsed, "--from-file") };
 }
 
 function exactObject(value, fields, name) {
@@ -237,7 +216,7 @@ function main() {
   try {
     parsed = parseCloseoutArgs(process.argv.slice(2));
     if (parsed.help) {
-      process.stdout.write(`${usage()}\n`);
+      process.stdout.write(`${renderToolHelp(closeoutTaskCommand)}\n`);
       return;
     }
     const judgment = JSON.parse(readFileSync(path.resolve(parsed.fromFile), "utf8"));
