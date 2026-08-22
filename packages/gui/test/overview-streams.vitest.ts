@@ -6,6 +6,7 @@ import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
 import { DecisionStream } from "../src/renderer/components/overview/DecisionStream.tsx";
 import { TaskStream } from "../src/renderer/components/overview/TaskStream.tsx";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
+import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
 import { PinnedStream } from "../src/renderer/components/overview/PinnedStream.tsx";
 import { RuntimeHealthCard } from "../src/renderer/components/overview/RuntimeHealthCard.tsx";
 import { DecisionPreviewDrawer } from "../src/renderer/components/DecisionPreviewDrawer.tsx";
@@ -35,6 +36,12 @@ function decision(patch: Partial<DecisionRow>): DecisionRow {
 }
 
 const noop = () => {};
+// Read one status tab's rendered text exactly. A loose `testid … label … count` regex
+// matches any later digit in the document, so it stays green when the count is wrong.
+const tabText = (markup: string, testId: string): string | null => {
+  const found = markup.match(new RegExp(`data-testid="${testId}"[^>]*>([\\s\\S]*?)</button>`, "u"));
+  return found === null ? null : found[1]!.replace(/<!--[\s\S]*?-->/gu, "").replace(/\s+/gu, " ").trim();
+};
 const taskSummary = (patch: Partial<WorkspaceSummaryRead["tasks"]["byStatus"]> = {}): WorkspaceSummaryRead["tasks"] => {
   const byStatus = { planned: 0, active: 0, blocked: 0, in_review: 0, done: 0, cancelled: 0, unknown: 0, ...patch };
   return { total: Object.values(byStatus).reduce((sum, count) => sum + count, 0), byStatus };
@@ -120,8 +127,34 @@ describe("overview task stream", () => {
       expect(board).toContain(`data-testid="board-status-${status}-count">${drawn}</span>`);
     }
     expect(summary.total).toBe(visible.length);
-    expect(overview).toMatch(/data-testid="overview-status-active"[\s\S]*?进行中[\s\S]*?2/);
-    expect(overview).toMatch(/data-testid="overview-status-blocked"[\s\S]*?已阻塞[\s\S]*?1/);
+    expect(tabText(overview, "overview-status-active")).toBe("进行中 2");
+    expect(tabText(overview, "overview-status-blocked")).toBe("已阻塞 1");
+  });
+
+  // The test above renders TaskStream directly, so it proves the leaf agrees with the
+  // census but says nothing about the page that feeds it. Render the overview page so
+  // breaking the census on its way to the leaf has somewhere to go red.
+  it("carries the daemon census through the overview page into the task stream", () => {
+    const rows = [
+      task({ taskId: "task_a1", title: "Active one", coordinationStatus: "active" }),
+      task({ taskId: "task_a2", title: "Active two", coordinationStatus: "active" }),
+      task({ taskId: "task_b1", title: "Blocked one", coordinationStatus: "blocked" }),
+    ];
+    const page = renderToStaticMarkup(createElement(OverviewView, {
+      project: { id: "proj", name: "Harness", path: "/repo", preset: "software/coding", engines: [], watermarkAt: "2026-08-01T00:00:00.000Z" },
+      tasks: rows,
+      decisions: [],
+      workspaceSummary: {
+        schema: "daemon.workspace-summary/v1", ok: true, status: "ready", warnings: [], watermark: 1, sourceRevision: 1,
+        tasks: taskSummary({ active: 2, blocked: 1 }), decisions: decisionSummary({ proposed: 1 }),
+      },
+      relations: [],
+      systemHealth: { daemon: null, repo: null, projection: null },
+      onSelect: noop, onDrill: noop, onOpenInbox: noop, onOpenDecision: noop, onOpenSystem: noop,
+    }));
+
+    expect(tabText(page, "overview-status-active")).toBe("进行中 2");
+    expect(tabText(page, "overview-status-blocked")).toBe("已阻塞 1");
   });
 
   it("filters to the selected status in place with census counts on every tab (sidebar parity)", () => {
