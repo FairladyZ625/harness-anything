@@ -14,6 +14,10 @@ export function cliDaemonServeLaunch(userRoot: string, daemonId: string, execPat
   return { command: execPath, args: [daemonServeEntry(), "daemon", "serve", "--user-root", userRoot, "--daemon-id", daemonId], env: process.env };
 }
 export function daemonAutostartFailureCode(error: unknown): string | null { const code = typeof error === "object" && error !== null && "code" in error && typeof (error as { readonly code?: unknown }).code === "string" ? (error as { readonly code: string }).code : null; return code !== null && (autostartFailureCodes as readonly string[]).includes(code) ? code : null; }
+// daemon_response_timeout proves one connection went unanswered within its deadline; the daemon being absent is a
+// different, checkable claim. Flattening the deadline into daemon_unavailable once sent a degraded waiting client
+// to read daemon lifecycle logs while the daemon was healthy, so the classified code rides through unflattened.
+export function daemonResponseTimeoutCode(error: unknown): "daemon_response_timeout" | null { return typeof error === "object" && error !== null && (error as { readonly code?: unknown }).code === "daemon_response_timeout" ? "daemon_response_timeout" : null; }
 // The autostart seam is imported lazily so the thin dist static import graph stays
 // entry/parser/transport-only; it is only reachable on a connection-level failure.
 async function withAutostart(request: () => Promise<JsonObject>, launch: () => DaemonLaunchSpec, socketPath: string, autostart: boolean): Promise<JsonObject> {

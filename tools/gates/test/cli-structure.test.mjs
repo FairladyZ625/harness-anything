@@ -69,6 +69,46 @@ test("thin CLI permits only the zero-dependency preset command contract", async 
   assert.match(result.stderr, /module is outside entry\/parser\/transport\/render whitelist.*preset\.contract\.ts/u);
 });
 
+test("daemon transport graph accepts the line client's thin leaf imports", async () => {
+  const root = await fixture();
+  write(root, "packages/daemon/src/client/local-json-rpc-client.ts", [
+    "import net from 'node:net';",
+    "import { currentDaemonProtocolVersion } from '../protocol/version.ts';",
+    "export function transport(): void { void net; void currentDaemonProtocolVersion; }",
+    ""
+  ].join("\n"));
+  write(root, "packages/daemon/src/protocol/version.ts", "export const currentDaemonProtocolVersion = 1;\n");
+  const result = run(root);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /CLI structure check passed/u);
+});
+
+test("daemon transport graph rejects a kernel barrel reachable from the line client", async () => {
+  const root = await fixture();
+  write(root, "packages/daemon/src/client/local-json-rpc-client.ts", [
+    "import { consumeKnownError } from '../../../kernel/src/index.ts';",
+    "export function transport(): void { void consumeKnownError; }",
+    ""
+  ].join("\n"));
+  write(root, "packages/kernel/src/index.ts", "export function consumeKnownError(): void {}\n");
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.ok(result.stderr.includes("daemon transport import graph reached kernel public barrel: packages/kernel/src/index.ts"));
+});
+
+test("daemon transport graph rejects even a kernel leaf import reachable from the line client", async () => {
+  const root = await fixture();
+  write(root, "packages/daemon/src/client/local-json-rpc-client.ts", [
+    "import { consumeKnownError } from '../../../kernel/src/error-consumption.ts';",
+    "export function transport(): void { void consumeKnownError; }",
+    ""
+  ].join("\n"));
+  write(root, "packages/kernel/src/error-consumption.ts", "export function consumeKnownError(): void {}\n");
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.ok(result.stderr.includes("daemon transport import graph reached module is outside the daemon transport allowlist: packages/kernel/src/error-consumption.ts"));
+});
+
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "harness-thin-cli-structure-"));
   write(root, "packages/cli/package.json", JSON.stringify({

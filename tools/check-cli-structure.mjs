@@ -25,6 +25,7 @@ checkFileLines(cliFiles, 250, "CLI source file");
 checkFunctions(cliFiles, { maxLines: 120, maxBranches: 40 });
 checkThinCliSurface();
 checkDistStaticImportGraph();
+checkDaemonTransportImportGraph();
 
 if (violations.length > 0) {
   console.error(violations.join("\n"));
@@ -77,6 +78,52 @@ function checkDistStaticImportGraph() {
       }
       const resolved = resolveSourceImport(file, candidate.specifier);
       if (resolved === null) violations.push(`dist static import graph cannot resolve ${candidate.specifier} from ${file}`);
+      else pending.push(resolved);
+    }
+  }
+}
+
+// The line client is the one daemon transport module the thin entry reaches by dynamic import on
+// every daemon command (runCommandThroughDaemon awaits it), so its own static module graph rides
+// the critical path of every CLI→daemon invocation while sitting outside the entry's static graph
+// that checkDistStaticImportGraph bounds. Unbounded, one kernel barrel import there loaded the
+// whole kernel (with its effect dependency) per invocation — ~250ms of module load per daemon
+// command that the paired-round latency gate read as a write-path regression (10.088x on CI, fact
+// F-FB7D48A6), because lint forces kernel imports through exactly that barrel. The allowlist is
+// the transitive runtime graph of the transport itself, so any kernel dependency at all — barrel
+// or leaf — reds here. A type-only barrel import stays legal (it is erased), which is why this
+// walks runtime imports.
+function checkDaemonTransportImportGraph() {
+  const allowed = new Set([
+    "packages/daemon/src/client/local-json-rpc-client.ts",
+    "packages/daemon/src/client/local-daemon-target.ts",
+    "packages/daemon/src/protocol/version.ts",
+    "packages/daemon/src/protocol/json-rpc-types.ts",
+    "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+    "packages/preset/src/preset-command-contract.ts"
+  ]);
+  // Reduced fixture trees (tools/gates/test/cli-structure.test.mjs) may not carry the daemon
+  // package's line client at all; absent means not under test, not a violation — a real tree
+  // always has it, and renaming it breaks typecheck before this check could say anything useful.
+  if (!existsSync(path.join(root, "packages/daemon/src/client/local-json-rpc-client.ts"))) return;
+  const pending = ["packages/daemon/src/client/local-json-rpc-client.ts"], visited = new Set();
+  while (pending.length > 0) {
+    const file = pending.shift();
+    if (!file || visited.has(file)) continue;
+    visited.add(file);
+    if (!allowed.has(file)) {
+      const detail = file === "packages/kernel/src/index.ts" ? "kernel public barrel" : "module is outside the daemon transport allowlist";
+      violations.push(`daemon transport import graph reached ${detail}: ${file}`);
+      continue;
+    }
+    for (const candidate of runtimeImports(parseTypeScript(file)).static) {
+      if (candidate.specifier.startsWith("node:")) continue;
+      if (!candidate.specifier.startsWith(".")) {
+        violations.push(`daemon transport import graph reached external package ${candidate.specifier} from ${file}`);
+        continue;
+      }
+      const resolved = resolveSourceImport(file, candidate.specifier);
+      if (resolved === null) violations.push(`daemon transport import graph cannot resolve ${candidate.specifier} from ${file}`);
       else pending.push(resolved);
     }
   }
