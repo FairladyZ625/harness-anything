@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { classifyTextualArtifactPath, consumeKnownError } from "../../kernel/src/index.ts";
-import { DOC_POLICY_ID, canonicalEventCut, decideDocWrite, docSyncWritePlan, documentPath, isDocEvent, ledgerGitPath, normalizeCommandEnvelope, parseDocWriteIntent, resolveDocRoute, resolveHarnessLayout, resolveLedgerGitLayout, sha256Bytes, stableStringify,
+import { DOC_POLICY_ID, canonicalEventCut, decideDocWrite, docSyncWritePlan, documentPath, isDocEvent, ledgerGitPath, normalizeCommandEnvelope, parseDocWriteIntent, resolveDocRoute, resolveHarnessLayout, resolveLedgerGitLayout, resolveRetirableDocument, sha256Bytes, stableStringify,
   type ActorIdentity, type DocClaimRef, type DocEventV1, type DocSyncReceiptDetail, type DocWriteIntent, type EventPublicationKillpoint, type LedgerCutIdentity, type VerticalScriptActionV1, type VerticalScriptChangeV1, type WriteReceipt, type WriteSource } from "../../kernel/src/index.ts";
 import type { CanonicalEventStore, TaskProjection } from "../../kernel/src/index.ts";
 import type { FleetAssignmentScope } from "./fleet/contract.ts";
@@ -34,9 +34,9 @@ function runDocRetire(input: Input): DocSettlementReceipt {
   const reason = requiredDocSyncText(input.action.reason, "reason").trim(); let target: ReturnType<typeof documentPath>;
   try { target = documentPath(requiredDocSyncText(input.action.path, "path")); } catch { throw docSyncError("invalid_command", "doc retire requires one valid doc-sync path"); }
   if (!directPaths(input.rootDir, [target]) || !resolveDocRoute(target).allowed) throw docSyncError("invalid_command", "doc retire requires one valid doc-sync path");
-  const read = input.projection.readDocument(target); if (read.watermark !== read.sourceRevision) throw docSyncError("projection_pending", "retry after the canonical projection catches up"); if (read.document === null) throw docSyncError("document_not_found", `canonical document does not exist: ${target}`);
-  const authoredTarget = path.join(resolveHarnessLayout(input.rootDir).authoredRoot, ...target.split("/")); if (existsSync(authoredTarget) && sha256Bytes(readFileSync(authoredTarget)) !== read.document.blobSha256) throw docSyncError("retirement_local_modified", `restore or sync the locally modified document before retiring it: ${target}`);
-  const intent = parseDocWriteIntent({ schema: "doc-write-intent/v1", executionId: null, baseLedgerSha: input.store.currentCut(), changes: [{ path: target, baseBlobSha256: read.document.blobSha256, policyId: read.document.policyId, candidate: null }] }, input.workspaceId);
+  const read = input.projection.readDocument(target); if (read.watermark !== read.sourceRevision) throw docSyncError("projection_pending", "retry after the canonical projection catches up"); const document = resolveRetirableDocument(input.rootDir, target, read.document, input.store.read().events); if (document === null) throw docSyncError("document_not_found", `canonical document does not exist: ${target}`);
+  const authoredTarget = path.join(resolveHarnessLayout(input.rootDir).authoredRoot, ...target.split("/")); if (existsSync(authoredTarget) && sha256Bytes(readFileSync(authoredTarget)) !== document.blobSha256) throw docSyncError("retirement_local_modified", `restore or sync the locally modified document before retiring it: ${target}`);
+  const intent = parseDocWriteIntent({ schema: "doc-write-intent/v1", executionId: null, baseLedgerSha: input.store.currentCut(), changes: [{ path: target, baseBlobSha256: document.blobSha256, policyId: document.policyId, candidate: null }] }, input.workspaceId);
   return publishDocIntent(input, intent, [null], null, reason);
 }
 
@@ -77,8 +77,9 @@ export function adjudicateDocIntent(input: Omit<Input, "action"> & { readonly ta
   if (documents.some((read) => read.watermark !== read.sourceRevision)) { const pending = detail(intent, input.store.currentCut(), "projection_pending", lease); return { accepted: false, code: "projection_pending", detail: { ...pending, nextAction: `run ha receipt show ${opId} after the canonical projection catches up` } }; }
   const admission = admissionRejection(input, intent, lease);
   if (admission) return { accepted: false, code: admission.code, detail: admission.detail };
+  const events = retirementReason === undefined ? [] : input.store.read().events, currentDocuments = documents.map((read, index) => retirementReason === undefined ? read.document : resolveRetirableDocument(input.rootDir, intent.changes[index]!.path, read.document, events));
   const decision = decideDocWrite({ intent, opId, eventId: `event-${sha256Bytes(Buffer.from(opId))}`, workspaceRevision: (input.store.readHead()?.revision ?? 0) + 1,
-    actor: input.binding.actor, source: input.binding.source, occurredAt: input.now(), currentLedgerSha: input.store.currentCut(), lease, documents: documents.map((read) => read.document), claims, retirementReason,
+    actor: input.binding.actor, source: input.binding.source, occurredAt: input.now(), currentLedgerSha: input.store.currentCut(), lease, documents: currentDocuments, claims, retirementReason,
     resolvedTaskIds: intent.changes.map((change) => input.projection.taskIdForDocumentPath(change.path)) });
   return decision.accepted ? { accepted: true, decision } : { accepted: false, code: decision.code, detail: decision.detail };
 }

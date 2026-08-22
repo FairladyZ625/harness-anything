@@ -11,6 +11,7 @@ import {
 } from "./local-version-control-system.ts";
 import {
   canonicalDocumentClaims,
+  canonicalDocumentRetirements,
   canonicalDocumentMode,
   canonicalEventContentClaims,
   canonicalEventCut,
@@ -240,7 +241,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     };
     if (options.withAppendFence) options.withAppendFence(publish);
     else publish();
-    const changedPaths = canonicalDocumentClaims(bundle.event).map((claim) => claim.path).sort();
+    const changedPaths = [...canonicalDocumentClaims(bundle.event).map((claim) => claim.path), ...canonicalDocumentRetirements(bundle.event).map((retirement) => retirement.path)].sort();
     const receipt = pendingReceipt(bundle.event, gitHead?.revision ?? 0, git.currentCommit(), changedPaths, localGitObjectRefStore.processCount() - started);
     scheduleFlush(true);
     return receipt;
@@ -370,6 +371,8 @@ function makeVisible(
     beforeRename: () => options.killpoint?.("before_worktree_rename"),
     afterRename: () => options.killpoint?.("after_worktree_rename"),
   });
+  const deletions = canonicalDocumentRetirements(bundle.event).map((retirement) => { const target = ledgerGitPath(ledger, retirement.path), physical = pathFor(ledger.rootDir, target), local = localGitWorktreeSettlement.readNode(physical); if (local !== null && local.sha256 !== retirement.baseBlobSha256) localGitWorktreeSettlement.preserveVisibleConflict(ledger.rootDir, physical, target, `${bundle.event.workspaceRevision}:${bundle.event.opId}`); return target; });
+  localGitWorktreeSettlement.deleteVisible(ledger.rootDir, deletions, { beforeRename: () => options.killpoint?.("before_worktree_rename"), afterRename: () => options.killpoint?.("after_worktree_rename") });
   for (const claim of canonicalDocumentClaims(bundle.event)) {
     const supplied = bundle.blobs.find((blob) => blob.sha256 === claim.sha256);
     if (wal.readContentBlob(claim.sha256) === null && supplied === undefined)
@@ -408,9 +411,11 @@ function materializeVisible(
 
 function latestDocumentClaims(events: CanonicalEventStreamV1["events"]): Map<string, { sha256: string; mode: "100644" | "120000" }> {
   const latest = new Map<string, { sha256: string; mode: "100644" | "120000" }>();
-  for (const event of events)
+  for (const event of events) {
+    for (const retirement of canonicalDocumentRetirements(event)) latest.delete(retirement.path);
     for (const claim of canonicalDocumentClaims(event))
       latest.set(claim.path, { sha256: claim.sha256, mode: canonicalDocumentMode(event, claim.path) });
+  }
   return latest;
 }
 

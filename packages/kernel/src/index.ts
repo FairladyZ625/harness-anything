@@ -81,7 +81,7 @@ export { defaultLifecycleTaskProjectionPath } from "./projection/rebuildable-tas
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export {
-  canonicalDocumentClaims, canonicalEventCut, canonicalEventWritePlan, configureLedgerMaintenance, ledgerGitPath, resolveLedgerGitLayout,
+  canonicalDocumentClaims, canonicalEventCut, canonicalEventWritePlan, configureLedgerMaintenance, ledgerGitPath, resolveLedgerGitLayout, resolveRetirableDocument,
   makeTaskEventStore,
   makeTaskProjection
 } from "./composition/index.ts";

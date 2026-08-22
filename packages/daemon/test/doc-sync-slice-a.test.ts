@@ -35,6 +35,30 @@ test("doc retire deletes one projected document and returns an auditable retirem
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+test("doc retire follows status for a Git-tracked document that was never projected", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-retire-tracked-")); initRepo(rootDir); const logical = "tmp/legacy-tracked.md", body = "# Legacy tracked document\n", reason = "retire pre-doc-sync ledger debt";
+  write(rootDir, logical, body); git(rootDir, "add", `harness/${logical}`); git(rootDir, "commit", "-qm", "track legacy document");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined = await openRepoCell({ repoId: workspaceId("retire-tracked"), rootDir: canonicalRoot(rootDir), ownerId: "retire-tracked-daemon" }); const binding = { actor, source: "local" as const };
+  try {
+    rmSync(path.join(rootDir, "harness", logical));
+    const status = await cell.run({ kind: "doc-status", paths: [] }, binding);
+    assert.deepEqual(rows(status.evidence).map((row) => [row.path, row.state]), [[logical, "deletion"]]);
+    assert.match(status.detail?.nextAction ?? "", new RegExp(`ha doc retire --path ${logical}`, "u"));
+
+    const retired = await cell.run({ kind: "doc-retire", path: logical, reason }, binding);
+    assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+    assert.match(retired.evidence ?? "", /^doc-retirement:/u);
+    assert.equal(makeTaskEventStore({ repoId: "retire-tracked", rootDir }).readEvent(retired.opId)?.schema, "doc-event/v1");
+    assert.equal(rows((await cell.run({ kind: "doc-status", paths: [] }, binding)).evidence).some((row) => row.state === "deletion"), false);
+    await cell.close(); cell = undefined;
+    assert.equal(git(rootDir, "ls-tree", "--name-only", "HEAD", `harness/${logical}`), "");
+    assert.equal(git(rootDir, "status", "--porcelain", "--untracked-files=no"), "");
+    const reopened = await openRepoCell({ repoId: workspaceId("retire-tracked"), rootDir: canonicalRoot(rootDir), ownerId: "retire-tracked-reopened" });
+    try { assert.deepEqual(rows((await reopened.run({ kind: "doc-status", paths: [] }, binding)).evidence), []); }
+    finally { await reopened.close(); }
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
 test("new non-textual artifacts are inapplicable while binary replacement of canonical text remains blocked", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-non-textual-")); initRepo(rootDir); const cell = await openRepoCell({ repoId: workspaceId("non-textual"), rootDir: canonicalRoot(rootDir), ownerId: "non-textual-daemon" }), binding = { actor, source: "local" as const }, fresh = "tasks/task-proof/artifacts/screenshots/evidence.png", tracked = "tasks/task-proof/artifacts/report.bin";
   try {
