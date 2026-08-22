@@ -5,6 +5,7 @@ import test from "node:test";
 import { classifyTextualArtifactPath, OPAQUE_TEXTUAL_MEDIA_TYPE, OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
 import docSyncContract, { DOC_POLICY_ID, decideDocWrite, docRegionPolicyRegistry, docSyncWritePlan, documentPath, parseCanonicalEvent, parseDocWriteIntent, resolveDocRoute, serializeCanonicalEvent, serializeDocEvent, serializeDocWriteIntent, validateCurrentDocEvent, validateDocEvent, validateDocWriteIntent, verifyDocEventChange, type ContentClaim, type DocWriteChange, type DocumentState } from "../../src/domain/doc-sync.contract.ts";
 import { MIGRATION_DOCUMENT_POLICY_ID } from "../../src/domain/migration-import-event.ts";
+import { resolveLiveTaskBoundRuntimeBinding } from "../../src/domain/task-bound-runtime-authority.ts";
 import { validateWriteReceipt, validateWriteSource } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { validateCanonicalWriteBundle } from "../../src/store/task-event-store.ts";
@@ -120,6 +121,21 @@ test("opaque textual policy is a whole-file CAS with no markdown parsing or regi
   assert.equal(verifyDocEventChange(change, base, candidate), true);
   assert.deepEqual(validateDocEvent({ ...result.event, payload: { ...result.event.payload, changes: [{ ...change, regionProofs: [{ regionId: "prose/*", policyId: DOC_POLICY_ID, codecId: "markdown-regions/v1", baseSha256: sha256Text(base), candidateSha256: sha256Text(candidate), insertBytes: 0 }] }] } }), ["doc event change is invalid"]);
   assert.deepEqual(validateDocEvent({ ...result.event, payload: { ...result.event.payload, changes: [{ ...change, policyId: DOC_POLICY_ID, regionProofs: [{ regionId: "prose/*", policyId: DOC_POLICY_ID, codecId: "markdown-regions/v1", baseSha256: sha256Text(base), candidateSha256: sha256Text(candidate), insertBytes: 0 }] }] } }), ["doc event change is invalid"]);
+});
+
+test("a live task-bound runtime may write only its assigned task artifacts subtree", () => {
+  const runtimeActor = { principal: actor.principal, executor: { kind: "agent", id: "runtime-session:runtime-doc" } } as const, runtimeBinding = { runtimeSessionId: "runtime-doc", taskId: lease.taskId, executionId: lease.executionId }, body = "runtime report\n";
+  const run = (path: string, resolvedTaskId: string | null, overrides: Record<string, unknown> = {}) => decideDocWrite({ intent: { schema: "doc-write-intent/v1", executionId: lease.executionId, baseLedgerSha, changes: [{ path: documentPath(path), baseBlobSha256: null, policyId: OPAQUE_TEXTUAL_POLICY_ID, candidate: opaqueClaim(body) }] }, opId: "runtime-doc-op", eventId: "runtime-doc-event", workspaceRevision: 3, actor: runtimeActor, source: "local", occurredAt: "2026-08-12T11:00:00.000Z", currentLedgerSha, lease, runtimeBinding, documents: [null], claims: [Buffer.from(body)], resolvedTaskIds: [resolvedTaskId], ...overrides });
+  const accepted = run("tasks/task-owner-docs/artifacts/report.md", lease.taskId); assert.equal(accepted.accepted, true, JSON.stringify(accepted));
+  for (const [name, result, code] of [
+    ["canonical live binding required", run("tasks/task-owner-docs/artifacts/unbound.md", lease.taskId, { runtimeBinding: undefined }), "lease_conflict"],
+    ["assigned task required", run("tasks/task-other-docs/artifacts/report.md", "task-other"), "unresolved_touch"],
+    ["artifacts subtree required", run("tasks/task-owner-docs/task_plan.md", lease.taskId), "unresolved_touch"]
+  ] as const) { assert.equal(result.accepted, false, name); if (!result.accepted) assert.equal(result.code, code, name); }
+
+  const session = { runtimeSessionId: "runtime-doc", instanceId: "codex", installationId: "installation", kindId: "codex", definitionSnapshotRef: "artifact:runtime-definition/test", providerSessionId: "provider", transcriptRef: "provider:codex/provider", launchGeneration: 1, liveness: "live", attachable: true, taskBindings: [{ taskId: lease.taskId, executionId: lease.executionId, providerSessionId: "provider", transcriptRef: "provider:codex/provider", boundAt: "2026-08-12T10:00:00.000Z" }], outcome: null, exitCode: null, resultRef: null, lastObservedAt: "2026-08-12T10:00:00.000Z" } as const;
+  assert.deepEqual(resolveLiveTaskBoundRuntimeBinding(session, lease.taskId, lease.executionId), runtimeBinding);
+  assert.equal(resolveLiveTaskBoundRuntimeBinding({ ...session, liveness: "stale" }, lease.taskId, lease.executionId), null);
 });
 
 test("an opaque artifact write reclassifies an existing prose record without a policy upgrade", () => {

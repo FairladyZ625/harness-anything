@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { classifyTextualArtifactPath, consumeKnownError } from "../../kernel/src/index.ts";
-import { DOC_POLICY_ID, canonicalEventCut, decideDocWrite, docSyncWritePlan, documentPath, isDocEvent, ledgerGitPath, normalizeCommandEnvelope, parseDocWriteIntent, resolveDocRoute, resolveHarnessLayout, resolveLedgerGitLayout, resolveRetirableDocument, sha256Bytes, stableStringify,
+import { DOC_POLICY_ID, canonicalEventCut, decideDocWrite, docSyncWritePlan, documentPath, isDocEvent, ledgerGitPath, normalizeCommandEnvelope, parseDocWriteIntent, resolveDocRoute, resolveHarnessLayout, resolveLedgerGitLayout, resolveLiveTaskBoundRuntimeBinding, resolveRetirableDocument, runtimeSessionIdFromActor, sha256Bytes, stableStringify,
   type ActorIdentity, type DocClaimRef, type DocEventV1, type DocSyncReceiptDetail, type DocWriteIntent, type EventPublicationKillpoint, type LedgerCutIdentity, type VerticalScriptActionV1, type VerticalScriptChangeV1, type WriteReceipt, type WriteSource } from "../../kernel/src/index.ts";
 import type { CanonicalEventStore, TaskProjection } from "../../kernel/src/index.ts";
 import type { FleetAssignmentScope } from "./fleet/contract.ts";
@@ -78,9 +78,10 @@ export function adjudicateDocIntent(input: Omit<Input, "action"> & { readonly ta
   const admission = admissionRejection(input, intent, lease);
   if (admission) return { accepted: false, code: admission.code, detail: admission.detail };
   const events = retirementReason === undefined ? [] : input.store.read().events, currentDocuments = documents.map((read, index) => retirementReason === undefined ? read.document : resolveRetirableDocument(input.rootDir, intent.changes[index]!.path, read.document, events));
+  const resolvedTaskIds = intent.changes.map((change) => input.projection.taskIdForDocumentPath(change.path)), runtimeSessionId = runtimeSessionIdFromActor(input.binding.actor), runtimeSession = runtimeSessionId === null ? null : input.projection.readRuntimeSession(runtimeSessionId), runtimeBinding = lease === null ? null : resolveLiveTaskBoundRuntimeBinding(runtimeSession, lease.taskId, lease.executionId);
   const decision = decideDocWrite({ intent, opId, eventId: `event-${sha256Bytes(Buffer.from(opId))}`, workspaceRevision: (input.store.readHead()?.revision ?? 0) + 1,
     actor: input.binding.actor, source: input.binding.source, occurredAt: input.now(), currentLedgerSha: input.store.currentCut(), lease, documents: currentDocuments, claims, retirementReason,
-    resolvedTaskIds: intent.changes.map((change) => input.projection.taskIdForDocumentPath(change.path)) });
+    resolvedTaskIds, ...(runtimeBinding ? { runtimeBinding } : {}) });
   return decision.accepted ? { accepted: true, decision } : { accepted: false, code: decision.code, detail: decision.detail };
 }
 
