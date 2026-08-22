@@ -118,6 +118,32 @@ test("agenda source pages use covering keyset indexes and fetch only limit plus 
   } finally { db.close(); }
 });
 
+test("task creation time comes from the earliest canonical event and preserves unknown time", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(`
+      CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL,
+        status TEXT, pinned INTEGER NOT NULL GENERATED ALWAYS AS (0) STORED, updated_at TEXT NOT NULL DEFAULT '');
+      CREATE TABLE task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);
+      CREATE TABLE task_generation (task_id TEXT PRIMARY KEY, generation TEXT NOT NULL);
+      CREATE TABLE event_index (workspace_revision INTEGER PRIMARY KEY, task_id TEXT NOT NULL, event_json TEXT NOT NULL);
+      INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at) VALUES
+        ('task_explicit', 4, '{}', 'planned', '2026-08-21T00:00:00.000Z'),
+        ('task_fallback', 5, '{}', 'planned', '2026-08-21T00:00:00.000Z'),
+        ('task_unknown', 6, '{}', 'planned', '2026-08-21T00:00:00.000Z');
+      INSERT INTO event_index VALUES
+        (1, 'task_explicit', '{"schema":"migration-import-event/v1","occurredAt":"2026-02-01T00:00:00.000Z","payload":{"createdAt":"2026-01-01T00:00:00.000Z"}}'),
+        (2, 'task_explicit', '{"occurredAt":"2025-12-01T00:00:00.000Z"}'),
+        (3, 'task_fallback', '{"occurredAt":"2026-03-01T00:00:00.000Z"}'),
+        (4, 'task_unknown', '{}');
+    `);
+    const rows = new Map(listTaskRowsNarrow(db, {}).rows.map((row) => [row.task_id, row.created_at]));
+    assert.equal(rows.get("task_explicit"), "2026-01-01T00:00:00.000Z");
+    assert.equal(rows.get("task_fallback"), "2026-03-01T00:00:00.000Z");
+    assert.equal(rows.get("task_unknown"), null);
+  } finally { db.close(); }
+});
+
 test("agenda dependency status lookup stays narrow above SQLite's bind limit", (context) => {
   const db = new DatabaseSync(":memory:");
   try {
