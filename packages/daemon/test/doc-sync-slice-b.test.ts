@@ -90,7 +90,7 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
   } finally { await host.close(); fixture.close(); }
 
   let now = "2026-08-12T00:00:00.000Z"; const expired = await docCell("expired", () => now);
-  try { const before = await startLease(expired.cell, "local"); const relativePath = "tasks/task-doc-docs/expired.md", body = "# Expired\n"; writeAuthored(expired.rootDir, relativePath, body);
+  try { const before = await startLease(expired.cell, "local", 30 * 60 * 1_000); const relativePath = "tasks/task-doc-docs/expired.md", body = "# Expired\n"; writeAuthored(expired.rootDir, relativePath, body);
     now = "2026-08-12T01:00:00.000Z"; const result = await expired.cell.run({ kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] }, { actor, source: "local" });
     assert.equal(result.code, "lease_conflict"); assert.equal(result.detail?.holder?.executionId, "execution-doc"); assert.equal(result.detail?.holder?.expiresAt, "2026-08-12T00:30:00.000Z"); assert.deepEqual(result.detail?.currentLedgerSha, before);
   } finally { await expired.close(); }
@@ -141,9 +141,9 @@ test("claim-check keeps large bodies out of commands and recycles missing, hash,
 async function docCell(repoId: string, now?: () => string) { const rootDir = mkdtempSync(path.join(tmpdir(), `ha-doc-b-${repoId}-`)); initRepo(rootDir);
   const cell = await openRepoCell({ repoId: workspaceId(repoId), rootDir: canonicalRoot(rootDir), ownerId: `daemon-${repoId}`, ...(now ? { now } : {}) });
   return { rootDir, cell, close: async () => { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); } }; }
-async function startLease(cell: Awaited<ReturnType<typeof openRepoCell>>, source: RepoCellBinding["source"]): Promise<unknown> {
+async function startLease(cell: Awaited<ReturnType<typeof openRepoCell>>, source: RepoCellBinding["source"], ttlMs?: number): Promise<unknown> {
   assert.equal((await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, { actor, source })).outcome, "applied");
-  const started = await cell.run({ kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, { actor, source });
+  const started = await cell.run({ kind: "task-start", taskId: "task-doc", executionId: "execution-doc", ...(ttlMs === undefined ? {} : { ttlMs }) }, { actor, source });
   assert.equal(started.outcome, "applied");
   return ledgerCut(started.cut);
 }
