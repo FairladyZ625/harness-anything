@@ -104,7 +104,7 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
     const denied = await cell.run({ kind: "task-declare-executor", taskId, executionId, reason: "Claim from another principal." }, wrongPrincipal);
     assert.equal(denied.code, "invalid_proof");
 
-    const declared = await cell.run({ kind: "task-declare-executor", taskId, executionId, reason: "Recovered the executor omitted by the original start invocation." }, agent) as Record<string, unknown>;
+    const declared = await cell.run({ kind: "task-declare-executor", taskId, reason: "Recovered the executor omitted by the original start invocation." }, agent) as Record<string, unknown>;
     assert.equal(declared.outcome, "applied", JSON.stringify(declared));
     const event = makeTaskEventStore({ repoId: "review-bare", rootDir }).readEvent(String(declared.opId));
     assert.equal(event?.type, "execution_executor_declared");
