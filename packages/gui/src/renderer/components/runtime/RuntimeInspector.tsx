@@ -3,19 +3,20 @@ import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-run
 import type { AgentEntityRow, SquadEntityRow } from "../../agent-entity-client.ts";
 import type { RuntimeDockRow } from "../../runtime-panorama.ts";
 import { t } from "../../i18n/index.tsx";
+import { runtimeAuthPresentation } from "../../runtime-auth-presentation.ts";
 import { Avatar, CapDot, Empty, KindDot, KV, KVRow, LiveDot } from "./parts.tsx";
 import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
 
-type Props = { readonly selection: RuntimeSelection | null; readonly instances: readonly RuntimeInstanceSummary[]; readonly agents: readonly AgentEntityRow[]; readonly squads: readonly SquadEntityRow[]; readonly rows: readonly RuntimeDockRow[]; readonly onSelect: (selection: RuntimeSelection) => void; readonly onSelectSession: (runtimeSessionId: string) => void };
+type Props = { readonly selection: RuntimeSelection | null; readonly instances: readonly RuntimeInstanceSummary[]; readonly authProbeErrors?: ReadonlyMap<string, string>; readonly agents: readonly AgentEntityRow[]; readonly squads: readonly SquadEntityRow[]; readonly rows: readonly RuntimeDockRow[]; readonly onSelect: (selection: RuntimeSelection) => void; readonly onSelectSession: (runtimeSessionId: string) => void };
 // Right-hand inspector: the same selection seen from the sessions side. It never repeats
 // the main card's configuration; it answers "what has this thing actually been doing".
-export function RuntimeInspector({ selection, instances, agents, squads, rows, onSelect, onSelectSession }: Props) {
+export function RuntimeInspector({ selection, instances, authProbeErrors, agents, squads, rows, onSelect, onSelectSession }: Props) {
   if (!selection) return null;
   const title = t(`agentRuntime.inspector${selection.type[0]!.toUpperCase()}${selection.type.slice(1)}` as never);
   const related = rows.filter((row) => selection.type === "runtime" ? row.instanceId === selection.id : selection.type === "agent" ? row.agentId === selection.id : selection.type === "squad" ? row.squadId === selection.id : row.taskId === selection.id);
   return <aside data-testid="runtime-inspector" aria-label={title} className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface">
     <h2 className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase tracking-[0.09em] text-text-faint">{title}</h2>
-    {selection.type === "runtime" && <RuntimeFacts instance={instances.find((instance) => instance.instanceId === selection.id) ?? null} />}
+    {selection.type === "runtime" && <RuntimeFacts instance={instances.find((instance) => instance.instanceId === selection.id) ?? null} probeError={authProbeErrors?.get(selection.id) ?? null} />}
     {selection.type === "agent" && <AgentFacts agent={agents.find((agent) => agent.id === selection.id) ?? null} squads={squads} onSelect={onSelect} />}
     {selection.type === "squad" && <SquadFacts squad={squads.find((squad) => squad.id === selection.id) ?? null} onSelect={onSelect} />}
     {selection.type === "orchestration" && <Section title={t("agentRuntime.inspectorTask")}><KV><KVRow name="task">{selection.id}</KVRow><KVRow name="dispatches">{related.length}</KVRow><KVRow name="running">{related.filter((row) => row.status === "running").length}</KVRow></KV></Section>}
@@ -29,10 +30,11 @@ export function RuntimeInspector({ selection, instances, agents, squads, rows, o
   </aside>;
 }
 function Section({ title, children }: { readonly title: string; readonly children: ReactNode }) { return <section className="border-b border-border px-3 py-2 last:border-b-0"><h3 className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">{title}</h3>{children}</section>; }
-function RuntimeFacts({ instance }: { readonly instance: RuntimeInstanceSummary | null }) {
+function RuntimeFacts({ instance, probeError }: { readonly instance: RuntimeInstanceSummary | null; readonly probeError: string | null }) {
   if (!instance) return <Section title={t("agentRuntime.inspectorHealth")}><Empty>{t("agentRuntime.notFound")}</Empty></Section>;
+  const auth = runtimeAuthPresentation(instance, probeError), authText = auth.state === "ready" ? t("agentRuntime.authVerified") : auth.state === "not-checked" ? t("agentRuntime.authNotChecked") : auth.state === "probe-error" ? t("agentRuntime.authProbeFailed", { error: auth.error ?? "" }) : `${instance.authReadiness.code}: ${instance.authReadiness.hint}`;
   return <Section title={t("agentRuntime.inspectorHealth")}>
-    <div className="mb-2 flex items-center gap-1.5 text-[11px]"><CapDot state={instance.authReadiness.status === "ready" ? "full" : "none"} tip={instance.authReadiness.hint ?? t("agentRuntime.authVerified")} /><span>{instance.authReadiness.status === "ready" ? t("agentRuntime.authVerified") : instance.authReadiness.code ?? t("agentRuntime.authNotReady")}</span></div>
+    <div data-auth-status={auth.state} className="mb-2 flex items-center gap-1.5 text-[11px]"><CapDot state={auth.cap} tip={authText} /><span>{authText}</span></div>
     <KV><KVRow name="kind"><span className="inline-flex items-center gap-1"><KindDot kind={instance.kindId} />{instance.kindId}</span></KVRow><KVRow name="auth">{instance.authMode} · {instance.authState}</KVRow><KVRow name="enabled">{String(instance.enabled)}</KVRow><KVRow name="isolation">{instance.isolationState}</KVRow><KVRow name="permission">{instance.permissionMode ?? t("agentRuntime.providerDefault")}</KVRow></KV>
   </Section>;
 }

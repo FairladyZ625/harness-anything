@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../../../daemon/src/agent-entities.contract.ts";
 import { agentEntityClient, type SquadEntityRow } from "../../agent-entity-client.ts";
@@ -19,6 +19,10 @@ const message = (value: unknown): string => value instanceof Error ? value.messa
 export function useRuntimeWorkspace(repoId: string, tasks: readonly RuntimePanoramaTask[]) {
   const client = useQueryClient();
   const machine = useQuery({ queryKey: ["runtime-instances", "machine"], queryFn: runtimeInstanceClient.list, staleTime: 2_000 });
+  const listedInstances = machine.data?.instances ?? [];
+  const authProbes = useQueries({ queries: listedInstances.map((instance) => { const needsProbe = instance.authReadiness.code === "runtime_auth_not_checked"; return { queryKey: ["runtime-instance-auth", instance.instanceId, machine.dataUpdatedAt], queryFn: () => runtimeInstanceClient.probe(instance.instanceId), enabled: needsProbe, retry: false, staleTime: 2_000, ...(needsProbe ? {} : { initialData: instance }) }; }) });
+  const instances = listedInstances.map((instance, index) => authProbes[index]?.data ?? instance);
+  const authProbeErrors = new Map<string, string>(listedInstances.flatMap((instance, index) => { const error = authProbes[index]?.error; return error === null || error === undefined ? [] : [[instance.instanceId, message(error)] as const]; }));
   const overview = useQuery({ queryKey: ["runtime-control", repoId, "overview"], queryFn: () => agentRuntimeClient.overview(repoId), staleTime: 3_000 });
   const agents = useQuery({ queryKey: ["agents", repoId], queryFn: () => agentEntityClient.listAgents(repoId), staleTime: 4_000 });
   const squadQuery = { queryKey: ["squads", repoId], queryFn: () => agentEntityClient.listSquads(repoId), staleTime: 4_000 } as const;
@@ -42,12 +46,12 @@ export function useRuntimeWorkspace(repoId: string, tasks: readonly RuntimePanor
 
   const rows: readonly RuntimeDockRow[] = runtimeDockRows(panorama.data ?? [], overview.data?.sessions ?? []);
   return {
-    machine, overview, agents, squads, panorama, dockRows: rows, busy, feedback, error, settlement, clearFeedback: () => { setFeedback(null); setError(null); },
-    createInstance: async (input: RuntimeInstanceCreateInput) => { const created = await run(t("agentRuntime.opInstanceCreated"), () => runtimeInstanceClient.create(input)); if (created && input.authMode === "subscription") await run(t("agentRuntime.opSignIn"), () => runtimeInstanceClient.auth(repoId, input.instanceId, "login"), false); return created; },
+    machine, instances, authProbeErrors, overview, agents, squads, panorama, dockRows: rows, busy, feedback, error, settlement, clearFeedback: () => { setFeedback(null); setError(null); },
+    createInstance: async (input: RuntimeInstanceCreateInput) => { const created = await run(t("agentRuntime.opInstanceCreated"), () => runtimeInstanceClient.create(input), false); if (!created) return null; if (input.authMode === "subscription") { const probed = await run(t("agentRuntime.opAuthChecked"), () => runtimeInstanceClient.probe(input.instanceId), false); if (subscriptionCreationNeedsLogin(input, probed)) await run(t("agentRuntime.opSignIn"), () => runtimeInstanceClient.auth(repoId, input.instanceId, "login"), false); } await refresh(); return created; },
     updateInstance: (input: RuntimeInstanceUpdateInput) => run(t("agentRuntime.opInstanceUpdated"), () => runtimeInstanceClient.update(input)),
     setInstanceEnabled: (instanceId: string, enabled: boolean) => run(t(enabled ? "agentRuntime.opInstanceEnabled" : "agentRuntime.opInstanceDisabled"), () => runtimeInstanceClient.setEnabled(instanceId, enabled)),
     deleteInstance: (instanceId: string) => run(t("agentRuntime.opInstanceDeleted"), () => runtimeInstanceClient.delete(instanceId)),
-    validateInstance: (instanceId: string) => run(t("agentRuntime.opAuthChecked"), () => runtimeInstanceClient.validate(instanceId)),
+    validateInstance: (instanceId: string) => run(t("agentRuntime.opAuthChecked"), () => runtimeInstanceClient.probe(instanceId)),
     authInstance: (instanceId: string, action: "login" | "reauth" | "logout") => run(t(action === "logout" ? "agentRuntime.opSignOut" : action === "reauth" ? "agentRuntime.opReauth" : "agentRuntime.opSignIn"), () => runtimeInstanceClient.auth(repoId, instanceId, action), false),
     saveAgent: async (declaration: AgentDeclarationV1) => { const saved = await run(t("agentRuntime.opAgentSaved"), () => agentEntityClient.saveAgent(repoId, declaration), false); await client.invalidateQueries({ queryKey: ["agents", repoId] }); await client.invalidateQueries({ queryKey: ["agent-detail", repoId] }); return saved; },
     saveSquad: async (declaration: SquadDeclarationV1) => { const saved = await run(t("agentRuntime.opSquadSaved"), () => agentEntityClient.saveSquad(repoId, declaration), false); await client.invalidateQueries({ queryKey: ["squads", repoId] }); await client.invalidateQueries({ queryKey: ["squad-detail", repoId] }); return saved; },
@@ -55,6 +59,8 @@ export function useRuntimeWorkspace(repoId: string, tasks: readonly RuntimePanor
     dispatch: (request: DispatchRequest) => spawn(buildDispatchSpawnInput(request, overview.data?.instances ?? []))
   };
 }
+
+export function subscriptionCreationNeedsLogin(input: Pick<RuntimeInstanceCreateInput, "authMode">, probed: unknown): boolean { return input.authMode === "subscription" && typeof probed === "object" && probed !== null && "authState" in probed && probed.authState === "unauthenticated"; }
 
 export function useAgentDetail(repoId: string, agentId: string | null) { return useQuery({ queryKey: ["agent-detail", repoId, agentId], queryFn: () => agentEntityClient.showAgent(repoId, agentId ?? ""), enabled: agentId !== null, staleTime: 4_000 }); }
 export function useSquadDetail(repoId: string, squadId: string | null) { return useQuery({ queryKey: ["squad-detail", repoId, squadId], queryFn: () => agentEntityClient.showSquad(repoId, squadId ?? ""), enabled: squadId !== null, staleTime: 4_000 }); }

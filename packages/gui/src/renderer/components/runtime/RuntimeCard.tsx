@@ -4,22 +4,25 @@ import { runtimeIsolationState, runtimePermissionMode } from "../../../../../dae
 import { runtimeTypeMatchesKind } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type { AgentEntityRow } from "../../agent-entity-client.ts";
 import type { RuntimeInstanceUpdateInput } from "../../runtime-instance-client.ts";
+import { runtimeAuthPresentation } from "../../runtime-auth-presentation.ts";
 import { planeAllowsPermissions, planeUsesApiOverride, runtimeProviderPlane } from "../../runtime-provider-planes.ts";
 import { t } from "../../i18n/index.tsx";
 import { Avatar, Badge, Btn, CapDot, Card, CardBody, CardHead, CardTitle, Chip, ChipZone, CfgRow, Crumbs, CrumbSep, Empty, Field, FieldGrid, Hint, KindDot, KV, KVRow, Right, Toggle } from "./parts.tsx";
 
 type Props = {
   readonly instance: RuntimeInstanceSummary; readonly agents: readonly AgentEntityRow[]; readonly liveSessions: number; readonly busy: boolean;
+  readonly authProbeError?: string;
   readonly onSelectAgent: (agentId: string) => void; readonly onAuth: (action: "login" | "reauth" | "logout") => void; readonly onValidate: () => void;
   readonly onSetEnabled: (enabled: boolean) => void; readonly onUpdate: (input: RuntimeInstanceUpdateInput) => void; readonly onDelete: () => void;
 };
 // The carrier card. Provider plane decides which sections exist at all: agy has no API
 // section because agy has no API mode; claude shows the single-instance API override;
 // codex shows the call path it was created with, because those are separate instances.
-export function RuntimeCard({ instance, agents, liveSessions, busy, onSelectAgent, onAuth, onValidate, onSetEnabled, onUpdate, onDelete }: Props) {
+export function RuntimeCard({ instance, agents, liveSessions, busy, authProbeError, onSelectAgent, onAuth, onValidate, onSetEnabled, onUpdate, onDelete }: Props) {
   const [confirm, setConfirm] = useState(false);
   const plane = runtimeProviderPlane(instance.kindId), compatible = agents.filter((agent) => runtimeTypeMatchesKind(agent.runtimeType, instance.kindId));
-  const apiMode = instance.authMode === "api-key", ready = instance.authReadiness.status === "ready";
+  const apiMode = instance.authMode === "api-key", auth = runtimeAuthPresentation(instance, authProbeError ?? null), authText = auth.state === "ready" ? t("agentRuntime.authVerified") : auth.state === "not-checked" ? t("agentRuntime.authNotChecked") : auth.state === "probe-error" ? t("agentRuntime.authProbeFailed", { error: auth.error ?? "" }) : `${instance.authReadiness.code}: ${instance.authReadiness.hint}`;
+  const nativeAuthActions = !apiMode && instance.kindId !== "agy", agyLoginPath = instance.kindId === "agy" && instance.authState === "unauthenticated";
   return <div data-testid={`runtime-card-${instance.instanceId}`}>
     <Crumbs><span>{t("agentRuntime.segRuntimes")}</span><CrumbSep /><b className="font-semibold text-text-muted">{instance.name}</b><CrumbSep /><span className="font-mono">{instance.instanceId}</span></Crumbs>
     <Card>
@@ -41,18 +44,19 @@ export function RuntimeCard({ instance, agents, liveSessions, busy, onSelectAgen
     </Card>
 
     <Card testId="runtime-card-auth">
-      <CardHead><CardTitle>{t("agentRuntime.authTitle")}</CardTitle><Hint>{t(planeUsesApiOverride(instance.kindId) ? "agentRuntime.authClaudePlane" : plane.authShape === "separate" ? "agentRuntime.authCodexPlane" : "agentRuntime.authAgyPlane")}</Hint><Right><CapDot state={ready ? "full" : "none"} tip={instance.authReadiness.hint ?? t("agentRuntime.authVerified")} /></Right></CardHead>
-      <CardBody>
+      <CardHead><CardTitle>{t("agentRuntime.authTitle")}</CardTitle><Hint>{t(planeUsesApiOverride(instance.kindId) ? "agentRuntime.authClaudePlane" : plane.authShape === "separate" ? "agentRuntime.authCodexPlane" : "agentRuntime.authAgyPlane")}</Hint><Right><CapDot state={auth.cap} tip={authText} /></Right></CardHead>
+      <CardBody><div data-auth-status={auth.state}>
         <div className="flex flex-wrap items-center gap-3">
-          <Badge status={ready ? "done" : "blocked"}>{apiMode ? t("agentRuntime.authModeApiKey") : t("agentRuntime.authModeSubscription")} · {instance.authState}</Badge>
-          <Hint>{instance.authReadiness.code ? `${instance.authReadiness.code}: ${instance.authReadiness.hint ?? ""}` : t("agentRuntime.authVerified")}</Hint>
+          <Badge status={auth.badge}>{apiMode ? t("agentRuntime.authModeApiKey") : t("agentRuntime.authModeSubscription")} · {instance.authState}</Badge>
+          <Hint>{authText}</Hint>
           <span className="flex-1" />
           <Btn size="sm" disabled={busy} onClick={onValidate}>{t("agentRuntime.checkAuth")}</Btn>
-          {!apiMode && <><Btn size="sm" disabled={busy} onClick={() => onAuth("login")}>{t("agentRuntime.signIn")}</Btn><Btn size="sm" disabled={busy} onClick={() => onAuth("reauth")}>{t("agentRuntime.reauth")}</Btn><Btn size="sm" variant="ghost" disabled={busy} onClick={() => onAuth("logout")}>{t("agentRuntime.signOut")}</Btn></>}
+          {nativeAuthActions && <><Btn size="sm" disabled={busy} onClick={() => onAuth("login")}>{t("agentRuntime.signIn")}</Btn><Btn size="sm" disabled={busy} onClick={() => onAuth("reauth")}>{t("agentRuntime.reauth")}</Btn><Btn size="sm" variant="ghost" disabled={busy} onClick={() => onAuth("logout")}>{t("agentRuntime.signOut")}</Btn></>}
+          {agyLoginPath && <Btn size="sm" disabled={busy} onClick={() => onAuth("login")}>{t("agentRuntime.signIn")}</Btn>}
         </div>
         {apiMode && <p className="mt-2 text-[11px] text-text-faint">{t("agentRuntime.apiKeySealed")}</p>}
         {planeUsesApiOverride(instance.kindId) && <p className="mt-2 text-[11px] text-text-faint">{t(apiMode ? "agentRuntime.claudeApiOverrideOn" : "agentRuntime.claudeApiOverrideOff")}</p>}
-      </CardBody>
+      </div></CardBody>
     </Card>
 
     {planeAllowsPermissions(instance.kindId) && <Card testId="runtime-card-isolation">
