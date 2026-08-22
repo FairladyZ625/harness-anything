@@ -10,6 +10,7 @@ import { RuntimeHealthCard } from "../src/renderer/components/overview/RuntimeHe
 import { DecisionPreviewDrawer } from "../src/renderer/components/DecisionPreviewDrawer.tsx";
 import { streamTime } from "../src/renderer/components/overview/streamParts.tsx";
 import { localDateTime, localTime } from "../src/renderer/model/local-time.ts";
+import type { WorkspaceSummaryRead } from "../src/api/renderer-dto.ts";
 
 function task(patch: Partial<TaskRow>): TaskRow {
   return {
@@ -31,6 +32,25 @@ function decision(patch: Partial<DecisionRow>): DecisionRow {
 }
 
 const noop = () => {};
+const taskSummary = (patch: Partial<WorkspaceSummaryRead["tasks"]["byStatus"]> = {}): WorkspaceSummaryRead["tasks"] => {
+  const byStatus = { planned: 0, active: 0, blocked: 0, in_review: 0, done: 0, cancelled: 0, unknown: 0, ...patch };
+  return { total: Object.values(byStatus).reduce((sum, count) => sum + count, 0), byStatus };
+};
+const decisionSummary = (patch: Partial<WorkspaceSummaryRead["decisions"]["byState"]> = {}): WorkspaceSummaryRead["decisions"] => {
+  const byState = { proposed: 0, in_effect: 0, rejected: 0, deferred: 0, superseded: 0, outcome_retired: 0, ...patch };
+  const ids = (state: string, count: number) => Array.from({ length: count }, (_, index) => `${state}_${index}`);
+  const retiredIds = [...ids("superseded", byState.superseded), ...ids("outcome_retired", byState.outcome_retired)];
+  return {
+    total: Object.values(byState).reduce((sum, count) => sum + count, 0), inboxCount: byState.proposed, byState,
+    groups: [
+      { id: "proposed", states: ["proposed"], count: byState.proposed, decisionIds: ids("proposed", byState.proposed) },
+      { id: "in_effect", states: ["in_effect"], count: byState.in_effect, decisionIds: ids("in_effect", byState.in_effect) },
+      { id: "rejected", states: ["rejected"], count: byState.rejected, decisionIds: ids("rejected", byState.rejected) },
+      { id: "deferred", states: ["deferred"], count: byState.deferred, decisionIds: ids("deferred", byState.deferred) },
+      { id: "retired", states: ["superseded", "outcome_retired"], count: retiredIds.length, decisionIds: retiredIds }
+    ]
+  };
+};
 
 describe("overview decision stream", () => {
   it("renders only proposed decisions by default with state tabs carrying per-state counts", () => {
@@ -39,6 +59,7 @@ describe("overview decision stream", () => {
         decision({ decisionId: "dec_prop", title: "Proposed one", state: "proposed", riskTier: "high", urgency: "high", proposedAt: "2026-08-21T01:00:00.000Z" }),
         decision({ decisionId: "dec_effect", title: "Effect one", state: "in_effect" }),
       ],
+      summary: decisionSummary({ proposed: 7, in_effect: 9 }),
       stateLabel: (state) => state,
       onOpenPreview: noop,
       onOpenInbox: noop,
@@ -46,8 +67,8 @@ describe("overview decision stream", () => {
     expect(markup).toContain("Proposed one");
     expect(markup).not.toContain("Effect one");
     expect(markup).toContain('data-testid="overview-decision-state-proposed"');
-    expect(markup).toMatch(/proposed\s*1/);
-    expect(markup).toMatch(/in_effect\s*1/);
+    expect(markup).toMatch(/proposed\s*7/);
+    expect(markup).toMatch(/in_effect\s*9/);
     // 行式紧凑:每行一个 button,不再是大卡片。
     expect(markup).toContain('data-testid="decision-stream-rows"');
   });
@@ -55,6 +76,7 @@ describe("overview decision stream", () => {
   it("shows the empty state instead of a blank grid when the selected state has no rows", () => {
     const markup = renderToStaticMarkup(createElement(DecisionStream, {
       decisions: [decision({ decisionId: "dec_effect", state: "in_effect" })],
+      summary: decisionSummary({ in_effect: 1 }),
       stateLabel: (state) => state,
       onOpenPreview: noop,
       onOpenInbox: noop,
@@ -70,13 +92,13 @@ describe("overview task stream", () => {
       task({ taskId: "task_b1", title: "Blocked one", coordinationStatus: "blocked" }),
       task({ taskId: "task_b2", title: "Blocked two", coordinationStatus: "blocked" }),
     ];
-    const markup = renderToStaticMarkup(createElement(TaskStream, { tasks, onOpenPreview: noop, onGoBoard: noop }));
+    const markup = renderToStaticMarkup(createElement(TaskStream, { tasks, summary: taskSummary({ active: 4, blocked: 7 }), onOpenPreview: noop, onGoBoard: noop }));
     expect(markup).toContain("Active one");
     expect(markup).not.toContain("Blocked one");
     for (const status of ["planned", "active", "blocked", "in_review", "done", "cancelled"]) {
       expect(markup).toContain(`data-testid="overview-status-${status}"`);
     }
-    expect(markup).toMatch(/已阻塞\s*2/);
+    expect(markup).toMatch(/已阻塞\s*7/);
   });
 
   it("renders newest tasks first inside the internally scrolling body", () => {
@@ -85,6 +107,7 @@ describe("overview task stream", () => {
         task({ taskId: "task_z_hash", title: "Older task", coordinationStatus: "active", createdAt: "2026-08-16T10:00:00.000Z" }),
         task({ taskId: "task_a_hash", title: "Newer task", coordinationStatus: "active", createdAt: "2026-08-18T09:30:00.000Z" }),
       ],
+      summary: taskSummary({ active: 2 }),
       onOpenPreview: noop,
       onGoBoard: noop,
     }));
@@ -111,6 +134,7 @@ describe("overview task stream", () => {
   it("shows the per-status empty state", () => {
     const markup = renderToStaticMarkup(createElement(TaskStream, {
       tasks: [task({ taskId: "task_p", coordinationStatus: "planned" })],
+      summary: taskSummary({ planned: 1 }),
       onOpenPreview: noop,
       onGoBoard: noop,
     }));

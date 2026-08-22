@@ -18,7 +18,6 @@
   "views.decisionPoolView.timeLast30Days": "时间：近 30 天",
   "views.decisionPoolView.urgencyAll": "紧急度：全部",
   "views.decisionPoolView.verticalAll": "垂直领域：全部",
-  "views.decisionPoolView.visibleCount": "{count} 条可见",
   "views.decisionPropose.close": "关闭",
   "views.decisionPropose.questionLabel": "question",
   "views.decisionPropose.riskHigh": "高",

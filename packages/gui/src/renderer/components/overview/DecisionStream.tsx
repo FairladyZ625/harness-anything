@@ -1,20 +1,22 @@
 import { useMemo, useState } from "react";
 import { Scales } from "@phosphor-icons/react";
 import type { DecisionRow, DecisionState } from "../../model/types";
+import type { WorkspaceSummaryRead } from "../../../api/renderer-dto.ts";
 import { sortDecisionQueue } from "../../model/triadic";
 import { RiskTierBadge, UrgencyBadge } from "../badges.tsx";
 import { t } from "../../i18n/index.tsx";
 import { StreamBody, StreamEmpty, StreamExitButton, StreamTabs, streamTime } from "./streamParts.tsx";
 
 /** 决策流的状态切换词表:kernel decisionStates 六词全列,不隐藏任何状态。 */
-export const DECISION_STREAM_STATES: readonly DecisionState[] = [
+export const DECISION_STREAM_STATES = [
   "proposed",
   "in_effect",
   "deferred",
   "rejected",
   "superseded",
   "outcome_retired",
-];
+] as const satisfies readonly DecisionState[];
+type DecisionStreamState = typeof DECISION_STREAM_STATES[number];
 
 /**
  * 总览「决策流」:等裁决的决策以行式紧凑列表给出,按状态就地切换。
@@ -23,21 +25,18 @@ export const DECISION_STREAM_STATES: readonly DecisionState[] = [
  */
 export function DecisionStream({
   decisions,
+  summary,
   stateLabel,
   onOpenPreview,
   onOpenInbox,
 }: {
   decisions: ReadonlyArray<DecisionRow>;
+  summary: WorkspaceSummaryRead["decisions"];
   stateLabel: (state: DecisionState) => string;
   onOpenPreview: (decisionId: string) => void;
   onOpenInbox: () => void;
 }) {
-  const [state, setState] = useState<DecisionState>("proposed");
-  const counts = useMemo(() => {
-    const map = new Map<DecisionState, number>();
-    for (const decision of decisions) map.set(decision.state, (map.get(decision.state) ?? 0) + 1);
-    return map;
-  }, [decisions]);
+  const [state, setState] = useState<DecisionStreamState>("proposed");
   const rows = useMemo(
     () => sortDecisionQueue(decisions.filter((decision) => decision.state === state)),
     [decisions, state],
@@ -47,7 +46,7 @@ export function DecisionStream({
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex items-center gap-2">
         <StreamTabs
-          options={DECISION_STREAM_STATES.map((key) => ({ key, label: stateLabel(key), count: counts.get(key) ?? 0 }))}
+          options={DECISION_STREAM_STATES.map((key) => ({ key, label: stateLabel(key), count: summary.byState[key] }))}
           value={state}
           onChange={setState}
           testIdOf={(key) => `overview-decision-state-${key}`}

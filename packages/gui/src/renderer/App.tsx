@@ -21,7 +21,6 @@ import { ThemeToggle, NavButton, ProjectSummary, TaskCensusSummary } from "./com
 import { CommandPalette, buildPaletteIndex } from "./components/CommandPalette.tsx";
 import { pushRecentRef } from "./navigation/recentRefs.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
-import { coordinationStatusCensus } from "./model/status-census.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
 import { invalidateLedgerDependents, LEDGER_REFRESH_INTERVAL_MS, taskQueryKeys, useTasksQuery } from "./task-data.ts";
 import { useTriadicProjectionQuery } from "./triadic-data.ts";
@@ -40,6 +39,8 @@ import { useViewHistory } from "./navigation/useViewHistory.ts";
 import { initialLocation, resetViewHistory } from "./navigation/viewHistoryStorage.ts";
 import type { ViewId } from "./navigation/viewHistory.ts";
 import { navLabel, WORKSPACE_NAV, MANAGE_NAV } from "./navigation/navConfig.tsx";
+import { useWorkspaceSummaryQuery } from "./workspace-summary-data.ts";
+import { WorkspaceSummaryPending } from "./components/WorkspaceSummaryPending.tsx";
 
 
 function AppShell() {
@@ -52,6 +53,7 @@ function AppShell() {
   }, [activeRepoId, systemQuery.data?.repos]);
   const projectId = activeRepoId ?? "unselected";
   const tasksQuery = useTasksQuery(activeRepoId);
+  const workspaceSummaryQuery = useWorkspaceSummaryQuery(activeRepoId);
   const lastLedgerCut = useRef<string | null>(null);
   const triadicQuery = useTriadicProjectionQuery(activeRepoId);
   const catalogQuery = useCatalogSnapshot(activeRepoId);
@@ -104,10 +106,6 @@ function AppShell() {
     () => tasks.filter((t) => t.projectId === projectId),
     [tasks, projectId],
   );
-  // 统计口径(kernel 投影状态词为唯一真源):进行中/已阻塞/封存中 = coordinationStatus
-  // 恰等于该状态词的任务数,与总览「现在在跑什么」卡片逐字相等;总数含 done/cancelled。
-  const statusCensus = useMemo(() => coordinationStatusCensus(projectTasks), [projectTasks]);
-
   const selected = useMemo(
     () => tasks.find((t) => t.taskId === selectedId) ?? null,
     [tasks, selectedId],
@@ -121,8 +119,8 @@ function AppShell() {
     [projectTasks, taskFilters, favorites],
   );
 
-  // 决策批准角标:proposed 决策数(唯一面向人的"待人处理"计数)
-  const inboxCount = decisions.filter((d) => d.state === "proposed").length;
+  // The badge is the daemon's canonical inbox count; renderer rows are not a second census.
+  const inboxCount = workspaceSummaryQuery.data?.decisions.inboxCount;
 
   // 总览第四格输入(口径见 model/runtime-health.ts):daemon 响应折算自
   // systemQuery 成败 + observedAt 年龄;投影落后取 tasksQuery 的同一对数字。
@@ -269,9 +267,9 @@ function AppShell() {
         </div>
 
         <div className="px-3 pb-1">
-          {tasksQuery.isSuccess ? (
-            projectTasks.length > 0 ? (
-              <TaskCensusSummary census={statusCensus} totalCount={projectTasks.length} />
+          {workspaceSummaryQuery.isSuccess ? (
+            workspaceSummaryQuery.data.tasks.total > 0 ? (
+              <TaskCensusSummary summary={workspaceSummaryQuery.data.tasks} />
             ) : (
               <span
                 data-testid="task-empty-state"
@@ -280,9 +278,9 @@ function AppShell() {
                 {t("components.appSidebar.noTaskRowsFromLocalBridge")}
               </span>
             )
-          ) : tasksQuery.isError ? (
+          ) : workspaceSummaryQuery.isError ? (
             <span data-testid="task-error-state" className="block font-mono text-[11px] text-status-blocked">
-              {t("components.appSidebar.failedReadLedgerBridge")}: {tasksQuery.error instanceof Error ? tasksQuery.error.message : String(tasksQuery.error)}
+              {t("components.appSidebar.failedReadLedgerBridge")}: {workspaceSummaryQuery.error instanceof Error ? workspaceSummaryQuery.error.message : String(workspaceSummaryQuery.error)}
             </span>
           ) : (
             <span className="block font-mono text-[11px] text-text-faint">
@@ -448,10 +446,11 @@ function AppShell() {
                 onOpenProject={(repoId) => { void openProject(repoId); }}
               />
             ) : view === "overview" ? (
-              <OverviewView
+              workspaceSummaryQuery.data ? <OverviewView
                 project={project}
                 tasks={projectTasks}
                 decisions={decisions}
+                workspaceSummary={workspaceSummaryQuery.data}
                 relations={relations}
                 systemHealth={overviewSystemHealth}
                 onSelect={openTaskPreview}
@@ -459,7 +458,7 @@ function AppShell() {
                 onOpenInbox={() => goto("decisions")}
                 onOpenDecision={navigateToDecision}
                 onOpenSystem={() => goto("system")}
-              />
+              /> : <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
             ) : view === "board" ? (
               <BoardView
                 tasks={filteredProjectTasks}
@@ -530,9 +529,10 @@ function AppShell() {
                 coverageRows={coverageRows}
               />
             ) : view === "decisionPool" ? (
-              <DecisionPoolView
+              workspaceSummaryQuery.data ? <DecisionPoolView
                 repoId={projectId}
                 decisions={decisions}
+                summary={workspaceSummaryQuery.data.decisions}
                 facts={facts}
                 relations={relations}
                 coverageRows={coverageRows}
@@ -548,7 +548,7 @@ function AppShell() {
                     : null
                 }
                 onFocusGraph={focusEntityInGraph}
-              />
+              /> : <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
             ) : view === "presets" ? (
               <PresetsView repoId={projectId} />
             ) : view === "adapters" ? (

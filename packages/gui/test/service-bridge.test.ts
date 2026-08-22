@@ -7,7 +7,7 @@ import path from "node:path";
 import net from "node:net";
 import { once } from "node:events";
 import test from "node:test";
-import { daemonGuiReadMethods, jsonRpcMethodContracts, type DaemonGuiReadMethod } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonGuiReadMethods, jsonRpcMethodContracts, type DaemonGuiRpcReadMethod } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiActionResponse, parseDaemonGuiReadResponse, parseDaemonGuiReadResult } from "../../daemon/src/protocol/gui-result-validation.ts";
 import { apiRouteContracts, createLocalGuiServiceBridge } from "../src/index.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
@@ -37,7 +37,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     const catalog = await bridge.invoke("getCatalogSnapshot", scope) as { defaults: { presetId: string } };
     const reread = await bridge.invoke("rereadCatalog", { ...scope, expectedDigest: (catalog as { catalogDigest: string }).catalogDigest }) as { schema: string; ok: boolean; operationId: string; repoId: string };
     assert.deepEqual({ schema: reread.schema, ok: reread.ok, repoId: reread.repoId }, { schema: "catalog-reread-receipt/v1", ok: true, repoId: fixture.repoId }); assert.match(reread.operationId, /^catalog-/u);
-    const results = new Map<DaemonGuiReadMethod, unknown>();
+    const results = new Map<DaemonGuiRpcReadMethod, unknown>();
     for (const contract of daemonGuiReadMethods) {
       const payload = contract.id === "gui.system.read" ? null : contract.id === "gui.control.receipt" ? { operationId: control.operationId }
         : contract.id === "tasks.document.read" ? { ...scope, taskId: "task-gui-smoke", path: "notes.md" }
@@ -68,6 +68,9 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.deepEqual(tasks.rows.map(({ taskId }) => taskId), ["task-gui-smoke"]);
     assert.equal(tasks.rows[0]?.snapshot.task?.title, "Resident GUI task");
     assert.equal(tasks.rows[0]?.snapshot.task?.status, "active"); assert.equal(tasks.rows[0]?.snapshot.lease?.executionId, executionId);
+    const summary = parseDaemonGuiReadResult("repo.workspace.summary.read", results.get("repo.workspace.summary.read"));
+    assert.deepEqual({ total: summary.tasks.total, active: summary.tasks.byStatus.active, inbox: summary.decisions.inboxCount }, { total: tasks.rows.length, active: 1, inbox: 1 });
+    assert.deepEqual(summary.decisions.groups.find(({ id }) => id === "proposed")?.decisionIds, ["dec_gui_smoke"]);
     const agenda = parseDaemonGuiReadResult("repo.agenda.read", results.get("repo.agenda.read")); assert.deepEqual(agenda.inFlight.map(({ taskId }) => taskId), ["task-gui-smoke"]); assert.match(agenda.summary, /在飞线/u);
     assert.deepEqual(tasks.rows[0]?.placement.moduleKeys, ["gui"]); assert.equal(tasks.rows[0]?.placement.origin, "native");
     const graph = parseDaemonGuiReadResult("repo.triadic.relationGraph", results.get("repo.triadic.relationGraph"));

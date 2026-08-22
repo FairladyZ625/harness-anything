@@ -7,7 +7,7 @@ import type {
   RelationCoverageRow,
   RelationGraphEdgeRow,
   RelationType,
-  TaskDocumentListProjectionRead, TaskDocumentProjectionRead, TaskDispatchesRead, TaskSnapshotProjectionRow
+  TaskDocumentListProjectionRead, TaskDocumentProjectionRead, TaskDispatchesRead, TaskSnapshotProjectionRow, WorkspaceSummaryRead
 } from "../api/renderer-dto.ts";
 import { isRendererRecord } from "./result-validation.ts";
 
@@ -53,6 +53,7 @@ export interface DecisionListSuccess {
   readonly decisions: ReadonlyArray<DecisionProjectionRow>;
   readonly warnings: ReadonlyArray<ProjectionWarning>;
 }
+export type WorkspaceSummarySuccess = WorkspaceSummaryRead;
 
 export interface DecisionControlListSuccess {
   readonly status: "ready" | "pending";
@@ -111,6 +112,7 @@ export const harnessClient = {
   async requestDaemonControl(payload: { readonly kind: "refresh" | "restart"; readonly authorityRepoId: string; readonly reason?: string }): Promise<DaemonControlReceipt> { return readDaemonControlReceipt(await invokeBridge("requestDaemonControl", payload)); },
   async getDaemonControlReceipt(payload: { readonly operationId: string }): Promise<DaemonControlReceipt> { return readDaemonControlReceipt(await invokeBridge("getDaemonControlReceipt", payload)); },
   async getTasks(payload: RepoScope & TaskQueryFacets): Promise<TaskListSuccess> { return readTaskListResult(await invokeBridge("getTasks", payload)); },
+  async getWorkspaceSummary(payload: RepoScope): Promise<WorkspaceSummarySuccess> { return readWorkspaceSummaryResult(await invokeBridge("getWorkspaceSummary", payload)); },
   async getTaskDocument(payload: RepoScope & { readonly taskId: string; readonly path: string }): Promise<TaskDocumentProjectionRead> { return readTaskDocumentResult(await invokeBridge("getTaskDocument", payload)); },
   async getTaskDocuments(payload: RepoScope & { readonly taskId: string }): Promise<TaskDocumentListProjectionRead> { return readTaskDocumentListResult(await invokeBridge("getTaskDocuments", payload)); },
   async getTaskDispatches(payload: RepoScope & ({ readonly taskId: string } | { readonly taskIds: readonly string[]; readonly limit?: number; readonly cursor?: string })): Promise<TaskDispatchesRead> { return readTaskDispatchesResult(await invokeBridge("getTaskDispatches", payload)); },
@@ -157,6 +159,18 @@ function readTaskListResult(value: unknown): TaskListSuccess {
     warnings: Array.isArray(result.warnings) ? result.warnings.filter((warning): warning is string => typeof warning === "string") : [],
     ...(result.page ? { page: result.page } : {})
   };
+}
+
+function readWorkspaceSummaryResult(value: unknown): WorkspaceSummarySuccess {
+  const result = value as Partial<WorkspaceSummarySuccess>;
+  if (!result || result.schema !== "daemon.workspace-summary/v1" || result.ok !== true || (result.status !== "ready" && result.status !== "pending")
+    || !isRendererRecord(result.tasks) || !Number.isInteger(result.tasks.total) || !isRendererRecord(result.tasks.byStatus)
+    || !isRendererRecord(result.decisions) || !Number.isInteger(result.decisions.total) || !Number.isInteger(result.decisions.inboxCount)
+    || !isRendererRecord(result.decisions.byState) || !Array.isArray(result.decisions.groups)
+    || !Number.isInteger(result.watermark) || !Number.isInteger(result.sourceRevision)) {
+    throw new Error(localErrorHint(value, "Workspace summary bridge returned an invalid result."));
+  }
+  return result as WorkspaceSummarySuccess;
 }
 
 function readRelationGraphResult(value: unknown): RelationGraphSuccess {

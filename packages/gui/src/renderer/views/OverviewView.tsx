@@ -16,6 +16,7 @@ import { decisionStateLabel } from "../components/badges";
 import { deriveRuntimeHealth, type RuntimeHealthInput } from "../model/runtime-health.ts";
 import { t } from "../i18n/index.tsx";
 import { localTime } from "../model/local-time.ts";
+import type { WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
 
 const timeOf = (iso: string) => localTime(iso) ?? "—";
 
@@ -29,6 +30,7 @@ export function OverviewView({
   project,
   tasks,
   decisions,
+  workspaceSummary,
   relations,
   systemHealth,
   onSelect,
@@ -40,6 +42,7 @@ export function OverviewView({
   project: Project;
   tasks: TaskRow[];
   decisions: DecisionRow[];
+  workspaceSummary: WorkspaceSummaryRead;
   relations: RelationEdge[];
   /** 第四格输入(App 从 systemQuery / tasksQuery 折算,见 model/runtime-health.ts)。 */
   systemHealth: Omit<RuntimeHealthInput, "lastSnapshotAt" | "now">;
@@ -80,6 +83,7 @@ export function OverviewView({
         <Card title={t("views.overviewView.decisionStreamTitle")} bodyClassName="p-3">
           <DecisionStream
             decisions={decisions}
+            summary={workspaceSummary.decisions}
             stateLabel={decisionStateLabel}
             onOpenPreview={setPreviewDecisionId}
             onOpenInbox={onOpenInbox}
@@ -87,7 +91,7 @@ export function OverviewView({
         </Card>
 
         <Card title={t("views.overviewView.taskStreamTitle")} bodyClassName="p-3">
-          <TaskStream tasks={tasks} onOpenPreview={onSelect} onGoBoard={onDrill} />
+          <TaskStream tasks={tasks} summary={workspaceSummary.tasks} onOpenPreview={onSelect} onGoBoard={onDrill} />
         </Card>
 
         <Card title={t("views.overviewView.pinnedStreamTitle")} bodyClassName="p-3">

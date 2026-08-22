@@ -1,4 +1,4 @@
-import { DAEMON_GUI_COMMAND_RECEIPT_SCHEMA, daemonGuiActionMethods, daemonGuiReadMethods, daemonGuiReadSchemas, daemonGuiStreamFacets, type DaemonGuiActionMethod, type DaemonGuiReadMethod, type DaemonGuiStreamMethod } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { DAEMON_GUI_COMMAND_RECEIPT_SCHEMA, daemonGuiActionMethods, daemonGuiReadMethods, daemonGuiReadSchemas, daemonGuiStreamFacets, type DaemonGuiActionMethod, type DaemonGuiRpcReadMethod, type DaemonGuiStreamMethod } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 
 export type ApiRouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "WS" | "STREAM";
 export type ApiRouteAuth = "local-session-token" | "ssh-tunnel-local-token" | "none";
@@ -16,7 +16,7 @@ export interface ApiRouteContract {
   readonly serviceMethod: ApiServiceMethod;
   readonly requiresRepo: boolean;
   readonly auth: ApiRouteAuth;
-  readonly rpcMethod?: DaemonGuiReadMethod | DaemonGuiActionMethod | DaemonGuiStreamMethod;
+  readonly rpcMethod?: DaemonGuiRpcReadMethod | DaemonGuiActionMethod | DaemonGuiStreamMethod;
   readonly guiBridgeMethod?: string;
 }
 

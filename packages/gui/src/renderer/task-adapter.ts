@@ -19,7 +19,7 @@ function adaptProjectionRow(row: TaskSnapshotProjectionRow, projectId: string, p
   const placement = placementFor(row, context);
   const gates = row.closeoutAssessment.gates.map((gate) => ({ name: gate.gateId, ok: gate.status === "unknown" ? null : gate.status === "passed", ...(gate.detail ? { detail: gate.detail } : {}) }));
   const blocking = row.blockingAssessment;
-  const coordinationStatus = blocking.state === "blocked" && (task.status === "planned" || task.status === "active") ? "blocked" : task.status;
+  const coordinationStatus = row.coordinationStatus;
   return {
     taskId: row.taskId,
     title: task.title,
