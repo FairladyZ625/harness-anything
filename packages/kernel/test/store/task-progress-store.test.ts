@@ -18,11 +18,11 @@ test("progress compiler rejects invalid evidence, lease mismatches, and stale ba
   assert.throws(() => compileTaskProgress({ ...fixture, activeLease: null }), (error: unknown) => code(error) === "progress_lease_required");
   assert.throws(() => compileTaskProgress({ ...fixture, executionId: "other" }), (error: unknown) => code(error) === "progress_lease_mismatch");
   assert.throws(() => compileTaskProgress({ ...fixture, actor: { principal: { personId: "other" }, executor: null } }), (error: unknown) => code(error) === "progress_lease_mismatch");
-  const runtimeActor = { principal: fixture.actor.principal, executor: { kind: "agent", id: "runtime-session:runtime-progress" } } as const, runtime = compileTaskProgress({ ...fixture, actor: runtimeActor, runtimeSessionId: "runtime-progress" });
+  const runtimeActor = { principal: fixture.actor.principal, executor: { kind: "agent", id: "runtime-session:runtime-progress" } } as const, runtimeBinding = { runtimeSessionId: "runtime-progress", taskId: fixture.taskId, executionId: fixture.executionId }, runtime = compileTaskProgress({ ...fixture, actor: runtimeActor, runtimeBinding });
   assert.equal(runtime.event.payload.runtimeSessionId, "runtime-progress"); assert.deepEqual(runtime.event.actor, runtimeActor); assert.deepEqual(validateTaskProgressEvent(runtime.event), []);
   assert.throws(() => compileTaskProgress({ ...fixture, actor: runtimeActor }), (error: unknown) => code(error) === "progress_lease_mismatch");
-  assert.throws(() => compileTaskProgress({ ...fixture, actor: runtimeActor, runtimeSessionId: "other-runtime" }), (error: unknown) => code(error) === "progress_lease_mismatch");
-  assert.throws(() => compileTaskProgress({ ...fixture, actor: { principal: { personId: "other" }, executor: runtimeActor.executor }, runtimeSessionId: "runtime-progress" }), (error: unknown) => code(error) === "progress_lease_mismatch");
+  assert.throws(() => compileTaskProgress({ ...fixture, actor: runtimeActor, runtimeBinding: { ...runtimeBinding, runtimeSessionId: "other-runtime" } }), (error: unknown) => code(error) === "progress_lease_mismatch");
+  assert.throws(() => compileTaskProgress({ ...fixture, actor: { principal: { personId: "other" }, executor: runtimeActor.executor }, runtimeBinding }), (error: unknown) => code(error) === "progress_lease_mismatch");
   assert.throws(() => compileTaskProgress({ ...fixture, currentDocument: { path: progressPath, blobSha256: "a".repeat(64), body: "# old\n" }, expectedBaseSha256: "b".repeat(64) }), (error: unknown) => code(error) === "stale_progress_base");
   assert.equal(stableStringify(fixture), before); const compiled = compileTaskProgress(fixture); assert.deepEqual(validateTaskProgressEvent(compiled.event), []); assert.notDeepEqual(validateTaskProgressEvent({ ...compiled.event, payload: { ...compiled.event.payload, resultDocumentClaim: { ...compiled.event.payload.resultDocumentClaim, path: `${packagePath}/facts.md` } } }), []);
 });

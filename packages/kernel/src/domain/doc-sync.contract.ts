@@ -13,6 +13,7 @@ import { isMigrationImportEvent, MIGRATION_DOCUMENT_POLICY_ID, validateCurrentMi
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { isLedgerLayoutMigrationEvent, validateCurrentLedgerLayoutMigrationEvent, validateLedgerLayoutMigrationEvent, type LedgerLayoutMigrationEventV1 } from "./ledger-layout-migration-event.ts";
 import { isSameExecution } from "./actor-domain-services.ts";
+import { isTaskBoundRuntimeWriter, runtimeSessionIdFromActor, type LiveTaskBoundRuntimeBinding } from "./task-bound-runtime-authority.ts";
 import { isOpaqueTextualMediaType, OPAQUE_TEXTUAL_POLICY_ID, type OpaqueTextualMediaType } from "./artifact-text-classification.ts";
 import { isAgentEntityEvent, validateAgentEntityEvent, validateCurrentAgentEntityEvent, type AgentEntityEventV1 } from "./agent-entity-event.ts";
 
@@ -35,7 +36,7 @@ export type CurrentDocEventV1 = EventEnvelope<"doc-event/v1", "documents_written
 export type CanonicalEventV1 = TaskEventV1 | DocEventV1 | AgentRuntimeEventV1 | AgentEntityEventV1 | TaskBootstrapEventV1 | TaskProgressEventV1 | PresetSnapshotUpgradeEventV1 | FactEventV1 | DecisionEventV1 | MigrationImportEventV1 | LedgerLayoutMigrationEventV1;
 export interface DocumentState { readonly path: PortableDocumentPath; readonly blobSha256: string; readonly body: string; readonly size: DocByteLength; readonly mediaType: string; readonly policyId: string; readonly workspaceRevision: number }
 export interface DocContentBlob { readonly sha256: string; readonly size: DocByteLength; readonly mediaType: string; readonly body: string }
-export interface DocWriteDecisionInput { readonly intent: DocWriteIntent; readonly opId: string; readonly eventId: string; readonly workspaceRevision: number; readonly actor: ActorIdentity; readonly source: WriteSource; readonly occurredAt: string; readonly currentLedgerSha: LedgerCutIdentity; readonly lease: LeaseV1 | null; readonly documents: readonly (DocumentState | null)[]; readonly claims: readonly (Uint8Array | null)[]; readonly resolvedTaskIds?: readonly (string | null)[]; readonly retirementReason?: string }
+export interface DocWriteDecisionInput { readonly intent: DocWriteIntent; readonly opId: string; readonly eventId: string; readonly workspaceRevision: number; readonly actor: ActorIdentity; readonly source: WriteSource; readonly occurredAt: string; readonly currentLedgerSha: LedgerCutIdentity; readonly lease: LeaseV1 | null; readonly runtimeBinding?: LiveTaskBoundRuntimeBinding; readonly documents: readonly (DocumentState | null)[]; readonly claims: readonly (Uint8Array | null)[]; readonly resolvedTaskIds?: readonly (string | null)[]; readonly retirementReason?: string }
 export type DocWriteDecision = { readonly accepted: true; readonly event: CurrentDocEventV1; readonly blobs: readonly DocContentBlob[]; readonly plan: FrozenWritePlan<"DocSyncSubmit"> }
   | { readonly accepted: false; readonly code: string; readonly detail: DocSyncReceiptDetail };
 
@@ -76,10 +77,12 @@ export function decideDocWrite(input: DocWriteDecisionInput): DocWriteDecision {
     baseLedgerSha: input.intent.baseLedgerSha, currentLedgerSha: input.currentLedgerSha, paths, holder, differences, unresolvedTouches, deletions, nextAction } });
   const retirementReason = input.retirementReason?.trim();
   if (retirementReason !== undefined && (!retirementReason || input.intent.changes.length !== 1 || input.intent.changes[0]?.candidate !== null || input.intent.executionId !== null)) return reject("invalid_retirement", "retire exactly one canonical document with a non-empty reason outside an execution lease");
-  if (input.intent.executionId === null ? input.lease !== null : input.lease === null || input.lease.phase !== "held" || input.lease.executionId !== input.intent.executionId || !isSameExecution(input.lease.actor, input.actor) || !sameWriteChannel(input.lease.source, input.source)) return reject("lease_conflict", "refresh status and submit through the matching execution or repository prose channel");
+  const runtimeActor = runtimeSessionIdFromActor(input.actor) !== null, directHolder = input.lease !== null && isSameExecution(input.lease.actor, input.actor) && sameWriteChannel(input.lease.source, input.source), runtimeWorker = input.lease !== null && input.runtimeBinding !== undefined && isTaskBoundRuntimeWriter(input.lease, input.actor, input.source, input.runtimeBinding);
+  if (input.intent.executionId === null ? input.lease !== null || runtimeActor : input.lease === null || input.lease.phase !== "held" || input.lease.executionId !== input.intent.executionId || !directHolder && !runtimeWorker) return reject("lease_conflict", "refresh status and submit through the matching execution or repository prose channel");
   if (stableStringify(input.intent.baseLedgerSha) !== stableStringify(input.currentLedgerSha)) return reject("base_ledger_changed", "run ha doc status, then ha doc sync --dry-run --path <path> for the fresh base and resubmit with a new opId");
   for (const [index, change] of input.intent.changes.entries()) {
     const current = input.documents[index] ?? null, route = resolveDocRoute(change.path), task = input.resolvedTaskIds === undefined ? taskFromPath(change.path) : input.resolvedTaskIds[index] ?? null;
+    if (runtimeWorker && !directHolder && (task !== input.runtimeBinding!.taskId || !taskArtifactPath(change.path))) unresolvedTouches.push(touch(change.path, null, task !== input.runtimeBinding!.taskId ? "target task does not match the live runtime binding" : "task-bound runtime writes are limited to the assigned task artifacts subtree", "task-bound-runtime-artifacts"));
     if (task !== null && input.lease !== null && task !== input.lease.taskId) unresolvedTouches.push(touch(change.path, null, "target task does not match the execution lease", "matching-task-lease"));
     if (!route.allowed) unresolvedTouches.push(touch(change.path, null, "path is owned by a typed route", route.requiredRoute));
     if (change.baseBlobSha256 !== (current?.blobSha256 ?? null)) return reject("base_blob_changed", "run ha doc status, then ha doc sync --dry-run --path <path> for the changed document and resubmit with a new opId");
@@ -134,6 +137,7 @@ function safeDocSyncPath(value: unknown): value is string { try { return typeof 
 function policyMatchesClaim(policyId: string, candidate: unknown): boolean { return isRecord(candidate) && (policyId === DOC_POLICY_ID ? candidate.mediaType === "text/markdown" || candidate.mediaType === "text/plain" : policyId === OPAQUE_TEXTUAL_POLICY_ID && isOpaqueTextualMediaType(candidate.mediaType)); }
 function sameWriteChannel(left: WriteSource, right: WriteSource): boolean { return stableStringify(left) === stableStringify(right); }
 function taskFromPath(value: PortableDocumentPath): string | null { const match = /^tasks\/([^/]+)\//u.exec(value); if (!match) return null; const folder = match[1]!; return /^task_[0-9A-HJKMNP-TV-Z]{26}(?:-|$)/u.test(folder) ? folder.slice(0, 31) : folder; }
+function taskArtifactPath(value: PortableDocumentPath): boolean { return /^tasks\/[^/]+\/artifacts\/.+/u.test(value); }
 function touch(path: PortableDocumentPath, regionId: string | null, reason: string, requiredRoute: string): DocSyncUnresolvedTouch { return { path, regionId, anchor: regionId, reason, requiredRoute, policy: DOC_POLICY_ID }; }
 
 interface Region { readonly id: string; readonly mode: "additive" | "equal"; readonly body: string; readonly offset: number }
