@@ -162,6 +162,7 @@
   "views.executionEvidenceView.checkerResult": "checker result",
   "views.executionEvidenceView.witnessTitle": "execution-level witnesses · 不等同 output receipt",
   "views.executionEvidenceView.reviewsSnapshotValidated": "reviews · snapshot-validated",
+  "views.executionEvidenceView.selectedByConsent": "由 {consent} 选中",
   "views.executionEvidenceView.noneCurrentCut": "none / 当前 cut 无记录",
   "views.executionEvidenceView.paginationLabel": "execution evidence 分页",
   "views.executionEvidenceView.reloadCurrentQuery": "reload 当前 query",

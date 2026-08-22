@@ -102,29 +102,38 @@ test("G10 submit atomically finalizes Execution, releases lease, and enters in_r
   assert.throws(() => applyTransition(started.snapshot, submit(3), { ...submitProof(), leaseVersion: 2 }), (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof");
 });
 
-test("G10 one immutable Review and independent content-pinned consent authorize completion", () => {
-  const { submitted, approved, recorded, consented } = firstRound();
+test("G10 append-only Reviews and independent content-pinned consent selection authorize completion", () => {
+  const { submitted, approved, recorded } = firstRound();
   assert.equal(approved.snapshot.reviews.length, 1);
   assert.equal(approved.snapshot.consents.length, 0);
   assert.deepEqual({ executionId: recorded.executionId, commitSha: recorded.commitSha, iteration: recorded.iteration, contentDigest: recorded.contentDigest, actor: recorded.actor }, { executionId: "execution-0", commitSha: commit0, iteration: 0, contentDigest: content0, actor: reviewer });
   assert.throws(() => applyTransition(submitted.snapshot, review(4, { actor: executor }), reviewProof(executor)), (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof");
-  assert.throws(() => applyTransition(approved.snapshot, review(5, { reviewId: "review-second" }), reviewProof()), (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition");
-  assert.throws(() => applyTransition(approved.snapshot, complete(5), completeProof()), (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition");
-  assert.throws(() => applyTransition({ ...approved.snapshot, legacyReviewPath: "tasks/task-1/review.md" }, complete(5), completeProof()), (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition");
+  const dismissed = applyTransition(approved.snapshot, review(5, { verdict: "dismissed", reviewId: "review-dismissed" }), reviewProof());
+  const selected = applyTransition(dismissed.snapshot, review(6, { reviewId: "review-selected" }), reviewProof());
+  const selectedReview = selected.snapshot.reviews.at(-1);
+  assert.deepEqual(selected.snapshot.reviews.map(({ reviewId, verdict }) => ({ reviewId, verdict })), [
+    { reviewId: recorded.reviewId, verdict: "approved" },
+    { reviewId: "review-dismissed", verdict: "dismissed" },
+    { reviewId: "review-selected", verdict: "approved" }
+  ]);
+  assert.throws(() => applyTransition(selected.snapshot, review(7, { reviewId: "review-selected" }), reviewProof()), /new review id/u);
+  assert.throws(() => applyTransition(selected.snapshot, complete(7), completeProof()), (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition");
+  assert.throws(() => applyTransition({ ...selected.snapshot, legacyReviewPath: "tasks/task-1/review.md" }, complete(7), completeProof()), (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition");
 
+  const consented = applyTransition(selected.snapshot, consent(7, selectedReview), consentProof());
   const pinned = consented.snapshot.consents[0];
-  assert.deepEqual({ executionId: pinned.executionId, reviewId: pinned.reviewId, reviewDigest: pinned.reviewDigest, contentDigest: pinned.contentDigest, actor: pinned.actor, source: pinned.source }, { executionId: recorded.executionId, reviewId: recorded.reviewId, reviewDigest: reviewDigest(recorded), contentDigest: recorded.contentDigest, actor: owner, source: "local" });
+  assert.deepEqual({ executionId: pinned.executionId, reviewId: pinned.reviewId, reviewDigest: pinned.reviewDigest, contentDigest: pinned.contentDigest, actor: pinned.actor, source: pinned.source }, { executionId: selectedReview.executionId, reviewId: selectedReview.reviewId, reviewDigest: reviewDigest(selectedReview), contentDigest: selectedReview.contentDigest, actor: owner, source: "local" });
   for (const mutation of [
     { reviewDigest: `sha256:${"b".repeat(64)}` },
     { contentDigest: `sha256:${"c".repeat(64)}` },
     { executionId: "execution-other" },
     { reviewId: "review-other" }
   ]) {
-    const bad = { ...consent(5, recorded), ...mutation };
-    assert.throws(() => applyTransition(approved.snapshot, bad, consentProof()), TaskLifecycleContractError);
+    const bad = { ...consent(7, selectedReview), ...mutation };
+    assert.throws(() => applyTransition(selected.snapshot, bad, consentProof()), TaskLifecycleContractError);
   }
-  assert.throws(() => applyTransition(approved.snapshot, consent(5, recorded, outsider), consentProof(outsider)), (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof");
-  assert.equal(applyTransition(consented.snapshot, complete(6), completeProof()).snapshot.task.status, "done");
+  assert.throws(() => applyTransition(selected.snapshot, consent(7, selectedReview, outsider), consentProof(outsider)), (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof");
+  assert.equal(applyTransition(consented.snapshot, complete(8), completeProof()).snapshot.task.status, "done");
 });
 
 test("G10 code-doc witness binds canonical paths, execution, full commit, and iteration", () => {
@@ -148,8 +157,8 @@ test("G10 exhaustive phase table rejects every command outside its canonical pre
     ["planned", round.created.snapshot, new Set(["StartExecution", "TransitionTask"])],
     ["active", round.started.snapshot, new Set(["SubmitExecution"])],
     ["submitted", round.submitted.snapshot, new Set(["RecordReview", "ReconcileCodeDoc", "TransitionTask"])],
-    ["approved", round.approved.snapshot, new Set(["RecordReviewConsent", "ReconcileCodeDoc", "TransitionTask"])],
-    ["consented", round.consented.snapshot, new Set(["ReconcileCodeDoc", "CompleteTask", "TransitionTask"])],
+    ["approved", round.approved.snapshot, new Set(["RecordReview", "RecordReviewConsent", "ReconcileCodeDoc", "TransitionTask"])],
+    ["consented", round.consented.snapshot, new Set(["RecordReview", "RecordReviewConsent", "ReconcileCodeDoc", "CompleteTask", "TransitionTask"])],
     ["returned", returned.snapshot, new Set(["StartExecution", "TransitionTask"])],
     ["done", completed.snapshot, new Set()]
   ];

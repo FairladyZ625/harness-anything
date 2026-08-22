@@ -11,7 +11,7 @@ export type {
 } from "./task-lifecycle.contract.ts";
 export type { TaskLifecycleCommandType } from "./task-write-decision.ts";
 
-export { reviewVerdicts } from "./review.ts";
+export { approvedReviewsForCut, consentedApprovedReview, reviewVerdicts } from "./review.ts";
 export type { ReviewVerdict } from "./review.ts";
 
 export { isPriorityTier, isTaskWorkKind, priorityTiers, taskWorkKinds } from "./task-metadata.ts";

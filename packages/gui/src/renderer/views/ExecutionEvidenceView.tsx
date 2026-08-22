@@ -204,6 +204,7 @@ function TaskEvidenceGroup({ group }: { readonly group: TaskEvidenceGroupModel }
 function ExecutionBlock({ execution }: { readonly execution: ExecutionEvidenceRow }) {
   const [expanded, setExpanded] = useState(false);
   const passing = execution.outputs.filter(({ isPassingReceipt }) => isPassingReceipt).length;
+  const selectedReview = execution.reviews.find(({ reviewId }) => reviewId === execution.selectedReviewId);
   return (
     <article className="rounded-md border border-border bg-bg/35">
       <button type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}
@@ -220,6 +221,7 @@ function ExecutionBlock({ execution }: { readonly execution: ExecutionEvidenceRo
         <div className="mb-1.5 flex flex-wrap gap-3 font-mono text-[11px] text-text-faint">
           <span>{t("views.executionEvidenceView.outputSummary")}</span>
           <span>{t("views.executionEvidenceView.executionWitnessCounts", { reviews: execution.reviews.length, consents: execution.consents.length, gates: execution.gateWitnesses.length })}</span>
+          {selectedReview && <span>{selectedReview.reviewId} · {selectedReview.verdict} · {t("views.executionEvidenceView.selectedByConsent", { consent: execution.selectedConsentId ?? "unknown" })}</span>}
           <span className="text-status-unknown">{t("views.executionEvidenceView.notOutputReceipt")}</span>
         </div>
         {execution.outputs.length === 0 ? (
@@ -289,7 +291,7 @@ function WitnessPanel({ execution }: { readonly execution: ExecutionEvidenceRow 
         <strong>{t("views.executionEvidenceView.witnessTitle")}</strong>
       </div>
       <div className="mt-2 grid gap-2 font-mono text-[11px] text-text-muted md:grid-cols-3">
-        <WitnessList label={t("views.executionEvidenceView.reviewsSnapshotValidated")} values={execution.reviews.map((item) => `${item.reviewId} · ${item.verdict}`)} />
+        <WitnessList label={t("views.executionEvidenceView.reviewsSnapshotValidated")} values={execution.reviews.map((item) => `${item.reviewId} · ${item.verdict}${item.reviewId === execution.selectedReviewId ? ` · ${t("views.executionEvidenceView.selectedByConsent", { consent: execution.selectedConsentId ?? "unknown" })}` : ""}`)} />
         <WitnessList label={`consents · ${execution.witnessAvailability.consents}`} values={execution.consents.map((item) => `${item.consentId} → ${item.reviewId}`)} />
         <WitnessList label={`gate · ${execution.witnessAvailability.gateWitnesses}`} values={execution.gateWitnesses.map((item) => `${item.gateId} · ${item.receiptId} · ${item.result}`)} />
       </div>

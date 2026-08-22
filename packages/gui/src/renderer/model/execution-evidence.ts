@@ -36,6 +36,8 @@ export interface ExecutionEvidenceRow {
   readonly outputs: readonly ExecutionEvidenceOutput[];
   readonly reviews: readonly Review[];
   readonly consents: readonly Consent[];
+  readonly selectedReviewId: string | null;
+  readonly selectedConsentId: string | null;
   readonly gateWitnesses: readonly GateWitness[];
   readonly witnessAvailability: TaskSnapshotProjectionRow["snapshotAvailability"];
   readonly rawTask: unknown;
@@ -175,6 +177,7 @@ function adaptExecution(row: TaskSnapshotProjectionRow, execution: Execution, ta
   const reviewIds = new Set(reviews.map(({ reviewId }) => reviewId));
   const consents = row.snapshot.consents.filter((consent) =>
     consent.executionId === execution.executionId && reviewIds.has(consent.reviewId));
+  const selectedConsent = consents.at(-1);
   const gateWitnesses = commitSha === undefined || iteration === undefined ? [] : row.snapshot.gateWitnesses.filter((witness) =>
     witness.executionId === execution.executionId && witness.commitSha === commitSha && witness.iteration === iteration);
   return {
@@ -192,6 +195,8 @@ function adaptExecution(row: TaskSnapshotProjectionRow, execution: Execution, ta
     outputs: adaptOutputs(execution, projection),
     reviews,
     consents,
+    selectedReviewId: selectedConsent?.reviewId ?? null,
+    selectedConsentId: selectedConsent?.consentId ?? null,
     gateWitnesses,
     witnessAvailability: row.snapshotAvailability,
     rawTask: row.snapshot.task,
