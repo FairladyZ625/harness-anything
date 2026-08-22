@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { eventFromProviderWitness, type ProviderWitnessV1 } from "../../src/agent-runtime/provider-witness.ts";
 import { reduceRuntimeSession, runtimeEventContentClaims, validateCurrentAgentRuntimeEvent, type AgentRuntimeEventType, type AgentRuntimeEventV1 } from "../../src/domain/agent-runtime.ts";
@@ -37,6 +38,8 @@ test("runtime events use the canonical envelope, head, store, and the shared pro
     assert.equal(git(rootDir, "show", `${CANONICAL_EVENT_REF}:harness/${eventObjectRelativePath(events[0]!.opId)}`), serializeCanonicalEvent(events[0]!).trimEnd());
     assert.deepEqual(projection.readRuntimeInstallation("installation-claude"), { installationId: "installation-claude", kindId: "claude-compatible", protocolFamily: "claude-compatible", hostRef: "host:local", version: "1.1.0", discoverySource: "wrapper", effectiveCapabilities: ["structured_witness", "resume"], lastObservedAt: "2026-08-12T00:00:09.000Z" });
     const session = projection.readRuntimeSession("runtime-session-claude"); assert.equal(session?.providerSessionId, "provider-session-claude");
+    const dispatch = projection.readRuntimeDispatch("runtime-session-claude", session!.definitionSnapshotRef); assert.equal(dispatch?.type, "runtime_dispatch_requested"); assert.equal(dispatch?.payload.runtimeSessionId, session?.runtimeSessionId); assert.equal(projection.readRuntimeDispatch("runtime-session-claude", "artifact:runtime-definitions/missing"), null);
+    const db = new DatabaseSync(projection.path, { readOnly: true }); try { const plan = db.prepare("EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND json_extract(event_json, '$.payload.definitionSnapshotRef') = ? ORDER BY workspace_revision LIMIT 1").all("runtime-session-claude", session!.definitionSnapshotRef) as readonly { readonly detail: string }[]; assert.match(plan.map(({ detail }) => detail).join("\n"), /SEARCH event_index USING INDEX event_index_runtime_dispatch_lookup/u); } finally { db.close(); }
     assert.deepEqual(session?.taskBindings.map(({ taskId, executionId, transcriptRef }) => ({ taskId, executionId, transcriptRef })), [{ taskId: "task-runtime", executionId: "execution-claude", transcriptRef: "file:runtime-transcripts/claude/session.jsonl" }]);
     assert.deepEqual(projection.readRuntimeSessionsForTask("task-runtime").map((value) => value.runtimeSessionId), ["runtime-session-claude"]);
   });
