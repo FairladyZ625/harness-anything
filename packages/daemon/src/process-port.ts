@@ -21,8 +21,17 @@ export function yieldToEventLoop(): Promise<void> { return new Promise((resolve)
 export function runProcessText(command: string, args: readonly string[], cwd?: string, env?: NodeJS.ProcessEnv): string { return execFileSync(command, [...args], { cwd, ...(env ? { env } : {}), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); }
 export function runProcessTextAsync(command: string, args: readonly string[], cwd?: string, env?: NodeJS.ProcessEnv, input?: string, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
+    // execFile's own AbortSignal handling fires the callback as soon as the signal aborts,
+    // while SIGTERM is still in flight — settling then would release the caller (and any
+    // queue slot it holds) before the child has actually exited. Settle only once the child
+    // has closed so "cancelled" always means "the process is gone".
     const child = execFile(command, [...args], { cwd, ...(env ? { env } : {}), ...(signal ? { signal } : {}), encoding: "utf8", windowsHide: true }, (error, stdout, stderr) => {
-      if (error) { Object.assign(error, { stdout, stderr }); reject(error); return; }
+      if (error) {
+        Object.assign(error, { stdout, stderr });
+        if (child.exitCode === null && child.signalCode === null) { child.once("close", () => reject(error)); return; }
+        reject(error);
+        return;
+      }
       resolve(stdout);
     });
     child.stdin?.end(input);
