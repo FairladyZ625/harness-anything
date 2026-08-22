@@ -4,7 +4,7 @@ import type { GuiActionResult } from "../api/renderer-dto.ts";
 import type { GuiSubmissionV1 } from "../api/renderer-dto.ts";
 import { harnessClient, type TaskListSuccess } from "./api-client.ts";
 import type { TaskRow } from "./model/types.ts";
-import { taskQueryKeys } from "./task-data.ts";
+import { readTaskList, taskQueryKeys } from "./task-data.ts";
 
 type ReceiptRecord = GuiActionResult & {
   readonly revision?: number;
@@ -78,7 +78,8 @@ export function useTaskActions(repoId: string) {
   };
   const reread = async (taskId: string, kind: TaskMutationFeedback["kind"], settlement: TaskSettlement, visible: (data: TaskListSuccess) => boolean): Promise<TaskMutationFeedback> => {
     if (settlement.state !== "applied") return publish(taskId, { state: settlement.state === "op_rejected" ? "error" : "pending", kind, opId: settlement.opId, code: settlement.code, hint: settlement.hint ?? "canonical receipt 尚未 settled；不要重放 mutation。" });
-    const data = await queryClient.fetchQuery({ queryKey: taskQueryKeys.list(repoId), queryFn: () => harnessClient.getTasks({ repoId }), staleTime: 0 });
+    const queryKey = taskQueryKeys.list(repoId), previous = queryClient.getQueryData<TaskListSuccess>(queryKey);
+    const data = await queryClient.fetchQuery({ queryKey, queryFn: () => readTaskList(repoId, previous), staleTime: 0 });
     const revisionVisible = settlement.revision === undefined || data.watermark >= settlement.revision;
     return revisionVisible && visible(data)
       ? publish(taskId, { state: "success", kind, opId: settlement.opId, hint: "canonical projection 已重读并确认。" })
