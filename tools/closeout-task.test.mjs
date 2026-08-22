@@ -5,7 +5,9 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { CloseoutCommandError, parseCloseoutArgs, runCloseout, validateCloseoutJudgment } from "./closeout-task.mjs";
+import * as closeout from "./closeout-task.mjs";
+
+const { CloseoutCommandError, parseCloseoutArgs, runCloseout, validateCloseoutJudgment } = closeout;
 
 const taskId = "task-closeout", executionId = "execution-closeout", packagePath = "tasks/task-closeout-fast-path", commitSha = "a".repeat(40);
 const owner = { principal: { personId: "owner" }, executor: { kind: "agent", id: "ceo" } };
@@ -77,6 +79,44 @@ test("closeout driver preserves all gates and derives actor/content-cut bindings
     assert.deepEqual(fixture.calls.map((call) => call.actor), [null, "agent:worker", "agent:worker", "agent:worker", null, "agent:ceo", "agent:ceo"]);
     const complete = fixture.calls.at(-1).args;
     assert.deepEqual(complete, ["task", "complete", taskId, "--execution-id", executionId, "--ci", "passed", "--commit-sha", commitSha, "--iteration", "0", "--path", "tools/closeout-task.mjs"]);
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("default CLI entry is anchored to the closeout script instead of the caller cwd", () => {
+  const callerCwd = path.join(import.meta.dirname, "fixtures", "nested-cwd");
+  assert.equal(typeof closeout.resolveCloseoutLauncher, "function");
+  assert.deepEqual(closeout.resolveCloseoutLauncher({ cwd: callerCwd }), {
+    executable: process.execPath,
+    leadingArgs: [path.join(import.meta.dirname, "..", "packages", "cli", "src", "index.ts")],
+  });
+});
+
+test("empty codeDocPaths omits the complete reconcile tuple", () => {
+  const temporaryDirectory = mkdtempSync(path.join(os.tmpdir(), "ha-closeout-empty-paths-"));
+  const fixture = successfulRunner();
+  const packet = judgment();
+  packet.completion.codeDocPaths = [];
+  try {
+    runCloseout({ taskId, executionId, judgment: packet }, { run: fixture.run, temporaryDirectory });
+    assert.deepEqual(fixture.calls.at(-1).args, ["task", "complete", taskId, "--execution-id", executionId, "--ci", "passed"]);
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("empty codeDocPaths preserves the code-doc completion gate rejection", () => {
+  const temporaryDirectory = mkdtempSync(path.join(os.tmpdir(), "ha-closeout-code-doc-gate-"));
+  const rejection = new CloseoutCommandError(["ha", "task", "complete"], 1, JSON.stringify({ ok: false, code: "code_doc_missing" }), "");
+  const fixture = successfulRunner({ "task-complete": () => { throw rejection; } });
+  const packet = judgment();
+  packet.completion.codeDocPaths = [];
+  try {
+    assert.throws(
+      () => runCloseout({ taskId, executionId, judgment: packet }, { run: fixture.run, temporaryDirectory }),
+      (error) => error === rejection && error.stdout.includes("code_doc_missing"),
+    );
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
   }
