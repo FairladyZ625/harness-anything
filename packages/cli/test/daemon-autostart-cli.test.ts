@@ -1,8 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type Socket } from "node:net";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -82,6 +82,49 @@ test("a blocked vertical script keeps handshakes live without releasing its same
   } finally {
     rmSync(blocker, { force: true });
     await Promise.all([scriptRequest?.catch(() => undefined), queuedRead?.catch(() => undefined)]); client?.close(); queuedClient?.close();
+    stop(fixture.root, fixture.userRoot); rmSync(fixture.parent, { recursive: true, force: true });
+  }
+});
+
+test("disconnecting a blocked vertical script client terminates its child and releases only its repo queue", async (context) => {
+  const fixture = setup(), otherRoot = setupRepository(fixture.parent, "other-repo"), blockedRepoId = "vertical-disconnect", otherRepoId = "vertical-unaffected", taskId = "task-vertical-disconnect", blocker = path.join(fixture.parent, "vertical-disconnect.block"), started = `${blocker}.started`, endpoint = localUserDaemonEndpoint(fixture.userRoot, "default");
+  let actionSocket: Socket | undefined, queuedClient: JsonRpcLineClient | undefined, scriptRequest: Promise<Record<string, unknown>> | undefined, queuedRead: Promise<Record<string, unknown>> | undefined;
+  try {
+    writeFileSync(blocker, "blocked\n", "utf8");
+    const launched = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "daemon", "start", "--service"], { encoding: "utf8", env: { ...cliEnv(fixture.root, fixture.userRoot), HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE: blocker } });
+    assert.equal(launched.status, 0, `${launched.stderr}\n${launched.stdout}`);
+    register(fixture.root, fixture.userRoot, blockedRepoId); register(otherRoot, fixture.userRoot, otherRepoId);
+    assert.equal(run(fixture.root, fixture.userRoot, ["task", "create", "--id", taskId, "--admin", "--title", "Vertical Disconnect"]).outcome, "applied");
+
+    actionSocket = await connectSocket(endpoint, 2_000); const actionClient = new JsonRpcLineClient(actionSocket, actionSocket);
+    await actionClient.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
+    scriptRequest = actionClient.request("repo.script.run", { repo: { repoId: blockedRepoId }, payload: { scriptId: "vertical:software-coding:architecture-check", taskId, inputs: {}, dryRun: true } }) as Promise<Record<string, unknown>>;
+    void scriptRequest.catch(() => undefined);
+    await waitForPath(started); const childPid = Number(readFileSync(started, "utf8").trim());
+    assert.equal(Number.isSafeInteger(childPid) && childPid > 0, true, `invalid vertical child pid: ${childPid}`);
+    assert.equal(processAlive(childPid), true, `vertical child ${childPid} must be alive before disconnect`);
+
+    const unaffected = await requestDaemonJsonRpcAt(endpoint, "repo.tasks.list", { repo: { repoId: otherRepoId }, payload: {} }, 2_000, 500);
+    context.diagnostic(`other-repo read while vertical script blocked: ${JSON.stringify({ status: unaffected.status, rowCount: Array.isArray(unaffected.rows) ? unaffected.rows.length : null })}`);
+    assert.equal(unaffected.status, "ready");
+
+    const queuedSocket = await connectSocket(endpoint, 2_000); queuedClient = new JsonRpcLineClient(queuedSocket, queuedSocket);
+    await queuedClient.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
+    queuedRead = queuedClient.request("repo.tasks.list", { repo: { repoId: blockedRepoId }, payload: {} }) as Promise<Record<string, unknown>>;
+    const beforeDisconnect = await Promise.race([queuedRead.then(() => "settled" as const), delay(250, "pending" as const)]);
+    context.diagnostic(`same-repo read before client disconnect: ${JSON.stringify({ state: beforeDisconnect })}`);
+    assert.equal(beforeDisconnect, "pending");
+
+    actionSocket.destroy();
+    const afterDisconnect = await Promise.race([queuedRead.then((receipt) => ({ state: "settled" as const, receipt })), delay(2_000, { state: "pending" as const, receipt: null })]);
+    context.diagnostic(`same-repo read after client disconnect: ${JSON.stringify({ state: afterDisconnect.state, blockerStillPresent: existsSync(blocker), childAlive: processAlive(childPid) })}`);
+    assert.equal(afterDisconnect.state, "settled", "the dead client must release its RepoCell tail slot");
+    assert.equal(existsSync(blocker), true, "the test blocker must still be present when cancellation releases the slot");
+    assert.equal(processAlive(childPid), false, "the disconnected client's vertical child must be terminated before the slot releases");
+    assert.equal(afterDisconnect.receipt?.status, "ready");
+  } finally {
+    actionSocket?.destroy(); rmSync(blocker, { force: true });
+    await queuedRead?.catch(() => undefined); queuedClient?.close();
     stop(fixture.root, fixture.userRoot); rmSync(fixture.parent, { recursive: true, force: true });
   }
 });
@@ -215,13 +258,14 @@ test("autostart fails fast when its single-flight lock cannot be created", { ski
 });
 
 function cliEnv(root: string, userRoot: string, actor?: string): NodeJS.ProcessEnv { const { HARNESS_ACTOR: _actor, ...base } = process.env; return { ...base, HOME: path.join(root, ".home"), GIT_CONFIG_GLOBAL: "/dev/null", HARNESS_DAEMON_USER_ROOT: userRoot, ...(actor ? { HARNESS_ACTOR: actor } : {}) }; }
-function setup(): { parent: string; root: string; userRoot: string } { const parent = mkdtempSync(path.join(tmpdir(), "ha-autostart-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user");
+function setup(): { parent: string; root: string; userRoot: string } { const parent = mkdtempSync(path.join(tmpdir(), "ha-autostart-")), root = setupRepository(parent, "repo"), userRoot = path.join(parent, "user"); return { parent, root, userRoot }; }
+function setupRepository(parent: string, name: string): string { const root = path.join(parent, name);
   mkdirSync(path.join(root, "harness"), { recursive: true });
   writeFileSync(path.join(root, "README.md"), "# Fixture\n", "utf8");
   writeFileSync(path.join(root, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\n", "utf8");
   writeFileSync(path.join(root, "harness/people.yaml"), `schema: harness-people/v1\npeople:\n  - personId: owner\n    displayName: Owner\n    primaryEmail: owner@example.test\n    roles: [owner]\n    credentials:\n      - kind: unix-socket-owner-boundary\n        issuer: host:${hostname()}\n        subject: ${process.getuid?.() ?? 0}\nroles:\n  - roleId: owner\n    commandClasses: [admin, repo-write, repo-read, arbiter]\n`, "utf8");
   git(root, "init", "--quiet"); git(root, "config", "user.name", "Autostart Test"); git(root, "config", "user.email", "autostart@example.test");
-  git(root, "add", "README.md", "harness/harness.yaml", "harness/people.yaml"); git(root, "commit", "--quiet", "-m", "fixture"); return { parent, root, userRoot }; }
+  git(root, "add", "README.md", "harness/harness.yaml", "harness/people.yaml"); git(root, "commit", "--quiet", "-m", "fixture"); return root; }
 function register(root: string, userRoot: string, repoId: string): void { assert.equal(run(root, userRoot, ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"]).ok, true); }
 function run(root: string, userRoot: string, args: readonly string[], actor?: string): Record<string, unknown> {
   const result = spawnSync(process.execPath, [cli, "--root", root, "--json", ...args], { encoding: "utf8", env: cliEnv(root, userRoot, actor) });
@@ -230,6 +274,8 @@ function waitForDaemonDown(userRoot: string): void { const socketPath = localUse
   for (let attempt = 0; attempt < 200; attempt += 1) { if (readDaemonPid(userRoot, "default") === null && !existsSync(socketPath)) return; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10); }
   throw new Error("previous daemon did not drain before the autostart probe"); }
 async function waitForPath(target: string): Promise<void> { const deadline = Date.now() + 5_000; while (!existsSync(target)) { if (Date.now() >= deadline) throw new Error(`timed out waiting for ${target}`); await new Promise((resolve) => setTimeout(resolve, 10)); } }
+function delay<T>(milliseconds: number, value: T): Promise<T> { return new Promise((resolve) => setTimeout(() => resolve(value), milliseconds)); }
+function processAlive(pid: number): boolean { try { process.kill(pid, 0); return true; } catch { return false; } }
 function coded(error: unknown): string | null { return typeof error === "object" && error !== null && "code" in error ? String((error as { readonly code: unknown }).code) : null; }
 function stop(root: string, userRoot: string): void { if (readDaemonPid(userRoot, "default") !== null) spawnSync(process.execPath, [cli, "--root", root, "--json", "daemon", "stop"], { encoding: "utf8", env: cliEnv(root, userRoot) }); }
 function statusOf(root: string, userRoot: string, taskId: string): string { const shown = run(root, userRoot, ["task", "show", taskId]); return (JSON.parse(String(shown.evidence)) as { task: { status: string } }).task.status; }
