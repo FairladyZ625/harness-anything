@@ -75,6 +75,12 @@ test("thin parser derives closed preset and task-create payloads from descriptor
 
 test("thin parser validates only the selected command descriptor", () => { const selected = daemonProtocolCommands.find((command) => command.id === "task-show"); assert.ok(selected); const unrelatedInvalid = { ...selected, id: "unrelated-invalid", path: ["unrelated-invalid"], inputs: [{}], flags: [{}] } as unknown as typeof selected, parsed = parseThinCommand(["task", "show", "task-1"], process.cwd(), [selected, unrelatedInvalid] as unknown as typeof daemonProtocolCommands); assert.equal(parsed.ok, true, JSON.stringify(parsed)); });
 
+test("shared CLI option rejections point to descriptor-derived leaf help", () => {
+  assert.deepEqual(parseThinCommand(["task", "create", "--policy-conformance-probe"]), { ok: false, code: "unknown_field", nextAction: "Unknown option --policy-conformance-probe. Run ha task create --help.", json: false });
+  assert.deepEqual(parseThinCommand(["task", "dispatches", "task-1", "--policy-conformance-probe"]), { ok: false, code: "unsupported_command", nextAction: "Run ha task dispatches --help.", json: false });
+  assert.deepEqual(parseThinCommand(["task", "show", "task-1", "--policy-conformance-probe"]), { ok: false, code: "unsupported_command", nextAction: "Run ha task show --help.", json: false });
+});
+
 test("task create preserves the complete contract and initial relations in one closed action", () => {
   const parsed = parseThinCommand(["task", "create", "--title", "Surface", "--id", "task_surface", "--migration", "--idempotency-key", "surface-once", "--parent", "task_parent", "--kind", "feat", "--risk-tier", "high", "--urgency", "medium", "--vertical", "software/coding", "--preset", "standard-task", "--profile", "default", "--module", "kernel", "--slug", "surface", "--surface", "ha task create", "--surface", "packages/kernel", "--relation", "depends-on:task/task_dependency:Dependency must land first", "--locale", "zh-CN", "--dry-run"]);
   assert.equal(parsed.ok, true, JSON.stringify(parsed));
@@ -92,7 +98,7 @@ test("long-running work arrives only as --task-class long_running; the retired b
   const resident = parseThinCommand(["task", "create", "--title", "Resident ledger", "--task-class", "long_running"]);
   assert.equal(resident.ok, true, JSON.stringify(resident));
   if (resident.ok) assert.deepEqual(resident.command.action, { kind: "task-create", title: "Resident ledger", taskClass: "long_running" });
-  assert.deepEqual(parseThinCommand(["task", "create", "--title", "Resident ledger", "--long-running"]), { ok: false, code: "unknown_field", nextAction: "Unknown option --long-running.", json: false });
+  assert.deepEqual(parseThinCommand(["task", "create", "--title", "Resident ledger", "--long-running"]), { ok: false, code: "unknown_field", nextAction: "Unknown option --long-running. Run ha task create --help.", json: false });
   assert.equal(parseThinCommand(["task", "create", "--title", "Resident ledger", "--task-class", "long-running"]).ok, false);
 });
 
@@ -330,7 +336,7 @@ test("migrate ledger is one closed no-option command", () => {
 
 test("thin parser rejects retired caller-supplied gate receipts", () => {
   const parsed = parseThinCommand(["task", "complete", "task-1", "--execution-id", "exec-1", "--gate-receipt", "missing-separator"]);
-  assert.deepEqual(parsed, { ok: false, code: "unknown_field", nextAction: "Unknown option --gate-receipt.", json: false });
+  assert.deepEqual(parsed, { ok: false, code: "unknown_field", nextAction: "Unknown option --gate-receipt. Run ha task complete --help.", json: false });
 });
 
 test("lifecycle CLI maps submit, Review, consent, reconcile, and completion facade through closed typed inputs", () => {

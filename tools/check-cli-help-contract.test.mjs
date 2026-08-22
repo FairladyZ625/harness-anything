@@ -10,6 +10,16 @@ test("thin help contract accepts a derived current command directory", () => wit
   assert.deepEqual(await findCliHelpContractViolations(rootDir, { minimumCommands: 1 }), []);
 }));
 
+test("thin help contract rejects an old shared unknown-option hint", () => withFixture(async ({ rootDir, renderPath }) => {
+  writeFileSync(renderPath, thinCommandSource(false));
+  assert.match((await findCliHelpContractViolations(rootDir, { minimumCommands: 1 })).join("\n"), /\[unknown-option-hint\].*ha task show --help/u);
+}));
+
+test("thin help contract rejects an old tool unknown-option hint", () => withFixture(async ({ rootDir, toolPath }) => {
+  writeFileSync(toolPath, toolCommandSource(false));
+  assert.match((await findCliHelpContractViolations(rootDir, { minimumCommands: 1 })).join("\n"), /tool fixture-tool \[unknown-option-hint\].*node tools\/fixture\.mjs --help/u);
+}));
+
 test("thin help contract derives route flags from command paths", () => withFixture(async ({ rootDir, commandPath }) => {
   writeFileSync(commandPath, commandSource("ha doc sync --dry-run", "Preview documents.", ["doc", "sync", "--dry-run"]));
   assert.deepEqual(await findCliHelpContractViolations(rootDir, { minimumCommands: 1 }), []);
@@ -78,8 +88,10 @@ test("thin help contract accepts a complete projection of input constraints", ()
 }));
 
 async function withFixture(run) { const rootDir = mkdtempSync(path.join(tmpdir(), "thin-help-"));
-  try { const commandPath = write(rootDir, "packages/daemon/src/protocol/daemon-protocol.contract.ts", commandSource("ha task show <id>", "Show a task.")); write(rootDir, "packages/preset/src/preset-command-contract.ts", "export const regexLength = () => undefined; export const parameterRelationHint = () => false;\n"); write(rootDir, "packages/cli/src/cli/thin-command.ts", "export function renderThinHelp() { return [...thinCliCommands.map(({ usage, summary, help }) => `  ${usage}\\n    ${summary}${help ? `\\n${help}` : \"\"}`)]; }\n"); const entryPath = write(rootDir, "packages/cli/src/index.ts", `if (argv.length === 0 || argv.includes("--help")) renderThinHelp();\n`); await run({ rootDir, commandPath, entryPath });
+  try { const commandPath = write(rootDir, "packages/daemon/src/protocol/daemon-protocol.contract.ts", commandSource("ha task show <id>", "Show a task.")); write(rootDir, "packages/preset/src/preset-command-contract.ts", "export const regexLength = () => undefined; export const parameterRelationHint = () => false;\n"); const renderPath = write(rootDir, "packages/cli/src/cli/thin-command.ts", thinCommandSource(true)), toolPath = write(rootDir, "tools/tool-command-contract.mjs", toolCommandSource(true)); const entryPath = write(rootDir, "packages/cli/src/index.ts", `if (argv.length === 0 || argv.includes("--help")) renderThinHelp();\n`); await run({ rootDir, commandPath, entryPath, renderPath, toolPath });
   } finally { rmSync(rootDir, { recursive: true, force: true }); } }
 function commandSource(usage, summary, commandPath = ["task", "show"], inputs = [], help) { return commandModule([{ path: commandPath, usage, summary, inputs, ...(help === undefined ? {} : { help }) }]); }
-function commandModule(commands) { const projected = commands.map((command) => ({ ...command, help: command.help ?? command.inputs.map((input) => `    ${input.name} — ${input.required ? "required" : "optional"}; ${input.enum ? `values: ${input.enum.join(", ")}; ` : ""}${input.error?.nextAction ?? ""}`).join("\\n") })); return `export const daemonProtocolCommands = Object.freeze(${JSON.stringify(projected)});\nexport const thinCliCommands = daemonProtocolCommands.map(({usage, summary, help}) => ({usage, summary, help}));\n`; }
+function commandModule(commands) { const projected = commands.map((command) => ({ ...command, syntaxPath: command.path, help: command.help ?? command.inputs.map((input) => `    ${input.name} — ${input.required ? "required" : "optional"}; ${input.enum ? `values: ${input.enum.join(", ")}; ` : ""}${input.error?.nextAction ?? ""}`).join("\\n") })); return `export const daemonProtocolCommands = Object.freeze(${JSON.stringify(projected)});\nexport const thinCliCommands = daemonProtocolCommands.map(({usage, summary, help}) => ({usage, summary, help}));\n`; }
+function thinCommandSource(actionable) { return `export function renderThinHelp() { return [...thinCliCommands.map(({ usage, summary, help }) => \`  \${usage}\\n    \${summary}\${help ? \`\\n\${help}\` : ""}\`)]; }\nexport function parseThinCommand(_argv, _cwd, commands) { const command = commands[0]; return { ok: false, code: "unknown_field", nextAction: ${actionable ? "`Unknown option --policy-conformance-probe. Run ha ${command.path.join(\" \")} --help.`" : '"Unknown option --policy-conformance-probe."'}, json: false }; }\n`; }
+function toolCommandSource(actionable) { return `export const supportedToolCommands = [{ id: "fixture-tool", entry: "tools/fixture.mjs", options: [{ name: "--value" }] }];\nexport function parseToolOptions(descriptor) { throw new Error(${actionable ? "`unknown option\\nRun node ${descriptor.entry} --help.`" : '"unknown option"'}); }\n`; }
 function write(rootDir, relative, body) { const file = path.join(rootDir, relative); mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, body); return file; }

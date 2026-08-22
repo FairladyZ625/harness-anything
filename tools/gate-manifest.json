@@ -1540,10 +1540,11 @@
         "packages/daemon/src/protocol/daemon-protocol.contract.ts",
         "packages/preset/src/preset-command-contract.ts",
         "packages/cli/src/cli/thin-command.ts",
+        "tools/tool-command-contract.mjs",
         "tools/check-cli-help-contract.mjs"
       ],
       "consumerScope": [
-        "CLI command registry and help output contract"
+        "CLI and supported-tool help plus shared unknown-option rejection contract"
       ],
       "githubContext": {
         "requiredContexts": [
