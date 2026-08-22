@@ -7,7 +7,7 @@ import { daemonProtocolCommands } from "../packages/daemon/src/protocol/daemon-p
 import { parseCloseoutArgs } from "./closeout-task.mjs";
 import { parseDispatchArgs as parseIsolatedDispatchArgs } from "./dispatch-isolated-test.mjs";
 import { parseRunnerArgs } from "./node-test-runner-lib.mjs";
-import { closeoutTaskCommand, dispatchIsolatedTestCommand, renderToolHelp, runNodeTestsCommand, supportedToolCommands } from "./tool-command-contract.mjs";
+import { closeoutTaskCommand, dispatchIsolatedTestCommand, parseToolOptions, renderToolHelp, runNodeTestsCommand, supportedToolCommands } from "./tool-command-contract.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
@@ -38,6 +38,12 @@ test("sample tool parsers accept every documented flag and reject an undocumente
     for (const argv of invocations) assert.doesNotThrow(() => parse(argv));
     assert.deepEqual(descriptor.options.map(({ name }) => name).sort(), descriptor.options.map(({ name }) => name).filter((name) => invocations.some((argv) => argv.some((arg) => arg === name || arg.startsWith(`${name}=`)))).sort());
     assert.throws(() => parse(["--not-documented"]), /--not-documented|Usage:/u);
+  }
+});
+
+test("shared tool option rejections point to descriptor-derived help", () => {
+  for (const descriptor of supportedToolCommands.filter(({ invalidInputShowsHelp }) => invalidInputShowsHelp !== true)) {
+    assert.throws(() => parseToolOptions(descriptor, ["--policy-conformance-probe"]), new RegExp(`Run node ${descriptor.entry.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")} --help\\.`, "u"));
   }
 });
 

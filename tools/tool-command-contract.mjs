@@ -192,7 +192,7 @@ export function toolValues(parsed, name) {
 }
 
 function invalidInput(descriptor, message) {
-  return new Error(descriptor.invalidInputShowsHelp ? renderToolHelp(descriptor) : message);
+  return new Error(descriptor.invalidInputShowsHelp ? renderToolHelp(descriptor) : `${message}\nRun node ${descriptor.entry} --help.`);
 }
 
 function validateNonNegativeInteger(value, name) {
