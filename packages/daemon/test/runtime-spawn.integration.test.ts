@@ -108,11 +108,12 @@ test("Codex API-key bearer remains confined to the private provider config", asy
 });
 
 test("daemon ingress preserves executor-scoped task-bound runtime spawn", async (t) => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-ingress-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), executablePath = writeProviderExecutable(path.join(parent, "codex-stub.mjs"), "process.exit(0);\n"), repoId = "runtime-spawn-ingress", uid = 4301;
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-ingress-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), workerRoot = path.join(root, ".worktrees", "worker"), executablePath = writeProviderExecutable(path.join(parent, "codex-stub.mjs"), "process.exit(0);\n"), repoId = "runtime-spawn-ingress", uid = 4301;
   initIngressRepo(root, uid); registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
+  mkdirSync(path.join(workerRoot, "packages", "cli", "src"), { recursive: true }); writeFileSync(path.join(workerRoot, "packages", "cli", "src", "index.ts"), "export {};\n");
   const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" } } as const;
-  const ingressDefinition = { ...definition, authMode: "subscription" as const }, ingressInstallation = { ...installation, executablePath }; let launchedEnv: NodeJS.ProcessEnv | null = null;
-  const host = await openDaemonHost({ daemonId: "runtime-spawn-ingress", userRoot, runtimeDiscover: () => [ingressInstallation], runtimeLaunch: (prepared) => { launchedEnv = prepared.env; return { pid: 4310, onOutput: (listener) => { queueMicrotask(() => listener(`${JSON.stringify({ type: "thread.started", thread_id: "provider-task-session" })}\n`)); }, onErrorOutput: () => undefined, onExit: () => undefined, terminate: () => undefined }; } });
+  const ingressDefinition = { ...definition, authMode: "subscription" as const }, ingressInstallation = { ...installation, executablePath }; let launchedEnv: NodeJS.ProcessEnv | null = null, launchedPrompt = "", launchCount = 0;
+  const host = await openDaemonHost({ daemonId: "runtime-spawn-ingress", userRoot, runtimeDiscover: () => [ingressInstallation], runtimeLaunch: (prepared) => { launchedEnv = prepared.env; launchedPrompt = prepared.prompt; launchCount += 1; return { pid: 4310, onOutput: (listener) => { queueMicrotask(() => listener(`${JSON.stringify({ type: "thread.started", thread_id: "provider-task-session" })}\n`)); }, onErrorOutput: () => undefined, onExit: () => undefined, terminate: () => undefined }; } });
   await host.attachmentsSettled();
   try {
     host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: ingressDefinition.instanceId, name: "Codex Review", kindId: ingressDefinition.kindId, installationId: ingressDefinition.installationId, providerId: ingressDefinition.providerId, models: [ingressDefinition.model], codex: { reasoningEffort: ingressDefinition.reasoningEffort }, authMode: ingressDefinition.authMode }, auth);
@@ -120,15 +121,32 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       const taskId = "task-runtime-agent", executionId = "exec-runtime-agent", executor = { kind: "agent", id: "codex-worker" } as const;
       assert.equal((await host.run(repoId, { kind: "task-create", taskId, title: "Agent runtime" }, auth)).outcome, "applied");
       assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId, executor }, auth)).outcome, "applied");
-      const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-root" }, prompt: "Inspect the task", taskId, idempotencyKey: "agent-task-bound", executor } });
+      const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-relative", path: ".worktrees/worker" }, prompt: "Inspect the task.\n\n```sh\nnode packages/cli/src/index.ts --version\n```", taskId, idempotencyKey: "agent-task-bound", executor } });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       assert.equal(launchedEnv?.HARNESS_ACTOR, `agent:runtime-session:${receipt.runtimeSessionId}`);
-      assert.equal(launchedEnv?.HARNESS_DAEMON_USER_ROOT, userRoot); assert.equal(launchedEnv?.HARNESS_DAEMON_ID, "runtime-spawn-ingress"); assert.match(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /harness-anything/u);
+      assert.equal(launchedEnv?.HARNESS_DAEMON_USER_ROOT, userRoot); assert.equal(launchedEnv?.HARNESS_DAEMON_ID, "runtime-spawn-ingress"); assert.equal(launchedEnv?.HARNESS_DAEMON_REPO_ID, repoId); assert.match(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /harness-anything/u);
+      assert.match(launchedPrompt, new RegExp(`Repository id: ${repoId}`, "u")); assert.ok(launchedPrompt.includes("Repository registration: enabled")); assert.ok(launchedPrompt.includes(`Canonical repository root: ${realpathSync(root)}`)); assert.ok(launchedPrompt.includes(`Worker repository root: ${realpathSync(workerRoot)}`)); assert.ok(launchedPrompt.includes(`Task package root: ${path.join(realpathSync(root), "harness", "tasks", "task-runtime-agent-agent-runtime")}`)); assert.match(launchedPrompt, new RegExp(`Runtime actor: agent:runtime-session:${receipt.runtimeSessionId}`, "u")); assert.ok(launchedPrompt.includes(`Daemon user root: ${userRoot}`)); assert.ok(launchedPrompt.includes("Daemon id: runtime-spawn-ingress")); assert.ok(launchedPrompt.includes(`Daemon endpoint: ${launchedEnv?.HARNESS_DAEMON_ENDPOINT}`));
       const bound = await eventuallyValue(async () => makeTaskEventStore({ repoId, rootDir: root }).read().events.find((event) => event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === receipt.runtimeSessionId) ?? null);
       assert.equal(bound?.type, "runtime_session_task_bound"); assert.deepEqual(bound?.actor.executor, executor);
       assert.deepEqual(bound?.type === "runtime_session_task_bound" && { taskId: bound.payload.taskId, executionId: bound.payload.executionId }, { taskId, executionId });
       const overview = await host.read(repoId, "repo.agentRuntime.overview", {}, auth), session = overview.sessions.find((candidate) => candidate.runtimeSessionId === receipt.runtimeSessionId);
       assert.equal(session?.associations.some((association) => association.taskId === taskId && association.executionId === executionId), true);
+    });
+    await t.test("task mission rejects an unmatched shell glob before provider launch", async () => {
+      const taskId = "task-runtime-invalid-glob", executionId = "exec-runtime-invalid-glob", executor = { kind: "agent", id: "codex-worker" } as const;
+      assert.equal((await host.run(repoId, { kind: "task-create", taskId, title: "Invalid glob" }, auth)).outcome, "applied");
+      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId, executor }, auth)).outcome, "applied");
+      writeFileSync(path.join(root, "harness", "tasks", "task-runtime-invalid-glob-invalid-glob", "task_plan.md"), "# Invalid glob\n\n```sh\nprintf 'inspect manifest' && rg runtime tools/test-tier-manifest.*.mjs\n```\n");
+      const before = launchCount, receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-relative", path: ".worktrees/worker" }, taskId, idempotencyKey: "invalid-glob", executor } });
+      assert.equal(receipt.outcome, "op_rejected"); assert.equal(receipt.code, "runtime_mission_invalid"); assert.match(String(receipt.nextAction), /tools\/test-tier-manifest\.\*\.mjs/u); assert.equal(launchCount, before);
+    });
+    await t.test("task mission rejects a missing Node entry before provider launch", async () => {
+      const taskId = "task-runtime-missing-entry", executionId = "exec-runtime-missing-entry", executor = { kind: "agent", id: "codex-worker" } as const;
+      assert.equal((await host.run(repoId, { kind: "task-create", taskId, title: "Missing entry" }, auth)).outcome, "applied");
+      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId, executor }, auth)).outcome, "applied");
+      writeFileSync(path.join(root, "harness", "tasks", "task-runtime-missing-entry-missing-entry", "task_plan.md"), "# Missing entry\n\n```bash\nnode tools/missing-entry.mjs\n```\n");
+      const before = launchCount, receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-relative", path: ".worktrees/worker" }, taskId, idempotencyKey: "missing-entry", executor } });
+      assert.equal(receipt.outcome, "op_rejected"); assert.equal(receipt.code, "runtime_mission_invalid"); assert.match(String(receipt.nextAction), /tools\/missing-entry\.mjs/u); assert.equal(launchCount, before);
     });
     await t.test("mismatched agent executor remains rejected", async () => {
       const taskId = "task-runtime-mismatch", executionId = "exec-runtime-mismatch", holder = { kind: "agent", id: "codex-holder" } as const, caller = { kind: "agent", id: "codex-other" } as const;
