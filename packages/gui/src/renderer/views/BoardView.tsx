@@ -28,7 +28,6 @@ import { sortByFavoritesFirst } from "../model/taskFilters";
 import { spawningDecisionOf } from "../model/triadic";
 import { ListView } from "./ListView";
 import { isTaskStartable, type TaskMutationFeedback } from "../task-actions.ts";
-import type { WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
 
 const ENGINE_HINT: Record<string, string> = {
   multica: "由 Multica 管理，去 Multica 改状态",
@@ -148,7 +147,6 @@ function DraggableCard({
 function Column({
   status,
   tasks,
-  count,
   onSelect,
   rejecting,
   relations,
@@ -157,7 +155,6 @@ function Column({
 }: {
   status: SnapshotStatus;
   tasks: TaskRow[];
-  count: number;
   onSelect: (id: string) => void;
   rejecting: boolean;
   relations: RelationEdge[];
@@ -183,7 +180,7 @@ function Column({
           {meta.icon}
         </span>
         <span className="text-[15px] font-semibold">{meta.label}</span>
-        <span className="font-mono text-[13px] text-text-faint" data-testid={`board-status-${status}-count`}>{count}</span>
+        <span className="font-mono text-[13px] text-text-faint" data-testid={`board-status-${status}-count`}>{tasks.length}</span>
         {isOver && rejecting && (
           <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-danger">
             <Lock weight="bold" />
@@ -218,7 +215,6 @@ export type BoardLayout = "column" | "swimlane" | "list";
 export function BoardView({
   tasks,
   allTasks,
-  summary,
   filters,
   onFiltersChange,
   onSelect,
@@ -233,7 +229,6 @@ export function BoardView({
 }: {
   tasks: TaskRow[];
   allTasks: TaskRow[];
-  summary: WorkspaceSummaryRead["tasks"];
   filters: TaskFilters;
   onFiltersChange: (filters: TaskFilters) => void;
   onSelect: (id: string) => void;
@@ -267,7 +262,6 @@ export function BoardView({
   const [activeTask, setActiveTask] = useState<TaskRow | null>(null);
   const [dragMessage, setDragMessage] = useState<string | null>(null);
   const [lastMutationTaskId, setLastMutationTaskId] = useState<string | null>(null);
-  const counts = filters.includeArchived ? summary.includingArchived : summary;
 
   const onDragStart = (e: DragStartEvent) =>
     setActiveTask(tasks.find((t) => t.taskId === e.active.id) ?? null);
@@ -392,7 +386,6 @@ export function BoardView({
                 key={status}
                 status={status}
                 tasks={tasks.filter((t) => t.coordinationStatus === status)}
-                count={counts.byStatus[status]}
                 onSelect={onSelect}
                 rejecting={activeTask ? isExternal(activeTask) : false}
                 relations={relations}

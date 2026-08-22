@@ -20,13 +20,9 @@ export interface WorkspaceSummaryDecision {
   readonly state: DecisionState;
 }
 
-export interface WorkspaceTaskCounts {
+export interface WorkspaceTaskSummary {
   readonly total: number;
   readonly byStatus: Readonly<Record<DomainStatus | "unknown", number>>;
-}
-
-export interface WorkspaceTaskSummary extends WorkspaceTaskCounts {
-  readonly includingArchived: WorkspaceTaskCounts;
 }
 
 export interface WorkspaceDecisionGroup {
@@ -49,11 +45,11 @@ export interface WorkspaceSummary {
 }
 
 /**
- * Canonical workspace census consumed by daemon projections. The default task
- * census matches the board's default rows: active packages excluding cancelled
- * tasks. The optional archived/cancelled board view consumes the all-row census.
- * Both classify the already-derived coordinationStatus rather than reconstructing
- * status semantics from canonical task fields.
+ * Canonical workspace census consumed by daemon projections. The task census
+ * counts exactly the rows the board draws by default — active packages excluding
+ * cancelled tasks — so the overview and the board cannot disagree about how many
+ * tasks are in a status. It classifies the already-derived coordinationStatus
+ * rather than reconstructing status semantics from canonical task fields.
  * Decision groups preserve every registered decision state exactly once; proposed
  * therefore means only "awaits judgment", and retired includes both ways a
  * decision can leave standing use.
@@ -62,9 +58,7 @@ export function summarizeWorkspace(
   tasks: readonly WorkspaceSummaryTask[],
   decisions: readonly WorkspaceSummaryDecision[]
 ): WorkspaceSummary {
-  const includingArchived = countTasks(tasks);
   const boardTasks = tasks.filter((task) => task.packageDisposition === "active" && task.coordinationStatus !== "cancelled");
-  const boardCounts = countTasks(boardTasks);
 
   const groups: Array<{ id: WorkspaceDecisionGroupId; states: DecisionState[]; decisionIds: string[] }> = [
     { id: "proposed", states: ["proposed"], decisionIds: [] },
@@ -83,7 +77,7 @@ export function summarizeWorkspace(
   const publishedGroups = groups.map((group) => ({ ...group, count: group.decisionIds.length }));
 
   return {
-    tasks: { ...boardCounts, includingArchived },
+    tasks: countTasks(boardTasks),
     decisions: {
       total: decisions.length,
       inboxCount: publishedGroups[0]!.count,
@@ -93,7 +87,7 @@ export function summarizeWorkspace(
   };
 }
 
-function countTasks(tasks: readonly WorkspaceSummaryTask[]): WorkspaceTaskCounts {
+function countTasks(tasks: readonly WorkspaceSummaryTask[]): WorkspaceTaskSummary {
   const byStatus: Record<DomainStatus | "unknown", number> = {
     planned: 0,
     active: 0,

@@ -21,9 +21,7 @@ test("workspace summary counts the same rows and coordination statuses as the bo
   assert.equal(summary.tasks.total, boardRows.length);
   for (const status of ["planned", "active", "blocked", "in_review", "done", "cancelled", "unknown"] as const) {
     assert.equal(summary.tasks.byStatus[status], boardRows.filter((task) => task.coordinationStatus === status).length);
-    assert.equal(summary.tasks.includingArchived.byStatus[status], tasks.filter((task) => task.coordinationStatus === status).length);
   }
-  assert.equal(summary.tasks.includingArchived.total, tasks.length);
 });
 
 test("workspace summary assigns every decision once and keeps proposed and retired meanings exact", () => {

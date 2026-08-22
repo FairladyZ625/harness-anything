@@ -460,10 +460,9 @@ function AppShell() {
                 onOpenSystem={() => goto("system")}
               /> : <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
             ) : view === "board" ? (
-              workspaceSummaryQuery.data ? <BoardView
+              <BoardView
                 tasks={filteredProjectTasks}
                 allTasks={projectTasks}
-                summary={workspaceSummaryQuery.data.tasks}
                 filters={taskFilters}
                 onFiltersChange={setTaskFilters}
                 onSelect={openTaskPreview}
@@ -473,7 +472,7 @@ function AppShell() {
                 onToggleFavorite={toggleFavorite}
                 onStartTask={taskActions.startTask}
                 mutationFeedback={(taskId) => taskActions.feedback.get(taskId)}
-              /> : <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
+              />
             ) : view === "graph" ? (
               <EntityWorkspace
                 focusedEntityRef={focusedEntityRef}

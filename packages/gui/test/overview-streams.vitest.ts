@@ -12,7 +12,8 @@ import { DecisionPreviewDrawer } from "../src/renderer/components/DecisionPrevie
 import { streamTime } from "../src/renderer/components/overview/streamParts.tsx";
 import { localDateTime, localTime } from "../src/renderer/model/local-time.ts";
 import type { WorkspaceSummaryRead } from "../src/api/renderer-dto.ts";
-import { DEFAULT_TASK_FILTERS } from "../src/renderer/model/taskFilters.ts";
+import { DEFAULT_TASK_FILTERS, matchesTask } from "../src/renderer/model/taskFilters.ts";
+import { summarizeWorkspace } from "../../kernel/src/index.ts";
 
 function task(patch: Partial<TaskRow>): TaskRow {
   return {
@@ -34,13 +35,9 @@ function decision(patch: Partial<DecisionRow>): DecisionRow {
 }
 
 const noop = () => {};
-const taskSummary = (
-  patch: Partial<WorkspaceSummaryRead["tasks"]["byStatus"]> = {},
-  includingArchivedPatch: Partial<WorkspaceSummaryRead["tasks"]["byStatus"]> = patch,
-): WorkspaceSummaryRead["tasks"] => {
+const taskSummary = (patch: Partial<WorkspaceSummaryRead["tasks"]["byStatus"]> = {}): WorkspaceSummaryRead["tasks"] => {
   const byStatus = { planned: 0, active: 0, blocked: 0, in_review: 0, done: 0, cancelled: 0, unknown: 0, ...patch };
-  const includingArchivedByStatus = { planned: 0, active: 0, blocked: 0, in_review: 0, done: 0, cancelled: 0, unknown: 0, ...includingArchivedPatch };
-  return { total: Object.values(byStatus).reduce((sum, count) => sum + count, 0), byStatus, includingArchived: { total: Object.values(includingArchivedByStatus).reduce((sum, count) => sum + count, 0), byStatus: includingArchivedByStatus } };
+  return { total: Object.values(byStatus).reduce((sum, count) => sum + count, 0), byStatus };
 };
 const decisionSummary = (patch: Partial<WorkspaceSummaryRead["decisions"]["byState"]> = {}): WorkspaceSummaryRead["decisions"] => {
   const byState = { proposed: 0, in_effect: 0, rejected: 0, deferred: 0, superseded: 0, outcome_retired: 0, ...patch };
@@ -92,14 +89,23 @@ describe("overview decision stream", () => {
 });
 
 describe("overview task stream", () => {
-  it("renders the same daemon aggregate in overview tabs and board column headers", () => {
-    const tasks = [task({ taskId: "task_a1", title: "Active one", coordinationStatus: "active" })];
-    const summary = taskSummary({ planned: 3, active: 4, blocked: 7 }, { planned: 5, active: 9, blocked: 11, cancelled: 2 });
-    const overview = renderToStaticMarkup(createElement(TaskStream, { tasks, summary, onOpenPreview: noop, onGoBoard: noop }));
+  // The overview renders the daemon aggregate and the board counts the rows it draws.
+  // They are the same number only while the backend classifies exactly what the board's
+  // default filter keeps, so the same fixture has to reach both sides and agree.
+  it("counts the same rows in the daemon aggregate and in the board columns it draws", () => {
+    const rows = [
+      task({ taskId: "task_a1", title: "Active one", coordinationStatus: "active" }),
+      task({ taskId: "task_a2", title: "Active two", coordinationStatus: "active" }),
+      task({ taskId: "task_b1", title: "Blocked one", coordinationStatus: "blocked" }),
+      task({ taskId: "task_c1", title: "Cancelled one", coordinationStatus: "cancelled" }),
+      task({ taskId: "task_d1", title: "Archived active", coordinationStatus: "active", packageDisposition: "archived" }),
+    ];
+    const summary = summarizeWorkspace(rows.map(({ coordinationStatus, packageDisposition }) => ({ coordinationStatus, packageDisposition })), []).tasks;
+    const visible = rows.filter((row) => matchesTask(row, DEFAULT_TASK_FILTERS));
+    const overview = renderToStaticMarkup(createElement(TaskStream, { tasks: visible, summary, onOpenPreview: noop, onGoBoard: noop }));
     const board = renderToStaticMarkup(createElement(BoardView, {
-      tasks,
-      allTasks: tasks,
-      summary,
+      tasks: visible,
+      allTasks: rows,
       filters: DEFAULT_TASK_FILTERS,
       onFiltersChange: noop,
       onSelect: noop,
@@ -108,24 +114,14 @@ describe("overview task stream", () => {
       onToggleFavorite: noop,
     }));
 
-    expect(overview).toMatch(/data-testid="overview-status-active"[\s\S]*?进行中[\s\S]*?4/);
-    expect(overview).toMatch(/data-testid="overview-status-blocked"[\s\S]*?已阻塞[\s\S]*?7/);
-    expect(board).toContain('data-testid="board-status-active-count">4</span>');
-    expect(board).toContain('data-testid="board-status-blocked-count">7</span>');
-
-    const archivedBoard = renderToStaticMarkup(createElement(BoardView, {
-      tasks,
-      allTasks: tasks,
-      summary,
-      filters: { ...DEFAULT_TASK_FILTERS, includeArchived: true },
-      onFiltersChange: noop,
-      onSelect: noop,
-      relations: [],
-      favorites: new Set<string>(),
-      onToggleFavorite: noop,
-    }));
-    expect(archivedBoard).toContain('data-testid="board-status-active-count">9</span>');
-    expect(archivedBoard).toContain('data-testid="board-status-cancelled-count">2</span>');
+    for (const status of ["active", "blocked", "cancelled"] as const) {
+      const drawn = visible.filter((row) => row.coordinationStatus === status).length;
+      expect(summary.byStatus[status]).toBe(drawn);
+      expect(board).toContain(`data-testid="board-status-${status}-count">${drawn}</span>`);
+    }
+    expect(summary.total).toBe(visible.length);
+    expect(overview).toMatch(/data-testid="overview-status-active"[\s\S]*?进行中[\s\S]*?2/);
+    expect(overview).toMatch(/data-testid="overview-status-blocked"[\s\S]*?已阻塞[\s\S]*?1/);
   });
 
   it("filters to the selected status in place with census counts on every tab (sidebar parity)", () => {
