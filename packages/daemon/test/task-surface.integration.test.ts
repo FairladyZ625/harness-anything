@@ -42,6 +42,11 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
     assert.equal(plannedActivation.outcome, "op_rejected"); assert.equal(plannedActivation.code, "invalid_transition");
     assert.equal((await cell.run({ kind: "task-start", taskId: "task_reviewing", executionId: "exe_reviewing" }, binding)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-submit", taskId: "task_reviewing", executionId: "exe_reviewing", submission: { completionClaim: "Status routing is ready for review.", deliverables: ["aggregate status route"], outputs: ["task lifecycle event"], verificationNotes: ["daemon integration"], knownGaps: [], residualRisks: [], commitSha: git(rootDir, "rev-parse", "HEAD") } }, binding)).outcome, "applied");
+    const submittedProgress = await cell.run({ kind: "task-progress-append", taskId: "task_reviewing", text: "Late review judgment", evidence: [] }, binding);
+    assert.equal(submittedProgress.outcome, "op_rejected"); assert.equal(submittedProgress.code, "progress_lease_required");
+    assert.match(String(submittedProgress.nextAction), /progress append has no recovery in this state/u); assert.doesNotMatch(String(submittedProgress.nextAction), /ha task start/u);
+    const submittedRestart = await cell.run({ kind: "task-start", taskId: "task_reviewing", executionId: "exe_reviewing" }, binding);
+    assert.equal(submittedRestart.outcome, "op_rejected"); assert.equal(submittedRestart.code, "invalid_transition");
     const reviewActivation = await cell.run({ kind: "task-transition", taskId: "task_reviewing", status: "active", reason: "Bypass review outcome" }, binding);
     assert.equal(reviewActivation.outcome, "op_rejected"); assert.equal(reviewActivation.code, "invalid_transition");
     assert.equal((await cell.run({ kind: "task-transition", taskId: "task_lifecycle", status: "done", reason: "bypass" }, binding)).outcome, "op_rejected");
