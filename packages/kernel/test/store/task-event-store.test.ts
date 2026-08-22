@@ -127,6 +127,13 @@ test("doc event, content blob, and authored file publish in one default-branch c
   });
 });
 
+test("document retirement preserves a local edit that races the canonical deletion", async () => {
+  await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const logical = "context/temporary.md", canonical = "# Temporary\n", local = "# Concurrent local edit\n", store = makeTaskEventStore({ repoId: "retirement-conflict", rootDir }); store.append(docBundle(store, canonical, 1, "op-retirement-base", logical)); writeFileSync(path.join(rootDir, "harness", logical), local);
+    const retired: DocEventV1 = { schema: "doc-event/v1", eventId: "event-retirement-delete", workspaceRevision: 2, opId: "op-retirement-delete", type: "documents_written", actor: event.actor, source: "local", occurredAt: event.occurredAt, payload: { executionId: null, baseLedgerSha: store.currentCut(), retirementReason: "superseded temporary evidence", changes: [{ path: logical, baseBlobSha256: sha256Text(canonical), candidate: null, policyId: DOC_POLICY_ID, regionProofs: [] }] } };
+    store.append({ event: retired, plan: docSyncWritePlan(retired), blobs: [] }); const directory = path.join(rootDir, "harness/context"), conflict = readdirSync(directory).find((name) => /^temporary\.conflict-[0-9a-f]{8}\.md$/u.test(name)); assert.equal(existsSync(path.join(rootDir, "harness", logical)), false); assert.ok(conflict); assert.equal(readFileSync(path.join(directory, conflict), "utf8"), local); assert.equal(git(rootDir, "ls-tree", "--name-only", "HEAD", `harness/${logical}`), "");
+  });
+});
+
 test("a reopened store verifies and reuses a reachable content blob", async () => {
   await withTempStoreAsync(async (rootDir) => { initRepo(rootDir); const body = "# Shared\n", hash = sha256Text(body), first = makeTaskEventStore({ repoId: "blob-reuse", rootDir }); first.append(docBundle(first, body, 1, "blob-one", "context/one.md"));
     const reopened = makeTaskEventStore({ repoId: "blob-reuse", rootDir }), receipt = reopened.append(docBundle(reopened, body, 2, "blob-two", "context/two.md")), objectPath = `harness/${contentObjectRelativePath(hash)}`;

@@ -82,7 +82,8 @@ export interface EventHead {
 
 export type WriteTarget =
   | { readonly kind: "event_file"; readonly path: string; readonly operation: "create" }
-  | { readonly kind: "event_head"; readonly path: string; readonly operation: "replace" } | { readonly kind: "authored_file"; readonly path: string; readonly operation: "replace"; readonly sha256: string; readonly size: number; readonly mediaType: string }
+  | { readonly kind: "event_head"; readonly path: string; readonly operation: "replace" }
+  | { readonly kind: "authored_file"; readonly path: string; readonly operation: "replace"; readonly sha256: string; readonly size: number; readonly mediaType: string } | { readonly kind: "authored_file_delete"; readonly path: string; readonly operation: "delete"; readonly baseSha256: string }
   | { readonly kind: "projection_invalidation"; readonly projection: string; readonly key: string }
   | { readonly kind: "lease_sqlite"; readonly table: "lease_cas"; readonly taskId: string; readonly operation: "reserve" | "activate" | "release" }
   | { readonly kind: "content_blob"; readonly sha256: string; readonly size: number; readonly mediaType: string }
@@ -133,7 +134,7 @@ export function validateActorIdentity(value: unknown, allowUnknownFields = false
 export function validateWriteSource(value: unknown, allowUnknownFields = false): readonly string[] {
   if (value === "local" || value === "remote_direct" || value === "migration-import/v1") return [];
   if (isRecord(value) && hasContractFields(value, ["kind", "nodeId", "assignmentId"], allowUnknownFields) && value.kind === "assignment" && isNonEmptyString(value.nodeId) && isNonEmptyString(value.assignmentId)) return [];
-  return isRecord(value) && hasContractFields(value, ["kind", "sessionId", "path", "fingerprint"], allowUnknownFields) && value.kind === "watch_session" && isNonEmptyString(value.sessionId) && safeWorkspacePath(value.path) && /^[0-9a-f]{64}$/u.test(String(value.fingerprint)) ? [] : ["source must be local, remote_direct, migration-import/v1, an assignment identity, or a watch session"];
+  if (allowUnknownFields && isRecord(value) && hasContractFields(value, ["kind", "sessionId", "path", "fingerprint"], true) && value.kind === "watch_session" && isNonEmptyString(value.sessionId) && safeWorkspacePath(value.path) && /^[0-9a-f]{64}$/u.test(String(value.fingerprint))) return []; return ["source must be local, remote_direct, migration-import/v1, or an assignment identity"];
 }
 
 function actorIdentityShape(value: unknown): readonly unknown[] | null {
@@ -220,7 +221,7 @@ function safeIdentity(value: unknown): value is string {
 
 function targetKey(target: WriteTarget): string {
   return target.kind === "event_file" || target.kind === "event_head" ? `${target.kind}:${target.path}`
-    : target.kind === "local_wal_file" ? `${target.kind}:${target.path}`
+    : target.kind === "local_wal_file" || target.kind === "authored_file_delete" ? `${target.kind}:${target.path}`
     : target.kind === "projection_invalidation" ? `${target.kind}:${target.projection}:${target.key}`
     : target.kind === "lease_sqlite" ? `${target.kind}:${target.table}:${target.taskId}:${target.operation}`
     : `${target.kind}:${target.sha256}`;
