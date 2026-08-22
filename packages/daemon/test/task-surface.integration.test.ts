@@ -231,6 +231,8 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     assert.equal(active.rows.length, 2); assert.equal(active.page, undefined);
     const windowed = await cell.read("repo.tasks.list", { updatedAfter: "2026-08-15T00:00:00.000Z" });
     assert.deepEqual(windowed.rows.map((row) => row.taskId), JSON.parse(taskBytes).rows.filter((row: { updatedAt: string }) => row.updatedAt >= "2026-08-15T00:00:00.000Z").map((row: { taskId: string }) => row.taskId));
+    const changed = await cell.read("repo.tasks.list", { changedAfterRevision: 7 });
+    assert.deepEqual(changed.rows.map((row) => row.taskId), JSON.parse(taskBytes).rows.filter((row: { workspaceRevision: number }) => row.workspaceRevision > 7).map((row: { taskId: string }) => row.taskId));
     let page = await cell.read("repo.tasks.list", { limit: 2 }), paged: typeof page.rows = [];
     while (true) { paged = [...paged, ...page.rows]; if (!page.page?.nextCursor) break; page = await cell.read("repo.tasks.list", { limit: 2, cursor: page.page.nextCursor }); }
     assert.equal(page.page?.nextCursor, null);

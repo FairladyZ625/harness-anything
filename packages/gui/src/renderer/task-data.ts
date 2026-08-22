@@ -29,16 +29,15 @@ export async function readCompleteTaskList(repoId: string): Promise<TaskListSucc
 }
 
 export async function readTaskList(repoId: string, previous?: TaskListSuccess): Promise<TaskListSuccess> {
-  if (!previous || previous.status !== "ready" || previous.rows.length === 0) return readCompleteTaskList(repoId);
-  const updatedAfter = previous.rows.reduce((latest, row) => row.updatedAt > latest ? row.updatedAt : latest, "");
-  const delta = await readTaskPages(repoId, { updatedAfter });
+  if (!previous || previous.status !== "ready") return readCompleteTaskList(repoId);
+  const delta = await readTaskPages(repoId, { changedAfterRevision: previous.watermark });
   if (delta.status !== "ready" || delta.watermark < previous.watermark || delta.sourceRevision < previous.sourceRevision) return readCompleteTaskList(repoId);
   const rows = new Map(previous.rows.map((row) => [row.taskId, row]));
   for (const row of delta.rows) rows.set(row.taskId, row);
   return { ...delta, rows: [...rows.values()].sort((left, right) => left.taskId < right.taskId ? -1 : left.taskId > right.taskId ? 1 : 0) };
 }
 
-async function readTaskPages(repoId: string, facets: Pick<TaskQueryFacets, "updatedAfter">): Promise<TaskListSuccess> {
+async function readTaskPages(repoId: string, facets: Pick<TaskQueryFacets, "changedAfterRevision">): Promise<TaskListSuccess> {
   const first = await harnessClient.getTasks({ repoId, ...facets, limit: TASK_LIST_PAGE_LIMIT });
   let current = first;
   const rows = [...first.rows];

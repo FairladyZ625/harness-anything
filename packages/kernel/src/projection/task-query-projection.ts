@@ -13,7 +13,7 @@ import type { ReplayTaskStatus, TaskV1 } from "../domain/task.ts";
  * through the projection's own transaction (apply/rebuild/cold catch-up).
  */
 export interface ProjectionPage { readonly limit: number; readonly cursor: string | null; readonly nextCursor: string | null }
-export interface TaskProjectionListQuery { readonly status?: ReplayTaskStatus; readonly updatedAfter?: string; readonly updatedBefore?: string; readonly limit?: number; readonly cursor?: string; readonly pinnedFirst?: boolean }
+export interface TaskProjectionListQuery { readonly status?: ReplayTaskStatus; readonly changedAfterRevision?: number; readonly updatedAfter?: string; readonly updatedBefore?: string; readonly limit?: number; readonly cursor?: string; readonly pinnedFirst?: boolean }
 export interface TaskRelationQuery { readonly entity?: string; readonly source?: string; readonly target?: string; readonly relationType?: string; readonly state?: string; readonly updatedAfter?: string; readonly updatedBefore?: string; readonly limit?: number; readonly cursor?: string }
 export interface TaskRelationProjectionRow { readonly relationId: string; readonly sourceRef: string; readonly targetRef: string; readonly relationType: EntityRelationRecord["type"]; readonly direction: EntityRelationRecord["direction"]; readonly strength: EntityRelationRecord["strength"]; readonly origin: EntityRelationRecord["origin"]; readonly state: EntityRelationRecord["state"]; readonly rationale: string; readonly ownerRef: string; readonly sourcePath: string; readonly recordIndex: number }
 export interface NarrowTaskRow { readonly task_id: string; readonly package_path: string | null; readonly generation: "v0" | "v1"; readonly workspace_revision: number; readonly created_at: string | null; readonly updated_at: string; readonly pinned: number }
@@ -142,6 +142,7 @@ export function readTaskStatusRows(db: DatabaseSync, taskIds?: readonly string[]
 export function listTaskRowsNarrow(db: DatabaseSync, query: TaskProjectionListQuery): { readonly rows: readonly NarrowTaskRow[]; readonly page: ProjectionPage | null } {
   const values: (string | number)[] = [], where: string[] = [];
   if (query.status !== undefined) { where.push("task_snapshot.status = ?"); values.push(query.status); }
+  if (query.changedAfterRevision !== undefined) { where.push("task_snapshot.workspace_revision > ?"); values.push(query.changedAfterRevision); }
   if (query.updatedAfter !== undefined) { where.push("task_snapshot.updated_at >= ?"); values.push(query.updatedAfter); }
   if (query.updatedBefore !== undefined) { where.push("task_snapshot.updated_at <= ?"); values.push(query.updatedBefore); }
   if (query.cursor !== undefined) { if (query.pinnedFirst) { const [pinned, taskId] = decodePageCursor(query.cursor, 2); if (pinned !== "0" && pinned !== "1") throw new Error("query cursor is invalid"); where.push("(task_snapshot.pinned < ? OR (task_snapshot.pinned = ? AND task_snapshot.task_id > ?))"); values.push(Number(pinned), Number(pinned), taskId!); } else { const [taskId] = decodePageCursor(query.cursor, 1); where.push("task_snapshot.task_id > ?"); values.push(taskId!); } }
