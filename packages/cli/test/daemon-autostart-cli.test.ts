@@ -176,7 +176,7 @@ test("semantic sources and agent execution cross the daemon before transport-bou
     assert.equal(run(fixture.root, fixture.userRoot, ["task", "submit", taskId, "--execution-id", executionId, "--from-file", "submission.json"], "agent:claude-code").outcome, "applied");
     assert.equal(run(fixture.root, fixture.userRoot, ["task", "code-doc", "reconcile", taskId, "--execution-id", executionId, "--commit-sha", commitSha, "--iteration", "0", "--path", "README.md"], "agent:claude-code").outcome, "applied");
 
-    writeFileSync(path.join(fixture.root, "review.json"), JSON.stringify({ verdict: "approved", reason: "Human review accepted the agent execution.", evidenceChecked: ["end-to-end daemon flow"], commitSha, iteration: 0 }));
+    writeFileSync(path.join(fixture.root, "review.json"), JSON.stringify({ verdict: "approved", reason: "Human review accepted the agent execution.", evidenceChecked: ["end-to-end daemon flow"] }));
     const reviewed = run(fixture.root, fixture.userRoot, ["task", "review-execution", taskId, "--execution-id", executionId, "--review-id", reviewId, "--from-file", "review.json"]);
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
     writeFileSync(path.join(fixture.root, "consent.json"), JSON.stringify({ reviewDigest: reviewed.reviewDigest, contentDigest: reviewed.contentDigest }));

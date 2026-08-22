@@ -146,8 +146,8 @@ test("completion preflight publishes a dirty opaque artifact and completes with 
     assert.equal(added.outcome, "applied", JSON.stringify(added));
     const packagePath = String(added.destination).split("/artifacts/")[0]!, manual = `${packagePath}/artifacts/reports/manual.html`;
     write(rootDir, manual, "<!doctype html>\n<title>Manual report</title>\n");
-    const commitSha = await reachGreenInReview(cell, rootDir, taskId, executionId, packagePath);
-    const completed = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed", commitSha, iteration: 0, paths: ["packages/kernel/src/domain/task.ts"] }, binding) as Record<string, unknown>;
+    await reachGreenInReview(cell, rootDir, taskId, executionId, packagePath);
+    const completed = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed", paths: ["packages/kernel/src/domain/task.ts"] }, binding) as Record<string, unknown>;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     assert.equal(completed.commitSha, null);
     const store = makeTaskEventStore({ repoId, rootDir });
@@ -168,7 +168,7 @@ async function reachGreenInReview(cell: Awaited<ReturnType<typeof openRepoCell>>
   const commitSha = git(rootDir, "rev-parse", "HEAD");
   writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify({ completionClaim: "Implemented.", deliverables: ["opaque artifacts"], outputs: [`${packagePath}/closeout.md`], verificationNotes: ["verified"], knownGaps: [], residualRisks: [], commitSha }));
   await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding);
-  writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"], commitSha, iteration: 0 }));
+  writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }));
   const reviewed = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "review-opaque", fromFile: "review.json" }, reviewerBinding) as unknown as Record<string, unknown>;
   writeFileSync(path.join(rootDir, "consent.json"), JSON.stringify({ reviewDigest: reviewed.reviewDigest, contentDigest: reviewed.contentDigest }));
   await cell.run({ kind: "task-review-consent", taskId, executionId, reviewId: "review-opaque", consentId: "consent-opaque", fromFile: "consent.json" }, binding);

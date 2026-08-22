@@ -57,7 +57,7 @@ function successfulRunner(overrides = {}) {
   return { calls, run };
 }
 
-test("closeout driver preserves all gates and derives actor/content-cut bindings", () => {
+test("closeout driver preserves all gates while command surfaces own cut and owner bindings", () => {
   const temporaryDirectory = mkdtempSync(path.join(os.tmpdir(), "ha-closeout-test-"));
   try {
     const fixture = successfulRunner({
@@ -68,7 +68,7 @@ test("closeout driver preserves all gates and derives actor/content-cut bindings
       },
       "task-review-execution": ({ args }) => {
         const packet = JSON.parse(readFileSync(args.at(-1), "utf8"));
-        assert.deepEqual(packet, { ...judgment().review, commitSha, iteration: 0 });
+        assert.deepEqual(packet, judgment().review);
         return { command: ["ha", ...args], receipt: { outcome: "applied" } };
       },
     });
@@ -76,9 +76,9 @@ test("closeout driver preserves all gates and derives actor/content-cut bindings
     assert.equal(receipt.ok, true);
     assert.equal(receipt.commitSha, commitSha);
     assert.deepEqual(fixture.calls.map((call) => call.step), ["task-show", "doc-status", "doc-sync", "task-submit", "task-review-execution", "task-review-consent", "task-complete"]);
-    assert.deepEqual(fixture.calls.map((call) => call.actor), [null, "agent:worker", "agent:worker", "agent:worker", null, "agent:ceo", "agent:ceo"]);
+    assert.deepEqual(fixture.calls.map((call) => call.actor), [null, "agent:worker", "agent:worker", "agent:worker", null, undefined, undefined]);
     const complete = fixture.calls.at(-1).args;
-    assert.deepEqual(complete, ["task", "complete", taskId, "--execution-id", executionId, "--ci", "passed", "--commit-sha", commitSha, "--iteration", "0", "--path", "tools/closeout-task.mjs"]);
+    assert.deepEqual(complete, ["task", "complete", taskId, "--execution-id", executionId, "--ci", "passed", "--path", "tools/closeout-task.mjs"]);
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
   }
@@ -93,7 +93,7 @@ test("default CLI entry is anchored to the closeout script instead of the caller
   });
 });
 
-test("empty codeDocPaths omits the complete reconcile tuple", () => {
+test("empty codeDocPaths leaves completion pathless for the code-doc gate", () => {
   const temporaryDirectory = mkdtempSync(path.join(os.tmpdir(), "ha-closeout-empty-paths-"));
   const fixture = successfulRunner();
   const packet = judgment();
