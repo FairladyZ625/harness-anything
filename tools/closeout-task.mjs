@@ -89,7 +89,7 @@ function subprocessRunner({ haBin = process.env.HA_BIN, cwd = process.cwd() } = 
   return ({ args, actor }) => {
     const environment = { ...process.env };
     if (actor === null) delete environment.HARNESS_ACTOR;
-    else environment.HARNESS_ACTOR = actor;
+    else if (actor !== undefined) environment.HARNESS_ACTOR = actor;
     const launcher = resolveCloseoutLauncher({ haBin });
     const command = [launcher.executable, ...launcher.leadingArgs, "--json", ...args];
     const result = spawnSync(launcher.executable, [...launcher.leadingArgs, "--json", ...args], { cwd, env: environment, encoding: "utf8" });
@@ -170,7 +170,6 @@ export function runCloseout(input, dependencies = {}) {
   if (!shown.lease || shown.lease.executionId !== input.executionId || !sameActor(shown.lease.actor, execution.actor)) throw new Error(`execution ${input.executionId} does not hold its active lease.`);
   if (execution.actor?.executor === null) throw new Error("the active execution declared no executor; an independent same-person transport review cannot be derived. Use a different reviewing person or repair executor attribution before closeout.");
   const submitterActor = actorEnvironment(execution.actor, "execution actor");
-  const ownerActor = actorEnvironment(shown.task.createdBy, "task owner");
 
   const statusRows = docRows(invoke("doc-status", ["doc", "status"], submitterActor));
   const eligible = statusRows.filter((row) => row.state === "eligible");
@@ -193,18 +192,15 @@ export function runCloseout(input, dependencies = {}) {
     invoke("task-submit", ["task", "submit", input.taskId, "--execution-id", input.executionId, "--from-file", submissionPath], submitterActor);
 
     const reviewId = deterministicId("review-closeout", input.taskId, input.executionId, judgment.submission.commitSha);
-    const reviewPath = writePacket(temporaryDirectory, "review.json", { ...judgment.review, commitSha: judgment.submission.commitSha, iteration: execution.iteration });
+    const reviewPath = writePacket(temporaryDirectory, "review.json", judgment.review);
     invoke("task-review-execution", ["task", "review-execution", input.taskId, "--execution-id", input.executionId, "--review-id", reviewId, "--from-file", reviewPath], null);
 
     const consentId = deterministicId("consent-closeout", input.taskId, input.executionId, judgment.submission.commitSha);
-    invoke("task-review-consent", ["task", "review-consent", input.taskId, "--execution-id", input.executionId, "--review-id", reviewId, "--consent-id", consentId], ownerActor);
+    invoke("task-review-consent", ["task", "review-consent", input.taskId, "--execution-id", input.executionId, "--review-id", reviewId, "--consent-id", consentId]);
 
     const completeArgs = ["task", "complete", input.taskId, "--execution-id", input.executionId, "--ci", judgment.completion.ci];
-    if (judgment.completion.codeDocPaths.length > 0) {
-      completeArgs.push("--commit-sha", judgment.submission.commitSha, "--iteration", String(execution.iteration));
-      for (const codePath of judgment.completion.codeDocPaths) completeArgs.push("--path", codePath);
-    }
-    invoke("task-complete", completeArgs, ownerActor);
+    for (const codePath of judgment.completion.codeDocPaths) completeArgs.push("--path", codePath);
+    invoke("task-complete", completeArgs);
     return { schema: "closeout-task-receipt/v1", ok: true, taskId: input.taskId, executionId: input.executionId, reviewId, consentId, commitSha: judgment.submission.commitSha, docSyncMode, deferredForeignCandidates: foreign.map((row) => row.path), steps: receipts };
   } finally {
     if (ownsTemporaryDirectory) rmSync(temporaryDirectory, { recursive: true, force: true });

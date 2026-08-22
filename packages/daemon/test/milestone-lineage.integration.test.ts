@@ -34,7 +34,7 @@ async function reachGreenInReview(cell: Awaited<ReturnType<typeof openRepoCell>>
   const commitSha = git(rootDir, "rev-parse", "HEAD");
   writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify({ completionClaim: "Implemented.", deliverables: ["lineage"], outputs: [closeoutPath], verificationNotes: ["verified"], knownGaps: [], residualRisks: [], commitSha }));
   await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding);
-  writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"], commitSha, iteration: 0 }));
+  writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }));
   const reviewed = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "review-lineage", fromFile: "review.json" }, reviewerBinding) as unknown as Record<string, unknown>;
   writeFileSync(path.join(rootDir, "consent.json"), JSON.stringify({ reviewDigest: reviewed.reviewDigest, contentDigest: reviewed.contentDigest }));
   await cell.run({ kind: "task-review-consent", taskId, executionId, reviewId: "review-lineage", consentId: "consent-lineage", fromFile: "consent.json" }, binding);
@@ -46,11 +46,11 @@ test("an orphan milestone task stops at completion until the prescribed decision
   const taskId = "task_m_line", executionId = "exe_m_line", binding = { actor, source: "local" as const };
   try {
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("milestone-lineage"), rootDir: canonicalRoot(rootDir), ownerId: "milestone-lineage" });
-    const commitSha = await reachGreenInReview(cell, rootDir, taskId, executionId, "Milestone Lineage", "milestone");
+    await reachGreenInReview(cell, rootDir, taskId, executionId, "Milestone Lineage", "milestone");
     // Satisfy the mechanical gates first (CI witness, code-doc witness); the lineage gap must be what remains.
     const ci = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, binding) as unknown as Record<string, unknown>;
     assert.equal(ci.code, "code_doc_missing", JSON.stringify(ci));
-    const reconciled = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed", commitSha, iteration: 0, paths: ["packages/kernel/src/domain/task.ts"] }, binding) as unknown as Record<string, unknown>;
+    const reconciled = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed", paths: ["packages/kernel/src/domain/task.ts"] }, binding) as unknown as Record<string, unknown>;
     // RED before the rule: this facade call used to land task_completed. After it, the orphan stops with the named edge and the exact command.
     assert.deepEqual({ outcome: reconciled.outcome, code: reconciled.code, stoppedAt: reconciled.stoppedAt }, { outcome: "op_rejected", code: "decision_lineage_missing", stoppedAt: "decision_lineage_missing" }, JSON.stringify(reconciled));
     const nextAction = String((reconciled.next as { readonly command: string }[])[0]?.command);
@@ -76,8 +76,8 @@ test("a standard task still completes with no decision relations at all", async 
   const taskId = "task_s_line", executionId = "exe_s_line", binding = { actor, source: "local" as const };
   try {
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("standard-lineage"), rootDir: canonicalRoot(rootDir), ownerId: "standard-lineage" });
-    const commitSha = await reachGreenInReview(cell, rootDir, taskId, executionId, "Standard Lineage");
-    const completed = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed", commitSha, iteration: 0, paths: ["packages/kernel/src/domain/task.ts"] }, binding) as unknown as Record<string, unknown>;
+    await reachGreenInReview(cell, rootDir, taskId, executionId, "Standard Lineage");
+    const completed = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed", paths: ["packages/kernel/src/domain/task.ts"] }, binding) as unknown as Record<string, unknown>;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     assert.equal(makeTaskEventStore({ repoId: "standard-lineage", rootDir }).read().events.some((event) => event.type === "task_completed"), true);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
