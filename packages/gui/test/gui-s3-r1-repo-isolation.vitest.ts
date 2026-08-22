@@ -7,8 +7,8 @@ vi.hoisted(() => {
 });
 import { catalogQueryKeys } from "../src/renderer/catalog-data.ts";
 import { controlSucceeded, selectActiveRepoId, settleDaemonControl, systemQueryKeys } from "../src/renderer/system-data.ts";
-import type { DaemonControlReceipt, SystemRepoRow } from "../src/renderer/api-client.ts";
-import { invalidateLedgerDependents, LEDGER_REFRESH_INTERVAL_MS, taskDocumentQuery, taskListQuery, taskQueryKeys } from "../src/renderer/task-data.ts";
+import type { DaemonControlReceipt, SystemRepoRow, TaskListSuccess } from "../src/renderer/api-client.ts";
+import { invalidateLedgerDependents, LEDGER_REFRESH_INTERVAL_MS, readTaskList, TASK_LIST_PAGE_LIMIT, taskDocumentQuery, taskListQuery, taskQueryKeys } from "../src/renderer/task-data.ts";
 import { triadicQueryKeys } from "../src/renderer/triadic-data.ts";
 import { favoritesStorageKey } from "../src/renderer/model/favorites.ts";
 
@@ -51,6 +51,49 @@ describe("GUI S3 R1 repository isolation", () => {
       client.clear();
       vi.useRealTimers();
     }
+  });
+
+  it("walks bounded task pages and returns one complete projection cut", async () => {
+    const getTasks = vi.fn(async (payload: { readonly repoId: string; readonly limit: number; readonly cursor?: string }) => ({
+      ok: true as const,
+      status: "ready" as const,
+      rows: [],
+      watermark: 42,
+      sourceRevision: 42,
+      warnings: [],
+      page: { limit: TASK_LIST_PAGE_LIMIT, cursor: payload.cursor ?? null, nextCursor: payload.cursor ? null : "task-page-2" }
+    }));
+    Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
+    const result = await taskListQuery("repo-a").queryFn();
+    expect(getTasks).toHaveBeenNthCalledWith(1, { repoId: "repo-a", limit: TASK_LIST_PAGE_LIMIT });
+    expect(getTasks).toHaveBeenNthCalledWith(2, { repoId: "repo-a", limit: TASK_LIST_PAGE_LIMIT, cursor: "task-page-2" });
+    expect(result).toEqual({ ok: true, status: "ready", rows: [], watermark: 42, sourceRevision: 42, warnings: [] });
+  });
+
+  it("rejects task pages from different projection cuts", async () => {
+    const getTasks = vi.fn(async (payload: { readonly cursor?: string }) => ({
+      ok: true as const,
+      status: "ready" as const,
+      rows: [],
+      watermark: payload.cursor ? 43 : 42,
+      sourceRevision: payload.cursor ? 43 : 42,
+      warnings: [],
+      page: { limit: TASK_LIST_PAGE_LIMIT, cursor: payload.cursor ?? null, nextCursor: payload.cursor ? null : "task-page-2" }
+    }));
+    Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
+    await expect(taskListQuery("repo-a").queryFn()).rejects.toThrow("Task projection changed while the complete list was being read.");
+  });
+
+  it("polls only rows updated since the cached complete task list", async () => {
+    const getTasks = vi.fn(async () => ({ ok: true as const, status: "ready" as const, rows: [], watermark: 43, sourceRevision: 43, warnings: [], page: { limit: TASK_LIST_PAGE_LIMIT, cursor: null, nextCursor: null } }));
+    Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
+    const cachedRows = [
+      { taskId: "task-cached", updatedAt: "2026-08-21T23:58:00.000Z" },
+      { taskId: "task_cached", updatedAt: "2026-08-21T23:59:00.000Z" }
+    ] as TaskListSuccess["rows"];
+    const result = await readTaskList("repo-a", { ok: true, status: "ready", rows: cachedRows, watermark: 42, sourceRevision: 42, warnings: [] });
+    expect(getTasks).toHaveBeenCalledWith({ repoId: "repo-a", updatedAfter: cachedRows[1]!.updatedAt, limit: TASK_LIST_PAGE_LIMIT });
+    expect(result.rows).toEqual(cachedRows);
   });
 
   it("refreshes an open task document when the ledger cut advances", async () => {
