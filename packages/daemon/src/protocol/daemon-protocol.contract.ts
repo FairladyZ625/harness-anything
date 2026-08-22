@@ -250,9 +250,7 @@ export function validateDaemonTaskSnapshotList(value: unknown): readonly string[
 export function validateDaemonWorkspaceSummary(value: unknown): readonly string[] {
   if (!exactRecord(value, DAEMON_WORKSPACE_SUMMARY_SCHEMA.required) || value.schema !== DAEMON_WORKSPACE_SUMMARY_SCHEMA.id || value.ok !== true || value.status !== "ready" && value.status !== "pending" || !integer(value.watermark) || !integer(value.sourceRevision) || !warningArray(value.warnings)) return ["daemon workspace summary is invalid"];
   const taskStatuses = [...taskStatusWords, "unknown"], tasks = value.tasks, decisions = value.decisions;
-  if (!exactRecord(tasks, ["total", "byStatus"]) || !integer(tasks.total) || Number(tasks.total) < 0) return ["daemon workspace task summary is invalid"];
-  const byStatus = tasks.byStatus;
-  if (!exactRecord(byStatus, taskStatuses) || taskStatuses.some((status) => !integer(byStatus[status]) || Number(byStatus[status]) < 0) || taskStatuses.reduce((sum, status) => sum + Number(byStatus[status]), 0) !== tasks.total) return ["daemon workspace task summary is invalid"];
+  if (!exactRecord(tasks, ["total", "byStatus", "includingArchived"]) || !workspaceTaskCounts(tasks, taskStatuses) || !exactRecord(tasks.includingArchived, ["total", "byStatus"]) || !workspaceTaskCounts(tasks.includingArchived, taskStatuses) || Number(tasks.total) > Number(tasks.includingArchived.total)) return ["daemon workspace task summary is invalid"];
   if (!exactRecord(decisions, ["total", "inboxCount", "byState", "groups"]) || !integer(decisions.total) || Number(decisions.total) < 0 || !integer(decisions.inboxCount) || Number(decisions.inboxCount) < 0 || !Array.isArray(decisions.groups)) return ["daemon workspace decision summary is invalid"];
   const byDecisionState = decisions.byState;
   if (!exactRecord(byDecisionState, decisionStateWords) || decisionStateWords.some((state) => !integer(byDecisionState[state]) || Number(byDecisionState[state]) < 0) || decisionStateWords.reduce((sum, state) => sum + Number(byDecisionState[state]), 0) !== decisions.total) return ["daemon workspace decision summary is invalid"];
@@ -264,6 +262,11 @@ export function validateDaemonWorkspaceSummary(value: unknown): readonly string[
   }
   if (states.length !== decisionStateWords.length || !decisionStateWords.every((state) => states.includes(state)) || new Set(decisionIds).size !== decisionIds.length || decisions.total !== decisionIds.length || decisions.inboxCount !== decisions.groups[0].count) return ["daemon workspace decision totals are invalid"];
   return [];
+}
+function workspaceTaskCounts(value: unknown, taskStatuses: readonly string[]): boolean {
+  if (!isJsonObject(value) || !integer(value.total) || Number(value.total) < 0 || !isJsonObject(value.byStatus)) return false;
+  const byStatus = value.byStatus;
+  return exactRecord(byStatus, taskStatuses) && taskStatuses.every((status) => integer(byStatus[status]) && Number(byStatus[status]) >= 0) && taskStatuses.reduce((sum, status) => sum + Number(byStatus[status]), 0) === value.total;
 }
 function agendaTask(value: unknown): boolean { return exactRecord(value, ["taskId", "title", "status", "pinned", "updatedAt", "leaseExecutionId", "activeExecutionIds", "blockingAssessment"]) && [value.taskId, value.title, value.updatedAt].every(nonEmpty) && statusWord(taskStatusWords, value.status) && typeof value.pinned === "boolean" && (value.leaseExecutionId === null || nonEmpty(value.leaseExecutionId)) && stringArray(value.activeExecutionIds) && blockingAssessment(value.blockingAssessment); }
 function agendaAwaiting(value: unknown): boolean { if (!isJsonObject(value)) return false; return value.kind === "execution" ? exactRecord(value, ["kind", "taskId", "title", "pinned", "executionId", "submittedAt", "blockingAssessment"]) && [value.taskId, value.title, value.executionId, value.submittedAt].every(nonEmpty) && typeof value.pinned === "boolean" && blockingAssessment(value.blockingAssessment) : value.kind === "decision" && exactRecord(value, ["kind", "decisionId", "title", "riskTier", "urgency", "proposedAt"]) && [value.decisionId, value.title, value.proposedAt].every(nonEmpty) && [value.riskTier, value.urgency].every((item) => ["low", "medium", "high"].includes(String(item))); }

@@ -166,6 +166,7 @@ function readWorkspaceSummaryResult(value: unknown): WorkspaceSummarySuccess {
   const result = value as Partial<WorkspaceSummarySuccess>;
   if (!result || result.schema !== "daemon.workspace-summary/v1" || result.ok !== true || (result.status !== "ready" && result.status !== "pending")
     || !isRendererRecord(result.tasks) || !Number.isInteger(result.tasks.total) || !isRendererRecord(result.tasks.byStatus)
+    || !isRendererRecord(result.tasks.includingArchived) || !Number.isInteger(result.tasks.includingArchived.total) || !isRendererRecord(result.tasks.includingArchived.byStatus)
     || !isRendererRecord(result.decisions) || !Number.isInteger(result.decisions.total) || !Number.isInteger(result.decisions.inboxCount)
     || !isRendererRecord(result.decisions.byState) || !Array.isArray(result.decisions.groups)
     || !Number.isInteger(result.watermark) || !Number.isInteger(result.sourceRevision)) {

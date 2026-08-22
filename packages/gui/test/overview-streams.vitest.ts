@@ -5,12 +5,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
 import { DecisionStream } from "../src/renderer/components/overview/DecisionStream.tsx";
 import { TaskStream } from "../src/renderer/components/overview/TaskStream.tsx";
+import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { PinnedStream } from "../src/renderer/components/overview/PinnedStream.tsx";
 import { RuntimeHealthCard } from "../src/renderer/components/overview/RuntimeHealthCard.tsx";
 import { DecisionPreviewDrawer } from "../src/renderer/components/DecisionPreviewDrawer.tsx";
 import { streamTime } from "../src/renderer/components/overview/streamParts.tsx";
 import { localDateTime, localTime } from "../src/renderer/model/local-time.ts";
 import type { WorkspaceSummaryRead } from "../src/api/renderer-dto.ts";
+import { DEFAULT_TASK_FILTERS } from "../src/renderer/model/taskFilters.ts";
 
 function task(patch: Partial<TaskRow>): TaskRow {
   return {
@@ -32,9 +34,13 @@ function decision(patch: Partial<DecisionRow>): DecisionRow {
 }
 
 const noop = () => {};
-const taskSummary = (patch: Partial<WorkspaceSummaryRead["tasks"]["byStatus"]> = {}): WorkspaceSummaryRead["tasks"] => {
+const taskSummary = (
+  patch: Partial<WorkspaceSummaryRead["tasks"]["byStatus"]> = {},
+  includingArchivedPatch: Partial<WorkspaceSummaryRead["tasks"]["byStatus"]> = patch,
+): WorkspaceSummaryRead["tasks"] => {
   const byStatus = { planned: 0, active: 0, blocked: 0, in_review: 0, done: 0, cancelled: 0, unknown: 0, ...patch };
-  return { total: Object.values(byStatus).reduce((sum, count) => sum + count, 0), byStatus };
+  const includingArchivedByStatus = { planned: 0, active: 0, blocked: 0, in_review: 0, done: 0, cancelled: 0, unknown: 0, ...includingArchivedPatch };
+  return { total: Object.values(byStatus).reduce((sum, count) => sum + count, 0), byStatus, includingArchived: { total: Object.values(includingArchivedByStatus).reduce((sum, count) => sum + count, 0), byStatus: includingArchivedByStatus } };
 };
 const decisionSummary = (patch: Partial<WorkspaceSummaryRead["decisions"]["byState"]> = {}): WorkspaceSummaryRead["decisions"] => {
   const byState = { proposed: 0, in_effect: 0, rejected: 0, deferred: 0, superseded: 0, outcome_retired: 0, ...patch };
@@ -86,6 +92,42 @@ describe("overview decision stream", () => {
 });
 
 describe("overview task stream", () => {
+  it("renders the same daemon aggregate in overview tabs and board column headers", () => {
+    const tasks = [task({ taskId: "task_a1", title: "Active one", coordinationStatus: "active" })];
+    const summary = taskSummary({ planned: 3, active: 4, blocked: 7 }, { planned: 5, active: 9, blocked: 11, cancelled: 2 });
+    const overview = renderToStaticMarkup(createElement(TaskStream, { tasks, summary, onOpenPreview: noop, onGoBoard: noop }));
+    const board = renderToStaticMarkup(createElement(BoardView, {
+      tasks,
+      allTasks: tasks,
+      summary,
+      filters: DEFAULT_TASK_FILTERS,
+      onFiltersChange: noop,
+      onSelect: noop,
+      relations: [],
+      favorites: new Set<string>(),
+      onToggleFavorite: noop,
+    }));
+
+    expect(overview).toMatch(/data-testid="overview-status-active"[\s\S]*?进行中[\s\S]*?4/);
+    expect(overview).toMatch(/data-testid="overview-status-blocked"[\s\S]*?已阻塞[\s\S]*?7/);
+    expect(board).toContain('data-testid="board-status-active-count">4</span>');
+    expect(board).toContain('data-testid="board-status-blocked-count">7</span>');
+
+    const archivedBoard = renderToStaticMarkup(createElement(BoardView, {
+      tasks,
+      allTasks: tasks,
+      summary,
+      filters: { ...DEFAULT_TASK_FILTERS, includeArchived: true },
+      onFiltersChange: noop,
+      onSelect: noop,
+      relations: [],
+      favorites: new Set<string>(),
+      onToggleFavorite: noop,
+    }));
+    expect(archivedBoard).toContain('data-testid="board-status-active-count">9</span>');
+    expect(archivedBoard).toContain('data-testid="board-status-cancelled-count">2</span>');
+  });
+
   it("filters to the selected status in place with census counts on every tab (sidebar parity)", () => {
     const tasks = [
       task({ taskId: "task_a1", title: "Active one", coordinationStatus: "active" }),

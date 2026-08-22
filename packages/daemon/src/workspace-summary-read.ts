@@ -5,10 +5,10 @@ export function workspaceSummaryFromReads(
   taskRead: DaemonGuiReadResultMap["repo.tasks.list"],
   decisionRead: DaemonGuiReadResultMap["repo.decisions.list"]
 ): DaemonWorkspaceSummaryResult {
-  const tasks = taskRead.rows.map((row) => {
-    if (!row.snapshot.task) throw new Error(`Task projection row ${row.taskId} has no canonical task.`);
-    return { status: row.snapshot.task.status, blockingState: row.blockingAssessment.state };
-  });
+  const tasks = taskRead.rows.map((row) => ({
+    coordinationStatus: row.coordinationStatus,
+    packageDisposition: row.placement.packageDisposition
+  }));
   const decisions = decisionRead.decisions.map((decision) => ({ decisionId: decision.decisionId, state: decision.state }));
 
   return {
