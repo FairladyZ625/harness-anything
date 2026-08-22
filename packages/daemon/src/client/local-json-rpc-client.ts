@@ -1,7 +1,6 @@
 import net from "node:net";
 import { createInterface, type Interface as ReadlineInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { consumeKnownError } from "../../../kernel/src/index.ts";
 import { currentDaemonProtocolVersion } from "../protocol/version.ts";
 import type { JsonObject, JsonRpcRequest, JsonRpcResponse } from "../protocol/json-rpc-types.ts";
 import { resolveLocalDaemonTarget } from "./local-daemon-target.ts";
@@ -43,6 +42,13 @@ export async function requestDaemonJsonRpcAt(socketPath: string, method: string,
 // lines whose id no waiter will ever await again (a response that outlived its response deadline)
 // are dropped, matching the old scan-past semantics.
 interface ResponseWaiter { readonly id: number; readonly resolve: (response: JsonRpcResponse) => void; readonly reject: (error: Error) => void }
+// Local twin of the kernel's consumeKnownError (packages/cli/src/daemon/client.ts and
+// packages/gui/src/api each keep their own too). The kernel symbol is only importable through
+// its public barrel, and one barrel import here loaded the whole kernel (with its effect
+// dependency, ~250ms) on every CLI→daemon command's critical path — the PR #1726 write-path
+// regression. The call itself is a lint contract (ha/no-swallowed-failure), so the marker stays;
+// only its dependency moves.
+function consumeKnownError(error: unknown): void { void error; }
 export class JsonRpcLineClient {
   private nextId = 1;
   private readonly output: Writable;
