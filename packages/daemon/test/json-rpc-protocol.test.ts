@@ -463,7 +463,7 @@ for (const killpoint of ["after_sqlite_commit", "before_response_write", "after_
   });
 }
 
-test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion rejection, and worktree preservation", async (context) => {
+test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion rejection, and worktree preservation", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-cell-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("docs"), rootDir: canonicalRoot(rootDir), ownerId: "doc-daemon" });
     assert.equal((await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, { actor, source: "local" })).outcome, "applied");
@@ -479,8 +479,6 @@ test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion r
     const next = `${body}B\n`; writeFileSync(authored, next);
     const updated = await cell.run(action, { actor, source: "local" }); assert.equal(updated.outcome, "applied", JSON.stringify(updated)); body = next;
     rmSync(authored); const deletion = await cell.run(action, { actor, source: "local" }); assert.equal(deletion.code, "deletion_forbidden"); writeFileSync(authored, body);
-    const samples: number[] = [], baselineSamples: number[] = []; for (let index = 0; index < 7; index += 1) { const baselineStarted = performance.now(); await cell.run({ kind: "task-create", taskId: `task-doc-baseline-${index}`, title: `Doc baseline ${index}` }, { actor, source: "local" }); baselineSamples.push(performance.now() - baselineStarted); const candidate = `${body}${Array.from({ length: index + 1 }, (_, n) => `line-${n}\n`).join("")}`; writeFileSync(authored, candidate); const started = performance.now(), result = await cell.run(action, { actor, source: "local" }); samples.push(performance.now() - started); assert.equal(result.outcome, "applied", JSON.stringify(result)); body = candidate; }
-    const median = (values: readonly number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!; const p50 = median(samples), baselineP50 = median(baselineSamples), ratio = p50 / baselineP50; context.diagnostic(`doc-single-write-relative-p50=${p50.toFixed(3)}ms baseline-p50=${baselineP50.toFixed(3)}ms ratio=${ratio.toFixed(3)}x samples=${samples.map((sample) => sample.toFixed(3)).join(",")}`); assert.equal(ratio < 4, true, `doc write p50 was ${ratio.toFixed(3)}x the paired canonical write baseline`);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
