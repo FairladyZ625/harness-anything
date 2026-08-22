@@ -181,7 +181,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
   async function lifecycleAction(action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> { const taskId = requiredCellText(action.taskId, "taskId"), current = await service.read(taskId), expectedRevision = current.snapshot.revision;
     const normalized = buildCommand(action, taskId, binding, input.repoId, expectedRevision, rootDir, current.snapshot);
     const command = withServerMeta(normalized, store.readTaskEvent(normalized.opId), store.readHead()?.revision ?? 0, now());
-    const result = await service.execute(command, await proofFor(command, current.snapshot, binding));
+    const result = await service.execute(command, await proofFor(command, current.snapshot, binding, projection));
     if (result.outcome === "applied" && result.event && result.proof) return lifecycleReceipt(result.event, result.snapshot, publicPublication(store.publication(result.event)), result.proof);
     if (result.outcome === "pending") return { outcome: "pending", opId: command.opId, revision: result.revision, evidence: result.evidence, visibility: result.visibility, proof: result.proof, nextAction: result.nextAction ?? "Retry receipt show." };
     return rejected(command.opId, result.code ?? "publication_unknown", result.nextAction ?? "Retry receipt show before resubmitting.");
@@ -209,7 +209,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
     // The lifecycle service publishes one task event whose carried-document
     // claims and machine lifecycle claims share the same canonical commit.
     // Projection replay therefore restores both sides after any crash.
-    const current = await service.read(taskId), normalized = buildCommand(taskAction as RepoTaskAction, taskId, binding, input.repoId, current.snapshot.revision, rootDir, current.snapshot), command = withServerMeta(normalized, store.readTaskEvent(normalized.opId), store.readHead()?.revision ?? 0, now()), proof = await proofFor(command, current.snapshot, binding);
+    const current = await service.read(taskId), normalized = buildCommand(taskAction as RepoTaskAction, taskId, binding, input.repoId, current.snapshot.revision, rootDir, current.snapshot), command = withServerMeta(normalized, store.readTaskEvent(normalized.opId), store.readHead()?.revision ?? 0, now()), proof = await proofFor(command, current.snapshot, binding, projection);
     let transition: Awaited<ReturnType<typeof service.executeWithDocuments>>;
     try { transition = await service.executeWithDocuments(command, proof, { changes: carriedChanges, blobs: adjudication.decision.blobs }); }
     finally { recycleClaims(rootDir, intent); }
@@ -324,14 +324,14 @@ function buildCommand(action: RepoTaskAction, taskId: string, binding: RepoCellB
 }
 function withServerMeta(command: Omit<TaskLifecycleCommand, "eventId" | "workspaceRevision" | "occurredAt">, existing: ReturnType<ReturnType<typeof makeTaskEventStore>["readTaskEvent"]>, revision: number, occurredAt: string): TaskLifecycleCommand {
   return { ...command, eventId: existing?.eventId ?? `event-${createHash("sha256").update(command.opId).digest("hex")}`, workspaceRevision: existing?.workspaceRevision ?? revision + 1, occurredAt: existing?.occurredAt ?? occurredAt } as TaskLifecycleCommand; }
-async function proofFor(command: TaskLifecycleCommand, snapshot: Snapshot, binding: RepoCellBinding): Promise<TaskLifecycleServiceProof<typeof command>> {
+async function proofFor(command: TaskLifecycleCommand, snapshot: Snapshot, binding: RepoCellBinding, projection: Pick<ReturnType<typeof makeTaskProjection>, "readRuntimeSession">): Promise<TaskLifecycleServiceProof<typeof command>> {
   if (command.type === "CreateReplayTask") return { taskIdUnique: true, actorBinding: command.actor };
   if (command.type === "StartExecution") { const ttlMs = command.ttlMs ?? leaseTtlMs; return { actorBinding: command.actor, reservation: { taskId: command.taskId, executionId: command.executionId, expiresAt: new Date(Date.parse(command.occurredAt) + ttlMs).toISOString(), ttlMs, previousHolder: null, reason: "initial_claim", version: 0 } }; }
   if (command.type === "TransitionTask") return {};
   if (command.type === "SubmitExecution") { const lease = snapshot.lease; if (!lease || lease.phase !== "held" || lease.executionId !== command.executionId || !isSameExecution(lease.actor, command.actor)) throw cellCodedError("lease_required", "Submit requires the active execution lease bound to this actor.");
     return { actorBinding: command.actor, leaseVersion: lease.version, sessionDisposition: "unavailable" };
   }
-  if (command.type === "RecordReview") { if (!binding.roles?.includes("$arbiter")) throw cellCodedError("actor_unauthorized", "Execution Review requires the arbiter command class; give the reviewing person a role that carries it in harness/people.yaml."); const blocked = reviewerDependence(command.actor, snapshot); if (blocked) throw cellCodedError("actor_unauthorized", blocked); return { actorBinding: command.actor, capability: "execution-review@v1", capabilityRef: `transport-reviewer:${command.actor.principal.personId}` }; }
+  if (command.type === "RecordReview") { if (!binding.roles?.includes("$arbiter")) throw cellCodedError("actor_unauthorized", "Execution Review requires the arbiter command class; give the reviewing person a role that carries it in harness/people.yaml."); const runtimeSessionId = runtimeSessionIdFromActor(command.actor), runtimeSession = runtimeSessionId === null ? null : projection.readRuntimeSession(runtimeSessionId); if (runtimeSession?.taskBindings.some((taskBinding) => taskBinding.taskId === command.taskId && taskBinding.executionId === command.executionId)) throw cellCodedError("runtime_task_self_review_forbidden", "This runtime is bound to the task and execution under review and cannot review its own work."); const blocked = reviewerDependence(command.actor, snapshot); if (blocked) throw cellCodedError("actor_unauthorized", blocked); return { actorBinding: command.actor, capability: "execution-review@v1", capabilityRef: `transport-reviewer:${command.actor.principal.personId}` }; }
   if (command.type === "RecordReviewConsent") { if (!snapshot.task || !isSameExecution(snapshot.task.createdBy, command.actor)) throw cellCodedError("actor_unauthorized", "Review consent requires the Task owner."); return { actorBinding: command.actor, capability: "execution-consent@v1", capabilityRef: `task-owner:${command.actor.principal.personId}` }; }
   if (command.type === "ReconcileCodeDoc") return { actorBinding: command.actor, capability: "code-doc-reconcile@v1", capabilityRef: `transport-writer:${command.actor.principal.personId}` };
   return completeProof(command, snapshot) as TaskLifecycleServiceProof<typeof command>;
