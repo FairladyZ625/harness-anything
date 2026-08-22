@@ -3,7 +3,7 @@ export * from "./domain/index.ts";
 export type { AgentDefinitionSnapshot, AgentRuntimeEventV1, RuntimeInstallation, RuntimeResultClaim, RuntimeSession } from "./domain/agent-runtime.ts";
 export { allowsTaskStatusMove, applyTransition, canonicalGateReceipts, canStartExecution, compileExecutionExecutorDeclaration, executionExecutorDeclarationCandidates, heldLeaseForExecutionActor, normalizeTaskLifecycleCommand, reviewDigest, validateTaskLifecycleCommandEnvelope } from "./domain/task-lifecycle.contract.ts";
 export { canReclaim, isIndependentFrom, isSameExecution, isSamePerson } from "./domain/actor-domain-services.ts";
-export { resolveLiveTaskBoundRuntimeBinding, runtimeSessionIdFromActor } from "./domain/task-bound-runtime-authority.ts";
+export { isTaskBoundRuntimeWriter, resolveLiveTaskBoundRuntimeBinding, runtimeSessionIdFromActor } from "./domain/task-bound-runtime-authority.ts";
 export { compileTaskLifecycleWrite, lifecycleDocumentPaths, taskLifecycleWritePlan } from "./domain/task-lifecycle-publication.ts";
 export { completionBlockers, type CompletionReadinessContext } from "./domain/completion-readiness.ts";
 export { compileCompletionGateWitness } from "./domain/completion-gate-publication.ts";

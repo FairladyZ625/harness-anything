@@ -5,10 +5,10 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { classifyTextualArtifactPath, makeTaskEventStore, makeTaskProjection, serializeCanonicalEvent } from "../../kernel/src/index.ts";
+import { classifyTextualArtifactPath, makeTaskEventStore, makeTaskProjection, serializeCanonicalEvent, type TaskProjection } from "../../kernel/src/index.ts";
 import { DOC_POLICY_ID, MIGRATION_DOCUMENT_POLICY_ID, MIGRATION_IMPORT_SOURCE, migrationImportWritePlan, sha256Text, type CanonicalWriteBundle, type MigrationImportEventV1 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { readDocReceipt } from "../src/doc-sync-actions.ts";
+import { readDocReceipt, runDocAction } from "../src/doc-sync-actions.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
@@ -95,7 +95,7 @@ test("implicit submit applies eligible prose and reports an unrelated blocked ro
     assert.match(String(submitted.summary), /doc-submit: applied[\s\S]*context\/eligible\.md[\s\S]*skipped:[\s\S]*context\/blocked\.md\tblocked\tbase region is missing: "# Stable"/u);
     const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(submitted.opId)); assert.equal(event?.schema, "doc-event/v1"); if (event?.schema === "doc-event/v1") assert.deepEqual(event.payload.changes.map((change) => change.path), ["context/eligible.md"]);
     assert.equal(readFileSync(path.join(rootDir, "harness/context/eligible.md"), "utf8"), "# Eligible\n\nship me\n"); assert.equal(readFileSync(path.join(rootDir, "harness/context/blocked.md"), "utf8"), "# Renamed\n\nbase\n");
-    const settledHead = git(rootDir, "rev-parse", "HEAD"), skippedOnly = await cell.run({ kind: "doc-submit", paths: [] }, binding) as Record<string, unknown>; assert.equal(skippedOnly.outcome, "applied", JSON.stringify(skippedOnly)); assert.match(String(skippedOnly.summary), /doc-submit: applied\napplied:\n\(none\)\nskipped:\ncontext\/blocked\.md\tblocked/u); assert.equal(git(rootDir, "rev-parse", "HEAD"), settledHead, "a skipped-only implicit submit must not publish an event");
+    const settledHead = git(rootDir, "rev-parse", "HEAD"), skippedOnly = await cell.run({ kind: "doc-submit", paths: [] }, binding) as Record<string, unknown>; assert.equal(skippedOnly.outcome, "op_rejected", JSON.stringify(skippedOnly)); assert.equal(skippedOnly.code, "preview_blocked"); assert.match(String(skippedOnly.nextAction), /ha doc status[\s\S]*ha doc sync --submit/u); assert.equal(git(rootDir, "rev-parse", "HEAD"), settledHead, "a blocked-only implicit submit must reject without publishing an event");
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -110,6 +110,15 @@ test("implicit submit applies eligible prose and reports an unrelated deletion a
     const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(submitted.opId)); assert.equal(event?.schema, "doc-event/v1"); if (event?.schema === "doc-event/v1") assert.deepEqual(event.payload.changes.map((change) => change.path), ["context/eligible.md"]);
     assert.equal(existsSync(path.join(rootDir, "harness/context/deleted.md")), false); assert.equal(readFileSync(path.join(rootDir, "harness/context/eligible.md"), "utf8"), "# Eligible\n");
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("a runtime session with multiple matching held executions rejects with exact retry commands", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-runtime-routes-")); initRepo(rootDir); const runtimeActor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "runtime-session:runtime-routes" } } as const, source = "local" as const, now = "2026-08-23T00:00:00.000Z", paths = ["tasks/task-route-a-a/artifacts/a.md", "tasks/task-route-b-b/artifacts/b.md"] as const;
+  try {
+    for (const target of paths) write(rootDir, target, `# ${target}\n`);
+    const lease = (taskId: string, executionId: string) => ({ schema: "lease/v1", taskId, executionId, actor: { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "dispatch-holder" } }, source, phase: "held", expiresAt: "2026-08-23T01:00:00.000Z", ttlMs: 3_600_000, version: 1 } as const), leases = [lease("task-route-a", "exec-route-a"), lease("task-route-b", "exec-route-b")], projection = { taskIdForDocumentPath: (target: string) => target.includes("task-route-a-a") ? "task-route-a" : target.includes("task-route-b-b") ? "task-route-b" : null, currentLeaseForExecution: (executionId: string) => leases.find((value) => value.executionId === executionId) ?? null, readRuntimeSession: () => ({ runtimeSessionId: "runtime-routes", instanceId: "codex", installationId: "installation", kindId: "codex", definitionSnapshotRef: "artifact:runtime-definition/test", providerSessionId: "provider", transcriptRef: "provider:codex/provider", launchGeneration: 1, liveness: "live", attachable: true, taskBindings: leases.map(({ taskId, executionId }) => ({ taskId, executionId, providerSessionId: "provider", transcriptRef: "provider:codex/provider", boundAt: now })), outcome: null, exitCode: null, resultRef: null, lastObservedAt: now }), readDocument: () => ({ status: "ready", watermark: 0, sourceRevision: 0, document: null }) } as unknown as TaskProjection, store = makeTaskEventStore({ repoId: "runtime-routes", rootDir });
+    const rejected = await runDocAction({ action: { kind: "doc-submit", paths: [] }, binding: { actor: runtimeActor, source }, workspaceId: workspaceId("runtime-routes"), rootDir, store, projection, now: () => now }); assert.equal(rejected.outcome, "op_rejected"); assert.equal(rejected.code, "lease_conflict"); assert.match(rejected.nextAction ?? "", /ha doc sync --submit --execution-id exec-route-a[\s\S]*ha doc sync --submit --execution-id exec-route-b/u);
+  } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 
 test("authored CRLF prose is canonicalized on scanner read and submitted as LF", async () => {
