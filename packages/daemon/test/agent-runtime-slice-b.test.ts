@@ -24,10 +24,10 @@ test("runtime read facets expose safe overview/session/events through the shared
   assert.notEqual(validateAgentRuntimeOverview({ ...overview, credential: "secret" }).length, 0); assert.notEqual(validateAgentRuntimeOverview({ ...overview, instances: [{ ...overview.instances[0], credentialRef: "secret" }] }).length, 0);
 }));
 
-test("runtime overview batches definition reads instead of scanning events per session", () => withRuntime(({ store, projection, stream }) => {
+test("runtime overview batches definitions while a single-session read selects one dispatch", () => withRuntime(({ store, projection, stream }) => {
   let fullTaskListReads = 0, taskStatusReads = 0, singleDispatchReads = 0, batchDispatchReads = 0; const measured = new Proxy(projection, { get: (target, property, receiver) => { if (property === "list") fullTaskListReads += 1; if (property === "readTaskStatuses") taskStatusReads += 1; if (property === "readRuntimeDispatch") singleDispatchReads += 1; if (property === "readRuntimeDispatches") batchDispatchReads += 1; const value = Reflect.get(target, property, receiver); return typeof value === "function" ? value.bind(target) : value; } });
-  makeAgentRuntimeReadModel({ store, projection: measured, stream }).overview({});
-  assert.deepEqual({ fullTaskListReads, taskStatusReads, singleDispatchReads, batchDispatchReads }, { fullTaskListReads: 0, taskStatusReads: 1, singleDispatchReads: 0, batchDispatchReads: 1 });
+  const reads = makeAgentRuntimeReadModel({ store, projection: measured, stream }); reads.overview({}); reads.session({ runtimeSessionId: "runtime-session" });
+  assert.deepEqual({ fullTaskListReads, taskStatusReads, singleDispatchReads, batchDispatchReads }, { fullTaskListReads: 0, taskStatusReads: 2, singleDispatchReads: 1, batchDispatchReads: 1 });
 }));
 
 test("attach catches up from cursor, gaps require snapshot, and unsupported is typed", async () => withRuntime(async ({ stream, session }) => {

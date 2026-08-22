@@ -18,6 +18,7 @@ export interface TaskProjection {
   readonly readRelationTruth: () => EventBackedRelationTruth;
   readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null; readonly readDocument: (path: string) => DocumentProjectionRead; readonly readReplicaBasis: (afterRevision: number | null) => ReplicaProjectionBasis; readonly taskIdForDocumentPath: (path: string) => string | null;
   readonly readTaskCompletion: (taskId: string, executionId: string) => TaskEventV1 | null;
+  readonly readRuntimeDispatch: (runtimeSessionIdValue: string, definitionSnapshotRef: string) => Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null;
   readonly readRuntimeDispatches: () => readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
   readonly readRuntimeSessionEvents: (runtimeSessionIdValue: string, afterRevision: number, limit: number) => readonly AgentRuntimeEventV1[];
   readonly readPresetSnapshot: (digest: string) => PresetSnapshotProjectionRead;
