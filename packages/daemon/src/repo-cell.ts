@@ -52,9 +52,9 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
   readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
   readonly prepareRuntimeLaunch?: (instanceId: string, request: { readonly cwd: string; readonly prompt: string; readonly model?: string; readonly effort?: string; readonly providerSessionId?: string; readonly permissionMode?: string }) => Promise<PreparedRuntimeLaunch>;
-  readonly bootstrap?: RepoBootstrapInput; readonly onBootstrap?: (receipt: RepoBootstrapReceipt) => void; readonly onRuntimeStale?: () => void;
-  readonly now?: () => string; readonly runtimeFile?: string; readonly killpoint?: (point: EventPublicationKillpoint) => void; readonly shouldStop?: () => boolean }): Promise<RepoCell> {
-  const rootDir = input.rootDir, mode = input.mode ?? "local", now = input.now ?? (() => new Date().toISOString()), runtimeAdmission = makeDaemonRuntimeAdmissionGuard({ ...(input.runtimeFile ? { runtimeFile: input.runtimeFile } : {}), nowMs: () => Date.parse(now()) }); assertRuntimeAdmission(true); const lock = await acquireWorkspaceLock(rootDir), generation = Date.now() * 1_000 + process.pid % 1_000;
+  readonly bootstrap?: RepoBootstrapInput; readonly onBootstrap?: (receipt: RepoBootstrapReceipt) => void;
+  readonly now?: () => string; readonly killpoint?: (point: EventPublicationKillpoint) => void; readonly shouldStop?: () => boolean }): Promise<RepoCell> {
+  const rootDir = input.rootDir, mode = input.mode ?? "local", now = input.now ?? (() => new Date().toISOString()), runtimeAdmission = makeDaemonRuntimeAdmissionGuard({ nowMs: () => Date.parse(now()) }); assertRuntimeAdmission(true); const lock = await acquireWorkspaceLock(rootDir), generation = Date.now() * 1_000 + process.pid % 1_000;
   const activeWriter: WriterGeneration = { workspaceId: input.repoId, generation, ownerId: input.ownerId }, writerToken = bindWriterGenerationToken(activeWriter);
   let authoredBranch = input.authoredBranch, bootstrapReceipt: RepoBootstrapReceipt | undefined;
   try { if (input.bootstrap) { bootstrapReceipt = bootstrapRepo(input.bootstrap, activeWriter, writerToken, authoredBranch); authoredBranch = bootstrapReceipt.authoredBranch; input.onBootstrap?.(bootstrapReceipt); } }
@@ -105,8 +105,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
   const schedule = (work: () => void): void => { queueDepth += 1; const pending = tail.then(() => { queueDepth -= 1; if (state === "attached") work(); }); tail = pending.then(() => undefined, () => undefined); void pending.then(() => replica.kick(), () => replica.kick()); };
   const runtimeSpawner = makeRuntimeSpawner({ repoId: input.repoId, rootDir, daemonGeneration: generation, ...(input.runtimeDaemonRoute ? { runtimeDaemonRoute: input.runtimeDaemonRoute } : {}), store: () => store, projection: () => projection, stream: runtimeStream, now, schedule, runtimeInstances: input.runtimeInstances, prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore, resolveAgent: (agentId) => readAgentDeclaration({ rootDir, agentId }), resolveSquadDispatchTarget: (leaderId, workerId) => resolveSquadDispatchTarget({ rootDir, leaderId, workerId }), ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}) });
   function assertRuntimeAdmission(force = false): void {
-    try { runtimeAdmission.assert(rootDir, force); }
-    catch (error) { if (cellErrorCode(error) === "daemon_build_stale") input.onRuntimeStale?.(); throw error; }
+    runtimeAdmission.assert(rootDir, force);
   }
   const catalog = openGuiCatalog({ repoId: input.repoId, rootDir, now }), terminalHost = openTerminalHost({ repoId: input.repoId, rootDir, daemonGeneration: generation, now });
   const admitTerminalWrite = (binding: RepoCellBinding): void => { const admission = admitRepoMode(mode, "repo-write", binding.source); if (!admission.ok) throw cellCodedError(admission.code, admission.nextAction); if (state !== "attached") attemptRecovery(); if (state !== "attached") throw cellCodedError("repo_unavailable", latched()); recheckRuntime(); };
@@ -420,7 +419,7 @@ function publishGeneratedArtifact(input: { readonly outputPath: string; readonly
 function fatalCellError(error: unknown): boolean { if (error instanceof VcsCommandError) return true; if (!error || typeof error !== "object" || !("code" in error)) return true; return ["invalid_store", "legacy_shape", "op_conflict", "revision_conflict", "publication_indeterminate", "writer_rejected"].includes(String(error.code)); }
 /** Ledger-shape judgments (layout, projection replay, revision bases) point the repair at the data;
  * Git/lock failures (publication CAS, writer lock) point it at the workspace infrastructure. */
-export function causeClassOf(error: unknown): "data-shape" | "infrastructure" | "projection" { return error instanceof VcsCommandError || ["writer_rejected", "publication_indeterminate", "daemon_build_stale"].includes(cellErrorCode(error)) ? "infrastructure" : error instanceof Error && /(?:document projection mismatch|projection (?:rebuild did not reach|digest refresh lost|snapshot mismatch))/iu.test(error.message) ? "projection" : "data-shape"; }
+export function causeClassOf(error: unknown): "data-shape" | "infrastructure" | "projection" { return error instanceof VcsCommandError || ["writer_rejected", "publication_indeterminate"].includes(cellErrorCode(error)) ? "infrastructure" : error instanceof Error && /(?:document projection mismatch|projection (?:rebuild did not reach|digest refresh lost|snapshot mismatch))/iu.test(error.message) ? "projection" : "data-shape"; }
 export const latchReprobeThrottleMs = 5_000;
 async function acquireWorkspaceLock(rootDir: CanonicalRoot): Promise<{ readonly close: () => Promise<void> }> { const lockPath = `${rootDir}.harness-anything-writer.lock`; let descriptor: number;
   try { descriptor = openSync(lockPath, "wx", 0o600); writeFileSync(descriptor, `${process.pid}\n`, "utf8"); }
