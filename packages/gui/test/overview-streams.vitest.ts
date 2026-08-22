@@ -5,12 +5,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
 import { DecisionStream } from "../src/renderer/components/overview/DecisionStream.tsx";
 import { TaskStream } from "../src/renderer/components/overview/TaskStream.tsx";
+import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { PinnedStream } from "../src/renderer/components/overview/PinnedStream.tsx";
 import { RuntimeHealthCard } from "../src/renderer/components/overview/RuntimeHealthCard.tsx";
 import { DecisionPreviewDrawer } from "../src/renderer/components/DecisionPreviewDrawer.tsx";
 import { streamTime } from "../src/renderer/components/overview/streamParts.tsx";
 import { localDateTime, localTime } from "../src/renderer/model/local-time.ts";
 import type { WorkspaceSummaryRead } from "../src/api/renderer-dto.ts";
+import { DEFAULT_TASK_FILTERS, matchesTask } from "../src/renderer/model/taskFilters.ts";
+import { summarizeWorkspace } from "../../kernel/src/index.ts";
 
 function task(patch: Partial<TaskRow>): TaskRow {
   return {
@@ -86,6 +89,41 @@ describe("overview decision stream", () => {
 });
 
 describe("overview task stream", () => {
+  // The overview renders the daemon aggregate and the board counts the rows it draws.
+  // They are the same number only while the backend classifies exactly what the board's
+  // default filter keeps, so the same fixture has to reach both sides and agree.
+  it("counts the same rows in the daemon aggregate and in the board columns it draws", () => {
+    const rows = [
+      task({ taskId: "task_a1", title: "Active one", coordinationStatus: "active" }),
+      task({ taskId: "task_a2", title: "Active two", coordinationStatus: "active" }),
+      task({ taskId: "task_b1", title: "Blocked one", coordinationStatus: "blocked" }),
+      task({ taskId: "task_c1", title: "Cancelled one", coordinationStatus: "cancelled" }),
+      task({ taskId: "task_d1", title: "Archived active", coordinationStatus: "active", packageDisposition: "archived" }),
+    ];
+    const summary = summarizeWorkspace(rows.map(({ coordinationStatus, packageDisposition }) => ({ coordinationStatus, packageDisposition })), []).tasks;
+    const visible = rows.filter((row) => matchesTask(row, DEFAULT_TASK_FILTERS));
+    const overview = renderToStaticMarkup(createElement(TaskStream, { tasks: visible, summary, onOpenPreview: noop, onGoBoard: noop }));
+    const board = renderToStaticMarkup(createElement(BoardView, {
+      tasks: visible,
+      allTasks: rows,
+      filters: DEFAULT_TASK_FILTERS,
+      onFiltersChange: noop,
+      onSelect: noop,
+      relations: [],
+      favorites: new Set<string>(),
+      onToggleFavorite: noop,
+    }));
+
+    for (const status of ["active", "blocked", "cancelled"] as const) {
+      const drawn = visible.filter((row) => row.coordinationStatus === status).length;
+      expect(summary.byStatus[status]).toBe(drawn);
+      expect(board).toContain(`data-testid="board-status-${status}-count">${drawn}</span>`);
+    }
+    expect(summary.total).toBe(visible.length);
+    expect(overview).toMatch(/data-testid="overview-status-active"[\s\S]*?进行中[\s\S]*?2/);
+    expect(overview).toMatch(/data-testid="overview-status-blocked"[\s\S]*?已阻塞[\s\S]*?1/);
+  });
+
   it("filters to the selected status in place with census counts on every tab (sidebar parity)", () => {
     const tasks = [
       task({ taskId: "task_a1", title: "Active one", coordinationStatus: "active" }),

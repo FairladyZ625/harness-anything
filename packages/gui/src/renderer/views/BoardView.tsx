@@ -180,7 +180,7 @@ function Column({
           {meta.icon}
         </span>
         <span className="text-[15px] font-semibold">{meta.label}</span>
-        <span className="font-mono text-[13px] text-text-faint">{tasks.length}</span>
+        <span className="font-mono text-[13px] text-text-faint" data-testid={`board-status-${status}-count`}>{tasks.length}</span>
         {isOver && rejecting && (
           <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-danger">
             <Lock weight="bold" />

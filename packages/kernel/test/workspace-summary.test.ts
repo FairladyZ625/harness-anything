@@ -4,23 +4,24 @@ import test from "node:test";
 import { summarizeWorkspace } from "../src/index.ts";
 import type { WorkspaceSummaryDecision, WorkspaceSummaryTask } from "../src/domain/workspace-summary.ts";
 
-test("workspace summary matches list-derived task counts and preserves the blocking overlay", () => {
+test("workspace summary counts the same rows and coordination statuses as the board", () => {
   const tasks: WorkspaceSummaryTask[] = [
-    { status: "planned", blockingState: "blocked" },
-    { status: "active", blockingState: "clear" },
-    { status: "active", blockingState: "blocked" },
-    { status: "in_review", blockingState: "blocked" },
-    { status: "done", blockingState: "clear" },
-    { status: "cancelled", blockingState: "unknown" }
+    { coordinationStatus: "blocked", packageDisposition: "active" },
+    { coordinationStatus: "active", packageDisposition: "active" },
+    { coordinationStatus: "blocked", packageDisposition: "active" },
+    { coordinationStatus: "in_review", packageDisposition: "active" },
+    { coordinationStatus: "done", packageDisposition: "active" },
+    { coordinationStatus: "cancelled", packageDisposition: "active" },
+    { coordinationStatus: "active", packageDisposition: "archived" },
+    { coordinationStatus: "planned", packageDisposition: "tombstoned" }
   ];
   const summary = summarizeWorkspace(tasks, []);
-  const projectedStatus = (task: WorkspaceSummaryTask) => task.blockingState === "blocked" && (task.status === "planned" || task.status === "active") ? "blocked" : task.status;
+  const boardRows = tasks.filter((task) => task.packageDisposition === "active" && task.coordinationStatus !== "cancelled");
 
-  assert.equal(summary.tasks.total, tasks.length);
-  for (const status of ["planned", "active", "blocked", "in_review", "done", "cancelled"] as const) {
-    assert.equal(summary.tasks.byStatus[status], tasks.filter((task) => projectedStatus(task) === status).length);
+  assert.equal(summary.tasks.total, boardRows.length);
+  for (const status of ["planned", "active", "blocked", "in_review", "done", "cancelled", "unknown"] as const) {
+    assert.equal(summary.tasks.byStatus[status], boardRows.filter((task) => task.coordinationStatus === status).length);
   }
-  assert.equal(summary.tasks.byStatus.unknown, 0);
 });
 
 test("workspace summary assigns every decision once and keeps proposed and retired meanings exact", () => {

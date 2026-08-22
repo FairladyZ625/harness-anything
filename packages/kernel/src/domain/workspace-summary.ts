@@ -1,10 +1,16 @@
 import { decisionStates, type DecisionState } from "./decision-event.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
+import type { PackageDisposition } from "./package-disposition.ts";
 import type { BlockingAssessmentState } from "./task-blocking.ts";
 
 export type WorkspaceDecisionGroupId = "proposed" | "in_effect" | "rejected" | "deferred" | "retired";
 
 export interface WorkspaceSummaryTask {
+  readonly coordinationStatus: DomainStatus | "unknown";
+  readonly packageDisposition: PackageDisposition;
+}
+
+export interface WorkspaceTaskStatusInput {
   readonly status: DomainStatus;
   readonly blockingState: BlockingAssessmentState;
 }
@@ -39,9 +45,11 @@ export interface WorkspaceSummary {
 }
 
 /**
- * Canonical workspace census consumed by daemon projections. Task counts preserve
- * the existing relation overlay: a planned/active task with a blocking assessment
- * is displayed as blocked, while every other canonical task status stays intact.
+ * Canonical workspace census consumed by daemon projections. The task census
+ * counts exactly the rows the board draws by default — active packages excluding
+ * cancelled tasks — so the overview and the board cannot disagree about how many
+ * tasks are in a status. It classifies the already-derived coordinationStatus
+ * rather than reconstructing status semantics from canonical task fields.
  * Decision groups preserve every registered decision state exactly once; proposed
  * therefore means only "awaits judgment", and retired includes both ways a
  * decision can leave standing use.
@@ -50,16 +58,7 @@ export function summarizeWorkspace(
   tasks: readonly WorkspaceSummaryTask[],
   decisions: readonly WorkspaceSummaryDecision[]
 ): WorkspaceSummary {
-  const byStatus: Record<DomainStatus | "unknown", number> = {
-    planned: 0,
-    active: 0,
-    blocked: 0,
-    in_review: 0,
-    done: 0,
-    cancelled: 0,
-    unknown: 0
-  };
-  for (const task of tasks) byStatus[workspaceTaskStatus(task)] += 1;
+  const boardTasks = tasks.filter((task) => task.packageDisposition === "active" && task.coordinationStatus !== "cancelled");
 
   const groups: Array<{ id: WorkspaceDecisionGroupId; states: DecisionState[]; decisionIds: string[] }> = [
     { id: "proposed", states: ["proposed"], decisionIds: [] },
@@ -78,7 +77,7 @@ export function summarizeWorkspace(
   const publishedGroups = groups.map((group) => ({ ...group, count: group.decisionIds.length }));
 
   return {
-    tasks: { total: tasks.length, byStatus },
+    tasks: countTasks(boardTasks),
     decisions: {
       total: decisions.length,
       inboxCount: publishedGroups[0]!.count,
@@ -88,7 +87,21 @@ export function summarizeWorkspace(
   };
 }
 
-export function workspaceTaskStatus(task: WorkspaceSummaryTask): DomainStatus {
+function countTasks(tasks: readonly WorkspaceSummaryTask[]): WorkspaceTaskSummary {
+  const byStatus: Record<DomainStatus | "unknown", number> = {
+    planned: 0,
+    active: 0,
+    blocked: 0,
+    in_review: 0,
+    done: 0,
+    cancelled: 0,
+    unknown: 0
+  };
+  for (const task of tasks) byStatus[task.coordinationStatus] += 1;
+  return { total: tasks.length, byStatus };
+}
+
+export function workspaceTaskStatus(task: WorkspaceTaskStatusInput): DomainStatus {
   return task.blockingState === "blocked" && (task.status === "planned" || task.status === "active")
     ? "blocked"
     : task.status;
