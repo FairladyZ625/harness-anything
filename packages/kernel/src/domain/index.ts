@@ -23,7 +23,7 @@ export { immutableBindingFields, validateLifecycleBindingInvariant } from "./lif
 export type { LifecycleBinding, BindingInvariantResult, ImmutableBindingField } from "./lifecycle-binding.ts";
 
 export { closeoutReadiness, closeoutReadinesses, currentExecutionCuts, currentSubmittedExecutions, isCloseoutReadiness } from "./closeout-readiness.ts";
-export type { CloseoutReadiness } from "./closeout-readiness.ts";
+export type { CloseoutReadiness, CloseoutSnapshot } from "./closeout-readiness.ts";
 export { blockingOf } from "./task-blocking.ts";
 
 export { summarizeWorkspace, workspaceTaskStatus } from "./workspace-summary.ts";

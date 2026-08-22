@@ -1,8 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync, realpathSync } from "node:fs";
-import path from "node:path";
-import { closeoutReadiness, currentExecutionCuts, type CloseoutSnapshot } from "../../kernel/src/domain/closeout-readiness.ts";
-import type { ActorIdentity, WriteReceipt } from "../../kernel/src/index.ts";
+import { closeoutReadiness, currentExecutionCuts, type ActorIdentity, type CloseoutSnapshot, type WriteReceipt } from "../../kernel/src/index.ts";
 
 const submissionFields = ["completionClaim", "deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks", "commitSha"] as const;
 const reviewFields = ["verdict", "reason", "evidenceChecked"] as const;
@@ -22,6 +19,7 @@ export interface TaskCloseoutActionDependencies {
   readonly action: Readonly<Record<string, unknown>>;
   readonly caller: ActorIdentity;
   readonly opId: string;
+  readonly readWorkspaceText: (rootDir: string, requested: string, field: string) => string;
   readonly read: () => Promise<Snapshot>;
   readonly invoke: (stage: CloseoutStep, action: Readonly<Record<string, unknown>>, actor: ActorIdentity) => Promise<WriteReceipt>;
 }
@@ -30,7 +28,7 @@ export interface TaskCloseoutActionDependencies {
 export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDependencies): Promise<WriteReceipt> {
   const { action, caller, opId } = dependencies, taskId = requiredText(action.taskId, "taskId"), fromFile = requiredText(action.fromFile, "fromFile"), executionId = typeof action.executionId === "string" ? action.executionId : undefined, invocation = closeoutInvocation(taskId, fromFile, executionId);
   let judgment: Judgment;
-  try { judgment = readJudgment(dependencies.rootDir, fromFile); }
+  try { judgment = readJudgment(() => dependencies.readWorkspaceText(dependencies.rootDir, fromFile, "fromFile")); }
   catch (error) { return reject(opId, "invalid_judgment", `${error instanceof Error ? error.message : String(error)} Repair the packet, then run ${invocation}.`); }
   const snapshot = await dependencies.read(), task = snapshot.task;
   if (!task || task.taskId !== taskId) return reject(opId, "task_not_found", `Run ha task list, choose an existing task id, then run ${invocation}.`);
@@ -79,7 +77,7 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
   }
 }
 
-function readJudgment(rootDir: string, fromFile: string): Judgment { let root: string, candidate: string, parsed: unknown; try { root = realpathSync(rootDir); candidate = realpathSync(path.resolve(root, fromFile)); if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`)) throw new Error("outside workspace"); parsed = JSON.parse(readFileSync(candidate, "utf8")); } catch (error) { throw new Error(`Closeout judgment must be one readable JSON object inside the workspace: ${error instanceof Error ? error.message : String(error)}`); } return validateJudgment(parsed); }
+function readJudgment(readText: () => string): Judgment { let parsed: unknown; try { parsed = JSON.parse(readText()); } catch (error) { throw new Error(`Closeout judgment must be one readable JSON object inside the workspace: ${error instanceof Error ? error.message : String(error)}`); } return validateJudgment(parsed); }
 function validateJudgment(value: unknown): Judgment { const packet = exact(value, ["submission", "review", "consent", "completion"], "judgment packet"), submission = exact(packet.submission, submissionFields, "submission"), review = exact(packet.review, reviewFields, "review"), consent = exact(packet.consent, ["approved"], "consent"), completion = exact(packet.completion, ["ci", "codeDocPaths"], "completion"); requiredText(submission.completionClaim, "submission.completionClaim"); for (const field of ["deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks"] as const) stringList(submission[field], `submission.${field}`); if (!/^[0-9a-f]{40}$/u.test(String(submission.commitSha))) throw new Error("submission.commitSha must be a full 40-character Git SHA."); if (!["approved", "changes_requested", "dismissed"].includes(String(review.verdict))) throw new Error("review.verdict must be approved, changes_requested, or dismissed."); requiredText(review.reason, "review.reason"); stringList(review.evidenceChecked, "review.evidenceChecked"); if (consent.approved !== true) throw new Error("consent.approved must be true; closeout never invents consent intent."); if (completion.ci !== "passed") throw new Error("completion.ci must be passed; closeout never invents a CI judgment."); stringList(completion.codeDocPaths, "completion.codeDocPaths"); return { submission, review, consent, completion } as unknown as Judgment; }
 function exact(value: unknown, fields: readonly string[], name: string): Record<string, unknown> { if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join("\0") !== [...fields].sort().join("\0")) throw new Error(`${name} requires exactly: ${fields.join(", ")}.`); return value as Record<string, unknown>; }
 function requiredText(value: unknown, name: string): string { if (typeof value !== "string" || !value.trim()) throw new Error(`${name} must be a non-empty string.`); return value; }
