@@ -125,3 +125,78 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("task-bound runtime sessions cannot review their own execution across exit and resume", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-review-runtime-bound-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    const processes: { exit: ((code: number | null) => void) | null }[] = [];
+    let providerSequence = 0;
+    cell = await openRepoCell({
+      repoId: workspaceId("review-runtime-bound"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test",
+      runtimeDaemonRoute: { userRoot: rootDir, daemonId: "daemon-test", endpoint: path.join(rootDir, "daemon.sock") },
+      prepareRuntimeLaunch: (_instanceId, request) => {
+        const providerSessionId = request.providerSessionId ?? `provider-${++providerSequence}`;
+        return { definition: { schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: "review-runtime", installationId: "review-runtime-installation", kindId: "codex", providerId: "openai", model: "review-model", reasoningEffort: "medium", baseUrl: null, authMode: "subscription" }, installation: { installationId: "review-runtime-installation", kindId: "codex", executablePath: "/test/review-runtime", version: "1.0.0", observedAt: "2026-08-22T00:00:00.000Z" }, executablePath: "/test/review-runtime", args: [providerSessionId], env: {}, cwd: request.cwd, prompt: request.prompt };
+      },
+      runtimeLaunch: (prepared) => {
+        const process = { exit: null as ((code: number | null) => void) | null }, providerSessionId = prepared.args[0]!;
+        processes.push(process);
+        return { pid: 1_001 + processes.length, onOutput: (listener) => { queueMicrotask(() => listener(`${JSON.stringify({ type: "thread.started", thread_id: providerSessionId })}\n`)); }, onErrorOutput: () => undefined, onExit: (listener) => { process.exit = listener; }, terminate: () => process.exit?.(0) };
+      }
+    });
+    const principal = { personId: "person-worker" } as const, implementer = { actor: { principal, executor: { kind: "agent" as const, id: "implementer" } }, source: "local" as const }, arbiter = (id: string) => ({ actor: { principal, executor: { kind: "agent" as const, id } }, source: "local" as const, roles: ["$arbiter"] });
+    const taskId = "task-runtime-bound", executionId = "execution-runtime-bound";
+    assert.equal((await cell.run({ kind: "task-create", taskId, title: "Runtime-bound review" }, implementer)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, implementer)).outcome, "applied");
+
+    const original = await cell.spawnRuntime({ runtimeInstanceId: "review-runtime", cwd: { scope: "repo-root" }, prompt: "Implement the task.", taskId, idempotencyKey: "original-runtime" }, implementer);
+    await runtimeEvent(rootDir, "review-runtime-bound", (event) => event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === original.runtimeSessionId);
+    processes[0]!.exit?.(0);
+    await runtimeEvent(rootDir, "review-runtime-bound", (event) => event.type === "runtime_session_exited" && event.payload.runtimeSessionId === original.runtimeSessionId);
+
+    const resumed = await cell.spawnRuntime({ runtimeInstanceId: "review-runtime", cwd: { scope: "repo-root" }, prompt: "Resume the task.", taskId, providerSessionId: "provider-1", idempotencyKey: "resumed-runtime" }, implementer);
+    await runtimeEvent(rootDir, "review-runtime-bound", (event) => event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === resumed.runtimeSessionId);
+
+    const commitSha = git(rootDir, "rev-parse", "HEAD");
+    writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify({ completionClaim: "Ready.", deliverables: ["d"], outputs: ["o"], verificationNotes: ["v"], knownGaps: [], residualRisks: [], commitSha }));
+    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, implementer)).outcome, "applied");
+    writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Reviewed.", evidenceChecked: ["tests"], commitSha, iteration: 0 }));
+
+    for (const [reviewId, runtimeSessionId] of [["review-exited", original.runtimeSessionId], ["review-resumed", resumed.runtimeSessionId]] as const) {
+      const denied = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" }, arbiter(`runtime-session:${runtimeSessionId}`));
+      assert.equal(denied.code, "runtime_task_self_review_forbidden");
+      assert.match(String(denied.nextAction), /runtime is bound to the task and execution under review and cannot review its own work/u);
+      assert.doesNotMatch(String(denied.nextAction), /(?:retry|resume|run ha)/iu);
+    }
+
+    // A dedicated reviewer runtime has no binding to this task/execution, so the new gate stays narrow.
+    const unbound = await cell.spawnRuntime({ runtimeInstanceId: "review-runtime", cwd: { scope: "repo-root" }, prompt: "Review only.", taskId: null, idempotencyKey: "unbound-reviewer" }, implementer);
+    await runtimeEvent(rootDir, "review-runtime-bound", (event) => event.type === "runtime_session_provider_bound" && event.payload.runtimeSessionId === unbound.runtimeSessionId);
+    const reviewedByRuntime = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "review-unbound", fromFile: "review.json" }, arbiter(`runtime-session:${unbound.runtimeSessionId}`));
+    assert.equal(reviewedByRuntime.outcome, "applied", JSON.stringify(reviewedByRuntime));
+
+    const directTaskId = "task-direct-review", directExecutionId = "execution-direct-review";
+    assert.equal((await cell.run({ kind: "task-create", taskId: directTaskId, title: "Direct review" }, implementer)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-start", taskId: directTaskId, executionId: directExecutionId }, implementer)).outcome, "applied");
+    const directCommitSha = git(rootDir, "rev-parse", "HEAD");
+    writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify({ completionClaim: "Ready.", deliverables: ["d"], outputs: ["o"], verificationNotes: ["v"], knownGaps: [], residualRisks: [], commitSha: directCommitSha }));
+    assert.equal((await cell.run({ kind: "task-submit", taskId: directTaskId, executionId: directExecutionId, fromFile: "submission.json" }, implementer)).outcome, "applied");
+    writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Reviewed by another agent.", evidenceChecked: ["tests"], commitSha: directCommitSha, iteration: 0 }));
+    // A child/non-runtime agent has no runtime-session identity; existing executor independence decides it.
+    const reviewedByAgent = await cell.run({ kind: "task-review-execution", taskId: directTaskId, executionId: directExecutionId, reviewId: "review-child-agent", fromFile: "review.json" }, arbiter("child-reviewer"));
+    assert.equal(reviewedByAgent.outcome, "applied", JSON.stringify(reviewedByAgent));
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+async function runtimeEvent(rootDir: string, repoId: string, matches: (event: ReturnType<ReturnType<typeof makeTaskEventStore>["read"]>["events"][number]) => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (makeTaskEventStore({ repoId, rootDir }).read().events.some(matches)) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("runtime event did not arrive");
+}
