@@ -8,29 +8,6 @@ function command(definition) {
   });
 }
 
-export const closeoutTaskCommand = command({
-  id: "closeout-task",
-  entry: "tools/closeout-task.mjs",
-  summary: "Run an evidence-backed Task submission, review, consent, and completion sequence.",
-  invalidInputShowsHelp: true,
-  rejectDuplicateOptions: true,
-  options: [
-    { name: "--task-id", placeholder: "<task-id>", required: true, description: "Task to close out." },
-    { name: "--execution-id", placeholder: "<execution-id>", required: true, description: "Active execution to submit." },
-    { name: "--from-file", placeholder: "<judgment.json>", required: true, description: "Exact closeout judgment packet." },
-  ],
-  details: [
-    "The judgment packet must contain exactly:",
-    "  submission: completionClaim, deliverables, outputs, verificationNotes, knownGaps, residualRisks, commitSha",
-    "  review: verdict, reason, evidenceChecked",
-    "  consent: approved=true",
-    "  completion: ci=passed, codeDocPaths[] (empty omits reconcile; an applicable code-doc gate may reject completion)",
-    "",
-    "The script derives the submitter and owner actor postures from the active task, binds Review to submission.commitSha,",
-    "uses the transport human as independent reviewer, and invokes every existing lifecycle gate without bypasses.",
-  ],
-});
-
 export const dispatchTaskCommand = command({
   id: "dispatch-task",
   entry: "tools/dispatch-task.mjs",
@@ -94,7 +71,6 @@ export const runNodeTestsCommand = command({
 });
 
 export const supportedToolCommands = Object.freeze([
-  closeoutTaskCommand,
   dispatchTaskCommand,
   dispatchIsolatedTestCommand,
   testHermeticPreflightCommand,

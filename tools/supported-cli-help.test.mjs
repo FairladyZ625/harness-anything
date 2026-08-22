@@ -4,10 +4,9 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
 import { daemonProtocolCommands } from "../packages/daemon/src/protocol/daemon-protocol.contract.ts";
-import { parseCloseoutArgs } from "./closeout-task.mjs";
 import { parseDispatchArgs as parseIsolatedDispatchArgs } from "./dispatch-isolated-test.mjs";
 import { parseRunnerArgs } from "./node-test-runner-lib.mjs";
-import { closeoutTaskCommand, dispatchIsolatedTestCommand, parseToolOptions, renderToolHelp, runNodeTestsCommand, supportedToolCommands } from "./tool-command-contract.mjs";
+import { dispatchIsolatedTestCommand, parseToolOptions, renderToolHelp, runNodeTestsCommand, supportedToolCommands } from "./tool-command-contract.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
@@ -21,15 +20,11 @@ test("every supported CLI and tool entrypoint exposes non-empty --help", { timeo
 });
 
 test("sample tool parsers accept every documented flag and reject an undocumented flag", () => {
-  assert.deepEqual(parseCloseoutArgs(["--task-id", "task_sample", "--execution-id", "exe_sample", "--from-file", "judgment.json"]), {
-    help: false, taskId: "task_sample", executionId: "exe_sample", fromFile: "judgment.json",
-  });
   assert.deepEqual(parseIsolatedDispatchArgs(["--target", "docker", "--tier", "fast"]), {
     target: "docker", tier: "fast", file: undefined,
   });
   assert.equal(parseRunnerArgs(["--tier=integration", "--prefix", "tools", "--slow-limit=3"]).tier, "integration");
   for (const [descriptor, parse, invocations] of [
-    [closeoutTaskCommand, parseCloseoutArgs, [["--task-id", "task_sample", "--execution-id", "exe_sample", "--from-file", "judgment.json"]]],
     [dispatchIsolatedTestCommand, parseIsolatedDispatchArgs, [["--target", "docker", "--tier", "fast"], ["--file", "tools/run-node-tests.test.mjs"]]],
     [runNodeTestsCommand, parseRunnerArgs, [["--tier=integration", "--list", "--slow-threshold-ms", "0", "--slow-limit=3", "--concurrency", "2", "--prefix", "tools", "--shard", "1"], ["--file=tools/run-node-tests.test.mjs"]]],
   ]) {
