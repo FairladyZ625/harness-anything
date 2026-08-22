@@ -14,10 +14,10 @@ const repoRoot = path.resolve(import.meta.dirname, "..");
 test("required positive controls are detected in the repository", () => {
   const sites = scanGuiStatusJudgments(repoRoot);
   const has = (file, fragment) => sites.some((site) => site.path === file && site.content.includes(fragment));
-  assert.equal(has("packages/gui/src/renderer/views/DecisionPoolView.tsx", '["proposed", "rejected", "deferred"]'), true);
-  assert.equal(has("packages/gui/src/renderer/views/DecisionPoolView.tsx", '["proposed", "active", "retired"]'), true);
-  assert.equal(has("packages/gui/src/renderer/views/DecisionPoolView.tsx", 'decision.state === "outcome_retired"'), true);
-  assert.equal(has("packages/gui/src/renderer/App.tsx", 'd.state === "proposed"'), true);
+  assert.equal(has("packages/gui/src/renderer/views/DecisionPoolView.tsx", 'decision.state === "proposed"'), true);
+  assert.equal(has("packages/gui/src/renderer/views/DecisionPoolView.tsx", '["high", "medium", "low", "unknown"]'), true);
+  assert.equal(has("packages/gui/src/renderer/views/DecisionsView.tsx", 'decision.state === "proposed"'), true);
+  assert.equal(has("packages/gui/src/renderer/decision-actions.ts", 'decision.state === "proposed"'), true);
   assert.equal(has("packages/gui/src/renderer/model/taskFilters.ts", 'task.packageDisposition !== "active"'), true);
   assert.equal(has("packages/gui/src/renderer/model/taskFilters.ts", 'task.coordinationStatus === "cancelled"'), true);
 });

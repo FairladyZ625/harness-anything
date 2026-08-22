@@ -2,6 +2,7 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import { harnessClient, type TaskListSuccess, type TaskQueryFacets } from "./api-client.ts";
 import type { DocEntry, DocGroup } from "./model/types.ts";
 import { isRendererRecord } from "./result-validation.ts";
+import { workspaceSummaryQueryKeys } from "./workspace-summary-data.ts";
 
 export const LEDGER_REFRESH_INTERVAL_MS = 2_000;
 export const TASK_LIST_PAGE_LIMIT = 500;
@@ -64,7 +65,8 @@ export function useTasksQuery(repoId: string | null) {
 export async function invalidateLedgerDependents(queryClient: QueryClient, repoId: string): Promise<void> {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: taskQueryKeys.all(repoId), predicate: (query) => query.queryKey[2] !== "list" }),
-    queryClient.invalidateQueries({ queryKey: ["triadic", repoId] })
+    queryClient.invalidateQueries({ queryKey: ["triadic", repoId] }),
+    queryClient.invalidateQueries({ queryKey: workspaceSummaryQueryKeys.read(repoId) })
   ]);
 }
 

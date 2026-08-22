@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, Funnel, Graph, GitBranch, Plus } from "@phosphor-icons/react";
-import type { RelationCoverageRow } from "../../api/renderer-dto.ts";
+import { ArrowRight, Graph, GitBranch, Plus } from "@phosphor-icons/react";
+import type { RelationCoverageRow, WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
 import { harnessClient, type DecisionProposalInput } from "../api-client.ts";
 import { DecisionJudgmentPanel } from "../components/DecisionJudgmentPanel.tsx";
 import { DecisionProposalForm } from "../components/DecisionProposalForm.tsx";
@@ -15,12 +15,9 @@ import { groupDecisions, type PoolGroupBy } from "../model/decision-pool-groupin
 import { t } from "../i18n/index.tsx";
 import { localMonthDayTime } from "../model/local-time.ts";
 
-type PoolTab = "proposed" | "active" | "retired";
+type PoolTab = WorkspaceSummaryRead["decisions"]["groups"][number]["id"];
 type TimeRange = "all" | "14d" | "30d";
 type RelationState = "ready" | "loading" | "error";
-// Ended-decision family: retired (human-ended) and superseded (replaced) share the
-// retired bucket; each keeps its own badge and filter option inside the tab.
-const TAB_STATE: Record<PoolTab, DecisionState[]> = { proposed: ["proposed", "rejected", "deferred"], active: ["in_effect"], retired: ["outcome_retired", "superseded"] };
 const selectClass = "rounded-md border border-border bg-surface px-2 py-1 font-mono text-[12px] text-text-muted outline-none transition-colors duration-100 hover:border-border-strong focus-visible:border-border-strong";
 
 function withinRange(decision: DecisionRow, range: TimeRange) {
@@ -47,9 +44,9 @@ function ChainView({ decision, relations }: { decision: DecisionRow; relations: 
   </div>;
 }
 
-export function DecisionPoolView({ repoId, decisions, facts, relations, coverageRows = [], relationState = "ready", focusedDecisionId, onFocusGraph, onPropose, proposalFeedback, onJudge, mutationFeedback, onCheckReceipt }: {
+export function DecisionPoolView({ repoId, decisions, summary, facts, relations, coverageRows = [], relationState = "ready", focusedDecisionId, onFocusGraph, onPropose, proposalFeedback, onJudge, mutationFeedback, onCheckReceipt }: {
   repoId: string;
-  decisions: DecisionRow[]; facts: FactRef[]; relations: RelationEdge[]; coverageRows?: ReadonlyArray<RelationCoverageRow>; relationState?: RelationState;
+  decisions: DecisionRow[]; summary: WorkspaceSummaryRead["decisions"]; facts: FactRef[]; relations: RelationEdge[]; coverageRows?: ReadonlyArray<RelationCoverageRow>; relationState?: RelationState;
   focusedDecisionId?: string | null; onFocusGraph?: (ref: string) => void;
   onPropose?: (input: DecisionProposalInput) => Promise<DecisionMutationFeedback>; proposalFeedback?: DecisionMutationFeedback;
   onJudge?: (decision: DecisionRow, action: DecisionAction, input: { readonly rationale: string; readonly judgmentOnlyRationale?: string }) => Promise<DecisionMutationFeedback>;
@@ -66,12 +63,12 @@ export function DecisionPoolView({ repoId, decisions, facts, relations, coverage
   useEffect(() => {
     if (!focusedDecisionId) { handledFocusRef.current = null; return; }
     if (handledFocusRef.current === focusedDecisionId) return;
-    const decision = decisions.find((candidate) => candidate.decisionId === focusedDecisionId); if (!decision) return;
-    handledFocusRef.current = focusedDecisionId; setTab(decision.state === "in_effect" ? "active" : TAB_STATE.retired.includes(decision.state) ? "retired" : "proposed");
+    const decision = decisions.find((candidate) => candidate.decisionId === focusedDecisionId), group = summary.groups.find((candidate) => candidate.decisionIds.includes(focusedDecisionId)); if (!decision || !group) return;
+    handledFocusRef.current = focusedDecisionId; setTab(group.id);
     setStateFilter("all"); setRiskFilter("all"); setUrgencyFilter("all"); setVerticalFilter("all"); setPresetFilter("all"); setProposedByFilter("all"); setTimeRange("all"); setSearch(""); setModuleFilter("all"); setProductLineFilter("all");
     const frame = window.requestAnimationFrame(() => document.getElementById(`decision-card-${focusedDecisionId}`)?.scrollIntoView({ block: "center" }));
     return () => window.cancelAnimationFrame(frame);
-  }, [decisions, focusedDecisionId]);
+  }, [decisions, focusedDecisionId, summary.groups]);
 
   const verticals = useMemo(() => [...new Set(decisions.flatMap((decision) => decision.vertical ? [decision.vertical] : []))].sort(), [decisions]);
   const presets = useMemo(() => [...new Set(decisions.flatMap((decision) => decision.preset ? [decision.preset] : []))].sort(), [decisions]);
@@ -85,28 +82,27 @@ export function DecisionPoolView({ repoId, decisions, facts, relations, coverage
     staleTime: 0,
   });
   const remoteIds = remote.data?.status === "ready" ? new Set(remote.data.decisionIds) : null;
+  const currentGroup = summary.groups.find((group) => group.id === tab) ?? summary.groups[0]!;
   const rows = useMemo(() => {
-    const tabStates = new Set(TAB_STATE[tab]);
+    const groupDecisionIds = new Set(currentGroup.decisionIds);
     return sortDecisionQueue(decisions).filter((decision) => !remoteEnabled || remoteIds?.has(decision.decisionId))
-      .filter((decision) => tabStates.has(decision.state)).filter((decision) => stateFilter === "all" || decision.state === stateFilter)
+      .filter((decision) => groupDecisionIds.has(decision.decisionId)).filter((decision) => stateFilter === "all" || decision.state === stateFilter)
       .filter((decision) => riskFilter === "all" || (riskFilter === "unknown" ? !decision.riskTier : decision.riskTier === riskFilter))
       .filter((decision) => urgencyFilter === "all" || (urgencyFilter === "unknown" ? !decision.urgency : decision.urgency === urgencyFilter))
       .filter((decision) => verticalFilter === "all" || decision.vertical === verticalFilter).filter((decision) => presetFilter === "all" || decision.preset === presetFilter)
       .filter((decision) => proposedByFilter === "all" || (proposedByFilter === "unknown" ? !decision.proposedBy : decision.proposedBy?.kind === proposedByFilter)).filter((decision) => withinRange(decision, timeRange));
-  }, [decisions, presetFilter, proposedByFilter, remoteEnabled, remoteIds, riskFilter, stateFilter, tab, timeRange, urgencyFilter, verticalFilter]);
-  const counts = { proposed: decisions.filter((decision) => TAB_STATE.proposed.includes(decision.state)).length, active: decisions.filter((decision) => decision.state === "in_effect").length, retired: decisions.filter((decision) => decision.state === "outcome_retired").length };
+  }, [currentGroup.decisionIds, decisions, presetFilter, proposedByFilter, remoteEnabled, remoteIds, riskFilter, stateFilter, timeRange, urgencyFilter, verticalFilter]);
 
   return <div className="flex h-full flex-col">
     <header className="flex items-center gap-3 border-b border-border px-4 py-3"><div><h1 className="ui-title font-semibold">{t("renderer.shellConfig.decisionPool")}</h1><span className="font-mono text-[12px] text-text-faint">{t("views.decisionPoolView.subtitle")}</span></div>{onPropose && <button onClick={() => setProposalOpen((value) => !value)} className={`ml-auto inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-[12px] font-semibold text-accent-fg transition-colors duration-100 ${proposalOpen ? "bg-accent/85 hover:bg-accent" : "bg-accent hover:bg-accent/85"}`}><Plus weight="bold" />{t("views.decisionPoolView.proposal")}</button>}</header>
     {proposalOpen && onPropose && <DecisionProposalForm feedback={proposalFeedback} onSubmit={onPropose} onClose={() => setProposalOpen(false)} onCheckReceipt={() => onCheckReceipt?.("proposal")} />}
     <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-surface/50 px-4 py-2">
-      {(["proposed", "active", "retired"] as PoolTab[]).map((item) => <button key={item} onClick={() => { setTab(item); setStateFilter("all"); }} className={`rounded-md px-3 py-1.5 font-mono text-[12px] tabular-nums transition-colors duration-100 ${tab === item ? "bg-accent text-accent-fg" : "bg-surface-raised text-text-muted hover:text-text"}`}>{item} · {counts[item]}</button>)}
-      <span className="ml-auto inline-flex items-center gap-1 font-mono text-[11px] tabular-nums text-text-faint"><Funnel weight="bold" />{t("views.decisionPoolView.visibleCount", { count: rows.length })}</span>
+      {summary.groups.map((item) => <button key={item.id} onClick={() => { setTab(item.id); setStateFilter("all"); }} className={`rounded-md px-3 py-1.5 font-mono text-[12px] tabular-nums transition-colors duration-100 ${tab === item.id ? "bg-accent text-accent-fg" : "bg-surface-raised text-text-muted hover:text-text"}`}>{item.id.replaceAll("_", " ")} · {item.count}</button>)}
     </div>
     <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
       <input aria-label={t("views.decisionPoolView.decisionSearch")} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("views.decisionPoolView.searchTitleIdQuestion")} className={`${selectClass} min-w-52`} />
       <Filter value={moduleFilter} set={setModuleFilter} label={t("views.decisionPoolView.filterModule")} allLabel={t("views.decisionPoolView.filterAll", { label: t("views.decisionPoolView.filterModule") })} values={modules} /><Filter value={productLineFilter} set={setProductLineFilter} label={t("views.decisionPoolView.filterProductLine")} allLabel={t("views.decisionPoolView.filterAll", { label: t("views.decisionPoolView.filterProductLine") })} values={productLines} />
-      <select className={selectClass} value={stateFilter} onChange={(e) => setStateFilter(e.target.value as DecisionState | "all")}><option value="all">{t("views.decisionPoolView.stateAll")}</option>{TAB_STATE[tab].map((state) => <option key={state}>{state}</option>)}</select>
+      <select className={selectClass} value={stateFilter} onChange={(e) => setStateFilter(e.target.value as DecisionState | "all")}><option value="all">{t("views.decisionPoolView.stateAll")}</option>{currentGroup.states.map((state) => <option key={state}>{state}</option>)}</select>
       <Filter value={riskFilter} set={setRiskFilter as (value: string) => void} label={t("views.decisionPoolView.filterRisk")} allLabel={t("views.decisionPoolView.riskAll")} values={["high", "medium", "low", "unknown"]} /><Filter value={urgencyFilter} set={setUrgencyFilter as (value: string) => void} label={t("views.decisionPoolView.filterUrgency")} allLabel={t("views.decisionPoolView.urgencyAll")} values={["high", "medium", "low", "unknown"]} />
       <Filter value={verticalFilter} set={setVerticalFilter} label={t("views.decisionPoolView.filterVertical")} allLabel={t("views.decisionPoolView.verticalAll")} values={verticals} /><Filter value={presetFilter} set={setPresetFilter} label={t("views.decisionPoolView.filterPreset")} allLabel={t("views.decisionPoolView.presetAll")} values={presets} /><Filter value={proposedByFilter} set={setProposedByFilter as (value: string) => void} label={t("views.decisionPoolView.filterProposedBy")} allLabel={t("views.decisionPoolView.filterProposedByAll")} values={["human", "agent", "system", "unknown"]} />
       <select className={selectClass} value={timeRange} onChange={(e) => setTimeRange(e.target.value as TimeRange)}><option value="all">{t("views.decisionPoolView.timeAll")}</option><option value="14d">{t("views.decisionPoolView.timeLast14Days")}</option><option value="30d">{t("views.decisionPoolView.timeLast30Days")}</option></select>

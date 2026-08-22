@@ -5,6 +5,7 @@ import { consumeKnownError } from "../api/error-consumption.ts";
 import { harnessClient, type DecisionListSuccess, type DecisionProposalInput, type RelationGraphSuccess } from "./api-client.ts";
 import type { DecisionRow, RelationEdge } from "./model/types.ts";
 import { triadicQueryKeys } from "./triadic-data.ts";
+import { workspaceSummaryQueryKeys } from "./workspace-summary-data.ts";
 
 type ReceiptRecord = GuiActionResult & {
   readonly revision?: number;
@@ -105,6 +106,7 @@ export function useDecisionActions(repoId: string) {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: triadicQueryKeys.decisions(repoId) }),
       queryClient.invalidateQueries({ queryKey: triadicQueryKeys.graph(repoId) }),
+      queryClient.invalidateQueries({ queryKey: workspaceSummaryQueryKeys.read(repoId) }),
     ]);
     const [decisions, graph] = await Promise.all([
       queryClient.fetchQuery({ queryKey: triadicQueryKeys.decisions(repoId), queryFn: () => harnessClient.getDecisions({ repoId }), staleTime: 0 }),

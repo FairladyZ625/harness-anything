@@ -9,7 +9,7 @@ function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotPr
   return { taskId, workspaceRevision: 1, createdAt: "2026-08-11T23:59:00.000Z", updatedAt: "2026-08-12T00:00:00.000Z", snapshot: { revision: 1,
     task: { schema: "task/v1", taskId, title: "X", taskClass: "standard", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0,
       createdBy: { principal: { personId: "person-owner" }, executor: null }, completionGateIds: [], presetSnapshotDigest: null }, executions: [], reviews: [], consents: [], codeDocWitnesses: [], gateWitnesses: [], edgesTaken: [], lease: null },
-    packagePath: `tasks/${taskId}-x`, snapshotAvailability: { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" },
+    packagePath: `tasks/${taskId}-x`, coordinationStatus: "planned", snapshotAvailability: { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" },
     closeoutAssessment: { readiness: "not_required", gates: [] },
     blockingAssessment: { taskId, state: "clear", blockers: [], warnings: [] },
     placement: { moduleKeys: ["gui"], productLines: ["harness"], parentTaskId: null, origin: "native", engine: "kernel/task-lifecycle/v1", packageDisposition: "active", provenance: [{ kind: "l2", ref: `tasks/${taskId}-x/INDEX.md` }] },
@@ -42,7 +42,7 @@ describe("adaptProjectionRows", () => {
   });
 
   it("renders authoritative closeout and blocking assessments without relation recomputation", () => {
-    const input = row({ taskId: "task-a", closeoutAssessment: { readiness: "failed", executionId: "exe-a", blocker: "gate", gates: [{ gateId: "ci", status: "failed", detail: "current cut failed" }] }, blockingAssessment: { taskId: "task-a", state: "blocked", blockers: [{ relationId: "rel_0000000000000001", kind: "depends-on", sourceTaskId: "task-a", targetTaskId: "task-b" }], warnings: [] } });
+    const input = row({ taskId: "task-a", coordinationStatus: "blocked", closeoutAssessment: { readiness: "failed", executionId: "exe-a", blocker: "gate", gates: [{ gateId: "ci", status: "failed", detail: "current cut failed" }] }, blockingAssessment: { taskId: "task-a", state: "blocked", blockers: [{ relationId: "rel_0000000000000001", kind: "depends-on", sourceTaskId: "task-a", targetTaskId: "task-b" }], warnings: [] } });
     const [task] = adaptProjectionRows([input], "repo-test", "ready", { relationState: "ready", relations: [] });
     expect(task).toMatchObject({ coordinationStatus: "blocked", blocking: "blocked", closeoutReadiness: "failed", gates: [{ name: "ci", ok: false, detail: "current cut failed" }], blockers: [{ sourceTaskId: "task-a", targetTaskId: "task-b" }] });
   });

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { SnapshotStatus, TaskRow } from "../../model/types";
+import type { WorkspaceSummaryRead } from "../../../api/renderer-dto.ts";
 import { BOARD_COLUMNS } from "../../model/types";
-import { coordinationStatusCensus } from "../../model/status-census.ts";
 import { sortTasksByCreatedDesc, taskCreatedAt } from "../../model/ledger-timeline.ts";
 import { STATUS_META, StatusBadge } from "../badges.tsx";
 import { t } from "../../i18n/index.tsx";
@@ -11,20 +11,21 @@ import { StreamBody, StreamEmpty, StreamExitButton, StreamTabs, streamTime } fro
  * 总览「任务流」:合并原「现在在跑什么」与「任务流」两格。
  * 状态切换是**就地筛选**——点哪个状态,本格数据源换成该状态的任务瀑布流,
  * 路由不动;「去看板」是唯一的显式路由出口,带当前状态预置。
- * 计数口径 = coordinationStatusCensus(与侧栏摘要逐字同源)。
+ * Tab counts are rendered verbatim from the daemon workspace summary.
  * 排序 = task_bootstrapped 创建时间倒序;内部滚动,不截断。
  */
 export function TaskStream({
   tasks,
+  summary,
   onOpenPreview,
   onGoBoard,
 }: {
   tasks: ReadonlyArray<TaskRow>;
+  summary: WorkspaceSummaryRead["tasks"];
   onOpenPreview: (taskId: string) => void;
   onGoBoard: (status: SnapshotStatus) => void;
 }) {
   const [status, setStatus] = useState<SnapshotStatus>("active");
-  const census = useMemo(() => coordinationStatusCensus(tasks), [tasks]);
   const rows = useMemo(
     () => sortTasksByCreatedDesc(tasks.filter((task) => task.coordinationStatus === status)),
     [tasks, status],
@@ -37,7 +38,7 @@ export function TaskStream({
           options={BOARD_COLUMNS.filter((column) => column !== "unknown").map((column) => ({
             key: column,
             label: STATUS_META[column].label,
-            count: census.get(column) ?? 0,
+            count: summary.byStatus[column],
           }))}
           value={status}
           onChange={setStatus}

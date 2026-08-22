@@ -18,7 +18,6 @@
   "views.decisionPoolView.timeLast30Days": "time: last 30d",
   "views.decisionPoolView.urgencyAll": "urgency: all",
   "views.decisionPoolView.verticalAll": "vertical: all",
-  "views.decisionPoolView.visibleCount": "{count} visible",
   "views.decisionPropose.close": "Close",
   "views.decisionPropose.questionLabel": "Question",
   "views.decisionPropose.riskHigh": "high",

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { consumeKnownError, readDaemonRegistry, registerDaemonRepo, resolveHarnessLayout, unregisterDaemonRepo, type DaemonRepoMode, type InvalidDaemonRegistryRepo, type WriteReceipt, type WriteSource } from "../../kernel/src/index.ts";
-import { canonicalRoot, commandClassForAction, workspaceId, type DaemonGuiReadMethod, type DaemonGuiReadResultMap } from "./protocol/daemon-protocol.contract.ts"; import { compileRepoRepositoryScaffold, compileRepoTaskPackage, presetUserRoot, recoverPresetRunStatus } from "../../preset/src/index.ts";
+import { canonicalRoot, commandClassForAction, workspaceId, type DaemonGuiReadResultMap, type DaemonGuiRpcReadMethod } from "./protocol/daemon-protocol.contract.ts"; import { compileRepoRepositoryScaffold, compileRepoTaskPackage, presetUserRoot, recoverPresetRunStatus } from "../../preset/src/index.ts";
 import { resolveRepoBootstrap, type RepoBootstrapReceipt, type RepoBootstrapRequest } from "./repo-bootstrap.ts";
 import { loadPeopleRoster } from "./identity/people-roster.ts";
 import { makeTransportDerivedIdentityProvider } from "./identity/transport-derived-provider.ts";
@@ -22,10 +22,11 @@ import { admitRepoMode, type RepoModeAdmission } from "./repo-mode.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
+import { workspaceSummaryFromReads } from "./workspace-summary-read.ts";
 export interface DaemonHost {
   readonly run: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => Promise<WriteReceipt>; readonly presetRun: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => ReturnType<RepoCell["presetRun"]>;
   readonly replica: (repoId: string) => RepoCell["replica"];
-  readonly read: <M extends DaemonGuiReadMethod>(repoId: string, method: M, payload: Readonly<Record<string, unknown>>, auth: DaemonAuthenticationContext) => Promise<DaemonGuiReadResultMap[M]>;
+  readonly read: <M extends DaemonGuiRpcReadMethod>(repoId: string, method: M, payload: Readonly<Record<string, unknown>>, auth: DaemonAuthenticationContext) => Promise<DaemonGuiReadResultMap[M]>;
   readonly attach: (repoId: string, runtimeSessionId: string, afterCursor: string, auth: DaemonAuthenticationContext) => Promise<AgentRuntimeAttachSubscription>;
   readonly spawnRuntime: (repoId: string, payload: JsonObject, auth: DaemonAuthenticationContext) => Promise<JsonObject>;
   readonly cancelRuntime: (repoId: string, payload: JsonObject, auth: DaemonAuthenticationContext) => Promise<JsonObject>;
@@ -105,7 +106,7 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
     },
     read: async (repoId, method, payload, auth) => { requireHostMode(repoId, "repo-read", auth); await attemptHostRecovery(repoId); const cell = cells.get(repoId);
       if (!cell) throw hostCodedError(warming.has(repoId) ? "repo_warming" : unavailable.has(repoId) ? "repo_unavailable" : "repo_namespace_unknown", warming.has(repoId) ? warmingMessage(repoId) : unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`);
-      await binding(cell.status().rootDir, auth, "repo-read"); if (method === "repo.gui.catalog.snapshot") return await cell.catalog.snapshot() as unknown as DaemonGuiReadResultMap[typeof method]; if (method === "repo.gui.catalog.preset.read") return await cell.catalog.preset(payload as JsonObject) as unknown as DaemonGuiReadResultMap[typeof method]; if (method === "repo.terminal.sessions.list") return cell.terminal.list() as DaemonGuiReadResultMap[typeof method]; return cell.read(method as import("./repo-cell.ts").RepoCellReadMethod, payload) as Promise<DaemonGuiReadResultMap[typeof method]>; },
+      await binding(cell.status().rootDir, auth, "repo-read"); if (method === "repo.workspace.summary.read") { const [tasks, decisions] = await Promise.all([cell.read("repo.tasks.list", {}), cell.read("repo.decisions.list", {})]); return workspaceSummaryFromReads(tasks, decisions) as DaemonGuiReadResultMap[typeof method]; } if (method === "repo.gui.catalog.snapshot") return await cell.catalog.snapshot() as unknown as DaemonGuiReadResultMap[typeof method]; if (method === "repo.gui.catalog.preset.read") return await cell.catalog.preset(payload as JsonObject) as unknown as DaemonGuiReadResultMap[typeof method]; if (method === "repo.terminal.sessions.list") return cell.terminal.list() as DaemonGuiReadResultMap[typeof method]; return cell.read(method as import("./repo-cell.ts").RepoCellReadMethod, payload) as Promise<DaemonGuiReadResultMap[typeof method]>; },
     attach: async (repoId, runtimeSessionId, afterCursor, auth) => { requireHostMode(repoId, "repo-read", auth); await attemptHostRecovery(repoId); const cell = requiredCell(cells, warming, unavailable, repoId); await binding(cell.status().rootDir, auth, "repo-read"); return cell.attach(runtimeSessionId, afterCursor); },
     spawnRuntime: async (repoId, payload, auth) => { requireHostMode(repoId, "repo-write", auth); await attemptHostRecovery(repoId); const cell = requiredCell(cells, warming, unavailable, repoId), { executor: declared, ...intent } = payload, executor = declaredExecutor(declared); return cell.spawnRuntime(intent, await binding(cell.status().rootDir, auth, "repo-write", false, executor)); },
     cancelRuntime: async (repoId, payload, auth) => { requireHostMode(repoId, "repo-write", auth); await attemptHostRecovery(repoId); const cell = requiredCell(cells, warming, unavailable, repoId), { executor: declared, ...intent } = payload, executor = declaredExecutor(declared); return cell.cancelRuntime(intent, await binding(cell.status().rootDir, auth, "repo-write", false, executor)); },

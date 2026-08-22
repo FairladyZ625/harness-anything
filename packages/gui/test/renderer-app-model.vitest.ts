@@ -345,11 +345,23 @@ describe("renderer app model", () => {
       judgmentConsents: [],
     };
     const markup = renderToStaticMarkup(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(DecisionPoolView, {
-      decisions: [decision], facts: [], relations: [], focusedDecisionId: decision.decisionId
+      repoId: "repo-a", decisions: [decision], facts: [], relations: [], focusedDecisionId: decision.decisionId,
+      summary: {
+        total: 7, inboxCount: 7,
+        byState: { proposed: 7, in_effect: 0, rejected: 0, deferred: 0, superseded: 0, outcome_retired: 0 },
+        groups: [
+          { id: "proposed", states: ["proposed"], count: 7, decisionIds: [decision.decisionId, "dec_missing_1", "dec_missing_2", "dec_missing_3", "dec_missing_4", "dec_missing_5", "dec_missing_6"] },
+          { id: "in_effect", states: ["in_effect"], count: 0, decisionIds: [] },
+          { id: "rejected", states: ["rejected"], count: 0, decisionIds: [] },
+          { id: "deferred", states: ["deferred"], count: 0, decisionIds: [] },
+          { id: "retired", states: ["superseded", "outcome_retired"], count: 0, decisionIds: [] }
+        ]
+      }
     })));
 
     expect(markup).toContain('id="decision-card-dec_gui_smoke"');
     expect(markup).toContain('data-focused="true"');
+    expect(markup).toMatch(/proposed\s*·\s*7/);
   });
 
   it("renders the exact proposal surface with human-selected risk and urgency", () => {
