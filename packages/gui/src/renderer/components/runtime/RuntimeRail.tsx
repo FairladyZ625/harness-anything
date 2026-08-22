@@ -3,7 +3,8 @@ import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-run
 import type { AgentEntityRow, SquadEntityRow } from "../../agent-entity-client.ts";
 import type { RuntimeDockRow } from "../../runtime-panorama.ts";
 import { t } from "../../i18n/index.tsx";
-import { Avatar, KindDot, LiveDot } from "./parts.tsx";
+import { runtimeAuthPresentation } from "../../runtime-auth-presentation.ts";
+import { Avatar, CapDot, KindDot, LiveDot } from "./parts.tsx";
 import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
 
 export type OrchestrationEntry = { readonly taskId: string; readonly title: string; readonly dispatches: number; readonly running: number };
@@ -15,19 +16,21 @@ export function orchestrationEntries(rows: readonly RuntimeDockRow[]): readonly 
 
 type Props = {
   readonly instances: readonly RuntimeInstanceSummary[]; readonly agents: readonly AgentEntityRow[]; readonly squads: readonly SquadEntityRow[]; readonly orchestration: readonly OrchestrationEntry[];
+  readonly authProbeErrors?: ReadonlyMap<string, string>;
   readonly selection: RuntimeSelection | null; readonly open: Readonly<Record<string, boolean>>; readonly liveByInstance: ReadonlyMap<string, number>;
   readonly onToggle: (segment: string) => void; readonly onSelect: (selection: RuntimeSelection) => void; readonly onNew: (segment: "runtimes" | "agents" | "squads") => void;
 };
 // The prototype rail: four collapsible segments in the order carrier → identity →
 // organisation → orchestration, each row carrying the one fact that distinguishes it.
-export function RuntimeRail({ instances, agents, squads, orchestration, selection, open, liveByInstance, onToggle, onSelect, onNew }: Props) {
+export function RuntimeRail({ instances, authProbeErrors, agents, squads, orchestration, selection, open, liveByInstance, onToggle, onSelect, onNew }: Props) {
   const picked = (type: RuntimeSelection["type"], id: string) => selection?.type === type && selection.id === id;
   return <nav data-testid="runtime-rail" aria-label={t("agentRuntime.railLabel")} className="flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface">
     <Segment segment="runtimes" title={t("agentRuntime.segRuntimes")} sub={t("agentRuntime.segRuntimesSub")} count={instances.length} open={open.runtimes ?? true} onToggle={onToggle} onNew={() => onNew("runtimes")}>
-      {instances.map((instance) => <Row key={instance.instanceId} tip={instance.instanceId} testId={`rail-runtime-${instance.instanceId}`} selected={picked("runtime", instance.instanceId)} onSelect={() => onSelect({ type: "runtime", id: instance.instanceId })}>
+      {instances.map((instance) => { const auth = runtimeAuthPresentation(instance, authProbeErrors?.get(instance.instanceId) ?? null), authTip = auth.state === "ready" ? t("agentRuntime.authVerified") : auth.state === "not-checked" ? t("agentRuntime.authNotChecked") : auth.state === "probe-error" ? t("agentRuntime.authProbeFailed", { error: auth.error ?? "" }) : instance.authReadiness.hint ?? t("agentRuntime.authNotReady"); return <Row key={instance.instanceId} tip={instance.instanceId} testId={`rail-runtime-${instance.instanceId}`} selected={picked("runtime", instance.instanceId)} onSelect={() => onSelect({ type: "runtime", id: instance.instanceId })}>
         <KindDot kind={instance.kindId} /><span className="min-w-0 flex-1 truncate text-[12px]">{instance.name}</span><span className="shrink-0 font-mono text-[10px] text-text-faint">{instance.defaultModel}</span>
+        <CapDot state={auth.cap} tip={authTip} size={9} />
         <LiveDot state={(liveByInstance.get(instance.instanceId) ?? 0) > 0 ? "live" : instance.enabled ? "idle" : "failed"} tip={instance.enabled ? t("agentRuntime.instanceEnabled") : t("agentRuntime.instanceDisabled")} />
-      </Row>)}
+      </Row>; })}
     </Segment>
     <Segment segment="agents" title={t("agentRuntime.segAgents")} sub={t("agentRuntime.segAgentsSub")} count={agents.length} open={open.agents ?? true} onToggle={onToggle} onNew={() => onNew("agents")}>
       {agents.map((agent) => <Row key={agent.id} tip={agent.id} testId={`rail-agent-${agent.id}`} selected={picked("agent", agent.id)} onSelect={() => onSelect({ type: "agent", id: agent.id })}>

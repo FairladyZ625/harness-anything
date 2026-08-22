@@ -10,6 +10,7 @@ import { planeAllowsApiKey, planeAllowsBaseUrl, planeAllowsEffort, planeAllowsPe
 import { runtimeDockGroups, runtimeDockLiveCount, runtimeDockRows, type RuntimePanoramaRow } from "../src/renderer/runtime-panorama.ts";
 import { squadChartLayout } from "../src/renderer/components/runtime/SquadCard.tsx";
 import { orchestrationEntries } from "../src/renderer/components/runtime/RuntimeRail.tsx";
+import { subscriptionCreationNeedsLogin } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
 
 const form: CreateInstanceFormState = { instanceId: "one", name: "One", kindId: "claude", installationId: "install", providerId: "anthropic", model: "claude-opus", reasoningEffort: "", baseUrl: "", authMode: "subscription", apiKey: "", wireApi: "", requiresOpenAiAuth: false, permissionMode: "bypass", isolation: "operator-environment" };
 const dispatchRow = { dispatchId: "dispatch-1", taskId: "task-a", executionId: "execution-1", runtimeSessionId: "runtime-1", instanceId: "codex-one", agentId: "luna", agentName: "Luna", delegatedByAgentId: "fable", delegatedByAgentName: "Fable", squadId: "core-squad", providerSessionId: null, eventStreamRef: null, startedAt: "2026-08-20T03:00:00.000Z", endedAt: null, outcome: null, status: "running", taskTitle: "Review the runtime", squad: { id: "core-squad", name: "Core Squad", leader: "fable", workers: ["luna"], roster: "fable » luna" } } as const satisfies RuntimePanoramaRow;
@@ -71,6 +72,13 @@ describe("provider planes (2026-08-20 adjudication)", () => {
       expect(created).toMatchObject({ instanceId: "blank-model", models: detected.models, defaultModel: detected.defaultModel });
       console.info(`BLANK_MODEL_CREATE_RECEIPT ${JSON.stringify({ modelInput: blank.model, instanceId: created.instanceId, models: created.models, defaultModel: created.defaultModel, ok: receipt.ok })}`);
     } finally { vi.unstubAllGlobals(); rmSync(userRoot, { recursive: true, force: true }); }
+  });
+  it("opens the subscription login path only after the daemon reports unauthenticated", () => {
+    const subscription = { authMode: "subscription" } as const, api = { authMode: "api-key" } as const;
+    expect(subscriptionCreationNeedsLogin(subscription, { authState: "authenticated" })).toBe(false);
+    expect(subscriptionCreationNeedsLogin(subscription, { authState: "unknown" })).toBe(false);
+    expect(subscriptionCreationNeedsLogin(subscription, { authState: "unauthenticated" })).toBe(true);
+    expect(subscriptionCreationNeedsLogin(api, { authState: "unauthenticated" })).toBe(false);
   });
   it("builds create payloads per kind without cross-kind fields or stray keys", () => {
     const sidecar = buildRuntimeInstanceCreatePayload({ instanceId: "codex-sidecar", name: "Codex sidecar", kindId: "codex", installationId: "codex-install", providerId: "codex_local_access", model: "gpt-5.6-terra, gpt-5.6-sol", reasoningEffort: " high ", baseUrl: "http://localhost:50818/v1", authMode: "api-key", apiKey: "  sk-sidecar  ", wireApi: "responses", requiresOpenAiAuth: true, permissionMode: "workspace-write", isolation: "enforced" }, "codex-install");

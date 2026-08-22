@@ -70,11 +70,29 @@ describe("agent runtime renderer", () => {
     expect(markup).toContain("API key"); expect(markup).toContain("The key lives in the OS keychain");
     expect(markup).not.toMatch(/type="password"|name="(?:apiKey|credentialRef|token|secret)"|executablePath|\/opt\/runtime-test/u);
   });
+  it("renders ready, not-checked, and unauthenticated as distinct auth states", () => {
+    const unchecked = { ...claudeInstance, authState: "unknown", authReadiness: { status: "not-ready", code: "runtime_auth_not_checked", hint: "Authentication has not been verified in this daemon generation." } } as never;
+    const unauthenticated = { ...claudeInstance, authState: "unauthenticated", authReadiness: { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in the operator environment." } } as never;
+    expect(runtimeCard(instance)).toContain('data-auth-status="ready"');
+    const uncheckedMarkup = runtimeCard(unchecked); expect(uncheckedMarkup).toContain('data-auth-status="not-checked"'); expect(uncheckedMarkup).toContain("Authentication not checked");
+    const unavailableMarkup = runtimeCard(unauthenticated); expect(unavailableMarkup).toContain('data-auth-status="not-ready"'); expect(unavailableMarkup).toContain("runtime_subscription_required");
+  });
+  it("shows a background probe transport error instead of silently keeping not-checked", () => {
+    const unchecked = { ...claudeInstance, authState: "unknown", authReadiness: { status: "not-ready", code: "runtime_auth_not_checked", hint: "Authentication has not been verified in this daemon generation." } } as never;
+    const markup = renderToStaticMarkup(createElement(RuntimeCard, { instance: unchecked, authProbeError: "connect ECONNREFUSED", agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop }));
+    expect(markup).toContain('data-auth-status="probe-error"'); expect(markup).toContain("Authentication check failed: connect ECONNREFUSED");
+  });
   it("offers the provider's own login actions on a subscription instance and none on an api-key instance", () => {
     const subscription = runtimeCard(claudeInstance);
     for (const action of ["Sign in", "Re-auth", "Sign out"]) expect(subscription).toContain(action);
     expect(subscription).not.toMatch(/type="password"/u);
     for (const action of ["Sign in", "Re-auth", "Sign out"]) expect(runtimeCard(instance)).not.toContain(action);
+  });
+  it("offers AGY's terminal login path only after a probe reports unauthenticated", () => {
+    const authenticated = renderToStaticMarkup(createElement(RuntimeCard, { instance: { ...agyInstance, authState: "authenticated" }, agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop }));
+    const unauthenticated = renderToStaticMarkup(createElement(RuntimeCard, { instance: { ...agyInstance, authState: "unauthenticated", authReadiness: { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in the operator environment." } }, agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop }));
+    expect(authenticated).not.toMatch(/<button[^>]*>Sign in<\/button>/u);
+    expect(unauthenticated).toMatch(/<button[^>]*>Sign in<\/button>/u);
   });
   it("keeps kind-specific runtime fields separated on the carrier card", () => {
     const codexMarkup = runtimeCard(instance), claudeMarkup = runtimeCard(claudeInstance);

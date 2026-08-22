@@ -28,7 +28,7 @@ export function RuntimeWorkspace({ repoId, tasks }: { readonly repoId: string; r
   const workspace = useRuntimeWorkspace(repoId, tasks), catalog = useCatalogSnapshot(repoId), skills = useQuery({ queryKey: ["agent-skills", repoId], queryFn: () => agentEntityClient.listAgentSkills(repoId), staleTime: 10_000 });
   const [selection, setSelection] = useState<RuntimeSelection | null>(null), [segments, setSegments] = useState<Readonly<Record<string, boolean>>>({ runtimes: true, agents: true, squads: true, orchestration: true });
   const [dialog, setDialog] = useState<Dialog | null>(null), [dockOpen, setDockOpen] = useState(false), [dockSelected, setDockSelected] = useState<string | null>(null), [inspector, setInspector] = useState(true), [revision, setRevision] = useState(0);
-  const instances = workspace.machine.data?.instances ?? [], installations = workspace.machine.data?.installations ?? [], agents = workspace.agents.data ?? [], squads = workspace.squads.data ?? [];
+  const instances = workspace.instances, installations = workspace.machine.data?.installations ?? [], agents = workspace.agents.data ?? [], squads = workspace.squads.data ?? [];
   const current: RuntimeSelection | null = selection ?? (instances[0] ? { type: "runtime", id: instances[0].instanceId } : agents[0] ? { type: "agent", id: agents[0].id } : null);
   const agentDetail = useAgentDetail(repoId, current?.type === "agent" ? current.id : null), squadDetail = useSquadDetail(repoId, current?.type === "squad" ? current.id : null);
   const liveByInstance = new Map<string, number>(); for (const row of workspace.dockRows) if (row.status === "running") liveByInstance.set(row.instanceId, (liveByInstance.get(row.instanceId) ?? 0) + 1);
@@ -75,12 +75,12 @@ export function RuntimeWorkspace({ repoId, tasks }: { readonly repoId: string; r
     {readError !== undefined && <p role="alert" data-testid="runtime-read-error" className="shrink-0 border-b border-border bg-status-blocked/10 px-3.5 py-1.5 font-mono text-[11px] text-status-blocked">{t("agentRuntime.readFailed", { error: readError instanceof Error ? readError.message : String(readError) })}</p>}
     {(workspace.error ?? workspace.feedback) && <p role="status" onClick={workspace.clearFeedback} className={`shrink-0 border-b border-border px-3.5 py-1.5 font-mono text-[11px] ${workspace.error ? "bg-status-blocked/10 text-status-blocked" : "text-text-muted"}`}>{workspace.error ?? workspace.feedback}</p>}
     <div className="flex min-h-0 flex-1">
-      <RuntimeRail instances={instances} agents={agents} squads={squads} orchestration={orchestrationEntries(workspace.dockRows)} selection={current} open={segments} liveByInstance={liveByInstance}
+      <RuntimeRail instances={instances} authProbeErrors={workspace.authProbeErrors} agents={agents} squads={squads} orchestration={orchestrationEntries(workspace.dockRows)} selection={current} open={segments} liveByInstance={liveByInstance}
         onToggle={(segment) => setSegments((value) => ({ ...value, [segment]: !(value[segment] ?? true) }))} onSelect={setSelection} onNew={(segment) => setDialog(segment === "runtimes" ? { kind: "new-runtime" } : { kind: "new-entity", entity: segment === "agents" ? "agent" : "squad" })} />
       <main className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6">
         {current === null ? <Empty>{t(catalogsPending ? "agentRuntime.loading" : "agentRuntime.emptyWorkspace")}</Empty>
           : current.type === "runtime" ? (instances.find((instance) => instance.instanceId === current.id)
-            ? <RuntimeCard instance={instances.find((instance) => instance.instanceId === current.id)!} agents={agents} liveSessions={liveByInstance.get(current.id) ?? 0} busy={workspace.busy}
+            ? <RuntimeCard instance={instances.find((instance) => instance.instanceId === current.id)!} authProbeError={workspace.authProbeErrors.get(current.id)} agents={agents} liveSessions={liveByInstance.get(current.id) ?? 0} busy={workspace.busy}
                 onSelectAgent={(agentId) => setSelection({ type: "agent", id: agentId })} onAuth={(action) => void workspace.authInstance(current.id, action)} onValidate={() => void workspace.validateInstance(current.id)}
                 onSetEnabled={(enabled) => void workspace.setInstanceEnabled(current.id, enabled)} onUpdate={(input) => void workspace.updateInstance(input)} onDelete={() => { void workspace.deleteInstance(current.id); setSelection(null); }} />
             : <Empty>{t("agentRuntime.notFound")}</Empty>)
@@ -95,7 +95,7 @@ export function RuntimeWorkspace({ repoId, tasks }: { readonly repoId: string; r
             : <Empty>{t("agentRuntime.loading")}</Empty>)
           : <OrchestrationCard repoId={repoId} taskId={current.id} taskTitle={tasks.find((task) => task.taskId === current.id)?.title ?? current.id} revision={revision} onFocusSession={focusSession} />}
       </main>
-      {inspector && <RuntimeInspector selection={current} instances={instances} agents={agents} squads={squads} rows={workspace.dockRows} onSelect={setSelection} onSelectSession={focusSession} />}
+      {inspector && <RuntimeInspector selection={current} instances={instances} authProbeErrors={workspace.authProbeErrors} agents={agents} squads={squads} rows={workspace.dockRows} onSelect={setSelection} onSelectSession={focusSession} />}
     </div>
     <SessionsDock repoId={repoId} rows={workspace.dockRows} open={dockOpen} selectedId={dockSelected} busy={workspace.busy} onToggle={() => setDockOpen(!dockOpen)} onSelect={focusSession} onCancel={(runtimeSessionId) => void workspace.cancelSession(runtimeSessionId)} />
     {dialog?.kind === "new-runtime" && <NewRuntimeDialog installations={installations} busy={workspace.busy} onCancel={() => setDialog(null)} onCreate={(input) => { void workspace.createInstance(input).then(() => { setDialog(null); setSelection({ type: "runtime", id: input.instanceId }); }); }} />}
