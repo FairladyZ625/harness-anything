@@ -172,7 +172,8 @@ export function compileExecutionExecutorDeclaration(input: {
     throw new TaskLifecycleContractError("invalid_proof", [
       lifecycleContractIssue(
         "invalid_executor_declaration",
-        "executor declaration requires the same principal to name an agent for the current unreviewed submitted Execution that originally declared no executor",
+        "executor declaration requires the same principal to name an agent for the current unreviewed submitted " +
+          "Execution that originally declared no executor",
       ),
     ]);
   const nextExecution: ExecutionV1 = { ...current, actor: input.actor },

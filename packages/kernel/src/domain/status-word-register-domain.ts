@@ -6,11 +6,11 @@ export const domainStatusWords: readonly StatusWordRegistration[] = [
     word: "blocked",
     entity: "Task",
     field: "blocking state",
-    meaning:
-      "blockingOf verdict: an active depends-on edge with a non-done target blocks this task.",
+    meaning: "blockingOf verdict: an active depends-on edge with a non-done target blocks this task.",
     divergence: "divergent",
     resolution:
-      "Shares the word with task.status blocked (a lifecycle state); same task can be status=active yet blocking state=blocked. Registered as distinct meanings; renaming either is stored-data/API surface — CH2 proposal only.",
+      "Shares the word with task.status blocked (a lifecycle state); same task can be status=active yet blocking " +
+      "state=blocked. Registered as distinct meanings; renaming either is stored-data/API surface — CH2 proposal only.",
   },
   {
     word: "clear",
@@ -23,24 +23,21 @@ export const domainStatusWords: readonly StatusWordRegistration[] = [
     word: "unknown",
     entity: "Task",
     field: "blocking state",
-    meaning:
-      "blockingOf could not answer: degraded projection or malformed edge.",
+    meaning: "blockingOf could not answer: degraded projection or malformed edge.",
     divergence: "entity-scoped",
   },
   {
     word: "ready",
     entity: "Task",
     field: "blocking projection availability",
-    meaning:
-      "Relation projection is loaded; blockingOf verdicts are meaningful.",
+    meaning: "Relation projection is loaded; blockingOf verdicts are meaningful.",
     divergence: "entity-scoped",
   },
   {
     word: "loading",
     entity: "Task",
     field: "blocking projection availability",
-    meaning:
-      "Relation projection still loading; every blocking verdict is unknown.",
+    meaning: "Relation projection still loading; every blocking verdict is unknown.",
     divergence: "entity-scoped",
   },
   {
@@ -54,48 +51,42 @@ export const domainStatusWords: readonly StatusWordRegistration[] = [
     word: "covered",
     entity: "Decision",
     field: "claim coverage status",
-    meaning:
-      "coverageOf verdict: the claim's declared fulfillment mode is satisfied by live evidence.",
+    meaning: "coverageOf verdict: the claim's declared fulfillment mode is satisfied by live evidence.",
     divergence: "entity-scoped",
   },
   {
     word: "uncovered",
     entity: "Decision",
     field: "claim coverage status",
-    meaning:
-      "coverageOf verdict: no satisfying evidence, or fulfillment undeclared (null).",
+    meaning: "coverageOf verdict: no satisfying evidence, or fulfillment undeclared (null).",
     divergence: "entity-scoped",
   },
   {
     word: "standing",
     entity: "FactRecord",
     field: "liveness",
-    meaning:
-      "factLiveness verdict: no active supersedes-fact edge targets this fact.",
+    meaning: "factLiveness verdict: no active supersedes-fact edge targets this fact.",
     divergence: "entity-scoped",
   },
   {
     word: "superseded_fact",
     entity: "FactRecord",
     field: "liveness",
-    meaning:
-      "factLiveness verdict: an active supersedes-fact edge targets this fact.",
+    meaning: "factLiveness verdict: an active supersedes-fact edge targets this fact.",
     divergence: "entity-scoped",
   },
   {
     word: "passed",
     entity: "TaskCloseout",
     field: "gate status",
-    meaning:
-      "The matching completion-gate witness on the current cut has result pass.",
+    meaning: "The matching completion-gate witness on the current cut has result pass.",
     divergence: "entity-scoped",
   },
   {
     word: "failed",
     entity: "TaskCloseout",
     field: "gate status",
-    meaning:
-      "A matching witness exists on the current cut but its result is not pass.",
+    meaning: "A matching witness exists on the current cut but its result is not pass.",
     divergence: "entity-scoped",
   },
   {
@@ -127,14 +118,14 @@ export const domainStatusWords: readonly StatusWordRegistration[] = [
     meaning: "Task is in an open executing state and occupies a WIP slot.",
     divergence: "divergent",
     resolution:
-      "One of four unrelated `active` concepts (Task/Execution/RelationEdge/Package); rename is stored data (task snapshots and events), so this slice registers the meaning instead — CH2 proposal only.",
+      "One of four unrelated `active` concepts (Task/Execution/RelationEdge/Package); rename is stored data " +
+      "(task snapshots and events), so this slice registers the meaning instead — CH2 proposal only.",
   },
   {
     word: "blocked",
     entity: "Task",
     field: "status",
-    meaning:
-      "Task is held by an external condition; still open, still occupies WIP.",
+    meaning: "Task is held by an external condition; still open, still occupies WIP.",
     divergence: "entity-scoped",
   },
   {
@@ -188,18 +179,19 @@ export const domainStatusWords: readonly StatusWordRegistration[] = [
     entity: "Decision",
     field: "state",
     meaning:
-      "Decision was accepted and its policy is in effect (accept writes in_effect; there is no separate accepted state).",
+      "Decision was accepted and its policy is in effect (accept writes in_effect; there is no separate " +
+      "accepted state).",
     divergence: "entity-scoped",
   },
   {
     word: "rejected",
     entity: "Decision",
     field: "state",
-    meaning:
-      "Judgment refused the decision; a persistent policy state that feeds later adjudication.",
+    meaning: "Judgment refused the decision; a persistent policy state that feeds later adjudication.",
     divergence: "divergent",
     resolution:
-      "The one-shot operation results are now op_rejected (WriteReceipt/PresetRun); the decision word is stored policy and keeps rejected.",
+      "The one-shot operation results are now op_rejected (WriteReceipt/PresetRun); the decision word is stored " +
+      "policy and keeps rejected.",
   },
   {
     word: "deferred",
@@ -213,7 +205,8 @@ export const domainStatusWords: readonly StatusWordRegistration[] = [
     entity: "Decision",
     field: "state",
     meaning:
-      "A later decision replaced this one (ADR-0020 D1: consumers must preserve this state, never fold it back into proposed).",
+      "A later decision replaced this one (ADR-0020 D1: consumers must preserve this state, never fold it " +
+      "back into proposed).",
     divergence: "entity-scoped",
   },
   {

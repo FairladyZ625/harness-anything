@@ -358,7 +358,9 @@ export const complete: Transition = {
         lifecycleContractIssue(
           "invalid_transition",
           assessment.blocker === "lineage" && task
-            ? `CompleteTask for a ${task.taskClass} task requires an active decision derives edge; run ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/${task.taskId} --rationale <why this decision authorises the task>`
+            ? `CompleteTask for a ${task.taskClass} task requires an active decision derives edge; ` +
+                "run ha decision relate <decision-id> --anchor <claim-id> --type derives " +
+                `--target task/${task.taskId} --rationale <why this decision authorises the task>`
             : "CompleteTask requires a consent-selected approved Review",
         ),
       );

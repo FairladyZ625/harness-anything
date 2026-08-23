@@ -163,7 +163,8 @@ export function scanContentRoot(ledger: LedgerGitLayout, commit: string): Ledger
 export function mixedLayoutError(scan: LedgerRootScan): TaskEventStoreError {
   return new TaskEventStoreError(
     "invalid_store",
-    `events root mixes ${scan.flat.length} flat/v1 and ${scan.shards.length} sharded entries; run ha migrate ledger to normalize and migrate the ledger`,
+    `events root mixes ${scan.flat.length} flat/v1 and ${scan.shards.length} sharded entries; ` +
+      "run ha migrate ledger to normalize and migrate the ledger",
   );
 }
 export function writeLayoutAt(ledger: LedgerGitLayout, commit: string): LedgerObjectLayout {

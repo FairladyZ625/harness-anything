@@ -248,7 +248,13 @@ export function createPublicationApi(runtime: StoreRuntime) {
             }
             throw new TaskEventStoreError(
               "publication_indeterminate",
-              `runtime.ledger ${runtime.authoredRef} must point at the last published event commit ${parent.sha}, but a commit was made outside the daemon. Recover with: git -C ${runtime.repoRoot} update-ref ${runtime.authoredRef} ${parent.sha} — this moves only the branch pointer and leaves every file in place. Then run ha daemon stop and retry. Cause: ${messageOf(error)}`,
+              [
+                `runtime.ledger ${runtime.authoredRef} must point at the last published event commit ${parent.sha},`,
+                "but a commit was made outside the daemon. Recover with:",
+                `git -C ${runtime.repoRoot} update-ref ${runtime.authoredRef} ${parent.sha} —`,
+                "this moves only the branch pointer and leaves every file in place.",
+                `Then run ha daemon stop and retry. Cause: ${messageOf(error)}`,
+              ].join(" "),
             );
           }
           runtime.canonicalCommit = preparedSha;

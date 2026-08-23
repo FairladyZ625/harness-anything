@@ -65,14 +65,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "state",
     module: "packages/kernel/src/domain/decision-event.ts",
     anchor: "decisionStates",
-    words: [
-      "proposed",
-      "in_effect",
-      "rejected",
-      "deferred",
-      "superseded",
-      "outcome_retired",
-    ],
+    words: ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired"],
   },
   {
     id: "decision.judgment.target",
@@ -90,13 +83,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "state",
     module: "packages/kernel/src/domain/execution.ts",
     anchor: "executionStates",
-    words: [
-      "active",
-      "submitted",
-      "accepted",
-      "changes_requested",
-      "abandoned",
-    ],
+    words: ["active", "submitted", "accepted", "changes_requested", "abandoned"],
   },
   {
     id: "execution.state.v1",
@@ -149,7 +136,9 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     module: "packages/kernel/src/domain/fact-liveness.ts",
     anchor: "FactLiveness",
     words: ["standing", "superseded_fact"],
-    note: "Single domain derivation of fact liveness (factLiveness); same two words and meanings as fact-record.state, now computed in one place.",
+    note:
+      "Single domain derivation of fact liveness (factLiveness); same two words and meanings as " +
+      "fact-record.state, now computed in one place.",
   },
   {
     id: "closeout.gate-status",
@@ -204,7 +193,9 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     module: "packages/kernel/src/domain/fact-event.ts",
     anchor: "#state",
     words: ["standing", "superseded_fact"],
-    note: "Per-fact row state in authored facts documents; the SQL projection derives the same two words from active supersedes-fact edges.",
+    note:
+      "Per-fact row state in authored facts documents; the SQL projection derives the same two words from active " +
+      "supersedes-fact edges.",
   },
   {
     id: "review.verdict",
@@ -270,14 +261,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "readiness",
     module: "packages/kernel/src/domain/closeout-readiness.ts",
     anchor: "closeoutReadinesses",
-    words: [
-      "not_required",
-      "missing",
-      "incomplete",
-      "ready",
-      "passed",
-      "failed",
-    ],
+    words: ["not_required", "missing", "incomplete", "ready", "passed", "failed"],
   },
   {
     id: "task.session-disposition",
@@ -313,15 +297,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "status",
     module: "packages/gui/src/renderer/model/types.ts",
     anchor: "SnapshotStatus",
-    words: [
-      "planned",
-      "active",
-      "blocked",
-      "in_review",
-      "done",
-      "cancelled",
-      "unknown",
-    ],
+    words: ["planned", "active", "blocked", "in_review", "done", "cancelled", "unknown"],
     mirrorOf: "task.status",
     plusWords: ["unknown"],
   },
@@ -331,15 +307,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "state",
     module: "packages/gui/src/renderer/model/types.ts",
     anchor: "DecisionState",
-    words: [
-      "proposed",
-      "in_effect",
-      "rejected",
-      "deferred",
-      "superseded",
-      "outcome_retired",
-      "unknown",
-    ],
+    words: ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired", "unknown"],
     mirrorOf: "decision.state",
     plusWords: ["unknown"],
   },
@@ -371,13 +339,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "state",
     module: "packages/daemon/src/protocol/daemon-protocol.contract.ts",
     anchor: "executionStateWords",
-    words: [
-      "active",
-      "submitted",
-      "accepted",
-      "changes_requested",
-      "abandoned",
-    ],
+    words: ["active", "submitted", "accepted", "changes_requested", "abandoned"],
     mirrorOf: "execution.state",
   },
   {
@@ -431,14 +393,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "state",
     module: "packages/daemon/src/protocol/daemon-protocol.contract.ts",
     anchor: "decisionStateWords",
-    words: [
-      "proposed",
-      "in_effect",
-      "rejected",
-      "deferred",
-      "superseded",
-      "outcome_retired",
-    ],
+    words: ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired"],
     mirrorOf: "decision.state",
   },
   {

@@ -116,6 +116,37 @@ import { applyTaskEvent } from "./rebuildable-task-projection-task-events.ts";
 import { readRuntimeInstallation, readRuntimeSession, readSnapshot } from "./rebuildable-task-projection-runtime.ts";
 import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 
+const UPSERT_DOCUMENT_SQL = [
+  "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?)",
+  "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
+  "value_json=excluded.value_json",
+].join(" ");
+const UPSERT_RUNTIME_INSTALLATION_SQL = [
+  "INSERT INTO runtime_installation(installation_id, workspace_revision, value_json) VALUES (?, ?, ?)",
+  "ON CONFLICT(installation_id) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
+  "value_json=excluded.value_json",
+].join(" ");
+const UPSERT_RUNTIME_SESSION_SQL = [
+  "INSERT INTO runtime_session(runtime_session_id, workspace_revision, value_json) VALUES (?, ?, ?)",
+  "ON CONFLICT(runtime_session_id) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
+  "value_json=excluded.value_json",
+].join(" ");
+const UPSERT_TASK_SNAPSHOT_SQL = [
+  "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at)",
+  "VALUES (?, ?, ?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET",
+  "workspace_revision=excluded.workspace_revision, snapshot_json=excluded.snapshot_json,",
+  "status=excluded.status, updated_at=excluded.updated_at",
+].join(" ");
+const INSERT_TASK_SNAPSHOT_SQL = [
+  "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at)",
+  "VALUES (?, ?, ?, ?, ?)",
+].join(" ");
+const UPSERT_PRESET_SNAPSHOT_SQL = [
+  "INSERT INTO preset_snapshot(digest, workspace_revision, value_json) VALUES (?, ?, ?)",
+  "ON CONFLICT(digest) DO UPDATE SET value_json=excluded.value_json",
+  "WHERE preset_snapshot.value_json=excluded.value_json",
+].join(" ");
+
 // Canonical-event dispatcher for non-task domains and task-event handoff.
 export function applyEvent(
   db: DatabaseSync,
@@ -166,13 +197,7 @@ export function applyEvent(
       event.workspaceRevision,
       eventJson,
     );
-    runSql(
-      db,
-      "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
-      claim.path,
-      event.workspaceRevision,
-      canonicalJson(document),
-    );
+    runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
     return;
   }
   if (isFactEvent(event)) {
@@ -200,7 +225,7 @@ export function applyEvent(
     if (installation !== null)
       runSql(
         db,
-        "INSERT INTO runtime_installation(installation_id, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(installation_id) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
+        UPSERT_RUNTIME_INSTALLATION_SQL,
         installation.installationId,
         event.workspaceRevision,
         canonicalJson(installation),
@@ -211,7 +236,7 @@ export function applyEvent(
       if (session !== null)
         runSql(
           db,
-          "INSERT INTO runtime_session(runtime_session_id, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(runtime_session_id) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
+          UPSERT_RUNTIME_SESSION_SQL,
           session.runtimeSessionId,
           event.workspaceRevision,
           canonicalJson(session),
@@ -263,13 +288,7 @@ export function applyEvent(
         policyId: change.policyId,
         workspaceRevision: event.workspaceRevision,
       };
-      runSql(
-        db,
-        "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
-        change.path,
-        event.workspaceRevision,
-        canonicalJson(document),
-      );
+      runSql(db, UPSERT_DOCUMENT_SQL, change.path, event.workspaceRevision, canonicalJson(document));
       refreshDecisionDocumentSearch(db, document);
     }
     return;
@@ -324,7 +343,7 @@ export function applyEvent(
     );
     runSql(
       db,
-      "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET workspace_revision=excluded.workspace_revision, snapshot_json=excluded.snapshot_json, status=excluded.status, updated_at=excluded.updated_at",
+      UPSERT_TASK_SNAPSHOT_SQL,
       event.taskId,
       event.workspaceRevision,
       canonicalJson({
@@ -338,18 +357,12 @@ export function applyEvent(
     refreshTaskRelationProjection(db, event.taskId, event.payload.task, event.workspaceRevision, event.occurredAt);
     runSql(
       db,
-      "INSERT INTO preset_snapshot(digest, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(digest) DO UPDATE SET value_json=excluded.value_json WHERE preset_snapshot.value_json=excluded.value_json",
+      UPSERT_PRESET_SNAPSHOT_SQL,
       event.payload.presetSnapshotClaim.digest,
       event.workspaceRevision,
       canonicalJson(snapshot),
     );
-    runSql(
-      db,
-      "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
-      contract.path,
-      event.workspaceRevision,
-      canonicalJson(document),
-    );
+    runSql(db, UPSERT_DOCUMENT_SQL, contract.path, event.workspaceRevision, canonicalJson(document));
     return;
   }
   if (isTaskBootstrapEvent(event)) {
@@ -368,7 +381,7 @@ export function applyEvent(
     );
     runSql(
       db,
-      "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at) VALUES (?, ?, ?, ?, ?)",
+      INSERT_TASK_SNAPSHOT_SQL,
       event.taskId,
       event.workspaceRevision,
       canonicalJson({
@@ -393,7 +406,7 @@ export function applyEvent(
       Number(
         runSql(
           db,
-          "INSERT INTO preset_snapshot(digest, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(digest) DO UPDATE SET value_json=excluded.value_json WHERE preset_snapshot.value_json=excluded.value_json",
+          UPSERT_PRESET_SNAPSHOT_SQL,
           event.payload.presetSnapshotClaim.digest,
           event.workspaceRevision,
           canonicalJson(snapshot),

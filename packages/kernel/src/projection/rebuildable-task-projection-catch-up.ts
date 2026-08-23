@@ -245,7 +245,11 @@ function readyDeferredEvents(
     candidates = new Map<number, CanonicalEventV1>();
   for (const row of queryRows(
     db,
-    "SELECT workspace_revision, event_json FROM event_source WHERE workspace_revision > ? AND workspace_revision <= ? ORDER BY workspace_revision",
+    [
+      "SELECT workspace_revision, event_json FROM event_source",
+      "WHERE workspace_revision > ? AND workspace_revision <= ?",
+      "ORDER BY workspace_revision",
+    ].join(" "),
     current,
     current + limit,
   ))

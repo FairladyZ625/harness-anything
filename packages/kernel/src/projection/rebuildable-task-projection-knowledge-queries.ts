@@ -139,7 +139,8 @@ export function knowledgeQueryApi(
         if (round.watermark !== round.sourceRevision)
           throw new FactProjectionError(
             "content_not_ready",
-            `Fact admission requires projection revision ${round.sourceRevision}; current watermark is ${round.watermark}.`,
+            `Fact admission requires projection revision ${round.sourceRevision}; ` +
+              `current watermark is ${round.watermark}.`,
           );
         assertFactAdmission(db, event);
       }),
@@ -195,7 +196,8 @@ export function knowledgeQueryApi(
         if (round.watermark !== round.sourceRevision)
           throw new FactProjectionError(
             "content_not_ready",
-            `Decision admission requires projection revision ${round.sourceRevision}; current watermark is ${round.watermark}.`,
+            `Decision admission requires projection revision ${round.sourceRevision}; ` +
+              `current watermark is ${round.watermark}.`,
           );
         assertDecisionAdmission(db, event);
       }),

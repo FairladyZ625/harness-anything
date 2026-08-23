@@ -20,18 +20,9 @@ import type {
   DecisionRelationEdgeRow,
 } from "./decision-projection-model.ts";
 import { ftsQuery } from "./fts-query.ts";
-import {
-  checkedPageLimit,
-  decodePageCursor,
-  encodePageCursor,
-  type ProjectionPage,
-} from "./task-query-projection.ts";
+import { checkedPageLimit, decodePageCursor, encodePageCursor, type ProjectionPage } from "./task-query-projection.ts";
 
-export function readDecisionRow(
-  db: DatabaseSync,
-  decisionId: string,
-  withBody = true,
-): DecisionProjectionRow | null {
+export function readDecisionRow(db: DatabaseSync, decisionId: string, withBody = true): DecisionProjectionRow | null {
   return readDecisionRows(db, [decisionId], withBody)[0] ?? null;
 }
 
@@ -42,9 +33,7 @@ export function readDecisionRows(
 ): readonly DecisionProjectionRow[] {
   if (
     !Array.isArray(decisionIds) ||
-    decisionIds.some(
-      (decisionId) => typeof decisionId !== "string" || decisionId.length === 0,
-    )
+    decisionIds.some((decisionId) => typeof decisionId !== "string" || decisionId.length === 0)
   )
     throw new Error("decision collection read requires non-empty string ids");
   if (decisionIds.length === 0) return [];
@@ -52,23 +41,74 @@ export function readDecisionRows(
     bodyJoin = withBody
       ? "LEFT JOIN document ON document.path = 'decisions/decision-' || decision.decision_id || '/decision.md'"
       : "";
-  const sql = `WITH requested_decisions(request_order, decision_id) AS MATERIALIZED (SELECT CAST(key AS INTEGER), value FROM json_each(?))
-    SELECT requested_decisions.request_order, decision.decision_id, decision.state, decision.title, decision.question, decision.risk_tier, decision.urgency, decision.vertical, decision.preset, decision.decision_class, decision.applies_json, decision.proposer_json, decision.arbiter_json, decision.proposed_at, decision.decided_at, decision.provenance_json, decision.workspace_revision,
+  const sql = `WITH requested_decisions(request_order, decision_id) AS MATERIALIZED (
+      SELECT CAST(key AS INTEGER), value FROM json_each(?)
+    )
+    SELECT
+      requested_decisions.request_order,
+      decision.decision_id,
+      decision.state,
+      decision.title,
+      decision.question,
+      decision.risk_tier,
+      decision.urgency,
+      decision.vertical,
+      decision.preset,
+      decision.decision_class,
+      decision.applies_json,
+      decision.proposer_json,
+      decision.arbiter_json,
+      decision.proposed_at,
+      decision.decided_at,
+      decision.provenance_json,
+      decision.workspace_revision,
       ${bodyColumn} AS body_document_json,
-      COALESCE((SELECT json_group_array(json_object('kind', kind, 'option_id', option_id, 'text', text, 'rationale', rationale)) FROM (SELECT kind, option_id, text, rationale FROM decision_option WHERE decision_id = decision.decision_id ORDER BY kind, position)), '[]') AS options_json,
-      COALESCE((SELECT json_group_array(json_object('claim_id', claim_id, 'text', text, 'load_bearing', load_bearing, 'fulfillment', fulfillment)) FROM (SELECT claim_id, text, load_bearing, fulfillment FROM decision_claim WHERE decision_id = decision.decision_id ORDER BY position)), '[]') AS claims_json,
-      COALESCE((SELECT json_group_array(value_json) FROM (SELECT value_json FROM decision_judgment_consent WHERE decision_id = decision.decision_id ORDER BY workspace_revision)), '[]') AS consents_json,
-      COALESCE((SELECT json_group_array(value_json) FROM (SELECT value_json FROM decision_amendment WHERE decision_id = decision.decision_id ORDER BY workspace_revision)), '[]') AS amendments_json,
-      COALESCE((SELECT json_group_array(value_json) FROM (SELECT value_json FROM decision_content_pin WHERE decision_id = decision.decision_id ORDER BY workspace_revision)), '[]') AS pins_json
+      COALESCE((
+        SELECT json_group_array(
+          json_object('kind', kind, 'option_id', option_id, 'text', text, 'rationale', rationale)
+        )
+        FROM (
+          SELECT kind, option_id, text, rationale FROM decision_option
+          WHERE decision_id = decision.decision_id ORDER BY kind, position
+        )
+      ), '[]') AS options_json,
+      COALESCE((
+        SELECT json_group_array(
+          json_object(
+            'claim_id', claim_id,
+            'text', text,
+            'load_bearing', load_bearing,
+            'fulfillment', fulfillment
+          )
+        )
+        FROM (
+          SELECT claim_id, text, load_bearing, fulfillment FROM decision_claim
+          WHERE decision_id = decision.decision_id ORDER BY position
+        )
+      ), '[]') AS claims_json,
+      COALESCE((
+        SELECT json_group_array(value_json) FROM (
+          SELECT value_json FROM decision_judgment_consent
+          WHERE decision_id = decision.decision_id ORDER BY workspace_revision
+        )
+      ), '[]') AS consents_json,
+      COALESCE((
+        SELECT json_group_array(value_json) FROM (
+          SELECT value_json FROM decision_amendment
+          WHERE decision_id = decision.decision_id ORDER BY workspace_revision
+        )
+      ), '[]') AS amendments_json,
+      COALESCE((
+        SELECT json_group_array(value_json) FROM (
+          SELECT value_json FROM decision_content_pin
+          WHERE decision_id = decision.decision_id ORDER BY workspace_revision
+        )
+      ), '[]') AS pins_json
     FROM requested_decisions JOIN decision ON decision.decision_id = requested_decisions.decision_id ${bodyJoin}
     ORDER BY requested_decisions.request_order`;
-  return (
-    db
-      .prepare(sql)
-      .all(
-        JSON.stringify(decisionIds),
-      ) as unknown as readonly DecisionCollectionRecord[]
-  ).map(decisionCollectionRow);
+  return (db.prepare(sql).all(JSON.stringify(decisionIds)) as unknown as readonly DecisionCollectionRecord[]).map(
+    decisionCollectionRow,
+  );
 }
 
 interface DecisionCollectionRecord extends Record<string, unknown> {
@@ -96,9 +136,7 @@ interface DecisionCollectionRecord extends Record<string, unknown> {
   readonly pins_json: string;
 }
 
-function decisionCollectionRow(
-  row: DecisionCollectionRecord,
-): DecisionProjectionRow {
+function decisionCollectionRow(row: DecisionCollectionRecord): DecisionProjectionRow {
   const decisionId = row.decision_id,
     legacyId = decisionLegacyId(decisionId),
     options = JSON.parse(row.options_json) as {
@@ -116,16 +154,9 @@ function decisionCollectionRow(
     consents = (JSON.parse(row.consents_json) as string[]).map(
       (value) => JSON.parse(value) as DecisionJudgmentConsentV1,
     ),
-    amendments = (JSON.parse(row.amendments_json) as string[]).map(
-      (value) => JSON.parse(value) as DecisionAmendmentV1,
-    ),
-    pins = (JSON.parse(row.pins_json) as string[]).map(
-      (value) => JSON.parse(value) as DecisionContentPinV1,
-    ),
-    body =
-      row.body_document_json === null
-        ? null
-        : decisionBodyFromDocument(decisionId, row.body_document_json);
+    amendments = (JSON.parse(row.amendments_json) as string[]).map((value) => JSON.parse(value) as DecisionAmendmentV1),
+    pins = (JSON.parse(row.pins_json) as string[]).map((value) => JSON.parse(value) as DecisionContentPinV1),
+    body = row.body_document_json === null ? null : decisionBodyFromDocument(decisionId, row.body_document_json);
   return {
     schema: "decision-row/v1",
     decisionId,
@@ -139,19 +170,12 @@ function decisionCollectionRow(
     vertical: row.vertical,
     preset: row.preset,
     decisionClass: row.decision_class as DecisionProjectionRow["decisionClass"],
-    appliesTo: JSON.parse(
-      row.applies_json,
-    ) as DecisionProjectionRow["appliesTo"],
+    appliesTo: JSON.parse(row.applies_json) as DecisionProjectionRow["appliesTo"],
     proposer: JSON.parse(row.proposer_json) as ActorIdentity,
-    arbiter:
-      row.arbiter_json === null
-        ? null
-        : (JSON.parse(row.arbiter_json) as ActorIdentity),
+    arbiter: row.arbiter_json === null ? null : (JSON.parse(row.arbiter_json) as ActorIdentity),
     proposedAt: row.proposed_at,
     decidedAt: row.decided_at,
-    provenance: JSON.parse(
-      row.provenance_json,
-    ) as readonly SessionProvenanceV1[],
+    provenance: JSON.parse(row.provenance_json) as readonly SessionProvenanceV1[],
     workspaceRevision: Number(row.workspace_revision),
     chosen: options
       .filter((option) => option.kind === "chosen")
@@ -180,16 +204,11 @@ function decisionCollectionRow(
   };
 }
 
-export function listDecisionRows(
-  db: DatabaseSync,
-  filters: DecisionListFilters,
-): readonly DecisionProjectionRow[] {
+export function listDecisionRows(db: DatabaseSync, filters: DecisionListFilters): readonly DecisionProjectionRow[] {
   const where: string[] = [],
     values: string[] = [];
   if (filters.search?.trim()) {
-    where.push(
-      "decision_id IN (SELECT decision_id FROM decision_fts WHERE decision_fts MATCH ?)",
-    );
+    where.push("decision_id IN (SELECT decision_id FROM decision_fts WHERE decision_fts MATCH ?)");
     values.push(ftsQuery(filters.search));
   }
   if (filters.state) {
@@ -197,22 +216,16 @@ export function listDecisionRows(
     values.push(filters.state);
   }
   if (filters.module) {
-    where.push(
-      "EXISTS (SELECT 1 FROM json_each(decision.applies_json, '$.modules') WHERE value=?)",
-    );
+    where.push("EXISTS (SELECT 1 FROM json_each(decision.applies_json, '$.modules') WHERE value=?)");
     values.push(filters.module);
   }
   if (filters.productLine) {
-    where.push(
-      "EXISTS (SELECT 1 FROM json_each(decision.applies_json, '$.productLines') WHERE value=?)",
-    );
+    where.push("EXISTS (SELECT 1 FROM json_each(decision.applies_json, '$.productLines') WHERE value=?)");
     values.push(filters.productLine);
   }
   return (
     db
-      .prepare(
-        `SELECT decision_id FROM decision${where.length ? ` WHERE ${where.join(" AND ")}` : ""}`,
-      )
+      .prepare(`SELECT decision_id FROM decision${where.length ? ` WHERE ${where.join(" AND ")}` : ""}`)
       .all(...values) as unknown as readonly { readonly decision_id: string }[]
   )
     .map((row) => row.decision_id)
@@ -251,7 +264,11 @@ export function listDecisionAgendaRowsPage(
   values.push(limit + 1);
   const raw = db
       .prepare(
-        `SELECT decision_id, title, risk_tier, urgency, proposed_at FROM decision WHERE ${where.join(" AND ")} ORDER BY decision_id LIMIT ?`,
+        [
+          "SELECT decision_id, title, risk_tier, urgency, proposed_at FROM decision",
+          `WHERE ${where.join(" AND ")}`,
+          "ORDER BY decision_id LIMIT ?",
+        ].join(" "),
       )
       .all(...values) as unknown as readonly {
       readonly decision_id: string;
@@ -274,10 +291,7 @@ export function listDecisionAgendaRowsPage(
     page: {
       limit,
       cursor: query.cursor ?? null,
-      nextCursor:
-        raw.length > limit && last
-          ? encodePageCursor([last.decision_id])
-          : null,
+      nextCursor: raw.length > limit && last ? encodePageCursor([last.decision_id]) : null,
     },
   };
 }
@@ -312,16 +326,14 @@ export function readDecisionGraphRows(db: DatabaseSync): {
 } {
   const edges = (
       db
-        .prepare(
-          "SELECT row_json FROM relation_edge WHERE owner_ref NOT LIKE 'fact/%' ORDER BY relation_id",
-        )
+        .prepare("SELECT row_json FROM relation_edge WHERE owner_ref NOT LIKE 'fact/%' ORDER BY relation_id")
         .all() as unknown as readonly { readonly row_json: string }[]
     ).map((r) => JSON.parse(r.row_json) as DecisionRelationEdgeRow),
     anchors = decisionAnchorIndex(db),
     decisionAnchors = (
-      db
-        .prepare("SELECT decision_id FROM decision ORDER BY decision_id")
-        .all() as unknown as readonly { readonly decision_id: string }[]
+      db.prepare("SELECT decision_id FROM decision ORDER BY decision_id").all() as unknown as readonly {
+        readonly decision_id: string;
+      }[]
     ).map((r) => ({
       decisionId: r.decision_id,
       decisionRef: `decision/${r.decision_id}`,
@@ -331,13 +343,11 @@ export function readDecisionGraphRows(db: DatabaseSync): {
   return { edges, decisionAnchors, coverageRows: decisionCoverage(db, edges) };
 }
 
-export function decisionAnchorIndex(
-  db: DatabaseSync,
-): ReadonlyMap<string, readonly string[]> {
+export function decisionAnchorIndex(db: DatabaseSync): ReadonlyMap<string, readonly string[]> {
   const map = new Map<string, string[]>();
-  for (const row of db
-    .prepare("SELECT decision_id FROM decision")
-    .all() as unknown as readonly { readonly decision_id: string }[])
+  for (const row of db.prepare("SELECT decision_id FROM decision").all() as unknown as readonly {
+    readonly decision_id: string;
+  }[])
     map.set(row.decision_id, [`decision/${row.decision_id}`]);
   for (const sql of [
     "SELECT decision_id, option_id AS anchor FROM decision_option",
@@ -347,9 +357,7 @@ export function decisionAnchorIndex(
       readonly decision_id: string;
       readonly anchor: string;
     }[])
-      map
-        .get(row.decision_id)
-        ?.push(`decision/${row.decision_id}/${row.anchor}`);
+      map.get(row.decision_id)?.push(`decision/${row.decision_id}/${row.anchor}`);
   for (const refs of map.values()) refs.sort();
   return map;
 }

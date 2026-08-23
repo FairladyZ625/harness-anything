@@ -259,7 +259,8 @@ export function assertAuthorizedReplacement(
   )
     throw new TaskEventStoreError(
       "revision_conflict",
-      `Migration destination changed after conflict classification at ${entity.documentClaim.path}; rerun --dry-run and resolve the current node.`,
+      `Migration destination changed after conflict classification at ${entity.documentClaim.path}; ` +
+        "rerun --dry-run and resolve the current node.",
     );
 }
 export function committedNode(

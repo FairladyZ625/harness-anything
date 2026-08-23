@@ -270,32 +270,119 @@ function configureDatabase(db: DatabaseSync): void {
 
 function createTables(db: DatabaseSync): void {
   db.exec(`
-    CREATE TABLE IF NOT EXISTS projection_meta (singleton INTEGER PRIMARY KEY CHECK(singleton=1), schema_version INTEGER NOT NULL, watermark INTEGER NOT NULL, scan_cursor TEXT, scanned_revision INTEGER NOT NULL, head_digest TEXT, state_digest TEXT);
-    INSERT OR IGNORE INTO projection_meta(singleton, schema_version, watermark, scan_cursor, scanned_revision, head_digest, state_digest) VALUES (1, ${taskProjectionSchemaVersion}, 0, NULL, 0, NULL, NULL);
-    CREATE TABLE IF NOT EXISTS event_source (workspace_revision INTEGER PRIMARY KEY, op_id TEXT NOT NULL UNIQUE, event_json TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS event_index (op_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL UNIQUE, task_id TEXT, event_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS projection_meta (
+      singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+      schema_version INTEGER NOT NULL,
+      watermark INTEGER NOT NULL,
+      scan_cursor TEXT,
+      scanned_revision INTEGER NOT NULL,
+      head_digest TEXT,
+      state_digest TEXT
+    );
+    INSERT OR IGNORE INTO projection_meta(
+      singleton, schema_version, watermark, scan_cursor, scanned_revision, head_digest, state_digest
+    ) VALUES (1, ${taskProjectionSchemaVersion}, 0, NULL, 0, NULL, NULL);
+    CREATE TABLE IF NOT EXISTS event_source (
+      workspace_revision INTEGER PRIMARY KEY,
+      op_id TEXT NOT NULL UNIQUE,
+      event_json TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS event_index (
+      op_id TEXT PRIMARY KEY,
+      workspace_revision INTEGER NOT NULL UNIQUE,
+      task_id TEXT,
+      event_json TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS event_index_task_id ON event_index (task_id);
-    CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_lookup ON event_index (json_extract(event_json, '$.payload.runtimeSessionId'), json_extract(event_json, '$.payload.definitionSnapshotRef'), workspace_revision) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE TABLE IF NOT EXISTS document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS preset_snapshot (digest TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS runtime_installation (installation_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS runtime_session (runtime_session_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL,
-      status TEXT, pinned INTEGER NOT NULL GENERATED ALWAYS AS (CASE WHEN json_valid(snapshot_json) THEN CASE WHEN json_extract(snapshot_json, '$.task.pinned') = 1 THEN 1 ELSE 0 END ELSE 0 END) STORED,
-      updated_at TEXT NOT NULL DEFAULT '');
+    CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_lookup ON event_index (
+      json_extract(event_json, '$.payload.runtimeSessionId'),
+      json_extract(event_json, '$.payload.definitionSnapshotRef'),
+      workspace_revision
+    ) WHERE
+      json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    CREATE TABLE IF NOT EXISTS document (
+      path TEXT PRIMARY KEY,
+      workspace_revision INTEGER NOT NULL,
+      value_json TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS preset_snapshot (
+      digest TEXT PRIMARY KEY,
+      workspace_revision INTEGER NOT NULL,
+      value_json TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS runtime_installation (
+      installation_id TEXT PRIMARY KEY,
+      workspace_revision INTEGER NOT NULL,
+      value_json TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS runtime_session (
+      runtime_session_id TEXT PRIMARY KEY,
+      workspace_revision INTEGER NOT NULL,
+      value_json TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS task_snapshot (
+      task_id TEXT PRIMARY KEY,
+      workspace_revision INTEGER NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      status TEXT,
+      pinned INTEGER NOT NULL GENERATED ALWAYS AS (
+        CASE WHEN json_valid(snapshot_json)
+          THEN CASE WHEN json_extract(snapshot_json, '$.task.pinned') = 1 THEN 1 ELSE 0 END
+          ELSE 0
+        END
+      ) STORED,
+      updated_at TEXT NOT NULL DEFAULT ''
+    );
     CREATE INDEX IF NOT EXISTS task_snapshot_status_updated ON task_snapshot(status, updated_at DESC, task_id ASC);
     CREATE INDEX IF NOT EXISTS task_snapshot_updated_task ON task_snapshot(updated_at DESC, task_id ASC);
     CREATE INDEX IF NOT EXISTS task_snapshot_revision_task ON task_snapshot(workspace_revision, task_id ASC);
     CREATE INDEX IF NOT EXISTS task_snapshot_agenda_status_pin ON task_snapshot(status, pinned DESC, task_id ASC);
     CREATE TABLE IF NOT EXISTS task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);
-    CREATE TABLE IF NOT EXISTS task_generation (task_id TEXT PRIMARY KEY, generation TEXT NOT NULL CHECK(generation IN ('v0','v1')));
+    CREATE TABLE IF NOT EXISTS task_generation (
+      task_id TEXT PRIMARY KEY,
+      generation TEXT NOT NULL CHECK(generation IN ('v0','v1'))
+    );
 
-    CREATE TABLE IF NOT EXISTS task_progress (workspace_revision INTEGER PRIMARY KEY, task_id TEXT NOT NULL, execution_id TEXT NOT NULL, event_json TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS execution (execution_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS review (review_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, execution_id TEXT NOT NULL, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS edge (task_id TEXT NOT NULL, edge_id TEXT NOT NULL, iteration INTEGER NOT NULL, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL, PRIMARY KEY(task_id, edge_id, iteration));
+    CREATE TABLE IF NOT EXISTS task_progress (
+      workspace_revision INTEGER PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      execution_id TEXT NOT NULL,
+      event_json TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS execution (
+      execution_id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      workspace_revision INTEGER NOT NULL,
+      value_json TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS review (
+      review_id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      execution_id TEXT NOT NULL,
+      workspace_revision INTEGER NOT NULL,
+      value_json TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS edge (
+      task_id TEXT NOT NULL,
+      edge_id TEXT NOT NULL,
+      iteration INTEGER NOT NULL,
+      workspace_revision INTEGER NOT NULL,
+      value_json TEXT NOT NULL,
+      PRIMARY KEY(task_id, edge_id, iteration)
+    );
     CREATE TABLE IF NOT EXISTS lease_cas (task_id TEXT PRIMARY KEY, lease_json TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS lease_interval (task_id TEXT NOT NULL, execution_id TEXT NOT NULL, acquired_revision INTEGER NOT NULL, released_revision INTEGER, holder_json TEXT NOT NULL, previous_holder_json TEXT, lease_expires_at TEXT NOT NULL, reason TEXT NOT NULL, PRIMARY KEY(task_id, execution_id, acquired_revision));
+    CREATE TABLE IF NOT EXISTS lease_interval (
+      task_id TEXT NOT NULL,
+      execution_id TEXT NOT NULL,
+      acquired_revision INTEGER NOT NULL,
+      released_revision INTEGER,
+      holder_json TEXT NOT NULL,
+      previous_holder_json TEXT,
+      lease_expires_at TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      PRIMARY KEY(task_id, execution_id, acquired_revision)
+    );
   `);
   createTaskRelationProjectionTable(db);
   createRelationGraphProjectionTables(db);

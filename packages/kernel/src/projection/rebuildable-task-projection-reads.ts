@@ -154,7 +154,16 @@ export function listProjection(
     ) {
       const rows = db
         .prepare(
-          `SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path, COALESCE(task_generation.generation, 'v1') AS generation, task_snapshot.workspace_revision AS workspace_revision, ${taskCreatedAtSql("task_snapshot.task_id")} AS created_at, event_index.event_json AS event_json FROM task_snapshot LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id) JOIN event_index ON event_index.workspace_revision = task_snapshot.workspace_revision ORDER BY task_snapshot.task_id`,
+          [
+            "SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path,",
+            "COALESCE(task_generation.generation, 'v1') AS generation,",
+            "task_snapshot.workspace_revision AS workspace_revision,",
+            `${taskCreatedAtSql("task_snapshot.task_id")} AS created_at,`,
+            "event_index.event_json AS event_json FROM task_snapshot",
+            "LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)",
+            "JOIN event_index ON event_index.workspace_revision = task_snapshot.workspace_revision",
+            "ORDER BY task_snapshot.task_id",
+          ].join(" "),
         )
         .all() as unknown as readonly {
         readonly task_id: string;

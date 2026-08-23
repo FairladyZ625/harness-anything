@@ -113,7 +113,9 @@ export const create: Transition = {
     };
   },
 };
-/** The state-side admissibility of StartExecution: a new execution, or the unleased active execution of the current round.
+/**
+ * The state-side admissibility of StartExecution: a new execution, or the
+ * unleased active execution of the current round.
  * Exported so the daemon preview and this transition answer with one rule instead of two. */
 export function canStartExecution(snapshot: TaskLifecycleSnapshot, executionId: string): boolean {
   const task = snapshot.task,
@@ -156,7 +158,8 @@ export const start: Transition = {
       issues.push(
         lifecycleContractIssue(
           "invalid_transition",
-          "StartExecution requires a new execution, or the unleased active execution of the current round, in planned or returned implementation",
+          "StartExecution requires a new execution, or the unleased active execution of the current round, " +
+            "in planned or returned implementation",
         ),
       );
     if (

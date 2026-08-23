@@ -113,6 +113,18 @@ import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import { readSnapshot, replayClaim, replayRelease, replayRenew } from "./rebuildable-task-projection-runtime.ts";
 import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 
+const UPSERT_TASK_SNAPSHOT_SQL = [
+  "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at)",
+  "VALUES (?, ?, ?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET",
+  "workspace_revision=excluded.workspace_revision, snapshot_json=excluded.snapshot_json,",
+  "status=excluded.status, updated_at=excluded.updated_at",
+].join(" ");
+const UPSERT_DOCUMENT_SQL = [
+  "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?)",
+  "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
+  "value_json=excluded.value_json",
+].join(" ");
+
 // Lifecycle task-event reduction, document claims, and materialized task rows.
 export function applyTaskEvent(
   db: DatabaseSync,
@@ -131,7 +143,7 @@ export function applyTaskEvent(
   );
   runSql(
     db,
-    "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET workspace_revision=excluded.workspace_revision, snapshot_json=excluded.snapshot_json, status=excluded.status, updated_at=excluded.updated_at",
+    UPSERT_TASK_SNAPSHOT_SQL,
     event.taskId,
     event.workspaceRevision,
     canonicalJson(snapshot),
@@ -189,13 +201,7 @@ export function applyTaskEvent(
         policyId: claim.policyId,
         workspaceRevision: event.workspaceRevision,
       };
-      runSql(
-        db,
-        "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
-        claim.path,
-        event.workspaceRevision,
-        canonicalJson(document),
-      );
+      runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
     }
   }
   // Class-A task commands carry replaceable prose on the same canonical event
@@ -224,13 +230,7 @@ export function applyTaskEvent(
       policyId: change.policyId,
       workspaceRevision: event.workspaceRevision,
     };
-    runSql(
-      db,
-      "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
-      change.path,
-      event.workspaceRevision,
-      canonicalJson(document),
-    );
+    runSql(db, UPSERT_DOCUMENT_SQL, change.path, event.workspaceRevision, canonicalJson(document));
     refreshDecisionDocumentSearch(db, document);
   }
   if ("execution" in event.payload)

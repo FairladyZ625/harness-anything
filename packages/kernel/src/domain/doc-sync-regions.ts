@@ -2,10 +2,7 @@ import { sha256Text } from "../integrity/stable-hash.ts";
 import { type PortableDocumentPath } from "../layout/portable-path.ts";
 import { DOC_CODEC_ID, DOC_POLICY_ID } from "./doc-sync-types.ts";
 import type { RegionProof } from "./doc-sync-types.ts";
-import type {
-  DocSyncDifference,
-  DocSyncUnresolvedTouch,
-} from "./receipt-domain-registry.ts";
+import type { DocSyncDifference, DocSyncUnresolvedTouch } from "./receipt-domain-registry.ts";
 
 export function touch(
   path: PortableDocumentPath,
@@ -41,31 +38,19 @@ export function additiveProof(
   readonly differences: readonly DocSyncDifference[];
   readonly unresolved: readonly DocSyncUnresolvedTouch[];
 } {
-  const left =
-      base === ""
-        ? { regions: [] as readonly Region[], error: null }
-        : regions(base, mediaType),
+  const left = base === "" ? { regions: [] as readonly Region[], error: null } : regions(base, mediaType),
     right = regions(candidate, mediaType);
   if (left.error || right.error)
     return {
       proofs: [],
       differences: [],
-      unresolved: [
-        touch(
-          path,
-          null,
-          left.error ?? right.error ?? "ambiguous region",
-          "refresh-region-policy",
-        ),
-      ],
+      unresolved: [touch(path, null, left.error ?? right.error ?? "ambiguous region", "refresh-region-policy")],
     };
   const rightById = new Map(right.regions.map((region) => [region.id, region])),
     indexed = left.regions.map((region) => ({
       region,
       next: rightById.get(region.id),
-      nextOrder: right.regions.findIndex(
-        (candidateRegion) => candidateRegion.id === region.id,
-      ),
+      nextOrder: right.regions.findIndex((candidateRegion) => candidateRegion.id === region.id),
     })),
     missing = indexed.filter(({ next }) => !next).map(({ region }) => region),
     reordered = new Map<string, Region>();
@@ -85,10 +70,11 @@ export function additiveProof(
         : `base regions are missing: ${missing.map(regionLabel).join(", ")}`,
     reorderedReason = `base regions are reordered: ${[...reordered]
       .map(([regionId, after]) => {
-        const region = left.regions.find(
-          (candidateRegion) => candidateRegion.id === regionId,
-        )!;
-        return `candidate places ${regionLabel(region)} before ${regionLabel(after)}; expected ${regionLabel(after)} before ${regionLabel(region)}`;
+        const region = left.regions.find((candidateRegion) => candidateRegion.id === regionId)!;
+        return [
+          `candidate places ${regionLabel(region)} before ${regionLabel(after)};`,
+          `expected ${regionLabel(after)} before ${regionLabel(region)}`,
+        ].join(" ");
       })
       .join("; ")}`,
     proofs: RegionProof[] = [],
@@ -96,52 +82,29 @@ export function additiveProof(
     unresolved: DocSyncUnresolvedTouch[] = [];
   for (const { region, next } of indexed) {
     if (!next) {
-      unresolved.push(
-        touch(path, region.id, missingReason, "refresh-region-policy"),
-      );
+      unresolved.push(touch(path, region.id, missingReason, "refresh-region-policy"));
       continue;
     }
     if (reordered.has(region.id)) {
-      unresolved.push(
-        touch(path, region.id, reorderedReason, "refresh-region-policy"),
-      );
+      unresolved.push(touch(path, region.id, reorderedReason, "refresh-region-policy"));
       continue;
     }
     const result = compareRegion(path, region, next);
     proofs.push(result.proof);
     if (result.difference) differences.push(result.difference);
-    if (!result.allowed)
-      unresolved.push(
-        touch(
-          path,
-          region.id,
-          "machine region changed",
-          machineWriterRoute(path),
-        ),
-      );
+    if (!result.allowed) unresolved.push(touch(path, region.id, "machine region changed", machineWriterRoute(path)));
   }
   for (const region of right.regions)
-    if (
-      !left.regions.some((candidateRegion) => candidateRegion.id === region.id)
-    ) {
+    if (!left.regions.some((candidateRegion) => candidateRegion.id === region.id)) {
       if (region.mode === "equal" && !creating)
-        unresolved.push(
-          touch(
-            path,
-            region.id,
-            "new machine region is forbidden",
-            machineWriterRoute(path),
-          ),
-        );
+        unresolved.push(touch(path, region.id, "new machine region is forbidden", machineWriterRoute(path)));
       else proofs.push(proof(region.id, "", region.body));
     }
   return { proofs, differences, unresolved };
 }
 
 function regionLabel(region: Region): string {
-  return JSON.stringify(
-    /^#{1,6} +.*$/mu.exec(region.body)?.[0]?.trim() ?? region.id,
-  );
+  return JSON.stringify(/^#{1,6} +.*$/mu.exec(region.body)?.[0]?.trim() ?? region.id);
 }
 
 export function opaqueProof(): {
@@ -178,13 +141,9 @@ function regions(
     offset = length;
   }
   const matches = [...prose.matchAll(/^#{1,6} +(.+)$/gmu)];
-  const ids = matches.map(
-    (match) => `heading/${match[1]!.trim().toLowerCase()}`,
-  );
-  if (new Set(ids).size !== ids.length)
-    return { regions: [], error: "duplicate heading anchor" };
-  if (!matches.length)
-    result.push({ id: "prose/*", mode: "additive", body: prose, offset });
+  const ids = matches.map((match) => `heading/${match[1]!.trim().toLowerCase()}`);
+  if (new Set(ids).size !== ids.length) return { regions: [], error: "duplicate heading anchor" };
+  if (!matches.length) result.push({ id: "prose/*", mode: "additive", body: prose, offset });
   else {
     if ((matches[0]!.index ?? 0) > 0)
       result.push({
@@ -226,12 +185,7 @@ function compareRegion(
       difference: null,
     };
   let prefix = 0;
-  while (
-    prefix < left.length &&
-    prefix < right.length &&
-    left[prefix] === right[prefix]
-  )
-    prefix += 1;
+  while (prefix < left.length && prefix < right.length && left[prefix] === right[prefix]) prefix += 1;
   let suffix = 0;
   while (
     suffix < left.length - prefix &&
@@ -266,10 +220,7 @@ function proof(regionId: string, base: string, candidate: string): RegionProof {
     codecId: DOC_CODEC_ID,
     baseSha256: sha256Text(base),
     candidateSha256: sha256Text(candidate),
-    insertBytes: Math.max(
-      0,
-      Buffer.byteLength(candidate) - Buffer.byteLength(base),
-    ),
+    insertBytes: Math.max(0, Buffer.byteLength(candidate) - Buffer.byteLength(base)),
   };
 }
 
@@ -278,7 +229,5 @@ export function decisionDocumentPath(value: PortableDocumentPath): boolean {
 }
 
 function machineWriterRoute(value: PortableDocumentPath): string {
-  return decisionDocumentPath(value)
-    ? "ha decision --help"
-    : "typed-machine-writer";
+  return decisionDocumentPath(value) ? "ha decision --help" : "typed-machine-writer";
 }

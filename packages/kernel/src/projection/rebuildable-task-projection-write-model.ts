@@ -113,6 +113,12 @@ import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 import { readRuntimeSession, readSnapshot, storedLease } from "./rebuildable-task-projection-runtime.ts";
 
+const UPSERT_DOCUMENT_SQL = [
+  "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?)",
+  "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
+  "value_json=excluded.value_json",
+].join(" ");
+
 // Progress, fact, and decision materialized-write handlers.
 export function projectProgress(
   db: DatabaseSync,
@@ -180,13 +186,7 @@ export function projectProgress(
     event.payload.executionId,
     eventJson,
   );
-  runSql(
-    db,
-    "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
-    claim.path,
-    event.workspaceRevision,
-    canonicalJson(document),
-  );
+  runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
   for (const change of event.payload.carriedDocumentClaims ?? []) {
     const previous = queryRows(db, "SELECT value_json FROM document WHERE path = ?", change.path)[0],
       carriedBase = previous ? (JSON.parse(String(previous.value_json)) as DocumentState) : null,
@@ -213,13 +213,7 @@ export function projectProgress(
       policyId: change.policyId,
       workspaceRevision: event.workspaceRevision,
     };
-    runSql(
-      db,
-      "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
-      change.path,
-      event.workspaceRevision,
-      canonicalJson(carriedDocument),
-    );
+    runSql(db, UPSERT_DOCUMENT_SQL, change.path, event.workspaceRevision, canonicalJson(carriedDocument));
     refreshDecisionDocumentSearch(db, carriedDocument);
   }
 }
@@ -256,13 +250,7 @@ export function projectFact(
     event.taskId,
     eventJson,
   );
-  runSql(
-    db,
-    "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
-    claim.path,
-    event.workspaceRevision,
-    canonicalJson(document),
-  );
+  runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
 }
 
 export function projectDecision(
@@ -304,12 +292,6 @@ export function projectDecision(
     event.workspaceRevision,
     eventJson,
   );
-  runSql(
-    db,
-    "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
-    claim.path,
-    event.workspaceRevision,
-    canonicalJson(document),
-  );
+  runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
   refreshDecisionDocumentSearch(db, document);
 }

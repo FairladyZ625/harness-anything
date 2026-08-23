@@ -29,8 +29,7 @@ export const presentationStatusWords: readonly StatusWordRegistration[] = [
     field: "outcome",
     meaning: "Preset run was refused; a one-shot operation result.",
     divergence: "divergent",
-    resolution:
-      "Same operation-result family as WriteReceipt.op_rejected; renamed from rejected at the CH3 cutover.",
+    resolution: "Same operation-result family as WriteReceipt.op_rejected; renamed from rejected at the CH3 cutover.",
   },
   {
     word: "failed",
@@ -156,16 +155,14 @@ export const presentationStatusWords: readonly StatusWordRegistration[] = [
     word: "pass",
     entity: "Task",
     field: "gate witness result",
-    meaning:
-      "The only value a completion-gate witness may carry: the checker passed.",
+    meaning: "The only value a completion-gate witness may carry: the checker passed.",
     divergence: "entity-scoped",
   },
   {
     word: "migrated",
     entity: "LegacyFact",
     field: "migration marker",
-    meaning:
-      "Legacy fact row carries a migration note and is not native event truth.",
+    meaning: "Legacy fact row carries a migration note and is not native event truth.",
     divergence: "entity-scoped",
   },
 
@@ -175,7 +172,8 @@ export const presentationStatusWords: readonly StatusWordRegistration[] = [
     entity: "GuiAdapter",
     field: "adapter fallback",
     meaning:
-      "The backend value was not in the registered vocabulary; the GUI shows unknown as unknown (SnapshotStatus precedent) and never folds it into a plausible neighbour.",
+      "The backend value was not in the registered vocabulary; the GUI shows unknown as unknown (SnapshotStatus " +
+      "precedent) and never folds it into a plausible neighbour.",
     divergence: "entity-scoped",
   },
   {

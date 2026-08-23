@@ -111,6 +111,27 @@ import type { TaskProjection } from "./task-projection-port.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
+
+const INSERT_TASK_SNAPSHOT_SQL = [
+  "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at)",
+  "VALUES (?, ?, ?, ?, ?)",
+].join(" ");
+const INSERT_FACT_SQL = [
+  "INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at,",
+  "confidence, memory_class, op_id, workspace_revision, row_json)",
+  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+].join(" ");
+const UPSERT_TASK_SNAPSHOT_SQL = [
+  "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at)",
+  "VALUES (?, ?, ?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET",
+  "workspace_revision=excluded.workspace_revision, snapshot_json=excluded.snapshot_json,",
+  "status=excluded.status, updated_at=excluded.updated_at",
+].join(" ");
+const UPSERT_DOCUMENT_SQL = [
+  "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?)",
+  "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
+  "value_json=excluded.value_json",
+].join(" ");
 import { readSnapshot } from "./rebuildable-task-projection-runtime.ts";
 
 // Legacy migration-import replay and its document materialization.
@@ -142,7 +163,7 @@ export function projectMigration(
   if (entity.kind === "task") {
     runSql(
       db,
-      "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at) VALUES (?, ?, ?, ?, ?)",
+      INSERT_TASK_SNAPSHOT_SQL,
       entity.task.taskId,
       event.workspaceRevision,
       canonicalJson({
@@ -243,7 +264,7 @@ export function projectMigration(
       };
     runSql(
       db,
-      "INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      INSERT_FACT_SQL,
       value.taskId,
       value.factId,
       ref,
@@ -279,7 +300,7 @@ export function projectMigration(
     };
     runSql(
       db,
-      "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET workspace_revision=excluded.workspace_revision, snapshot_json=excluded.snapshot_json, status=excluded.status, updated_at=excluded.updated_at",
+      UPSERT_TASK_SNAPSHOT_SQL,
       value.taskId,
       event.workspaceRevision,
       canonicalJson(next),
@@ -360,13 +381,7 @@ export function storeMigrationDocument(
     policyId: claim.policyId,
     workspaceRevision: event.workspaceRevision,
   };
-  runSql(
-    db,
-    "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
-    claim.path,
-    event.workspaceRevision,
-    canonicalJson(document),
-  );
+  runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
 }
 export function migrationDocument(db: DatabaseSync, path: string): DocumentState | null {
   const row = queryRows(db, "SELECT value_json FROM document WHERE path=?", path)[0];

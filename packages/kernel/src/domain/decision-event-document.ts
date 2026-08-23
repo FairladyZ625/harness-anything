@@ -38,23 +38,12 @@ export function compileDecisionWrite(input: {
       ? input.currentDecision !== null || input.currentDocument !== null
       : input.currentDecision === null || input.currentDocument === null
   )
-    throw new Error(
-      "decision projection and authored document base must agree",
-    );
-  const base =
-    input.currentDecision === null
-      ? null
-      : { ...input.currentDecision, relations: input.currentRelations };
+    throw new Error("decision projection and authored document base must agree");
+  const base = input.currentDecision === null ? null : { ...input.currentDecision, relations: input.currentRelations };
   assertDecisionEvidenceFloor(base, input.event);
   const reduced = reduceDecisionDocument(base, input.event),
-    consent =
-      base && decisionOutcome(input.event)
-        ? decisionConsent(base, input.event)
-        : null,
-    amendment =
-      base && input.event.type === "decision_amended"
-        ? decisionAmendment(input.event)
-        : null,
+    consent = base && decisionOutcome(input.event) ? decisionConsent(base, input.event) : null,
+    amendment = base && input.event.type === "decision_amended" ? decisionAmendment(input.event) : null,
     pin =
       base &&
       (decisionTransition(input.event) ||
@@ -64,15 +53,9 @@ export function compileDecisionWrite(input: {
         : null,
     next = {
       ...reduced,
-      judgmentConsents: consent
-        ? [...reduced.judgmentConsents, consent]
-        : reduced.judgmentConsents,
-      amendments: amendment
-        ? [...(reduced.amendments ?? []), amendment]
-        : reduced.amendments,
-      contentPins: pin
-        ? [...(reduced.contentPins ?? []), pin]
-        : reduced.contentPins,
+      judgmentConsents: consent ? [...reduced.judgmentConsents, consent] : reduced.judgmentConsents,
+      amendments: amendment ? [...(reduced.amendments ?? []), amendment] : reduced.amendments,
+      contentPins: pin ? [...(reduced.contentPins ?? []), pin] : reduced.contentPins,
     },
     path = `decisions/decision-${input.event.decisionId}/decision.md`;
   try {
@@ -82,20 +65,11 @@ export function compileDecisionWrite(input: {
   }
   const replacementBody = proposal
       ? input.event.payload.body
-      : input.event.type === "decision_amended" ||
-          input.event.type === "decision_relation_replaced"
+      : input.event.type === "decision_amended" || input.event.type === "decision_relation_replaced"
         ? (input.event.payload.body ?? undefined)
         : undefined,
-    judgment =
-      input.event.type === "decision_accepted"
-        ? input.event.payload.judgmentOnlyRationale
-        : null,
-    body = renderDecisionDocument(
-      next,
-      input.currentDocument?.body ?? null,
-      replacementBody,
-      judgment,
-    ),
+    judgment = input.event.type === "decision_accepted" ? input.event.payload.judgmentOnlyRationale : null,
+    body = renderDecisionDocument(next, input.currentDocument?.body ?? null, replacementBody, judgment),
     claim: DecisionDocumentClaim = {
       path,
       sha256: sha256Text(body),
@@ -129,9 +103,7 @@ export function compileDecisionWrite(input: {
     body,
   };
 }
-export function decisionWritePlan(
-  event: DecisionEventV1,
-): FrozenWritePlan<"DecisionWrite"> {
+export function decisionWritePlan(event: DecisionEventV1): FrozenWritePlan<"DecisionWrite"> {
   const claim = event.payload.decisionDocumentClaim,
     targets: WriteTarget[] = [
       {
@@ -169,37 +141,22 @@ export function decisionWritePlan(
         key: claim.path,
       },
     ];
-  if (
-    !["decision_rejected", "decision_deferred", "decision_repinned"].includes(
-      event.type,
-    )
-  )
+  if (!["decision_rejected", "decision_deferred", "decision_repinned"].includes(event.type))
     targets.push({
       kind: "projection_invalidation",
       projection: "relation-graph/v1",
       key: `decision/${event.decisionId}`,
     });
-  return freezeDeclaredWritePlan({ commandType: "DecisionWrite", targets }, [
-    "DecisionWrite",
-  ]);
+  return freezeDeclaredWritePlan({ commandType: "DecisionWrite", targets }, ["DecisionWrite"]);
 }
-export function assertDecisionWritePlan(
-  event: DecisionEventV1,
-  plan: FrozenWritePlan | undefined,
-): void {
+export function assertDecisionWritePlan(event: DecisionEventV1, plan: FrozenWritePlan | undefined): void {
   const shape = (value: FrozenWritePlan) =>
     stableStringify({
       commandType: value.commandType,
       targets: value.targets.map(stableStringify).sort(),
     });
-  if (
-    !plan ||
-    !isFrozenWritePlan(plan) ||
-    shape(plan) !== shape(decisionWritePlan(event))
-  )
-    throw new Error(
-      "decision write plan must exactly declare event, document, blob, and projections",
-    );
+  if (!plan || !isFrozenWritePlan(plan) || shape(plan) !== shape(decisionWritePlan(event)))
+    throw new Error("decision write plan must exactly declare event, document, blob, and projections");
 }
 export function renderDecisionDocument(
   value: DecisionDocumentState,
@@ -207,21 +164,13 @@ export function renderDecisionDocument(
   replacementBody?: string,
   judgmentOnlyRationale: string | null = null,
 ): string {
-  const baseProse =
-      replacementBody ??
-      (current === null
-        ? `\n# ${value.title}\n`
-        : decisionDocumentProse(current)),
+  const baseProse = replacementBody ?? (current === null ? `\n# ${value.title}\n` : decisionDocumentProse(current)),
     prose = judgmentOnlyRationale
       ? `${baseProse.replace(/\s*$/u, "")}\n\n## Judgment-only acceptance\n\n${judgmentOnlyRationale}\n`
       : baseProse,
     history = [
-      ...(value.amendments === undefined
-        ? []
-        : [`amendments: ${stableStringify(value.amendments)}`]),
-      ...(value.contentPins === undefined
-        ? []
-        : [`contentPins: ${stableStringify(value.contentPins)}`]),
+      ...(value.amendments === undefined ? [] : [`amendments: ${stableStringify(value.amendments)}`]),
+      ...(value.contentPins === undefined ? [] : [`contentPins: ${stableStringify(value.contentPins)}`]),
     ],
     frontmatter = [
       "---",
@@ -283,13 +232,9 @@ function reduceDecisionDocument(
       rejected: p.rejected,
       claims: p.claims.map((claim) => ({
         ...claim,
-        fulfillment:
-          p.fulfillments.find((entry) => entry.claimId === claim.id)?.mode ??
-          null,
+        fulfillment: p.fulfillments.find((entry) => entry.claimId === claim.id)?.mode ?? null,
       })),
-      relations: [...p.relations].sort((a, b) =>
-        a.relation_id.localeCompare(b.relation_id),
-      ),
+      relations: [...p.relations].sort((a, b) => a.relation_id.localeCompare(b.relation_id)),
       provenance: p.provenance ?? [],
       judgmentConsents: [],
     };
@@ -297,26 +242,19 @@ function reduceDecisionDocument(
   if (!current) throw new Error(`Decision ${event.decisionId} does not exist.`);
   const revision = { ...current, workspaceRevision: event.workspaceRevision };
   if (decisionOutcome(event)) {
-    const fulfillments =
-        event.type === "decision_accepted"
-          ? (event.payload.fulfillments ?? [])
-          : [],
+    const fulfillments = event.type === "decision_accepted" ? (event.payload.fulfillments ?? []) : [],
       claims =
         event.type === "decision_accepted"
           ? current.claims.map((claim) => ({
               ...claim,
-              fulfillment:
-                fulfillments.find((entry) => entry.claimId === claim.id)
-                  ?.mode ?? claim.fulfillment,
+              fulfillment: fulfillments.find((entry) => entry.claimId === claim.id)?.mode ?? claim.fulfillment,
             }))
           : current.claims;
     return {
       ...revision,
       state: outcomeState(event.type),
       decisionClass:
-        event.type === "decision_accepted" && event.payload.standingPolicy
-          ? "standing_policy"
-          : current.decisionClass,
+        event.type === "decision_accepted" && event.payload.standingPolicy ? "standing_policy" : current.decisionClass,
       claims,
       arbiter: event.actor,
       decidedAt: event.occurredAt,
@@ -325,12 +263,10 @@ function reduceDecisionDocument(
   if (event.type === "decision_superseded" || event.type === "decision_retired")
     return {
       ...revision,
-      state:
-        event.type === "decision_superseded" ? "superseded" : "outcome_retired",
+      state: event.type === "decision_superseded" ? "superseded" : "outcome_retired",
       decidedAt: event.occurredAt,
     };
-  if (event.type === "decision_amended")
-    return { ...revision, ...event.payload.next };
+  if (event.type === "decision_amended") return { ...revision, ...event.payload.next };
   if (event.type === "decision_repinned") return revision;
   if (event.type === "decision_claim_declared")
     return {
@@ -349,9 +285,7 @@ function reduceDecisionDocument(
     return {
       ...revision,
       claims: current.claims.map((claim) =>
-        claim.id === event.payload.claimId
-          ? { ...claim, fulfillment: event.payload.mode }
-          : claim,
+        claim.id === event.payload.claimId ? { ...claim, fulfillment: event.payload.mode } : claim,
       ),
     };
   if (event.type === "decision_related")
@@ -376,15 +310,11 @@ function reduceDecisionDocument(
   return {
     ...revision,
     relations: current.relations.map((relation) =>
-      relation.relation_id === event.payload.relationId
-        ? { ...relation, state: "edge_retired" }
-        : relation,
+      relation.relation_id === event.payload.relationId ? { ...relation, state: "edge_retired" } : relation,
     ),
   };
 }
-export function decisionMachineDigest(
-  value: DecisionDocumentState,
-): `sha256:${string}` {
+export function decisionMachineDigest(value: DecisionDocumentState): `sha256:${string}` {
   const semantic = {
     schema: "decision-machine-content/v1",
     decisionId: value.decisionId,
@@ -403,49 +333,29 @@ export function decisionMachineDigest(
   };
   return `sha256:${sha256Text(stableStringify(semantic))}`;
 }
-export function assertDecisionJudgmentConsent(
-  current: DecisionDocumentState,
-  event: DecisionEventV1,
-): void {
+export function assertDecisionJudgmentConsent(current: DecisionDocumentState, event: DecisionEventV1): void {
   if (!decisionOutcome(event)) return;
   const expected = decisionConsent(current, event);
-  if (
-    stableStringify(event.payload.judgmentConsent) !== stableStringify(expected)
-  )
-    invalidDecision(
-      "Decision judgment consent does not match the machine content cut or event authority.",
-    );
+  if (stableStringify(event.payload.judgmentConsent) !== stableStringify(expected))
+    invalidDecision("Decision judgment consent does not match the machine content cut or event authority.");
   assertDecisionEvidenceFloor(current, event);
 }
-export function assertDecisionContentPin(
-  current: DecisionDocumentState,
-  event: DecisionEventV1,
-): void {
+export function assertDecisionContentPin(current: DecisionDocumentState, event: DecisionEventV1): void {
   if (
-    (!decisionTransition(event) &&
-      event.type !== "decision_amended" &&
-      event.type !== "decision_repinned") ||
+    (!decisionTransition(event) && event.type !== "decision_amended" && event.type !== "decision_repinned") ||
     event.payload.contentPin === undefined
   )
     return;
   const reduced = reduceDecisionDocument(current, event),
     expected = decisionContentPin(reduced, event);
   if (stableStringify(event.payload.contentPin) !== stableStringify(expected))
-    invalidDecision(
-      "Decision content pin does not match the projected machine content cut.",
-    );
+    invalidDecision("Decision content pin does not match the projected machine content cut.");
 }
 function decisionConsent(
   current: DecisionDocumentState,
-  event: Extract<
-    DecisionEventDraftV1 | DecisionEventV1,
-    { readonly type: DecisionOutcomeType }
-  >,
+  event: Extract<DecisionEventDraftV1 | DecisionEventV1, { readonly type: DecisionOutcomeType }>,
 ): DecisionJudgmentConsentV1 {
-  const action = event.type.slice(
-    "decision_".length,
-    -2,
-  ) as DecisionJudgmentAction;
+  const action = event.type.slice("decision_".length, -2) as DecisionJudgmentAction;
   return {
     schema: "decision-judgment-consent/v1",
     consentId: `djc_${sha256Text(event.opId).slice(0, 26)}`,
@@ -459,10 +369,7 @@ function decisionConsent(
   };
 }
 function decisionAmendment(
-  event: Extract<
-    DecisionEventDraftV1 | DecisionEventV1,
-    { readonly type: "decision_amended" }
-  >,
+  event: Extract<DecisionEventDraftV1 | DecisionEventV1, { readonly type: "decision_amended" }>,
 ): DecisionAmendmentV1 {
   return {
     schema: "decision-amendment/v1",
@@ -477,8 +384,7 @@ function decisionContentPin(
   event: Extract<
     DecisionEventDraftV1 | DecisionEventV1,
     {
-      readonly type:
-        DecisionTransitionType | "decision_amended" | "decision_repinned";
+      readonly type: DecisionTransitionType | "decision_amended" | "decision_repinned";
     }
   >,
 ): DecisionContentPinV1 {
@@ -522,61 +428,34 @@ function decisionContentPin(
 }
 function decisionOutcome(
   event: DecisionEventDraftV1 | DecisionEventV1,
-): event is Extract<
-  DecisionEventDraftV1 | DecisionEventV1,
-  { readonly type: DecisionOutcomeType }
-> {
-  return (
-    event.type === "decision_accepted" ||
-    event.type === "decision_rejected" ||
-    event.type === "decision_deferred"
-  );
+): event is Extract<DecisionEventDraftV1 | DecisionEventV1, { readonly type: DecisionOutcomeType }> {
+  return event.type === "decision_accepted" || event.type === "decision_rejected" || event.type === "decision_deferred";
 }
 function decisionTransition(
   event: DecisionEventDraftV1 | DecisionEventV1,
-): event is Extract<
-  DecisionEventDraftV1 | DecisionEventV1,
-  { readonly type: DecisionTransitionType }
-> {
-  return (
-    decisionOutcome(event) ||
-    event.type === "decision_superseded" ||
-    event.type === "decision_retired"
-  );
+): event is Extract<DecisionEventDraftV1 | DecisionEventV1, { readonly type: DecisionTransitionType }> {
+  return decisionOutcome(event) || event.type === "decision_superseded" || event.type === "decision_retired";
 }
-export function outcomeState(
-  type: DecisionOutcomeType,
-): "in_effect" | "rejected" | "deferred" {
-  return type === "decision_accepted"
-    ? "in_effect"
-    : (type.slice("decision_".length) as "rejected" | "deferred");
+export function outcomeState(type: DecisionOutcomeType): "in_effect" | "rejected" | "deferred" {
+  return type === "decision_accepted" ? "in_effect" : (type.slice("decision_".length) as "rejected" | "deferred");
 }
 function assertDecisionEvidenceFloor(
   current: DecisionDocumentState | null,
   event: DecisionEventDraftV1 | DecisionEventV1,
 ): void {
-  if (
-    event.type !== "decision_accepted" ||
-    event.payload.judgmentOnlyRationale?.trim()
-  )
-    return;
-  const claims = new Set(
-      (current?.claims ?? []).map(
-        (claim) => `decision/${event.decisionId}/${claim.id}`,
-      ),
-    ),
+  if (event.type !== "decision_accepted" || event.payload.judgmentOnlyRationale?.trim()) return;
+  const claims = new Set((current?.claims ?? []).map((claim) => `decision/${event.decisionId}/${claim.id}`)),
     evidence = current?.relations.some(
-      (edge) =>
-        edge.state === "active" &&
-        claims.has(edge.source) &&
-        /^(?:fact\/[^/]+\/F-[0-9A-HJKMNP-TV-Z]{8}|task\/[^/]+|decision\/dec_[A-Za-z0-9_-]+(?:\/[A-Za-z][A-Za-z0-9_-]*)?)$/u.test(
-          edge.target,
-        ),
+      (edge) => edge.state === "active" && claims.has(edge.source) && isDecisionEvidenceTarget(edge.target),
     );
   if (!evidence)
-    invalidDecision(
-      "decision accept requires a claim-to-evidence relation or --judgment-only <rationale>.",
-    );
+    invalidDecision("decision accept requires a claim-to-evidence relation or --judgment-only <rationale>.");
+}
+function isDecisionEvidenceTarget(value: string): boolean {
+  return (
+    /^(?:fact\/[^/]+\/F-[0-9A-HJKMNP-TV-Z]{8}|task\/[^/]+)$/u.test(value) ||
+    /^decision\/dec_[A-Za-z0-9_-]+(?:\/[A-Za-z][A-Za-z0-9_-]*)?$/u.test(value)
+  );
 }
 function invalidDecision(message: string): never {
   const error = new Error(message) as Error & { code: string };

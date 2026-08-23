@@ -115,6 +115,50 @@ import { catchUpRound } from "./rebuildable-task-projection-catch-up.ts";
 import { readDocument, readPresetSnapshot } from "./rebuildable-task-projection-reads.ts";
 import { watermark, parseEventJson, queryRow, queryRows, transaction } from "./rebuildable-task-projection-sql.ts";
 
+const TASK_COMPLETION_SQL = [
+  "SELECT event_json FROM event_index WHERE task_id = ?",
+  "AND json_extract(event_json, '$.schema') = 'task-event/v1'",
+  "AND json_extract(event_json, '$.type') = 'task_completed'",
+  "AND json_extract(event_json, '$.payload.execution.executionId') = ?",
+  "ORDER BY workspace_revision DESC LIMIT 1",
+].join(" ");
+const RUNTIME_DISPATCH_SQL = [
+  "SELECT event_json FROM event_index",
+  "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+  "AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+  "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
+  "AND json_extract(event_json, '$.payload.definitionSnapshotRef') = ?",
+  "ORDER BY workspace_revision LIMIT 1",
+].join(" ");
+const RUNTIME_DISPATCHES_SQL = [
+  "SELECT event_json FROM event_index",
+  "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+  "AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+  "ORDER BY workspace_revision",
+].join(" ");
+const RUNTIME_SESSION_EVENTS_SQL = [
+  "SELECT event_json FROM event_index WHERE workspace_revision > ?",
+  "AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+  "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
+  "ORDER BY workspace_revision LIMIT ?",
+].join(" ");
+const REPLICA_EVENTS_SQL = [
+  "SELECT event_json FROM event_index",
+  "WHERE workspace_revision > ? AND workspace_revision <= ?",
+  "ORDER BY workspace_revision LIMIT 64",
+].join(" ");
+const REPLICA_DOCUMENTS_SQL = [
+  "SELECT path, json_extract(value_json, '$.blobSha256') AS blob_sha256,",
+  "json_extract(value_json, '$.size') AS size,",
+  "json_extract(value_json, '$.mediaType') AS media_type",
+  "FROM document ORDER BY path",
+].join(" ");
+const TASK_FOR_DOCUMENT_SQL = [
+  "SELECT task_id FROM task_package WHERE ? = package_path",
+  "OR substr(?, 1, length(package_path) + 1) = package_path || '/'",
+  "ORDER BY length(package_path) DESC LIMIT 1",
+].join(" ");
+
 // Task relations, task status, document, replica, and progress query API.
 export function taskQueryApi(
   context: ProjectionContext,
@@ -243,34 +287,21 @@ export function taskQueryApi(
     readTaskCompletion: (taskId, executionId) =>
       withDatabase(projectionPath, readHead, (db) => {
         catchUpRound(db, eventStore, limit);
-        const row = queryRows(
-          db,
-          "SELECT event_json FROM event_index WHERE task_id = ? AND json_extract(event_json, '$.schema') = 'task-event/v1' AND json_extract(event_json, '$.type') = 'task_completed' AND json_extract(event_json, '$.payload.execution.executionId') = ? ORDER BY workspace_revision DESC LIMIT 1",
-          taskId,
-          executionId,
-        )[0];
+        const row = queryRows(db, TASK_COMPLETION_SQL, taskId, executionId)[0];
         if (!row) return null;
         const event = parseEventJson(String(row.event_json));
         return isTaskEvent(event) ? event : null;
       }),
     readRuntimeDispatch: (runtimeSessionIdValue, definitionSnapshotRef) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const row = queryRow(
-          db,
-          "SELECT event_json FROM event_index WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND json_extract(event_json, '$.payload.definitionSnapshotRef') = ? ORDER BY workspace_revision LIMIT 1",
-          runtimeSessionIdValue,
-          definitionSnapshotRef,
-        );
+        const row = queryRow(db, RUNTIME_DISPATCH_SQL, runtimeSessionIdValue, definitionSnapshotRef);
         if (!row) return null;
         const event = parseEventJson(String(row.event_json));
         return isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested" ? event : null;
       }),
     readRuntimeDispatches: () =>
       withDatabase(projectionPath, readHead, (db) =>
-        queryRows(
-          db,
-          "SELECT event_json FROM event_index WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested' ORDER BY workspace_revision",
-        )
+        queryRows(db, RUNTIME_DISPATCHES_SQL)
           .map((row) => parseEventJson(String(row.event_json)))
           .filter(
             (event): event is Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> =>
@@ -281,13 +312,7 @@ export function taskQueryApi(
       withDatabase(projectionPath, readHead, (db) => {
         if (!Number.isSafeInteger(afterRevision) || afterRevision < 0 || !Number.isSafeInteger(limit) || limit < 1)
           throw new Error("runtime session event page requires a non-negative revision and a positive limit");
-        return queryRows(
-          db,
-          "SELECT event_json FROM event_index WHERE workspace_revision > ? AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? ORDER BY workspace_revision LIMIT ?",
-          afterRevision,
-          runtimeSessionIdValue,
-          limit,
-        )
+        return queryRows(db, RUNTIME_SESSION_EVENTS_SQL, afterRevision, runtimeSessionIdValue, limit)
           .map((row) => parseEventJson(String(row.event_json)))
           .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event));
       }),
@@ -303,19 +328,8 @@ export function taskQueryApi(
               current === 0
                 ? undefined
                 : queryRows(db, "SELECT event_json FROM event_index WHERE workspace_revision = ?", current)[0],
-            rows =
-              afterRevision === null
-                ? []
-                : queryRows(
-                    db,
-                    "SELECT event_json FROM event_index WHERE workspace_revision > ? AND workspace_revision <= ? ORDER BY workspace_revision LIMIT 64",
-                    afterRevision,
-                    current,
-                  ),
-            documents = queryRows(
-              db,
-              "SELECT path, json_extract(value_json, '$.blobSha256') AS blob_sha256, json_extract(value_json, '$.size') AS size, json_extract(value_json, '$.mediaType') AS media_type FROM document ORDER BY path",
-            );
+            rows = afterRevision === null ? [] : queryRows(db, REPLICA_EVENTS_SQL, afterRevision, current),
+            documents = queryRows(db, REPLICA_DOCUMENTS_SQL);
           return {
             watermark: current,
             sourceRevision,
@@ -337,11 +351,9 @@ export function taskQueryApi(
         readHead,
         (db) =>
           (
-            db
-              .prepare(
-                "SELECT task_id FROM task_package WHERE ? = package_path OR substr(?, 1, length(package_path) + 1) = package_path || '/' ORDER BY length(package_path) DESC LIMIT 1",
-              )
-              .get(documentPath, documentPath) as { readonly task_id: string } | undefined
+            db.prepare(TASK_FOR_DOCUMENT_SQL).get(documentPath, documentPath) as
+              | { readonly task_id: string }
+              | undefined
           )?.task_id ?? null,
       ),
     readPresetSnapshot: (digest) => readPresetSnapshot(projectionPath, readHead, eventStore, digest, limit),

@@ -30,7 +30,6 @@
       { "value": "packages/kernel/src/projection/rebuildable-task-projection-runtime.ts#sqlite.prepare@9", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Reads rebuildable lease intervals." },
       { "value": "packages/kernel/src/projection/rebuildable-task-projection-runtime.ts#sqlite.prepare@10", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Checks active lease capacity in the disposable CAS view." },
       { "value": "packages/kernel/src/projection/rebuildable-task-projection-runtime.ts#sqlite.prepare@11", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Reserves a disposable lease CAS row." },
-      { "value": "packages/kernel/src/projection/rebuildable-task-projection-runtime.ts#sqlite.prepare@12", "ref": "dec_F85B40D3E2282DBA1E10FE07C1", "reason": "Reads the disposable projection watermark through the split runtime helper." },
       { "value": "packages/kernel/src/projection/rebuildable-task-projection-sql.ts#sqlite.exec@1", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Begins an atomic transaction against the disposable view." },
       { "value": "packages/kernel/src/projection/rebuildable-task-projection-sql.ts#sqlite.exec@2", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Commits an atomic transaction against the disposable view." },
       { "value": "packages/kernel/src/projection/rebuildable-task-projection-sql.ts#sqlite.exec@3", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Rolls back an atomic transaction against the disposable view." },

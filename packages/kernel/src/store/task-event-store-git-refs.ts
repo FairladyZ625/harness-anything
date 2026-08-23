@@ -92,7 +92,14 @@ export function prepareCommit(
 ): string {
   const message = `harness event ${opId}`,
     timestamp = Math.floor(Date.parse(occurredAt) / 1_000);
-  let input = `commit ${ref}\nmark :1\ncommitter Harness Event Store <harness-event-store@local.invalid> ${timestamp} +0000\ndata ${Buffer.byteLength(message)}\n${message}\nfrom ${parent}\n`;
+  let input = [
+    `commit ${ref}\n`,
+    "mark :1\n",
+    `committer Harness Event Store <harness-event-store@local.invalid> ${timestamp} +0000\n`,
+    `data ${Buffer.byteLength(message)}\n`,
+    `${message}\n`,
+    `from ${parent}\n`,
+  ].join("");
   for (const file of files)
     input +=
       "from" in file
@@ -151,7 +158,13 @@ export function finalizeRefs(
 ): void {
   gitObjects.updateRefs(
     repoRoot,
-    `start\nupdate ${CANONICAL_EVENT_REF} ${sha} ${previous}\nupdate ${authoredRef} ${sha} ${previous}\n${prepared ? `delete ${prepared[0]} ${prepared[1]}\n` : ""}prepare\ncommit\n`,
+    [
+      "start\n",
+      `update ${CANONICAL_EVENT_REF} ${sha} ${previous}\n`,
+      `update ${authoredRef} ${sha} ${previous}\n`,
+      prepared ? `delete ${prepared[0]} ${prepared[1]}\n` : "",
+      "prepare\ncommit\n",
+    ].join(""),
   );
 }
 export function deleteRef(repoRoot: string, ref: string): void {
@@ -170,7 +183,12 @@ export function assertPublicationCut(repoRoot: string, authoredRef: string, cano
   if (refs.authored !== canonical || refs.canonical !== canonical)
     throw new TaskEventStoreError(
       "publication_indeterminate",
-      `ledger ${authoredRef} must point at the last published event commit ${canonical}, but a commit was made outside the daemon. Recover with: git -C ${repoRoot} update-ref ${authoredRef} ${canonical} — this moves only the branch pointer and leaves every file in place. Then run ha daemon stop and retry.`,
+      [
+        `ledger ${authoredRef} must point at the last published event commit ${canonical},`,
+        "but a commit was made outside the daemon. Recover with:",
+        `git -C ${repoRoot} update-ref ${authoredRef} ${canonical} — this moves only the branch pointer`,
+        "and leaves every file in place. Then run ha daemon stop and retry.",
+      ].join(" "),
     );
 }
 export function currentBranch(repoRoot: string): string {

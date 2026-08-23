@@ -109,8 +109,31 @@ import {
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 import type { TaskProjection } from "./task-projection-port.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
-import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
+import { canonicalJson, queryRows, runSql, watermark } from "./rebuildable-task-projection-sql.ts";
 import type { LeaseInterval } from "./projection-reads.ts";
+
+const UPSERT_LEASE_SQL = [
+  "INSERT INTO lease_cas(task_id, lease_json) VALUES (?, ?)",
+  "ON CONFLICT(task_id) DO UPDATE SET lease_json=excluded.lease_json",
+].join(" ");
+const INSERT_LEASE_INTERVAL_SQL = [
+  "INSERT INTO lease_interval(task_id, execution_id, acquired_revision, released_revision,",
+  "holder_json, previous_holder_json, lease_expires_at, reason)",
+  "VALUES (?, ?, ?, NULL, ?, ?, ?, ?)",
+].join(" ");
+const UPDATE_LEASE_EXPIRY_SQL = [
+  "UPDATE lease_interval SET lease_expires_at = ?",
+  "WHERE task_id = ? AND execution_id = ? AND released_revision IS NULL",
+].join(" ");
+const UPDATE_LEASE_RELEASE_SQL = [
+  "UPDATE lease_interval SET released_revision = ?",
+  "WHERE task_id = ? AND execution_id = ? AND released_revision IS NULL",
+].join(" ");
+const COUNT_ACTIVE_LEASES_SQL = [
+  "SELECT COUNT(*) AS count FROM lease_cas",
+  "WHERE json_extract(lease_json, '$.phase') NOT IN ('released', 'orphaned')",
+  "AND json_extract(lease_json, '$.expiresAt') > ?",
+].join(" ");
 
 // Lease replay/CAS, lifecycle snapshots, and runtime-state reads.
 export function replayClaim(
@@ -119,16 +142,12 @@ export function replayClaim(
 ): void {
   const lease = checkedLease(event.payload.lease);
   const reserving = { ...lease, phase: "reserving" as const };
-  db.prepare(
-    "INSERT INTO lease_cas(task_id, lease_json) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET lease_json=excluded.lease_json",
-  ).run(event.taskId, canonicalJson(reserving));
+  db.prepare(UPSERT_LEASE_SQL).run(event.taskId, canonicalJson(reserving));
   db.prepare("UPDATE lease_cas SET lease_json = ? WHERE task_id = ?").run(
     canonicalJson({ ...lease, phase: "held" }),
     event.taskId,
   );
-  db.prepare(
-    "INSERT INTO lease_interval(task_id, execution_id, acquired_revision, released_revision, holder_json, previous_holder_json, lease_expires_at, reason) VALUES (?, ?, ?, NULL, ?, ?, ?, ?)",
-  ).run(
+  db.prepare(INSERT_LEASE_INTERVAL_SQL).run(
     event.taskId,
     lease.executionId,
     event.workspaceRevision,
@@ -151,12 +170,8 @@ export function replayRenew(db: DatabaseSync, event: Extract<TaskEventV1, { read
     current.version + 1 === renewed.version;
   if (!matchesPrevious && canonicalJson(current) !== canonicalJson(renewed))
     throw new Error(`stale lease renewal event for task ${event.taskId}`);
-  db.prepare(
-    "INSERT INTO lease_cas(task_id, lease_json) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET lease_json=excluded.lease_json",
-  ).run(event.taskId, canonicalJson(renewed));
-  db.prepare(
-    "UPDATE lease_interval SET lease_expires_at = ? WHERE task_id = ? AND execution_id = ? AND released_revision IS NULL",
-  ).run(renewed.expiresAt, event.taskId, renewed.executionId);
+  db.prepare(UPSERT_LEASE_SQL).run(event.taskId, canonicalJson(renewed));
+  db.prepare(UPDATE_LEASE_EXPIRY_SQL).run(renewed.expiresAt, event.taskId, renewed.executionId);
 }
 
 export function replayRelease(db: DatabaseSync, taskId: string, executionId: string, revision: number): void {
@@ -170,9 +185,7 @@ export function replayRelease(db: DatabaseSync, taskId: string, executionId: str
       }),
       taskId,
     );
-  db.prepare(
-    "UPDATE lease_interval SET released_revision = ? WHERE task_id = ? AND execution_id = ? AND released_revision IS NULL",
-  ).run(revision, taskId, executionId);
+  db.prepare(UPDATE_LEASE_RELEASE_SQL).run(revision, taskId, executionId);
 }
 
 export function readSnapshot(db: DatabaseSync, taskId: string, now?: string): TaskLifecycleSnapshot {
@@ -238,11 +251,7 @@ export function reserve(db: DatabaseSync, lease: LeaseV1, now: string): LeaseV1 
   const current = effectiveLease(db, lease.taskId, now);
   if (current !== null && current.phase !== "orphaned" && current.phase !== "released")
     throw new Error(`lease conflict for task ${lease.taskId}`);
-  const count = db
-    .prepare(
-      "SELECT COUNT(*) AS count FROM lease_cas WHERE json_extract(lease_json, '$.phase') NOT IN ('released', 'orphaned') AND json_extract(lease_json, '$.expiresAt') > ?",
-    )
-    .get(now) as { readonly count: number };
+  const count = db.prepare(COUNT_ACTIVE_LEASES_SQL).get(now) as { readonly count: number };
   if (count.count >= TASK_LEASE_BROKER_CONTRACT.capacity)
     throw new Error(
       `lease capacity ${TASK_LEASE_BROKER_CONTRACT.capacity} exhausted; wait for a lease to be released or expire`,
@@ -250,9 +259,7 @@ export function reserve(db: DatabaseSync, lease: LeaseV1, now: string): LeaseV1 
   const expectedVersion = current === null ? 0 : current.version + 1;
   if (lease.phase !== "reserving" || lease.version !== expectedVersion)
     throw new Error(`stale lease reservation for task ${lease.taskId}`);
-  db.prepare(
-    "INSERT INTO lease_cas(task_id, lease_json) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET lease_json=excluded.lease_json",
-  ).run(lease.taskId, canonicalJson(lease));
+  db.prepare(UPSERT_LEASE_SQL).run(lease.taskId, canonicalJson(lease));
   return lease;
 }
 
@@ -345,10 +352,4 @@ function checkedLease(lease: LeaseV1): LeaseV1 {
   const issues = validateLeaseV1(lease);
   if (issues.length > 0) throw new Error(issues.map((issue) => issue.message).join("; "));
   return lease;
-}
-function watermark(db: DatabaseSync): number {
-  return Number(
-    (db.prepare("SELECT watermark FROM projection_meta WHERE singleton = 1").get() as { readonly watermark: number })
-      .watermark,
-  );
 }
