@@ -8,7 +8,7 @@ import test from "node:test";
 
 const scriptPath = path.resolve(import.meta.dirname, "check-duplicate-definitions.mjs");
 
-test("duplicate definition check rejects same-package function duplicates", () => {
+test("duplicate definition check still rejects a true second implementation in one package", () => {
   const root = makeFixtureRoot();
   writePackage(root, "packages/alpha", "@harness-anything/alpha");
   writeSource(root, "packages/alpha/src/one.ts", "function duplicateHelper() { return 1; }\n");
@@ -22,11 +22,37 @@ test("duplicate definition check rejects same-package function duplicates", () =
   assert.match(result.stderr, /packages\/alpha\/src\/two\.ts:1/u);
 });
 
-test("duplicate definition check allows explicitly allowlisted duplicates", () => {
+test("duplicate definition check ignores pure return and await delegation bindings", () => {
   const root = makeFixtureRoot();
-  writePackage(root, "packages/cli", "@harness-anything/cli");
-  writeSource(root, "packages/cli/src/one.ts", "function layoutOverridesFromInput() { return undefined; }\n");
-  writeSource(root, "packages/cli/src/two.ts", "function layoutOverridesFromInput() { return undefined; }\n");
+  writePackage(root, "packages/alpha", "@harness-anything/alpha");
+  writeSource(root, "packages/alpha/src/implementation.ts", "function sharedOperation() { return 1; }\n");
+  writeSource(root, "packages/alpha/src/return-binding.ts", "function sharedOperation(value: string) { return sharedOperationImpl(value); }\n");
+  writeSource(root, "packages/alpha/src/await-binding.ts", "async function sharedOperation(value: string) { return await sharedOperationImpl(value); }\n");
+  writeSource(root, "packages/alpha/src/await-statement-binding.ts", "async function sharedOperation(value: string) { await sharedOperationImpl(value); }\n");
+
+  const result = runCheck(root);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Duplicate function definition check passed/u);
+});
+
+test("duplicate definition check counts a delegation binding that declares a parameter default", () => {
+  const root = makeFixtureRoot();
+  writePackage(root, "packages/alpha", "@harness-anything/alpha");
+  writeSource(root, "packages/alpha/src/implementation.ts", "function sharedOperation(detail = 'cancelled') { return detail; }\n");
+  writeSource(root, "packages/alpha/src/binding.ts", "function sharedOperation(detail = 'cancelled') { return sharedOperationImpl(detail); }\n");
+
+  const result = runCheck(root);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /alpha\/sharedOperation: duplicate function definitions/u);
+});
+
+test("duplicate definition check allows explicitly allowlisted independent implementations", () => {
+  const root = makeFixtureRoot();
+  writePackage(root, "packages/gui", "@harness-anything/gui");
+  writeSource(root, "packages/gui/src/one.ts", "function failure() { return undefined; }\n");
+  writeSource(root, "packages/gui/src/two.ts", "function failure() { return undefined; }\n");
 
   const result = runCheck(root);
 

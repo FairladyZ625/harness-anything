@@ -3,6 +3,7 @@ import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { freezeDeclaredWritePlan, hasContractFields as matchesFields, isFrozenWritePlan, isNonEmptyString, isRecord, serializeEventEnvelope, validateEventEnvelopeIdentity, type ActorIdentity, type EventEnvelope, type FrozenWritePlan, type WriteTarget } from "./write-chain.contract.ts";
 import { codePoints, requiredWithOptional } from "./event-validation.ts";
+import { includes } from "./decision-event-validation-shared.ts";
 import { timestamp } from "./timestamp.ts";
 import { validateSessionIdentity, validateSessionProvenance, type SessionProvenanceV1 } from "./agent-runtime.ts";
 
@@ -78,4 +79,3 @@ function uniqueProvenance(values: readonly unknown[]): boolean { const keys = va
 function supersedes(value: unknown, allowUnknownFields: boolean): boolean { return isRecord(value) && matchesFields(value, ["factRef", "rationale"], allowUnknownFields)
   && typeof value.factRef === "string" && /^fact\/[^/]+\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(value.factRef) && codePoints(value.rationale, 1, 199); }
 function safeId(value: unknown): value is string { return isNonEmptyString(value) && !/[\\/]/u.test(value); }
-function includes<const T extends readonly string[]>(values: T, value: unknown): value is T[number] { return typeof value === "string" && (values as readonly string[]).includes(value); }

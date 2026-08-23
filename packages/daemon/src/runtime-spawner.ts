@@ -583,7 +583,7 @@ export function makeRuntimeSpawner(input: {
   ) {
     return appliedImpl(extracted, event, publication, runtimeSessionId, dispatchId);
   }
-  function controlReceipt(opId: string, runtimeSessionId: string, detail = "cancelled") {
+  function controlReceipt(opId: string, runtimeSessionId: string, detail?: string) {
     return controlReceiptImpl(extracted, opId, runtimeSessionId, detail);
   }
 }

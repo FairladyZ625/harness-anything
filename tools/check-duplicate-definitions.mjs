@@ -1,16 +1,11 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import ts from "typescript";
 
 const root = process.cwd();
-const functionDefinitionPattern = /\b(?:export\s+)?function\s+(\w+)\s*\(/gu;
 const allowlist = new Set([
-  "cli/helpReport",
-  "cli/isSafeRelativePath",
-  "cli/layoutOverridesFromInput",
-  "cli/writeIfMissing",
   "gui/failure",
   "gui/save",
-  "kernel/listTextFiles",
   "kernel/visit"
 ]);
 const violations = [];
@@ -19,14 +14,21 @@ for (const pkg of await discoverPackages()) {
   const definitions = new Map();
   for (const file of await walkSourceFiles(path.join(pkg.root, "src"))) {
     const text = await readFile(file, "utf8");
-    for (const match of text.matchAll(functionDefinitionPattern)) {
-      const name = match[1];
-      const locations = definitions.get(name) ?? [];
-      locations.push({
-        file: relative(file),
-        line: lineNumber(text, match.index ?? 0)
-      });
-      definitions.set(name, locations);
+    const sourceFile = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    visit(sourceFile);
+
+    function visit(node) {
+      if (ts.isFunctionDeclaration(node) && node.name && !isPureDelegation(node)) {
+        const name = node.name.text;
+        const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+        const locations = definitions.get(name) ?? [];
+        locations.push({
+          file: relative(file),
+          line: position.line + 1
+        });
+        definitions.set(name, locations);
+      }
+      ts.forEachChild(node, visit);
     }
   }
 
@@ -110,6 +112,48 @@ function isSourceFile(fileName) {
     && !fileName.endsWith(".spec.ts");
 }
 
+function isPureDelegation(node) {
+  if (!node.body || node.parameters.some(hasParameterDefault)) return false;
+  if (node.body.statements.length !== 1) return false;
+
+  const [statement] = node.body.statements;
+  if (ts.isReturnStatement(statement) && statement.expression) {
+    return isCallOrAwaitedCall(statement.expression);
+  }
+  return ts.isExpressionStatement(statement)
+    && isAwaitedCall(statement.expression);
+}
+
+function hasParameterDefault(parameter) {
+  return parameter.initializer !== undefined || bindingNameHasDefault(parameter.name);
+}
+
+function bindingNameHasDefault(name) {
+  if (ts.isIdentifier(name)) return false;
+  return name.elements.some((element) => {
+    if (ts.isOmittedExpression(element)) return false;
+    return element.initializer !== undefined || bindingNameHasDefault(element.name);
+  });
+}
+
+function isCallOrAwaitedCall(expression) {
+  const unwrapped = unwrapParentheses(expression);
+  if (ts.isCallExpression(unwrapped)) return true;
+  return isAwaitedCall(unwrapped);
+}
+
+function isAwaitedCall(expression) {
+  const unwrapped = unwrapParentheses(expression);
+  return ts.isAwaitExpression(unwrapped)
+    && ts.isCallExpression(unwrapParentheses(unwrapped.expression));
+}
+
+function unwrapParentheses(expression) {
+  let current = expression;
+  while (ts.isParenthesizedExpression(current)) current = current.expression;
+  return current;
+}
+
 async function packageKey(packageRoot) {
   const manifestPath = path.join(packageRoot, "package.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -138,10 +182,6 @@ async function fileExists(file) {
     if (error?.code === "ENOENT" || error?.code === "EISDIR") return false;
     throw error;
   }
-}
-
-function lineNumber(text, offset) {
-  return text.slice(0, offset).split(/\r?\n/u).length;
 }
 
 function relative(file) {
