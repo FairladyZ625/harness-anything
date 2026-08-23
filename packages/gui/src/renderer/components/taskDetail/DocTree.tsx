@@ -83,7 +83,9 @@ function TreeNodeView({
     return (
       <>
         <button
+          type="button"
           onClick={() => onToggle(node.path)}
+          aria-expanded={isExpanded}
           className="flex w-full items-center gap-1 rounded-md py-1 pr-2 text-left text-[12px] font-medium text-text-muted hover:text-text"
           style={{ paddingLeft: indent }}
         >
@@ -118,7 +120,9 @@ function TreeNodeView({
 
   return (
     <button
+      type="button"
       onClick={() => onSelectDoc(doc.path)}
+      aria-current={activeDoc === doc.path ? "page" : undefined}
       className={`flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-[13px] ${
         activeDoc === doc.path
           ? "bg-surface-raised text-text"

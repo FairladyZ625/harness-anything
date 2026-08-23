@@ -1,4 +1,10 @@
 import { isTrustedRendererUrl, type TrustedRendererUrlOptions } from "./window-config.ts";
+import {
+  isAllowedHtmlArtifactAttachment,
+  isAllowedHtmlArtifactRequest,
+} from "../api/html-artifact-policy.ts";
+
+export { HTML_ARTIFACT_DATA_URL_PREFIX, HTML_ARTIFACT_PARTITION } from "../api/html-artifact-policy.ts";
 
 export type SecurityDecisionReason =
   | "trusted_renderer"
@@ -7,6 +13,10 @@ export type SecurityDecisionReason =
   | "permission_denied_by_default"
   | "navigation_denied"
   | "window_open_denied"
+  | "html_artifact_source_allowed"
+  | "html_artifact_source_denied"
+  | "html_artifact_request_allowed"
+  | "html_artifact_request_denied"
   | "missing_browser_preview_threat_model"
   | "browser_preview_not_shipped";
 
@@ -75,6 +85,24 @@ export function evaluateNavigationRequest(url: string, options: TrustedRendererU
 
 export function evaluateWindowOpenRequest(): SecurityDecision {
   return { action: "deny", reason: "window_open_denied" };
+}
+
+/**
+ * Task HTML previews receive bytes only from repo.tasks.document.read and turn
+ * them into one data:text/html guest navigation. Arbitrary URL and partition
+ * values never reach an attached guest WebContents.
+ */
+export function evaluateHtmlArtifactAttachment(params: Readonly<Record<string, string>>): SecurityDecision {
+  if (isAllowedHtmlArtifactAttachment(params)) {
+    return { action: "allow", reason: "html_artifact_source_allowed" };
+  }
+  return { action: "deny", reason: "html_artifact_source_denied", detail: params.src };
+}
+
+/** The isolated guest may load its own data resources and nothing else. */
+export function evaluateHtmlArtifactRequest(url: string): SecurityDecision {
+  if (isAllowedHtmlArtifactRequest(url)) return { action: "allow", reason: "html_artifact_request_allowed" };
+  return { action: "deny", reason: "html_artifact_request_denied", detail: url };
 }
 
 export function evaluateBrowserPreviewOpenRequest(request: BrowserPreviewOpenRequest): SecurityDecision {

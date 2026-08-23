@@ -26,6 +26,7 @@
     "src/renderer/**/*.json",
     "src/api/entity-payload-hygiene.ts",
     "src/api/error-consumption.ts",
+    "src/api/html-artifact-policy.ts",
     "src/api/renderer-dto.ts"
   ],
   "exclude": [

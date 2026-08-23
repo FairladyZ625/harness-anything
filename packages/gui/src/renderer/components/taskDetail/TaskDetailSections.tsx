@@ -43,14 +43,14 @@ interface TaskActionProps {
 }
 
 export function TaskOverviewTab({ task }: { readonly task: TaskRow }) {
-  const plan = useTaskDocumentQuery(task.projectId, task.taskId, typeof task.packagePath === "string" ? "task_plan.md" : null);
+  const plan = useTaskDocumentQuery(task.projectId, task.taskId, "task_plan.md");
   const events = task.events ?? [];
 
   return (
-    <div className="grid min-h-full gap-8 xl:grid-cols-[minmax(0,1fr)_19rem]" data-testid="task-overview-tab">
+    <div className="grid min-h-full gap-8" data-testid="task-overview-tab">
       <section className="min-w-0">
         <SectionHeading eyebrow="PLAN" title="任务计划" description="目标、验收与边界的完整原文" />
-        <div className="mt-5 max-w-[78ch]">
+        <div className="mt-5">
           {/* TODO(read-model): repo.tasks.document.read only exposes body:string today.
               Keep the plan intact; do not parse markdown/frontmatter in the renderer.
               Replace this whole-body rendering when the backend projects plan sections. */}
@@ -62,7 +62,7 @@ export function TaskOverviewTab({ task }: { readonly task: TaskRow }) {
         </div>
       </section>
 
-      <aside className="border-t border-border pt-6 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-6">
+      <aside className="border-t border-border pt-6">
         <SectionHeading eyebrow="TIMELINE" title="进展时间线" description={`${events.length} 条生命周期记录`} />
         {events.length === 0 ? <div className="mt-5"><Empty text="还没有 execution、review、consent 或 gate witness 记录。" /></div> : (
           <ol className="mt-5 grid gap-0" data-testid="task-progress-timeline">
