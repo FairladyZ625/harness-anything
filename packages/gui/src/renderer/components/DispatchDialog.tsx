@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import type { AgentRuntimeInstanceDto } from "../../../../daemon/src/agent-runtime-contract.ts";
-import { compatibleDispatchInstances, dispatchExecutorRef, type DispatchRequest, type DispatchSubject } from "../dispatch-flow.ts";
+import { compatibleDispatchInstances, compatibleDispatchModels, dispatchExecutorRef, type DispatchRequest, type DispatchSubject } from "../dispatch-flow.ts";
 import { t } from "../i18n/index.tsx";
 import { Avatar, Badge, Btn, Chip, Hint, KindDot, LiveDot, Modal, SegCtl, TextInput } from "./runtime/parts.tsx";
 
@@ -21,10 +21,10 @@ export function DispatchDialog({ subject, instances, tasks, prompts, initialMiss
   const [cwdScope, setCwdScope] = useState<"repo-root" | "repo-relative">("repo-root"), [cwdPath, setCwdPath] = useState(""), [model, setModel] = useState(""), [effort, setEffort] = useState("");
   const executor = dispatchExecutorRef(useMemo(() => ({ subject, workerId }), [subject, workerId])), runtimeType = executor?.runtimeType ?? "";
   const compatible = useMemo(() => compatibleDispatchInstances(runtimeType, instances), [runtimeType, instances]);
-  const instance = runtimeMode === "manual" ? compatible.find((row) => row.instanceId === runtimeInstanceId) ?? null : compatible[0] ?? null;
+  const instance = runtimeMode === "manual" ? compatible.find((row) => row.instanceId === runtimeInstanceId) ?? null : compatible[0] ?? null, modelOptions = compatibleDispatchModels(runtimeMode === "manual" && instance ? [instance] : compatible);
   const task = tasks.find((row) => row.taskId === taskId) ?? null;
   const ready = Boolean(instance && task && mission.trim()) && (subject.kind === "agent" || Boolean(workerId)) && (cwdScope === "repo-root" || cwdPath.trim().length > 0);
-  const submit = () => { if (!ready || busy) return; onSubmit({ subject, ...(subject.kind === "squad" ? { workerId } : {}), runtimeInstanceId: instance!.instanceId, mission: mission.trim(), cwd: cwdScope === "repo-root" ? { scope: "repo-root" } : { scope: "repo-relative", path: cwdPath.trim() }, taskId: task!.taskId, ...(model ? { model } : {}), ...(effort && (instance!.kindId === "codex" || instance!.kindId === "agy") ? { effort } : {}), idempotencyKey: `gui-dispatch-${crypto.randomUUID()}` }); };
+  const submit = () => { if (!ready || busy || !instance) return; onSubmit({ subject, ...(subject.kind === "squad" ? { workerId } : {}), ...(runtimeMode === "manual" ? { runtimeInstanceId: instance.instanceId } : {}), mission: mission.trim(), cwd: cwdScope === "repo-root" ? { scope: "repo-root" } : { scope: "repo-relative", path: cwdPath.trim() }, taskId: task!.taskId, ...(model ? { model } : {}), ...(effort && (instance.kindId === "codex" || instance.kindId === "agy") ? { effort } : {}), idempotencyKey: `gui-dispatch-${crypto.randomUUID()}` }); };
   return <Modal testId="dispatch-dialog" wide title={t("agentRuntime.dispatchTitle")} hint={t("agentRuntime.dispatchOrderHint")} onClose={onCancel} footer={<>
     <p className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px] text-text-faint"><span>{t("agentRuntime.produces")}</span><Chip tone="mono">artifacts/missions/&lt;dispatchId&gt;.md</Chip><Chip tone="mono">artifacts/dispatches/&lt;dispatchId&gt;.json</Chip><Chip tone="mono">artifacts/reports/&lt;dispatchId&gt;.md</Chip></p>
     <div className="flex items-center gap-2">{notice && <span role="status" className="min-w-0 flex-1 truncate font-mono text-[11px] text-stale">{notice}</span>}<span className="flex-1" /><Btn onClick={onCancel}>{t("agentRuntime.cancel")}</Btn><Btn variant="primary" testId="dispatch-submit" disabled={!ready || busy} onClick={submit}>{busy ? t("agentRuntime.dispatching") : t("agentRuntime.dispatchNow")}</Btn></div>
@@ -61,7 +61,7 @@ export function DispatchDialog({ subject, instances, tasks, prompts, initialMiss
       </div>
       {runtimeMode === "manual" && <label className="mt-2 grid gap-1 text-[11px] text-text-muted">{t("agentRuntime.instance")}<select data-testid="dispatch-instance" value={runtimeInstanceId} onChange={(event) => setRuntimeInstanceId(event.target.value)} className="control">{compatible.length ? compatible.map((row) => <option key={row.instanceId} value={row.instanceId}>{row.name} · {row.defaultModel}</option>) : <option value="">{t("agentRuntime.noCompatibleInstance")}</option>}</select></label>}
       {instance && <div className="mt-2 grid gap-2 sm:grid-cols-2">
-        <label className="grid gap-1 text-[11px] text-text-muted">{t("agentRuntime.model")}<select value={model} onChange={(event) => setModel(event.target.value)} className="control"><option value="">{instance.defaultModel}</option>{instance.models.filter((entry) => entry !== instance.defaultModel).map((entry) => <option key={entry} value={entry}>{entry}</option>)}</select></label>
+        <label className="grid gap-1 text-[11px] text-text-muted">{t("agentRuntime.model")}<select value={model} onChange={(event) => setModel(event.target.value)} className="control"><option value="">{runtimeMode === "manual" ? instance.defaultModel : t("agentRuntime.providerDefault")}</option>{modelOptions.map((entry) => <option key={entry} value={entry}>{entry}</option>)}</select></label>
         {(instance.kindId === "codex" || instance.kindId === "agy") && <label className="grid gap-1 text-[11px] text-text-muted">{t("agentRuntime.effort")}<input value={effort} onChange={(event) => setEffort(event.target.value)} placeholder={instance.kindId === "codex" ? instance.codex.reasoningEffort ?? t("agentRuntime.providerDefault") : instance.agy.effort ?? t("agentRuntime.providerDefault")} className="control" /></label>}
       </div>}
       <div className="mt-2 grid gap-2 sm:grid-cols-[180px_minmax(0,1fr)]">

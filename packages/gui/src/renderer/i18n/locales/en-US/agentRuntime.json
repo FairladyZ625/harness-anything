@@ -296,5 +296,13 @@
   "agentRuntime.sessionTaskSection": "Task",
   "agentRuntime.sessionTaskNone": "This session is not bound to a task.",
   "agentRuntime.openTask": "Open this task",
-  "agentRuntime.sessionFacts": "Session facts"
+  "agentRuntime.sessionFacts": "Session facts",
+  "agentRuntime.duplicateInstanceId": "This instance id already exists.",
+  "agentRuntime.selfTestTitle": "Connectivity self-test",
+  "agentRuntime.selfTestHint": "One real round trip through this runtime",
+  "agentRuntime.selfTestModel": "Self-test model",
+  "agentRuntime.selfTestRun": "Ping runtime",
+  "agentRuntime.selfTestRunning": "Testing…",
+  "agentRuntime.selfTestFailed": "The runtime ended with outcome {outcome}.",
+  "agentRuntime.selfTestTimeout": "The runtime did not finish the self-test in time."
 }
