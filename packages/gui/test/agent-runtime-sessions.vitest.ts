@@ -2,8 +2,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { RuntimeInspector } from "../src/renderer/components/runtime/RuntimeInspector.tsx";
-import { RuntimeRail } from "../src/renderer/components/runtime/RuntimeRail.tsx";
+import { SessionInspector } from "../src/renderer/components/runtime/RuntimeInspector.tsx";
+import { SessionRail } from "../src/renderer/components/runtime/RuntimeRail.tsx";
 import { SessionDetailView } from "../src/renderer/components/runtime/SessionsPanel.tsx";
 import { sessionSiblingRows, sessionTaskTarget, type RuntimeDockRow } from "../src/renderer/runtime-panorama.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
@@ -20,11 +20,11 @@ const strangerRow: RuntimeDockRow = { ...boundRow, runtimeSessionId: "runtime-st
 const frame = { cursor: "stream:7", runtimeSessionId: "runtime-bound", type: "activity", activity: "crunching the diff", occurredAt: "2026-08-23T00:01:00.000Z" } as const;
 
 const detailView = (overrides: Partial<Parameters<typeof SessionDetailView>[0]> = {}) => renderToStaticMarkup(createElement(SessionDetailView, { session: sessionDto, row: boundRow, result: null, frames: [], attach: "attached", busy: false, onCancel: noop, onOpenTask: noop, ...overrides } as never));
-const railView = (rows: readonly RuntimeDockRow[], selection: Parameters<typeof RuntimeRail>[0]["selection"]) => renderToStaticMarkup(createElement(RuntimeRail, { instances: [], agents: [], squads: [], sessions: rows, selection, open: { runtimes: true, agents: true, squads: true, sessions: true }, liveByInstance: new Map(), onToggle: noop, onSelect: noop, onNew: noop } as never));
+const railView = (rows: readonly RuntimeDockRow[], selectedId: string | null) => renderToStaticMarkup(createElement(SessionRail, { sessions: rows, selectedId, onSelect: noop }));
 
 describe("sessions as a first-class view", () => {
   it("lists sessions as a rail segment whose rows select a session exactly like every other segment", () => {
-    const markup = railView([boundRow, strangerRow], { type: "session", id: "runtime-bound" });
+    const markup = railView([boundRow, strangerRow], "runtime-bound");
     expect(markup).toMatch(/data-testid="rail-session-runtime-bound"[^>]*aria-current="true"/u);
     expect(markup).toMatch(/data-testid="rail-session-runtime-stranger"[^>]*aria-current="false"/u);
     expect(markup).toContain('data-testid="runtime-outcome-runtime-bound"');
@@ -73,7 +73,7 @@ describe("sessions as a first-class view", () => {
   });
 
   it("mirrors the selected session in the inspector with the same task jump", () => {
-    const markup = renderToStaticMarkup(createElement(RuntimeInspector, { selection: { type: "session", id: "runtime-bound" }, instances: [], agents: [], squads: [], rows: [boundRow, siblingRow, squadMateRow, strangerRow], onSelect: noop, onSelectSession: noop, onOpenTask: noop }));
+    const markup = renderToStaticMarkup(createElement(SessionInspector, { row: boundRow, rows: [boundRow, siblingRow, squadMateRow, strangerRow], onSelectSession: noop, onOpenTask: noop }));
     expect(markup).toMatch(/data-testid="inspector-open-task"[^>]*data-task="task-bound"/u);
     expect(markup).toContain('aria-label="Session inspector"');
     expect(sessionSiblingRows([boundRow, siblingRow, squadMateRow, strangerRow], "runtime-bound").map((row) => row.runtimeSessionId)).toEqual(["runtime-sibling", "runtime-squad-mate"]);

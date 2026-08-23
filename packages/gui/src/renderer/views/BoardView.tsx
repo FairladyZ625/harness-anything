@@ -13,6 +13,7 @@ import {
 import { Lock, Archive, Star } from "@phosphor-icons/react";
 import type { TaskRow, SnapshotStatus, RelationEdge } from "../model/types";
 import { BOARD_COLUMNS, isExternal } from "../model/types";
+import { t } from "../i18n/index.tsx";
 import {
   STATUS_META,
   CloseoutBadge,
@@ -217,7 +218,7 @@ function Column({
             onClick={() => setVisibleCount((count) => Math.min(count + COLUMN_BATCH_SIZE, ordered.length))}
             className="rounded-lg border border-dashed border-border px-3 py-2 text-center font-mono text-[12px] text-text-muted hover:border-border-strong hover:text-text"
           >
-            再显示 {Math.min(COLUMN_BATCH_SIZE, hiddenCount)} 条 · 还有 {hiddenCount} 条
+            {t("views.boardView.showMore", { count: Math.min(COLUMN_BATCH_SIZE, hiddenCount), remaining: hiddenCount })}
           </button>
         )}
       </div>

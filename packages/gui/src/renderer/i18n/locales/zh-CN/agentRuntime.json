@@ -1,6 +1,4 @@
 {
-  "agentRuntime.title": "Agent Runtime",
-  "agentRuntime.subtitle": "harness-anything · 配置平面",
   "agentRuntime.railLabel": "Agent Runtime 导航",
   "agentRuntime.segRuntimes": "Runtimes",
   "agentRuntime.segRuntimesSub": "载体",
@@ -20,7 +18,6 @@
   "agentRuntime.toggleInspector": "显示 / 隐藏右侧 Inspector",
   "agentRuntime.liveSessions": "{count} 个在跑",
   "agentRuntime.idle": "空闲",
-  "agentRuntime.emptyWorkspace": "还没有 Runtime 实例或 Agent。先从左侧新建一个 Runtime 实例。",
   "agentRuntime.loading": "读取中…",
   "agentRuntime.readFailed": "读取 Agent Runtime 失败:{error}",
   "agentRuntime.notFound": "该条目已不存在。",
@@ -284,5 +281,15 @@
   "agentRuntime.selfTestRun": "测试 Runtime",
   "agentRuntime.selfTestRunning": "测试中…",
   "agentRuntime.selfTestFailed": "Runtime 以 {outcome} 结束。",
-  "agentRuntime.selfTestTimeout": "Runtime 未在自测时限内完成。"
+  "agentRuntime.selfTestTimeout": "Runtime 未在自测时限内完成。",
+  "agentRuntime.sessionsTitle": "会话",
+  "agentRuntime.sessionsSubtitle": "按执行者分组的运行会话",
+  "agentRuntime.agentsTitle": "Agent · 含 Squad",
+  "agentRuntime.agentsSubtitle": "身份与组织 · 派工由此发起",
+  "agentRuntime.providersTitle": "Provider",
+  "agentRuntime.providersSubtitle": "运行实例 · 承运者",
+  "agentRuntime.agentCount": "{count} 个 Agent",
+  "agentRuntime.squadCount": "{count} 个 Squad",
+  "agentRuntime.emptyAgents": "还没有 Agent 或 Squad。先从左侧新建一个。",
+  "agentRuntime.emptyProviders": "还没有 Runtime 实例。先从左侧新建一个。"
 }

@@ -1,6 +1,4 @@
 {
-  "agentRuntime.title": "Agent Runtime",
-  "agentRuntime.subtitle": "harness-anything · configuration plane",
   "agentRuntime.railLabel": "Agent Runtime navigation",
   "agentRuntime.segRuntimes": "Runtimes",
   "agentRuntime.segRuntimesSub": "carrier",
@@ -20,7 +18,6 @@
   "agentRuntime.toggleInspector": "Show / hide the inspector",
   "agentRuntime.liveSessions": "{count} running",
   "agentRuntime.idle": "idle",
-  "agentRuntime.emptyWorkspace": "No runtime instance or agent yet. Create a runtime instance from the rail first.",
   "agentRuntime.loading": "Loading…",
   "agentRuntime.readFailed": "Agent Runtime read failed: {error}",
   "agentRuntime.notFound": "That entry no longer exists.",
@@ -284,5 +281,15 @@
   "agentRuntime.selfTestRun": "Ping runtime",
   "agentRuntime.selfTestRunning": "Testing…",
   "agentRuntime.selfTestFailed": "The runtime ended with outcome {outcome}.",
-  "agentRuntime.selfTestTimeout": "The runtime did not finish the self-test in time."
+  "agentRuntime.selfTestTimeout": "The runtime did not finish the self-test in time.",
+  "agentRuntime.sessionsTitle": "Sessions",
+  "agentRuntime.sessionsSubtitle": "who is running, grouped by executor",
+  "agentRuntime.agentsTitle": "Agents · Squads",
+  "agentRuntime.agentsSubtitle": "identity and organisation · dispatch from here",
+  "agentRuntime.providersTitle": "Providers",
+  "agentRuntime.providersSubtitle": "runtime instances · the carrier plane",
+  "agentRuntime.agentCount": "{count} agents",
+  "agentRuntime.squadCount": "{count} squads",
+  "agentRuntime.emptyAgents": "No agent or squad yet. Create one from the rail.",
+  "agentRuntime.emptyProviders": "No runtime instance yet. Create one from the rail."
 }

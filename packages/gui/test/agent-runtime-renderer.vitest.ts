@@ -7,8 +7,8 @@ import { AgentCard, agentDeclarationFrom, agentDraftFrom } from "../src/renderer
 import { NewRuntimeDialog } from "../src/renderer/components/runtime/NewRuntimeDialog.tsx";
 import { TextInput } from "../src/renderer/components/runtime/parts.tsx";
 import { RuntimeCard } from "../src/renderer/components/runtime/RuntimeCard.tsx";
-import { RuntimeInspector } from "../src/renderer/components/runtime/RuntimeInspector.tsx";
-import { RuntimeRail } from "../src/renderer/components/runtime/RuntimeRail.tsx";
+import { IdentityInspector } from "../src/renderer/components/runtime/RuntimeInspector.tsx";
+import { IdentityRail, ProviderRail, SessionRail } from "../src/renderer/components/runtime/RuntimeRail.tsx";
 import { SessionDetailView } from "../src/renderer/components/runtime/SessionsPanel.tsx";
 import { SquadCard } from "../src/renderer/components/runtime/SquadCard.tsx";
 import { visibleRuntimeInstances } from "../src/renderer/runtime-instance-form.ts";
@@ -107,12 +107,19 @@ describe("agent runtime renderer", () => {
     expect(codexMarkup).toContain("codex.reasoningEffort"); expect(codexMarkup).toContain("codex.http_headers"); expect(codexMarkup).toContain("x-client=harness"); expect(codexMarkup).not.toContain("claude.baseUrl");
     expect(claudeMarkup).toContain("claude.baseUrl"); expect(claudeMarkup).not.toContain("codex.reasoningEffort");
   });
-  it("renders the three identity layers in the rail and the members in the inspector", () => {
-    const rail = renderToStaticMarkup(createElement(RuntimeRail, { instances: [instance, claudeInstance] as never, agents: agentRows as never, squads: squadRows as never, sessions: [], selection: null, open: { runtimes: true, agents: true, squads: true, sessions: true }, liveByInstance: new Map(), onToggle: noop, onSelect: noop, onNew: noop }));
-    for (const text of ["Runtimes", "Agents", "Squads", "Sessions", "Codex Review", "fable", "luna", "sol", "terra", "Core Squad"]) expect(rail).toContain(text);
-    // W5:「编排」rail 段撤销——task 派工链归 Task 详情「派工」页签,不再出现在运行时 rail。
-    expect(rail).not.toContain("Orchestration");
-    const inspector = renderToStaticMarkup(createElement(RuntimeInspector, { selection: { type: "squad", id: "core-squad" }, instances: [instance] as never, agents: agentRows as never, squads: squadRows as never, rows: [], onSelect: noop, onSelectSession: noop, onOpenTask: noop }));
+  it("renders the carrier rail and the identity rail as the split runtime entries", () => {
+    // W6 IA 拆分:原四段聚合 rail 拆成页级 rail——承运者归 Provider 入口,身份与
+    // 组织(Squad 是 Agent 页内的面)归 Agent 入口,会话归会话入口。
+    const providerRail = renderToStaticMarkup(createElement(ProviderRail, { instances: [instance, claudeInstance] as never, selectedId: null, liveByInstance: new Map(), onSelect: noop, onNew: noop }));
+    for (const text of ["Runtimes", "Codex Review", "Claude One"]) expect(providerRail).toContain(text);
+    expect(providerRail).not.toContain("Agents");
+    expect(providerRail).not.toContain("Squads");
+    expect(providerRail).not.toContain("Sessions");
+    const identityRail = renderToStaticMarkup(createElement(IdentityRail, { agents: agentRows as never, squads: squadRows as never, selection: null, onSelect: noop, onNew: noop }));
+    for (const text of ["Agents", "Squads", "fable", "luna", "sol", "terra", "Core Squad", "Design thesis"]) expect(identityRail).toContain(text);
+    expect(identityRail).not.toContain("Runtimes");
+    expect(identityRail).not.toContain("Orchestration");
+    const inspector = renderToStaticMarkup(createElement(IdentityInspector, { selection: { type: "squad", id: "core-squad" }, agents: agentRows as never, squads: squadRows as never, rows: [], onSelect: noop, onOpenSession: noop }));
     for (const text of ["fable", "luna", "sol", "terra", "commander", "worker"]) expect(inspector).toContain(text);
   });
   it("renders the agent and squad declarations behind showAgent/showSquad", () => {
@@ -172,7 +179,7 @@ describe("agent runtime renderer", () => {
     expect(panorama[0]).toMatchObject({ taskTitle: "Review the runtime", instanceId: "codex-review", startedAt: row.startedAt, status: "running" });
     expect(runtimePanoramaDelegation(panorama[0]!)).toBe("Fable → Luna");
     const rows = runtimeDockRows(panorama, []);
-    const rail = renderToStaticMarkup(createElement(RuntimeRail, { instances: [], agents: [], squads: [], sessions: rows, selection: null, open: { runtimes: true, agents: true, squads: true, sessions: true }, liveByInstance: new Map(), onToggle: noop, onSelect: noop, onNew: noop }));
+    const rail = renderToStaticMarkup(createElement(SessionRail, { sessions: rows, selectedId: null, onSelect: noop }));
     for (const text of ["Sessions", "Review the runtime", "Core Squad", ">running<", ">succeeded<"]) expect(rail).toContain(text);
     expect(rail).toContain('data-testid="rail-session-runtime-1"');
     expect(renderToStaticMarkup(createElement(SessionDetailView, { session, row: rows[0]!, result: null, frames: [], attach: "attached", busy: false, onCancel: noop, onOpenTask: noop }))).toContain("Fable → Luna");

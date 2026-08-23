@@ -258,5 +258,7 @@
   "views.entityDetail.neighborhood": "邻域",
   "views.entityDetail.loadingProjection": "关系图投影加载中……",
   "views.entityDetail.notProjected": "该实体不在当前投影里(可能尚未加载,或投影中没有它)。",
-  "views.entityDetail.refocusHint": "跳去该实体的详情页"
+  "views.entityDetail.refocusHint": "跳去该实体的详情页",
+  "views.boardView.showMore": "再显示 {count} 条 · 还有 {remaining} 条",
+  "views.swimlaneBoard.showMore": "再显示 {count} 个泳道 · 还有 {remaining} 个"
 }

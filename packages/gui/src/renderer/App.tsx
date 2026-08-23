@@ -26,7 +26,9 @@ import { invalidateLedgerDependents, LEDGER_REFRESH_INTERVAL_MS, useTasksQuery }
 import { useTriadicProjectionQuery } from "./triadic-data.ts";
 import { useFavorites } from "./model/favorites.ts";
 import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
-import { RuntimeWorkspace } from "./views/RuntimeWorkspace.tsx";
+import { SessionsView } from "./views/SessionsView.tsx";
+import { AgentSquadView } from "./views/AgentSquadView.tsx";
+import { ProvidersView } from "./views/ProvidersView.tsx";
 import { useTaskActions } from "./task-actions.ts";
 import { useDecisionActions } from "./decision-actions.ts";
 import { selectActiveRepoId, useSystemStatusQuery } from "./system-data.ts";
@@ -166,7 +168,7 @@ function AppShell() {
   const {
     recentRefs, resetRecentRefs, openTaskPreview, openTaskDetail, navigateToEntity,
     navigateToDecision, navigateToTask, focusEntityInGraph, focusEntityInWorkspace,
-    openDecisionInPool,
+    openDecisionInPool, selectRuntimeEntity,
   } = useEntityNavigation({
     navigate,
     updateLocation,
@@ -492,12 +494,27 @@ function AppShell() {
               <PresetsView repoId={projectId} />
             ) : view === "adapters" ? (
               <AdaptersView repoId={projectId} tasks={projectTasks} />
-            ) : view === "agents" ? (
-              <RuntimeWorkspace
+            ) : view === "sessions" ? (
+              <SessionsView
                 repoId={projectId}
-                tasks={projectTasks.map(({ taskId, title, activeExecutionId }) => ({ taskId, title, heldLease: activeExecutionId !== undefined }))}
+                tasks={projectTasks.map(({ taskId, title }) => ({ taskId, title }))}
+                focusedEntityRef={focusedEntityRef}
+                onSelectEntity={selectRuntimeEntity}
                 // W5:「编排」段随入口撤销;session → task 的出口改指 Task 详情(派工链所在)。
                 onOpenTask={navigateToTask}
+              />
+            ) : view === "agentSquad" ? (
+              <AgentSquadView
+                repoId={projectId}
+                tasks={projectTasks.map(({ taskId, title, activeExecutionId }) => ({ taskId, title, heldLease: activeExecutionId !== undefined }))}
+                focusedEntityRef={focusedEntityRef}
+                onSelectEntity={selectRuntimeEntity}
+              />
+            ) : view === "providers" ? (
+              <ProvidersView
+                repoId={projectId}
+                focusedEntityRef={focusedEntityRef}
+                onSelectEntity={selectRuntimeEntity}
               />
             ) : view === "system" ? (
               <SystemView activeRepoId={activeRepoId} />

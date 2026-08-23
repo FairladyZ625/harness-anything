@@ -64,6 +64,14 @@ export function useEntityNavigation({
     navigate({ focusedEntityRef: `decision/${decisionId}`, view: "decisionPool", selectedId: null, previewId: null });
   }, [navigate, remember]);
 
+  // 运行时实体选择(W6 拆分后三个入口的唯一互跳通道):agent/squad/session/provider
+  // 引用经 entityRoutes 落到各自入口并推栈——页内选择与跨入口跳转同一条路径,
+  // 导航回撤原路返回。runtime 引用不进 recentRefs(那是关系图的邻域记录)。
+  const selectRuntimeEntity = useCallback((ref: string) => {
+    const target = entityDetailTargetOf(ref);
+    if (target) navigate({ ...target, selectedId: null, previewId: null });
+  }, [navigate]);
+
   // 带 repo/<repoId>/ 前缀的实体引用先显式切仓,再在该仓导航。
   const navigateToEntity = useCallback((rawRef: string) => {
     const scoped = /^repo\/([^/]+)\/(.+)$/u.exec(rawRef);
@@ -112,5 +120,6 @@ export function useEntityNavigation({
     focusEntityInGraph,
     focusEntityInWorkspace,
     openDecisionInPool,
+    selectRuntimeEntity,
   };
 }

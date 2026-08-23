@@ -5,6 +5,10 @@ import type { ViewId } from "./viewHistory.ts";
  * 「打开详情」不再落在列表页。task 的详情页是既有 selectedId 路由(TaskDetailView),
  * 不经此映射。
  *
+ * W6 IA 拆分:运行时实体也走可寻址路由——agent/squad 归「Agent · 含 Squad」入口
+ * (Squad 是该页的一个面,不是第四入口),provider(Runtime 实例)归「Provider」,
+ * session 归「会话」。页内选择与跨入口跳转共用同一条推栈路径,导航回撤原路返回。
+ *
  * 纯函数,供 App 的 navigateLocalEntity 与测试共用。
  */
 
@@ -22,6 +26,15 @@ export function entityDetailTargetOf(ref: string): EntityDetailTarget | null {
   }
   if (ref.startsWith("fact/")) {
     return { view: "factDetail", focusedEntityRef: ref };
+  }
+  if (ref.startsWith("agent/") || ref.startsWith("squad/")) {
+    return { view: "agentSquad", focusedEntityRef: ref };
+  }
+  if (ref.startsWith("provider/")) {
+    return { view: "providers", focusedEntityRef: ref };
+  }
+  if (ref.startsWith("session/")) {
+    return { view: "sessions", focusedEntityRef: ref };
   }
   return null;
 }

@@ -7,7 +7,6 @@
   "shell.nav.graph": "关系图",
   "shell.nav.presets": "预设 / 垂直领域",
   "shell.nav.adapters": "引擎适配器",
-  "shell.nav.agents": "Agent 运行时",
   "shell.nav.system": "系统",
   "shell.nav.settings": "设置",
   "shell.nav.workspace": "工作区",
@@ -20,5 +19,8 @@
   "settings.languageDesc": "zh-CN / en-US;部分视图已双语,其余视图暂为中文",
   "settings.title": "设置",
   "shell.nav.decisionDetail": "决策详情",
-  "shell.nav.factDetail": "事实详情"
+  "shell.nav.factDetail": "事实详情",
+  "shell.nav.sessions": "会话",
+  "shell.nav.agentSquad": "Agent · 含 Squad",
+  "shell.nav.providers": "Provider"
 }
