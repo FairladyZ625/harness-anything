@@ -33,6 +33,7 @@ assignment_task_id=${HARNESS_CENTER_ASSIGNMENT_TASK_ID:-task_w5r_rehearsal_ancho
 assignment_execution_id=${HARNESS_CENTER_ASSIGNMENT_EXECUTION_ID:-exe_w5r_rehearsal_anchor}
 assignment_person_id=${HARNESS_CENTER_ASSIGNMENT_PERSON_ID:-person_zeyu}
 assignment_executor_id=${HARNESS_CENTER_ASSIGNMENT_EXECUTOR_ID:-codex-sol-w5r}
+assignment_paths=${HARNESS_CENTER_ASSIGNMENT_PATHS:-tasks}
 node_version=24.18.0
 node_dist="node-v${node_version}-linux-x64"
 node_sha256=55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742
@@ -197,11 +198,13 @@ ensure_tls_and_roster() {
   expires_at=$($node_bin -e 'console.log(new Date(Date.now()+30*24*60*60*1000).toISOString())')
   "$node_bin" - "$fleet_root/edge.credential" "$fleet_root/roster.json.staging" \
     "$node_id" "$assignment_id" "$repo_id" "$assignment_task_id" "$assignment_execution_id" \
-    "$view_id" "$assignment_person_id" "$assignment_executor_id" "$expires_at" <<'NODE'
+    "$view_id" "$assignment_person_id" "$assignment_executor_id" "$expires_at" "$assignment_paths" <<'NODE'
 const fs = require("fs");
-const [credentialFile, output, nodeId, assignmentId, repoId, taskId, executionId, viewId, personId, executorId, expiresAt] = process.argv.slice(2);
+const [credentialFile, output, nodeId, assignmentId, repoId, taskId, executionId, viewId, personId, executorId, expiresAt, pathsCsv] = process.argv.slice(2);
 const credential = fs.readFileSync(credentialFile, "utf8").trim();
-const roster = { schema: "fleet-roster/v1", nodes: [{ nodeId, credential }], assignments: [{ assignmentId, nodeId, repoId, taskId, executionId, viewId, personId, executorId, expiresAt, paths: ["tasks"] }] };
+const paths = [...new Set(pathsCsv.split(",").map((value) => value.trim()).filter(Boolean))];
+if (paths.length === 0 || paths.some((value) => value.startsWith("/") || value.split("/").some((part) => part === "" || part === "." || part === ".."))) throw new Error("HARNESS_CENTER_ASSIGNMENT_PATHS must be a comma-separated list of canonical relative path prefixes");
+const roster = { schema: "fleet-roster/v1", nodes: [{ nodeId, credential }], assignments: [{ assignmentId, nodeId, repoId, taskId, executionId, viewId, personId, executorId, expiresAt, paths }] };
 fs.writeFileSync(output, `${JSON.stringify(roster, null, 2)}\n`, { mode: 0o600 });
 NODE
   chmod 600 "$fleet_root/roster.json.staging"
