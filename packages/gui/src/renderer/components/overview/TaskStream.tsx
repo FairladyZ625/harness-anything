@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { SnapshotStatus, TaskRow } from "../../model/types";
 import type { WorkspaceSummaryRead } from "../../../api/renderer-dto.ts";
 import { BOARD_COLUMNS } from "../../model/types";
@@ -6,6 +6,16 @@ import { sortTasksByCreatedDesc, taskCreatedAt } from "../../model/ledger-timeli
 import { STATUS_META, StatusBadge } from "../badges.tsx";
 import { t } from "../../i18n/index.tsx";
 import { StreamBody, StreamEmpty, StreamExitButton, StreamTabs, streamTime } from "./streamParts.tsx";
+
+/**
+ * 「更新的」这一段一次渲染这么多行,剩下的靠批量按钮显形——照抄本仓 BoardView 与命令面板的做法。
+ *
+ * 这一段的组员是「比当前筛选里最新那行还新、且不属于该筛选状态」的任务,所以它的规模不是常数:
+ * 当前筛选一行都没有时阈值按设计退化为无阈值(那是为了让全新仓库刚建的第一条任务能浮现),
+ * 于是全部有已知创建时间的任务都合格。本仓 1538 个任务时,那一档实测会渲染 1475 行。
+ * 分批渲染把 DOM 节点数与任务总量脱钩,而标题仍然显示真实总数,所以被推迟渲染的行是显形的、不是被吞掉的。
+ */
+const AHEAD_BATCH_SIZE = 12;
 
 const ROW_CLASS =
   "flex w-full items-center gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 text-left" +
@@ -83,6 +93,11 @@ export function TaskStream({
     [tasks, status],
   );
   const ahead = useMemo(() => tasksAheadOfStatus(tasks, status), [tasks, status]);
+  const [aheadVisible, setAheadVisible] = useState(AHEAD_BATCH_SIZE);
+  // 切换筛选会换掉这一段的全部组员,展开状态不能跟着过去。
+  useEffect(() => { setAheadVisible(AHEAD_BATCH_SIZE); }, [status]);
+  const aheadShown = useMemo(() => ahead.slice(0, aheadVisible), [ahead, aheadVisible]);
+  const aheadHidden = ahead.length - aheadShown.length;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
@@ -112,9 +127,22 @@ export function TaskStream({
             {t("views.overviewView.taskAhead", { count: ahead.length })}
           </p>
           <div className="max-h-[6rem] space-y-0.5 overflow-y-auto pr-1" data-testid="task-stream-ahead-rows">
-            {ahead.map((task) => (
+            {aheadShown.map((task) => (
               <TaskStreamRow key={task.taskId} task={task} onOpenPreview={onOpenPreview} />
             ))}
+            {aheadHidden > 0 && (
+              <button
+                type="button"
+                data-testid="task-stream-ahead-more"
+                onClick={() => setAheadVisible((count) => Math.min(count + AHEAD_BATCH_SIZE, ahead.length))}
+                className="w-full px-1 py-1 text-center font-mono text-[11px] text-text-muted hover:text-text"
+              >
+                {t("views.overviewView.taskAheadShowMore", {
+                  count: Math.min(AHEAD_BATCH_SIZE, aheadHidden),
+                  remaining: aheadHidden,
+                })}
+              </button>
+            )}
           </div>
         </div>
       )}
