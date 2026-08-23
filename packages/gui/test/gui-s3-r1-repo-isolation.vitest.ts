@@ -53,7 +53,11 @@ describe("GUI S3 R1 repository isolation", () => {
     }
   });
 
-  it("walks bounded task pages and returns one complete projection cut", async () => {
+  // W6(task_be076d3ac25b87b79be09b02dd):这里原本断言的是"一次调用里沿 nextCursor
+  // 把台账拉完",那正是 Goal 第二项禁止的形态。现在的合同是"一次刷新一页,没读完就
+  // 把游标和 pending 状态一起交回缓存"。分页读取形态的完整门在
+  // packages/gui/test/gui-w6-ledger-read-shape.vitest.ts。
+  it("reads one bounded page per refresh and carries the cursor in the returned cut", async () => {
     const getTasks = vi.fn(async (payload: { readonly repoId: string; readonly limit: number; readonly cursor?: string }) => ({
       ok: true as const,
       status: "ready" as const,
@@ -64,13 +68,22 @@ describe("GUI S3 R1 repository isolation", () => {
       page: { limit: TASK_LIST_PAGE_LIMIT, cursor: payload.cursor ?? null, nextCursor: payload.cursor ? null : "task-page-2" }
     }));
     Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
-    const result = await taskListQuery("repo-a").queryFn();
+
+    const first = await taskListQuery("repo-a").queryFn();
+    expect(getTasks).toHaveBeenCalledTimes(1);
     expect(getTasks).toHaveBeenNthCalledWith(1, { repoId: "repo-a", limit: TASK_LIST_PAGE_LIMIT });
+    expect(first.status).toBe("pending");
+    expect(first.page?.nextCursor).toBe("task-page-2");
+
+    const second = await readTaskList("repo-a", first);
+    expect(getTasks).toHaveBeenCalledTimes(2);
     expect(getTasks).toHaveBeenNthCalledWith(2, { repoId: "repo-a", limit: TASK_LIST_PAGE_LIMIT, cursor: "task-page-2" });
-    expect(result).toEqual({ ok: true, status: "ready", rows: [], watermark: 42, sourceRevision: 42, warnings: [] });
+    expect(second).toEqual({ ok: true, status: "ready", rows: [], watermark: 42, sourceRevision: 42, warnings: [] });
   });
 
-  it("rejects task pages from different projection cuts", async () => {
+  // 原断言:跨 cut 的两页拼在一起要抛错。跨刷新续读必然跨 cut,抛错会让忙仓库永远读不完,
+  // 所以守卫换成"报最老水位 + 由后续增量补齐"(等价保证见 task_plan 与 artifacts 报告 §2.4)。
+  it("reports the oldest watermark when the projection advances mid-hydration", async () => {
     const getTasks = vi.fn(async (payload: { readonly cursor?: string }) => ({
       ok: true as const,
       status: "ready" as const,
@@ -81,7 +94,12 @@ describe("GUI S3 R1 repository isolation", () => {
       page: { limit: TASK_LIST_PAGE_LIMIT, cursor: payload.cursor ?? null, nextCursor: payload.cursor ? null : "task-page-2" }
     }));
     Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
-    await expect(taskListQuery("repo-a").queryFn()).rejects.toThrow("Task projection changed while the complete list was being read.");
+
+    const first = await taskListQuery("repo-a").queryFn();
+    const joined = await readTaskList("repo-a", first);
+    expect(joined.watermark).toBe(42);
+    expect(joined.sourceRevision).toBe(42);
+    expect(joined.status).toBe("ready");
   });
 
   it("polls only rows changed after the cached task projection revision", async () => {

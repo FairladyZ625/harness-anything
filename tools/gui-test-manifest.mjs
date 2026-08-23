@@ -42,5 +42,6 @@ export const guiVitestManifest = [
   "packages/gui/test/entity-id-links.vitest.ts",
   "packages/gui/test/location-restore.vitest.tsx",
   "packages/gui/test/recent-refs.vitest.ts",
-  "packages/gui/test/task-detail-expression.vitest.ts"
+  "packages/gui/test/task-detail-expression.vitest.ts",
+  "packages/gui/test/gui-w6-ledger-read-shape.vitest.ts"
 ];

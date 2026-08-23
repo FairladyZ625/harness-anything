@@ -15,39 +15,80 @@ export const taskQueryKeys = {
 export function taskListQuery(repoId: string) {
   return {
     queryKey: taskQueryKeys.list(repoId),
-    queryFn: () => readCompleteTaskList(repoId),
+    queryFn: () => readTaskList(repoId),
     staleTime: 10_000,
     refetchInterval: LEDGER_REFRESH_INTERVAL_MS,
     refetchOnWindowFocus: "always" as const
   };
 }
 
-export async function readCompleteTaskList(repoId: string): Promise<TaskListSuccess> {
-  return readTaskPages(repoId, {});
-}
-
+/**
+ * 台账读取形态(W6 Goal:支持 cursor/limit 的读面不得被消费成「一次拉 500 直到拉完」)。
+ *
+ * 一次刷新最多发一个 `repo.tasks.list` 请求,三种形态由缓存里的上一份切面决定:
+ *   - 上一份还带着 `page.nextCursor` → 沿游标续读下一页(cursor 就是续读状态,
+ *     存在 react-query 缓存里,不需要模块级可变变量);
+ *   - 没有上一份、或上一份不是 ready → 读第一页,重新开始水化;
+ *   - 上一份完整且 ready → 读一页 `changedAfterRevision` 增量。
+ *
+ * 未读完的切面 `status` 一律是 `pending`:侧栏据此显示「正在追赶 r{sourceRevision}」,
+ * 每行 freshness 落成 `stale-but-usable`(task-adapter),所以"还没读完"在界面上是显形的。
+ */
 export async function readTaskList(repoId: string, previous?: TaskListSuccess): Promise<TaskListSuccess> {
-  if (!previous || previous.status !== "ready") return readCompleteTaskList(repoId);
-  const delta = await readTaskPages(repoId, { changedAfterRevision: previous.watermark });
-  if (delta.status !== "ready" || delta.watermark < previous.watermark || delta.sourceRevision < previous.sourceRevision) return readCompleteTaskList(repoId);
-  const rows = new Map(previous.rows.map((row) => [row.taskId, row]));
-  for (const row of delta.rows) rows.set(row.taskId, row);
-  return { ...delta, rows: [...rows.values()].sort((left, right) => left.taskId < right.taskId ? -1 : left.taskId > right.taskId ? 1 : 0) };
+  const resumeCursor = previous?.page?.nextCursor ?? null;
+  if (previous && resumeCursor !== null) {
+    return joinLedgerCut(previous, await readTaskPage(repoId, { cursor: resumeCursor }), "resume");
+  }
+  if (!previous || previous.status !== "ready") {
+    return joinLedgerCut(undefined, await readTaskPage(repoId, {}), "restart");
+  }
+  const delta = await readTaskPage(repoId, { changedAfterRevision: previous.watermark });
+  const regressed = delta.watermark < previous.watermark || delta.sourceRevision < previous.sourceRevision;
+  if (delta.status !== "ready" || regressed) {
+    return joinLedgerCut(undefined, await readTaskPage(repoId, {}), "restart");
+  }
+  return joinLedgerCut(previous, delta, "delta");
 }
 
-async function readTaskPages(repoId: string, facets: Pick<TaskQueryFacets, "changedAfterRevision">): Promise<TaskListSuccess> {
-  const first = await harnessClient.getTasks({ repoId, ...facets, limit: TASK_LIST_PAGE_LIMIT });
-  let current = first;
-  const rows = [...first.rows];
-  while (current.page?.nextCursor) {
-    current = await harnessClient.getTasks({ repoId, ...facets, limit: TASK_LIST_PAGE_LIMIT, cursor: current.page.nextCursor });
-    if (current.watermark !== first.watermark || current.sourceRevision !== first.sourceRevision) {
-      throw new Error("Task projection changed while the complete list was being read.");
-    }
-    rows.push(...current.rows);
-  }
-  const { page: _page, ...complete } = first;
-  return { ...complete, rows };
+type LedgerReadFacets = Pick<TaskQueryFacets, "changedAfterRevision" | "cursor">;
+
+async function readTaskPage(repoId: string, facets: LedgerReadFacets): Promise<TaskListSuccess> {
+  return harnessClient.getTasks({ repoId, ...facets, limit: TASK_LIST_PAGE_LIMIT });
+}
+
+/**
+ * 把新读到的一页并进已有切面。不变量:**rows 相对所报 watermark 是完整的**——这是
+ * 后续 `changedAfterRevision` 增量读正确的前提。原实现靠"整段读必须落在同一个 cut,
+ * 否则抛错重来"保证它;跨刷新续读不可能落在同一个 cut,所以改成:
+ *
+ *   - 未读完(`resume`)或增量本身被截断时,watermark/sourceRevision 取 min,只担保
+ *     最老的那个水位;只有"锚在 previous.watermark 上、且一页读完的增量"才推进水位。
+ *   - 游标是不可变主键 task_id,续读期间任何已存在 task 的改动都不会被跳过;续读期间
+ *     新建的 task 其 revision 必然大于所报水位,由随后的增量读补齐。
+ */
+function joinLedgerCut(
+  previous: TaskListSuccess | undefined,
+  read: TaskListSuccess,
+  mode: "restart" | "resume" | "delta"
+): TaskListSuccess {
+  const complete = (read.page?.nextCursor ?? null) === null;
+  const base = mode === "restart" ? undefined : previous;
+  const rows = new Map((base?.rows ?? []).map((row) => [row.taskId, row]));
+  for (const row of read.rows) rows.set(row.taskId, row);
+  const advanced = base === undefined || mode === "delta" && complete;
+  const watermark = advanced ? read.watermark : Math.min(base.watermark, read.watermark);
+  const sourceRevision = advanced ? read.sourceRevision : Math.min(base.sourceRevision, read.sourceRevision);
+  return {
+    ok: true, status: complete ? read.status : "pending", warnings: read.warnings, watermark, sourceRevision,
+    rows: [...rows.values()].sort((left, right) => compareTaskId(left.taskId, right.taskId)),
+    ...(complete || read.page === undefined ? {} : { page: read.page })
+  };
+}
+
+/** 台账行序:daemon 的 keyset 分页按 task_id 升序发页,合并后必须还是同一个序。 */
+function compareTaskId(left: string, right: string): number {
+  if (left < right) return -1;
+  return left > right ? 1 : 0;
 }
 
 export function useTasksQuery(repoId: string | null) {
