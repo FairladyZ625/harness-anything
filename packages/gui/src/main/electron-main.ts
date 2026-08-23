@@ -7,7 +7,14 @@ import { createLocalGuiServiceBridge } from "./local-composition-root.ts";
 import { addLocalMainControls } from "./local-main-controls.ts";
 import { resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
 import { daemonBuildStamp } from "../../../daemon/src/build-identity.ts";
-import { evaluateNavigationRequest, evaluatePermissionRequest, evaluateWindowOpenRequest } from "./security-policy.ts";
+import {
+  evaluateHtmlArtifactAttachment,
+  evaluateHtmlArtifactRequest,
+  evaluateNavigationRequest,
+  evaluatePermissionRequest,
+  evaluateWindowOpenRequest,
+  HTML_ARTIFACT_PARTITION,
+} from "./security-policy.ts";
 import { assertDevRendererUrl, createGuiContentSecurityPolicy } from "./window-config.ts";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -29,6 +36,7 @@ export function createMainWindow(): BrowserWindow {
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
+      webviewTag: true,
       preload: preloadPath
     }
   });
@@ -40,6 +48,7 @@ export function createMainWindow(): BrowserWindow {
       event.preventDefault();
     }
   });
+  installHtmlArtifactWebviewPolicy(mainWindow);
   if (rendererUrl) {
     assertDevRendererUrl(rendererUrl);
     void mainWindow.loadURL(rendererUrl);
@@ -62,6 +71,42 @@ export function installContentSecurityPolicy(): void {
         })]
       }
     });
+  });
+  const artifactSession = session.fromPartition(HTML_ARTIFACT_PARTITION);
+  artifactSession.setPermissionCheckHandler(() => false);
+  artifactSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  artifactSession.webRequest.onBeforeRequest((details, callback) => {
+    callback({ cancel: evaluateHtmlArtifactRequest(details.url).action === "deny" });
+  });
+  artifactSession.on("will-download", (event) => event.preventDefault());
+}
+
+function installHtmlArtifactWebviewPolicy(mainWindow: BrowserWindow): void {
+  mainWindow.webContents.on("will-attach-webview", (event, webPreferences, params) => {
+    if (evaluateHtmlArtifactAttachment(params).action === "deny") {
+      event.preventDefault();
+      return;
+    }
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.nodeIntegrationInWorker = false;
+    webPreferences.nodeIntegrationInSubFrames = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+    webPreferences.webSecurity = true;
+    webPreferences.javascript = false;
+    webPreferences.plugins = false;
+    webPreferences.devTools = false;
+    webPreferences.navigateOnDragDrop = false;
+    webPreferences.webviewTag = false;
+    webPreferences.partition = HTML_ARTIFACT_PARTITION;
+    delete params.preload;
+  });
+  mainWindow.webContents.on("did-attach-webview", (_event, guest) => {
+    guest.setWindowOpenHandler(() => ({ action: "deny" }));
+    guest.on("will-navigate", (event) => event.preventDefault());
+    guest.on("will-frame-navigate", (event) => event.preventDefault());
+    guest.on("will-redirect", (event) => event.preventDefault());
   });
 }
 

@@ -47,7 +47,7 @@ afterEach(async () => {
 });
 
 describe("Task detail expression", () => {
-  it("renders task identity and six task-first tabs before the file browser", async () => {
+  it("renders compact task identity, six task-first tabs and a permanent document tree", async () => {
     const bridge = installBridge();
     await mount();
 
@@ -55,6 +55,7 @@ describe("Task detail expression", () => {
     expect(byTestId("task-identity-strip").textContent).toContain("plt-gui · software-coding");
     expect(byTestId("task-detail-view").textContent).toContain("Task 表达重做");
     expect([...document.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent?.trim())).toEqual(["概况", "派工", "证据", "关系", "收口", "文件"]);
+    expect(byTestId("task-document-tree").textContent).toContain("artifacts");
     expect(byTestId("task-overview-tab").textContent).toContain("Canonical plan body");
     expect(byTestId("task-progress-timeline").textContent).toContain("Review review-w3: approved");
     expect(bridge.getTaskDocument).toHaveBeenCalledWith({ repoId: "repo-a", taskId: "task-w3", path: "task_plan.md" });
@@ -99,18 +100,55 @@ describe("Task detail expression", () => {
     expect(byTestId("task-execution-execution-w3").textContent).toContain("1 passing");
 
     await clickTab("文件");
-    expect(byTestId("task-files-tab").textContent).toContain("INDEX.md");
-    expect(byTestId("task-files-tab").textContent).toContain("artifacts");
+    expect(byTestId("task-document-tree").textContent).toContain("INDEX.md");
+    expect(byTestId("task-document-tree").textContent).toContain("artifacts");
+    expect(byTestId("task-files-tab").textContent).toContain("Canonical plan body");
+  });
+
+  it("switches reader layout and font in the floating toolbar and opens HTML in an isolated webview", async () => {
+    installBridge();
+    await mount();
+
+    const toolbar = byTestId("reader-floating-toolbar");
+    const double = [...toolbar.querySelectorAll("button")].find((button) => button.textContent === "双栏")!;
+    await act(async () => { double.click(); });
+    expect(double.getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelector(".prose-harness")?.getAttribute("data-layout")).toBe("double");
+
+    const font = toolbar.querySelector("select")!;
+    await act(async () => {
+      font.value = "serif";
+      font.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(document.querySelector(".prose-harness")?.getAttribute("data-font")).toBe("serif");
+
+    const reports = [...byTestId("task-document-tree").querySelectorAll("button")].find((button) => button.textContent?.includes("reports/"))!;
+    expect(reports).toBeInstanceOf(HTMLButtonElement);
+    await act(async () => { reports.click(); });
+    const html = [...byTestId("task-document-tree").querySelectorAll("button")].find((button) => button.textContent?.includes("night.html"))!;
+    expect(html).toBeInstanceOf(HTMLButtonElement);
+    await act(async () => { html.click(); });
+    await flushEffects();
+
+    expect(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain("文件");
+    expect(reports.getAttribute("aria-expanded")).toBe("true");
+    const preview = byTestId("html-artifact-preview");
+    expect(preview.textContent).toContain("脚本 / 外联已禁用");
+    const webview = byTestId("html-artifact-webview");
+    expect(webview.getAttribute("partition")).toBe("html-artifact-preview");
+    expect(webview.getAttribute("preload")).toBeNull();
+    expect(webview.getAttribute("src")).toMatch(/^data:text\/html;charset=utf-8,/u);
   });
 });
 
 function installBridge() {
   const bridge = {
-    getTaskDocument: vi.fn(async ({ taskId, path }: { taskId: string; path: string }) => ({ ok: true, status: "ready", taskId, path, body: path === "task_plan.md" ? "# Canonical plan body" : `# ${path}`, blobSha256: `sha256:${"d".repeat(64)}`, watermark: 7, sourceRevision: 7 })),
+    getTaskDocument: vi.fn(async ({ taskId, path }: { taskId: string; path: string }) => ({ ok: true, status: "ready", taskId, path, body: path === "task_plan.md" ? "# Canonical plan body" : path.endsWith(".html") ? "<style>body{color:#123}</style><h1>Night report</h1><script>window.open(\"https://example.invalid\")</script>" : `# ${path}`, blobSha256: `sha256:${"d".repeat(64)}`, watermark: 7, sourceRevision: 7 })),
     getTaskDocuments: vi.fn(async () => ({ ok: true, status: "ready", taskId: "task-w3", documents: [
       { path: "task_plan.md", blobSha256: "d".repeat(64), size: 20, mediaType: "text/markdown" },
       { path: "INDEX.md", blobSha256: "e".repeat(64), size: 20, mediaType: "text/markdown" },
       { path: "artifacts/report.md", blobSha256: "f".repeat(64), size: 20, mediaType: "text/markdown" },
+      { path: "artifacts/reports/night.html", blobSha256: "a".repeat(64), size: 120, mediaType: "text/html" },
     ], watermark: 7, sourceRevision: 7 })),
     getTaskDispatches: vi.fn(async () => ({ ok: true, status: "ready", taskId: "task-w3", dispatches: [dispatch], watermark: 7, sourceRevision: 7 })),
     getRelationGraph: vi.fn(async () => ({ ok: true, edges: [], coverageRows: [], factAnchors: [], facts: [

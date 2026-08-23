@@ -3,6 +3,7 @@ export interface GuiWebPreferences {
   readonly contextIsolation: true;
   readonly sandbox: true;
   readonly webSecurity: true;
+  readonly webviewTag: true;
   readonly preload: string;
 }
 
@@ -80,6 +81,7 @@ export function createGuiWindowOptions(preloadPath: string): GuiWindowOptions {
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
+      webviewTag: true,
       preload: preloadPath
     }
   };

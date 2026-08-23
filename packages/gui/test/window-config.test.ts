@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertDevRendererUrl, createGuiContentSecurityPolicy, guiContentSecurityPolicy, isTrustedRendererUrl } from "../src/index.ts";
+import { assertDevRendererUrl, createGuiContentSecurityPolicy, createGuiWindowOptions, guiContentSecurityPolicy, isTrustedRendererUrl } from "../src/index.ts";
 
 test("dev renderer override accepts only the local Vite server", () => {
   assert.equal(assertDevRendererUrl("http://127.0.0.1:5173"), true);
@@ -34,4 +34,13 @@ test("trusted renderer URL accepts only explicit dev server or packaged renderer
   assert.equal(isTrustedRendererUrl("file:///tmp/renderer/index.html", { packagedRendererUrl }), false);
   assert.equal(isTrustedRendererUrl("file:///app/.harness-private/task.md", { packagedRendererUrl }), false);
   assert.equal(isTrustedRendererUrl("https://example.invalid", { packagedRendererUrl }), false);
+});
+
+test("the main window enables only the policy-guarded HTML artifact webview surface", () => {
+  const options = createGuiWindowOptions("/app/preload.cjs");
+  assert.equal(options.webPreferences.webviewTag, true);
+  assert.equal(options.webPreferences.nodeIntegration, false);
+  assert.equal(options.webPreferences.contextIsolation, true);
+  assert.equal(options.webPreferences.sandbox, true);
+  assert.equal(options.webPreferences.webSecurity, true);
 });

@@ -162,14 +162,30 @@ html[data-theme="light"] ::selection {
 
 /* 文档阅读区排版（react-markdown 输出） */
 .prose-harness {
-  font-size: var(--ui-font-prose);
+  width: 100%;
+  max-width: none;
+  font-family: var(--reader-font-family, var(--font-sans));
+  font-size: var(--reader-font-size, var(--ui-font-prose));
   line-height: 1.75;
   color: var(--color-text);
-  max-width: 42rem;
+  overflow-wrap: anywhere;
+}
+.prose-harness[data-layout="single"] > :where(h1, h2, h3, h4, p, ul, ol, blockquote) {
+  max-width: 88ch;
+}
+.prose-harness[data-layout="double"] {
+  columns: 2 24rem;
+  column-gap: 2.5rem;
+  column-rule: 1px solid var(--color-border);
+}
+.prose-harness[data-layout="double"] > * {
+  break-inside: avoid;
 }
 .prose-harness h1 {
   font-size: var(--ui-font-heading);
   font-weight: 650;
+  line-height: 1.3;
+  margin-top: 0;
   margin-bottom: 1rem;
 }
 .prose-harness h2 {
@@ -178,15 +194,30 @@ html[data-theme="light"] ::selection {
   margin-top: 1.75rem;
   margin-bottom: 0.5rem;
 }
+.prose-harness h3 {
+  margin-top: 1.35rem;
+  margin-bottom: 0.4rem;
+  font-size: 1.08em;
+  font-weight: 620;
+}
+.prose-harness h4 {
+  margin-top: 1.1rem;
+  margin-bottom: 0.35rem;
+  font-size: 1em;
+  font-weight: 620;
+  color: var(--color-text-muted);
+}
 .prose-harness p {
   margin: 0.6rem 0;
   color: var(--color-text);
 }
-.prose-harness ul {
+.prose-harness ul,
+.prose-harness ol {
   padding-left: 1.25rem;
-  list-style: disc;
   color: var(--color-text);
 }
+.prose-harness ul { list-style: disc; }
+.prose-harness ol { list-style: decimal; }
 .prose-harness li {
   margin: 0.25rem 0;
 }
@@ -238,9 +269,34 @@ html[data-theme="light"] ::selection {
   margin: 0.75rem 0;
   color: var(--color-text-faint);
 }
+.prose-harness a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklch, var(--color-accent) 45%, transparent);
+  text-underline-offset: 0.16em;
+}
+.prose-harness hr {
+  margin: 1.5rem 0;
+  border: 0;
+  border-top: 1px solid var(--color-border-strong);
+}
+.prose-harness img {
+  max-width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
 .prose-harness input[type="checkbox"] {
   accent-color: var(--color-accent);
   margin-right: 0.4rem;
+}
+
+/* Electron guest surface sizing; class-based so the strict host CSP remains unchanged. */
+.html-artifact-webview {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 42rem;
+  background: white;
 }
 
 /*

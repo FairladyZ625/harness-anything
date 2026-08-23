@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createStaticWebContentsTrustPolicy,
+  evaluateHtmlArtifactAttachment,
+  evaluateHtmlArtifactRequest,
   evaluateBrowserPreviewOpenRequest,
   evaluateIpcSender,
   evaluateNavigationRequest,
@@ -45,6 +47,25 @@ test("IPC sender trust requires both renderer URL and owned webContents id", () 
     evaluateIpcSender({ sender: { id: 7 }, senderFrame: { url: "file:///app/.harness-private/task.md" } }, trustPolicy),
     { action: "deny", reason: "untrusted_renderer_url" }
   );
+});
+
+test("HTML artifact guests accept only the isolated data document and no external subresources", () => {
+  assert.deepEqual(
+    evaluateHtmlArtifactAttachment({ partition: "html-artifact-preview", src: "data:text/html;charset=utf-8,%3Ch1%3Ereport%3C%2Fh1%3E" }),
+    { action: "allow", reason: "html_artifact_source_allowed" }
+  );
+  for (const params of [
+    { partition: "persist:html-artifact-preview", src: "data:text/html;charset=utf-8,report" },
+    { partition: "html-artifact-preview", src: "file:///tmp/report.html" },
+    { partition: "html-artifact-preview", src: "https://example.invalid/report.html" }
+  ]) {
+    assert.equal(evaluateHtmlArtifactAttachment(params).action, "deny");
+  }
+  assert.equal(evaluateHtmlArtifactRequest("data:image/png;base64,AAAA").action, "allow");
+  assert.equal(evaluateHtmlArtifactRequest("about:blank").action, "allow");
+  for (const url of ["https://example.invalid/a.png", "http://127.0.0.1:3000", "file:///tmp/private", "blob:https://example.invalid/id", "not a url"]) {
+    assert.equal(evaluateHtmlArtifactRequest(url).action, "deny");
+  }
 });
 
 test("permission navigation and window-open policies are deny-by-default", () => {
