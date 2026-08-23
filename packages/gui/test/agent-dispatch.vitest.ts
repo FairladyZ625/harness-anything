@@ -63,7 +63,7 @@ describe("agent dispatch flow", () => {
     expect(() => buildDispatchSpawnInput({ ...baseRequest, subject: agentSubject }, [claudeInstance])).toThrow("dispatch_runtime_type_mismatch");
   });
   it("consumes the daemon's four terminal outcomes one-to-one instead of re-deriving them", () => {
-    expect(dispatchOutcomeView(null)).toBe("running");
+    expect(dispatchOutcomeView(null)).toBe("unknown");
     expect(dispatchOutcomeView("succeeded")).toBe("succeeded");
     expect(dispatchOutcomeView("failed")).toBe("failed");
     expect(dispatchOutcomeView("unknown")).toBe("unknown");

@@ -25,7 +25,7 @@ export function buildDispatchSpawnInput(request: DispatchRequest, instances: rea
   const executor = dispatchExecutorRef(request); if (!executor) throw new Error("dispatch_executor_missing"); if (request.runtimeInstanceId) requireCompatibleDispatchInstance(request as DispatchRequest & { readonly runtimeInstanceId: string }, instances); const squadRouting = request.subject.kind === "squad" ? { agentId: request.subject.leader.agentId, targetAgentId: executor.agentId } : { agentId: executor.agentId };
   return { ...(request.runtimeInstanceId ? { runtimeInstanceId: request.runtimeInstanceId } : {}), ...squadRouting, ...(request.model ? { model: request.model } : {}), ...(request.effort ? { effort: request.effort } : {}), cwd: request.cwd, prompt: request.mission, taskId: request.taskId, idempotencyKey: request.idempotencyKey };
 }
-export const dispatchOutcomeView = (outcome: DispatchOutcome | null): DispatchOutcomeView => outcome ?? "running";
+export const dispatchOutcomeView = (outcome: DispatchOutcome | null): DispatchOutcomeView => outcome ?? "unknown";
 export function dispatchChainFromDocuments(documents: readonly TaskDocumentListEntryRow[], ledger: readonly TaskDispatchRow[]): readonly DispatchChainRow[] {
   const cell = (prefix: string, suffix: string) => (row: TaskDocumentListEntryRow): DispatchChainCell | null => { const path = row.path.slice(row.path.indexOf("artifacts/")); return path.startsWith(prefix) && path.endsWith(suffix) ? { dispatchId: path.slice(prefix.length, path.length - suffix.length), path: row.path } : null; };
   const collect = (prefix: string, suffix: string) => new Map(documents.map(cell(prefix, suffix)).filter((entry): entry is DispatchChainCell => entry !== null).map((entry) => [entry.dispatchId, entry]));
