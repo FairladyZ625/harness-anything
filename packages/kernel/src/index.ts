@@ -4,7 +4,7 @@ export type { AgentDefinitionSnapshot, AgentRuntimeEventV1, RuntimeInstallation,
 export { allowsTaskStatusMove, applyTransition, canonicalGateReceipts, canStartExecution, compileExecutionExecutorDeclaration, executionExecutorDeclarationCandidates, heldLeaseForExecutionActor, normalizeTaskLifecycleCommand, reviewDigest, validateTaskLifecycleCommandEnvelope } from "./domain/task-lifecycle.contract.ts";
 export { canReclaim, isIndependentFrom, isSameExecution, isSamePerson } from "./domain/actor-domain-services.ts";
 export { isTaskBoundRuntimeWriter, resolveLiveTaskBoundRuntimeBinding, runtimeSessionIdFromActor } from "./domain/task-bound-runtime-authority.ts";
-export { compileTaskLifecycleWrite, lifecycleDocumentPaths, taskLifecycleWritePlan } from "./domain/task-lifecycle-publication.ts";
+export { compileTaskLifecycleWrite, lifecycleDocumentFetchPaths, lifecycleDocumentPaths, taskLifecycleWritePlan } from "./domain/task-lifecycle-publication.ts";
 export { completionBlockers, type CompletionReadinessContext } from "./domain/completion-readiness.ts";
 export { compileCompletionGateWitness } from "./domain/completion-gate-publication.ts";
 export { reduceTaskEvent } from "./domain/task-lifecycle.contract.ts";
