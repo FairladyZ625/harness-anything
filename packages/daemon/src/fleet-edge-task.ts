@@ -17,7 +17,7 @@ import path from "node:path";
 import { classifyTextualArtifactPath, consumeKnownError, DOC_POLICY_ID } from "../../kernel/src/index.ts";
 import { FleetRemoteError, runFleetReplicaPullClient, runFleetTaskCommandClient, runFleetUploadClient } from "./fleet/edge.ts";
 import type { FleetDescriptor } from "./fleet/contract.ts";
-import { readFleetRosterFile } from "./fleet-center-admission.ts";
+import { fleetCredentialFromRoster, readFleetRosterFile } from "./fleet-center-admission.ts";
 import { fleetLeaseTimers } from "./lease-broker.ts";
 import type { FleetTaskAction } from "./fleet/contract.ts";
 import { applyFleetMirrorCut, cacheFleetMirrorDirtyBases, locateFleetMirrorView, readFleetUnresolvedConflicts, scanFleetMirrorWorktree, withFleetMirrorLock, type FleetMirrorView, type FleetStagedConflict } from "./fleet-edge-mirror.ts";
@@ -29,7 +29,7 @@ export class FleetEdgeTaskError extends Error { readonly code: string; construct
 // Shared machine-credential resolution for every edge product round: the
 // credential is never duplicated into fleet-edge.json; it is resolved from the
 // center roster at run time.
-export function fleetEdgeCredential(nodeId: string, credential: string | undefined, rosterPath: string | undefined): string { if (credential) return credential; if (!rosterPath) throw new FleetEdgeTaskError("credential_required", "Fleet edge routing needs --credential or --roster-path in the edge config."); const node = readFleetRosterFile(rosterPath).nodes.find((entry) => entry.nodeId === nodeId); if (!node) throw new FleetEdgeTaskError("node_unknown", `Node ${nodeId} is not declared in the fleet roster at ${rosterPath}.`); return node.credential; }
+export function fleetEdgeCredential(nodeId: string, credential: string | undefined, rosterPath: string | undefined): string { if (credential) return credential; if (!rosterPath) throw new FleetEdgeTaskError("credential_required", "Fleet edge routing needs a credential or roster path."); return fleetCredentialFromRoster(nodeId, rosterPath); }
 export function fleetEdgeScopePaths(assignmentId: string, rosterPath: string | undefined): readonly string[] | null { if (!rosterPath) return null; return readFleetRosterFile(rosterPath).assignments.find((entry) => entry.assignmentId === assignmentId)?.paths ?? null; }
 // Conservative task-path predicate for the unresolved-conflict gate. It
 // deliberately has no ULID alphabet heuristic, so lowercase generated ids

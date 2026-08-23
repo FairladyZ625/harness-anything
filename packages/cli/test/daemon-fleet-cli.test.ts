@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
@@ -8,7 +8,7 @@ import test from "node:test";
 
 const cli = path.resolve("packages/cli/src/index.ts"), quotaBytes = 64 * 1024 * 1024;
 
-test("fleet center start and edge sync mirror the authoritative ledger through the CLI", { timeout: 180_000 }, () => {
+test("fleet center start and edge sync mirror the authoritative ledger through the CLI", { timeout: 180_000 }, async () => {
   const fixture = setup();
   try {
     const capabilities = JSON.parse(spawnSync(process.execPath, [cli, "capabilities", "--json"], { encoding: "utf8" }).stdout) as Record<string, string[]>;
@@ -29,8 +29,12 @@ test("fleet center start and edge sync mirror the authoritative ledger through t
     const port = center.port as number;
     assert.equal(maybeRun(fixture, "edge", ["daemon", "fleet", "edge", "sync", "--host", "127.0.0.1", "--port", String(port), "--ca", fixture.ca, "--node-id", "edge-one", "--credential", "edge-one-machine-secret", "--assignment", "assignment-edge-one", "--view-root", fixture.viewRoot, "--quota-bytes", String(quotaBytes)]).receipt.code, "daemon_unavailable");
     assert.equal(run(fixture, "edge", ["daemon", "start", "--service"]).ok, true);
-    const sync = (extra: readonly string[] = []) => run(fixture, "edge", ["daemon", "fleet", "edge", "sync", "--host", "127.0.0.1", "--port", String(port), "--ca", fixture.ca, "--node-id", "edge-one", "--credential", "edge-one-machine-secret", "--assignment", "assignment-edge-one", "--view-root", fixture.viewRoot, "--quota-bytes", String(quotaBytes), ...extra]);
-    const pulled = retryReplicaPending(sync);
+    const syncArgs = ["daemon", "fleet", "edge", "sync", "--host", "127.0.0.1", "--port", String(port), "--ca", fixture.ca, "--node-id", "edge-one", "--roster", fixture.roster, "--assignment", "assignment-edge-one", "--view-root", fixture.viewRoot, "--quota-bytes", String(quotaBytes)] as const;
+    const observed = await spawnedRun(fixture, "edge", syncArgs), exposed = JSON.stringify({ argv: observed.argv, stdout: observed.stdout, stderr: observed.stderr });
+    assert.doesNotMatch(exposed, /edge-one-machine-secret/u, exposed);
+    assert.equal(observed.status, 0, observed.stderr);
+    const first = JSON.parse(observed.stdout) as Record<string, unknown>, sync = (extra: readonly string[] = []) => run(fixture, "edge", [...syncArgs, ...extra]);
+    const pulled = first.ok === false && first.code === "replica_pending" ? retryReplicaPending(sync) : first;
     assert.equal(pulled.status, "fleet.ack.result/v1"); assert.equal(pulled.viewId, "edge-one-view"); assert.equal((pulled.cut as { revision: number }).revision, pulled.ackCut);
     const viewRoot = path.join(fixture.viewRoot, "repos", "fleet-demo", "views", "edge-one-view");
     assert.equal(readFileSync(path.join(viewRoot, "cuts", String(pulled.ackCut), "files", docPath), "utf8"), docBody);
@@ -39,6 +43,7 @@ test("fleet center start and edge sync mirror the authoritative ledger through t
     const again = sync(); assert.equal(again.status, "fleet.replica.current/v1"); assert.deepEqual(again.cut, pulled.cut);
     const refused = maybeRun(fixture, "edge", ["daemon", "fleet", "edge", "sync", "--host", "127.0.0.1", "--port", String(port), "--ca", fixture.ca, "--node-id", "edge-one", "--credential", "wrong-secret", "--assignment", "assignment-edge-one", "--view-root", fixture.viewRoot, "--quota-bytes", String(quotaBytes)]);
     assert.equal(refused.status, 1); assert.equal(refused.receipt.code, "authentication_failed"); assert.match(String(refused.receipt.nextAction), /Reissue the credential in the center roster/u);
+    assert.doesNotMatch(JSON.stringify(refused), /edge-one-machine-secret/u);
     const deltaBody = "# Fleet mirror note\n\nsecond cut\n"; writeFileSync(path.join(fixture.repo, "harness", docPath), deltaBody);
     assert.equal(run(fixture, "center", ["doc", "sync", "--submit", "--execution-id", "exec-fleet", "--path", docPath]).outcome, "applied");
     const delta = retryReplicaPending(sync);
@@ -69,6 +74,11 @@ function maybeRun(fixture: ReturnType<typeof setup>, machine: "center" | "edge",
   const userRoot = machine === "center" ? fixture.centerUser : fixture.edgeUser, home = path.join(userRoot, "home");
   const result = spawnSync(process.execPath, [cli, "--root", fixture.repo, "--json", ...args], { encoding: "utf8", env: { ...process.env, HOME: home, GIT_CONFIG_GLOBAL: "/dev/null", HARNESS_DAEMON_USER_ROOT: userRoot } });
   return { status: result.status, receipt: JSON.parse(result.stdout) as Record<string, unknown>, stderr: result.stderr };
+}
+function spawnedRun(fixture: ReturnType<typeof setup>, machine: "center" | "edge", args: readonly string[]): Promise<{ status: number | null; argv: readonly string[]; stdout: string; stderr: string }> {
+  const userRoot = machine === "center" ? fixture.centerUser : fixture.edgeUser, home = path.join(userRoot, "home"), child = spawn(process.execPath, [cli, "--root", fixture.repo, "--json", ...args], { env: { ...process.env, HOME: home, GIT_CONFIG_GLOBAL: "/dev/null", HARNESS_DAEMON_USER_ROOT: userRoot }, stdio: ["ignore", "pipe", "pipe"] });
+  const argv = [...child.spawnargs]; let stdout = "", stderr = ""; child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; }); child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+  return new Promise((resolve, reject) => { child.once("error", reject); child.once("close", (status) => resolve({ status, argv, stdout, stderr })); });
 }
 function stop(fixture: ReturnType<typeof setup>, machine: "center" | "edge"): void { spawnSync(process.execPath, [cli, "--json", "daemon", "stop"], { encoding: "utf8", env: { ...process.env, HARNESS_DAEMON_USER_ROOT: machine === "center" ? fixture.centerUser : fixture.edgeUser } }); }
 function git(root: string, ...args: string[]): string { return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim(); }
