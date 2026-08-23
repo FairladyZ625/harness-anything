@@ -7,7 +7,7 @@ import test from "node:test";
 import { parseThinCommand } from "../../cli/src/cli/thin-command.ts";
 import { resolveHarnessLayout } from "../../kernel/src/index.ts";
 import { createPresetProcessService } from "../../preset/src/index.ts";
-import { resolveLocalDaemonTarget } from "../src/client/local-daemon-target.ts";
+import { localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../src/client/local-daemon-target.ts";
 import { daemonRequestLogPath } from "../src/request-log.ts";
 
 test("local daemon target resolves a registered workspace from its subdirectory", () => {
@@ -136,13 +136,30 @@ test("local daemon target routes a repository worktree to the canonical workspac
   }
 });
 
-test("local daemon target keeps an injected endpoint across an isolated runtime temp directory", () => {
-  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-endpoint-")), workspaceRoot = path.join(fixtureRoot, "workspace"), userRoot = path.join(fixtureRoot, "user"), endpoint = process.platform === "win32" ? "\\\\.\\pipe\\harness-anything-runtime-worker" : path.join(fixtureRoot, "daemon.sock");
+test("local daemon target keeps a matching injected endpoint across an isolated runtime temp directory", () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-endpoint-")), workspaceRoot = path.join(fixtureRoot, "workspace"), userRoot = path.join(fixtureRoot, "user"), daemonId = "runtime-worker", derived = localUserDaemonEndpoint(userRoot, daemonId), endpoint = process.platform === "win32" ? derived : path.join(fixtureRoot, path.basename(derived));
   try {
     mkdirSync(workspaceRoot); mkdirSync(userRoot); const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot);
     writeFileSync(path.join(userRoot, "registry.json"), `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [repo("runtime-worker", canonicalWorkspaceRoot)] }, null, 2)}\n`);
-    const target = resolveLocalDaemonTarget({ rootDir: workspaceRoot, userRoot, env: { HARNESS_DAEMON_ENDPOINT: endpoint, TMPDIR: path.join(fixtureRoot, "isolated-tmp") } });
+    const target = resolveLocalDaemonTarget({ rootDir: workspaceRoot, userRoot, daemonId, env: { HARNESS_DAEMON_ENDPOINT: endpoint, TMPDIR: path.join(fixtureRoot, "isolated-tmp") } });
     assert.equal(target.socketPath, endpoint);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("local daemon target rejects an injected endpoint owned by another user root", () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-conflict-")), workspaceRoot = path.join(fixtureRoot, "workspace"), userRoot = path.join(fixtureRoot, "isolated-user"), parentUserRoot = path.join(fixtureRoot, "parent-user"), daemonId = "isolated", endpoint = localUserDaemonEndpoint(parentUserRoot, "parent");
+  try {
+    mkdirSync(workspaceRoot); mkdirSync(userRoot); const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot);
+    writeFileSync(path.join(userRoot, "registry.json"), `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [repo("runtime-worker", canonicalWorkspaceRoot)] }, null, 2)}\n`);
+
+    assert.throws(() => resolveLocalDaemonTarget({ rootDir: workspaceRoot, userRoot, daemonId, env: { HARNESS_DAEMON_ENDPOINT: endpoint } }), (error: unknown) => {
+      assert.equal((error as { readonly code?: string }).code, "daemon_target_conflict");
+      for (const value of [endpoint, localUserDaemonEndpoint(userRoot, daemonId), userRoot, daemonId, "runtime-worker", canonicalWorkspaceRoot]) assert.match(String(error), new RegExp(escapeRegExp(value), "u"));
+      assert.match(String(error), /Unset HARNESS_DAEMON_ENDPOINT/u);
+      return true;
+    });
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
@@ -151,3 +168,4 @@ test("local daemon target keeps an injected endpoint across an isolated runtime 
 function repo(repoId: string, canonicalRoot: string, state = "enabled") {
   return { repoId, canonicalRoot, displayName: repoId, authoredBranch: "main", state, registeredAt: "2026-08-17T00:00:00.000Z" };
 }
+function escapeRegExp(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"); }

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
@@ -21,6 +21,9 @@ test("registered workspace CLI command auto-starts the daemon, retries, and succ
   try {
     assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     register(fixture.root, fixture.userRoot, "autostart");
+    const status = run(fixture.root, fixture.userRoot, ["daemon", "status"]);
+    assert.deepEqual(status.target, { endpoint: localUserDaemonEndpoint(fixture.userRoot, "default"), daemonId: "default", userRoot: fixture.userRoot, repoId: "autostart", canonicalRoot: realpathSync.native(fixture.root) });
+    for (const value of Object.values(status.target as Record<string, unknown>)) assert.match(String(status.summary), new RegExp(escapeRegExp(String(value)), "u"));
     assert.equal(run(fixture.root, fixture.userRoot, ["task", "create", "--id", "task-autostart", "--admin", "--title", "Auto"]).outcome, "applied");
     const previousPid = readDaemonPid(fixture.userRoot, "default"); assert.ok(previousPid);
     // The autostart seam probes first: a live daemon is reused, never respawned.
@@ -324,6 +327,7 @@ function coded(error: unknown): string | null { return typeof error === "object"
 function stop(root: string, userRoot: string): void { if (readDaemonPid(userRoot, "default") !== null) spawnSync(process.execPath, [cli, "--root", root, "--json", "daemon", "stop"], { encoding: "utf8", env: cliEnv(root, userRoot) }); }
 function statusOf(root: string, userRoot: string, taskId: string): string { const shown = run(root, userRoot, ["task", "show", taskId]); return (JSON.parse(String(shown.evidence)) as { task: { status: string } }).task.status; }
 function git(root: string, ...args: string[]): string { return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim(); }
+function escapeRegExp(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"); }
 function seedLegacyTask(root: string, repoId: string, taskId: string): void {
   const actor = { principal: { personId: "owner" }, executor: null } as const, event: TaskEventV1 = { schema: "task-event/v1", eventId: "event-contract-receipt", workspaceRevision: 1, opId: "op-contract-receipt", taskId, type: "task_created", actor, source: "local", occurredAt: "2026-08-18T00:00:00.000Z", payload: { task: { schema: "task/v1", taskId, title: "Legacy contract receipt", taskClass: "standard", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [], presetSnapshotDigest: null } } };
   makeTaskEventStore({ repoId, rootDir: root }).append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
