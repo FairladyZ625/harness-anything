@@ -1,12 +1,13 @@
 import path from "node:path";
 import { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";
-import { makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import { blockingOf, closeoutReadiness, makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import { makeDecisionActions } from "./decision-actions.ts";
 import { makeFactActions } from "./fact-actions.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
+import type { TaskQueryJudgments } from "./task-query-read.ts";
 
 export { causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 export { openRepoCell } from "./repo-cell-open.ts";
@@ -18,6 +19,11 @@ export type {
   RepoTaskAction,
   RuntimeIngressAction,
 } from "./repo-cell-types.ts";
+
+export const repoCellTaskQueryJudgments: TaskQueryJudgments = {
+  closeout: (snapshot, availability) => closeoutReadiness(snapshot, availability),
+  blocking: (tasks, relations, state) => blockingOf(tasks, relations, state),
+};
 
 export function initializeRepoCell(context: any): any {
   const store = makeTaskEventStore({

@@ -1,7 +1,5 @@
 import {
   assertCurrentWriter,
-  blockingOf,
-  closeoutReadiness,
   projectDecisionReadiness,
   type TaskProjectionListQuery,
   type WriteReceipt,
@@ -22,7 +20,7 @@ import { recoveryCommandPolicy } from "./recovery-state.ts";
 import type { DaemonGuiReadHandlers, RepoCell, RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
-import { chainRepoCellWrite } from "./repo-cell.ts";
+import { chainRepoCellWrite, repoCellTaskQueryJudgments } from "./repo-cell.ts";
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
 
 export function createRepoCellApi(context: any): RepoCell {
@@ -391,14 +389,11 @@ export function createRepoCellApi(context: any): RepoCell {
   }
   // The wide task queries live in task-query-read.ts so the daemon and the scale
   // harness share one real read implementation; the closeout/blocking domain
-  // judgments stay consumed here so this surface keeps the canonical definitions.
+  // judgments stay consumed by the RepoCell composition root.
   const queryRead = makeTaskQueryReadModel({
     rootDir: context.rootDir,
     projection: context.projection,
-    judgments: {
-      closeout: (snapshot, availability) => closeoutReadiness(snapshot, availability),
-      blocking: (tasks, relations, state) => blockingOf(tasks, relations, state),
-    },
+    judgments: repoCellTaskQueryJudgments,
   });
   Object.assign(context.extracted, { taskListQueryFromAction, queryRead, relationQueryFromAction });
   const spawnRuntime: RepoCell["spawnRuntime"] = (payload, binding) => {
