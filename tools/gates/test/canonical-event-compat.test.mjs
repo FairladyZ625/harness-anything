@@ -1,7 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateFrozenCanonicalEvents, validateFrozenDaemonResponses } from "../canonical-event-compat.mjs";
+import { validateFrozenCanonicalEvents, validateFrozenDaemonReadside, validateProjectedDaemonResponses } from "../canonical-event-compat.mjs";
+import { repoRoot } from "../git.mjs";
 import { makeRepo } from "./helpers.mjs";
 
 test("canonical event compatibility gate names a rejected frozen sample", () => {
@@ -45,28 +46,33 @@ test("canonical event compatibility gate verifies the frozen bytes, not only par
   ]);
 });
 
-test("canonical event compatibility gate names a rejected daemon response and validator", () => {
-  const { rootDir } = makeRepo({
-    "packages/daemon/fixtures/readside-responses/validateDaemonDecisionList/accepted-before-provenance.json": "{\"ok\":true,\"decisions\":[{}]}\n"
-  });
-
-  const errors = validateFrozenDaemonResponses(rootDir, [{
+test("canonical event compatibility gate names the source event, validator, and rejected field", () => {
+  const errors = validateProjectedDaemonResponses([{
     name: "validateDaemonDecisionList",
-    validate: () => ["provenance is required"]
+    sourceEventIds: ["event-83528bd4ab507b4464f6367395476707fd11d8b055bafa53eb569e189f0d1f58"],
+    value: { ok: true, decisions: [{}] }
+  }], [{
+    name: "validateDaemonDecisionList",
+    validate: () => ["compatibilityCanary is required"]
   }]);
 
   assert.deepEqual(errors, [
-    "packages/daemon/fixtures/readside-responses/validateDaemonDecisionList/accepted-before-provenance.json: validateDaemonDecisionList rejected frozen response: provenance is required"
+    "event-83528bd4ab507b4464f6367395476707fd11d8b055bafa53eb569e189f0d1f58 -> validateDaemonDecisionList rejected projected history: compatibilityCanary is required"
   ]);
 });
 
-test("canonical event compatibility gate requires a frozen response for every registered validator", () => {
-  const { rootDir } = makeRepo({ "README.md": "fixture repo\n" });
-
-  assert.deepEqual(validateFrozenDaemonResponses(rootDir, [{
+test("canonical event compatibility gate requires a projected historical sample for every registered validator", () => {
+  assert.deepEqual(validateProjectedDaemonResponses([], [{
     name: "validateDaemonAgenda",
     validate: () => []
   }]), [
-    "packages/daemon/fixtures/readside-responses/validateDaemonAgenda: validateDaemonAgenda has no frozen samples"
+    "validateDaemonAgenda: no projected historical sample"
   ]);
+});
+
+test("canonical event compatibility gate projects the locked history through production reads", () => {
+  const result = validateFrozenDaemonReadside(repoRoot());
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.eventCount, 5);
+  assert.ok(result.durationMs < 5_000);
 });

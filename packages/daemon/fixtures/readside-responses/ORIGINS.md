@@ -1,16 +1,38 @@
-# Daemon read-side response fixture origins
+# Daemon read-side history origins
 
-These fixtures are cropped production daemon responses, not hand-authored protocol objects. The export replayed the canonical ledger at the fixed Git cut `25483488a170d33fa2fc9d89e5bb887752a26a19` (`events/head.json` revision `28966`, written `2026-08-22T15:57:18.853Z`) through the production projector and daemon response assemblers from `594b21385cac400a3843a9477fcfe648683eab5d`, the last `main` commit before defect PR #1746. Re-running the export must use those same two commits; the live ledger head is not an input.
+The source is the canonical ledger at the locked Git cut `25483488a170d33fa2fc9d89e5bb887752a26a19` (`events/head.json` revision 28,966). Every event file below is copied byte-for-byte from that tree: revisions and identities are not rewritten. The gate checks each fixture's Git blob SHA before parsing it. The 12 referenced content objects also come from the same cut and are checked against the events' SHA-256 and byte-size claims before the production reducer can read them. Three content objects use a base64 transport file: two intentionally lack a final newline, and one contains a historical private absolute path that cannot be stored as fixture plaintext. The gate decodes them before verifying and reducing the original bytes.
 
-The complete responses were serialized with their production `serializeDaemon*` functions. Only top-level entity arrays were mechanically truncated to their first row; no key or non-array value was changed, so envelope fields remain production bytes. `validateDaemonWorkspaceSummary` and `validateDaemonDocumentRead` have no top-level entity array and were retained whole. No de-identification was required: the frozen responses contain no credential or local absolute path. Every file is protected by `packages/*/fixtures/** -text` in `.gitattributes`.
+The gate creates a disposable production `makeTaskProjection` SQLite database. Its test-only seam moves only `projection_meta.watermark` and `scanned_revision` to one less than the next frozen revision, then calls production `projection.apply` with the production write plan. The private production `reduceBatch` / `applyEvent` path therefore writes every projected field. Responses are then made by production projection reads and daemon assemblers (`makeTaskQueryReadModel`, `readProjectedDocument`, `listProjectedTaskDocuments`, `readTaskDispatches`, and `workspaceSummaryFromReads`); the gate does not reproduce row assembly.
 
-| Validator / frozen sample | Retained entity | Source canonical event(s) | Source event blob(s) |
-| --- | --- | --- | --- |
-| `validateDaemonTaskSnapshotList/accepted.json` | task `task_01463ca1ca5dcdc84be843c189` at revision 25349 | `event-b24b28f8ce01c299b94a7959bf876e4fc5695e0fe0f972a400976a90dcc19df6` (`op_ccf6e2eea2f64cf67f113358b08a4e8c2117637cbc9cdb82cec2435d20459ffb`) | `8073b434a41805b7a58e54a3d07cfd50410195e3` |
-| `validateDaemonWorkspaceSummary/accepted.json` | workspace `canonical` at revision 28966; all 28,966 fixed-cut events were replayed | cut-head `event-2a9e9890c6807fcccaa131ad7924b9ca4ca956da4cc7fbe70876191d272299be` (`op_0def3650192ab1a3f0065ee914c445cc53dd2dd51252d4b69c5275d4a6ec5f84`) | `a9055dbb81365238dfee96b5605c07e5ca5e52d1` |
-| `validateDaemonAgenda/accepted.json` | in-flight task `task_b87204e670934b09dc823a64aa`; awaiting decision `dec_01KXDB28YX7BHHJZ808QAR8KNZ`; waiting task `task_01KWX9RD2NDDKBH3DY401NBH9G`; dispatchable task `task_89b555fd3a465a5b2b67ffc219` | `event-1fa6be656dd5aae59527bab43c1449a67e5cfa228bbedde375e1819878c74101` (`op_dd6b537e008080ada50afe4ca32846073494b9397423e171c820585064c155e6`); `event-6f74c4abf4e637937df362f2e01e68c9b854adf8b18d8086ef5950d26db57174` (`migration-005640a1fae7b7679eab102586`); `event-89f0bb5bc2c1f0665850c2bed9ac7f8e424b3626562774ec0d8d6d388514fd1b` (`op_a9b26baa9cb2cf30da1defe855ad59f0ec73e1416a0ce81d0f8139b5b2a45c3e`); `event-78dd568bc9d2ab154cb82455de83b8d9c16379a84be26136326f3537c3288069` (`op_8296c938b9f7b4ec1a417c757ca325fc7c90f5297884f6e937922751cc6a8526`) | `a2ed306c27a62be8847fb779967807ea21f32347`; `f5be60f8d47a339f584b7ad048591d3b815b2cdf`; `81867eac244d58011c814fdc9a0459f86ec1f920`; `ed96179dcc5077d612a9053e47d9dab854a12703` |
-| `validateDaemonRelationGraph/accepted.json` | edge `rel_0001ba735011857e`; coverage claim `decision/dec_01920EF1111C640F58ED921F83/C1`; fact `fact/task_01463ca1ca5dcdc84be843c189/F-BD62A26B` | `event-12678fe4d6bc3d27e2b9d169bb504cbe60985f99127e48bc433f4671a997b4f8` (`migration-e9508ee07b79448bd842845442`); coverage inputs `event-01920ef1111c640f58ed921f834e260dc4af9417b1f72b0738afc1cc89e6c9fc` (`op_7dbfc268c1d3de31047f7269c99e05a43d4efd7c62990197a701944489ed399e`), `event-392cd48bdc191aadd39122751bab3450213c7cc1d8abd6c546344e99a6915ea2` (`op_51ad99397427821d494c7aaa5cbff71f8f4b7b97c71bed948bea5621ae4c6db8`), and `event-321ae7dded2d6d407c1c7242dafe1c0d58913cc00a53b09bff8b0cc1d60ebd51` (`op_5352b424ae684f5a0c28ab215cdb2de8f9350fd4adcf917e6c0c19c2f5b31e10`); fact row `event-bd62a26b5552e55b795fe086268e07b4bb8b3f5fc20ea74329d40e6f007e0134` (`op_21b7d893be8c9899a4bfde4e6594e5e583da151fb51aa37761b5ac3527188c43`) | `35c4abbe4f795a30585cc5f90736579f3ce43ee2`; `c4e9d7cf977e4e5e431c3d08d17b4efdd847f6fa`; `946ffa0b21b4d764e271193be6bea3d1e52257f2`; `30448e8c58b699846f1aedbceb4e7743bd5bd592`; `bd99787923d9cf0d9ab4f31339a0b3f3974eac7c` |
-| `validateDaemonDecisionList/accepted-before-provenance.json` | decision `dec_LEDGER_E1` at revision 108; the production row predates the `provenance` key | `event-83528bd4ab507b4464f6367395476707fd11d8b055bafa53eb569e189f0d1f58` (`migration-36af78f8d2ac53485ca9e14482`) | `e4106ab9b385fafa88a929f7fb6ffb23b71d15c1` |
-| `validateDaemonDocumentRead/accepted.json` | task `task_0ccbb860fcb241a152d033976e`, document `INDEX.md`, content SHA-256 `6973e3d39ad8672ffbaa5b070bfe3bd682c457c16f0fd2acfc6482039c2fbadc` | `event-c5f9a7977ab0d72384c17ce90512ada808fd5ac680da9e5f7ec6120ffcb497bd` (`op_75be34472d911344cf5b2ed2df206f0f2edc0777e20fcc5a16c27a440cf5dd64`) | `03099a5a9008922f61d0468c30b6a12f00098c1e` |
-| `validateDaemonTaskDocumentList/accepted.json` | task `task_0ccbb860fcb241a152d033976e`, document `artifacts/.gitkeep`, content SHA-256 `01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b` | `event-6fa28364ca6d13f1651d5b3d891d474a4861b177d97e5d8d7ed80c56ca260d29` (`op_2ca13529b8b653e37bd34b385763a46e63359d0ccbb860fcb241a152d033976e`) | `816324e32c5a76afb07644e8abcd920d445bf2fe` |
-| `validateDaemonTaskDispatches/accepted.json` | dispatch `dispatch_e8be5b5acd715d44fd9ba166` for task `task_0ccbb860fcb241a152d033976e` | archive document event `event-81edd9676455892bd23f62ab9b35f12317ba19ea2124ff7e78f2aee0b17fe2be` (`op_5f7be020edaaa16a8750e573dec04550ab19e9c8055ac7ab0a8f1145e830b26c`) | `35bf14045e7d8b5c697f879c12da1313d9594d06` |
+## Frozen events
+
+| Revision | Event id | Git blob SHA | Coverage supplied |
+| ---: | --- | --- | --- |
+| 108 | `event-83528bd4ab507b4464f6367395476707fd11d8b055bafa53eb569e189f0d1f58` | `e4106ab9b385fafa88a929f7fb6ffb23b71d15c1` | legacy decision row for `validateDaemonDecisionList`; decision counts for `validateDaemonWorkspaceSummary`; decision coverage for `validateDaemonRelationGraph` |
+| 710 | `event-01015fcbe88177fa28c1954658ece77399a587826b46832e159237aa554ebc3d` | `81f9a9ec2e1f64eb884e94933535dfc214e39633` | fact row and fact anchor for `validateDaemonRelationGraph` |
+| 2,531 | `event-00dd108d8fb541de9a4b33835acf5438a8f8716a0bd27a61d16566e1d882fc61` | `ff8360db61bc6452420daba4d9f3913ba587a04b` | relation edge for `validateDaemonRelationGraph` |
+| 23,742 | `event-5dbd4d8cd3dadd2834664be4e0a3a046bbe0657c572c38dc4a629444141d38ee` | `0b5cdf080a31435d58ec407b509f0a4ecbf23fb7` | task row for `validateDaemonTaskSnapshotList`; task counts for `validateDaemonWorkspaceSummary`; planned task for `validateDaemonAgenda`; `INDEX.md` for `validateDaemonDocumentRead` and `validateDaemonTaskDocumentList`; dispatch owner state for `validateDaemonTaskDispatches` |
+| 23,764 | `event-64bdaa2ba1fac5c9fc3f214a9d14b7ce485664449fd127977beb4ab53b2961ad` | `0139e5a87941f40249e0e33e616e0fb2b0d037ef` | archived dispatch document for `validateDaemonTaskDispatches`; archived task documents for `validateDaemonTaskDocumentList` |
+
+Frozen event count: **5** (budget: 300). The gate enforces a **5,000 ms** wall-clock budget for projection plus validation.
+
+## Validator coverage and exclusions
+
+| Validator | Historical projected stock exercised |
+| --- | --- |
+| `validateDaemonTaskSnapshotList` | one bootstrap task row |
+| `validateDaemonWorkspaceSummary` | one task and one decision |
+| `validateDaemonAgenda` | one dispatchable planned task |
+| `validateDaemonRelationGraph` | one relation edge, one fact/anchor, and decision coverage |
+| `validateDaemonDecisionList` | `dec_LEDGER_E1`, whose historical event has no `provenance` key; today's projector emits `provenance: []` |
+| `validateDaemonDocumentRead` | the bootstrap task's projected `INDEX.md` |
+| `validateDaemonTaskDocumentList` | bootstrap documents plus archived dispatch documents |
+| `validateDaemonTaskDispatches` | one persisted `runtime-dispatch/v1` document, assembled by the production dispatch read |
+
+No validator is excluded: the earliest persisted dispatch at revision 23,764 needs only its task bootstrap plus the archive document under the continuity bypass, so its prerequisite set is 2 events rather than a chain over 23,764 revisions.
+
+## Honest boundary
+
+This gate does **not** cover stream control: batch scanning, cursor progression, `watermark + 1` selection, gap stopping, or source-head continuity. Its event store throws if production tries to scan it. It protects only the reducer/SQLite/row-assembly-to-validator invariant for the listed historical bytes.
+
+`readTaskDispatches` is covered through its durable projected-document branch. The optional local `.harness/runtime/dispatches/*.jsonl` overlay is ephemeral runtime state and is deliberately absent, so parsing or precedence defects confined to that overlay remain a residual risk.

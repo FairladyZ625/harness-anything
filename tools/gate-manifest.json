@@ -4547,7 +4547,7 @@
         "all canonical event reader predicates registered in canonicalEventSchemas",
         "byte-exact frozen events previously accepted under every registered canonical schema id",
         "daemon response validators for persistent task, decision, fact/relation, document, agenda, workspace-summary, and runtime-dispatch projections",
-        "cropped production response envelopes exported from a fixed pre-#1746 canonical cut"
+        "production reducer and daemon read assembly replay of byte-exact events from a fixed pre-#1746 canonical cut"
       ],
       "githubContext": {
         "requiredContexts": [
