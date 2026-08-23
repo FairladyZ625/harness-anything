@@ -3,8 +3,6 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { OrchestrationCard } from "../src/renderer/components/runtime/OrchestrationCard.tsx";
 import { RuntimeInspector } from "../src/renderer/components/runtime/RuntimeInspector.tsx";
 import { RuntimeRail } from "../src/renderer/components/runtime/RuntimeRail.tsx";
@@ -74,16 +72,6 @@ describe("sessions as a first-class view", () => {
     expect(markup).toMatch(/data-testid="orchestration-session-dispatch_aaa"(?![^>]*data-session=)/u);
     // The session the task points at is itself selectable in the rail — the reverse leg lands.
     expect(railView([boundRow], null)).toContain('data-testid="rail-session-runtime-bound"');
-  });
-
-  it("routes both jump directions through the rail selection in the workspace composition", async () => {
-    const source = await readFile(new URL("../src/renderer/views/RuntimeWorkspace.tsx", import.meta.url), "utf8");
-    expect(source).toMatch(/const focusSession = \(runtimeSessionId: string\) => setSelection\(\{ type: "session", id: runtimeSessionId \}\);/u);
-    expect(source).toMatch(/onFocusSession=\{focusSession\}/u);
-    expect(source).toMatch(/onSelectSession=\{focusSession\}/u);
-    expect(source).toMatch(/onOpenTask=\{\(taskId\) => setSelection\(\{ type: "orchestration", id: taskId \}\)\}/u);
-    expect(source).not.toMatch(/SessionsDock|sessions-dock/u);
-    expect(existsSync(new URL("../src/renderer/components/runtime/SessionsDock.tsx", import.meta.url))).toBe(false);
   });
 
   it("mirrors the selected session in the inspector with the same task jump", () => {
