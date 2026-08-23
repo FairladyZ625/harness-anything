@@ -26,14 +26,15 @@ export function GenealogyTimelineView({
   decisions,
   relations,
   focusRef,
-  onNavigateEntity,
+  onOpenDecisionPool,
   onFocusGraph,
   onFocusChange,
 }: {
   decisions: DecisionRow[];
   relations: RelationEdge[];
   focusRef?: string | null;
-  onNavigateEntity?: (ref: string) => void;
+  /** 跳去决策池并聚焦该 decision(DecisionDetailPanel 的「在决策池查看」)。 */
+  onOpenDecisionPool?: (decisionId: string) => void;
   onFocusGraph?: (ref: string) => void;
   onFocusChange?: (ref: string) => void;
 }) {
@@ -239,7 +240,7 @@ export function GenealogyTimelineView({
           <DecisionDetailPanel
             decision={selected}
             onClose={() => setSelectedId(null)}
-            onNavigateEntity={onNavigateEntity}
+            onOpenPool={onOpenDecisionPool ? () => onOpenDecisionPool(selected.decisionId) : undefined}
             onFocusGraph={onFocusGraph}
           />
         )}

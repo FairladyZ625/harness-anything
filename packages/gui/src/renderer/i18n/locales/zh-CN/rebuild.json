@@ -18,5 +18,7 @@
   "navHistory.forward": "前进 (Cmd+] / 鼠标侧键)",
   "settings.language": "界面语言",
   "settings.languageDesc": "zh-CN / en-US;部分视图已双语,其余视图暂为中文",
-  "settings.title": "设置"
+  "settings.title": "设置",
+  "shell.nav.decisionDetail": "决策详情",
+  "shell.nav.factDetail": "事实详情"
 }

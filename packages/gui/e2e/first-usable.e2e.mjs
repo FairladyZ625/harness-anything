@@ -88,6 +88,32 @@ test("Overview is first-usable only with real interactive projection content", {
   await legendToggle.click();
   await page.getByTestId("graph-legend-body").waitFor({ timeout: 5_000 });
 
+  // W4:领地 chip → 聚光灯(抽出的 ego 组件在关系图页仍按旧行为工作)。
+  await page.locator("[data-testid='territory-chip'][data-nav-ref='decision/dec_gui_smoke']").click();
+  await page.locator("[data-testid='ego-card'][data-entity='decision']").waitFor({ timeout: 5_000 });
+  await page.locator("[data-testid='ego-chip'][data-entity='fact']").waitFor({ timeout: 5_000 });
+  await page.getByText("聚光灯 ·", { exact: false }).first().waitFor({ timeout: 5_000 });
+
+  // W4 可寻址路由:聚光灯里展开 fact 卡,「详情」直达 fact 详情页(不落列表页),
+  // 详情页邻域(复用同一 ego 组件)再跳 decision 详情,导航历史原路回撤。
+  await page.locator("[data-testid='ego-chip'][data-entity='fact']").click();
+  await page.locator("[data-testid='ego-card'][data-entity='fact'] button[aria-label='详情']").click();
+  await page.getByTestId("fact-detail-view").waitFor({ timeout: 5_000 });
+  await page.getByText("The GUI renderer received event-backed triadic rows.").first().waitFor({ timeout: 5_000 });
+  await page.locator("[data-testid='fact-detail-view'] .react-flow").waitFor({ timeout: 5_000 });
+
+  await page.locator("[data-testid='fact-detail-view'] [data-testid='ego-chip'][data-entity='decision']").click();
+  await page.locator("[data-testid='fact-detail-view'] [data-testid='ego-card'][data-entity='decision'] button[aria-label='详情']").click();
+  await page.getByTestId("decision-detail-view").waitFor({ timeout: 5_000 });
+  await page.getByText("Expose the triadic projection to the GUI").first().waitFor({ timeout: 5_000 });
+
+  // 回撤:decision 详情 → fact 详情 → 关系图聚光灯(焦点仍是 decision,未退化)。
+  await page.getByTestId("nav-history-bar").getByRole("button", { name: /后退/u }).click();
+  await page.getByTestId("fact-detail-view").waitFor({ timeout: 5_000 });
+  await page.getByTestId("nav-history-bar").getByRole("button", { name: /后退/u }).click();
+  await page.locator("[data-testid='ego-card'][data-entity='decision']").waitFor({ timeout: 5_000 });
+  await page.locator("[data-testid='focus-history-bar']").waitFor({ timeout: 5_000 });
+
   assert.deepEqual(consoleFailures, [], "renderer emitted console errors");
 });
 

@@ -28,6 +28,8 @@ export interface EntityWorkspaceProps {
   factAnchors?: ReadonlyArray<FactAnchorRow>;
   onNavigateEntity: (ref: string) => void;
   onFocusEntityChange: (ref: string | null) => void;
+  /** 跳去决策池并聚焦该 decision(演化史 DecisionDetailPanel 的「在决策池查看」)。 */
+  onOpenDecisionPool?: (decisionId: string) => void;
   /** 最近访问 navRef 列表,透传给 GraphView 左栏(最近访问/搜索)。 */
   recentRefs?: ReadonlyArray<string>;
   /** 统一实体索引(buildPaletteIndex 产物),透传给 GraphView 左栏。 */
@@ -48,6 +50,7 @@ export function EntityWorkspace({
   factAnchors,
   onNavigateEntity,
   onFocusEntityChange,
+  onOpenDecisionPool,
   recentRefs,
   entries,
   onOpenPalette,
@@ -96,7 +99,7 @@ export function EntityWorkspace({
             decisions={decisions}
             relations={relations}
             focusRef={focusedEntityRef}
-            onNavigateEntity={onNavigateEntity}
+            onOpenDecisionPool={onOpenDecisionPool}
             onFocusGraph={(ref) => {
               // 从演化史跳回关系图 = 回到 spotlight 模式。
               setLineageActive(false);
