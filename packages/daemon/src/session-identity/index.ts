@@ -13,12 +13,18 @@ if (!runtimeProtocolFamilies.every((family) => Object.hasOwn(sessionIdentityReso
 export function sessionIdentityResolverFor(protocolFamily: RuntimeProtocolFamily): SessionIdentityResolver { return sessionIdentityResolvers[protocolFamily]; }
 export function resolveSessionIdentity(protocolFamily: RuntimeProtocolFamily, input: SessionIdentityResolverInput): SessionIdentity { return sessionIdentityResolverFor(protocolFamily).resolve(input); }
 
-export function resolveWriteSessionIdentity(binding: { readonly actor: Parameters<typeof runtimeSessionIdFromActor>[0] }, projection: Pick<TaskProjection, "readRuntimeSession" | "readRuntimeInstallation">): SessionIdentity {
-  const runtimeSessionId = runtimeSessionIdFromActor(binding.actor); if (runtimeSessionId === null) return unavailableSessionIdentity();
+export function resolveWriteSessionIdentity(binding: { readonly actor: Parameters<typeof runtimeSessionIdFromActor>[0]; readonly sessionEnvironment?: SessionIdentityResolverInput["env"] }, projection: Pick<TaskProjection, "readRuntimeSession" | "readRuntimeInstallation">): SessionIdentity {
+  const runtimeSessionId = runtimeSessionIdFromActor(binding.actor); if (runtimeSessionId === null) return resolveInteractiveSessionIdentity(binding.sessionEnvironment);
   const session = projection.readRuntimeSession(runtimeSessionId); if (session === null) return unavailableSessionIdentity();
   const installation = projection.readRuntimeInstallation(session.installationId); if (installation === null) return unavailableSessionIdentity(session.kindId);
   if (session.providerSessionId === null || session.transcriptRef === null) return unavailableSessionIdentity(session.kindId);
   return resolveSessionIdentity(installation.protocolFamily, { runtime: session.kindId, providerBinding: { sessionId: session.providerSessionId, transcriptRef: session.transcriptRef } });
+}
+
+function resolveInteractiveSessionIdentity(env: SessionIdentityResolverInput["env"]): SessionIdentity {
+  if (env === undefined) return unavailableSessionIdentity();
+  const resolved = runtimeProtocolFamilies.map((protocolFamily) => resolveSessionIdentity(protocolFamily, { runtime: protocolFamily, env })).filter((identity) => identity.sessionId !== null);
+  return resolved.length === 1 ? resolved[0]! : unavailableSessionIdentity();
 }
 
 export function transcriptRefForSessionIdentity(identity: SessionIdentity, dispatchStreamRef: string): string | null {

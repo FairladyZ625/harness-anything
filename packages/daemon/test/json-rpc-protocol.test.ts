@@ -95,6 +95,14 @@ test("daemon repo registration derives its closed mode enum at the wire boundary
   const invalid = parseDaemonRpcParams("daemon.repo.register", { ...base, mode: "invalid" }); assert.equal(invalid.ok, false); if (!invalid.ok) assert.deepEqual(invalid.errors, ["params.mode must be one of local, remote-center, remote-edge"]);
 });
 
+test("protocol hello accepts only the session variables owned by runtime resolvers", () => {
+  const hello = (sessionEnvironment?: Record<string, unknown>) => parseDaemonRpcParams("protocol.hello", { protocolVersion: currentDaemonProtocolVersion, ...(sessionEnvironment ? { sessionEnvironment } : {}) });
+  assert.equal(hello().ok, true);
+  assert.equal(hello({ CLAUDE_CODE_SESSION_ID: "claude-session", CODEX_THREAD_ID: "codex-thread", CODEX_SESSION_ID: "codex-thread" }).ok, true);
+  assert.deepEqual(hello({ CLAUDE_CODE_HOST_SESSION_ID: "local-wrong" }), { ok: false, errors: ["session environment contains an unknown field \"CLAUDE_CODE_HOST_SESSION_ID\"; allowed fields: \"CLAUDE_CODE_SESSION_ID\", \"CODEX_THREAD_ID\", \"CODEX_SESSION_ID\"."] });
+  assert.deepEqual(hello({ CODEX_THREAD_ID: " " }), { ok: false, errors: ["session environment values must be non-empty strings"] });
+});
+
 test("ledger migrate runs through the RepoCell write queue and reports its bounded projection catch-up", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-ledger-layout-migrate-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {

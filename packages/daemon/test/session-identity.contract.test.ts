@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { runtimeProtocolFamilies, type RuntimeProtocolFamily, type SessionIdentity } from "../../kernel/src/index.ts";
-import { resolveSessionIdentity, sessionIdentityResolverFor, transcriptRefForSessionIdentity } from "../src/session-identity/index.ts";
+import { resolveSessionIdentity, resolveWriteSessionIdentity, sessionIdentityResolverFor, transcriptRefForSessionIdentity } from "../src/session-identity/index.ts";
 
 interface FixtureMeta { readonly fixture: "captured-provider-session-identity/v1"; readonly protocolFamily: RuntimeProtocolFamily; readonly runtime: string; readonly sourceDispatchId: string; readonly capturePolicy: string; readonly expectedSessionId: string; readonly expectedTranscriptReachability: SessionIdentity["transcriptReachability"]; readonly environmentSnapshot?: Readonly<Record<string, string>> }
 type FixtureRecord = FixtureMeta | Readonly<Record<string, unknown>>;
@@ -36,6 +36,23 @@ test("Codex accepts only thread.started identity equal to provider binding", () 
   const meta = fixtureMeta("codex"), mismatched = resolveSessionIdentity("codex", { runtime: "codex", dispatchEvents: [{ type: "thread.started", thread_id: meta.expectedSessionId }], providerBinding: { sessionId: "not-the-thread-id", transcriptRef: "file:.harness/runtime/dispatches/mismatch.jsonl" } });
   assert.deepEqual(mismatched, { runtime: "codex", sessionId: null, transcriptReachability: "unavailable" });
   assert.deepEqual(resolveSessionIdentity("codex", { runtime: "codex", dispatchEvents: [{ session_id: "rollout-shaped-but-not-thread-started" }] }), { runtime: "codex", sessionId: null, transcriptReachability: "unavailable" });
+});
+
+test("interactive Codex identity comes only from its family-owned session variables", () => {
+  const expected = { runtime: "codex", sessionId: "codex-interactive-thread", transcriptReachability: "by_session_id" };
+  assert.deepEqual(resolveSessionIdentity("codex", { runtime: "codex", env: { CODEX_THREAD_ID: expected.sessionId } }), expected);
+  assert.deepEqual(resolveSessionIdentity("codex", { runtime: "codex", env: { CODEX_SESSION_ID: expected.sessionId } }), expected);
+  assert.deepEqual(resolveSessionIdentity("codex", { runtime: "codex", env: { CODEX_THREAD_ID: expected.sessionId, CODEX_SESSION_ID: expected.sessionId } }), expected);
+  assert.deepEqual(resolveSessionIdentity("codex", { runtime: "codex", env: { CODEX_THREAD_ID: expected.sessionId, CODEX_SESSION_ID: "different-session" } }), { runtime: "codex", sessionId: null, transcriptReachability: "unavailable" });
+});
+
+test("interactive writes resolve one family or fail closed without fabricating identity", () => {
+  const binding = (sessionEnvironment?: Readonly<Record<string, string>>) => ({ actor: { principal: { personId: "person-human" }, executor: null }, sessionEnvironment }), projection = { readRuntimeSession: () => null, readRuntimeInstallation: () => null } as never;
+  assert.deepEqual(resolveWriteSessionIdentity(binding({ CLAUDE_CODE_SESSION_ID: "claude-interactive", CLAUDE_CODE_HOST_SESSION_ID: "local-wrong" }), projection), { runtime: "claude", sessionId: "claude-interactive", transcriptReachability: "by_session_id" });
+  assert.deepEqual(resolveWriteSessionIdentity(binding({ CLAUDE_CODE_HOST_SESSION_ID: "local-wrong" }), projection), { runtime: "unavailable", sessionId: null, transcriptReachability: "unavailable" });
+  assert.deepEqual(resolveWriteSessionIdentity(binding({ CODEX_THREAD_ID: "codex-interactive" }), projection), { runtime: "codex", sessionId: "codex-interactive", transcriptReachability: "by_session_id" });
+  assert.deepEqual(resolveWriteSessionIdentity(binding({ CLAUDE_CODE_SESSION_ID: "claude-interactive", CODEX_THREAD_ID: "codex-interactive" }), projection), { runtime: "unavailable", sessionId: null, transcriptReachability: "unavailable" });
+  assert.deepEqual(resolveWriteSessionIdentity(binding(), projection), { runtime: "unavailable", sessionId: null, transcriptReachability: "unavailable" });
 });
 
 test("Agy binds only its observed init conversation_id", () => {

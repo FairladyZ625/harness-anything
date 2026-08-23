@@ -2,8 +2,8 @@ import { unavailableSessionIdentity, type SessionIdentity, type SessionIdentityR
 
 export const claudeCompatibleSessionIdentityResolver: SessionIdentityResolver = Object.freeze({
   resolve: (input: SessionIdentityResolverInput): SessionIdentity => {
-    const sessionId = cleanClaudeSessionId(input.providerBinding?.sessionId) ?? cleanClaudeSessionId(input.env?.CLAUDE_CODE_SESSION_ID) ?? input.dispatchEvents?.map(claudeProviderEvent).map((event) => cleanClaudeSessionId(event?.session_id)).find((value) => value !== null) ?? null;
-    return sessionId === null ? unavailableSessionIdentity(input.runtime) : { runtime: input.runtime, sessionId, transcriptReachability: "by_session_id" };
+    const providerSessionId = cleanClaudeSessionId(input.providerBinding?.sessionId), environmentSessionId = cleanClaudeSessionId(input.env?.CLAUDE_CODE_SESSION_ID), eventSessionId = input.dispatchEvents?.map(claudeProviderEvent).map((event) => cleanClaudeSessionId(event?.session_id)).find((value) => value !== null) ?? null, sessionId = providerSessionId ?? environmentSessionId ?? eventSessionId;
+    return sessionId === null ? unavailableSessionIdentity(input.runtime) : { runtime: providerSessionId === null && eventSessionId === null && environmentSessionId !== null ? "claude" : input.runtime, sessionId, transcriptReachability: "by_session_id" };
   }
 });
 

@@ -2,6 +2,7 @@ import net from "node:net";
 import { createInterface, type Interface as ReadlineInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { currentDaemonProtocolVersion } from "../protocol/version.ts";
+import type { DaemonSessionEnvironment } from "../protocol/daemon-protocol.contract.ts";
 import type { JsonObject, JsonRpcRequest, JsonRpcResponse } from "../protocol/json-rpc-types.ts";
 import { resolveLocalDaemonTarget } from "./local-daemon-target.ts";
 export { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalDaemonTarget, type LocalDaemonTarget } from "./local-daemon-target.ts";
@@ -12,6 +13,7 @@ export interface LocalDaemonJsonRpcOptions {
   readonly socketPath?: string;
   readonly repoIdOverride?: string;
   readonly env?: NodeJS.ProcessEnv;
+  readonly sessionEnvironment?: DaemonSessionEnvironment;
 }
 
 export async function requestLocalDaemonJsonRpc(rootDir: string, method: string, params: JsonObject, timeoutMs = 75,
@@ -19,17 +21,17 @@ export async function requestLocalDaemonJsonRpc(rootDir: string, method: string,
   const target = resolveLocalDaemonTarget({ rootDir, repoIdOverride: options.repoIdOverride, userRoot: options.userRoot,
     daemonId: options.daemonId, env: options.env });
   const socketPath = options.socketPath ?? target.socketPath;
-  return requestWithSocket(await connectSocket(socketPath, timeoutMs), method, params);
+  return requestWithSocket(await connectSocket(socketPath, timeoutMs), method, params, undefined, options.sessionEnvironment);
 }
 
 export async function requestLocalDaemonJsonRpcForTarget(target: { readonly socketPath: string; readonly repoId?: string; readonly canonicalRoot?: string;
-  readonly userRoot?: string; readonly daemonId?: string }, method: string, params: JsonObject,
+  readonly userRoot?: string; readonly daemonId?: string; readonly sessionEnvironment?: DaemonSessionEnvironment }, method: string, params: JsonObject,
   timeoutMs = 75, responseTimeoutMs?: number): Promise<JsonObject> {
-  return requestDaemonJsonRpcAt(target.socketPath, method, params, timeoutMs, responseTimeoutMs);
+  return requestDaemonJsonRpcAt(target.socketPath, method, params, timeoutMs, responseTimeoutMs, target.sessionEnvironment);
 }
 
-export async function requestDaemonJsonRpcAt(socketPath: string, method: string, params: JsonObject, timeoutMs = 75, responseTimeoutMs?: number): Promise<JsonObject> {
-  return requestWithSocket(await connectSocket(socketPath, timeoutMs), method, params, responseTimeoutMs);
+export async function requestDaemonJsonRpcAt(socketPath: string, method: string, params: JsonObject, timeoutMs = 75, responseTimeoutMs?: number, sessionEnvironment?: DaemonSessionEnvironment): Promise<JsonObject> {
+  return requestWithSocket(await connectSocket(socketPath, timeoutMs), method, params, responseTimeoutMs, sessionEnvironment);
 }
 
 // One line reader per client, not per request. A readline interface attaches its own data/end/error
@@ -87,9 +89,9 @@ export class JsonRpcLineClient {
   }
 }
 
-async function requestWithSocket(socket: net.Socket, method: string, params: JsonObject, responseTimeoutMs?: number): Promise<JsonObject> {
+async function requestWithSocket(socket: net.Socket, method: string, params: JsonObject, responseTimeoutMs?: number, sessionEnvironment?: DaemonSessionEnvironment): Promise<JsonObject> {
   const client = new JsonRpcLineClient(socket, socket);
-  try { await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, responseTimeoutMs); return await client.request(method, params, responseTimeoutMs); }
+  try { await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion, ...(sessionEnvironment && Object.keys(sessionEnvironment).length > 0 ? { sessionEnvironment: sessionEnvironment as JsonObject } : {}) }, responseTimeoutMs); return await client.request(method, params, responseTimeoutMs); }
   catch (error) { if (typeof error === "object" && error !== null && (error as { readonly code?: unknown }).code === "daemon_response_timeout") socket.destroy(); throw error; }
   finally { client.close(); }
 }

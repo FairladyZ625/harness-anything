@@ -1,5 +1,5 @@
 import { realpathSync, readFileSync } from "node:fs"; import path from "node:path"; import { fileURLToPath } from "node:url";
-import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts"; import { canonicalRoot, commandClassForAction, daemonMethodAcceptsPayloadExecutor, workspaceId } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts"; import { canonicalRoot, commandClassForAction, daemonMethodAcceptsPayloadExecutor, workspaceId, type DaemonSessionEnvironment } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, readRegisteredRepos, resolveLocalDaemonEndpoint, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
 import type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
@@ -41,7 +41,7 @@ export async function runCommandThroughDaemon(command: ThinCommand, onPhase: (re
   if (fleetTask) { const userRoot = daemonUserRoot(env), daemonId = daemonIdFromEnv(env), socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ userRoot, daemonId, socketPath }, "daemon.fleet.task.run", { payload: fleetTask as JsonObject }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
   const fleetDoc = await fleetDocRoute(command, env);
   if (fleetDoc) { const userRoot = daemonUserRoot(env), daemonId = daemonIdFromEnv(env), socketPath = localUserDaemonEndpoint(userRoot, daemonId); return withAutostart(() => requestLocalDaemonJsonRpcForTarget({ userRoot, daemonId, socketPath }, fleetDoc.method, { payload: fleetDoc.payload as JsonObject }, 75), () => cliDaemonServeLaunch(userRoot, daemonId), socketPath, autostart); }
-  const target = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId, env });
+  const target = { ...resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId, env }), sessionEnvironment: interactiveSessionEnvironment(env) };
   const { kind: _kind, ...actionPayload } = command.action, payload = command.method === "repo.script.run" ? Object.fromEntries(Object.entries(actionPayload).filter(([field, value]) => field !== "schema" && (field !== "taskId" || value !== null))) : actionPayload, executor = declaredExecutor(env);
   // repo.task.run carries the executor inside its open action envelope; every other method takes
   // payload.executor exactly where the daemon contract declares the field (daemonMethodAcceptsPayloadExecutor),
@@ -131,5 +131,9 @@ function declaredExecutor(env: NodeJS.ProcessEnv = process.env): JsonObject | nu
   const match = /^agent:([A-Za-z0-9][A-Za-z0-9._:-]*)$/u.exec(raw);
   if (!match) throw new Error("HARNESS_ACTOR must use agent:<id> with an alphanumeric id containing only letters, numbers, dot, underscore, colon, or dash.");
   return { kind: "agent", id: match[1]! };
+}
+function interactiveSessionEnvironment(env: NodeJS.ProcessEnv): DaemonSessionEnvironment {
+  const claudeSessionId = env.CLAUDE_CODE_SESSION_ID?.trim(), codexThreadId = env.CODEX_THREAD_ID?.trim(), codexSessionId = env.CODEX_SESSION_ID?.trim();
+  return { ...(claudeSessionId ? { CLAUDE_CODE_SESSION_ID: claudeSessionId } : {}), ...(codexThreadId ? { CODEX_THREAD_ID: codexThreadId } : {}), ...(codexSessionId ? { CODEX_SESSION_ID: codexSessionId } : {}) };
 }
 export function consumeKnownError(error: unknown): void { void error; }
