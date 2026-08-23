@@ -12,6 +12,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
+import { launchExitNotification } from "../src/runtime-spawn.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 const definition: AgentDefinitionSnapshot = { schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: "codex-review", installationId: "installation-codex", kindId: "codex", providerId: "openai", model: "gpt-5.6-sol", reasoningEffort: "high", baseUrl: "https://api.example.test/", authMode: "api-key" };
@@ -25,7 +26,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
       const cell = await openRepoCell({ repoId: workspaceId("runtime-spawn"), rootDir: canonicalRoot(root), ownerId: "spawn-test", runtimeInstances: () => [{ schemaVersion: 2, instanceId: definition.instanceId, name: "Codex Review", kindId: "codex", installationId: definition.installationId, providerId: definition.providerId, models: [definition.model, "gpt-5.6-terra"], defaultModel: definition.model, enabled: true, permissionMode: "bypass", codex: { reasoningEffort: definition.reasoningEffort, baseUrl: definition.baseUrl, baseUrlConfigured: true, wire_api: null, requires_openai_auth: null, http_headers: null }, authMode: definition.authMode, authState: "configured", authReadiness: { status: "ready", code: null, hint: null }, isolationState: "enforced" }], prepareRuntimeLaunch: (instanceId, request) => ({ definition: { ...definition, model: request.model ?? definition.model, reasoningEffort: request.effort ?? definition.reasoningEffort }, installation, executablePath: installation.executablePath, args: ["exec", "--json", ...(request.permissionMode ? ["--sandbox", request.permissionMode] : []), "--model", request.model ?? definition.model, ...(request.effort ? ["--config", `model_reasoning_effort=${JSON.stringify(request.effort)}`] : []), "-"], env: { HOME: "/isolated/codex-review/home", OPENAI_API_KEY: "resolved-only-in-daemon" }, cwd: request.cwd, prompt: request.prompt }), runtimeLaunch: (input) => { intentWasDurable = makeTaskEventStore({ repoId: "runtime-spawn", rootDir: root }).read().events.some((candidate) => candidate.type === "runtime_dispatch_requested"); launched = input; return { pid: 123, onOutput: () => undefined, onErrorOutput: () => undefined, onExit: () => undefined, terminate: () => undefined }; } });
       try {
         const binding = { actor: { principal: { personId: "person-spawn" }, executor: null }, source: "local" as const };
-        await assert.rejects(cell.spawnRuntime({ runtimeInstanceId: "codex-review", permission_mode: "read-only", cwd: { scope: "repo-root" }, prompt: "Reject the misspelled field", taskId: null, idempotencyKey: "spawn-unknown-field" }, binding), (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_spawn" && error.message === 'Runtime spawn payload contains an unknown field "permission_mode"; allowed fields: "runtimeInstanceId", "dispatchId", "agentId", "targetAgentId", "model", "effort", "permissionMode", "cwd", "prompt", "promptSource", "taskId", "idempotencyKey", "providerSessionId".');
+        await assert.rejects(cell.spawnRuntime({ runtimeInstanceId: "codex-review", permission_mode: "read-only", cwd: { scope: "repo-root" }, prompt: "Reject the misspelled field", taskId: null, idempotencyKey: "spawn-unknown-field" }, binding), (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_spawn" && error.message === 'Runtime spawn payload contains an unknown field "permission_mode"; allowed fields: "runtimeInstanceId", "dispatchId", "agentId", "targetAgentId", "model", "effort", "permissionMode", "cwd", "prompt", "promptSource", "onExitCommand", "taskId", "idempotencyKey", "providerSessionId".');
         await assert.rejects(cell.cancelRuntime({ runtimeSessionId: "missing", force: true }, binding), (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_cancel" && error.message === 'Runtime cancel payload contains an unknown field "force"; allowed fields: "runtimeSessionId".');
         const receipt = await cell.spawnRuntime({ runtimeInstanceId: "codex-review", cwd: { scope: "repo-root" }, prompt: "Inspect the repository", taskId: null, idempotencyKey: "spawn-once" }, { actor: { principal: { personId: "person-spawn" }, executor: null }, source: "local" });
         assert.equal(receipt.outcome, "applied");
@@ -47,6 +48,16 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         await assert.rejects(cell.spawnRuntime({ kindId: "codex", installationId: "installation-codex", profileId: "default", cwd: { scope: "repo-root" }, prompt: "Legacy", taskId: null, idempotencyKey: "legacy" }, { actor: { principal: { personId: "person-spawn" }, executor: null }, source: "local" }), (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_spawn");
       } finally { await cell.close(); }
     } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("runtime exit notification records a bounded timeout", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-exit-notification-")), executablePath = writeProviderExecutable(path.join(root, "hold-notification.mjs"), "setInterval(() => undefined, 1_000)\n"), records: Array<Record<string, unknown>> = [];
+  try {
+    launchExitNotification({ command: executablePath, cwd: root, stream: { appendExitNotification: (value, occurredAt) => records.push({ ...value, occurredAt }) }, payload: { schema: "runtime-session-exited/v1", runtimeSessionId: "runtime-timeout", outcome: "succeeded", exitCode: 0, nextAction: "ha runtime status runtime-timeout --wait" }, now: () => "2026-08-23T00:00:00.000Z", timeoutMs: 50 });
+    const finished = await eventuallyValue(() => records.find((record) => record.phase === "finished") ?? null);
+    assert.deepEqual(records.map(({ phase, started, exitCode, timedOut }) => ({ phase, started, exitCode, timedOut })), [{ phase: "started", started: true, exitCode: null, timedOut: false }, { phase: "finished", started: true, exitCode: null, timedOut: true }]);
+    assert.equal(finished.occurredAt, "2026-08-23T00:00:00.000Z");
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 test("runtime spawn maps the GUI Claude kind to a canonical claude-compatible installation", async () => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-claude-"));

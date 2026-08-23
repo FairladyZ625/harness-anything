@@ -23,19 +23,21 @@ export interface DispatchStreamHeader {
   readonly delegatedByAgentId?: string;
   readonly delegatedByAgentName?: string;
   readonly squadId?: string;
+  readonly onExitCommand?: string;
 }
 
 export interface DispatchStreamWriter {
   readonly ref: string;
   readonly appendProviderEvent: (value: unknown, occurredAt: string) => void;
   readonly appendProviderBinding: (providerSessionId: string, occurredAt: string) => void;
+  readonly appendExitNotification: (value: { readonly phase: "started" | "finished"; readonly started: boolean; readonly exitCode: number | null; readonly timedOut: boolean; readonly errorCode?: string }, occurredAt: string) => void;
 }
 
 export function openDispatchStream(rootDir: string, header: Omit<DispatchStreamHeader, "schema" | "kind" | "eventStreamRef">): DispatchStreamWriter {
   const ref = dispatchStreamRef(rootDir, header.dispatchId), target = dispatchStreamPath(rootDir, header.dispatchId);
   mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
   if (!existsSync(target)) writeFileSync(target, `${JSON.stringify({ schema: streamSchema, kind: "dispatch", ...header, eventStreamRef: ref })}\n`, { encoding: "utf8", mode: 0o600 });
-  return { ref, appendProviderEvent: (value, occurredAt) => appendJsonl(target, { schema: streamSchema, kind: "provider_event", occurredAt, event: scrubProviderValue(value) }), appendProviderBinding: (providerSessionId, occurredAt) => appendJsonl(target, { schema: streamSchema, kind: "provider_binding", occurredAt, providerSessionId }) };
+  return { ref, appendProviderEvent: (value, occurredAt) => appendJsonl(target, { schema: streamSchema, kind: "provider_event", occurredAt, event: scrubProviderValue(value) }), appendProviderBinding: (providerSessionId, occurredAt) => appendJsonl(target, { schema: streamSchema, kind: "provider_binding", occurredAt, providerSessionId }), appendExitNotification: (value, occurredAt) => appendJsonl(target, { schema: streamSchema, kind: "exit_notification", occurredAt, ...value }) };
 }
 
 export function readDispatchStream(rootDir: string, dispatchId: string): { readonly header: DispatchStreamHeader; readonly providerSessionId: string | null } | null {
