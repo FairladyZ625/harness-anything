@@ -155,14 +155,33 @@ function DispatchChain({ row, session, sessionError, events, eventsError, focuse
       <div className="grid gap-4 lg:grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)_minmax(0,1.4fr)]">
         <ChainStep index="01" title="Mission">
           <p className="font-semibold text-text">{row.agentName ?? row.agentId ?? "执行者未投影"}</p>
-          {row.agentId ? <MetaLine label="agent" value={row.agentId} onNavigate={onNavigateEntity} entityRef={`agent/${row.agentId}`} /> : <MetaLine label="agent" value="—" />}
-          {row.squadId ? <MetaLine label="squad" value={row.squadId} onNavigate={onNavigateEntity} entityRef={`squad/${row.squadId}`} /> : <MetaLine label="squad" value="—" />}
+          {row.agentId ? (
+            <MetaLine
+              label="agent"
+              value={row.agentId}
+              onNavigate={onNavigateEntity}
+              entityRef={`agent/${row.agentId}`}
+            />
+          ) : <MetaLine label="agent" value="—" />}
+          {row.squadId ? (
+            <MetaLine
+              label="squad"
+              value={row.squadId}
+              onNavigate={onNavigateEntity}
+              entityRef={`squad/${row.squadId}`}
+            />
+          ) : <MetaLine label="squad" value="—" />}
           <MetaLine label="delegated by" value={row.delegatedByAgentName ?? row.delegatedByAgentId ?? "—"} />
           <p className="mt-3 text-[11px] leading-5 text-text-faint">当前读面不包含 mission 正文；这里仅展示结构化派工身份。</p>
         </ChainStep>
         <ChainStep index="02" title="Dispatch">
           <MetaLine label="execution" value={row.executionId} />
-          <MetaLine label="instance" value={row.instanceId} onNavigate={onNavigateEntity} entityRef={`provider/${row.instanceId}`} />
+          <MetaLine
+            label="instance"
+            value={row.instanceId}
+            onNavigate={onNavigateEntity}
+            entityRef={`provider/${row.instanceId}`}
+          />
           <MetaLine label="provider session" value={row.providerSessionId ?? "—"} />
           <MetaLine label="started" value={localDateTime(row.startedAt, true) ?? row.startedAt} />
           <MetaLine label="ended" value={row.endedAt ? localDateTime(row.endedAt, true) ?? row.endedAt : "运行中"} />
@@ -486,7 +505,17 @@ function MetaLine({ label, value, entityRef, onNavigate }: {
   /** 给了 ref+回调即渲染成实体链接(G10);不给则为非实体标识符的纯文本。 */
   readonly entityRef?: string; readonly onNavigate?: (ref: string) => void;
 }) {
-  return <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-2"><span className="text-[11px] text-text-faint">{label}</span>{entityRef && onNavigate ? <EntityRefLink entityRef={entityRef} onNavigate={onNavigate} title={value} className="min-w-0 break-all font-mono text-[11px] text-accent hover:underline" /> : <span className="min-w-0 break-all font-mono text-[11px] text-text-muted">{value}</span>}</div>;
+  return <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-2">
+    <span className="text-[11px] text-text-faint">{label}</span>
+    {entityRef && onNavigate ? (
+      <EntityRefLink
+        entityRef={entityRef}
+        onNavigate={onNavigate}
+        title={value}
+        className="min-w-0 break-all font-mono text-[11px] text-accent hover:underline"
+      />
+    ) : <span className="min-w-0 break-all font-mono text-[11px] text-text-muted">{value}</span>}
+  </div>
 }
 
 function StatusDot({ status }: { readonly status: TaskDispatchProjectionRow["status"] }) {

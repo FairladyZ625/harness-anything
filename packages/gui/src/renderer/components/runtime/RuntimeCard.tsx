@@ -15,13 +15,17 @@ import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 type Props = {
   readonly instance: RuntimeInstanceSummary; readonly installations: readonly RuntimeInstallationRow[]; readonly agents: readonly AgentEntityRow[]; readonly liveSessions: number; readonly busy: boolean;
   readonly authProbeError?: string;
-  readonly onSelectAgent: (agentId: string) => void; readonly onSelectRuntime: (instanceId: string) => void; readonly onAuth: (action: "login" | "logout") => void; readonly onValidate: () => void;
+  readonly onSelectAgent: (agentId: string) => void; readonly onAuth: (action: "login" | "logout") => void; readonly onValidate: () => void;
+  readonly onSelectRuntime: (instanceId: string) => void;
   readonly onSetEnabled: (enabled: boolean) => void; readonly onUpdate: (input: RuntimeInstanceUpdateInput) => void; readonly onDelete: () => void; readonly onSelfTest: (model: string) => Promise<string | null>;
 };
 // The carrier card. Provider plane decides which sections exist at all: agy has no API
 // section because agy has no API mode; claude shows the single-instance API override;
 // codex shows the call path it was created with, because those are separate instances.
-export function RuntimeCard({ instance, installations, agents, liveSessions, busy, authProbeError, onSelectAgent, onSelectRuntime, onAuth, onValidate, onSetEnabled, onUpdate, onDelete, onSelfTest }: Props) {
+export function RuntimeCard({
+  instance, installations, agents, liveSessions, busy, authProbeError,
+  onSelectAgent, onSelectRuntime, onAuth, onValidate, onSetEnabled, onUpdate, onDelete, onSelfTest,
+}: Props) {
   const [confirm, setConfirm] = useState(false), [editing, setEditing] = useState(false), [selfTestModel, setSelfTestModel] = useState(instance.defaultModel), [selfTestResult, setSelfTestResult] = useState<string | null>(null), [selfTestBusy, setSelfTestBusy] = useState(false);
   useEffect(() => { setSelfTestModel(instance.defaultModel); setSelfTestResult(null); }, [instance.instanceId, instance.defaultModel]);
   useEffect(() => { setEditing(false); }, [instance.instanceId]);
@@ -29,10 +33,23 @@ export function RuntimeCard({ instance, installations, agents, liveSessions, bus
   const apiMode = instance.authMode === "api-key", auth = runtimeAuthPresentation(instance, authProbeError ?? null), authText = auth.state === "ready" ? t("agentRuntime.authVerified") : auth.state === "not-checked" ? t("agentRuntime.authNotChecked") : auth.state === "probe-error" ? t("agentRuntime.authProbeFailed", { error: auth.error ?? "" }) : `${instance.authReadiness.code}: ${instance.authReadiness.hint}`;
   const nativeAuthActions = !apiMode && instance.kindId !== "agy", agyLoginPath = instance.kindId === "agy" && instance.authState === "unauthenticated";
   return <div data-testid={`runtime-card-${instance.instanceId}`}>
-    <Crumbs><span>{t("agentRuntime.segRuntimes")}</span><CrumbSep /><b className="font-semibold text-text-muted">{instance.name}</b><CrumbSep /><EntityRefLink entityRef={`provider/${instance.instanceId}`} onNavigate={() => onSelectRuntime(instance.instanceId)} title={instance.instanceId} className="font-mono text-text-muted hover:text-accent hover:underline" /></Crumbs>
+    <Crumbs>
+      <span>{t("agentRuntime.segRuntimes")}</span>
+      <CrumbSep />
+      <b className="font-semibold text-text-muted">{instance.name}</b>
+      <CrumbSep />
+      <EntityRefLink
+        entityRef={`provider/${instance.instanceId}`}
+        onNavigate={() => onSelectRuntime(instance.instanceId)}
+        title={instance.instanceId}
+        className="font-mono text-text-muted hover:text-accent hover:underline"
+      />
+    </Crumbs>
     <Card testId="runtime-card-provider">
       <CardHead>
-        <KindDot kind={instance.kindId} /><CardTitle>{instance.name}</CardTitle><Badge>{instance.kindId}</Badge><Badge><EntityRefLink entityRef={`provider/${instance.instanceId}`} onNavigate={() => onSelectRuntime(instance.instanceId)} title={instance.instanceId} className="text-text-muted hover:text-accent hover:underline" /></Badge>
+        <KindDot
+          kind={instance.kindId}
+        />
         {liveSessions > 0 ? <Badge status="active">{t("agentRuntime.liveSessions", { count: liveSessions })}</Badge> : <Badge status="planned">{t("agentRuntime.idle")}</Badge>}
         <Right>{!editing && <Btn size="sm" testId="runtime-provider-edit" disabled={busy} onClick={() => setEditing(true)}>{t("agentRuntime.editProvider")}</Btn>}<Hint>{t("agentRuntime.enabled")}</Hint><Toggle checked={instance.enabled} label={t("agentRuntime.enabled")} onChange={onSetEnabled} /></Right>
       </CardHead>
@@ -85,7 +102,15 @@ export function RuntimeCard({ instance, installations, agents, liveSessions, bus
         <KV><KVRow name="state root">{instance.isolationState === "enforced" ? t("agentRuntime.instanceStateRoot") : t("agentRuntime.operatorEnvironment")}</KVRow><KVRow name="permission">{instance.permissionMode ?? t("agentRuntime.providerDefault")}</KVRow></KV>
         <div className="mt-2.5 flex items-center gap-2 border-t border-border pt-2.5">
           <Btn variant="danger" size="sm" disabled={busy} onClick={() => { if (confirm) { setConfirm(false); onDelete(); } else setConfirm(true); }}>{confirm ? t("agentRuntime.confirmDelete") : t("agentRuntime.deleteInstance")}</Btn>
-          <Hint>ha runtime instance delete <EntityRefLink entityRef={`provider/${instance.instanceId}`} onNavigate={() => onSelectRuntime(instance.instanceId)} title={instance.instanceId} className="text-text-muted hover:text-accent hover:underline" /></Hint>
+          <Hint>
+            ha runtime instance delete{" "}
+            <EntityRefLink
+              entityRef={`provider/${instance.instanceId}`}
+              onNavigate={() => onSelectRuntime(instance.instanceId)}
+              title={instance.instanceId}
+              className="text-text-muted hover:text-accent hover:underline"
+            />
+          </Hint>
         </div>
       </CardBody>
     </Card>

@@ -192,10 +192,22 @@ function ClaimList({
  */
 
 /** 提议/批准者展示:agent 是可寻址实体 → 链接;human/system 无详情页 → 纯文本。 */
-function renderActor(actor: { kind: "agent" | "human" | "system"; id: string } | undefined, onNavigateEntity: (ref: string) => void): React.ReactNode {
+function renderActor(
+  actor: { kind: "agent" | "human" | "system"; id: string } | undefined,
+  onNavigateEntity: (ref: string) => void,
+): React.ReactNode {
   if (!actor) return <span className="font-mono text-text-muted">未知/—</span>;
   if (actor.kind !== "agent") return <span className="font-mono text-text-muted">{`${actor.kind}:${actor.id}`}</span>;
-  return <EntityRefLink entityRef={`agent/${actor.id}`} onNavigate={onNavigateEntity} title={actor.id} className="font-mono text-text-muted hover:text-accent hover:underline">{`agent:${actor.id}`}</EntityRefLink>;
+  return (
+    <EntityRefLink
+      entityRef={`agent/${actor.id}`}
+      onNavigate={onNavigateEntity}
+      title={actor.id}
+      className="font-mono text-text-muted hover:text-accent hover:underline"
+    >
+      {`agent:${actor.id}`}
+    </EntityRefLink>
+  );
 }
 
 export function VerdictCard({
@@ -253,7 +265,12 @@ export function VerdictCard({
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <EntityRefLink entityRef={`decision/${d.decisionId}`} onNavigate={(ref) => onNavigateDecision(ref.split("/")[1] ?? d.decisionId)} title={d.decisionId} className="font-mono text-[12px] text-text-faint hover:text-accent hover:underline" />
+            <EntityRefLink
+              entityRef={`decision/${d.decisionId}`}
+              onNavigate={(ref) => onNavigateDecision(ref.split("/")[1] ?? d.decisionId)}
+              title={d.decisionId}
+              className="font-mono text-[12px] text-text-faint hover:text-accent hover:underline"
+            />
             <DecisionStateBadge state={d.state} />
             <span className="font-mono text-[11px] text-text-faint">{d.vertical}</span>
           </div>
@@ -365,7 +382,12 @@ export function VerdictCard({
               <span className="text-text-faint">派生 task → </span>
               {derived.map((t) => (
                 <span key={t.taskId} className="mr-2 inline-flex items-center gap-1 font-mono text-text-muted">
-                  <EntityRefLink entityRef={`task/${t.taskId}`} onNavigate={() => onNavigateTask(t.taskId)} title={t.taskId} className="rounded bg-surface px-1 text-text-muted hover:text-accent hover:underline" />
+                  <EntityRefLink
+                    entityRef={`task/${t.taskId}`}
+                    onNavigate={() => onNavigateTask(t.taskId)}
+                    title={t.taskId}
+                    className="rounded bg-surface px-1 text-text-muted hover:text-accent hover:underline"
+                  />
                   <span className="font-sans text-text-faint">{t.title}</span>
                 </span>
               ))}
@@ -374,13 +396,33 @@ export function VerdictCard({
           {chain.supersedes.length > 0 && (
             <div className="mt-0.5 text-[11px]">
               <span className="text-text-faint">推翻(supersedes)→ </span>
-              <span className="font-mono text-danger">{chain.supersedes.map((id) => <EntityRefLink key={id} entityRef={`decision/${id}`} onNavigate={() => onNavigateDecision(id)} title={id} className="text-danger hover:underline" />).reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}</span>
+              <span className="font-mono text-danger">
+                {chain.supersedes.map((id) => (
+                  <EntityRefLink
+                    key={id}
+                    entityRef={`decision/${id}`}
+                    onNavigate={() => onNavigateDecision(id)}
+                    title={id}
+                    className="text-danger hover:underline"
+                  />
+                )).reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}
+              </span>
             </div>
           )}
           {chain.supersededBy.length > 0 && (
             <div className="mt-0.5 text-[11px]">
               <span className="text-text-faint">被推翻(superseded by)→ </span>
-              <span className="font-mono text-danger">{chain.supersededBy.map((id) => <EntityRefLink key={id} entityRef={`decision/${id}`} onNavigate={() => onNavigateDecision(id)} title={id} className="text-danger hover:underline" />).reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}</span>
+              <span className="font-mono text-danger">
+                {chain.supersededBy.map((id) => (
+                  <EntityRefLink
+                    key={id}
+                    entityRef={`decision/${id}`}
+                    onNavigate={() => onNavigateDecision(id)}
+                    title={id}
+                    className="text-danger hover:underline"
+                  />
+                )).reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}
+              </span>
             </div>
           )}
         </div>

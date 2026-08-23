@@ -17,7 +17,8 @@ export function squadChartLayout(workers: number): { readonly width: number; rea
   return { width, height: 188, slotWidth, startX: (width - Math.max(0, workers - 1) * slotWidth) / 2 };
 }
 
-type Props = { readonly detail: SquadEntityDetail; readonly row: SquadEntityRow | null; readonly agents: readonly AgentEntityRow[]; readonly busy: boolean; readonly onSave: (declaration: SquadDeclarationV1) => void; readonly onLaunch: () => void; readonly onSelectAgent: (agentId: string) => void; readonly onSelectSquad: (squadId: string) => void };
+type Props = { readonly detail: SquadEntityDetail; readonly row: SquadEntityRow | null; readonly agents: readonly AgentEntityRow[]; readonly busy: boolean; readonly onSave: (declaration: SquadDeclarationV1) => void; readonly onLaunch: () => void; readonly onSelectAgent: (agentId: string) => void;
+  readonly onSelectSquad: (squadId: string) => void };
 export function SquadCard({ detail, row, agents, busy, onSave, onLaunch, onSelectAgent, onSelectSquad }: Props) {
   const [draft, setDraft] = useState<SquadDraft>(() => squadDraftFrom(detail)), [slot, setSlot] = useState<SquadSlot | null>(null);
   useEffect(() => { setDraft(squadDraftFrom(detail)); setSlot(null); }, [detail]);
@@ -25,10 +26,31 @@ export function SquadCard({ detail, row, agents, busy, onSave, onLaunch, onSelec
   const name = (agentId: string) => agents.find((agent) => agent.id === agentId)?.name ?? agentId;
   const dirty = squadDraftDirty(detail, draft), members = draft.workers.length + 1;
   return <div data-testid={`squad-card-${detail.id}`}>
-    <Crumbs><span>{t("agentRuntime.segSquads")}</span><CrumbSep /><b className="font-semibold text-text-muted">{detail.name}</b><CrumbSep /><EntityRefLink entityRef={`squad/${detail.id}`} onNavigate={() => onSelectSquad(detail.id)} title={detail.id} className="font-mono text-text-muted hover:text-accent hover:underline" /><CrumbSep /><span className="font-mono">{t("agentRuntime.memberCount", { count: members })}</span></Crumbs>
+    <Crumbs>
+      <span>{t("agentRuntime.segSquads")}</span>
+      <CrumbSep />
+      <b className="font-semibold text-text-muted">{detail.name}</b>
+      <CrumbSep />
+      <EntityRefLink
+        entityRef={`squad/${detail.id}`}
+        onNavigate={() => onSelectSquad(detail.id)}
+        title={detail.id}
+        className="font-mono text-text-muted hover:text-accent hover:underline"
+      />
+      <CrumbSep />
+      <span className="font-mono">{t("agentRuntime.memberCount", { count: members })}</span>
+    </Crumbs>
     <Card>
       <CardHead>
-        <CardTitle>{detail.name}</CardTitle><Badge><EntityRefLink entityRef={`squad/${detail.id}`} onNavigate={() => onSelectSquad(detail.id)} title={detail.id} className="text-text-muted hover:text-accent hover:underline" /></Badge><Badge tip={t("agentRuntime.taskBindingTip")}>task_binding: required</Badge>
+        <CardTitle>{detail.name}</CardTitle>
+        <Badge>
+          <EntityRefLink
+            entityRef={`squad/${detail.id}`}
+            onNavigate={() => onSelectSquad(detail.id)}
+            title={detail.id}
+            className="text-text-muted hover:text-accent hover:underline"
+          />
+        </Badge>
         {row?.validity === "blocked" && <Badge status="blocked">{t("agentRuntime.declarationBlocked")}</Badge>}
         <Right><input aria-label={t("agentRuntime.squadName")} value={draft.name} onChange={(event) => patch({ name: event.target.value })} className="w-48 rounded border border-transparent bg-transparent px-1 py-px text-[12px] text-text-muted outline-none hover:border-border-strong focus-visible:border-accent focus-visible:bg-surface" /></Right>
       </CardHead>

@@ -143,7 +143,30 @@ export function TaskPreviewDrawer({
               </div>
               <div>
                 <dt className="font-mono text-[12px] text-text-faint">{t("components.taskPreviewDrawer.parentRoot")}</dt>
-                <dd className="font-mono text-text">{task.parentTaskId ? <EntityRefLink entityRef={`task/${task.parentTaskId}`} onNavigate={() => onOpenDetail(task.parentTaskId!)} title={task.parentTaskId} className="text-accent hover:underline" /> : "root"} / {task.rootTaskId ? <EntityRefLink entityRef={`task/${task.rootTaskId}`} onNavigate={() => onOpenDetail(task.rootTaskId!)} title={task.rootTaskId} className="text-accent hover:underline" /> : <EntityRefLink entityRef={`task/${task.taskId}`} onNavigate={() => onOpenDetail(task.taskId)} title={task.taskId} className="text-accent hover:underline" />}</dd>
+                <dd className="font-mono text-text">
+                  {task.parentTaskId ? (
+                    <EntityRefLink
+                      entityRef={`task/${task.parentTaskId}`}
+                      onNavigate={() => onOpenDetail(task.parentTaskId!)}
+                      title={task.parentTaskId}
+                      className="text-accent hover:underline"
+                    />
+                  ) : "root"} / {task.rootTaskId ? (
+                    <EntityRefLink
+                      entityRef={`task/${task.rootTaskId}`}
+                      onNavigate={() => onOpenDetail(task.rootTaskId!)}
+                      title={task.rootTaskId}
+                      className="text-accent hover:underline"
+                    />
+                  ) : (
+                    <EntityRefLink
+                      entityRef={`task/${task.taskId}`}
+                      onNavigate={() => onOpenDetail(task.taskId)}
+                      title={task.taskId}
+                      className="text-accent hover:underline"
+                    />
+                  )}
+                </dd>
               </div>
             </dl>
           </Section>

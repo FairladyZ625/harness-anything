@@ -32,7 +32,16 @@ function EndpointRef({ raw, onNavigateDecision, onNavigateTask, onFocusGraph }: 
     : raw.startsWith("task/") ? onNavigateTask !== undefined
       : onFocusGraph !== undefined;
   return routable
-    ? <EntityRefLink entityRef={raw} onNavigate={navigate} title={raw} className="text-text-faint hover:text-accent hover:underline">{shortEndpoint(raw)}</EntityRefLink>
+    ? (
+      <EntityRefLink
+        entityRef={raw}
+        onNavigate={navigate}
+        title={raw}
+        className="text-text-faint hover:text-accent hover:underline"
+      >
+        {shortEndpoint(raw)}
+      </EntityRefLink>
+    )
     : <span className="text-text-faint">{shortEndpoint(raw)}</span>;
 }
 
@@ -95,7 +104,12 @@ export function FactInspector({
       <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
         <GitBranch weight="duotone" className="shrink-0 text-text-muted" />
         {onFocusGraph ? (
-          <EntityRefLink entityRef={fullRef} onNavigate={onFocusGraph} title={fullRef} className="min-w-0 truncate font-mono text-xs text-text-muted hover:text-accent hover:underline" />
+          <EntityRefLink
+            entityRef={fullRef}
+            onNavigate={onFocusGraph}
+            title={fullRef}
+            className="min-w-0 truncate font-mono text-xs text-text-muted hover:text-accent hover:underline"
+          />
         ) : (
           <span className="min-w-0 truncate font-mono text-xs text-text-muted">{anchor}</span>
         )}
@@ -144,7 +158,16 @@ export function FactInspector({
               <WarningCircle weight="bold" />
               {t("components.factInspector.danglingFactReference")}
             </div>
-            <div className="mt-1 font-mono">{onFocusGraph ? <EntityRefLink entityRef={factRef} onNavigate={onFocusGraph} title={factRef} className="text-danger hover:underline" /> : factRef}</div>
+            <div className="mt-1 font-mono">
+              {onFocusGraph ? (
+                <EntityRefLink
+                  entityRef={factRef}
+                  onNavigate={onFocusGraph}
+                  title={factRef}
+                  className="text-danger hover:underline"
+                />
+              ) : factRef}
+            </div>
             <p className="mt-1 leading-relaxed">
               {t("components.factInspector.inv6WillDetectAnchorNotPresent")}
             </p>
@@ -227,7 +250,12 @@ export function FactInspector({
               {inbound.map((relation, index) => (
                 <div key={`${relation.from}-${relation.kind}-${index}`} className="rounded border border-border bg-surface px-2 py-1.5">
                   <div className="flex items-center gap-1.5 font-mono text-[11px]">
-                    <EndpointRef raw={relation.from} onNavigateDecision={onNavigateDecision} onNavigateTask={onNavigateTask} onFocusGraph={onFocusGraph} />
+                    <EndpointRef
+                      raw={relation.from}
+                      onNavigateDecision={onNavigateDecision}
+                      onNavigateTask={onNavigateTask}
+                      onFocusGraph={onFocusGraph}
+                    />
                     <ArrowSquareOut weight="bold" className="text-[11px] text-text-faint" />
                     <span className={
                       relation.kind === "refuted-by" || relation.kind === "supersedes-fact"

@@ -228,7 +228,13 @@ export function TaskDetailView({
             data-testid="task-detail-panel-scroll"
           >
             {activeTab === "overview" ? <TaskOverviewTab task={task} />
-              : activeTab === "dispatch" ? <TaskDispatchTab task={task} focusedSessionId={focusedSessionId} onNavigateEntity={onNavigateEntity} />
+              : activeTab === "dispatch" ? (
+                <TaskDispatchTab
+                  task={task}
+                  focusedSessionId={focusedSessionId}
+                  onNavigateEntity={onNavigateEntity}
+                />
+              )
                 : activeTab === "evidence" ? (
                     <TaskEvidenceTab
                       task={task}

@@ -16,9 +16,14 @@ export const agentDraftDirty = (detail: AgentEntityDetail, draft: AgentDraft): b
 
 type Props = {
   readonly detail: AgentEntityDetail; readonly row: AgentEntityRow | null; readonly squads: readonly SquadEntityRow[]; readonly instances: readonly RuntimeInstanceSummary[]; readonly availableSkills?: readonly AgentSkillRow[]; readonly presets?: readonly { readonly id: string; readonly title: string; readonly description: string }[];
-  readonly busy: boolean; readonly onSave: (declaration: AgentDeclarationV1) => void; readonly onDispatch: (mission: string) => void; readonly onSelectSquad: (squadId: string) => void; readonly onSelectRuntime: (instanceId: string) => void; readonly onSelectAgent: (agentId: string) => void;
+  readonly busy: boolean; readonly onSave: (declaration: AgentDeclarationV1) => void; readonly onDispatch: (mission: string) => void; readonly onSelectSquad: (squadId: string) => void; readonly onSelectRuntime: (instanceId: string) => void;
+  readonly onSelectAgent: (agentId: string) => void;
 };
-export function AgentCard({ detail, row, squads, instances, availableSkills = [], presets = [], busy, onSave, onDispatch, onSelectSquad, onSelectRuntime, onSelectAgent }: Props) {
+export function AgentCard({
+  detail, row, squads, instances, availableSkills = [], presets = [], busy,
+  onSave, onDispatch, onSelectSquad, onSelectRuntime, onSelectAgent,
+}: Props) {
+
   const [draft, setDraft] = useState<AgentDraft>(() => agentDraftFrom(detail)), [runtimeListOpen, setRuntimeListOpen] = useState(false), [skillSearch, setSkillSearch] = useState(""), [presetSearch, setPresetSearch] = useState(""), [customModelOpen, setCustomModelOpen] = useState(false);
   useEffect(() => { setDraft(agentDraftFrom(detail)); }, [detail]);
   const patch = (value: Partial<AgentDraft>) => setDraft((current) => ({ ...current, ...value }));
@@ -27,14 +32,30 @@ export function AgentCard({ detail, row, squads, instances, availableSkills = []
   const referencing = squads.filter((squad) => squad.leader === detail.id || squad.workers.includes(detail.id));
   const dirty = agentDraftDirty(detail, draft);
   return <div data-testid={`agent-card-${detail.id}`}>
-    <Crumbs><span>{t("agentRuntime.segAgents")}</span><CrumbSep /><b className="font-semibold text-text-muted">{detail.name}</b><CrumbSep /><EntityRefLink entityRef={`agent/${detail.id}`} onNavigate={() => onSelectAgent(detail.id)} title={detail.id} className="font-mono text-text-muted hover:text-accent hover:underline" /></Crumbs>
+    <Crumbs>
+      <span>{t("agentRuntime.segAgents")}</span>
+      <CrumbSep />
+      <b className="font-semibold text-text-muted">{detail.name}</b>
+      <CrumbSep />
+      <EntityRefLink
+        entityRef={`agent/${detail.id}`}
+        onNavigate={() => onSelectAgent(detail.id)}
+        title={detail.id}
+        className="font-mono text-text-muted hover:text-accent hover:underline"
+      />
+    </Crumbs>
     <Card>
       <div className="flex items-start gap-3 px-3.5 py-3">
         <Avatar id={detail.id} size="lg" />
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           <div className="flex flex-wrap items-center gap-2">
             <input aria-label={t("agentRuntime.agentName")} value={draft.name} onChange={(event) => patch({ name: event.target.value })} className="min-w-[200px] rounded border border-transparent bg-transparent px-1 py-px text-[15px] font-bold text-text outline-none hover:border-border-strong focus-visible:border-accent focus-visible:bg-surface" />
-            <EntityRefLink entityRef={`agent/${detail.id}`} onNavigate={() => onSelectAgent(detail.id)} title={detail.id} className="font-mono text-[10.5px] text-text-faint hover:text-accent hover:underline" />
+            <EntityRefLink
+              entityRef={`agent/${detail.id}`}
+              onNavigate={() => onSelectAgent(detail.id)}
+              title={detail.id}
+              className="font-mono text-[10.5px] text-text-faint hover:text-accent hover:underline"
+            />
             {row && <Badge tip={t("agentRuntime.layerTip", { layer: row.layer })}>{row.layer}</Badge>}
             {row?.validity === "blocked" && <Badge status="blocked">{t("agentRuntime.declarationBlocked")}</Badge>}
           </div>
