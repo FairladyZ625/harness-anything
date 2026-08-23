@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import {
   ArrowSquareOut,
@@ -14,11 +15,22 @@ import { agentRuntimeClient } from "../../agent-runtime-client.ts";
 import { harnessClient } from "../../api-client.ts";
 import type { TaskMutationFeedback } from "../../task-actions.ts";
 import { useTaskDocumentQuery } from "../../task-data.ts";
-import { triadicQueryKeys } from "../../triadic-data.ts";
+import { buildTriadicRendererData, triadicQueryKeys } from "../../triadic-data.ts";
 import { localDateTime } from "../../model/local-time.ts";
 import type { DecisionRow, RelationEdge, TaskRow } from "../../model/types.ts";
 import { normalizeTaskId } from "../../model/triadic.ts";
+import { buildFactTriage, SIGNAL_LABEL, type FactTriageItem } from "../../model/fact-triage.ts";
+import { buildFactTriageContext } from "../../model/copy-context.ts";
+import {
+  adaptTaskExecutions,
+  buildExecutionEvidenceContext,
+  checkerResultField,
+  field,
+  receiptField,
+  type ExecutionEvidenceRow,
+} from "../../model/execution-evidence.ts";
 import { CloseoutBadge } from "../badges.tsx";
+import { CopyContextButton } from "../CopyContextButton.tsx";
 import { DocReader } from "../DocReader.tsx";
 import { TaskControlPanel } from "../TaskControlPanel.tsx";
 import { IN_LABEL, OUT_LABEL } from "./constants.ts";
@@ -168,41 +180,112 @@ function DispatchChain({ row, session, sessionError, events, eventsError, focuse
   );
 }
 
-export function TaskEvidenceTab({ task }: { readonly task: TaskRow }) {
+const EMPTY_DECISION_LIST = { ok: true, decisions: [], warnings: [] } as const;
+
+// W5:全局「事实分诊」列表页撤销,triage 信号并入本页签——同一关系投影上现算
+// (buildFactTriage 纯前端派生,不新增读面),带信号的 fact 排前、severity 降序,
+// 分诊队列的排序语义在 task 邻域内保留。
+export function TaskEvidenceTab({ task, tasks = [], relations = [], decisions = [], onNavigateEntity }: {
+  readonly task: TaskRow;
+  readonly tasks?: readonly TaskRow[];
+  readonly relations?: readonly RelationEdge[];
+  readonly decisions?: readonly DecisionRow[];
+  readonly onNavigateEntity?: (ref: string) => void;
+}) {
   const graph = useQuery({
     queryKey: triadicQueryKeys.graph(task.projectId),
     queryFn: () => harnessClient.getRelationGraph({ repoId: task.projectId }),
     staleTime: 10_000,
   });
   const facts = (graph.data?.facts ?? []).filter((fact) => fact.taskId === task.taskId);
+  const triageByAnchor = useMemo(() => {
+    if (!graph.data) return new Map<string, FactTriageItem>();
+    const projected = buildTriadicRendererData({ graph: graph.data, decisions: EMPTY_DECISION_LIST });
+    return new Map(
+      buildFactTriage(projected.facts, projected.relations, projected.coverageRows, projected.factAnchors)
+        .filter((item) => item.fact.taskId === task.taskId)
+        .map((item) => [item.fact.anchor, item]),
+    );
+  }, [graph.data, task.taskId]);
+  const orderedFacts = useMemo(() => {
+    const anchorOf = (fact: RelationFactRow) => `${fact.taskId}/${fact.factId}`;
+    const byAnchor = new Map(facts.map((fact) => [anchorOf(fact), fact]));
+    const triaged = [...triageByAnchor.values()]
+      .map((item) => ({ fact: byAnchor.get(item.fact.anchor), item }))
+      .filter((entry): entry is { fact: RelationFactRow; item: FactTriageItem } => entry.fact !== undefined);
+    const triagedAnchors = new Set(triaged.map(({ fact }) => anchorOf(fact)));
+    return [...triaged, ...facts.filter((fact) => !triagedAnchors.has(anchorOf(fact))).map((fact) => ({ fact, item: null }))];
+  }, [facts, triageByAnchor]);
+  const signalledCount = orderedFacts.filter(({ item }) => item !== null).length;
 
   return (
     <section data-testid="task-evidence-tab">
-      <SectionHeading eyebrow="FACTS" title="任务证据" description="按 taskId 从关系投影筛选；statement、source、confidence、state 均保持后端语义" />
+      <SectionHeading
+        eyebrow="FACTS"
+        title="任务证据"
+        description="按 taskId 从关系投影筛选；triage 信号（矛盾 / 孤儿 / 低置信 / 已被取代）在同一投影上现算"
+        extra={facts.length > 0 ? <span className="font-mono text-[11px] text-text-faint">{signalledCount} 条带信号 · {facts.length - signalledCount} healthy</span> : undefined}
+      />
       {graph.isPending ? <div className="mt-5"><Pending text="正在读取 facts…" /></div>
         : graph.isError ? <div className="mt-5"><ReadError text={`Facts 读取失败：${graph.error.message}`} /></div>
           : facts.length === 0 ? <div className="mt-5"><Empty text="该任务还没有 fact。记录可复核观察后，证据会按活性状态出现在这里。" /></div>
-            : <div className="mt-6 divide-y divide-border border-y border-border" data-testid="task-facts-list">{facts.map((fact) => <FactRow key={fact.factId} fact={fact} />)}</div>}
+            : <div className="mt-6 divide-y divide-border border-y border-border" data-testid="task-facts-list">{orderedFacts.map(({ fact, item }) => <FactRow key={fact.factId} fact={fact} item={item} relations={relations} decisions={decisions} tasks={tasks} onNavigateEntity={onNavigateEntity} />)}</div>}
     </section>
   );
 }
 
-function FactRow({ fact }: { readonly fact: RelationFactRow }) {
+function FactRow({ fact, item, relations, decisions, tasks, onNavigateEntity }: {
+  readonly fact: RelationFactRow;
+  readonly item: FactTriageItem | null;
+  readonly relations: readonly RelationEdge[];
+  readonly decisions: readonly DecisionRow[];
+  readonly tasks: readonly TaskRow[];
+  readonly onNavigateEntity?: (ref: string) => void;
+}) {
+  const accent = item === null ? "" : "border-l-2 border-l-status-blocked pl-3";
   return (
-    <article className="grid gap-3 py-5 lg:grid-cols-[8rem_minmax(0,1fr)_13rem]">
+    <article className={`grid gap-3 py-5 lg:grid-cols-[8rem_minmax(0,1fr)_13rem] ${accent}`}>
       <div>
         <p className="font-mono text-[11px] font-semibold text-text">{fact.factId}</p>
         <span className={`mt-1 inline-flex rounded px-1.5 py-0.5 font-mono text-[10px] ${fact.liveness === "standing" ? "bg-status-done/10 text-status-done" : "bg-surface-raised text-text-faint"}`}>{fact.liveness}</span>
       </div>
       <div className="min-w-0">
+        {item && item.signals.length > 0 && (
+          <div className="mb-1.5 flex flex-wrap gap-1">
+            {item.signals.map((signal) => (
+              <span key={signal.kind} title={signal.detail} className="inline-flex rounded border border-status-blocked/30 bg-status-blocked/10 px-1.5 py-0.5 font-mono text-[10px] text-status-blocked">
+                {SIGNAL_LABEL[signal.kind]}
+              </span>
+            ))}
+            <span className="font-mono text-[10px] text-text-faint">severity {item.severity}</span>
+          </div>
+        )}
         <p className="text-[14px] leading-6 text-text">{fact.statement}</p>
         <p className="mt-2 break-all font-mono text-[11px] text-text-faint">source: {fact.source}</p>
+        {onNavigateEntity && (
+          <button
+            type="button"
+            data-testid={`task-fact-detail-${fact.factId}`}
+            onClick={() => onNavigateEntity(`fact/${fact.taskId}/${fact.factId}`)}
+            className="mt-2 inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
+          >
+            <ArrowSquareOut weight="bold" className="text-[11px]" />
+            事实详情
+          </button>
+        )}
       </div>
-      <dl className="grid content-start grid-cols-[5rem_1fr] gap-x-2 gap-y-1 text-[11px]">
-        <dt className="text-text-faint">confidence</dt><dd className="font-mono text-text-muted">{fact.confidence}</dd>
-        <dt className="text-text-faint">observed</dt><dd><Timestamp value={fact.observedAt} /></dd>
-        <dt className="text-text-faint">memory</dt><dd className="font-mono text-text-muted">{fact.memoryClass}</dd>
-      </dl>
+      <div className="grid content-start gap-2">
+        {item && (
+          <div className="flex justify-end">
+            <CopyContextButton compact buildText={() => buildFactTriageContext(item, relations, decisions, tasks)} />
+          </div>
+        )}
+        <dl className="grid content-start grid-cols-[5rem_1fr] gap-x-2 gap-y-1 text-[11px]">
+          <dt className="text-text-faint">confidence</dt><dd className="font-mono text-text-muted">{fact.confidence}</dd>
+          <dt className="text-text-faint">observed</dt><dd><Timestamp value={fact.observedAt} /></dd>
+          <dt className="text-text-faint">memory</dt><dd className="font-mono text-text-muted">{fact.memoryClass}</dd>
+        </dl>
+      </div>
     </article>
   );
 }
@@ -278,9 +361,26 @@ export function TaskRelationsTab({ task, tasks = [], relations = [], decisions =
 
 export function TaskCloseoutTab({ task, mutationFeedback, onProgress, onSubmit }: { readonly task: TaskRow } & TaskActionProps) {
   const reviews = task.reviews ?? [], consents = task.consents ?? [], codeDocs = task.codeDocWitnesses ?? [], gateWitnesses = task.gateWitnesses ?? [];
+  // W5:执行证据页撤销后,execution 输出/回执并入收口——从投影行原样适配
+  // (model/execution-evidence),reviews/consents/gate 见证按 execution 对齐。
+  const executions = useMemo(() => (
+    task.executions === undefined || task.executionEvidence === undefined ? [] : adaptTaskExecutions({
+      taskId: task.taskId,
+      updatedAt: task.lastKnownAt,
+      snapshotAvailability: task.snapshotAvailability,
+      snapshot: {
+        task: { title: task.title },
+        executions: task.executions,
+        reviews: task.reviews ?? [],
+        consents: task.consents ?? [],
+        gateWitnesses: task.gateWitnesses ?? [],
+      },
+      executionEvidence: task.executionEvidence,
+    })
+  ), [task]);
   return (
     <section data-testid="task-closeout-tab">
-      <SectionHeading eyebrow="CLOSEOUT" title="收口与门" description="后端 closeoutAssessment 与 snapshot witness 的原样展示" />
+      <SectionHeading eyebrow="CLOSEOUT" title="收口与门" description="后端 closeoutAssessment、snapshot witness 与 execution 输出回执的原样展示" />
       <div className="mt-7 grid gap-8 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="grid content-start gap-8">
           <div className="flex flex-wrap items-center gap-3 border-y border-border py-4">
@@ -292,6 +392,7 @@ export function TaskCloseoutTab({ task, mutationFeedback, onProgress, onSubmit }
           <AuditGroup title="Consent" count={consents.length}>{consents.map((consent) => <AuditRow key={consent.consentId} id={consent.consentId} state="recorded" summary={`review ${consent.reviewId}`} at={consent.consentedAt} />)}</AuditGroup>
           <AuditGroup title="Code / doc witness" count={codeDocs.length}>{codeDocs.map((witness) => <AuditRow key={witness.witnessId} id={witness.witnessId} state="reconciled" summary={witness.paths.join(", ")} at={witness.reconciledAt} />)}</AuditGroup>
           <AuditGroup title="Gate witness" count={gateWitnesses.length}>{gateWitnesses.map((witness) => <AuditRow key={witness.witnessId} id={witness.gateId} state={witness.result} summary={`${witness.checkerId} · ${witness.receiptId}`} at={witness.verifiedAt} />)}</AuditGroup>
+          <ExecutionOutputsGroup executions={executions} />
         </div>
 
         <aside className="grid content-start gap-7 border-t border-border pt-6 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-6">
@@ -313,6 +414,36 @@ export function TaskCloseoutTab({ task, mutationFeedback, onProgress, onSubmit }
 
 function AuditGroup({ title, count, children }: { readonly title: string; readonly count: number; readonly children: React.ReactNode }) {
   return <section><div className="mb-2 flex items-center gap-2"><h3 className="text-[13px] font-semibold text-text">{title}</h3><span className="font-mono text-[10px] text-text-faint">{count}</span></div>{count === 0 ? <p className="border-t border-border py-3 text-[12px] text-text-faint">暂无记录。</p> : <div className="divide-y divide-border border-y border-border">{children}</div>}</section>;
+}
+
+// Execution 输出与回执(原「执行证据」页的 per-task 内容):每个 execution 一块,
+// 输出按 evidenceId/substrate/locator/receipt/result 逐条展示,回执判定着色。
+function ExecutionOutputsGroup({ executions }: { readonly executions: readonly ExecutionEvidenceRow[] }) {
+  return <AuditGroup title="Execution 输出" count={executions.length}>{executions.map((execution) => (
+    <article key={execution.executionId} data-testid={`task-execution-${execution.executionId}`} className="grid gap-3 py-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px]">
+        <span className="font-semibold text-text">{execution.executionId}</span>
+        <span className="rounded border border-border px-1.5 py-0.5 text-text-muted">{field(execution.state)}</span>
+        {execution.origin && <span className="rounded border border-border px-1.5 py-0.5 text-text-faint">{execution.origin}</span>}
+        <span className="text-text-faint">iteration {field(execution.iteration)} · commit {field(execution.commitSha && execution.commitSha.slice(0, 10))}</span>
+        <span className="ml-auto text-text-faint">{execution.outputs.length} outputs · {execution.outputs.filter(({ isPassingReceipt }) => isPassingReceipt).length} passing</span>
+      </div>
+      {execution.outputs.length === 0 ? <p className="text-[12px] text-text-faint">该 execution 没有输出记录。</p> : (
+        <div className="grid gap-1">
+          {execution.outputs.map((output, index) => (
+            <div key={`${output.evidenceId ?? "unknown"}-${index}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-border/70 bg-surface-raised/35 px-2 py-1.5 font-mono text-[11px]">
+              <span className="min-w-0 truncate text-text">{field(output.evidenceId)}</span>
+              <span className="min-w-0 truncate text-text-muted">{field(output.substrate)} · {field(output.locator)}</span>
+              <span className={output.isPassingReceipt ? "text-status-done" : output.checkerReceiptRef === null ? "text-stale" : "text-status-unknown"}>
+                {receiptField(output.checkerReceiptRef)} · {checkerResultField(output.checkerResult)}
+              </span>
+              <span className="ml-auto"><CopyContextButton compact buildText={() => buildExecutionEvidenceContext(execution, output)} /></span>
+            </div>
+          ))}
+        </div>
+      )}
+    </article>
+  ))}</AuditGroup>;
 }
 
 function AuditRow({ id, state, summary, at }: { readonly id: string; readonly state: string; readonly summary: string; readonly at: string }) {
@@ -347,8 +478,8 @@ function StatusDot({ status }: { readonly status: TaskDispatchProjectionRow["sta
   return <span className={`size-2 rounded-full ${color}`} aria-label={status} />;
 }
 
-function SectionHeading({ eyebrow, title, description }: { readonly eyebrow: string; readonly title: string; readonly description: string }) {
-  return <header><p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-accent">{eyebrow}</p><h2 className="mt-1 text-[18px] font-semibold tracking-[-0.01em] text-text">{title}</h2><p className="mt-1 max-w-[64ch] text-[12px] leading-5 text-text-faint">{description}</p></header>;
+function SectionHeading({ eyebrow, title, description, extra }: { readonly eyebrow: string; readonly title: string; readonly description: string; readonly extra?: React.ReactNode }) {
+  return <header className="flex flex-wrap items-end justify-between gap-2"><div><p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-accent">{eyebrow}</p><h2 className="mt-1 text-[18px] font-semibold tracking-[-0.01em] text-text">{title}</h2><p className="mt-1 max-w-[64ch] text-[12px] leading-5 text-text-faint">{description}</p></div>{extra}</header>;
 }
 
 function Timestamp({ value }: { readonly value: string }) {

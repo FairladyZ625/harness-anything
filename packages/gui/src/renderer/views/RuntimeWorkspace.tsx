@@ -9,11 +9,10 @@ import { DispatchDialog } from "../components/DispatchDialog.tsx";
 import { AgentCard, agentDeclarationFrom, agentDraftFrom } from "../components/runtime/AgentCard.tsx";
 import { NewEntityDialog, type NewEntityRequest } from "../components/runtime/NewEntityDialog.tsx";
 import { NewRuntimeDialog } from "../components/runtime/NewRuntimeDialog.tsx";
-import { OrchestrationCard } from "../components/runtime/OrchestrationCard.tsx";
 import { Badge, Btn, CapDot, Empty, Hint } from "../components/runtime/parts.tsx";
 import { RuntimeCard } from "../components/runtime/RuntimeCard.tsx";
 import { RuntimeInspector } from "../components/runtime/RuntimeInspector.tsx";
-import { orchestrationEntries, RuntimeRail } from "../components/runtime/RuntimeRail.tsx";
+import { RuntimeRail } from "../components/runtime/RuntimeRail.tsx";
 import { SessionsPanel } from "../components/runtime/SessionsPanel.tsx";
 import { SquadCard, squadDeclarationFrom, squadDraftFrom } from "../components/runtime/SquadCard.tsx";
 import { useAgentDetail, useRuntimeWorkspace, useSquadDetail, type RuntimeSelection } from "../components/runtime/useRuntimeWorkspace.ts";
@@ -22,13 +21,14 @@ type TaskOption = { readonly taskId: string; readonly title: string; readonly he
 type Dialog = { readonly kind: "new-runtime" } | { readonly kind: "new-entity"; readonly entity: "agent" | "squad" } | { readonly kind: "dispatch"; readonly subject: DispatchSubject; readonly prompts: readonly string[]; readonly mission: string };
 
 // The Agent Runtime configuration plane: rail (carrier → identity → organisation →
-// orchestration → execution) · detail card · inspector, exactly the regions the design
-// prototype argues for. Sessions are a first-class rail segment carried by the main area —
-// selection is the only cross-region state.
-export function RuntimeWorkspace({ repoId, tasks }: { readonly repoId: string; readonly tasks: readonly TaskOption[] }) {
+// execution) · detail card · inspector, exactly the regions the design prototype argues
+// for. Sessions are a first-class rail segment carried by the main area — selection is the
+// only cross-region state. W5:「编排」rail 段随入口撤销——task 的派工链归 Task 详情
+// 「派工」页签;session → task 的出口(onOpenTask)指向 Task 详情。
+export function RuntimeWorkspace({ repoId, tasks, onOpenTask }: { readonly repoId: string; readonly tasks: readonly TaskOption[]; readonly onOpenTask: (taskId: string) => void }) {
   const workspace = useRuntimeWorkspace(repoId, tasks), catalog = useCatalogSnapshot(repoId), skills = useQuery({ queryKey: ["agent-skills", repoId], queryFn: () => agentEntityClient.listAgentSkills(repoId), staleTime: 10_000 });
-  const [selection, setSelection] = useState<RuntimeSelection | null>(null), [segments, setSegments] = useState<Readonly<Record<string, boolean>>>({ runtimes: true, agents: true, squads: true, orchestration: true, sessions: true });
-  const [dialog, setDialog] = useState<Dialog | null>(null), [inspector, setInspector] = useState(true), [revision, setRevision] = useState(0);
+  const [selection, setSelection] = useState<RuntimeSelection | null>(null), [segments, setSegments] = useState<Readonly<Record<string, boolean>>>({ runtimes: true, agents: true, squads: true, sessions: true });
+  const [dialog, setDialog] = useState<Dialog | null>(null), [inspector, setInspector] = useState(true);
   const instances = workspace.instances, installations = workspace.machine.data?.installations ?? [], agents = workspace.agents.data ?? [], squads = workspace.squads.data ?? [];
   const current: RuntimeSelection | null = selection ?? (instances[0] ? { type: "runtime", id: instances[0].instanceId } : agents[0] ? { type: "agent", id: agents[0].id } : null);
   const agentDetail = useAgentDetail(repoId, current?.type === "agent" ? current.id : null), squadDetail = useSquadDetail(repoId, current?.type === "squad" ? current.id : null);
@@ -58,11 +58,11 @@ export function RuntimeWorkspace({ repoId, tasks }: { readonly repoId: string; r
     }
     setDialog(null);
   };
-  const dispatch = async (request: DispatchRequest) => { const settled = await workspace.dispatch(request); setDialog(null); setRevision((value) => value + 1); if (settled?.runtimeSessionId) focusSession(settled.runtimeSessionId); };
+  const dispatch = async (request: DispatchRequest) => { const settled = await workspace.dispatch(request); setDialog(null); if (settled?.runtimeSessionId) focusSession(settled.runtimeSessionId); };
 
   // Each region reads its own source, so one failing read degrades that region and nothing
-  // else: the machine-local instance catalogue going down must not take the Agents, Squads,
-  // Orchestration and Sessions regions — which never touch it — down with it.
+  // else: the machine-local instance catalogue going down must not take the Agents, Squads
+  // and Sessions regions — which never touch it — down with it.
   const readError = [workspace.machine.error, workspace.overview.error, workspace.agents.error, workspace.squads.error].find(Boolean);
   const catalogsPending = workspace.machine.isPending && workspace.agents.isPending;
   return <section data-testid="runtime-workspace" className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -76,7 +76,7 @@ export function RuntimeWorkspace({ repoId, tasks }: { readonly repoId: string; r
     {readError !== undefined && <p role="alert" data-testid="runtime-read-error" className="shrink-0 border-b border-border bg-status-blocked/10 px-3.5 py-1.5 font-mono text-[11px] text-status-blocked">{t("agentRuntime.readFailed", { error: readError instanceof Error ? readError.message : String(readError) })}</p>}
     {(workspace.error ?? workspace.feedback) && <p role="status" onClick={workspace.clearFeedback} className={`shrink-0 border-b border-border px-3.5 py-1.5 font-mono text-[11px] ${workspace.error ? "bg-status-blocked/10 text-status-blocked" : "text-text-muted"}`}>{workspace.error ?? workspace.feedback}</p>}
     <div className="flex min-h-0 flex-1">
-      <RuntimeRail instances={instances} authProbeErrors={workspace.authProbeErrors} agents={agents} squads={squads} orchestration={orchestrationEntries(workspace.dockRows)} sessions={workspace.dockRows} selection={current} open={segments} liveByInstance={liveByInstance}
+      <RuntimeRail instances={instances} authProbeErrors={workspace.authProbeErrors} agents={agents} squads={squads} sessions={workspace.dockRows} selection={current} open={segments} liveByInstance={liveByInstance}
         onToggle={(segment) => setSegments((value) => ({ ...value, [segment]: !(value[segment] ?? true) }))} onSelect={setSelection} onNew={(segment) => setDialog(segment === "runtimes" ? { kind: "new-runtime" } : { kind: "new-entity", entity: segment === "agents" ? "agent" : "squad" })} />
       <main className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6">
         {current === null ? <Empty>{t(catalogsPending ? "agentRuntime.loading" : "agentRuntime.emptyWorkspace")}</Empty>
@@ -94,11 +94,10 @@ export function RuntimeWorkspace({ repoId, tasks }: { readonly repoId: string; r
             ? <SquadCard detail={squadDetail.data} row={squads.find((squad) => squad.id === current.id) ?? null} agents={agents} busy={workspace.busy}
                 onSave={(declaration) => void workspace.saveSquad(declaration)} onLaunch={() => void openSquadDispatch(current.id)} onSelectAgent={(agentId) => setSelection({ type: "agent", id: agentId })} />
             : <Empty>{t("agentRuntime.loading")}</Empty>)
-          : current.type === "session" ? <SessionsPanel repoId={repoId} runtimeSessionId={current.id} row={workspace.dockRows.find((row) => row.runtimeSessionId === current.id) ?? null} busy={workspace.busy}
-              onCancel={(runtimeSessionId) => void workspace.cancelSession(runtimeSessionId)} onOpenTask={(taskId) => setSelection({ type: "orchestration", id: taskId })} />
-          : <OrchestrationCard repoId={repoId} taskId={current.id} taskTitle={tasks.find((task) => task.taskId === current.id)?.title ?? current.id} revision={revision} onFocusSession={focusSession} />}
+          : <SessionsPanel repoId={repoId} runtimeSessionId={current.id} row={workspace.dockRows.find((row) => row.runtimeSessionId === current.id) ?? null} busy={workspace.busy}
+              onCancel={(runtimeSessionId) => void workspace.cancelSession(runtimeSessionId)} onOpenTask={onOpenTask} />}
       </main>
-      {inspector && <RuntimeInspector selection={current} instances={instances} authProbeErrors={workspace.authProbeErrors} agents={agents} squads={squads} rows={workspace.dockRows} onSelect={setSelection} onSelectSession={focusSession} />}
+      {inspector && <RuntimeInspector selection={current} instances={instances} authProbeErrors={workspace.authProbeErrors} agents={agents} squads={squads} rows={workspace.dockRows} onSelect={setSelection} onSelectSession={focusSession} onOpenTask={onOpenTask} />}
     </div>
     {dialog?.kind === "new-runtime" && <NewRuntimeDialog installations={installations} existingInstanceIds={instances.map((instance) => instance.instanceId)} busy={workspace.busy} onCancel={() => setDialog(null)} onCreate={(input) => { void workspace.createInstance(input).then((created) => { if (created) { setDialog(null); setSelection({ type: "runtime", id: input.instanceId }); } }); }} />}
     {dialog?.kind === "new-entity" && <NewEntityDialog kind={dialog.entity} agents={agents} squads={squads} busy={workspace.busy} taken={dialog.entity === "agent" ? agents.map((agent) => agent.id) : squads.map((squad) => squad.id)} onCancel={() => setDialog(null)} onCreate={(request) => void createEntity(request)} />}

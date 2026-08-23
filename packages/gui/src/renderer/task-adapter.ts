@@ -64,6 +64,10 @@ function adaptProjectionRow(row: TaskSnapshotProjectionRow, projectId: string, p
     consents: row.snapshot.consents,
     codeDocWitnesses: row.snapshot.codeDocWitnesses,
     gateWitnesses: row.snapshot.gateWitnesses,
+    // W5:执行证据页撤销后,execution 输出/回执的渲染归 Task 详情「收口」页签;
+    // 这里按 reviews 等既有模式原样透传,renderer 不重解释 kernel 字段。
+    executions: row.snapshot.executions,
+    executionEvidence: row.executionEvidence,
     ...(task.metadata?.riskTier ? { riskTier: task.metadata.riskTier } : {}),
     ...(task.metadata?.urgency ? { urgency: task.metadata.urgency } : {}),
     docs: [],

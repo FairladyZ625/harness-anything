@@ -146,7 +146,7 @@ export function TaskDetailView({
         <div className="mx-auto w-full max-w-[96rem]">
           {activeTab === "overview" ? <TaskOverviewTab task={task} />
             : activeTab === "dispatch" ? <TaskDispatchTab task={task} focusedSessionId={focusedSessionId} />
-              : activeTab === "evidence" ? <TaskEvidenceTab task={task} />
+              : activeTab === "evidence" ? <TaskEvidenceTab task={task} tasks={tasks} relations={relations} decisions={decisions} onNavigateEntity={onNavigateEntity} />
                 : activeTab === "relations" ? <TaskRelationsTab task={task} tasks={tasks} relations={relations} decisions={decisions} onSelect={onSelect} onNavigateDecision={onNavigateDecision} onNavigateEntity={onNavigateEntity} onOpenSession={openSession} />
                   : activeTab === "closeout" ? <TaskCloseoutTab task={task} mutationFeedback={mutationFeedback} onProgress={onProgress} onSubmit={onSubmit} />
                     : <TaskFilesTab task={task} />}

@@ -5,27 +5,22 @@ import { runtimeDockGroups, type RuntimeDockRow } from "../../runtime-panorama.t
 import { t } from "../../i18n/index.tsx";
 import { runtimeAuthPresentation } from "../../runtime-auth-presentation.ts";
 import { Avatar, CapDot, KindDot, LiveDot } from "./parts.tsx";
-import { OUTCOME_TONE } from "./OrchestrationCard.tsx";
 import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
 
-export type OrchestrationEntry = { readonly taskId: string; readonly title: string; readonly dispatches: number; readonly running: number };
-export function orchestrationEntries(rows: readonly RuntimeDockRow[]): readonly OrchestrationEntry[] {
-  const byTask = new Map<string, { title: string; dispatches: number; running: number }>();
-  for (const row of rows) { if (!row.taskId) continue; const entry = byTask.get(row.taskId) ?? { title: row.taskTitle ?? row.taskId, dispatches: 0, running: 0 }; entry.dispatches += 1; if (row.status === "running") entry.running += 1; byTask.set(row.taskId, entry); }
-  return [...byTask].map(([taskId, value]) => ({ taskId, ...value })).sort((left, right) => right.running - left.running || left.taskId.localeCompare(right.taskId));
-}
+const OUTCOME_TONE: Record<RuntimeDockRow["status"], string> = { succeeded: "text-status-done", failed: "text-status-blocked", cancelled: "text-status-cancelled", unknown: "text-status-unknown", running: "text-status-active" };
 
 type Props = {
-  readonly instances: readonly RuntimeInstanceSummary[]; readonly agents: readonly AgentEntityRow[]; readonly squads: readonly SquadEntityRow[]; readonly orchestration: readonly OrchestrationEntry[]; readonly sessions: readonly RuntimeDockRow[];
+  readonly instances: readonly RuntimeInstanceSummary[]; readonly agents: readonly AgentEntityRow[]; readonly squads: readonly SquadEntityRow[]; readonly sessions: readonly RuntimeDockRow[];
   readonly authProbeErrors?: ReadonlyMap<string, string>;
   readonly selection: RuntimeSelection | null; readonly open: Readonly<Record<string, boolean>>; readonly liveByInstance: ReadonlyMap<string, number>;
   readonly onToggle: (segment: string) => void; readonly onSelect: (selection: RuntimeSelection) => void; readonly onNew: (segment: "runtimes" | "agents" | "squads") => void;
 };
-// The prototype rail: five collapsible segments in the order carrier → identity →
-// organisation → orchestration → execution, each row carrying the one fact that
-// distinguishes it. Sessions sit at the same rank as the rest: picked here, shown in
-// the main area — never in a drawer bolted onto the bottom.
-export function RuntimeRail({ instances, authProbeErrors, agents, squads, orchestration, sessions, selection, open, liveByInstance, onToggle, onSelect, onNew }: Props) {
+// The prototype rail: four collapsible segments in the order carrier → identity →
+// organisation → execution, each row carrying the one fact that distinguishes it. Sessions
+// sit at the same rank as the rest: picked here, shown in the main area — never in a
+// drawer bolted onto the bottom. W5:「编排」段撤销——task 派工链归 Task 详情「派工」页签,
+// 运行侧只保留 session 行与其绑定的 task 标题。
+export function RuntimeRail({ instances, authProbeErrors, agents, squads, sessions, selection, open, liveByInstance, onToggle, onSelect, onNew }: Props) {
   const picked = (type: RuntimeSelection["type"], id: string) => selection?.type === type && selection.id === id;
   return <nav data-testid="runtime-rail" aria-label={t("agentRuntime.railLabel")} className="flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface">
     <Segment segment="runtimes" title={t("agentRuntime.segRuntimes")} sub={t("agentRuntime.segRuntimesSub")} count={instances.length} open={open.runtimes ?? true} onToggle={onToggle} onNew={() => onNew("runtimes")}>
@@ -46,12 +41,6 @@ export function RuntimeRail({ instances, authProbeErrors, agents, squads, orches
       {squads.map((squad) => <Row key={squad.id} tip={squad.id} testId={`rail-squad-${squad.id}`} selected={picked("squad", squad.id)} onSelect={() => onSelect({ type: "squad", id: squad.id })}>
         <KindDot kind="any" /><span className="min-w-0 flex-1 truncate text-[12px]">{squad.name}</span>
         <span className="shrink-0 rounded-[3px] border border-border-strong px-1 font-mono text-[9px] text-text-faint">{t("agentRuntime.memberCount", { count: squad.workers.length + 1 })}</span>
-      </Row>)}
-    </Segment>
-    <Segment segment="orchestration" title={t("agentRuntime.segOrchestration")} sub={t("agentRuntime.segOrchestrationSub")} count={orchestration.length} open={open.orchestration ?? true} onToggle={onToggle}>
-      {orchestration.map((entry) => <Row key={entry.taskId} tip={entry.taskId} testId={`rail-orchestration-${entry.taskId}`} selected={picked("orchestration", entry.taskId)} onSelect={() => onSelect({ type: "orchestration", id: entry.taskId })}>
-        <span className="shrink-0 font-mono text-[10px] text-text-faint">{entry.taskId.slice(-6)}</span><span className="min-w-0 flex-1 truncate text-[12px]">{entry.title}</span>
-        <span className="shrink-0 whitespace-nowrap font-mono text-[9px] text-text-faint">{t("agentRuntime.dispatchCount", { count: entry.dispatches })}</span>
       </Row>)}
     </Segment>
     <Segment segment="sessions" title={t("agentRuntime.segSessions")} sub={t("agentRuntime.segSessionsSub")} count={sessions.length} open={open.sessions ?? true} onToggle={onToggle}>

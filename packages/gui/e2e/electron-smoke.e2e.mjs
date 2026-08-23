@@ -70,6 +70,16 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   if (await taskError.isVisible()) throw new Error(`GUI task bridge failed:\n${await taskError.innerText()}`);
   assert.equal(await taskSurface.count(), 1, "renderer did not show the real task projection or its real empty state");
 
+  // W5 IA 重构:一级导航 = 工作区 / 决策 / 运行时 / 系统;事实分诊·执行证据入口
+  // 随页面撤销(内容并入 Task 详情),总览保留在「工作区」之下。
+  const sidebarText = await page.locator("aside").first().innerText();
+  for (const group of ["工作区", "决策", "运行时", "系统", "总览", "看板", "关系图", "决策批准", "决策池"]) {
+    assert.ok(sidebarText.includes(group), `first-level nav must still expose ${group}`);
+  }
+  for (const retired of ["事实分诊", "执行证据", "管理"]) {
+    assert.ok(!sidebarText.includes(retired), `retired nav entry ${retired} must be gone from the sidebar`);
+  }
+
   // The shipped relation graph consumes the same daemon/service bridge as the
   // task projection. The hermetic authored ledger renders all three entity
   // shapes and the kernel-named relation rows without a mock banner.
@@ -234,20 +244,42 @@ test("GUI creates a Runtime and Agent from zero, invokes its selected Skill, and
   assert.ok((providerResult ?? "").includes(`GUI_SKILL_PATH=${resolve(skillPath, "SKILL.md")}`), "provider prompt did not contain the selected Skill manifest's absolute path");
   assert.equal(readFileSync(proofPath, "utf8"), `GUI_REAL_DISPATCH_PROOF=${proofValue}\n`, "provider did not create the requested proof file");
 
-  await page.getByTestId("rail-orchestration-task-gui-dispatch").waitFor({ timeout: 20_000 });
-  await page.getByTestId("rail-orchestration-task-gui-dispatch").click();
-  const orchestration = page.getByTestId("orchestration-panel");
-  const missionCell = orchestration.getByTestId("orchestration-missions").locator("button", { hasText: /dispatch_/u });
-  await missionCell.waitFor({ timeout: 20_000 });
-  const dispatchId = (await missionCell.innerText()).match(/dispatch_[a-z0-9]+/u)?.[0];
-  assert.ok(dispatchId, "GUI did not display a dispatch id in the mission chain");
-  for (const [kind, expected] of [["missions", /GUI_REAL_DISPATCH_PROOF=/u], ["dispatches", /runtimeSessionId/u], ["reports", /GUI_REAL_DISPATCH_PROOF=/u]] ) {
-    const cell = orchestration.getByTestId(`orchestration-${kind}`).locator("button", { hasText: dispatchId });
-    await cell.waitFor({ timeout: 20_000 });
-    await cell.click();
-    await page.waitForFunction((pattern) => new RegExp(pattern, "u").test(globalThis.document.querySelector('[data-testid="orchestration-preview"]')?.textContent ?? ""), expected.source);
-    const preview = await orchestration.getByTestId("orchestration-preview").textContent();
-    assert.match(preview ?? "", expected, `${kind} artifact preview was not visible in the GUI`);
+  // W5:「编排」rail 段随入口撤销——派工链归 Task 详情:「派工」页签读结构化派工读面
+  // (dispatch 身份 + runtime session + report),mission/report 工件文档在「文件」
+  // 页签(documents.list / document.read,与原编排视图同一读面)。同一批 artifact
+  // 必须仍可见可读,否则撤销入口就丢了东西。
+  const runtimeSessionId = /rail-session-(.+)/u.exec((await sessionRow.getAttribute("data-testid")) ?? "")?.[1] ?? "";
+  assert.ok(runtimeSessionId, "settled session row did not expose its runtime session id");
+  await page.getByTestId("session-open-task").click();
+  await page.getByTestId("task-detail-view").waitFor({ timeout: 10_000 });
+  await page.getByRole("tab", { name: "派工" }).click();
+  const dispatchTab = page.getByTestId("task-dispatch-tab");
+  await dispatchTab.locator("article").first().waitFor({ timeout: 20_000 });
+  assert.match(await dispatchTab.textContent(), new RegExp(runtimeSessionId, "u"), "dispatch chain lost the runtime session id");
+  const dispatchId = (await dispatchTab.textContent()).match(/dispatch_[a-z0-9]+/u)?.[0];
+  assert.ok(dispatchId, "GUI did not display a dispatch id in the dispatch chain");
+  const reportText = dispatchTab.locator("pre").first();
+  await reportText.waitFor({ timeout: 20_000 });
+  assert.match((await reportText.textContent()) ?? "", /GUI_REAL_DISPATCH_PROOF=/u, "dispatch chain did not render the settled report");
+  for (const [kind, dirName] of [["mission", "missions/"], ["report", "reports/"]]) {
+    await page.getByRole("tab", { name: "文件" }).click();
+    const filesTab = page.getByTestId("task-files-tab");
+    // 文档树默认只展开根级目录:先展开 missions//reports/ 目录,再点 dispatch 工件叶节点。
+    const dirToggle = filesTab.locator("button", { hasText: dirName }).first();
+    await dirToggle.waitFor({ timeout: 20_000 });
+    await dirToggle.click();
+    const docLeaf = filesTab.locator("button", { hasText: dispatchId }).first();
+    await docLeaf.waitFor({ timeout: 10_000 });
+    await docLeaf.click();
+    const bodyHandle = await page.waitForFunction(
+      (pattern) => {
+        const text = globalThis.document.querySelector('[data-testid="task-files-tab"] article')?.textContent ?? "";
+        return new RegExp(pattern, "u").test(text) ? text : null;
+      },
+      /GUI_REAL_DISPATCH_PROOF=/u.source,
+      { timeout: 20_000 },
+    );
+    assert.match((await bodyHandle.jsonValue()) ?? "", /GUI_REAL_DISPATCH_PROOF=/u, `${kind} artifact preview was not visible in the GUI`);
   }
 });
 

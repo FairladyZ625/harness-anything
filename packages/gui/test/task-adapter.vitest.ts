@@ -43,6 +43,14 @@ describe("adaptProjectionRows", () => {
     expect(adaptProjectionRows([row()], "repo-test", "pending")[0]?.freshness).toBe("stale-but-usable");
   });
 
+  it("passes execution outputs and receipts through untouched for the closeout tab (W5)", () => {
+    const execution = { schema: "execution/v1" as const, executionId: "execution-x", taskId: "task-x", nodeId: "implementation" as const, iteration: 0 as const, state: "submitted" as const, actor: { principal: { personId: "person-owner" }, executor: null }, claimedAt: "2026-08-12T00:00:00.000Z", submittedAt: "2026-08-12T00:01:00.000Z", closedAt: null, submission: { completionClaim: "done", deliverables: [], outputs: ["artifacts/r.txt"], verificationNotes: [], knownGaps: [], residualRisks: [], commitSha: "f".repeat(40) } };
+    const evidence = [{ executionId: "execution-x", origin: "native" as const, outputs: [{ evidenceId: "evidence_x", locator: "artifacts/r.txt", substrate: "repository-path" as const, checkerReceiptRef: "receipt-x", checkerResult: "pass" as const }] }];
+    const [task] = adaptProjectionRows([row({ snapshot: { ...row().snapshot, executions: [execution] }, executionEvidence: evidence })], "repo-test");
+    expect(task?.executions).toEqual([execution]);
+    expect(task?.executionEvidence).toEqual(evidence);
+  });
+
   it("renders authoritative closeout and blocking assessments without relation recomputation", () => {
     const input = row({ taskId: "task-a", coordinationStatus: "blocked", closeoutAssessment: { readiness: "failed", executionId: "exe-a", blocker: "gate", gates: [{ gateId: "ci", status: "failed", detail: "current cut failed" }] }, blockingAssessment: { taskId: "task-a", state: "blocked", blockers: [{ relationId: "rel_0000000000000001", kind: "depends-on", sourceTaskId: "task-a", targetTaskId: "task-b" }], warnings: [] } });
     const [task] = adaptProjectionRows([input], "repo-test", "ready", { relationState: "ready", relations: [] });

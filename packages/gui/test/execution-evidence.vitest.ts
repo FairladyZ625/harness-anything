@@ -1,17 +1,13 @@
 // harness-test-tier: fast
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+// W5:全局「执行证据」列表页撤销——本文件收窄为单 task 的投影适配与上下文拼装
+// (Task 详情「收口」页签消费的同一面);跨 task 聚合/过滤/分页随页面删除。
+import { describe, expect, it } from "vitest";
 import { REPLAY_TASK_GRAPH } from "../../kernel/src/index.ts";
 import type { TaskSnapshotProjectionRow } from "../src/api/renderer-dto.ts";
 import {
-  EXECUTION_EVIDENCE_PAGE_SIZE,
-  aggregateExecutionEvidence,
+  adaptTaskExecutions,
   buildExecutionEvidenceContext,
-  filterExecutionEvidence,
-  paginateExecutionEvidence,
 } from "../src/renderer/model/execution-evidence.ts";
-import { ExecutionEvidenceView } from "../src/renderer/views/ExecutionEvidenceView.tsx";
 
 const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
@@ -20,23 +16,14 @@ const ACTOR = { principal: { personId: "person-owner" }, executor: { kind: "agen
 
 describe("execution evidence model", () => {
   it("uses projected origin and joins witnesses only through the exact execution cut", () => {
-    const model = aggregateExecutionEvidence([row()]);
-    const execution = model.executions[0]!;
+    const execution = adaptTaskExecutions(row())[0]!;
 
     expect(execution.origin).toBe("native");
     expect(execution.reviews.map(({ reviewId }) => reviewId)).toEqual(["review-dismissed", "review-unselected", "review-matching"]);
     expect(execution.consents.map(({ consentId }) => consentId)).toEqual(["consent-matching"]);
     expect({ reviewId: execution.selectedReviewId, consentId: execution.selectedConsentId }).toEqual({ reviewId: "review-matching", consentId: "consent-matching" });
     expect(execution.gateWitnesses.map(({ witnessId }) => witnessId)).toEqual(["gate-matching"]);
-    expect(model.stats).toEqual({
-      executions: 1,
-      tasksWithExecutions: 1,
-      outputs: 2,
-      nativeExecutions: 1,
-      archivalExecutions: 0,
-      unknownOriginExecutions: 0,
-      passingReceiptOutputs: 1,
-    });
+    expect(execution.outputs.filter(({ isPassingReceipt }) => isPassingReceipt)).toHaveLength(1);
   });
 
   it("keeps output receipts separate from execution gate witnesses and exposes missing projection fields", () => {
@@ -54,70 +41,40 @@ describe("execution evidence model", () => {
       },
     } as unknown as TaskSnapshotProjectionRow;
 
-    const output = aggregateExecutionEvidence([malformed]).executions[0]!.outputs[0]!;
+    const output = adaptTaskExecutions(malformed)[0]!.outputs[0]!;
     expect(output).toMatchObject({ evidenceId: undefined, locator: undefined, substrate: undefined, checkerReceiptRef: null, checkerResult: "unknown" });
     expect(output.checkerReceiptRef).not.toBe("gate-receipt-matching");
   });
 
-  it("filters by output receipt and explicit origin, then paginates a stable 25-execution order", () => {
-    const executions = Array.from({ length: 26 }, (_, index) => execution(`execution-${String(index).padStart(2, "0")}`, index));
-    const source = row({
-      snapshot: { ...row().snapshot, executions },
-      executionEvidence: executions.map((item, index) => ({
-        executionId: item.executionId,
-        origin: index % 2 === 0 ? "native" as const : "archival" as const,
-        outputs: [{ evidenceId: `evidence_${String(index).padStart(24, "0")}`, locator: `output-${index}.txt`, substrate: "repository-path" as const,
-          checkerReceiptRef: index % 3 === 0 ? `receipt-${index}` : null, checkerResult: index % 3 === 0 ? "pass" as const : "unknown" as const }],
-      })),
-    });
-    const model = aggregateExecutionEvidence([source]);
-
-    expect(EXECUTION_EVIDENCE_PAGE_SIZE).toBe(25);
-    expect(paginateExecutionEvidence(model.executions, 0)).toMatchObject({ pageNumber: 1, totalPages: 2, hasNextPage: true });
-    expect(paginateExecutionEvidence(model.executions, 0).executions).toHaveLength(25);
-    expect(paginateExecutionEvidence(model.executions, 1).executions).toHaveLength(1);
-    expect(model.executions.map(({ executionId }) => executionId).slice(0, 3)).toEqual(["execution-25", "execution-24", "execution-23"]);
-    expect(filterExecutionEvidence(model.executions, { receipt: "passing", origin: "archival" })
-      .every((item) => item.origin === "archival" && item.outputs.some((output) => output.isPassingReceipt))).toBe(true);
-    expect(filterExecutionEvidence(model.executions, { receipt: "no-receipt", origin: "native" })
-      .every((item) => item.origin === "native" && item.outputs.some((output) => output.checkerReceiptRef === null))).toBe(true);
+  it("adapts a TaskRow-shaped source (透传字段) the same as a full projection row", () => {
+    const source = row();
+    const taskRowShaped = {
+      taskId: source.taskId,
+      updatedAt: source.updatedAt,
+      snapshotAvailability: source.snapshotAvailability,
+      snapshot: {
+        task: { title: source.snapshot.task?.title },
+        executions: source.snapshot.executions,
+        reviews: source.snapshot.reviews,
+        consents: source.snapshot.consents,
+        gateWitnesses: source.snapshot.gateWitnesses,
+      },
+      executionEvidence: source.executionEvidence,
+    };
+    // rawTask embeds the full TaskV1 only when a full row is passed; the adapted
+    // evidence fields (what the closeout tab renders) must be identical.
+    const { rawTask: _full, ...fromFull } = adaptTaskExecutions(source)[0]!;
+    const { rawTask: _shaped, ...fromShaped } = adaptTaskExecutions(taskRowShaped)[0]!;
+    expect(fromShaped).toEqual(fromFull);
   });
 
   it("copies task, execution, output originals, projected fields, receipt, and copy time", () => {
-    const executionRow = aggregateExecutionEvidence([row()]).executions[0]!;
+    const executionRow = adaptTaskExecutions(row())[0]!;
     const context = buildExecutionEvidenceContext(executionRow, executionRow.outputs[0]!, () => "2026-08-14T12:34:56.000Z");
 
     for (const text of ["task 原文", "execution 原文", "output 原文", "evidenceId", "checkerReceiptRef", "receipt-pass", "2026-08-14T12:34:56.000Z"]) {
       expect(context).toContain(text);
     }
-  });
-});
-
-describe("ExecutionEvidenceView", () => {
-  it("renders stats, filters, compact output summaries, explicit unknown, and separate execution witnesses", () => {
-    const source = row();
-    const malformed = { ...source, executionEvidence: [{ executionId: "execution-1", origin: "native", outputs: [
-      { locator: "artifacts/result.txt", checkerReceiptRef: null, checkerResult: "unknown" },
-    ] }] } as unknown as TaskSnapshotProjectionRow;
-    const markup = renderToStaticMarkup(createElement(ExecutionEvidenceView, {
-      rows: [malformed], queryStatus: "ready", onReload: vi.fn(), onReloadFromFirst: vi.fn(),
-    }));
-
-    for (const text of ["执行证据", "有通过 receipt", "无 receipt", "归档", "原生", "unknown / 未投影", "execution-level witnesses", "不等同 output receipt"]) {
-      expect(markup).toContain(text);
-    }
-    expect(markup).toContain("review-matching · approved · 由 consent-matching 选中");
-    expect(markup).toContain('aria-expanded="true"');
-    expect(markup).toContain('aria-expanded="false"');
-  });
-
-  it("offers current-query retry and a first-page invalidation path on failure", () => {
-    const markup = renderToStaticMarkup(createElement(ExecutionEvidenceView, {
-      rows: [], queryStatus: "error", error: new Error("bridge offline"), onReload: vi.fn(), onReloadFromFirst: vi.fn(),
-    }));
-    expect(markup).toContain("重试当前查询");
-    expect(markup).toContain("从第一页重新加载");
-    expect(markup).toContain("bridge offline");
   });
 });
 
