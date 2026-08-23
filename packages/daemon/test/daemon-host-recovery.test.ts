@@ -179,9 +179,13 @@ test("repository modes close local, center-assignment, and edge command families
     assert.equal((await host.run("local", { kind: "task-create", taskId: "task-local", title: "Local" }, auth)).outcome, "applied");
     assert.equal((await host.run("local", { kind: "task-create", taskId: "task-local-remote", title: "Assignment on local" }, assignment("local"))).outcome, "applied");
     assert.equal((await host.run("center", { kind: "task-create", taskId: "task-center-local", title: "Wrong ingress" }, auth)).code, "repo_mode_requires_center_ingress");
+    const mismatchedLocalAuth = { ...auth, unixSocketOwnerBoundary: { ...auth.unixSocketOwnerBoundary, ownerUid: (process.getuid?.() ?? 0) + 1_000 } };
+    assert.equal((await host.run("center", { kind: "task-list" }, mismatchedLocalAuth)).code, "credential_unknown");
+    assert.equal((await host.run("center", { kind: "projection-rebuild" }, mismatchedLocalAuth)).outcome, "applied");
     assert.equal((await host.run("center", { kind: "task-create", taskId: "task-center", title: "Center" }, assignment("center"))).outcome, "applied");
     assert.equal((await host.run("edge", { kind: "task-list" }, auth)).outcome, "applied");
     assert.equal((await host.run("edge", { kind: "task-create", taskId: "task-edge", title: "Edge" }, auth)).code, "repo_mode_read_only");
+    assert.equal((await host.run("edge", { kind: "projection-rebuild" }, auth)).code, "repo_mode_read_only");
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
