@@ -62,7 +62,9 @@ Each gate entry must declare:
 
 1. a `deterministic: true` gate omits `pr` from
    `executionSurfaces.classes`; or
-2. canonical surface labels, declared workflow jobs, and the actual
+2. a governance-required protected surface derives no rule that matches a
+   tracked repository file; or
+3. canonical surface labels, declared workflow jobs, and the actual
    `.github/workflows/rewrite-ci.yml` job/step graph disagree.
 
 The checker also requires the v2 classification and positive-control fields on

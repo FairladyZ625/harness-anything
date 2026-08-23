@@ -1,7 +1,9 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { deriveProtectedSurfaceRules } from "./check-pr-governance.mjs";
 
 const DEFAULT_ROOT = process.cwd();
 const SURFACE_CLASSES = new Set(["local", "pr", "main-full", "nightly", "manual"]);
@@ -25,6 +27,7 @@ export function checkGateManifestInvariants(root = DEFAULT_ROOT) {
   if (manifest.schema !== "harness-anything/gate-manifest/v2") {
     findings.push(`manifest schema must be harness-anything/gate-manifest/v2, got ${JSON.stringify(manifest.schema)}`);
   }
+  checkProtectedSurfaceCoverage(manifest, root, findings);
   checkWorkflowInventory(manifest, workflow, findings);
   checkWorkflowCommands(manifest, workflow, gates, findings);
   for (const gate of gates) {
@@ -41,6 +44,47 @@ export function checkGateManifestInvariants(root = DEFAULT_ROOT) {
       findings: findings.length
     }
   };
+}
+
+function checkProtectedSurfaceCoverage(manifest, root, findings) {
+  const declarations = (manifest.gates ?? []).flatMap((gate) => {
+    if (!gate.changeControl?.requiresGovernanceEvidence) return [];
+    return (gate.changeControl.protectedSurfaces ?? [])
+      .filter((surface) => typeof surface === "string" && surface.trim().length > 0)
+      .map((surface) => ({ gateId: gate.id, surface: surface.trim() }));
+  });
+  if (declarations.length === 0) return;
+
+  const trackedFiles = readTrackedFiles(root);
+  for (const declaration of declarations) {
+    const rules = deriveProtectedSurfaceRules({
+      gates: [{
+        id: declaration.gateId,
+        changeControl: {
+          requiresGovernanceEvidence: true,
+          protectedSurfaces: [declaration.surface]
+        }
+      }]
+    });
+    const matchesTrackedFile = trackedFiles.some((file) => rules.some((rule) => rule.matcher(file)));
+    if (!matchesTrackedFile) {
+      const derivedRules = rules.map((rule) => JSON.stringify(rule.display)).join(", ") || "none";
+      findings.push(
+        `${declaration.gateId} protected surface ${JSON.stringify(declaration.surface)} matches no tracked files (derived rules: ${derivedRules})`
+      );
+    }
+  }
+}
+
+function readTrackedFiles(root) {
+  const result = spawnSync("git", ["ls-files", "-z"], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  if (result.status !== 0) {
+    throw new Error(`git ls-files failed: ${(result.stderr || result.stdout).trim()}`);
+  }
+  return result.stdout.split("\0").filter(Boolean);
 }
 
 function checkWorkflowCommands(manifest, workflow, gates, findings) {
