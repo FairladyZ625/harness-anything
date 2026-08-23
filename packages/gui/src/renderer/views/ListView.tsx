@@ -25,16 +25,12 @@ const dateLabel = (iso: string) => localMonthDayTime(iso) ?? "—";
 function AuditRow({
   task,
   onSelect,
-  selected,
-  onToggleSelect,
   relations,
   isFavorite,
   onToggleFavorite,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
-  selected: boolean;
-  onToggleSelect: (ev: React.MouseEvent) => void;
   relations: RelationEdge[];
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
@@ -53,15 +49,6 @@ function AuditRow({
         archived ? "opacity-55" : ""
       } ${isFavorite ? "bg-accent/[0.04]" : ""}`}
     >
-      <td className="px-3 py-2 align-top" onClick={(e) => e.stopPropagation()}>
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={() => {}}
-          onClick={onToggleSelect}
-          className="mt-1 accent-accent"
-        />
-      </td>
       <td className="px-2 py-2 align-top" onClick={(e) => e.stopPropagation()}>
         <button
           type="button"
@@ -143,25 +130,10 @@ export function ListView({
 }) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
-  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setPage(0);
-    setSelectedTaskIds(new Set());
   }, [filters, tasks.length]);
-
-  const handleToggleSelect = (taskId: string, ev: React.MouseEvent) => {
-    ev.stopPropagation();
-    setSelectedTaskIds(prev => {
-      const next = new Set(prev);
-      if (next.has(taskId)) {
-        next.delete(taskId);
-      } else {
-        next.add(taskId);
-      }
-      return next;
-    });
-  };
 
   const favSet = favorites ?? new Set<string>();
   const sorted = useMemo(
@@ -211,45 +183,6 @@ export function ListView({
         </>
       )}
 
-      {selectedTaskIds.size > 0 && (
-        <div className="flex items-center gap-3 bg-accent/10 border-b border-border/40 px-4 py-2 text-[13px]">
-          <span className="font-semibold text-accent">{t("views.listView.batchOperations")} {selectedTaskIds.size} {t("views.listView.itemsSelected")}</span>
-          <button
-            onClick={() => {
-              alert(t("views.listView.simulatedBatchCheck", { taskIds: Array.from(selectedTaskIds).join(", ") }));
-              setSelectedTaskIds(new Set());
-            }}
-            className="rounded bg-accent px-2.5 py-1 font-semibold text-accent-fg hover:bg-accent/90 cursor-pointer"
-          >
-            {t("views.listView.runCheckBatches")}
-          </button>
-          <button
-            onClick={() => {
-              alert(t("views.listView.simulatedBatchReady", { taskIds: Array.from(selectedTaskIds).join(", ") }));
-              setSelectedTaskIds(new Set());
-            }}
-            className="rounded border border-border bg-surface px-2.5 py-1 hover:bg-surface-raised cursor-pointer"
-          >
-            {t("views.listView.batchMarkReady")}
-          </button>
-          <button
-            onClick={() => {
-              alert(t("views.listView.simulatedBatchArchive", { taskIds: Array.from(selectedTaskIds).join(", ") }));
-              setSelectedTaskIds(new Set());
-            }}
-            className="rounded border border-border bg-surface px-2.5 py-1 hover:bg-surface-raised text-text-muted cursor-pointer"
-          >
-            {t("views.listView.batchArchiving")}
-          </button>
-          <button
-            onClick={() => setSelectedTaskIds(new Set())}
-            className="ml-auto text-text-faint hover:text-text cursor-pointer"
-          >
-            {t("views.listView.deselect")}
-          </button>
-        </div>
-      )}
-
       <div className="grid grid-cols-3 gap-3 border-b border-border px-4 py-3">
         <div className="rounded-lg border border-border bg-surface px-3 py-2">
           <div className="font-mono text-[12px] uppercase tracking-wide text-text-faint">
@@ -285,27 +218,6 @@ export function ListView({
           <table className="w-full min-w-[980px] border-collapse text-left">
             <thead className="sticky top-0 z-10 bg-surface">
               <tr className="border-b border-border font-mono text-[12px] uppercase tracking-wide text-text-faint">
-                <th className="w-10 px-3 py-2 font-medium">
-                  <input
-                    type="checkbox"
-                    checked={visible.length > 0 && visible.every(t => selectedTaskIds.has(t.taskId))}
-                    onChange={() => {
-                      const allSelected = visible.every(t => selectedTaskIds.has(t.taskId));
-                      setSelectedTaskIds(prev => {
-                        const next = new Set(prev);
-                        for (const t of visible) {
-                          if (allSelected) {
-                            next.delete(t.taskId);
-                          } else {
-                            next.add(t.taskId);
-                          }
-                        }
-                        return next;
-                      });
-                    }}
-                    className="accent-accent"
-                  />
-                </th>
                 <th className="w-10 px-2 py-2 font-medium" title={t("views.listView.collection")}>★</th>
                 <th className="px-3 py-2 font-medium">{t("views.listView.task")}</th>
                 <th className="px-3 py-2 font-medium">{t("views.listView.titleModule")}</th>
@@ -322,8 +234,6 @@ export function ListView({
                   key={task.taskId}
                   task={task}
                   onSelect={onSelect}
-                  selected={selectedTaskIds.has(task.taskId)}
-                  onToggleSelect={(ev) => handleToggleSelect(task.taskId, ev)}
                   relations={relations}
                   isFavorite={favSet.has(task.taskId)}
                   onToggleFavorite={onToggleFavorite ?? (() => undefined)}

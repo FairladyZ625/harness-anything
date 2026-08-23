@@ -117,7 +117,8 @@ describe("agent runtime renderer", () => {
     for (const text of ["Lead the squad. Decide before dispatch.", "commander", "claude", "review", "triage", "daily-plan", "Core Squad"]) expect(agent).toContain(text);
     expect(agent).toContain("Role is fully decoupled from model and provider");
     const squad = renderToStaticMarkup(createElement(SquadCard, { detail: squadDetail, row: squadRows[0] as never, agents: agentRows as never, busy: false, onSave: noop, onLaunch: noop, onSelectAgent: noop }));
-    for (const text of ["fable » luna, sol, terra", "Core Squad", "Commander", "Worker #1", "4 members"]) expect(squad).toContain(text);
+    for (const text of ["fable » luna, sol, terra", "Core Squad", "Commander", "Worker #1", "4 members", "Dispatch to one worker", "ha squad run"]) expect(squad).toContain(text);
+    expect(squad).not.toContain("Launch squad");
   });
   it("round-trips skill paths and exposes searchable Skill and Preset selectors", () => {
     const withSkills = renderToStaticMarkup(createElement(AgentCard, { detail: agentDetail, row: agentRows[0] as never, squads: squadRows as never, instances: [], availableSkills, presets, busy: false, onSave: noop, onDispatch: noop, onSelectSquad: noop, onSelectRuntime: noop }));
