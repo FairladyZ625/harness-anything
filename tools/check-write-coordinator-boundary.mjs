@@ -18,36 +18,52 @@ export function findW3WriteAuthorityViolations(rootDir = process.cwd()) {
     servicePath = "packages/application/src/task-lifecycle-service.ts";
   const cell = source(rootDir, cellPath, violations),
     store = source(rootDir, storePath, violations),
-    publisher = source(rootDir, publisherPath, violations),
     service = source(rootDir, servicePath, violations);
+  const publisherExists = existsSync(path.join(rootDir, publisherPath)),
+    publisher = publisherExists ? source(rootDir, publisherPath, violations) : "",
+    splitPublisherLayout = publisherExists || store.includes("Public compatibility façade");
   for (const token of ["makeTaskEventStore", "makeTaskLifecycleService", "eventStore: store", "tail.then"]) if (!cell.includes(token)) violations.push(`${cellPath}: missing RepoCell authority token ${token}`);
   if (!store.includes("CANONICAL_EVENT_REF")) violations.push(`${storePath}: missing object/ref publication token CANONICAL_EVENT_REF`);
-  for (const authority of coordinatedCommitAuthorities) {
-    const declarations = files.filter((file) => file.endsWith(".ts") && declaresFunction(
-      source(rootDir, file, []), authority.functionName
-    ));
-    if (declarations.length !== 1 || declarations[0] !== publisherPath) {
-      violations.push(
-        `${authority.functionName} coordinated-commit authority must be declared exactly in ${publisherPath}; found ${declarations.join(", ") || "none"}`
+  if (splitPublisherLayout) {
+    if (!publisherExists) violations.push(`${publisherPath}: required W3 authority file is missing`);
+    for (const authority of coordinatedCommitAuthorities) {
+      const declarations = files.filter((file) => file.endsWith(".ts") && declaresFunction(
+        source(rootDir, file, []), authority.functionName
+      ));
+      if (declarations.length !== 1 || declarations[0] !== publisherPath) {
+        violations.push(
+          `${authority.functionName} coordinated-commit authority must be declared exactly in ${publisherPath}; found ${declarations.join(", ") || "none"}`
+        );
+        continue;
+      }
+      const body = functionBody(publisher, authority.functionName);
+      if (body === null || occurrences(body, authority.primitive) !== 1) {
+        violations.push(`${publisherPath}: ${authority.functionName} must execute ${authority.primitive} exactly once`);
+      }
+      const primitiveFiles = files.filter((file) => file.endsWith(".ts") && source(rootDir, file, []).includes(authority.primitive));
+      const totalPrimitiveCalls = primitiveFiles.reduce(
+        (total, file) => total + occurrences(source(rootDir, file, []), authority.primitive),
+        0
       );
-      continue;
+      if (primitiveFiles.length !== 1 || primitiveFiles[0] !== publisherPath || totalPrimitiveCalls !== 1) {
+        violations.push(
+          `${authority.primitive} coordinated-commit primitive must belong only to ${authority.functionName} in ${publisherPath}`
+        );
+      }
     }
-    const body = functionBody(publisher, authority.functionName);
-    if (body === null || occurrences(body, authority.primitive) !== 1) {
-      violations.push(`${publisherPath}: ${authority.functionName} must execute ${authority.primitive} exactly once`);
-    }
-    const primitiveFiles = files.filter((file) => file.endsWith(".ts") && source(rootDir, file, []).includes(authority.primitive));
-    const totalPrimitiveCalls = primitiveFiles.reduce(
-      (total, file) => total + occurrences(source(rootDir, file, []), authority.primitive),
-      0
-    );
-    if (primitiveFiles.length !== 1 || primitiveFiles[0] !== publisherPath || totalPrimitiveCalls !== 1) {
-      violations.push(
-        `${authority.primitive} coordinated-commit primitive must belong only to ${authority.functionName} in ${publisherPath}`
-      );
+  } else {
+    // Historical monoliths and their synthetic contract fixtures keep the same
+    // two function names in task-event-store.ts. The façade marker above makes
+    // this branch unavailable to a split tree whose publisher is accidentally deleted.
+    for (const { functionName } of coordinatedCommitAuthorities) {
+      if (!store.includes(`${functionName}(`)) {
+        violations.push(`${storePath}: missing legacy coordinated-commit function ${functionName}`);
+      }
     }
   }
-  for (const token of ["update-index", "checkout", "reset", "restore"]) if (publisher.includes(token)) violations.push(`${publisherPath}: object/ref publisher must not expose ${token}`);
+  const publisherSurface = splitPublisherLayout ? publisher : store,
+    publisherSurfacePath = splitPublisherLayout ? publisherPath : storePath;
+  for (const token of ["update-index", "checkout", "reset", "restore"]) if (publisherSurface.includes(token)) violations.push(`${publisherSurfacePath}: object/ref publisher must not expose ${token}`);
   if (!service.includes("eventStore.append")) violations.push(`${servicePath}: lifecycle service must publish only through its eventStore port`);
   const consumers = files.filter((file) => file.endsWith(".ts") && !file.includes("/test/")).filter((file) => {
     const body = readFileSync(path.join(rootDir, file), "utf8"); return /(?<!function\s)\bmakeTaskEventStore\s*\(/u.test(body);
