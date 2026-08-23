@@ -173,6 +173,7 @@
   "agentRuntime.inspectorHealth": "健康状态",
   "agentRuntime.inspectorDefinition": "定义状态",
   "agentRuntime.inspectorMembers": "成员",
+  "agentRuntime.showMoreSessions": "再显示 {count} 条 · 还有 {remaining} 条",
   "agentRuntime.inspectorSessions": "会话({count})",
   "agentRuntime.inspectorReferencedBy": "被 Squad 引用({count})",
   "agentRuntime.notReferenced": "未被引用",
