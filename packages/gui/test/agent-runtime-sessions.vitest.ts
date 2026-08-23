@@ -42,6 +42,15 @@ describe("sessions as a first-class view", () => {
     expect(markup).toContain(">live</span>");
   });
 
+  it("keeps every received frame in a fixed-height inline scroller", () => {
+    const frames = Array.from({ length: 40 }, (_, index) => ({ ...frame, cursor: `stream:${index}`, activity: "tool" as const }));
+    const markup = detailView({ frames });
+    expect(markup).toContain('data-testid="session-event-stream"');
+    expect(markup).toContain("max-h-64 overflow-y-auto");
+    expect(markup).toContain("stream:0");
+    expect(markup).toContain("stream:39");
+  });
+
   it("jumps from a session to exactly the task it is bound to, and offers no jump when unbound", () => {
     expect(sessionTaskTarget(boundRow, sessionDto.associations)).toEqual({ taskId: "task-bound", taskTitle: "Bound task title" });
     expect(sessionTaskTarget(null, sessionDto.associations)).toEqual({ taskId: "task-assoc", taskTitle: null });

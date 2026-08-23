@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../../../daemon/src/agent-entities.contract.ts";
-import { successfulAgentRuntimeResult } from "../../../../../daemon/src/agent-runtime-contract.ts";
+import { successfulAgentRuntimeResult, type AgentRuntimeSessionDto } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import { agentEntityClient, type SquadEntityRow } from "../../agent-entity-client.ts";
 import { agentRuntimeClient } from "../../agent-runtime-client.ts";
 import { harnessClient } from "../../api-client.ts";
@@ -28,7 +28,8 @@ export function useRuntimeWorkspace(repoId: string, tasks: readonly RuntimePanor
   const agents = useQuery({ queryKey: ["agents", repoId], queryFn: () => agentEntityClient.listAgents(repoId), staleTime: 4_000 });
   const squadQuery = { queryKey: ["squads", repoId], queryFn: () => agentEntityClient.listSquads(repoId), staleTime: 4_000 } as const;
   const squads = useQuery(squadQuery);
-  const panorama = useQuery({ queryKey: ["runtime-panorama", repoId, tasks.map((task) => task.taskId).join(",")], queryFn: () => readPanorama(repoId, tasks, { listSquads: () => client.fetchQuery(squadQuery), getTaskDispatches: (taskIds) => harnessClient.getTaskDispatches({ repoId, taskIds }) }), staleTime: 4_000 });
+  const panoramaTasks = runtimePanoramaTasks(tasks, overview.data?.sessions ?? []);
+  const panorama = useQuery({ queryKey: ["runtime-panorama", repoId, panoramaTasks.map((task) => task.taskId).join(",")], queryFn: () => readPanorama(repoId, panoramaTasks, { listSquads: () => client.fetchQuery(squadQuery), getTaskDispatches: (taskIds) => harnessClient.getTaskDispatches({ repoId, taskIds }) }), staleTime: 4_000 });
   const [busy, setBusy] = useState(false), [feedback, setFeedback] = useState<string | null>(null), [error, setError] = useState<string | null>(null), [settlement, setSettlement] = useState<RuntimeSpawnSettlement | null>(null);
 
   const refresh = async () => { await Promise.all([client.invalidateQueries({ queryKey: ["runtime-instances", "machine"] }), client.invalidateQueries({ queryKey: ["runtime-control", repoId] }), client.invalidateQueries({ queryKey: ["runtime-panorama", repoId] })]); };
@@ -80,6 +81,11 @@ export function useRuntimeWorkspace(repoId: string, tasks: readonly RuntimePanor
 export function runtimeSelfTestSpawnInput(instanceId: string, model: string, idempotencyKey: string) { return { runtimeInstanceId: instanceId, model, permissionMode: "read-only" as const, cwd: { scope: "repo-root" as const }, prompt: "Reply with exactly: runtime connectivity ok", taskId: null, idempotencyKey }; }
 
 export function subscriptionCreationNeedsLogin(input: Pick<RuntimeInstanceCreateInput, "authMode">, probed: unknown): boolean { return input.authMode === "subscription" && typeof probed === "object" && probed !== null && "authState" in probed && probed.authState === "unauthenticated"; }
+
+export function runtimePanoramaTasks(tasks: readonly RuntimePanoramaTask[], sessions: readonly AgentRuntimeSessionDto[]): readonly RuntimePanoramaTask[] {
+  const tasksById = new Map(tasks.map((task) => [task.taskId, task])), taskIds = new Set(sessions.flatMap((session) => session.associations.map((association) => association.taskId)));
+  return [...taskIds].sort().map((taskId) => tasksById.get(taskId) ?? { taskId, title: taskId });
+}
 
 export function useAgentDetail(repoId: string, agentId: string | null) { return useQuery({ queryKey: ["agent-detail", repoId, agentId], queryFn: () => agentEntityClient.showAgent(repoId, agentId ?? ""), enabled: agentId !== null, staleTime: 4_000 }); }
 export function useSquadDetail(repoId: string, squadId: string | null) { return useQuery({ queryKey: ["squad-detail", repoId, squadId], queryFn: () => agentEntityClient.showSquad(repoId, squadId ?? ""), enabled: squadId !== null, staleTime: 4_000 }); }

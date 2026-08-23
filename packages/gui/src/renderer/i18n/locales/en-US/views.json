@@ -163,6 +163,7 @@
   "views.decisionPoolView.allGroup": "all",
   "views.decisionPoolView.emptyFilter": "There are no decisions under the current filter.",
   "views.decisionPoolView.groupCount": "· {count} rows",
+  "views.decisionPoolView.showMore": "Show {count} more · {remaining} remaining",
   "views.decisionPropose.packetTitle": "New complete proposal packet",
   "views.decisionPropose.columnsRequired": "{label} needs {count} columns per line, separated by |.",
   "views.decisionPropose.packetRequired": "title/question/vertical/preset and all three body sections are required.",

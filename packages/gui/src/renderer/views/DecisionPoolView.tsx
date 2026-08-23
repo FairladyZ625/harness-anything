@@ -19,6 +19,7 @@ type PoolTab = WorkspaceSummaryRead["decisions"]["groups"][number]["id"];
 type TimeRange = "all" | "14d" | "30d";
 type RelationState = "ready" | "loading" | "error";
 const selectClass = "rounded-md border border-border bg-surface px-2 py-1 font-mono text-[12px] text-text-muted outline-none transition-colors duration-100 hover:border-border-strong focus-visible:border-border-strong";
+const DECISION_BATCH_SIZE = 30;
 
 function withinRange(decision: DecisionRow, range: TimeRange) {
   if (range === "all") return true;
@@ -58,6 +59,7 @@ export function DecisionPoolView({ repoId, decisions, summary, facts, relations,
   const [verticalFilter, setVerticalFilter] = useState("all"), [presetFilter, setPresetFilter] = useState("all"), [proposedByFilter, setProposedByFilter] = useState<NonNullable<DecisionRow["proposedBy"]>["kind"] | "unknown" | "all">("all"), [timeRange, setTimeRange] = useState<TimeRange>("all");
   const [search, setSearch] = useState(""), [moduleFilter, setModuleFilter] = useState("all"), [productLineFilter, setProductLineFilter] = useState("all"), [proposalOpen, setProposalOpen] = useState(false);
   const [groupBy, setGroupBy] = useState<PoolGroupBy>("none");
+  const [page, setPage] = useState({ scope: "", count: DECISION_BATCH_SIZE });
   const handledFocusRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -92,6 +94,15 @@ export function DecisionPoolView({ repoId, decisions, summary, facts, relations,
       .filter((decision) => verticalFilter === "all" || decision.vertical === verticalFilter).filter((decision) => presetFilter === "all" || decision.preset === presetFilter)
       .filter((decision) => proposedByFilter === "all" || (proposedByFilter === "unknown" ? !decision.proposedBy : decision.proposedBy?.kind === proposedByFilter)).filter((decision) => withinRange(decision, timeRange));
   }, [currentGroup.decisionIds, decisions, presetFilter, proposedByFilter, remoteEnabled, remoteIds, riskFilter, stateFilter, timeRange, urgencyFilter, verticalFilter]);
+  const pageScope = [tab, stateFilter, riskFilter, urgencyFilter, verticalFilter, presetFilter, proposedByFilter, timeRange, search.trim(), moduleFilter, productLineFilter, groupBy].join("\0");
+  const visibleLimit = page.scope === pageScope ? page.count : DECISION_BATCH_SIZE;
+  const visibleIds = useMemo(() => {
+    const ids = new Set(rows.slice(0, visibleLimit).map((decision) => decision.decisionId));
+    if (focusedDecisionId && rows.some((decision) => decision.decisionId === focusedDecisionId)) ids.add(focusedDecisionId);
+    return ids;
+  }, [focusedDecisionId, rows, visibleLimit]);
+  const groups = useMemo(() => groupDecisions(rows, groupBy).map((group) => ({ ...group, total: group.rows.length, rows: group.rows.filter((decision) => visibleIds.has(decision.decisionId)) })).filter((group) => group.rows.length > 0), [groupBy, rows, visibleIds]);
+  const hiddenCount = rows.length - visibleIds.size;
 
   return <div className="flex h-full flex-col">
     <header className="flex items-center gap-3 border-b border-border px-4 py-3"><div><h1 className="ui-title font-semibold">{t("renderer.shellConfig.decisionPool")}</h1><span className="font-mono text-[12px] text-text-faint">{t("views.decisionPoolView.subtitle")}</span></div>{onPropose && <button onClick={() => setProposalOpen((value) => !value)} className={`ml-auto inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-[12px] font-semibold text-accent-fg transition-colors duration-100 ${proposalOpen ? "bg-accent/85 hover:bg-accent" : "bg-accent hover:bg-accent/85"}`}><Plus weight="bold" />{t("views.decisionPoolView.proposal")}</button>}</header>
@@ -110,8 +121,8 @@ export function DecisionPoolView({ repoId, decisions, summary, facts, relations,
     </div>
     {remoteEnabled && (remote.isPending || remote.isError || remote.data?.status !== "ready") && <div className="border-b border-border bg-stale/10 px-4 py-2 font-mono text-[11px] text-stale">{t("views.decisionPoolView.projectionUnknown", { detail: remote.error instanceof Error ? remote.error.message : remote.data?.hint ?? remote.data?.opId ?? "loading" })}</div>}
     <div className="min-h-0 flex-1 overflow-auto p-4"><div className="space-y-2">
-      {groupDecisions(rows, groupBy).map((group) => <section key={group.key} aria-label={group.title || t("views.decisionPoolView.allGroup")} className="space-y-2">
-      {groupBy !== "none" && <div className="sticky top-0 z-10 flex items-center gap-2 rounded-md border border-border bg-surface/95 px-2.5 py-1.5 font-mono text-[12px] text-text-muted backdrop-blur" data-testid={`decision-pool-group-${group.key}`}><span className="font-semibold text-text">{group.title}</span><span className="text-text-faint">{t("views.decisionPoolView.groupCount", { count: group.rows.length })}</span></div>}
+      {groups.map((group) => <section key={group.key} aria-label={group.title || t("views.decisionPoolView.allGroup")} className="space-y-2">
+      {groupBy !== "none" && <div className="sticky top-0 z-10 flex items-center gap-2 rounded-md border border-border bg-surface/95 px-2.5 py-1.5 font-mono text-[12px] text-text-muted backdrop-blur" data-testid={`decision-pool-group-${group.key}`}><span className="font-semibold text-text">{group.title}</span><span className="text-text-faint">{t("views.decisionPoolView.groupCount", { count: group.total })}</span></div>}
       {group.rows.map((decision) => <article key={decision.decisionId} id={`decision-card-${decision.decisionId}`} data-focused={decision.decisionId === focusedDecisionId || undefined} className={`rounded-lg border bg-surface px-3.5 py-3 transition-colors duration-100 ${decision.decisionId === focusedDecisionId ? "border-accent ring-1 ring-accent/30" : "border-border hover:border-border-strong"}`}>
         <div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-1.5"><span className="font-mono text-[12px] text-text-faint">{decision.decisionId}{decision.legacyId ? ` · ${decision.legacyId}` : ""}</span><DecisionStateBadge state={decision.state} /><RiskTierBadge tier={decision.riskTier} /><UrgencyBadge urgency={decision.urgency} /><ReadinessBadge decision={decision} facts={facts} rows={coverageRows} graphState={relationState} /></div>
           <h2 className="mt-1 text-[15px] font-semibold leading-snug text-text">{decision.title}</h2><p className="mt-0.5 text-[12px] text-text-muted">Q: {decision.question}</p>
@@ -122,6 +133,7 @@ export function DecisionPoolView({ repoId, decisions, summary, facts, relations,
         {decision.state === "proposed" && onJudge && <DecisionJudgmentPanel decision={decision} relations={relations} feedback={mutationFeedback?.(decision.decisionId)} onSubmit={onJudge} onCheckReceipt={() => onCheckReceipt?.(decision.decisionId)} />}
       </article>)}
       </section>)}
+      {hiddenCount > 0 && <button type="button" data-testid="decision-pool-more" onClick={() => setPage({ scope: pageScope, count: Math.min(visibleLimit + DECISION_BATCH_SIZE, rows.length) })} className="w-full rounded-lg border border-dashed border-border px-3 py-2 font-mono text-[12px] text-text-muted hover:border-border-strong hover:text-text">{t("views.decisionPoolView.showMore", { count: Math.min(DECISION_BATCH_SIZE, hiddenCount), remaining: hiddenCount })}</button>}
       {rows.length === 0 && (!remoteEnabled || remote.data?.status === "ready") && <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-[14px] text-text-faint">{t("views.decisionPoolView.emptyFilter")}</div>}
     </div></div>
   </div>;

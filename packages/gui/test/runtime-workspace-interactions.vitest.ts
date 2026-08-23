@@ -54,6 +54,20 @@ describe("runtime workspace interaction wiring", () => {
     expect(document.querySelector('[data-testid^="rail-orchestration-"]')).toBeNull();
   });
 
+  it("keeps more than 32 streamed frames in the inline session scroller", async () => {
+    await mountWorkspace();
+    vi.mocked(agentRuntimeClient.attach).mockImplementation((_repoId, runtimeSessionId, _cursor, onValue) => {
+      for (let index = 0; index < 40; index += 1) onValue({ schema: "agent-runtime-attach-event/v1", runtimeSessionId, cursor: `stream:${index + 5}`, occurredAt: `2026-08-23T00:00:${String(index).padStart(2, "0")}.000Z`, type: "heartbeat" });
+      return () => undefined;
+    });
+
+    await click("rail-session-runtime-bound");
+
+    expect(document.querySelectorAll('[data-testid="session-event-frame"]')).toHaveLength(40);
+    expect(byTestId("session-event-stream").className).toContain("max-h-64");
+    expect(byTestId("session-event-stream").className).toContain("overflow-y-auto");
+  });
+
   it("focuses a related session from the workspace inspector", async () => {
     await mountWorkspace();
     await click("rail-session-runtime-bound");
