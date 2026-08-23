@@ -1,5 +1,5 @@
 import path from "node:path";
-import { daemonProtocolError, isDaemonGuiActionMethod, type DaemonGuiStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts"; import { parseDaemonGuiActionResponse, parseDaemonGuiReadResponse, parseDaemonGuiReadResult } from "../../../daemon/src/protocol/gui-result-validation.ts";
+import { daemonProtocolError, isDaemonGuiActionMethod, isDaemonGuiReadMethod, type DaemonGuiStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts"; import { parseDaemonGuiActionResponse, parseDaemonGuiReadResponse, parseDaemonGuiReadResult } from "../../../daemon/src/protocol/gui-result-validation.ts";
 import { ensureLocalDaemonRunning, isDaemonUnreachable } from "../../../daemon/src/client/daemon-autostart.ts";
 import { validateProjectPath } from "../api/local-api.ts";
 import { createGuiServiceBridgeForDaemon, type GuiServiceBridge, type ShippedGuiRoute } from "../api/service-bridge.ts";
@@ -27,8 +27,8 @@ async function request(rootDir: string, route: ShippedGuiRoute, payload: unknown
   const target = scoped ? daemon.resolveLocalDaemonTarget({ rootDir, repoIdOverride: scoped.repoId }) : globalTarget(daemon);
   const daemonPayload = scoped?.payload ?? (payload ?? {}) as JsonObject;
   const body: JsonObject = route.inputSchemaId === "gui.empty/v1" ? {} : { payload: daemonPayload }, params: JsonObject = route.requiresRepo ? { repo: { repoId: scoped!.repoId }, ...body } : body;
-  const parse = (result: JsonObject) => (isDaemonGuiActionMethod(route.rpcMethod) ? parseDaemonGuiActionResponse(route.rpcMethod, result) : route.rpcMethod === "daemon.gui.control.receipt" ? parseDaemonGuiReadResult(route.rpcMethod, result) : parseDaemonGuiReadResponse(route.rpcMethod, result)) as unknown as JsonObject;
-  const invoke = () => daemon.requestLocalDaemonJsonRpcForTarget(target, route.rpcMethod, params, 200);
+  const parse = (result: JsonObject) => (isDaemonGuiActionMethod(route.rpcMethod) ? parseDaemonGuiActionResponse(route.rpcMethod, result) : route.rpcMethod === "daemon.gui.control.receipt" ? parseDaemonGuiReadResult(route.rpcMethod, result) : isDaemonGuiReadMethod(route.rpcMethod) ? parseDaemonGuiReadResponse(route.rpcMethod, result) : result) as unknown as JsonObject;
+  const invoke = () => daemon.requestLocalDaemonJsonRpcForTarget(target, route.rpcMethod, params, requestTimeoutMs(route, daemonPayload));
   try { return parse(await invoke()); }
   catch (connectError) {
     if (!isDaemonUnreachable(connectError)) throw connectError;
@@ -37,6 +37,13 @@ async function request(rootDir: string, route: ShippedGuiRoute, payload: unknown
     return parse(await invoke());
   }
 } catch (error) { return daemonProtocolError(route.rpcMethod, "daemon_unavailable", `Local daemon request failed. Cause: ${error instanceof Error ? error.message : String(error)}`) as unknown as JsonObject; } }
+// The registry has no transport timeouts; keep the existing provider-tooling deadlines here.
+function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject): number {
+  if (route.guiBridgeMethod === "createRuntimeInstance" || route.guiBridgeMethod === "listRuntimeInstances" || route.guiBridgeMethod === "showRuntimeInstance" && payload.probe === true) return 20_000;
+  if (["showRuntimeInstance", "updateRuntimeInstance", "deleteRuntimeInstance"].includes(route.guiBridgeMethod)) return 2_000;
+  if (["signInRuntimeInstance", "signOutRuntimeInstance"].includes(route.guiBridgeMethod)) return 1_000;
+  return 200;
+}
 function repoPayload(value: unknown): { readonly repoId: string; readonly payload: JsonObject } {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Repository GUI request requires repoId.");
   const { repoId, ...payload } = value as Record<string, JsonValue>;

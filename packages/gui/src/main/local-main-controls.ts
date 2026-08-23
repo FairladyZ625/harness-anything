@@ -12,20 +12,11 @@ import type { CredentialPort } from "../../../daemon/src/agent-runtime-credentia
 type Target = { readonly repoId: string; readonly socketPath: string; readonly userRoot: string; readonly daemonId: string };
 export function addLocalMainControls(input: { readonly bridge: GuiServiceBridge; readonly target: (repoId?: string) => Promise<Target>; readonly clientBuildCommit: string | null; readonly packaged?: PackagedRuntime; readonly credentialPort?: CredentialPort }): GuiServiceBridge {
   const supervisor = createDaemonSupervisor({ authorize: async (payload) => asRecord(await input.bridge.invoke("requestDaemonControl", payload)), restart: async (repoId) => restartResidentDaemon(await input.target(repoId), input.packaged) });
-  // The daemon exposes create/list/show/update/delete only; an authentication probe is
-  // `show` with probe:true, which returns the freshly probed instance. A probe shells out
-  // to the provider CLI, so it gets the long timeout while a plain show keeps the short one.
-  const runtimeRpc = async (operation: string, payload: Record<string, unknown>) => requestDaemonJsonRpcAt((await input.target()).socketPath, `daemon.runtimeInstance.${operation}`, { payload } as never, ["create", "list"].includes(operation) || payload.probe === true ? 20_000 : 2_000), credentialController = createRuntimeInstanceCredentialController({ ...(input.credentialPort ? { port: input.credentialPort } : {}), create: (payload) => runtimeRpc("create", payload) });
-  const probeRuntimeInstance = (instanceId: string) => runtimeRpc("show", { instanceId, probe: true });
+  // API-key creation remains main-process-bound so the daemon receives only an opaque
+  // credential reference; the resulting create call returns to the registry-derived bridge.
+  const credentialController = createRuntimeInstanceCredentialController({ ...(input.credentialPort ? { port: input.credentialPort } : {}), create: async (payload) => asRecord(await input.bridge.invoke("createRuntimeInstance", payload)) });
   return { stream: input.bridge.stream, invoke: async (method, payload) => {
-    if (method === "listRuntimeInstances") return runtimeRpc("list", { all: true });
-    if (method === "showRuntimeInstance") return runtimeRpc("show", asRecord(payload));
     if (method === "createRuntimeInstance") return credentialController.create(asRecord(payload) as never);
-    if (method === "updateRuntimeInstance") return runtimeRpc("update", asRecord(payload));
-    if (method === "deleteRuntimeInstance") return runtimeRpc("delete", asRecord(payload));
-    if (method === "validateRuntimeInstanceAuth") return probeRuntimeInstance(String(asRecord(payload).instanceId));
-    const authAction = method === "signInRuntimeInstance" ? "login" : method === "reauthRuntimeInstance" ? "reauth" : method === "signOutRuntimeInstance" ? "logout" : null;
-    if (authAction) { const request = asRecord(payload), repoId = String(request.repoId), target = await input.target(repoId); return requestDaemonJsonRpcAt(target.socketPath, `repo.runtimeInstance.auth.${authAction}`, { repo: { repoId }, payload: { instanceId: String(request.instanceId), idempotencyKey: String(request.idempotencyKey) } }, 1_000); }
     if (method === "requestDaemonControl" && asRecord(payload).kind === "restart") return supervisor.request(asRecord(payload));
     if (method === "getDaemonControlReceipt") { const local = supervisor.receipt(String(asRecord(payload).operationId)); if (local) return local; }
     const result = asRecord(await input.bridge.invoke(method, payload)); return method === "getSystemStatus" ? supervisor.overlaySystem(overlayBuildSkew(await overlayLocalUserRoot(result))) : result;

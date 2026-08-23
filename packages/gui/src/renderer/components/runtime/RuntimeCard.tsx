@@ -12,7 +12,7 @@ import { Avatar, Badge, Btn, CapDot, Card, CardBody, CardHead, CardTitle, Chip, 
 type Props = {
   readonly instance: RuntimeInstanceSummary; readonly agents: readonly AgentEntityRow[]; readonly liveSessions: number; readonly busy: boolean;
   readonly authProbeError?: string;
-  readonly onSelectAgent: (agentId: string) => void; readonly onAuth: (action: "login" | "reauth" | "logout") => void; readonly onValidate: () => void;
+  readonly onSelectAgent: (agentId: string) => void; readonly onAuth: (action: "login" | "logout") => void; readonly onValidate: () => void;
   readonly onSetEnabled: (enabled: boolean) => void; readonly onUpdate: (input: RuntimeInstanceUpdateInput) => void; readonly onDelete: () => void; readonly onSelfTest: (model: string) => Promise<string | null>;
 };
 // The carrier card. Provider plane decides which sections exist at all: agy has no API
@@ -52,7 +52,7 @@ export function RuntimeCard({ instance, agents, liveSessions, busy, authProbeErr
           <Hint>{authText}</Hint>
           <span className="flex-1" />
           <Btn size="sm" disabled={busy} onClick={onValidate}>{t("agentRuntime.checkAuth")}</Btn>
-          {nativeAuthActions && <><Btn size="sm" disabled={busy} onClick={() => onAuth("login")}>{t("agentRuntime.signIn")}</Btn><Btn size="sm" disabled={busy} onClick={() => onAuth("reauth")}>{t("agentRuntime.reauth")}</Btn><Btn size="sm" variant="ghost" disabled={busy} onClick={() => onAuth("logout")}>{t("agentRuntime.signOut")}</Btn></>}
+          {nativeAuthActions && <><Btn size="sm" disabled={busy} onClick={() => onAuth("login")}>{t("agentRuntime.signIn")}</Btn><Btn size="sm" variant="ghost" disabled={busy} onClick={() => onAuth("logout")}>{t("agentRuntime.signOut")}</Btn></>}
           {agyLoginPath && <Btn size="sm" disabled={busy} onClick={() => onAuth("login")}>{t("agentRuntime.signIn")}</Btn>}
         </div>
         {apiMode && <p className="mt-2 text-[11px] text-text-faint">{t("agentRuntime.apiKeySealed")}</p>}
