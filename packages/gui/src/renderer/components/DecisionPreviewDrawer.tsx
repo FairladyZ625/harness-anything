@@ -4,6 +4,7 @@ import type { DecisionRow, RelationEdge, TaskRow } from "../model/types";
 import { derivedTasks, supersedeChain } from "../model/triadic.ts";
 import { DecisionStateBadge, RiskTierBadge, UrgencyBadge } from "./badges.tsx";
 import { t } from "../i18n/index.tsx";
+import { EntityRefLink } from "./EntityRefLink.tsx";
 import { localMonthDayTime } from "../model/local-time.ts";
 
 const timeOf = (iso: string | undefined) => (iso ? localMonthDayTime(iso) ?? "—" : "—");
@@ -38,18 +39,62 @@ function ClaimList({ claims }: { claims: DecisionRow["chosen"] }) {
  * 字段取舍见任务报告 §3:question/chosen/rejected/claims 是不打开详情就能
  * 判断一条裁决的最小集,正文与 consents 留给决策池详情。
  */
+
+/** 提议/批准者:agent 是可寻址实体 → 链接;human/system 无详情页 → 纯文本。 */
+function ActorRef({ actor, onNavigateEntity }: {
+  readonly actor: { kind: "agent" | "human" | "system"; id: string } | undefined;
+  readonly onNavigateEntity: (ref: string) => void;
+}) {
+  if (actor === undefined) return <>—</>;
+  if (actor.kind !== "agent") return <>{`${actor.kind}:${actor.id}`}</>;
+  return (
+    <EntityRefLink
+      entityRef={`agent/${actor.id}`}
+      onNavigate={onNavigateEntity}
+      title={actor.id}
+      className="text-text-muted hover:text-accent hover:underline"
+    >
+      {`agent:${actor.id}`}
+    </EntityRefLink>
+  );
+}
+
+/** decision ID 列表(逗号分隔),每项都是通往该 decision 的路。 */
+function DecisionIdList({ ids, onOpenDetail, tone }: {
+  readonly ids: readonly string[];
+  readonly onOpenDetail: (decisionId: string) => void;
+  readonly tone: string;
+}) {
+  return (
+    <>
+      {ids.map((id) => (
+        <EntityRefLink
+          key={id}
+          entityRef={`decision/${id}`}
+          onNavigate={() => onOpenDetail(id)}
+          title={id}
+          className={tone}
+        />
+      )).reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}
+    </>
+  );
+}
+
 export function DecisionPreviewDrawer({
   decision,
   tasks,
   relations,
   onClose,
   onOpenDetail,
+  onNavigateEntity,
 }: {
   decision: DecisionRow | null;
   tasks: TaskRow[];
   relations: RelationEdge[];
   onClose: () => void;
   onOpenDetail: (decisionId: string) => void;
+  /** G10 实体互链:抽屉内出现的其他实体 ID(proposer agent、派生 task)必须有路。 */
+  onNavigateEntity: (ref: string) => void;
 }) {
   useEffect(() => {
     if (!decision) return;
@@ -74,7 +119,12 @@ export function DecisionPreviewDrawer({
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-[13px] text-text-faint">{decision.decisionId}</span>
+                <EntityRefLink
+                  entityRef={`decision/${decision.decisionId}`}
+                  onNavigate={() => onOpenDetail(decision.decisionId)}
+                  title={decision.decisionId}
+                  className="font-mono text-[13px] text-text-faint hover:text-accent hover:underline"
+                />
                 <DecisionStateBadge state={decision.state} />
                 <RiskTierBadge tier={decision.riskTier} />
                 <UrgencyBadge urgency={decision.urgency} />
@@ -93,8 +143,13 @@ export function DecisionPreviewDrawer({
             </button>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11px] text-text-faint">
-            <span>{t("components.decisionPreviewDrawer.proposedBy")} {decision.proposedBy ? `${decision.proposedBy.kind}:${decision.proposedBy.id}` : "—"}</span>
-            <span>{t("components.decisionPreviewDrawer.arbiter")} {decision.arbiter ? `${decision.arbiter.kind}:${decision.arbiter.id}` : "—"}</span>
+            <span className="flex min-w-0 items-center gap-1">
+              {t("components.decisionPreviewDrawer.proposedBy")} <ActorRef actor={decision.proposedBy} onNavigateEntity={onNavigateEntity} />
+            </span>
+            <span className="flex min-w-0 items-center gap-1">
+              {t("components.decisionPreviewDrawer.arbiter")}{" "}
+              <ActorRef actor={decision.arbiter} onNavigateEntity={onNavigateEntity} />
+            </span>
             <span>{t("components.decisionPreviewDrawer.proposedAt")} {timeOf(decision.proposedAt)}</span>
             <span>{t("components.decisionPreviewDrawer.decidedAt")} {timeOf(decision.decidedAt)}</span>
           </div>
@@ -130,8 +185,24 @@ export function DecisionPreviewDrawer({
               <p className="text-[14px] text-text-faint">{t("components.decisionPreviewDrawer.none")}</p>
             ) : (
               <div className="space-y-1 font-mono text-[12px]">
-                {chain.supersedes.length > 0 && <p className="text-danger">{t("components.decisionPreviewDrawer.retires")} {chain.supersedes.join(", ")}</p>}
-                {chain.supersededBy.length > 0 && <p className="text-stale">{t("components.decisionPreviewDrawer.supersededBy")} {chain.supersededBy.join(", ")}</p>}
+                {chain.supersedes.length > 0 && (
+                  <p className="flex flex-wrap items-center gap-1 text-danger">
+                    {t("components.decisionPreviewDrawer.retires")} <DecisionIdList
+                      ids={chain.supersedes}
+                      onOpenDetail={onOpenDetail}
+                      tone="text-danger hover:underline"
+                    />
+                  </p>
+                )}
+                {chain.supersededBy.length > 0 && (
+                  <p className="flex flex-wrap items-center gap-1 text-stale">
+                    {t("components.decisionPreviewDrawer.supersededBy")} <DecisionIdList
+                      ids={chain.supersededBy}
+                      onOpenDetail={onOpenDetail}
+                      tone="text-stale hover:underline"
+                    />
+                  </p>
+                )}
                 {amended && <p className="text-text-muted">{t("components.decisionPreviewDrawer.amendedAt")} {timeOf(decision.lastChangedAt)}</p>}
               </div>
             )}
@@ -144,7 +215,12 @@ export function DecisionPreviewDrawer({
               <div className="space-y-1.5">
                 {spawned.map((task) => (
                   <div key={task.taskId} className="rounded-md bg-surface-raised px-3 py-2">
-                    <span className="font-mono text-[12px] text-text-faint">{task.taskId}</span>
+                    <EntityRefLink
+                      entityRef={`task/${task.taskId}`}
+                      onNavigate={onNavigateEntity}
+                      title={task.taskId}
+                      className="font-mono text-[12px] text-text-faint hover:text-accent hover:underline"
+                    />
                     <span className="ml-2 text-[14px] text-text">{task.title}</span>
                   </div>
                 ))}

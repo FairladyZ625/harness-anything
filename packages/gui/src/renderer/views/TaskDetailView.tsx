@@ -11,6 +11,7 @@ import {
 } from "@phosphor-icons/react";
 import type { GuiSubmissionV1 } from "../../api/renderer-dto.ts";
 import { EngineBadge, FreshnessTag, StatusBadge } from "../components/badges.tsx";
+import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import {
   TaskCloseoutTab,
   TaskDispatchTab,
@@ -59,8 +60,9 @@ export function TaskDetailView({
   onSelect?: (id: string) => void;
   projectName: string;
   fromViewLabel?: string;
-  onNavigateDecision?: (decisionId: string) => void;
-  onNavigateEntity?: (ref: string) => void;
+  /** G10 实体互链:详情页内出现的其他实体 ID 必须有路;必填,不给回调就没有路。 */
+  onNavigateDecision: (decisionId: string) => void;
+  onNavigateEntity: (ref: string) => void;
   mutationFeedback?: TaskMutationFeedback;
   onProgress?: (input: { text: string; evidence: ReadonlyArray<{ type: string; path: string; summary: string }> }) => Promise<unknown>;
   onSubmit?: (submission: GuiSubmissionV1) => Promise<unknown>;
@@ -112,7 +114,12 @@ export function TaskDetailView({
               <CaretRight weight="bold" className="shrink-0" />
               <button type="button" onClick={onBack} className="truncate hover:text-text-muted">{fromViewLabel}</button>
               <CaretRight weight="bold" className="shrink-0" />
-              <span className="truncate text-text-muted">{task.taskId}</span>
+              <EntityRefLink
+                entityRef={`task/${task.taskId}`}
+                onNavigate={onNavigateEntity}
+                title={task.taskId}
+                className="truncate font-mono text-[9px] leading-3 text-text-muted hover:text-accent hover:underline"
+              />
             </div>
             <div className="mt-0.5 flex min-w-0 items-center gap-2">
               <h1 className="truncate text-[16px] font-semibold leading-5 tracking-[-0.01em] text-text">
@@ -141,7 +148,11 @@ export function TaskDetailView({
               ].join(" ")}
               data-testid="task-identity-strip"
             >
-              <IdentityItem label="TASK ID" value={task.taskId} />
+              <IdentityItem
+                label="TASK ID"
+                value={task.taskId}
+                onClick={() => onNavigateEntity(`task/${task.taskId}`)}
+              />
               <IdentityItem
                 label="PARENT"
                 value={task.parentTaskId ?? "root"}
@@ -217,7 +228,13 @@ export function TaskDetailView({
             data-testid="task-detail-panel-scroll"
           >
             {activeTab === "overview" ? <TaskOverviewTab task={task} />
-              : activeTab === "dispatch" ? <TaskDispatchTab task={task} focusedSessionId={focusedSessionId} />
+              : activeTab === "dispatch" ? (
+                <TaskDispatchTab
+                  task={task}
+                  focusedSessionId={focusedSessionId}
+                  onNavigateEntity={onNavigateEntity}
+                />
+              )
                 : activeTab === "evidence" ? (
                     <TaskEvidenceTab
                       task={task}

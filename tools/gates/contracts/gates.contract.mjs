@@ -38,7 +38,8 @@ export default Object.freeze({
     { id: "G33", phase: "P2", job: "production-delta", command: "node tools/gates/production-delta.mjs --base \"$BASE_SHA\"" },
     { id: "G34", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G35", phase: "P2", job: "canonical-event-compat", command: "node tools/gates/canonical-event-compat.mjs --check" },
-    { id: "G36", phase: "P2", job: "line-density", command: "node tools/gates/line-density.mjs --base \"$BASE_SHA\"" }
+    { id: "G36", phase: "P2", job: "line-density", command: "node tools/gates/line-density.mjs --base \"$BASE_SHA\"" },
+    { id: "G37", phase: "P4", job: "entity-id-links", command: "node tools/gates/entity-id-links.mjs" }
   ],
   schemas: []
 });

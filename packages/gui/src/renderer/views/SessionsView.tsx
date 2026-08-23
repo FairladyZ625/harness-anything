@@ -48,10 +48,11 @@ export function SessionsView({ repoId, tasks, focusedEntityRef, onSelectEntity, 
         {selectedId === null
           ? <Empty>{t(workspace.overview.isPending ? "agentRuntime.loading" : "agentRuntime.noSessions")}</Empty>
           : <SessionsPanel repoId={repoId} runtimeSessionId={selectedId} row={row} busy={workspace.busy}
-            onCancel={(runtimeSessionId) => void workspace.cancelSession(runtimeSessionId)} onOpenTask={onOpenTask} />}
+            onCancel={(runtimeSessionId) => void workspace.cancelSession(runtimeSessionId)} onOpenTask={onOpenTask}
+            onNavigateEntity={onSelectEntity} />}
       </main>
       {inspector && <SessionInspector row={row} rows={rows} onSelectSession={(runtimeSessionId) =>
-        onSelectEntity(`session/${runtimeSessionId}`)} onOpenTask={onOpenTask} />}
+        onSelectEntity(`session/${runtimeSessionId}`)} onOpenTask={onOpenTask} onSelectEntity={onSelectEntity} />}
     </div>
   </section>;
 }
