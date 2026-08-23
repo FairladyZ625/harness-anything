@@ -4,6 +4,7 @@ import type { AgentRuntimeAttachEvent } from "../../../../../daemon/src/agent-ru
 import { agentRuntimeClient, openAgentRuntimePane } from "../../agent-runtime-client.ts";
 import { sessionTaskTarget, type RuntimeDockRow } from "../../runtime-panorama.ts";
 import { t } from "../../i18n/index.tsx";
+import { EntityRefLink } from "../EntityRefLink.tsx";
 import { Avatar, Badge, Btn, Card, CardBody, CardHead, CardTitle, Crumbs, CrumbSep, Empty, Hint, KV, KVRow, LiveDot, Right } from "./parts.tsx";
 
 const LIVENESS_TONE: Record<string, string> = { live: "text-status-done", stale: "text-stale", unknown: "text-status-unknown", exited: "text-text-faint" };
@@ -17,7 +18,7 @@ const OUTCOME_DOT: Record<string, "failed" | "idle"> = { failed: "failed" };
 // same rank as the runtime / agent / squad / orchestration cards. Every fact comes from the
 // daemon projection — the session read, the attach stream, the ledger row the workspace
 // already holds — nothing is inferred or re-derived here.
-export function SessionsPanel({ repoId, runtimeSessionId, row, busy, onCancel, onOpenTask }: { readonly repoId: string; readonly runtimeSessionId: string; readonly row: RuntimeDockRow | null; readonly busy: boolean; readonly onCancel: (runtimeSessionId: string) => void; readonly onOpenTask: (taskId: string) => void }) {
+export function SessionsPanel({ repoId, runtimeSessionId, row, busy, onCancel, onOpenTask, onNavigateEntity }: { readonly repoId: string; readonly runtimeSessionId: string; readonly row: RuntimeDockRow | null; readonly busy: boolean; readonly onCancel: (runtimeSessionId: string) => void; readonly onOpenTask: (taskId: string) => void; readonly onNavigateEntity: (ref: string) => void }) {
   const [session, setSession] = useState<AgentRuntimeSessionDto | null>(null), [result, setResult] = useState<string | null>(null), [frames, setFrames] = useState<readonly AgentRuntimeAttachEvent[]>([]), [attach, setAttach] = useState("detached"), [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let active = true, detach: (() => void) | undefined;
@@ -36,16 +37,16 @@ export function SessionsPanel({ repoId, runtimeSessionId, row, busy, onCancel, o
     return () => { active = false; detach?.(); };
   }, [repoId, runtimeSessionId]);
   return <>
-    <Crumbs><span>{t("agentRuntime.segSessions")}</span><CrumbSep /><b className="font-semibold text-text-muted">{row?.agentName ?? row?.instanceId ?? runtimeSessionId}</b><CrumbSep /><span className="font-mono">{runtimeSessionId}</span></Crumbs>
+    <Crumbs><span>{t("agentRuntime.segSessions")}</span><CrumbSep /><b className="font-semibold text-text-muted">{row?.agentName ?? row?.instanceId ?? runtimeSessionId}</b><CrumbSep /><EntityRefLink entityRef={`session/${runtimeSessionId}`} onNavigate={onNavigateEntity} title={runtimeSessionId} className="font-mono text-text-muted hover:text-accent hover:underline" /></Crumbs>
     {error ? <p role="alert" className="text-[11px] text-status-blocked">{error}</p>
       : session === null ? <Empty>{t("agentRuntime.loading")}</Empty>
-        : <SessionDetailView session={session} row={row} result={result} frames={frames} attach={attach} busy={busy} onCancel={onCancel} onOpenTask={onOpenTask} />}
+        : <SessionDetailView session={session} row={row} result={result} frames={frames} attach={attach} busy={busy} onCancel={onCancel} onOpenTask={onOpenTask} onNavigateEntity={onNavigateEntity} />}
   </>;
 }
 
 // Pure projection of one runtime session: whose it is, which task it is bound to, and what
 // is happening right now. The container above owns the session read and the attach stream.
-export function SessionDetailView({ session, row, result, frames, attach, busy, onCancel, onOpenTask }: { readonly session: AgentRuntimeSessionDto; readonly row: RuntimeDockRow | null; readonly result: string | null; readonly frames: readonly AgentRuntimeAttachEvent[]; readonly attach: string; readonly busy: boolean; readonly onCancel: (runtimeSessionId: string) => void; readonly onOpenTask: (taskId: string) => void }) {
+export function SessionDetailView({ session, row, result, frames, attach, busy, onCancel, onOpenTask, onNavigateEntity }: { readonly session: AgentRuntimeSessionDto; readonly row: RuntimeDockRow | null; readonly result: string | null; readonly frames: readonly AgentRuntimeAttachEvent[]; readonly attach: string; readonly busy: boolean; readonly onCancel: (runtimeSessionId: string) => void; readonly onOpenTask: (taskId: string) => void; readonly onNavigateEntity: (ref: string) => void }) {
   const association = session.associations[0], target = sessionTaskTarget(row, session.associations);
   return <div data-testid="session-detail">
     <Card>
@@ -55,7 +56,7 @@ export function SessionDetailView({ session, row, result, frames, attach, busy, 
       <CardBody>
         <div className="mb-2 flex flex-wrap items-center gap-2"><Avatar id={row?.agentName ?? session.instanceId} /><b className="text-[13px] font-[650]">{row?.agentName ?? session.instanceId}</b>
           {row?.squadName && <span data-testid="session-owner-squad" className="inline-flex items-center gap-1 rounded-[3px] border border-border-strong px-1.5 text-[10px] text-text-muted"><LiveDot state="idle" />{row.squadName}</span>}
-          <span className="font-mono text-[10px] text-text-faint">{session.instanceId} · {session.definitionSnapshot.model}</span>
+          <span className="flex min-w-0 items-center gap-1 font-mono text-[10px] text-text-faint"><EntityRefLink entityRef={`provider/${session.instanceId}`} onNavigate={onNavigateEntity} title={session.instanceId} className="text-text-faint hover:text-accent hover:underline" /> · {session.definitionSnapshot.model}</span>
         </div>
         <h3 className="mb-1 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">{t("agentRuntime.sessionTaskSection")}</h3>
         {target === null ? <div className="rounded border border-dashed border-text-faint/55 px-2.5 py-2 text-[11px] text-text-faint">{t("agentRuntime.sessionTaskNone")}</div>
@@ -81,7 +82,7 @@ export function SessionDetailView({ session, row, result, frames, attach, busy, 
     </Card>
     <Card>
       <CardHead><CardTitle>{t("agentRuntime.sessionFacts")}</CardTitle></CardHead>
-      <CardBody><KV><KVRow name="session">{session.runtimeSessionId}</KVRow><KVRow name="provider session">{session.providerSessionId ?? t("agentRuntime.notBound")}</KVRow><KVRow name="instance">{session.instanceId}</KVRow><KVRow name="model">{session.definitionSnapshot.model}</KVRow><KVRow name="auth">{session.definitionSnapshot.authMode}</KVRow><KVRow name="task">{row?.taskId ?? association?.taskId ?? "—"}</KVRow><KVRow name="holder">{association?.holder?.personId ?? t("agentRuntime.unheld")}</KVRow><KVRow name="lease">{association?.lease ? `${association.lease.phase} · ${association.lease.expiresAt}` : t("agentRuntime.noLease")}</KVRow><KVRow name="dispatch">{row?.dispatchId ?? "—"}</KVRow><KVRow name="delegation">{row?.delegation ?? "—"}</KVRow><KVRow name="last activity">{session.activity.lastObservedAt}</KVRow></KV></CardBody>
+      <CardBody><KV><KVRow name="session"><EntityRefLink entityRef={`session/${session.runtimeSessionId}`} onNavigate={onNavigateEntity} title={session.runtimeSessionId} className="text-accent hover:underline" /></KVRow><KVRow name="provider session">{session.providerSessionId ?? t("agentRuntime.notBound")}</KVRow><KVRow name="instance"><EntityRefLink entityRef={`provider/${session.instanceId}`} onNavigate={onNavigateEntity} title={session.instanceId} className="text-accent hover:underline" /></KVRow><KVRow name="model">{session.definitionSnapshot.model}</KVRow><KVRow name="auth">{session.definitionSnapshot.authMode}</KVRow><KVRow name="task">{(row?.taskId ?? association?.taskId) ? <EntityRefLink entityRef={`task/${row?.taskId ?? association!.taskId}`} onNavigate={(ref) => onOpenTask(ref.slice(5))} title={row?.taskId ?? association!.taskId} className="text-accent hover:underline" /> : "—"}</KVRow><KVRow name="holder">{association?.holder?.personId ?? t("agentRuntime.unheld")}</KVRow><KVRow name="lease">{association?.lease ? `${association.lease.phase} · ${association.lease.expiresAt}` : t("agentRuntime.noLease")}</KVRow><KVRow name="dispatch">{row?.dispatchId ?? "—"}</KVRow><KVRow name="delegation">{row?.delegation ?? "—"}</KVRow><KVRow name="last activity">{session.activity.lastObservedAt}</KVRow></KV></CardBody>
     </Card>
   </div>;
 }

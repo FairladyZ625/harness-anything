@@ -4,6 +4,7 @@ import { X, Crosshair, ArrowsOutSimple } from "@phosphor-icons/react";
 import { StatusBadge, CloseoutBadge, FreshnessTag } from "../../components/badges";
 import type { TaskRow, DecisionRow, FactRef } from "../../model/types";
 import { moduleDisplayLabel } from "../moduleAssignment";
+import { EntityRefLink } from "../../components/EntityRefLink.tsx";
 
 /**
  * 无限画布 ego 节点(dec_01KXBGJQFQARSZHHQW1WADFDNC)。一个组件两态:
@@ -145,7 +146,7 @@ export function EgoNode({ data, selected }: any) {
       <div className="nowheel mt-1.5 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-2.5 pb-2">
         {entity === "task" && <EgoTaskBody task={data.raw as TaskRow} />}
         {entity === "decision" && <EgoDecisionBody decision={data.raw as DecisionRow} />}
-        {entity === "fact" && <EgoFactBody fact={data.raw as FactRef} />}
+        {entity === "fact" && <EgoFactBody fact={data.raw as FactRef} onNavigate={data.onNavigate as ((ref: string) => void) | undefined} />}
       </div>
 
       <div className="ui-micro flex shrink-0 items-center justify-between gap-2 border-t border-border px-2.5 py-1 font-mono text-text-faint">
@@ -217,7 +218,7 @@ function EgoDecisionBody({ decision }: { decision: DecisionRow }) {
   );
 }
 
-function EgoFactBody({ fact }: { fact: FactRef }) {
+function EgoFactBody({ fact, onNavigate }: { fact: FactRef; onNavigate?: (ref: string) => void }) {
   return (
     <>
       <div className="ui-micro flex items-center gap-2 font-mono">
@@ -234,9 +235,9 @@ function EgoFactBody({ fact }: { fact: FactRef }) {
           </p>
         )}
       </div>
-      <div className="ui-micro rounded-md border border-border bg-surface-raised px-2 py-1.5 font-mono text-text-muted">
-        <div>task {fact.taskId}</div>
-        <div>anchor {fact.anchor}</div>
+      <div className="ui-micro flex flex-col gap-0.5 rounded-md border border-border bg-surface-raised px-2 py-1.5 font-mono text-text-muted">
+        <div>task {onNavigate ? <EntityRefLink entityRef={`task/${fact.taskId}`} onNavigate={onNavigate} title={fact.taskId} className="text-accent hover:underline" /> : fact.taskId}</div>
+        <div>anchor {onNavigate ? <EntityRefLink entityRef={`fact/${fact.taskId}/${fact.anchor.split("/")[1] ?? ""}`} onNavigate={onNavigate} title={fact.anchor} className="break-all text-accent hover:underline">{fact.anchor}</EntityRefLink> : fact.anchor}</div>
       </div>
     </>
   );

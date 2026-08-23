@@ -20,6 +20,7 @@
   "graph.graphDrawer.anchorDetails": "Anchor Details",
   "graph.graphDrawer.taskIdValue": "Task ID: {taskId}",
   "graph.graphDrawer.anchorValue": "Anchor: {anchor}",
+  "graph.graphDrawer.anchorLabel": "Anchor: ",
   "graph.graphDrawer.edgeKindMessage": "This is a {kind} relation edge.",
   "graph.graphDrawer.chainCounts": "Chain: upstream {up} · downstream {down}",
   "graph.graphDrawer.outEdgesCount": "out-edges {count}",
@@ -28,5 +29,6 @@
   "graph.axis.evidence": "Evidence",
   "graph.axis.execution": "Execution",
   "graph.axis.assoc": "Association",
-  "graph.axisTitle": "Axis: {axis}"
+  "graph.axisTitle": "Axis: {axis}",
+  "graph.graphDrawer.anchorTaskLabel": "Task ID: "
 }

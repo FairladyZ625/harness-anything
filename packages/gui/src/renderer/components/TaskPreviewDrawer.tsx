@@ -16,6 +16,7 @@ import {
   StatusBadge,
 } from "./badges";
 import { t } from "../i18n/index.tsx";
+import { EntityRefLink } from "./EntityRefLink.tsx";
 import { localMonthDayTime } from "../model/local-time.ts";
 
 const timeOf = (iso: string) => localMonthDayTime(iso) ?? "—";
@@ -82,9 +83,12 @@ export function TaskPreviewDrawer({
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-[13px] text-text-faint">
-                  {task.taskId}
-                </span>
+                <EntityRefLink
+                  entityRef={`task/${task.taskId}`}
+                  onNavigate={() => onOpenDetail(task.taskId)}
+                  title={task.taskId}
+                  className="font-mono text-[13px] text-text-faint hover:text-accent hover:underline"
+                />
                 <EngineBadge engine={task.engine} locked={isExternal(task)} />
                 {isExternal(task) && (
                   <span className="inline-flex items-center gap-1 text-[12px] text-text-faint">
@@ -139,7 +143,7 @@ export function TaskPreviewDrawer({
               </div>
               <div>
                 <dt className="font-mono text-[12px] text-text-faint">{t("components.taskPreviewDrawer.parentRoot")}</dt>
-                <dd className="font-mono text-text">{task.parentTaskId ?? "root"} / {task.rootTaskId ?? task.taskId}</dd>
+                <dd className="font-mono text-text">{task.parentTaskId ? <EntityRefLink entityRef={`task/${task.parentTaskId}`} onNavigate={() => onOpenDetail(task.parentTaskId!)} title={task.parentTaskId} className="text-accent hover:underline" /> : "root"} / {task.rootTaskId ? <EntityRefLink entityRef={`task/${task.rootTaskId}`} onNavigate={() => onOpenDetail(task.rootTaskId!)} title={task.rootTaskId} className="text-accent hover:underline" /> : <EntityRefLink entityRef={`task/${task.taskId}`} onNavigate={() => onOpenDetail(task.taskId)} title={task.taskId} className="text-accent hover:underline" />}</dd>
               </div>
             </dl>
           </Section>

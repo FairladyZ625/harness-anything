@@ -6,12 +6,34 @@ import { CopyContextButton } from "./CopyContextButton";
 import { buildEntityJumpContext } from "../model/copy-context";
 import type { RelationCoverageRow } from "../../api/renderer-dto";
 import { t } from "../i18n/index.tsx";
+import { EntityRefLink } from "./EntityRefLink.tsx";
 import { localDateTime } from "../model/local-time.ts";
 
 function shortEndpoint(raw: string): string {
   if (raw.startsWith("decision/")) return normalizeDecisionId(raw);
   if (raw.startsWith("fact/")) return raw.replace(/^fact\//, "");
   return raw.replace(/^task\//, "");
+}
+
+
+/** 关系端点的裸引用也必须有路:按 kind 路由到对应实体的导航出口。 */
+function EndpointRef({ raw, onNavigateDecision, onNavigateTask, onFocusGraph }: {
+  readonly raw: string;
+  readonly onNavigateDecision?: (decisionId: string) => void;
+  readonly onNavigateTask?: (taskId: string) => void;
+  readonly onFocusGraph?: (ref: string) => void;
+}) {
+  const navigate = (ref: string) => {
+    if (ref.startsWith("decision/") && onNavigateDecision) onNavigateDecision(normalizeDecisionId(ref));
+    else if (ref.startsWith("task/") && onNavigateTask) onNavigateTask(ref.slice(5).split("/")[0]);
+    else if (onFocusGraph) onFocusGraph(ref);
+  };
+  const routable = raw.startsWith("decision/") ? onNavigateDecision !== undefined
+    : raw.startsWith("task/") ? onNavigateTask !== undefined
+      : onFocusGraph !== undefined;
+  return routable
+    ? <EntityRefLink entityRef={raw} onNavigate={navigate} title={raw} className="text-text-faint hover:text-accent hover:underline">{shortEndpoint(raw)}</EntityRefLink>
+    : <span className="text-text-faint">{shortEndpoint(raw)}</span>;
 }
 
 export function FactInspector({
@@ -72,7 +94,11 @@ export function FactInspector({
     >
       <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
         <GitBranch weight="duotone" className="shrink-0 text-text-muted" />
-        <span className="min-w-0 truncate font-mono text-xs text-text-muted">{anchor}</span>
+        {onFocusGraph ? (
+          <EntityRefLink entityRef={fullRef} onNavigate={onFocusGraph} title={fullRef} className="min-w-0 truncate font-mono text-xs text-text-muted hover:text-accent hover:underline" />
+        ) : (
+          <span className="min-w-0 truncate font-mono text-xs text-text-muted">{anchor}</span>
+        )}
         <span className="rounded bg-surface-raised px-1.5 py-0.5 text-[11px] text-text-faint">
           {t("components.factInspector.title")}
         </span>
@@ -118,7 +144,7 @@ export function FactInspector({
               <WarningCircle weight="bold" />
               {t("components.factInspector.danglingFactReference")}
             </div>
-            <div className="mt-1 font-mono">{factRef}</div>
+            <div className="mt-1 font-mono">{onFocusGraph ? <EntityRefLink entityRef={factRef} onNavigate={onFocusGraph} title={factRef} className="text-danger hover:underline" /> : factRef}</div>
             <p className="mt-1 leading-relaxed">
               {t("components.factInspector.inv6WillDetectAnchorNotPresent")}
             </p>
@@ -148,14 +174,13 @@ export function FactInspector({
                 {t("components.factInspector.taskPackage")}
               </div>
               <div className="mt-1 flex items-center gap-2">
-                {onNavigateTask && task ? (
-                  <button
-                    onClick={() => onNavigateTask(fact.taskId)}
-                    className="font-mono text-[12px] text-accent hover:underline"
+                {onNavigateTask ? (
+                  <EntityRefLink
+                    entityRef={`task/${fact.taskId}`}
+                    onNavigate={() => onNavigateTask(fact.taskId)}
                     title={t("components.factInspector.jumpSourceTask")}
-                  >
-                    {fact.taskId}
-                  </button>
+                    className="font-mono text-[12px] text-accent hover:underline"
+                  />
                 ) : (
                   <span className="font-mono text-[12px] text-text">{fact.taskId}</span>
                 )}
@@ -202,7 +227,7 @@ export function FactInspector({
               {inbound.map((relation, index) => (
                 <div key={`${relation.from}-${relation.kind}-${index}`} className="rounded border border-border bg-surface px-2 py-1.5">
                   <div className="flex items-center gap-1.5 font-mono text-[11px]">
-                    <span className="text-text-faint">{shortEndpoint(relation.from)}</span>
+                    <EndpointRef raw={relation.from} onNavigateDecision={onNavigateDecision} onNavigateTask={onNavigateTask} onFocusGraph={onFocusGraph} />
                     <ArrowSquareOut weight="bold" className="text-[11px] text-text-faint" />
                     <span className={
                       relation.kind === "refuted-by" || relation.kind === "supersedes-fact"

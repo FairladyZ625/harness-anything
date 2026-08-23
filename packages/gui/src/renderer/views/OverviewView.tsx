@@ -34,6 +34,7 @@ export function OverviewView({
   relations,
   systemHealth,
   onSelect,
+  onNavigateEntity,
   onDrill,
   onOpenInbox,
   onOpenDecision,
@@ -52,6 +53,8 @@ export function OverviewView({
   onOpenInbox: () => void;
   /** 决策抽屉「打开详情」出口。 */
   onOpenDecision: (decisionId: string) => void;
+  /** G10 实体互链:决策预览抽屉里的 agent/task ID 的导航出口。 */
+  onNavigateEntity: (ref: string) => void;
   onOpenSystem: () => void;
 }) {
   // 决策预览抽屉:本页局部状态,不开抽屉不进导航栈(不改导航契约)。
@@ -112,6 +115,7 @@ export function OverviewView({
           setPreviewDecisionId(null);
           onOpenDecision(decisionId);
         }}
+        onNavigateEntity={onNavigateEntity}
       />
     </div>
   );

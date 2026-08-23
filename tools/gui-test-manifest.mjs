@@ -39,6 +39,7 @@ export const guiVitestManifest = [
   "packages/gui/test/ledger-timeline.vitest.ts",
   "packages/gui/test/docTree.vitest.ts",
   "packages/gui/test/system-view-detail.vitest.ts",
+  "packages/gui/test/entity-id-links.vitest.ts",
   "packages/gui/test/recent-refs.vitest.ts",
   "packages/gui/test/task-detail-expression.vitest.ts"
 ];

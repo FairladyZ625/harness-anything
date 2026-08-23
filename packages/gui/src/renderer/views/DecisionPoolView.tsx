@@ -4,6 +4,7 @@ import { ArrowRight, Graph, GitBranch, Plus } from "@phosphor-icons/react";
 import type { RelationCoverageRow, WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
 import { harnessClient, type DecisionProposalInput } from "../api-client.ts";
 import { DecisionJudgmentPanel } from "../components/DecisionJudgmentPanel.tsx";
+import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import { DecisionProposalForm } from "../components/DecisionProposalForm.tsx";
 import type { DecisionAction, DecisionMutationFeedback } from "../decision-actions.ts";
 import { computeReadinessSignals, worstColor } from "../model/readiness-signals.ts";
@@ -35,20 +36,22 @@ function ReadinessBadge({ decision, facts, rows, graphState }: { decision: Decis
   return <span title={`${coverage.summary}\nworstColor:${worst}`} className={`rounded px-1.5 py-0.5 font-mono text-[11px] ${tone}`}>{t("views.decisionPoolView.coverageValue", { value: coverage.color === "na" ? "N/A" : coverage.color })}</span>;
 }
 
-function ChainView({ decision, relations }: { decision: DecisionRow; relations: RelationEdge[] }) {
+function ChainView({ decision, relations, onNavigateDecision }: { decision: DecisionRow; relations: RelationEdge[]; onNavigateDecision: (decisionId: string) => void }) {
   const chain = supersedeChain(decision, relations), amended = decision.decidedAt && decision.lastChangedAt && decision.lastChangedAt !== decision.decidedAt;
   if (!chain.supersedes.length && !chain.supersededBy.length && !amended) return <span className="font-mono text-[11px] text-text-faint">{t("views.decisionPoolView.noSupersedeAmendChain")}</span>;
   return <div className="flex flex-wrap items-center gap-1.5 text-[11px]"><GitBranch weight="bold" className="text-text-faint" />
-    {chain.supersedes.length > 0 && <span className="inline-flex items-center gap-1 font-mono text-danger">{decision.decisionId}<ArrowRight weight="bold" />{t("views.decisionPoolView.retiresValue", { value: chain.supersedes.join(", ") })}</span>}
-    {chain.supersededBy.length > 0 && <span className="font-mono text-stale">{t("views.decisionPoolView.supersededByValue", { value: chain.supersededBy.join(", ") })}</span>}
+    {chain.supersedes.length > 0 && <span className="inline-flex items-center gap-1 font-mono text-danger"><EntityRefLink entityRef={`decision/${decision.decisionId}`} onNavigate={() => onNavigateDecision(decision.decisionId)} title={decision.decisionId} className="text-danger hover:underline" /><ArrowRight weight="bold" />{t("views.decisionPoolView.retiresValue", { value: chain.supersedes.map((id) => id).join(", ") }) && chain.supersedes.map((id) => <EntityRefLink key={id} entityRef={`decision/${id}`} onNavigate={() => onNavigateDecision(id)} title={id} className="text-danger hover:underline" />).reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}</span>}
+    {chain.supersededBy.length > 0 && <span className="font-mono text-stale">{t("views.decisionPoolView.supersededByValue", { value: "" }) && chain.supersededBy.map((id) => <EntityRefLink key={id} entityRef={`decision/${id}`} onNavigate={() => onNavigateDecision(id)} title={id} className="text-stale hover:underline" />).reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}</span>}
     {amended && <span className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-text-muted">{t("views.decisionPoolView.amendedAtValue", { value: localMonthDayTime(decision.lastChangedAt!) ?? "—" })}</span>}
   </div>;
 }
 
-export function DecisionPoolView({ repoId, decisions, summary, facts, relations, coverageRows = [], relationState = "ready", focusedDecisionId, onFocusGraph, onPropose, proposalFeedback, onJudge, mutationFeedback, onCheckReceipt }: {
+export function DecisionPoolView({ repoId, decisions, summary, facts, relations, coverageRows = [], relationState = "ready", focusedDecisionId, onFocusGraph, onNavigateDecision, onPropose, proposalFeedback, onJudge, mutationFeedback, onCheckReceipt }: {
   repoId: string;
   decisions: DecisionRow[]; summary: WorkspaceSummaryRead["decisions"]; facts: FactRef[]; relations: RelationEdge[]; coverageRows?: ReadonlyArray<RelationCoverageRow>; relationState?: RelationState;
   focusedDecisionId?: string | null; onFocusGraph?: (ref: string) => void;
+  /** G10 实体互链:卡头/supersede 链的 decision ID 必须有路。 */
+  onNavigateDecision: (decisionId: string) => void;
   onPropose?: (input: DecisionProposalInput) => Promise<DecisionMutationFeedback>; proposalFeedback?: DecisionMutationFeedback;
   onJudge?: (decision: DecisionRow, action: DecisionAction, input: { readonly rationale: string; readonly judgmentOnlyRationale?: string }) => Promise<DecisionMutationFeedback>;
   mutationFeedback?: (decisionId: string) => DecisionMutationFeedback | undefined;
@@ -124,11 +127,11 @@ export function DecisionPoolView({ repoId, decisions, summary, facts, relations,
       {groups.map((group) => <section key={group.key} aria-label={group.title || t("views.decisionPoolView.allGroup")} className="space-y-2">
       {groupBy !== "none" && <div className="sticky top-0 z-10 flex items-center gap-2 rounded-md border border-border bg-surface/95 px-2.5 py-1.5 font-mono text-[12px] text-text-muted backdrop-blur" data-testid={`decision-pool-group-${group.key}`}><span className="font-semibold text-text">{group.title}</span><span className="text-text-faint">{t("views.decisionPoolView.groupCount", { count: group.total })}</span></div>}
       {group.rows.map((decision) => <article key={decision.decisionId} id={`decision-card-${decision.decisionId}`} data-focused={decision.decisionId === focusedDecisionId || undefined} className={`rounded-lg border bg-surface px-3.5 py-3 transition-colors duration-100 ${decision.decisionId === focusedDecisionId ? "border-accent ring-1 ring-accent/30" : "border-border hover:border-border-strong"}`}>
-        <div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-1.5"><span className="font-mono text-[12px] text-text-faint">{decision.decisionId}{decision.legacyId ? ` · ${decision.legacyId}` : ""}</span><DecisionStateBadge state={decision.state} /><RiskTierBadge tier={decision.riskTier} /><UrgencyBadge urgency={decision.urgency} /><ReadinessBadge decision={decision} facts={facts} rows={coverageRows} graphState={relationState} /></div>
+        <div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-1.5"><span className="font-mono text-[12px] text-text-faint"><EntityRefLink entityRef={`decision/${decision.decisionId}`} onNavigate={() => onNavigateDecision(decision.decisionId)} title={decision.decisionId} className="text-text-faint hover:text-accent hover:underline" />{decision.legacyId ? ` · ${decision.legacyId}` : ""}</span><DecisionStateBadge state={decision.state} /><RiskTierBadge tier={decision.riskTier} /><UrgencyBadge urgency={decision.urgency} /><ReadinessBadge decision={decision} facts={facts} rows={coverageRows} graphState={relationState} /></div>
           <h2 className="mt-1 text-[15px] font-semibold leading-snug text-text">{decision.title}</h2><p className="mt-0.5 text-[12px] text-text-muted">Q: {decision.question}</p>
           <div className="mt-2 flex flex-wrap gap-x-3 font-mono text-[11px] text-text-faint"><span>{decision.vertical ?? "未知/—"}</span><span>{decision.preset ?? "未知/—"}</span><span>{decision.decisionClass ?? "unknown class"}</span><span>modules:{decision.appliesTo?.modules.join(",") || "—"}</span><span>PLT:{decision.appliesTo?.productLines.join(",") || "—"}</span><span>revision:{decision.workspaceRevision ?? "unknown"}</span></div>
         </div>{onFocusGraph && <button onClick={() => onFocusGraph(`decision/${decision.decisionId}`)} title={t("views.decisionPoolView.focusDecisionDiagram")} className="grid size-7 shrink-0 place-items-center rounded-md text-text-faint transition-colors duration-100 hover:bg-surface-raised hover:text-accent"><Graph weight="bold" /></button>}</div>
-        <div className="mt-2.5 rounded-md border border-border bg-surface-raised/50 px-2.5 py-2"><ChainView decision={decision} relations={relations} /></div>
+        <div className="mt-2.5 rounded-md border border-border bg-surface-raised/50 px-2.5 py-2"><ChainView decision={decision} relations={relations} onNavigateDecision={onNavigateDecision} /></div>
       {(decision.body || decision.judgmentConsents.length > 0) && <details className="mt-2 text-[11px] text-text-muted"><summary className="cursor-pointer select-none text-text-faint hover:text-text-muted">{t("views.decisionPoolView.canonicalBodyConsents")}</summary>{decision.body && <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-surface-raised p-2">{decision.body.body}</pre>}{decision.judgmentConsents.map((consent) => <div key={consent.consentId} className="mt-1 font-mono">{consent.action} · {consent.consentId} · {consent.consentedAt}</div>)}</details>}
         {decision.state === "proposed" && onJudge && <DecisionJudgmentPanel decision={decision} relations={relations} feedback={mutationFeedback?.(decision.decisionId)} onSubmit={onJudge} onCheckReceipt={() => onCheckReceipt?.(decision.decisionId)} />}
       </article>)}

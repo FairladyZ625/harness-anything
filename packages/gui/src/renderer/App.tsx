@@ -391,6 +391,7 @@ function AppShell() {
                 onOpenInbox={() => goto("decisions")}
                 onOpenDecision={navigateToDecision}
                 onOpenSystem={() => goto("system")}
+                onNavigateEntity={navigateToEntity}
               /> : <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
             ) : view === "board" ? (
               <BoardView
@@ -466,6 +467,7 @@ function AppShell() {
                 relationState={triadicQuery.relationState}
                 onNavigateDecision={navigateToDecision}
                 onNavigateTask={navigateToTask}
+                onNavigateEntity={navigateToEntity}
                 onFocusGraph={focusEntityInGraph}
                 coverageRows={coverageRows}
               />
@@ -489,6 +491,7 @@ function AppShell() {
                     : null
                 }
                 onFocusGraph={focusEntityInGraph}
+                onNavigateDecision={navigateToDecision}
               /> : <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
             ) : view === "presets" ? (
               <PresetsView repoId={projectId} />

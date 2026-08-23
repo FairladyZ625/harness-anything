@@ -13,6 +13,7 @@ import type { NodePos } from "./endpoint";
 import { endpointToNodeId } from "./endpoint";
 import type { DecisionRow, FactRef } from "../model/types";
 import { t } from "../i18n/index.tsx";
+import { EntityRefLink } from "../components/EntityRefLink.tsx";
 
 const truncate = (s: string, n: number) =>
   s.length > n ? `${s.slice(0, n - 1)}…` : s;
@@ -63,8 +64,8 @@ export function GraphDrawer({
             {t("graph.graphDrawer.edgeKindMessage", { kind: KIND_LABEL[focusEdge.kind] ?? focusEdge.kind })}
           </p>
           <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2 flex flex-col gap-2 text-[11px] text-text-muted">
-             <div><span className="font-bold text-text">{t("graph.graphDrawer.from")}</span> {focusEdge.from}</div>
-             <div><span className="font-bold text-text">{t("graph.graphDrawer.to")}</span> {focusEdge.to}</div>
+             <div className="flex min-w-0 flex-wrap items-center gap-1"><span className="font-bold text-text">{t("graph.graphDrawer.from")}</span> <EntityRefLink entityRef={focusEdge.from} onNavigate={onNavigateEntity ?? (() => onFocus(endpointToNodeId(focusEdge.from)))} title={focusEdge.from} className="break-all font-mono text-[11px] text-accent hover:underline" /></div>
+             <div className="flex min-w-0 flex-wrap items-center gap-1"><span className="font-bold text-text">{t("graph.graphDrawer.to")}</span> <EntityRefLink entityRef={focusEdge.to} onNavigate={onNavigateEntity ?? (() => onFocus(endpointToNodeId(focusEdge.to)))} title={focusEdge.to} className="break-all font-mono text-[11px] text-accent hover:underline" /></div>
           </div>
           {focusEdge.provenance && (
              <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2 flex flex-col gap-1">
@@ -106,7 +107,12 @@ export function GraphDrawer({
     <aside className="flex w-[26rem] shrink-0 flex-col overflow-y-auto border-l border-border bg-surface">
       <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
         <GitBranch weight="duotone" className="shrink-0 text-text-muted" />
-        <span className="font-mono text-xs text-text-muted">{focusNode.id}</span>
+        <EntityRefLink
+          entityRef={focusNode.entity === "task" ? `task/${focusNode.id}` : focusNode.id}
+          onNavigate={onNavigateEntity ?? (() => onFocus(focusId))}
+          title={focusNode.id}
+          className="font-mono text-xs text-accent hover:underline"
+        />
         <span className="rounded bg-surface-raised px-1.5 py-0.5 text-[10px] text-text-faint">
           {focusNode.entity}
         </span>
@@ -217,9 +223,9 @@ export function GraphDrawer({
                     <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
                       {t("graph.graphDrawer.anchorDetails")}
                     </span>
-                    <div className="font-mono text-[11px] text-text-muted">
-                       <div>{t("graph.graphDrawer.taskIdValue", { taskId: fact.taskId })}</div>
-                       <div>{t("graph.graphDrawer.anchorValue", { anchor: fact.anchor })}</div>
+                    <div className="flex flex-col gap-0.5 font-mono text-[11px] text-text-muted">
+                       <div className="flex min-w-0 flex-wrap items-center gap-1"><span className="text-text-faint">{t("graph.graphDrawer.anchorTaskLabel")}</span> <EntityRefLink entityRef={`task/${fact.taskId}`} onNavigate={onNavigateEntity ?? (() => onFocus(focusId))} title={fact.taskId} className="text-accent hover:underline" /></div>
+                       <div className="flex min-w-0 flex-wrap items-center gap-1"><span className="text-text-faint">{t("graph.graphDrawer.anchorLabel")}</span> <EntityRefLink entityRef={`fact/${fact.taskId}/${fact.anchor.split("/")[1] ?? ""}`} onNavigate={onNavigateEntity ?? (() => onFocus(focusId))} title={fact.anchor} className="break-all text-accent hover:underline">{fact.anchor}</EntityRefLink></div>
                     </div>
                   </div>
                 </>

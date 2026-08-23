@@ -4,6 +4,7 @@ import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-run
 import type { AgentEntityRow, SquadEntityRow } from "../../agent-entity-client.ts";
 import { sessionSiblingRows, sessionTaskTarget, type RuntimeDockRow } from "../../runtime-panorama.ts";
 import { t } from "../../i18n/index.tsx";
+import { EntityRefLink } from "../EntityRefLink.tsx";
 import { runtimeAuthPresentation } from "../../runtime-auth-presentation.ts";
 import { Avatar, CapDot, Empty, KindDot, KV, KVRow, LiveDot } from "./parts.tsx";
 import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
@@ -60,7 +61,7 @@ export function IdentityInspector({ selection, agents, squads, rows, onSelect, o
   </aside>;
 }
 
-export function SessionInspector({ row, rows, onSelectSession, onOpenTask }: { readonly row:
+export function SessionInspector({ row, rows, onSelectSession, onOpenTask, onSelectEntity }: { readonly onSelectEntity: (ref: string) => void; readonly row:
   RuntimeDockRow | null; readonly rows: readonly RuntimeDockRow[]; readonly onSelectSession:
   OpenSession; readonly onOpenTask: (taskId: string) => void }) {
   const siblings = sessionSiblingRows(rows, row?.runtimeSessionId ?? "");
@@ -69,7 +70,7 @@ export function SessionInspector({ row, rows, onSelectSession, onOpenTask }: { r
     <h2
       className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase
         tracking-[0.09em] text-text-faint">{t("agentRuntime.inspectorSession")}</h2>
-    <SessionFacts row={row} onOpenTask={onOpenTask} />
+    <SessionFacts row={row} onOpenTask={onOpenTask} onSelectEntity={onSelectEntity} />
     <Section title={t("agentRuntime.inspectorSessions", { count: siblings.length })}>
       {siblings.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty> : siblings.slice(0,
         8).map((sibling) => <DispatchSessionRow key={sibling.runtimeSessionId} row={sibling}
@@ -128,11 +129,11 @@ function SquadFacts({ squad, onSelect }: { readonly squad: SquadEntityRow | null
 // reverse jump into that task's detail (W5:派工链归 Task 详情「派工」页签). Facts come
 // from the ledger row the workspace already read; the jump target is the same
 // sessionTaskTarget as the main panel.
-function SessionFacts({ row, onOpenTask }: { readonly row: RuntimeDockRow | null; readonly onOpenTask: (taskId: string) => void }) {
+function SessionFacts({ row, onOpenTask, onSelectEntity }: { readonly row: RuntimeDockRow | null; readonly onOpenTask: (taskId: string) => void; readonly onSelectEntity: (ref: string) => void }) {
   const target = sessionTaskTarget(row, []);
   return <Section title={t("agentRuntime.inspectorSessionFacts")}>
     {row === null ? <Empty>{t("agentRuntime.notFound")}</Empty> : <>
-      <KV><KVRow name="agent">{row.agentId ?? t("agentRuntime.unattributed")}</KVRow><KVRow name="squad">{row.squadName ?? "—"}</KVRow><KVRow name="instance">{row.instanceId}</KVRow><KVRow name="dispatch">{row.dispatchId ?? "—"}</KVRow><KVRow name="status">{row.status}</KVRow></KV>
+      <KV>{row.agentId ? <KVRow name="agent"><EntityRefLink entityRef={`agent/${row.agentId}`} onNavigate={onSelectEntity} title={row.agentId} className="text-accent hover:underline" /></KVRow> : <KVRow name="agent">{t("agentRuntime.unattributed")}</KVRow>}{row.squadId ? <KVRow name="squad"><EntityRefLink entityRef={`squad/${row.squadId}`} onNavigate={onSelectEntity} title={row.squadId} className="text-accent hover:underline" /></KVRow> : <KVRow name="squad">{row.squadName ?? "—"}</KVRow>}<KVRow name="instance"><EntityRefLink entityRef={`provider/${row.instanceId}`} onNavigate={onSelectEntity} title={row.instanceId} className="text-accent hover:underline" /></KVRow><KVRow name="dispatch">{row.dispatchId ?? "—"}</KVRow><KVRow name="status">{row.status}</KVRow></KV>
       {target !== null && <button type="button" data-testid="inspector-open-task" data-task={target.taskId} title={t("agentRuntime.openTask")} onClick={() => onOpenTask(target.taskId)} className="mt-2 flex w-full items-center gap-1.5 rounded border border-border px-2 py-1 text-left hover:border-accent hover:text-accent">
         <span className="min-w-0 flex-1 truncate text-[11px]">{target.taskTitle ?? target.taskId}</span><span className="shrink-0 font-mono text-[9.5px] text-text-faint">{target.taskId}</span><span aria-hidden className="shrink-0 text-[9.5px] text-text-faint">↗</span>
       </button>}

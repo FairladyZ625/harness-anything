@@ -4,6 +4,7 @@ import type { DecisionRow, RelationEdge, TaskRow } from "../model/types";
 import { derivedTasks, supersedeChain } from "../model/triadic.ts";
 import { DecisionStateBadge, RiskTierBadge, UrgencyBadge } from "./badges.tsx";
 import { t } from "../i18n/index.tsx";
+import { EntityRefLink } from "./EntityRefLink.tsx";
 import { localMonthDayTime } from "../model/local-time.ts";
 
 const timeOf = (iso: string | undefined) => (iso ? localMonthDayTime(iso) ?? "—" : "—");
@@ -44,12 +45,15 @@ export function DecisionPreviewDrawer({
   relations,
   onClose,
   onOpenDetail,
+  onNavigateEntity,
 }: {
   decision: DecisionRow | null;
   tasks: TaskRow[];
   relations: RelationEdge[];
   onClose: () => void;
   onOpenDetail: (decisionId: string) => void;
+  /** G10 实体互链:抽屉内出现的其他实体 ID(proposer agent、派生 task)必须有路。 */
+  onNavigateEntity: (ref: string) => void;
 }) {
   useEffect(() => {
     if (!decision) return;
@@ -74,7 +78,7 @@ export function DecisionPreviewDrawer({
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-[13px] text-text-faint">{decision.decisionId}</span>
+                <EntityRefLink entityRef={`decision/${decision.decisionId}`} onNavigate={() => onOpenDetail(decision.decisionId)} title={decision.decisionId} className="font-mono text-[13px] text-text-faint hover:text-accent hover:underline" />
                 <DecisionStateBadge state={decision.state} />
                 <RiskTierBadge tier={decision.riskTier} />
                 <UrgencyBadge urgency={decision.urgency} />
@@ -93,8 +97,8 @@ export function DecisionPreviewDrawer({
             </button>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11px] text-text-faint">
-            <span>{t("components.decisionPreviewDrawer.proposedBy")} {decision.proposedBy ? `${decision.proposedBy.kind}:${decision.proposedBy.id}` : "—"}</span>
-            <span>{t("components.decisionPreviewDrawer.arbiter")} {decision.arbiter ? `${decision.arbiter.kind}:${decision.arbiter.id}` : "—"}</span>
+            <span className="flex min-w-0 items-center gap-1">{t("components.decisionPreviewDrawer.proposedBy")} {decision.proposedBy ? (decision.proposedBy.kind === "agent" ? <EntityRefLink entityRef={`agent/${decision.proposedBy.id}`} onNavigate={onNavigateEntity} title={decision.proposedBy.id} className="text-text-muted hover:text-accent hover:underline">{`agent:${decision.proposedBy.id}`}</EntityRefLink> : `${decision.proposedBy.kind}:${decision.proposedBy.id}`) : "—"}</span>
+            <span className="flex min-w-0 items-center gap-1">{t("components.decisionPreviewDrawer.arbiter")} {decision.arbiter ? (decision.arbiter.kind === "agent" ? <EntityRefLink entityRef={`agent/${decision.arbiter.id}`} onNavigate={onNavigateEntity} title={decision.arbiter.id} className="text-text-muted hover:text-accent hover:underline">{`agent:${decision.arbiter.id}`}</EntityRefLink> : `${decision.arbiter.kind}:${decision.arbiter.id}`) : "—"}</span>
             <span>{t("components.decisionPreviewDrawer.proposedAt")} {timeOf(decision.proposedAt)}</span>
             <span>{t("components.decisionPreviewDrawer.decidedAt")} {timeOf(decision.decidedAt)}</span>
           </div>
@@ -130,8 +134,8 @@ export function DecisionPreviewDrawer({
               <p className="text-[14px] text-text-faint">{t("components.decisionPreviewDrawer.none")}</p>
             ) : (
               <div className="space-y-1 font-mono text-[12px]">
-                {chain.supersedes.length > 0 && <p className="text-danger">{t("components.decisionPreviewDrawer.retires")} {chain.supersedes.join(", ")}</p>}
-                {chain.supersededBy.length > 0 && <p className="text-stale">{t("components.decisionPreviewDrawer.supersededBy")} {chain.supersededBy.join(", ")}</p>}
+                {chain.supersedes.length > 0 && <p className="flex flex-wrap items-center gap-1 text-danger">{t("components.decisionPreviewDrawer.retires")} {chain.supersedes.map((id) => <EntityRefLink key={id} entityRef={`decision/${id}`} onNavigate={() => onOpenDetail(id)} title={id} className="text-danger hover:underline" />).reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}</p>}
+                {chain.supersededBy.length > 0 && <p className="flex flex-wrap items-center gap-1 text-stale">{t("components.decisionPreviewDrawer.supersededBy")} {chain.supersededBy.map((id) => <EntityRefLink key={id} entityRef={`decision/${id}`} onNavigate={() => onOpenDetail(id)} title={id} className="text-stale hover:underline" />).reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}</p>}
                 {amended && <p className="text-text-muted">{t("components.decisionPreviewDrawer.amendedAt")} {timeOf(decision.lastChangedAt)}</p>}
               </div>
             )}
@@ -144,7 +148,7 @@ export function DecisionPreviewDrawer({
               <div className="space-y-1.5">
                 {spawned.map((task) => (
                   <div key={task.taskId} className="rounded-md bg-surface-raised px-3 py-2">
-                    <span className="font-mono text-[12px] text-text-faint">{task.taskId}</span>
+                    <EntityRefLink entityRef={`task/${task.taskId}`} onNavigate={onNavigateEntity} title={task.taskId} className="font-mono text-[12px] text-text-faint hover:text-accent hover:underline" />
                     <span className="ml-2 text-[14px] text-text">{task.title}</span>
                   </div>
                 ))}
