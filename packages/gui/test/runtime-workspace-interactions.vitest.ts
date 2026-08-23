@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RuntimeCard } from "../src/renderer/components/runtime/RuntimeCard.tsx";
 import { RuntimeWorkspace } from "../src/renderer/views/RuntimeWorkspace.tsx";
 import { agentRuntimeClient } from "../src/renderer/agent-runtime-client.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
@@ -14,6 +15,8 @@ const boundSession = session("runtime-bound", "task-bound"), siblingSession = se
 const boundDispatch = { dispatchId: "dispatch_bbb", taskId: "task-bound", executionId: "execution-1", runtimeSessionId: "runtime-bound", instanceId: "w4c-verify-codex", agentId: "terra", agentName: "terra", providerSessionId: null, eventStreamRef: null, startedAt: "2026-08-23T02:00:00.000Z", endedAt: null, outcome: null, status: "running" } as const;
 const siblingDispatch = { ...boundDispatch, dispatchId: "dispatch_sibling", taskId: "task-sibling", executionId: "execution-2", runtimeSessionId: "runtime-sibling", agentName: "terra sibling", startedAt: "2026-08-23T01:00:00.000Z" } as const;
 const tasks = [{ taskId: "task-bound", title: "Bound task title" }, { taskId: "task-sibling", title: "Sibling task title" }] as const;
+const providerInstallations = [{ installationId: "codex-install-a", kindId: "codex", version: "1.0.0", observedAt: "2026-08-23T00:00:00.000Z", models: ["model-a", "model-b"], defaultModel: "model-a" }, { installationId: "codex-install-b", kindId: "codex", version: "1.1.0", observedAt: "2026-08-23T00:00:00.000Z", models: ["model-a", "model-b", "model-c"], defaultModel: "model-b" }] as const;
+const providerInstance = { schemaVersion: 2, instanceId: "provider-edit", name: "Provider Edit", kindId: "codex", installationId: "codex-install-a", providerId: "openai", models: ["model-a", "model-b"], defaultModel: "model-a", enabled: true, permissionMode: "bypass", isolationState: "enforced", codex: { reasoningEffort: null, baseUrl: null, baseUrlConfigured: false, wire_api: null, requires_openai_auth: null, http_headers: null }, authMode: "subscription", authState: "authenticated", authReadiness: { status: "ready", code: null, hint: null } } as const;
 const mounted: { readonly root: Root; readonly client: QueryClient }[] = [];
 
 beforeAll(() => {
@@ -72,6 +75,31 @@ describe("runtime workspace interaction wiring", () => {
     expect(byTestId("rail-session-runtime-sibling").getAttribute("aria-current")).toBe("true");
     expect(byTestId("session-detail").textContent).toContain("runtime-sibling");
   });
+
+  it("edits a provider with one cancelable draft and always keeps its default model selected", async () => {
+    const onUpdate = vi.fn();
+    await mountProviderCard(onUpdate);
+
+    await click("runtime-provider-edit");
+    await input("runtime-provider-name", "Cancelled rename");
+    await click("runtime-provider-cancel");
+    expect(onUpdate).not.toHaveBeenCalled();
+
+    await click("runtime-provider-edit");
+    expect((byTestId("runtime-provider-name") as HTMLInputElement).value).toBe("Provider Edit");
+    await input("runtime-provider-name", "Provider Renamed");
+    await select("runtime-provider-installation", "codex-install-b");
+    await select("runtime-provider-default-model", "model-b");
+    await select("runtime-provider-default-model", "model-a");
+    await clickCheckbox("model-a");
+
+    expect((byTestId("runtime-provider-default-model") as HTMLSelectElement).value).toBe("model-b");
+    const remaining = [...byTestId("runtime-provider-models").querySelectorAll("input[type=checkbox]")].find((input) => (input as HTMLInputElement).value === "on" && (input.parentElement?.textContent ?? "").includes("model-b")) as HTMLInputElement;
+    expect(remaining.disabled).toBe(true);
+    await click("runtime-provider-save");
+
+    expect(onUpdate).toHaveBeenCalledWith({ instanceId: "provider-edit", name: "Provider Renamed", installationId: "codex-install-b", models: ["model-b"], defaultModel: "model-b" });
+  });
 });
 
 async function mountWorkspace() {
@@ -102,8 +130,31 @@ async function mountWorkspace() {
   return container;
 }
 
+async function mountProviderCard(onUpdate: ReturnType<typeof vi.fn>) {
+  const client = new QueryClient(), container = document.createElement("div"), root = createRoot(container);
+  document.body.append(container); mounted.push({ root, client });
+  await act(async () => {
+    root.render(createElement(RuntimeCard, { instance: providerInstance, installations: providerInstallations, agents: [], liveSessions: 0, busy: false, onSelectAgent: () => undefined, onAuth: () => undefined, onValidate: () => undefined, onSetEnabled: () => undefined, onUpdate, onDelete: () => undefined, onSelfTest: async () => null }));
+  });
+}
+
 async function click(testId: string) {
   await act(async () => { byTestId(testId).click(); });
+  await flushEffects();
+}
+
+async function input(testId: string, value: string) {
+  await act(async () => { const field = byTestId(testId) as HTMLInputElement, setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set; setValue?.call(field, value); field.dispatchEvent(new Event("input", { bubbles: true })); field.dispatchEvent(new Event("change", { bubbles: true })); });
+  await flushEffects();
+}
+async function select(testId: string, value: string) {
+  await act(async () => { const field = byTestId(testId) as HTMLSelectElement; field.value = value; field.dispatchEvent(new Event("change", { bubbles: true })); });
+  await flushEffects();
+}
+async function clickCheckbox(model: string) {
+  const checkbox = [...byTestId("runtime-provider-models").querySelectorAll("input[type=checkbox]")].find((input) => input.parentElement?.textContent?.includes(model));
+  expect(checkbox).toBeInstanceOf(HTMLInputElement);
+  await act(async () => { (checkbox as HTMLInputElement).click(); });
   await flushEffects();
 }
 

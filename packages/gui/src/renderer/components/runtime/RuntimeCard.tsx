@@ -3,14 +3,16 @@ import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-run
 import { runtimeIsolationState, runtimePermissionMode } from "../../../../../daemon/src/runtime-permissions.ts";
 import { runtimeTypeMatchesKind } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type { AgentEntityRow } from "../../agent-entity-client.ts";
-import type { RuntimeInstanceUpdateInput } from "../../runtime-instance-client.ts";
+import type { RuntimeInstallationRow, RuntimeInstanceUpdateInput } from "../../runtime-instance-client.ts";
 import { runtimeAuthPresentation } from "../../runtime-auth-presentation.ts";
+import { buildRuntimeInstanceUpdatePayload, runtimeDefaultModel, runtimeInstanceEditForm, runtimeInstanceEditModels, runtimeInstanceEditReady, toggleRuntimeModel, type RuntimeInstanceEditFormState } from "../../runtime-instance-form.ts";
 import { planeAllowsPermissions, planeUsesApiOverride, runtimeProviderPlane } from "../../runtime-provider-planes.ts";
 import { t } from "../../i18n/index.tsx";
-import { Avatar, Badge, Btn, CapDot, Card, CardBody, CardHead, CardTitle, Chip, ChipZone, CfgRow, Crumbs, CrumbSep, Empty, Field, FieldGrid, Hint, KindDot, KV, KVRow, Right, Toggle } from "./parts.tsx";
+import { Avatar, Badge, Btn, CapDot, Card, CardBody, CardHead, CardTitle, Chip, ChipZone, CfgRow, Crumbs, CrumbSep, Empty, Field, FieldGrid, Hint, KindDot, KV, KVRow, Right, TextInput, Toggle } from "./parts.tsx";
+import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 
 type Props = {
-  readonly instance: RuntimeInstanceSummary; readonly agents: readonly AgentEntityRow[]; readonly liveSessions: number; readonly busy: boolean;
+  readonly instance: RuntimeInstanceSummary; readonly installations: readonly RuntimeInstallationRow[]; readonly agents: readonly AgentEntityRow[]; readonly liveSessions: number; readonly busy: boolean;
   readonly authProbeError?: string;
   readonly onSelectAgent: (agentId: string) => void; readonly onAuth: (action: "login" | "logout") => void; readonly onValidate: () => void;
   readonly onSetEnabled: (enabled: boolean) => void; readonly onUpdate: (input: RuntimeInstanceUpdateInput) => void; readonly onDelete: () => void; readonly onSelfTest: (model: string) => Promise<string | null>;
@@ -18,21 +20,22 @@ type Props = {
 // The carrier card. Provider plane decides which sections exist at all: agy has no API
 // section because agy has no API mode; claude shows the single-instance API override;
 // codex shows the call path it was created with, because those are separate instances.
-export function RuntimeCard({ instance, agents, liveSessions, busy, authProbeError, onSelectAgent, onAuth, onValidate, onSetEnabled, onUpdate, onDelete, onSelfTest }: Props) {
-  const [confirm, setConfirm] = useState(false), [selfTestModel, setSelfTestModel] = useState(instance.defaultModel), [selfTestResult, setSelfTestResult] = useState<string | null>(null), [selfTestBusy, setSelfTestBusy] = useState(false);
+export function RuntimeCard({ instance, installations, agents, liveSessions, busy, authProbeError, onSelectAgent, onAuth, onValidate, onSetEnabled, onUpdate, onDelete, onSelfTest }: Props) {
+  const [confirm, setConfirm] = useState(false), [editing, setEditing] = useState(false), [selfTestModel, setSelfTestModel] = useState(instance.defaultModel), [selfTestResult, setSelfTestResult] = useState<string | null>(null), [selfTestBusy, setSelfTestBusy] = useState(false);
   useEffect(() => { setSelfTestModel(instance.defaultModel); setSelfTestResult(null); }, [instance.instanceId, instance.defaultModel]);
+  useEffect(() => { setEditing(false); }, [instance.instanceId]);
   const plane = runtimeProviderPlane(instance.kindId), compatible = agents.filter((agent) => runtimeTypeMatchesKind(agent.runtimeType, instance.kindId));
   const apiMode = instance.authMode === "api-key", auth = runtimeAuthPresentation(instance, authProbeError ?? null), authText = auth.state === "ready" ? t("agentRuntime.authVerified") : auth.state === "not-checked" ? t("agentRuntime.authNotChecked") : auth.state === "probe-error" ? t("agentRuntime.authProbeFailed", { error: auth.error ?? "" }) : `${instance.authReadiness.code}: ${instance.authReadiness.hint}`;
   const nativeAuthActions = !apiMode && instance.kindId !== "agy", agyLoginPath = instance.kindId === "agy" && instance.authState === "unauthenticated";
   return <div data-testid={`runtime-card-${instance.instanceId}`}>
     <Crumbs><span>{t("agentRuntime.segRuntimes")}</span><CrumbSep /><b className="font-semibold text-text-muted">{instance.name}</b><CrumbSep /><span className="font-mono">{instance.instanceId}</span></Crumbs>
-    <Card>
+    <Card testId="runtime-card-provider">
       <CardHead>
         <KindDot kind={instance.kindId} /><CardTitle>{instance.name}</CardTitle><Badge>{instance.kindId}</Badge><Badge>{instance.instanceId}</Badge>
         {liveSessions > 0 ? <Badge status="active">{t("agentRuntime.liveSessions", { count: liveSessions })}</Badge> : <Badge status="planned">{t("agentRuntime.idle")}</Badge>}
-        <Right><Hint>{t("agentRuntime.enabled")}</Hint><Toggle checked={instance.enabled} label={t("agentRuntime.enabled")} onChange={onSetEnabled} /></Right>
+        <Right>{!editing && <Btn size="sm" testId="runtime-provider-edit" disabled={busy} onClick={() => setEditing(true)}>{t("agentRuntime.editProvider")}</Btn>}<Hint>{t("agentRuntime.enabled")}</Hint><Toggle checked={instance.enabled} label={t("agentRuntime.enabled")} onChange={onSetEnabled} /></Right>
       </CardHead>
-      <CardBody><FieldGrid>
+      <CardBody>{editing ? <ProviderEditor key={instance.instanceId} instance={instance} installations={installations} busy={busy} onUpdate={onUpdate} onCancel={() => setEditing(false)} /> : <FieldGrid>
         <Field label="provider" value={instance.providerId} mono={false} />
         <Field label="default model" value={instance.defaultModel} />
         <Field label="models" value={instance.models.join(", ")} />
@@ -41,7 +44,7 @@ export function RuntimeCard({ instance, agents, liveSessions, busy, authProbeErr
         {instance.kindId === "agy" && <Field label="agy.effort" value={instance.agy.effort ?? t("agentRuntime.providerDefault")} faint={instance.agy.effort === null} />}
         {instance.kindId === "claude" && <Field label="claude.baseUrl" value={instance.claude.baseUrl ?? t("agentRuntime.officialEndpoint")} faint={!instance.claude.baseUrlConfigured} />}
         {instance.kindId === "codex" && <><Field label="codex.baseUrl" value={instance.codex.baseUrl ?? t("agentRuntime.officialEndpoint")} faint={!instance.codex.baseUrlConfigured} /><Field label="codex.wire_api" value={instance.codex.wire_api ?? t("agentRuntime.providerDefault")} faint={instance.codex.wire_api === null} /><Field label="codex.requires_openai_auth" value={instance.codex.requires_openai_auth === null ? t("agentRuntime.providerDefault") : String(instance.codex.requires_openai_auth)} faint={instance.codex.requires_openai_auth === null} /><Field label="codex.http_headers" value={instance.codex.http_headers ? Object.entries(instance.codex.http_headers).map(([name, value]) => `${name}=${value}`).join(", ") : t("agentRuntime.providerDefault")} faint={instance.codex.http_headers === null} /></>}
-      </FieldGrid></CardBody>
+      </FieldGrid>}</CardBody>
     </Card>
 
     <Card testId="runtime-card-auth">
@@ -86,6 +89,21 @@ export function RuntimeCard({ instance, agents, liveSessions, busy, authProbeErr
       </CardBody>
     </Card>
   </div>;
+}
+
+function ProviderEditor({ instance, installations, busy, onUpdate, onCancel }: { readonly instance: RuntimeInstanceSummary; readonly installations: readonly RuntimeInstallationRow[]; readonly busy: boolean; readonly onUpdate: (input: RuntimeInstanceUpdateInput) => void; readonly onCancel: () => void }) {
+  const [draft, setDraft] = useState<RuntimeInstanceEditFormState>(() => runtimeInstanceEditForm(instance)), [customModelOpen, setCustomModelOpen] = useState(false);
+  const witnessed = installations.filter((installation) => installation.kindId === instance.kindId), installation = witnessed.find((entry) => entry.installationId === draft.installationId), ready = runtimeInstanceEditReady(draft);
+  const patch = (value: Partial<RuntimeInstanceEditFormState>) => setDraft((current) => ({ ...current, ...value }));
+  const setModels = (models: readonly string[]) => setDraft((current) => ({ ...current, models, defaultModel: runtimeDefaultModel(models, current.defaultModel) }));
+  return <form data-testid="runtime-provider-editor" onSubmit={(event) => { event.preventDefault(); onUpdate(buildRuntimeInstanceUpdatePayload(instance.instanceId, draft)); onCancel(); }}>
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(215px,1fr))] gap-x-[18px] gap-y-2">
+      <label className="grid gap-0.5"><span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-text-faint">{t("agentRuntime.name")}</span><TextInput label={t("agentRuntime.name")} testId="runtime-provider-name" value={draft.name} onChange={(name) => patch({ name })} /></label>
+      <label className="grid gap-0.5"><span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-text-faint">{t("agentRuntime.installation")}</span><select data-testid="runtime-provider-installation" aria-label={t("agentRuntime.installation")} value={draft.installationId} onChange={(event) => patch({ installationId: event.target.value })} className="control">{witnessed.map((entry) => <option key={entry.installationId} value={entry.installationId}>{entry.installationId} · {entry.version}</option>)}</select></label>
+      <label className="grid gap-0.5"><span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-text-faint">{t("agentRuntime.model")}</span><RuntimeModelEditor availableModels={installation?.models ?? []} selectedModels={draft.models} customModel={draft.customModel} customModelOpen={customModelOpen} onToggleModel={(model) => setModels(toggleRuntimeModel(draft.models, undefined, model))} onCustomModelChange={(customModel) => setDraft((current) => { const next = { ...current, customModel }, models = runtimeInstanceEditModels(next); return { ...next, defaultModel: runtimeDefaultModel(models, current.defaultModel) }; })} onCustomModelOpenChange={setCustomModelOpen} defaultModel={draft.defaultModel} onDefaultModelChange={(defaultModel) => patch({ defaultModel })} testIdPrefix="runtime-provider" keepOneModel /></label>
+    </div>
+    <div className="mt-2 flex items-center gap-2"><Hint>{t("agentRuntime.providerEditHint")}</Hint><span className="flex-1" /><Btn testId="runtime-provider-cancel" onClick={onCancel}>{t("agentRuntime.cancel")}</Btn><Btn type="submit" variant="primary" testId="runtime-provider-save" disabled={busy || !ready}>{t("agentRuntime.saveProvider")}</Btn></div>
+  </form>;
 }
 
 function PermissionsEditor({ instance, busy, onUpdate }: { readonly instance: RuntimeInstanceSummary; readonly busy: boolean; readonly onUpdate: (input: RuntimeInstanceUpdateInput) => void }) {
