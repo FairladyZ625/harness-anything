@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDocTree,
   collectDirectoryPaths,
-  mergeProjectedDocuments,
+  projectedDocuments,
 } from "../src/renderer/model/docTree.ts";
 import type { DocEntry } from "../src/renderer/model/types.ts";
 
@@ -205,23 +205,15 @@ describe("collectDirectoryPaths", () => {
 });
 
 
-describe("mergeProjectedDocuments (contract ∪ projection)", () => {
-  it("adds projection-only files (artifacts/) as present docs, contract entries win on collision", () => {
-    const merged = mergeProjectedDocuments(
-      [doc("task_plan.md", { required: true, present: false, group: "计划" })],
-      ["task_plan.md", "artifacts/report.md", "artifacts/orchestration/notes.md"],
-    );
-    expect(merged).toHaveLength(3);
-    const contract = merged.find((entry) => entry.path === "task_plan.md");
-    expect(contract?.required).toBe(true);
-    expect(contract?.present).toBe(false);
-    const artifacts = merged.filter((entry) => entry.path.startsWith("artifacts/"));
-    expect(artifacts.every((entry) => entry.present && !entry.required && entry.group === "证据")).toBe(true);
-    expect(artifacts.map((entry) => entry.title)).toEqual(["report.md", "notes.md"]);
+describe("projectedDocuments", () => {
+  it("titles each entry by basename and groups artifacts/ apart from the rest", () => {
+    const entries = projectedDocuments(["task_plan.md", "artifacts/report.md", "artifacts/orchestration/notes.md"]);
+    expect(entries.map((entry) => entry.title)).toEqual(["task_plan.md", "report.md", "notes.md"]);
+    expect(entries.map((entry) => entry.group)).toEqual(["进度", "证据", "证据"]);
+    expect(entries.every((entry) => entry.present && !entry.required)).toBe(true);
   });
 
-  it("empty projection keeps contract docs untouched", () => {
-    const contract = [doc("INDEX.md", { required: true })];
-    expect(mergeProjectedDocuments(contract, [])).toEqual(contract);
+  it("returns nothing for an empty projection", () => {
+    expect(projectedDocuments([])).toEqual([]);
   });
 });
