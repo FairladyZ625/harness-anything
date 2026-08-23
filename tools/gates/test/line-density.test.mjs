@@ -96,6 +96,13 @@ test("the rejection carries the whole specification, not just a pointer", () => 
   assert.match(message, /signed receipt/u);
   assert.match(message, /Never edit\s+tools\/gates\/line-budgets\.json without one/u);
 
+  // tell the honest first-time reader that the house style, not their diff, is the cause
+  assert.match(message, /IF YOU DID NOT COMPRESS ANYTHING, YOU ARE PROBABLY STILL RIGHT/u);
+  assert.match(message, /writing new code in the style of the code already around it/u);
+  assert.match(message, /not a mistake you made/u);
+  assert.match(message, /task_7fc88830d00f0b8157a498a85c/u);
+  assert.match(message, /obligation is bounded to the lines listed above/u);
+
   // preempt the reflex the gate is most likely to provoke
   assert.match(message, /ceiling and design limit was doubled/u);
   assert.match(message, /node tools\/gates\/line-budget\.mjs --base origin\/main/u);
