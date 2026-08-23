@@ -258,5 +258,7 @@
   "views.entityDetail.neighborhood": "Neighborhood",
   "views.entityDetail.loadingProjection": "Loading the relation projection…",
   "views.entityDetail.notProjected": "This entity is not in the current projection (still loading, or absent from it).",
-  "views.entityDetail.refocusHint": "Jump to this entity's detail page"
+  "views.entityDetail.refocusHint": "Jump to this entity's detail page",
+  "views.boardView.showMore": "Show {count} more · {remaining} remaining",
+  "views.swimlaneBoard.showMore": "Show {count} more lanes · {remaining} remaining"
 }

@@ -50,6 +50,17 @@ describe("entity detail target routing (W4)", () => {
     // repo/<repoId>/ 前缀由 App 层先剥再路由,本函数不负责。
     expect(entityDetailTargetOf("repo/r1/decision/dec_1")).toBeNull();
   });
+
+  it("routes runtime entity refs to the three runtime entries (W6 IA 拆分)", () => {
+    // Agent 与 Squad 共享 Agent 入口(Squad 是该页内的一个面,不是第四入口);
+    // provider 是 Runtime 实例在导航引用里的名字;session 归会话入口。
+    expect(entityDetailTargetOf("agent/terra")).toEqual({ view: "agentSquad", focusedEntityRef: "agent/terra" });
+    expect(entityDetailTargetOf("squad/core-squad")).toEqual({ view: "agentSquad", focusedEntityRef: "squad/core-squad" });
+    expect(entityDetailTargetOf("provider/codex-review")).toEqual({ view: "providers", focusedEntityRef: "provider/codex-review" });
+    expect(entityDetailTargetOf("session/runtime-1")).toEqual({ view: "sessions", focusedEntityRef: "session/runtime-1" });
+    // 退役的聚合入口不再有路由,也不在 ViewId 词表里。
+    expect(entityDetailTargetOf("agents")).toBeNull();
+  });
 });
 
 describe("detail views in the view history stack (W4)", () => {

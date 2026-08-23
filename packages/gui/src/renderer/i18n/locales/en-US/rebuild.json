@@ -7,7 +7,6 @@
   "shell.nav.graph": "Relation Graph",
   "shell.nav.presets": "Preset / Vertical",
   "shell.nav.adapters": "Engine Adapters",
-  "shell.nav.agents": "Agent Runtime",
   "shell.nav.system": "System",
   "shell.nav.settings": "Settings",
   "shell.nav.workspace": "Workspace",
@@ -20,5 +19,8 @@
   "settings.languageDesc": "zh-CN / en-US; some views are bilingual, the rest stay in Chinese for now",
   "settings.title": "Settings",
   "shell.nav.decisionDetail": "Decision Detail",
-  "shell.nav.factDetail": "Fact Detail"
+  "shell.nav.factDetail": "Fact Detail",
+  "shell.nav.sessions": "Sessions",
+  "shell.nav.agentSquad": "Agents · Squads",
+  "shell.nav.providers": "Providers"
 }

@@ -9,42 +9,46 @@ import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
 
 const OUTCOME_TONE: Record<RuntimeDockRow["status"], string> = { succeeded: "text-status-done", failed: "text-status-blocked", cancelled: "text-status-cancelled", unknown: "text-status-unknown", running: "text-status-active" };
 
-type Props = {
-  readonly instances: readonly RuntimeInstanceSummary[]; readonly agents: readonly AgentEntityRow[]; readonly squads: readonly SquadEntityRow[]; readonly sessions: readonly RuntimeDockRow[];
-  readonly authProbeErrors?: ReadonlyMap<string, string>;
-  readonly selection: RuntimeSelection | null; readonly open: Readonly<Record<string, boolean>>; readonly liveByInstance: ReadonlyMap<string, number>;
-  readonly onToggle: (segment: string) => void; readonly onSelect: (selection: RuntimeSelection) => void; readonly onNew: (segment: "runtimes" | "agents" | "squads") => void;
-};
-// The prototype rail: four collapsible segments in the order carrier → identity →
-// organisation → execution, each row carrying the one fact that distinguishes it. Sessions
-// sit at the same rank as the rest: picked here, shown in the main area — never in a
-// drawer bolted onto the bottom. W5:「编排」段撤销——task 派工链归 Task 详情「派工」页签,
-// 运行侧只保留 session 行与其绑定的 task 标题。
-export function RuntimeRail({ instances, authProbeErrors, agents, squads, sessions, selection, open, liveByInstance, onToggle, onSelect, onNew }: Props) {
-  const picked = (type: RuntimeSelection["type"], id: string) => selection?.type === type && selection.id === id;
+// W6 IA 拆分:原四段聚合 rail 随「Agent 运行时」入口撤销,拆成三条页级 rail——
+// ProviderRail(承运者)/ IdentityRail(身份 + 组织,Squad 是 Agent 页内的面)/
+// SessionRail(执行)。行渲染与 testid(rail-runtime-*/rail-agent-*/rail-squad-*/
+// rail-session-*/runtime-new-*)原样保留,只是各回各页;跨页不再共享选中态,
+// 互跳走可寻址路由。
+export function ProviderRail({ instances, authProbeErrors, selectedId, liveByInstance, onSelect, onNew }: { readonly instances: readonly RuntimeInstanceSummary[]; readonly authProbeErrors?: ReadonlyMap<string, string>; readonly selectedId: string | null; readonly liveByInstance: ReadonlyMap<string, number>; readonly onSelect: (instanceId: string) => void; readonly onNew: () => void }) {
+  const [open, setOpen] = useState(true);
   return <nav data-testid="runtime-rail" aria-label={t("agentRuntime.railLabel")} className="flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface">
-    <Segment segment="runtimes" title={t("agentRuntime.segRuntimes")} sub={t("agentRuntime.segRuntimesSub")} count={instances.length} open={open.runtimes ?? true} onToggle={onToggle} onNew={() => onNew("runtimes")}>
-      {instances.map((instance) => { const auth = runtimeAuthPresentation(instance, authProbeErrors?.get(instance.instanceId) ?? null), authTip = auth.state === "ready" ? t("agentRuntime.authVerified") : auth.state === "not-checked" ? t("agentRuntime.authNotChecked") : auth.state === "probe-error" ? t("agentRuntime.authProbeFailed", { error: auth.error ?? "" }) : instance.authReadiness.hint ?? t("agentRuntime.authNotReady"); return <Row key={instance.instanceId} tip={instance.instanceId} testId={`rail-runtime-${instance.instanceId}`} selected={picked("runtime", instance.instanceId)} onSelect={() => onSelect({ type: "runtime", id: instance.instanceId })}>
+    <Segment segment="runtimes" title={t("agentRuntime.segRuntimes")} sub={t("agentRuntime.segRuntimesSub")} count={instances.length} open={open} onToggle={() => setOpen(!open)} onNew={onNew}>
+      {instances.map((instance) => { const auth = runtimeAuthPresentation(instance, authProbeErrors?.get(instance.instanceId) ?? null), authTip = auth.state === "ready" ? t("agentRuntime.authVerified") : auth.state === "not-checked" ? t("agentRuntime.authNotChecked") : auth.state === "probe-error" ? t("agentRuntime.authProbeFailed", { error: auth.error ?? "" }) : instance.authReadiness.hint ?? t("agentRuntime.authNotReady"); return <Row key={instance.instanceId} tip={instance.instanceId} testId={`rail-runtime-${instance.instanceId}`} selected={selectedId === instance.instanceId} onSelect={() => onSelect(instance.instanceId)}>
         <KindDot kind={instance.kindId} /><span className="min-w-0 flex-1 truncate text-[12px]">{instance.name}</span><span className="shrink-0 font-mono text-[10px] text-text-faint">{instance.defaultModel}</span>
         <CapDot state={auth.cap} tip={authTip} size={9} />
         <LiveDot state={(liveByInstance.get(instance.instanceId) ?? 0) > 0 ? "live" : instance.enabled ? "idle" : "failed"} tip={instance.enabled ? t("agentRuntime.instanceEnabled") : t("agentRuntime.instanceDisabled")} />
       </Row>; })}
     </Segment>
-    <Segment segment="agents" title={t("agentRuntime.segAgents")} sub={t("agentRuntime.segAgentsSub")} count={agents.length} open={open.agents ?? true} onToggle={onToggle} onNew={() => onNew("agents")}>
+  </nav>;
+}
+
+// The identity rail: Agents and Squads share one page because a Squad has no lifecycle
+// apart from its agents (proposal P2) — organisation is a facet of identity here, not a
+// fourth entry. The design-thesis note stays at this rail's foot: dispatch is authored
+// from this page, and the formula it explains (Agent × Runtime × Task → Session) is the
+// one this page starts.
+export function IdentityRail({ agents, squads, selection, onSelect, onNew }: { readonly agents: readonly AgentEntityRow[]; readonly squads: readonly SquadEntityRow[]; readonly selection: RuntimeSelection | null; readonly onSelect: (selection: RuntimeSelection) => void; readonly onNew: (segment: "agents" | "squads") => void }) {
+  const [segments, setSegments] = useState<Readonly<Record<string, boolean>>>({ agents: true, squads: true });
+  const onToggle = (segment: string) => setSegments((value) => ({ ...value, [segment]: !(value[segment] ?? true) }));
+  const picked = (type: "agent" | "squad", id: string) => selection?.type === type && selection.id === id;
+  return <nav data-testid="runtime-rail" aria-label={t("agentRuntime.railLabel")} className="flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface">
+    <Segment segment="agents" title={t("agentRuntime.segAgents")} sub={t("agentRuntime.segAgentsSub")} count={agents.length} open={segments.agents ?? true} onToggle={() => onToggle("agents")} onNew={() => onNew("agents")}>
       {agents.map((agent) => <Row key={agent.id} tip={agent.id} testId={`rail-agent-${agent.id}`} selected={picked("agent", agent.id)} onSelect={() => onSelect({ type: "agent", id: agent.id })}>
         <Avatar id={agent.id} /><span className="min-w-0 flex-1 truncate text-[12px]">{agent.name}</span>
         <span data-tip={t("agentRuntime.layerTip", { layer: agent.layer })} className="shrink-0 rounded-[3px] border border-border-strong px-1 font-mono text-[9px] tracking-[0.04em] text-text-faint">{agent.layer}</span>
         {agent.validity === "blocked" && <LiveDot state="failed" tip={t("agentRuntime.declarationBlocked")} />}
       </Row>)}
     </Segment>
-    <Segment segment="squads" title={t("agentRuntime.segSquads")} sub={t("agentRuntime.segSquadsSub")} count={squads.length} open={open.squads ?? true} onToggle={onToggle} onNew={() => onNew("squads")}>
+    <Segment segment="squads" title={t("agentRuntime.segSquads")} sub={t("agentRuntime.segSquadsSub")} count={squads.length} open={segments.squads ?? true} onToggle={() => onToggle("squads")} onNew={() => onNew("squads")}>
       {squads.map((squad) => <Row key={squad.id} tip={squad.id} testId={`rail-squad-${squad.id}`} selected={picked("squad", squad.id)} onSelect={() => onSelect({ type: "squad", id: squad.id })}>
         <KindDot kind="any" /><span className="min-w-0 flex-1 truncate text-[12px]">{squad.name}</span>
         <span className="shrink-0 rounded-[3px] border border-border-strong px-1 font-mono text-[9px] text-text-faint">{t("agentRuntime.memberCount", { count: squad.workers.length + 1 })}</span>
       </Row>)}
-    </Segment>
-    <Segment segment="sessions" title={t("agentRuntime.segSessions")} sub={t("agentRuntime.segSessionsSub")} count={sessions.length} open={open.sessions ?? true} onToggle={onToggle}>
-      <SessionGroupRows sessions={sessions} picked={picked} onSelect={onSelect} />
     </Segment>
     <details className="px-2.5 py-2 text-[10px] leading-[1.5] text-text-faint"><summary className="cursor-pointer list-none">{t("agentRuntime.thesisSummary")}</summary><p className="mt-1">{t("agentRuntime.thesisBody")}</p></details>
   </nav>;
@@ -52,8 +56,18 @@ export function RuntimeRail({ instances, authProbeErrors, agents, squads, sessio
 
 // Sessions answer "who is running": grouped by Agent or Squad, never by runtime instance —
 // the carrier is only where a session happens to run. A runtime session the dispatch ledger
-// does not know about still belongs here, under its unattributed group.
-function SessionGroupRows({ sessions, picked, onSelect }: { readonly sessions: readonly RuntimeDockRow[]; readonly picked: (type: "session", id: string) => boolean; readonly onSelect: (selection: RuntimeSelection) => void }) {
+// does not know about still belongs here, under its unattributed group. W5:「编排」段撤销
+// ——task 派工链归 Task 详情「派工」页签,运行侧只保留 session 行与其绑定的 task 标题。
+export function SessionRail({ sessions, selectedId, onSelect }: { readonly sessions: readonly RuntimeDockRow[]; readonly selectedId: string | null; readonly onSelect: (runtimeSessionId: string) => void }) {
+  const [open, setOpen] = useState(true);
+  return <nav data-testid="runtime-rail" aria-label={t("agentRuntime.railLabel")} className="flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface">
+    <Segment segment="sessions" title={t("agentRuntime.segSessions")} sub={t("agentRuntime.segSessionsSub")} count={sessions.length} open={open} onToggle={() => setOpen(!open)}>
+      <SessionGroupRows sessions={sessions} selectedId={selectedId} onSelect={onSelect} />
+    </Segment>
+  </nav>;
+}
+
+function SessionGroupRows({ sessions, selectedId, onSelect }: { readonly sessions: readonly RuntimeDockRow[]; readonly selectedId: string | null; readonly onSelect: (runtimeSessionId: string) => void }) {
   const [collapsed, setCollapsed] = useState<Readonly<Record<string, boolean>>>({});
   return <>{runtimeDockGroups(sessions).map((group) => <div key={group.key}>
     <button type="button" aria-expanded={!collapsed[group.key]} onClick={() => setCollapsed((current) => ({ ...current, [group.key]: !current[group.key] }))} className="flex w-full items-center gap-1.5 px-1.5 pt-1 pb-0.5 text-left text-[10.5px] text-text-muted">
@@ -62,7 +76,7 @@ function SessionGroupRows({ sessions, picked, onSelect }: { readonly sessions: r
       <b className="font-semibold">{group.label || t("agentRuntime.unattributed")}</b><span className="text-text-faint">{group.kind}</span>
       <span className="ml-auto font-mono text-[10px] text-text-faint">{group.rows.length}</span>
     </button>
-    {!collapsed[group.key] && group.rows.map((row) => <Row key={row.runtimeSessionId} tip={row.runtimeSessionId} testId={`rail-session-${row.runtimeSessionId}`} selected={picked("session", row.runtimeSessionId)} onSelect={() => onSelect({ type: "session", id: row.runtimeSessionId })}>
+    {!collapsed[group.key] && group.rows.map((row) => <Row key={row.runtimeSessionId} tip={row.runtimeSessionId} testId={`rail-session-${row.runtimeSessionId}`} selected={selectedId === row.runtimeSessionId} onSelect={() => onSelect(row.runtimeSessionId)}>
       <LiveDot state={row.status === "running" ? "live" : row.status === "failed" ? "failed" : "idle"} tip={row.status} />
       <span className="min-w-0 flex-1 truncate text-[11.5px]">{row.agentName ?? row.instanceId}</span>
       <span className="min-w-0 max-w-[76px] shrink truncate font-mono text-[9.5px] text-text-muted">{row.taskTitle ?? t("agentRuntime.noTask")}</span>
@@ -71,10 +85,10 @@ function SessionGroupRows({ sessions, picked, onSelect }: { readonly sessions: r
   </div>)}</>;
 }
 
-function Segment({ segment, title, sub, count, open, onToggle, onNew, children }: { readonly segment: string; readonly title: string; readonly sub: string; readonly count: number; readonly open: boolean; readonly onToggle: (segment: string) => void; readonly onNew?: () => void; readonly children: ReactNode }) {
+function Segment({ segment, title, sub, count, open, onToggle, onNew, children }: { readonly segment: string; readonly title: string; readonly sub: string; readonly count: number; readonly open: boolean; readonly onToggle: () => void; readonly onNew?: () => void; readonly children: ReactNode }) {
   return <section className="border-b border-border">
     <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1.5 hover:bg-surface-raised">
-      <button type="button" aria-expanded={open} onClick={() => onToggle(segment)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+      <button type="button" aria-expanded={open} onClick={onToggle} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
         <span aria-hidden className={`shrink-0 text-[8px] text-text-faint transition-transform ${open ? "rotate-90" : ""}`}>▶</span>
         <span className="text-[10.5px] font-bold uppercase tracking-[0.09em] text-text-faint">{title}</span><span className="truncate text-[10px] text-text-faint">{sub}</span>
         <span className="ml-auto shrink-0 font-mono text-[10px] text-text-faint">{count}</span>

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { AgentRuntimeSessionDto } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import type { AgentEntityRow, SquadEntityRow } from "../../agent-entity-client.ts";
 import { sessionSiblingRows, sessionTaskTarget, type RuntimeDockRow } from "../../runtime-panorama.ts";
@@ -7,29 +8,67 @@ import { runtimeAuthPresentation } from "../../runtime-auth-presentation.ts";
 import { Avatar, CapDot, Empty, KindDot, KV, KVRow, LiveDot } from "./parts.tsx";
 import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
 
-type Props = { readonly selection: RuntimeSelection | null; readonly instances: readonly RuntimeInstanceSummary[]; readonly authProbeErrors?: ReadonlyMap<string, string>; readonly agents: readonly AgentEntityRow[]; readonly squads: readonly SquadEntityRow[]; readonly rows: readonly RuntimeDockRow[]; readonly onSelect: (selection: RuntimeSelection) => void; readonly onSelectSession: (runtimeSessionId: string) => void; readonly onOpenTask: (taskId: string) => void };
-// Right-hand inspector: the same selection seen from the sessions side. It never repeats
-// the main card's configuration; it answers "what has this thing actually been doing".
-export function RuntimeInspector({ selection, instances, authProbeErrors, agents, squads, rows, onSelect, onSelectSession, onOpenTask }: Props) {
-  if (!selection) return null;
-  const title = t(`agentRuntime.inspector${selection.type[0]!.toUpperCase()}${selection.type.slice(1)}` as never);
-  const related = selection.type === "session" ? sessionSiblingRows(rows, selection.id) : rows.filter((row) => selection.type === "runtime" ? row.instanceId === selection.id : selection.type === "agent" ? row.agentId === selection.id : row.squadId === selection.id);
-  return <aside data-testid="runtime-inspector" aria-label={title} className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface">
-    <h2 className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase tracking-[0.09em] text-text-faint">{title}</h2>
-    {selection.type === "runtime" && <RuntimeFacts instance={instances.find((instance) => instance.instanceId === selection.id) ?? null} probeError={authProbeErrors?.get(selection.id) ?? null} />}
-    {selection.type === "agent" && <AgentFacts agent={agents.find((agent) => agent.id === selection.id) ?? null} squads={squads} onSelect={onSelect} />}
-    {selection.type === "squad" && <SquadFacts squad={squads.find((squad) => squad.id === selection.id) ?? null} onSelect={onSelect} />}
-    {selection.type === "session" && <SessionFacts row={rows.find((row) => row.runtimeSessionId === selection.id) ?? null} onOpenTask={onOpenTask} />}
-    <Section title={t("agentRuntime.inspectorSessions", { count: related.length })}>
-      {related.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty> : related.slice(0, 8).map((row) => <button key={row.runtimeSessionId} type="button" onClick={() => onSelectSession(row.runtimeSessionId)} className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised">
-        <LiveDot state={row.status === "running" ? "live" : row.status === "failed" ? "failed" : "idle"} tip={row.status} />
-        <span className="min-w-0 flex-1"><span className="block truncate text-[11.5px]">{row.agentName ?? row.instanceId}</span><span className="block truncate font-mono text-[10px] text-text-faint">{row.taskTitle ?? row.runtimeSessionId}</span></span>
-        <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{row.startedAt.slice(11, 16)}</span>
-      </button>)}
+// W6 IA 拆分:原四类通吃的 RuntimeInspector 拆成三个页级 inspector——右栏仍是
+// "同一个选中,从会话侧看过去:这东西最近在干什么",但跨页跳转(session/<id>、
+// agent/<id>)改走可寻址路由;同页的互跳(agent↔squad、sibling session)保持页内选择。
+// Provider 页的相关会话行取 overview 的 session DTO(liveness 投影),不为此读
+// dispatch 台账——agent/task 归属在会话详情里,点行直达。
+
+type OpenSession = (runtimeSessionId: string) => void;
+
+// Liveness maps, not point comparisons (dec_8DCD52E98BAB268B0194B1E399): the daemon's
+// liveness word decides the dot through a table lookup alone.
+const LIVENESS_DOT: Record<string, "live" | "idle"> = { live: "live" };
+
+export function ProviderInspector({ instance, probeError, sessions, onOpenSession }: { readonly instance: RuntimeInstanceSummary | null; readonly probeError: string | null; readonly sessions: readonly AgentRuntimeSessionDto[]; readonly onOpenSession: OpenSession }) {
+  return <aside data-testid="runtime-inspector" aria-label={t("agentRuntime.inspectorRuntime")} className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface">
+    <h2 className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase tracking-[0.09em] text-text-faint">{t("agentRuntime.inspectorRuntime")}</h2>
+    <RuntimeFacts instance={instance} probeError={probeError} />
+    <Section title={t("agentRuntime.inspectorSessions", { count: sessions.length })}>
+      {sessions.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty> : sessions.slice(0, 8).map((session) => <LiveSessionRow key={session.runtimeSessionId} session={session} onOpenSession={onOpenSession} />)}
     </Section>
   </aside>;
 }
+
+export function IdentityInspector({ selection, agents, squads, rows, onSelect, onOpenSession }: { readonly selection: RuntimeSelection; readonly agents: readonly AgentEntityRow[]; readonly squads: readonly SquadEntityRow[]; readonly rows: readonly RuntimeDockRow[]; readonly onSelect: (selection: RuntimeSelection) => void; readonly onOpenSession: OpenSession }) {
+  const related = rows.filter((row) => selection.type === "agent" ? row.agentId === selection.id : row.squadId === selection.id);
+  return <aside data-testid="runtime-inspector" aria-label={t(selection.type === "agent" ? "agentRuntime.inspectorAgent" : "agentRuntime.inspectorSquad")} className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface">
+    <h2 className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase tracking-[0.09em] text-text-faint">{t(selection.type === "agent" ? "agentRuntime.inspectorAgent" : "agentRuntime.inspectorSquad")}</h2>
+    {selection.type === "agent"
+      ? <AgentFacts agent={agents.find((agent) => agent.id === selection.id) ?? null} squads={squads} onSelect={onSelect} />
+      : <SquadFacts squad={squads.find((squad) => squad.id === selection.id) ?? null} onSelect={onSelect} />}
+    <Section title={t("agentRuntime.inspectorSessions", { count: related.length })}>
+      {related.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty> : related.slice(0, 8).map((row) => <DispatchSessionRow key={row.runtimeSessionId} row={row} onOpenSession={onOpenSession} />)}
+    </Section>
+  </aside>;
+}
+
+export function SessionInspector({ row, rows, onSelectSession, onOpenTask }: { readonly row: RuntimeDockRow | null; readonly rows: readonly RuntimeDockRow[]; readonly onSelectSession: OpenSession; readonly onOpenTask: (taskId: string) => void }) {
+  const siblings = sessionSiblingRows(rows, row?.runtimeSessionId ?? "");
+  return <aside data-testid="runtime-inspector" aria-label={t("agentRuntime.inspectorSession")} className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface">
+    <h2 className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase tracking-[0.09em] text-text-faint">{t("agentRuntime.inspectorSession")}</h2>
+    <SessionFacts row={row} onOpenTask={onOpenTask} />
+    <Section title={t("agentRuntime.inspectorSessions", { count: siblings.length })}>
+      {siblings.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty> : siblings.slice(0, 8).map((sibling) => <DispatchSessionRow key={sibling.runtimeSessionId} row={sibling} onOpenSession={onSelectSession} />)}
+    </Section>
+  </aside>;
+}
+
 function Section({ title, children }: { readonly title: string; readonly children: ReactNode }) { return <section className="border-b border-border px-3 py-2 last:border-b-0"><h3 className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">{title}</h3>{children}</section>; }
+function LiveSessionRow({ session, onOpenSession }: { readonly session: AgentRuntimeSessionDto; readonly onOpenSession: OpenSession }) {
+  return <button type="button" onClick={() => onOpenSession(session.runtimeSessionId)} className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised">
+    <LiveDot state={LIVENESS_DOT[session.liveness] ?? "idle"} tip={session.liveness} />
+    <span className="min-w-0 flex-1"><span className="block truncate text-[11.5px]">{session.instanceId}</span><span className="block truncate font-mono text-[10px] text-text-faint">{session.runtimeSessionId}</span></span>
+    <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{session.activity.lastObservedAt.slice(11, 16)}</span>
+  </button>;
+}
+function DispatchSessionRow({ row, onOpenSession }: { readonly row: RuntimeDockRow; readonly onOpenSession: OpenSession }) {
+  return <button type="button" onClick={() => onOpenSession(row.runtimeSessionId)} className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised">
+    <LiveDot state={row.status === "running" ? "live" : row.status === "failed" ? "failed" : "idle"} tip={row.status} />
+    <span className="min-w-0 flex-1"><span className="block truncate text-[11.5px]">{row.agentName ?? row.instanceId}</span><span className="block truncate font-mono text-[10px] text-text-faint">{row.taskTitle ?? row.runtimeSessionId}</span></span>
+    <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{row.startedAt.slice(11, 16)}</span>
+  </button>;
+}
 function RuntimeFacts({ instance, probeError }: { readonly instance: RuntimeInstanceSummary | null; readonly probeError: string | null }) {
   if (!instance) return <Section title={t("agentRuntime.inspectorHealth")}><Empty>{t("agentRuntime.notFound")}</Empty></Section>;
   const auth = runtimeAuthPresentation(instance, probeError), authText = auth.state === "ready" ? t("agentRuntime.authVerified") : auth.state === "not-checked" ? t("agentRuntime.authNotChecked") : auth.state === "probe-error" ? t("agentRuntime.authProbeFailed", { error: auth.error ?? "" }) : `${instance.authReadiness.code}: ${instance.authReadiness.hint}`;

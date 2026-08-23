@@ -72,11 +72,13 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
 
   // W5 IA 重构:一级导航 = 工作区 / 决策 / 运行时 / 系统;事实分诊·执行证据入口
   // 随页面撤销(内容并入 Task 详情),总览保留在「工作区」之下。
+  // W6 IA 拆分:「运行时」组 = 会话 / Agent(含 Squad)/ Provider 三个独立工作区,
+  // 原「Agent 运行时」聚合入口随页面撤销。
   const sidebarText = await page.locator("aside").first().innerText();
-  for (const group of ["工作区", "决策", "运行时", "系统", "总览", "看板", "关系图", "决策批准", "决策池"]) {
+  for (const group of ["工作区", "决策", "运行时", "系统", "总览", "看板", "关系图", "决策批准", "决策池", "会话", "Agent · 含 Squad", "Provider"]) {
     assert.ok(sidebarText.includes(group), `first-level nav must still expose ${group}`);
   }
-  for (const retired of ["事实分诊", "执行证据", "管理"]) {
+  for (const retired of ["事实分诊", "执行证据", "管理", "Agent 运行时"]) {
     assert.ok(!sidebarText.includes(retired), `retired nav entry ${retired} must be gone from the sidebar`);
   }
 
@@ -165,7 +167,10 @@ test("GUI creates a Runtime and Agent from zero, invokes its selected Skill, and
   const page = await electronApp.firstWindow();
   page.setDefaultTimeout(20_000);
   await page.waitForLoadState("domcontentloaded");
-  await page.getByRole("button", { name: /^Agent (?:运行时|Runtime)$/u }).click();
+  // W6 IA 拆分:原「Agent 运行时」聚合入口撤销,「运行时」组 = 会话 / Agent(含
+  // Squad)/ Provider 三个独立工作区。从零建 Runtime 走 Provider 入口,建 Agent 走
+  // Agent 入口;派工 settle 后应用自动跳会话入口看它跑(session/<id> 可寻址)。
+  await page.getByRole("button", { name: /^(?:Provider|Providers)$/u }).click();
 
   await page.getByTestId("runtime-new-runtimes").click();
   const runtimeDialog = page.getByTestId("new-runtime-dialog");
@@ -191,6 +196,7 @@ test("GUI creates a Runtime and Agent from zero, invokes its selected Skill, and
   await createRuntime.click();
   await page.getByTestId("rail-runtime-gui-from-zero").waitFor({ timeout: 20_000 });
 
+  await page.getByRole("button", { name: /^(?:Agents · Squads|Agent · 含 Squad)$/u }).click();
   await page.getByTestId("runtime-new-agents").click();
   const agentDialog = page.getByTestId("new-agent-dialog");
   await agentDialog.waitFor();
