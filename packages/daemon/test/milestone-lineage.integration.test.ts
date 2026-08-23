@@ -20,7 +20,7 @@ function initRepo(rootDir: string): void {
   git(rootDir, "config", "user.name", "Milestone Lineage Test");
   git(rootDir, "config", "user.email", "milestone-lineage@example.invalid");
   git(rootDir, "config", "gc.auto", "0");
-  git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
+  writeFileSync(path.join(rootDir, "README.md"), "# Fixture\n"); git(rootDir, "add", "README.md"); git(rootDir, "commit", "--quiet", "-m", "fixture base");
 }
 
 /** Walks a task to in_review with the approved Review, owner consent, and every completion gate satisfied. */
@@ -50,7 +50,7 @@ test("an orphan milestone task stops at completion until the prescribed decision
     // Satisfy the mechanical gates first (CI witness, code-doc witness); the lineage gap must be what remains.
     const ci = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, binding) as unknown as Record<string, unknown>;
     assert.equal(ci.code, "code_doc_missing", JSON.stringify(ci));
-    const reconciled = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed", paths: ["packages/kernel/src/domain/task.ts"] }, binding) as unknown as Record<string, unknown>;
+    const reconciled = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed", paths: ["README.md"] }, binding) as unknown as Record<string, unknown>;
     // RED before the rule: this facade call used to land task_completed. After it, the orphan stops with the named edge and the exact command.
     assert.deepEqual({ outcome: reconciled.outcome, code: reconciled.code, stoppedAt: reconciled.stoppedAt }, { outcome: "op_rejected", code: "decision_lineage_missing", stoppedAt: "decision_lineage_missing" }, JSON.stringify(reconciled));
     const nextAction = String((reconciled.next as { readonly command: string }[])[0]?.command);
@@ -77,7 +77,7 @@ test("a standard task still completes with no decision relations at all", async 
   try {
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("standard-lineage"), rootDir: canonicalRoot(rootDir), ownerId: "standard-lineage" });
     await reachGreenInReview(cell, rootDir, taskId, executionId, "Standard Lineage");
-    const completed = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed", paths: ["packages/kernel/src/domain/task.ts"] }, binding) as unknown as Record<string, unknown>;
+    const completed = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed", paths: ["README.md"] }, binding) as unknown as Record<string, unknown>;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     assert.equal(makeTaskEventStore({ repoId: "standard-lineage", rootDir }).read().events.some((event) => event.type === "task_completed"), true);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }

@@ -265,10 +265,12 @@ export const reconcile: Transition = {
       !proof.actorBinding ||
       !isSameExecution(command.actor, proof.actorBinding) ||
       proof.capability !== "code-doc-reconcile@v1" ||
-      !isNonEmptyString(proof.capabilityRef)
+      !isNonEmptyString(proof.capabilityRef) ||
+      proof.commitPaths?.commitSha !== command.commitSha ||
+      !sameDocumentPaths(proof.commitPaths?.paths, command.paths)
     )
       issues.push(
-        lifecycleContractIssue("invalid_proof", "code-doc witness must bind canonical paths to the submitted commit"),
+        lifecycleContractIssue("invalid_proof", "code-doc witness must bind verified paths from the submitted commit"),
       );
     return issues;
   },
@@ -302,6 +304,12 @@ export const reconcile: Transition = {
     };
   },
 };
+
+function sameDocumentPaths(left: unknown, right: readonly string[]): boolean {
+  return (
+    canonicalDocumentPaths(left) && stableStringify([...left].sort()) === stableStringify([...right].sort())
+  );
+}
 export function isReadyToComplete(snapshot: TaskLifecycleSnapshot): boolean {
   return closeoutReadiness(snapshot).readiness === "ready";
 }

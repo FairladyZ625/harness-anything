@@ -14,6 +14,7 @@ import {
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
+import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { submitLeaseRequiredMessage } from "./repo-cell-execution-selection.ts";
 import { reviewerDependence } from "./repo-cell-review-lint.ts";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
@@ -24,6 +25,7 @@ export async function proofFor(
   snapshot: Snapshot,
   binding: RepoCellBinding,
   projection: Pick<ReturnType<typeof makeTaskProjection>, "readRuntimeSession">,
+  rootDir: string,
 ): Promise<TaskLifecycleServiceProof<typeof command>> {
   if (command.type === "CreateReplayTask") return { taskIdUnique: true, actorBinding: command.actor };
   if (command.type === "StartExecution") {
@@ -110,12 +112,28 @@ export async function proofFor(
       capabilityRef: `task-owner:${command.actor.principal.personId}`,
     };
   }
-  if (command.type === "ReconcileCodeDoc")
+  if (command.type === "ReconcileCodeDoc") {
+    const verified = verifyCodeDocCommitPaths({ rootDir, commitSha: command.commitSha, paths: command.paths });
+    if (!verified.ok)
+      throw cellCodedError(
+        "invalid_proof",
+        verified.code === "commit_not_found"
+          ? `Code-doc reconcile cannot verify commit ${command.commitSha} in the public or authored Git repository.`
+          : [
+              "Code-doc reconcile requires every --path to exist at commit ",
+              command.commitSha,
+              " relative to the Git repository that owns it; missing or wrong-root paths: ",
+              verified.missingPaths.join(", "),
+              ".",
+            ].join(""),
+      );
     return {
       actorBinding: command.actor,
       capability: "code-doc-reconcile@v1",
       capabilityRef: `transport-writer:${command.actor.principal.personId}`,
+      commitPaths: { commitSha: verified.commitSha, paths: verified.paths },
     };
+  }
   return completeProof(command, snapshot) as TaskLifecycleServiceProof<typeof command>;
 }
 

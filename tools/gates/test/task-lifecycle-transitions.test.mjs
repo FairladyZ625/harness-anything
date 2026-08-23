@@ -43,7 +43,14 @@ function reviewProof(actor = reviewer) { return { actorBinding: actor, capabilit
 function consent(revision, recorded, actor = owner) { return command(actor, revision, { type: "RecordReviewConsent", taskId: "task-1", executionId: recorded.executionId, reviewId: recorded.reviewId, consentId: `consent-${recorded.reviewId}`, reviewDigest: reviewDigest(recorded), contentDigest: recorded.contentDigest }, `consent-${recorded.reviewId}`); }
 function consentProof(actor = owner) { return { actorBinding: actor, capability: "execution-consent@v1", capabilityRef: "capability:owner-consent" }; }
 function reconcile(revision, executionId = "execution-0", commitSha = commit0, iteration = 0, paths = ["packages/kernel/src/domain/task.ts"]) { return command(executor, revision, { type: "ReconcileCodeDoc", taskId: "task-1", executionId, witnessId: `witness-${revision}`, commitSha, iteration, paths }, `reconcile-${revision}`); }
-function reconcileProof() { return { actorBinding: executor, capability: "code-doc-reconcile@v1", capabilityRef: "capability:code-doc" }; }
+function reconcileProof() {
+  return {
+    actorBinding: executor,
+    capability: "code-doc-reconcile@v1",
+    capabilityRef: "capability:code-doc",
+    commitPaths: { commitSha: commit0, paths: ["packages/kernel/src/domain/task.ts"] }
+  };
+}
 function complete(revision, executionId = "execution-0") { return command(owner, revision, { type: "CompleteTask", taskId: "task-1", executionId }, `complete-${executionId}`); }
 function completeProof() { return { capability: "task-complete@v1", capabilityRef: "capability:complete", actorRole: "owner", noActiveLease: true, gateReceipts: [] }; }
 

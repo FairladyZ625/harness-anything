@@ -179,7 +179,8 @@ export function createRepoCellActionContext(bindings: {
     workspaceText,
     buildCommand,
     withServerMeta,
-    proofFor,
+    proofFor: (command: any, snapshot: any, binding: any, projection: any) =>
+      proofFor(command, snapshot, binding, projection, bindings.rootDir),
     lifecycleReceipt,
     publicPublication: bindings.publicPublication,
     explicitExecutionId,
