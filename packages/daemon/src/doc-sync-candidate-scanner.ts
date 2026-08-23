@@ -1,13 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { canonicalDocumentClaims, classifyTextualArtifactPath, decideDocWrite, DOC_POLICY_ID, documentPath, isTaskBoundRuntimeWriter, parseDocWriteIntent, resolveDocRoute, resolveHarnessLayout, resolveLedgerGitLayout, resolveLiveTaskBoundRuntimeBinding, resolveRetirableDocument, runtimeSessionIdFromActor, sha256Bytes,
+import { canonicalDocumentClaims, classifyTextualArtifactPath, decideDocWrite, DOC_POLICY_ID, documentPath, isSameExecution, isTaskBoundRuntimeWriter, parseDocWriteIntent, resolveDocRoute, resolveHarnessLayout, resolveLedgerGitLayout, resolveLiveTaskBoundRuntimeBinding, resolveRetirableDocument, runtimeSessionIdFromActor, sha256Bytes, stableStringify,
   type ActorIdentity, type CanonicalEventStore, type DocWriteIntent, type LedgerCutIdentity, type TaskProjection, type WriteSource } from "../../kernel/src/index.ts";
 
 export type DocCandidateState = "clean" | "eligible" | "inapplicable" | "blocked" | "deletion" | "conflict";
 type TextualArtifactMediaType = NonNullable<ReturnType<typeof classifyTextualArtifactPath>>["mediaType"];
 export interface DocCandidateRow { readonly path: string; readonly state: DocCandidateState; readonly reason: string | null; readonly baseBlobSha256: string | null; readonly candidateBlobSha256: string | null; readonly size: number | null; readonly mediaType: TextualArtifactMediaType | null; readonly conflicts: readonly string[] }
-export interface ScannedDocCandidate extends DocCandidateRow { readonly bytes: Uint8Array | null; readonly rejectionCode: string | null; readonly requiredRoute: string | null }
+export interface ScannedDocCandidate extends DocCandidateRow { readonly bytes: Uint8Array | null; readonly rejectionCode: string | null; readonly requiredRoute: string | null; readonly regionId: string | null }
 export interface DocCandidateScan { readonly baseLedgerSha: LedgerCutIdentity; readonly executionId: string | null; readonly executionCandidates: readonly string[]; readonly lease: ReturnType<TaskProjection["currentLeaseForExecution"]>; readonly rows: readonly ScannedDocCandidate[] }
 
 export function scanDocCandidates(input: { readonly rootDir: string; readonly workspaceId: string; readonly store: CanonicalEventStore; readonly projection: TaskProjection; readonly actor: ActorIdentity; readonly source: WriteSource; readonly now: string; readonly selection?: readonly string[]; readonly executionId?: string }): DocCandidateScan {
@@ -28,14 +28,14 @@ export function scanDocCandidates(input: { readonly rootDir: string; readonly wo
     if (decision.accepted) return scannedCandidateRow("eligible", null, bytes, base, candidate, mediaType);
     const unresolved = decision.detail.unresolvedTouches, nonTextualArtifact = base === null && classification.kind === "opaque-textual" && decision.code === "unresolved_touch" && unresolved.length === 1 && unresolved[0]?.requiredRoute === "typed-binary-content";
     if (nonTextualArtifact) return scannedCandidateRow("inapplicable", "non-textual artifact is outside doc sync", bytes, base, candidate, mediaType);
-    return scannedCandidateRow(decision.code === "deletion_forbidden" ? "deletion" : "blocked", unresolved[0]?.reason ?? decision.detail.nextAction, bytes, base, candidate, mediaType, decision.code, unresolved[0]?.requiredRoute ?? null);
-    function scannedCandidateRow(state: DocCandidateState, reason: string | null, body: Uint8Array | null, baseHash: string | null, candidateHash: string | null, media: DocCandidateRow["mediaType"] = null, rejectionCode: string | null = null, requiredRoute: string | null = null): ScannedDocCandidate { return { path: logical, state, reason, baseBlobSha256: baseHash, candidateBlobSha256: candidateHash, size: body?.byteLength ?? null, mediaType: media, conflicts, bytes: body, rejectionCode, requiredRoute }; }
+    return scannedCandidateRow(decision.code === "deletion_forbidden" ? "deletion" : "blocked", unresolved[0]?.reason ?? decision.detail.nextAction, bytes, base, candidate, mediaType, decision.code, unresolved[0]?.requiredRoute ?? null, unresolved[0]?.regionId ?? null);
+    function scannedCandidateRow(state: DocCandidateState, reason: string | null, body: Uint8Array | null, baseHash: string | null, candidateHash: string | null, media: DocCandidateRow["mediaType"] = null, rejectionCode: string | null = null, requiredRoute: string | null = null, regionId: string | null = null): ScannedDocCandidate { return { path: logical, state, reason, baseBlobSha256: baseHash, candidateBlobSha256: candidateHash, size: body?.byteLength ?? null, mediaType: media, conflicts, bytes: body, rejectionCode, requiredRoute, regionId }; }
   }
   function conflictsFor(logical: string): string[] { const target = path.join(layout.authoredRoot, ...logical.split("/")), extension = path.extname(target), stem = path.basename(target, extension), directory = path.dirname(target); if (!existsSync(directory)) return []; return readdirSync(directory).filter((name) => name.startsWith(`${stem}.conflict-`) && name.endsWith(extension) && /^[0-9a-f]{8}$/u.test(name.slice(`${stem}.conflict-`.length, -extension.length))).map((name) => relative(input.rootDir, path.join(directory, name))).sort(); }
 }
 
 export function intentFromScan(scan: DocCandidateScan, workspaceId: string): { readonly intent: DocWriteIntent; readonly claims: readonly Uint8Array[] } { const eligible = scan.rows.filter((row) => row.state === "eligible"); return { intent: parseDocWriteIntent({ schema: "doc-write-intent/v1", executionId: scan.executionId, baseLedgerSha: scan.baseLedgerSha, changes: eligible.map((row) => { const classification = classifyTextualArtifactPath(row.path); if (classification === null || row.candidateBlobSha256 === null || row.size === null) throw new Error(`eligible scan row is not a textual artifact: ${row.path}`); return { path: row.path, baseBlobSha256: row.baseBlobSha256, policyId: classification.policyId, candidate: { ref: `doc-sync-claims/${row.candidateBlobSha256}`, sha256: row.candidateBlobSha256, size: row.size, mediaType: classification.mediaType } }; }) }, workspaceId), claims: eligible.map((row) => row.bytes!) }; }
-export function publicScan(scan: DocCandidateScan): { readonly baseLedgerSha: LedgerCutIdentity; readonly rows: readonly DocCandidateRow[] } { return { baseLedgerSha: scan.baseLedgerSha, rows: scan.rows.map(({ bytes: _bytes, rejectionCode: _rejectionCode, requiredRoute: _requiredRoute, ...row }) => row) }; }
+export function publicScan(scan: DocCandidateScan): { readonly baseLedgerSha: LedgerCutIdentity; readonly rows: readonly DocCandidateRow[] } { return { baseLedgerSha: scan.baseLedgerSha, rows: scan.rows.map(({ bytes: _bytes, rejectionCode: _rejectionCode, requiredRoute: _requiredRoute, regionId: _regionId, ...row }) => row) }; }
 
 function executionBinding(paths: readonly string[], explicit: string | undefined, projection: TaskProjection, actor: ActorIdentity, source: WriteSource, now: string) {
   if (explicit) return { id: explicit, candidates: [], lease: projection.currentLeaseForExecution(explicit, now) };
@@ -48,7 +48,15 @@ function executionBinding(paths: readonly string[], explicit: string | undefined
     }) ?? [], unique = [...new Map(matches.map((match) => [match.id, match])).values()];
     return unique.length === 1 ? { id: unique[0]!.id, candidates: [], lease: unique[0]!.lease } : { id: null, candidates: unique.map((match) => match.id).sort(), lease: null };
   }
-  const taskIds = [...tasks], current = taskIds.length === 1 ? projection.currentLease(taskIds[0]!, now) : null, lease = current?.phase === "held" ? current : null;
+  // Channel selection must authorize the caller, not just observe the scanned
+  // path set: pinning a non-holder to a task lease they cannot hold turns a
+  // legal repository-prose submit into lease_conflict (and makes `--path`
+  // behave differently from an implicit submit purely by set size). The lease
+  // channel is only chosen when the caller is its holder on this channel —
+  // the same authority decideDocWrite would demand — so a held lease owned by
+  // another executor falls back to the lease-free prose channel instead of
+  // being rejected.
+  const taskIds = [...tasks], current = taskIds.length === 1 ? projection.currentLease(taskIds[0]!, now) : null, lease = current?.phase === "held" && isSameExecution(current.actor, actor) && stableStringify(current.source) === stableStringify(source) ? current : null;
   return { id: lease?.executionId ?? null, candidates: [], lease };
 }
 function dirtyPaths(repoRoot: string, authoredPrefix: string): string[] { const scope = authoredPrefix || ".", changed = gitNames(repoRoot, ["diff", "--name-only", "-z", "HEAD", "--", scope]), untracked = gitNames(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z", "--", scope]), prefix = authoredPrefix ? `${authoredPrefix}/` : ""; return [...new Set([...changed, ...untracked].filter((value) => (!prefix || value.startsWith(prefix)) && !value.includes(".conflict-")).map((value) => value.slice(prefix.length)).concat(conflictLogicalPaths(path.join(repoRoot, authoredPrefix))))]; }
