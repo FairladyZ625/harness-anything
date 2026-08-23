@@ -13,7 +13,7 @@ import { runtimeInstanceClient, type RuntimeInstanceCreateInput, type RuntimeIns
 import { createGuiExecutionId } from "../../task-actions.ts";
 import { t } from "../../i18n/index.tsx";
 
-export type RuntimeSelection = { readonly type: "runtime" | "agent" | "squad" | "orchestration"; readonly id: string };
+export type RuntimeSelection = { readonly type: "runtime" | "agent" | "squad" | "orchestration" | "session"; readonly id: string };
 const message = (value: unknown): string => value instanceof Error ? value.message : String(value);
 
 export function useRuntimeWorkspace(repoId: string, tasks: readonly RuntimePanoramaTask[]) {

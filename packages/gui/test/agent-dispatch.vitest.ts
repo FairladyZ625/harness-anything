@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { buildDispatchSpawnInput, compatibleDispatchInstances, dispatchChainFromDocuments, dispatchOutcomeView, type DispatchRequest, type DispatchSubject } from "../src/renderer/dispatch-flow.ts";
 import { DispatchDialog } from "../src/renderer/components/DispatchDialog.tsx";
 import { AgentCard } from "../src/renderer/components/runtime/AgentCard.tsx";
-import { SessionsDock } from "../src/renderer/components/runtime/SessionsDock.tsx";
+import { RuntimeRail } from "../src/renderer/components/runtime/RuntimeRail.tsx";
 import { runtimeDockRows } from "../src/renderer/runtime-panorama.ts";
 import { runtimeCommandClient } from "../src/renderer/runtime-command-client.ts";
 import { submitRuntimeSpawn } from "../src/renderer/runtime-control.ts";
@@ -106,10 +106,10 @@ describe("agent dispatch flow", () => {
     expect(card("blocked")).not.toContain('data-testid="dispatch-entry-terra"');
     expect(card("blocked")).toContain("declaration is blocked");
   });
-  it("renders the five terminal dispatch states as distinct dock rows", () => {
+  it("renders the five terminal dispatch states as distinct session rows in the rail", () => {
     const base = { dispatchId: "d", taskId: "task-dispatch", executionId: "e", runtimeSessionId: "r", instanceId: "w4c-verify-codex", agentId: "terra", agentName: "terra", providerSessionId: null, eventStreamRef: null, startedAt: "2026-08-20T02:00:00.000Z", endedAt: null, outcome: null, status: "running", taskTitle: "Dispatch task", squad: null } as const;
     const rows = runtimeDockRows((["running", "succeeded", "failed", "unknown", "cancelled"] as const).map((status, index) => ({ ...base, dispatchId: `d-${index}`, runtimeSessionId: `runtime-${index}`, status, outcome: status === "running" ? null : status })), []);
-    const markup = renderToStaticMarkup(createElement(SessionsDock, { repoId: "repo-a", rows, open: true, selectedId: null, busy: false, onToggle: () => undefined, onSelect: () => undefined, onCancel: () => undefined }));
+    const markup = renderToStaticMarkup(createElement(RuntimeRail, { instances: [], agents: [], squads: [], orchestration: [], sessions: rows, selection: null, open: { runtimes: true, agents: true, squads: true, orchestration: true, sessions: true }, liveByInstance: new Map(), onToggle: () => undefined, onSelect: () => undefined, onNew: () => undefined } as never));
     for (const status of ["running", "succeeded", "failed", "unknown", "cancelled"]) expect(markup).toContain(`>${status}<`);
     for (let index = 0; index < 5; index += 1) expect(markup).toContain(`data-testid="runtime-outcome-runtime-${index}"`);
   });

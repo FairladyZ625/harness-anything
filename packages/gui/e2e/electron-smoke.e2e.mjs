@@ -201,12 +201,13 @@ test("GUI creates a Runtime and Agent from zero, invokes its selected Skill, and
   assert.equal(await submit.isEnabled(), true, "real mission form did not become dispatchable");
   await submit.click();
 
-  const dock = page.getByTestId("sessions-dock");
-  await dock.waitFor({ timeout: 30_000 });
-  const settledOutcome = dock.locator("button", { hasText: "Run a real GUI dispatch" }).locator('[data-testid^="runtime-outcome-"]');
+  const sessionRow = page.getByTestId("runtime-rail").locator('[data-testid^="rail-session-"]', { hasText: "Run a real GUI dispatch" }).first();
+  await sessionRow.waitFor({ timeout: 30_000 });
+  const settledOutcome = sessionRow.locator('[data-testid^="runtime-outcome-"]');
   await settledOutcome.waitFor({ timeout: 20_000 });
   await page.waitForFunction(() => [...globalThis.document.querySelectorAll('[data-testid^="runtime-outcome-"]')].some((element) => element.closest("button")?.textContent?.includes("Run a real GUI dispatch") && ["succeeded", "failed", "cancelled"].includes(element.textContent?.trim() ?? "")), undefined, { timeout: 150_000 });
   assert.equal((await settledOutcome.textContent())?.trim(), "succeeded", `real provider dispatch did not settle successfully: ${await settledOutcome.textContent()}`);
+  await sessionRow.click();
   const detail = page.getByTestId("session-detail");
   await detail.waitFor();
   await detail.getByText("exited", { exact: true }).waitFor({ timeout: 20_000 });

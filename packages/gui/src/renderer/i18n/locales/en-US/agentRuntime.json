@@ -169,11 +169,7 @@
   "agentRuntime.previewTitle": "Preview",
   "agentRuntime.notSelected": "nothing selected",
   "agentRuntime.previewSelectHint": "Pick an artifact above to read it.",
-  "agentRuntime.sessions": "Sessions",
-  "agentRuntime.sessionCount": "{count} sessions · {live} running",
-  "agentRuntime.dockGroupingNote": "Grouped by agent / squad, not by runtime instance",
   "agentRuntime.noSessions": "No session",
-  "agentRuntime.pickSession": "Pick a session on the left",
   "agentRuntime.unattributed": "Unattributed",
   "agentRuntime.noTask": "no task",
   "agentRuntime.attachStatus": "attach: {status}",
@@ -292,5 +288,13 @@
   "agentRuntime.dispatchNow": "Dispatch",
   "agentRuntime.dispatching": "Dispatching…",
   "agentRuntime.dispatchCount": "{count}D",
-  "agentRuntime.dispatchBlocked": "This agent's declaration is blocked; fix it before dispatching."
+  "agentRuntime.dispatchBlocked": "This agent's declaration is blocked; fix it before dispatching.",
+  "agentRuntime.segSessions": "Sessions",
+  "agentRuntime.segSessionsSub": "execution",
+  "agentRuntime.inspectorSession": "Session inspector",
+  "agentRuntime.inspectorSessionFacts": "Session facts",
+  "agentRuntime.sessionTaskSection": "Task",
+  "agentRuntime.sessionTaskNone": "This session is not bound to a task.",
+  "agentRuntime.openTask": "Open this task",
+  "agentRuntime.sessionFacts": "Session facts"
 }

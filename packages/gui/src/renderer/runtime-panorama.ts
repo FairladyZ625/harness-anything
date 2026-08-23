@@ -21,6 +21,24 @@ export function runtimeDockRows(panorama: readonly RuntimePanoramaRow[], session
   return [...dispatched, ...orphans];
 }
 
+// The Session → Task jump target, resolved from the two backend read faces the workspace
+// already holds: the dispatch ledger row first (it carries the title), the daemon session
+// association as fallback. Presentation only — no second truth is kept here.
+export type SessionTaskTarget = { readonly taskId: string; readonly taskTitle: string | null };
+export function sessionTaskTarget(row: RuntimeDockRow | null, associations: readonly { readonly taskId: string }[]): SessionTaskTarget | null {
+  if (row?.taskId) return { taskId: row.taskId, taskTitle: row.taskTitle };
+  const association = associations[0];
+  return association ? { taskId: association.taskId, taskTitle: null } : null;
+}
+
+// The sibling sessions the inspector lists under a selected session: same agent, or same
+// squad when the row carries no agent — a filter over backend rows, never a second store.
+export function sessionSiblingRows(rows: readonly RuntimeDockRow[], runtimeSessionId: string): readonly RuntimeDockRow[] {
+  const selected = rows.find((row) => row.runtimeSessionId === runtimeSessionId) ?? null;
+  if (selected === null) return [];
+  return rows.filter((row) => row.runtimeSessionId !== runtimeSessionId && (selected.agentId !== null && row.agentId === selected.agentId || selected.squadId !== null && row.squadId === selected.squadId));
+}
+
 export function runtimeDockGroups(rows: readonly RuntimeDockRow[]): readonly RuntimeDockGroup[] {
   const groups = new Map<string, { kind: RuntimeDockGroup["kind"]; label: string; rows: RuntimeDockRow[] }>();
   for (const row of rows) {
