@@ -80,7 +80,7 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
       const result = unregisterDaemonRepo(request.repoId, { userRoot: input.userRoot, createConvenienceLinks: false }); settleWarming(request.repoId); await closeCell(request.repoId); unavailable.delete(request.repoId);
       const repo = publicRegistryRepo(result.repo); return { schema: "command-receipt/v2", ok: true, command: "daemon-repo-unregister", outcome: "applied", repo, changed: result.changed, summary: `repo unregister: repoId=${repo.repoId} canonicalRoot=${String(repo.canonicalRoot)} changed=${result.changed}` }; },
     run: async (repoId, action, auth) => {
-      const commandClass = commandClassForAction(action.kind), modeAdmission = admitHostMode(repoId, commandClass, auth);
+      const commandClass = commandClassForAction(action.kind), projectionRepair = localCenterProjectionRepair(repoId, action.kind, auth), modeAdmission = projectionRepair ? { ok: true, code: "repo_mode_admitted", nextAction: "Continue." } : admitHostMode(repoId, commandClass, auth);
       if (!modeAdmission.ok) return rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
       await attemptHostRecovery(repoId);
       const cell = cells.get(repoId);
@@ -90,7 +90,8 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
         .find((field) => Object.hasOwn(action, field));
       if (spoof) return rejectHostAction(action, "ingress_binding_forbidden", `Payload cannot report ${spoof}; daemon binds principal authority, root, revision, and time.`);
       try { const { executor: declared, ...intent } = action, executor = declaredExecutor(declared);
-        return await cell.run(intent as RepoTaskAction, await binding(cell.status().rootDir, auth, commandClass, action.kind === "doc-submit", executor), auth.connectionSignal); }
+        const serverBinding = projectionRepair ? localRepairBinding : await binding(cell.status().rootDir, auth, commandClass, action.kind === "doc-submit", executor);
+        return await cell.run(intent as RepoTaskAction, serverBinding, auth.connectionSignal); }
       catch (error) { return rejectHostAction(action, code(error), daemonErrorMessage(error)); }
     },
     replica: (repoId) => requiredCell(cells, warming, unavailable, repoId).replica,
@@ -196,9 +197,11 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
     input.recordLifecycle?.({ event: "attachments_settled", attachTotal: repos.length, attached: repos.filter((repo) => cells.has(repo.repoId)).length, unavailable: repos.filter((repo) => unavailable.has(repo.repoId)).length, pruned, durationMs: performance.now() - startedAt });
   }
   function admitHostMode(repoId: string, commandClass: DaemonCommandClass, auth: DaemonAuthenticationContext): RepoModeAdmission { const persisted = readDaemonRegistry({ userRoot: input.userRoot }).repos.find((entry) => entry.repoId === repoId && entry.state === "enabled"), fallback = unavailable.get(repoId); if (!persisted?.mode && !fallback?.mode) return { ok: false, code: "repo_namespace_unknown", nextAction: `Unknown repo namespace: ${repoId}.` }; const source: WriteSource = auth.assignmentBinding ? { kind: "assignment", nodeId: auth.assignmentBinding.nodeId, assignmentId: auth.assignmentBinding.assignmentId } : "local"; return admitRepoMode(persisted?.mode ?? fallback!.mode!, commandClass, source); }
+  function localCenterProjectionRepair(repoId: string, actionKind: string, auth: DaemonAuthenticationContext): boolean { if (actionKind !== "projection-rebuild" || auth.transportKind !== "unix-socket" || auth.assignmentBinding) return false; const persisted = readDaemonRegistry({ userRoot: input.userRoot }).repos.find((entry) => entry.repoId === repoId && entry.state === "enabled"), fallback = unavailable.get(repoId); return (persisted?.mode ?? fallback?.mode) === "remote-center"; }
   function requireHostMode(repoId: string, commandClass: DaemonCommandClass, auth: DaemonAuthenticationContext): void { const admission = admitHostMode(repoId, commandClass, auth); if (!admission.ok) throw hostCodedError(admission.code, admission.nextAction); }
   function settleControl(pending: DaemonControlReceipt, ok: boolean, error?: unknown): void { const completedAt = new Date().toISOString(), settled: DaemonControlReceipt = { ...pending, ok, outcome: ok ? "pending" : "op_rejected", phase: ok ? "settled" : "failed", completedAt, after: ok ? point() : null, error: ok ? null : { code: code(error), hint: daemonErrorMessage(error) }, nextAction: ok ? null : "Repair the reported registry or RepoCell error, then request a new refresh." }; controls.set(pending.operationId, settled); latestControl = settled; }
 }
+const localRepairBinding: RepoCellBinding = { actor: { principal: { personId: "daemon-local-repair" }, executor: null }, roles: ["$admin"], source: "local" };
 async function binding(rootDir: string, auth: DaemonAuthenticationContext, required: DaemonCommandClass, returnDeniedDocDetail = false, executor: RepoCellBinding["actor"]["executor"] = null): Promise<RepoCellBinding> {
   if (auth.assignmentBinding) { if (required === "admin" || required === "arbiter") throw hostCodedError("rbac_forbidden", `Assignment ingress cannot perform ${required}.`); return { actor: auth.assignmentBinding.actor,
     source: { kind: "assignment", nodeId: auth.assignmentBinding.nodeId, assignmentId: auth.assignmentBinding.assignmentId }, docWriteAllowed: true, assignmentScope: { repoId: auth.assignmentBinding.repoId, taskId: auth.assignmentBinding.taskId, executionId: auth.assignmentBinding.executionId, paths: auth.assignmentBinding.paths }, ...(auth.writerEpoch === undefined ? {} : { writerEpoch: auth.writerEpoch }), ...(auth.assertWriterEpoch ? { assertWriterEpoch: auth.assertWriterEpoch } : {}), ...(auth.withWriterEpochFence ? { withWriterEpochFence: auth.withWriterEpochFence } : {}) }; }
