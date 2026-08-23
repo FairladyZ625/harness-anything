@@ -38,6 +38,7 @@ import { TerminalDock, type TerminalDockHandle } from "./components/TerminalDock
 import { NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
 import { t } from "./i18n/index.tsx";
 import { useViewHistory } from "./navigation/useViewHistory.ts";
+import { useLocationRestore } from "./navigation/useLocationRestore.ts";
 import { initialLocation, resetViewHistory } from "./navigation/viewHistoryStorage.ts";
 import type { ViewId } from "./navigation/viewHistory.ts";
 import { navLabel, NAV_GROUPS } from "./navigation/navConfig.tsx";
@@ -95,6 +96,8 @@ function AppShell() {
   // 聚光灯的实体焦点微历史,这是跨视图的应用位置历史。
   const { location, navigate, updateLocation, back, forward, canBack, canForward } =
     useViewHistory(projectId, initialLocation());
+  // 回退保真(G10):导航栈恢复应用位置;这里在它旁边恢复 DOM 层的滚动与焦点。
+  useLocationRestore(location, document.body);
   const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
   const setTaskFilters = (next: TaskFilters) => updateLocation({ taskFilters: next });
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
