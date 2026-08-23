@@ -90,7 +90,7 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
         .find((field) => Object.hasOwn(action, field));
       if (spoof) return rejectHostAction(action, "ingress_binding_forbidden", `Payload cannot report ${spoof}; daemon binds principal authority, root, revision, and time.`);
       try { const { executor: declared, ...intent } = action, executor = declaredExecutor(declared);
-        const serverBinding = projectionRepair ? localRepairBinding : await binding(cell.status().rootDir, auth, commandClass, action.kind === "doc-submit", executor);
+        const baseBinding = projectionRepair ? localRepairBinding : await binding(cell.status().rootDir, auth, commandClass, action.kind === "doc-submit", executor), serverBinding = auth.sessionEnvironment === undefined ? baseBinding : { ...baseBinding, sessionEnvironment: auth.sessionEnvironment };
         return await cell.run(intent as RepoTaskAction, serverBinding, auth.connectionSignal); }
       catch (error) { return rejectHostAction(action, code(error), daemonErrorMessage(error)); }
     },
@@ -101,7 +101,8 @@ export async function openDaemonHost(input: { readonly daemonId: string; readonl
       const cell = cells.get(repoId), warmingUp = warming.get(repoId), missing = unavailable.get(repoId), recoveryRunId = recoverableRunId(action);
       try { const { executor: declared, ...intent } = action, executor = declaredExecutor(declared), routed = intent as RepoTaskAction;
         if (!cell) { if (missing && recoveryRunId) { await binding(missing.rootDir, auth, commandClassForAction(routed.kind), false, executor); return recoverPresetRunStatus({ rootDir: missing.rootDir, userRoot: presetUserRoot(missing.rootDir) }, recoveryRunId); } return rejectPresetRun("run_invalid", warmingUp ? "repo_warming" : missing ? "repo_unavailable" : "repo_namespace_unknown", warmingUp ? warmingMessage(repoId) : missing?.lastError ?? `Unknown repo namespace: ${repoId}.`); }
-        return await cell.presetRun(routed, await binding(cell.status().rootDir, auth, commandClassForAction(routed.kind), false, executor));
+        const baseBinding = await binding(cell.status().rootDir, auth, commandClassForAction(routed.kind), false, executor);
+        return await cell.presetRun(routed, auth.sessionEnvironment === undefined ? baseBinding : { ...baseBinding, sessionEnvironment: auth.sessionEnvironment });
       } catch (error) { return rejectPresetRun(typeof action.runId === "string" ? action.runId : "run_invalid", code(error), daemonErrorMessage(error)); }
     },
     read: async (repoId, method, payload, auth) => { requireHostMode(repoId, "repo-read", auth); await attemptHostRecovery(repoId); const cell = cells.get(repoId);

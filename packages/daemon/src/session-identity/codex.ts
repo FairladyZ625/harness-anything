@@ -2,10 +2,12 @@ import { unavailableSessionIdentity, type SessionIdentity, type SessionIdentityR
 
 export const codexSessionIdentityResolver: SessionIdentityResolver = Object.freeze({
   resolve: (input: SessionIdentityResolverInput): SessionIdentity => {
-    const events = input.dispatchEvents ?? [], threadId = events.map(codexProviderEvent).filter((event) => event?.type === "thread.started").map((event) => cleanCodexSessionId(event?.thread_id)).find((value) => value !== null) ?? null, recordedBinding = events.filter(isCodexRecord).filter((event) => event.kind === "provider_binding").map((event) => cleanCodexSessionId(event.providerSessionId)).find((value) => value !== null) ?? null, canonicalBinding = cleanCodexSessionId(input.providerBinding?.sessionId);
-    if (threadId !== null && recordedBinding !== null && threadId !== recordedBinding || canonicalBinding !== null && threadId !== null && canonicalBinding !== threadId || canonicalBinding !== null && recordedBinding !== null && canonicalBinding !== recordedBinding) return unavailableSessionIdentity(input.runtime);
-    const sessionId = canonicalBinding ?? threadId ?? recordedBinding;
-    return sessionId === null ? unavailableSessionIdentity(input.runtime) : { runtime: input.runtime, sessionId, transcriptReachability: "dispatch_stream_only" };
+    const events = input.dispatchEvents ?? [], threadId = events.map(codexProviderEvent).filter((event) => event?.type === "thread.started").map((event) => cleanCodexSessionId(event?.thread_id)).find((value) => value !== null) ?? null, recordedBinding = events.filter(isCodexRecord).filter((event) => event.kind === "provider_binding").map((event) => cleanCodexSessionId(event.providerSessionId)).find((value) => value !== null) ?? null, canonicalBinding = cleanCodexSessionId(input.providerBinding?.sessionId), environmentThreadId = cleanCodexSessionId(input.env?.CODEX_THREAD_ID), environmentSessionId = cleanCodexSessionId(input.env?.CODEX_SESSION_ID);
+    if (threadId !== null && recordedBinding !== null && threadId !== recordedBinding || canonicalBinding !== null && threadId !== null && canonicalBinding !== threadId || canonicalBinding !== null && recordedBinding !== null && canonicalBinding !== recordedBinding || environmentThreadId !== null && environmentSessionId !== null && environmentThreadId !== environmentSessionId) return unavailableSessionIdentity(input.runtime);
+    const dispatchedSessionId = canonicalBinding ?? threadId ?? recordedBinding;
+    if (dispatchedSessionId !== null) return { runtime: input.runtime, sessionId: dispatchedSessionId, transcriptReachability: "dispatch_stream_only" };
+    const interactiveSessionId = environmentThreadId ?? environmentSessionId;
+    return interactiveSessionId === null ? unavailableSessionIdentity(input.runtime) : { runtime: "codex", sessionId: interactiveSessionId, transcriptReachability: "by_session_id" };
   }
 });
 

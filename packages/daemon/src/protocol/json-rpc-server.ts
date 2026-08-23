@@ -5,7 +5,7 @@ import type { FleetEdgeConflictExitRequest, FleetEdgeDocSyncRequest } from "../f
 import type { DaemonRequestLogEntry } from "../request-log.ts";
 import type { DaemonTrafficLogEntry } from "../conn-log.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
-import { actionForDaemonMethod, daemonGuiStreamFacets, daemonProtocolError, isDaemonGuiActionMethod, isDaemonGuiReadMethod, isDaemonGuiStreamMethod, jsonRpcMethodContracts, parseDaemonRpcParams } from "./daemon-protocol.contract.ts";
+import { actionForDaemonMethod, daemonGuiStreamFacets, daemonProtocolError, isDaemonGuiActionMethod, isDaemonGuiReadMethod, isDaemonGuiStreamMethod, jsonRpcMethodContracts, parseDaemonRpcParams, type DaemonSessionEnvironment } from "./daemon-protocol.contract.ts";
 import { parseDaemonGuiActionResult, parseDaemonGuiReadResult, parseDaemonGuiStreamResult } from "./gui-result-validation.ts";
 import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./version.ts";
@@ -30,6 +30,8 @@ export function createJsonRpcProtocolServer(options: { readonly host: DaemonHost
     observed = { ...observed, repoId: repoIdFromParams(params) };
     if (request.method === "protocol.hello") {
       if (params.protocolVersion !== currentDaemonProtocolVersion) return reply(daemonProtocolError("protocol.hello", "incompatible_protocol_version", "Use the daemon protocol version reported by this binary.") as unknown as JsonObject);
+      if (params.sessionEnvironment === undefined) Reflect.deleteProperty(options.authContext, "sessionEnvironment");
+      else Object.assign(options.authContext, { sessionEnvironment: params.sessionEnvironment as DaemonSessionEnvironment });
       handshaken = true; return reply({ ok: true, protocolVersion: currentDaemonProtocolVersion, methods: jsonRpcMethodContracts.map((entry) => entry.method), build: { ...options.build } });
     }
     if (!handshaken) return reply(daemonProtocolError(request.method, "hello_required", "Call protocol.hello first.") as unknown as JsonObject);
