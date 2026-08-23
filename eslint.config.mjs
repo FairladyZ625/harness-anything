@@ -212,7 +212,9 @@ export default tseslint.config(
     ignores: [
       ".git/",
       ".b5-baseline/",
+      ".agents/",
       ".claude/",
+      ".codex/",
       ".gstack/",
       ".harness/",
       ".harness-private/",
@@ -220,6 +222,7 @@ export default tseslint.config(
       ".worktrees/",
       "coverage/",
       "dist/",
+      "docs/",
       "harness/",
       "harness-old-generation-*/",
       "node_modules/",
