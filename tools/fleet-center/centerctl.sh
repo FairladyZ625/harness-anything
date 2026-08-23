@@ -86,7 +86,6 @@ ensure_app() {
   fi
   [[ -d $app_root/.git ]] || fail "$app_root is not a Git checkout"
   git -C "$app_root" diff --quiet && git -C "$app_root" diff --cached --quiet || fail "$app_root has tracked changes"
-  git -C "$app_root" fetch --quiet origin
   if ! git -C "$app_root" rev-parse --verify --quiet "$app_ref^{commit}" >/dev/null; then
     git -C "$app_root" fetch --quiet origin "$app_ref"
   fi

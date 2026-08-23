@@ -38,3 +38,8 @@ switches the registration to `remote-center`, stops the daemon, preserves that
 bootstrap ledger at `~/harness-center/bootstrap-harness`, and only then clones
 the real inner ledger. It does not edit the cloned `people.yaml` or admit local
 writes to the remote center.
+
+If outbound GitHub access is unreliable, preseed `~/harness-center/app` with a
+clean Git checkout containing `HARNESS_CENTER_APP_REF`. `up` only fetches when
+that pinned ref is absent, so an audited Git bundle or rsync transfer works
+without changing the deployment contract.
