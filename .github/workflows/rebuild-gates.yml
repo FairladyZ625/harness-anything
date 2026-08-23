@@ -202,3 +202,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
+
+  entity-id-links:
+    if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: node tools/gates/entity-id-links.mjs

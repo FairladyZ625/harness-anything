@@ -20,6 +20,7 @@
   "graph.graphDrawer.anchorDetails": "锚点详情",
   "graph.graphDrawer.taskIdValue": "任务 ID：{taskId}",
   "graph.graphDrawer.anchorValue": "锚点：{anchor}",
+  "graph.graphDrawer.anchorLabel": "锚点：",
   "graph.graphDrawer.edgeKindMessage": "这是一个 {kind} 关系边。",
   "graph.graphDrawer.chainCounts": "链路：上游 {up} · 下游 {down}",
   "graph.graphDrawer.outEdgesCount": "出边 {count}",
@@ -28,5 +29,6 @@
   "graph.axis.evidence": "证据",
   "graph.axis.execution": "执行",
   "graph.axis.assoc": "关联",
-  "graph.axisTitle": "轴：{axis}"
+  "graph.axisTitle": "轴：{axis}",
+  "graph.graphDrawer.anchorTaskLabel": "任务 ID："
 }

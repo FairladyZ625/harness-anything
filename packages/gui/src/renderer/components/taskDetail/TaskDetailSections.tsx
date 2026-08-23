@@ -19,6 +19,7 @@ import { buildTriadicRendererData, triadicQueryKeys } from "../../triadic-data.t
 import { localDateTime } from "../../model/local-time.ts";
 import type { DecisionRow, RelationEdge, TaskRow } from "../../model/types.ts";
 import { normalizeTaskId } from "../../model/triadic.ts";
+import { EntityRefLink } from "../EntityRefLink.tsx";
 import { buildFactTriage, SIGNAL_LABEL, type FactTriageItem } from "../../model/fact-triage.ts";
 import { buildFactTriageContext } from "../../model/copy-context.ts";
 import {
@@ -85,7 +86,11 @@ export function TaskOverviewTab({ task }: { readonly task: TaskRow }) {
   );
 }
 
-export function TaskDispatchTab({ task, focusedSessionId }: { readonly task: TaskRow; readonly focusedSessionId: string | null }) {
+export function TaskDispatchTab({ task, focusedSessionId, onNavigateEntity }: {
+  readonly task: TaskRow; readonly focusedSessionId: string | null;
+  /** G10 实体互链:派工链里的 session/agent/squad/provider ID 必须有路。 */
+  readonly onNavigateEntity: (ref: string) => void;
+}) {
   const dispatches = useQuery({
     queryKey: ["task-detail", task.projectId, task.taskId, "dispatches"],
     queryFn: () => harnessClient.getTaskDispatches({ repoId: task.projectId, taskId: task.taskId }),
@@ -113,6 +118,7 @@ export function TaskDispatchTab({ task, focusedSessionId }: { readonly task: Tas
               <DispatchChain
                 key={row.dispatchId}
                 row={row}
+                onNavigateEntity={onNavigateEntity}
                 session={sessions[index]?.data}
                 sessionError={sessions[index]?.error}
                 events={events[index]?.data}
@@ -124,7 +130,8 @@ export function TaskDispatchTab({ task, focusedSessionId }: { readonly task: Tas
   );
 }
 
-function DispatchChain({ row, session, sessionError, events, eventsError, focused }: {
+function DispatchChain({ row, session, sessionError, events, eventsError, focused, onNavigateEntity }: {
+  readonly onNavigateEntity: (ref: string) => void;
   readonly row: TaskDispatchProjectionRow;
   readonly session?: AgentRuntimeSessionResult;
   readonly sessionError?: Error | null;
@@ -137,20 +144,44 @@ function DispatchChain({ row, session, sessionError, events, eventsError, focuse
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <StatusDot status={row.status} />
         <span className="font-mono text-[12px] font-semibold text-text">{row.dispatchId}</span>
-        <span className="font-mono text-[11px] text-text-faint">{row.runtimeSessionId}</span>
+        <EntityRefLink
+          entityRef={`session/${row.runtimeSessionId}`}
+          onNavigate={onNavigateEntity}
+          title={row.runtimeSessionId}
+          className="font-mono text-[11px] text-accent hover:underline"
+        />
         <span className="ml-auto font-mono text-[11px] text-text-faint">{row.status}</span>
       </div>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)_minmax(0,1.4fr)]">
         <ChainStep index="01" title="Mission">
           <p className="font-semibold text-text">{row.agentName ?? row.agentId ?? "执行者未投影"}</p>
-          <MetaLine label="agent" value={row.agentId ?? "—"} />
-          <MetaLine label="squad" value={row.squadId ?? "—"} />
+          {row.agentId ? (
+            <MetaLine
+              label="agent"
+              value={row.agentId}
+              onNavigate={onNavigateEntity}
+              entityRef={`agent/${row.agentId}`}
+            />
+          ) : <MetaLine label="agent" value="—" />}
+          {row.squadId ? (
+            <MetaLine
+              label="squad"
+              value={row.squadId}
+              onNavigate={onNavigateEntity}
+              entityRef={`squad/${row.squadId}`}
+            />
+          ) : <MetaLine label="squad" value="—" />}
           <MetaLine label="delegated by" value={row.delegatedByAgentName ?? row.delegatedByAgentId ?? "—"} />
           <p className="mt-3 text-[11px] leading-5 text-text-faint">当前读面不包含 mission 正文；这里仅展示结构化派工身份。</p>
         </ChainStep>
         <ChainStep index="02" title="Dispatch">
           <MetaLine label="execution" value={row.executionId} />
-          <MetaLine label="instance" value={row.instanceId} />
+          <MetaLine
+            label="instance"
+            value={row.instanceId}
+            onNavigate={onNavigateEntity}
+            entityRef={`provider/${row.instanceId}`}
+          />
           <MetaLine label="provider session" value={row.providerSessionId ?? "—"} />
           <MetaLine label="started" value={localDateTime(row.startedAt, true) ?? row.startedAt} />
           <MetaLine label="ended" value={row.endedAt ? localDateTime(row.endedAt, true) ?? row.endedAt : "运行中"} />
@@ -469,8 +500,22 @@ function ChainStep({ index, title, children }: { readonly index: string; readonl
   return <div className="min-w-0 border-t border-border pt-3"><div className="mb-3 flex items-center gap-2"><span className="font-mono text-[10px] text-accent">{index}</span><h3 className="text-[12px] font-semibold uppercase tracking-[0.12em] text-text-muted">{title}</h3></div><div className="grid gap-1.5 text-[12px]">{children}</div></div>;
 }
 
-function MetaLine({ label, value }: { readonly label: string; readonly value: string }) {
-  return <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-2"><span className="text-[11px] text-text-faint">{label}</span><span className="min-w-0 break-all font-mono text-[11px] text-text-muted">{value}</span></div>;
+function MetaLine({ label, value, entityRef, onNavigate }: {
+  readonly label: string; readonly value: string;
+  /** 给了 ref+回调即渲染成实体链接(G10);不给则为非实体标识符的纯文本。 */
+  readonly entityRef?: string; readonly onNavigate?: (ref: string) => void;
+}) {
+  return <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-2">
+    <span className="text-[11px] text-text-faint">{label}</span>
+    {entityRef && onNavigate ? (
+      <EntityRefLink
+        entityRef={entityRef}
+        onNavigate={onNavigate}
+        title={value}
+        className="min-w-0 break-all font-mono text-[11px] text-accent hover:underline"
+      />
+    ) : <span className="min-w-0 break-all font-mono text-[11px] text-text-muted">{value}</span>}
+  </div>
 }
 
 function StatusDot({ status }: { readonly status: TaskDispatchProjectionRow["status"] }) {

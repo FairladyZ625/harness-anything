@@ -110,13 +110,15 @@ export function AgentSquadView({ repoId, tasks, focusedEntityRef, onSelectEntity
                 onSave={(declaration) => void workspace.saveAgent(declaration)} onDispatch={(mission) =>
                   void openAgentDispatch(current.id, mission)}
                 onSelectSquad={(squadId) => onSelectEntity(`squad/${squadId}`)}
-                  onSelectRuntime={(instanceId) => onSelectEntity(`provider/${instanceId}`)} />
+                  onSelectRuntime={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
+                  onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)} />
             : <Empty>{t("agentRuntime.loading")}</Empty>)
           : squadDetail.data
             ? <SquadCard detail={squadDetail.data} row={squads.find((squad) => squad.id === current.id)
               ?? null} agents={agents} busy={workspace.busy}
                 onSave={(declaration) => void workspace.saveSquad(declaration)} onLaunch={() => void
-                  openSquadDispatch(current.id)} onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)} />
+                  openSquadDispatch(current.id)} onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}
+                  onSelectSquad={(squadId) => onSelectEntity(`squad/${squadId}`)} />
             : <Empty>{t("agentRuntime.loading")}</Empty>}
       </main>
       {inspector && current !== null && <IdentityInspector selection={current} agents={agents}

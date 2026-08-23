@@ -60,7 +60,8 @@ export function ProvidersView({ repoId, focusedEntityRef, onSelectEntity }: { re
           : <RuntimeCard instance={instance} installations={installations}
             authProbeError={workspace.authProbeErrors.get(instance.instanceId)}
             agents={workspace.agents.data ?? []} liveSessions={liveSessions} busy={workspace.busy}
-              onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)} onAuth={(action) => void
+              onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)} onSelectRuntime={(instanceId) =>
+              onSelectEntity(`provider/${instanceId}`)} onAuth={(action) => void
                 workspace.authInstance(instance.instanceId, action)} onValidate={() => void
                 workspace.validateInstance(instance.instanceId)}
               onSetEnabled={(enabled) => void workspace.setInstanceEnabled(instance.instanceId,
