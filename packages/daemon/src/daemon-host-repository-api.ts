@@ -1,3 +1,4 @@
+/** @daemon-transport-authority Daemon ingress filtering and repository dispatch. */
 import {
   readDaemonRegistry,
   registerDaemonRepo,

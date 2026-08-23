@@ -1,3 +1,4 @@
+/** @daemon-transport-authority Transport-bound repository-mode admission. */
 import { readDaemonRegistry, type WriteSource } from "../../kernel/src/index.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
 import type { DaemonCommandClass } from "./identity/types.ts";

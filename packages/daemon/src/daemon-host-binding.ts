@@ -1,3 +1,4 @@
+/** @daemon-transport-authority Transport-derived actor and assignment binding. */
 import { hostCodedError } from "./daemon-host-errors.ts";
 import { loadPeopleRoster } from "./identity/people-roster.ts";
 import { makeTransportDerivedIdentityProvider } from "./identity/transport-derived-provider.ts";

@@ -1,3 +1,4 @@
+/** @daemon-transport-authority Host composition and RepoCell ownership. */
 import {
   consumeKnownError,
   readDaemonRegistry,

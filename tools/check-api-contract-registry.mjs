@@ -33,6 +33,7 @@ const retiredAuthorities = [
   "packages/daemon/src/transport/ssh-forced-command.ts",
   "packages/daemon/src/transport/ssh-tunnel-token.ts"
 ];
+const transportAuthorityMarker = "@daemon-transport-authority";
 
 export function evaluateApiContractRegistry(root = process.cwd()) {
   const violations = [];
@@ -41,7 +42,9 @@ export function evaluateApiContractRegistry(root = process.cwd()) {
   const hostPath = "packages/daemon/src/daemon-host.ts";
   const authPath = "packages/daemon/src/transport/auth-context.ts";
   const registry = read(root, registryPath, violations), server = read(root, serverPath, violations);
-  const host = read(root, hostPath, violations), auth = read(root, authPath, violations);
+  const hostGraph = collectRuntimeAuthorityGraph(root, hostPath, violations),
+    hostAuthorities = hostGraph.filter(({ source }) => source.includes(transportAuthorityMarker)),
+    auth = read(root, authPath, violations);
   if (registry) {
     const methods = collectMethodContracts(registry, registryPath, violations);
     if (JSON.stringify(methods) !== JSON.stringify(expectedMethods)) {
@@ -64,13 +67,18 @@ export function evaluateApiContractRegistry(root = process.cwd()) {
     if (!/options\.host\.run\(repo,\s*action[^,]*,\s*options\.authContext\)/u.test(server)) violations.push(`${serverPath}: repo.task.run must pass transport authentication to the daemon host`);
     if (/notifications?|admin\.(?:people|rbac)|fallback|capabilit/iu.test(server)) violations.push(`${serverPath}: retired notification/admin/capability fallback must not return`);
   }
-  if (host) {
+  if (hostGraph.length > 0 && hostAuthorities.length === 0) {
+    violations.push(`${hostPath} runtime graph: no module declares the ${transportAuthorityMarker} role`);
+  }
+  if (hostAuthorities.length > 0) {
     for (const token of ["new Map<string, RepoCell>()", "auth.assignmentBinding", "kind: \"assignment\"", "makeTransportDerivedIdentityProvider",
       "actor", "root", "canonicalRoot", "source", "workspaceId", "expectedRevision", "eventId", "occurredAt"]) {
-      if (!host.includes(token)) violations.push(`${hostPath}: missing transport-bound RepoCell authority token ${token}`);
+      if (!hostAuthorities.some(({ source }) => source.includes(token))) {
+        violations.push(`${hostPath} runtime graph: missing transport-bound RepoCell authority token ${token}`);
+      }
     }
-    if (/payload\.(?:actor|root|source|workspaceId)|HARNESS_ACTOR|local fallback/iu.test(host)) {
-      violations.push(`${hostPath}: daemon ingress must bind actor/root/source instead of trusting payload or fallback identity`);
+    if (hostAuthorities.some(({ source }) => /payload\.(?:actor|root|source|workspaceId)|HARNESS_ACTOR|local fallback/iu.test(source))) {
+      violations.push(`${hostPath} runtime graph: daemon ingress must bind actor/root/source instead of trusting payload or fallback identity`);
     }
   }
   if (auth) {
@@ -80,6 +88,61 @@ export function evaluateApiContractRegistry(root = process.cwd()) {
   }
   for (const retired of retiredAuthorities) if (existsSync(path.join(root, retired))) violations.push(`${retired}: W3-retired API/capability authority must not exist`);
   return violations;
+}
+
+function collectRuntimeAuthorityGraph(root, entryPath, violations) {
+  const authorityRoot = path.dirname(path.join(root, entryPath)), pending = [entryPath], visited = new Set(), modules = [];
+  while (pending.length > 0) {
+    const relativePath = pending.pop();
+    if (visited.has(relativePath)) continue;
+    visited.add(relativePath);
+    const source = read(root, relativePath, violations);
+    if (!source) continue;
+    modules.push({ path: relativePath, source });
+    const file = ts.createSourceFile(relativePath, source, ts.ScriptTarget.Latest, true, scriptKind(relativePath));
+    for (const statement of file.statements) {
+      const specifier = runtimeModuleSpecifier(statement);
+      if (!specifier?.startsWith(".")) continue;
+      const resolved = resolveRuntimeModule(root, authorityRoot, relativePath, specifier);
+      if (resolved === undefined) continue;
+      if (resolved) pending.push(resolved);
+      else violations.push(`${relativePath}: cannot resolve runtime authority dependency ${specifier}`);
+    }
+  }
+  return modules;
+}
+
+function runtimeModuleSpecifier(statement) {
+  if (ts.isImportDeclaration(statement)) {
+    if (statement.importClause?.isTypeOnly) return null;
+    if (statement.importClause?.namedBindings && ts.isNamedImports(statement.importClause.namedBindings)
+      && !statement.importClause.name && statement.importClause.namedBindings.elements.every((element) => element.isTypeOnly)) return null;
+    return ts.isStringLiteralLike(statement.moduleSpecifier) ? statement.moduleSpecifier.text : null;
+  }
+  if (ts.isExportDeclaration(statement)) {
+    if (statement.isTypeOnly) return null;
+    if (statement.exportClause && ts.isNamedExports(statement.exportClause)
+      && statement.exportClause.elements.every((element) => element.isTypeOnly)) return null;
+    return statement.moduleSpecifier && ts.isStringLiteralLike(statement.moduleSpecifier) ? statement.moduleSpecifier.text : null;
+  }
+  return null;
+}
+
+function resolveRuntimeModule(root, authorityRoot, importerPath, specifier) {
+  const importer = path.join(root, importerPath), requested = path.resolve(path.dirname(importer), specifier);
+  if (requested !== authorityRoot && !requested.startsWith(`${authorityRoot}${path.sep}`)) return undefined;
+  const extension = path.extname(requested), candidates = extension
+    ? [requested, ...([".js", ".jsx", ".mjs", ".cjs"].includes(extension) ? [requested.slice(0, -extension.length) + ".ts", requested.slice(0, -extension.length) + ".tsx"] : [])]
+    : [requested, ...[".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs"].map((candidate) => requested + candidate), ...[".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs"].map((candidate) => path.join(requested, `index${candidate}`))];
+  const resolved = candidates.find((candidate) => existsSync(candidate));
+  return resolved ? path.relative(root, resolved).split(path.sep).join("/") : null;
+}
+
+function scriptKind(file) {
+  if (file.endsWith(".tsx")) return ts.ScriptKind.TSX;
+  if (file.endsWith(".jsx")) return ts.ScriptKind.JSX;
+  if (file.endsWith(".js") || file.endsWith(".mjs")) return ts.ScriptKind.JS;
+  return ts.ScriptKind.TS;
 }
 
 function collectMethodContracts(source, relativePath, violations, variableName = "daemonProtocolMethods") {
