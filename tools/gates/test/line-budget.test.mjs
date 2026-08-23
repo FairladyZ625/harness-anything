@@ -223,7 +223,7 @@ const DECISION_INPUT_LINES = Object.freeze({
   kernel: 21614, // re-measured after W2-B restoration under dec_402DC87500A06C7B4A81F00CCB
   "task-lifecycle": 375,
   "write-contract": 292,
-  "doc-sync": 2463,
+  "doc-sync": 3849, // re-measured on the W2-B convergence tree (kernel + daemon restorations both raise this module)
   preset: 372,
   cli: 377,
   gui: 18494,
