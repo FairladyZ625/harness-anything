@@ -2,8 +2,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { OrchestrationCard } from "../src/renderer/components/runtime/OrchestrationCard.tsx";
 import { RuntimeInspector } from "../src/renderer/components/runtime/RuntimeInspector.tsx";
 import { RuntimeRail } from "../src/renderer/components/runtime/RuntimeRail.tsx";
 import { SessionDetailView } from "../src/renderer/components/runtime/SessionsPanel.tsx";
@@ -22,17 +20,7 @@ const strangerRow: RuntimeDockRow = { ...boundRow, runtimeSessionId: "runtime-st
 const frame = { cursor: "stream:7", runtimeSessionId: "runtime-bound", type: "activity", activity: "crunching the diff", occurredAt: "2026-08-23T00:01:00.000Z" } as const;
 
 const detailView = (overrides: Partial<Parameters<typeof SessionDetailView>[0]> = {}) => renderToStaticMarkup(createElement(SessionDetailView, { session: sessionDto, row: boundRow, result: null, frames: [], attach: "attached", busy: false, onCancel: noop, onOpenTask: noop, ...overrides } as never));
-const railView = (rows: readonly RuntimeDockRow[], selection: Parameters<typeof RuntimeRail>[0]["selection"]) => renderToStaticMarkup(createElement(RuntimeRail, { instances: [], agents: [], squads: [], orchestration: [], sessions: rows, selection, open: { runtimes: true, agents: true, squads: true, orchestration: true, sessions: true }, liveByInstance: new Map(), onToggle: noop, onSelect: noop, onNew: noop } as never));
-const orchestrationView = async () => {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(["orchestration", "repo-a", "task-bound", "documents", 0], { documents: [
-    { path: "tasks/task-bound-verify/artifacts/missions/dispatch_bbb.md", blobSha256: "a".repeat(64), size: 10, mediaType: "text/markdown" },
-    { path: "tasks/task-bound-verify/artifacts/dispatches/dispatch_bbb.json", blobSha256: "b".repeat(64), size: 10, mediaType: "text/plain" },
-    { path: "tasks/task-bound-verify/artifacts/missions/dispatch_aaa.md", blobSha256: "c".repeat(64), size: 10, mediaType: "text/markdown" }
-  ] });
-  client.setQueryData(["orchestration", "repo-a", "task-bound", "dispatches", 0], { dispatches: [{ dispatchId: "dispatch_bbb", taskId: "task-bound", executionId: "execution-1", runtimeSessionId: "runtime-bound", instanceId: "w4c-verify-codex", agentId: "terra", agentName: "terra", providerSessionId: null, eventStreamRef: null, startedAt: "2026-08-23T02:00:00.000Z", endedAt: null, outcome: null, status: "running" }] });
-  return renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(OrchestrationCard, { repoId: "repo-a", taskId: "task-bound", taskTitle: "Bound task title", revision: 0, onFocusSession: noop })));
-};
+const railView = (rows: readonly RuntimeDockRow[], selection: Parameters<typeof RuntimeRail>[0]["selection"]) => renderToStaticMarkup(createElement(RuntimeRail, { instances: [], agents: [], squads: [], sessions: rows, selection, open: { runtimes: true, agents: true, squads: true, sessions: true }, liveByInstance: new Map(), onToggle: noop, onSelect: noop, onNew: noop } as never));
 
 describe("sessions as a first-class view", () => {
   it("lists sessions as a rail segment whose rows select a session exactly like every other segment", () => {
@@ -66,16 +54,17 @@ describe("sessions as a first-class view", () => {
     expect(unbound).toContain("This session is not bound to a task.");
   });
 
-  it("exposes each dispatch's runtime session from its task, and none for archived dispatches", async () => {
-    const markup = await orchestrationView();
-    expect(markup).toMatch(/data-testid="orchestration-session-dispatch_bbb"[^>]*data-session="runtime-bound"/u);
-    expect(markup).toMatch(/data-testid="orchestration-session-dispatch_aaa"(?![^>]*data-session=)/u);
-    // The session the task points at is itself selectable in the rail — the reverse leg lands.
-    expect(railView([boundRow], null)).toContain('data-testid="rail-session-runtime-bound"');
+  it("keeps the rail's session rows the only task-composition surface (W5:编排段撤销)", () => {
+    // W5:每个 dispatch 的 runtime session 不再有独立「编排」视图;session 行本身
+    // (含绑定 task 标题)是运行侧唯一入口,反向腿落在 rail 内。
+    const markup = railView([boundRow], null);
+    expect(markup).toContain('data-testid="rail-session-runtime-bound"');
+    expect(markup).toContain("Bound task title");
+    expect(markup).not.toContain("Orchestration");
   });
 
   it("mirrors the selected session in the inspector with the same task jump", () => {
-    const markup = renderToStaticMarkup(createElement(RuntimeInspector, { selection: { type: "session", id: "runtime-bound" }, instances: [], agents: [], squads: [], rows: [boundRow, siblingRow, squadMateRow, strangerRow], onSelect: noop, onSelectSession: noop }));
+    const markup = renderToStaticMarkup(createElement(RuntimeInspector, { selection: { type: "session", id: "runtime-bound" }, instances: [], agents: [], squads: [], rows: [boundRow, siblingRow, squadMateRow, strangerRow], onSelect: noop, onSelectSession: noop, onOpenTask: noop }));
     expect(markup).toMatch(/data-testid="inspector-open-task"[^>]*data-task="task-bound"/u);
     expect(markup).toContain('aria-label="Session inspector"');
     expect(sessionSiblingRows([boundRow, siblingRow, squadMateRow, strangerRow], "runtime-bound").map((row) => row.runtimeSessionId)).toEqual(["runtime-sibling", "runtime-squad-mate"]);

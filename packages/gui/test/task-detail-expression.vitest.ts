@@ -21,6 +21,9 @@ const task: TaskRow = {
   currentNode: "review", iteration: 0, riskTier: "high", urgency: "high", parentTaskId: "task-parent", rootTaskId: "task-parent", rootTitle: "PLT GUI UX",
   createdAt: "2026-08-23T08:00:00.000Z", lastKnownAt: "2026-08-23T10:31:00.000Z", closeoutBlocker: undefined,
   snapshotAvailability: { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" },
+  // W5:执行证据页并入「收口」——execution 输出/回执经 task-adapter 原样透传。
+  executions: [{ schema: "execution/v1", executionId: "execution-w3", taskId: "task-w3", nodeId: "implementation", iteration: 0, state: "submitted", actor: { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex-worker" } }, claimedAt: "2026-08-23T09:00:00.000Z", submittedAt: "2026-08-23T10:00:00.000Z", closedAt: null, submission: { completionClaim: "done", deliverables: ["report"], outputs: ["artifacts/report.md"], verificationNotes: [], knownGaps: [], residualRisks: [], commitSha: "a".repeat(40) } }],
+  executionEvidence: [{ executionId: "execution-w3", origin: "native", outputs: [{ evidenceId: `evidence_${"1".repeat(24)}`, locator: "artifacts/report.md", substrate: "repository-path", checkerReceiptRef: "receipt-dom", checkerResult: "pass" }] }],
   gates: [{ name: "local-check", ok: true }], docs: [],
   events: [{ projectId: "repo-a", taskId: "task-w3", at: "2026-08-23T10:20:00.000Z", summary: "Review review-w3: approved" }],
   reviews: [{ schema: "review/v1", reviewId: "review-w3", taskId: "task-w3", executionId: "execution-w3", verdict: "approved", actor: { principal: { personId: "reviewer" }, executor: null }, capabilityRef: "review@v1", reason: "UI evidence is complete", evidenceChecked: ["task-detail DOM"], commitSha: "a".repeat(40), iteration: 0, contentDigest: `sha256:${"b".repeat(64)}`, reviewedAt: "2026-08-23T10:20:00.000Z" }],
@@ -71,6 +74,13 @@ describe("Task detail expression", () => {
     expect(byTestId("task-evidence-tab").textContent).toContain("Frontend consumes structured projections only");
     expect(byTestId("task-evidence-tab").textContent).toContain("source: review/dom");
     expect(byTestId("task-evidence-tab").textContent).toContain("standing");
+    // W5:事实分诊并入——低置信 fact 带 triage 信号 badge 且排到 healthy fact 之前。
+    expect(byTestId("task-evidence-tab").textContent).toContain("低 confidence");
+    expect(byTestId("task-evidence-tab").textContent).toContain("1 条带信号 · 1 healthy");
+    expect(byTestId("task-evidence-tab").textContent.indexOf("Confidence is low, needs a human recheck")).toBeLessThan(
+      byTestId("task-evidence-tab").textContent.indexOf("Frontend consumes structured projections only"),
+    );
+    expect(document.querySelector("[data-testid='task-fact-detail-F-LOW']")).toBeInstanceOf(HTMLButtonElement);
 
     await clickTab("关系");
     expect(byTestId("task-relations-tab").textContent).toContain("PLT GUI UX");
@@ -81,6 +91,12 @@ describe("Task detail expression", () => {
     expect(byTestId("task-closeout-tab").textContent).toContain("review-w3");
     expect(byTestId("task-closeout-tab").textContent).toContain("consent-w3");
     expect(byTestId("task-closeout-tab").textContent).toContain("local-check");
+    // W5:执行证据并入——execution 输出与回执按 execution 对齐展示。
+    expect(byTestId("task-closeout-tab").textContent).toContain("Execution 输出");
+    expect(byTestId("task-execution-execution-w3").textContent).toContain("execution-w3");
+    expect(byTestId("task-execution-execution-w3").textContent).toContain("evidence_111111111111111111111111");
+    expect(byTestId("task-execution-execution-w3").textContent).toContain("receipt-dom");
+    expect(byTestId("task-execution-execution-w3").textContent).toContain("1 passing");
 
     await clickTab("文件");
     expect(byTestId("task-files-tab").textContent).toContain("INDEX.md");
@@ -97,7 +113,10 @@ function installBridge() {
       { path: "artifacts/report.md", blobSha256: "f".repeat(64), size: 20, mediaType: "text/markdown" },
     ], watermark: 7, sourceRevision: 7 })),
     getTaskDispatches: vi.fn(async () => ({ ok: true, status: "ready", taskId: "task-w3", dispatches: [dispatch], watermark: 7, sourceRevision: 7 })),
-    getRelationGraph: vi.fn(async () => ({ ok: true, edges: [], coverageRows: [], factAnchors: [], facts: [{ schema: "task-fact-row/v1", ref: "fact/task-w3/F-DOM", taskId: "task-w3", factId: "F-DOM", statement: "Frontend consumes structured projections only", source: "review/dom", observedAt: "2026-08-23T10:10:00.000Z", confidence: "high", memoryClass: "episodic", memoryTags: ["gui"], provenance: [], liveness: "standing" }], warnings: [] })),
+    getRelationGraph: vi.fn(async () => ({ ok: true, edges: [], coverageRows: [], factAnchors: [], facts: [
+      { schema: "task-fact-row/v1", ref: "fact/task-w3/F-DOM", taskId: "task-w3", factId: "F-DOM", statement: "Frontend consumes structured projections only", source: "review/dom", observedAt: "2026-08-23T10:10:00.000Z", confidence: "high", memoryClass: "episodic", memoryTags: ["gui"], provenance: [], liveness: "standing" },
+      { schema: "task-fact-row/v1", ref: "fact/task-w3/F-LOW", taskId: "task-w3", factId: "F-LOW", statement: "Confidence is low, needs a human recheck", source: "review/dom", observedAt: "2026-08-23T10:11:00.000Z", confidence: "low", memoryClass: "episodic", memoryTags: ["gui"], provenance: [], liveness: "standing" },
+    ], warnings: [] })),
     getAgentRuntimeOverview: vi.fn(async () => ({ ok: true, status: "ready", installations: [], instances: [], sessions: [session], watermark: 7, sourceRevision: 7 })),
     getAgentRuntimeSession: vi.fn(async () => ({ ok: true, status: "ready", session, result: { ref: "artifact:result/w3", text: "Rendered runtime report" }, watermark: 7, sourceRevision: 7 })),
     getAgentRuntimeEvents: vi.fn(async () => ({ ok: true, runtimeSessionId: "runtime-w3", events: [{ cursor: "lifecycle:7", runtimeSessionId: "runtime-w3", type: "runtime_session_exited", occurredAt: "2026-08-23T10:30:00.000Z" }], cursor: "lifecycle:7", sourceCursor: "lifecycle:7", done: true })),
@@ -112,7 +131,7 @@ async function mount() {
   const container = document.createElement("div"), root = createRoot(container);
   document.body.append(container);
   mounted.push({ root, client });
-  await act(async () => { root.render(createElement(QueryClientProvider, { client }, createElement(TaskDetailView, { task, tasks: [parent, task, child], relations, decisions: [decision], onBack: () => undefined, onSelect: () => undefined, onNavigateDecision: () => undefined, projectName: "Harness" }))); });
+  await act(async () => { root.render(createElement(QueryClientProvider, { client }, createElement(TaskDetailView, { task, tasks: [parent, task, child], relations, decisions: [decision], onBack: () => undefined, onSelect: () => undefined, onNavigateDecision: () => undefined, onNavigateEntity: () => undefined, projectName: "Harness" }))); });
   await flushEffects();
 }
 

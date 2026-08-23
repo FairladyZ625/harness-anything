@@ -8,9 +8,7 @@ import { OverviewView } from "./views/OverviewView.tsx";
 import { BoardView } from "./views/BoardView.tsx";
 import { DecisionsView } from "./views/DecisionsView.tsx";
 import { DecisionPoolView } from "./views/DecisionPoolView.tsx";
-import { FactTriageView } from "./views/FactTriageView.tsx";
 import { DecisionDetailView, FactDetailView } from "./views/EntityDetailView.tsx";
-import { ExecutionEvidenceView } from "./views/ExecutionEvidenceView.tsx";
 import { EntityWorkspace } from "./components/EntityWorkspace.tsx";
 import { PresetsView } from "./views/PresetsView.tsx";
 import { AdaptersView } from "./views/AdaptersView.tsx";
@@ -24,7 +22,7 @@ import { useEntityNavigation } from "./navigation/useEntityNavigation.ts";
 import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
-import { invalidateLedgerDependents, LEDGER_REFRESH_INTERVAL_MS, taskQueryKeys, useTasksQuery } from "./task-data.ts";
+import { invalidateLedgerDependents, LEDGER_REFRESH_INTERVAL_MS, useTasksQuery } from "./task-data.ts";
 import { useTriadicProjectionQuery } from "./triadic-data.ts";
 import { useFavorites } from "./model/favorites.ts";
 import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
@@ -40,7 +38,7 @@ import { t } from "./i18n/index.tsx";
 import { useViewHistory } from "./navigation/useViewHistory.ts";
 import { initialLocation, resetViewHistory } from "./navigation/viewHistoryStorage.ts";
 import type { ViewId } from "./navigation/viewHistory.ts";
-import { navLabel, WORKSPACE_NAV, MANAGE_NAV } from "./navigation/navConfig.tsx";
+import { navLabel, NAV_GROUPS } from "./navigation/navConfig.tsx";
 import { useWorkspaceSummaryQuery } from "./workspace-summary-data.ts";
 import { WorkspaceSummaryPending } from "./components/WorkspaceSummaryPending.tsx";
 
@@ -168,7 +166,7 @@ function AppShell() {
   const {
     recentRefs, resetRecentRefs, openTaskPreview, openTaskDetail, navigateToEntity,
     navigateToDecision, navigateToTask, focusEntityInGraph, focusEntityInWorkspace,
-    openDecisionInPool, openFactInTriage,
+    openDecisionInPool,
   } = useEntityNavigation({
     navigate,
     updateLocation,
@@ -308,36 +306,25 @@ function AppShell() {
           </div>
         </div>
 
-        <div className="px-3 pt-1 pb-1 font-mono text-[12px] uppercase tracking-wide text-text-faint">
-          {t("shell.nav.workspace")}
-        </div>
-        <nav className="flex gap-1 overflow-x-auto px-2 pb-1 md:flex-col md:gap-0.5 md:overflow-visible md:pb-0">
-          {WORKSPACE_NAV.map((item) => (
-            <NavButton
-              key={item.id}
-              active={view === item.id && !selected}
-              onClick={() => goto(item.id)}
-              icon={item.icon}
-              label={navLabel(item.id)}
-              badge={item.id === "decisions" ? inboxCount : undefined}
-            />
-          ))}
-        </nav>
-
-        <div className="px-3 pt-3 pb-1 font-mono text-[12px] uppercase tracking-wide text-text-faint">
-          {t("shell.nav.manage")}
-        </div>
-        <nav className="flex gap-1 overflow-x-auto px-2 pb-2 md:flex-col md:gap-0.5 md:overflow-visible md:pb-0">
-          {MANAGE_NAV.map((item) => (
-            <NavButton
-              key={item.id}
-              active={view === item.id && !selected}
-              onClick={() => goto(item.id)}
-              icon={item.icon}
-              label={navLabel(item.id)}
-            />
-          ))}
-        </nav>
+        {NAV_GROUPS.map((group, groupIndex) => (
+          <div key={group.id}>
+            <div className={`px-3 font-mono text-[12px] uppercase tracking-wide text-text-faint ${groupIndex === 0 ? "pt-1 pb-1" : "pt-3 pb-1"}`}>
+              {t(group.labelKey)}
+            </div>
+            <nav className="flex gap-1 overflow-x-auto px-2 pb-1 md:flex-col md:gap-0.5 md:overflow-visible md:pb-0">
+              {group.items.map((item) => (
+                <NavButton
+                  key={item.id}
+                  active={view === item.id && !selected}
+                  onClick={() => goto(item.id)}
+                  icon={item.icon}
+                  label={navLabel(item.id)}
+                  badge={item.id === "decisions" ? inboxCount : undefined}
+                />
+              ))}
+            </nav>
+          </div>
+        ))}
 
         <div className="mt-auto hidden border-t border-border px-3 py-2.5 md:block">
           <button
@@ -464,32 +451,6 @@ function AppShell() {
                 onNavigateDecision={navigateToDecision}
                 onNavigateTask={navigateToTask}
                 onFocusGraph={focusEntityInGraph}
-                onOpenTriage={openFactInTriage}
-              />
-            ) : view === "factTriage" ? (
-              <FactTriageView
-                facts={facts}
-                relations={relations}
-                decisions={decisions}
-                tasks={tasks}
-                coverageRows={coverageRows}
-                factAnchors={factAnchors}
-                onNavigateDecision={navigateToDecision}
-                onNavigateTask={navigateToTask}
-                focusedFactRef={
-                  focusedEntityRef?.startsWith("fact/") ? focusedEntityRef : null
-                }
-                onFocusGraph={focusEntityInGraph}
-              />
-            ) : view === "executionEvidence" ? (
-              <ExecutionEvidenceView
-                rows={tasksQuery.data?.rows ?? []}
-                queryStatus={tasksQuery.isError ? "error" : tasksQuery.isLoading ? "loading" : "ready"}
-                projectionStatus={tasksQuery.data?.status}
-                isFetching={tasksQuery.isFetching}
-                error={tasksQuery.error}
-                onReload={() => { void tasksQuery.refetch(); }}
-                onReloadFromFirst={() => { void queryClient.invalidateQueries({ queryKey: taskQueryKeys.list(projectId) }); }}
               />
             ) : view === "decisions" ? (
               <DecisionsView
@@ -532,7 +493,12 @@ function AppShell() {
             ) : view === "adapters" ? (
               <AdaptersView repoId={projectId} tasks={projectTasks} />
             ) : view === "agents" ? (
-              <RuntimeWorkspace repoId={projectId} tasks={projectTasks.map(({ taskId, title, activeExecutionId }) => ({ taskId, title, heldLease: activeExecutionId !== undefined }))} />
+              <RuntimeWorkspace
+                repoId={projectId}
+                tasks={projectTasks.map(({ taskId, title, activeExecutionId }) => ({ taskId, title, heldLease: activeExecutionId !== undefined }))}
+                // W5:「编排」段随入口撤销;session → task 的出口改指 Task 详情(派工链所在)。
+                onOpenTask={navigateToTask}
+              />
             ) : view === "system" ? (
               <SystemView activeRepoId={activeRepoId} />
             ) : (

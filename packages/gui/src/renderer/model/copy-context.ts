@@ -21,9 +21,9 @@ import { normalizeDecisionId } from "./triadic";
  */
 export function buildFactTriageContext(
   item: FactTriageItem,
-  relations: RelationEdge[],
-  decisions: DecisionRow[],
-  tasks: TaskRow[],
+  relations: readonly RelationEdge[],
+  decisions: readonly DecisionRow[],
+  tasks: readonly TaskRow[],
 ): string {
   const { fact, signals, citingDecisionIds } = item;
   const lines: string[] = [];

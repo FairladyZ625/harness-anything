@@ -7,20 +7,19 @@ import { runtimeAuthPresentation } from "../../runtime-auth-presentation.ts";
 import { Avatar, CapDot, Empty, KindDot, KV, KVRow, LiveDot } from "./parts.tsx";
 import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
 
-type Props = { readonly selection: RuntimeSelection | null; readonly instances: readonly RuntimeInstanceSummary[]; readonly authProbeErrors?: ReadonlyMap<string, string>; readonly agents: readonly AgentEntityRow[]; readonly squads: readonly SquadEntityRow[]; readonly rows: readonly RuntimeDockRow[]; readonly onSelect: (selection: RuntimeSelection) => void; readonly onSelectSession: (runtimeSessionId: string) => void };
+type Props = { readonly selection: RuntimeSelection | null; readonly instances: readonly RuntimeInstanceSummary[]; readonly authProbeErrors?: ReadonlyMap<string, string>; readonly agents: readonly AgentEntityRow[]; readonly squads: readonly SquadEntityRow[]; readonly rows: readonly RuntimeDockRow[]; readonly onSelect: (selection: RuntimeSelection) => void; readonly onSelectSession: (runtimeSessionId: string) => void; readonly onOpenTask: (taskId: string) => void };
 // Right-hand inspector: the same selection seen from the sessions side. It never repeats
 // the main card's configuration; it answers "what has this thing actually been doing".
-export function RuntimeInspector({ selection, instances, authProbeErrors, agents, squads, rows, onSelect, onSelectSession }: Props) {
+export function RuntimeInspector({ selection, instances, authProbeErrors, agents, squads, rows, onSelect, onSelectSession, onOpenTask }: Props) {
   if (!selection) return null;
   const title = t(`agentRuntime.inspector${selection.type[0]!.toUpperCase()}${selection.type.slice(1)}` as never);
-  const related = selection.type === "session" ? sessionSiblingRows(rows, selection.id) : rows.filter((row) => selection.type === "runtime" ? row.instanceId === selection.id : selection.type === "agent" ? row.agentId === selection.id : selection.type === "squad" ? row.squadId === selection.id : row.taskId === selection.id);
+  const related = selection.type === "session" ? sessionSiblingRows(rows, selection.id) : rows.filter((row) => selection.type === "runtime" ? row.instanceId === selection.id : selection.type === "agent" ? row.agentId === selection.id : row.squadId === selection.id);
   return <aside data-testid="runtime-inspector" aria-label={title} className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface">
     <h2 className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase tracking-[0.09em] text-text-faint">{title}</h2>
     {selection.type === "runtime" && <RuntimeFacts instance={instances.find((instance) => instance.instanceId === selection.id) ?? null} probeError={authProbeErrors?.get(selection.id) ?? null} />}
     {selection.type === "agent" && <AgentFacts agent={agents.find((agent) => agent.id === selection.id) ?? null} squads={squads} onSelect={onSelect} />}
     {selection.type === "squad" && <SquadFacts squad={squads.find((squad) => squad.id === selection.id) ?? null} onSelect={onSelect} />}
-    {selection.type === "session" && <SessionFacts row={rows.find((row) => row.runtimeSessionId === selection.id) ?? null} onSelect={onSelect} />}
-    {selection.type === "orchestration" && <Section title={t("agentRuntime.inspectorTask")}><KV><KVRow name="task">{selection.id}</KVRow><KVRow name="dispatches">{related.length}</KVRow><KVRow name="running">{related.filter((row) => row.status === "running").length}</KVRow></KV></Section>}
+    {selection.type === "session" && <SessionFacts row={rows.find((row) => row.runtimeSessionId === selection.id) ?? null} onOpenTask={onOpenTask} />}
     <Section title={t("agentRuntime.inspectorSessions", { count: related.length })}>
       {related.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty> : related.slice(0, 8).map((row) => <button key={row.runtimeSessionId} type="button" onClick={() => onSelectSession(row.runtimeSessionId)} className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised">
         <LiveDot state={row.status === "running" ? "live" : row.status === "failed" ? "failed" : "idle"} tip={row.status} />
@@ -53,14 +52,15 @@ function SquadFacts({ squad, onSelect }: { readonly squad: SquadEntityRow | null
   </Section>;
 }
 // A selected session seen from the side: whose it is and which task holds it, with the
-// reverse jump into that task's orchestration view. Facts come from the ledger row the
-// workspace already read; the jump target is the same sessionTaskTarget as the main panel.
-function SessionFacts({ row, onSelect }: { readonly row: RuntimeDockRow | null; readonly onSelect: (selection: RuntimeSelection) => void }) {
+// reverse jump into that task's detail (W5:派工链归 Task 详情「派工」页签). Facts come
+// from the ledger row the workspace already read; the jump target is the same
+// sessionTaskTarget as the main panel.
+function SessionFacts({ row, onOpenTask }: { readonly row: RuntimeDockRow | null; readonly onOpenTask: (taskId: string) => void }) {
   const target = sessionTaskTarget(row, []);
   return <Section title={t("agentRuntime.inspectorSessionFacts")}>
     {row === null ? <Empty>{t("agentRuntime.notFound")}</Empty> : <>
       <KV><KVRow name="agent">{row.agentId ?? t("agentRuntime.unattributed")}</KVRow><KVRow name="squad">{row.squadName ?? "—"}</KVRow><KVRow name="instance">{row.instanceId}</KVRow><KVRow name="dispatch">{row.dispatchId ?? "—"}</KVRow><KVRow name="status">{row.status}</KVRow></KV>
-      {target !== null && <button type="button" data-testid="inspector-open-task" data-task={target.taskId} title={t("agentRuntime.openTask")} onClick={() => onSelect({ type: "orchestration", id: target.taskId })} className="mt-2 flex w-full items-center gap-1.5 rounded border border-border px-2 py-1 text-left hover:border-accent hover:text-accent">
+      {target !== null && <button type="button" data-testid="inspector-open-task" data-task={target.taskId} title={t("agentRuntime.openTask")} onClick={() => onOpenTask(target.taskId)} className="mt-2 flex w-full items-center gap-1.5 rounded border border-border px-2 py-1 text-left hover:border-accent hover:text-accent">
         <span className="min-w-0 flex-1 truncate text-[11px]">{target.taskTitle ?? target.taskId}</span><span className="shrink-0 font-mono text-[9.5px] text-text-faint">{target.taskId}</span><span aria-hidden className="shrink-0 text-[9.5px] text-text-faint">↗</span>
       </button>}
     </>}

@@ -2,7 +2,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { buildDispatchSpawnInput, compatibleDispatchInstances, compatibleDispatchModels, dispatchChainFromDocuments, dispatchOutcomeView, type DispatchRequest, type DispatchSubject } from "../src/renderer/dispatch-flow.ts";
+import { buildDispatchSpawnInput, compatibleDispatchInstances, compatibleDispatchModels, type DispatchRequest, type DispatchSubject } from "../src/renderer/dispatch-flow.ts";
 import { DispatchDialog } from "../src/renderer/components/DispatchDialog.tsx";
 import { AgentCard } from "../src/renderer/components/runtime/AgentCard.tsx";
 import { RuntimeRail } from "../src/renderer/components/runtime/RuntimeRail.tsx";
@@ -62,32 +62,6 @@ describe("agent dispatch flow", () => {
   it("rejects a runtime instance whose kindId does not match the selected executor runtime_type", () => {
     expect(() => buildDispatchSpawnInput({ ...baseRequest, subject: agentSubject }, [claudeInstance])).toThrow("dispatch_runtime_type_mismatch");
   });
-  it("consumes the daemon's four terminal outcomes one-to-one instead of re-deriving them", () => {
-    expect(dispatchOutcomeView(null)).toBe("unknown");
-    expect(dispatchOutcomeView("succeeded")).toBe("succeeded");
-    expect(dispatchOutcomeView("failed")).toBe("failed");
-    expect(dispatchOutcomeView("unknown")).toBe("unknown");
-    expect(dispatchOutcomeView("cancelled")).toBe("cancelled");
-  });
-  it("chains missions, dispatch records, reports, and the ledger by dispatch id", () => {
-    const documents = [
-      { path: "tasks/task-dispatch-verify/artifacts/missions/dispatch_aaa.md", blobSha256: "a".repeat(64), size: 10, mediaType: "text/markdown" },
-      { path: "tasks/task-dispatch-verify/artifacts/dispatches/dispatch_aaa.json", blobSha256: "b".repeat(64), size: 10, mediaType: "text/plain" },
-      { path: "tasks/task-dispatch-verify/artifacts/reports/dispatch_aaa.md", blobSha256: "c".repeat(64), size: 10, mediaType: "text/markdown" },
-      { path: "tasks/task-dispatch-verify/artifacts/missions/dispatch_bbb.md", blobSha256: "d".repeat(64), size: 10, mediaType: "text/markdown" },
-      { path: "notes.md", blobSha256: "e".repeat(64), size: 10, mediaType: "text/markdown" }
-    ];
-    const ledger = [{ dispatchId: "dispatch_bbb", taskId: "task-dispatch", executionId: "execution-1", runtimeSessionId: "runtime-1", instanceId: "w4c-verify-codex", providerSessionId: null, eventStreamRef: null, startedAt: "2026-08-20T00:00:00.000Z", endedAt: null, outcome: null, status: "running" }];
-    const chain = dispatchChainFromDocuments(documents, ledger);
-    expect(chain.map((row) => row.dispatchId)).toEqual(["dispatch_bbb", "dispatch_aaa"]);
-    const settled = chain.find((row) => row.dispatchId === "dispatch_aaa")!;
-    expect(settled.mission?.path.endsWith("artifacts/missions/dispatch_aaa.md")).toBe(true);
-    expect(settled.dispatchRecord?.path.endsWith("artifacts/dispatches/dispatch_aaa.json")).toBe(true);
-    expect(settled.report?.path.endsWith("artifacts/reports/dispatch_aaa.md")).toBe(true);
-    const running = chain.find((row) => row.dispatchId === "dispatch_bbb")!;
-    expect(running.report).toBeNull();
-    expect(running.ledger?.status).toBe("running");
-  });
   it("renders the prototype dispatch modal: who, task, mission, runtime, and what it produces", () => {
     const markup = renderToStaticMarkup(createElement(DispatchDialog, { subject: agentSubject, instances: [codexInstance, claudeInstance], tasks: [{ taskId: "task-dispatch", title: "Dispatch task", heldLease: true }], prompts: ["prompt://review"], busy: false, notice: null, onCancel: () => undefined, onSubmit: () => undefined }));
     for (const text of ["Dispatch — Agent × Runtime × Task → Session", "Who", "Which task", "What to say", "Where it runs", "terra", "codex", "task-dispatch", "artifacts/missions/&lt;dispatchId&gt;.md", "artifacts/dispatches/&lt;dispatchId&gt;.json", "artifacts/reports/&lt;dispatchId&gt;.md", "Dispatch"]) expect(markup).toContain(text);
@@ -126,7 +100,7 @@ describe("agent dispatch flow", () => {
   it("renders the five terminal dispatch states as distinct session rows in the rail", () => {
     const base = { dispatchId: "d", taskId: "task-dispatch", executionId: "e", runtimeSessionId: "r", instanceId: "w4c-verify-codex", agentId: "terra", agentName: "terra", providerSessionId: null, eventStreamRef: null, startedAt: "2026-08-20T02:00:00.000Z", endedAt: null, outcome: null, status: "running", taskTitle: "Dispatch task", squad: null } as const;
     const rows = runtimeDockRows((["running", "succeeded", "failed", "unknown", "cancelled"] as const).map((status, index) => ({ ...base, dispatchId: `d-${index}`, runtimeSessionId: `runtime-${index}`, status, outcome: status === "running" ? null : status })), []);
-    const markup = renderToStaticMarkup(createElement(RuntimeRail, { instances: [], agents: [], squads: [], orchestration: [], sessions: rows, selection: null, open: { runtimes: true, agents: true, squads: true, orchestration: true, sessions: true }, liveByInstance: new Map(), onToggle: () => undefined, onSelect: () => undefined, onNew: () => undefined } as never));
+    const markup = renderToStaticMarkup(createElement(RuntimeRail, { instances: [], agents: [], squads: [], sessions: rows, selection: null, open: { runtimes: true, agents: true, squads: true, sessions: true }, liveByInstance: new Map(), onToggle: () => undefined, onSelect: () => undefined, onNew: () => undefined } as never));
     for (const status of ["running", "succeeded", "failed", "unknown", "cancelled"]) expect(markup).toContain(`>${status}<`);
     for (let index = 0; index < 5; index += 1) expect(markup).toContain(`data-testid="runtime-outcome-runtime-${index}"`);
   });

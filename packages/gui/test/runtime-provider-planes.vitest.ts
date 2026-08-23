@@ -9,7 +9,6 @@ import { runtimeInstanceClient } from "../src/renderer/runtime-instance-client.t
 import { planeAllowsApiKey, planeAllowsBaseUrl, planeAllowsEffort, planeAllowsPermissions, planeAuthMode, planeAuthModes, planeUsesApiOverride, RUNTIME_KIND_IDS } from "../src/renderer/runtime-provider-planes.ts";
 import { runtimeDockGroups, runtimeDockLiveCount, runtimeDockRows, type RuntimePanoramaRow } from "../src/renderer/runtime-panorama.ts";
 import { squadChartLayout } from "../src/renderer/components/runtime/SquadCard.tsx";
-import { orchestrationEntries } from "../src/renderer/components/runtime/RuntimeRail.tsx";
 import { subscriptionCreationNeedsLogin } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
 
 const form: CreateInstanceFormState = { instanceId: "one", name: "One", kindId: "claude", installationId: "install", providerId: "anthropic", model: "claude-opus", reasoningEffort: "", baseUrl: "", authMode: "subscription", apiKey: "", wireApi: "", requiresOpenAiAuth: false, permissionMode: "bypass", isolation: "operator-environment" };
@@ -116,10 +115,6 @@ describe("sessions dock projection", () => {
     expect(groups[0]!.label).toBe("Core Squad");
     expect(groups[1]!.label).toBe("Luna");
     expect(runtimeDockLiveCount(rows)).toBe(2);
-  });
-  it("counts dispatches per task and floats the running tasks to the top of the rail", () => {
-    const rows = runtimeDockRows([{ ...dispatchRow, taskId: "task-b", taskTitle: "Second", status: "succeeded", runtimeSessionId: "runtime-3" }, dispatchRow, { ...dispatchRow, runtimeSessionId: "runtime-4", status: "failed" }], []);
-    expect(orchestrationEntries(rows)).toEqual([{ taskId: "task-a", title: "Review the runtime", dispatches: 2, running: 1 }, { taskId: "task-b", title: "Second", dispatches: 1, running: 0 }]);
   });
 });
 
