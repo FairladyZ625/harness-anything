@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { parseThinCommand } from "../../cli/src/cli/thin-command.ts";
@@ -361,14 +361,15 @@ test("agy owns its access policy and rejects harness permission declarations", a
 test("claude isolation defaults to the operator environment and stays enforced on request", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-claude-isolation-")), claude = { ...observed, installationId: "claude-isolation", kindId: "claude" as const, executablePath: "/opt/runtime-test/claude" }, agy = { installationId: "agy-isolation", kindId: "agy" as const, executablePath: "/opt/runtime-test/agy", version: "1.1.15", observedAt: "2026-08-20T00:00:00.000Z" }, operatorEnv = { PATH: "/runtime/tools", HOME: "/operator/home", TMPDIR: "/operator/tmp", ANTHROPIC_AUTH_TOKEN: "operator-oauth" };
   try {
+    const claudeOperatorEnv = process.platform === "darwin" ? { ...operatorEnv, USER: userInfo().username } : operatorEnv;
     const store = openRuntimeInstanceStore({ userRoot, discover: () => [claude, observed, agy], env: operatorEnv, resolveCredential: () => "instance-secret", subscriptionReady: () => ({ status: "ready", code: null, hint: null }) });
     store.create({ schemaVersion: 2, instanceId: "claude-operator", name: "Claude Operator", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, claude: {}, auth: { mode: "subscription" } });
     store.create({ schemaVersion: 2, instanceId: "claude-operator-key", name: "Claude Operator Key", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, claude: {}, auth: { mode: "api-key", credentialRef: "credential:v1:claude-operator-key" } });
     const launch = await store.prepareLaunch("claude-operator", { cwd: "/workspace/repo", prompt: "Reuse the operator login" }), login = store.prepareAuthCommand("claude-operator", "login"), keyLaunch = await store.prepareLaunch("claude-operator-key", { cwd: "/workspace/repo", prompt: "Key in operator env" });
     assert.equal((store.command({ kind: "runtime-instance-show", instanceId: "claude-operator" }).instance as { readonly isolationState: string }).isolationState, "operator-environment");
-    assert.deepEqual(launch.env, operatorEnv);
-    assert.deepEqual(keyLaunch.env, { ...operatorEnv, ANTHROPIC_API_KEY: "instance-secret" });
-    assert.deepEqual(login.env, operatorEnv);
+    assert.deepEqual(launch.env, claudeOperatorEnv);
+    assert.deepEqual(keyLaunch.env, { ...claudeOperatorEnv, ANTHROPIC_API_KEY: "instance-secret" });
+    assert.deepEqual(login.env, claudeOperatorEnv);
     assert.deepEqual(login.args, ["auth", "login"]);
     assert.equal(statSync(login.cwd).isDirectory(), true);
     assert.equal(existsSync(path.join(userRoot, "runtime-instances", "claude-operator", "home")), false);
@@ -384,6 +385,21 @@ test("claude isolation defaults to the operator environment and stays enforced o
     assert.throws(() => store.command({ kind: "runtime-instance-update", instanceId: "codex-keyed-enforced", isolationState: "operator-environment" }), (error: unknown) => codedAs(error, "invalid_runtime_isolation"));
     assert.throws(() => store.command({ kind: "runtime-instance-create", instanceId: "agy-enforced", name: "AGY Enforced", kindId: "agy", providerId: "google", models: ["gemini-3.1-pro-low"], isolationState: "enforced", authMode: "subscription" }), (error: unknown) => codedAs(error, "invalid_runtime_isolation"));
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+test("macOS Claude operator probes use the OS username and report the probed environment", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-claude-operator-probe-")), userRoot = path.join(root, "user"), bin = path.join(root, "bin"), readyPath = path.join(bin, "claude-ready"), rejectedPath = path.join(bin, "claude-rejected"), username = userInfo().username;
+  try {
+    mkdirSync(bin);
+    const ready = writeProviderExecutable(readyPath, `if (process.env.USER !== ${JSON.stringify(username)}) process.exit(7);\n`), rejected = writeProviderExecutable(rejectedPath, "process.exit(7);\n"), readyInstallation: RuntimeInstallationWitness = { installationId: "claude-operator-ready", kindId: "claude", executablePath: ready, version: "2.1.240", observedAt: "2026-08-23T00:00:00.000Z" }, rejectedInstallation: RuntimeInstallationWitness = { installationId: "claude-operator-rejected", kindId: "claude", executablePath: rejected, version: "2.1.240", observedAt: "2026-08-23T00:00:00.000Z" }, env = { PATH: bin, HOME: "/operator/home", LANG: "C" };
+    const store = openRuntimeInstanceStore({ userRoot, platform: "darwin", env, discover: () => [readyInstallation, rejectedInstallation] });
+    store.create({ schemaVersion: 2, instanceId: "claude-operator-ready", name: "Claude Operator Ready", kindId: "claude", installationId: readyInstallation.installationId, providerId: "anthropic", models: ["sonnet"], defaultModel: "sonnet", enabled: true, isolationState: "operator-environment", claude: {}, auth: { mode: "subscription" } });
+    assert.deepEqual(await store.authStatus("claude-operator-ready"), { status: "ready", code: null, hint: null });
+    store.create({ schemaVersion: 2, instanceId: "claude-operator-rejected", name: "Claude Operator Rejected", kindId: "claude", installationId: rejectedInstallation.installationId, providerId: "anthropic", models: ["sonnet"], defaultModel: "sonnet", enabled: true, isolationState: "operator-environment", claude: {}, auth: { mode: "subscription" } });
+    assert.deepEqual(await store.authStatus("claude-operator-rejected"), { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in the operator environment." });
+    store.create({ schemaVersion: 2, instanceId: "claude-enforced-rejected", name: "Claude Enforced Rejected", kindId: "claude", installationId: rejectedInstallation.installationId, providerId: "anthropic", models: ["sonnet"], defaultModel: "sonnet", enabled: true, isolationState: "enforced", claude: {}, auth: { mode: "subscription" } });
+    assert.deepEqual(await store.authStatus("claude-enforced-rejected"), { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in this instance state root." });
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("enforced instances link the operator's shared provider auth while generated config stays in the state root", { skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false }, async () => {
