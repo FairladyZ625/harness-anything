@@ -4083,7 +4083,7 @@
       "tierReason": null,
       "authoritySource": [
         "docs-release/",
-        "packages/cli/src/commands/legacy",
+        "packages/cli/package.json",
         "tools/check-legacy-intake-readiness.mjs"
       ],
       "consumerScope": [
