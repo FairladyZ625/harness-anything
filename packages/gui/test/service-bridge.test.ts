@@ -7,9 +7,9 @@ import path from "node:path";
 import net from "node:net";
 import { once } from "node:events";
 import test from "node:test";
-import { daemonGuiReadMethods, jsonRpcMethodContracts, type DaemonGuiRpcReadMethod } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonGuiInvokeFacets, daemonGuiReadMethods, daemonGuiStreamFacets, jsonRpcMethodContracts, type DaemonGuiRpcReadMethod } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiActionResponse, parseDaemonGuiReadResponse, parseDaemonGuiReadResult } from "../../daemon/src/protocol/gui-result-validation.ts";
-import { apiRouteContracts, createLocalGuiServiceBridge } from "../src/index.ts";
+import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 import { seedTriadicEvents, writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
 import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
@@ -147,8 +147,7 @@ test("GUI entity write channel validates then installs an Agent and preserves a 
 
 test("GUI contract rejects any shipped bridge method missing from the daemon protocol", () => {
   const daemonMethods = new Set(jsonRpcMethodContracts.map(({ method }) => method));
-  const missing = apiRouteContracts.filter(({ guiBridgeMethod }) => guiBridgeMethod !== undefined)
-    .map(({ rpcMethod }) => rpcMethod).filter((method) => method === undefined || !daemonMethods.has(method));
+  const missing = [...daemonGuiInvokeFacets, ...daemonGuiStreamFacets].map(({ method }) => method).filter((method) => !daemonMethods.has(method));
   assert.deepEqual(missing, []);
 });
 

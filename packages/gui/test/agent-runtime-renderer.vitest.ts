@@ -91,9 +91,10 @@ describe("agent runtime renderer", () => {
   });
   it("offers the provider's own login actions on a subscription instance and none on an api-key instance", () => {
     const subscription = runtimeCard(claudeInstance);
-    for (const action of ["Sign in", "Re-auth", "Sign out"]) expect(subscription).toContain(action);
+    for (const action of ["Sign in", "Sign out"]) expect(subscription).toContain(action);
+    expect(subscription).not.toContain("Re-auth");
     expect(subscription).not.toMatch(/type="password"/u);
-    for (const action of ["Sign in", "Re-auth", "Sign out"]) expect(runtimeCard(instance)).not.toContain(action);
+    for (const action of ["Sign in", "Sign out"]) expect(runtimeCard(instance)).not.toContain(action);
   });
   it("offers AGY's terminal login path only after a probe reports unauthenticated", () => {
     const authenticated = renderToStaticMarkup(createElement(RuntimeCard, { instance: { ...agyInstance, authState: "authenticated" }, agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop, onSelfTest: async () => null }));

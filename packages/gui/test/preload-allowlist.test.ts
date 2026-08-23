@@ -1,16 +1,16 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { daemonGuiActionMethods, daemonGuiReadMethods, daemonGuiStreamFacets } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonGuiActionMethods, daemonGuiInvokeFacets, daemonGuiStreamFacets } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { HARNESS_PRELOAD_API, assertPreloadPayload, getPreloadApiCapability, isAllowedPreloadApiMethod,
-  localMainPreloadMethods, preloadAllowlist, shippedPreloadMethods } from "../src/index.ts";
+  preloadAllowlist, shippedPreloadMethods } from "../src/index.ts";
 import { deriveEmptyRepoMethods, deriveRepoScopedMethods } from "../src/preload/allowlist.ts";
 import { buildRuntimeInstanceCreatePayload, type CreateInstanceFormState } from "../src/renderer/runtime-instance-form.ts";
 
 const runtimeCreateForm: CreateInstanceFormState = { instanceId: "claude-one", name: "Claude one", kindId: "claude", installationId: "claude-install", providerId: "anthropic", model: "claude-opus", reasoningEffort: "", baseUrl: "", authMode: "subscription", apiKey: "", wireApi: "", requiresOpenAiAuth: false, permissionMode: "bypass", isolation: "operator-environment" };
 
 test("preload exposes only the approved API methods", () => {
-  const approved = [...[...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonGuiStreamFacets].map(({ guiBridgeMethod }) => guiBridgeMethod), ...localMainPreloadMethods];
+  const approved = [...daemonGuiInvokeFacets, ...daemonGuiStreamFacets].map(({ guiBridgeMethod }) => guiBridgeMethod);
   assert.equal(HARNESS_PRELOAD_API, "harness");
   assert.deepEqual(preloadAllowlist, approved);
   assert.deepEqual(shippedPreloadMethods, approved);
@@ -35,6 +35,10 @@ test("preload exposes only the approved API methods", () => {
   assert.throws(() => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", updatedBefore: "not-a-date" }), /query facets are invalid/u);
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", status: "edge_retired" }), /query facets are invalid/u);
   assert.throws(() => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", status: "blocked" }), /query facets are invalid/u);
+  assert.equal(assertPreloadPayload("listRuntimeInstances", { all: true }), true);
+  assert.equal(assertPreloadPayload("showRuntimeInstance", { instanceId: "codex-review", probe: true }), true);
+  assert.throws(() => assertPreloadPayload("listRuntimeInstances", null), /invalid/u);
+  assert.equal(isAllowedPreloadApiMethod("reauthRuntimeInstance"), false);
   assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "codex-review", enabled: false }), true);
   assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "codex-review", permissionMode: "read-only" }), true);
   assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "claude-review", isolationState: "enforced" }), true);
