@@ -3,7 +3,7 @@ import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, readRegisteredRepos, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts"; import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts"; import type { DaemonShutdownExchange } from "../../../daemon/src/client/local-json-rpc-shutdown.ts"; import { detachedProcessOptions, terminateProcess } from "../../../daemon/src/process-port.ts"; import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
+import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts"; import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts"; import type { DaemonShutdownExchange } from "../../../daemon/src/client/local-json-rpc-shutdown.ts"; import { detachedProcessOptions, terminateProcess } from "../../../daemon/src/process-port.ts"; import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
 import { ensureLocalDaemonRunning } from "../../../daemon/src/client/daemon-autostart.ts";
 import { readDaemonPid, startDaemon } from "../../../daemon/src/runtime.ts";
 import { daemonProcessAlive, daemonSocketProbe, readDaemonSingletonLockPid, releaseDaemonPidFile, releaseDaemonSingletonLock } from "../../../daemon/src/daemon-singleton.ts";
@@ -77,8 +77,11 @@ function deferredServeReceipt(incumbent: { readonly pid: number | null; readonly
   return { ok: true, command: "daemon-serve", outcome: "deferred", incumbent: { pid: incumbent.pid, endpoint: incumbent.endpoint }, summary: `daemon serve deferred: ${witness}; this process did not bind the socket or take any workspace writer lock.`, nextAction: "Use the resident daemon (ha daemon status) or stop it first (ha daemon stop)." };
 }
 async function status(userRoot: string, daemonId: string, argv: readonly string[] = []): Promise<Record<string, unknown>> {
-  const endpoint = localUserDaemonEndpoint(userRoot, daemonId), result = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 75), repos = readRegisteredRepos(userRoot), root = path.resolve(daemonOption(argv, "--root") ?? process.cwd()), repoIdOverride = daemonOption(argv, "--repo") ?? process.env.HARNESS_DAEMON_REPO_ID, repo = repoIdOverride ? repos.find((candidate) => candidate.repoId === repoIdOverride && candidate.state === "enabled") : repos.filter((candidate) => candidate.state === "enabled" && (candidate.canonicalRoot === root || root.startsWith(`${candidate.canonicalRoot}${path.sep}`))).sort((left, right) => right.canonicalRoot.length - left.canonicalRoot.length)[0];
-  const target = { endpoint, daemonId, userRoot, repoId: repo?.repoId ?? null, canonicalRoot: repo?.canonicalRoot ?? null }, detail = `target: endpoint=${endpoint} daemonId=${daemonId} userRoot=${userRoot} repoId=${target.repoId ?? "none"} canonicalRoot=${target.canonicalRoot ?? "none"}`;
+  const root = path.resolve(daemonOption(argv, "--root") ?? process.cwd()), repoIdOverride = daemonOption(argv, "--repo") ?? process.env.HARNESS_DAEMON_REPO_ID;
+  // Same resolver as every command: canonicalised registry match, and the injected-endpoint conflict check fails closed here too.
+  const resolved = ((): ReturnType<typeof resolveLocalDaemonTarget> | null => { try { return resolveLocalDaemonTarget({ rootDir: root, repoIdOverride, userRoot, daemonId }); } catch (error) { if ((error as { readonly code?: unknown }).code === "daemon_target_conflict") throw error; consumeKnownError(error); return null; } })();
+  const endpoint = resolved?.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId), result = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 75);
+  const target = { endpoint, daemonId, userRoot, repoId: resolved?.repoId ?? null, canonicalRoot: resolved?.canonicalRoot ?? null }, detail = `target: endpoint=${endpoint} daemonId=${daemonId} userRoot=${userRoot} repoId=${target.repoId ?? "none"} canonicalRoot=${target.canonicalRoot ?? "none"}`;
   return { ...result, target, summary: `${String(result.summary ?? "daemon status")}\n${detail}` };
 }
 async function requestCooperativeStop(userRoot: string, daemonId: string, pid: number): Promise<DaemonShutdownExchange | null> {
