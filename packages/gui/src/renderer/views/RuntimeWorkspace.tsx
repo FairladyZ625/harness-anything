@@ -81,7 +81,7 @@ export function RuntimeWorkspace({ repoId, tasks }: { readonly repoId: string; r
       <main className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6">
         {current === null ? <Empty>{t(catalogsPending ? "agentRuntime.loading" : "agentRuntime.emptyWorkspace")}</Empty>
           : current.type === "runtime" ? (instances.find((instance) => instance.instanceId === current.id)
-            ? <RuntimeCard instance={instances.find((instance) => instance.instanceId === current.id)!} authProbeError={workspace.authProbeErrors.get(current.id)} agents={agents} liveSessions={liveByInstance.get(current.id) ?? 0} busy={workspace.busy}
+            ? <RuntimeCard instance={instances.find((instance) => instance.instanceId === current.id)!} installations={installations} authProbeError={workspace.authProbeErrors.get(current.id)} agents={agents} liveSessions={liveByInstance.get(current.id) ?? 0} busy={workspace.busy}
                 onSelectAgent={(agentId) => setSelection({ type: "agent", id: agentId })} onAuth={(action) => void workspace.authInstance(current.id, action)} onValidate={() => void workspace.validateInstance(current.id)}
                 onSetEnabled={(enabled) => void workspace.setInstanceEnabled(current.id, enabled)} onUpdate={(input) => void workspace.updateInstance(input)} onDelete={() => { void workspace.deleteInstance(current.id); setSelection(null); }} onSelfTest={(model) => workspace.selfTest(current.id, model)} />
             : <Empty>{t("agentRuntime.notFound")}</Empty>)

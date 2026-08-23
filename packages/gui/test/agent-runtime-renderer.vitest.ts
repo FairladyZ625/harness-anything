@@ -32,7 +32,7 @@ const agentDetail = { id: "fable", name: "fable", runtimeType: "claude", role: "
 const availableSkills = [{ id: "review", path: "/Users/test/.claude/skills/review", source: "user" }, { id: "triage", path: "/repo/skills/triage", source: "project" }] as const, presets = [{ id: "standard-task", title: "Standard task", description: "Default implementation loop" }] as const;
 const squadDetail = { id: "core-squad", name: "Core Squad", leader: "fable", workers: ["luna", "sol", "terra"], roster: "fable » luna, sol, terra" } as const;
 const noop = () => undefined;
-const runtimeCard = (row: typeof instance | typeof claudeInstance) => renderToStaticMarkup(createElement(RuntimeCard, { instance: row, agents: agentRows as never, liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop, onSelfTest: async () => null }));
+const runtimeCard = (row: typeof instance | typeof claudeInstance) => renderToStaticMarkup(createElement(RuntimeCard, { instance: row, installations: [installation], agents: agentRows as never, liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop, onSelfTest: async () => null }));
 const detailView = (overrides: Partial<Parameters<typeof SessionDetailView>[0]> = {}) => renderToStaticMarkup(createElement(SessionDetailView, { session, row: null, result: null, frames: [], attach: "attached", busy: false, onCancel: noop, onOpenTask: noop, ...overrides } as never));
 
 afterEach(() => vi.unstubAllGlobals());
@@ -86,7 +86,7 @@ describe("agent runtime renderer", () => {
   });
   it("shows a background probe transport error instead of silently keeping not-checked", () => {
     const unchecked = { ...claudeInstance, authState: "unknown", authReadiness: { status: "not-ready", code: "runtime_auth_not_checked", hint: "Authentication has not been verified in this daemon generation." } } as never;
-    const markup = renderToStaticMarkup(createElement(RuntimeCard, { instance: unchecked, authProbeError: "connect ECONNREFUSED", agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop, onSelfTest: async () => null }));
+    const markup = renderToStaticMarkup(createElement(RuntimeCard, { instance: unchecked, installations: [installation], authProbeError: "connect ECONNREFUSED", agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop, onSelfTest: async () => null }));
     expect(markup).toContain('data-auth-status="probe-error"'); expect(markup).toContain("Authentication check failed: connect ECONNREFUSED");
   });
   it("offers the provider's own login actions on a subscription instance and none on an api-key instance", () => {
@@ -97,8 +97,8 @@ describe("agent runtime renderer", () => {
     for (const action of ["Sign in", "Sign out"]) expect(runtimeCard(instance)).not.toContain(action);
   });
   it("offers AGY's terminal login path only after a probe reports unauthenticated", () => {
-    const authenticated = renderToStaticMarkup(createElement(RuntimeCard, { instance: { ...agyInstance, authState: "authenticated" }, agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop, onSelfTest: async () => null }));
-    const unauthenticated = renderToStaticMarkup(createElement(RuntimeCard, { instance: { ...agyInstance, authState: "unauthenticated", authReadiness: { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in the operator environment." } }, agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop, onSelfTest: async () => null }));
+    const authenticated = renderToStaticMarkup(createElement(RuntimeCard, { instance: { ...agyInstance, authState: "authenticated" }, installations: [installation], agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop, onSelfTest: async () => null }));
+    const unauthenticated = renderToStaticMarkup(createElement(RuntimeCard, { instance: { ...agyInstance, authState: "unauthenticated", authReadiness: { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in the operator environment." } }, installations: [installation], agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop, onSelfTest: async () => null }));
     expect(authenticated).not.toMatch(/<button[^>]*>Sign in<\/button>/u);
     expect(unauthenticated).toMatch(/<button[^>]*>Sign in<\/button>/u);
   });
@@ -158,7 +158,7 @@ describe("agent runtime renderer", () => {
   });
   it("edits only the permission and isolation fields supported by each runtime kind", () => {
     const codex = runtimeCard(instance), claude = runtimeCard(claudeInstance);
-    const agy = renderToStaticMarkup(createElement(RuntimeCard, { instance: agyInstance, agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop, onSelfTest: async () => null }));
+    const agy = renderToStaticMarkup(createElement(RuntimeCard, { instance: agyInstance, installations: [installation], agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop, onSelfTest: async () => null }));
     expect(codex).toContain('data-testid="runtime-instance-permission-mode"'); expect(codex).not.toContain('data-testid="runtime-instance-isolation"');
     expect(claude).toContain('data-testid="runtime-instance-permission-mode"'); expect(claude).toContain('data-testid="runtime-instance-isolation"');
     expect(agy).not.toContain('data-testid="runtime-instance-permissions"');
