@@ -167,6 +167,20 @@ test("break-glass declaration passes with required exception fields", () => {
   assert.equal(result.ok, true);
 });
 
+test("break-glass declaration rejects an empty reason before the scope line", () => {
+  const result = checkPrGovernance({
+    body: bodyWithGovernance({ breakGlass: true }).replace(
+      "- Break-glass reason: restore main after an urgent CI outage",
+      "- Break-glass reason:"
+    ),
+    changedFiles: ["tools/gate-allowlists/check-import-boundaries.json"],
+    manifest: makeManifest()
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.issues.join("\n"), /non-empty break-glass reason/u);
+});
+
 test("classifies wildcard package surfaces", () => {
   const rules = deriveProtectedSurfaceRules(makeManifest());
   const matches = classifyProtectedChanges(["packages/cli/package.json"], rules);

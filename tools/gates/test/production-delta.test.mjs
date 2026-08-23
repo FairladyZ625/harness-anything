@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import { evaluateProductionDelta } from "../production-delta.mjs";
+import { evaluateProductionDelta, parseProductionDeclaration, parseRetainedPaths } from "../production-delta.mjs";
 import { signReceipt } from "../receipt-verify.mjs";
 import { makeRepo, writeRepoFile } from "./helpers.mjs";
 
@@ -23,6 +23,23 @@ test("G33 rejects a missing or inaccurate declaration", () => {
   assert.match(missing.errors.join("\n"), /exactly one Production-Delta/u);
   assert.equal(inaccurate.ok, false);
   assert.match(inaccurate.errors.join("\n"), /does not match computed \+1\/-0/u);
+});
+
+test("G33 does not read a Production-Delta value from the next line", () => {
+  const result = parseProductionDeclaration("Production-Delta:\n+2/-1");
+
+  assert.equal(result.declaration, null);
+  assert.match(result.errors.join("\n"), /exactly one Production-Delta/u);
+});
+
+test("G33 does not read a Retained-Path value from the next line", () => {
+  const result = parseRetainedPaths([
+    "Retained-Path:",
+    "packages/kernel/src/legacy.ts until 2099-12-30 per dec_01KZQ92VEPTDRS2HS8CKDBKW2Q"
+  ].join("\n"));
+
+  assert.deepEqual(result.declarations, []);
+  assert.match(result.errors.join("\n"), /each Retained-Path line must use/u);
 });
 
 test("G33 verifies retained production paths against an expiring decision receipt", () => {

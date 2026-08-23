@@ -34,3 +34,12 @@ test("G31 rejects lock drift and undeclared dependency changes", () => {
   assert.deepEqual(validateDependencyDeclaration(["package.json"], "Dependency-Change: pin effect to 2.0.0"), []);
   assert.deepEqual(validateDependencyDeclaration(["package.json"], "", false), []);
 });
+
+test("G31 rejects an empty Dependency-Change before another line", () => {
+  const errors = validateDependencyDeclaration(
+    ["package.json"],
+    "Dependency-Change:\n## Task And Scope"
+  );
+
+  assert.match(errors.join("\n"), /must describe the deterministic dependency change/u);
+});
