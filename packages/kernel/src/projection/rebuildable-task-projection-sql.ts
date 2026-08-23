@@ -1,3 +1,5 @@
+// @write-boundary-exemption rebuildable-projection
+
 import { DatabaseSync } from "node:sqlite";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { parseCanonicalEvent, type CanonicalEventV1 } from "../domain/doc-sync.contract.ts";

@@ -55,13 +55,13 @@ function inspectFile(root, rel) {
   const sourceFile = ts.createSourceFile(rel, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const bindings = fsBindings(sourceFile);
   const sqlite = sqliteBindings(sourceFile);
-  const sqliteWritable = hasWritableSqliteOpen(sourceFile, sqlite);
+  const sqliteGoverned = category === "rebuildable-projection" || hasWritableSqliteOpen(sourceFile, sqlite);
   if (bindings.named.size === 0 && bindings.namespaces.size === 0 && sqlite.size === 0) return [];
   const occurrences = new Map();
   const findings = [];
 
   visit(sourceFile, (node) => {
-    const api = ts.isCallExpression(node) ? calledFsApi(node.expression, bindings) ?? calledSqliteApi(node.expression, sqlite, sqliteWritable)
+    const api = ts.isCallExpression(node) ? calledFsApi(node.expression, bindings) ?? calledSqliteApi(node.expression, sqlite, sqliteGoverned)
       : ts.isNewExpression(node) && ts.isIdentifier(node.expression) && sqlite.has(node.expression.text) && !readOnlySqliteOpen(node) ? "DatabaseSync" : undefined;
     if (!api) return;
     const occurrence = (occurrences.get(api) ?? 0) + 1;
@@ -91,8 +91,8 @@ function sqliteBindings(sourceFile) {
   return bindings;
 }
 
-function calledSqliteApi(expression, sqlite, sqliteWritable) {
-  if (!sqliteWritable || sqlite.size === 0 || !ts.isPropertyAccessExpression(expression)) return undefined;
+function calledSqliteApi(expression, sqlite, sqliteGoverned) {
+  if (!sqliteGoverned || sqlite.size === 0 || !ts.isPropertyAccessExpression(expression)) return undefined;
   return ["exec", "prepare"].includes(expression.name.text) ? `sqlite.${expression.name.text}` : undefined;
 }
 
