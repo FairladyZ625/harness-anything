@@ -173,7 +173,7 @@ function hasLabeledValue(text, labels) {
 function readLabeledValue(text, labels) {
   for (const label of labels) {
     const escaped = escapeRegex(label);
-    const match = new RegExp(`^\\s*-?\\s*${escaped}\\s*[:：]\\s*(.+?)\\s*$`, "imu").exec(text);
+    const match = new RegExp(`^\\s*-?\\s*${escaped}\\s*[:：][ \\t]*(.+?)\\s*$`, "imu").exec(text);
     const value = match?.[1]?.trim();
     if (value && !FIELD_PLACEHOLDER.test(value)) {
       return value;

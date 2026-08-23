@@ -5,8 +5,8 @@ import { git, pathExistsAt, repoRoot } from "./git.mjs";
 import { classifyModule, isProductionPath, normalizeRepoPath } from "./module-policy.mjs";
 import { loadReceipts, verifyReceipt } from "./receipt-verify.mjs";
 
-const DELTA_LINE = /^Production-Delta:\s*\+(\d+)\s*\/\s*-(\d+)\s*$/gmu;
-const RETAINED_LINE = /^Retained-Path:\s*(\S+)\s+until\s+(\d{4}-\d{2}-\d{2})\s+per\s+(dec_[0-9A-Za-z]+)\s*$/gmu;
+const DELTA_LINE = /^Production-Delta:[ \t]*\+(\d+)\s*\/\s*-(\d+)\s*$/gmu;
+const RETAINED_LINE = /^Retained-Path:[ \t]*(\S+)\s+until\s+(\d{4}-\d{2}-\d{2})\s+per\s+(dec_[0-9A-Za-z]+)\s*$/gmu;
 
 export function computeProductionDelta({ rootDir, base }) {
   const output = git(rootDir, ["diff", "--no-renames", "--numstat", "-z", base, "--"]);

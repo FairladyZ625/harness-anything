@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import { changedFiles, repoRoot } from "./git.mjs";
 
 const DEPENDENCY_SECTIONS = Object.freeze(["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]);
-const DECLARATION = /^Dependency-Change:\s*(.*?)\s*$/gmu;
+const DECLARATION = /^Dependency-Change:[ \t]*(.*?)\s*$/gmu;
 
 function packageManifestPaths(rootDir) {
   const result = ["package.json"];
