@@ -211,6 +211,7 @@ export default tseslint.config(
   {
     ignores: [
       ".git/",
+      ".b5-baseline/",
       ".claude/",
       ".gstack/",
       ".harness/",
