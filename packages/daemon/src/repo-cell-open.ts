@@ -406,8 +406,12 @@ export async function openRepoCell(input: {
     cellCodedError,
     input,
     runtimeIngressEventTypes,
-    projection,
-    store,
+    get projection() {
+      return projection;
+    },
+    get store() {
+      return store;
+    },
     runtimeIngressReceipt: bindExtracted(runtimeIngressReceiptImpl),
     appendRuntimeIngress: bindExtracted(appendRuntimeIngressImpl),
     requiredCellText,
@@ -420,9 +424,13 @@ export async function openRepoCell(input: {
     reviewTask: bindExtracted(reviewTaskImpl),
     publishGeneratedArtifact,
     rootDir,
-    factActions,
+    get factActions() {
+      return factActions;
+    },
     decisionProposalAction,
-    decisionActions,
+    get decisionActions() {
+      return decisionActions;
+    },
     upgradePresetSnapshot: bindExtracted(upgradePresetSnapshotImpl),
     installAgentEntity: bindExtracted(installAgentEntityImpl),
     readResult: bindExtracted(readResultImpl),
@@ -444,7 +452,9 @@ export async function openRepoCell(input: {
     taskWriteKind,
     rejected,
     lifecycleAction: bindExtracted(lifecycleActionImpl),
-    service,
+    get service() {
+      return service;
+    },
     workspaceText,
     buildCommand,
     withServerMeta,
@@ -491,7 +501,9 @@ export async function openRepoCell(input: {
     set recoveryUncertain(value) {
       recoveryUncertain = value;
     },
-    recovery,
+    get recovery() {
+      return recovery;
+    },
     canonicalSettlement: bindExtracted(canonicalSettlementImpl),
     get knownTaskIds() {
       return knownTaskIds;
@@ -572,14 +584,22 @@ export async function openRepoCell(input: {
       recoveryUncertain = value;
     },
     recoveryProbe,
-    replica,
+    get replica() {
+      return replica;
+    },
     rootDir,
-    store,
-    projection,
+    get store() {
+      return store;
+    },
+    get projection() {
+      return projection;
+    },
     now,
     executeAction: extracted.executeAction,
     presetProcess,
-    runtimeReads,
+    get runtimeReads() {
+      return runtimeReads;
+    },
     runtimeSpawner,
     appendRuntimeIngress: extracted.appendRuntimeIngress,
     get bootstrapReceipt() {
@@ -592,7 +612,9 @@ export async function openRepoCell(input: {
     terminal,
     runtimeStream,
     generation,
-    recovery,
+    get recovery() {
+      return recovery;
+    },
     lock,
   };
   return createRepoCellApi(apiContext);
