@@ -29,8 +29,8 @@ export function SessionsPanel({ repoId, runtimeSessionId, row, busy, onCancel, o
       if (snapshot.session.attachCapability !== "supported") return;
       detach = openAgentRuntimePane(repoId, runtimeSessionId, snapshot.session.streamCursor, (value) => {
         if (!active) return;
-        if ("ok" in value) { setAttach(value.ok ? value.status : value.code); if (value.ok) { const caught = value.events.filter((event) => event.type !== "gap"); if (caught.length) setFrames((current) => [...current, ...caught].slice(-32)); if (value.status === "gap" || value.events.some((event) => event.type === "exit")) void reread(); } return; }
-        if (value.type === "gap") void reread(); else { setFrames((current) => [...current.slice(-31), value]); if (value.type === "exit") void reread(); }
+        if ("ok" in value) { setAttach(value.ok ? value.status : value.code); if (value.ok) { const caught = value.events.filter((event) => event.type !== "gap"); if (caught.length) setFrames((current) => [...current, ...caught]); if (value.status === "gap" || value.events.some((event) => event.type === "exit")) void reread(); } return; }
+        if (value.type === "gap") void reread(); else { setFrames((current) => [...current, value]); if (value.type === "exit") void reread(); }
       }).close;
     }, (cause) => { if (active) setError(cause instanceof Error ? cause.message : String(cause)); });
     return () => { active = false; detach?.(); };
@@ -73,8 +73,8 @@ export function SessionDetailView({ session, row, result, frames, attach, busy, 
     <Card>
       <CardHead><CardTitle>{t("agentRuntime.liveStream")}</CardTitle></CardHead>
       <CardBody>
-        <div className="rounded border border-border">
-          {frames.length === 0 ? <p className="px-2.5 py-2 text-[10.5px] text-text-faint">{t("agentRuntime.noFrames")}</p> : frames.map((frame) => <div key={frame.cursor} className="grid grid-cols-[64px_minmax(0,1fr)] gap-2 border-b border-border px-2.5 py-1.5 last:border-b-0 text-[11px]"><span className="font-mono text-[9px] text-text-faint">{frame.cursor}</span><span className="min-w-0 [overflow-wrap:anywhere]">{frame.type === "activity" ? frame.activity : frame.type}</span></div>)}
+        <div data-testid="session-event-stream" className="max-h-64 overflow-y-auto rounded border border-border">
+          {frames.length === 0 ? <p className="px-2.5 py-2 text-[10.5px] text-text-faint">{t("agentRuntime.noFrames")}</p> : frames.map((frame) => <div key={frame.cursor} data-testid="session-event-frame" className="grid grid-cols-[64px_minmax(0,1fr)] gap-2 border-b border-border px-2.5 py-1.5 last:border-b-0 text-[11px]"><span className="font-mono text-[9px] text-text-faint">{frame.cursor}</span><span className="min-w-0 [overflow-wrap:anywhere]">{frame.type === "activity" ? frame.activity : frame.type}</span></div>)}
           <div className="flex items-center gap-1.5 border-t border-border px-2.5 py-1.5 font-mono text-[10px] text-text-faint">{LIVENESS_LIVE[session.liveness] ? <><span className="rt-pulse" />{t("agentRuntime.waitingNextEvent")}</> : <><LiveDot state={OUTCOME_DOT[session.activity.outcome ?? ""] ?? "idle"} />{t("agentRuntime.exitCode", { code: session.activity.exitCode ?? "—" })}</>}</div>
         </div>
       </CardBody>

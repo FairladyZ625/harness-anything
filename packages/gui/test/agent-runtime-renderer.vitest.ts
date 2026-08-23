@@ -16,7 +16,7 @@ import { assertPreloadPayload } from "../src/preload/allowlist.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { openAgentRuntimePane } from "../src/renderer/agent-runtime-client.ts";
 import { submitRuntimeSpawn } from "../src/renderer/runtime-control.ts";
-import { readPanorama, runtimeSelfTestSpawnInput } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
+import { readPanorama, runtimePanoramaTasks, runtimeSelfTestSpawnInput } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
 
 beforeAll(() => setActiveLocale("en-US"));
 
@@ -181,5 +181,13 @@ describe("agent runtime renderer", () => {
     const tasks = Array.from({ length: 402 }, (_, index) => ({ taskId: `task-${String(index).padStart(3, "0")}`, title: `Task ${index}` })), dispatch = { dispatchId: "dispatch-batch", taskId: tasks[0]!.taskId, executionId: "execution-batch", runtimeSessionId: "runtime-batch", instanceId: "codex-review", squadId: "missing-squad", providerSessionId: null, eventStreamRef: null, startedAt: "2026-08-21T00:00:00.000Z", endedAt: null, outcome: null, status: "running" } as const, getTaskDispatches = vi.fn(async (taskIds: readonly string[]) => ({ ok: true, status: "ready", taskIds, unavailableTaskIds: [], dispatches: [dispatch], page: { limit: 500, cursor: null, nextCursor: null }, watermark: 1, sourceRevision: 1 } as const)), listSquads = vi.fn(async (): Promise<readonly (typeof squadRows)[number][]> => { throw new Error("one catalog row is unavailable"); });
     const panorama = await readPanorama("repo-a", tasks, { getTaskDispatches, listSquads });
     expect(getTaskDispatches).toHaveBeenCalledOnce(); expect(getTaskDispatches).toHaveBeenCalledWith(tasks.map(({ taskId }) => taskId)); expect(listSquads).toHaveBeenCalledOnce(); expect(panorama).toHaveLength(1); expect(panorama[0]).toMatchObject({ taskTitle: "Task 0", squad: null });
+  });
+  it("queries dispatches only for task ids already associated with runtime sessions", () => {
+    const tasks = Array.from({ length: 1_000 }, (_, index) => ({ taskId: `task-${index}`, title: `Task ${index}` }));
+    const sessions = [
+      { ...session, associations: [{ ...session.associations[0]!, taskId: "task-8" }, { ...session.associations[0]!, taskId: "task-8" }] },
+      { ...session, runtimeSessionId: "runtime-missing-task", associations: [{ ...session.associations[0]!, taskId: "task-not-listed" }] },
+    ];
+    expect(runtimePanoramaTasks(tasks, sessions)).toEqual([{ taskId: "task-8", title: "Task 8" }, { taskId: "task-not-listed", title: "task-not-listed" }]);
   });
 });

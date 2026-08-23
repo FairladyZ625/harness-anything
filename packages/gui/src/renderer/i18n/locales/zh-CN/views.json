@@ -163,6 +163,7 @@
   "views.decisionPoolView.allGroup": "全部",
   "views.decisionPoolView.emptyFilter": "当前过滤条件下没有 decision。",
   "views.decisionPoolView.groupCount": "· {count} 条",
+  "views.decisionPoolView.showMore": "再显示 {count} 条 · 还有 {remaining} 条",
   "views.decisionPropose.packetTitle": "新建完整 proposal packet",
   "views.decisionPropose.columnsRequired": "{label} 每行需要 {count} 列，以 | 分隔。",
   "views.decisionPropose.packetRequired": "title、question、vertical、preset 与正文三段均必填。",

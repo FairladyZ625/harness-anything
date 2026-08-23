@@ -6,6 +6,7 @@ import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
 import { DecisionStream } from "../src/renderer/components/overview/DecisionStream.tsx";
 import { TaskStream } from "../src/renderer/components/overview/TaskStream.tsx";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
+import { SwimlaneBoard } from "../src/renderer/views/SwimlaneBoard.tsx";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
 import { PinnedStream } from "../src/renderer/components/overview/PinnedStream.tsx";
 import { RuntimeHealthCard } from "../src/renderer/components/overview/RuntimeHealthCard.tsx";
@@ -129,6 +130,19 @@ describe("overview task stream", () => {
     expect(summary.total).toBe(visible.length);
     expect(tabText(overview, "overview-status-active")).toBe("进行中 2");
     expect(tabText(overview, "overview-status-blocked")).toBe("已阻塞 1");
+  });
+
+  it("bounds the initial board and swimlane DOM while making every deferred row explicit", () => {
+    const rows = Array.from({ length: 45 }, (_, index) => task({ taskId: `task_${index}`, title: `Task ${index}`, rootTaskId: `root_${index}`, coordinationStatus: "active" }));
+    const board = renderToStaticMarkup(createElement(BoardView, { tasks: rows, allTasks: rows, filters: DEFAULT_TASK_FILTERS, onFiltersChange: noop, onSelect: noop, relations: [], favorites: new Set<string>(), onToggleFavorite: noop }));
+    expect(board.match(/data-testid="board-task-card"/gu)).toHaveLength(30);
+    expect(board).toContain('data-testid="board-column-more-active"');
+    expect(board).toContain("还有 15 条");
+
+    const swimlane = renderToStaticMarkup(createElement(SwimlaneBoard, { tasks: rows, groupBy: "root", onSelect: noop, drill: null, relations: [], favorites: new Set<string>(), onToggleFavorite: noop }));
+    expect(swimlane.match(/data-testid="swimlane-row"/gu)).toHaveLength(20);
+    expect(swimlane).toContain('data-testid="swimlane-more"');
+    expect(swimlane).toContain("还有 25 个");
   });
 
   // The test above renders TaskStream directly, so it proves the leaf agrees with the

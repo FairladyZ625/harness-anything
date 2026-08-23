@@ -15,6 +15,7 @@ import { sortByFavoritesFirst } from "../model/taskFilters";
 export type LaneGroupBy = "module" | "engine" | "root" | "productLine";
 
 const PAGE_SIZE = 5;
+const LANE_BATCH_SIZE = 20;
 const GRID_COLS = "grid-cols-[180px_repeat(7,230px)]";
 
 const cellKey = (lane: string, status: SnapshotStatus) => `${lane}::${status}`;
@@ -286,10 +287,25 @@ export function SwimlaneBoard({
     }
   }, [drillMatches, drillLane, drillStatus]);
 
-  const lanes = useMemo(
-    () => [...new Set(tasks.map((t) => groupKeyOf(t, groupBy)))],
-    [groupBy, tasks],
-  );
+  const tasksByLane = useMemo(() => {
+    const grouped = new Map<string, TaskRow[]>();
+    for (const task of tasks) {
+      const key = groupKeyOf(task, groupBy);
+      const group = grouped.get(key);
+      if (group) group.push(task);
+      else grouped.set(key, [task]);
+    }
+    return grouped;
+  }, [groupBy, tasks]);
+  const lanes = useMemo(() => [...tasksByLane.keys()], [tasksByLane]);
+  const [visibleLaneCount, setVisibleLaneCount] = useState(LANE_BATCH_SIZE);
+  useEffect(() => { setVisibleLaneCount(LANE_BATCH_SIZE); }, [groupBy, tasks]);
+  const visibleLanes = useMemo(() => {
+    const visible = lanes.slice(0, visibleLaneCount);
+    if (drillMatches && drillLane && lanes.includes(drillLane) && !visible.includes(drillLane)) visible.push(drillLane);
+    return visible;
+  }, [drillLane, drillMatches, lanes, visibleLaneCount]);
+  const hiddenLaneCount = lanes.length - visibleLanes.length;
 
   useEffect(() => {
     if (activeCell && !lanes.includes(activeCell.lane)) setActiveCell(null);
@@ -299,12 +315,8 @@ export function SwimlaneBoard({
 
   const activeTasks = useMemo(() => {
     if (!activeCell) return [];
-    return tasks.filter(
-      (t) =>
-        groupKeyOf(t, groupBy) === activeCell.lane &&
-        t.coordinationStatus === activeCell.status,
-    );
-  }, [activeCell, groupBy, tasks]);
+    return (tasksByLane.get(activeCell.lane) ?? []).filter((task) => task.coordinationStatus === activeCell.status);
+  }, [activeCell, tasksByLane]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -330,12 +342,13 @@ export function SwimlaneBoard({
               );
             })}
           </div>
-          {lanes.map((lane) => {
-            const laneTasks = tasks.filter((t) => groupKeyOf(t, groupBy) === lane);
+          {visibleLanes.map((lane) => {
+            const laneTasks = tasksByLane.get(lane) ?? [];
             const laneLabel = groupLabelOf(lane, groupBy, tasks);
             return (
               <div
                 key={lane}
+                data-testid="swimlane-row"
                 className={`grid ${GRID_COLS} gap-2 border-b border-border py-2.5`}
               >
                 <div className="flex items-baseline gap-2 self-start px-1.5 pt-1.5">
@@ -367,6 +380,16 @@ export function SwimlaneBoard({
               </div>
             );
           })}
+          {hiddenLaneCount > 0 && (
+            <button
+              type="button"
+              data-testid="swimlane-more"
+              onClick={() => setVisibleLaneCount((count) => Math.min(count + LANE_BATCH_SIZE, lanes.length))}
+              className="mt-3 w-full rounded-lg border border-dashed border-border px-3 py-2 font-mono text-[12px] text-text-muted hover:border-border-strong hover:text-text"
+            >
+              再显示 {Math.min(LANE_BATCH_SIZE, hiddenLaneCount)} 个泳道 · 还有 {hiddenLaneCount} 个
+            </button>
+          )}
           {lanes.length === 0 && (
             <div className="rounded-lg border border-dashed border-border px-4 py-8 text-[15px] text-text-faint">
               当前筛选下没有可展示的泳道任务。

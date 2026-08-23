@@ -289,13 +289,15 @@ describe("renderer app model", () => {
       claims: [],
       judgmentConsents: [],
     };
+    const decisions = Array.from({ length: 35 }, (_, index) => ({ ...decision, decisionId: `dec_${String(index).padStart(2, "0")}`, title: `Decision ${index}` }));
+    const focused = decisions.at(-1)!;
     const markup = renderToStaticMarkup(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(DecisionPoolView, {
-      repoId: "repo-a", decisions: [decision], facts: [], relations: [], focusedDecisionId: decision.decisionId,
+      repoId: "repo-a", decisions, facts: [], relations: [], focusedDecisionId: focused.decisionId,
       summary: {
-        total: 7, inboxCount: 7,
-        byState: { proposed: 7, in_effect: 0, rejected: 0, deferred: 0, superseded: 0, outcome_retired: 0 },
+        total: decisions.length, inboxCount: decisions.length,
+        byState: { proposed: decisions.length, in_effect: 0, rejected: 0, deferred: 0, superseded: 0, outcome_retired: 0 },
         groups: [
-          { id: "proposed", states: ["proposed"], count: 7, decisionIds: [decision.decisionId, "dec_missing_1", "dec_missing_2", "dec_missing_3", "dec_missing_4", "dec_missing_5", "dec_missing_6"] },
+          { id: "proposed", states: ["proposed"], count: decisions.length, decisionIds: decisions.map((row) => row.decisionId) },
           { id: "in_effect", states: ["in_effect"], count: 0, decisionIds: [] },
           { id: "rejected", states: ["rejected"], count: 0, decisionIds: [] },
           { id: "deferred", states: ["deferred"], count: 0, decisionIds: [] },
@@ -304,9 +306,11 @@ describe("renderer app model", () => {
       }
     })));
 
-    expect(markup).toContain('id="decision-card-dec_gui_smoke"');
+    expect(markup.match(/id="decision-card-/gu)).toHaveLength(31);
+    expect(markup).toContain(`id="decision-card-${focused.decisionId}"`);
     expect(markup).toContain('data-focused="true"');
-    expect(markup).toMatch(/proposed\s*·\s*7/);
+    expect(markup).toContain('data-testid="decision-pool-more"');
+    expect(markup).toMatch(/proposed\s*·\s*35/);
   });
 
   it("renders the exact proposal surface with human-selected risk and urgency", () => {

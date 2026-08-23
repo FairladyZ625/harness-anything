@@ -34,6 +34,7 @@ const ENGINE_HINT: Record<string, string> = {
   github: "由 GitHub Issues 管理，去 GitHub 改状态",
   linear: "由 Linear 管理，去 Linear 改状态",
 };
+const COLUMN_BATCH_SIZE = 30;
 
 function taskControlHint(task: TaskRow): string {
   if (isExternal(task)) return ENGINE_HINT[task.engine] ?? `由外部引擎 ${task.engine} 管理，GUI 只读`;
@@ -64,6 +65,7 @@ function Card({
   const spawningDecision = spawningDecisionOf(task, relations);
   return (
     <div
+      data-testid="board-task-card"
       onClick={() => onSelect?.(task.taskId)}
       title={taskControlHint(task)}
       className={`group relative cursor-pointer rounded-lg bg-surface-raised p-2.5 ${freshnessBorder(
@@ -164,6 +166,9 @@ function Column({
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const meta = STATUS_META[status];
   const ordered = sortByFavoritesFirst(tasks, (t) => t.taskId, favorites);
+  const [visibleCount, setVisibleCount] = useState(COLUMN_BATCH_SIZE);
+  useEffect(() => { setVisibleCount(COLUMN_BATCH_SIZE); }, [tasks.length]);
+  const visible = ordered.slice(0, visibleCount), hiddenCount = ordered.length - visible.length;
   return (
     <div
       ref={setNodeRef}
@@ -190,7 +195,7 @@ function Column({
       </div>
       <div className="flex flex-col gap-2 overflow-y-auto pb-1">
         {ordered.length > 0 ? (
-          ordered.map((t) => (
+          visible.map((t) => (
             <DraggableCard
               key={t.taskId}
               task={t}
@@ -204,6 +209,16 @@ function Column({
           <div className="rounded-lg border border-dashed border-border px-3 py-5 text-[14px] text-text-faint">
             当前筛选下无 {meta.label} 任务
           </div>
+        )}
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            data-testid={`board-column-more-${status}`}
+            onClick={() => setVisibleCount((count) => Math.min(count + COLUMN_BATCH_SIZE, ordered.length))}
+            className="rounded-lg border border-dashed border-border px-3 py-2 text-center font-mono text-[12px] text-text-muted hover:border-border-strong hover:text-text"
+          >
+            再显示 {Math.min(COLUMN_BATCH_SIZE, hiddenCount)} 条 · 还有 {hiddenCount} 条
+          </button>
         )}
       </div>
     </div>
