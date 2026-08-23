@@ -133,3 +133,25 @@ test("runtime create rejection names invalid isolation state and its enum", () =
   const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
   assert.throws(() => assertPreloadPayload("createRuntimeInstance", { ...payload, isolationState: "disabled" }), /isolationState.*enforced or operator-environment/u);
 });
+
+// The update payload's field set is derived from the registry entry rather than hand-written.
+// Before this, preload closed the payload over four hand-listed fields while the contract
+// declared eight, so name/installationId/models/defaultModel were unreachable from the GUI
+// even though the daemon accepted them.
+test("runtime update accepts exactly the fields the registry declares", () => {
+  const entry = daemonGuiInvokeFacets.find((facet) => facet.guiBridgeMethod === "updateRuntimeInstance") as { readonly params: { readonly fields: { readonly payload: { readonly fields: Readonly<Record<string, unknown>> } } } };
+  const declared = Object.keys(entry.params.fields.payload.fields);
+  assert.deepEqual([...declared].sort(), ["defaultModel", "enabled", "installationId", "instanceId", "isolationState", "models", "name", "permissionMode"]);
+  for (const field of declared.filter((name) => name !== "instanceId")) {
+    const sample: Record<string, unknown> = field === "models" ? { models: ["model-a"] } : field === "enabled" ? { enabled: true } : field === "permissionMode" ? { permissionMode: "bypass" } : field === "isolationState" ? { isolationState: "enforced" } : { [field]: "value" };
+    assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", ...sample }), true, `registry declares ${field} but preload rejected it`);
+  }
+});
+
+test("runtime update still rejects empty values, empty model lists, and secret-like keys", () => {
+  assert.throws(() => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", name: "" }), /invalid/u);
+  assert.throws(() => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", models: [] }), /invalid/u);
+  assert.throws(() => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", models: [1] }), /invalid/u);
+  assert.throws(() => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a" }), /invalid/u);
+  assert.throws(() => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", apiKey: "secret" }), /secret-like/u);
+});
