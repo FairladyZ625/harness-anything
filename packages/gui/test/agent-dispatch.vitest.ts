@@ -93,6 +93,14 @@ describe("agent dispatch flow", () => {
     for (const text of ["Dispatch — Agent × Runtime × Task → Session", "Who", "Which task", "What to say", "Where it runs", "terra", "codex", "task-dispatch", "artifacts/missions/&lt;dispatchId&gt;.md", "artifacts/dispatches/&lt;dispatchId&gt;.json", "artifacts/reports/&lt;dispatchId&gt;.md", "Dispatch"]) expect(markup).toContain(text);
     expect(markup).toContain("disabled");
   });
+  it("authors the mission as one field, with no title input that never reaches the spawn payload", () => {
+    const markup = renderToStaticMarkup(createElement(DispatchDialog, { subject: agentSubject, instances: [codexInstance], tasks: [{ taskId: "task-dispatch", title: "Dispatch task", heldLease: true }], prompts: [], initialMission: "Write the closing report.", busy: false, notice: null, onCancel: () => undefined, onSubmit: () => undefined }));
+    const missionStep = markup.slice(markup.indexOf("What to say"));
+    expect(missionStep).not.toContain('placeholder="for example: review the auth sweep"');
+    expect(missionStep).not.toContain("Body");
+    expect(missionStep).toContain('aria-label="What to say"');
+    expect(missionStep).toContain('data-testid="dispatch-mission"');
+  });
   it("opens on the mission step and offers the agent's predefined prompts when entered from one", () => {
     const markup = renderToStaticMarkup(createElement(DispatchDialog, { subject: agentSubject, instances: [codexInstance], tasks: [{ taskId: "task-dispatch", title: "Dispatch task", heldLease: false }], prompts: ["prompt://review"], initialMission: "prompt://review", busy: false, notice: null, onCancel: () => undefined, onSubmit: () => undefined }));
     expect(markup).toContain("prompt://review");
@@ -100,7 +108,8 @@ describe("agent dispatch flow", () => {
   });
   it("renders the squad dialog with leader-to-worker routing and a worker selector", () => {
     const markup = renderToStaticMarkup(createElement(DispatchDialog, { subject: squadSubject, instances: [codexInstance, claudeInstance], tasks: [{ taskId: "task-dispatch", title: "Dispatch task", heldLease: false }], prompts: [], busy: false, notice: null, onCancel: () => undefined, onSubmit: () => undefined }));
-    for (const text of ["Core Squad", "dispatch-worker", "luna", "sol", "terra", "lease free"]) expect(markup).toContain(text);
+    for (const text of ["Core Squad", "dispatch-worker", "luna", "sol", "terra", "lease free", "One dispatch, one worker", "3 in roster"]) expect(markup).toContain(text);
+    expect(markup).not.toContain("The commander splits");
   });
   it("submits the authored request through the dialog contract", () => {
     const submitted: DispatchRequest[] = [];

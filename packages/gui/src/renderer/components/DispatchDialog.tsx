@@ -15,7 +15,7 @@ export interface DispatchDialogProps {
 type StepKey = "who" | "task" | "mission" | "where";
 export function DispatchDialog({ subject, instances, tasks, prompts, initialMission = "", busy, notice, onCancel, onSubmit }: DispatchDialogProps) {
   const [open, setOpen] = useState<StepKey>(initialMission ? "mission" : "task");
-  const [taskId, setTaskId] = useState(""), [missionTitle, setMissionTitle] = useState(""), [mission, setMission] = useState(initialMission);
+  const [taskId, setTaskId] = useState(""), [mission, setMission] = useState(initialMission);
   const [workerId, setWorkerId] = useState(subject.kind === "squad" ? subject.workers[0]?.agentId ?? "" : "");
   const [runtimeMode, setRuntimeMode] = useState<"auto" | "manual">("auto"), [runtimeInstanceId, setRuntimeInstanceId] = useState("");
   const [cwdScope, setCwdScope] = useState<"repo-root" | "repo-relative">("repo-root"), [cwdPath, setCwdPath] = useState(""), [model, setModel] = useState(""), [effort, setEffort] = useState("");
@@ -47,9 +47,8 @@ export function DispatchDialog({ subject, instances, tasks, prompts, initialMiss
       <p className="mt-1 text-[11px] text-text-faint">{t("agentRuntime.leaseAutoAcquire")}</p>
     </Step>
 
-    <Step no="③" step="mission" title={t("agentRuntime.stepMission")} hint={t("agentRuntime.stepMissionHint")} current={missionTitle || (mission ? mission.slice(0, 40) : null)} open={open} onOpen={setOpen}>
-      <label className="grid gap-1 text-[11px] text-text-muted">{t("agentRuntime.missionTitle")}<input value={missionTitle} onChange={(event) => setMissionTitle(event.target.value)} placeholder={t("agentRuntime.missionTitlePlaceholder")} className="control" /></label>
-      <label className="mt-2 grid gap-1 text-[11px] text-text-muted">{t("agentRuntime.missionBody")}<textarea data-testid="dispatch-mission" value={mission} onChange={(event) => setMission(event.target.value)} rows={6} placeholder={t("agentRuntime.missionPlaceholder")} className="resize-y rounded border border-border-strong bg-surface px-2 py-1.5 font-mono text-[11.5px] text-text outline-none focus-visible:border-accent" /></label>
+    <Step no="③" step="mission" title={t("agentRuntime.stepMission")} hint={t("agentRuntime.stepMissionHint")} current={mission ? mission.slice(0, 40) : null} open={open} onOpen={setOpen}>
+      <textarea aria-label={t("agentRuntime.stepMission")} data-testid="dispatch-mission" value={mission} onChange={(event) => setMission(event.target.value)} rows={6} placeholder={t("agentRuntime.missionPlaceholder")} className="w-full resize-y rounded border border-border-strong bg-surface px-2 py-1.5 font-mono text-[11.5px] text-text outline-none focus-visible:border-accent" />
       {prompts.length > 0 && <div className="mt-2"><Hint>{t("agentRuntime.usePredefinedPrompt")}</Hint><div className="mt-1 flex flex-wrap gap-1.5">{prompts.map((prompt, index) => <Chip key={index} tone="link" onClick={() => setMission(prompt)}>{prompt.slice(0, 42)}{prompt.length > 42 ? "…" : ""}</Chip>)}</div></div>}
       <p className="mt-2 text-[11px] text-text-faint">{t("agentRuntime.missionFiling")}</p>
     </Step>
