@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo } from "react";
 import { WarningCircle } from "@phosphor-icons/react";
 import type { TaskRow, DecisionRow, FactRef, RelationEdge } from "../model/types";
 import type { RelationCoverageRow, FactAnchorRow } from "../../api/renderer-dto";
@@ -86,7 +86,6 @@ export function FactDetailView({
   onNavigateDecision,
   onNavigateTask,
   onFocusGraph,
-  onOpenTriage,
 }: {
   factRef: string | null;
   facts: FactRef[];
@@ -100,8 +99,6 @@ export function FactDetailView({
   onNavigateDecision?: (decisionId: string) => void;
   onNavigateTask?: (taskId: string) => void;
   onFocusGraph?: (ref: string) => void;
-  /** 跳去事实分诊并聚焦该 fact(信号上下文)。 */
-  onOpenTriage?: (factRef: string) => void;
 }) {
   const anchor = factRef?.replace(/^fact\//, "") ?? null;
   const fact = useMemo(
@@ -137,17 +134,6 @@ export function FactDetailView({
         relations={relations}
         factAnchors={factAnchors}
         onNavigateEntity={onNavigateEntity}
-        headerExtra={
-          onOpenTriage && factRef ? (
-            <button
-              onClick={() => onOpenTriage(factRef)}
-              className="ml-auto rounded border border-border px-2 py-0.5 text-[11px] text-text-muted hover:border-border-strong hover:text-text"
-              data-testid="fact-detail-open-triage"
-            >
-              {t("views.entityDetail.openInTriage")}
-            </button>
-          ) : undefined
-        }
       />
     </div>
   );
@@ -182,7 +168,6 @@ function NeighborhoodPane({
   relations,
   factAnchors,
   onNavigateEntity,
-  headerExtra,
 }: {
   focusRef: string | null;
   tasks: TaskRow[];
@@ -191,13 +176,11 @@ function NeighborhoodPane({
   relations: RelationEdge[];
   factAnchors: ReadonlyArray<FactAnchorRow>;
   onNavigateEntity?: (ref: string) => void;
-  headerExtra?: ReactNode;
 }) {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-3 border-b border-border px-4 py-1.5 font-mono text-[11px] text-text-muted">
         {t("views.entityDetail.neighborhoodHint")}
-        {headerExtra}
       </div>
       <div className="flex min-h-0 flex-1">
         <EgoNeighborhood

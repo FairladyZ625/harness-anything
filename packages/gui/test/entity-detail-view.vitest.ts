@@ -132,14 +132,12 @@ describe("FactDetailView", () => {
     await act(async () => { root.unmount(); });
   });
 
-  it("在事实分诊中查看 fires the triage opener with the fact ref", async () => {
-    const onOpenTriage = vi.fn();
+  it("W5 后不再有「在分诊中查看」出口(事实分诊页已撤销,详情页即终点)", async () => {
     const { div, root } = await mountView(createElement(FactDetailView, {
       factRef: "fact/task_a/F-001", facts, tasks: [task("task_a", "任务A")],
-      decisions: [decision()], relations, factAnchors: [], loading: false, onOpenTriage,
+      decisions: [decision()], relations, factAnchors: [], loading: false,
     }));
-    await act(async () => { (div.querySelector("[data-testid='fact-detail-open-triage']") as HTMLButtonElement).click(); });
-    expect(onOpenTriage).toHaveBeenCalledWith("fact/task_a/F-001");
+    expect(div.querySelector("[data-testid='fact-detail-open-triage']")).toBeNull();
     await act(async () => { root.unmount(); });
   });
 

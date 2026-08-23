@@ -1,6 +1,9 @@
 import type { TaskSnapshotProjectionRow } from "../../api/renderer-dto.ts";
 
-export const EXECUTION_EVIDENCE_PAGE_SIZE = 25;
+// W5:全局「执行证据」列表页撤销,execution 输出/回执的渲染并入 Task 详情
+// 「收口」页签。本模块只保留单 task 的投影适配与上下文拼装;跨 task 的
+// 聚合统计/过滤/分页随页面一并删除(那是列表页的机制,不是数据面)。
+
 export const UNKNOWN_EVIDENCE_FIELD = "unknown / 未投影";
 
 type Snapshot = TaskSnapshotProjectionRow["snapshot"];
@@ -39,84 +42,34 @@ export interface ExecutionEvidenceRow {
   readonly selectedReviewId: string | null;
   readonly selectedConsentId: string | null;
   readonly gateWitnesses: readonly GateWitness[];
-  readonly witnessAvailability: TaskSnapshotProjectionRow["snapshotAvailability"];
+  readonly witnessAvailability?: TaskSnapshotProjectionRow["snapshotAvailability"];
   readonly rawTask: unknown;
   readonly rawExecution: unknown;
 }
 
-export interface ExecutionEvidenceStats {
-  readonly executions: number;
-  readonly tasksWithExecutions: number;
-  readonly outputs: number;
-  readonly nativeExecutions: number;
-  readonly archivalExecutions: number;
-  readonly unknownOriginExecutions: number;
-  readonly passingReceiptOutputs: number;
-}
-
-export interface ExecutionEvidenceModel {
-  readonly executions: readonly ExecutionEvidenceRow[];
-  readonly stats: ExecutionEvidenceStats;
-}
-
-export interface ExecutionEvidenceFilters {
-  readonly receipt: "all" | "passing" | "no-receipt";
-  readonly origin: "all" | "native" | "archival";
-}
-
-export interface ExecutionEvidencePage {
-  readonly executions: readonly ExecutionEvidenceRow[];
-  readonly pageNumber: number;
-  readonly totalPages: number;
-  readonly hasPreviousPage: boolean;
-  readonly hasNextPage: boolean;
-}
-
-export function aggregateExecutionEvidence(rows: readonly TaskSnapshotProjectionRow[]): ExecutionEvidenceModel {
-  const executions = rows.flatMap(adaptTaskExecutions).sort(compareExecutions);
-  const taskIds = new Set(executions.map(({ taskId }) => taskId));
-  return {
-    executions,
-    stats: {
-      executions: executions.length,
-      tasksWithExecutions: taskIds.size,
-      outputs: executions.reduce((total, item) => total + item.outputs.length, 0),
-      nativeExecutions: executions.filter(({ origin }) => origin === "native").length,
-      archivalExecutions: executions.filter(({ origin }) => origin === "archival").length,
-      unknownOriginExecutions: executions.filter(({ origin }) => origin === undefined).length,
-      passingReceiptOutputs: executions.reduce((total, item) => total + item.outputs.filter(({ isPassingReceipt }) => isPassingReceipt).length, 0),
-    },
+/**
+ * 适配所需的最小行形状:TaskSnapshotProjectionRow 结构性满足;Task 详情也能从
+ * TaskRow 透传字段(snapshot.executions / executionEvidence,见 task-adapter)拼出,
+ * 不需要完整投影行。
+ */
+export interface ExecutionEvidenceSourceRow {
+  readonly taskId: string;
+  readonly updatedAt: string;
+  readonly snapshotAvailability?: TaskSnapshotProjectionRow["snapshotAvailability"];
+  readonly snapshot: {
+    readonly task?: { readonly title?: string };
+    readonly executions: readonly Execution[];
+    readonly reviews: readonly Review[];
+    readonly consents: readonly Consent[];
+    readonly gateWitnesses: readonly GateWitness[];
   };
+  readonly executionEvidence: readonly ProjectedEvidence[];
 }
 
-export function filterExecutionEvidence(
-  executions: readonly ExecutionEvidenceRow[],
-  filters: ExecutionEvidenceFilters,
-): ExecutionEvidenceRow[] {
-  return executions.flatMap((execution) => {
-    if (filters.origin !== "all" && execution.origin !== filters.origin) return [];
-    if (filters.receipt === "all") return [execution];
-    const outputs = execution.outputs.filter((output) => filters.receipt === "passing"
-      ? output.isPassingReceipt
-      : output.checkerReceiptRef === null);
-    return outputs.length > 0 ? [{ ...execution, outputs }] : [];
-  });
-}
-
-export function paginateExecutionEvidence(
-  executions: readonly ExecutionEvidenceRow[],
-  requestedPageIndex: number,
-): ExecutionEvidencePage {
-  const totalPages = Math.max(1, Math.ceil(executions.length / EXECUTION_EVIDENCE_PAGE_SIZE));
-  const pageIndex = Math.min(Math.max(0, requestedPageIndex), totalPages - 1);
-  const start = pageIndex * EXECUTION_EVIDENCE_PAGE_SIZE;
-  return {
-    executions: executions.slice(start, start + EXECUTION_EVIDENCE_PAGE_SIZE),
-    pageNumber: pageIndex + 1,
-    totalPages,
-    hasPreviousPage: pageIndex > 0,
-    hasNextPage: pageIndex + 1 < totalPages,
-  };
+/** 一个投影行的全部 execution 证据(输出/回执/见证按 execution 对齐)。 */
+export function adaptTaskExecutions(row: ExecutionEvidenceSourceRow): ExecutionEvidenceRow[] {
+  const taskTitle = row.snapshot.task?.title ?? row.taskId;
+  return row.snapshot.executions.map((execution) => adaptExecution(row, execution, taskTitle));
 }
 
 export function buildExecutionEvidenceContext(
@@ -162,12 +115,7 @@ export function checkerResultField(value: ExecutionEvidenceOutput["checkerResult
   return value === "unknown" ? UNKNOWN_EVIDENCE_FIELD : field(value);
 }
 
-function adaptTaskExecutions(row: TaskSnapshotProjectionRow): ExecutionEvidenceRow[] {
-  const taskTitle = row.snapshot.task?.title ?? row.taskId;
-  return row.snapshot.executions.map((execution) => adaptExecution(row, execution, taskTitle));
-}
-
-function adaptExecution(row: TaskSnapshotProjectionRow, execution: Execution, taskTitle: string): ExecutionEvidenceRow {
+function adaptExecution(row: ExecutionEvidenceSourceRow, execution: Execution, taskTitle: string): ExecutionEvidenceRow {
   const projections = row.executionEvidence.filter((item) => item.executionId === execution.executionId);
   const projection = projections.length === 1 ? projections[0] : undefined;
   const commitSha = text(execution.submission?.commitSha);
@@ -226,17 +174,6 @@ function adaptOutput(output: ProjectedOutput | undefined, submittedLocator: stri
     isPassingReceipt: checkerReceiptRef !== undefined && checkerReceiptRef !== null && checkerResult === "pass",
     raw: { submission: submittedLocator, projection: output ?? null },
   };
-}
-
-function compareExecutions(left: ExecutionEvidenceRow, right: ExecutionEvidenceRow): number {
-  const byTime = latestStamp(right).localeCompare(latestStamp(left));
-  if (byTime !== 0) return byTime;
-  const byTask = left.taskId.localeCompare(right.taskId);
-  return byTask !== 0 ? byTask : left.executionId.localeCompare(right.executionId);
-}
-
-function latestStamp(execution: ExecutionEvidenceRow): string {
-  return execution.closedAt ?? execution.submittedAt ?? execution.claimedAt ?? execution.taskUpdatedAt;
 }
 
 function text(value: unknown): string | undefined {

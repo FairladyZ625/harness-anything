@@ -11,6 +11,8 @@ import type { LaneGroupBy } from "../views/SwimlaneBoard.tsx";
  * 纯函数 + 显式 state,不挂 React,以便 vitest 直接覆盖。
  */
 
+// W5 IA 重构:factTriage / executionEvidence 两个 ViewId 随页面撤销——
+// 事实分诊并入 Task 详情「证据」页签,执行证据并入「收口」页签。
 export type ViewId =
   | "home"
   | "overview"
@@ -18,9 +20,7 @@ export type ViewId =
   | "decisions"
   | "decisionPool"
   | "decisionDetail"
-  | "factTriage"
   | "factDetail"
-  | "executionEvidence"
   | "graph"
   | "presets"
   | "adapters"

@@ -14,7 +14,7 @@ import { runtimeInstanceClient, type RuntimeInstanceCreateInput, type RuntimeIns
 import { createGuiExecutionId } from "../../task-actions.ts";
 import { t } from "../../i18n/index.tsx";
 
-export type RuntimeSelection = { readonly type: "runtime" | "agent" | "squad" | "orchestration" | "session"; readonly id: string };
+export type RuntimeSelection = { readonly type: "runtime" | "agent" | "squad" | "session"; readonly id: string };
 const message = (value: unknown): string => value instanceof Error ? value.message : String(value);
 
 export function useRuntimeWorkspace(repoId: string, tasks: readonly RuntimePanoramaTask[]) {
@@ -40,7 +40,7 @@ export function useRuntimeWorkspace(repoId: string, tasks: readonly RuntimePanor
   };
   const spawn = async (input: Parameters<typeof runtimeCommandClient.spawn>[1]): Promise<RuntimeSpawnSettlement | null> => {
     if (busy) return null; setBusy(true); setError(null); setSettlement(null);
-    try { const result = await submitRuntimeSpawn(input, { spawn: (payload) => leaseAwareSpawn(repoId, payload), showReceipt: (opId) => runtimeCommandClient.showReceipt(repoId, opId), overview: () => agentRuntimeClient.overview(repoId), onPending: setSettlement }); setSettlement(result); await refresh(); await client.invalidateQueries({ queryKey: ["orchestration", repoId] }); return result; }
+    try { const result = await submitRuntimeSpawn(input, { spawn: (payload) => leaseAwareSpawn(repoId, payload), showReceipt: (opId) => runtimeCommandClient.showReceipt(repoId, opId), overview: () => agentRuntimeClient.overview(repoId), onPending: setSettlement }); setSettlement(result); await refresh(); return result; }
     catch (cause) { consumeKnownError(cause); setError(message(cause)); return null; }
     finally { setBusy(false); }
   };

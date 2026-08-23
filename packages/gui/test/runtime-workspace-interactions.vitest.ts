@@ -42,24 +42,16 @@ describe("runtime workspace interaction wiring", () => {
     expect(byTestId("session-detail").textContent).toContain("runtime-bound");
   });
 
-  it("focuses a dispatch's live session from the task composition", async () => {
-    await mountWorkspace();
-    await click("rail-orchestration-task-bound");
-
-    await click("orchestration-session-dispatch_bbb");
-
-    expect(byTestId("rail-session-runtime-bound").getAttribute("aria-current")).toBe("true");
-    expect(byTestId("session-detail").textContent).toContain("runtime-bound");
-  });
-
-  it("opens the bound task from the selected session", async () => {
-    await mountWorkspace();
+  it("opens the bound task detail from the selected session (W5:派工链归 Task 详情)", async () => {
+    const onOpenTask = vi.fn();
+    await mountWorkspace(onOpenTask);
     await click("rail-session-runtime-bound");
 
     await click("session-open-task");
 
-    expect(byTestId("rail-orchestration-task-bound").getAttribute("aria-current")).toBe("true");
-    expect(byTestId("orchestration-panel").getAttribute("data-task")).toBe("task-bound");
+    expect(onOpenTask).toHaveBeenCalledWith("task-bound");
+    // 编排 rail 段已撤销:任务组合不再出现在运行时工作区。
+    expect(document.querySelector('[data-testid^="rail-orchestration-"]')).toBeNull();
   });
 
   it("focuses a related session from the workspace inspector", async () => {
@@ -102,7 +94,7 @@ describe("runtime workspace interaction wiring", () => {
   });
 });
 
-async function mountWorkspace() {
+async function mountWorkspace(onOpenTask: (taskId: string) => void = () => undefined) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(["runtime-instances", "machine"], { installations: [], instances: [] });
   client.setQueryData(["runtime-control", "repo-a", "overview"], { ok: true, status: "ready", installations: [], instances: [], sessions: [boundSession, siblingSession], watermark: 1, sourceRevision: 1 });
@@ -114,18 +106,13 @@ async function mountWorkspace() {
   ]);
   client.setQueryData(["catalog", "repo-a", "snapshot"], { presets: [] });
   client.setQueryData(["agent-skills", "repo-a"], []);
-  client.setQueryData(["orchestration", "repo-a", "task-bound", "documents", 0], { documents: [
-    { path: "tasks/task-bound-verify/artifacts/missions/dispatch_bbb.md", blobSha256: "a".repeat(64), size: 10, mediaType: "text/markdown" },
-    { path: "tasks/task-bound-verify/artifacts/dispatches/dispatch_bbb.json", blobSha256: "b".repeat(64), size: 10, mediaType: "text/plain" }
-  ] });
-  client.setQueryData(["orchestration", "repo-a", "task-bound", "dispatches", 0], { dispatches: [boundDispatch] });
   vi.spyOn(agentRuntimeClient, "session").mockImplementation(async (_repoId, runtimeSessionId) => ({ ok: true, status: "ready", session: runtimeSessionId === "runtime-sibling" ? siblingSession : boundSession, result: null, watermark: 1, sourceRevision: 1 }));
   vi.spyOn(agentRuntimeClient, "attach").mockReturnValue(() => undefined);
   const container = document.createElement("div"), root = createRoot(container);
   document.body.append(container);
   mounted.push({ root, client });
   await act(async () => {
-    root.render(createElement(QueryClientProvider, { client }, createElement(RuntimeWorkspace, { repoId: "repo-a", tasks })));
+    root.render(createElement(QueryClientProvider, { client }, createElement(RuntimeWorkspace, { repoId: "repo-a", tasks, onOpenTask })));
   });
   return container;
 }

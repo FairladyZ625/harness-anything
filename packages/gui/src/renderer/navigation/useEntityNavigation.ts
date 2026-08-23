@@ -9,10 +9,9 @@ import type { AppLocation } from "./viewHistory.ts";
  * 路由表(可寻址):
  *   task/<id>            → selectedId(TaskDetailView 既有路由)
  *   decision/<id>        → decisionDetail 详情页(不落决策池)
- *   fact/<task>/<anchor> → factDetail 详情页(不落分诊列表)
+ *   fact/<task>/<anchor> → factDetail 详情页(W5 起事实分诊列表页已撤销)
  *   repo/<repoId>/<ref>  → 先切仓再导航(仓未启用 → 回 home 开项目切换器)
- * 显式「在决策池/事实分诊中查看」走 openDecisionInPool / openFactInTriage,
- * 落列表页并带焦点。
+ * 显式「在决策池中查看」走 openDecisionInPool,落列表页并带焦点。
  *
  * recentRefs(最近访问,关系图左栏数据源)在此维护:点过/聚焦过的实体推头部,
  * 去重 + 截断。
@@ -65,12 +64,6 @@ export function useEntityNavigation({
     navigate({ focusedEntityRef: `decision/${decisionId}`, view: "decisionPool", selectedId: null, previewId: null });
   }, [navigate, remember]);
 
-  // 事实分诊聚焦跳转:落分诊页并打开该 fact 的 inspector(信号上下文)。
-  const openFactInTriage = useCallback((factRef: string) => {
-    remember(factRef);
-    navigate({ focusedEntityRef: factRef, view: "factTriage", selectedId: null, previewId: null });
-  }, [navigate, remember]);
-
   // 带 repo/<repoId>/ 前缀的实体引用先显式切仓,再在该仓导航。
   const navigateToEntity = useCallback((rawRef: string) => {
     const scoped = /^repo\/([^/]+)\/(.+)$/u.exec(rawRef);
@@ -119,6 +112,5 @@ export function useEntityNavigation({
     focusEntityInGraph,
     focusEntityInWorkspace,
     openDecisionInPool,
-    openFactInTriage,
   };
 }

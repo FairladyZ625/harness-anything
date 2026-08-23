@@ -109,6 +109,10 @@ export interface TaskRow {
   consents?: TaskSnapshotProjectionRow["snapshot"]["consents"];
   codeDocWitnesses?: TaskSnapshotProjectionRow["snapshot"]["codeDocWitnesses"];
   gateWitnesses?: TaskSnapshotProjectionRow["snapshot"]["gateWitnesses"];
+  /** execution 快照原样透传(W5:执行证据页并入 Task 详情「收口」页签)。 */
+  executions?: TaskSnapshotProjectionRow["snapshot"]["executions"];
+  /** execution evidence 投影原样透传(同上)。 */
+  executionEvidence?: TaskSnapshotProjectionRow["executionEvidence"];
   docs: DocEntry[];
   // 三元语继承字段（E47/E49）：默认从 spawningDecision 继承，可覆盖
   riskTier?: RiskTier;
