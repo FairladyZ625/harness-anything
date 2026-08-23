@@ -169,11 +169,7 @@
   "agentRuntime.previewTitle": "内容预览",
   "agentRuntime.notSelected": "未选择",
   "agentRuntime.previewSelectHint": "选择上方产物查看原文。",
-  "agentRuntime.sessions": "Sessions",
-  "agentRuntime.sessionCount": "{count} 会话 · {live} 在跑",
-  "agentRuntime.dockGroupingNote": "按 Agent / Squad 归组,不按 runtime instance",
   "agentRuntime.noSessions": "无会话",
-  "agentRuntime.pickSession": "选择左侧会话查看详情",
   "agentRuntime.unattributed": "未归属",
   "agentRuntime.noTask": "未绑定任务",
   "agentRuntime.attachStatus": "attach: {status}",
@@ -292,5 +288,13 @@
   "agentRuntime.dispatchNow": "派出",
   "agentRuntime.dispatching": "派出中…",
   "agentRuntime.dispatchCount": "{count}D",
-  "agentRuntime.dispatchBlocked": "该 Agent 的声明有问题,先修好声明再派活。"
+  "agentRuntime.dispatchBlocked": "该 Agent 的声明有问题,先修好声明再派活。",
+  "agentRuntime.segSessions": "Sessions",
+  "agentRuntime.segSessionsSub": "执行",
+  "agentRuntime.inspectorSession": "Session Inspector",
+  "agentRuntime.inspectorSessionFacts": "会话归属",
+  "agentRuntime.sessionTaskSection": "任务",
+  "agentRuntime.sessionTaskNone": "这条会话没有绑定任务。",
+  "agentRuntime.openTask": "打开这个任务",
+  "agentRuntime.sessionFacts": "会话事实"
 }

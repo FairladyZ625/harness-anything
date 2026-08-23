@@ -1,10 +1,12 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import type { AgentEntityRow, SquadEntityRow } from "../../agent-entity-client.ts";
-import type { RuntimeDockRow } from "../../runtime-panorama.ts";
+import { dispatchOutcomeView } from "../../dispatch-flow.ts";
+import { runtimeDockGroups, type RuntimeDockRow } from "../../runtime-panorama.ts";
 import { t } from "../../i18n/index.tsx";
 import { runtimeAuthPresentation } from "../../runtime-auth-presentation.ts";
 import { Avatar, CapDot, KindDot, LiveDot } from "./parts.tsx";
+import { OUTCOME_TONE } from "./OrchestrationCard.tsx";
 import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
 
 export type OrchestrationEntry = { readonly taskId: string; readonly title: string; readonly dispatches: number; readonly running: number };
@@ -15,14 +17,16 @@ export function orchestrationEntries(rows: readonly RuntimeDockRow[]): readonly 
 }
 
 type Props = {
-  readonly instances: readonly RuntimeInstanceSummary[]; readonly agents: readonly AgentEntityRow[]; readonly squads: readonly SquadEntityRow[]; readonly orchestration: readonly OrchestrationEntry[];
+  readonly instances: readonly RuntimeInstanceSummary[]; readonly agents: readonly AgentEntityRow[]; readonly squads: readonly SquadEntityRow[]; readonly orchestration: readonly OrchestrationEntry[]; readonly sessions: readonly RuntimeDockRow[];
   readonly authProbeErrors?: ReadonlyMap<string, string>;
   readonly selection: RuntimeSelection | null; readonly open: Readonly<Record<string, boolean>>; readonly liveByInstance: ReadonlyMap<string, number>;
   readonly onToggle: (segment: string) => void; readonly onSelect: (selection: RuntimeSelection) => void; readonly onNew: (segment: "runtimes" | "agents" | "squads") => void;
 };
-// The prototype rail: four collapsible segments in the order carrier → identity →
-// organisation → orchestration, each row carrying the one fact that distinguishes it.
-export function RuntimeRail({ instances, authProbeErrors, agents, squads, orchestration, selection, open, liveByInstance, onToggle, onSelect, onNew }: Props) {
+// The prototype rail: five collapsible segments in the order carrier → identity →
+// organisation → orchestration → execution, each row carrying the one fact that
+// distinguishes it. Sessions sit at the same rank as the rest: picked here, shown in
+// the main area — never in a drawer bolted onto the bottom.
+export function RuntimeRail({ instances, authProbeErrors, agents, squads, orchestration, sessions, selection, open, liveByInstance, onToggle, onSelect, onNew }: Props) {
   const picked = (type: RuntimeSelection["type"], id: string) => selection?.type === type && selection.id === id;
   return <nav data-testid="runtime-rail" aria-label={t("agentRuntime.railLabel")} className="flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface">
     <Segment segment="runtimes" title={t("agentRuntime.segRuntimes")} sub={t("agentRuntime.segRuntimesSub")} count={instances.length} open={open.runtimes ?? true} onToggle={onToggle} onNew={() => onNew("runtimes")}>
@@ -51,8 +55,32 @@ export function RuntimeRail({ instances, authProbeErrors, agents, squads, orches
         <span className="shrink-0 whitespace-nowrap font-mono text-[9px] text-text-faint">{t("agentRuntime.dispatchCount", { count: entry.dispatches })}</span>
       </Row>)}
     </Segment>
+    <Segment segment="sessions" title={t("agentRuntime.segSessions")} sub={t("agentRuntime.segSessionsSub")} count={sessions.length} open={open.sessions ?? true} onToggle={onToggle}>
+      <SessionGroupRows sessions={sessions} picked={picked} onSelect={onSelect} />
+    </Segment>
     <details className="px-2.5 py-2 text-[10px] leading-[1.5] text-text-faint"><summary className="cursor-pointer list-none">{t("agentRuntime.thesisSummary")}</summary><p className="mt-1">{t("agentRuntime.thesisBody")}</p></details>
   </nav>;
+}
+
+// Sessions answer "who is running": grouped by Agent or Squad, never by runtime instance —
+// the carrier is only where a session happens to run. A runtime session the dispatch ledger
+// does not know about still belongs here, under its unattributed group.
+function SessionGroupRows({ sessions, picked, onSelect }: { readonly sessions: readonly RuntimeDockRow[]; readonly picked: (type: "session", id: string) => boolean; readonly onSelect: (selection: RuntimeSelection) => void }) {
+  const [collapsed, setCollapsed] = useState<Readonly<Record<string, boolean>>>({});
+  return <>{runtimeDockGroups(sessions).map((group) => <div key={group.key}>
+    <button type="button" aria-expanded={!collapsed[group.key]} onClick={() => setCollapsed((current) => ({ ...current, [group.key]: !current[group.key] }))} className="flex w-full items-center gap-1.5 px-1.5 pt-1 pb-0.5 text-left text-[10.5px] text-text-muted">
+      <span aria-hidden className={`text-[7px] text-text-faint transition-transform ${collapsed[group.key] ? "" : "rotate-90"}`}>▶</span>
+      {group.kind === "squad" ? <KindDot kind="any" /> : group.kind === "agent" ? <Avatar id={group.label || group.key} /> : <KindDot kind="claude" />}
+      <b className="font-semibold">{group.label || t("agentRuntime.unattributed")}</b><span className="text-text-faint">{group.kind}</span>
+      <span className="ml-auto font-mono text-[10px] text-text-faint">{group.rows.length}</span>
+    </button>
+    {!collapsed[group.key] && group.rows.map((row) => <Row key={row.runtimeSessionId} tip={row.runtimeSessionId} testId={`rail-session-${row.runtimeSessionId}`} selected={picked("session", row.runtimeSessionId)} onSelect={() => onSelect({ type: "session", id: row.runtimeSessionId })}>
+      <LiveDot state={row.status === "running" ? "live" : row.status === "failed" ? "failed" : "idle"} tip={row.status} />
+      <span className="min-w-0 flex-1 truncate text-[11.5px]">{row.agentName ?? row.instanceId}</span>
+      <span className="min-w-0 max-w-[76px] shrink truncate font-mono text-[9.5px] text-text-muted">{row.taskTitle ?? t("agentRuntime.noTask")}</span>
+      <span data-testid={`runtime-outcome-${row.runtimeSessionId}`} className={`shrink-0 font-mono text-[9.5px] ${OUTCOME_TONE[dispatchOutcomeView(row.status === "running" ? null : row.status === "succeeded" || row.status === "failed" || row.status === "cancelled" ? row.status : "unknown")]}`}>{row.status}</span>
+    </Row>)}
+  </div>)}</>;
 }
 
 function Segment({ segment, title, sub, count, open, onToggle, onNew, children }: { readonly segment: string; readonly title: string; readonly sub: string; readonly count: number; readonly open: boolean; readonly onToggle: (segment: string) => void; readonly onNew?: () => void; readonly children: ReactNode }) {

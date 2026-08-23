@@ -8,7 +8,7 @@ import { TextInput } from "../src/renderer/components/runtime/parts.tsx";
 import { RuntimeCard } from "../src/renderer/components/runtime/RuntimeCard.tsx";
 import { RuntimeInspector } from "../src/renderer/components/runtime/RuntimeInspector.tsx";
 import { RuntimeRail } from "../src/renderer/components/runtime/RuntimeRail.tsx";
-import { SessionDetailView, SessionsDock } from "../src/renderer/components/runtime/SessionsDock.tsx";
+import { SessionDetailView } from "../src/renderer/components/runtime/SessionsPanel.tsx";
 import { SquadCard } from "../src/renderer/components/runtime/SquadCard.tsx";
 import { visibleRuntimeInstances } from "../src/renderer/runtime-instance-form.ts";
 import { assertPreloadPayload } from "../src/preload/allowlist.ts";
@@ -32,7 +32,7 @@ const availableSkills = [{ id: "review", path: "/Users/test/.claude/skills/revie
 const squadDetail = { id: "core-squad", name: "Core Squad", leader: "fable", workers: ["luna", "sol", "terra"], roster: "fable » luna, sol, terra" } as const;
 const noop = () => undefined;
 const runtimeCard = (row: typeof instance | typeof claudeInstance) => renderToStaticMarkup(createElement(RuntimeCard, { instance: row, agents: agentRows as never, liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop }));
-const detailView = (overrides: Partial<Parameters<typeof SessionDetailView>[0]> = {}) => renderToStaticMarkup(createElement(SessionDetailView, { session, row: null, result: null, frames: [], attach: "attached", busy: false, onCancel: noop, ...overrides } as never));
+const detailView = (overrides: Partial<Parameters<typeof SessionDetailView>[0]> = {}) => renderToStaticMarkup(createElement(SessionDetailView, { session, row: null, result: null, frames: [], attach: "attached", busy: false, onCancel: noop, onOpenTask: noop, ...overrides } as never));
 
 afterEach(() => vi.unstubAllGlobals());
 describe("agent runtime renderer", () => {
@@ -62,7 +62,7 @@ describe("agent runtime renderer", () => {
     expect(detailView({ session: { ...session, liveness: "exited" } })).not.toContain('data-testid="agent-runtime-cancel"');
   });
   it("closing an attach pane invokes detach only", () => { const detach = vi.fn(), attachAgentRuntime = vi.fn(() => detach); vi.stubGlobal("window", { harness: { getAgentRuntimeOverview: vi.fn(), getAgentRuntimeSession: vi.fn(), getAgentRuntimeEvents: vi.fn(), attachAgentRuntime } }); const pane = openAgentRuntimePane("repo-a", "runtime-session", "stream:4", () => undefined); pane.close(); expect(attachAgentRuntime).toHaveBeenCalledWith({ repoId: "repo-a", runtimeSessionId: "runtime-session", afterCursor: "stream:4" }, expect.any(Function)); expect(detach).toHaveBeenCalledOnce(); expect(Object.keys(window.harness ?? {})).not.toContain("killAgentRuntime"); });
-  it("contains no renderer repo read, private WebSocket, or polling path", async () => { const { readFile } = await import("node:fs/promises"), source = `${await readFile(new URL("../src/renderer/agent-runtime-client.ts", import.meta.url), "utf8")}\n${await readFile(new URL("../src/renderer/components/runtime/SessionsDock.tsx", import.meta.url), "utf8")}`; expect(source).not.toMatch(/WebSocket|setInterval|setTimeout|RepoCell|\.harness\//u); });
+  it("contains no renderer repo read, private WebSocket, or polling path", async () => { const { readFile } = await import("node:fs/promises"), source = `${await readFile(new URL("../src/renderer/agent-runtime-client.ts", import.meta.url), "utf8")}\n${await readFile(new URL("../src/renderer/components/runtime/SessionsPanel.tsx", import.meta.url), "utf8")}`; expect(source).not.toMatch(/WebSocket|setInterval|setTimeout|RepoCell|\.harness\//u); });
   it("surfaces an authentication failure on the carrier card instead of hiding it", () => {
     const notReady = { ...instance, authReadiness: { status: "not-ready", code: "runtime_credential_unavailable", hint: "The configured runtime API credential is unavailable." } } as const;
     const markup = runtimeCard(notReady);
@@ -100,8 +100,8 @@ describe("agent runtime renderer", () => {
     expect(claudeMarkup).toContain("claude.baseUrl"); expect(claudeMarkup).not.toContain("codex.reasoningEffort");
   });
   it("renders the three identity layers in the rail and the members in the inspector", () => {
-    const rail = renderToStaticMarkup(createElement(RuntimeRail, { instances: [instance, claudeInstance] as never, agents: agentRows as never, squads: squadRows as never, orchestration: [{ taskId: "task-runtime", title: "Review the runtime", dispatches: 2, running: 1 }], selection: null, open: { runtimes: true, agents: true, squads: true, orchestration: true }, liveByInstance: new Map(), onToggle: noop, onSelect: noop, onNew: noop }));
-    for (const text of ["Runtimes", "Agents", "Squads", "Orchestration", "Codex Review", "fable", "luna", "sol", "terra", "Core Squad", "Review the runtime"]) expect(rail).toContain(text);
+    const rail = renderToStaticMarkup(createElement(RuntimeRail, { instances: [instance, claudeInstance] as never, agents: agentRows as never, squads: squadRows as never, orchestration: [{ taskId: "task-runtime", title: "Review the runtime", dispatches: 2, running: 1 }], sessions: [], selection: null, open: { runtimes: true, agents: true, squads: true, orchestration: true, sessions: true }, liveByInstance: new Map(), onToggle: noop, onSelect: noop, onNew: noop }));
+    for (const text of ["Runtimes", "Agents", "Squads", "Orchestration", "Sessions", "Codex Review", "fable", "luna", "sol", "terra", "Core Squad", "Review the runtime"]) expect(rail).toContain(text);
     const inspector = renderToStaticMarkup(createElement(RuntimeInspector, { selection: { type: "squad", id: "core-squad" }, instances: [instance] as never, agents: agentRows as never, squads: squadRows as never, rows: [], onSelect: noop, onSelectSession: noop }));
     for (const text of ["fable", "luna", "sol", "terra", "commander", "worker"]) expect(inspector).toContain(text);
   });
@@ -153,16 +153,17 @@ describe("agent runtime renderer", () => {
     expect(claude).toContain('data-testid="runtime-instance-permission-mode"'); expect(claude).toContain('data-testid="runtime-instance-isolation"');
     expect(agy).not.toContain('data-testid="runtime-instance-permissions"');
   });
-  it("joins task titles and squad delegation into the sessions dock", async () => {
+  it("joins task titles and squad delegation into the sessions rail segment", async () => {
     const { joinRuntimePanorama, runtimeDockRows, runtimePanoramaDelegation } = await import("../src/renderer/runtime-panorama.ts");
     const row = { dispatchId: "dispatch-1", taskId: "task-runtime", executionId: "execution-1", runtimeSessionId: "runtime-1", instanceId: "codex-review", agentId: "luna", agentName: "Luna", delegatedByAgentId: "fable", delegatedByAgentName: "Fable", squadId: "core-squad", providerSessionId: null, eventStreamRef: null, startedAt: "2026-08-20T00:00:00.000Z", endedAt: null, outcome: null, status: "running" } as const;
     const panorama = joinRuntimePanorama([{ taskId: "task-runtime", title: "Review the runtime" }], [row, { ...row, dispatchId: "dispatch-2", runtimeSessionId: "runtime-2", startedAt: "2026-08-19T00:00:00.000Z", endedAt: "2026-08-19T01:00:00.000Z", outcome: "succeeded", status: "succeeded" }], new Map([["core-squad", squadDetail]]));
     expect(panorama[0]).toMatchObject({ taskTitle: "Review the runtime", instanceId: "codex-review", startedAt: row.startedAt, status: "running" });
     expect(runtimePanoramaDelegation(panorama[0]!)).toBe("Fable → Luna");
     const rows = runtimeDockRows(panorama, []);
-    const dock = renderToStaticMarkup(createElement(SessionsDock, { repoId: "repo-a", rows, open: true, selectedId: null, busy: false, onToggle: noop, onSelect: noop, onCancel: noop }));
-    for (const text of ["Sessions", "Review the runtime", "Core Squad", "running", "succeeded", "2 sessions · 1 running"]) expect(dock).toContain(text);
-    expect(renderToStaticMarkup(createElement(SessionDetailView, { session, row: rows[0]!, result: null, frames: [], attach: "attached", busy: false, onCancel: noop }))).toContain("Fable → Luna");
+    const rail = renderToStaticMarkup(createElement(RuntimeRail, { instances: [], agents: [], squads: [], orchestration: [], sessions: rows, selection: null, open: { runtimes: true, agents: true, squads: true, orchestration: true, sessions: true }, liveByInstance: new Map(), onToggle: noop, onSelect: noop, onNew: noop }));
+    for (const text of ["Sessions", "Review the runtime", "Core Squad", ">running<", ">succeeded<"]) expect(rail).toContain(text);
+    expect(rail).toContain('data-testid="rail-session-runtime-1"');
+    expect(renderToStaticMarkup(createElement(SessionDetailView, { session, row: rows[0]!, result: null, frames: [], attach: "attached", busy: false, onCancel: noop, onOpenTask: noop }))).toContain("Fable → Luna");
   });
   it("reads a 402-task panorama through one batch request and keeps dispatch rows when the squad catalog fails", async () => {
     const tasks = Array.from({ length: 402 }, (_, index) => ({ taskId: `task-${String(index).padStart(3, "0")}`, title: `Task ${index}` })), dispatch = { dispatchId: "dispatch-batch", taskId: tasks[0]!.taskId, executionId: "execution-batch", runtimeSessionId: "runtime-batch", instanceId: "codex-review", squadId: "missing-squad", providerSessionId: null, eventStreamRef: null, startedAt: "2026-08-21T00:00:00.000Z", endedAt: null, outcome: null, status: "running" } as const, getTaskDispatches = vi.fn(async (taskIds: readonly string[]) => ({ ok: true, status: "ready", taskIds, unavailableTaskIds: [], dispatches: [dispatch], page: { limit: 500, cursor: null, nextCursor: null }, watermark: 1, sourceRevision: 1 } as const)), listSquads = vi.fn(async (): Promise<readonly (typeof squadRows)[number][]> => { throw new Error("one catalog row is unavailable"); });
