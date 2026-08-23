@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fleetTaskRoute } from "../src/daemon/client.ts";
+import { fleetRuntimeRoute, fleetTaskRoute } from "../src/daemon/client.ts";
 
 test("fleet task routing requires both edge config and remote-edge registry mode", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-task-route-")), userRoot = path.join(root, "user");
@@ -30,4 +30,8 @@ test("fleet task routing requires both edge config and remote-edge registry mode
   const inline = await fleetTaskRoute(command("repo.task.create", { kind: "task-create", jsonInput: '{"title":"Inline edge task"}' }), env);
   assert.deepEqual(inline?.action, { title: "Inline edge task", kind: "task-create" });
   assert.equal(await fleetTaskRoute(command("repo.task.create", { kind: "task-create", taskId: "task_admin", createMode: "admin", title: "Admin" }), env), null);
+
+  const runtime = await fleetRuntimeRoute(command("repo.agentRuntime.spawn", { kind: "runtime-run", runtimeInstanceId: "codex-one", taskId: "task_one", cwd: { scope: "repo-root" }, prompt: "work", idempotencyKey: "runtime-route", detach: false }), env);
+  assert.equal(runtime?.workspaceRoot, root); assert.equal(runtime?.credential, "machine-secret");
+  assert.deepEqual(runtime?.action, { kind: "fleet-runtime", method: "repo.agentRuntime.spawn", payload: { runtimeInstanceId: "codex-one", taskId: "task_one", cwd: { scope: "repo-root" }, prompt: "work", idempotencyKey: "runtime-route" } });
 });
