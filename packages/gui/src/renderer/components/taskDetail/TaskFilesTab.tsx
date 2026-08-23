@@ -2,7 +2,7 @@ import { useEffect, useMemo } from "react";
 import { CaretRight, FileText } from "@phosphor-icons/react";
 import { DocReader } from "../DocReader.tsx";
 import { HtmlArtifactPreview } from "../HtmlArtifactPreview.tsx";
-import { buildDocTree, mergeProjectedDocuments } from "../../model/docTree.ts";
+import { buildDocTree, projectedDocuments } from "../../model/docTree.ts";
 import type { TaskRow } from "../../model/types.ts";
 import { useTaskDocumentListQuery, useTaskDocumentQuery } from "../../task-data.ts";
 import { DocTree } from "./DocTree.tsx";
@@ -25,7 +25,7 @@ export function TaskDocumentSidebar({
     const projected = documentList.data?.status === "ready"
       ? documentList.data.documents.map((document) => document.path)
       : [];
-    return mergeProjectedDocuments([], projected);
+    return projectedDocuments(projected);
   }, [documentList.data]);
   const tree = useMemo(() => buildDocTree(documents), [documents]);
 

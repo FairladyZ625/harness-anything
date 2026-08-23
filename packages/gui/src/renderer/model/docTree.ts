@@ -29,19 +29,16 @@ interface TrieNode {
   children: Map<string, TrieNode>;
 }
 
-/**
- * 合同槽位文档 + 投影清单:同一 path 以合同条目为准(保留 required/分组语义),
- * 只在投影里出现的文件(artifacts/ 等)补为已存在的文档条目。
- */
-export function mergeProjectedDocuments(
-  contractDocs: ReadonlyArray<DocEntry>,
-  projectedPaths: ReadonlyArray<string>,
-): DocEntry[] {
-  const known = new Set(contractDocs.map((doc) => doc.path));
-  const extras = projectedPaths
-    .filter((path) => !known.has(path))
-    .map((path) => ({ path, title: path.split("/").at(-1) ?? path, group: inferDocGroup(path), required: false, present: true, presence: "present" as const }));
-  return [...contractDocs, ...extras];
+/** 投影清单 → 文档条目。投影列出的文件都在磁盘上,所以恒为 present 且非 required。 */
+export function projectedDocuments(projectedPaths: ReadonlyArray<string>): DocEntry[] {
+  return projectedPaths.map((path) => ({
+    path,
+    title: path.split("/").at(-1) ?? path,
+    group: inferDocGroup(path),
+    required: false,
+    present: true,
+    presence: "present" as const,
+  }));
 }
 
 /** 投影补充文件的分组:artifacts/ 归证据,其余归进度(仅作面包屑标签,导航已改用目录树)。 */
