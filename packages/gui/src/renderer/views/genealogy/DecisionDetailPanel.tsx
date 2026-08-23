@@ -3,30 +3,41 @@ import type { DecisionRow } from "../../model/types";
 import { DecisionStateBadge, RiskTierBadge, UrgencyBadge } from "../../components/badges";
 
 /**
- * 谱系卡片详情面板(REQ-GUI-05):状态、问题、已选/否决/why-not,
- * 可「在决策池查看」「在关系图聚焦」。
+ * 决策详情面板(REQ-GUI-05):状态、问题、已选/否决/why-not,
+ * 可「在决策池查看」「在关系图聚焦」。W4 起被决策详情页整栏复用
+ * (onClose 缺省不渲染关闭钮,side 控制贴边方向)。
  */
 export function DecisionDetailPanel({
   decision,
   onClose,
-  onNavigateEntity,
+  onOpenPool,
   onFocusGraph,
+  side = "left",
 }: {
   decision: DecisionRow;
-  onClose: () => void;
-  onNavigateEntity?: (ref: string) => void;
+  /** 关闭按钮;缺省(详情页整栏复用)不渲染。 */
+  onClose?: () => void;
+  /** 跳去决策池并聚焦该 decision。 */
+  onOpenPool?: () => void;
   onFocusGraph?: (ref: string) => void;
+  /** 面板贴哪一侧:演化史内嵌(左)或详情页主栏(右)。 */
+  side?: "left" | "right";
 }) {
   return (
-    <aside className="flex w-[26rem] shrink-0 flex-col overflow-y-auto border-l border-border bg-surface">
+    <aside
+      data-testid="decision-detail-panel"
+      className={`flex w-[26rem] shrink-0 flex-col overflow-y-auto ${side === "left" ? "border-l" : "border-r"} border-border bg-surface`}
+    >
       <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
         <span className="font-mono text-[11px] text-text-muted">决策详情</span>
-        <button
-          onClick={onClose}
-          className="ml-auto grid size-6 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text"
-        >
-          <X weight="bold" />
-        </button>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="ml-auto grid size-6 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text"
+          >
+            <X weight="bold" />
+          </button>
+        )}
       </div>
       <div className="flex flex-col gap-3 px-3 py-3">
         <p className="text-[13px] font-semibold leading-snug text-text">{decision.title}</p>
@@ -71,20 +82,24 @@ export function DecisionDetailPanel({
           </div>
         )}
         <div className="mt-1 flex gap-2">
-          <button
-            onClick={() => onNavigateEntity?.(`decision/${decision.decisionId}`)}
-            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1.5 text-[11px] text-text-muted hover:border-border-strong hover:text-text"
-          >
-            <ArrowsOutSimple weight="bold" className="text-[11px]" />
-            在决策池查看
-          </button>
-          <button
-            onClick={() => onFocusGraph?.(`decision/${decision.decisionId}`)}
-            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1.5 text-[11px] text-text-muted hover:border-border-strong hover:text-text"
-          >
-            <Graph weight="bold" className="text-[11px]" />
-            在关系图聚焦
-          </button>
+          {onOpenPool && (
+            <button
+              onClick={onOpenPool}
+              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1.5 text-[11px] text-text-muted hover:border-border-strong hover:text-text"
+            >
+              <ArrowsOutSimple weight="bold" className="text-[11px]" />
+              在决策池查看
+            </button>
+          )}
+          {onFocusGraph && (
+            <button
+              onClick={() => onFocusGraph(`decision/${decision.decisionId}`)}
+              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1.5 text-[11px] text-text-muted hover:border-border-strong hover:text-text"
+            >
+              <Graph weight="bold" className="text-[11px]" />
+              在关系图聚焦
+            </button>
+          )}
         </div>
       </div>
     </aside>

@@ -1,0 +1,218 @@
+import { useMemo, type ReactNode } from "react";
+import { WarningCircle } from "@phosphor-icons/react";
+import type { TaskRow, DecisionRow, FactRef, RelationEdge } from "../model/types";
+import type { RelationCoverageRow, FactAnchorRow } from "../../api/renderer-dto";
+import { FactInspector } from "../components/FactInspector";
+import { DecisionDetailPanel } from "./genealogy/DecisionDetailPanel";
+import { EgoNeighborhood } from "../graph/EgoNeighborhood";
+import { t } from "../i18n/index.tsx";
+
+/**
+ * Fact / Decision 详情页(W4 可寻址路由):
+ *   fact/<taskId>/<anchor>  → view=factDetail + focusedEntityRef
+ *   decision/<id>           → view=decisionDetail + focusedEntityRef
+ *
+ * 「打开详情」不再落在列表页。页面 = 详情栏(复用 FactInspector /
+ * DecisionDetailPanel)+ 邻域画布(复用 graph/EgoNeighborhood):任意实体就地
+ * 看到「它周围有什么」,双击/详情钮直接跳去邻居的详情页,导航历史栈可原路返回。
+ *
+ * 取数:没有 fact/decision 单体 read,详情复用 App 已加载的 triadic 投影集合
+ * (facts / decisions / relations / factAnchors)。集合仍在加载时显示加载态;
+ * 加载完仍找不到 → 「不在当前投影」态,不编造内容。
+ */
+export function DecisionDetailView({
+  decisionId,
+  decisions,
+  tasks,
+  facts,
+  relations,
+  factAnchors,
+  loading,
+  onNavigateEntity,
+  onFocusGraph,
+  onOpenPool,
+}: {
+  decisionId: string | null;
+  decisions: DecisionRow[];
+  tasks: TaskRow[];
+  facts: FactRef[];
+  relations: RelationEdge[];
+  factAnchors: ReadonlyArray<FactAnchorRow>;
+  loading: boolean;
+  onNavigateEntity?: (ref: string) => void;
+  onFocusGraph?: (ref: string) => void;
+  onOpenPool?: (decisionId: string) => void;
+}) {
+  const decision = useMemo(
+    () => decisions.find((d) => d.decisionId === decisionId) ?? null,
+    [decisions, decisionId],
+  );
+
+  return (
+    <div data-testid="decision-detail-view" className="flex h-full min-h-0 flex-1">
+      {decision ? (
+        <DecisionDetailPanel
+          decision={decision}
+          side="right"
+          onOpenPool={onOpenPool ? () => onOpenPool(decision.decisionId) : undefined}
+          onFocusGraph={onFocusGraph ? () => onFocusGraph(`decision/${decision.decisionId}`) : undefined}
+        />
+      ) : (
+        <DetailPendingColumn loading={loading} refLabel={decisionId ?? "—"} />
+      )}
+      <NeighborhoodPane
+        focusRef={decision ? `decision/${decision.decisionId}` : null}
+        tasks={tasks}
+        decisions={decisions}
+        facts={facts}
+        relations={relations}
+        factAnchors={factAnchors}
+        onNavigateEntity={onNavigateEntity}
+      />
+    </div>
+  );
+}
+
+export function FactDetailView({
+  factRef,
+  facts,
+  tasks,
+  decisions,
+  relations,
+  factAnchors,
+  coverageRows,
+  loading,
+  onNavigateEntity,
+  onNavigateDecision,
+  onNavigateTask,
+  onFocusGraph,
+  onOpenTriage,
+}: {
+  factRef: string | null;
+  facts: FactRef[];
+  tasks: TaskRow[];
+  decisions: DecisionRow[];
+  relations: RelationEdge[];
+  factAnchors: ReadonlyArray<FactAnchorRow>;
+  coverageRows: ReadonlyArray<RelationCoverageRow>;
+  loading: boolean;
+  onNavigateEntity?: (ref: string) => void;
+  onNavigateDecision?: (decisionId: string) => void;
+  onNavigateTask?: (taskId: string) => void;
+  onFocusGraph?: (ref: string) => void;
+  /** 跳去事实分诊并聚焦该 fact(信号上下文)。 */
+  onOpenTriage?: (factRef: string) => void;
+}) {
+  const anchor = factRef?.replace(/^fact\//, "") ?? null;
+  const fact = useMemo(
+    () => (anchor ? facts.find((f) => f.anchor === anchor) ?? null : null),
+    [facts, anchor],
+  );
+  // anchor-only fact(有锚点、正文未投影)仍是图上一等节点 —— 邻域照常铺开。
+  const inProjection = fact !== null || (factRef ? factAnchors.some((a) => a.factRef === factRef) : false);
+
+  return (
+    <div data-testid="fact-detail-view" className="flex h-full min-h-0 flex-1">
+      {inProjection ? (
+        <FactInspector
+          factRef={factRef!}
+          facts={facts}
+          tasks={tasks}
+          decisions={decisions}
+          relations={relations}
+          side="right"
+          onNavigateDecision={onNavigateDecision}
+          onNavigateTask={onNavigateTask}
+          onFocusGraph={onFocusGraph}
+          coverageRows={coverageRows}
+        />
+      ) : (
+        <DetailPendingColumn loading={loading} refLabel={factRef ?? "—"} />
+      )}
+      <NeighborhoodPane
+        focusRef={inProjection ? factRef : null}
+        tasks={tasks}
+        decisions={decisions}
+        facts={facts}
+        relations={relations}
+        factAnchors={factAnchors}
+        onNavigateEntity={onNavigateEntity}
+        headerExtra={
+          onOpenTriage && factRef ? (
+            <button
+              onClick={() => onOpenTriage(factRef)}
+              className="ml-auto rounded border border-border px-2 py-0.5 text-[11px] text-text-muted hover:border-border-strong hover:text-text"
+              data-testid="fact-detail-open-triage"
+            >
+              {t("views.entityDetail.openInTriage")}
+            </button>
+          ) : undefined
+        }
+      />
+    </div>
+  );
+}
+
+function DetailPendingColumn({ loading, refLabel }: { loading: boolean; refLabel: string }) {
+  return (
+    <aside
+      data-testid="entity-detail-pending"
+      className="flex w-[26rem] shrink-0 flex-col gap-3 border-r border-border bg-surface px-3 py-3"
+    >
+      {loading ? (
+        <p className="font-mono text-[12px] text-text-faint">{t("views.entityDetail.loadingProjection")}</p>
+      ) : (
+        <>
+          <div className="flex items-center gap-1 text-[12px] font-semibold text-stale">
+            <WarningCircle weight="bold" />
+            {t("views.entityDetail.notProjected")}
+          </div>
+          <div className="font-mono text-[11px] text-text-faint">{refLabel}</div>
+        </>
+      )}
+    </aside>
+  );
+}
+
+function NeighborhoodPane({
+  focusRef,
+  tasks,
+  decisions,
+  facts,
+  relations,
+  factAnchors,
+  onNavigateEntity,
+  headerExtra,
+}: {
+  focusRef: string | null;
+  tasks: TaskRow[];
+  decisions: DecisionRow[];
+  facts: FactRef[];
+  relations: RelationEdge[];
+  factAnchors: ReadonlyArray<FactAnchorRow>;
+  onNavigateEntity?: (ref: string) => void;
+  headerExtra?: ReactNode;
+}) {
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex items-center gap-3 border-b border-border px-4 py-1.5 font-mono text-[11px] text-text-muted">
+        {t("views.entityDetail.neighborhoodHint")}
+        {headerExtra}
+      </div>
+      <div className="flex min-h-0 flex-1">
+        <EgoNeighborhood
+          focusRef={focusRef}
+          tasks={tasks}
+          decisions={decisions}
+          facts={facts}
+          relations={relations}
+          factAnchors={factAnchors}
+          onNavigateEntity={onNavigateEntity}
+          // 详情页里「设为画布中心」的语义 = 跳去该邻居自己的详情页。
+          onRefocus={onNavigateEntity}
+          refocusTitle={t("views.entityDetail.refocusHint")}
+        />
+      </div>
+    </div>
+  );
+}

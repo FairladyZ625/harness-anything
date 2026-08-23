@@ -299,5 +299,11 @@
   "views.overviewView.healthNever": "本会话未观察到台账变化",
   "views.overviewView.healthSecondsAgo": "{seconds} 秒前",
   "views.overviewView.healthMinutesAgo": "{minutes} 分钟前",
-  "views.overviewView.healthHoursAgo": "{hours} 小时前"
+  "views.overviewView.healthHoursAgo": "{hours} 小时前",
+  "views.entityDetail.neighborhoodHint": "邻域 · 单击展开/收起 · 双击设为中心 · Esc 清选",
+  "views.entityDetail.neighborhood": "邻域",
+  "views.entityDetail.loadingProjection": "关系图投影加载中……",
+  "views.entityDetail.notProjected": "该实体不在当前投影里(可能尚未加载,或投影中没有它)。",
+  "views.entityDetail.refocusHint": "跳去该实体的详情页",
+  "views.entityDetail.openInTriage": "在事实分诊中查看"
 }

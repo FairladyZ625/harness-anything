@@ -299,5 +299,11 @@
   "views.overviewView.healthNever": "no ledger change observed this session",
   "views.overviewView.healthSecondsAgo": "{seconds}s ago",
   "views.overviewView.healthMinutesAgo": "{minutes}m ago",
-  "views.overviewView.healthHoursAgo": "{hours}h ago"
+  "views.overviewView.healthHoursAgo": "{hours}h ago",
+  "views.entityDetail.neighborhoodHint": "Neighborhood · click to expand · double-click to refocus · Esc clears selection",
+  "views.entityDetail.neighborhood": "Neighborhood",
+  "views.entityDetail.loadingProjection": "Loading the relation projection…",
+  "views.entityDetail.notProjected": "This entity is not in the current projection (still loading, or absent from it).",
+  "views.entityDetail.refocusHint": "Jump to this entity's detail page",
+  "views.entityDetail.openInTriage": "View in Fact Triage"
 }

@@ -25,19 +25,23 @@ export function FactInspector({
   onNavigateTask,
   onFocusGraph,
   coverageRows = [],
+  side = "left",
 }: {
   factRef: string;
   facts: FactRef[];
   tasks: TaskRow[];
   decisions: DecisionRow[];
   relations: RelationEdge[];
-  onClose: () => void;
+  /** 关闭按钮;缺省(详情页整栏复用)不渲染。 */
+  onClose?: () => void;
   /** W2B 活链接:点击 decision ref 跳转 */
   onNavigateDecision?: (decisionId: string) => void;
   /** W2B 活链接:点击 task ref 跳转 */
   onNavigateTask?: (taskId: string) => void;
   onFocusGraph?: (ref: string) => void;
   coverageRows?: ReadonlyArray<RelationCoverageRow>;
+  /** 面板贴哪一侧:列表页内嵌(左)或详情页主栏(右)。 */
+  side?: "left" | "right";
 }) {
   const anchor = factRef.replace(/^fact\//, "");
   const fullRef = `fact/${anchor}`;
@@ -62,7 +66,10 @@ export function FactInspector({
   ].sort();
 
   return (
-    <aside className="flex w-[26rem] shrink-0 flex-col overflow-y-auto border-l border-border bg-surface">
+    <aside
+      data-testid="fact-inspector"
+      className={`flex w-[26rem] shrink-0 flex-col overflow-y-auto ${side === "left" ? "border-l" : "border-r"} border-border bg-surface`}
+    >
       <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
         <GitBranch weight="duotone" className="shrink-0 text-text-muted" />
         <span className="min-w-0 truncate font-mono text-xs text-text-muted">{anchor}</span>
@@ -93,13 +100,15 @@ export function FactInspector({
             <Graph weight="bold" />
           </button>
         )}
-        <button
-          onClick={onClose}
-          title={t("components.factInspector.closeFactInspector")}
-          className="ml-auto grid size-6 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text"
-        >
-          <X weight="bold" />
-        </button>
+        {onClose && (
+          <button
+            onClick={onClose}
+            title={t("components.factInspector.closeFactInspector")}
+            className="ml-auto grid size-6 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text"
+          >
+            <X weight="bold" />
+          </button>
+        )}
       </div>
 
       <div className="flex flex-col gap-3 px-3 py-3">

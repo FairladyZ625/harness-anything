@@ -110,8 +110,8 @@ export function EgoNode({ data, selected }: any) {
           {data.onRefocus && !focus && (
             <button
               onClick={stop(data.onRefocus, data.navRef)}
-              title="设为画布中心(重排 ±2 跳)"
-              aria-label="设为画布中心"
+              title={data.refocusTitle ?? "设为画布中心(重排 ±2 跳)"}
+              aria-label={data.refocusTitle ?? "设为画布中心"}
               className="grid size-5 place-items-center rounded text-text-muted hover:bg-surface-raised hover:text-text"
             >
               <Crosshair weight="bold" className="text-[11px]" />

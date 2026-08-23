@@ -105,7 +105,10 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   // 先移除再点,避免点击被遮罩吞掉。
   await page.evaluate(() => globalThis.document.querySelector('button[title="Ctrl+`"]')?.remove());
   await relationLink.click();
-  await page.locator('#decision-card-dec_gui_smoke[data-focused="true"]').waitFor();
+  // W4 可寻址路由:decision 引用直达决策详情页(详情栏 + 邻域画布),
+  // 不再落决策池列表页。
+  await page.getByTestId("decision-detail-view").waitFor({ timeout: 10_000 });
+  await page.getByText("Should the GUI consume the public relation graph?", { exact: false }).first().waitFor();
 
   // The decision inbox card exposes the same paste-ready context shape.
   await page.getByRole("button", { name: /决策批准/u }).click();

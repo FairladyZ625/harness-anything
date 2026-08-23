@@ -9,6 +9,7 @@ import { BoardView } from "./views/BoardView.tsx";
 import { DecisionsView } from "./views/DecisionsView.tsx";
 import { DecisionPoolView } from "./views/DecisionPoolView.tsx";
 import { FactTriageView } from "./views/FactTriageView.tsx";
+import { DecisionDetailView, FactDetailView } from "./views/EntityDetailView.tsx";
 import { ExecutionEvidenceView } from "./views/ExecutionEvidenceView.tsx";
 import { EntityWorkspace } from "./components/EntityWorkspace.tsx";
 import { PresetsView } from "./views/PresetsView.tsx";
@@ -19,7 +20,8 @@ import { TaskDetailView } from "./views/TaskDetailView.tsx";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
 import { ThemeToggle, NavButton, ProjectSummary, TaskCensusSummary } from "./components/shell-chrome.tsx";
 import { CommandPalette, buildPaletteIndex } from "./components/CommandPalette.tsx";
-import { pushRecentRef } from "./navigation/recentRefs.ts";
+import { useEntityNavigation } from "./navigation/useEntityNavigation.ts";
+import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
 import { invalidateLedgerDependents, LEDGER_REFRESH_INTERVAL_MS, taskQueryKeys, useTasksQuery } from "./task-data.ts";
@@ -97,8 +99,6 @@ function AppShell() {
   const setTaskFilters = (next: TaskFilters) => updateLocation({ taskFilters: next });
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  // 最近访问(关系图左栏数据源):点过的 task/decision/fact 推到头部,去重 + 截断。
-  const [recentRefs, setRecentRefs] = useState<string[]>([]);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const terminalDock = useRef<TerminalDockHandle>(null);
 
@@ -146,7 +146,7 @@ function AppShell() {
       if (activeRepoId) await queryClient.cancelQueries({ predicate: (query) => query.queryKey[1] === activeRepoId });
       // 新仓以干净初始栈打开(overview + 默认筛选);仓内 back/forward 仍持久化。
       resetViewHistory(window.sessionStorage, repoId);
-      setRecentRefs([]);
+      resetRecentRefs();
       setActiveRepoId(repoId);
     }
     setProjectSwitcherOpen(false);
@@ -164,48 +164,19 @@ function AppShell() {
     navigate({ drill: { lane, status, groupBy }, view: "board", selectedId: null, previewId: null });
   };
 
-  const openTaskPreview = (id: string) => {
-    updateLocation({ selectedId: null, previewId: id });
-  };
-
-  const openTaskDetail = (id: string) => {
-    navigate({ focusedEntityRef: `task/${id}`, previewId: null, selectedId: id });
-  };
-
-  // 带 repo/<repoId>/ 前缀的实体引用先显式切仓，再在该仓导航。
-  const navigateLocalEntity = (ref: string) => {
-    setRecentRefs((prev) => pushRecentRef(prev, ref));
-    if (ref.startsWith("task/")) {
-      const id = ref.slice(5).split("/")[0];
-      openTaskDetail(id);
-    } else if (ref.startsWith("decision/")) {
-      const decisionId = ref.split("/")[1];
-      navigate({ focusedEntityRef: `decision/${decisionId}`, view: "decisionPool", selectedId: null, previewId: null });
-    } else if (ref.startsWith("fact/")) {
-      navigate({ focusedEntityRef: ref, view: "factTriage", selectedId: null, previewId: null });
-    }
-  };
-  const navigateToEntity = (rawRef: string) => {
-    const scoped = /^repo\/([^/]+)\/(.+)$/u.exec(rawRef), targetRepoId = scoped?.[1] ?? activeRepoId, ref = scoped?.[2] ?? rawRef;
-    if (targetRepoId && targetRepoId !== activeRepoId) {
-      if (!enabledRepos.some((repo) => repo.repoId === targetRepoId)) { navigate({ view: "home" }); setProjectSwitcherOpen(true); return; }
-      void openProject(targetRepoId).then(() => navigateLocalEntity(ref)); return;
-    }
-    navigateLocalEntity(ref);
-  };
-  const navigateToDecision = (decisionId: string) =>
-    navigateToEntity(`decision/${decisionId}`);
-  const navigateToTask = (taskId: string) => openTaskDetail(taskId);
-  const focusEntityInGraph = (ref: string) => {
-    setRecentRefs((prev) => pushRecentRef(prev, ref));
-    navigate({ focusedEntityRef: ref, view: "graph", selectedId: null, previewId: null });
-  };
-  // 图内换焦点(双击 / 领地 chip / 抽屉设焦 / 最近访问列表自身 / 焦点前后退)同样计入最近访问,否则那条侧栏记不下在图里逛过的东西。
-  const focusEntityInWorkspace = (ref: string | null) => {
-    if (ref === null) { updateLocation({ focusedEntityRef: null }); return; }
-    setRecentRefs((prev) => pushRecentRef(prev, ref));
-    navigate({ focusedEntityRef: ref });
-  };
+  // 实体导航出口(可寻址路由 + 最近访问)集中在此 hook;跨仓跳转先切仓再续导航。
+  const {
+    recentRefs, resetRecentRefs, openTaskPreview, openTaskDetail, navigateToEntity,
+    navigateToDecision, navigateToTask, focusEntityInGraph, focusEntityInWorkspace,
+    openDecisionInPool, openFactInTriage,
+  } = useEntityNavigation({
+    navigate,
+    updateLocation,
+    activeRepoId,
+    enabledRepoIds: enabledRepos.map((repo) => repo.repoId),
+    openInRepo: (repoId, continueInRepo) => { void openProject(repoId).then(continueInRepo); },
+    onRepoUnavailable: () => { navigate({ view: "home" }); setProjectSwitcherOpen(true); },
+  });
 
   // ⌘K 命令面板(REQ-GUI-01):跨实体搜索 + 快速跳转。纯前端派生,不消费写 IPC。
   const paletteEntries = useMemo(
@@ -213,39 +184,12 @@ function AppShell() {
     [projectTasks, decisions, facts],
   );
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setPaletteOpen((open) => !open);
-      } else if (e.ctrlKey && e.key === "`") {
-        e.preventDefault();
-        setTerminalOpen((open) => !open);
-      } else if ((e.metaKey || e.ctrlKey) && e.key === "[") {
-        e.preventDefault();
-        back();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === "]") {
-        e.preventDefault();
-        forward();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [back, forward]);
-
-  // 鼠标侧键:button 3 = 后退,button 4 = 前进(浏览器/Electron 惯例)。
-  useEffect(() => {
-    const onMouseDown = (e: MouseEvent) => {
-      if (e.button === 3) back();
-      else if (e.button === 4) forward();
-    };
-    window.addEventListener("mousedown", onMouseDown);
-    return () => window.removeEventListener("mousedown", onMouseDown);
-  }, [back, forward]);
-
-  const handlePaletteSelect = (ref: string) => {
-    navigateToEntity(ref);
-  };
+  useAppShortcuts({
+    onTogglePalette: () => setPaletteOpen((open) => !open),
+    onToggleTerminal: () => setTerminalOpen((open) => !open),
+    onBack: back,
+    onForward: forward,
+  });
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden md:flex-row">
@@ -483,10 +427,44 @@ function AppShell() {
                 coverageRows={coverageRows}
                 factAnchors={factAnchors}
                 onNavigateEntity={navigateToEntity}
+                onOpenDecisionPool={openDecisionInPool}
                 onFocusEntityChange={focusEntityInWorkspace}
                 recentRefs={recentRefs}
                 entries={paletteEntries}
                 onOpenPalette={() => setPaletteOpen(true)}
+              />
+            ) : view === "decisionDetail" ? (
+              <DecisionDetailView
+                decisionId={
+                  focusedEntityRef?.startsWith("decision/")
+                    ? focusedEntityRef.split("/")[1]
+                    : null
+                }
+                decisions={decisions}
+                tasks={projectTasks}
+                facts={facts}
+                relations={relations}
+                factAnchors={factAnchors}
+                loading={triadicQuery.isLoading}
+                onNavigateEntity={navigateToEntity}
+                onFocusGraph={focusEntityInGraph}
+                onOpenPool={openDecisionInPool}
+              />
+            ) : view === "factDetail" ? (
+              <FactDetailView
+                factRef={focusedEntityRef?.startsWith("fact/") ? focusedEntityRef : null}
+                facts={facts}
+                tasks={tasks}
+                decisions={decisions}
+                relations={relations}
+                factAnchors={factAnchors}
+                coverageRows={coverageRows}
+                loading={triadicQuery.isLoading}
+                onNavigateEntity={navigateToEntity}
+                onNavigateDecision={navigateToDecision}
+                onNavigateTask={navigateToTask}
+                onFocusGraph={focusEntityInGraph}
+                onOpenTriage={openFactInTriage}
               />
             ) : view === "factTriage" ? (
               <FactTriageView
@@ -574,7 +552,7 @@ function AppShell() {
       <CommandPalette
         open={paletteOpen}
         entries={paletteEntries}
-        onSelect={handlePaletteSelect}
+        onSelect={navigateToEntity}
         onClose={() => setPaletteOpen(false)}
       />
       <TerminalDock
