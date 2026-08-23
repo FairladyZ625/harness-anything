@@ -211,8 +211,12 @@ export async function openRepoCell(input: {
       input,
       rootDir,
       authoredBranch,
-      activeWriterEpochGuard,
-      activeWriterEpochFence,
+      get activeWriterEpochGuard() {
+        return activeWriterEpochGuard;
+      },
+      get activeWriterEpochFence() {
+        return activeWriterEpochFence;
+      },
       mode,
       now,
       runtimeStream,
