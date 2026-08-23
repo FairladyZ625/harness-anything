@@ -312,6 +312,56 @@ describe("overview task stream: freshly created tasks are visible with zero inte
     expect(markup).not.toContain("Older done");
   });
 
+  // 这一段的规模不是常数:当前筛选一行都没有时阈值退化为无阈值,于是全部有已知创建时间的
+  // 任务都合格。本仓 1538 个任务时那一档实测 1475 行(fact F-EDD4483A)。分批渲染让 DOM
+  // 节点数与任务总量脱钩,而标题仍报真实总数,所以推迟渲染的行是显形的、不是被吞掉的。
+  it("bounds the ahead band DOM and states how many rows it deferred", () => {
+    const rows = Array.from({ length: 45 }, (_, index) => task({
+      taskId: `task_ahead_${index}`, title: `Ahead ${index}`, coordinationStatus: "planned",
+      createdAt: `2026-08-22T09:${String(index).padStart(2, "0")}:00.000Z`,
+    }));
+    const markup = renderToStaticMarkup(createElement(TaskStream, {
+      tasks: [task({ taskId: "task_old_active", title: "Older active task", coordinationStatus: "active", createdAt: "2026-08-20T10:00:00.000Z" }), ...rows],
+      summary: taskSummary({ active: 1, planned: 45 }), onOpenPreview: noop, onGoBoard: noop,
+    }));
+    const ahead = section(markup, "task-stream-ahead-rows");
+    expect(ahead).not.toBeNull();
+    expect(ahead!.match(/title="task_ahead_/gu)).toHaveLength(12);
+    expect(ahead).toContain('data-testid="task-stream-ahead-more"');
+    expect(ahead).toContain("还有 33 条");
+    // 标题报的是真实总数,不是渲染出来的行数——被推迟的行在界面上有交代。
+    expect(markup).toContain("更新的 45 条");
+  });
+
+  // 负向断言:没超出一批时不许出现批量按钮。没有它,「无脑常显按钮」也能让上面那条变绿。
+  it("shows no batch button when the ahead band fits in one batch", () => {
+    const rows = Array.from({ length: 5 }, (_, index) => task({
+      taskId: `task_ahead_${index}`, title: `Ahead ${index}`, coordinationStatus: "planned",
+      createdAt: `2026-08-22T09:0${index}:00.000Z`,
+    }));
+    const markup = renderToStaticMarkup(createElement(TaskStream, {
+      tasks: [task({ taskId: "task_old_active", title: "Older active task", coordinationStatus: "active", createdAt: "2026-08-20T10:00:00.000Z" }), ...rows],
+      summary: taskSummary({ active: 1, planned: 5 }), onOpenPreview: noop, onGoBoard: noop,
+    }));
+    expect(section(markup, "task-stream-ahead-rows")!.match(/title="task_ahead_/gu)).toHaveLength(5);
+    expect(markup).not.toContain('data-testid="task-stream-ahead-more"');
+  });
+
+  // 最坏一档:active 筛选为空,阈值退化为无阈值,全部任务合格。DOM 仍须与总量脱钩。
+  it("stays bounded when the active filter is empty and every task qualifies", () => {
+    const rows = Array.from({ length: 60 }, (_, index) => task({
+      taskId: `task_done_${index}`, title: `Done ${index}`, coordinationStatus: "done",
+      createdAt: `2026-08-22T09:${String(index).padStart(2, "0")}:00.000Z`,
+    }));
+    const markup = renderToStaticMarkup(createElement(TaskStream, {
+      tasks: rows, summary: taskSummary({ done: 60 }), onOpenPreview: noop, onGoBoard: noop,
+    }));
+    const ahead = section(markup, "task-stream-ahead-rows");
+    expect(ahead!.match(/title="task_done_/gu)).toHaveLength(12);
+    expect(markup).toContain("更新的 60 条");
+    expect(ahead).toContain("还有 48 条");
+  });
+
   it("derives the ahead rows purely from the selected status (unit-level invariant)", () => {
     const rows = freshWorkspace();
     expect(tasksAheadOfStatus(rows, "active").map((row) => row.taskId)).toEqual(["task_new_planned"]);
