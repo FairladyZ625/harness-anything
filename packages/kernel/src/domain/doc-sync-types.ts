@@ -1,34 +1,34 @@
-import { type PortableDocumentPath } from "../layout/portable-path.ts";
-import { type AgentEntityEventV1 } from "./agent-entity-event.ts";
-import { type AgentRuntimeEventV1 } from "./agent-runtime.ts";
+import type { PortableDocumentPath } from "../layout/portable-path.ts";
+import type { AgentEntityEventV1 } from "./agent-entity-event.ts";
+import type { AgentRuntimeEventV1 } from "./agent-runtime.ts";
 import {
   OPAQUE_TEXTUAL_POLICY_ID,
   type OpaqueTextualMediaType,
 } from "./artifact-text-classification.ts";
-import { type DecisionEventV1 } from "./decision-event.ts";
+import type { DecisionEventV1 } from "./decision-event.ts";
 import type { LeaseV1 } from "./execution.ts";
-import { type FactEventV1 } from "./fact-event.ts";
-import { type LedgerLayoutMigrationEventV1 } from "./ledger-layout-migration-event.ts";
-import {
-  MIGRATION_DOCUMENT_POLICY_ID,
-  type MigrationImportEventV1,
+import type { FactEventV1 } from "./fact-event.ts";
+import type { LedgerLayoutMigrationEventV1 } from "./ledger-layout-migration-event.ts";
+import type {
+  MigrationDocumentClaim,
+  MigrationImportEventV1,
 } from "./migration-import-event.ts";
-import { type PresetSnapshotUpgradeEventV1 } from "./preset-snapshot-upgrade-event.ts";
+import type { PresetSnapshotUpgradeEventV1 } from "./preset-snapshot-upgrade-event.ts";
 import type {
   DocSyncReceiptDetail,
   LedgerCommitIdentity,
   LedgerCutIdentity,
   LedgerIdentity,
 } from "./receipt-domain-registry.ts";
-import { type TaskBootstrapEventV1 } from "./task-bootstrap-event.ts";
-import { type LiveTaskBoundRuntimeBinding } from "./task-bound-runtime-authority.ts";
-import { type TaskEventV1 } from "./task-lifecycle.contract.ts";
-import { type TaskProgressEventV1 } from "./task-progress-event.ts";
-import {
-  type ActorIdentity,
-  type EventEnvelope,
-  type FrozenWritePlan,
-  type WriteSource,
+import type { TaskBootstrapEventV1 } from "./task-bootstrap-event.ts";
+import type { LiveTaskBoundRuntimeBinding } from "./task-bound-runtime-authority.ts";
+import type { TaskEventV1 } from "./task-lifecycle.contract.ts";
+import type { TaskProgressEventV1 } from "./task-progress-event.ts";
+import type {
+  ActorIdentity,
+  EventEnvelope,
+  FrozenWritePlan,
+  WriteSource,
 } from "./write-chain.contract.ts";
 
 export const DOC_POLICY_ID = "markdown-body-replaceable/v1",
@@ -132,7 +132,7 @@ export interface RegionProof {
 }
 
 export interface DocPolicyUpgrade {
-  readonly from: typeof MIGRATION_DOCUMENT_POLICY_ID;
+  readonly from: MigrationDocumentClaim["policyId"];
   readonly to: typeof DOC_POLICY_ID;
 }
 
