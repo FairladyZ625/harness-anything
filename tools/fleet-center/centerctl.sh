@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 # User-space Fleet center deployment for the W5-R rehearsal. This script never
 # uses sudo, edits service configuration, or persists a Git credential.
