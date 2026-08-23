@@ -1,0 +1,54 @@
+---
+schema: decision-package/v1
+decision_id: dec_LEDGER_E1
+workspaceRevision: 108
+title: "E1 内容与引擎正交:Vertical 选模板、TemplateLibrary 存正文/locale、Preset 覆盖"
+state: in_effect
+riskTier: high
+urgency: medium
+vertical: "software/coding"
+preset: "architecture-decision"
+decisionClass: ordinary
+applies_to: {"modules":["m5-circulation"],"productLines":[]}
+proposer: {"executor":null,"principal":{"personId":"person_zeyu"}}
+arbiter: {"executor":null,"principal":{"personId":"person_zeyu"}}
+proposedAt: "2026-07-03T17:12:27.103Z"
+decidedAt: "2026-07-03T17:12:28.009Z"
+question: "Should Harness preserve E1 from the canonical rewrite decision log as a kernel decision?"
+chosen: [{"id":"CH1","text":"内容与引擎正交:Vertical 选模板、TemplateLibrary 存正文/locale、Preset 覆盖"}]
+rejected: [{"id":"RJ1","text":"Leave E1 only in the hand-maintained decision log","whyNot":"M5 W1 Q2 requires E1-E71 to be queryable as kernel decision primitives; source reason: 换引擎不动内容,换场景不动引擎"}]
+claims: [{"fulfillment":"evidenced","id":"C1","loadBearing":true,"text":"E1 remains a canonical rewrite decision migrated from the legacy E-log (see git history for the removed frozen source)."}]
+relations: []
+judgmentConsents: []
+---
+
+# E1 内容与引擎正交:Vertical 选模板、TemplateLibrary 存正文/locale、Preset 覆盖
+
+## Migrated source frontmatter
+
+````yaml
+schema: decision-package/v1
+decision_id: dec_LEDGER_E1
+_coordinatorWatermark: 1783098748010-99cac50f-3552f8151b17067c
+title: "E1 内容与引擎正交:Vertical 选模板、TemplateLibrary 存正文/locale、Preset 覆盖"
+state: active
+riskTier: high
+urgency: medium
+vertical: "software/coding"
+preset: "architecture-decision"
+applies_to:
+  modules: ["m5-circulation"]
+  productLines: []
+proposedAt: "2026-07-03T17:12:27.103Z"
+decidedAt: "2026-07-03T17:12:28.009Z"
+provenance:
+  - { runtime: "claude-code", sessionId: "5c0de7e7-9015-49a3-a4e9-086c3ab1ff30", boundAt: "2026-07-03T17:12:27.104Z" }
+question: "Should Harness preserve E1 from the canonical rewrite decision log as a kernel decision?"
+chosen:
+  - { id: "CH1", text: "内容与引擎正交:Vertical 选模板、TemplateLibrary 存正文/locale、Preset 覆盖" }
+rejected:
+  - { id: "RJ1", text: "Leave E1 only in the hand-maintained decision log", why_not: "M5 W1 Q2 requires E1-E71 to be queryable as kernel decision primitives; source reason: 换引擎不动内容,换场景不动引擎" }
+claims:
+  - { id: "C1", text: "E1 remains a canonical rewrite decision migrated from the legacy E-log (see git history for the removed frozen source)." }
+relations:
+````

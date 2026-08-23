@@ -1,0 +1,107 @@
+{
+  "schema": "task-contract/v1",
+  "contractVersion": 1,
+  "taskId": "task_62eb49f177c35bd599b0d128a9",
+  "packagePath": "tasks/task_62eb49f177c35bd599b0d128a9-w6c-worker-start-execution-executor-null-person",
+  "title": "W6c 销账死锁:worker 自 start 的 execution executor 为 null 且不可补,单 person 环境无人可复核",
+  "taskClass": "standard",
+  "verticalId": "software/coding",
+  "presetId": "standard-task",
+  "profileId": "baseline",
+  "locale": "zh-CN",
+  "metadata": {
+    "idempotencyKey": null,
+    "parentTaskId": "task_63d9b4d05dc5d39addca53d75b",
+    "workKind": "fix",
+    "riskTier": "high",
+    "urgency": "high",
+    "verticalId": "software/coding",
+    "presetId": "standard-task",
+    "profileId": "baseline",
+    "moduleKey": null,
+    "slug": "w6c-worker-start-execution-executor-null-person",
+    "surfaces": [],
+    "fromLegacyId": null
+  },
+  "relations": [],
+  "registerModule": null,
+  "completionGates": [
+    "ci",
+    "code-doc-reconciliation"
+  ],
+  "presetSnapshotDigest": "sha256:2f71fec96a400e5ff1c23dc795426af57998415438aa046bb0e0b9c0dfb94860",
+  "scaffold": {
+    "baseVersion": "software-coding/v1",
+    "overlayDigest": null,
+    "resolvedSelectionDigest": "sha256:b8b7deca1befc31487faa681a6b3748a71b253639a16935ce610072c76003f84"
+  },
+  "documents": [
+    {
+      "slot": "task.index",
+      "path": "INDEX.md",
+      "owner": "machine",
+      "materializeAs": "INDEX.md",
+      "requiredAnchors": [],
+      "templateRef": null,
+      "contentSha256": null
+    },
+    {
+      "slot": "task.contract",
+      "path": "task-contract.json",
+      "owner": "machine",
+      "materializeAs": "task-contract.json",
+      "requiredAnchors": [],
+      "templateRef": null,
+      "contentSha256": null
+    },
+    {
+      "slot": "task.plan",
+      "path": "task_plan.md",
+      "owner": "doc-sync",
+      "materializeAs": "task_plan.md",
+      "requiredAnchors": [
+        "## Brief",
+        "## Goal",
+        "## Context",
+        "## Constraints",
+        "## Checkpoint",
+        "## CI/Gate Authority Stop Condition",
+        "## Implementation Plan",
+        "## Verification"
+      ],
+      "templateRef": "template://planning/task-plan@1",
+      "contentSha256": "986d10f21e79581dc095a17fabf6e332c525a2d16946ba10e92ca5878c191165"
+    },
+    {
+      "slot": "task.facts",
+      "path": "facts.md",
+      "owner": "machine",
+      "materializeAs": "facts.md",
+      "requiredAnchors": [],
+      "templateRef": null,
+      "contentSha256": "875d35a6c48d6abcf040cf4cb21baeaaaec4241e37a26bea19d3f0250e83c267"
+    },
+    {
+      "slot": "task.closeout",
+      "path": "closeout.md",
+      "owner": "doc-sync",
+      "materializeAs": "closeout.md",
+      "requiredAnchors": [
+        "## Summary",
+        "## Verification",
+        "## Residual Risk"
+      ],
+      "templateRef": "template://planning/closeout@1",
+      "contentSha256": "59b8de133dc4cba7c18e9c8392af9836526dd7bf93f66951bc72f0aead588ca3"
+    },
+    {
+      "slot": "task.artifacts.keep",
+      "path": "artifacts/.gitkeep",
+      "owner": "doc-sync",
+      "materializeAs": "artifacts/.gitkeep",
+      "requiredAnchors": [],
+      "templateRef": "template://planning/keep-file@1",
+      "contentSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    }
+  ]
+}

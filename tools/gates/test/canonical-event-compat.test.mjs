@@ -1,7 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateFrozenCanonicalEvents } from "../canonical-event-compat.mjs";
+import { validateFrozenCanonicalEvents, validateFrozenDaemonReadside, validateProjectedDaemonResponses } from "../canonical-event-compat.mjs";
+import { repoRoot } from "../git.mjs";
 import { makeRepo } from "./helpers.mjs";
 
 test("canonical event compatibility gate names a rejected frozen sample", () => {
@@ -43,4 +44,35 @@ test("canonical event compatibility gate verifies the frozen bytes, not only par
   }], () => { throw new Error("canonical event bytes are not canonical"); }), [
     "packages/kernel/fixtures/canonical-events/task-event-v1/sample.json: frozen bytes are invalid: canonical event bytes are not canonical"
   ]);
+});
+
+test("canonical event compatibility gate names the source event, validator, and rejected field", () => {
+  const errors = validateProjectedDaemonResponses([{
+    name: "validateDaemonDecisionList",
+    sourceEventIds: ["event-83528bd4ab507b4464f6367395476707fd11d8b055bafa53eb569e189f0d1f58"],
+    value: { ok: true, decisions: [{}] }
+  }], [{
+    name: "validateDaemonDecisionList",
+    validate: () => ["compatibilityCanary is required"]
+  }]);
+
+  assert.deepEqual(errors, [
+    "event-83528bd4ab507b4464f6367395476707fd11d8b055bafa53eb569e189f0d1f58 -> validateDaemonDecisionList rejected projected history: compatibilityCanary is required"
+  ]);
+});
+
+test("canonical event compatibility gate requires a projected historical sample for every registered validator", () => {
+  assert.deepEqual(validateProjectedDaemonResponses([], [{
+    name: "validateDaemonAgenda",
+    validate: () => []
+  }]), [
+    "validateDaemonAgenda: no projected historical sample"
+  ]);
+});
+
+test("canonical event compatibility gate projects the locked history through production reads", () => {
+  const result = validateFrozenDaemonReadside(repoRoot());
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.eventCount, 5);
+  assert.ok(result.durationMs < 5_000);
 });

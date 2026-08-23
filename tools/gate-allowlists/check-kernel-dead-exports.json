@@ -604,11 +604,6 @@
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
       },
       {
-        "value": "isTaskBootstrapEvent",
-        "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
-        "reason": "Preset v3 Slice A exposes the canonical task bootstrap event discriminator."
-      },
-      {
         "value": "isTaskWorkKind",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."

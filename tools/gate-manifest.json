@@ -4536,12 +4536,18 @@
       "authoritySource": [
         "decision/dec_3CA0514AF96C0E8C1AE555A513#CH1",
         "decision/dec_3CA0514AF96C0E8C1AE555A513#CH3",
+        "decision/dec_1BA221E0BED164C24854AFF2FA#CH1",
+        "decision/dec_1BA221E0BED164C24854AFF2FA#CH3",
         "packages/kernel/src/domain/doc-sync.contract.ts:canonicalEventSchemas",
-        "packages/kernel/fixtures/canonical-events/"
+        "packages/kernel/fixtures/canonical-events/",
+        "packages/daemon/src/protocol/daemon-protocol.contract.ts:validateDaemon*",
+        "packages/daemon/fixtures/readside-responses/"
       ],
       "consumerScope": [
         "all canonical event reader predicates registered in canonicalEventSchemas",
-        "byte-exact frozen events previously accepted under every registered canonical schema id"
+        "byte-exact frozen events previously accepted under every registered canonical schema id",
+        "daemon response validators for persistent task, decision, fact/relation, document, agenda, workspace-summary, and runtime-dispatch projections",
+        "production reducer and daemon read assembly replay of byte-exact events from a fixed pre-#1746 canonical cut"
       ],
       "githubContext": {
         "requiredContexts": [
@@ -4560,7 +4566,7 @@
         "allowed": false,
         "location": null,
         "adrOrDecisionRequired": false,
-        "notes": "Every registered canonical schema id must retain at least one byte-exact accepted sample; reader rejection has no allowlist."
+        "notes": "Every registered canonical schema id and persistent daemon read-side response validator must retain at least one accepted frozen sample; reader rejection has no allowlist."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -4568,6 +4574,7 @@
         "protectedSurfaces": [
           "tools/gates/canonical-event-compat.mjs",
           "packages/kernel/fixtures/canonical-events/**",
+          "packages/daemon/fixtures/readside-responses/**",
           "package.json:scripts.harness:check-canonical-event-compat",
           "tools/gate-manifest.json"
         ]
@@ -4605,7 +4612,8 @@
         "evidence": [
           "tools/gates/test/canonical-event-compat.test.mjs",
           "packages/kernel/test/contracts/canonical-event-forward-compat.test.ts",
-          "packages/kernel/fixtures/canonical-events/ORIGINS.md"
+          "packages/kernel/fixtures/canonical-events/ORIGINS.md",
+          "packages/daemon/fixtures/readside-responses/ORIGINS.md"
         ]
       }
     },

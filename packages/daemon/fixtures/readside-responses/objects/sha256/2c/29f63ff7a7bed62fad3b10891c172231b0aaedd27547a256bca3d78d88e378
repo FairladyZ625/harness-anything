@@ -1,0 +1,36 @@
+---
+schema: task-package/v2
+task_id: task_62eb49f177c35bd599b0d128a9
+title: "W6c 销账死锁:worker 自 start 的 execution executor 为 null 且不可补,单 person 环境无人可复核"
+parent: task_63d9b4d05dc5d39addca53d75b
+lifecycle:
+  engine: kernel/task-lifecycle/v1
+  status: planned
+packageDisposition: active
+workKind: fix
+riskTier: high
+urgency: high
+vertical: software/coding
+preset: standard-task
+profile: baseline
+packagePath: tasks/task_62eb49f177c35bd599b0d128a9-w6c-worker-start-execution-executor-null-person
+owner: machine
+relations:
+
+---
+# W6c 销账死锁:worker 自 start 的 execution executor 为 null 且不可补,单 person 环境无人可复核
+
+Preset: standard-task/baseline
+
+## Documents
+
+- `INDEX.md` — machine
+- `task-contract.json` — machine
+- `task_plan.md` — doc-sync
+- `facts.md` — machine
+- `closeout.md` — doc-sync
+- `artifacts/.gitkeep` — doc-sync
+
+## Next
+
+Edit `task_plan.md`, then run `ha task start task_62eb49f177c35bd599b0d128a9 --execution-id <id>`.
