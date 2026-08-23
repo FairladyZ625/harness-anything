@@ -12,13 +12,35 @@
 
 ## Machine-Readable Declarations
 
-<!-- Keep each applicable machine-readable declaration exactly once in the entire bilingual body, only in this English block, flush left without a Markdown list marker. -->
+<!-- These declarations are checked by jobs in `.github/workflows/rebuild-gates.yml`, the authority for their exact formats; `tools/gate-manifest.json` does not enumerate these jobs. -->
+<!-- Keep every uncommented keyword and its value on the same line. Keep each applicable declaration exactly once in the entire bilingual body, only in this English block, flush left without a Markdown list marker. -->
 <!-- Replace N and M with the actual added and deleted production line counts, including zero when appropriate. -->
 Production-Delta: +N/-M
-<!-- Keep and replace the next line only when any package.json or package-lock.json changes; otherwise delete it. Write a complete description, not none or n/a. -->
-Dependency-Change: <describe the deterministic dependency change in a complete sentence>
-<!-- Keep and replace the next line only when retaining an old production path; otherwise delete it. -->
-Retained-Path: <path> until <YYYY-MM-DD> per <dec_id>
+<!-- If any package.json or package-lock.json changes, replace the rejected `none` sentinel with a complete deterministic description; otherwise delete the entire next line. -->
+Dependency-Change: none
+<!-- Optional: only when retaining an old production path, remove the surrounding comment markers from the next line and replace every placeholder. -->
+<!-- Retained-Path: <path> until <YYYY-MM-DD> per <dec_id> -->
+
+### Optional Evidence Claims
+
+<!-- Evidence claims are checked by the `evidence-contract` job in `.github/workflows/rebuild-gates.yml`. No claim means N/A. -->
+<!-- Keep every uncommented claim keyword, field, and value on the same line. Remove the comment markers from one complete block only when making that claim. -->
+<!-- `Evidence-Type: ci` may replace `CI-Attribution: ...`; `Evidence-Type: performance` may replace `Performance-Claim: ...`. -->
+<!-- CI-Attribution: <what this CI run proves> -->
+<!-- run-url: https://github.com/<owner>/<repo>/actions/runs/<run-id> -->
+<!-- commit-sha: <full 40-character SHA> -->
+<!-- failed-test: <test name, or none if no test failed> -->
+<!-- scope: <evidence scope> -->
+<!-- owner: <responsible owner> -->
+<!-- Performance-Claim: <what this paired performance evidence proves> -->
+<!-- run-url: https://github.com/<owner>/<repo>/actions/runs/<run-id> -->
+<!-- commit-sha: <full 40-character SHA> -->
+<!-- failed-test: <test name, or none if no test failed> -->
+<!-- scope: <performance scope> -->
+<!-- owner: <responsible owner> -->
+<!-- fixture: <fixture name> -->
+<!-- phase: <measured phase> -->
+<!-- baseline: <full 40-character SHA or HTTPS evidence URL> -->
 
 ## Task And Scope
 
@@ -35,14 +57,15 @@ Retained-Path: <path> until <YYYY-MM-DD> per <dec_id>
 
 ## Governance Declaration
 
+<!-- These governance fields are Markdown list items; unlike the flush-left declarations above, this parser accepts the `- ` prefix. -->
 - Protected surface touched: yes / no
 - Protected surface scope:
-- Authority: ADR / decision / task reference, or not applicable
+- Authority: [replace with one authorizing ADR-####, dec_<ID>, or task_<ID>; use not applicable only when no protected surface is touched]
 - Machine-check boundary: this PR only asserts the declaration exists; reviewers decide whether it is true and sufficient.
 - Break-glass: no / yes
-- Break-glass reason:
-- Break-glass scope:
-- Follow-up governance task:
+- Break-glass reason: [required when Break-glass is yes]
+- Break-glass scope: [required when Break-glass is yes]
+- Follow-up governance task: task_<ID> [required when Break-glass is yes]
 
 ## Verification
 
@@ -100,10 +123,12 @@ Retained-Path: <path> until <YYYY-MM-DD> per <dec_id>
 
 ## 机读声明说明
 
-- 三项机读声明只能在英文块各出现一次、必须顶格，不能加 Markdown 列表符号；中文块不要重复填写。
+- 这些声明由 `.github/workflows/rebuild-gates.yml` 中的 job 校验；每个未注释的关键词和值必须写在同一行。
+- 未注释的机读声明只能在英文块各出现一次、必须顶格，不能加 Markdown 列表符号；下方治理字段仍是列表项，两类格式不要混用。
 - 生产增删：在英文块把 N 和 M 替换为实际新增、删除行数，适用时可填零。
-- 依赖变化：仅在修改任意 `package.json` 或 `package-lock.json` 时保留英文占位行，改成完整的确定性变化描述；否则删除，不得填写纯 `none` 或 `n/a`。
-- 保留旧路径：仅在适用时保留英文占位行，填写路径、到期日和 decision id；否则删除。
+- 依赖变化：修改任意 `package.json` 或 `package-lock.json` 时，把英文行中的拒绝 sentinel `none` 换成完整的确定性变化描述；否则删除整行。
+- 保留旧路径：仅在适用时把英文样例移出 HTML 注释，填写路径、到期日和 `dec_` id；否则保持注释。
+- Evidence claim 完全可选；只有确实声明 CI 归因或性能证据时，才把一个完整英文样例块移出 HTML 注释并填满全部字段。
 
 ## 任务与范围
 
@@ -120,14 +145,15 @@ Retained-Path: <path> until <YYYY-MM-DD> per <dec_id>
 
 ## 治理声明
 
+- 以下治理字段可以保留 Markdown 列表符号；这与上方必须顶格的机读声明不同。
 - 是否触碰 protected surface：yes / no
 - protected surface 范围：
-- 依据：ADR / decision / task 引用，或不适用
+- 依据：[替换为一个有效的 ADR-####、dec_<ID> 或 task_<ID>；仅未触碰 protected surface 时填不适用]
 - 机器检查边界：本 PR 只声明该段存在；声明是否真实、充分，由 reviewer 判断。
 - Break-glass：no / yes
-- Break-glass 原因：
-- Break-glass 范围：
-- 后续治理任务：
+- Break-glass 原因：[Break-glass 为 yes 时必填]
+- Break-glass 范围：[Break-glass 为 yes 时必填]
+- 后续治理任务：task_<ID> [Break-glass 为 yes 时必填]
 
 ## 验证
 
