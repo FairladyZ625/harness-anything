@@ -155,6 +155,9 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   { word: "failed", entity: "RuntimeSession", field: "outcome", meaning: "Session outcome observed as failure.", divergence: "entity-scoped" },
   { word: "unknown", entity: "RuntimeSession", field: "outcome", meaning: "Session outcome was never observed.", divergence: "entity-scoped" },
   { word: "cancelled", entity: "RuntimeSession", field: "outcome", meaning: "Session was actively terminated by a cancel request.", divergence: "entity-scoped" },
+  { word: "by_session_id", entity: "RuntimeSession", field: "transcript reachability", meaning: "The provider transcript can be retrieved by its session identifier.", divergence: "entity-scoped" },
+  { word: "dispatch_stream_only", entity: "RuntimeSession", field: "transcript reachability", meaning: "The transcript is available only from the temporary dispatch stream.", divergence: "entity-scoped" },
+  { word: "unavailable", entity: "RuntimeSession", field: "transcript reachability", meaning: "No provider session identifier or dispatch transcript is available.", divergence: "entity-scoped" },
 
   // ---- WriteReceipt.outcome (one write request) ----
   { word: "applied", entity: "WriteReceipt", field: "outcome", meaning: "Write committed at the canonical cut.", divergence: "entity-scoped" },
@@ -234,6 +237,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
   { id: "review.verdict", entity: "Review", field: "verdict", module: "packages/kernel/src/domain/review.ts", anchor: "reviewVerdicts", words: ["approved", "changes_requested", "dismissed"] },
   { id: "runtime.liveness", entity: "RuntimeSession", field: "liveness", module: "packages/kernel/src/domain/agent-runtime.ts", anchor: "runtimeLivenessStates", words: ["live", "stale", "unknown", "exited"] },
   { id: "runtime.outcome", entity: "RuntimeSession", field: "outcome", module: "packages/kernel/src/domain/agent-runtime.ts", anchor: "#outcome", words: ["succeeded", "failed", "unknown", "cancelled"] },
+  { id: "runtime.transcript-reachability", entity: "RuntimeSession", field: "transcript reachability", module: "packages/kernel/src/domain/agent-runtime.ts", anchor: "transcriptReachabilityStates", words: ["by_session_id", "dispatch_stream_only", "unavailable"] },
   { id: "receipt.outcome", entity: "WriteReceipt", field: "outcome", module: "packages/kernel/src/domain/write-chain.contract.ts", anchor: "writeReceiptOutcomes", words: ["applied", "pending", "indeterminate", "op_rejected"] },
   { id: "receipt.detail.outcome", entity: "WriteReceipt", field: "outcome", module: "packages/kernel/src/domain/receipt-domain-registry.ts", anchor: "#outcome", words: ["applied", "pending", "indeterminate", "op_rejected"], subsetOf: "receipt.outcome", note: "The WriteReceipt interface repeats the outcome vocabulary; must stay equal to writeReceiptOutcomes." },
   { id: "recovery.state", entity: "Recovery", field: "state", module: "packages/kernel/src/domain/write-chain.contract.ts", anchor: "recoveryStates", words: ["queued", "running", "exhausted", "failed", "drained"] },

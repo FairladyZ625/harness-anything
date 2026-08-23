@@ -34,6 +34,7 @@ export const decisionFieldContracts = {
   urgency: immutable("urgency is creation-time governance metadata", show("decision.urgency")),
   vertical: immutable("vertical routing is creation-time governance metadata", show("decision.vertical")),
   preset: immutable("preset routing is creation-time governance metadata", show("decision.preset")),
+  provenance: immutable("session provenance is bound at proposal time", show("decision.provenance")),
   appliesTo: immutable("scope changes require a new Decision", projection("appliesTo", false), show("decision.appliesTo")),
   decisionClass: immutable("classification never grants consent", show("decision.decisionClass")),
   proposer: immutable("proposal actor is canonical event provenance", show("decision.proposer")),

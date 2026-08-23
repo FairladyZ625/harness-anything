@@ -4,6 +4,7 @@ import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { freezeDeclaredWritePlan, hasContractFields as matchesFields, isFrozenWritePlan, isNonEmptyString, isRecord, serializeEventEnvelope, validateEventEnvelopeIdentity, type ActorIdentity, type EventEnvelope, type FrozenWritePlan, type WriteTarget } from "./write-chain.contract.ts";
 import { codePoints, requiredWithOptional } from "./event-validation.ts";
 import { timestamp } from "./timestamp.ts";
+import { validateSessionIdentity, validateSessionProvenance, type SessionProvenanceV1 } from "./agent-runtime.ts";
 
 export const factConfidenceLevels = ["low", "medium", "high"] as const;
 export const factMemoryClasses = ["semantic", "episodic", "procedural"] as const;
@@ -25,7 +26,7 @@ export interface FactEventPayload {
   readonly confidence: FactConfidence;
   readonly memoryClass: FactMemoryClass;
   readonly memoryTags: readonly FactMemoryTag[];
-  readonly provenance: readonly { readonly runtime: FactProvenanceRuntime; readonly sessionId: string; readonly boundAt: string }[];
+  readonly provenance: readonly SessionProvenanceV1[];
   readonly supersedes?: { readonly factRef: string; readonly rationale: string };
   readonly factsDocumentClaim: FactsDocumentClaim;
 }
@@ -71,7 +72,7 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
 
 function validFactsClaim(value: unknown, taskId: unknown, allowUnknownFields: boolean): value is FactsDocumentClaim { if (!isRecord(value) || !matchesFields(value, ["path", "sha256", "size", "mediaType", "policyId"], allowUnknownFields) || !/^[0-9a-f]{64}$/u.test(String(value.sha256)) || !Number.isSafeInteger(value.size) || (value.size as number) < 0 || value.mediaType !== "text/markdown" || value.policyId !== FACT_DOCUMENT_POLICY_ID || typeof taskId !== "string" || !String(value.path).startsWith(`tasks/${taskId}-`) || !String(value.path).endsWith("/facts.md")) return false; try { return normalizeRelativeDocumentPath(String(value.path)) === value.path; } catch { return false; } }
 function escapeFactDocumentScalar(value: string): string { return JSON.stringify(value).slice(1, -1); }
-function provenance(value: unknown, allowUnknownFields: boolean): boolean { return isRecord(value) && matchesFields(value, ["runtime", "sessionId", "boundAt"], allowUnknownFields)
+function provenance(value: unknown, allowUnknownFields: boolean): boolean { if (validateSessionProvenance(value)) return timestamp(value.boundAt); if (!allowUnknownFields || !isRecord(value)) return false; const identity = { runtime: value.runtime, sessionId: value.sessionId, transcriptReachability: value.transcriptReachability }; return validateSessionIdentity(identity) && timestamp(value.boundAt) || matchesFields(value, ["runtime", "sessionId", "boundAt"], true)
   && includes(factProvenanceRuntimes, value.runtime) && isNonEmptyString(value.sessionId) && timestamp(value.boundAt); }
 function uniqueProvenance(values: readonly unknown[]): boolean { const keys = values.map((value) => isRecord(value) ? `${String(value.runtime)}\0${String(value.sessionId)}` : ""); return new Set(keys).size === keys.length; }
 function supersedes(value: unknown, allowUnknownFields: boolean): boolean { return isRecord(value) && matchesFields(value, ["factRef", "rationale"], allowUnknownFields)
