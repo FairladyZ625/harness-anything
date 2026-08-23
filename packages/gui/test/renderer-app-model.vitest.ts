@@ -15,9 +15,10 @@ import { rendererCapabilityModel, rendererNavigation } from "../src/renderer/app
 import { GraphView } from "../src/renderer/views/GraphView.tsx";
 import { DecisionPoolView } from "../src/renderer/views/DecisionPoolView.tsx";
 import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
+import { TaskCloseoutTab } from "../src/renderer/components/taskDetail/TaskDetailSections.tsx";
 import { DecisionJudgmentPanel } from "../src/renderer/components/DecisionJudgmentPanel.tsx";
 import { DecisionProposalForm } from "../src/renderer/components/DecisionProposalForm.tsx";
-import { parseTaskContractDocuments, taskDocumentQuery } from "../src/renderer/task-data.ts";
+import { taskDocumentQuery } from "../src/renderer/task-data.ts";
 import { isTaskStartable, settleTaskReceipt } from "../src/renderer/task-actions.ts";
 import { decisionHasReachableEvidence, settleDecisionReceipt } from "../src/renderer/decision-actions.ts";
 
@@ -242,91 +243,35 @@ describe("renderer app model", () => {
     expect(markup).toContain("暂无三元语关系数据");
   });
 
-  it("renders the daemon L2 document body and status through the renderer query", async () => {
-    const contract = JSON.stringify({ schema: "task-contract/v1", taskId: "task-1", documents: [
-      { slot: "task.index", path: "INDEX.md", owner: "machine", materializeAs: "INDEX.md", requiredAnchors: [], templateRef: null, contentSha256: null }
-    ] });
+  it("renders the task plan body from the daemon document projection", async () => {
     const getTaskDocument = vi.fn(async ({ path }: { path: string }) => ({ ok: true, status: "ready", taskId: "task-1", path,
-      body: path === "task-contract.json" ? contract : "# Canonical renderer document", blobSha256: "sha256:canonical", watermark: 7, sourceRevision: 7 }));
+      body: "# Canonical task plan", blobSha256: "sha256:canonical", watermark: 7, sourceRevision: 7 }));
     vi.stubGlobal("window", { harness: { getTaskDocument } });
     const queryClient = new QueryClient();
     try {
-      await queryClient.fetchQuery(taskDocumentQuery("project-1", "task-1", "task-contract.json"));
-      await queryClient.fetchQuery(taskDocumentQuery("project-1", "task-1", "INDEX.md"));
+      await queryClient.fetchQuery(taskDocumentQuery("project-1", "task-1", "task_plan.md"));
       const task: TaskRow = { taskId: "task-1", title: "One", projectId: "project-1", coordinationStatus: "active", rawStatus: "active",
         freshness: "fresh", packageDisposition: "active", closeoutReadiness: "not_required", engine: "local", source: "snapshot-cache",
         module: "gui", packagePath: "tasks/task-1-one", lastKnownAt: "2026-08-13T00:00:00.000Z", gates: [], docs: [] };
       const markup = renderToStaticMarkup(createElement(QueryClientProvider, { client: queryClient }, createElement(TaskDetailView,
         { task, onBack: () => undefined, projectName: "Harness" })));
-      expect(getTaskDocument).toHaveBeenCalledWith({ repoId: "project-1", taskId: "task-1", path: "task-contract.json" });
-      expect(getTaskDocument).toHaveBeenCalledWith({ repoId: "project-1", taskId: "task-1", path: "INDEX.md" });
-      expect(markup).toContain("Canonical renderer document");
-      expect(markup).toContain("L2 · ready");
+      expect(getTaskDocument).toHaveBeenCalledWith({ repoId: "project-1", taskId: "task-1", path: "task_plan.md" });
+      expect(markup).toContain("Canonical task plan");
+      expect(markup).toContain("task-identity-strip");
     } finally {
       vi.unstubAllGlobals();
     }
-  });
-
-  it("renders the projection empty state, not corruption, when the task has no task-contract projection", async () => {
-    const getTaskDocument = vi.fn(async ({ path }: { path: string }) => ({ ok: true, status: "ready", taskId: "task-legacy", path,
-      body: "", blobSha256: null, watermark: 9, sourceRevision: 9 }));
-    vi.stubGlobal("window", { harness: { getTaskDocument } });
-    const queryClient = new QueryClient();
-    try {
-      await queryClient.fetchQuery(taskDocumentQuery("project-1", "task-legacy", "task-contract.json"));
-      const task: TaskRow = { taskId: "task-legacy", title: "Legacy", projectId: "project-1", coordinationStatus: "planned", rawStatus: "planned",
-        freshness: "fresh", packageDisposition: "active", closeoutReadiness: "not_required", engine: "local", source: "snapshot-cache",
-        module: "gui", packagePath: "tasks/task-legacy-legacy", lastKnownAt: "2026-08-13T00:00:00.000Z", gates: [], docs: [] };
-      const markup = renderToStaticMarkup(createElement(QueryClientProvider, { client: queryClient }, createElement(TaskDetailView,
-        { task, onBack: () => undefined, projectName: "Harness" })));
-      expect(markup).toContain("该任务无投影文档");
-      expect(markup).not.toContain("文档读取失败");
-      expect(markup).not.toContain("not valid JSON");
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("still reports a materialized but malformed task-contract body as invalid JSON", async () => {
-    const getTaskDocument = vi.fn(async ({ path }: { path: string }) => ({ ok: true, status: "ready", taskId: "task-broken", path,
-      body: "{ this is not json", blobSha256: "sha256:broken", watermark: 9, sourceRevision: 9 }));
-    vi.stubGlobal("window", { harness: { getTaskDocument } });
-    const queryClient = new QueryClient();
-    try {
-      await queryClient.fetchQuery(taskDocumentQuery("project-1", "task-broken", "task-contract.json"));
-      const task: TaskRow = { taskId: "task-broken", title: "Broken", projectId: "project-1", coordinationStatus: "planned", rawStatus: "planned",
-        freshness: "fresh", packageDisposition: "active", closeoutReadiness: "not_required", engine: "local", source: "snapshot-cache",
-        module: "gui", packagePath: "tasks/task-broken-broken", lastKnownAt: "2026-08-13T00:00:00.000Z", gates: [], docs: [] };
-      const markup = renderToStaticMarkup(createElement(QueryClientProvider, { client: queryClient }, createElement(TaskDetailView,
-        { task, onBack: () => undefined, projectName: "Harness" })));
-      expect(markup).toContain("task-contract 文档读取失败：task-contract projection is not valid JSON");
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("parses canonical task-contract descriptors without inventing document presence", () => {
-    expect(parseTaskContractDocuments("task-1", JSON.stringify({ schema: "task-contract/v1", taskId: "task-1", documents: [
-      { slot: "task.plan", path: "task_plan.md", owner: "doc-sync", materializeAs: "task_plan.md", requiredAnchors: [], templateRef: "template://plan@1", contentSha256: "abc" },
-      { slot: "task.artifacts.keep", path: "artifacts/.gitkeep", owner: "doc-sync", materializeAs: "artifacts/.gitkeep", requiredAnchors: [], templateRef: null, contentSha256: "def" }
-    ] }))).toEqual([
-      expect.objectContaining({ path: "task_plan.md", group: "计划", required: true, presence: "unknown" }),
-      expect.objectContaining({ path: "artifacts/.gitkeep", group: "证据", required: false, presence: "unknown" })
-    ]);
-    expect(() => parseTaskContractDocuments("task-1", JSON.stringify({ schema: "task-contract/v1", taskId: "other", documents: [] }))).toThrow("task-contract");
   });
 
   it("renders explicit active lease forms and read-only blocking explanations", () => {
     const active: TaskRow = { taskId: "task-active", title: "Active", projectId: "p", coordinationStatus: "active", canonicalStatus: "active", blocking: "clear",
       blockingLabel: "当前投影无 active blocking relation", rawStatus: "active/implementation", freshness: "fresh", packageDisposition: "active", closeoutReadiness: "not_required",
       engine: "kernel/task-lifecycle/v1", origin: "native", source: "local-document", module: "gui", lastKnownAt: "2026-08-14T00:00:00.000Z", activeExecutionId: "execution-gui-1", gates: [], docs: [] };
-    const activeMarkup = renderToStaticMarkup(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(TaskDetailView,
-      { task: active, onBack: () => undefined, projectName: "Harness" })));
+    const activeMarkup = renderToStaticMarkup(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(TaskCloseoutTab, { task: active })));
     expect(activeMarkup).toContain("追加 progress"); expect(activeMarkup).toContain("atomic SubmissionV1"); expect(activeMarkup).toContain("execution-gui-1");
 
-    const blockedMarkup = renderToStaticMarkup(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(TaskDetailView,
-      { task: { ...active, canonicalStatus: "planned", coordinationStatus: "blocked", blocking: "blocked", blockingLabel: "1 个 active blocking relation", activeExecutionId: undefined,
-        blockers: [{ relationId: "rel_1", kind: "depends-on", sourceTaskId: "task-active", targetTaskId: "task-upstream", rationale: "wait" }] }, onBack: () => undefined, projectName: "Harness" })));
+    const blockedMarkup = renderToStaticMarkup(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(TaskCloseoutTab, { task: { ...active, canonicalStatus: "planned", coordinationStatus: "blocked", blocking: "blocked", blockingLabel: "1 个 active blocking relation", activeExecutionId: undefined,
+        blockers: [{ relationId: "rel_1", kind: "depends-on", sourceTaskId: "task-active", targetTaskId: "task-upstream", rationale: "wait" }] } })));
     expect(blockedMarkup).toContain("Blocked 是 relation overlay"); expect(blockedMarkup).toContain("rel_1"); expect(blockedMarkup).not.toContain("解除");
   });
 
