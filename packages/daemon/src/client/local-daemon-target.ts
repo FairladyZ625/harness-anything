@@ -17,6 +17,18 @@ export function localUserDaemonEndpoint(userRoot = daemonUserRoot(), daemonId = 
 }
 export function daemonUserRoot(env: NodeJS.ProcessEnv = process.env): string { return path.resolve(env.HARNESS_DAEMON_USER_ROOT || path.join(os.homedir(), ".harness")); }
 export function daemonIdFromEnv(env: NodeJS.ProcessEnv = process.env): string { return env.HARNESS_DAEMON_ID || "default"; }
+export function resolveLocalDaemonEndpoint(input: { readonly userRoot?: string; readonly daemonId?: string; readonly env?: NodeJS.ProcessEnv;
+  readonly repoId?: string; readonly canonicalRoot?: string }): EndpointIdentity {
+  const env = input.env ?? process.env, userRoot = path.resolve(input.userRoot ?? daemonUserRoot(env)), daemonId = input.daemonId ?? daemonIdFromEnv(env), expected = localUserDaemonEndpoint(userRoot, daemonId), injected = env.HARNESS_DAEMON_ENDPOINT?.trim();
+  if (!injected) return expected;
+  const endpoint = endpointIdentity(injected);
+  // An enforced runtime changes TMPDIR, so a matching POSIX socket may live in a different
+  // directory. Its basename still carries the hash of the sealed (userRoot, daemonId) pair.
+  if (process.platform !== "win32" ? path.basename(endpoint) === path.basename(expected) : endpoint === expected) return endpoint;
+  const repoId = input.repoId ?? null, canonicalRoot = input.canonicalRoot ?? null;
+  const nextAction = `Daemon target conflict: injected target endpoint=${JSON.stringify(endpoint)} userRoot=${JSON.stringify(userRoot)} daemonId=${JSON.stringify(daemonId)} repoId=${JSON.stringify(repoId)} canonicalRoot=${JSON.stringify(canonicalRoot)}; resolved registry target endpoint=${JSON.stringify(expected)} userRoot=${JSON.stringify(userRoot)} daemonId=${JSON.stringify(daemonId)} repoId=${JSON.stringify(repoId)} canonicalRoot=${JSON.stringify(canonicalRoot)}. Unset HARNESS_DAEMON_ENDPOINT to use the resolved registry target, or restore the original HARNESS_DAEMON_USER_ROOT and HARNESS_DAEMON_ID before retrying.`;
+  throw Object.assign(new Error(nextAction), { code: "daemon_target_conflict", nextAction });
+}
 export function resolveLocalDaemonTarget(input: { readonly rootDir: string; readonly repoIdOverride?: string; readonly userRoot?: string;
   readonly daemonId?: string; readonly env?: NodeJS.ProcessEnv }): LocalDaemonTarget {
   const env = input.env ?? process.env, userRoot = path.resolve(input.userRoot ?? daemonUserRoot(env));
@@ -27,7 +39,7 @@ export function resolveLocalDaemonTarget(input: { readonly rootDir: string; read
     : repos.filter((candidate) => candidate.canonicalRoot === rootDir || rootDir.startsWith(`${candidate.canonicalRoot}${path.sep}`))
       .sort((left, right) => right.canonicalRoot.length - left.canonicalRoot.length)[0];
   if (!repo || repo.state !== "enabled") throw new Error(`workspace is not registered; run ha daemon repo register --repo-id <id> --root ${JSON.stringify(path.resolve(input.rootDir))}`);
-  const injectedEndpoint = env.HARNESS_DAEMON_ENDPOINT?.trim(), socketPath = injectedEndpoint ? endpointIdentity(injectedEndpoint) : localUserDaemonEndpoint(userRoot, daemonId);
+  const socketPath = resolveLocalDaemonEndpoint({ userRoot, daemonId, env, repoId: repo.repoId, canonicalRoot: repo.canonicalRoot });
   return { repoId: workspaceId(repo.repoId), canonicalRoot: bindCanonicalRoot(repo.canonicalRoot), userRoot, daemonId, socketPath };
 }
 export function readRegisteredRepos(userRoot: string): readonly { readonly repoId: string; readonly canonicalRoot: string; readonly state: string; readonly mode?: string }[] {

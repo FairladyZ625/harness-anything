@@ -1,20 +1,23 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, makeTaskProjection, registerDaemonRepo, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { launchExitNotification } from "../src/runtime-spawn.ts";
+import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
+const cli = path.resolve("packages/cli/src/index.ts");
 const definition: AgentDefinitionSnapshot = { schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: "codex-review", installationId: "installation-codex", kindId: "codex", providerId: "openai", model: "gpt-5.6-sol", reasoningEffort: "high", baseUrl: "https://api.example.test/", authMode: "api-key" };
 const installation: RuntimeInstallationWitness = { installationId: definition.installationId, kindId: definition.kindId, executablePath: "/opt/witnessed/codex", version: "1.0.0", observedAt: "2026-08-14T00:00:00.000Z" };
 
@@ -126,13 +129,16 @@ test("Codex API-key bearer remains confined to the private provider config", asy
 });
 
 test("daemon ingress preserves executor-scoped task-bound runtime spawn", async (t) => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-ingress-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), workerRoot = path.join(root, ".worktrees", "worker"), executablePath = writeProviderExecutable(path.join(parent, "codex-stub.mjs"), "process.exit(0);\n"), repoId = "runtime-spawn-ingress", uid = 4301;
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-ingress-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), workerRoot = path.join(root, ".worktrees", "worker"), executablePath = writeProviderExecutable(path.join(parent, "codex-stub.mjs"), "process.exit(0);\n"), repoId = "runtime-spawn-ingress", uid = process.getuid?.() ?? 0;
   initIngressRepo(root, uid); registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
   mkdirSync(path.join(workerRoot, "packages", "cli", "src"), { recursive: true }); writeFileSync(path.join(workerRoot, "packages", "cli", "src", "index.ts"), "export {};\n");
   const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" } } as const;
   const ingressDefinition = { ...definition, authMode: "subscription" as const }, ingressInstallation = { ...installation, executablePath }; let launchedEnv: NodeJS.ProcessEnv | null = null, launchedPrompt = "", launchCount = 0;
   const host = await openDaemonHost({ daemonId: "runtime-spawn-ingress", userRoot, runtimeDiscover: () => [ingressInstallation], runtimeLaunch: (prepared) => { launchedEnv = prepared.env; launchedPrompt = prepared.prompt; launchCount += 1; return { pid: 4310, onOutput: (listener) => { queueMicrotask(() => listener(`${JSON.stringify({ type: "thread.started", thread_id: "provider-task-session" })}\n`)); }, onErrorOutput: () => undefined, onExit: () => undefined, terminate: () => undefined }; } });
   await host.attachmentsSettled();
+  let transportConnections = 0;
+  const endpoint = localUserDaemonEndpoint(userRoot, "runtime-spawn-ingress"), transport = createUnixSocketTransportServer({ daemonId: "runtime-spawn-ingress", socketPath: endpoint, createProtocolServer: (authContext, emit) => { transportConnections += 1; return createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }); } });
+  await transport.start();
   try {
     host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: ingressDefinition.instanceId, name: "Codex Review", kindId: ingressDefinition.kindId, installationId: ingressDefinition.installationId, providerId: ingressDefinition.providerId, models: [ingressDefinition.model], codex: { reasoningEffort: ingressDefinition.reasoningEffort }, authMode: ingressDefinition.authMode }, auth);
     await t.test("matching agent executor writes the task and execution join", async () => {
@@ -149,6 +155,16 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.deepEqual(bound?.type === "runtime_session_task_bound" && { taskId: bound.payload.taskId, executionId: bound.payload.executionId }, { taskId, executionId });
       const overview = await host.read(repoId, "repo.agentRuntime.overview", {}, auth), session = overview.sessions.find((candidate) => candidate.runtimeSessionId === receipt.runtimeSessionId);
       assert.equal(session?.associations.some((association) => association.taskId === taskId && association.executionId === executionId), true);
+    });
+    await t.test("a worker that changes its user root is rejected before it can reach the parent daemon", async () => {
+      const scratchUserRoot = path.join(parent, "isolated-user");
+      registerDaemonRepo({ canonicalRoot: root, repoId, userRoot: scratchUserRoot, createConvenienceLinks: false });
+      const before = transportConnections;
+      const result = await spawnCli(["--root", workerRoot, "--json", "task", "list"], { ...launchedEnv, HARNESS_DAEMON_USER_ROOT: scratchUserRoot, HARNESS_DAEMON_ID: "isolated" });
+      assert.equal(result.status, 1, `${result.stderr}\n${result.stdout}`);
+      const receipt = JSON.parse(result.stdout) as Record<string, unknown>;
+      assert.equal(receipt.code, "daemon_target_conflict", JSON.stringify(receipt));
+      assert.equal(transportConnections, before, "a conflicting target must be rejected before opening the parent daemon socket");
     });
     await t.test("task mission rejects an unmatched shell glob before provider launch", async () => {
       const taskId = "task-runtime-invalid-glob", executionId = "exec-runtime-invalid-glob", executor = { kind: "agent", id: "codex-worker" } as const;
@@ -235,7 +251,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       writeFileSync(path.join(root, "submission.json"), JSON.stringify(submission));
       assert.equal((await host.run(repoId, { kind: "task-submit", taskId, executionId, fromFile: "submission.json", executor: holder }, auth)).outcome, "applied");
     });
-  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+  } finally { await transport.stop(); await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
 test("daemon ingress persists scrubbed provider JSONL while returning canonical results for both runtime kinds", async (t) => {
@@ -348,4 +364,7 @@ function writeProviderStub(target: string, kindId: "claude" | "codex"): string {
   : [{ type: "thread.started", thread_id: "codex-provider-session" }, { type: "item.completed", item: { id: "item-1", type: "agent_message", text: "codex live content", credentialRef: "credential-secret", executablePath: "/provider/private", apiToken: "sk-provider-secret" } }, { type: "item.completed", item: { id: "write-1", type: "file_change", changes: [{ path: "result.txt", kind: "add" }], status: "completed" } }, { type: "item.completed", item: { id: "item-2", type: "agent_message", text: "codex final result" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; const structuredFlag = kindId === "claude" ? `process.argv.includes("--output-format") && process.argv.includes("stream-json") && process.argv.includes("--verbose")` : `process.argv[2] === "exec" && process.argv.includes("--json")`;
   return writeProviderExecutable(target, `import fs from "node:fs";\nconst auth = process.argv[2] === "auth" || process.argv[2] === "login";\nif (auth) process.exit(0);\nif (!(${structuredFlag})) process.exit(9);\nconst prompt = fs.readFileSync(0, "utf8"), secret = "sk-runtime-secret-1234567890";\nif (prompt === "failure:empty") process.exit(1);\nelse if (prompt === "failure:secret") process.stderr.write("OPENAI_API_KEY=" + secret + "\\n", () => process.exit(1));\nelse if (prompt === "failure:structured") process.stdout.write([JSON.stringify({ type: "thread.started", thread_id: "codex-provider-session" }), JSON.stringify({ type: "turn.failed", error: { message: "structured provider failure", apiToken: secret } })].join("\\n") + "\\n", () => process.exit(1));\nelse if (prompt === "permission-denied") process.stdout.write([JSON.stringify({ type: "system", subtype: "init", session_id: "claude-provider-session" }), JSON.stringify({ type: "assistant", session_id: "claude-provider-session", message: { content: [{ type: "tool_use", id: "denied-write", name: "Write", input: { file_path: "/tmp/outside", content: "denied" } }] } }), JSON.stringify({ type: "result", subtype: "success", is_error: false, session_id: "claude-provider-session", result: "write denied", permission_denials: [{ tool_name: "Write", tool_use_id: "denied-write" }] })].join("\\n") + "\\n");\nelse { let emitted = ${JSON.stringify(lines)}; if (prompt === "read-only") emitted = [{ type: "thread.started", thread_id: "codex-provider-session" }, { type: "item.completed", item: { id: "inspect", type: "command_execution", command: "git status --short", aggregated_output: "", exit_code: 0, status: "completed" } }, { type: "item.completed", item: { id: "message", type: "agent_message", text: "read-only final result" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; else if (prompt === "no-action") emitted = [{ type: "thread.started", thread_id: "codex-provider-session" }, { type: "item.completed", item: { id: "message", type: "agent_message", text: "no-action final result" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; else if (prompt === "no-write") emitted.splice(1, 0, { type: "item.completed", item: { id: "inspect", type: "command_execution", command: "git status --short", aggregated_output: "", exit_code: 0, status: "completed" } }, { type: "item.updated", item: { id: "plan", type: "todo_list", items: [{ text: "locate cause", status: "completed" }, { text: "write fix", status: "in_progress" }] } }); emitted.forEach((line, index) => setTimeout(() => console.log(JSON.stringify(line)), index * 40)); }\n`); }
 function installationFixture(kindId: "claude" | "codex", executablePath: string): RuntimeInstallationWitness { return { installationId: `installation-${kindId}`, kindId, executablePath, version: "1.0.0", observedAt: "2026-08-19T00:00:00.000Z" }; }
+function spawnCli(args: readonly string[], env: NodeJS.ProcessEnv): Promise<{ readonly status: number | null; readonly stdout: string; readonly stderr: string }> {
+  return new Promise((resolve, reject) => { const child = spawn(process.execPath, [cli, ...args], { env, stdio: ["ignore", "pipe", "pipe"] }); let stdout = "", stderr = ""; const timeout = setTimeout(() => child.kill(), 10_000); child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; }); child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; }); child.once("error", reject); child.once("close", (status) => { clearTimeout(timeout); resolve({ status, stdout, stderr }); }); });
+}
 function git(root: string, ...args: string[]): void { execFileSync("git", ["-C", root, ...args]); }

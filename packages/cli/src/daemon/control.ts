@@ -37,7 +37,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       const running = await status(userRoot, daemonId).catch(() => null); if (running?.ok === true) return finish(running, 0);
       const started = await ensureLocalDaemonRunning({ socketPath: localUserDaemonEndpoint(userRoot, daemonId), launch: () => cliDaemonServeLaunch(userRoot, daemonId), onProgress: (progress) => process.stderr.write(`${progress.message}\n`) });
       return started.ok ? finish(await status(userRoot, daemonId), 0) : finish(daemonFailure("daemon-start", started.code ?? "daemon_start_failed", started.hint), 1); }
-    if (command === "status") return finish(await status(userRoot, daemonId), 0);
+    if (command === "status") return finish(await status(userRoot, daemonId, argv), 0);
     if (command === "stop") { const pid = readDaemonPid(userRoot, daemonId); if (pid === null) return finish(daemonFailure("daemon-stop", "daemon_unavailable", "No daemon is running."), 1);
       if (argv.includes("--force")) { const forced = await forceStopDaemon(userRoot, daemonId, pid); return finish(forced, forced.ok === true ? 0 : 1); }
       const exchange = await requestCooperativeStop(userRoot, daemonId, pid); const stopped = await waitForDaemonStop(userRoot, daemonId, pid);
@@ -76,7 +76,14 @@ function deferredServeReceipt(incumbent: { readonly pid: number | null; readonly
   const witness = incumbent.witness === "unix-socket" ? `a daemon is already accepting connections at ${incumbent.endpoint}` : `daemon pid ${incumbent.pid} already holds the singleton lock for --user-root ${userRoot}`;
   return { ok: true, command: "daemon-serve", outcome: "deferred", incumbent: { pid: incumbent.pid, endpoint: incumbent.endpoint }, summary: `daemon serve deferred: ${witness}; this process did not bind the socket or take any workspace writer lock.`, nextAction: "Use the resident daemon (ha daemon status) or stop it first (ha daemon stop)." };
 }
-async function status(userRoot: string, daemonId: string): Promise<Record<string, unknown>> { return requestDaemonJsonRpcAt(localUserDaemonEndpoint(userRoot, daemonId), "daemon.status", {}, 75) as Promise<Record<string, unknown>>; }
+async function status(userRoot: string, daemonId: string, argv: readonly string[] = []): Promise<Record<string, unknown>> {
+  const root = path.resolve(daemonOption(argv, "--root") ?? process.cwd()), repoIdOverride = daemonOption(argv, "--repo") ?? process.env.HARNESS_DAEMON_REPO_ID;
+  // Same resolver as every command: canonicalised registry match, and the injected-endpoint conflict check fails closed here too.
+  const resolved = ((): ReturnType<typeof resolveLocalDaemonTarget> | null => { try { return resolveLocalDaemonTarget({ rootDir: root, repoIdOverride, userRoot, daemonId }); } catch (error) { if ((error as { readonly code?: unknown }).code === "daemon_target_conflict") throw error; consumeKnownError(error); return null; } })();
+  const endpoint = resolved?.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId), result = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 75);
+  const target = { endpoint, daemonId, userRoot, repoId: resolved?.repoId ?? null, canonicalRoot: resolved?.canonicalRoot ?? null }, detail = `target: endpoint=${endpoint} daemonId=${daemonId} userRoot=${userRoot} repoId=${target.repoId ?? "none"} canonicalRoot=${target.canonicalRoot ?? "none"}`;
+  return { ...result, target, summary: `${String(result.summary ?? "daemon status")}\n${detail}` };
+}
 async function requestCooperativeStop(userRoot: string, daemonId: string, pid: number): Promise<DaemonShutdownExchange | null> {
   let exchange: DaemonShutdownExchange | null = null;
   try { const { requestDaemonShutdownAt } = await import("../../../daemon/src/client/local-json-rpc-shutdown.ts"); exchange = await requestDaemonShutdownAt(localUserDaemonEndpoint(userRoot, daemonId), 75); }
