@@ -14,10 +14,10 @@ test("Fact product code limits facts.md to machine bootstrap, typed compilation/
     .map((file) => path.relative(repoRoot, file)).sort();
   assert.deepEqual(mentions, [
     "packages/daemon/src/migration-import.ts",
-    "packages/kernel/src/domain/doc-sync.contract.ts",
+    "packages/kernel/src/domain/doc-sync-writer.ts",
     "packages/kernel/src/domain/fact-event.ts",
     "packages/kernel/src/projection/cold-rebuild-source.ts",
-    "packages/kernel/src/projection/rebuildable-task-projection.ts",
+    "packages/kernel/src/projection/rebuildable-task-projection-write-model.ts",
     "packages/preset/src/preset-bootstrap.ts"
   ]);
   for (const retired of [

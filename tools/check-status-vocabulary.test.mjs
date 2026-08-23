@@ -19,7 +19,7 @@ const GUI_MODEL = "packages/gui/src/renderer/model/types.ts";
 const GUI_ADAPTER = "packages/gui/src/renderer/triadic-data.ts";
 
 const register = await import(new URL("../packages/kernel/src/domain/status-vocabulary.ts", import.meta.url));
-const realDecisionModule = await import(new URL("../packages/kernel/src/domain/decision-event.ts", import.meta.url));
+const realDecisionModule = await import(new URL("../packages/kernel/src/domain/decision-event-types.ts", import.meta.url));
 const realModules = new Map();
 for (const vocabulary of register.statusVocabularies) {
   if (!vocabulary.module.startsWith("packages/kernel/src/domain/") || vocabulary.anchor.startsWith("#")) continue;
@@ -66,7 +66,7 @@ test("bypass fixture: a new unregistered status vocabulary is refused", () => {
 });
 
 test("bypass fixture: a kernel vocabulary gaining an unregistered word is refused", () => {
-  const drifted = new Map([["packages/kernel/src/domain/decision-event.ts", {
+  const drifted = new Map([["packages/kernel/src/domain/decision-event-types.ts", {
     ...realDecisionModule,
     decisionStates: [...realDecisionModule.decisionStates, "reconsidered"]
   }]]);
@@ -95,11 +95,10 @@ test("bypass fixture: smoothing an unknown decision state into a neighbour is re
 });
 
 test("bypass fixture: a daemon wire mirror drifting from the kernel vocabulary is refused", () => {
-  // The wire contract cannot import the kernel barrel (CLI eager startup path), so its
-  // mirrors are plain data — and the gate must keep them from silently diverging.
-  const daemonText = readFileSync(path.join(repoRoot, "packages/daemon/src/protocol/daemon-protocol.contract.ts"), "utf8")
-    .replace('const decisionStateWords = ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired"] as const;',
-      'const decisionStateWords = ["proposed", "in_effect", "rejected", "deferred", "outcome_retired"] as const;');
+  // The wire contract's eager vocabulary dependency carries plain-data mirrors, and
+  // the gate must keep them from silently diverging.
+  const daemonText = readFileSync(path.join(repoRoot, "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts"), "utf8")
+    .replace('  "superseded",\n', "");
   const findings = checkDaemonMirrorAgreement(register, daemonText);
   assert.ok(findings.some((finding) => finding.includes("decisionStateWords") && finding.includes("drift")), findings.join("\n"));
 

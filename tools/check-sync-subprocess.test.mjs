@@ -15,7 +15,15 @@ const repoRoot = path.resolve(import.meta.dirname, "..");
 test("repository inventory freezes 17 AST sites across 7 files", () => {
   const counts = inventoryCounts(scanSyncSubprocess(repoRoot));
   assert.equal(counts.total, 17);
-  assert.equal(Object.keys(counts.files).length, 7);
+  assert.deepEqual(counts.files, {
+    "packages/daemon/src/agent-runtime-installation-discovery.ts": 2,
+    "packages/daemon/src/doc-sync-candidate-scanner.ts": 2,
+    "packages/daemon/src/doc-sync-files.ts": 3,
+    "packages/daemon/src/process-port.ts": 2,
+    "packages/daemon/src/runtime-spawn-process.ts": 2,
+    "packages/kernel/src/projection/post-merge-checks.ts": 2,
+    "packages/kernel/src/store/local-version-control-system.ts": 4
+  });
   assert.deepEqual(counts.kinds, { import: 7, call: 10 });
   assert.deepEqual(counts.apis, { execFileSync: 15, spawnSync: 2 });
 });

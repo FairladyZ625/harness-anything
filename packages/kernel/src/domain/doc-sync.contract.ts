@@ -1,173 +1,41 @@
-import { consumeKnownError } from "../error-consumption.ts";
-import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-hash.ts";
-import { validateCurrentTaskEvent, validateTaskEvent, type TaskEventV1 } from "./task-lifecycle.contract.ts";
-import { canonicalizeWriteValue, freezeDeclaredWritePlan, hasOnlyFields, hasRequiredFields, isFrozenWritePlan, isNonEmptyString, isRecord, validateEventEnvelopeIdentity,
-  type ActorIdentity, type EventEnvelope, type FrozenWritePlan, type WriteSource, type WriteTarget } from "./write-chain.contract.ts";
-import type { DocSyncDifference, DocSyncReceiptDetail, DocSyncUnresolvedTouch, LedgerCommitIdentity, LedgerCutIdentity, LedgerIdentity } from "./receipt-domain-registry.ts";
-import type { LeaseV1 } from "./execution.ts";
-import { validateAgentRuntimeEvent, validateCurrentAgentRuntimeEvent, type AgentRuntimeEventV1 } from "./agent-runtime.ts";
-import { isTaskBootstrapEvent, validateCurrentTaskBootstrapEvent, validateTaskBootstrapEvent, type TaskBootstrapEventV1 } from "./task-bootstrap-event.ts"; import { isDecisionEvent, validateCurrentDecisionEvent, validateDecisionEvent, type DecisionEventV1 } from "./decision-event.ts"; import { isFactEvent, validateCurrentFactEvent, validateFactEvent, type FactEventV1 } from "./fact-event.ts";
-import { isTaskProgressEvent, validateCurrentTaskProgressEvent, validateTaskProgressEvent, type TaskProgressEventV1 } from "./task-progress-event.ts"; import { isPresetSnapshotUpgradeEvent, validateCurrentPresetSnapshotUpgradeEvent, validatePresetSnapshotUpgradeEvent, type PresetSnapshotUpgradeEventV1 } from "./preset-snapshot-upgrade-event.ts";
-import { assertNoPortablePathCollisions, normalizeRelativeDocumentPath, type PortableDocumentPath } from "../layout/portable-path.ts";
-import { isMigrationImportEvent, MIGRATION_DOCUMENT_POLICY_ID, validateCurrentMigrationImportEvent, validateMigrationImportEvent, type MigrationImportEventV1 } from "./migration-import-event.ts";
-import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
-import { isLedgerLayoutMigrationEvent, validateCurrentLedgerLayoutMigrationEvent, validateLedgerLayoutMigrationEvent, type LedgerLayoutMigrationEventV1 } from "./ledger-layout-migration-event.ts";
-import { isSameExecution } from "./actor-domain-services.ts";
-import { isTaskBoundRuntimeWriter, runtimeSessionIdFromActor, type LiveTaskBoundRuntimeBinding } from "./task-bound-runtime-authority.ts";
-import { isOpaqueTextualMediaType, OPAQUE_TEXTUAL_POLICY_ID, type OpaqueTextualMediaType } from "./artifact-text-classification.ts";
-import { isAgentEntityEvent, validateAgentEntityEvent, validateCurrentAgentEntityEvent, type AgentEntityEventV1 } from "./agent-entity-event.ts";
-
-export const DOC_POLICY_ID = "markdown-body-replaceable/v1", DOC_CODEC_ID = "markdown-regions/v1";
-export const DOC_WRITE_INTENT_SCHEMA = Object.freeze({ id: "doc-write-intent/v1", required: Object.freeze(["schema", "executionId", "baseLedgerSha", "changes"]) }); export const DOC_EVENT_SCHEMA = Object.freeze({ id: "doc-event/v1", required: Object.freeze(["schema", "eventId", "workspaceRevision", "opId", "type", "actor", "source", "occurredAt", "payload"]) });
-export class DocSyncContractError extends Error { readonly code = "invalid_contract"; constructor(message: string) { super(message); this.name = "DocSyncContractError"; } }
-export const docRouteRegistry = Object.freeze([{ prefix: "events/", requiredRoute: "canonical-event" }, { prefix: "objects/", requiredRoute: "content-blob" }, { prefix: "harness.yaml", requiredRoute: "workspace-config" }, { prefix: "people.yaml", requiredRoute: "people-registry" }] as const);
-export const docRegionPolicyRegistry = Object.freeze([{ id: DOC_POLICY_ID, codecId: DOC_CODEC_ID, writable: "body-replaceable", catchAll: "prose/*" }, { id: OPAQUE_TEXTUAL_POLICY_ID, codecId: null, writable: "whole-file-cas", catchAll: null }] as const);
-declare const ledgerCommitShaBrand: unique symbol, docClaimRefBrand: unique symbol, docByteLengthBrand: unique symbol; export interface LedgerCommitSha extends LedgerCommitIdentity { readonly [ledgerCommitShaBrand]: true } export type DocClaimRef = string & { readonly [docClaimRefBrand]: true }; export type DocByteLength = number & { readonly [docByteLengthBrand]: true };
-export interface ContentClaim { readonly ref: DocClaimRef; readonly sha256: string; readonly size: DocByteLength; readonly mediaType: "text/markdown" | "text/plain" | OpaqueTextualMediaType }
-export interface DocWriteChange { readonly path: PortableDocumentPath; readonly baseBlobSha256: string | null; readonly policyId: string; readonly candidate: ContentClaim | null }
-export interface DocWriteIntent { readonly schema: "doc-write-intent/v1"; readonly executionId: string | null; readonly baseLedgerSha: LedgerCutIdentity; readonly changes: readonly DocWriteChange[] }
-export interface RegionProof { readonly regionId: string; readonly policyId: string; readonly codecId: string; readonly baseSha256: string; readonly candidateSha256: string; readonly insertBytes: number }
-export interface DocPolicyUpgrade { readonly from: typeof MIGRATION_DOCUMENT_POLICY_ID; readonly to: typeof DOC_POLICY_ID }
-export interface DocEventChange { readonly path: PortableDocumentPath; readonly baseBlobSha256: string | null; readonly candidate: Omit<ContentClaim, "ref">; readonly policyId: string; readonly regionProofs: readonly RegionProof[]; readonly policyUpgrade?: DocPolicyUpgrade }
-export interface DocEventRetirementChange { readonly path: PortableDocumentPath; readonly baseBlobSha256: string; readonly candidate: null; readonly policyId: string; readonly regionProofs: readonly []; readonly policyUpgrade?: never }
-export type DocEventMutation = DocEventChange | DocEventRetirementChange;
-export type DocEventV1 = EventEnvelope<"doc-event/v1", "documents_written", ActorIdentity, { readonly executionId: string | null; readonly baseLedgerSha: LedgerIdentity; readonly changes: readonly DocEventMutation[]; readonly retirementReason?: string }>;
-export type CurrentDocEventV1 = EventEnvelope<"doc-event/v1", "documents_written", ActorIdentity, { readonly executionId: string | null; readonly baseLedgerSha: LedgerCutIdentity; readonly changes: readonly DocEventMutation[]; readonly retirementReason?: string }>;
-export type CanonicalEventV1 = TaskEventV1 | DocEventV1 | AgentRuntimeEventV1 | AgentEntityEventV1 | TaskBootstrapEventV1 | TaskProgressEventV1 | PresetSnapshotUpgradeEventV1 | FactEventV1 | DecisionEventV1 | MigrationImportEventV1 | LedgerLayoutMigrationEventV1;
-export interface DocumentState { readonly path: PortableDocumentPath; readonly blobSha256: string; readonly body: string; readonly size: DocByteLength; readonly mediaType: string; readonly policyId: string; readonly workspaceRevision: number }
-export interface DocContentBlob { readonly sha256: string; readonly size: DocByteLength; readonly mediaType: string; readonly body: string }
-export interface DocWriteDecisionInput { readonly intent: DocWriteIntent; readonly opId: string; readonly eventId: string; readonly workspaceRevision: number; readonly actor: ActorIdentity; readonly source: WriteSource; readonly occurredAt: string; readonly currentLedgerSha: LedgerCutIdentity; readonly lease: LeaseV1 | null; readonly runtimeBinding?: LiveTaskBoundRuntimeBinding; readonly documents: readonly (DocumentState | null)[]; readonly claims: readonly (Uint8Array | null)[]; readonly resolvedTaskIds?: readonly (string | null)[]; readonly retirementReason?: string }
-export type DocWriteDecision = { readonly accepted: true; readonly event: CurrentDocEventV1; readonly blobs: readonly DocContentBlob[]; readonly plan: FrozenWritePlan<"DocSyncSubmit"> }
-  | { readonly accepted: false; readonly code: string; readonly detail: DocSyncReceiptDetail };
-
-export function validateDocWriteIntent(value: unknown): readonly string[] {
-  if (!isRecord(value) || !hasOnlyFields(value, ["schema", "executionId", "baseLedgerSha", "changes"])) return ["doc intent fields are incomplete or unknown"];
-  const errors: string[] = [];
-  if (value.schema !== "doc-write-intent/v1" || value.executionId !== null && !isNonEmptyString(value.executionId) || !ledgerCutIdentity(value.baseLedgerSha) || !Array.isArray(value.changes) || value.changes.length === 0) errors.push("doc intent identity, base, or changes are invalid");
-  const paths = new Set<string>();
-  for (const change of Array.isArray(value.changes) ? value.changes : []) {
-    if (!isRecord(change) || !hasOnlyFields(change, ["path", "baseBlobSha256", "policyId", "candidate"]) || !safeDocSyncPath(change.path) || !nullableBlobSha(change.baseBlobSha256) || !isNonEmptyString(change.policyId) || !validDocSyncClaim(change.candidate)) errors.push("doc change path, base, policy, or claim is invalid");
-    else if (paths.has(change.path)) errors.push(`duplicate doc path ${change.path}`); else paths.add(change.path);
-  }
-  try { assertNoPortablePathCollisions(Array.isArray(value.changes) ? value.changes.flatMap((change) => isRecord(change) && typeof change.path === "string" ? [change.path] : []) : []); } catch (error) { consumeKnownError(error); errors.push(error instanceof Error ? error.message : String(error)); }
-  return errors;
-}
-export function ledgerCommitSha(repoId: string, sha: string): LedgerCommitSha { if (!/^[a-z][a-z0-9-]{0,62}$/u.test(repoId) || !commitSha(sha)) throw new DocSyncContractError("ledger commit requires a canonical repoId and Git SHA"); return Object.freeze({ repoId, sha }) as LedgerCommitSha; } export function docClaimRef(value: string): DocClaimRef { const normalized = normalizeRelativeDocumentPath(value); if (normalized !== value || !normalized.startsWith("doc-sync-claims/")) throw new DocSyncContractError("claim ref must be a canonical doc-sync-claims path"); return normalized as unknown as DocClaimRef; }
-export function docByteLength(value: number): DocByteLength { if (!Number.isSafeInteger(value) || value < 0) throw new DocSyncContractError("claim size must be a non-negative byte length"); return value as DocByteLength; } export function documentPath(value: string): PortableDocumentPath { const normalized = normalizeRelativeDocumentPath(value); if (normalized !== value) throw new DocSyncContractError("document path must already be canonical NFC"); return normalized; }
-export function parseDocWriteIntent(value: unknown, repoId: string): DocWriteIntent { const errors = validateDocWriteIntent(value); if (errors.length) throw new DocSyncContractError(errors.join("; ")); const raw = value as { readonly schema: "doc-write-intent/v1"; readonly executionId: string | null; readonly baseLedgerSha: LedgerCutIdentity; readonly changes: readonly { readonly path: string; readonly baseBlobSha256: string | null; readonly policyId: string; readonly candidate: { readonly ref: string; readonly sha256: string; readonly size: number; readonly mediaType: ContentClaim["mediaType"] } | null }[] }; if (raw.baseLedgerSha.repoId !== repoId) throw new DocSyncContractError("doc intent cut belongs to another repository"); return { ...raw, changes: raw.changes.map((change) => ({ ...change, path: documentPath(change.path), candidate: change.candidate === null ? null : { ...change.candidate, ref: docClaimRef(change.candidate.ref), size: docByteLength(change.candidate.size) } })) }; }
-export function serializeDocWriteIntent(intent: DocWriteIntent): string { const errors = validateDocWriteIntent(intent); if (errors.length) throw new DocSyncContractError(errors.join("; ")); return `${stableStringify(intent)}\n`; } export function serializeDocEvent(event: unknown): string { const errors = validateCurrentDocEvent(event); if (errors.length) throw new DocSyncContractError(errors.join("; ")); return serializeCanonicalEvent(event as CurrentDocEventV1); }
-export const canonicalEventSchemas = Object.freeze([{ schema: "task-event/v1", validate: (value: unknown) => validateTaskEvent(value).map((issue) => issue.message), validateCurrent: (value: unknown) => validateCurrentTaskEvent(value).map((issue) => issue.message) }, { schema: "doc-event/v1", validate: validateDocEvent, validateCurrent: validateCurrentDocEvent }, { schema: "agent-runtime-event/v1", validate: validateAgentRuntimeEvent, validateCurrent: validateCurrentAgentRuntimeEvent }, { schema: "task-bootstrap-event/v1", validate: validateTaskBootstrapEvent, validateCurrent: validateCurrentTaskBootstrapEvent },
-  { schema: "task-progress-event/v1", validate: validateTaskProgressEvent, validateCurrent: validateCurrentTaskProgressEvent }, { schema: "preset-snapshot-upgrade-event/v1", validate: validatePresetSnapshotUpgradeEvent, validateCurrent: validateCurrentPresetSnapshotUpgradeEvent }, { schema: "agent-entity-event/v1", validate: validateAgentEntityEvent, validateCurrent: validateCurrentAgentEntityEvent }, { schema: "fact-event/v1", validate: validateFactEvent, validateCurrent: validateCurrentFactEvent }, { schema: "decision-event/v1", validate: validateDecisionEvent, validateCurrent: validateCurrentDecisionEvent }, { schema: "migration-import-event/v1", validate: validateMigrationImportEvent, validateCurrent: validateCurrentMigrationImportEvent }, { schema: "ledger-layout-event/v1", validate: validateLedgerLayoutMigrationEvent, validateCurrent: validateCurrentLedgerLayoutMigrationEvent }] as const);
-export function validateCurrentCanonicalEvent(value: unknown): readonly string[] { if (!isRecord(value)) return ["canonical event is not an object"]; const entry = canonicalEventSchemas.find((candidate) => candidate.schema === value.schema); return entry?.validateCurrent(value) ?? ["canonical event schema is unknown"]; }
-export function serializeCanonicalEvent(event: CanonicalEventV1): string { const entry = canonicalEventSchemas.find((candidate) => candidate.schema === event.schema); const errors = entry?.validate(event) ?? ["canonical event schema is unknown"]; if (errors.length) throw new Error(errors.join("; ")); return `${JSON.stringify(canonicalizeWriteValue(event))}\n`; }
-export function parseCanonicalEvent(body: string): CanonicalEventV1 { let value: unknown; try { value = JSON.parse(body); } catch { throw new Error("canonical event is not JSON"); }
-  if (!isRecord(value)) throw new Error("canonical event is not an object"); const entry = canonicalEventSchemas.find((candidate) => candidate.schema === value.schema); const errors = entry?.validate(value) ?? ["canonical event schema is unknown"];
-  if (errors.length) throw new Error(errors.join("; ")); const event = value as unknown as CanonicalEventV1; if (serializeCanonicalEvent(event) !== body) throw new Error("canonical event bytes are not canonical"); return event; }
-export function isTaskEvent(event: CanonicalEventV1): event is TaskEventV1 { return event.schema === "task-event/v1"; }
-export function isDocEvent(event: CanonicalEventV1): event is DocEventV1 { return event.schema === "doc-event/v1"; }
-export { isTaskBootstrapEvent, isTaskProgressEvent, isPresetSnapshotUpgradeEvent, isAgentEntityEvent, isFactEvent, isDecisionEvent, isMigrationImportEvent, isLedgerLayoutMigrationEvent };
-
-export function decideDocWrite(input: DocWriteDecisionInput): DocWriteDecision {
-  const paths = input.intent.changes.map((change, index) => ({ path: change.path, baseBlobSha256: change.baseBlobSha256,
-    currentBlobSha256: input.documents[index]?.blobSha256 ?? null, candidateBlobSha256: change.candidate?.sha256 ?? null }));
-  const holder = input.lease === null ? null : { taskId: input.lease.taskId, executionId: input.lease.executionId, personId: input.lease.actor.principal.personId,
-    executorId: input.lease.actor.executor?.id ?? null, source: input.lease.source, expiresAt: input.lease.expiresAt, version: input.lease.version };
-  const differences: DocSyncDifference[] = [], unresolvedTouches: DocSyncUnresolvedTouch[] = [], deletions: { path: string; baseBlobSha256: string; source: "intent" }[] = [], changes: DocEventMutation[] = [], blobs: DocContentBlob[] = [];
-  const reject = (code: string, nextAction: string): DocWriteDecision => ({ accepted: false, code, detail: { kind: "doc_sync", code,
-    baseLedgerSha: input.intent.baseLedgerSha, currentLedgerSha: input.currentLedgerSha, paths, holder, differences, unresolvedTouches, deletions, nextAction } });
-  const retirementReason = input.retirementReason?.trim();
-  if (retirementReason !== undefined && (!retirementReason || input.intent.changes.length !== 1 || input.intent.changes[0]?.candidate !== null || input.intent.executionId !== null)) return reject("invalid_retirement", "retire exactly one canonical document with a non-empty reason outside an execution lease");
-  const runtimeActor = runtimeSessionIdFromActor(input.actor) !== null, directHolder = input.lease !== null && isSameExecution(input.lease.actor, input.actor) && sameWriteChannel(input.lease.source, input.source), runtimeWorker = input.lease !== null && input.runtimeBinding !== undefined && isTaskBoundRuntimeWriter(input.lease, input.actor, input.source, input.runtimeBinding);
-  if (input.intent.executionId === null ? input.lease !== null || runtimeActor : input.lease === null || input.lease.phase !== "held" || input.lease.executionId !== input.intent.executionId || !directHolder && !runtimeWorker) return reject("lease_conflict", "refresh status and submit through the matching execution or repository prose channel");
-  if (stableStringify(input.intent.baseLedgerSha) !== stableStringify(input.currentLedgerSha)) return reject("base_ledger_changed", "run ha doc status, then ha doc sync --dry-run --path <path> for the fresh base and resubmit with a new opId");
-  for (const [index, change] of input.intent.changes.entries()) {
-    const current = input.documents[index] ?? null, route = resolveDocRoute(change.path), task = input.resolvedTaskIds === undefined ? taskFromPath(change.path) : input.resolvedTaskIds[index] ?? null;
-    if (runtimeWorker && !directHolder && (task !== input.runtimeBinding!.taskId || !taskArtifactPath(change.path))) unresolvedTouches.push(touch(change.path, null, task !== input.runtimeBinding!.taskId ? "target task does not match the live runtime binding" : "task-bound runtime writes are limited to the assigned task artifacts subtree", "task-bound-runtime-artifacts"));
-    if (task !== null && input.lease !== null && task !== input.lease.taskId) unresolvedTouches.push(touch(change.path, null, "target task does not match the execution lease", "matching-task-lease"));
-    if (!route.allowed) unresolvedTouches.push(touch(change.path, null, "path is owned by a typed route", route.requiredRoute));
-    if (change.baseBlobSha256 !== (current?.blobSha256 ?? null)) return reject("base_blob_changed", "run ha doc status, then ha doc sync --dry-run --path <path> for the changed document and resubmit with a new opId");
-    const policyUpgrade: DocPolicyUpgrade | null = change.policyId === DOC_POLICY_ID && current !== null && current.policyId === MIGRATION_DOCUMENT_POLICY_ID ? { from: MIGRATION_DOCUMENT_POLICY_ID, to: DOC_POLICY_ID } : null;
-    if (change.candidate !== null && !policyMatchesClaim(change.policyId, change.candidate) || current !== null && change.policyId !== OPAQUE_TEXTUAL_POLICY_ID && policyUpgrade === null && current.policyId !== change.policyId) return reject("semantic_policy_changed", "refresh status after the content policy change");
-    if (change.candidate === null) { if (change.baseBlobSha256 !== null) { deletions.push({ path: change.path, baseBlobSha256: change.baseBlobSha256, source: "intent" }); if (retirementReason !== undefined) changes.push({ path: change.path, baseBlobSha256: change.baseBlobSha256, candidate: null, policyId: change.policyId, regionProofs: [] }); } continue; }
-    if (current === null && decisionDocumentPath(change.path)) { unresolvedTouches.push(touch(change.path, null, "Decision documents must be proposed through the typed route", "ha decision --help")); continue; }
-    const claim = input.claims[index]; if (claim === null || claim.byteLength !== change.candidate.size || sha256Bytes(claim ?? new Uint8Array()) !== change.candidate.sha256) return reject("content_claim_mismatch", "upload a claim whose hash and size match the descriptor");
-    let body: string; try { body = new TextDecoder("utf-8", { fatal: true }).decode(claim); } catch (error) { consumeKnownError(error); unresolvedTouches.push(touch(change.path, null, "claim is not valid UTF-8", "typed-binary-content")); continue; }
-    if (change.policyId !== OPAQUE_TEXTUAL_POLICY_ID && body.includes("\r")) { unresolvedTouches.push(touch(change.path, null, "claim is not canonical LF text", "canonical-utf8-prose")); continue; }
-    const semantic = change.policyId === OPAQUE_TEXTUAL_POLICY_ID ? opaqueProof() : additiveProof(change.path, current?.body ?? "", body, change.candidate.mediaType, current === null); differences.push(...semantic.differences); unresolvedTouches.push(...semantic.unresolved);
-    changes.push({ path: change.path, baseBlobSha256: change.baseBlobSha256, candidate: { sha256: change.candidate.sha256, size: change.candidate.size, mediaType: change.candidate.mediaType }, policyId: change.policyId, regionProofs: semantic.proofs, ...(policyUpgrade ? { policyUpgrade } : {}) });
-    blobs.push({ sha256: change.candidate.sha256, size: change.candidate.size, mediaType: change.candidate.mediaType, body });
-  }
-  if (deletions.length && retirementReason === undefined) return reject("deletion_forbidden", "run ha doc retire --path <path> --reason <reason> for an intentional retirement, or restore the document");
-  if (retirementReason !== undefined && deletions.length !== 1) return reject("document_not_found", "retire a document that still exists in the canonical projection");
-  if (unresolvedTouches.length) return reject("unresolved_touch", unresolvedTouches.some(({ reason }) => reason === "claim is not canonical LF text") ? "convert the claim to LF line endings, then resubmit the same document with a new opId" : "resolve denied, ambiguous, heading, or machine-owned touches before resubmitting");
-  const event: CurrentDocEventV1 = { schema: "doc-event/v1", eventId: input.eventId, workspaceRevision: input.workspaceRevision, opId: input.opId,
-    type: "documents_written", actor: input.actor, source: input.source, occurredAt: input.occurredAt, payload: { executionId: input.intent.executionId, baseLedgerSha: input.intent.baseLedgerSha, changes, ...(retirementReason === undefined ? {} : { retirementReason }) } };
-  return { accepted: true, event, blobs, plan: docSyncWritePlan(event) };
-}
-export function docSyncWritePlan(event: DocEventV1): FrozenWritePlan<"DocSyncSubmit"> {
-  const targets: WriteTarget[] = [{ kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" }, { kind: "event_head", path: "harness/events/head.json", operation: "replace" }];
-  for (const change of event.payload.changes) if (change.candidate === null) targets.push({ kind: "authored_file_delete", path: change.path, operation: "delete", baseSha256: change.baseBlobSha256! }, { kind: "projection_invalidation", projection: "document/v1", key: change.path }); else targets.push({ kind: "authored_file", path: change.path, operation: "replace", sha256: change.candidate.sha256, size: change.candidate.size, mediaType: change.candidate.mediaType }, { kind: "projection_invalidation", projection: "document/v1", key: change.path }, { kind: "content_blob", sha256: change.candidate.sha256, size: change.candidate.size, mediaType: change.candidate.mediaType });
-  return freezeDeclaredWritePlan({ commandType: "DocSyncSubmit", targets }, ["DocSyncSubmit"]);
-}
-export function assertDocSyncWritePlan(event: DocEventV1, plan: FrozenWritePlan<"DocSyncSubmit"> | undefined): asserts plan is FrozenWritePlan<"DocSyncSubmit"> { const expected = docSyncWritePlan(event), shape = (candidate: FrozenWritePlan<"DocSyncSubmit">) => stableStringify({ commandType: candidate.commandType, targets: candidate.targets.map(stableStringify).sort() }); if (plan === undefined || !isFrozenWritePlan(plan) || shape(plan) !== shape(expected)) throw new DocSyncContractError("doc write plan must exactly declare event, head, projection, and content targets"); }
-export function resolveDocRoute(path: PortableDocumentPath): { readonly allowed: boolean; readonly requiredRoute: string } { const taskFile = /^tasks\/[^/]+\/(.+)$/u.exec(path)?.[1], taskRoute = taskFile === "progress.md" ? "task-progress-append" : taskFile === "INDEX.md" ? "task-lifecycle" : taskFile === "task-contract.json" ? "task-contract-upgrade" : taskFile === "facts.md" ? "ha fact record --help" : taskFile === "code-doc-anchors.json" ? "task-code-doc-reconcile" : taskFile?.startsWith("executions/") ? "task-lifecycle" : taskFile?.startsWith("reviews/") ? "task-review-execution" : null; if (taskRoute) return { allowed: false, requiredRoute: taskRoute }; const denied = docRouteRegistry.find((route) => path === route.prefix || path.startsWith(route.prefix)); return denied ? { allowed: false, requiredRoute: denied.requiredRoute } : { allowed: true, requiredRoute: "doc-sync" }; }
-export function verifyDocEventChange(change: DocEventChange, baseBody: string, candidateBody: string): boolean { const compiled = change.policyId === OPAQUE_TEXTUAL_POLICY_ID ? opaqueProof() : additiveProof(change.path, baseBody, candidateBody, change.candidate.mediaType, change.baseBlobSha256 === null); return compiled.unresolved.length === 0 && stableStringify(compiled.proofs) === stableStringify(change.regionProofs); }
-// Shared shape predicate for task-command carried documents. Keeping this
-// beside the canonical doc event validator prevents the task event contract
-// from growing a second region-policy definition.
-export function isValidDocEventChange(value: unknown, allowUnknownFields = false): value is DocEventChange { return validDocEventChange(value, allowUnknownFields) && isRecord(value) && value.candidate !== null; }
-
-// Stored canonical events are append-only: readers accept every ledger identity
-// this schema has emitted, while ingress and publication use the cut-only guard.
-export function validateDocEvent(value: unknown): readonly string[] { return validateDocEventIdentity(value, ledgerIdentity, true); }
-export function validateCurrentDocEvent(value: unknown): readonly string[] { return validateDocEventIdentity(value, ledgerCutIdentity, false); }
-function validateDocEventIdentity(value: unknown, identity: (candidate: unknown, allowUnknownFields: boolean) => boolean, allowUnknownFields: boolean): readonly string[] { const hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields; if (!isRecord(value) || !hasFields(value, ["schema", "eventId", "workspaceRevision", "opId", "type", "actor", "source", "occurredAt", "payload"]) || value.schema !== "doc-event/v1" || value.type !== "documents_written" || !isRecord(value.payload)) return ["doc event envelope or payload is invalid"]; const payloadFields = value.payload.retirementReason === undefined ? ["executionId", "baseLedgerSha", "changes"] : ["executionId", "baseLedgerSha", "changes", "retirementReason"]; if (!hasFields(value.payload, payloadFields) || value.payload.executionId !== null && !isNonEmptyString(value.payload.executionId) || !identity(value.payload.baseLedgerSha, allowUnknownFields) || !Array.isArray(value.payload.changes) || value.payload.changes.length === 0) return ["doc event envelope or payload is invalid"];
-  if (validateEventEnvelopeIdentity(value, allowUnknownFields).length) return ["doc event envelope identity is invalid"];
-  const retirements = value.payload.changes.filter((change) => isRecord(change) && change.candidate === null), validRetirement = retirements.length === 0 ? value.payload.retirementReason === undefined : retirements.length === 1 && value.payload.changes.length === 1 && value.payload.executionId === null && isNonEmptyString(value.payload.retirementReason), valid = value.payload.changes.every((change) => validDocEventMutation(change, allowUnknownFields)), paths = value.payload.changes.map((change) => isRecord(change) ? change.path : null); return validRetirement && valid && new Set(paths).size === paths.length ? [] : ["doc event change is invalid"]; }
-function validDocSyncClaim(value: unknown): boolean { if (value === null) return true; if (!isRecord(value) || !hasOnlyFields(value, ["ref", "sha256", "size", "mediaType"]) || !validDocSyncStoredClaim(value, false, true)) return false; try { docClaimRef(String(value.ref)); return true; } catch { return false; } }
-function validDocSyncStoredClaim(value: unknown, allowUnknownFields = false, includesRef = false): boolean { return isRecord(value) && (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [...(includesRef ? ["ref"] : []), "sha256", "size", "mediaType"]) && /^[0-9a-f]{64}$/u.test(String(value.sha256)) && Number.isSafeInteger(value.size) && (value.size as number) >= 0 && (value.mediaType === "text/markdown" || value.mediaType === "text/plain" || isOpaqueTextualMediaType(value.mediaType)); }
-function validRegionProof(value: unknown, allowUnknownFields: boolean): boolean { return isRecord(value) && (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["regionId", "policyId", "codecId", "baseSha256", "candidateSha256", "insertBytes"]) && isNonEmptyString(value.regionId) && value.policyId === DOC_POLICY_ID && value.codecId === DOC_CODEC_ID && [value.baseSha256, value.candidateSha256].every((hash) => typeof hash === "string" && /^[0-9a-f]{64}$/u.test(hash)) && Number.isInteger(value.insertBytes) && (value.insertBytes as number) >= 0; }
-function validDocEventMutation(value: unknown, allowUnknownFields: boolean): boolean { if (!isRecord(value)) return false; const fields = value.policyUpgrade === undefined ? ["path", "baseBlobSha256", "candidate", "policyId", "regionProofs"] : ["path", "baseBlobSha256", "candidate", "policyId", "regionProofs", "policyUpgrade"], hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields; if (!hasFields(value, fields) || !safeDocSyncPath(value.path) || !nullableBlobSha(value.baseBlobSha256) || !Array.isArray(value.regionProofs)) return false; if (value.candidate === null) return typeof value.baseBlobSha256 === "string" && isNonEmptyString(value.policyId) && value.regionProofs.length === 0 && value.policyUpgrade === undefined; return validDocSyncStoredClaim(value.candidate, allowUnknownFields) && (value.policyId === DOC_POLICY_ID && policyMatchesClaim(value.policyId, value.candidate) && value.regionProofs.length > 0 && value.regionProofs.every((proof) => validRegionProof(proof, allowUnknownFields)) && (value.policyUpgrade === undefined || validPolicyUpgrade(value.policyUpgrade, allowUnknownFields)) || value.policyId === OPAQUE_TEXTUAL_POLICY_ID && value.regionProofs.length === 0 && value.policyUpgrade === undefined && policyMatchesClaim(value.policyId, value.candidate)); }
-function validDocEventChange(value: unknown, allowUnknownFields: boolean): boolean { return validDocEventMutation(value, allowUnknownFields); }
-function validPolicyUpgrade(value: unknown, allowUnknownFields: boolean): boolean { return isRecord(value) && (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["from", "to"]) && value.from === MIGRATION_DOCUMENT_POLICY_ID && value.to === DOC_POLICY_ID; }
-function commitSha(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f]{40}$/u.test(value); } function ledgerIdentity(value: unknown, allowUnknownFields: boolean): value is LedgerIdentity { return ledgerCutIdentity(value, allowUnknownFields) || isRecord(value) && (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["repoId", "sha"]) && /^[a-z][a-z0-9-]{0,62}$/u.test(String(value.repoId)) && commitSha(value.sha); }
-function ledgerCutIdentity(value: unknown, allowUnknownFields = false): value is LedgerCutIdentity { return isRecord(value) && (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["repoId", "revision", "headDigest"]) && /^[a-z][a-z0-9-]{0,62}$/u.test(String(value.repoId)) && Number.isSafeInteger(value.revision) && (value.revision as number) >= 0 && typeof value.headDigest === "string" && /^sha256:[0-9a-f]{64}$/u.test(value.headDigest); }
-function nullableBlobSha(value: unknown): boolean { return value === null || typeof value === "string" && /^[0-9a-f]{64}$/u.test(value); }
-function safeDocSyncPath(value: unknown): value is string { try { return typeof value === "string" && normalizeRelativeDocumentPath(value) === value; } catch { return false; } }
-function policyMatchesClaim(policyId: string, candidate: unknown): boolean { return isRecord(candidate) && (policyId === DOC_POLICY_ID ? candidate.mediaType === "text/markdown" || candidate.mediaType === "text/plain" : policyId === OPAQUE_TEXTUAL_POLICY_ID && isOpaqueTextualMediaType(candidate.mediaType)); }
-function sameWriteChannel(left: WriteSource, right: WriteSource): boolean { return stableStringify(left) === stableStringify(right); }
-function taskFromPath(value: PortableDocumentPath): string | null { const match = /^tasks\/([^/]+)\//u.exec(value); if (!match) return null; const folder = match[1]!; return /^task_[0-9A-HJKMNP-TV-Z]{26}(?:-|$)/u.test(folder) ? folder.slice(0, 31) : folder; }
-function taskArtifactPath(value: PortableDocumentPath): boolean { return /^tasks\/[^/]+\/artifacts\/.+/u.test(value); }
-function touch(path: PortableDocumentPath, regionId: string | null, reason: string, requiredRoute: string): DocSyncUnresolvedTouch { return { path, regionId, anchor: regionId, reason, requiredRoute, policy: DOC_POLICY_ID }; }
-
-interface Region { readonly id: string; readonly mode: "additive" | "equal"; readonly body: string; readonly offset: number }
-function additiveProof(path: PortableDocumentPath, base: string, candidate: string, mediaType: string, creating: boolean): { readonly proofs: readonly RegionProof[]; readonly differences: readonly DocSyncDifference[]; readonly unresolved: readonly DocSyncUnresolvedTouch[] } {
-  const left = base === "" ? { regions: [] as readonly Region[], error: null } : regions(base, mediaType), right = regions(candidate, mediaType); if (left.error || right.error) return { proofs: [], differences: [], unresolved: [touch(path, null, left.error ?? right.error ?? "ambiguous region", "refresh-region-policy")] };
-  const rightById = new Map(right.regions.map((region) => [region.id, region])), indexed = left.regions.map((region) => ({ region, next: rightById.get(region.id), nextOrder: right.regions.findIndex((candidateRegion) => candidateRegion.id === region.id) })), missing = indexed.filter(({ next }) => !next).map(({ region }) => region), reordered = new Map<string, Region>(); let order = -1, orderedAfter: Region | null = null;
-  for (const entry of indexed) { if (!entry.next) continue; if (entry.nextOrder < order) reordered.set(entry.region.id, orderedAfter!); else { order = entry.nextOrder; orderedAfter = entry.region; } }
-  const missingReason = missing.length === 1 ? `base region is missing: ${regionLabel(missing[0]!)}` : `base regions are missing: ${missing.map(regionLabel).join(", ")}`, reorderedReason = `base regions are reordered: ${[...reordered].map(([regionId, after]) => { const region = left.regions.find((candidateRegion) => candidateRegion.id === regionId)!; return `candidate places ${regionLabel(region)} before ${regionLabel(after)}; expected ${regionLabel(after)} before ${regionLabel(region)}`; }).join("; ")}`, proofs: RegionProof[] = [], differences: DocSyncDifference[] = [], unresolved: DocSyncUnresolvedTouch[] = [];
-  for (const { region, next } of indexed) { if (!next) { unresolved.push(touch(path, region.id, missingReason, "refresh-region-policy")); continue; } if (reordered.has(region.id)) { unresolved.push(touch(path, region.id, reorderedReason, "refresh-region-policy")); continue; }
-    const result = compareRegion(path, region, next); proofs.push(result.proof); if (result.difference) differences.push(result.difference); if (!result.allowed) unresolved.push(touch(path, region.id, "machine region changed", machineWriterRoute(path))); }
-  for (const region of right.regions) if (!left.regions.some((candidateRegion) => candidateRegion.id === region.id)) { if (region.mode === "equal" && !creating) unresolved.push(touch(path, region.id, "new machine region is forbidden", machineWriterRoute(path))); else proofs.push(proof(region.id, "", region.body)); }
-  return { proofs, differences, unresolved };
-}
-function regionLabel(region: Region): string { return JSON.stringify(/^#{1,6} +.*$/mu.exec(region.body)?.[0]?.trim() ?? region.id); }
-function opaqueProof(): { readonly proofs: readonly RegionProof[]; readonly differences: readonly DocSyncDifference[]; readonly unresolved: readonly DocSyncUnresolvedTouch[] } { return { proofs: [], differences: [], unresolved: [] }; }
-function regions(body: string, mediaType: string): { readonly regions: readonly Region[]; readonly error: string | null } { if (mediaType === "text/plain") return { regions: [{ id: "prose/*", mode: "additive", body, offset: 0 }], error: null };
-  const result: Region[] = []; let prose = body, offset = 0; if (body.startsWith("---\n")) { const end = body.indexOf("\n---\n", 4); if (end < 0) return { regions: [], error: "unterminated frontmatter" }; const length = end + 5; result.push({ id: "machine/frontmatter", mode: "equal", body: body.slice(0, length), offset: 0 }); prose = body.slice(length); offset = length; }
-  const matches = [...prose.matchAll(/^#{1,6} +(.+)$/gmu)]; const ids = matches.map((match) => `heading/${match[1]!.trim().toLowerCase()}`); if (new Set(ids).size !== ids.length) return { regions: [], error: "duplicate heading anchor" };
-  if (!matches.length) result.push({ id: "prose/*", mode: "additive", body: prose, offset }); else { if ((matches[0]!.index ?? 0) > 0) result.push({ id: "prose/*", mode: "additive", body: prose.slice(0, matches[0]!.index), offset });
-    matches.forEach((match, index) => { const start = match.index ?? 0, end = matches[index + 1]?.index ?? prose.length; result.push({ id: ids[index]!, mode: "additive", body: prose.slice(start, end), offset: offset + start }); }); }
-  return { regions: result, error: null };
-}
-function compareRegion(path: PortableDocumentPath, base: Region, candidate: Region): { readonly allowed: boolean; readonly proof: RegionProof; readonly difference: DocSyncDifference | null } { const left = Buffer.from(base.body), right = Buffer.from(candidate.body), allowed = base.mode === "equal" ? left.equals(right) : true;
-  if (left.equals(right)) return { allowed, proof: proof(base.id, base.body, candidate.body), difference: null }; let prefix = 0; while (prefix < left.length && prefix < right.length && left[prefix] === right[prefix]) prefix += 1;
-  let suffix = 0; while (suffix < left.length - prefix && suffix < right.length - prefix && left[left.length - suffix - 1] === right[right.length - suffix - 1]) suffix += 1;
-  const leftChanged = left.length - prefix - suffix, rightChanged = right.length - prefix - suffix, replaced = Math.min(leftChanged, rightChanged);
-  return { allowed, proof: proof(base.id, base.body, candidate.body), difference: { path, regionId: base.id, insertBytes: rightChanged - replaced,
-    deleteBytes: leftChanged - replaced, replaceBytes: replaced, firstChange: { baseOffset: base.offset + prefix, candidateOffset: candidate.offset + prefix } } };
-}
-function proof(regionId: string, base: string, candidate: string): RegionProof { return { regionId, policyId: DOC_POLICY_ID, codecId: DOC_CODEC_ID, baseSha256: sha256Text(base), candidateSha256: sha256Text(candidate), insertBytes: Math.max(0, Buffer.byteLength(candidate) - Buffer.byteLength(base)) }; }
-function decisionDocumentPath(value: PortableDocumentPath): boolean { return /^decisions\/decision-[^/]+\/decision\.md$/u.test(value); } function machineWriterRoute(value: PortableDocumentPath): string { return decisionDocumentPath(value) ? "ha decision --help" : "typed-machine-writer"; }
-
-export default Object.freeze({ id: "doc-sync", phases: Object.freeze(["P4"]), commands: Object.freeze([]), gates: Object.freeze([]), guards: Object.freeze([]), schemas: Object.freeze([Object.freeze({ id: DOC_WRITE_INTENT_SCHEMA.id, schema: "packages/kernel/src/domain/doc-sync.contract.ts#DOC_WRITE_INTENT_SCHEMA", parser: "packages/kernel/src/domain/doc-sync.contract.ts#validateDocWriteIntent", writer: "packages/kernel/src/domain/doc-sync.contract.ts#serializeDocWriteIntent", error: "packages/kernel/src/domain/doc-sync.contract.ts#DocSyncContractError", negativeFixtures: Object.freeze(["tools/gates/test/fixtures/doc-write-intent-invalid.json"]) }), Object.freeze({ id: DOC_EVENT_SCHEMA.id, schema: "packages/kernel/src/domain/doc-sync.contract.ts#DOC_EVENT_SCHEMA", parser: "packages/kernel/src/domain/doc-sync.contract.ts#validateDocEvent", writer: "packages/kernel/src/domain/doc-sync.contract.ts#serializeDocEvent", error: "packages/kernel/src/domain/doc-sync.contract.ts#DocSyncContractError", negativeFixtures: Object.freeze(["tools/gates/test/fixtures/doc-event-invalid.json"]) })]) });
+/** Public document synchronization contract. */
+export * from "./doc-sync-types.ts";
+export {
+  docByteLength,
+  docClaimRef,
+  documentPath,
+  ledgerCommitSha,
+  parseDocWriteIntent,
+  serializeDocEvent,
+  serializeDocWriteIntent,
+  validateDocWriteIntent,
+} from "./doc-sync-codec.ts";
+export {
+  canonicalEventSchemas,
+  isDocEvent,
+  isTaskEvent,
+  parseCanonicalEvent,
+  serializeCanonicalEvent,
+  validateCurrentCanonicalEvent,
+} from "./doc-sync-canonical-events.ts";
+export {
+  assertDocSyncWritePlan,
+  decideDocWrite,
+  docSyncWritePlan,
+  isValidDocEventChange,
+  resolveDocRoute,
+  verifyDocEventChange,
+} from "./doc-sync-writer.ts";
+export {
+  validateCurrentDocEvent,
+  validateDocEvent,
+} from "./doc-sync-validation.ts";
+export { isAgentEntityEvent } from "./agent-entity-event.ts";
+export { isDecisionEvent } from "./decision-event.ts";
+export { isFactEvent } from "./fact-event.ts";
+export { isLedgerLayoutMigrationEvent } from "./ledger-layout-migration-event.ts";
+export { isMigrationImportEvent } from "./migration-import-event.ts";
+export { isPresetSnapshotUpgradeEvent } from "./preset-snapshot-upgrade-event.ts";
+export { isTaskBootstrapEvent } from "./task-bootstrap-event.ts";
+export { isTaskProgressEvent } from "./task-progress-event.ts";
+export { default } from "./doc-sync-catalog.ts";

@@ -1,0 +1,261 @@
+import {
+  cliInput,
+  defineCliCommand,
+  presetCommands,
+  presetMethods,
+} from "../../../preset/src/preset-command-contract.ts";
+import { agentProtocolCommands } from "./daemon-protocol-commands-agent.ts";
+import { decisionLifecycleProtocolCommands } from "./daemon-protocol-commands-decision-lifecycle.ts";
+import { decisionRelationProtocolCommands } from "./daemon-protocol-commands-decision-relations.ts";
+import { docFactProtocolCommands } from "./daemon-protocol-commands-doc-fact.ts";
+import { runtimeConfigProtocolCommands } from "./daemon-protocol-commands-runtime-config.ts";
+import { runtimeFleetProtocolCommands } from "./daemon-protocol-commands-runtime-fleet.ts";
+import { taskSurfaceProtocolCommands } from "./daemon-protocol-commands-task-surface.ts";
+import { taskExecutionProtocolCommands } from "./daemon-protocol-commands-task.ts";
+import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
+import { DaemonProtocolContractError, type JsonObject } from "./json-rpc-types.ts";
+
+export const daemonOwnedProtocolCommands = Object.freeze([
+  ...taskSurfaceProtocolCommands,
+  ...agentProtocolCommands,
+  ...taskExecutionProtocolCommands,
+  ...docFactProtocolCommands,
+  ...decisionLifecycleProtocolCommands,
+  ...decisionRelationProtocolCommands,
+  ...runtimeConfigProtocolCommands,
+  ...runtimeFleetProtocolCommands,
+] as const);
+
+export const runtimePromptInputs = daemonOwnedProtocolCommands
+  .find((command) => command.id === "runtime-run")!
+  .inputs.filter((input) => ["--prompt", "--prompt-file"].includes(input.name));
+
+export const squadPromptInputs = runtimePromptInputs.map(
+  (input) =>
+    ({
+      ...input,
+      error: {
+        code: "invalid_field",
+        nextAction: "Use exactly one of --prompt <text> or --prompt-file <path>.",
+      },
+    }) as const,
+);
+
+export const effectiveDaemonOwnedProtocolCommands = Object.freeze(
+  daemonOwnedProtocolCommands.map((command) =>
+    command.id === "repo-bootstrap"
+      ? defineCliCommand({
+          ...command,
+          inputs: [
+            ...command.inputs,
+            cliInput("--add-npm-scripts", "boolean", false, {
+              code: "invalid_field",
+              nextAction: "Use --add-npm-scripts once.",
+            }),
+          ],
+        })
+      : command.id === "task-start"
+        ? defineCliCommand({
+            ...command,
+            inputs: [
+              cliInput("--execution-id", "single", false, {
+                code: "invalid_field",
+                nextAction: "Use one execution id, or omit it for deterministic allocation.",
+              }),
+              cliInput(
+                "--ttl-ms",
+                "single",
+                false,
+                {
+                  code: "invalid_field",
+                  nextAction: "Use a positive lease duration in milliseconds.",
+                },
+                { regex: "^[1-9][0-9]*$" },
+              ),
+              cliInput("--dry-run", "boolean", false, {
+                code: "invalid_field",
+                nextAction: "Use --dry-run once to preview lease admission.",
+              }),
+            ],
+          })
+        : command,
+  ),
+);
+
+export const squadBoundaryProtocolCommands = Object.freeze(
+  effectiveDaemonOwnedProtocolCommands.map((command) =>
+    command.id === "squad-run"
+      ? defineCliCommand({
+          ...command,
+          inputs: [...command.inputs.filter((input) => input.name !== "--prompt"), ...squadPromptInputs].map((input) =>
+            input.name === "--cwd"
+              ? {
+                  ...input,
+                  required: true,
+                  error: {
+                    code: "missing_field",
+                    nextAction: "Add --cwd <repository-relative-directory> to declare the Squad write boundary.",
+                  },
+                }
+              : input,
+          ),
+        })
+      : command,
+  ),
+);
+
+export const taskRelationQueryInputs = Object.freeze([
+  cliInput(
+    "--updated-after",
+    "single",
+    false,
+    {
+      code: "invalid_field",
+      nextAction: "Use an ISO-8601 UTC timestamp with --updated-after.",
+    },
+    {
+      regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$",
+    },
+  ),
+  cliInput(
+    "--updated-before",
+    "single",
+    false,
+    {
+      code: "invalid_field",
+      nextAction: "Use an ISO-8601 UTC timestamp with --updated-before.",
+    },
+    {
+      regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$",
+    },
+  ),
+  cliInput(
+    "--limit",
+    "single",
+    false,
+    {
+      code: "invalid_field",
+      nextAction: "Use an integer from 1 to 500 with --limit.",
+    },
+    { regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$" },
+  ),
+  cliInput("--cursor", "single", false, {
+    code: "invalid_field",
+    nextAction: "Use the cursor returned by the previous page.",
+  }),
+]);
+
+export const factQueryInputs = Object.freeze([
+  cliInput(
+    "--observed-after",
+    "single",
+    false,
+    {
+      code: "invalid_field",
+      nextAction: "Use an ISO-8601 UTC timestamp with --observed-after.",
+    },
+    {
+      regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$",
+    },
+  ),
+  cliInput(
+    "--observed-before",
+    "single",
+    false,
+    {
+      code: "invalid_field",
+      nextAction: "Use an ISO-8601 UTC timestamp with --observed-before.",
+    },
+    {
+      regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$",
+    },
+  ),
+  cliInput(
+    "--limit",
+    "single",
+    false,
+    {
+      code: "invalid_field",
+      nextAction: "Use an integer from 1 to 500 with --limit.",
+    },
+    { regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$" },
+  ),
+  cliInput("--cursor", "single", false, {
+    code: "invalid_field",
+    nextAction: "Use the cursor returned by the previous page.",
+  }),
+]);
+
+export const queryEvolvedProtocolCommands = Object.freeze(
+  squadBoundaryProtocolCommands.map((command) =>
+    command.id === "task-list" || command.id === "relation-list"
+      ? defineCliCommand({
+          ...command,
+          inputs: [...command.inputs, ...taskRelationQueryInputs],
+        })
+      : command.id === "fact-search"
+        ? defineCliCommand({
+            ...command,
+            inputs: [...command.inputs, ...factQueryInputs],
+          })
+        : command,
+  ),
+);
+
+export const daemonProtocolCommands = Object.freeze([
+  ...queryEvolvedProtocolCommands.map((command) =>
+    command.id === "daemon-stop" ? defineCliCommand({ ...command, method: "daemon.stop" }) : command,
+  ),
+  ...presetCommands,
+]);
+
+export const thinCliCommands = Object.freeze(
+  daemonProtocolCommands.map(({ usage, summary, help }) => ({
+    usage,
+    summary,
+    help,
+  })),
+);
+
+export function resolveThinCliCommand(args: readonly string[]): (typeof daemonProtocolCommands)[number] | undefined {
+  const matches = daemonProtocolCommands.filter((entry) => entry.path.every((token, index) => args[index] === token));
+  if (matches.length < 2) return matches[0];
+  const target = args[matches[0]!.path.length] ?? "";
+  return matches.find((entry) =>
+    "positionalFields" in entry
+      ? target.startsWith("preset:")
+      : "positionalRegex" in entry
+        ? new RegExp(entry.positionalRegex, "u").test(target)
+        : true,
+  );
+}
+
+export function commandClassForAction(kind: string): "repo-read" | "repo-write" | "arbiter" | "admin" {
+  const descriptor =
+    daemonProtocolCommands.find((entry) => ("actionKind" in entry ? entry.actionKind : entry.id) === kind) ??
+    presetMethods.find((entry) => entry.actionKind === kind);
+  if (!descriptor)
+    throw new DaemonProtocolContractError("unsupported_command", `No command descriptor exists for ${kind}.`);
+  return descriptor.commandClass;
+}
+
+export function actionForDaemonMethod(method: string, payload: JsonObject): JsonObject & { readonly kind: string } {
+  if (method === "repo.task.run") {
+    const action = payload.action as JsonObject & { readonly kind: string },
+      descriptor = daemonProtocolCommands.find(
+        (entry) => ("actionKind" in entry ? entry.actionKind : entry.id) === action.kind,
+      );
+    if (descriptor?.method !== method)
+      throw new DaemonProtocolContractError(
+        "unsupported_command",
+        `${action.kind} requires its closed method descriptor.`,
+      );
+    return action;
+  }
+  const descriptor = [...presetMethods, ...daemonGuiActionMethods].find((entry) => entry.method === method);
+  if (!descriptor)
+    throw new DaemonProtocolContractError("unsupported_command", `No action descriptor exists for ${method}.`);
+  const command = presetCommands.find((entry) => entry.method === method),
+    defaults = command && "actionDefaults" in command ? command.actionDefaults : {};
+  return { ...defaults, kind: descriptor.actionKind, ...payload };
+}
