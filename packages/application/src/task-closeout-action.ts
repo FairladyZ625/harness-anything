@@ -71,7 +71,8 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
   if (stage <= 1) { const reviewBody = `${JSON.stringify(judgment.review, null, 2)}\n`, stopped = await invoke("review-execution", { kind: "task-review-execution", taskId, ...selector, reviewId, jsonInput: reviewBody }, humanReviewer); if (stopped) return stopped;
     if (judgment.review.verdict !== "approved") return { ...reject(opId, judgment.review.verdict === "changes_requested" ? "changes_requested" : "review_not_approved", judgment.review.verdict === "changes_requested" ? `Run ha task start ${taskId} --execution-id <execution-id>, address the requested changes, then run ${invocation} with the next judgment.` : `Have an independent arbiter record an approved judgment, then run ${invocation}.`), stoppedAt: "review-execution", steps } as WriteReceipt; }
   if (stage <= 2) { const stopped = await invoke("review-consent", { kind: "task-review-consent", taskId, ...selector, reviewId, consentId }, task.createdBy); if (stopped) return stopped; }
-  const stopped = await invoke("complete", { kind: "task-complete", taskId, ...selector, ...(judgment.completion.ci === "passed" ? { ci: judgment.completion.ci } : {}), ...(judgment.completion.codeDocPaths.length ? { paths: judgment.completion.codeDocPaths } : {}) }, task.createdBy); if (stopped) return stopped;
+  const ciFlag = judgment.completion.ci === "passed" ? { ci: "passed" as const } : {};
+  const stopped = await invoke("complete", { kind: "task-complete", taskId, ...selector, ...ciFlag, ...(judgment.completion.codeDocPaths.length ? { paths: judgment.completion.codeDocPaths } : {}) }, task.createdBy); if (stopped) return stopped;
   const { stage: _stage, ...final } = steps.at(-1)!;
   return { ...final, taskId, reviewId, consentId, submittedCommitSha: judgment.submission.commitSha, summary: `closed out task ${taskId}`, steps } as WriteReceipt;
 
@@ -84,7 +85,7 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
 }
 
 function readJudgment(readText: () => string): Judgment { let parsed: unknown; try { parsed = JSON.parse(readText()); } catch (error) { throw new Error(`Closeout judgment must be one readable JSON object inside the workspace: ${error instanceof Error ? error.message : String(error)}`); } return validateJudgment(parsed); }
-function validateJudgment(value: unknown): Judgment { const packet = exact(value, ["submission", "review", "consent", "completion"], "judgment packet"), submission = exact(packet.submission, submissionFields, "submission"), review = exact(packet.review, reviewFields, "review"), consent = exact(packet.consent, ["approved"], "consent"), completion = exact(packet.completion, ["ci", "codeDocPaths"], "completion"); requiredText(submission.completionClaim, "submission.completionClaim"); for (const field of ["deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks"] as const) stringList(submission[field], `submission.${field}`); if (!/^[0-9a-f]{40}$/u.test(String(submission.commitSha))) throw new Error("submission.commitSha must be a full 40-character Git SHA."); if (!["approved", "changes_requested", "dismissed"].includes(String(review.verdict))) throw new Error("review.verdict must be approved, changes_requested, or dismissed."); requiredText(review.reason, "review.reason"); stringList(review.evidenceChecked, "review.evidenceChecked"); if (consent.approved !== true) throw new Error("consent.approved must be true; closeout never invents consent intent."); if (!ciJudgments.includes(String(completion.ci) as CiJudgment)) throw new Error(`completion.ci must be ${ciJudgments.join(" or ")}; closeout never invents a CI judgment.`); stringList(completion.codeDocPaths, "completion.codeDocPaths"); return { submission, review, consent, completion } as unknown as Judgment; }
+function validateJudgment(value: unknown): Judgment { const packet = exact(value, ["submission", "review", "consent", "completion"], "judgment packet"), submission = exact(packet.submission, submissionFields, "submission"), review = exact(packet.review, reviewFields, "review"), consent = exact(packet.consent, ["approved"], "consent"), completion = exact(packet.completion, ["ci", "codeDocPaths"], "completion"); requiredText(submission.completionClaim, "submission.completionClaim"); for (const field of ["deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks"] as const) stringList(submission[field], `submission.${field}`); if (!/^[0-9a-f]{40}$/u.test(String(submission.commitSha))) throw new Error("submission.commitSha must be a full 40-character Git SHA."); if (!["approved", "changes_requested", "dismissed"].includes(String(review.verdict))) throw new Error("review.verdict must be approved, changes_requested, or dismissed."); requiredText(review.reason, "review.reason"); stringList(review.evidenceChecked, "review.evidenceChecked"); if (consent.approved !== true) throw new Error("consent.approved must be true; closeout never invents consent intent."); ciJudgmentToken(completion.ci); stringList(completion.codeDocPaths, "completion.codeDocPaths"); return { submission, review, consent, completion } as unknown as Judgment; }
 function exact(value: unknown, fields: readonly string[], name: string): Record<string, unknown> { if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join("\0") !== [...fields].sort().join("\0")) throw new Error(`${name} requires exactly: ${fields.join(", ")}.`); return value as Record<string, unknown>; }
 /**
  * The task contract, never the executor, decides which CI judgment is honest for this task.
@@ -95,9 +96,17 @@ function exact(value: unknown, fields: readonly string[], name: string): Record<
 function ciJudgmentIssue(completionGateIds: readonly string[], ci: CiJudgment): string | null {
   const declared = completionGateIds.includes(ciGateId);
   if (ci === (declared ? "passed" : "not_applicable")) return null;
-  return declared
-    ? `completion.ci must be passed because this task contract declares the ${ciGateId} completion gate; closeout never invents a CI judgment.`
-    : `completion.ci must be not_applicable because this task contract declares no ${ciGateId} completion gate, so no CI run judges this change; closeout never invents a CI judgment.`;
+  const because = declared
+    ? `declares the ${ciGateId} completion gate`
+    : `declares no ${ciGateId} completion gate, so no CI run judges this change`;
+  const expected = declared ? "passed" : "not_applicable";
+  return `completion.ci must be ${expected} because this task contract ${because};`
+    + " closeout never invents a CI judgment.";
+}
+/** Packet-shape check only: the token set is closed here, and which token is honest is the contract's call below. */
+function ciJudgmentToken(value: unknown): CiJudgment {
+  if (ciJudgments.includes(value as CiJudgment)) return value as CiJudgment;
+  throw new Error(`completion.ci must be ${ciJudgments.join(" or ")}; closeout never invents a CI judgment.`);
 }
 function requiredText(value: unknown, name: string): string { if (typeof value !== "string" || !value.trim()) throw new Error(`${name} must be a non-empty string.`); return value; }
 function stringList(value: unknown, name: string): readonly string[] { if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || !entry.trim())) throw new Error(`${name} must be an array of non-empty strings.`); return value; }
