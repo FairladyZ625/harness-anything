@@ -1,31 +1,30 @@
 import { createHash } from "node:crypto";
 import { makeFactService } from "../../application/src/index.ts";
-import { compileFactWrite, factMemoryTags, factWritePlan, type ActorIdentity, type CanonicalEventCut, type CanonicalEventStore, type EventPublicationKillpoint, type FactConfidence, type FactEventDraftV1, type FactEventV1, type FactMemoryClass, type FactSearchFilters, type TaskProjection, type WriteReceipt, type WriteSource } from "../../kernel/src/index.ts"; import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
+import { compileFactWrite, factMemoryTags, factWritePlan, sessionProvenance, type ActorIdentity, type CanonicalEventCut, type CanonicalEventStore, type EventPublicationKillpoint, type FactConfidence, type FactEventDraftV1, type FactEventV1, type FactMemoryClass, type FactSearchFilters, type SessionIdentity, type TaskProjection, type WriteReceipt, type WriteSource } from "../../kernel/src/index.ts"; import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
 
 interface Binding { readonly actor: ActorIdentity; readonly source: WriteSource }
-export function makeFactActions(input: { readonly store: CanonicalEventStore; readonly projection: TaskProjection; readonly now: () => string; readonly killpoint?: (point: EventPublicationKillpoint) => void }) {
+export function makeFactActions(input: { readonly store: CanonicalEventStore; readonly projection: TaskProjection; readonly now: () => string; readonly sessionIdentity: (binding: Binding) => SessionIdentity; readonly killpoint?: (point: EventPublicationKillpoint) => void }) {
   const service = makeFactService({ eventStore: input.store, projection: input.projection });
   const run = (action: Readonly<Record<string, unknown>> & { readonly kind: string }, binding: Binding, opId: string): WriteReceipt => {
     if (action.kind === "fact-search") return readReceipt("fact-search", service.search(filters(action)));
     if (action.kind === "fact-show") return readReceipt("fact-show", service.show(requiredFactText(action.taskId, "taskId"), requiredFactText(action.factId, "factId")));
     if (action.kind !== "fact-record") throw factActionError("unsupported_command", "Use fact record, search, or show.");
-    const existing = input.store.readEvent(opId), occurredAt = existing?.occurredAt ?? input.now(), bundle = existing?.schema === "fact-event/v1" ? replayBundle(input, existing) : compileFact(input, factEvent(action, binding, opId, occurredAt, (input.store.readHead()?.revision ?? 0) + 1));
+    const existing = input.store.readEvent(opId), occurredAt = existing?.occurredAt ?? input.now(), bundle = existing?.schema === "fact-event/v1" ? replayBundle(input, existing) : compileFact(input, factEvent(action, binding, input.sessionIdentity(binding), opId, occurredAt, (input.store.readHead()?.revision ?? 0) + 1));
     const result = service.record(bundle); input.killpoint?.("after_sqlite_commit"); input.killpoint?.("before_response_write"); input.killpoint?.("after_response_write");
     return factReceipt(result, bundle.event);
   };
   return Object.freeze({ run });
 }
 
-function factEvent(action: Readonly<Record<string, unknown>>, binding: Binding, opId: string, occurredAt: string, workspaceRevision: number): FactEventDraftV1 {
+function factEvent(action: Readonly<Record<string, unknown>>, binding: Binding, identity: SessionIdentity, opId: string, occurredAt: string, workspaceRevision: number): FactEventDraftV1 {
   const confidence = action.confidence as FactConfidence, memoryClass = action.memoryClass as FactMemoryClass, memoryTags = factStringList(action.memoryTags);
   if (!(["low", "medium", "high"] as const).includes(confidence) || !(["semantic", "episodic", "procedural"] as const).includes(memoryClass)
     || memoryTags.some((tag) => !factMemoryTags.includes(tag as never))) throw factActionError("invalid_command", "Fact classification is invalid.");
   if (action.supersedes !== undefined && (!action.supersedes || typeof action.supersedes !== "object" || !/^fact\/[^/]+\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(String((action.supersedes as Record<string, unknown>).factRef)) || typeof (action.supersedes as Record<string, unknown>).rationale !== "string" || [...String((action.supersedes as Record<string, unknown>).rationale)].length < 1 || [...String((action.supersedes as Record<string, unknown>).rationale)].length > 199)) throw factActionError("invalid_command", "Fact supersedes requires a canonical ref and rationale of at most 199 characters.");
-  const runtime = binding.actor.executor && (["claude-code", "codex", "zcode", "antigravity"] as const).includes(binding.actor.executor.id as never) ? binding.actor.executor.id as "claude-code" | "codex" | "zcode" | "antigravity" : "human";
   return { schema: "fact-event/v1", eventId: `event-${createHash("sha256").update(opId).digest("hex")}`, workspaceRevision, opId, taskId: requiredFactText(action.taskId, "taskId"),
     factId: typeof action.factId === "string" ? requiredFactText(action.factId, "factId") : `F-${createHash("sha256").update(opId).digest("hex").slice(0, 8).toUpperCase()}`, type: "fact_recorded", actor: binding.actor, source: binding.source, occurredAt,
     payload: { statement: requiredFactText(action.statement, "statement"), evidenceSource: requiredFactText(action.evidenceSource, "evidenceSource"), observedAt: typeof action.observedAt === "string" ? action.observedAt : occurredAt,
-      confidence, memoryClass, memoryTags: memoryTags as FactEventV1["payload"]["memoryTags"], provenance: [{ runtime, sessionId: typeof binding.source === "object" ? binding.source.kind === "assignment" ? binding.source.assignmentId : binding.source.sessionId : `transport:${binding.actor.principal.personId}`, boundAt: occurredAt }],
+      confidence, memoryClass, memoryTags: memoryTags as FactEventV1["payload"]["memoryTags"], provenance: [sessionProvenance(identity, occurredAt)],
       ...(action.supersedes && typeof action.supersedes === "object" ? { supersedes: action.supersedes as { readonly factRef: string; readonly rationale: string } } : {}) } };
 }
 export function compileFact(input: { readonly store: CanonicalEventStore; readonly projection: TaskProjection }, draft: FactEventDraftV1) { const task = input.projection.read(draft.taskId); if (task.watermark !== task.sourceRevision || !task.packagePath || !task.snapshot.task) throw factActionError("content_not_ready", `Task ${draft.taskId} is not ready for fact record.`); const current = input.projection.searchFacts({ taskId: draft.taskId }); if (current.watermark !== current.sourceRevision) throw factActionError("content_not_ready", `Facts for ${draft.taskId} are pending.`); return compileFactWrite({ event: draft, packagePath: task.packagePath, currentFacts: current.facts }); }

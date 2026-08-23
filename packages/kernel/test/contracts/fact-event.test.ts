@@ -11,7 +11,7 @@ import { validateCurrentFactEvent, validateFactEvent } from "../../src/domain/fa
 const draft: FactEventDraftV1 = { schema: "fact-event/v1", eventId: "event-fact-contract", workspaceRevision: 1, opId: "op-fact-contract",
   taskId: "task-contract", factId: "F-ABCDEFGH", type: "fact_recorded", actor: { principal: { personId: "person-contract" }, executor: null }, source: "local",
   occurredAt: "2026-08-13T00:00:00.000Z", payload: { statement: "Closed Fact payload", evidenceSource: "contract fixture", observedAt: "2026-08-13T00:00:00.000Z",
-    confidence: "high", memoryClass: "semantic", memoryTags: ["pattern"], provenance: [{ runtime: "human", sessionId: "session-contract", boundAt: "2026-08-13T00:00:00.000Z" }] } }, event = compileFactWrite({ event: draft, packagePath: "tasks/task-contract-contract", currentFacts: [] }).event;
+    confidence: "high", memoryClass: "semantic", memoryTags: ["pattern"], provenance: [{ runtime: "unavailable", sessionId: null, transcriptReachability: "unavailable", boundAt: "2026-08-13T00:00:00.000Z" }] } }, event = compileFactWrite({ event: draft, packagePath: "tasks/task-contract-contract", currentFacts: [] }).event;
 
 test("Fact event reader ignores unknown fields while the current writer stays strict", () => {
   assert.deepEqual(validateFactEvent(event), []);
@@ -109,5 +109,5 @@ test("#1546: a rejected Decision proposal names every field that is actually wro
   assert.deepEqual([...many].sort(), ["body must be a string", "riskTier must be low, medium, or high", "title must be a non-empty string"]);
   // A wrong field SET still fails closed as one message naming the exact contract.
   const { relations: _relations, ...missing } = payload;
-  assert.deepEqual(validateDecisionEvent({ ...decision.event, payload: missing }), ["decision proposal requires exactly: title, question, riskTier, urgency, vertical, preset, appliesTo, decisionClass, chosen, rejected, body, claims, fulfillments, relations"]);
+  assert.deepEqual(validateDecisionEvent({ ...decision.event, payload: missing }), ["decision proposal requires exactly: title, question, riskTier, urgency, vertical, preset, appliesTo, decisionClass, chosen, rejected, body, claims, fulfillments, relations, provenance"]);
 });

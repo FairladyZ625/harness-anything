@@ -3,6 +3,7 @@ import { validateRelationRecordsForHost, type EntityRelationRecord } from "./ent
 import { validateTaskGraph } from "./task-graph.ts";
 import type { TaskGraphV1, TaskNodeId } from "./task-graph.ts";
 import { isNonEmptyString, isRecord, validateActorIdentity } from "./write-chain.contract.ts";
+import { validateSessionProvenance, type SessionProvenanceV1 } from "./agent-runtime.ts";
 export { canonicalizeWriteValue as canonicalizeContractValue, hasOnlyFields, isNonEmptyString, isRecord } from "./write-chain.contract.ts";
 
 export type TaskId = string;
@@ -34,14 +35,14 @@ export type TaskClass = (typeof taskClasses)[number];
 export interface ActorAxes { readonly principal: { readonly personId: string }; readonly executor: { readonly kind: "agent"; readonly id: string } | null }
 export type TaskPackageDisposition = "active" | "archived" | "tombstoned";
 export interface TaskMetadataV1 { readonly idempotencyKey: string | null; readonly parentTaskId: string | null; readonly workKind: "feat" | "fix" | "refactor" | "docs" | "test" | "chore" | null; readonly riskTier: "low" | "medium" | "high" | null; readonly urgency: "low" | "medium" | "high" | null; readonly verticalId: string; readonly presetId: string; readonly profileId: string; readonly moduleKey: string | null; readonly slug: string; readonly surfaces: readonly string[]; readonly fromLegacyId: string | null }
-export interface TaskV1 { readonly schema: "task/v1"; readonly taskId: string; readonly title: string; readonly taskClass: TaskClass; readonly status: ReplayTaskStatus; readonly graph: TaskGraphV1; readonly currentNode: TaskNodeId; readonly iteration: 0 | 1; readonly createdBy: ActorAxes; readonly completionGateIds: readonly string[]; readonly presetSnapshotDigest: `sha256:${string}` | null; readonly pinned?: boolean; readonly metadata?: TaskMetadataV1; readonly relations?: readonly EntityRelationRecord[]; readonly packageDisposition?: TaskPackageDisposition; readonly supersededBy?: string | null; readonly contractVersion?: number }
+export interface TaskV1 { readonly schema: "task/v1"; readonly taskId: string; readonly title: string; readonly taskClass: TaskClass; readonly status: ReplayTaskStatus; readonly graph: TaskGraphV1; readonly currentNode: TaskNodeId; readonly iteration: 0 | 1; readonly createdBy: ActorAxes; readonly completionGateIds: readonly string[]; readonly presetSnapshotDigest: `sha256:${string}` | null; readonly provenance?: readonly SessionProvenanceV1[]; readonly pinned?: boolean; readonly metadata?: TaskMetadataV1; readonly relations?: readonly EntityRelationRecord[]; readonly packageDisposition?: TaskPackageDisposition; readonly supersededBy?: string | null; readonly contractVersion?: number }
 export interface ContractValidationIssue { readonly code: string; readonly message: string }
 export const TASK_V1_SCHEMA = Object.freeze({ id: "Task/v1", required: Object.freeze(["schema", "taskId", "title", "taskClass", "status", "graph", "currentNode", "iteration", "createdBy", "completionGateIds", "presetSnapshotDigest"]), statuses: replayTaskStatuses, taskClasses });
 export function validateActorAxes(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
   return validateActorIdentity(value, allowUnknownFields).map((message) => ({ code: "invalid_actor", message }));
 }
 export function validateTaskV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
-  const fields = TASK_V1_SCHEMA.required, allowed = [...fields, "pinned", "metadata", "relations", "packageDisposition", "supersededBy", "contractVersion"];
+  const fields = TASK_V1_SCHEMA.required, allowed = [...fields, "provenance", "pinned", "metadata", "relations", "packageDisposition", "supersededBy", "contractVersion"];
   if (!isRecord(value) || fields.some((field) => !(field in value)) || !allowUnknownFields && Object.keys(value).some((field) => !allowed.includes(field))) return [{ code: "invalid_task", message: "Task/v1 fields are incomplete or unknown" }];
   const issues: ContractValidationIssue[] = [];
   if (value.schema !== "task/v1") issues.push({ code: "invalid_schema", message: "Task must use task/v1" });
@@ -52,6 +53,7 @@ export function validateTaskV1(value: unknown, allowUnknownFields = false): read
   if (value.iteration !== 0 && value.iteration !== 1) issues.push({ code: "invalid_iteration", message: "iteration must be 0 or 1" });
   if (!Array.isArray(value.completionGateIds) || value.completionGateIds.some((id) => !isNonEmptyString(id))) issues.push({ code: "invalid_task", message: "completion gate ids must be strings" });
   if (value.presetSnapshotDigest !== null && (typeof value.presetSnapshotDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(value.presetSnapshotDigest))) issues.push({ code: "invalid_task", message: "preset snapshot digest must be null or SHA-256" });
+  if (value.provenance !== undefined && (!Array.isArray(value.provenance) || value.provenance.length === 0 || value.provenance.some((entry) => !validateSessionProvenance(entry)))) issues.push({ code: "invalid_task", message: "task provenance must contain session identities" });
   if (value.pinned !== undefined && typeof value.pinned !== "boolean") issues.push({ code: "invalid_task", message: "pinned must be a boolean" });
   if (value.metadata !== undefined) { const issue = metadataIssue(value.metadata, allowUnknownFields); if (issue) issues.push(issue); }
   const relationFields = ["relation_id", "source", "target", "type", "strength", "direction", "origin", "rationale", "state"];
