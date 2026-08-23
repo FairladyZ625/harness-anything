@@ -3,7 +3,9 @@ import { localMonthDayTime } from "../../model/local-time.ts";
 
 /**
  * 四条流的共用骨架:紧凑行、就地状态切换、内部滚动、空态。
- * 「不静默截断」约定:列表容器只做内部滚动,行集一页全给,不 slice。
+ * 「不静默截断」约定:列表容器只做内部滚动;行集规模会随台账增长的那些流(TaskStream、
+ * DecisionStream)自行分批渲染,但被推迟的行必须由批量按钮报出剩余数,页签/标题报出
+ * 真实总数——不许静默吞行。人手上限的行集(如 PinnedStream)可以整段渲染。
  */
 
 /** 分段切换钮(与旧总览/看板共用的视觉)。 */
@@ -42,7 +44,7 @@ export function StreamTabs<T extends string>({
   );
 }
 
-/** 内部滚动的行容器:高度有上限、行集不截断。 */
+/** 内部滚动的行容器:高度有上限;行集是否分批由各流自己决定,分批必须配批量按钮报出剩余数。 */
 export function StreamBody({
   children,
   testId,

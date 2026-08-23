@@ -47,6 +47,12 @@ const taskSummary = (patch: Partial<WorkspaceSummaryRead["tasks"]["byStatus"]> =
   const byStatus = { planned: 0, active: 0, blocked: 0, in_review: 0, done: 0, cancelled: 0, unknown: 0, ...patch };
   return { total: Object.values(byStatus).reduce((sum, count) => sum + count, 0), byStatus };
 };
+// 只保留 button/span 的区块可以用非贪婪到第一个 </div> 截断:流里的行本身不含 div
+// (批量按钮也是 button),所以这一段正好是「该容器实际渲染的行」。
+const section = (markup: string, testId: string): string | null => {
+  const found = markup.match(new RegExp(`data-testid="${testId}"[^>]*>([\\s\\S]*?)</div>`, "u"));
+  return found === null ? null : found[1]!;
+};
 const decisionSummary = (patch: Partial<WorkspaceSummaryRead["decisions"]["byState"]> = {}): WorkspaceSummaryRead["decisions"] => {
   const byState = { proposed: 0, in_effect: 0, rejected: 0, deferred: 0, superseded: 0, outcome_retired: 0, ...patch };
   const ids = (state: string, count: number) => Array.from({ length: count }, (_, index) => `${state}_${index}`);
@@ -93,6 +99,42 @@ describe("overview decision stream", () => {
       onOpenInbox: noop,
     }));
     expect(markup).toContain("该状态下暂无决策");
+  });
+});
+
+// 主行集 = 选中状态的全部决策,规模随台账被动累积(本仓实测最大一档 in_effect 598 行)。
+// 分批让 DOM 节点数与决策总量脱钩;页签计数报真实总数(daemon census),按钮报出被推迟的行数。
+describe("overview decision stream: main row set is bounded", () => {
+  it("bounds the decision row DOM and states how many rows it deferred", () => {
+    const rows = Array.from({ length: 45 }, (_, index) => decision({
+      decisionId: `dec_main_${index}`, title: `Decision ${index}`, state: "proposed",
+      riskTier: "medium", urgency: "medium", proposedAt: `2026-08-22T09:${String(index).padStart(2, "0")}:00.000Z`,
+    }));
+    const markup = renderToStaticMarkup(createElement(DecisionStream, {
+      decisions: rows, summary: decisionSummary({ proposed: 45 }),
+      stateLabel: (state) => state, onOpenPreview: noop, onOpenInbox: noop,
+    }));
+    const body = section(markup, "decision-stream-rows");
+    expect(body).not.toBeNull();
+    expect(body!.match(/title="dec_main_/gu)).toHaveLength(12);
+    expect(body).toContain('data-testid="decision-stream-more"');
+    expect(body).toContain("还有 33 条");
+    // 页签计数报的是真实总数,不是渲染出来的行数——被推迟的行在界面上有交代。
+    expect(tabText(markup, "overview-decision-state-proposed")).toBe("proposed 45");
+  });
+
+  // 负向断言:没超出一批时不许出现批量按钮。没有它,「无脑常显按钮」也能让上面那条变绿。
+  it("shows no batch button when the decision rows fit in one batch", () => {
+    const rows = Array.from({ length: 5 }, (_, index) => decision({
+      decisionId: `dec_main_${index}`, title: `Decision ${index}`, state: "proposed",
+      proposedAt: `2026-08-22T09:0${index}:00.000Z`,
+    }));
+    const markup = renderToStaticMarkup(createElement(DecisionStream, {
+      decisions: rows, summary: decisionSummary({ proposed: 5 }),
+      stateLabel: (state) => state, onOpenPreview: noop, onOpenInbox: noop,
+    }));
+    expect(section(markup, "decision-stream-rows")!.match(/title="dec_main_/gu)).toHaveLength(5);
+    expect(markup).not.toContain('data-testid="decision-stream-more"');
   });
 });
 
@@ -232,11 +274,6 @@ describe("overview task stream", () => {
 // 这一组把「零动作可见」钉住:把 TaskStream 的行集改回「只显示当前标签的状态」(删掉流首那组
 // 更新的行)会让 "surfaces the freshly created planned task" 立刻红。
 describe("overview task stream: freshly created tasks are visible with zero interaction", () => {
-  // 只保留 button/span 的区块可以用非贪婪到第一个 </div> 截断:行本身不含 div。
-  const section = (markup: string, testId: string): string | null => {
-    const found = markup.match(new RegExp(`data-testid="${testId}"[^>]*>([\\s\\S]*?)</div>`, "u"));
-    return found === null ? null : found[1]!;
-  };
   const freshWorkspace = () => [
     task({ taskId: "task_old_active", title: "Older active task", coordinationStatus: "active", createdAt: "2026-08-20T10:00:00.000Z" }),
     task({ taskId: "task_new_planned", title: "Just created task", coordinationStatus: "planned", createdAt: "2026-08-22T09:30:00.000Z" }),
@@ -386,6 +423,55 @@ describe("overview task stream: freshly created tasks are visible with zero inte
     }));
     expect(page).toContain("Just created task");
     expect(page).toMatch(/aria-selected="true" data-testid="overview-status-active"/u);
+  });
+});
+
+// 主行集 = 选中状态的全部任务,规模随台账被动累积(本仓 1543 任务时选 done 实测 1109 行、
+// planned 281 行)。分批让 DOM 节点数与任务总量脱钩;页签计数报真实总数(daemon census,
+// 逐字照抄、不由渲染行数改写),按钮报出被推迟的行数——被推迟的行有交代,不是被吞掉。
+describe("overview task stream: main row set is bounded", () => {
+  it("bounds the main row DOM and states how many rows it deferred", () => {
+    const rows = Array.from({ length: 45 }, (_, index) => task({
+      taskId: `task_main_${index}`, title: `Main ${index}`, coordinationStatus: "active",
+      createdAt: `2026-08-22T09:${String(index).padStart(2, "0")}:00.000Z`,
+    }));
+    const markup = renderToStaticMarkup(createElement(TaskStream, {
+      tasks: rows, summary: taskSummary({ active: 45 }), onOpenPreview: noop, onGoBoard: noop,
+    }));
+    const body = section(markup, "task-stream-rows");
+    expect(body).not.toBeNull();
+    expect(body!.match(/title="task_main_/gu)).toHaveLength(12);
+    expect(body).toContain('data-testid="task-stream-more"');
+    expect(body).toContain("还有 33 条");
+    // 页签计数报的是真实总数,不是渲染出来的行数。
+    expect(tabText(markup, "overview-status-active")).toBe("进行中 45");
+  });
+
+  // 负向断言:没超出一批时不许出现批量按钮。没有它,「无脑常显按钮」也能让上面那条变绿。
+  it("shows no batch button when the main rows fit in one batch", () => {
+    const rows = Array.from({ length: 5 }, (_, index) => task({
+      taskId: `task_main_${index}`, title: `Main ${index}`, coordinationStatus: "active",
+      createdAt: `2026-08-22T09:0${index}:00.000Z`,
+    }));
+    const markup = renderToStaticMarkup(createElement(TaskStream, {
+      tasks: rows, summary: taskSummary({ active: 5 }), onOpenPreview: noop, onGoBoard: noop,
+    }));
+    expect(section(markup, "task-stream-rows")!.match(/title="task_main_/gu)).toHaveLength(5);
+    expect(markup).not.toContain('data-testid="task-stream-more"');
+  });
+
+  // 全部任务同状态时「更新的」带为空,主行集独自有界——两段不互相兜底。
+  it("keeps the bound with the default active tab holding the whole ledger", () => {
+    const rows = Array.from({ length: 60 }, (_, index) => task({
+      taskId: `task_act_${index}`, title: `Active ${index}`, coordinationStatus: "active",
+      createdAt: `2026-08-22T09:${String(index).padStart(2, "0")}:00.000Z`,
+    }));
+    const markup = renderToStaticMarkup(createElement(TaskStream, {
+      tasks: rows, summary: taskSummary({ active: 60 }), onOpenPreview: noop, onGoBoard: noop,
+    }));
+    expect(section(markup, "task-stream-rows")!.match(/title="task_act_/gu)).toHaveLength(12);
+    expect(markup).not.toContain('data-testid="task-stream-ahead"');
+    expect(markup).toContain("还有 48 条");
   });
 });
 
