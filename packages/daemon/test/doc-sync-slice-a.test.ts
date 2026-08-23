@@ -1,11 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { classifyTextualArtifactPath, makeTaskEventStore, makeTaskProjection, serializeCanonicalEvent, type TaskProjection } from "../../kernel/src/index.ts";
+import { classifyTextualArtifactPath, compileTaskLifecycleWrite, makeTaskEventStore, makeTaskProjection, reduceTaskEvent, rebuildTaskProjection, serializeCanonicalEvent, type TaskProjection } from "../../kernel/src/index.ts";
 import { DOC_POLICY_ID, MIGRATION_DOCUMENT_POLICY_ID, MIGRATION_IMPORT_SOURCE, migrationImportWritePlan, sha256Text, type CanonicalWriteBundle, type MigrationImportEventV1 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { readDocReceipt, runDocAction } from "../src/doc-sync-actions.ts";
@@ -212,6 +212,66 @@ test("a renamed task plan H1 receipt names the exact title restore and the fix a
   } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+test("amending the title retitles the published plan through the typed route and the plan stays prose-submittable", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-amend-retitle-")); initRepo(rootDir); const repoId = workspaceId("amend-retitle"), cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "amend-retitle-daemon" }), binding = { actor, source: "local" as const }, taskId = "task_AMENDRETITLE000000AAAAAA", firstTitle = "amend retitle first title", secondTitle = "amend retitle second title";
+  try {
+    const created = await cell.run({ kind: "task-create", taskId, title: firstTitle }, binding) as { packagePath?: string }, plan = `${created.packagePath}/task_plan.md`, target = path.join(rootDir, "harness", plan);
+    const scaffold = readFileSync(target, "utf8"); assert.match(scaffold.split("\n")[0] ?? "", /^# amend retitle first title$/u);
+    writeFileSync(target, `${scaffold}\n## Worker Notes\n\nfirst round of worker prose\n`);
+    assert.equal((await cell.run({ kind: "doc-submit", paths: [plan] }, binding)).outcome, "applied", JSON.stringify(await cell.run({ kind: "doc-status", paths: [plan] }, binding)));
+    const amended = await cell.run({ kind: "task-amend", taskId, patches: [{ field: "title", value: secondTitle }] }, binding) as { outcome?: string; opId?: string; changedPaths?: readonly string[] };
+    assert.equal(amended.outcome, "applied", JSON.stringify(amended)); assert.ok(amended.changedPaths?.includes(plan), `amend changedPaths must retitle the plan: ${JSON.stringify(amended.changedPaths)}`);
+    const retitled = readFileSync(target, "utf8");
+    assert.match(retitled.split("\n")[0] ?? "", /^# amend retitle second title$/u);
+    assert.match(retitled, /## Worker Notes\n\nfirst round of worker prose/u);
+    const amendEvent = makeTaskEventStore({ repoId, rootDir }).readEvent(amended.opId!);
+    assert.equal(amendEvent?.type, "task_amended");
+    if (amendEvent?.type === "task_amended") { const planClaim = amendEvent.payload.documentClaims.find((claim) => claim.path === plan); assert.ok(planClaim, "amend event must claim the retitled plan"); assert.equal(planClaim.policyId, "markdown-body-replaceable/v1"); }
+    rebuildTaskProjection({ rootDir });
+    const projected = await cell.run({ kind: "doc-show", path: plan }, binding) as { evidence?: string };
+    assert.match((projected.evidence ?? "").split("\n")[0] ?? "", /^# amend retitle second title$/u);
+    writeFileSync(target, retitled.replace("first round of worker prose", "second round of worker prose"));
+    const status = await cell.run({ kind: "doc-status", paths: [plan] }, binding);
+    assert.equal(rows(status.evidence)[0]?.state, "eligible", JSON.stringify(status));
+    const resubmitted = await cell.run({ kind: "doc-submit", paths: [plan] }, binding);
+    assert.equal(resubmitted.outcome, "applied", JSON.stringify(resubmitted));
+  } finally { await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+test("a no-op title amend heals a plan whose canonical base still holds the pre-amend H1", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-amend-noop-")); initRepo(rootDir); const repoId = workspaceId("amend-noop"), taskId = "task_AMENDNOOP000000000AAAAA", firstTitle = "no-op amend first title", secondTitle = "no-op amend second title";
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "amend-noop-daemon" }); const binding = { actor, source: "local" as const };
+    const created = await cell.run({ kind: "task-create", taskId, title: firstTitle }, binding) as { packagePath?: string }, packagePath = created.packagePath!, plan = `${packagePath}/task_plan.md`, target = path.join(rootDir, "harness", plan);
+    assert.equal((await cell.run({ kind: "doc-submit", paths: [plan] }, binding)).outcome, "applied");
+    // Seed the stock shape directly: a title amend whose ledger was written before the typed
+    // retitle existed (claims INDEX + contract only), so canonical keeps the old-H1 plan base
+    // while the ledger title — and the worker's local H1 — already moved on.
+    await cell.close(); cell = undefined;
+    const store = makeTaskEventStore({ repoId, rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store }), read = projection.read(taskId), opId = "op-amend-noop-seed";
+    const seedEvent = { schema: "task-event/v1", eventId: `event-${opId}`, workspaceRevision: (store.readHead()?.revision ?? 0) + 1, opId, taskId, type: "task_amended", actor, source: "local", occurredAt: "2026-08-23T00:00:00.000Z", payload: { task: { ...read.snapshot.task!, title: secondTitle }, mutation: { command: "amend", reason: "declared retitle before the typed plan route existed", fields: ["title"] }, documentClaims: [] } } as unknown as import("../../kernel/src/index.ts").TaskEventV1;
+    const compiled = compileTaskLifecycleWrite({ event: seedEvent, snapshot: reduceTaskEvent(read.snapshot, seedEvent), packagePath, currentDocuments: ["INDEX.md", "task-contract.json"].map((leaf) => { const document = projection.readDocument(`${packagePath}/${leaf}`).document!; return { path: document.path, body: document.body, blobSha256: document.blobSha256 }; }) });
+    assert.equal(compiled.changedPaths.includes(plan), false);
+    store.append(compiled); projection.close();
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "amend-noop-replay" });
+    const workerBody = readFileSync(target, "utf8").replace(`# ${firstTitle}`, `# ${secondTitle}`).concat("\n## Drift\n\nworker prose written under the already-renamed H1\n");
+    writeFileSync(target, workerBody);
+    const blocked = await cell.run({ kind: "doc-status", paths: [plan] }, binding);
+    assert.equal(rows(blocked.evidence)[0]?.state, "blocked", JSON.stringify(blocked)); assert.match(blockedReason(blocked.evidence), /base region is missing: "# no-op amend first title"/u);
+    const noop = await cell.run({ kind: "task-amend", taskId, patches: [{ field: "title", value: secondTitle }] }, binding) as { outcome?: string; changedPaths?: readonly string[] };
+    assert.equal(noop.outcome, "applied", JSON.stringify(noop)); assert.ok(noop.changedPaths?.includes(plan), `no-op amend must retitle the plan: ${JSON.stringify(noop.changedPaths)}`);
+    // The typed settle preserves the unmerged worker edit as conflict scratch and lays down the
+    // retitled base; merging the scratch back by hand restores the worker body on the fresh base.
+    const scratches = readdirSync(path.dirname(target)).filter((name) => /^task_plan\.conflict-[0-9a-f]{8}\.md$/u.test(name));
+    assert.equal(scratches.length, 1, `expected one conflict scratch, found ${JSON.stringify(scratches)}`);
+    writeFileSync(target, workerBody); rmSync(path.join(path.dirname(target), scratches[0]!));
+    const healed = await cell.run({ kind: "doc-status", paths: [plan] }, binding);
+    assert.equal(rows(healed.evidence)[0]?.state, "eligible", JSON.stringify(healed));
+    assert.equal((await cell.run({ kind: "doc-submit", paths: [plan] }, binding)).outcome, "applied");
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
 test("authored CRLF prose is canonicalized on scanner read and submitted as LF", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-crlf-")); initRepo(rootDir); const repoId = workspaceId("crlf"), cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "crlf-daemon" }), binding = { actor, source: "local" as const }, logical = "context/crlf.md", canonical = "# CRLF\n\naccepted\n";
   try {
@@ -300,6 +360,7 @@ function standardMigration(revision: number, target: string, body: string): Cano
   return { event: migration, plan: migrationImportWritePlan(migration), blobs: [{ sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/markdown", body }] };
 }
 function rows(evidence: string | undefined): readonly { readonly path: string; readonly state: string }[] { assert.match(evidence ?? "", /^doc-scan:/u); return (JSON.parse((evidence ?? "").slice("doc-scan:".length)) as { rows: readonly { path: string; state: string }[] }).rows; }
+function blockedReason(evidence: string | undefined): string { assert.match(evidence ?? "", /^doc-scan:/u); return (JSON.parse((evidence ?? "").slice("doc-scan:".length)) as { rows: readonly { reason: string | null }[] }).rows[0]?.reason ?? ""; }
 function materializeReport(evidence: string | undefined): { readonly changed: readonly string[]; readonly conflicts: readonly string[] } { assert.match(evidence ?? "", /^doc-materialize:/u); return JSON.parse((evidence ?? "").slice("doc-materialize:".length)) as { changed: readonly string[]; conflicts: readonly string[] }; }
 function write(rootDir: string, target: string, body: string): void { const file = path.join(rootDir, "harness", target); mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, body); }
 function initRepo(rootDir: string): void { git(rootDir, "init", "-q"); git(rootDir, "config", "user.name", "Doc A Test"); git(rootDir, "config", "user.email", "doc-a@example.invalid"); git(rootDir, "commit", "--allow-empty", "-qm", "base"); }
