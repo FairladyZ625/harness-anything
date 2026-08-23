@@ -188,6 +188,7 @@ export async function openDaemonHost(input: {
     attachBudgetError,
     openCell,
     runtimePorts,
+    runtimeDaemonRoute,
     invalidRepoId,
     closeCell,
     unavailableProbes,
