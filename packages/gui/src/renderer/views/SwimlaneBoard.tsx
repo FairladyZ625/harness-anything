@@ -388,7 +388,8 @@ export function SwimlaneBoard({
               onClick={() => setVisibleLaneCount((count) => Math.min(count + LANE_BATCH_SIZE, lanes.length))}
               className="mt-3 w-full rounded-lg border border-dashed border-border px-3 py-2 font-mono text-[12px] text-text-muted hover:border-border-strong hover:text-text"
             >
-              {t("views.swimlaneBoard.showMore", { count: Math.min(LANE_BATCH_SIZE, hiddenLaneCount), remaining: hiddenLaneCount })}
+              {t("views.swimlaneBoard.showMore", { count: Math.min(LANE_BATCH_SIZE, hiddenLaneCount),
+                remaining: hiddenLaneCount })}
             </button>
           )}
           {lanes.length === 0 && (

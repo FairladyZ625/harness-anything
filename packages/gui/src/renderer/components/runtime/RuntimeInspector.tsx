@@ -20,22 +20,39 @@ type OpenSession = (runtimeSessionId: string) => void;
 // liveness word decides the dot through a table lookup alone.
 const LIVENESS_DOT: Record<string, "live" | "idle"> = { live: "live" };
 
-export function ProviderInspector({ instance, probeError, sessions, onOpenSession }: { readonly instance: RuntimeInstanceSummary | null; readonly probeError: string | null; readonly sessions: readonly AgentRuntimeSessionDto[]; readonly onOpenSession: OpenSession }) {
-  return <aside data-testid="runtime-inspector" aria-label={t("agentRuntime.inspectorRuntime")} className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface">
-    <h2 className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase tracking-[0.09em] text-text-faint">{t("agentRuntime.inspectorRuntime")}</h2>
+export function ProviderInspector({ instance, probeError, sessions, onOpenSession }: {
+  readonly instance: RuntimeInstanceSummary | null; readonly probeError: string | null; readonly sessions:
+  readonly AgentRuntimeSessionDto[]; readonly onOpenSession: OpenSession }) {
+  return <aside data-testid="runtime-inspector" aria-label={t("agentRuntime.inspectorRuntime")}
+    className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface">
+    <h2
+      className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase
+        tracking-[0.09em] text-text-faint">{t("agentRuntime.inspectorRuntime")}</h2>
     <RuntimeFacts instance={instance} probeError={probeError} />
     <Section title={t("agentRuntime.inspectorSessions", { count: sessions.length })}>
-      {sessions.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty> : sessions.slice(0, 8).map((session) => <LiveSessionRow key={session.runtimeSessionId} session={session} onOpenSession={onOpenSession} />)}
+      {sessions.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty> : sessions.slice(0,
+        8).map((session) => <LiveSessionRow key={session.runtimeSessionId} session={session}
+        onOpenSession={onOpenSession} />)}
     </Section>
   </aside>;
 }
 
-export function IdentityInspector({ selection, agents, squads, rows, onSelect, onOpenSession }: { readonly selection: RuntimeSelection; readonly agents: readonly AgentEntityRow[]; readonly squads: readonly SquadEntityRow[]; readonly rows: readonly RuntimeDockRow[]; readonly onSelect: (selection: RuntimeSelection) => void; readonly onOpenSession: OpenSession }) {
-  const related = rows.filter((row) => selection.type === "agent" ? row.agentId === selection.id : row.squadId === selection.id);
-  return <aside data-testid="runtime-inspector" aria-label={t(selection.type === "agent" ? "agentRuntime.inspectorAgent" : "agentRuntime.inspectorSquad")} className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface">
-    <h2 className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase tracking-[0.09em] text-text-faint">{t(selection.type === "agent" ? "agentRuntime.inspectorAgent" : "agentRuntime.inspectorSquad")}</h2>
+export function IdentityInspector({ selection, agents, squads, rows, onSelect, onOpenSession }: {
+  readonly selection: RuntimeSelection; readonly agents: readonly AgentEntityRow[]; readonly squads:
+  readonly SquadEntityRow[]; readonly rows: readonly RuntimeDockRow[]; readonly onSelect: (selection:
+  RuntimeSelection) => void; readonly onOpenSession: OpenSession }) {
+  const related = rows.filter((row) => selection.type === "agent" ? row.agentId === selection.id :
+    row.squadId === selection.id);
+  return <aside data-testid="runtime-inspector" aria-label={t(selection.type === "agent" ?
+    "agentRuntime.inspectorAgent" : "agentRuntime.inspectorSquad")}
+    className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface">
+    <h2
+      className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase
+        tracking-[0.09em] text-text-faint">{t(selection.type === "agent" ? "agentRuntime.inspectorAgent" :
+          "agentRuntime.inspectorSquad")}</h2>
     {selection.type === "agent"
-      ? <AgentFacts agent={agents.find((agent) => agent.id === selection.id) ?? null} squads={squads} onSelect={onSelect} />
+      ? <AgentFacts agent={agents.find((agent) => agent.id === selection.id) ?? null} squads={squads}
+        onSelect={onSelect} />
       : <SquadFacts squad={squads.find((squad) => squad.id === selection.id) ?? null} onSelect={onSelect} />}
     <Section title={t("agentRuntime.inspectorSessions", { count: related.length })}>
       {related.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty> : related.slice(0, 8).map((row) => <DispatchSessionRow key={row.runtimeSessionId} row={row} onOpenSession={onOpenSession} />)}
@@ -43,29 +60,46 @@ export function IdentityInspector({ selection, agents, squads, rows, onSelect, o
   </aside>;
 }
 
-export function SessionInspector({ row, rows, onSelectSession, onOpenTask }: { readonly row: RuntimeDockRow | null; readonly rows: readonly RuntimeDockRow[]; readonly onSelectSession: OpenSession; readonly onOpenTask: (taskId: string) => void }) {
+export function SessionInspector({ row, rows, onSelectSession, onOpenTask }: { readonly row:
+  RuntimeDockRow | null; readonly rows: readonly RuntimeDockRow[]; readonly onSelectSession:
+  OpenSession; readonly onOpenTask: (taskId: string) => void }) {
   const siblings = sessionSiblingRows(rows, row?.runtimeSessionId ?? "");
-  return <aside data-testid="runtime-inspector" aria-label={t("agentRuntime.inspectorSession")} className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface">
-    <h2 className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase tracking-[0.09em] text-text-faint">{t("agentRuntime.inspectorSession")}</h2>
+  return <aside data-testid="runtime-inspector" aria-label={t("agentRuntime.inspectorSession")}
+    className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface">
+    <h2
+      className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase
+        tracking-[0.09em] text-text-faint">{t("agentRuntime.inspectorSession")}</h2>
     <SessionFacts row={row} onOpenTask={onOpenTask} />
     <Section title={t("agentRuntime.inspectorSessions", { count: siblings.length })}>
-      {siblings.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty> : siblings.slice(0, 8).map((sibling) => <DispatchSessionRow key={sibling.runtimeSessionId} row={sibling} onOpenSession={onSelectSession} />)}
+      {siblings.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty> : siblings.slice(0,
+        8).map((sibling) => <DispatchSessionRow key={sibling.runtimeSessionId} row={sibling}
+        onOpenSession={onSelectSession} />)}
     </Section>
   </aside>;
 }
 
 function Section({ title, children }: { readonly title: string; readonly children: ReactNode }) { return <section className="border-b border-border px-3 py-2 last:border-b-0"><h3 className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">{title}</h3>{children}</section>; }
-function LiveSessionRow({ session, onOpenSession }: { readonly session: AgentRuntimeSessionDto; readonly onOpenSession: OpenSession }) {
-  return <button type="button" onClick={() => onOpenSession(session.runtimeSessionId)} className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised">
+function LiveSessionRow({ session, onOpenSession }: { readonly session: AgentRuntimeSessionDto;
+  readonly onOpenSession: OpenSession }) {
+  return <button type="button" onClick={() => onOpenSession(session.runtimeSessionId)}
+    className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised">
     <LiveDot state={LIVENESS_DOT[session.liveness] ?? "idle"} tip={session.liveness} />
-    <span className="min-w-0 flex-1"><span className="block truncate text-[11.5px]">{session.instanceId}</span><span className="block truncate font-mono text-[10px] text-text-faint">{session.runtimeSessionId}</span></span>
-    <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{session.activity.lastObservedAt.slice(11, 16)}</span>
+    <span className="min-w-0 flex-1"><span
+      className="block truncate text-[11.5px]">{session.instanceId}</span><span
+      className="block truncate font-mono text-[10px] text-text-faint">{session.runtimeSessionId}</span></span>
+    <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{session.activity.lastObservedAt.slice(11,
+      16)}</span>
   </button>;
 }
-function DispatchSessionRow({ row, onOpenSession }: { readonly row: RuntimeDockRow; readonly onOpenSession: OpenSession }) {
-  return <button type="button" onClick={() => onOpenSession(row.runtimeSessionId)} className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised">
+function DispatchSessionRow({ row, onOpenSession }: { readonly row: RuntimeDockRow;
+  readonly onOpenSession: OpenSession }) {
+  return <button type="button" onClick={() => onOpenSession(row.runtimeSessionId)}
+    className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised">
     <LiveDot state={row.status === "running" ? "live" : row.status === "failed" ? "failed" : "idle"} tip={row.status} />
-    <span className="min-w-0 flex-1"><span className="block truncate text-[11.5px]">{row.agentName ?? row.instanceId}</span><span className="block truncate font-mono text-[10px] text-text-faint">{row.taskTitle ?? row.runtimeSessionId}</span></span>
+    <span className="min-w-0 flex-1"><span className="block truncate text-[11.5px]">{row.agentName ??
+      row.instanceId}</span><span
+      className="block truncate font-mono text-[10px] text-text-faint">{row.taskTitle ??
+      row.runtimeSessionId}</span></span>
     <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{row.startedAt.slice(11, 16)}</span>
   </button>;
 }

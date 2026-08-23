@@ -14,7 +14,10 @@ const OUTCOME_TONE: Record<RuntimeDockRow["status"], string> = { succeeded: "tex
 // SessionRail(执行)。行渲染与 testid(rail-runtime-*/rail-agent-*/rail-squad-*/
 // rail-session-*/runtime-new-*)原样保留,只是各回各页;跨页不再共享选中态,
 // 互跳走可寻址路由。
-export function ProviderRail({ instances, authProbeErrors, selectedId, liveByInstance, onSelect, onNew }: { readonly instances: readonly RuntimeInstanceSummary[]; readonly authProbeErrors?: ReadonlyMap<string, string>; readonly selectedId: string | null; readonly liveByInstance: ReadonlyMap<string, number>; readonly onSelect: (instanceId: string) => void; readonly onNew: () => void }) {
+export function ProviderRail({ instances, authProbeErrors, selectedId, liveByInstance, onSelect, onNew
+  }: { readonly instances: readonly RuntimeInstanceSummary[]; readonly authProbeErrors?:
+  ReadonlyMap<string, string>; readonly selectedId: string | null; readonly liveByInstance:
+  ReadonlyMap<string, number>; readonly onSelect: (instanceId: string) => void; readonly onNew: () => void }) {
   const [open, setOpen] = useState(true);
   return <nav data-testid="runtime-rail" aria-label={t("agentRuntime.railLabel")} className="flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface">
     <Segment segment="runtimes" title={t("agentRuntime.segRuntimes")} sub={t("agentRuntime.segRuntimesSub")} count={instances.length} open={open} onToggle={() => setOpen(!open)} onNew={onNew}>
@@ -32,19 +35,27 @@ export function ProviderRail({ instances, authProbeErrors, selectedId, liveByIns
 // fourth entry. The design-thesis note stays at this rail's foot: dispatch is authored
 // from this page, and the formula it explains (Agent × Runtime × Task → Session) is the
 // one this page starts.
-export function IdentityRail({ agents, squads, selection, onSelect, onNew }: { readonly agents: readonly AgentEntityRow[]; readonly squads: readonly SquadEntityRow[]; readonly selection: RuntimeSelection | null; readonly onSelect: (selection: RuntimeSelection) => void; readonly onNew: (segment: "agents" | "squads") => void }) {
+export function IdentityRail({ agents, squads, selection, onSelect, onNew }: { readonly agents: readonly
+  AgentEntityRow[]; readonly squads: readonly SquadEntityRow[]; readonly selection: RuntimeSelection |
+  null; readonly onSelect: (selection: RuntimeSelection) => void; readonly onNew: (segment: "agents" |
+  "squads") => void }) {
   const [segments, setSegments] = useState<Readonly<Record<string, boolean>>>({ agents: true, squads: true });
   const onToggle = (segment: string) => setSegments((value) => ({ ...value, [segment]: !(value[segment] ?? true) }));
   const picked = (type: "agent" | "squad", id: string) => selection?.type === type && selection.id === id;
-  return <nav data-testid="runtime-rail" aria-label={t("agentRuntime.railLabel")} className="flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface">
-    <Segment segment="agents" title={t("agentRuntime.segAgents")} sub={t("agentRuntime.segAgentsSub")} count={agents.length} open={segments.agents ?? true} onToggle={() => onToggle("agents")} onNew={() => onNew("agents")}>
+  return <nav data-testid="runtime-rail" aria-label={t("agentRuntime.railLabel")}
+    className="flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface">
+    <Segment segment="agents" title={t("agentRuntime.segAgents")} sub={t("agentRuntime.segAgentsSub")}
+      count={agents.length} open={segments.agents ?? true} onToggle={() => onToggle("agents")} onNew={() =>
+      onNew("agents")}>
       {agents.map((agent) => <Row key={agent.id} tip={agent.id} testId={`rail-agent-${agent.id}`} selected={picked("agent", agent.id)} onSelect={() => onSelect({ type: "agent", id: agent.id })}>
         <Avatar id={agent.id} /><span className="min-w-0 flex-1 truncate text-[12px]">{agent.name}</span>
         <span data-tip={t("agentRuntime.layerTip", { layer: agent.layer })} className="shrink-0 rounded-[3px] border border-border-strong px-1 font-mono text-[9px] tracking-[0.04em] text-text-faint">{agent.layer}</span>
         {agent.validity === "blocked" && <LiveDot state="failed" tip={t("agentRuntime.declarationBlocked")} />}
       </Row>)}
     </Segment>
-    <Segment segment="squads" title={t("agentRuntime.segSquads")} sub={t("agentRuntime.segSquadsSub")} count={squads.length} open={segments.squads ?? true} onToggle={() => onToggle("squads")} onNew={() => onNew("squads")}>
+    <Segment segment="squads" title={t("agentRuntime.segSquads")} sub={t("agentRuntime.segSquadsSub")}
+      count={squads.length} open={segments.squads ?? true} onToggle={() => onToggle("squads")} onNew={() =>
+      onNew("squads")}>
       {squads.map((squad) => <Row key={squad.id} tip={squad.id} testId={`rail-squad-${squad.id}`} selected={picked("squad", squad.id)} onSelect={() => onSelect({ type: "squad", id: squad.id })}>
         <KindDot kind="any" /><span className="min-w-0 flex-1 truncate text-[12px]">{squad.name}</span>
         <span className="shrink-0 rounded-[3px] border border-border-strong px-1 font-mono text-[9px] text-text-faint">{t("agentRuntime.memberCount", { count: squad.workers.length + 1 })}</span>
@@ -58,16 +69,20 @@ export function IdentityRail({ agents, squads, selection, onSelect, onNew }: { r
 // the carrier is only where a session happens to run. A runtime session the dispatch ledger
 // does not know about still belongs here, under its unattributed group. W5:「编排」段撤销
 // ——task 派工链归 Task 详情「派工」页签,运行侧只保留 session 行与其绑定的 task 标题。
-export function SessionRail({ sessions, selectedId, onSelect }: { readonly sessions: readonly RuntimeDockRow[]; readonly selectedId: string | null; readonly onSelect: (runtimeSessionId: string) => void }) {
+export function SessionRail({ sessions, selectedId, onSelect }: { readonly sessions: readonly
+  RuntimeDockRow[]; readonly selectedId: string | null; readonly onSelect: (runtimeSessionId: string) => void }) {
   const [open, setOpen] = useState(true);
-  return <nav data-testid="runtime-rail" aria-label={t("agentRuntime.railLabel")} className="flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface">
-    <Segment segment="sessions" title={t("agentRuntime.segSessions")} sub={t("agentRuntime.segSessionsSub")} count={sessions.length} open={open} onToggle={() => setOpen(!open)}>
+  return <nav data-testid="runtime-rail" aria-label={t("agentRuntime.railLabel")}
+    className="flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface">
+    <Segment segment="sessions" title={t("agentRuntime.segSessions")}
+      sub={t("agentRuntime.segSessionsSub")} count={sessions.length} open={open} onToggle={() => setOpen(!open)}>
       <SessionGroupRows sessions={sessions} selectedId={selectedId} onSelect={onSelect} />
     </Segment>
   </nav>;
 }
 
-function SessionGroupRows({ sessions, selectedId, onSelect }: { readonly sessions: readonly RuntimeDockRow[]; readonly selectedId: string | null; readonly onSelect: (runtimeSessionId: string) => void }) {
+function SessionGroupRows({ sessions, selectedId, onSelect }: { readonly sessions: readonly
+  RuntimeDockRow[]; readonly selectedId: string | null; readonly onSelect: (runtimeSessionId: string) => void }) {
   const [collapsed, setCollapsed] = useState<Readonly<Record<string, boolean>>>({});
   return <>{runtimeDockGroups(sessions).map((group) => <div key={group.key}>
     <button type="button" aria-expanded={!collapsed[group.key]} onClick={() => setCollapsed((current) => ({ ...current, [group.key]: !current[group.key] }))} className="flex w-full items-center gap-1.5 px-1.5 pt-1 pb-0.5 text-left text-[10.5px] text-text-muted">

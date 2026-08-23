@@ -1,4 +1,5 @@
-import { Kanban, SquaresFour, Graph, Scales, Stack, PlugsConnected, GearSix, GitBranch, Users, Waveform } from "@phosphor-icons/react";
+import { Kanban, SquaresFour, Graph, Scales, Stack, PlugsConnected, GearSix, GitBranch, Users, Waveform
+  } from "@phosphor-icons/react";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import type { ViewId } from "./viewHistory.ts";
 

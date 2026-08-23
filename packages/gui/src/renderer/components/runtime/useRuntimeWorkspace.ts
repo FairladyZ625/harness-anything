@@ -19,7 +19,8 @@ const message = (value: unknown): string => value instanceof Error ? value.messa
 
 // 可寻址选择(W4 路由的运行时段):agent/squad/session 用本名,Runtime 实例在导航
 // 引用里叫 provider/<id>(与一级入口「Provider」同名),选择类型仍是 "runtime"。
-export function runtimeSelectionRef(selection: RuntimeSelection): string { return selection.type === "runtime" ? `provider/${selection.id}` : `${selection.type}/${selection.id}`; }
+export function runtimeSelectionRef(selection: RuntimeSelection): string { return selection.type ===
+  "runtime" ? `provider/${selection.id}` : `${selection.type}/${selection.id}`; }
 export function runtimeSelectionFromRef(ref: string | null): RuntimeSelection | null {
   if (ref === null) return null;
   const separator = ref.indexOf("/"); if (separator < 0) return null;
@@ -42,7 +43,9 @@ const LIVENESS_LIVE: Record<string, boolean> = { live: true };
 // feedback line, the same error line, and (for spawn-shaped actions) the same receipt
 // settlement footer. The channel owns no reads; the page hook passes its own refresh.
 function useRuntimeChannel(repoId: string, refresh: () => Promise<unknown>) {
-  const [busy, setBusy] = useState(false), [feedback, setFeedback] = useState<string | null>(null), [error, setError] = useState<string | null>(null), [settlement, setSettlement] = useState<RuntimeSpawnSettlement | null>(null);
+  const [busy, setBusy] = useState(false), [feedback, setFeedback] = useState<string | null>(null),
+    [error, setError] = useState<string | null>(null), [settlement, setSettlement] =
+    useState<RuntimeSpawnSettlement | null>(null);
   const run = async (label: string, action: () => Promise<unknown>, reread = true): Promise<unknown> => {
     if (busy) return null; setBusy(true); setError(null);
     try { const result = await action(); const record = result as Record<string, unknown> | null, id = String(record?.sessionId ?? record?.opId ?? "applied"); setFeedback(t("agentRuntime.feedbackApplied", { label, id })); if (reread) await refresh(); return result; }
@@ -55,28 +58,39 @@ function useRuntimeChannel(repoId: string, refresh: () => Promise<unknown>) {
     catch (cause) { consumeKnownError(cause); setError(message(cause)); return null; }
     finally { setBusy(false); }
   };
-  return { busy, feedback, error, settlement, clearFeedback: () => { setFeedback(null); setError(null); }, reportError: setError, run, spawn };
+  return { busy, feedback, error, settlement, clearFeedback: () => { setFeedback(null); setError(null);
+    }, reportError: setError, run, spawn };
 }
 
 // The dispatch-ledger panorama, narrowed to the task ids the overview already associates
 // with runtime sessions (W6) and shared verbatim between the sessions and agent entries —
 // one cache key, one batched task-dispatches read.
-function useRuntimePanorama(repoId: string, tasks: readonly RuntimePanoramaTask[], sessions: readonly AgentRuntimeSessionDto[]) {
+function useRuntimePanorama(repoId: string, tasks: readonly RuntimePanoramaTask[], sessions: readonly
+  AgentRuntimeSessionDto[]) {
   const client = useQueryClient(), panoramaTasks = runtimePanoramaTasks(tasks, sessions);
-  const squadQuery = { queryKey: ["squads", repoId], queryFn: () => agentEntityClient.listSquads(repoId), staleTime: 4_000 } as const;
-  return useQuery({ queryKey: ["runtime-panorama", repoId, panoramaTasks.map((task) => task.taskId).join(",")], queryFn: () => readPanorama(repoId, panoramaTasks, { listSquads: () => client.fetchQuery(squadQuery), getTaskDispatches: (taskIds) => harnessClient.getTaskDispatches({ repoId, taskIds }) }), staleTime: 4_000 });
+  const squadQuery = { queryKey: ["squads", repoId], queryFn: () =>
+    agentEntityClient.listSquads(repoId), staleTime: 4_000 } as const;
+  return useQuery({ queryKey: ["runtime-panorama", repoId, panoramaTasks.map((task) =>
+    task.taskId).join(",")], queryFn: () => readPanorama(repoId, panoramaTasks, { listSquads: () =>
+    client.fetchQuery(squadQuery), getTaskDispatches: (taskIds) => harnessClient.getTaskDispatches({
+    repoId, taskIds }) }), staleTime: 4_000 });
 }
 
 // 会话入口:overview + 收窄 panorama → dock rows。rail 分组、主区会话详情、inspector
 // 兄弟会话全部从这两面派生;唯一的写是 cancel。
 export function useSessionsWorkspace(repoId: string, tasks: readonly RuntimePanoramaTask[]) {
   const client = useQueryClient();
-  const overview = useQuery({ queryKey: ["runtime-control", repoId, "overview"], queryFn: () => agentRuntimeClient.overview(repoId), staleTime: 3_000 });
+  const overview = useQuery({ queryKey: ["runtime-control", repoId, "overview"], queryFn: () =>
+    agentRuntimeClient.overview(repoId), staleTime: 3_000 });
   const sessions = () => overview.data?.sessions ?? [];
   const panorama = useRuntimePanorama(repoId, tasks, sessions());
-  const channel = useRuntimeChannel(repoId, async () => { await Promise.all([client.invalidateQueries({ queryKey: ["runtime-control", repoId] }), client.invalidateQueries({ queryKey: ["runtime-panorama", repoId] })]); });
-  return { overview, panorama, dockRows: runtimeDockRows(panorama.data ?? [], sessions()), busy: channel.busy, feedback: channel.feedback, error: channel.error, clearFeedback: channel.clearFeedback,
-    cancelSession: (runtimeSessionId: string) => channel.run(t("agentRuntime.opSessionCancelled"), () => runtimeCommandClient.cancel(repoId, runtimeSessionId)) };
+  const channel = useRuntimeChannel(repoId, async () => { await Promise.all([client.invalidateQueries({
+    queryKey: ["runtime-control", repoId] }), client.invalidateQueries({ queryKey: ["runtime-panorama",
+    repoId] })]); });
+  return { overview, panorama, dockRows: runtimeDockRows(panorama.data ?? [], sessions()), busy:
+    channel.busy, feedback: channel.feedback, error: channel.error, clearFeedback: channel.clearFeedback,
+    cancelSession: (runtimeSessionId: string) => channel.run(t("agentRuntime.opSessionCancelled"), () =>
+      runtimeCommandClient.cancel(repoId, runtimeSessionId)) };
 }
 
 // Agent 入口(含 Squad 面):身份层读写 + 派工。兼容 Runtime 实例列表来自 machine
@@ -84,17 +98,32 @@ export function useSessionsWorkspace(repoId: string, tasks: readonly RuntimePano
 // panorama 行(收窄读,与会话入口共享缓存键)。
 export function useAgentSquadWorkspace(repoId: string, tasks: readonly RuntimePanoramaTask[]) {
   const client = useQueryClient();
-  const overview = useQuery({ queryKey: ["runtime-control", repoId, "overview"], queryFn: () => agentRuntimeClient.overview(repoId), staleTime: 3_000 });
-  const agents = useQuery({ queryKey: ["agents", repoId], queryFn: () => agentEntityClient.listAgents(repoId), staleTime: 4_000 });
-  const squads = useQuery({ queryKey: ["squads", repoId], queryFn: () => agentEntityClient.listSquads(repoId), staleTime: 4_000 });
-  const machine = useQuery({ queryKey: ["runtime-instances", "machine"], queryFn: runtimeInstanceClient.list, staleTime: 2_000 });
+  const overview = useQuery({ queryKey: ["runtime-control", repoId, "overview"], queryFn: () =>
+    agentRuntimeClient.overview(repoId), staleTime: 3_000 });
+  const agents = useQuery({ queryKey: ["agents", repoId], queryFn: () =>
+    agentEntityClient.listAgents(repoId), staleTime: 4_000 });
+  const squads = useQuery({ queryKey: ["squads", repoId], queryFn: () =>
+    agentEntityClient.listSquads(repoId), staleTime: 4_000 });
+  const machine = useQuery({ queryKey: ["runtime-instances", "machine"], queryFn:
+    runtimeInstanceClient.list, staleTime: 2_000 });
   const sessions = () => overview.data?.sessions ?? [];
   const panorama = useRuntimePanorama(repoId, tasks, sessions());
-  const channel = useRuntimeChannel(repoId, async () => { await Promise.all([client.invalidateQueries({ queryKey: ["runtime-control", repoId] }), client.invalidateQueries({ queryKey: ["runtime-panorama", repoId] })]); });
-  return { overview, agents, squads, machine, instances: machine.data?.instances ?? [], dockRows: runtimeDockRows(panorama.data ?? [], sessions()), busy: channel.busy, feedback: channel.feedback, error: channel.error, settlement: channel.settlement, clearFeedback: channel.clearFeedback,
-    saveAgent: async (declaration: AgentDeclarationV1) => { const saved = await channel.run(t("agentRuntime.opAgentSaved"), () => agentEntityClient.saveAgent(repoId, declaration), false); if (saved === null) return null; await client.invalidateQueries({ queryKey: ["agents", repoId] }); await client.invalidateQueries({ queryKey: ["agent-detail", repoId] }); return saved; },
-    saveSquad: async (declaration: SquadDeclarationV1) => { const saved = await channel.run(t("agentRuntime.opSquadSaved"), () => agentEntityClient.saveSquad(repoId, declaration), false); if (saved === null) return null; await client.invalidateQueries({ queryKey: ["squads", repoId] }); await client.invalidateQueries({ queryKey: ["squad-detail", repoId] }); return saved; },
-    dispatch: (request: DispatchRequest) => channel.spawn(buildDispatchSpawnInput(request, overview.data?.instances ?? [])) };
+  const channel = useRuntimeChannel(repoId, async () => { await Promise.all([client.invalidateQueries({
+    queryKey: ["runtime-control", repoId] }), client.invalidateQueries({ queryKey: ["runtime-panorama",
+    repoId] })]); });
+  return { overview, agents, squads, machine, instances: machine.data?.instances ?? [], dockRows:
+    runtimeDockRows(panorama.data ?? [], sessions()), busy: channel.busy, feedback: channel.feedback,
+    error: channel.error, settlement: channel.settlement, clearFeedback: channel.clearFeedback,
+    saveAgent: async (declaration: AgentDeclarationV1) => { const saved = await
+      channel.run(t("agentRuntime.opAgentSaved"), () => agentEntityClient.saveAgent(repoId,
+      declaration), false); if (saved === null) return null; await client.invalidateQueries({ queryKey:
+      ["agents", repoId] }); await client.invalidateQueries({ queryKey: ["agent-detail", repoId] }); return saved; },
+    saveSquad: async (declaration: SquadDeclarationV1) => { const saved = await
+      channel.run(t("agentRuntime.opSquadSaved"), () => agentEntityClient.saveSquad(repoId,
+      declaration), false); if (saved === null) return null; await client.invalidateQueries({ queryKey:
+      ["squads", repoId] }); await client.invalidateQueries({ queryKey: ["squad-detail", repoId] }); return saved; },
+    dispatch: (request: DispatchRequest) => channel.spawn(buildDispatchSpawnInput(request,
+      overview.data?.instances ?? [])) };
 }
 
 // Provider 入口:实例目录 + auth 探测 + 实例读写。live 计数取 overview 的 session
@@ -103,18 +132,31 @@ export function useAgentSquadWorkspace(repoId: string, tasks: readonly RuntimePa
 // 数据面),与 Agent 入口共享缓存键。
 export function useProviderWorkspace(repoId: string) {
   const client = useQueryClient();
-  const machine = useQuery({ queryKey: ["runtime-instances", "machine"], queryFn: runtimeInstanceClient.list, staleTime: 2_000 });
-  const agents = useQuery({ queryKey: ["agents", repoId], queryFn: () => agentEntityClient.listAgents(repoId), staleTime: 4_000 });
+  const machine = useQuery({ queryKey: ["runtime-instances", "machine"], queryFn:
+    runtimeInstanceClient.list, staleTime: 2_000 });
+  const agents = useQuery({ queryKey: ["agents", repoId], queryFn: () =>
+    agentEntityClient.listAgents(repoId), staleTime: 4_000 });
   const listedInstances = machine.data?.instances ?? [];
-  const authProbes = useQueries({ queries: listedInstances.map((instance) => { const needsProbe = instance.authReadiness.code === "runtime_auth_not_checked"; return { queryKey: ["runtime-instance-auth", instance.instanceId, machine.dataUpdatedAt], queryFn: () => runtimeInstanceClient.probe(instance.instanceId), enabled: needsProbe, retry: false, staleTime: 2_000, ...(needsProbe ? {} : { initialData: instance }) }; }) });
+  const authProbes = useQueries({ queries: listedInstances.map((instance) => { const needsProbe =
+    instance.authReadiness.code === "runtime_auth_not_checked"; return { queryKey:
+    ["runtime-instance-auth", instance.instanceId, machine.dataUpdatedAt], queryFn: () =>
+    runtimeInstanceClient.probe(instance.instanceId), enabled: needsProbe, retry: false, staleTime:
+    2_000, ...(needsProbe ? {} : { initialData: instance }) }; }) });
   const instances = listedInstances.map((instance, index) => authProbes[index]?.data ?? instance);
-  const authProbeErrors = new Map<string, string>(listedInstances.flatMap((instance, index) => { const error = authProbes[index]?.error; return error === null || error === undefined ? [] : [[instance.instanceId, message(error)] as const]; }));
-  const overview = useQuery({ queryKey: ["runtime-control", repoId, "overview"], queryFn: () => agentRuntimeClient.overview(repoId), staleTime: 3_000 });
+  const authProbeErrors = new Map<string, string>(listedInstances.flatMap((instance, index) => { const
+    error = authProbes[index]?.error; return error === null || error === undefined ? [] :
+    [[instance.instanceId, message(error)] as const]; }));
+  const overview = useQuery({ queryKey: ["runtime-control", repoId, "overview"], queryFn: () =>
+    agentRuntimeClient.overview(repoId), staleTime: 3_000 });
   const liveByInstance = new Map<string, number>();
-  for (const session of overview.data?.sessions ?? []) if (LIVENESS_LIVE[session.liveness]) liveByInstance.set(session.instanceId, (liveByInstance.get(session.instanceId) ?? 0) + 1);
-  const channel = useRuntimeChannel(repoId, async () => { await Promise.all([client.invalidateQueries({ queryKey: ["runtime-instances", "machine"] }), client.invalidateQueries({ queryKey: ["runtime-control", repoId] })]); });
+  for (const session of overview.data?.sessions ?? []) if (LIVENESS_LIVE[session.liveness])
+    liveByInstance.set(session.instanceId, (liveByInstance.get(session.instanceId) ?? 0) + 1);
+  const channel = useRuntimeChannel(repoId, async () => { await Promise.all([client.invalidateQueries({
+    queryKey: ["runtime-instances", "machine"] }), client.invalidateQueries({ queryKey:
+    ["runtime-control", repoId] })]); });
   const selfTest = async (instanceId: string, model: string): Promise<string | null> => {
-    const result = await channel.spawn(runtimeSelfTestSpawnInput(instanceId, model, `gui-runtime-self-test-${instanceId}-${crypto.randomUUID()}`));
+    const result = await channel.spawn(runtimeSelfTestSpawnInput(instanceId, model,
+      `gui-runtime-self-test-${instanceId}-${crypto.randomUUID()}`));
     if (!result?.runtimeSessionId) return null;
     try {
       for (let attempt = 0; attempt < 80; attempt += 1) {
@@ -126,16 +168,33 @@ export function useProviderWorkspace(repoId: string) {
       }
       throw new Error(t("agentRuntime.selfTestTimeout"));
     } catch (cause) {
-      consumeKnownError(cause); channel.reportError(t("agentRuntime.feedbackFailed", { label: t("agentRuntime.selfTestTitle"), error: message(cause) })); return null;
+      consumeKnownError(cause); channel.reportError(t("agentRuntime.feedbackFailed", { label:
+        t("agentRuntime.selfTestTitle"), error: message(cause) })); return null;
     }
   };
-  return { machine, agents, instances, authProbeErrors, overview, liveByInstance, busy: channel.busy, feedback: channel.feedback, error: channel.error, settlement: channel.settlement, clearFeedback: channel.clearFeedback,
-    createInstance: async (input: RuntimeInstanceCreateInput) => { const created = await channel.run(t("agentRuntime.opInstanceCreated"), () => runtimeInstanceClient.create(input), false); if (!created) return null; if (input.authMode === "subscription") { const probed = await channel.run(t("agentRuntime.opAuthChecked"), () => runtimeInstanceClient.probe(input.instanceId), false); if (subscriptionCreationNeedsLogin(input, probed)) await channel.run(t("agentRuntime.opSignIn"), () => runtimeInstanceClient.auth(repoId, input.instanceId, "login"), false); } await client.invalidateQueries({ queryKey: ["runtime-instances", "machine"] }); await client.invalidateQueries({ queryKey: ["runtime-control", repoId] }); return created; },
-    updateInstance: (input: RuntimeInstanceUpdateInput) => channel.run(t("agentRuntime.opInstanceUpdated"), () => runtimeInstanceClient.update(input)),
-    setInstanceEnabled: (instanceId: string, enabled: boolean) => channel.run(t(enabled ? "agentRuntime.opInstanceEnabled" : "agentRuntime.opInstanceDisabled"), () => runtimeInstanceClient.setEnabled(instanceId, enabled)),
-    deleteInstance: (instanceId: string) => channel.run(t("agentRuntime.opInstanceDeleted"), () => runtimeInstanceClient.delete(instanceId)),
-    validateInstance: (instanceId: string) => channel.run(t("agentRuntime.opAuthChecked"), () => runtimeInstanceClient.probe(instanceId)),
-    authInstance: (instanceId: string, action: "login" | "logout") => channel.run(t(action === "logout" ? "agentRuntime.opSignOut" : "agentRuntime.opSignIn"), () => runtimeInstanceClient.auth(repoId, instanceId, action), false),
+  return { machine, agents, instances, authProbeErrors, overview, liveByInstance, busy: channel.busy,
+    feedback: channel.feedback, error: channel.error, settlement: channel.settlement, clearFeedback:
+    channel.clearFeedback,
+    createInstance: async (input: RuntimeInstanceCreateInput) => { const created = await
+      channel.run(t("agentRuntime.opInstanceCreated"), () => runtimeInstanceClient.create(input),
+      false); if (!created) return null; if (input.authMode === "subscription") { const probed = await
+      channel.run(t("agentRuntime.opAuthChecked"), () => runtimeInstanceClient.probe(input.instanceId),
+      false); if (subscriptionCreationNeedsLogin(input, probed)) await
+      channel.run(t("agentRuntime.opSignIn"), () => runtimeInstanceClient.auth(repoId, input.instanceId,
+      "login"), false); } await client.invalidateQueries({ queryKey: ["runtime-instances", "machine"]
+      }); await client.invalidateQueries({ queryKey: ["runtime-control", repoId] }); return created; },
+    updateInstance: (input: RuntimeInstanceUpdateInput) =>
+      channel.run(t("agentRuntime.opInstanceUpdated"), () => runtimeInstanceClient.update(input)),
+    setInstanceEnabled: (instanceId: string, enabled: boolean) => channel.run(t(enabled ?
+      "agentRuntime.opInstanceEnabled" : "agentRuntime.opInstanceDisabled"), () =>
+      runtimeInstanceClient.setEnabled(instanceId, enabled)),
+    deleteInstance: (instanceId: string) => channel.run(t("agentRuntime.opInstanceDeleted"), () =>
+      runtimeInstanceClient.delete(instanceId)),
+    validateInstance: (instanceId: string) => channel.run(t("agentRuntime.opAuthChecked"), () =>
+      runtimeInstanceClient.probe(instanceId)),
+    authInstance: (instanceId: string, action: "login" | "logout") => channel.run(t(action === "logout"
+      ? "agentRuntime.opSignOut" : "agentRuntime.opSignIn"), () => runtimeInstanceClient.auth(repoId,
+      instanceId, action), false),
     selfTest };
 }
 export function runtimeSelfTestSpawnInput(instanceId: string, model: string, idempotencyKey: string) { return { runtimeInstanceId: instanceId, model, permissionMode: "read-only" as const, cwd: { scope: "repo-root" as const }, prompt: "Reply with exactly: runtime connectivity ok", taskId: null, idempotencyKey }; }
