@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { git, repoRoot } from "./git.mjs";
 import { isProductionPath } from "./module-policy.mjs";
 
@@ -79,7 +80,7 @@ export function explain(violations, limit = MAX_LINE_LENGTH) {
 
   return [
     "=".repeat(78),
-    `G34 line-density FAILED — ${violations.length} added production line(s) over ${limit} characters`,
+    `G36 line-density FAILED — ${violations.length} added production line(s) over ${limit} characters`,
     "=".repeat(78),
     "",
     "WHAT FAILED",
@@ -161,24 +162,27 @@ export function run({ rootDir = repoRoot(), base, head = "HEAD", limit = MAX_LIN
   return { ok: violations.length === 0, violations };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+export function main(argv = process.argv.slice(2)) {
   let base = null;
-  for (let index = 0; index < process.argv.length; index += 1) {
-    if (process.argv[index] === "--base") base = process.argv[index + 1] ?? null;
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === "--base") base = argv[index + 1] ?? null;
   }
   if (base === null) {
     console.error("usage: node tools/gates/line-density.mjs --base <sha>");
-    process.exit(2);
+    return 2;
   }
   try {
     const result = run({ base });
     if (!result.ok) {
       console.error(explain(result.violations));
-      process.exit(1);
+      return 1;
     }
-    console.log("G34 line-density: pass");
+    console.log("G36 line-density: pass");
+    return 0;
   } catch (error) {
-    console.error(`G34 line-density: ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(2);
+    console.error(`G36 line-density: ${error.message}`);
+    return 2;
   }
 }
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = main();

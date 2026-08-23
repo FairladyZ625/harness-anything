@@ -26,7 +26,7 @@ export function main(argv = process.argv.slice(2)) {
     stdio: "inherit"
   });
   if (result.error) {
-    console.error(`Local line-density failed to launch G34: ${result.error.message}`);
+    console.error(`Local line-density failed to launch G36: ${result.error.message}`);
     return 1;
   }
   return result.status ?? 1;
