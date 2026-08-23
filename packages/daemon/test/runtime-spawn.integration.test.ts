@@ -165,6 +165,19 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId, executor: holder }, auth)).outcome, "applied");
       const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-root" }, prompt: "Wrong executor", taskId, idempotencyKey: "agent-task-mismatch", executor: caller } });
       assert.equal(receipt.outcome, "op_rejected"); assert.equal(receipt.code, "runtime_task_lease_required");
+      assert.match(String(receipt.nextAction), new RegExp(`holder \\(personId=owner, executor=agent:codex-holder\\) must run ha task release ${taskId}, then this caller can run ha task start ${taskId}`, "u"));
+      assert.equal((await host.run(repoId, { kind: "task-release", taskId, executor: holder }, auth)).outcome, "applied");
+      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executor: caller }, auth)).outcome, "applied");
+      assert.equal((await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-root" }, prompt: "Recovered executor", taskId, idempotencyKey: "agent-task-recovered", executor: caller } })).outcome, "applied");
+    });
+    await t.test("task-bound runtime without a lease is told to start the task and that command terminates", async () => {
+      const taskId = "task-runtime-no-lease", executor = { kind: "agent", id: "codex-no-lease" } as const;
+      assert.equal((await host.run(repoId, { kind: "task-create", taskId, title: "Runtime no lease" }, auth)).outcome, "applied");
+      const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-root" }, prompt: "Needs a lease", taskId, idempotencyKey: "runtime-no-lease", executor } });
+      assert.equal(receipt.outcome, "op_rejected"); assert.equal(receipt.code, "runtime_task_lease_required");
+      assert.equal(receipt.nextAction, `Task-bound runtime spawn requires the caller's active execution lease; run ha task start ${taskId}, then retry the task-bound runtime command.`);
+      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executor }, auth)).outcome, "applied");
+      assert.equal((await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-root" }, prompt: "Lease acquired", taskId, idempotencyKey: "runtime-with-lease", executor } })).outcome, "applied");
     });
     await t.test("human lease remains task-bindable without an executor", async () => {
       const taskId = "task-runtime-human", executionId = "exec-runtime-human";
@@ -211,6 +224,9 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       const taskProse = await host.run(repoId, { kind: "doc-submit", paths: [planPath], executor: worker }, auth); assert.equal(taskProse.outcome, "op_rejected"); assert.equal(taskProse.code, "preview_blocked"); assert.equal(taskProse.detail?.unresolvedTouches[0]?.requiredRoute, "task-bound-runtime-artifacts"); writeFileSync(planTarget, planBody);
       const submission = { completionClaim: "Runtime worker must not submit.", deliverables: ["artifact"], outputs: [String(published.destination)], verificationNotes: ["integration"], knownGaps: [], residualRisks: [], commitSha: "a".repeat(40) };
       const lifecycle = await host.run(repoId, { kind: "task-submit", taskId, executionId, submission, executor: worker }, auth); assert.deepEqual({ outcome: lifecycle.outcome, code: lifecycle.code }, { outcome: "op_rejected", code: "lease_required" }, JSON.stringify(lifecycle));
+      assert.match(String(lifecycle.nextAction), new RegExp(`authenticated holder \\(personId=owner, executor=agent:dispatch-holder\\) must run ha task submit ${taskId} --execution-id ${executionId} --from-file <submission.json>, or ha task release ${taskId}`, "u"));
+      writeFileSync(path.join(root, "submission.json"), JSON.stringify(submission));
+      assert.equal((await host.run(repoId, { kind: "task-submit", taskId, executionId, fromFile: "submission.json", executor: holder }, auth)).outcome, "applied");
     });
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });

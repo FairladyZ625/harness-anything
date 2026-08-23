@@ -169,18 +169,16 @@ test("task-bound runtime sessions cannot review their own execution across exit 
     assert.equal((await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, implementer)).outcome, "applied");
     writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Reviewed.", evidenceChecked: ["tests"] }));
 
+    // A dedicated reviewer runtime has no binding to this task/execution, so it can execute the
+    // refusal's named command without changing either identity or review packet.
+    const unbound = await cell.spawnRuntime({ runtimeInstanceId: "review-runtime", cwd: { scope: "repo-root" }, prompt: "Review only.", taskId: null, idempotencyKey: "unbound-reviewer" }, implementer);
+    await runtimeEvent(rootDir, "review-runtime-bound", (event) => event.type === "runtime_session_provider_bound" && event.payload.runtimeSessionId === unbound.runtimeSessionId);
     for (const [reviewId, runtimeSessionId] of [["review-exited", original.runtimeSessionId], ["review-resumed", resumed.runtimeSessionId]] as const) {
       const denied = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" }, arbiter(`runtime-session:${runtimeSessionId}`));
       assert.equal(denied.code, "runtime_task_self_review_forbidden");
-      assert.match(String(denied.nextAction), /runtime is bound to the task and execution under review and cannot review its own work/u);
-      assert.doesNotMatch(String(denied.nextAction), /(?:retry|resume|run ha)/iu);
+      assert.equal(denied.nextAction, `This runtime is bound to task ${taskId} and execution ${executionId} and cannot review its own work; have an independent human or a runtime with no binding to this task and execution run ha task review-execution ${taskId} --execution-id ${executionId} --review-id ${reviewId} --from-file <review.json>.`);
+      assert.equal((await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" }, arbiter(`runtime-session:${unbound.runtimeSessionId}`))).outcome, "applied");
     }
-
-    // A dedicated reviewer runtime has no binding to this task/execution, so the new gate stays narrow.
-    const unbound = await cell.spawnRuntime({ runtimeInstanceId: "review-runtime", cwd: { scope: "repo-root" }, prompt: "Review only.", taskId: null, idempotencyKey: "unbound-reviewer" }, implementer);
-    await runtimeEvent(rootDir, "review-runtime-bound", (event) => event.type === "runtime_session_provider_bound" && event.payload.runtimeSessionId === unbound.runtimeSessionId);
-    const reviewedByRuntime = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "review-unbound", fromFile: "review.json" }, arbiter(`runtime-session:${unbound.runtimeSessionId}`));
-    assert.equal(reviewedByRuntime.outcome, "applied", JSON.stringify(reviewedByRuntime));
 
     const directTaskId = "task-direct-review", directExecutionId = "execution-direct-review";
     assert.equal((await cell.run({ kind: "task-create", taskId: directTaskId, title: "Direct review" }, implementer)).outcome, "applied");
