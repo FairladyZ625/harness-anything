@@ -156,6 +156,7 @@ export interface CodeDocProof {
   readonly actorBinding: ActorAxes;
   readonly capability: "code-doc-reconcile@v1";
   readonly capabilityRef: string;
+  readonly commitPaths: { readonly commitSha: string; readonly paths: readonly string[] };
 }
 export interface CompleteTaskProof {
   readonly capability: "task-complete@v1";

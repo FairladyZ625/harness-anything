@@ -147,7 +147,7 @@ test("an identifier-free lifecycle publishes dirty artifacts and completes on th
     const packagePath = String(added.destination).split("/artifacts/")[0]!, manual = `${packagePath}/artifacts/reports/manual.html`;
     write(rootDir, manual, "<!doctype html>\n<title>Manual report</title>\n");
     await reachGreenInReview(cell, rootDir, taskId, packagePath);
-    const completed = await cell.run({ kind: "task-complete", taskId, ci: "passed", paths: ["packages/kernel/src/domain/task.ts"] }, binding) as Record<string, unknown>;
+    const completed = await cell.run({ kind: "task-complete", taskId, ci: "passed", paths: ["README.md"] }, binding) as Record<string, unknown>;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     assert.equal(completed.commitSha, null);
     const store = makeTaskEventStore({ repoId, rootDir });
@@ -184,5 +184,5 @@ async function blockedRow(cell: Awaited<ReturnType<typeof openRepoCell>>, logica
 }
 function rows(evidence: string): readonly { readonly path: string; readonly state: string; readonly reason: string | null; readonly mediaType: string | null }[] { assert.match(evidence, /^doc-scan:/u); return (JSON.parse(evidence.slice("doc-scan:".length)) as { rows: readonly { path: string; state: string; reason: string | null; mediaType: string | null }[] }).rows; }
 function write(rootDir: string, target: string, body: string): void { const file = path.join(rootDir, "harness", target); mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, body); }
-function initRepo(rootDir: string): void { git(rootDir, "init", "-q"); git(rootDir, "config", "user.name", "Doc Opaque Test"); git(rootDir, "config", "user.email", "doc-opaque@example.invalid"); git(rootDir, "config", "gc.auto", "0"); git(rootDir, "commit", "--allow-empty", "-qm", "base"); }
+function initRepo(rootDir: string): void { git(rootDir, "init", "-q"); git(rootDir, "config", "user.name", "Doc Opaque Test"); git(rootDir, "config", "user.email", "doc-opaque@example.invalid"); git(rootDir, "config", "gc.auto", "0"); writeFileSync(path.join(rootDir, "README.md"), "# Fixture\n"); git(rootDir, "add", "README.md"); git(rootDir, "commit", "-qm", "base"); }
 function git(rootDir: string, ...args: readonly string[]): string { return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim(); }
