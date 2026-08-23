@@ -11,15 +11,17 @@ import {
   touch,
 } from "./doc-sync-regions.ts";
 import {
-  CurrentDocEventV1,
   DOC_POLICY_ID,
+  docRouteRegistry,
+  DocSyncContractError,
+} from "./doc-sync-types.ts";
+import type {
+  CurrentDocEventV1,
   DocContentBlob,
   DocEventChange,
   DocEventMutation,
   DocEventV1,
   DocPolicyUpgrade,
-  docRouteRegistry,
-  DocSyncContractError,
   DocWriteDecision,
   DocWriteDecisionInput,
 } from "./doc-sync-types.ts";

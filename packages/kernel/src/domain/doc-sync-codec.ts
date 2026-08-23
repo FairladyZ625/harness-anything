@@ -6,11 +6,13 @@ import {
   type PortableDocumentPath,
 } from "../layout/portable-path.ts";
 import {
+  DocSyncContractError,
+} from "./doc-sync-types.ts";
+import type {
   ContentClaim,
   CurrentDocEventV1,
   DocByteLength,
   DocClaimRef,
-  DocSyncContractError,
   DocWriteIntent,
   LedgerCommitSha,
 } from "./doc-sync-types.ts";

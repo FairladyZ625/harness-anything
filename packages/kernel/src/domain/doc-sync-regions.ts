@@ -1,6 +1,7 @@
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { type PortableDocumentPath } from "../layout/portable-path.ts";
-import { DOC_CODEC_ID, DOC_POLICY_ID, RegionProof } from "./doc-sync-types.ts";
+import { DOC_CODEC_ID, DOC_POLICY_ID } from "./doc-sync-types.ts";
+import type { RegionProof } from "./doc-sync-types.ts";
 import type {
   DocSyncDifference,
   DocSyncUnresolvedTouch,

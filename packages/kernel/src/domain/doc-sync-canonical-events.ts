@@ -10,7 +10,7 @@ import {
   validateCurrentDecisionEvent,
   validateDecisionEvent,
 } from "./decision-event.ts";
-import { CanonicalEventV1, DocEventV1 } from "./doc-sync-types.ts";
+import type { CanonicalEventV1, DocEventV1 } from "./doc-sync-types.ts";
 import { validateCurrentDocEvent } from "./doc-sync-validation.ts";
 import { validateCurrentFactEvent, validateFactEvent } from "./fact-event.ts";
 import {
