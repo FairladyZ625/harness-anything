@@ -29,7 +29,7 @@ const REGISTER = "../packages/kernel/src/domain/status-vocabulary.ts";
 const KERNEL_DOMAIN = "packages/kernel/src/domain";
 const GUI_MODEL = "packages/gui/src/renderer/model/types.ts";
 const GUI_ADAPTER = "packages/gui/src/renderer/triadic-data.ts";
-const DAEMON_PROTOCOL = "packages/daemon/src/protocol/daemon-protocol.contract.ts";
+const DAEMON_PROTOCOL = "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts";
 const DAEMON_MIRROR_CONST = /(?:Status|State|Phase|Disposition|Verdict|Outcome)Words$/u;
 const LOCAL_MIRROR_CONST = /const\s+([A-Za-z_][A-Za-z0-9_]*Words)\s*(?::[^=\n]+)?=\s*(?:Object\.freeze\(\s*)?\[([^\]]*)\]\s*as\s+const/gu;
 export const KERNEL_DECLARATION_SUFFIX = /(?:Statuses|Status|States|State|Phases|Phase|Dispositions|Disposition|Verdicts|Verdict|Outcomes|Outcome|Liveness|Readinesses)$/u;
@@ -220,10 +220,9 @@ export function checkGuiMirrorAgreement(register, guiModelText, guiAdapterText, 
 }
 
 export function checkDaemonMirrorAgreement(register, daemonText, findings = []) {
-  // The daemon wire contract cannot import the kernel barrel (it sits on the CLI's
-  // eager startup path and the p50 overhead gate refuses module growth there), so it
-  // carries plain-data mirrors. This check makes those mirrors ratchet-locked to the
-  // register instead of being free-floating hand copies.
+  // The daemon vocabulary module is imported by the wire contract on the CLI's eager
+  // startup path, so it carries plain-data mirrors. This check makes those mirrors
+  // ratchet-locked to the register instead of being free-floating hand copies.
   const registered = register.statusVocabularies.filter((vocabulary) => vocabulary.module === DAEMON_PROTOCOL);
   const declared = [...daemonText.matchAll(LOCAL_MIRROR_CONST)]
     .map((match) => ({ anchor: match[1], words: literalWords(match[2]) }))
