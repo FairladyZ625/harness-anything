@@ -10,6 +10,16 @@
 
 -
 
+## Machine-Readable Declarations
+
+<!-- Keep each applicable machine-readable declaration exactly once in the entire bilingual body, only in this English block, flush left without a Markdown list marker. -->
+<!-- Replace N and M with the actual added and deleted production line counts, including zero when appropriate. -->
+Production-Delta: +N/-M
+<!-- Keep and replace the next line only when any package.json or package-lock.json changes; otherwise delete it. Write a complete description, not none or n/a. -->
+Dependency-Change: <describe the deterministic dependency change in a complete sentence>
+<!-- Keep and replace the next line only when retaining an old production path; otherwise delete it. -->
+Retained-Path: <path> until <YYYY-MM-DD> per <dec_id>
+
 ## Task And Scope
 
 - Harness task:
@@ -87,6 +97,13 @@
 ## 改动内容
 
 -
+
+## 机读声明说明
+
+- 三项机读声明只能在英文块各出现一次、必须顶格，不能加 Markdown 列表符号；中文块不要重复填写。
+- 生产增删：在英文块把 N 和 M 替换为实际新增、删除行数，适用时可填零。
+- 依赖变化：仅在修改任意 `package.json` 或 `package-lock.json` 时保留英文占位行，改成完整的确定性变化描述；否则删除，不得填写纯 `none` 或 `n/a`。
+- 保留旧路径：仅在适用时保留英文占位行，填写路径、到期日和 decision id；否则删除。
 
 ## 任务与范围
 
