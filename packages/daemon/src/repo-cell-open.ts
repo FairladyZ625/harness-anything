@@ -17,6 +17,7 @@ import { bootstrapRepo, type RepoBootstrapInput, type RepoBootstrapReceipt } fro
 import {
   closeoutTask as closeoutTaskImpl,
   declareExecutionExecutor as declareExecutionExecutorImpl,
+  executeAction as executeActionImpl,
   lifecycleAction as lifecycleActionImpl,
 } from "./repo-cell-action-dispatch.ts";
 import { decisionProposalAction, taskCreateAction } from "./repo-cell-action-parse.ts";
@@ -48,7 +49,7 @@ import {
   explicitExecutionId,
   uniqueDerivedExecutionId,
 } from "./repo-cell-execution-selection.ts";
-import { initializeRepoCell } from "./repo-cell-initialize.ts";
+import { chainRepoCellWrite, initializeRepoCell } from "./repo-cell.ts";
 import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 import { lifecycleReceipt, workspaceText } from "./repo-cell-packets.ts";
 import {
@@ -66,7 +67,10 @@ import {
   receiptForOperation as receiptForOperationImpl,
 } from "./repo-cell-receipts.ts";
 import { legacyReviewLint } from "./repo-cell-review-lint.ts";
-import { runtimeIngressReceipt as runtimeIngressReceiptImpl } from "./repo-cell-runtime-actions.ts";
+import {
+  appendRuntimeIngress as appendRuntimeIngressImpl,
+  runtimeIngressReceipt as runtimeIngressReceiptImpl,
+} from "./repo-cell-runtime-actions.ts";
 import {
   cellStringList,
   completionApplied,
@@ -90,6 +94,8 @@ import {
   readResult as readResultImpl,
   relationEndpointExists as relationEndpointExistsImpl,
   upgradePresetSnapshot as upgradePresetSnapshotImpl,
+  withHumanSummary as withHumanSummaryImpl,
+  withLayoutAdvisory as withLayoutAdvisoryImpl,
 } from "./repo-cell-task-create.ts";
 import {
   archiveTasks as archiveTasksImpl,
@@ -316,7 +322,7 @@ export async function openRepoCell(input: {
   };
   const schedule = (work: () => void | Promise<void>): void => {
     queueDepth += 1;
-    const pending = tail.then(async () => {
+    const pending = chainRepoCellWrite(tail, async () => {
       queueDepth -= 1;
       if (state === "attached") await work();
     });
@@ -388,18 +394,18 @@ export async function openRepoCell(input: {
       return terminalHost.terminate(payload);
     },
   };
-  let extracted: any;
   const bindExtracted =
     <Args extends readonly unknown[], Result>(implementation: (context: any, ...args: Args) => Result) =>
     (...args: Args): Result =>
       implementation(extracted, ...args);
-  extracted = {
+  const extracted: any = {
     cellCodedError,
     input,
     runtimeIngressEventTypes,
     projection,
     store,
     runtimeIngressReceipt: bindExtracted(runtimeIngressReceiptImpl),
+    appendRuntimeIngress: bindExtracted(appendRuntimeIngressImpl),
     requiredCellText,
     now,
     operationId,
@@ -472,6 +478,9 @@ export async function openRepoCell(input: {
     errorOperationId,
     completionStopped,
     completionKillpoint: bindExtracted(completionKillpointImpl),
+    executeAction: bindExtracted(executeActionImpl),
+    withHumanSummary: bindExtracted(withHumanSummaryImpl),
+    withLayoutAdvisory: bindExtracted(withLayoutAdvisoryImpl),
     get recoveryUncertain() {
       return recoveryUncertain;
     },

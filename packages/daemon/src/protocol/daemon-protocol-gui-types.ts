@@ -1,9 +1,9 @@
-import type { ProjectionPage } from "../../../kernel/src/index.ts";
-import type { DecisionProjectionRow } from "../../../kernel/src/projection/decision-event-projection.ts";
 import type {
-  TaskProjectionListRow,
-  TaskProjectionWarning,
-} from "../../../kernel/src/projection/rebuildable-task-projection.ts";
+  DecisionProjectionRow,
+  ProjectionPage,
+  ProjectionWarning,
+  TaskProjection,
+} from "../../../kernel/src/index.ts";
 import type { AgentEntityGuiRead, AgentSkillGuiRead } from "../agent-entities.ts";
 import type {
   AgentRuntimeEventsResult,
@@ -11,9 +11,12 @@ import type {
   AgentRuntimeSessionResult,
 } from "../agent-runtime-contract.ts";
 import type { AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
-import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
+import type { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import { taskStatusWords } from "./daemon-protocol-vocabulary.ts";
 import { type JsonObject } from "./json-rpc-types.ts";
+
+type TaskProjectionListRow = ReturnType<TaskProjection["list"]>["rows"][number];
+type TaskProjectionWarning = ReturnType<TaskProjection["list"]>["warnings"][number];
 
 export type RpcEnumRule = {
   readonly values: readonly string[];
@@ -64,7 +67,7 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.decisions.list": {
     readonly ok: true;
     readonly decisions: readonly DecisionProjectionRow[];
-    readonly warnings: readonly import("../../../kernel/src/projection/types.ts").ProjectionWarning[];
+    readonly warnings: readonly ProjectionWarning[];
   };
   readonly "repo.tasks.document.read": {
     readonly ok: true;
@@ -292,7 +295,7 @@ export type DaemonWorkspaceSummaryResult = {
   readonly decisions: import("../../../kernel/src/domain/workspace-summary.ts").WorkspaceDecisionSummary;
   readonly watermark: number;
   readonly sourceRevision: number;
-  readonly warnings: readonly import("../../../kernel/src/projection/types.ts").ProjectionWarning[];
+  readonly warnings: readonly ProjectionWarning[];
 };
 
 export interface AgendaTaskRow {
@@ -341,7 +344,7 @@ export type DaemonAgendaResult = {
   };
   readonly watermark: number;
   readonly sourceRevision: number;
-  readonly warnings: readonly import("../../../kernel/src/projection/types.ts").ProjectionWarning[];
+  readonly warnings: readonly ProjectionWarning[];
   readonly summary: string;
 };
 

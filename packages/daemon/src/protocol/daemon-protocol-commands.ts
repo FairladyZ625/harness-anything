@@ -13,8 +13,7 @@ import { runtimeFleetProtocolCommands } from "./daemon-protocol-commands-runtime
 import { taskSurfaceProtocolCommands } from "./daemon-protocol-commands-task-surface.ts";
 import { taskExecutionProtocolCommands } from "./daemon-protocol-commands-task.ts";
 import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
-import { DaemonProtocolContractError } from "./daemon-protocol-rpc-validation.ts";
-import { type JsonObject } from "./json-rpc-types.ts";
+import { DaemonProtocolContractError, type JsonObject } from "./json-rpc-types.ts";
 
 export const daemonOwnedProtocolCommands = Object.freeze([
   ...taskSurfaceProtocolCommands,

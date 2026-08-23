@@ -18,7 +18,15 @@ import {
 } from "./daemon-protocol-validate-entities.ts";
 import { allDaemonProtocolMethods } from "./daemon-protocol.contract.ts";
 import { decisionStateWords, relationStateWords, taskStatusWords } from "./daemon-protocol-vocabulary.ts";
-import { isJsonObject, rejectSecretKeys, unknownFieldViolation, type JsonObject } from "./json-rpc-types.ts";
+import {
+  DaemonProtocolContractError,
+  isJsonObject,
+  rejectSecretKeys,
+  unknownFieldViolation,
+  type JsonObject,
+} from "./json-rpc-types.ts";
+
+export { DaemonProtocolContractError };
 
 export function isDaemonGuiReadMethod(method: string): method is DaemonGuiRpcReadMethod {
   return daemonGuiReadMethods.some((entry) => entry.method === method);
@@ -333,13 +341,4 @@ export function serializeDaemonRpcCall(value: unknown): string {
   const errors = validateDaemonRpcCall(value);
   if (errors.length) throw new DaemonProtocolContractError("invalid_rpc", errors.join("; "));
   return `${JSON.stringify(value)}\n`;
-}
-
-export class DaemonProtocolContractError extends Error {
-  readonly code: string;
-  constructor(code: string, message: string) {
-    super(message);
-    this.name = "DaemonProtocolContractError";
-    this.code = code;
-  }
 }

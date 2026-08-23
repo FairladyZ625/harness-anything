@@ -6,6 +6,7 @@ import { optionalEnum, shape } from "./daemon-protocol-gui-types.ts";
 import { daemonGuiActionSchemas, daemonGuiReadSchemas } from "./daemon-protocol-schema-registry.ts";
 import {
   daemonRepoModeWords,
+  daemonRepoModeWordsAreExact,
   decisionStateWords,
   executionStateWords,
   executionV1StateWords,
@@ -28,7 +29,7 @@ export {
   relationStateWords,
   reviewVerdictWords,
   taskStatusWords,
-} from "./daemon-protocol-vocabulary.ts";
+};
 
 // Wire-validator mirrors of the kernel status vocabularies (register:
 // packages/kernel/src/domain/status-vocabulary.ts, blueprint 铁律四). This module sits

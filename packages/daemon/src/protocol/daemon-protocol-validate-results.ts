@@ -1,6 +1,6 @@
 import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import type { DaemonProtocolErrorResult } from "./daemon-protocol-gui-types.ts";
-import { DaemonProtocolContractError } from "./daemon-protocol-rpc-validation.ts";
+import { DaemonProtocolContractError } from "./json-rpc-types.ts";
 import {
   DAEMON_DOCUMENT_READ_SCHEMA,
   DAEMON_PROTOCOL_ERROR_SCHEMA,

@@ -20,7 +20,7 @@ import {
 import { auditAuthoredCoverage, authoredPaths, parseResolutions } from "./migration-import-authored-audit.ts";
 import { classifyAuthored, referencedContent } from "./migration-import-authored-classification.ts";
 import { mediaType, portableMigrationPath, resolveAuthoredConflict } from "./migration-import-conflicts.ts";
-import { addDecision as addDecisionImpl, addFact as addFactImpl } from "./migration-import-entities.ts";
+import { addDecision as addDecisionImpl } from "./migration-import-entities.ts";
 import {
   blob,
   claim,
@@ -62,11 +62,9 @@ import {
   zeroCounts,
 } from "./migration-import-report.ts";
 import {
-  combineMigrationReceipts,
   idRemapConflict,
   includeSourceEventCoverage,
   migrationOperationId,
-  migrationSourceRoots,
   validateSourceGit,
 } from "./migration-import-source.ts";
 import {
@@ -93,7 +91,7 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell.ts";
 export const PEOPLE_ROSTER_PATH = "people.yaml",
   PEOPLE_REGISTRY_SURFACE = "people-registry";
 
-export async function runMigrationImport(input: {
+export interface MigrationImportRunInput {
   readonly action: RepoTaskAction;
   readonly binding: RepoCellBinding;
   readonly rootDir: string;
@@ -101,45 +99,12 @@ export async function runMigrationImport(input: {
   readonly projection: TaskProjection;
   readonly now: () => string;
   readonly shouldStop?: () => boolean;
-}): Promise<MigrationImportReceipt> {
-  const sourceRoots = migrationSourceRoots(input.action);
-  if (sourceRoots.length > 1 && input.action.dryRun === true)
-    throw migrationImportError(
-      "multi_source_dry_run_requires_staging",
-      [
-        "A multi-source dry-run cannot truthfully predict later-source document ",
-        "and id conflicts without staging earlier source writes. Run each ",
-        "--source dry-run in order against a disposable initialized center, or ",
-        "apply the ordered batch directly; completed sources are incremental ",
-        "no-ops on retry.",
-      ].join(""),
-    );
-  if (sourceRoots.length === 1)
-    return runSingleMigrationImport({
-      ...input,
-      action: { ...input.action, sourceRoot: sourceRoots[0] },
-    });
-  const receipts: MigrationImportReceipt[] = [];
-  for (const sourceRoot of sourceRoots) {
-    const receipt = await runSingleMigrationImport({
-      ...input,
-      action: { ...input.action, sourceRoot },
-    });
-    receipts.push(receipt);
-    if (receipt.exitCode === 1) break;
-  }
-  return combineMigrationReceipts(receipts, sourceRoots);
 }
 
-export async function runSingleMigrationImport(input: {
-  readonly action: RepoTaskAction;
-  readonly binding: RepoCellBinding;
-  readonly rootDir: string;
-  readonly store: CanonicalEventStore;
-  readonly projection: TaskProjection;
-  readonly now: () => string;
-  readonly shouldStop?: () => boolean;
-}): Promise<MigrationImportReceipt> {
+export async function runSingleMigrationImport(
+  input: MigrationImportRunInput,
+  addFactImpl: (context: any, row: RelationFactRow) => void,
+): Promise<MigrationImportReceipt> {
   const sourceArg = requiredMigrationText(input.action.sourceRoot, "sourceRoot"),
     sourceRoot = realpathSync.native(path.resolve(sourceArg)),
     destination = realpathSync.native(path.resolve(input.rootDir)),

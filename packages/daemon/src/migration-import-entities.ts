@@ -1,9 +1,6 @@
 import {
   renderDecisionDocument,
-  renderFactsDocument,
-  sha256Text,
   type ColdDecisionProjectionRow,
-  type RelationFactRow,
 } from "../../kernel/src/index.ts";
 
 export function addDecision(context: any, row: ColdDecisionProjectionRow): void {
@@ -90,103 +87,6 @@ export function addDecision(context: any, row: ColdDecisionProjectionRow): void 
         occurredAt,
         workspaceRevision,
         { kind: "decision", decision, documentClaim },
-        [context.blob(body, "text/markdown")],
-      );
-    },
-  });
-}
-
-export function addFact(context: any, row: RelationFactRow): void {
-  const factRef = row.ref,
-    occurredAt = context.timestamp(row.observedAt),
-    mappedTaskId = context.taskMap.get(row.taskId);
-  if (!occurredAt || !mappedTaskId || !context.validFact(row)) {
-    context.skips.push({
-      entityType: "fact",
-      migratedFrom: factRef,
-      sourcePath:
-        context.cold.truth.factAnchors.find(({ factRef: ref }: { readonly factRef: string }) => ref === factRef)
-          ?.sourcePath ?? factRef,
-      reason: !mappedTaskId ? "fact owner task was skipped" : "fact fields or occurredAt are invalid",
-    });
-    return;
-  }
-  if (context.factMap.has(factRef)) {
-    context.skips.push({
-      entityType: "fact",
-      migratedFrom: factRef,
-      sourcePath: factRef,
-      reason: "fact id occurs more than once in the same source repository",
-    });
-    return;
-  }
-  const held = context.existingSourceEntity("fact", factRef);
-  if (held?.kind === "fact") {
-    const targetRef = `fact/${held.fact.taskId}/${held.fact.factId}`;
-    context.factMap.set(factRef, targetRef);
-    context.alreadyImported.fact += 1;
-    return;
-  }
-  let targetFactId = row.factId,
-    targetRef = `fact/${mappedTaskId}/${targetFactId}`;
-  if (context.existingFacts.has(targetRef)) {
-    targetFactId = `F-${sha256Text(`${context.sourceKey}\0${factRef}`).slice(0, 8).toUpperCase()}`;
-    targetRef = `fact/${mappedTaskId}/${targetFactId}`;
-    if (context.existingFacts.has(targetRef) || [...context.factMap.values()].includes(targetRef))
-      throw context.idRemapConflict("fact", factRef, targetRef);
-    context.remappings.push({
-      entityType: "fact",
-      sourceId: factRef,
-      targetId: targetRef,
-      reason: [
-        "destination already contains ",
-        `${factRef}`,
-        "; importing Git source ",
-        `${context.sourceGit.rootCommit}`,
-        " triggered a source-scoped fact id remap",
-      ].join(""),
-    });
-  }
-  context.factMap.set(factRef, targetRef);
-  context.drafts.push({
-    kind: "fact",
-    migratedFrom: factRef,
-    occurredAt,
-    build: (workspaceRevision: number) => {
-      const fact = {
-          taskId: mappedTaskId,
-          factId: targetFactId,
-          statement: row.statement,
-          evidenceSource: row.source,
-          observedAt: row.observedAt,
-          confidence: row.confidence,
-          memoryClass: row.memoryClass,
-          memoryTags: row.memoryTags as never,
-          provenance: row.provenance as never,
-        },
-        records = [
-          ...(context.factDocuments.get(mappedTaskId) ?? []),
-          {
-            factId: targetFactId,
-            statement: row.statement,
-            evidenceSource: row.source,
-            observedAt: row.observedAt,
-            confidence: row.confidence,
-            state: "standing" as const,
-            workspaceRevision,
-          },
-        ];
-      context.factDocuments.set(mappedTaskId, records);
-      const body = renderFactsDocument(records),
-        documentClaim = context.claim(`${context.taskPackages.get(row.taskId)!}/facts.md`, body, "text/markdown");
-      return context.prepare(
-        context.sourceKey,
-        context.actorFor(`task/${row.taskId}`),
-        "fact",
-        factRef,
-        occurredAt,
-        workspaceRevision,
-        { kind: "fact", fact, documentClaim },
         [context.blob(body, "text/markdown")],
       );
     },

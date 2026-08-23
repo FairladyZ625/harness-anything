@@ -164,8 +164,8 @@ export function taskStatus(value: string): ImportedTask["status"] {
         : "planned";
 }
 
-/** Legacy sources predate the CH3 status rename. The importer is the sanctioned ingest boundary,
- * so it maps the renamed decision states just as it maps legacy decisionClass and task statuses. */
+/** Legacy sources predate the CH3 status rename; the importer is the one sanctioned ingest boundary,
+ * so it maps the two renamed decision states exactly like it already maps legacy decisionClass and task statuses. */
 export function legacyDecisionState(value: string): DecisionState | null {
   if (value === "active") return "in_effect";
   if (value === "retired") return "outcome_retired";

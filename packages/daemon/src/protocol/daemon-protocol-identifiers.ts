@@ -1,6 +1,6 @@
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { DaemonProtocolContractError } from "./daemon-protocol-rpc-validation.ts";
+import { DaemonProtocolContractError } from "./json-rpc-types.ts";
 
 declare const safePathBrand: unique symbol,
   canonicalRootBrand: unique symbol,

@@ -22,6 +22,7 @@ import { recoveryCommandPolicy } from "./recovery-state.ts";
 import type { DaemonGuiReadHandlers, RepoCell, RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
+import { chainRepoCellWrite } from "./repo-cell.ts";
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
 
 export function createRepoCellApi(context: any): RepoCell {
@@ -71,7 +72,7 @@ export function createRepoCellApi(context: any): RepoCell {
     };
     const enqueuePublication = (execute: () => WriteReceipt | Promise<WriteReceipt>): Promise<WriteReceipt> => {
       context.queueDepth += 1;
-      const pending = context.tail.then(async () => {
+      const pending = chainRepoCellWrite(context.tail, async () => {
         context.queueDepth -= 1;
         const queuedAdmission = admitsLocalCenterRepair
           ? { ok: true, code: "repo_mode_admitted", nextAction: "Continue." }
@@ -404,7 +405,7 @@ export function createRepoCellApi(context: any): RepoCell {
     const admission = admitRepoMode(context.mode, "repo-write", binding.source);
     if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));
     context.queueDepth += 1;
-    const pending = context.tail.then(() => {
+    const pending = chainRepoCellWrite(context.tail, () => {
       context.queueDepth -= 1;
       if (context.state !== "attached") context.attemptRecovery();
       const queuedAdmission = admitRepoMode(context.mode, "repo-write", binding.source);
@@ -428,7 +429,7 @@ export function createRepoCellApi(context: any): RepoCell {
     const admission = admitRepoMode(context.mode, "repo-write", binding.source);
     if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));
     context.queueDepth += 1;
-    const pending = context.tail.then(() => {
+    const pending = chainRepoCellWrite(context.tail, () => {
       context.queueDepth -= 1;
       if (context.state !== "attached") context.attemptRecovery();
       const queuedAdmission = admitRepoMode(context.mode, "repo-write", binding.source);
@@ -452,7 +453,7 @@ export function createRepoCellApi(context: any): RepoCell {
     const admission = admitRepoMode(context.mode, "repo-write", binding.source);
     if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));
     context.queueDepth += 1;
-    const pending = context.tail.then(() => {
+    const pending = chainRepoCellWrite(context.tail, () => {
       context.queueDepth -= 1;
       if (context.state !== "attached") context.attemptRecovery();
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());

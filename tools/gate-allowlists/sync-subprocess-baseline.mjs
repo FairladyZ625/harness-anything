@@ -5,17 +5,17 @@
 // same-shape occurrence. Line movement is harmless; content/scope/cardinality
 // changes must remove the stale exemption and may not add a replacement.
 export const syncSubprocessBaseline = Object.freeze([
-  { key: "packages/daemon/src/agent-runtime-instances.ts::<module>::import::6274a03d9825dc4c4a4360b846e6aacff9545c352d7dc86be0443e0bfa31ae05::1" }, // execFileSync import @ <module>
-  { key: "packages/daemon/src/agent-runtime-instances.ts::runExecutableSync.stdout::call::2c55ae39b37c2278bdef050013319112af204c02163205a9509c7fbb17e6fcc6::1" }, // execFileSync call @ runExecutableSync.stdout
-  { key: "packages/daemon/src/doc-sync-actions.ts::<module>::import::6274a03d9825dc4c4a4360b846e6aacff9545c352d7dc86be0443e0bfa31ae05::1" }, // execFileSync import @ <module>
-  { key: "packages/daemon/src/doc-sync-actions.ts::gitTracked::call::014b5e9b6597d3a544455e6d43d45fd1dec110dd6a7250371ea292e2e26a08da::1" }, // execFileSync call @ gitTracked
-  { key: "packages/daemon/src/doc-sync-actions.ts::gitModified::call::1b3712e0938e8509190e475441be08518bc09012e4133ef4ce0ab5946f22ac90::1" }, // execFileSync call @ gitModified
+  { key: "packages/daemon/src/agent-runtime-installation-discovery.ts::<module>::import::6274a03d9825dc4c4a4360b846e6aacff9545c352d7dc86be0443e0bfa31ae05::1" }, // execFileSync import @ <module>
+  { key: "packages/daemon/src/agent-runtime-installation-discovery.ts::runExecutableSync.stdout::call::fd4dfdd471a904507d167a912c9d3f7e37de66f4da0510029dc3da3cc9c02fa5::1" }, // execFileSync call @ runExecutableSync.stdout
+  { key: "packages/daemon/src/doc-sync-files.ts::<module>::import::6274a03d9825dc4c4a4360b846e6aacff9545c352d7dc86be0443e0bfa31ae05::1" }, // execFileSync import @ <module>
+  { key: "packages/daemon/src/doc-sync-files.ts::gitTracked::call::c56e7b6512a1ce2a1f1ebbcaedfbbc17c76cf92b5e329f0ba35c5929443325ca::1" }, // execFileSync call @ gitTracked
+  { key: "packages/daemon/src/doc-sync-files.ts::gitModified::call::22deb07df1df3899fcb93deb5f68ed992929c6f1ec4a1355d50f7708ef7601f3::1" }, // execFileSync call @ gitModified
   { key: "packages/daemon/src/doc-sync-candidate-scanner.ts::<module>::import::6274a03d9825dc4c4a4360b846e6aacff9545c352d7dc86be0443e0bfa31ae05::1" }, // execFileSync import @ <module>
   { key: "packages/daemon/src/doc-sync-candidate-scanner.ts::gitNames::call::41096438c4ab3b07f1c37ff37196b53f2d1235d1f1082dafd6d6daeb6e113288::1" }, // execFileSync call @ gitNames
   { key: "packages/daemon/src/process-port.ts::<module>::import::6274a03d9825dc4c4a4360b846e6aacff9545c352d7dc86be0443e0bfa31ae05::1" }, // execFileSync import @ <module>
   { key: "packages/daemon/src/process-port.ts::runProcessText::call::ae352415fe96f79287ff3703649e07e7ec1bcaff26ff899dcc68b64fa83a3f37::1" }, // execFileSync call @ runProcessText
-  { key: "packages/daemon/src/runtime-spawn.ts::<module>::import::c4dda5295265de61c79c1966c3d2699f2bc800c8f2cf16176dcd200fb05cb64d::1" }, // spawnSync import @ <module>
-  { key: "packages/daemon/src/runtime-spawn.ts::terminateRuntimeProcess::call::e1b87379872e492b6efc5b96b64be04163122a83e776252433a5477776605405::1" }, // spawnSync call @ terminateRuntimeProcess
+  { key: "packages/daemon/src/runtime-spawn-process.ts::<module>::import::c4dda5295265de61c79c1966c3d2699f2bc800c8f2cf16176dcd200fb05cb64d::1" }, // spawnSync import @ <module>
+  { key: "packages/daemon/src/runtime-spawn-process.ts::terminateRuntimeProcess::call::ef2a04b2cebe7b41e1adf45b100790600c0bf57a60d28649c641e65876fe62f1::1" }, // spawnSync call @ terminateRuntimeProcess
   { key: "packages/kernel/src/projection/post-merge-checks.ts::<module>::import::6274a03d9825dc4c4a4360b846e6aacff9545c352d7dc86be0443e0bfa31ae05::1" }, // execFileSync import @ <module>
   { key: "packages/kernel/src/projection/post-merge-checks.ts::findTrackedGeneratedFiles.output::call::43bbef9a750f955a28aa1c1bf02f95d3933a79a6a8652a633b8b8bdbc49872aa::1" }, // execFileSync call @ findTrackedGeneratedFiles.output
   { key: "packages/kernel/src/store/local-version-control-system.ts::<module>::import::6274a03d9825dc4c4a4360b846e6aacff9545c352d7dc86be0443e0bfa31ae05::1" }, // execFileSync import @ <module>
