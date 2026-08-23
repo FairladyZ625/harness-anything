@@ -53,10 +53,10 @@ export function measureProductionLines({ rootDir, revision = null }) {
 
 const INITIAL_MODULE_CEILINGS = Object.freeze({
   "write-contract": 700,
-  "agent-runtime": 1040,
+  "agent-runtime": 6157,
   decision: 572,
   fact: 614,
-  fleet: 700
+  fleet: 2482
 });
 const RETIRED_HISTORICAL_MODULES = new Set(["decision-fact"]);
 

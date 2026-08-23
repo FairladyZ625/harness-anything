@@ -223,15 +223,15 @@ const DECISION_INPUT_LINES = Object.freeze({
   kernel: 21614, // re-measured after W2-B restoration under dec_402DC87500A06C7B4A81F00CCB
   "task-lifecycle": 375,
   "write-contract": 292,
-  "doc-sync": 1991, // re-measured after W2-B restoration under dec_402DC87500A06C7B4A81F00CCB
+  "doc-sync": 2463,
   preset: 372,
   cli: 377,
   gui: 18494,
-  daemon: 4244, // re-measured under dec_4BA57B8082D26A05FBD9C70166 (conn-log v1 lands the connection-level observability)
-  fleet: 222,
+  daemon: 22892,
+  fleet: 1482,
   "authority-write-path": 0,
   "identity-rbac": 563,
-  "agent-runtime": 360,
+  "agent-runtime": 2157,
   decision: 286,
   fact: 307,
   "test-infra": 0

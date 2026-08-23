@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -40,18 +40,39 @@ test("W3 API registry rejects restoration of the retired task route authority", 
 }));
 
 test("W3 API registry rejects loss of payload self-report filtering", () => withFixture((root) => {
-  write(root, "packages/daemon/src/daemon-host.ts", validHost().replace(', "occurredAt"', ""));
+  write(root, "packages/daemon/src/repository-dispatch.ts", validRepositoryDispatch().replace(', "occurredAt"', ""));
   assert.match(evaluateApiContractRegistry(root).join("\n"), /missing transport-bound RepoCell authority token occurredAt/u);
+}));
+
+test("W3 API registry follows a renamed transport-authority module", () => withFixture((root) => {
+  renameSync(path.join(root, "packages/daemon/src/transport-binding.ts"), path.join(root, "packages/daemon/src/renamed-authority.ts"));
+  write(root, "packages/daemon/src/transport-composition.ts", validHostComposition().replace("./transport-binding.ts", "./renamed-authority.ts"));
+  assert.deepEqual(evaluateApiContractRegistry(root), []);
 }));
 
 function withFixture(run) { const root = mkdtempSync(path.join(tmpdir(), "w3-api-registry-")); try {
   write(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts", validRegistry());
   write(root, "packages/daemon/src/protocol/json-rpc-server.ts", validServer());
-  write(root, "packages/daemon/src/daemon-host.ts", validHost());
+  write(root, "packages/daemon/src/daemon-host.ts", 'export { openDaemonHost } from "./transport-composition.ts";\n');
+  write(root, "packages/daemon/src/transport-composition.ts", validHostComposition());
+  write(root, "packages/daemon/src/transport-binding.ts", validTransportBinding());
+  write(root, "packages/daemon/src/mode-admission.ts", '/** @daemon-transport-authority */\nexport function admit(auth) { return auth.assignmentBinding; }\n');
+  write(root, "packages/daemon/src/repository-dispatch.ts", validRepositoryDispatch());
   write(root, "packages/daemon/src/transport/auth-context.ts", 'export type DaemonTransportKind = "unix-socket"; export interface Auth { unixSocketOwnerBoundary: unknown; assignmentBinding: { nodeId: string; assignmentId: string }; }\n');
   run(root);
 } finally { rmSync(root, { recursive: true, force: true }); } }
 function write(root, relative, body) { const file = path.join(root, relative); mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, body); }
 function validRegistry() { return `export const daemonProtocolMethods = Object.freeze([\n  { method: "protocol.hello", requiresRepo: false },\n  { method: "daemon.status", requiresRepo: false },\n  { method: "daemon.stop", requiresRepo: false },\n  { method: "daemon.repo.bootstrap", requiresRepo: false },\n  { method: "daemon.repo.register", requiresRepo: false },\n  { method: "daemon.repo.unregister", requiresRepo: false },\n  { method: "repo.task.run", requiresRepo: true }\n]);\nexport const fleetProtocolMethods = Object.freeze([\n  { id: "daemon.fleet.center.start", phase: "Fleet-Wiring", method: "daemon.fleet.center.start", requiresRepo: false, params: shape({ payload: shape({ port: "number" }) }) },\n  { id: "daemon.fleet.edge.sync", phase: "Fleet-Wiring", method: "daemon.fleet.edge.sync", requiresRepo: false, params: shape({ payload: shape({ host: "string" }) }) },\n  { id: "daemon.fleet.task.run", phase: "Fleet-Wiring", method: "daemon.fleet.task.run", requiresRepo: false, params: shape({ payload: shape({ action: "json" }) }) },\n  { id: "daemon.fleet.doc.sync", phase: "Fleet-Wiring", method: "daemon.fleet.doc.sync", requiresRepo: false, params: shape({ payload: shape({ workspaceRoot: "string" }) }) },\n  { id: "daemon.fleet.conflict.exit", phase: "Fleet-Wiring", method: "daemon.fleet.conflict.exit", requiresRepo: false, params: shape({ payload: shape({ conflictId: "string" }) }) }\n]);\n`; }
 function validServer() { return `jsonRpcMethodContracts.some(() => true); request.method === "protocol.hello"; if (!handshaken) fail(); request.method === "daemon.status"; request.method === "daemon.stop"; request.method === "daemon.repo.bootstrap"; request.method === "daemon.repo.register"; request.method === "daemon.repo.unregister"; options.host.run(repo, action, options.authContext);\n`; }
-function validHost() { return `const cells = new Map<string, RepoCell>(); auth.assignmentBinding; ({ kind: "assignment" }); makeTransportDerivedIdentityProvider(); ["actor", "root", "canonicalRoot", "source", "workspaceId", "expectedRevision", "eventId", "occurredAt"];\n`; }
+function validHostComposition() { return `/** @daemon-transport-authority */
+import { binding } from "./transport-binding.ts";
+import { admit } from "./mode-admission.ts";
+import { run } from "./repository-dispatch.ts";
+export function openDaemonHost() { const cells = new Map<string, RepoCell>(); return { cells, binding, admit, run }; }
+`; }
+function validTransportBinding() { return `/** @daemon-transport-authority */
+export function binding(auth) { auth.assignmentBinding; ({ kind: "assignment" }); makeTransportDerivedIdentityProvider(); return { actor: true, source: "local" }; }
+`; }
+function validRepositoryDispatch() { return `/** @daemon-transport-authority */
+export function run() { return ["root", "canonicalRoot", "workspaceId", "expectedRevision", "eventId", "occurredAt"]; }
+`; }

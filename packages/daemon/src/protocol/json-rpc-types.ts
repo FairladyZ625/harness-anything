@@ -11,3 +11,13 @@ export function isJsonObject(value: unknown): value is JsonObject { return value
 export function unknownFieldViolation(value: Readonly<Record<string, unknown>>, allowedFields: readonly string[]): string | null { const field = Object.keys(value).find((candidate) => !allowedFields.includes(candidate)); return field === undefined ? null : `unknown field ${JSON.stringify(field)}; allowed fields: ${allowedFields.map((candidate) => JSON.stringify(candidate)).join(", ")}.`; }
 export function rejectSecretKeys(value: unknown): readonly string[] { return hasSensitiveKey(value) ? ["payload contains a forbidden secret-like key"] : []; }
 function hasSensitiveKey(value: unknown): boolean { if (Array.isArray(value)) return value.some(hasSensitiveKey); if (!isJsonObject(value)) return false; return Object.entries(value).some(([key, nested]) => /(?:secret|token|password|passphrase)/iu.test(key) || /^(?:api[-_]?key|credentialvalue)$/iu.test(key) || hasSensitiveKey(nested)); }
+
+export class DaemonProtocolContractError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "DaemonProtocolContractError";
+    this.code = code;
+  }
+}
