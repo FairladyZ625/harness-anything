@@ -12,7 +12,7 @@ test("fleet task routing requires both edge config and remote-edge registry mode
   const env = { HARNESS_DAEMON_USER_ROOT: userRoot }, config = { schema: "fleet-edge-config/v1", repoId: "route-repo", host: "center", port: 7443, caPath: "/fleet/ca.pem", nodeId: "edge-one", credential: "machine-secret", assignmentId: "assignment-edge-one", viewRoot: "/view", quotaBytes: 64 * 1024 * 1024 };
   writeFileSync(path.join(root, "fleet-edge.json"), `${JSON.stringify(config)}\n`);
   const registry = (mode: "local" | "remote-edge", canonicalRoot = root) => writeFileSync(path.join(userRoot, "registry.json"), `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [{ repoId: "route-repo", canonicalRoot, state: "enabled", mode }] })}\n`);
-  const command = (method: string, action: Record<string, unknown>) => ({ rootDir: root, method, action }) as never;
+  const command = (method: string, action: Record<string, unknown>, rootDir = root) => ({ rootDir, method, action }) as never;
 
   registry("local");
   assert.equal(await fleetTaskRoute(command("repo.task.run", { kind: "task-start", taskId: "task_one" }), env), null, "a stray config cannot change local-mode behavior");
@@ -22,6 +22,9 @@ test("fleet task routing requires both edge config and remote-edge registry mode
   registry("remote-edge");
   const routed = await fleetTaskRoute(command("repo.task.run", { kind: "task-start", verb: "start", commandType: "StartExecution", taskId: "task_one" }), env);
   assert.deepEqual(routed?.action, { kind: "task-start", taskId: "task_one" });
+  const child = path.join(root, "worktrees", "nested"); mkdirSync(child, { recursive: true });
+  const childRouted = await fleetTaskRoute(command("repo.task.run", { kind: "task-progress-append", taskId: "task_one", executionId: "execution_one", text: "nested cwd", evidence: [] }, child), env);
+  assert.equal(childRouted?.workspaceRoot, child); assert.deepEqual(childRouted?.action, { kind: "task-progress-append", taskId: "task_one", executionId: "execution_one", text: "nested cwd", evidence: [] });
   assert.equal(await fleetTaskRoute(command("repo.task.run", { kind: "task-complete", taskId: "task_one" }), env), null, "unsupported commands keep the explicit local repo-mode rejection path");
 
   writeFileSync(path.join(root, "task.json"), '{"title":"Structured edge task","riskTier":"high"}\n');

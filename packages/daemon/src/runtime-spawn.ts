@@ -30,12 +30,13 @@ type ActiveRuntime = { readonly process: RuntimeProcess; readonly dispatchId: st
 type ProviderFrame = { readonly sessionIdentity?: SessionIdentity; readonly signals?: readonly AgentRuntimeNativeSignal[]; readonly finalText?: string; readonly failureText?: string; readonly outcome?: "succeeded" | "failed" | "unknown"; readonly writeItemObserved?: boolean; readonly planObserved?: boolean; readonly planIncomplete?: boolean };
 type ResumeProcessEvent = { readonly kind: "output"; readonly chunk: string } | { readonly kind: "error"; readonly chunk: string } | { readonly kind: "exit"; readonly code: number | null };
 type ResumeProcessObservation = { readonly ready: Promise<void>; readonly activate: (handlers: { readonly output: (chunk: string) => void; readonly error: (chunk: string) => void; readonly exit: (code: number | null) => void }) => void };
+type RuntimeSessionSelection = Pick<RuntimeSession, "providerSessionId" | "instanceId" | "liveness">;
 const resultMediaType = "text/plain; charset=utf-8" as const, providerErrorLimit = 64 * 1024, resumeAdmissionTimeoutMs = 30_000, exitNotificationTimeoutMs = 30_000;
 
 export interface RemoteRuntimePersistence {
   readonly existing: (opId: string) => Promise<JsonObject | null>;
   readonly taskContext: (taskId: string) => Promise<{ readonly executionId: string; readonly mission: string; readonly packageRoot: string; readonly planPath: string; readonly plan: string }>;
-  readonly readRuntimeSessions: () => Promise<readonly RuntimeSession[]>;
+  readonly readRuntimeSessions: () => Promise<readonly RuntimeSessionSelection[]>;
   readonly publish: (draft: { readonly type: AgentRuntimeEventV1["type"]; readonly payload: Readonly<Record<string, unknown>>; readonly opId: string; readonly resultBody?: string }) => Promise<{ readonly event: AgentRuntimeEventV1; readonly receipt: JsonObject }>;
   readonly archive: (archive: RuntimeDispatchArchive) => Promise<{ readonly outcome: string; readonly nextAction?: string }>;
 }
@@ -163,7 +164,7 @@ function planHasIncompleteItems(item: Record<string, unknown>): boolean { const 
 function isPlainRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }
 function resolveRuntimeCwd(root: string, value: unknown): string { if (!value || typeof value !== "object" || Array.isArray(value)) throw runtimeSpawnError("invalid_runtime_cwd", "cwd requires a closed scope object."); const cwd = value as Record<string, unknown>, allowed = cwd.scope === "repo-root" ? ["scope"] : ["scope", "path"]; if (Object.keys(cwd).some((key) => !allowed.includes(key)) || !["repo-root", "repo-relative"].includes(String(cwd.scope))) throw runtimeSpawnError("invalid_runtime_cwd", "Runtime cwd scope is invalid."); const resolved = cwd.scope === "repo-root" ? root : path.resolve(root, requiredRuntimeSpawnText(cwd.path, "cwd.path")); if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) throw runtimeSpawnError("invalid_runtime_cwd", "Runtime cwd must stay inside the repository."); return resolved; }
 function assembleAgentPrompt(agent: RuntimeAgent, mission: string, preset?: string, skills: readonly ResolvedAgentSkill[] = []): string { return [`# Agent Identity: ${agent.name} (${agent.id})`, agent.instructions.trim(), agentRolePrompt(agent.role), ...(agent.prompts ?? []).map((prompt) => prompt.trim()).filter(Boolean), ...(preset?.trim() ? [preset.trim()] : []), ...(skills.length ? ["# Required Skills", "Read and follow every selected skill before doing the mission:", ...skills.map((skill) => `- ${skill.id}: ${skill.skillFile}`)] : []), "# Mission", mission].join("\n\n"); }
-async function resolveRuntimeInstanceId(input: { readonly requested?: string; readonly providerSessionId?: string; readonly agent: RuntimeAgent | null; readonly model?: string; readonly instances: readonly RuntimeInstanceSummary[]; readonly sessions: ReturnType<TaskProjection["readRuntimeSessions"]> }): Promise<string> {
+async function resolveRuntimeInstanceId(input: { readonly requested?: string; readonly providerSessionId?: string; readonly agent: RuntimeAgent | null; readonly model?: string; readonly instances: readonly RuntimeInstanceSummary[]; readonly sessions: readonly RuntimeSessionSelection[] }): Promise<string> {
   if (input.providerSessionId) {
     const session = input.sessions.find((row) => row.providerSessionId === input.providerSessionId);
     if (session) return session.instanceId;

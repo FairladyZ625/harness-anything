@@ -77,7 +77,7 @@ const readResponseDeadlineMs = (kind: string): number | undefined => { try { ret
 // the center's job (dec_9E7AC30E/CH2).
 // task-create rides its own preset method; the lifecycle commands ride repo.task.run.
 const fleetTaskMethods = ["repo.task.run", "repo.task.create"];
-const fleetRuntimeMethods = ["repo.agentRuntime.spawn", "repo.agentRuntime.cancel", "repo.agentRuntime.sessions.read"] as const;
+const fleetRuntimeMethods = ["repo.agentRuntime.spawn", "repo.agentRuntime.cancel", "repo.agentRuntime.overview", "repo.agentRuntime.sessions.read"] as const;
 export async function fleetRuntimeRoute(command: ThinCommand, env: NodeJS.ProcessEnv = process.env): Promise<Record<string, unknown> | null> {
   if (!(fleetRuntimeMethods as readonly string[]).includes(command.method)) return null;
   const config = await fleetEdgeRegistration(command, env); if (!config) return null;
@@ -85,11 +85,9 @@ export async function fleetRuntimeRoute(command: ThinCommand, env: NodeJS.Proces
   return { host: config.host, port: config.port, caPath: config.caPath, ...(config.servername ? { servername: config.servername } : {}), nodeId: config.nodeId, ...(config.rosterPath ? { rosterPath: config.rosterPath } : {}), ...(config.credential ? { credential: config.credential } : {}), assignmentId: config.assignmentId, repoId: config.repoId, viewRoot: config.viewRoot, quotaBytes: config.quotaBytes, workspaceRoot: path.resolve(command.rootDir), action: { kind: "fleet-runtime", method: command.method, payload: action } };
 }
 // The fleet modules stay lazy for the same reason the autostart seam does: the
-// thin dist static import graph is entry/parser/transport-only. The config
-// reader is a leaf (node:fs only) and runs first, so a plain local workspace
-// rejects exactly as fast as before the routing existed. The registry mode is
-// the single repo-mode source of truth: only a remote-edge registration routes
-// writes to the fleet channel (adversarial F7).
+// thin dist static import graph stays entry/parser/transport-only. Registry mode
+// is the single repo-mode source of truth; its matched canonical root also owns
+// fleet-edge.json for commands launched from worktrees or descendants.
 export async function fleetTaskRoute(command: ThinCommand, env: NodeJS.ProcessEnv = process.env): Promise<Record<string, unknown> | null> {
   if (!fleetTaskMethods.includes(command.method)) return null;
   const config = await fleetEdgeRegistration(command, env);
@@ -115,10 +113,10 @@ export async function fleetTaskRoute(command: ThinCommand, env: NodeJS.ProcessEn
 // task and doc surfaces).
 async function fleetEdgeRegistration(command: ThinCommand, env: NodeJS.ProcessEnv): Promise<import("../../../daemon/src/client/fleet-edge-config.ts").FleetEdgeConfig | null> {
   const { readFleetEdgeConfig } = await import("../../../daemon/src/client/fleet-edge-config.ts");
-  const config = readFleetEdgeConfig(command.rootDir);
-  if (!config) return null;
-  const commandRoot = path.resolve(command.rootDir), registered = readRegisteredRepos(daemonUserRoot(env)).filter((repo) => repo.repoId === config.repoId && repo.state === "enabled" && (commandRoot === path.resolve(repo.canonicalRoot) || commandRoot.startsWith(`${path.resolve(repo.canonicalRoot)}${path.sep}`))).sort((left, right) => right.canonicalRoot.length - left.canonicalRoot.length)[0];
-  return registered?.mode === "remote-edge" ? config : null;
+  const commandRoot = path.resolve(command.rootDir), registered = readRegisteredRepos(daemonUserRoot(env)).filter((repo) => repo.state === "enabled" && (commandRoot === path.resolve(repo.canonicalRoot) || commandRoot.startsWith(`${path.resolve(repo.canonicalRoot)}${path.sep}`))).sort((left, right) => path.resolve(right.canonicalRoot).length - path.resolve(left.canonicalRoot).length)[0];
+  if (registered?.mode !== "remote-edge") return null;
+  const config = readFleetEdgeConfig(registered.canonicalRoot);
+  return config?.repoId === registered.repoId ? config : null;
 }
 // Class-B surface on a remote-edge workspace: `ha doc sync` becomes one
 // compare→push/pull fleet round, and the three conflict exits become fleet
