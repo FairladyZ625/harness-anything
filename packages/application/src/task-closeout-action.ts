@@ -72,7 +72,10 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     if (judgment.review.verdict !== "approved") return { ...reject(opId, judgment.review.verdict === "changes_requested" ? "changes_requested" : "review_not_approved", judgment.review.verdict === "changes_requested" ? `Run ha task start ${taskId} --execution-id <execution-id>, address the requested changes, then run ${invocation} with the next judgment.` : `Have an independent arbiter record an approved judgment, then run ${invocation}.`), stoppedAt: "review-execution", steps } as WriteReceipt; }
   if (stage <= 2) { const stopped = await invoke("review-consent", { kind: "task-review-consent", taskId, ...selector, reviewId, consentId }, task.createdBy); if (stopped) return stopped; }
   const ciFlag = judgment.completion.ci === "passed" ? { ci: "passed" as const } : {};
-  const stopped = await invoke("complete", { kind: "task-complete", taskId, ...selector, ...ciFlag, ...(judgment.completion.codeDocPaths.length ? { paths: judgment.completion.codeDocPaths } : {}) }, task.createdBy); if (stopped) return stopped;
+  const pathFlag = judgment.completion.codeDocPaths.length ? { paths: judgment.completion.codeDocPaths } : {};
+  const completion = { kind: "task-complete", taskId, ...selector, ...ciFlag, ...pathFlag };
+  const stopped = await invoke("complete", completion, task.createdBy);
+  if (stopped) return stopped;
   const { stage: _stage, ...final } = steps.at(-1)!;
   return { ...final, taskId, reviewId, consentId, submittedCommitSha: judgment.submission.commitSha, summary: `closed out task ${taskId}`, steps } as WriteReceipt;
 
