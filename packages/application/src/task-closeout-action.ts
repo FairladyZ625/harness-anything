@@ -37,12 +37,12 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
   const snapshot = await dependencies.read(), task = snapshot.task;
   if (!task || task.taskId !== taskId) return reject(opId, "task_not_found", `Run ha task list, choose an existing task id, then run ${invocation}.`);
   if (task.status === "done") { const shown = await dependencies.invoke("task-show", { kind: "task-show", taskId }, caller); return { ...shown, taskId, summary: `task ${taskId} is already done`, steps: [] } as WriteReceipt; }
-  const ciIssue = ciJudgmentIssue(task.completionGateIds, judgment.completion.ci);
-  if (ciIssue) return reject(opId, "invalid_judgment", `${ciIssue} Repair the packet, then run ${invocation}.`);
   if (task.status === "planned") return reject(opId, "not_started", `Run ha task start ${taskId} --execution-id <execution-id>, then run ${invocation}.`);
   if (task.status === "blocked") return reject(opId, "task_blocked", `Run ha task transition ${taskId} active, then run ${invocation}.`);
   if (task.status === "cancelled") return reject(opId, "terminal_task", `Run ha task supersede ${taskId} --title <follow-up-title> to create new work; the cancelled task cannot be closed out.`);
   if (task.status !== "active" && task.status !== "in_review") return reject(opId, "invalid_transition", `Run ha task show ${taskId}, repair its lifecycle state, then run ${invocation}.`);
+  const ciIssue = ciJudgmentIssue(task.completionGateIds, judgment.completion.ci);
+  if (ciIssue) return reject(opId, "invalid_judgment", `${ciIssue} Repair the packet, then run ${invocation}.`);
   if (task.createdBy.principal.personId !== caller.principal.personId) return reject(opId, "actor_unauthorized", `The Task owner (${task.createdBy.principal.personId}) must run ${invocation}.`);
 
   const reviewId = deterministicId("review-closeout", taskId, String(task.iteration), judgment.submission.commitSha, judgment.review), consentId = deterministicId("consent-closeout", taskId, String(task.iteration), judgment.submission.commitSha, reviewId);

@@ -27,17 +27,17 @@ const submission = { completionClaim: "Docs only.", deliverables: ["report"], ou
 /** A docs-shaped judgment packet whose CI posture the caller chooses, so both postures meet both contracts. */
 function packet(ci: string) { return { submission, review: { verdict: "approved", reason: "Reviewed.", evidenceChecked: ["report"] }, consent: { approved: true }, completion: { ci, codeDocPaths: [] } }; }
 /** completionGateIds is the whole point of the fixture: it is preset-owned and fixed at task creation. */
-function fixture(completionGateIds: readonly string[]) {
-  return { revision: 2, task: { schema: "task/v1", taskId, title: "CI judgment", taskClass: "standard", status: "active", graph: { maxIterations: 1, nodes: [], edges: [] }, currentNode: "implementation", iteration: 0, createdBy: person, completionGateIds, presetSnapshotDigest: null },
+function fixture(completionGateIds: readonly string[], status = "active") {
+  return { revision: 2, task: { schema: "task/v1", taskId, title: "CI judgment", taskClass: "standard", status, graph: { maxIterations: 1, nodes: [], edges: [] }, currentNode: "implementation", iteration: 0, createdBy: person, completionGateIds, presetSnapshotDigest: null },
     executions: [{ schema: "execution/v1", executionId, taskId, nodeId: "implementation", iteration: 0, state: "active", actor: person, claimedAt: "2026-08-24T00:00:00.000Z", submittedAt: null, closedAt: null, submission: null }],
     reviews: [], consents: [], codeDocWitnesses: [], gateWitnesses: [], edgesTaken: [], lease: { schema: "lease/v1", taskId, executionId, actor: person, source: "local", phase: "held", expiresAt: "2026-08-24T01:00:00.000Z", ttlMs: 1, version: 0 }, decisionRelations: [] };
 }
-async function closeout(completionGateIds: readonly string[], ci: string) {
+async function closeout(completionGateIds: readonly string[], ci: string, status = "active") {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-closeout-ci-")), fromFile = "judgment.json", completeCalls: Array<Readonly<Record<string, unknown>>> = [];
   writeFileSync(path.join(rootDir, fromFile), JSON.stringify(packet(ci)));
   try {
     const receipt = await runTaskCloseoutAction({ rootDir, action: { kind: "task-closeout", taskId, fromFile }, caller: person, opId: "op-ci-judgment", readWorkspaceText,
-      read: async () => fixture(completionGateIds) as never,
+      read: async () => fixture(completionGateIds, status) as never,
       invoke: async (stage, action) => { if (stage === "complete") completeCalls.push(action); return { outcome: "applied", opId: `op-${stage}`, revision: 3, evidence: `event:${stage}`, visibility: "center", proof: { committedRevision: 3, appliedCut: 3, durable: true, canonicalVisible: true, worktreeVisible: true } } as WriteReceipt; } });
     return { receipt, completeCalls };
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
@@ -81,4 +81,11 @@ test("not_applicable reaches the leaf as an omitted --ci flag rather than a valu
   assert.deepEqual(absent.completeCalls.map((action) => Object.hasOwn(action, "ci")), [false]);
   const present = await closeout(["ci"], "passed");
   assert.deepEqual(present.completeCalls.map((action) => action.ci), ["passed"]);
+});
+
+test("a lifecycle state that blocks closeout is reported before the CI judgment, so the first error is the one actually blocking", async () => {
+  const { receipt } = await closeout([], "passed", "planned");
+  assert.equal(receipt.outcome, "op_rejected");
+  assert.equal(receipt.code, "not_started", JSON.stringify(receipt));
+  assert.match(String(receipt.nextAction), /ha task start/u);
 });
