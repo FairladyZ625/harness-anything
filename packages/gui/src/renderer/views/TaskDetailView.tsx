@@ -1,70 +1,40 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import {
   ArrowLeft,
   CaretRight,
+  CirclesFour,
   FileText,
-  CheckCircle,
-  XCircle,
-  Question,
+  Flag,
+  LinkSimple,
+  SealCheck,
+  ShareNetwork,
 } from "@phosphor-icons/react";
-import type {
-  DecisionRow,
-  TaskRow,
-  RelationEdge,
-} from "../model/types";
-import { isExternal } from "../model/types";
-import {
-  StatusBadge,
-  CloseoutBadge,
-  DecisionSourceBadge,
-  EngineBadge,
-  FreshnessTag,
-} from "../components/badges";
-import { DocReader } from "../components/DocReader";
-import { parseTaskContractDocuments, taskDocumentQuery, useTaskDocumentQuery, useTaskDocumentListQuery } from "../task-data";
-import { mergeProjectedDocuments, buildDocTree } from "../model/docTree";
-import { OUT_LABEL, IN_LABEL } from "../components/taskDetail/constants";
-import { AxisRow } from "../components/taskDetail/widgets";
-import { DocTree } from "../components/taskDetail/DocTree";
-import { PhaseSteps } from "../components/taskDetail/PhaseSteps";
-import { RelationRow } from "../components/taskDetail/RelationRow";
-import { normalizeTaskId, spawningDecisionOf } from "../model/triadic";
-import { TaskControlPanel } from "../components/TaskControlPanel.tsx";
 import type { GuiSubmissionV1 } from "../../api/renderer-dto.ts";
+import { EngineBadge, FreshnessTag, StatusBadge } from "../components/badges.tsx";
+import {
+  TaskCloseoutTab,
+  TaskDispatchTab,
+  TaskEvidenceTab,
+  TaskOverviewTab,
+  TaskRelationsTab,
+} from "../components/taskDetail/TaskDetailSections.tsx";
+import { TaskFilesTab } from "../components/taskDetail/TaskFilesTab.tsx";
+import { PhaseSteps } from "../components/taskDetail/PhaseSteps.tsx";
+import type { DecisionRow, RelationEdge, TaskRow } from "../model/types.ts";
+import { isExternal } from "../model/types.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
 import { t } from "../i18n/index.tsx";
 
-function DocBody({
-  repoId,
-  taskId,
-  path,
-}: {
-  repoId: string;
-  taskId: string;
-  path: string | null;
-}) {
-  const document = useTaskDocumentQuery(repoId, taskId, path);
-  if (!path) {
-    return (
-      <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-strong py-16 text-center">
-        <FileText weight="duotone" className="text-2xl text-text-faint" />
-        <p className="text-[13px] text-text-muted">{t("views.taskDetailView.thereNoProjectionDocumentTask")}</p>
-        <p className="font-mono text-[11px] text-text-faint">{t("views.taskDetailView.listDocMaterializedFromPresetEmpty")}</p>
-      </div>
-    );
-  }
-  if (document.isPending) {
-    return (
-      <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-strong py-16 text-center">
-        <FileText weight="duotone" className="text-2xl text-text-faint" />
-        <p className="text-[13px] text-text-muted">{t("views.taskDetailView.reading")} canonical document projection…</p>
-      </div>
-    );
-  }
-  if (document.isError) return <p className="text-[13px] text-status-blocked">{t("views.taskDetailView.documentReadingFailed")}：{document.error.message}</p>;
-  return <><span data-testid="task-document-status" className="mb-3 block font-mono text-[11px] text-text-faint">L2 · {document.data.status}</span>{document.data.status !== "ready" ? <p className="text-[13px] text-text-muted">canonical document projection 尚未追平</p> : document.data.blobSha256 === null ? <p className="text-[13px] text-stale">{t("views.taskDetailView.documentNotMaterialized")}</p> : <DocReader content={document.data.body} />}</>;
-}
+const tabs = [
+  { id: "overview", label: "概况", icon: CirclesFour },
+  { id: "dispatch", label: "派工", icon: ShareNetwork },
+  { id: "evidence", label: "证据", icon: Flag },
+  { id: "relations", label: "关系", icon: LinkSimple },
+  { id: "closeout", label: "收口", icon: SealCheck },
+  { id: "files", label: "文件", icon: FileText },
+] as const;
+
+type TaskDetailTab = (typeof tabs)[number]["id"];
 
 export function TaskDetailView({
   task,
@@ -89,282 +59,121 @@ export function TaskDetailView({
   onSelect?: (id: string) => void;
   projectName: string;
   fromViewLabel?: string;
-  /** W2B 活链接:DecisionSourceBadge 点击跳转 */
   onNavigateDecision?: (decisionId: string) => void;
-  /** W2B 活链接:RelationRow 跨实体(decision/fact peer)跳转 */
   onNavigateEntity?: (ref: string) => void;
   mutationFeedback?: TaskMutationFeedback;
   onProgress?: (input: { text: string; evidence: ReadonlyArray<{ type: string; path: string; summary: string }> }) => Promise<unknown>;
   onSubmit?: (submission: GuiSubmissionV1) => Promise<unknown>;
 }) {
+  const [activeTab, setActiveTab] = useState<TaskDetailTab>("overview");
+  const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
   const external = isExternal(task);
-  const canonicalPackage = typeof task.packagePath === "string", contract = useTaskDocumentQuery(task.projectId, task.taskId, canonicalPackage ? "task-contract.json" : null);
-  const contractModel = useMemo(() => {
-    if (!canonicalPackage) return { docs: task.packagePath === undefined ? task.docs : [], issue: null as string | null, absent: false };
-    if (contract.isError) return { docs: [], issue: contract.error.message, absent: false };
-    if (!contract.data || contract.data.status !== "ready") return { docs: [], issue: null, absent: false };
-    // blobSha256 === null 的 ready 读数是「台账没有 contract 投影」(同 DocBody 的文档未物化信号),不是坏数据。
-    if (contract.data.blobSha256 === null) return { docs: [], issue: null, absent: true };
-    try { return { docs: parseTaskContractDocuments(task.taskId, contract.data.body), issue: null, absent: false }; }
-    catch (error) { return { docs: [], issue: error instanceof Error ? error.message : String(error), absent: false }; }
-  }, [canonicalPackage, contract.data, contract.error, contract.isError, task.docs, task.packagePath, task.taskId]);
-  const documentReads = useQueries({ queries: contractModel.docs.map((entry) => ({ ...taskDocumentQuery(task.projectId, task.taskId, entry.path) })) });
-  // 任务包文档清单(repo.tasks.documents.list):task-contract 只声明槽位文件,
-  // artifacts/ 子目录里的文件(mission/report/设计稿)只有投影清单里有。
-  const documentList = useTaskDocumentListQuery(task.projectId, canonicalPackage ? task.taskId : null);
-  const realDocs = useMemo(() => {
-    const contractRead = contractModel.docs.map((entry, index) => { const read = documentReads[index];
-      if (!read || read.isPending || read.isError || !read.data || read.data.status !== "ready") return { ...entry, present: false, presence: "unknown" as const };
-      return { ...entry, present: read.data.blobSha256 !== null, presence: read.data.blobSha256 !== null ? "present" as const : "missing" as const };
-    });
-    const projected = documentList.data?.status === "ready" ? documentList.data.documents.map((doc) => doc.path) : [];
-    return mergeProjectedDocuments(contractRead, projected);
-  }, [contractModel.docs, documentReads, documentList.data]);
-  // 文档导航用路径分段树(artifacts/ 及更深子目录可展开),不再按 6 组拍平。
-  const docTree = useMemo(() => buildDocTree(realDocs), [realDocs]);
 
-  const [activeDoc, setActiveDoc] = useState(
-    () => realDocs[0]?.path ?? task.docs[0]?.path ?? "",
-  );
   useEffect(() => {
-    // 任务切换或文档清单刷新时,如果当前 activeDoc 失效,重置到首篇。
-    if (realDocs.length === 0) {
-      if (activeDoc !== "") setActiveDoc("");
-      return;
-    }
-    if (!realDocs.some((d) => d.path === activeDoc)) {
-      setActiveDoc(realDocs[0].path);
-    }
-  }, [realDocs, activeDoc]);
+    setActiveTab("overview");
+    setFocusedSessionId(null);
+  }, [task.taskId]);
 
-  const doc = realDocs.find((d) => d.path === activeDoc) ?? realDocs[0];
-
-  const rels = relations ?? [];
-  const outEdges = rels.filter((r) => normalizeTaskId(r.from) === task.taskId);
-  const inEdges = rels.filter((r) => normalizeTaskId(r.to) === task.taskId);
-  const peerTitle = (id: string) =>
-    tasks?.find((t) => t.taskId === normalizeTaskId(id))?.title ?? "";
-  const spawningDecision = spawningDecisionOf(task, rels);
-  const spawningDecisionTitle = decisions.find((d) => d.decisionId === spawningDecision)?.title;
+  const selectTab = (tab: TaskDetailTab) => {
+    setActiveTab(tab);
+    if (tab !== "dispatch") setFocusedSessionId(null);
+  };
+  const openSession = (runtimeSessionId: string) => {
+    setFocusedSessionId(runtimeSessionId);
+    setActiveTab("dispatch");
+  };
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex items-center gap-3 border-b border-border bg-surface/70 px-4 py-3">
-        <button
-          onClick={onBack}
-          className="rounded-md border border-border p-1.5 text-text-muted hover:border-border-strong hover:bg-surface-raised hover:text-text"
-          title={t("views.taskDetailView.returnPreviousLevel")}
-        >
-          <ArrowLeft weight="bold" />
-        </button>
-        <div className="min-w-0 flex-1">
-          <div className="mb-0.5 flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-text-faint">
-            <button onClick={onBack} className="truncate hover:text-text-muted">
-              {projectName}
-            </button>
-            <CaretRight weight="bold" className="shrink-0 text-[11px]" />
-            <button onClick={onBack} className="truncate hover:text-text-muted">
-              {fromViewLabel}
-            </button>
-            <CaretRight weight="bold" className="shrink-0 text-[11px]" />
-            <span className="shrink-0 text-text-muted">{task.taskId}</span>
+    <div className="flex h-full min-h-0 flex-col bg-bg" data-testid="task-detail-view">
+      <header className="shrink-0 border-b border-border bg-surface/80">
+        <div className="flex items-start gap-3 px-4 py-3 lg:px-6">
+          <button type="button" onClick={onBack} aria-label={t("views.taskDetailView.returnPreviousLevel")} className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-md border border-border text-text-muted hover:border-border-strong hover:bg-surface-raised hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+            <ArrowLeft weight="bold" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 flex min-w-0 items-center gap-1.5 font-mono text-[10px] text-text-faint">
+              <button type="button" onClick={onBack} className="truncate hover:text-text-muted">{projectName}</button>
+              <CaretRight weight="bold" className="shrink-0" />
+              <button type="button" onClick={onBack} className="truncate hover:text-text-muted">{fromViewLabel}</button>
+              <CaretRight weight="bold" className="shrink-0" />
+              <span className="shrink-0 text-text-muted">{task.taskId}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <h1 className="text-[18px] font-semibold leading-6 tracking-[-0.01em] text-text">{task.title}</h1>
+              <StatusBadge status={task.coordinationStatus} />
+              <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
+            </div>
           </div>
-          <h1 className="ui-title truncate font-semibold leading-6 text-text">
-            {task.title}
-          </h1>
-        </div>
-        <div className="ml-auto">
           <EngineBadge engine={task.engine} locked={external} />
         </div>
+
+        <dl className="grid border-t border-border/80 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6" data-testid="task-identity-strip">
+          <IdentityItem label="TASK ID" value={task.taskId} />
+          <IdentityItem label="PARENT" value={task.parentTaskId ?? "root"} onClick={task.parentTaskId && onSelect ? () => onSelect(task.parentTaskId!) : undefined} />
+          <IdentityItem label="LIFECYCLE / STATUS" value={`${task.engine} · ${task.canonicalStatus ?? task.coordinationStatus}`} />
+          <IdentityItem label="阶段" value={`${task.currentNode ?? "—"} · iteration ${task.iteration ?? "—"}`} detail={<PhaseSteps status={task.canonicalStatus ?? task.coordinationStatus} />} />
+          <IdentityItem label="PRESET / VERTICAL" value={`${task.preset ?? "—"} · ${task.vertical ?? "—"}`} />
+          <IdentityItem label="RISK / URGENCY" value={`${task.riskTier ?? "—"} · ${task.urgency ?? "—"}`} />
+          <IdentityItem label="OWNER / CLASS" value={`${task.createdBy ?? "—"} · ${task.taskClass ?? "—"}`} />
+          <IdentityItem label="WORK KIND" value={task.workKind ?? "—"} />
+          <IdentityItem label="PACKAGE PATH" value={task.packagePath ?? "未物化"} wide />
+        </dl>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        {/* 文档目录树 */}
-        <nav className="w-56 shrink-0 overflow-y-auto border-r border-border bg-surface p-3">
-          {docTree.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border px-2 py-3 text-[12px] text-text-faint">
-              {contractModel.issue
-                ? `task-contract ${t("views.taskDetailView.documentReadingFailed")}：${contractModel.issue}`
-                : documentList.data?.status === "ready" && documentList.data.documents.length === 0
-                  ? t("views.taskDetailView.thereNoProjectionDocumentTask")
-                  : canonicalPackage && (contract.isPending || documentList.isPending)
-                    ? `${t("views.taskDetailView.reading")} canonical 投影…`
-                    : t("components.docTree.projectionDidNotReturnDocumentList")}
-            </div>
-          ) : (
-            <DocTree nodes={docTree} activeDoc={activeDoc} onSelectDoc={setActiveDoc} />
-          )}
-        </nav>
+      <nav role="tablist" aria-label="Task 详情分区" className="flex shrink-0 overflow-x-auto border-b border-border bg-surface px-3 sm:px-5">
+        {tabs.map((tab, index) => {
+          const Icon = tab.icon, active = activeTab === tab.id;
+          return <button
+            key={tab.id}
+            id={`task-tab-${tab.id}`}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            aria-controls={`task-panel-${tab.id}`}
+            tabIndex={active ? 0 : -1}
+            onClick={() => selectTab(tab.id)}
+            onKeyDown={(event) => navigateTabs(event, index, selectTab)}
+            className={`relative flex min-h-11 shrink-0 items-center gap-1.5 px-3 text-[12px] font-medium focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent ${active ? "text-text" : "text-text-faint hover:text-text-muted"}`}
+          >
+            <Icon weight={active ? "bold" : "regular"} className="text-[14px]" />
+            {tab.label}
+            {active ? <span className="absolute inset-x-2 bottom-0 h-0.5 bg-accent" /> : null}
+          </button>;
+        })}
+      </nav>
 
-        {/* 文档阅读区 */}
-        <article className="min-w-0 flex-1 overflow-y-auto px-8 py-6">
-          <div className="mx-auto max-w-[72ch]">
-            <div className="mb-4 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 border-b border-border pb-3">
-              <span className="font-mono text-[11px] text-text-faint">
-                {task.taskId}
-              </span>
-              <CaretRight
-                weight="bold"
-                className="self-center text-[11px] text-text-faint"
-              />
-              <span className="text-[12px] text-text-muted">{doc?.group ?? "—"}</span>
-              <CaretRight
-                weight="bold"
-                className="self-center text-[11px] text-text-faint"
-              />
-              <span className="text-[13px] font-semibold text-text">{doc?.title ?? t("views.taskDetailView.noDocumentation")}</span>
-              {doc && (
-                <span className="ml-2 font-mono text-[11px] text-text-faint">
-                  {doc.path}
-                </span>
-              )}
-            </div>
-            <DocBody
-              repoId={task.projectId}
-              taskId={task.taskId}
-              path={doc?.path ?? null}
-            />
-          </div>
-        </article>
-
-        {/* 治理侧栏：三轴并排 */}
-        <aside className="w-64 shrink-0 overflow-y-auto border-l border-border bg-surface p-4">
-          <div className="flex flex-col gap-4">
-            <AxisRow label={t("views.taskDetailView.coordinationStatus")}>
-              <StatusBadge status={task.coordinationStatus} />
-              <span className="w-full font-mono text-[11px] text-text-faint">
-                canonical: {task.canonicalStatus ?? "unknown"} · 原文: {task.rawStatus}
-              </span>
-              <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
-            </AxisRow>
-
-            <AxisRow label={t("views.taskDetailView.closeoutReadiness")}>
-              <CloseoutBadge value={task.closeoutReadiness} />
-            </AxisRow>
-
-            <AxisRow label={t("views.taskDetailView.packageDisposition")}>
-              <span className="font-mono text-[12px] text-text-muted">
-                {task.packageDisposition}
-              </span>
-            </AxisRow>
-
-            <AxisRow label={t("views.taskDetailView.placement")}>
-              <span className="w-full font-mono text-[11px] text-text-muted">modules: {task.moduleKeys?.join(", ") || "未投影"}</span>
-              <span className="w-full font-mono text-[11px] text-text-muted">productLines: {task.productLines?.join(", ") || "未投影"}</span>
-              <span className="w-full font-mono text-[11px] text-text-muted">parent/root: {task.parentTaskId ?? "root"} / {task.rootTaskId ?? task.taskId}</span>
-              <span className="w-full font-mono text-[11px] text-text-muted">origin/engine: {task.origin ?? "unknown"} / {task.engine}</span>
-              {task.placementWarning && <span className="w-full text-[11px] text-stale">{task.placementWarning}</span>}
-              {task.placementProvenance?.map((entry) => <span key={`${entry.kind}:${entry.ref}`} className="w-full truncate font-mono text-[11px] text-text-faint">{entry.kind}: {entry.ref}</span>)}
-            </AxisRow>
-
-            <div className="flex flex-col gap-1.5">
-              <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-                {t("views.taskDetailView.stage")}
-              </span>
-              <PhaseSteps status={task.canonicalStatus ?? "unknown"} />
-            </div>
-
-            <TaskControlPanel task={task} feedback={mutationFeedback} onProgress={onProgress} onSubmit={onSubmit} />
-
-            {spawningDecision && (
-              <div className="flex flex-col gap-1.5 rounded-md border border-accent/20 bg-accent/5 px-2.5 py-2">
-                <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-                  {t("views.taskDetailView.decisionUpstream")}
-                </span>
-                <DecisionSourceBadge
-                  decisionId={spawningDecision}
-                  title={spawningDecisionTitle}
-                  onNavigate={onNavigateDecision ? () => onNavigateDecision(spawningDecision) : undefined}
-                />
-                {spawningDecisionTitle && (
-                  <span className="text-[11px] leading-snug text-text-muted">
-                    {spawningDecisionTitle}
-                  </span>
-                )}
-              </div>
-            )}
-
-            <hr className="border-border" />
-
-            <div className="flex flex-col gap-1.5">
-              <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-                {t("views.taskDetailView.gates")}
-              </span>
-              {task.gates.length === 0 ? (
-                <span className="text-[11px] text-text-faint">{t("views.taskDetailView.noGateRecord")}</span>
-              ) : (
-                task.gates.map((g) => (
-                  <div key={g.name} className="flex items-center gap-1.5 text-[11px]">
-                    {g.ok === true ? (
-                      <CheckCircle
-                        weight="bold"
-                        className="shrink-0 text-[12px]"
-                        style={{ color: "var(--color-status-done)" }}
-                      />
-                    ) : g.ok === false ? (
-                      <XCircle
-                        weight="bold"
-                        className="shrink-0 text-[12px]"
-                        style={{ color: "var(--color-danger)" }}
-                      />
-                    ) : <Question weight="bold" className="shrink-0 text-[12px] text-stale" />}
-                    <span className="shrink-0 font-mono text-text-muted">{g.name}</span>
-                    {g.detail && (
-                      <span className={`min-w-0 truncate ${g.ok === null ? "text-stale" : "text-danger"}`}>{g.detail}</span>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-                {t("views.taskDetailView.relationship")}
-              </span>
-              <span className="text-[11px] text-text-faint">{t("views.taskDetailView.readOnlyCanonicalRelation")}</span>
-              {outEdges.length === 0 && inEdges.length === 0 ? (
-                <span className="text-[11px] text-text-faint">{t("views.taskDetailView.unrelatedTasks")}</span>
-              ) : (
-                <>
-                  {outEdges.length > 0 && (
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[11px] text-text-faint">{t("views.taskDetailView.outSide")}</span>
-                      {outEdges.map((r, i) => (
-                        <RelationRow
-                          key={`out-${r.kind}-${r.to}-${i}`}
-                          peer={r.to}
-                          label={OUT_LABEL[r.kind]}
-                          provenance={r.provenance}
-                          title={peerTitle(r.to)}
-                          onSelect={onSelect}
-                          onNavigateEntity={onNavigateEntity}
-                        />
-                      ))}
-                    </div>
-                  )}
-                  {inEdges.length > 0 && (
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[11px] text-text-faint">{t("views.taskDetailView.enterEdge")}</span>
-                      {inEdges.map((r, i) => (
-                        <RelationRow
-                          key={`in-${r.kind}-${r.from}-${i}`}
-                          peer={r.from}
-                          label={IN_LABEL[r.kind]}
-                          provenance={r.provenance}
-                          title={peerTitle(r.from)}
-                          onSelect={onSelect}
-                          onNavigateEntity={onNavigateEntity}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-          </div>
-        </aside>
-      </div>
+      <main id={`task-panel-${activeTab}`} role="tabpanel" aria-labelledby={`task-tab-${activeTab}`} className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <div className="mx-auto w-full max-w-[96rem]">
+          {activeTab === "overview" ? <TaskOverviewTab task={task} />
+            : activeTab === "dispatch" ? <TaskDispatchTab task={task} focusedSessionId={focusedSessionId} />
+              : activeTab === "evidence" ? <TaskEvidenceTab task={task} />
+                : activeTab === "relations" ? <TaskRelationsTab task={task} tasks={tasks} relations={relations} decisions={decisions} onSelect={onSelect} onNavigateDecision={onNavigateDecision} onNavigateEntity={onNavigateEntity} onOpenSession={openSession} />
+                  : activeTab === "closeout" ? <TaskCloseoutTab task={task} mutationFeedback={mutationFeedback} onProgress={onProgress} onSubmit={onSubmit} />
+                    : <TaskFilesTab task={task} />}
+        </div>
+      </main>
     </div>
   );
+}
+
+function IdentityItem({ label, value, detail, wide = false, onClick }: { readonly label: string; readonly value: string; readonly detail?: React.ReactNode; readonly wide?: boolean; readonly onClick?: () => void }) {
+  return (
+    <div className={`min-w-0 border-r border-b border-border/70 px-4 py-3 2xl:border-b-0 ${wide ? "sm:col-span-2" : ""}`}>
+      <dt className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-text-faint">{label}</dt>
+      <dd title={value} className="mt-1 min-w-0 truncate font-mono text-[11px] text-text-muted">
+        {onClick ? <button type="button" onClick={onClick} className="text-accent hover:underline">{value}</button> : value}
+      </dd>
+      {detail ? <div className="mt-2 min-w-0">{detail}</div> : null}
+    </div>
+  );
+}
+
+function navigateTabs(event: KeyboardEvent<HTMLButtonElement>, index: number, select: (tab: TaskDetailTab) => void) {
+  const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+  if (direction === 0) return;
+  event.preventDefault();
+  const next = (index + direction + tabs.length) % tabs.length;
+  const tab = tabs[next]!;
+  select(tab.id);
+  event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`#task-tab-${tab.id}`)?.focus();
 }

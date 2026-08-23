@@ -1,4 +1,4 @@
-import type { DecisionProjectionRow, RelationType } from "../../api/renderer-dto.ts";
+import type { DecisionProjectionRow, RelationType, TaskSnapshotProjectionRow } from "../../api/renderer-dto.ts";
 
 export type CanonicalStatus = "planned" | "active" | "blocked" | "in_review" | "done" | "cancelled";
 
@@ -86,6 +86,12 @@ export interface TaskRow {
   placementWarning?: string;
   placementProvenance?: ReadonlyArray<{ kind: "l2" | "decision-relation" | "canonical-event"; ref: string }>;
   packagePath?: string | null;
+  taskClass?: NonNullable<TaskSnapshotProjectionRow["snapshot"]["task"]>["taskClass"];
+  workKind?: NonNullable<NonNullable<TaskSnapshotProjectionRow["snapshot"]["task"]>["metadata"]>["workKind"];
+  vertical?: string;
+  preset?: string;
+  profile?: string;
+  createdBy?: string;
   currentNode?: "implementation" | "review";
   iteration?: 0 | 1;
   activeExecutionId?: string;
@@ -97,6 +103,12 @@ export interface TaskRow {
   /** closeoutReadiness=ready 的起始时间，用于等待时长统计 */
   waitingSince?: string;
   gates: GateResult[];
+  closeoutBlocker?: TaskSnapshotProjectionRow["closeoutAssessment"]["blocker"];
+  snapshotAvailability?: TaskSnapshotProjectionRow["snapshotAvailability"];
+  reviews?: TaskSnapshotProjectionRow["snapshot"]["reviews"];
+  consents?: TaskSnapshotProjectionRow["snapshot"]["consents"];
+  codeDocWitnesses?: TaskSnapshotProjectionRow["snapshot"]["codeDocWitnesses"];
+  gateWitnesses?: TaskSnapshotProjectionRow["snapshot"]["gateWitnesses"];
   docs: DocEntry[];
   // 三元语继承字段（E47/E49）：默认从 spawningDecision 继承，可覆盖
   riskTier?: RiskTier;

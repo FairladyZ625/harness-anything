@@ -1,7 +1,5 @@
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { harnessClient, type TaskListSuccess, type TaskQueryFacets } from "./api-client.ts";
-import type { DocEntry, DocGroup } from "./model/types.ts";
-import { isRendererRecord } from "./result-validation.ts";
 import { workspaceSummaryQueryKeys } from "./workspace-summary-data.ts";
 
 export const LEDGER_REFRESH_INTERVAL_MS = 2_000;
@@ -77,17 +75,3 @@ export function useTaskDocumentQuery(repoId: string, taskId: string, path: strin
 export function taskDocumentListQuery(repoId: string, taskId: string) { return { queryKey: taskQueryKeys.documentList(repoId, taskId), queryFn: () => harnessClient.getTaskDocuments({ repoId, taskId }), staleTime: 10_000 }; }
 
 export function useTaskDocumentListQuery(repoId: string, taskId: string | null) { return useQuery({ ...taskDocumentListQuery(repoId, taskId ?? ""), enabled: taskId !== null }); }
-
-export function parseTaskContractDocuments(taskId: string, body: string): DocEntry[] {
-  let value: unknown; try { value = JSON.parse(body); } catch { throw new Error("task-contract projection is not valid JSON"); }
-  if (!isRendererRecord(value) || value.schema !== "task-contract/v1" || value.taskId !== taskId || !Array.isArray(value.documents)) throw new Error("task-contract projection does not match this task");
-  return value.documents.map((item, index) => {
-    if (!isRendererRecord(item) || typeof item.slot !== "string" || typeof item.path !== "string" || !item.path || item.path.startsWith("/") || item.path.split("/").includes("..")) throw new Error(`task-contract document ${index} is invalid`);
-    return { path: item.path, title: item.path.split("/").at(-1) ?? item.path, group: groupForSlot(item.slot), required: !item.path.endsWith("/.gitkeep") && item.path !== ".gitkeep", present: false, presence: "unknown" as const };
-  });
-}
-
-function groupForSlot(slot: string): DocGroup {
-  if (slot.includes("plan")) return "计划"; if (slot.includes("design")) return "设计"; if (slot.includes("artifact") || slot.includes("evidence")) return "证据";
-  if (slot.includes("progress") || slot.endsWith(".facts")) return "进度"; if (slot.includes("closeout")) return "收口"; return "必读";
-}
