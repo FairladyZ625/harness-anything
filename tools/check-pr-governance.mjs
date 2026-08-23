@@ -35,29 +35,22 @@ export function deriveProtectedSurfaceRules(manifest) {
     }
     for (const surface of gate.changeControl.protectedSurfaces ?? []) {
       if (typeof surface === "string" && surface.trim().length > 0) {
-        rawSurfaces.push({
-          surface: surface.trim(),
-          authority: gate.id
-        });
+        rawSurfaces.push(surface.trim());
       }
     }
   }
 
   const rulesByDisplay = new Map();
-  for (const { surface, authority } of rawSurfaces) {
+  for (const surface of rawSurfaces) {
     for (const display of normalizeManifestSurface(surface)) {
       if (!rulesByDisplay.has(display)) {
         rulesByDisplay.set(display, {
           display,
           manifestSurfaces: [],
-          authorities: [],
           matcher: makeSurfaceMatcher(display)
         });
       }
       rulesByDisplay.get(display).manifestSurfaces.push(surface);
-      if (typeof authority === "string" && !rulesByDisplay.get(display).authorities.includes(authority)) {
-        rulesByDisplay.get(display).authorities.push(authority);
-      }
     }
   }
 
@@ -73,8 +66,7 @@ export function classifyProtectedChanges(changedFiles, rules) {
     }
     matches.push({
       file,
-      surfaces: matchingRules.map((rule) => rule.display),
-      authorities: [...new Set(matchingRules.flatMap((rule) => rule.authorities ?? []))]
+      surfaces: matchingRules.map((rule) => rule.display)
     });
   }
   return matches;

@@ -188,26 +188,3 @@ test("classifies wildcard package surfaces", () => {
   assert.equal(matches.length, 1);
   assert.ok(matches[0].surfaces.includes("packages/*/package.json"));
 });
-
-test("classifies protected changes with their owning gate authorities", () => {
-  const manifest = {
-    gates: [{
-      id: "test-gui-e2e",
-      changeControl: {
-        requiresGovernanceEvidence: true,
-        protectedSurfaces: ["packages/gui/e2e/**"]
-      }
-    }]
-  };
-
-  const matches = classifyProtectedChanges(
-    ["packages/gui/e2e/electron-smoke.e2e.mjs"],
-    deriveProtectedSurfaceRules(manifest)
-  );
-
-  assert.deepEqual(matches, [{
-    file: "packages/gui/e2e/electron-smoke.e2e.mjs",
-    surfaces: ["packages/gui/e2e/**"],
-    authorities: ["test-gui-e2e"]
-  }]);
-});
