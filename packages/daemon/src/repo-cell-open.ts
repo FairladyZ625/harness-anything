@@ -6,118 +6,49 @@ import {
   type EventPublicationKillpoint,
   type WriterGeneration,
 } from "../../kernel/src/index.ts";
-import { createPresetProcessService, presetUserRoot } from "../../preset/src/index.ts";
-import { readAgentDeclaration, resolveSquadDispatchTarget } from "./agent-entities.ts";
-import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
+import {
+  createPresetProcessService,
+  presetUserRoot,
+} from "../../preset/src/index.ts";
+import {
+  readAgentDeclaration,
+  resolveSquadDispatchTarget,
+} from "./agent-entities.ts";
+import type {
+  PreparedRuntimeLaunch,
+  RuntimeInstanceSummary,
+} from "./agent-runtime-instances.ts";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
-import { type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
+import {
+  type CanonicalRoot,
+  type WorkspaceId,
+} from "./protocol/daemon-protocol.contract.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
-import { bootstrapRepo, type RepoBootstrapInput, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import {
-  closeoutTask as closeoutTaskImpl,
-  declareExecutionExecutor as declareExecutionExecutorImpl,
-  executeAction as executeActionImpl,
-  lifecycleAction as lifecycleActionImpl,
-} from "./repo-cell-action-dispatch.ts";
-import { decisionProposalAction, taskCreateAction } from "./repo-cell-action-parse.ts";
+  bootstrapRepo,
+  type RepoBootstrapInput,
+  type RepoBootstrapReceipt,
+} from "./repo-bootstrap.ts";
+import { createRepoCellActionContext } from "./repo-cell-action-context.ts";
 import { createRepoCellApi } from "./repo-cell-api.ts";
-import { buildCommand, dispatchRead, withServerMeta } from "./repo-cell-command.ts";
-import {
-  completionKillpoint as completionKillpointImpl,
-  publishCiWitness as publishCiWitnessImpl,
-  showTask as showTaskImpl,
-} from "./repo-cell-completion.ts";
+import { dispatchRead } from "./repo-cell-command.ts";
 import {
   cellCodedError,
   cellErrorCode,
   cellErrorMessage,
   errorOperationId,
   fatalCellError,
-  publishGeneratedArtifact,
   unavailableRuntimeInstanceStore,
 } from "./repo-cell-errors.ts";
-import {
-  decodeEvidencePayload,
-  renderEvidencePayload,
-  taskSurfaceWriteKind,
-  taskWriteKind,
-} from "./repo-cell-evidence.ts";
-import {
-  completeExecutionId,
-  completeRetryCommand,
-  explicitExecutionId,
-  uniqueDerivedExecutionId,
-} from "./repo-cell-execution-selection.ts";
 import { chainRepoCellWrite, initializeRepoCell } from "./repo-cell.ts";
-import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
-import { lifecycleReceipt, workspaceText } from "./repo-cell-packets.ts";
 import {
-  createTaskId,
-  operationId,
-  proofFor,
-  receiptProof,
-  startExecutionId,
-  withoutDryRun,
-} from "./repo-cell-proof.ts";
-import {
-  canonicalSettlement as canonicalSettlementImpl,
-  progressReceipt as progressReceiptImpl,
-  projectedTaskIds as projectedTaskIdsImpl,
-  receiptForOperation as receiptForOperationImpl,
-} from "./repo-cell-receipts.ts";
-import { legacyReviewLint } from "./repo-cell-review-lint.ts";
-import {
-  appendRuntimeIngress as appendRuntimeIngressImpl,
-  runtimeIngressReceipt as runtimeIngressReceiptImpl,
-} from "./repo-cell-runtime-actions.ts";
-import {
-  cellStringList,
-  completionApplied,
-  completionSettlement,
-  completionStopped,
-  failed,
-  progressEvidence,
-  projectionReady,
-  rejected,
-  requiredCellText,
-} from "./repo-cell-settlement.ts";
-import {
-  runTaskCommandWithDocs as runTaskCommandWithDocsImpl,
-  taskMutation as taskMutationImpl,
-  taskSurfaceWrite as taskSurfaceWriteImpl,
-} from "./repo-cell-task-command.ts";
-import {
-  createTask as createTaskImpl,
-  dependencyPath as dependencyPathImpl,
-  previewResult as previewResultImpl,
-  readResult as readResultImpl,
-  relationEndpointExists as relationEndpointExistsImpl,
-  upgradePresetSnapshot as upgradePresetSnapshotImpl,
-  withHumanSummary as withHumanSummaryImpl,
-  withLayoutAdvisory as withLayoutAdvisoryImpl,
-} from "./repo-cell-task-create.ts";
-import {
-  archiveTasks as archiveTasksImpl,
-  installAgentEntity as installAgentEntityImpl,
-  migrateTaskContracts as migrateTaskContractsImpl,
-  supersedeWithNewTask as supersedeWithNewTaskImpl,
-} from "./repo-cell-task-maintenance.ts";
-import {
-  appendProgress as appendProgressImpl,
-  completeTask as completeTaskImpl,
-  completionContext as completionContextImpl,
-} from "./repo-cell-task-progress.ts";
-import {
-  assertTaskWipCapacity as assertTaskWipCapacityImpl,
-  directChildCounts as directChildCountsImpl,
-  listRelations as listRelationsImpl,
-  listTasks as listTasksImpl,
-  previewStart as previewStartImpl,
-  reviewTask as reviewTaskImpl,
-  taskWipEnteringAction as taskWipEnteringActionImpl,
-  wipSnapshotEntries as wipSnapshotEntriesImpl,
-} from "./repo-cell-task-query.ts";
+  acquireWorkspaceLock,
+  causeClassOf,
+  latchReprobeThrottleMs,
+} from "./repo-cell-lock.ts";
+import { operationId } from "./repo-cell-proof.ts";
+import { failed, rejected, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
   PublicPublication,
   RepoCell,
@@ -125,13 +56,18 @@ import type {
   RepoCellStatus,
   RepoCellTerminal,
 } from "./repo-cell-types.ts";
-import { leaseTtlMs, runtimeIngressEventTypes } from "./repo-cell-types.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import { makeDaemonRuntimeAdmissionGuard } from "./runtime-admission.ts";
-import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } from "./runtime-spawn.ts";
+import {
+  makeRuntimeSpawner,
+  type RuntimeDaemonRoute,
+  type RuntimeLauncher,
+} from "./runtime-spawn.ts";
 import { openTerminalHost } from "./terminal-host.ts";
 
-export function publicPublication(value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">): PublicPublication {
+export function publicPublication(
+  value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">,
+): PublicPublication {
   return { commitSha: value.commitSha?.sha ?? null, cut: value.cut };
 }
 
@@ -180,7 +116,12 @@ export async function openRepoCell(input: {
     bootstrapReceipt: RepoBootstrapReceipt | undefined;
   try {
     if (input.bootstrap) {
-      bootstrapReceipt = bootstrapRepo(input.bootstrap, activeWriter, writerToken, authoredBranch);
+      bootstrapReceipt = bootstrapRepo(
+        input.bootstrap,
+        activeWriter,
+        writerToken,
+        authoredBranch,
+      );
       authoredBranch = bootstrapReceipt.authoredBranch;
       input.onBootstrap?.(bootstrapReceipt);
     }
@@ -199,7 +140,11 @@ export async function openRepoCell(input: {
     },
     canAttach: (session) =>
       session.attachable &&
-      Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach")),
+      Boolean(
+        projection
+          .readRuntimeInstallation(session.installationId)
+          ?.effectiveCapabilities.includes("attach"),
+      ),
     now: () => new Date(now()),
   });
   // The ledger core is rebuildable in place: the variables below are rebound wholesale by
@@ -230,18 +175,34 @@ export async function openRepoCell(input: {
     await lock.close();
     throw error;
   }
-  let { store, recovery, projection, factActions, decisionActions, runtimeReads, service, replica } = core;
+  let {
+    store,
+    recovery,
+    projection,
+    factActions,
+    decisionActions,
+    runtimeReads,
+    service,
+    replica,
+  } = core;
   let knownTaskIds: Set<string> | null = null,
-    state: RepoCellStatus["state"] = recovery.status === "indeterminate" ? "unavailable" : "attached",
+    state: RepoCellStatus["state"] =
+      recovery.status === "indeterminate" ? "unavailable" : "attached",
     recoveryUncertain = recovery.status === "indeterminate";
   let lastError: string | null =
     state === "attached"
       ? null
-      : (recovery.error ?? `startup recovery ${recovery.status} after ${recovery.elapsedMs.toFixed(3)}ms`);
+      : (recovery.error ??
+        `startup recovery ${recovery.status} after ${recovery.elapsedMs.toFixed(3)}ms`);
   let causeClass: RepoCellStatus["causeClass"] =
     state === "attached"
       ? null
-      : causeClassOf(cellCodedError(recovery.errorCode ?? "publication_indeterminate", lastError!));
+      : causeClassOf(
+          cellCodedError(
+            recovery.errorCode ?? "publication_indeterminate",
+            lastError!,
+          ),
+        );
   let queueDepth = 0,
     tail = Promise.resolve();
   const recoveryProbe = makeRecoveryProbe(latchReprobeThrottleMs);
@@ -308,7 +269,16 @@ export async function openRepoCell(input: {
       candidate.projection.list();
       replica.close();
       projection.close();
-      ({ store, recovery, projection, factActions, decisionActions, runtimeReads, service, replica } = candidate);
+      ({
+        store,
+        recovery,
+        projection,
+        factActions,
+        decisionActions,
+        runtimeReads,
+        service,
+        replica,
+      } = candidate);
       knownTaskIds = null;
       state = "attached";
       lastError = null;
@@ -343,16 +313,20 @@ export async function openRepoCell(input: {
     repoId: input.repoId,
     rootDir,
     daemonGeneration: generation,
-    ...(input.runtimeDaemonRoute ? { runtimeDaemonRoute: input.runtimeDaemonRoute } : {}),
+    ...(input.runtimeDaemonRoute
+      ? { runtimeDaemonRoute: input.runtimeDaemonRoute }
+      : {}),
     store: () => store,
     projection: () => projection,
     stream: runtimeStream,
     now,
     schedule,
     runtimeInstances: input.runtimeInstances,
-    prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore,
+    prepareLaunch:
+      input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore,
     resolveAgent: (agentId) => readAgentDeclaration({ rootDir, agentId }),
-    resolveSquadDispatchTarget: (leaderId, workerId) => resolveSquadDispatchTarget({ rootDir, leaderId, workerId }),
+    resolveSquadDispatchTarget: (leaderId, workerId) =>
+      resolveSquadDispatchTarget({ rootDir, leaderId, workerId }),
     ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
   });
   function assertRuntimeAdmission(force = false): void {
@@ -367,9 +341,11 @@ export async function openRepoCell(input: {
     });
   const admitTerminalWrite = (binding: RepoCellBinding): void => {
     const admission = admitRepoMode(mode, "repo-write", binding.source);
-    if (!admission.ok) throw cellCodedError(admission.code, admission.nextAction);
+    if (!admission.ok)
+      throw cellCodedError(admission.code, admission.nextAction);
     if (state !== "attached") attemptRecovery();
-    if (state !== "attached") throw cellCodedError("repo_unavailable", latched());
+    if (state !== "attached")
+      throw cellCodedError("repo_unavailable", latched());
     recheckRuntime();
   };
   const terminal: RepoCellTerminal = {
@@ -398,120 +374,26 @@ export async function openRepoCell(input: {
       return terminalHost.terminate(payload);
     },
   };
-  const bindExtracted =
-    <Args extends readonly unknown[], Result>(implementation: (context: any, ...args: Args) => Result) =>
-    (...args: Args): Result =>
-      implementation(extracted, ...args);
-  const extracted: any = {
-    cellCodedError,
+  const extracted = createRepoCellActionContext({
     input,
-    runtimeIngressEventTypes,
-    get projection() {
-      return projection;
-    },
-    get store() {
-      return store;
-    },
-    runtimeIngressReceipt: bindExtracted(runtimeIngressReceiptImpl),
-    appendRuntimeIngress: bindExtracted(appendRuntimeIngressImpl),
-    requiredCellText,
-    now,
-    operationId,
-    receiptForOperation: bindExtracted(receiptForOperationImpl),
-    showTask: bindExtracted(showTaskImpl),
-    listTasks: bindExtracted(listTasksImpl),
-    listRelations: bindExtracted(listRelationsImpl),
-    reviewTask: bindExtracted(reviewTaskImpl),
-    publishGeneratedArtifact,
     rootDir,
-    get factActions() {
-      return factActions;
-    },
-    decisionProposalAction,
-    get decisionActions() {
-      return decisionActions;
-    },
-    upgradePresetSnapshot: bindExtracted(upgradePresetSnapshotImpl),
-    installAgentEntity: bindExtracted(installAgentEntityImpl),
-    readResult: bindExtracted(readResultImpl),
-    taskWipEnteringAction: bindExtracted(taskWipEnteringActionImpl),
-    assertTaskWipCapacity: bindExtracted(assertTaskWipCapacityImpl),
-    createTask: bindExtracted(createTaskImpl),
-    taskCreateAction,
-    runTaskCommandWithDocs: bindExtracted(runTaskCommandWithDocsImpl),
-    appendProgress: bindExtracted(appendProgressImpl),
-    previewStart: bindExtracted(previewStartImpl),
-    migrateTaskContracts: bindExtracted(migrateTaskContractsImpl),
-    archiveTasks: bindExtracted(archiveTasksImpl),
-    supersedeWithNewTask: bindExtracted(supersedeWithNewTaskImpl),
-    declareExecutionExecutor: bindExtracted(declareExecutionExecutorImpl),
-    closeoutTask: bindExtracted(closeoutTaskImpl),
-    completeTask: bindExtracted(completeTaskImpl),
-    taskSurfaceWriteKind,
-    taskSurfaceWrite: bindExtracted(taskSurfaceWriteImpl),
-    taskWriteKind,
-    rejected,
-    lifecycleAction: bindExtracted(lifecycleActionImpl),
-    get service() {
-      return service;
-    },
-    workspaceText,
-    buildCommand,
-    withServerMeta,
-    proofFor,
-    lifecycleReceipt,
+    now,
     publicPublication,
-    explicitExecutionId,
-    projectionReady,
-    uniqueDerivedExecutionId,
-    receiptProof,
-    taskMutation: bindExtracted(taskMutationImpl),
-    withoutDryRun,
-    previewResult: bindExtracted(previewResultImpl),
-    projectedTaskIds: bindExtracted(projectedTaskIdsImpl),
-    dependencyPath: bindExtracted(dependencyPathImpl),
-    relationEndpointExists: bindExtracted(relationEndpointExistsImpl),
-    directChildCounts: bindExtracted(directChildCountsImpl),
-    wipSnapshotEntries: bindExtracted(wipSnapshotEntriesImpl),
-    legacyReviewLint,
-    startExecutionId,
-    leaseTtlMs,
-    cellStringList,
-    decodeEvidencePayload,
-    renderEvidencePayload,
-    createTaskId,
-    progressReceipt: bindExtracted(progressReceiptImpl),
-    progressEvidence,
-    completeExecutionId,
-    completionApplied,
-    completionContext: bindExtracted(completionContextImpl),
-    completeRetryCommand,
-    failed,
-    completionSettlement,
-    publishCiWitness: bindExtracted(publishCiWitnessImpl),
-    errorOperationId,
-    completionStopped,
-    completionKillpoint: bindExtracted(completionKillpointImpl),
-    executeAction: bindExtracted(executeActionImpl),
-    withHumanSummary: bindExtracted(withHumanSummaryImpl),
-    withLayoutAdvisory: bindExtracted(withLayoutAdvisoryImpl),
-    get recoveryUncertain() {
-      return recoveryUncertain;
-    },
-    set recoveryUncertain(value) {
+    getProjection: () => projection,
+    getStore: () => store,
+    getFactActions: () => factActions,
+    getDecisionActions: () => decisionActions,
+    getService: () => service,
+    getRecovery: () => recovery,
+    getRecoveryUncertain: () => recoveryUncertain,
+    setRecoveryUncertain: (value) => {
       recoveryUncertain = value;
     },
-    get recovery() {
-      return recovery;
-    },
-    canonicalSettlement: bindExtracted(canonicalSettlementImpl),
-    get knownTaskIds() {
-      return knownTaskIds;
-    },
-    set knownTaskIds(value) {
+    getKnownTaskIds: () => knownTaskIds,
+    setKnownTaskIds: (value) => {
       knownTaskIds = value;
     },
-  };
+  });
 
   const apiContext = {
     extracted,
