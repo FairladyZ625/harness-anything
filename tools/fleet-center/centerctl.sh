@@ -165,6 +165,16 @@ start_daemon_and_wait() {
   fail "repo $repo_id did not attach within 900 seconds"
 }
 
+rebuild_projection() {
+  local receipt="$center_root/projection-rebuild.json"
+  ha --root "$repo_root" daemon projection rebuild >"$receipt"
+  "$node_bin" -e '
+    const fs = require("node:fs"), receipt = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    if (receipt.outcome !== "applied" || receipt.ok !== true || receipt.proof?.committedRevision !== receipt.proof?.appliedCut) process.exit(1);
+  ' "$receipt" || fail "projection rebuild did not reach the exact center cut; inspect $receipt"
+  note "projection rebuilt to the exact canonical cut"
+}
+
 ensure_tls_and_roster() {
   mkdir -p "$fleet_root" "$state_root"
   chmod 700 "$fleet_root" "$state_root"
@@ -261,6 +271,7 @@ ensure_node
 ensure_app
 bootstrap_registry_and_clone
 start_daemon_and_wait
+rebuild_projection
 ensure_tls_and_roster
 start_center
 print_status
