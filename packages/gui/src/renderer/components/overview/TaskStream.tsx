@@ -7,12 +7,64 @@ import { STATUS_META, StatusBadge } from "../badges.tsx";
 import { t } from "../../i18n/index.tsx";
 import { StreamBody, StreamEmpty, StreamExitButton, StreamTabs, streamTime } from "./streamParts.tsx";
 
+const ROW_CLASS =
+  "flex w-full items-center gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 text-left" +
+  " transition-colors duration-100 [contain-intrinsic-size:auto_1.75rem] [content-visibility:auto]" +
+  " hover:border-accent/60";
+
+/** 流里的一行:主行集与「更新的」行集共用,两处的状态表达必须逐字一致。 */
+function TaskStreamRow({ task, onOpenPreview }: { task: TaskRow; onOpenPreview: (taskId: string) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenPreview(task.taskId)}
+      title={`${task.taskId} · ${task.title}`}
+      className={ROW_CLASS}
+    >
+      <span className="shrink-0 text-[13px]" style={{ color: STATUS_META[task.coordinationStatus].color }}>
+        {STATUS_META[task.coordinationStatus].icon}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-text">{task.title}</span>
+      <StatusBadge status={task.coordinationStatus} />
+      <span className="shrink-0 font-mono text-[11px] tabular-nums text-text-faint">
+        {streamTime(taskCreatedAt(task))}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * 「比当前筛选里最新那行更新」的任务 —— 状态筛选之外、但时间上排在你看得见的
+ * 东西之前的那些行。刚 `ha task create` 出来的任务恒为 `planned`,默认筛选恒为
+ * `active`,两者不相交(fact F-266F2F09);这一组就是让它不必先点标签也能被看见的行集。
+ *
+ * 判定只认**已知创建时间**:`createdAt` 为 null 的任务(没有可靠 task_bootstrapped
+ * 的导入任务)无法被证明更新,按 ledger-timeline 的约定排尾部、不得从 ID 推时间,
+ * 所以永不进这一组。当前筛选没有任何一行带已知创建时间(含筛选为空)时阈值退化为
+ * 无阈值——那正是「全新仓库刚建第一条任务、active 为空」的场景。
+ */
+export function tasksAheadOfStatus(tasks: ReadonlyArray<TaskRow>, status: SnapshotStatus): TaskRow[] {
+  const newestVisible = tasks.reduce<string | null>((newest, task) => {
+    if (task.coordinationStatus !== status) return newest;
+    const at = taskCreatedAt(task);
+    return at !== null && (newest === null || at > newest) ? at : newest;
+  }, null);
+  return sortTasksByCreatedDesc(tasks.filter((task) => {
+    if (task.coordinationStatus === status) return false;
+    const at = taskCreatedAt(task);
+    return at !== null && (newestVisible === null || at > newestVisible);
+  }));
+}
+
 /**
  * 总览「任务流」:合并原「现在在跑什么」与「任务流」两格。
  * 状态切换是**就地筛选**——点哪个状态,本格数据源换成该状态的任务瀑布流,
  * 路由不动;「去看板」是唯一的显式路由出口,带当前状态预置。
  * Tab counts are rendered verbatim from the daemon workspace summary.
  * 排序 = task_bootstrapped 创建时间倒序;内部滚动,不截断。
+ * 流首那一组是 `tasksAheadOfStatus` 派生的「更新的」行:没有独立筛选/排序/状态,
+ * 不可能显示当前标签本来就会显示的行,当前标签已含最新行时它为空 —— 所以它不是
+ * 第二条任务流(O-02),而是同一条流对「你还没看见更新的东西」的诚实交代。
  */
 export function TaskStream({
   tasks,
@@ -30,6 +82,7 @@ export function TaskStream({
     () => sortTasksByCreatedDesc(tasks.filter((task) => task.coordinationStatus === status)),
     [tasks, status],
   );
+  const ahead = useMemo(() => tasksAheadOfStatus(tasks, status), [tasks, status]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
@@ -50,25 +103,27 @@ export function TaskStream({
           onClick={() => onGoBoard(status)}
         />
       </div>
+      {ahead.length > 0 && (
+        <div
+          data-testid="task-stream-ahead"
+          className="shrink-0 rounded-md border border-dashed border-accent/50 bg-surface/40 p-1"
+        >
+          <p className="px-1 pb-1 font-mono text-[11px] text-text-muted" data-testid="task-stream-ahead-label">
+            {t("views.overviewView.taskAhead", { count: ahead.length })}
+          </p>
+          <div className="max-h-[6rem] space-y-0.5 overflow-y-auto pr-1" data-testid="task-stream-ahead-rows">
+            {ahead.map((task) => (
+              <TaskStreamRow key={task.taskId} task={task} onOpenPreview={onOpenPreview} />
+            ))}
+          </div>
+        </div>
+      )}
       {rows.length === 0 ? (
         <StreamEmpty>{t("views.overviewView.taskEmpty")}</StreamEmpty>
       ) : (
         <StreamBody testId="task-stream-rows">
           {rows.map((task) => (
-            <button
-              key={task.taskId}
-              type="button"
-              onClick={() => onOpenPreview(task.taskId)}
-              title={`${task.taskId} · ${task.title}`}
-              className="flex w-full items-center gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 text-left transition-colors duration-100 [contain-intrinsic-size:auto_1.75rem] [content-visibility:auto] hover:border-accent/60"
-            >
-              <span className="shrink-0 text-[13px]" style={{ color: STATUS_META[task.coordinationStatus].color }}>
-                {STATUS_META[task.coordinationStatus].icon}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-text">{task.title}</span>
-              <StatusBadge status={task.coordinationStatus} />
-              <span className="shrink-0 font-mono text-[11px] tabular-nums text-text-faint">{streamTime(taskCreatedAt(task))}</span>
-            </button>
+            <TaskStreamRow key={task.taskId} task={task} onOpenPreview={onOpenPreview} />
           ))}
         </StreamBody>
       )}

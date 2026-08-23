@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
 import { DecisionStream } from "../src/renderer/components/overview/DecisionStream.tsx";
-import { TaskStream } from "../src/renderer/components/overview/TaskStream.tsx";
+import { TaskStream, tasksAheadOfStatus } from "../src/renderer/components/overview/TaskStream.tsx";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { SwimlaneBoard } from "../src/renderer/views/SwimlaneBoard.tsx";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
@@ -224,6 +224,118 @@ describe("overview task stream", () => {
       onGoBoard: noop,
     }));
     expect(markup).toContain("该状态下暂无任务");
+  });
+});
+
+// O-01(乙)/ 不变量 1:`ha task create` 建出来的任务恒为 planned(kernel create transition),
+// 总览任务流默认标签恒为 active,两者不相交(fact F-266F2F09)——于是新任务必须先点标签才看得见。
+// 这一组把「零动作可见」钉住:把 TaskStream 的行集改回「只显示当前标签的状态」(删掉流首那组
+// 更新的行)会让 "surfaces the freshly created planned task" 立刻红。
+describe("overview task stream: freshly created tasks are visible with zero interaction", () => {
+  // 只保留 button/span 的区块可以用非贪婪到第一个 </div> 截断:行本身不含 div。
+  const section = (markup: string, testId: string): string | null => {
+    const found = markup.match(new RegExp(`data-testid="${testId}"[^>]*>([\\s\\S]*?)</div>`, "u"));
+    return found === null ? null : found[1]!;
+  };
+  const freshWorkspace = () => [
+    task({ taskId: "task_old_active", title: "Older active task", coordinationStatus: "active", createdAt: "2026-08-20T10:00:00.000Z" }),
+    task({ taskId: "task_new_planned", title: "Just created task", coordinationStatus: "planned", createdAt: "2026-08-22T09:30:00.000Z" }),
+  ];
+
+  it("surfaces the freshly created planned task in the default view without touching a status tab", () => {
+    const markup = renderToStaticMarkup(createElement(TaskStream, {
+      tasks: freshWorkspace(), summary: taskSummary({ active: 1, planned: 1 }), onOpenPreview: noop, onGoBoard: noop,
+    }));
+    // 不变量 1:零交互的默认渲染里就有它,而且在可视区域顶部(流首,主行集之前),不在折叠区。
+    expect(markup).toContain("Just created task");
+    expect(markup.indexOf('data-testid="task-stream-ahead"')).toBeLessThan(markup.indexOf('data-testid="task-stream-rows"'));
+    const ahead = section(markup, "task-stream-ahead-rows");
+    expect(ahead).not.toBeNull();
+    expect(ahead).toContain("Just created task");
+    // 可点开:与主行集同一个 button 行,带 taskId 的 title,不是纯文本。
+    expect(ahead).toMatch(/<button[^>]*title="task_new_planned · Just created task"/u);
+    expect(markup).toContain("更新的 1 条");
+  });
+
+  it("keeps the active default and the active-only main rows (invariant 3: 看在做的任务仍是 0 动作)", () => {
+    const markup = renderToStaticMarkup(createElement(TaskStream, {
+      tasks: freshWorkspace(), summary: taskSummary({ active: 1, planned: 1 }), onOpenPreview: noop, onGoBoard: noop,
+    }));
+    expect(markup).toMatch(/aria-selected="true" data-testid="overview-status-active"/u);
+    expect(markup).toMatch(/aria-selected="false" data-testid="overview-status-planned"/u);
+    const rows = section(markup, "task-stream-rows");
+    expect(rows).toContain("Older active task");
+    expect(rows).not.toContain("Just created task");
+  });
+
+  it("shows the new task under its real status word, not disguised as active (invariant 4)", () => {
+    const markup = renderToStaticMarkup(createElement(TaskStream, {
+      tasks: freshWorkspace(), summary: taskSummary({ active: 1, planned: 1 }), onOpenPreview: noop, onGoBoard: noop,
+    }));
+    expect(section(markup, "task-stream-ahead-rows")).toContain("计划中");
+    // census 逐字照抄 daemon,不因为「让它可见」而被改写。
+    expect(tabText(markup, "overview-status-active")).toBe("进行中 1");
+    expect(tabText(markup, "overview-status-planned")).toBe("计划中 1");
+  });
+
+  it("surfaces the first task of a brand-new workspace where the active filter is empty", () => {
+    const markup = renderToStaticMarkup(createElement(TaskStream, {
+      tasks: [task({ taskId: "task_first", title: "First ever task", coordinationStatus: "planned", createdAt: "2026-08-22T09:30:00.000Z" })],
+      summary: taskSummary({ planned: 1 }), onOpenPreview: noop, onGoBoard: noop,
+    }));
+    expect(section(markup, "task-stream-ahead-rows")).toContain("First ever task");
+    // 空态照旧诚实:当前状态确实没有任务。
+    expect(markup).toContain("该状态下暂无任务");
+  });
+
+  it("never promotes rows whose creation time is unknown (ledger-timeline: 不从 ID 推时间)", () => {
+    const markup = renderToStaticMarkup(createElement(TaskStream, {
+      tasks: [
+        task({ taskId: "task_a1", title: "Active one", coordinationStatus: "active", createdAt: null }),
+        task({ taskId: "task_b1", title: "Blocked unknown time", coordinationStatus: "blocked", createdAt: null }),
+      ],
+      summary: taskSummary({ active: 1, blocked: 1 }), onOpenPreview: noop, onGoBoard: noop,
+    }));
+    expect(markup).not.toContain('data-testid="task-stream-ahead"');
+    expect(markup).not.toContain("Blocked unknown time");
+  });
+
+  it("stays silent when the newest task already sits in the selected status", () => {
+    const markup = renderToStaticMarkup(createElement(TaskStream, {
+      tasks: [
+        task({ taskId: "task_new_active", title: "Newest active", coordinationStatus: "active", createdAt: "2026-08-22T09:30:00.000Z" }),
+        task({ taskId: "task_old_done", title: "Older done", coordinationStatus: "done", createdAt: "2026-08-19T09:30:00.000Z" }),
+      ],
+      summary: taskSummary({ active: 1, done: 1 }), onOpenPreview: noop, onGoBoard: noop,
+    }));
+    expect(markup).not.toContain('data-testid="task-stream-ahead"');
+    expect(markup).not.toContain("Older done");
+  });
+
+  it("derives the ahead rows purely from the selected status (unit-level invariant)", () => {
+    const rows = freshWorkspace();
+    expect(tasksAheadOfStatus(rows, "active").map((row) => row.taskId)).toEqual(["task_new_planned"]);
+    // 选中 planned 时那条新任务已在主行集里,不重复出现在流首。
+    expect(tasksAheadOfStatus(rows, "planned")).toEqual([]);
+  });
+
+  // 组件级证据说明 leaf 会渲染,页面级证据说明总览页真的把这条流接上了。
+  it("carries the zero-interaction visibility through the overview page", () => {
+    const page = renderToStaticMarkup(createElement(OverviewView, {
+      project: { id: "proj", name: "Harness", path: "/repo", preset: "software/coding", engines: [], watermarkAt: "2026-08-22T00:00:00.000Z" },
+      tasks: freshWorkspace(),
+      decisions: [],
+      workspaceSummary: {
+        schema: "daemon.workspace-summary/v1", ok: true, status: "ready", warnings: [], watermark: 1, sourceRevision: 1,
+        tasks: taskSummary({ active: 1, planned: 1 }), decisions: decisionSummary({ proposed: 0 }),
+      },
+      relations: [],
+      systemHealth: { daemon: null, repo: null, projection: null },
+      onSelect: noop, onDrill: noop, onOpenInbox: noop, onOpenDecision: noop, onOpenSystem: noop,
+      onNavigateEntity: noop,
+    }));
+    expect(page).toContain("Just created task");
+    expect(page).toMatch(/aria-selected="true" data-testid="overview-status-active"/u);
   });
 });
 
