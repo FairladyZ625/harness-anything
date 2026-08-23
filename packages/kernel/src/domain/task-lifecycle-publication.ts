@@ -273,7 +273,7 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
         : task.status === "in_review" && !approved.length
           ? [
               `Run \`ha task review-execution ${task.taskId}`,
-              " --execution-id <id> --review-id <id> --from-file <review.json>\`.",
+              " --execution-id <id> --review-id <id> --from-file <review.json>`.",
             ].join("")
           : task.status === "in_review" && !selected
             ? [
@@ -285,7 +285,7 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
               : missingGate === "code-doc-reconciliation"
                 ? [
                     `Run \`ha task code-doc reconcile ${task.taskId} --execution-id <id>`,
-                    " --commit-sha <sha> --iteration <n> --path <path>\`.",
+                    " --commit-sha <sha> --iteration <n> --path <path>`.",
                   ].join("")
                 : task.status === "done"
                   ? "Task complete."

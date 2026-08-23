@@ -1,49 +1,17 @@
-import {
-  EXECUTION_V1_SCHEMA,
-  isNativeCommitSha,
-  isNativeExecution,
-  LEASE_V1_SCHEMA,
-  validateSubmissionV1,
-} from "./execution.ts";
-import { digest } from "./digest.ts";
-import type { ExecutionV1, LeaseHolder, LeaseV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
-import { REVIEW_CONSENT_V1_SCHEMA, REVIEW_V1_SCHEMA, reviewDigest } from "./review.ts";
+import { EXECUTION_V1_SCHEMA, LEASE_V1_SCHEMA } from "./execution.ts";
+import type { LeaseHolder, LeaseV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
+import { REVIEW_CONSENT_V1_SCHEMA, REVIEW_V1_SCHEMA } from "./review.ts";
 import type { ReviewConsentV1, ReviewV1, ReviewVerdict } from "./review.ts";
 import type { CodeDocWitnessV1 } from "./code-doc-witness.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import type { CoverageRelation } from "./decision-coverage.ts";
-import { TASK_V1_SCHEMA, taskClasses } from "./task.ts";
+import { TASK_V1_SCHEMA } from "./task.ts";
 import type { ActorAxes, ContractValidationIssue, TaskClass, TaskV1 } from "./task.ts";
-import { TASK_EDGE_TAKEN_SCHEMA, TASK_GRAPH_V1_SCHEMA, validateTaskGraph } from "./task-graph.ts";
+import { TASK_EDGE_TAKEN_SCHEMA, TASK_GRAPH_V1_SCHEMA } from "./task-graph.ts";
 import type { TaskEdgeTaken, TaskGraphV1 } from "./task-graph.ts";
-import {
-  isNonEmptyString,
-  normalizeCommandEnvelope,
-  validateNormalizedCommandEnvelope,
-} from "./write-chain.contract.ts";
-import type { NormalizedCommandEnvelope, WriteSource } from "./write-chain.contract.ts";
-import { stableStringify } from "../integrity/stable-hash.ts";
-import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
-import { TaskLifecycleContractError, validateTaskEvent } from "./task-lifecycle-event.ts";
-import type {
-  CodeDocReconciledEvent,
-  ExecutionExecutorDeclaredEvent,
-  ExecutionStartedEvent,
-  ExecutionSubmittedEvent,
-  LeaseChangeReason,
-  ReviewConsentRecordedEvent,
-  ReviewRecordedEvent,
-  TaskCompletedEvent,
-  TaskCreatedEvent,
-  TaskEventType,
-  TaskEventV1,
-  TaskLifecycleErrorCode,
-  TaskMutationEvent,
-} from "./task-lifecycle-event.ts";
-import { isIndependentFrom, isSameExecution, isSamePerson } from "./actor-domain-services.ts";
-import { explainStatusTransition, reinstateTaskTargets } from "./lifecycle-status.ts";
+import type { NormalizedCommandEnvelope } from "./write-chain.contract.ts";
+import type { LeaseChangeReason, TaskEventType, TaskEventV1 } from "./task-lifecycle-event.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
-import { closeoutReadiness, currentSubmittedExecutions, gateResults } from "./closeout-readiness.ts";
 
 // Shared public contract shapes and internal transition protocol.
 export interface TaskLifecycleSnapshot {

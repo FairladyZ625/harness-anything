@@ -220,7 +220,7 @@ function headroomFor(measured) {
 // daemon (1630 -> 1660, #1458 adds lines) and gui (18494 -> 18414, #1458 removes
 // them), so daemon uses the merged figure and gui the base one.
 const DECISION_INPUT_LINES = Object.freeze({
-  kernel: 23804, // re-measured after W2-B restoration under dec_402DC87500A06C7B4A81F00CCB
+  kernel: 21614, // re-measured after W2-B restoration under dec_402DC87500A06C7B4A81F00CCB
   "task-lifecycle": 375,
   "write-contract": 292,
   "doc-sync": 1991, // re-measured after W2-B restoration under dec_402DC87500A06C7B4A81F00CCB
