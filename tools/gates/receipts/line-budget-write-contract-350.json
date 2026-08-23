@@ -1,8 +1,0 @@
-{
-  "decisionId": "dec_9C87C67DCE4073DB9AA56A8148",
-  "scope": "module:write-contract",
-  "kind": "line-budget",
-  "limit": 350,
-  "expiry": "2027-08-31T00:00:00Z",
-  "signature": "c90c281e2acd407085132373f529a824223a3ce0d9df5cc3e62d95427639d9f1"
-}

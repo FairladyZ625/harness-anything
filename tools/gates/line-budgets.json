@@ -1,20 +1,20 @@
 {
   "version": 1,
   "ceilings": {
-    "kernel": 13698,
-    "task-lifecycle": 575,
-    "write-contract": 350,
-    "doc-sync": 1072,
-    "preset": 572,
-    "cli": 577,
-    "gui": 21994,
-    "daemon": 6244,
-    "fleet": 350,
+    "kernel": 17198,
+    "task-lifecycle": 775,
+    "write-contract": 692,
+    "doc-sync": 1572,
+    "preset": 772,
+    "cli": 777,
+    "gui": 25494,
+    "daemon": 8244,
+    "fleet": 622,
     "authority-write-path": 0,
-    "identity-rbac": 1063,
-    "agent-runtime": 520,
-    "decision": 286,
-    "fact": 307,
+    "identity-rbac": 1563,
+    "agent-runtime": 760,
+    "decision": 572,
+    "fact": 614,
     "test-infra": 0
   }
 }

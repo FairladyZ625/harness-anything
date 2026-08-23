@@ -112,8 +112,10 @@ test("current budgets reject the retired Decision/Fact bucket and historical bud
   assert.throws(() => parseBudgets(JSON.stringify(historicalWithUnknown), "historical", true), /unknown: surprise/u);
 });
 
-test("Decision and Fact ceilings above their exact split measurements are rejected", () => {
-  for (const [moduleName, limit] of [["decision", 286], ["fact", 307]]) {
+// The caps were doubled under dec_D848EF980B86800CFC6BD82125; they are no longer
+// the exact split measurements, but they are still hard refusals.
+test("Decision and Fact ceilings above their doubled design caps are rejected", () => {
+  for (const [moduleName, limit] of [["decision", 572], ["fact", 614]]) {
     assert.throws(
       () => parseBudgets(budgetBody(2).replace(`"${moduleName}": 0`, `"${moduleName}": ${limit + 1}`)),
       new RegExp(`${moduleName} exceeds its design limit ${limit}`, "u")
@@ -195,11 +197,14 @@ test("every committed line-budget receipt verifies, active raised ceilings are c
 // dec_9C87C67DCE4073DB9AA56A8148 sets headroom as an absolute allowance banded by
 // how large the module already is, so a ceiling nobody can reach in foreseeable
 // time -- a gate that cannot ring -- stops being expressible.
+// Headroom doubled under dec_D848EF980B86800CFC6BD82125: the capped modules had
+// reached exactly zero headroom, which left joining lines as the only way to add
+// code at all. Ceilings stay derived; only the tier table moved.
 function headroomFor(measured) {
-  if (measured < 500) return 200;
-  if (measured < 2000) return 500;
-  if (measured < 10000) return 2000;
-  return 3500;
+  if (measured < 500) return 400;
+  if (measured < 2000) return 1000;
+  if (measured < 10000) return 4000;
+  return 7000;
 }
 
 // daemon was re-measured at 5a7fc71d: it had grown past the 2000-line tier
@@ -235,7 +240,7 @@ const DECISION_INPUT_LINES = Object.freeze({
 test("the headroom tiers match the decision's table at every boundary", () => {
   assert.deepEqual(
     [1, 499, 500, 1999, 2000, 9999, 10000, 25000].map((measured) => headroomFor(measured)),
-    [200, 200, 500, 500, 2000, 2000, 3500, 3500]
+    [400, 400, 1000, 1000, 4000, 4000, 7000, 7000]
   );
 });
 

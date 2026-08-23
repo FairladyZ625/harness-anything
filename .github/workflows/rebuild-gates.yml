@@ -154,6 +154,25 @@ jobs:
           fi
           node tools/gates/line-budget.mjs --base "$BASE_SHA"
 
+  line-density:
+    if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Reject line shaving in added production code
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE_SHA" ] || ! git cat-file -e "$BASE_SHA^{tree}" 2>/dev/null; then
+            BASE_SHA=$(git rev-parse origin/main)
+          fi
+          node tools/gates/line-density.mjs --base "$BASE_SHA"
+
   production-delta:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
