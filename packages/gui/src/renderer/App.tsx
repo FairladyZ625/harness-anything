@@ -506,7 +506,8 @@ function AppShell() {
             ) : view === "agentSquad" ? (
               <AgentSquadView
                 repoId={projectId}
-                tasks={projectTasks.map(({ taskId, title, activeExecutionId }) => ({ taskId, title, heldLease: activeExecutionId !== undefined }))}
+                tasks={projectTasks.map(({ taskId, title, activeExecutionId }) => ({ taskId, title,
+                  heldLease: activeExecutionId !== undefined }))}
                 focusedEntityRef={focusedEntityRef}
                 onSelectEntity={selectRuntimeEntity}
               />
