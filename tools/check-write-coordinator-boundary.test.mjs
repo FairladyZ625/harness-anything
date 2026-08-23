@@ -21,15 +21,35 @@ test("W3 write authority rejects a second event-store composition root", () => w
 }));
 
 test("W3 write authority rejects worktree mutation capability in the object/ref publisher", () => withFixture((root) => {
-  write(root, "packages/kernel/src/store/task-event-store.ts", `const CANONICAL_EVENT_REF = "refs/ha/canonical";\nprepareCommit();\nfinalizeRefs();\nrunGit("update-index");\n`);
+  write(root, "packages/kernel/src/store/task-event-store-git-refs.ts", publisherFixture('runGit("update-index");'));
   assert.match(findW3WriteAuthorityViolations(root).join("\n"), /must not expose update-index/u);
+}));
+
+test("W3 write authority rejects moving a coordinated-commit primitive outside its named function", () => withFixture((root) => {
+  write(root, "packages/kernel/src/store/task-event-store-git-refs.ts", `
+export function prepareCommit() {}
+export function finalizeRefs() { gitObjects.updateRefs(); }
+export function alternateCommitter() { gitObjects.importCommit(); }
+`);
+  assert.match(findW3WriteAuthorityViolations(root).join("\n"), /prepareCommit must execute gitObjects\.importCommit/u);
+}));
+
+test("W3 write authority rejects an additional coordinated-commit primitive caller", () => withFixture((root) => {
+  write(root, "packages/kernel/src/store/alternate-commit.ts", "export function alternateCommitter() { gitObjects.importCommit(); }\n");
+  assert.match(findW3WriteAuthorityViolations(root).join("\n"), /primitive must belong only to prepareCommit/u);
 }));
 
 function withFixture(run) { const root = mkdtempSync(path.join(tmpdir(), "w3-write-authority-")); try {
   write(root, "packages/daemon/src/repo-cell.ts", `import { makeTaskEventStore } from "../../kernel/src/index.ts";\nimport { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";\nconst store = makeTaskEventStore({ rootDir });\nconst service = makeTaskLifecycleService({ eventStore: store, projection });\nlet tail = Promise.resolve();\ntail = tail.then(() => service.execute(command));\n`);
-  write(root, "packages/kernel/src/store/task-event-store.ts", `export const CANONICAL_EVENT_REF = "refs/ha/canonical";\nexport function makeTaskEventStore() {}\nprepareCommit();\nfinalizeRefs();\n`);
+  write(root, "packages/kernel/src/store/task-event-store.ts", `export const CANONICAL_EVENT_REF = "refs/ha/canonical";\nexport function makeTaskEventStore() {}\n`);
+  write(root, "packages/kernel/src/store/task-event-store-git-refs.ts", publisherFixture());
   write(root, "packages/application/src/task-lifecycle-service.ts", `export function makeTaskLifecycleService(options) { options.eventStore.append(event); }\n`);
   write(root, "packages/cli/src/index.ts", `import { runCommandThroughDaemon } from "./daemon/client.ts";\n`);
   run(root);
 } finally { rmSync(root, { recursive: true, force: true }); } }
+function publisherFixture(extra = "") { return `
+export function prepareCommit() { gitObjects.importCommit(); }
+export function finalizeRefs() { gitObjects.updateRefs(); }
+${extra}
+`; }
 function write(root, relative, body) { const file = path.join(root, relative); mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, body); }

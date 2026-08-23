@@ -4,15 +4,66 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const legacyProductionPath = /^(?:packages\/kernel\/src\/(?:ports\/(?:artifact-store-writer|current-session-probe|lifecycle-engine|lock-registry|write-coordinator)\.ts|store\/(?:content-addressed-blob-store|daemon-runtime(?:-queue)?|ledger-materializer|local-lock-registry|write-journal[^/]*)\.ts|write-coordination\/)|packages\/cli\/src\/daemon\/(?:command-service|doc-sync-service|queued-write-coordinator)\.ts|packages\/application\/src\/(?:current-session-probe|decision-write-service|doc-sync|fact-write-service|provenance-binding|provenance-session-exporter|runtime-event-ledger-service|runtime-session-logs|session-entity-reader|task-write-route-policy)\.ts)$/u;
+const coordinatedCommitAuthorities = Object.freeze([
+  Object.freeze({ functionName: "prepareCommit", primitive: "gitObjects.importCommit(" }),
+  Object.freeze({ functionName: "finalizeRefs", primitive: "gitObjects.updateRefs(" })
+]);
 
 export function findW3WriteAuthorityViolations(rootDir = process.cwd()) {
   const violations = [], files = walk(path.join(rootDir, "packages"), rootDir);
   for (const file of files.filter((candidate) => legacyProductionPath.test(candidate))) violations.push(`${file}: W3-retired production write path must not exist`);
-  const cellPath = "packages/daemon/src/repo-cell.ts", storePath = "packages/kernel/src/store/task-event-store.ts", servicePath = "packages/application/src/task-lifecycle-service.ts";
-  const cell = source(rootDir, cellPath, violations), store = source(rootDir, storePath, violations), service = source(rootDir, servicePath, violations);
+  const cellPath = "packages/daemon/src/repo-cell.ts",
+    storePath = "packages/kernel/src/store/task-event-store.ts",
+    publisherPath = "packages/kernel/src/store/task-event-store-git-refs.ts",
+    servicePath = "packages/application/src/task-lifecycle-service.ts";
+  const cell = source(rootDir, cellPath, violations),
+    store = source(rootDir, storePath, violations),
+    service = source(rootDir, servicePath, violations);
+  const publisherExists = existsSync(path.join(rootDir, publisherPath)),
+    publisher = publisherExists ? source(rootDir, publisherPath, violations) : "",
+    splitPublisherLayout = publisherExists || store.includes("Public compatibility façade");
   for (const token of ["makeTaskEventStore", "makeTaskLifecycleService", "eventStore: store", "tail.then"]) if (!cell.includes(token)) violations.push(`${cellPath}: missing RepoCell authority token ${token}`);
-  for (const token of ["CANONICAL_EVENT_REF", "prepareCommit", "finalizeRefs"]) if (!store.includes(token)) violations.push(`${storePath}: missing object/ref publication token ${token}`);
-  for (const token of ["update-index", "checkout", "reset", "restore"]) if (store.includes(token)) violations.push(`${storePath}: object/ref publisher must not expose ${token}`);
+  if (!store.includes("CANONICAL_EVENT_REF")) violations.push(`${storePath}: missing object/ref publication token CANONICAL_EVENT_REF`);
+  if (splitPublisherLayout) {
+    if (!publisherExists) violations.push(`${publisherPath}: required W3 authority file is missing`);
+    for (const authority of coordinatedCommitAuthorities) {
+      const declarations = files.filter((file) => file.endsWith(".ts") && declaresFunction(
+        source(rootDir, file, []), authority.functionName
+      ));
+      if (declarations.length !== 1 || declarations[0] !== publisherPath) {
+        violations.push(
+          `${authority.functionName} coordinated-commit authority must be declared exactly in ${publisherPath}; found ${declarations.join(", ") || "none"}`
+        );
+        continue;
+      }
+      const body = functionBody(publisher, authority.functionName);
+      if (body === null || occurrences(body, authority.primitive) !== 1) {
+        violations.push(`${publisherPath}: ${authority.functionName} must execute ${authority.primitive} exactly once`);
+      }
+      const primitiveFiles = files.filter((file) => file.endsWith(".ts") && source(rootDir, file, []).includes(authority.primitive));
+      const totalPrimitiveCalls = primitiveFiles.reduce(
+        (total, file) => total + occurrences(source(rootDir, file, []), authority.primitive),
+        0
+      );
+      if (primitiveFiles.length !== 1 || primitiveFiles[0] !== publisherPath || totalPrimitiveCalls !== 1) {
+        violations.push(
+          `${authority.primitive} coordinated-commit primitive must belong only to ${authority.functionName} in ${publisherPath}`
+        );
+      }
+    }
+  } else {
+    // Historical monoliths and their synthetic contract fixtures keep the same
+    // two function names in task-event-store.ts. The façade marker above makes
+    // this branch unavailable to a split tree whose publisher is accidentally deleted.
+    for (const { functionName } of coordinatedCommitAuthorities) {
+      if (!store.includes(`${functionName}(`)) {
+        violations.push(`${storePath}: missing legacy coordinated-commit function ${functionName}`);
+      }
+    }
+  }
+  const publisherSurface = splitPublisherLayout ? publisher : store,
+    publisherSurfacePath = splitPublisherLayout ? publisherPath : storePath;
+  for (const token of ["update-index", "checkout", "reset", "restore"]) if (publisherSurface.includes(token)) violations.push(`${publisherSurfacePath}: object/ref publisher must not expose ${token}`);
   if (!service.includes("eventStore.append")) violations.push(`${servicePath}: lifecycle service must publish only through its eventStore port`);
   const consumers = files.filter((file) => file.endsWith(".ts") && !file.includes("/test/")).filter((file) => {
     const body = readFileSync(path.join(rootDir, file), "utf8"); return /(?<!function\s)\bmakeTaskEventStore\s*\(/u.test(body);
@@ -26,6 +77,24 @@ export function findW3WriteAuthorityViolations(rootDir = process.cwd()) {
   return violations;
 }
 
+function declaresFunction(body, functionName) {
+  return new RegExp(`(?:^|\\n)(?:export\\s+)?function\\s+${functionName}\\s*\\(`, "u").test(body);
+}
+function functionBody(body, functionName) {
+  const declaration = new RegExp(`(?:^|\\n)(?:export\\s+)?function\\s+${functionName}\\s*\\(`, "u").exec(body);
+  if (declaration === null) return null;
+  const start = body.indexOf("{", declaration.index + declaration[0].length);
+  if (start < 0) return null;
+  let depth = 0;
+  for (let index = start; index < body.length; index += 1) {
+    if (body[index] === "{") depth += 1;
+    else if (body[index] === "}" && --depth === 0) return body.slice(start, index + 1);
+  }
+  return null;
+}
+function occurrences(body, token) {
+  return body.split(token).length - 1;
+}
 function source(rootDir, relative, violations) { const file = path.join(rootDir, relative); if (!existsSync(file)) { violations.push(`${relative}: required W3 authority file is missing`); return ""; } return readFileSync(file, "utf8"); }
 function walk(directory, rootDir) { if (!existsSync(directory)) return []; const files = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) { const absolute = path.join(directory, entry.name);
