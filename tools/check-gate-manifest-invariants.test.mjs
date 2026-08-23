@@ -139,6 +139,37 @@ test("rejects an unmanifested command added to an existing PR gate job", () => {
   }
 });
 
+test("rejects protected surfaces that match no tracked files", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, {
+      deterministic: true,
+      surfaceClasses: ["local", "pr", "main-full"],
+      pullRequestJobs: ["boundaries"],
+      protectedSurfaces: [
+        "tools/example-gate.mjs",
+        "packages/gui/e2e",
+        "packages/kernel/fixtures/canonical-events/",
+        "decision:dec_example"
+      ],
+      trackedFiles: [
+        "tools/example-gate.mjs",
+        "packages/gui/e2e/example.e2e.mjs",
+        "packages/kernel/fixtures/canonical-events/example.json"
+      ]
+    });
+
+    const result = runChecker(root);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /failed with 3 finding\(s\)/u);
+    assert.match(result.stderr, /packages\/gui\/e2e/u);
+    assert.match(result.stderr, /packages\/kernel\/fixtures\/canonical-events\//u);
+    assert.match(result.stderr, /decision:dec_example/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function makeFixtureRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-gate-invariants-"));
   mkdirSync(path.join(root, "tools"), { recursive: true });
@@ -152,7 +183,9 @@ function writeFixture(root, {
   pullRequestJobs,
   workflowRun = "node tools/run-manifest-gates.mjs --workflow-job boundaries",
   workflowExtra = [],
-  fullCheckRun = "npm run check"
+  fullCheckRun = "npm run check",
+  protectedSurfaces = [],
+  trackedFiles = []
 }) {
   const manifest = {
     schema: "harness-anything/gate-manifest/v2",
@@ -184,6 +217,12 @@ function writeFixture(root, {
         id: "example-gate",
         command: "npm run harness:example-gate",
         deterministic,
+        ...(protectedSurfaces.length > 0 ? {
+          changeControl: {
+            requiresGovernanceEvidence: true,
+            protectedSurfaces
+          }
+        } : {}),
         positiveControl: {
           status: "covered",
           evidence: ["tools/example-gate.test.mjs"]
@@ -217,6 +256,22 @@ function writeFixture(root, {
 
   writeFileSync(path.join(root, "tools/gate-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   writeFileSync(path.join(root, ".github/workflows/rewrite-ci.yml"), workflow, "utf8");
+  if (protectedSurfaces.length > 0) {
+    for (const file of trackedFiles) {
+      const absolute = path.join(root, file);
+      mkdirSync(path.dirname(absolute), { recursive: true });
+      writeFileSync(absolute, `${file}\n`, "utf8");
+    }
+    runGit(root, ["init", "-q"]);
+    runGit(root, ["add", "--all"]);
+  }
+}
+
+function runGit(root, args) {
+  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  if (result.status !== 0) {
+    throw new Error(`git ${args.join(" ")} failed: ${(result.stderr || result.stdout).trim()}`);
+  }
 }
 
 function runChecker(root) {

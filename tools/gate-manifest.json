@@ -1276,7 +1276,7 @@
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
-          "packages/gui/e2e",
+          "packages/gui/e2e/**",
           "tools/run-gui-e2e-tests.mjs",
           "package.json:scripts.test:gui:e2e"
         ]
@@ -3038,8 +3038,7 @@
           "tools/check-github-required-contexts.mjs",
           "package.json:scripts.harness:check-github-required-contexts",
           ".github/workflows/rewrite-ci.yml:jobs.boundaries",
-          "tools/gate-manifest.json",
-          "decision:dec_mrdk63q3"
+          "tools/gate-manifest.json"
         ]
       },
       "bypassFixtureRequired": false,
@@ -4568,7 +4567,7 @@
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/gates/canonical-event-compat.mjs",
-          "packages/kernel/fixtures/canonical-events/",
+          "packages/kernel/fixtures/canonical-events/**",
           "package.json:scripts.harness:check-canonical-event-compat",
           "tools/gate-manifest.json"
         ]
