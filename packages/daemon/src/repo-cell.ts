@@ -25,7 +25,7 @@ import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./ve
 import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } from "./runtime-spawn.ts";
 import { discoverAgentSkills } from "./agent-skills.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
-import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
+import type { PreparedRuntimeLaunch, RuntimeAuthReadiness, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
@@ -53,6 +53,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
   readonly runtimeLaunch?: RuntimeLauncher;
   readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
+  readonly runtimeAuthStatus?: (instanceId: string) => Promise<RuntimeAuthReadiness>;
   readonly prepareRuntimeLaunch?: (instanceId: string, request: { readonly cwd: string; readonly prompt: string; readonly model?: string; readonly effort?: string; readonly providerSessionId?: string; readonly permissionMode?: string }) => Promise<PreparedRuntimeLaunch>;
   readonly bootstrap?: RepoBootstrapInput; readonly onBootstrap?: (receipt: RepoBootstrapReceipt) => void;
   readonly now?: () => string; readonly killpoint?: (point: EventPublicationKillpoint) => void; readonly shouldStop?: () => boolean }): Promise<RepoCell> {
@@ -105,7 +106,7 @@ export async function openRepoCell(input: { readonly repoId: WorkspaceId; readon
     } catch (error) { consumeKnownError(error); candidate?.replica.close(); candidate?.projection.close(); if (candidate) recoveryUncertain = true; lastError = cellErrorMessage(error); causeClass = causeClassOf(error); }
   };
   const schedule = (work: () => void): void => { queueDepth += 1; const pending = tail.then(() => { queueDepth -= 1; if (state === "attached") work(); }); tail = pending.then(() => undefined, () => undefined); void pending.then(() => replica.kick(), () => replica.kick()); };
-  const runtimeSpawner = makeRuntimeSpawner({ repoId: input.repoId, rootDir, daemonGeneration: generation, ...(input.runtimeDaemonRoute ? { runtimeDaemonRoute: input.runtimeDaemonRoute } : {}), store: () => store, projection: () => projection, stream: runtimeStream, now, schedule, runtimeInstances: input.runtimeInstances, prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore, resolveAgent: (agentId) => readAgentDeclaration({ rootDir, agentId }), resolveSquadDispatchTarget: (leaderId, workerId) => resolveSquadDispatchTarget({ rootDir, leaderId, workerId }), ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}) });
+  const runtimeSpawner = makeRuntimeSpawner({ repoId: input.repoId, rootDir, daemonGeneration: generation, ...(input.runtimeDaemonRoute ? { runtimeDaemonRoute: input.runtimeDaemonRoute } : {}), store: () => store, projection: () => projection, stream: runtimeStream, now, schedule, runtimeInstances: input.runtimeInstances, runtimeAuthStatus: input.runtimeAuthStatus, prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore, resolveAgent: (agentId) => readAgentDeclaration({ rootDir, agentId }), resolveSquadDispatchTarget: (leaderId, workerId) => resolveSquadDispatchTarget({ rootDir, leaderId, workerId }), ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}) });
   function assertRuntimeAdmission(force = false): void {
     runtimeAdmission.assert(rootDir, force);
   }

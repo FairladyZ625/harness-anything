@@ -296,5 +296,13 @@
   "agentRuntime.sessionTaskSection": "任务",
   "agentRuntime.sessionTaskNone": "这条会话没有绑定任务。",
   "agentRuntime.openTask": "打开这个任务",
-  "agentRuntime.sessionFacts": "会话事实"
+  "agentRuntime.sessionFacts": "会话事实",
+  "agentRuntime.duplicateInstanceId": "这个实例 ID 已存在。",
+  "agentRuntime.selfTestTitle": "连通性自测",
+  "agentRuntime.selfTestHint": "通过该 Runtime 完成一次真实往返",
+  "agentRuntime.selfTestModel": "自测模型",
+  "agentRuntime.selfTestRun": "测试 Runtime",
+  "agentRuntime.selfTestRunning": "测试中…",
+  "agentRuntime.selfTestFailed": "Runtime 以 {outcome} 结束。",
+  "agentRuntime.selfTestTimeout": "Runtime 未在自测时限内完成。"
 }

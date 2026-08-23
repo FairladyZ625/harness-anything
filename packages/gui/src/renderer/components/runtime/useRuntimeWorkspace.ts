@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../../../daemon/src/agent-entities.contract.ts";
+import { successfulAgentRuntimeResult } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import { agentEntityClient, type SquadEntityRow } from "../../agent-entity-client.ts";
 import { agentRuntimeClient } from "../../agent-runtime-client.ts";
 import { harnessClient } from "../../api-client.ts";
@@ -43,6 +44,22 @@ export function useRuntimeWorkspace(repoId: string, tasks: readonly RuntimePanor
     catch (cause) { consumeKnownError(cause); setError(message(cause)); return null; }
     finally { setBusy(false); }
   };
+  const selfTest = async (instanceId: string, model: string): Promise<string | null> => {
+    const result = await spawn(runtimeSelfTestSpawnInput(instanceId, model, `gui-runtime-self-test-${instanceId}-${crypto.randomUUID()}`));
+    if (!result?.runtimeSessionId) return null;
+    try {
+      for (let attempt = 0; attempt < 80; attempt += 1) {
+        const snapshot = await agentRuntimeClient.session(repoId, result.runtimeSessionId);
+        const successfulResult = successfulAgentRuntimeResult(snapshot);
+        if (successfulResult) return successfulResult;
+        if (snapshot.session.activity.outcome !== null) throw new Error(t("agentRuntime.selfTestFailed", { outcome: snapshot.session.activity.outcome }));
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
+      }
+      throw new Error(t("agentRuntime.selfTestTimeout"));
+    } catch (cause) {
+      consumeKnownError(cause); setError(t("agentRuntime.feedbackFailed", { label: t("agentRuntime.selfTestTitle"), error: message(cause) })); return null;
+    }
+  };
 
   const rows: readonly RuntimeDockRow[] = runtimeDockRows(panorama.data ?? [], overview.data?.sessions ?? []);
   return {
@@ -56,9 +73,11 @@ export function useRuntimeWorkspace(repoId: string, tasks: readonly RuntimePanor
     saveAgent: async (declaration: AgentDeclarationV1) => { const saved = await run(t("agentRuntime.opAgentSaved"), () => agentEntityClient.saveAgent(repoId, declaration), false); await client.invalidateQueries({ queryKey: ["agents", repoId] }); await client.invalidateQueries({ queryKey: ["agent-detail", repoId] }); return saved; },
     saveSquad: async (declaration: SquadDeclarationV1) => { const saved = await run(t("agentRuntime.opSquadSaved"), () => agentEntityClient.saveSquad(repoId, declaration), false); await client.invalidateQueries({ queryKey: ["squads", repoId] }); await client.invalidateQueries({ queryKey: ["squad-detail", repoId] }); return saved; },
     cancelSession: (runtimeSessionId: string) => run(t("agentRuntime.opSessionCancelled"), () => runtimeCommandClient.cancel(repoId, runtimeSessionId)),
+    selfTest,
     dispatch: (request: DispatchRequest) => spawn(buildDispatchSpawnInput(request, overview.data?.instances ?? []))
   };
 }
+export function runtimeSelfTestSpawnInput(instanceId: string, model: string, idempotencyKey: string) { return { runtimeInstanceId: instanceId, model, permissionMode: "read-only" as const, cwd: { scope: "repo-root" as const }, prompt: "Reply with exactly: runtime connectivity ok", taskId: null, idempotencyKey }; }
 
 export function subscriptionCreationNeedsLogin(input: Pick<RuntimeInstanceCreateInput, "authMode">, probed: unknown): boolean { return input.authMode === "subscription" && typeof probed === "object" && probed !== null && "authState" in probed && probed.authState === "unauthenticated"; }
 

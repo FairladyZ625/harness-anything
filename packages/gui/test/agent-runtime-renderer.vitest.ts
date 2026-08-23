@@ -2,6 +2,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { successfulAgentRuntimeResult } from "../../daemon/src/agent-runtime-contract.ts";
 import { AgentCard, agentDeclarationFrom, agentDraftFrom } from "../src/renderer/components/runtime/AgentCard.tsx";
 import { NewRuntimeDialog } from "../src/renderer/components/runtime/NewRuntimeDialog.tsx";
 import { TextInput } from "../src/renderer/components/runtime/parts.tsx";
@@ -15,7 +16,7 @@ import { assertPreloadPayload } from "../src/preload/allowlist.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { openAgentRuntimePane } from "../src/renderer/agent-runtime-client.ts";
 import { submitRuntimeSpawn } from "../src/renderer/runtime-control.ts";
-import { readPanorama } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
+import { readPanorama, runtimeSelfTestSpawnInput } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
 
 beforeAll(() => setActiveLocale("en-US"));
 
@@ -31,7 +32,7 @@ const agentDetail = { id: "fable", name: "fable", runtimeType: "claude", role: "
 const availableSkills = [{ id: "review", path: "/Users/test/.claude/skills/review", source: "user" }, { id: "triage", path: "/repo/skills/triage", source: "project" }] as const, presets = [{ id: "standard-task", title: "Standard task", description: "Default implementation loop" }] as const;
 const squadDetail = { id: "core-squad", name: "Core Squad", leader: "fable", workers: ["luna", "sol", "terra"], roster: "fable » luna, sol, terra" } as const;
 const noop = () => undefined;
-const runtimeCard = (row: typeof instance | typeof claudeInstance) => renderToStaticMarkup(createElement(RuntimeCard, { instance: row, agents: agentRows as never, liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop }));
+const runtimeCard = (row: typeof instance | typeof claudeInstance) => renderToStaticMarkup(createElement(RuntimeCard, { instance: row, agents: agentRows as never, liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop, onSelfTest: async () => null }));
 const detailView = (overrides: Partial<Parameters<typeof SessionDetailView>[0]> = {}) => renderToStaticMarkup(createElement(SessionDetailView, { session, row: null, result: null, frames: [], attach: "attached", busy: false, onCancel: noop, onOpenTask: noop, ...overrides } as never));
 
 afterEach(() => vi.unstubAllGlobals());
@@ -41,9 +42,15 @@ describe("agent runtime renderer", () => {
     const result = await submitRuntimeSpawn({ runtimeInstanceId: "codex-review", cwd: { scope: "repo-root" }, prompt: "Inspect", taskId: null, idempotencyKey: "once" }, { spawn, showReceipt, overview, onPending }, async () => undefined);
     expect(result.state).toBe("applied"); expect(result.opId).toBe("runtime-op"); expect(onPending).toHaveBeenCalledWith(expect.objectContaining({ state: "pending", opId: "runtime-op" })); expect(spawn).toHaveBeenCalledOnce(); expect(showReceipt).toHaveBeenCalledOnce(); expect(overview).toHaveBeenCalledOnce();
   });
+  it("authors connectivity self-test through the existing read-only runtime spawn input", () => {
+    expect(runtimeSelfTestSpawnInput("codex-review", "gpt-5.6-sol", "self-test-once")).toEqual({ runtimeInstanceId: "codex-review", model: "gpt-5.6-sol", permissionMode: "read-only", cwd: { scope: "repo-root" }, prompt: "Reply with exactly: runtime connectivity ok", taskId: null, idempotencyKey: "self-test-once" });
+    const succeeded = { ok: true, status: "ready", session: { ...session, activity: { ...session.activity, outcome: "succeeded" } }, result: { ref: "artifact:runtime-result/test", text: "runtime connectivity ok" }, watermark: 2, sourceRevision: 2 } as const;
+    expect([successfulAgentRuntimeResult(succeeded), successfulAgentRuntimeResult({ ...succeeded, session: { ...succeeded.session, activity: { ...succeeded.session.activity, outcome: "failed" } } })]).toEqual(["runtime connectivity ok", null]);
+  });
   it("renders one instance-backed carrier card without recombinable installation or credential inputs", () => {
     const markup = runtimeCard(instance);
     expect(markup).toContain("Codex Review"); expect(markup).toContain("gpt-5.6-sol"); expect(markup).toContain("installation-codex");
+    const selfTest = markup.match(/<section data-testid="runtime-card-self-test"[\s\S]*?<\/section>/u)?.[0] ?? ""; expect({ title: selfTest.includes("Connectivity self-test"), selectedModel: selfTest.includes('<option value="gpt-5.6-sol" selected="">gpt-5.6-sol</option>'), action: selfTest.includes(">Ping runtime</button>") }).toEqual({ title: true, selectedModel: true, action: true });
     expect(markup).not.toMatch(/Runtime kind|Runtime profile|type="password"|name="(?:credential|token|apiKey)"/u);
   });
   it("renders liveness, holder/lease, activity, and frozen provenance from contract DTOs", () => {
@@ -79,7 +86,7 @@ describe("agent runtime renderer", () => {
   });
   it("shows a background probe transport error instead of silently keeping not-checked", () => {
     const unchecked = { ...claudeInstance, authState: "unknown", authReadiness: { status: "not-ready", code: "runtime_auth_not_checked", hint: "Authentication has not been verified in this daemon generation." } } as never;
-    const markup = renderToStaticMarkup(createElement(RuntimeCard, { instance: unchecked, authProbeError: "connect ECONNREFUSED", agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop }));
+    const markup = renderToStaticMarkup(createElement(RuntimeCard, { instance: unchecked, authProbeError: "connect ECONNREFUSED", agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop, onSelfTest: async () => null }));
     expect(markup).toContain('data-auth-status="probe-error"'); expect(markup).toContain("Authentication check failed: connect ECONNREFUSED");
   });
   it("offers the provider's own login actions on a subscription instance and none on an api-key instance", () => {
@@ -89,8 +96,8 @@ describe("agent runtime renderer", () => {
     for (const action of ["Sign in", "Re-auth", "Sign out"]) expect(runtimeCard(instance)).not.toContain(action);
   });
   it("offers AGY's terminal login path only after a probe reports unauthenticated", () => {
-    const authenticated = renderToStaticMarkup(createElement(RuntimeCard, { instance: { ...agyInstance, authState: "authenticated" }, agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop }));
-    const unauthenticated = renderToStaticMarkup(createElement(RuntimeCard, { instance: { ...agyInstance, authState: "unauthenticated", authReadiness: { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in the operator environment." } }, agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop }));
+    const authenticated = renderToStaticMarkup(createElement(RuntimeCard, { instance: { ...agyInstance, authState: "authenticated" }, agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop, onSelfTest: async () => null }));
+    const unauthenticated = renderToStaticMarkup(createElement(RuntimeCard, { instance: { ...agyInstance, authState: "unauthenticated", authReadiness: { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in the operator environment." } }, agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop, onSelfTest: async () => null }));
     expect(authenticated).not.toMatch(/<button[^>]*>Sign in<\/button>/u);
     expect(unauthenticated).toMatch(/<button[^>]*>Sign in<\/button>/u);
   });
@@ -135,9 +142,10 @@ describe("agent runtime renderer", () => {
     expect(dialog("agy")).toContain("AGY supports only its own login flow");
     expect(dialog("agy")).not.toContain("API override");
   });
-  it("renders detected models as a defaulted selector and keeps custom text behind an override", () => {
+  it("renders detected models as selected checkboxes and keeps custom text behind an override", () => {
     const markup = renderToStaticMarkup(createElement(NewRuntimeDialog, { installations: [installation], busy: false, initialKind: "codex", onCancel: noop, onCreate: noop }));
-    expect(markup).toContain('data-testid="new-runtime-model"'); expect(markup).toContain("Auto (default gpt-5.6-sol)"); expect(markup).toContain("gpt-5.6-terra"); expect(markup).not.toContain('data-testid="new-runtime-model-custom"');
+    const models = markup.match(/<div data-testid="new-runtime-models"[\s\S]*?<\/div>/u)?.[0] ?? "";
+    expect({ sol: models.includes("gpt-5.6-sol"), terra: models.includes("gpt-5.6-terra"), checked: models.match(/type="checkbox" checked=""/gu)?.length ?? 0, defaultHint: markup.includes("Auto (default gpt-5.6-sol)"), customHidden: !markup.includes('data-testid="new-runtime-model-custom"') }).toEqual({ sol: true, terra: true, checked: 2, defaultHint: true, customHidden: true });
   });
   it("offers bottom and right terminal dock positions", async () => { const { readFile } = await import("node:fs/promises"), source = await readFile(new URL("../src/renderer/components/TerminalDock.tsx", import.meta.url), "utf8"); expect(source).toContain('data-testid="terminal-dock-bottom"'); expect(source).toContain('data-testid="terminal-dock-right"'); expect(source).toContain('data-dock-position={dockPosition}'); });
   it("hides disabled instances by default while retaining them in all mode", () => {
@@ -148,7 +156,7 @@ describe("agent runtime renderer", () => {
   });
   it("edits only the permission and isolation fields supported by each runtime kind", () => {
     const codex = runtimeCard(instance), claude = runtimeCard(claudeInstance);
-    const agy = renderToStaticMarkup(createElement(RuntimeCard, { instance: agyInstance, agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop }));
+    const agy = renderToStaticMarkup(createElement(RuntimeCard, { instance: agyInstance, agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop, onSelfTest: async () => null }));
     expect(codex).toContain('data-testid="runtime-instance-permission-mode"'); expect(codex).not.toContain('data-testid="runtime-instance-isolation"');
     expect(claude).toContain('data-testid="runtime-instance-permission-mode"'); expect(claude).toContain('data-testid="runtime-instance-isolation"');
     expect(agy).not.toContain('data-testid="runtime-instance-permissions"');

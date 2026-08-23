@@ -3,7 +3,7 @@ import type { GuiActionResult } from "../api/renderer-dto.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 
 export interface RuntimeSpawnInput {
-  readonly runtimeInstanceId: string;
+  readonly runtimeInstanceId?: string;
   readonly agentId?: string;
   readonly targetAgentId?: string;
   readonly model?: string;

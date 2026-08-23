@@ -2,7 +2,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { buildDispatchSpawnInput, compatibleDispatchInstances, dispatchChainFromDocuments, dispatchOutcomeView, type DispatchRequest, type DispatchSubject } from "../src/renderer/dispatch-flow.ts";
+import { buildDispatchSpawnInput, compatibleDispatchInstances, compatibleDispatchModels, dispatchChainFromDocuments, dispatchOutcomeView, type DispatchRequest, type DispatchSubject } from "../src/renderer/dispatch-flow.ts";
 import { DispatchDialog } from "../src/renderer/components/DispatchDialog.tsx";
 import { AgentCard } from "../src/renderer/components/runtime/AgentCard.tsx";
 import { RuntimeRail } from "../src/renderer/components/runtime/RuntimeRail.tsx";
@@ -31,6 +31,10 @@ describe("agent dispatch flow", () => {
     expect("targetAgentId" in input).toBe(false);
     expect(input).toMatchObject({ runtimeInstanceId: "w4c-verify-codex", prompt: "Verify the auth cleanup diff.", taskId: "task-dispatch", cwd: { scope: "repo-root" }, idempotencyKey: "gui-dispatch-1" });
   });
+  it("leaves automatic instance selection to the daemon", () => {
+    const input = buildDispatchSpawnInput({ ...baseRequest, subject: agentSubject, runtimeInstanceId: undefined }, [codexInstance, claudeInstance]);
+    expect({ agentId: input.agentId, hasRuntimeInstanceId: "runtimeInstanceId" in input }).toEqual({ agentId: "terra", hasRuntimeInstanceId: false });
+  });
   it("routes squad dispatch through the leader to the chosen worker", () => {
     const input = buildDispatchSpawnInput({ ...baseRequest, subject: squadSubject, workerId: "sol" }, [codexInstance, claudeInstance]);
     expect(input.agentId).toBe("fable");
@@ -48,6 +52,10 @@ describe("agent dispatch flow", () => {
     expect(compatibleDispatchInstances("codex", [codexInstance, claudeInstance]).map((instance) => instance.instanceId)).toEqual(["w4c-verify-codex"]);
     expect(compatibleDispatchInstances("claude", [codexInstance, claudeInstance]).map((instance) => instance.instanceId)).toEqual(["claude-one"]);
     expect(compatibleDispatchInstances("agy", [codexInstance, claudeInstance])).toEqual([]);
+  });
+  it("offers the model union of every compatible automatic-routing candidate", () => {
+    const second = { ...codexInstance, instanceId: "codex-second", models: ["gpt-5.6-luna"], defaultModel: "gpt-5.6-luna" } as const;
+    expect(compatibleDispatchModels([codexInstance, second])).toEqual(["gpt-5.6-luna", "gpt-5.6-terra"]);
   });
   it("lets an any Agent filter and dispatch through every supported enabled runtime kind", () => { for (const instance of [codexInstance, claudeInstance, agyInstance]) { expect(compatibleDispatchInstances("any", [instance]).map((row) => row.instanceId)).toEqual([instance.instanceId]); expect(buildDispatchSpawnInput({ ...baseRequest, subject: anyAgentSubject, runtimeInstanceId: instance.instanceId }, [instance])).toMatchObject({ agentId: "any-worker", runtimeInstanceId: instance.instanceId }); } expect(compatibleDispatchInstances("any", [{ ...codexInstance, enabled: false }])).toEqual([]); });
   it("keeps unknown open runtime identifiers fail-closed", () => { expect(compatibleDispatchInstances("opencode-worker", [codexInstance, claudeInstance, agyInstance])).toEqual([]); expect(() => buildDispatchSpawnInput({ ...baseRequest, subject: openCodeAgentSubject }, [codexInstance])).toThrow("dispatch_runtime_type_mismatch"); });

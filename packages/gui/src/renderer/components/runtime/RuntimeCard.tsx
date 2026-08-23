@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import { runtimeIsolationState, runtimePermissionMode } from "../../../../../daemon/src/runtime-permissions.ts";
 import { runtimeTypeMatchesKind } from "../../../../../daemon/src/agent-runtime-contract.ts";
@@ -13,13 +13,14 @@ type Props = {
   readonly instance: RuntimeInstanceSummary; readonly agents: readonly AgentEntityRow[]; readonly liveSessions: number; readonly busy: boolean;
   readonly authProbeError?: string;
   readonly onSelectAgent: (agentId: string) => void; readonly onAuth: (action: "login" | "reauth" | "logout") => void; readonly onValidate: () => void;
-  readonly onSetEnabled: (enabled: boolean) => void; readonly onUpdate: (input: RuntimeInstanceUpdateInput) => void; readonly onDelete: () => void;
+  readonly onSetEnabled: (enabled: boolean) => void; readonly onUpdate: (input: RuntimeInstanceUpdateInput) => void; readonly onDelete: () => void; readonly onSelfTest: (model: string) => Promise<string | null>;
 };
 // The carrier card. Provider plane decides which sections exist at all: agy has no API
 // section because agy has no API mode; claude shows the single-instance API override;
 // codex shows the call path it was created with, because those are separate instances.
-export function RuntimeCard({ instance, agents, liveSessions, busy, authProbeError, onSelectAgent, onAuth, onValidate, onSetEnabled, onUpdate, onDelete }: Props) {
-  const [confirm, setConfirm] = useState(false);
+export function RuntimeCard({ instance, agents, liveSessions, busy, authProbeError, onSelectAgent, onAuth, onValidate, onSetEnabled, onUpdate, onDelete, onSelfTest }: Props) {
+  const [confirm, setConfirm] = useState(false), [selfTestModel, setSelfTestModel] = useState(instance.defaultModel), [selfTestResult, setSelfTestResult] = useState<string | null>(null), [selfTestBusy, setSelfTestBusy] = useState(false);
+  useEffect(() => { setSelfTestModel(instance.defaultModel); setSelfTestResult(null); }, [instance.instanceId, instance.defaultModel]);
   const plane = runtimeProviderPlane(instance.kindId), compatible = agents.filter((agent) => runtimeTypeMatchesKind(agent.runtimeType, instance.kindId));
   const apiMode = instance.authMode === "api-key", auth = runtimeAuthPresentation(instance, authProbeError ?? null), authText = auth.state === "ready" ? t("agentRuntime.authVerified") : auth.state === "not-checked" ? t("agentRuntime.authNotChecked") : auth.state === "probe-error" ? t("agentRuntime.authProbeFailed", { error: auth.error ?? "" }) : `${instance.authReadiness.code}: ${instance.authReadiness.hint}`;
   const nativeAuthActions = !apiMode && instance.kindId !== "agy", agyLoginPath = instance.kindId === "agy" && instance.authState === "unauthenticated";
@@ -57,6 +58,11 @@ export function RuntimeCard({ instance, agents, liveSessions, busy, authProbeErr
         {apiMode && <p className="mt-2 text-[11px] text-text-faint">{t("agentRuntime.apiKeySealed")}</p>}
         {planeUsesApiOverride(instance.kindId) && <p className="mt-2 text-[11px] text-text-faint">{t(apiMode ? "agentRuntime.claudeApiOverrideOn" : "agentRuntime.claudeApiOverrideOff")}</p>}
       </div></CardBody>
+    </Card>
+
+    <Card testId="runtime-card-self-test">
+      <CardHead><CardTitle>{t("agentRuntime.selfTestTitle")}</CardTitle><Hint>{t("agentRuntime.selfTestHint")}</Hint></CardHead>
+      <CardBody><div className="flex flex-wrap items-center gap-2"><select aria-label={t("agentRuntime.selfTestModel")} value={selfTestModel} onChange={(event) => setSelfTestModel(event.target.value)} className="control min-w-[180px]">{instance.models.map((model) => <option key={model} value={model}>{model}</option>)}</select><Btn size="sm" disabled={busy || selfTestBusy} onClick={() => { setSelfTestBusy(true); setSelfTestResult(null); void onSelfTest(selfTestModel).then(setSelfTestResult).finally(() => setSelfTestBusy(false)); }}>{t(selfTestBusy ? "agentRuntime.selfTestRunning" : "agentRuntime.selfTestRun")}</Btn></div>{selfTestResult !== null && <pre data-testid="runtime-self-test-result" className="rt-pre mt-2 max-h-32 overflow-auto whitespace-pre-wrap">{selfTestResult}</pre>}</CardBody>
     </Card>
 
     {planeAllowsPermissions(instance.kindId) && <Card testId="runtime-card-isolation">
